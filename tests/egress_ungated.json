@@ -1,9 +1,9 @@
 {
  "about": "Outbound sites in cmux NEXT that do not go through the egress gate. Only shrinks; tests/test_egress_gate.py keeps it exact.",
- "ungated": 56,
- "file_count": 50,
+ "ungated": 5,
+ "file_count": 5,
  "by_language": {
-  "rs": 55,
+  "rs": 4,
   "swift": 1
  },
  "files": {
@@ -20,145 +20,6 @@
    "reqwest-client": 1
   },
   "cmux-next-ios/rust/crates/cmux-mobile-link/src/signaling.rs": {
-   "ws-connect": 1
-  },
-  "cmux-tui/crates/acpmux/src/range_fetch.rs": {
-   "reqwest-client": 1
-  },
-  "cmux-tui/crates/chatmux-relay/src/journal_forwarder.rs": {
-   "reqwest-client": 1
-  },
-  "cmux-tui/crates/chatmux-relay/src/main.rs": {
-   "reqwest-client": 1
-  },
-  "cmux-tui/crates/chatmux-relay/src/pairing.rs": {
-   "ws-connect": 1
-  },
-  "cmux-tui/crates/chatmux-relay/src/session.rs": {
-   "ws-connect": 1
-  },
-  "cmux-tui/crates/cmux-cloud-client/src/lib.rs": {
-   "reqwest-client": 1
-  },
-  "cmux-tui/crates/cmux-cloud-environment/src/client_config.rs": {
-   "reqwest-client": 1
-  },
-  "cmux-tui/crates/cmux-coderouter/src/lib.rs": {
-   "reqwest-client": 1
-  },
-  "cmux-tui/crates/cmux-projection/src/peers.rs": {
-   "reqwest-client": 2
-  },
-  "cmux-tui/crates/cmux-server/src/cloud_http_transport.rs": {
-   "reqwest-client": 1
-  },
-  "cmux-tui/crates/cmux-server/src/pairing/network.rs": {
-   "reqwest-client": 1,
-   "ws-connect": 1
-  },
-  "cmux-tui/crates/cmux-server/src/store/fetch.rs": {
-   "reqwest-client": 1
-  },
-  "cmux-tui/crates/cmux-session-cloud/src/store.rs": {
-   "reqwest-client": 1
-  },
-  "cmux-tui/crates/cmux-stack-auth/src/wire.rs": {
-   "reqwest-client": 1
-  },
-  "cmux-tui/crates/cmux-tailnet/src/localapi.rs": {
-   "reqwest-client": 1
-  },
-  "cmux-tui/crates/cmux-tui-core/src/apps/community.rs": {
-   "reqwest-client": 1
-  },
-  "cmux-tui/crates/cmux-tui-core/src/apps/egress.rs": {
-   "reqwest-client": 1
-  },
-  "cmux-tui/crates/cmux-tui-core/src/blob_fetch.rs": {
-   "reqwest-client": 1
-  },
-  "cmux-tui/crates/cmux-tui-core/src/language_packs.rs": {
-   "reqwest-client": 1
-  },
-  "cmux-tui/crates/cmux-tui-core/src/server/agent_session_share_room.rs": {
-   "reqwest-client": 1,
-   "ws-connect": 1
-  },
-  "cmux-tui/crates/cmux-tui/src/carrier/adopt.rs": {
-   "reqwest-client": 1
-  },
-  "cmux-tui/crates/cmux-tui/src/carrier/answer.rs": {
-   "reqwest-client": 1
-  },
-  "cmux-tui/crates/cmux-tui/src/carrier/tunnel.rs": {
-   "reqwest-client": 1
-  },
-  "cmux-tui/crates/cmux-tui/src/cli/app/web_pieces.rs": {
-   "reqwest-client": 1
-  },
-  "cmux-tui/crates/cmux-tui/src/cli/cloud_client_session.rs": {
-   "reqwest-client": 1
-  },
-  "cmux-tui/crates/cmux-tui/src/cli/cloud_hands/socket.rs": {
-   "ws-connect": 1
-  },
-  "cmux-tui/crates/cmux-tui/src/cli/cloud_journey.rs": {
-   "reqwest-client": 1
-  },
-  "cmux-tui/crates/cmux-tui/src/cli/customize/pr.rs": {
-   "reqwest-client": 1
-  },
-  "cmux-tui/crates/cmux-tui/src/cli/ext/share.rs": {
-   "reqwest-client": 1
-  },
-  "cmux-tui/crates/cmux-tui/src/cli/hub.rs": {
-   "reqwest-client": 1
-  },
-  "cmux-tui/crates/cmux-tui/src/cli/inference_gateway.rs": {
-   "reqwest-client": 1,
-   "ws-connect": 1
-  },
-  "cmux-tui/crates/cmux-tui/src/cli/inference_gateway_admin.rs": {
-   "reqwest-client": 1
-  },
-  "cmux-tui/crates/cmux-tui/src/cli/inference_setup.rs": {
-   "reqwest-client": 1
-  },
-  "cmux-tui/crates/cmux-tui/src/cli/key_broker.rs": {
-   "reqwest-client": 1
-  },
-  "cmux-tui/crates/cmux-tui/src/cli/machine_join.rs": {
-   "reqwest-client": 1
-  },
-  "cmux-tui/crates/cmux-tui/src/cloud_conversations_backend.rs": {
-   "reqwest-client": 2,
-   "ws-connect": 1
-  },
-  "cmux-tui/crates/cmux-tui/src/coderouter_usage.rs": {
-   "reqwest-client": 1
-  },
-  "cmux-tui/crates/cmux-tui/src/devices/setup/verbs.rs": {
-   "reqwest-client": 1
-  },
-  "cmux-tui/crates/cmux-tui/src/link/sync_cli/store.rs": {
-   "reqwest-client": 1
-  },
-  "cmux-tui/crates/cmux-tui/src/owner_start/background_checks.rs": {
-   "reqwest-client": 1
-  },
-  "cmux-tui/crates/cmux-tui/src/owner_start/crash_forward.rs": {
-   "reqwest-client": 1
-  },
-  "cmux-tui/crates/cmux-tui/src/remote_cli/acpmux_peer.rs": {
-   "ws-connect": 1
-  },
-  "cmux-tui/crates/cmux-vm-pool/src/http.rs": {
-   "reqwest-client": 1
-  },
-  "cmux-tui/crates/cmux-weft/src/admin.rs": {
-   "reqwest-client": 1
-  },
-  "cmux-tui/crates/cmux-weft/src/client/relay_pool.rs": {
    "ws-connect": 1
   }
  }

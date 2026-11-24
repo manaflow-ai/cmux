@@ -12,6 +12,16 @@ public protocol ScreenTicketSigner: Sendable {
     func sign(_ message: Data) async throws -> Data
 }
 
+/// A signaling that hears the host say which protocol it serves instead of the one this viewer
+/// offered: the share host of a Mac whose app is closed (its acpmux daemon) or of a Linux
+/// desktop serves `cmux.rd/1` only, and answers a WebRTC offer with
+/// `{"type":"transport","transport":"cmux.rd/1"}` (cmux-hub-host `TRANSPORT_FRAME`) instead
+/// of `bye`, then waits for this viewer's `cmux.rd/1` offer on a fresh ticket.
+public protocol ScreenHostTransportSignaling: ScreenSignaling {
+    /// `handler` hears each transport the host names (`cmux.rd/1`), off the main actor.
+    func onHostTransport(_ handler: @escaping @Sendable (String) -> Void)
+}
+
 /// One text WebSocket to the Session DO.
 public protocol ScreenSignalSocket: Sendable {
     /// The next text frame; throws when the socket closes.
@@ -30,7 +40,7 @@ public protocol ScreenSignalSocket: Sendable {
 /// signaling after a closed socket; a peer connection already open outlives it.
 /// A reattach ticket is a separate, short-lived admission for the same pair.
 // crash-allow: `socket` and `closed` are read and written only under `lock`; every other field is a `let`.
-public final class TicketSignaling: ScreenSignaling, @unchecked Sendable {
+public final class TicketSignaling: ScreenHostTransportSignaling, @unchecked Sendable {
     // @unchecked: `socket` and `opened` are behind `lock`.
 
     /// What the ticket's (unverified, server-signed) payload says; the Session DO checks it.
@@ -79,6 +89,14 @@ public final class TicketSignaling: ScreenSignaling, @unchecked Sendable {
     private let lock = NSLock()
     private var socket: (any ScreenSignalSocket)?
     private var closed = false
+    private var hostTransport: (@Sendable (String) -> Void)?
+
+    /// The transport the host's `transport` frame names (`cmux.rd/1`).
+    public static let rdTransport = "cmux.rd/1"
+
+    public func onHostTransport(_ handler: @escaping @Sendable (String) -> Void) {
+        lock.withLock { hostTransport = handler }
+    }
 
     /// `jws` and `signalURL` come from the hub's `session.ticket` push;
     /// `expectedPeerKey` (the push's `peer.signingKey`) must match the
@@ -167,6 +185,10 @@ public final class TicketSignaling: ScreenSignaling, @unchecked Sendable {
             return .candidate(ScreenICECandidate(candidate: candidate, sdpMid: message.sdpMid, sdpMLineIndex: message.sdpMLineIndex))
         case "bye": return .bye
         case "peer-joined": return .peerJoined
+        case "transport":
+            // The host serves another protocol than the one offered: the owner switches (no signal).
+            if let transport = message.transport, let handler = lock.withLock({ hostTransport }) { handler(transport) }
+            return nil
         default: return nil
         }
     }
@@ -217,6 +239,8 @@ public final class TicketSignaling: ScreenSignaling, @unchecked Sendable {
         var candidate: String?
         var sdpMid: String?
         var sdpMLineIndex: Int32?
+        /// A `transport` frame's protocol (`cmux.rd/1`).
+        var transport: String?
     }
 
     // MARK: Fingerprints
