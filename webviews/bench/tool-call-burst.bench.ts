@@ -24,6 +24,7 @@ import type { EventRecord } from "../src/agent-session/acpmux/direct";
 import { loadTurn, sourceFile } from "../src/agent-session/acpmux/loadFixture";
 import { perfRow, TARGET_MS } from "./perfRow";
 import { toRecord, type Step } from "./replayLogs";
+import { sharedPaneDir } from "./support/sharedBuilds";
 
 const argv = process.argv.slice(2);
 const flag = (name: string) => {
@@ -48,10 +49,16 @@ function prefix(start: number): EventRecord[] {
   for (let turn = 0; turn < TURNS; turn += 1)
     for (const step of loadTurn(turn)) push(start + turn * 60_000, step as Step);
   const at = start + TURNS * 60_000;
-  push(at, { mux: "user_message", msg: { text: "Run the checks one by one and fix what fails" } });
+  push(at, {
+    mux: "user_message",
+    msg: { text: "Run the checks one by one and fix what fails" },
+  });
   push(at, { mux: "turn_started" });
   push(at + 500, {
-    update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "I'll go through them." } },
+    update: {
+      sessionUpdate: "agent_message_chunk",
+      content: { type: "text", text: "I'll go through them." },
+    },
   });
   return events;
 }
@@ -64,7 +71,12 @@ function call(index: number, gap: number): { after: number; step: Step }[] {
   const kind = (["read", "execute", "edit", "search"] as const)[index % 4]!;
   const end = Math.max(1, Math.floor(gap * 0.6));
   const done = (content: unknown[]) => ({
-    update: { sessionUpdate: "tool_call_update", toolCallId: id, status: "completed", content },
+    update: {
+      sessionUpdate: "tool_call_update",
+      toolCallId: id,
+      status: "completed",
+      content,
+    },
   });
   const text = (value: string) => [{ type: "content", content: { type: "text", text: value } }];
   if (kind === "read")
@@ -109,7 +121,12 @@ function call(index: number, gap: number): { after: number; step: Step }[] {
       {
         after: Math.floor(end / 3),
         step: {
-          update: { sessionUpdate: "tool_call_update", toolCallId: id, status: "in_progress", content: text(lines(0)) },
+          update: {
+            sessionUpdate: "tool_call_update",
+            toolCallId: id,
+            status: "in_progress",
+            content: text(lines(0)),
+          },
         },
       },
       {
@@ -143,7 +160,17 @@ function call(index: number, gap: number): { after: number; step: Step }[] {
           },
         },
       },
-      { after: end, step: done([{ type: "diff", path: `/mock/project/${file}`, oldText: before, newText: after }]) },
+      {
+        after: end,
+        step: done([
+          {
+            type: "diff",
+            path: `/mock/project/${file}`,
+            oldText: before,
+            newText: after,
+          },
+        ]),
+      },
     ];
   }
   return [
@@ -167,7 +194,12 @@ function call(index: number, gap: number): { after: number; step: Step }[] {
 }
 
 // ---------- the stand-in acpmux ----------
-type Play = { events: EventRecord[]; served: number; status: string; socket?: { send(data: string): void } };
+type Play = {
+  events: EventRecord[];
+  served: number;
+  status: string;
+  socket?: { send(data: string): void };
+};
 let play: Play | undefined;
 const summary = (p: Play) => ({
   sessionId,
@@ -187,11 +219,18 @@ function answer(method: string): unknown {
   const p = play!;
   switch (method) {
     case "initialize":
-      return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
+      return {
+        protocolVersion: 1,
+        _meta: { acpmux: { origin: "local", extensions: [], operations: [] } },
+      };
     case "_acpmux/watch":
       return { sessions: [summary(p)] };
     case "_acpmux/attach":
-      return { session: summary(p), lastSeq: p.served, events: p.events.slice(0, p.served) };
+      return {
+        session: summary(p),
+        lastSeq: p.served,
+        events: p.events.slice(0, p.served),
+      };
     case "_acpmux/events":
       return { events: [], hasMore: false, lastSeq: p.served };
     default:
@@ -267,7 +306,9 @@ const percentile = (values: number[], p: number) => {
 const r1 = (value: number) => Math.round(value * 10) / 10;
 
 async function metric(cdp: CDPSession, name: string): Promise<number> {
-  const { metrics } = (await cdp.send("Performance.getMetrics")) as { metrics: { name: string; value: number }[] };
+  const { metrics } = (await cdp.send("Performance.getMetrics")) as {
+    metrics: { name: string; value: number }[];
+  };
   return metrics.find((each) => each.name === name)?.value ?? 0;
 }
 
@@ -325,7 +366,9 @@ async function round(browser: Browser, url: string, gap: number): Promise<Round>
   const start = Date.now() - (TURNS + 1) * 60_000;
   const events = prefix(start);
   play = { events, served: events.length, status: "running" };
-  const page: Page = await browser.newPage({ viewport: { width: 900, height: 700 } });
+  const page: Page = await browser.newPage({
+    viewport: { width: 900, height: 700 },
+  });
   try {
     await page.addInitScript(instrument);
     const cdp = await page.context().newCDPSession(page);
@@ -419,22 +462,38 @@ if (import.meta.main) {
       },
       websocket: {
         message(ws, raw) {
-          const message = JSON.parse(String(raw)) as { id?: number; method: string };
+          const message = JSON.parse(String(raw)) as {
+            id?: number;
+            method: string;
+          };
           if (message.method === "_acpmux/attach" && play) play.socket = ws;
           if (message.id !== undefined)
-            ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }));
+            ws.send(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                id: message.id,
+                result: answer(message.method),
+              }),
+            );
         },
       },
     });
     releases.push(() => daemon.stop(true));
-    const out = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "tool-call-burst-bench-"));
-    releases.push(() => fs.rmSync(out, { recursive: true, force: true }));
+    // Under bench/web-ui-suite.ts, the suite's one pane build of the run (bench/support/sharedBuilds.ts).
+    const shared = PROFILE ? undefined : sharedPaneDir();
+    const out = shared ?? fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "tool-call-burst-bench-"));
+    if (!shared) releases.push(() => fs.rmSync(out, { recursive: true, force: true }));
     const { build } = await import("vite");
-    await build({
-      configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-      build: { outDir: out, emptyOutDir: true, ...(PROFILE ? { minify: false } : {}) },
-      logLevel: "error",
-    });
+    if (!shared)
+      await build({
+        configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
+        build: {
+          outDir: out,
+          emptyOutDir: true,
+          ...(PROFILE ? { minify: false } : {}),
+        },
+        logLevel: "error",
+      });
     const statics = Bun.serve({
       port: 0,
       hostname: "127.0.0.1",
@@ -468,7 +527,12 @@ if (import.meta.main) {
       for (const r of rounds.filter((r) => r.selfMs).slice(0, 1))
         for (const [fn, ms] of r.selfMs!) console.log(`    ${ms.toFixed(1)} ms  ${fn}`);
       const name = `tool_call_burst.${pace.name}`;
-      perfRow({ name: `${name}.frame_gap_ms`, p50: med((r) => r.frameP50), p95: med((r) => r.frameP95), target: 33.4 });
+      perfRow({
+        name: `${name}.frame_gap_ms`,
+        p50: med((r) => r.frameP50),
+        p95: med((r) => r.frameP95),
+        target: 33.4,
+      });
       perfRow({
         name: `${name}.long_tasks`,
         p50: med((r) => r.longTasks),
@@ -488,7 +552,13 @@ if (import.meta.main) {
         p95: worst((r) => r.taskMsPerCall),
         clock: "cpu",
       });
-      perfRow({ name: `${name}.cls`, p50: med((r) => r.cls), p95: worst((r) => r.cls), unit: "score", target: 0.01 });
+      perfRow({
+        name: `${name}.cls`,
+        p50: med((r) => r.cls),
+        p95: worst((r) => r.cls),
+        unit: "score",
+        target: 0.01,
+      });
     }
   } finally {
     for (const stop of releases.reverse()) {

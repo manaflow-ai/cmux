@@ -4095,7 +4095,11 @@ LINUX_RUN_SECONDS = 1800
 # three idle and three streaming windows) were still in long_x20 when the suite's 1200 s timeout killed it, so
 # web-ui-flat stored no chat_100k_flat row after 2026-11-17 (Actions run 45422305557); its 20 chats grown live to
 # 100k rows timed out at 1770 s in two cron ticks running. The suite's own timeoutMs for each sits 5 minutes under.
-LINUX_RUN_SECONDS_BY_PART = {"web-ui-flat": 2700, "web-ui-flat-grown": 3300}
+# web-ui: since the part's runner job takes the mixed cmux-linux pool (2026-11-23), a small runner built the agent pane
+# in 81 s, and seven benches, each building its page cold inside its own timeout, were killed with exit 137 (Actions
+# run 45457645242, 2026-11-24): no web-ui row stored. The suite now makes those builds once before the benches, within
+# its SHARED_BUILDS_CAP_MS, and its SUITE_CAP_MS sits 30 s under this cap.
+LINUX_RUN_SECONDS_BY_PART = {"web-ui": 3000, "web-ui-flat": 2700, "web-ui-flat-grown": 3300}
 LINUX_SETUP_MINUTES = 10
 LINUX_JOB_MIN_MINUTES = 40
 

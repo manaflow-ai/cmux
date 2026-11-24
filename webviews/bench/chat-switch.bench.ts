@@ -42,6 +42,7 @@ import { diff as heapDiff, takeSnapshot, type Snapshot } from "./heapProbe";
 import { perfRow as printRow, TARGET_MS } from "./perfRow";
 import { addStabilityProbe, cpuSession, measureIdle, settledAt, type Idle } from "./stability";
 import { addRenderCountProbe, formatRenderCounts, renderCountsReset, renderCountsTake } from "./renderCounts";
+import { sharedPaneDir } from "./support/sharedBuilds";
 
 const ROUNDS = Number(process.argv[2] ?? 7);
 const TURNS = Number(process.argv[3] ?? 300);
@@ -86,7 +87,13 @@ type Chat = {
 };
 const first = FIXTURE === "god" ? godChat(A) : papercutEvents({ turns: TURNS, running: false });
 const chats = new Map<string, Chat>([
-  [A, { session: first.session, events: first.events.map((event) => ({ ...event, sessionId: A })) }],
+  [
+    A,
+    {
+      session: first.session,
+      events: first.events.map((event) => ({ ...event, sessionId: A })),
+    },
+  ],
   [
     B,
     {
@@ -142,7 +149,11 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
     case "_acpmux/attach": {
       const { page, hasMore } = newest(chat, Number(params.limit ?? 400), Infinity, params.maxBytes);
       const result = { session: chat.session, lastSeq, events: page, hasMore };
-      if (params.sessionId === B) attachPage = { events: page.length, bytes: JSON.stringify(result).length };
+      if (params.sessionId === B)
+        attachPage = {
+          events: page.length,
+          bytes: JSON.stringify(result).length,
+        };
       return result;
     }
     case "_acpmux/events": {
@@ -170,7 +181,11 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
 };
 
 type CpuProfile = {
-  nodes: { id: number; callFrame: { functionName: string; url: string; lineNumber: number }; children?: number[] }[];
+  nodes: {
+    id: number;
+    callFrame: { functionName: string; url: string; lineNumber: number };
+    children?: number[];
+  }[];
   samples: number[];
   timeDeltas: number[];
 };
@@ -232,7 +247,14 @@ const printProfile = async (profile: CpuProfile) => {
   console.log(top(total, 70).join("\n"));
 };
 
-type TraceEvent = { name: string; ph: string; dur?: number; ts: number; tid: number; args?: any };
+type TraceEvent = {
+  name: string;
+  ph: string;
+  dur?: number;
+  ts: number;
+  tid: number;
+  args?: any;
+};
 let traceEvents: TraceEvent[] = [];
 /// The renderer main thread's work by event name, and its longest layouts and style recalcs.
 const printTrace = (events: TraceEvent[]) => {
@@ -313,18 +335,21 @@ try {
     },
   ]);
 
-  const out = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "chat-switch-bench-"));
-  releases.push(["pane build", () => fs.rmSync(out, { recursive: true, force: true })]);
+  // Under bench/web-ui-suite.ts, the suite's one pane build of the run (bench/support/sharedBuilds.ts).
+  const shared = PROFILE || RENDERS || process.env.HEAP_PROBE ? undefined : sharedPaneDir();
+  const out = shared ?? fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "chat-switch-bench-"));
+  if (!shared) releases.push(["pane build", () => fs.rmSync(out, { recursive: true, force: true })]);
   const { build } = await import("vite");
-  await build({
-    configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-    build: {
-      outDir: out,
-      emptyOutDir: true,
-      ...(PROFILE || RENDERS || process.env.HEAP_PROBE ? { minify: false } : {}),
-    },
-    logLevel: "error",
-  });
+  if (!shared)
+    await build({
+      configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
+      build: {
+        outDir: out,
+        emptyOutDir: true,
+        ...(PROFILE || RENDERS || process.env.HEAP_PROBE ? { minify: false } : {}),
+      },
+      logLevel: "error",
+    });
   const statics = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
@@ -368,7 +393,9 @@ try {
   };
   const open = async (idle: number, mode?: RemoteTail, still = false, back = false): Promise<Round> => {
     remoteTail = mode;
-    const context = await browser.newContext({ viewport: { width: 1200, height: 800 } });
+    const context = await browser.newContext({
+      viewport: { width: 1200, height: 800 },
+    });
     await addStabilityProbe(context, { boxes: false });
     if (RENDERS) await addRenderCountProbe(context);
     const page = await context.newPage();
@@ -494,7 +521,13 @@ try {
               };
             }
             const attached = () =>
-              mode ? (window as unknown as { __remoteSwitch: { attached: number } }).__remoteSwitch.attached : 0;
+              mode
+                ? (
+                    window as unknown as {
+                      __remoteSwitch: { attached: number };
+                    }
+                  ).__remoteSwitch.attached
+                : 0;
             const visible = () => {
               const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
               if (!scroller) return false;
@@ -548,7 +581,11 @@ try {
                     ? `row ${row}`
                     : (element?.className?.toString().split(" ")[0] ?? element?.nodeName ?? "?");
                 });
-                state.shifts.push({ at: entry.startTime - t0, value: entry.value, moved });
+                state.shifts.push({
+                  at: entry.startTime - t0,
+                  value: entry.value,
+                  moved,
+                });
                 state.activity = Math.max(state.activity, entry.startTime);
               }
             });
@@ -629,7 +666,12 @@ try {
             });
             frame = requestAnimationFrame(tick);
           }),
-        { id: back ? A : B, text: back ? FIRST_TEXT : SECOND_TEXT, mode, snapshot: peerSnapshot() },
+        {
+          id: back ? A : B,
+          text: back ? FIRST_TEXT : SECOND_TEXT,
+          mode,
+          snapshot: peerSnapshot(),
+        },
       );
       if (profiling) {
         const done = new Promise<void>((resolve) => profiling.once("Tracing.tracingComplete", () => resolve()));
@@ -676,7 +718,12 @@ try {
         await new Promise((resolve) => setTimeout(resolve, STEADY_AFTER_MS));
         [steady] = await measureIdle([{ page, cdp }], STEADY_MS);
       }
-      return { ...got, sent, ...(quiet ? { quiet } : {}), ...(steady ? { steady } : {}) };
+      return {
+        ...got,
+        sent,
+        ...(quiet ? { quiet } : {}),
+        ...(steady ? { steady } : {}),
+      };
     } finally {
       await context.close();
     }
@@ -687,7 +734,12 @@ try {
     `chat-switch: ${FIXTURE === "god" ? "god sessions" : `${TURNS} turns per chat`}, answers delayed ${LATENCY} ms, median of ${ROUNDS}`,
   );
   console.log("arm | latest ms | settled ms | long tasks | long ms | layout shift");
-  const arms: { name: string; idle: number; mode?: RemoteTail; back?: boolean }[] = REMOTE_TAIL
+  const arms: {
+    name: string;
+    idle: number;
+    mode?: RemoteTail;
+    back?: boolean;
+  }[] = REMOTE_TAIL
     ? (REMOTE_TAIL === "both" ? (["absent", "present"] as const) : [REMOTE_TAIL as RemoteTail]).map((mode) => ({
         name: `remote ${mode}`,
         idle: 150,
@@ -777,7 +829,14 @@ try {
     });
     // Stability (bench/stability.ts): no shift, and a chat at rest wakes nothing.
     const cls = Math.round(of((r) => r.shift) * 1e4) / 1e4;
-    perfRow({ name: `chat_switch.${key}.cls`, p50: cls, p95: cls, unit: "score", target: 0, floor: 0.001 });
+    perfRow({
+      name: `chat_switch.${key}.cls`,
+      p50: cls,
+      p95: cls,
+      unit: "score",
+      target: 0,
+      floor: 0.001,
+    });
     const quiet = rounds.at(-1)!.quiet!;
     console.log(
       `  at rest for 5 s: ${quiet.wakeups} wakeups (${quiet.timeouts} timeouts, ${quiet.intervals} intervals, ` +
@@ -836,7 +895,9 @@ try {
     // the GC'd heap is flat to within a few KB (2026-11-10, both fixtures), so a slope is what the page keeps.
     const growthBrowser = await launch(["--js-flags=--jitless"]);
     releases.push(["growth browser", () => growthBrowser.close()]);
-    const context = await growthBrowser.newContext({ viewport: { width: 1200, height: 800 } });
+    const context = await growthBrowser.newContext({
+      viewport: { width: 1200, height: 800 },
+    });
     try {
       const page = await context.newPage();
       const cdp = await context.newCDPSession(page);
@@ -872,13 +933,19 @@ try {
           const debug = (
             window as unknown as {
               cmuxAcpmuxDebug?: {
-                acpLog(options: { limit: number }): { stats: { oldestSeq?: number }; entries: { seq: number }[] };
+                acpLog(options: { limit: number }): {
+                  stats: { oldestSeq?: number };
+                  entries: { seq: number }[];
+                };
               };
             }
           ).cmuxAcpmuxDebug;
           if (!debug) throw new Error("the pane has no cmuxAcpmuxDebug");
           const log = debug.acpLog({ limit: 1 });
-          return { oldest: log.stats.oldestSeq ?? 0, newest: log.entries[0]?.seq ?? 0 };
+          return {
+            oldest: log.stats.oldestSeq ?? 0,
+            newest: log.entries[0]?.seq ?? 0,
+          };
         });
       // A sample waits until the stand-in has had no call for QUIET_MS, longer than the idle read-ahead delay: a
       // god chat's older pages and the read-ahead land after its newest page paints, and a sample taken while

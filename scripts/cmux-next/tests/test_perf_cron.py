@@ -1209,7 +1209,7 @@ class WebUiTests(unittest.TestCase):
         # job left no result and the part ended yielded_out.
         self.assertEqual(cron.linux_job_minutes("infinite-items"), 70)
         self.assertEqual(cron.linux_job_minutes("chat-disk"), 70)
-        self.assertEqual(cron.linux_job_minutes("web-ui"), 40)
+        self.assertEqual(cron.linux_job_minutes("web-ui"), 60)  # the suite's shared builds, then its benches
         self.assertEqual(cron.linux_job_minutes("web-ui-god"), 40)  # its paired rounds stop inside the suite's cap
 
     def test_every_web_ui_bench_times_out_inside_its_part_run_cap(self):
@@ -1233,6 +1233,9 @@ class WebUiTests(unittest.TestCase):
                         checked += 1
                         self.assertLess(timeouts[bench] / 1000, cron.linux_run_seconds(part["name"]), (part["name"], bench))
         self.assertGreater(checked, 5)
+        # The default suite (the web-ui part, no --only) stops itself at SUITE_CAP_MS, inside the part's run cap.
+        cap = int(cron.re.search(r"export const SUITE_CAP_MS = ([\d_]+);", suite).group(1).replace("_", ""))
+        self.assertLess(cap / 1000, cron.linux_run_seconds("web-ui"))
         self.assertEqual(cron.linux_job_minutes("web-ui-flat"), 55)
         self.assertEqual(cron.linux_job_minutes("web-ui-flat-grown"), 65)
 

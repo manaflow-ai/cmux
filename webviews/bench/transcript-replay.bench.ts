@@ -64,6 +64,7 @@ import {
   type ReplayLog,
 } from "./replayLogs";
 import { cpuSession } from "./stability";
+import { sharedPaneDir } from "./support/sharedBuilds";
 
 const argv = process.argv.slice(2);
 const flag = (name: string) => {
@@ -124,7 +125,12 @@ const BUDGET = {
 const webviews = path.resolve(import.meta.dir, "..");
 
 // ---------- the stand-in acpmux ----------
-type Play = { log: ReplayLog; served: number; status: string; socket?: { send(data: string): void } };
+type Play = {
+  log: ReplayLog;
+  served: number;
+  status: string;
+  socket?: { send(data: string): void };
+};
 /// A stand-in acpmux and the log it serves (`play`, which `openPage` sets): one per page that plays at once.
 type Daemon = { port: number; play?: Play };
 const summary = (p: Play) => ({
@@ -140,11 +146,18 @@ const summary = (p: Play) => ({
 function answer(p: Play, method: string): unknown {
   switch (method) {
     case "initialize":
-      return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
+      return {
+        protocolVersion: 1,
+        _meta: { acpmux: { origin: "local", extensions: [], operations: [] } },
+      };
     case "_acpmux/watch":
       return { sessions: [summary(p)] };
     case "_acpmux/attach":
-      return { session: summary(p), lastSeq: p.served, events: p.log.events.slice(0, p.served) };
+      return {
+        session: summary(p),
+        lastSeq: p.served,
+        events: p.log.events.slice(0, p.served),
+      };
     case "_acpmux/events":
       return { events: [], hasMore: false, lastSeq: p.served };
     default:
@@ -157,7 +170,12 @@ const changed = (p: Play) =>
   send(p, {
     jsonrpc: "2.0",
     method: "_acpmux/session_changed",
-    params: { sessionId: p.log.sessionId, session: summary(p), kind: "status", seq: p.served },
+    params: {
+      sessionId: p.log.sessionId,
+      session: summary(p),
+      kind: "status",
+      seq: p.served,
+    },
   });
 
 // ---------- the page side ----------
@@ -165,7 +183,12 @@ const changed = (p: Play) =>
 export function instrument(start: number) {
   const w = window as unknown as {
     __replayAt?: (at: number) => void;
-    __shifts: { at: number; value: number; input: boolean; sources: string[] }[];
+    __shifts: {
+      at: number;
+      value: number;
+      input: boolean;
+      sources: string[];
+    }[];
     __long: { at: number; ms: number }[];
   };
   if (w.__replayAt) return;
@@ -245,7 +268,11 @@ const clockTo = (page: Page, at: number) =>
 type Sample = { id: string; y: number; height: number };
 /// Samples the rows in view each painted frame, from the first frame that shows one.
 function sampleRows() {
-  const w = window as unknown as { __rowFrames: Sample[][]; __stopRows?: () => void; __firstRowAt?: number };
+  const w = window as unknown as {
+    __rowFrames: Sample[][];
+    __stopRows?: () => void;
+    __firstRowAt?: number;
+  };
   w.__rowFrames = [];
   const read = () => {
     const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
@@ -255,7 +282,11 @@ function sampleRows() {
     for (const row of scroller.querySelectorAll<HTMLElement>("[data-row-id]")) {
       const box = row.getBoundingClientRect();
       if (box.height <= 0 || box.bottom <= view.top || box.top >= view.bottom) continue;
-      frame.push({ id: row.dataset.rowId!, y: box.y - view.y, height: box.height });
+      frame.push({
+        id: row.dataset.rowId!,
+        y: box.y - view.y,
+        height: box.height,
+      });
     }
     if (!frame.length && !w.__rowFrames.length) return;
     if (!w.__rowFrames.length) w.__firstRowAt = performance.now();
@@ -281,14 +312,19 @@ export function movedPx(frames: Sample[][], viewHeight: number): { px: number; r
 }
 
 async function metric(cdp: CDPSession, name: string): Promise<number> {
-  const { metrics } = (await cdp.send("Performance.getMetrics")) as { metrics: { name: string; value: number }[] };
+  const { metrics } = (await cdp.send("Performance.getMetrics")) as {
+    metrics: { name: string; value: number }[];
+  };
   return metrics.find((each) => each.name === name)?.value ?? 0;
 }
 /// INVALIDATIONS=1: what made the page restyle and lay out again while `run` played a burst, from a DevTools
 /// trace with invalidation tracking: per record, style recalcs and the elements they touched, and the most
 /// common invalidation reasons by element (`reason node`), and which rows React drew.
 async function invalidations(cdp: CDPSession, run: () => Promise<void>, page: Page, records: number): Promise<string> {
-  const events: { name: string; args?: { data?: Record<string, unknown>; elementCount?: number } }[] = [];
+  const events: {
+    name: string;
+    args?: { data?: Record<string, unknown>; elementCount?: number };
+  }[] = [];
   const onData = (data: { value: object[] }) => events.push(...(data.value as typeof events));
   cdp.on("Tracing.dataCollected", onData);
   await cdp.send("Tracing.start", {
@@ -316,7 +352,12 @@ async function invalidations(cdp: CDPSession, run: () => Promise<void>, page: Pa
     const data = event.args?.data ?? {};
     // A subtree invalidation names the classes and attributes its invalidation set matched: which one
     // flipped on the node, so the whole thread restyled.
-    type InvalidationSet = { classes?: string[]; attributes?: string[]; ids?: string[]; subtree?: boolean };
+    type InvalidationSet = {
+      classes?: string[];
+      attributes?: string[];
+      ids?: string[];
+      subtree?: boolean;
+    };
     const sets = [
       ...((data.invalidationList as InvalidationSet[] | undefined) ?? []).flatMap((set) => [
         ...(set.subtree ? ["subtree"] : []),
@@ -365,7 +406,9 @@ async function invalidations(cdp: CDPSession, run: () => Promise<void>, page: Pa
 
 async function heapMb(cdp: CDPSession): Promise<number> {
   await cdp.send("HeapProfiler.collectGarbage");
-  const { usedSize } = (await cdp.send("Runtime.getHeapUsage")) as { usedSize: number };
+  const { usedSize } = (await cdp.send("Runtime.getHeapUsage")) as {
+    usedSize: number;
+  };
   return usedSize / 2 ** 20;
 }
 
@@ -382,13 +425,19 @@ async function writeHeapSnapshot(cdp: CDPSession, file: string): Promise<void> {
 }
 
 /// The browser, the stand-in daemons (one per page that plays at once: PAIRED=1 plays two) and a log's page URL on one.
-type Ctx = { browser: Browser; daemons: Daemon[]; url: (log: ReplayLog, daemon: Daemon) => string };
+type Ctx = {
+  browser: Browser;
+  daemons: Daemon[];
+  url: (log: ReplayLog, daemon: Daemon) => string;
+};
 type Shift = { at: number; value: number; input: boolean; sources: string[] };
 
 async function openPage(ctx: Ctx, daemon: Daemon, log: ReplayLog, served: number, status: string, start: number) {
   const play: Play = { log, served, status };
   daemon.play = play;
-  const page = await ctx.browser.newPage({ viewport: { width: 900, height: 700 } });
+  const page = await ctx.browser.newPage({
+    viewport: { width: 900, height: 700 },
+  });
   await page.addInitScript(instrument, start);
   await installPaintedFrames(page);
   if (PROBE) await installFoldProbe(page);
@@ -413,7 +462,13 @@ export function shiftSources(shifts: readonly Shift[], top = 3): string[] {
     );
 }
 
-type Open = { log: string; cls: number; moved: number; movedRow: string; shiftNotes: string[] };
+type Open = {
+  log: string;
+  cls: number;
+  moved: number;
+  movedRow: string;
+  shiftNotes: string[];
+};
 /// The open phase: the whole log handed over on attach; the rows in view from first paint to rest.
 async function openRound(ctx: Ctx, log: ReplayLog): Promise<Open> {
   const last = log.events.at(-1)?.at ?? Date.now();
@@ -734,7 +789,11 @@ async function startLive(ctx: Ctx, daemon: Daemon, log: ReplayLog): Promise<Live
         );
       const allocated =
         PROFILE && ALLOC
-          ? ((await cdp.send("HeapProfiler.stopSampling")) as { profile: HeapProfile }).profile
+          ? (
+              (await cdp.send("HeapProfiler.stopSampling")) as {
+                profile: HeapProfile;
+              }
+            ).profile
           : undefined;
       burstWindows.push([windowStart, await page.evaluate(() => performance.now())]);
       const dom = await domSize(page);
@@ -778,8 +837,14 @@ async function startLive(ctx: Ctx, daemon: Daemon, log: ReplayLog): Promise<Live
           PAIRED ? HEAP_SNAPSHOT.replace(/(\.heapsnapshot)?$/, `.${log.name}$1`) : HEAP_SNAPSHOT,
         );
       const { shifts, long } = await page.evaluate((since) => {
-        const w = window as unknown as { __shifts: Shift[]; __long: { at: number; ms: number }[] };
-        return { shifts: w.__shifts.filter((shift) => !shift.input && shift.at >= since), long: w.__long };
+        const w = window as unknown as {
+          __shifts: Shift[];
+          __long: { at: number; ms: number }[];
+        };
+        return {
+          shifts: w.__shifts.filter((shift) => !shift.input && shift.at >= since),
+          long: w.__long,
+        };
       }, since);
       const burstLong = long.filter((task) => burstWindows.some(([from, to]) => task.at >= from && task.at <= to));
       return {
@@ -1059,11 +1124,20 @@ if (import.meta.main) {
         },
         websocket: {
           message(ws, raw) {
-            const message = JSON.parse(String(raw)) as { id?: number; method: string };
+            const message = JSON.parse(String(raw)) as {
+              id?: number;
+              method: string;
+            };
             const p = daemon.play;
             if (message.method === "_acpmux/attach" && p) p.socket = ws;
             if (message.id !== undefined)
-              ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: p ? answer(p, message.method) : null }));
+              ws.send(
+                JSON.stringify({
+                  jsonrpc: "2.0",
+                  id: message.id,
+                  result: p ? answer(p, message.method) : null,
+                }),
+              );
           },
         },
       });
@@ -1071,21 +1145,33 @@ if (import.meta.main) {
       releases.push(() => server.stop(true));
       return daemon;
     });
-    const out = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "transcript-replay-bench-"));
+    // Under bench/web-ui-suite.ts, the suite's one pane build of the run (bench/support/sharedBuilds.ts).
+    const shared = PROFILE || process.env.PROFILE_BUILD ? undefined : sharedPaneDir();
+    const out = shared ?? fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "transcript-replay-bench-"));
     // PROFILE_BUILD=DIR keeps the pane's build there: a profile's `file:line` read against it names an anonymous function.
-    releases.push(() =>
-      process.env.PROFILE_BUILD
-        ? fs.renameSync(out, process.env.PROFILE_BUILD)
-        : fs.rmSync(out, { recursive: true, force: true }),
-    );
+    if (!shared)
+      releases.push(() =>
+        process.env.PROFILE_BUILD
+          ? fs.renameSync(out, process.env.PROFILE_BUILD)
+          : fs.rmSync(out, { recursive: true, force: true }),
+      );
     const builtAt = performance.now();
     const { build } = await import("vite");
-    await build({
-      configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-      build: { outDir: out, emptyOutDir: true, ...(PROFILE ? { minify: false } : {}) },
-      logLevel: "error",
-    });
-    console.log(`transcript-replay: pane built in ${((performance.now() - builtAt) / 1000).toFixed(0)} s`);
+    if (!shared)
+      await build({
+        configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
+        build: {
+          outDir: out,
+          emptyOutDir: true,
+          ...(PROFILE ? { minify: false } : {}),
+        },
+        logLevel: "error",
+      });
+    console.log(
+      shared
+        ? `transcript-replay: the suite's pane build (${shared})`
+        : `transcript-replay: pane built in ${((performance.now() - builtAt) / 1000).toFixed(0)} s`,
+    );
     const statics = Bun.serve({
       port: 0,
       hostname: "127.0.0.1",
