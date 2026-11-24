@@ -388,6 +388,16 @@ class Robustness(unittest.TestCase):
         self.assertEqual(selected["conclusion"], "success")
         self.assertEqual(ga.analyze_pr(gh, selected, ROOT, "")["state"], "green")
 
+    def test_a_marker_quoted_by_a_human_does_not_make_a_green_run_comment(self) -> None:
+        # #40422: only a bot-authored comment is the guard comment; a quote of the marker is not.
+        gh = ga.GitHub("manaflow-ai/cmux", "token")
+        gh.guard_job = lambda run: {"id": 42, "name": ga.FAST_WORKFLOW, "conclusion": "success"}  # type: ignore[method-assign]
+        quoted = {"id": 5, "body": f"use `{ga.PR_MARKER}` to mark it", "user": {"login": "some-human"}}
+        gh.comments = lambda number: [quoted]  # type: ignore[method-assign]
+        run = {"id": 9, "conclusion": "success", "head_sha": "abc",
+               "pull_requests": [{"number": 7, "base": {"repo": {"url": "https://api.github.com/repos/manaflow-ai/cmux"}}}]}
+        self.assertEqual(ga.analyze_pr(gh, run, ROOT, "")["state"], "noop")
+
     def test_cancelled_or_skipped_guard_has_no_verdict(self) -> None:
         gh = ga.GitHub("manaflow-ai/cmux", "token")
         run = {
