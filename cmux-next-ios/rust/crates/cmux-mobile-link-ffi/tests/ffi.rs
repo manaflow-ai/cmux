@@ -548,3 +548,29 @@ fn every_test_reading_warm_state_dials_on_its_own_pool() {
          trim; give each a `WarmPool::new()`: {offenders:?}"
     );
 }
+
+#[test]
+fn network_interfaces_reach_the_dial_layer() {
+    use cmux_mobile_link::dial::wireguard as wg;
+    let iface = |name: &str, kind, primary| cmux_mobile_link_ffi::NetInterface {
+        name: name.into(),
+        kind,
+        expensive: kind == cmux_mobile_link_ffi::InterfaceKind::Cellular,
+        constrained: false,
+        primary,
+    };
+    cmux_mobile_link_ffi::set_network_interfaces(vec![
+        iface("en0", cmux_mobile_link_ffi::InterfaceKind::Wifi, true),
+        iface("pdp_ip0", cmux_mobile_link_ffi::InterfaceKind::Cellular, false),
+    ]);
+    let got = wg::multipath::interfaces();
+    assert_eq!(got.len(), 2);
+    assert_eq!(got[0].kind, wg::InterfaceKind::Wifi);
+    assert!(got[0].primary);
+    assert_eq!(got[1].kind, wg::InterfaceKind::Cellular);
+    assert!(got[1].expensive);
+    cmux_mobile_link_ffi::set_cellular_assist(false);
+    assert!(!wg::multipath::cellular_assist());
+    cmux_mobile_link_ffi::set_cellular_assist(true);
+    assert!(wg::multipath::cellular_assist());
+}
