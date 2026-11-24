@@ -12,7 +12,7 @@
 //! ignored          a file or key cmux skips (themes/x.jsonc, a key a theme may not set)
 //! shadowed         a value another file or layer overrides
 //! leftover         a layer folder no entry uses, or a web-dev.json overlay left by a cut-short write
-//! unknown-key      a settings key no setting has (or one that was retired)
+//! unknown-key      a key no setting or migration recognizes
 //! wrong-folder     a customization file where cmux does not look for it
 //! override         a file outside the usual settings that still changes cmux (cmux-tui.json, harnesses, ...)
 //! ```
@@ -45,7 +45,7 @@ mod stray;
 pub use recover::{RecoverPlan, Recovery};
 use scan::{
     dir_bytes, dir_names, display_dir, display_path, file_name, line_of_key, looks_like_theme,
-    prefixes, sentence, size_words, unknown_keys,
+    sentence, size_words, unknown_keys,
 };
 
 const STATE: &str = "doctor.json";
@@ -609,27 +609,15 @@ impl Customize {
             .map(str::to_owned);
         let settings = settings_text.as_deref().and_then(|text| jsonc::parse(text).ok());
         if let (Some(text), Some(Value::Object(object))) = (settings_text.as_deref(), &settings) {
-            let mut unknown = Vec::new();
-            unknown_keys(object, &mut Vec::new(), &prefixes(), &mut unknown);
             let file = &roots.settings_file;
-            for (key, retired) in unknown {
+            for key in unknown_keys(object) {
                 let line = line_of_key(text, &key);
-                let (title, detail) = match retired {
-                    Some(why) => (
-                        format!("{key} is a retired setting"),
-                        format!("cmux no longer reads it: {why}"),
-                    ),
-                    None => (
-                        format!("{key} is not a setting"),
-                        "cmux ignores it. A typo, or a key from another app or an older cmux; `cmux settings list` names every key.".to_owned(),
-                    ),
-                };
                 out.push(
                     FindingKind::UnknownKey,
                     Level::Info,
                     &key,
-                    title,
-                    detail,
+                    format!("{key} is not a setting"),
+                    "cmux ignores this key. Check its spelling in the settings file.".to_owned(),
                     match line {
                         Some(line) => format!("{}:{line}", file_name(file)),
                         None => file_name(file),
