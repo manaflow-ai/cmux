@@ -70,6 +70,10 @@ final class FeedHoldInteractionsUITests: XCTestCase {
             let failedText = failed.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'The e2e job failed'")).firstMatch
             XCTAssertTrue(failedText.waitForExistence(timeout: 5), "the failed card's text\n\(app.debugDescription)")
             failedText.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.25)).press(forDuration: 1.0)
+            if !selection.waitForExistence(timeout: 3) {
+                // Once more if the first hold landed while the list still settled.
+                failedText.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.25)).press(forDuration: 1.2)
+            }
             XCTAssertTrue(selection.waitForExistence(timeout: 5), "a hold on a failed card selects\n\(app.debugDescription)")
             attach(app, "\(mode)-hold-failed-card")
             dismiss(selection, in: app)
@@ -105,7 +109,11 @@ final class FeedHoldInteractionsUITests: XCTestCase {
     @MainActor private func reveal(_ cell: XCUIElement, in list: XCUIElement) {
         for _ in 0..<12 {
             let top = list.frame.minY + 100, limit = list.frame.minY + list.frame.height * 0.45
-            if cell.exists, cell.frame.minY >= top, cell.frame.minY <= limit { return }
+            if cell.exists, cell.frame.minY >= top, cell.frame.minY <= limit {
+                // Let the list stop coasting: a hold on a moving list is the scroll's, not a hold.
+                Thread.sleep(forTimeInterval: 1.0)
+                return
+            }
             if cell.exists, cell.frame.minY < top { list.swipeDown(velocity: .slow) } else { list.swipeUp(velocity: .slow) }
         }
     }
