@@ -1,0 +1,144 @@
+{
+  "title": "Sidebar: the stacked subagent line and a row's badges (state marks, no clipping under the row); record: cmux-ci capture SHA --state tour:sidebar-row-badges",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Workspace one",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Fix product grid layout shift"
+      ],
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "Workspace two",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Upgrade the Stripe SDK"
+      ],
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "Workspace three",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Add dark mode color tokens"
+      ],
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "Workspace four",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Fix flaky checkout tests"
+      ],
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "Sample subagents on rows; tree off: one stacked line while they run",
+      "rpc": {
+        "method": "debug.tunables",
+        "params": {
+          "action": "set",
+          "key": "sidebar.subagents.fixture",
+          "value": true
+        }
+      },
+      "wait": 2
+    },
+    {
+      "title": "Session tree on: each chat's subagents nested under it (rows when open)",
+      "cmux": [
+        "settings",
+        "set",
+        "sidebar.sessionTree",
+        "true"
+      ],
+      "wait": 2
+    },
+    {
+      "title": "Variant A: stacked line only (state marks: spinner, warning, checks; the line sits whole above the next row)",
+      "rpc": {
+        "method": "debug.tunables",
+        "params": {
+          "action": "set",
+          "key": "sidebar.subagents.look",
+          "value": "stack"
+        }
+      },
+      "wait": 2
+    },
+    {
+      "title": "Variant B: rows when open, stacked line when folded",
+      "rpc": {
+        "method": "debug.tunables",
+        "params": {
+          "action": "set",
+          "key": "sidebar.subagents.look",
+          "value": "both"
+        }
+      },
+      "wait": 2
+    },
+    {
+      "title": "Variant C: rows only",
+      "rpc": {
+        "method": "debug.tunables",
+        "params": {
+          "action": "set",
+          "key": "sidebar.subagents.look",
+          "value": "rows"
+        }
+      },
+      "wait": 2
+    },
+    {
+      "title": "Dark",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "dark"
+        }
+      },
+      "wait": 2,
+      "optional": "debug.appearance is DEBUG only"
+    },
+    {
+      "title": "Light",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "light"
+        }
+      },
+      "wait": 2,
+      "optional": "debug.appearance is DEBUG only"
+    },
+    {
+      "title": "Session tree back off",
+      "cmux": [
+        "settings",
+        "set",
+        "sidebar.sessionTree",
+        "false"
+      ],
+      "shot": false
+    }
+  ]
+}

@@ -2864,3 +2864,9 @@ Commits logged without a trailer (the card above):
   favicon's size (`SidebarStyle.rowFaviconOptics`), rasterized at the favicon's box so it stays sharp: it is that
   page's favicon. The icon column, the row height and the title's x do not change (the favicon already fills that
   slot). The site globe placeholder keeps its tab's glyph size.
+- 2026-11-24 (folded row, ask from a screenshot): the stacked subagent line's view is the height its row reserves (it was a
+  subagent row's 24 against 18, so "8 running" was cut off by the row's bottom edge); its marks are the rows' badge stack
+  (spinner, red warning, check) instead of one outlined sparkle for every state; the roll-up chips take 4 pt padding and
+  a 4 pt gap (2 pt before) and the running chip's spinner draws at the status glyph size (5 pt before). The hover Unpin
+  (struck-through pin on a pinned row) is unchanged. Tour: sidebar-row-badges. Test: SidebarSubagentRowsTests.
+  Sidebar-Look: "i hope you guys fix this in the next nightly"
