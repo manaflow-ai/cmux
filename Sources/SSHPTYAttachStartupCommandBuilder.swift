@@ -290,7 +290,7 @@ enum SSHPTYAttachStartupCommandBuilder {
             isDirectory: true
         )
         .appendingPathComponent(
-            "cmux-ssh-\(sharingOptions.userID)-resolved-auth-",
+            "\(sharingOptions.lockNamePrefix)-resolved-auth-",
             isDirectory: false
         )
         .path

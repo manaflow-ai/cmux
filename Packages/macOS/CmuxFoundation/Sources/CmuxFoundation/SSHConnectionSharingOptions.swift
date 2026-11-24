@@ -125,6 +125,25 @@ public struct SSHConnectionSharingOptions: Sendable {
         authenticationLockDirectory.path
     }
 
+    /// The start of every lock file name cmux takes for its ssh masters.
+    ///
+    /// Every build takes its locks in the same per-user temporary directory, while each build
+    /// other than the release app keeps its sockets in a directory of its own. Named from the
+    /// socket basename alone, one build's live workspace held the lock for another build's master
+    /// of the same host, so that build waited on it, and its recovery of an inherited reverse
+    /// forward stayed deferred. A build with its own socket directory adds that directory's name;
+    /// the release app's names do not change.
+    public var lockNamePrefix: String {
+        guard let directory = controlSocketDirectoryPath else { return "cmux-ssh-\(userID)" }
+        let url = URL(fileURLWithPath: directory, isDirectory: true)
+        let name = url.lastPathComponent
+        guard url.deletingLastPathComponent().lastPathComponent == "ssh",
+              SSHControlSocketDirectory.isNamespaceDirectoryName(name) else {
+            return "cmux-ssh-\(userID)"
+        }
+        return "cmux-ssh-\(userID)-\(name)"
+    }
+
     /// Adds missing sharing defaults while preserving every supplied value.
     ///
     /// A caller that disables `ControlMaster` keeps a standalone connection;
@@ -600,7 +619,7 @@ public struct SSHConnectionSharingOptions: Sendable {
         let unpaddedHash = String(hash, radix: 16, uppercase: false)
         let paddedHash = String(repeating: "0", count: max(0, 16 - unpaddedHash.count)) + unpaddedHash
         return authenticationLockDirectory
-            .appendingPathComponent("cmux-ssh-\(userID)-auth-\(paddedHash).lock", isDirectory: false)
+            .appendingPathComponent("\(lockNamePrefix)-auth-\(paddedHash).lock", isDirectory: false)
             .path
     }
 
@@ -617,7 +636,7 @@ public struct SSHConnectionSharingOptions: Sendable {
         }
         return authenticationLockDirectory
             .appendingPathComponent(
-                "cmux-ssh-\(userID)-resolved-auth-\(basename).lock",
+                "\(lockNamePrefix)-resolved-auth-\(basename).lock",
                 isDirectory: false
             )
             .path
@@ -632,7 +651,7 @@ public struct SSHConnectionSharingOptions: Sendable {
         }
         return authenticationLockDirectory
             .appendingPathComponent(
-                "cmux-ssh-\(userID)-owner-\(basename).lock",
+                "\(lockNamePrefix)-owner-\(basename).lock",
                 isDirectory: false
             )
             .path

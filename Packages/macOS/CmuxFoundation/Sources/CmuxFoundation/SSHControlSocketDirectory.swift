@@ -97,6 +97,14 @@ enum SSHControlSocketDirectory {
         return String(format: "%08llx", hash & 0xffff_ffff)
     }
 
+    /// Whether `name` is a directory name ``directoryName(for:)`` produces.
+    static func isNamespaceDirectoryName(_ name: String) -> Bool {
+        name.utf8.count == 8 && name.utf8.allSatisfy { byte in
+            (UInt8(ascii: "0")...UInt8(ascii: "9")).contains(byte)
+                || (UInt8(ascii: "a")...UInt8(ascii: "f")).contains(byte)
+        }
+    }
+
     /// Whether `path` can go into a `ControlPath` and a shell pattern
     /// verbatim, with room for OpenSSH's socket name.
     static func isUsable(_ path: String) -> Bool {
