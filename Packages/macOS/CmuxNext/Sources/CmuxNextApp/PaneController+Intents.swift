@@ -448,7 +448,7 @@ extension PaneController {
 
     /// The right-clicked tab's own first rows: Switch to Chat or Switch to Terminal on half of a terminal and chat pair
     /// (the pane toolbar's toggle is gone, user 2026-11-13), and on the selected tab the shown content's own rows (the
-    /// docked Home's Chief Actions), which the pane's "…" listed first.
+    /// docked Home's Chief Actions).
     private func prependOwnRows(to menu: NSMenu, tab id: String, model: TabModel?) {
         let toggle = model.map { terminalChatSwitchRows(tab: id, model: $0) } ?? []
         let content = stripModel.selectedID?.rawValue == id ? view.toolbar?.contentRows() ?? [] : []
@@ -456,8 +456,8 @@ extension PaneController {
     }
 
     /// Switch to Chat or Switch to Terminal for tab `id` (`model`) on half of a terminal and chat pair, else none:
-    /// the tab's right-click and the pane's ⋮ lead with it (user 2026-11-20: the switch back "inside the 3 dots
-    /// thing"). One walk of the machines' agents per menu, as the key's own.
+    /// the tab's right-click leads with it (the pane's ⋮ that also did went with
+    /// https://github.com/manaflow-ai/cmux/issues/53356). One walk of the machines' agents per menu, as the key's own.
     func terminalChatSwitchRows(tab id: String, model: TabModel) -> [NSMenuItem] {
         guard TerminalChatHandler.offersToggle(on: model, services: services) else { return [] }
         return Self.terminalChatRows(tab: id, registry: services.registry, machineID: daemon.machineID)

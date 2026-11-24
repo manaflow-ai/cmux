@@ -28,7 +28,7 @@ final class BrowserDownloadsPopup {
 
     private let popup = NativePopupHost(panel: NativePopupPanel(identifier: "cmux.browser.downloads"))
     private let model = BrowserDownloadsPopupModel()
-    private var content: FirstMouseHostingView<BrowserDownloadsPopupView>?
+    private var content: ThemedHostingView<BrowserDownloadsPopupView>?
     private weak var anchor: NSView?
     /// The toolbar the popup opened from, which draws its button pressed while it is open.
     private weak var buttons: BrowserToolbarButtonsView?
@@ -121,8 +121,9 @@ final class BrowserDownloadsPopup {
         return true
     }
 
-    private func makeContent() -> FirstMouseHostingView<BrowserDownloadsPopupView> {
-        let content = FirstMouseHostingView(rootView: BrowserDownloadsPopupView(model: model))
+    private func makeContent() -> ThemedHostingView<BrowserDownloadsPopupView> {
+        // A click on a footer button acts on the first click, also while the popup opened without the keys.
+        let content = ThemedHostingView(rootView: BrowserDownloadsPopupView(model: model), actsOnFirstClick: true)
         let card = Glass.makeMenuPanel(content: content)
         popup.panel.adoptPopupStyle(card: card)
         self.content = content
