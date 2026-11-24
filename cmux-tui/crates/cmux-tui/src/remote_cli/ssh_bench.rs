@@ -30,10 +30,10 @@ use std::io::{BufRead as _, BufReader, Read as _, Write as _};
 use std::net::{TcpStream, ToSocketAddrs as _};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, anyhow};
+use cmux_process::{Command, Stdio};
 use serde::Serialize;
 use serde_json::{Value, json};
 
@@ -396,18 +396,21 @@ pub(super) fn pipe(args: &[String]) -> anyhow::Result<()> {
     let (stream, early) = carrier_dial(machine, port).map_err(|reason| anyhow!("{reason}"))?;
     stream.set_read_timeout(None).ok();
     let mut out = stream.try_clone()?;
-    let writer = std::thread::spawn(move || {
-        let mut stdin = std::io::stdin().lock();
-        std::io::copy(&mut stdin, &mut out).ok();
-        out.shutdown(std::net::Shutdown::Write).ok();
-    });
-    let mut stdout = std::io::stdout().lock();
-    stdout.write_all(&early)?;
-    let mut reader = stream;
-    std::io::copy(&mut reader, &mut stdout).ok();
-    stdout.flush().ok();
-    drop(writer);
-    Ok(())
+    // A scoped thread: this call owns it and joins it. ssh closes the ProxyCommand's stdin when
+    // its session ends, so the stdin half ends with the session.
+    std::thread::scope(|scope| {
+        scope.spawn(move || {
+            let mut stdin = std::io::stdin().lock();
+            std::io::copy(&mut stdin, &mut out).ok();
+            out.shutdown(std::net::Shutdown::Write).ok();
+        });
+        let mut stdout = std::io::stdout().lock();
+        stdout.write_all(&early)?;
+        let mut reader = stream;
+        std::io::copy(&mut reader, &mut stdout).ok();
+        stdout.flush().ok();
+        Ok(())
+    })
 }
 
 #[cfg(test)]
