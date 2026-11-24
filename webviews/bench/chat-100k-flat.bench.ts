@@ -282,7 +282,9 @@ try {
       const extra = streamed.get(id);
       return extra?.length ? [...chat.events, ...extra] : chat.events;
     };
-    const lastSeqOf = (id: string) => recordsOf(id).at(-1)?.seq ?? 0;
+    // Not through recordsOf: that copies the chat's records, and emit reads this once a record, so growing 20 chats to
+    // 100k rows copied O(rows^2) records (the grown-many part's growth ran past its 30-minute cap).
+    const lastSeqOf = (id: string) => (streamed.get(id)?.at(-1) ?? chat.events.at(-1))?.seq ?? 0;
     const summaryOf = (id: string) => {
       const session = sessions.find((s) => s.sessionId === id) ?? sessions[0]!;
       return { ...session, lastSeq: lastSeqOf(id) };
