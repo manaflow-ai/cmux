@@ -422,7 +422,8 @@ jobs:
       # Starts the head's cmux-tui tree build below (a push no longer builds it: cmux_tui_superseded_push.py).
       actions: write
     outputs:
-      key: ${{ steps.key.outputs.key }}
+      # The tree the controller waits for (steps.key.outputs.tree), empty when nothing will publish it.
+      key: ${{ steps.key.outputs.tree }}
     steps:
       # A reused pool workspace breaks this sparse checkout (see the plan job).
       - name: Drop a reused workspace's repository
@@ -439,10 +440,17 @@ jobs:
             /scripts/ci/cmux_tui_tree_key.py
             /scripts/cmux-next/cmux-tui-tree-inputs.txt
           sparse-checkout-cone-mode: false
+      # tree= in the request makes the controller wait up to 50 min for the tree's completion.json (cmuxterm-hq
+      # hot_verify_look.go hotLookTreeWait). Name it only when it is published, or when something will publish it:
+      # the head's push (vars.CMUX_TUI_BRANCH_ON_REQUEST=0, or the trailer Cmux-Daemon-Tests: run) or the dispatch
+      # below (vars.CMUX_TUI_LOOK_DISPATCH=1). Else no tree= and the look is queued at once; the fleet step builds
+      # the head's daemon itself (hot_verify_run.py builds_head_daemon), as it did after the 50 min wait before.
       - name: The head's cmux-tui tree key
         id: key
         env:
           HEAD_SHA: ${{ needs.target.outputs.head }}
+          BRANCH_ON_REQUEST: ${{ vars.CMUX_TUI_BRANCH_ON_REQUEST || '1' }}
+          LOOK_DISPATCH: ${{ vars.CMUX_TUI_LOOK_DISPATCH }}
         run: |
           set -euo pipefail
           # The key script and its inputs list come from the head; the key reads git trees only (no PR code runs
@@ -450,7 +458,19 @@ jobs:
           key="$(python3 scripts/ci/cmux_tui_tree_key.py --version v2 HEAD)"
           [[ "$key" =~ ^[0-9a-f]{40,64}$ ]] || { echo "::error::no cmux-tui tree key for ${HEAD_SHA:0:12}"; exit 1; }
           echo "key=$key" >> "$GITHUB_OUTPUT"
-          echo "cmux-tui tree of ${HEAD_SHA:0:12}: https://files.cmux.com/cmux-tui/tree/$key/ (the look is queued once it is published)" >> "$GITHUB_STEP_SUMMARY"
+          trailer="$(git log -1 --format='%(trailers:key=Cmux-Daemon-Tests,valueonly)' HEAD | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
+          if curl --fail --silent --max-time 15 -o /dev/null "https://files.cmux.com/cmux-tui/tree/$key/completion.json?hotverify=$GITHUB_RUN_ID"; then
+            why="published"
+          elif [[ "$BRANCH_ON_REQUEST" == 0 || "$trailer" == run ]]; then
+            why="building from the head's push"
+          elif [[ "${LOOK_DISPATCH:-}" == 1 ]]; then
+            why="asked for below"
+          else
+            echo "cmux-tui tree $key of ${HEAD_SHA:0:12} is not published and nothing will publish it: the look is queued at once and the fleet step builds the head's daemon" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "tree=$key" >> "$GITHUB_OUTPUT"
+          echo "cmux-tui tree of ${HEAD_SHA:0:12}: https://files.cmux.com/cmux-tui/tree/$key/ ($why; the look is queued once it is published)" >> "$GITHUB_STEP_SUMMARY"
       # Build on request (ci-min-per-pr-30, Leo: "de facto, im asking for 99% fewer minutes of ci time, period."):
       # a pull request head's push builds no tree, since three ~28-min target builds per head cost 25.8 runner-min
       # per merged PR for trees only this look reads. The look that needs one asks for it here: one dispatch of
