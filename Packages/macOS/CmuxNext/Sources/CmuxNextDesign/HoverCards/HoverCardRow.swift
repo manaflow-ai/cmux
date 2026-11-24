@@ -390,6 +390,8 @@ public final class HoverCardGalleryHost: NSView, ThemeResponsive {
         self.recolor = recolor
         super.init(frame: .zero)
         let glass = Glass.makeOverlayPanel(cornerRadius: cornerRadius ?? HoverCardPanel.cornerRadius, interactive: false, cardFill: false)
+        // The shared hover surface the real card draws (``HoverSurfaceLook``).
+        HoverSurfaceLook.current.apply(to: glass)
         body.translatesAutoresizingMaskIntoConstraints = false
         glass.contentView.addSubview(body)
         addSubview(glass)

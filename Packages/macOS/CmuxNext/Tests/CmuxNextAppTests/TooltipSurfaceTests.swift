@@ -216,8 +216,14 @@ import CmuxNextWakeupsTestSupport
     /// The tooltip is the shared overlay glass the hover cards draw (`Glass.makeOverlayPanel`), in
     /// the hovered view's theme, never a card fill; the opaque popup surface only under Reduce
     /// Transparency.
+    /// The glass is the hover surface setting's `glass` value (Leo 2026-11-24 named it: "wack ass glass";
+    /// the solid default is `HoverSurfaceStaysPutTests`).
     @Test func theSurfaceIsTheSharedGlassOrOpaqueUnderReduceTransparency() async throws {
-        defer { ReduceTransparency.shared.override = nil }
+        HoverSurfaceLook.lookOverride = .glass
+        defer {
+            ReduceTransparency.shared.override = nil
+            HoverSurfaceLook.lookOverride = nil
+        }
         for reduce in [false, true] {
             ReduceTransparency.shared.override = reduce
             let clock = ManualClock()
