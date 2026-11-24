@@ -97,6 +97,7 @@ pub mod deps;
 pub mod desktop_bridge;
 pub mod desktop_link;
 pub mod directory_input;
+pub mod disk_usage;
 pub mod folder_instructions;
 #[cfg(all(test, unix))]
 mod fork_tests;
@@ -267,6 +268,7 @@ pub(crate) mod questions;
 #[cfg(target_os = "linux")]
 mod quiet_dirs;
 pub mod race_records;
+pub mod range_fetch;
 pub mod recovery;
 pub mod registry;
 pub(crate) mod remote_chain_profile;
