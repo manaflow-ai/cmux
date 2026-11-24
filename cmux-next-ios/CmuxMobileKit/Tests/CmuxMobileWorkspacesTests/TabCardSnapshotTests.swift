@@ -327,6 +327,34 @@ import UIKit
         #expect(other.heldBlobs(macID: "mac-1").isEmpty)
     }
 
+    /// What a card was handed (`whenScreen`).
+    @MainActor final class Shown { var values: [String] = [] }
+
+    /// A cold launch builds a terminal's card (which copies the screen into its model) before
+    /// the disk read is done: the card is still handed the screen when the read brings it. Before,
+    /// it read an empty entry once and stayed the labeled placeholder (fleet run 397091ff:
+    /// every terminal card `placeholder` on the cold launch, browsers and agents filled).
+    @Test func aTerminalCardBuiltBeforeTheDiskReadGetsItsScreen() async throws {
+        let directory = Self.directory()
+        let store = TabSnapshotStore(directory: directory)
+        let screen = Data("$ git status\nnothing to commit".utf8)
+        store.putMacBlob(screen, hash: Self.hash(screen), accountID: "user-1", macID: "mac-1")
+        store.putMacCards(["shell": MacCardInfo(title: "zsh", kind: "terminal", screenHash: Self.hash(screen),
+                                                screenColumns: 60, screenRows: 2, capturedAtMs: 50)],
+                          accountID: "user-1", macID: "mac-1")
+
+        let (cards, _) = Self.cards(directory)
+        let shown = Shown()
+        // The card is built first: nothing read yet.
+        cards.whenScreen(Self.key("shell")) { shown.values.append($0) }
+        #expect(shown.values.isEmpty)
+        await cards.warm(macID: "mac-1")?.value
+        #expect(shown.values == ["$ git status\nnothing to commit"], "the card gets the screen the disk held")
+        // Once read, a card built later gets it at once.
+        cards.whenScreen(Self.key("shell")) { shown.values.append($0) }
+        #expect(shown.values.count == 2)
+    }
+
     @Test func aFaviconStaysUntilItsReplacementIsHere() async throws {
         let (cards, _) = Self.cards(Self.directory())
         let old = try Self.png(.systemRed), new = try Self.png(.systemTeal)
@@ -376,6 +404,54 @@ import UIKit
         #expect(cards.heldBlobs(macID: "mac-1").isEmpty)
         try await Self.wait("the blob is deleted") { store.macBlob(hash, accountID: "user-1", macID: "mac-1") == nil }
         #expect(store.picture(Self.key("web")) != nil)
+    }
+
+    @Test func aNewEpochVoidsWhatWasKeptByTabID() async throws {
+        let directory = Self.directory()
+        let favicon = try Self.png(.systemBlue), thumb = try Self.png(.systemGreen)
+        let web = MacCardInfo(title: "Docs", kind: "browser", faviconHash: Self.hash(favicon), thumbHash: Self.hash(thumb), capturedAtMs: 50)
+        let (first, _) = Self.cards(directory)
+        first.cards([(tabID: "s1", info: web)], epoch: "run-1", macID: "mac-1")
+        for bytes in [favicon, thumb] {
+            first.save(bytes, hash: Self.hash(bytes), macID: "mac-1")
+            await first.blobArrived(hash: Self.hash(bytes), tabIDs: ["s1"], macID: "mac-1")?.value
+        }
+        let store = first.store
+        try await Self.wait("rows, epoch and blobs are written") {
+            let disk = store.macDisk(accountID: "user-1", macID: "mac-1")
+            return disk.names.count == 2 && disk.cards.count == 1 && disk.epoch == "run-1"
+        }
+
+        // The next launch shows what was kept; the same epoch keeps it.
+        let (same, samePictures) = Self.cards(directory)
+        await same.warm(macID: "mac-1")?.value
+        try await Self.wait("the thumbnail is read") { samePictures.entry(Self.key("s1")).image != nil }
+        same.cards([(tabID: "s1", info: web)], epoch: "run-1", macID: "mac-1")
+        #expect(same.entry(Self.key("s1")).favicon != nil, "the same run's tab keeps its favicon")
+        #expect(samePictures.entry(Self.key("s1")).image != nil)
+
+        // A reconnect to the same daemon starts a new epoch with the same tabs: nothing blanks.
+        let moved = MacCardInfo(title: "Docs: install", kind: "browser", faviconHash: Self.hash(favicon), capturedAtMs: 60)
+        same.cards([(tabID: "s1", info: moved)], epoch: "run-1b", macID: "mac-1")
+        #expect(same.entry(Self.key("s1")).favicon != nil, "the same page under a new epoch keeps its favicon")
+        #expect(samePictures.entry(Self.key("s1")).image != nil, "and its picture")
+        #expect(MacTabCards.sameTab(web, MacCardInfo(title: "Docs", kind: "browser")))
+        #expect(!MacTabCards.sameTab(web, MacCardInfo(title: "Docs", kind: "terminal")))
+        #expect(!MacTabCards.sameTab(web, MacCardInfo(title: "News", kind: "browser")))
+
+        // Another epoch where `s1` is another tab. A terminal must not show the page's favicon or picture.
+        let (next, nextPictures) = Self.cards(directory)
+        await next.warm(macID: "mac-1")?.value
+        try await Self.wait("the thumbnail is read") { nextPictures.entry(Self.key("s1")).image != nil }
+        let entry = next.entry(Self.key("s1"))
+        next.cards([(tabID: "s1", info: MacCardInfo(title: "zsh", kind: "terminal"))], epoch: "run-2", macID: "mac-1")
+        #expect(next.entry(Self.key("s1")) === entry, "the card's views keep observing the same entry")
+        #expect(entry.info?.title == "zsh")
+        #expect(entry.favicon == nil, "the other tab's favicon is gone")
+        #expect(nextPictures.entry(Self.key("s1")).image == nil, "the other tab's picture is gone")
+        // Blobs are named by content: a row of the new epoch that names one shows it from disk.
+        next.cards([(tabID: "s1", info: MacCardInfo(title: "zsh", kind: "terminal")), (tabID: "s9", info: web)], epoch: "run-2", macID: "mac-1")
+        try await Self.wait("the kept favicon fills the tab that names it") { next.entry(Self.key("s9")).favicon != nil }
     }
 }
 #endif

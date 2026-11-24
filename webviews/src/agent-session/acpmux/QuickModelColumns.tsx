@@ -64,6 +64,7 @@ import {
   type QuickMenu,
   type QuickModel,
 } from "./quickModelMenuModel";
+import { RESIZE_HANDLE_PROPS } from "../../scrollers";
 import "./quickModelColumns.css";
 
 type Column = 0 | 1 | 2;
@@ -1228,7 +1229,10 @@ function Columns({
   const canSignIn = signedOut && (!!owner?.logIn || (onChatTab && !!auth?.onLogin));
 
   const card = profileOpen && (
-    <InlineCard className="acpmux-cols-card" label={`${ownerName} · ${t("picker.account")}`}>
+    <InlineCard
+      className="acpmux-cols-card ui-glass ui-glass-floats ui-glass-transient"
+      label={`${ownerName} · ${t("picker.account")}`}
+    >
       <div className="acpmux-cols-card-head">
         <Avatar face={face} size={40} {...(badge ? { badge } : {})} />
         <span className="acpmux-cols-card-who">
@@ -1495,6 +1499,7 @@ function Columns({
         {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- a pointer-only grip; the width also has its default */}
         <div
           className="acpmux-cols-resize"
+          {...RESIZE_HANDLE_PROPS}
           data-edge={align === "end" ? "start" : "end"}
           aria-hidden="true"
           onPointerDown={(event) => startResize(event, "width")}
@@ -1505,6 +1510,7 @@ function Columns({
         {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- a pointer-only grip; the height also has its default */}
         <div
           className="acpmux-cols-resize-y"
+          {...RESIZE_HANDLE_PROPS}
           data-edge={side === "top" ? "top" : "bottom"}
           aria-hidden="true"
           onPointerDown={(event) => startResize(event, "height")}
@@ -1513,6 +1519,7 @@ function Columns({
         {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- a pointer-only grip; both dimensions also have defaults */}
         <div
           className="acpmux-cols-resize-corner"
+          {...RESIZE_HANDLE_PROPS}
           data-edge={align === "end" ? "start" : "end"}
           data-side={side === "top" ? "top" : "bottom"}
           aria-hidden="true"

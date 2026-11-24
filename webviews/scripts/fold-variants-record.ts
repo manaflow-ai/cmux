@@ -183,7 +183,7 @@ export function measure(run: Run) {
     let drawn = false;
     for (let index = first; index < samples.length; index += 1) {
       const rows = samples[index]!.rows.filter((row) => keys.has(row[0]));
-      const prior = new Map(samples[index - 1]!.rows.map((row) => [row[0], row]));
+      const prior = new Map((samples[index - 1]?.rows ?? []).map((row) => [row[0], row]));
       for (const row of rows) {
         const was = prior.get(row[0]);
         if (was && seen(was[3]) && seen(row[3])) step = Math.max(step, Math.abs(row[1] - was[1]));
