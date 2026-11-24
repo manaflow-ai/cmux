@@ -13,6 +13,12 @@ export function callChipHost(method: string, params: Record<string, unknown>): P
     .catch(() => undefined);
 }
 
+/// A path-backed image's preview, subject to the host's image size and access policy.
+export async function readLinkedImage(path: string): Promise<string | undefined> {
+  const reply = (await callChipHost("image.load", { src: path })) as { src?: unknown } | undefined;
+  return typeof reply?.src === "string" && reply.src.startsWith("data:image/") ? reply.src : undefined;
+}
+
 /// Sends `method` to the host: true when it did it, false when it refused (or there is no host).
 export function tryChipHost(method: string, params: Record<string, unknown>): Promise<boolean> {
   return Promise.resolve()

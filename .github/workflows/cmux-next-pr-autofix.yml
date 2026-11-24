@@ -698,7 +698,17 @@ jobs:
     # takes no runner: on 11-21 10:00-17:00Z, 109 of 282 merged commits needed no repair, and the job's full
     # checkout cost 1-3 minutes each time. Regenerated exports still run it (it commits them), and an empty repairs
     # (a failed action-areas, an old base) runs it.
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && !cancelled() && (needs.action-areas.outputs.repairs != 'false' || needs.action-exports.outputs.exports == 'true' || needs.generated-exports.outputs.exports == 'true') }}
+    #
+    # On a pull request the job runs only on a re-run (run_attempt > 1), never on the head's first attempt: its
+    # patch (artifact pr-autofix-patch) is consumed only by ci-oops act_fixer after a mechanical red, and by a
+    # person who re-runs the job to get one (a fork PR: Re-run job on this one). act_fixer asks for that re-run
+    # (`gh api -X POST repos/OWNER/REPO/actions/jobs/ID/rerun`) when it acts on a red head whose run has no
+    # artifact, then waits for the artifact. It cost 28,441 runner-min/day on every head, and Leo, 2026-11-21:
+    # "de facto, im asking for 99% fewer minutes of ci time, period." A re-run reuses action-areas' outputs and
+    # the event's head and merge commit, so the repair is of exactly the red head. A re-run also skips the draft
+    # tier's term: the event payload of a re-run still says draft after the PR is ready, and a lane's red PR is
+    # usually a draft. A push event still runs it.
+    if: ${{ (github.event_name != 'pull_request' || github.run_attempt > 1) && !cancelled() && (needs.action-areas.outputs.repairs != 'false' || needs.action-exports.outputs.exports == 'true' || needs.generated-exports.outputs.exports == 'true') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     # clippy compiles the changed crates (cached below): 40 minutes when it can run (AUTOFIX_GATE_CLIPPY's clause
     # below), 25 otherwise. On 2026-11-23 17:43-23:43Z, 65 of 948 runs ran into the 40-minute limit (about 10,400
@@ -891,6 +901,7 @@ jobs:
         if: steps.areas.outputs.clippy == 'true' && steps.rust.outcome == 'success'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
           add-rust-environment-hash-key: false
           cache-bin: false
