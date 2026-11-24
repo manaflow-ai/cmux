@@ -151,6 +151,17 @@ public nonisolated struct HoverCardEscapeGeometry: Hashable, Sendable {
         gapStrip = strip.width > 0 && strip.height > 0 ? strip : .zero
     }
 
+    /// The same geometry with the card's bottom at `y` (a refit that keeps the card's top where it was): the card and
+    /// its gap strip move; a `.top` card has no escape slot to move.
+    public func movingCard(toY y: CGFloat) -> Self {
+        var copy = self
+        let dy = y - card.minY
+        copy.card = card.offsetBy(dx: 0, dy: dy)
+        copy.gapStrip = gapStrip == .zero ? .zero : gapStrip.offsetBy(dx: 0, dy: dy)
+        copy.escapeSlot = .zero
+        return copy
+    }
+
     /// What `point` is: the card first, then the row, the slot and the gap.
     public func zone(at point: CGPoint) -> Zone {
         if card.contains(point) { return .card }
