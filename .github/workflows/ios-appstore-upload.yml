@@ -326,7 +326,7 @@ jobs:
             [ -n "$pick" ] || { [ -d "$app/Contents/Developer" ] && pick="$app"; } || true
           done
           if [ -z "$pick" ] || [ ! -d "$pick/Contents/Developer" ]; then
-            echo "::error::No Xcode 27.1 on this runner; App Store Connect needs the iOS 27 SDK (ITMS-90725). Installed: $(ls -d /Applications/Xcode*.app 2>/dev/null | tr '\n' ' ')" >&2
+            echo "::error::No Xcode 27.1 on this runner; App Store Connect needs the iOS 27 SDK (ITMS-90725)." >&2
             exit 1
           fi
           sdk="$(DEVELOPER_DIR="$pick/Contents/Developer" xcrun --sdk iphoneos --show-sdk-version)"
