@@ -302,7 +302,7 @@
           "note": "How the agent chat looks and reads. Agents keeps what the agents may do.",
           "groups": [
             {"title": {"key": "settings.pageGroup.transcript", "text": "Transcript"}, "keys": [
-              "agentPane.display.transcriptView", "agentPane.display.presentation", "agentPane.display.sendPop",
+              "agentPane.display.detail", "agentPane.display.sendPop",
               "agentPane.display.statusVerbs.mode", "agentPane.display.statusVerbs.custom",
               "agentPane.display.thinking.shimmer", "agentPane.display.thinking.shimmerPeriod", "agentPane.display.thinking.shimmerBand",
               "agentPane.display.thinking.jumpButton",
