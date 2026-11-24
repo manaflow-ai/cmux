@@ -165,8 +165,6 @@ struct AgentPaneGitHubRequestTests {
         let unavailable = AgentPaneGitHubConnect(.unavailable(.unreachable)) { opened.append($0) }
         let notConfigured = AgentPaneGitHubConnect(.unavailable(.notConfigured)) { opened.append($0) }
         let failed = AgentPaneGitHubConnect(.failed) { opened.append($0) }
-        let pending = AgentPaneGitHubConnect(.pending) { opened.append($0) }
-        #expect(pending == .failed(AgentPaneModel.gitHubConnectPendingMessage))
         #expect(open == .opened)
         #expect(connected == .alreadyConnected)
         #expect(unavailable == .unavailable(.unreachable))
@@ -204,5 +202,11 @@ struct AgentPaneGitHubRequestTests {
     ] as [(String, String?)])
     func aGitHubFolderNamesOneRepository(folder: String, repository: String?) {
         #expect(AgentPaneGitHubFolder.repository(folder) == repository)
+    }
+    @Test func cloneRequiresTheURLAndIdempotencyKey() {
+        let url = "https://git.example.test/acme/api"
+        #expect(AgentPaneRequest(body: ["method": "repo.clone", "params": ["url": url, "idempotency_key": "k1"]])
+                == .gitHub(.cloneURL(url: url, key: "k1")))
+        #expect(AgentPaneRequest(body: ["method": "repo.clone", "params": ["url": url]]) == .unsupported("repo.clone"))
     }
 }

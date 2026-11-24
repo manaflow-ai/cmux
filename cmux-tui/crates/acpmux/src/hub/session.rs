@@ -456,6 +456,9 @@ pub struct Session {
     /// Last stderr lines of the current turn, quoted when the agent
     /// process dies without an answer ("Not logged in", a launcher error).
     pub(super) stderr_tail: StdMutex<std::collections::VecDeque<String>>,
+    /// The current agent process's last stderr line that could say why it quit, for its
+    /// `exited` record (`exit_reason::ExitLine`).
+    pub(super) exit_line: StdMutex<super::exit_reason::ExitLine>,
     /// The agent processes' stderr as streams (`SessionStderr`): each carries a string control that
     /// runs across lines, so a payload never reaches `stderr_tail`. Kept across turns, as the
     /// process is. Not persisted: after a daemon restart, a line that continues a control opened
