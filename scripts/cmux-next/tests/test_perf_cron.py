@@ -1324,6 +1324,22 @@ class WebUiTests(unittest.TestCase):
         # Not a god row: no god_ratio twin is made of the god home's reading.
         self.assertFalse(any("god_ratio" in name for name in rows))
 
+    def test_the_daemon_start_rows_are_report_only_and_keep_budgets(self):
+        self.assertTrue(cron.is_linux_part("daemon-start"))
+        self.assertEqual(cron.part_for_row("daemon.acpmux.spawn_to_accept_ms@linux"), "daemon-start")
+        self.assertEqual(cron.part_for_row("daemon.cmux_tui.spawn_to_ready_ms@linux"), "daemon-start")
+        runs = cron.linux_bench_runs("/r", "daemon-start")
+        self.assertEqual(list(runs), ["accept", "load"])
+        report = {"accept": {
+            "acpmux_spawn_to_accept_ms": {"p50_ms": 180.0, "p95_ms": 420.0},
+            "cmux_tui_spawn_to_ready_ms": {"p50_ms": 28.0, "p95_ms": 44.0},
+        }}
+        rows = cron.rows_of_part(cron.PART_BY_NAME["daemon-start"], report, budgets_mod, {})
+        self.assertEqual(rows["daemon.acpmux.spawn_to_accept_ms"]["budget"], 2000.0)
+        self.assertEqual(rows["daemon.cmux_tui.spawn_to_ready_ms"]["p95"], 44.0)
+        self.assertTrue(cron.REPORT_ONLY_ROW_RE.match("daemon.acpmux.spawn_to_accept_ms"))
+        self.assertTrue(cron.REPORT_ONLY_ROW_RE.match("daemon.cmux_tui.spawn_to_ready_ms"))
+
     def test_the_coord_sim_rows_have_their_own_linux_part(self):
         self.assertTrue(cron.is_linux_part("coord-sim"))
         self.assertEqual(cron.part_for_row("webui.coord_sim.delivery_ms@linux"), "coord-sim")

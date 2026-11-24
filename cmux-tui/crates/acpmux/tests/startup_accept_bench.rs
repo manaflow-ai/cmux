@@ -50,6 +50,11 @@ struct Daemon {
     socket: PathBuf,
 }
 
+struct StartTiming {
+    spawned: Instant,
+    ready: Instant,
+}
+
 impl Daemon {
     fn new(home: PathBuf) -> Self {
         let _ = std::fs::remove_dir_all(&home);
@@ -62,8 +67,8 @@ impl Daemon {
         Self { child: None, home, socket }
     }
 
-    /// Starts the daemon; returns the instant it was spawned.
-    fn start(&mut self) -> Instant {
+    /// Starts the daemon and records when its ready-fd announced the socket.
+    fn start(&mut self) -> StartTiming {
         assert!(self.child.is_none());
         let mut command = daemon_env::command(&self.home, daemon_env::Agents::StandIn, &[]);
         command
@@ -83,6 +88,7 @@ impl Daemon {
             ready.clear();
         }
         assert!(ready.contains("\"ready\":true"), "daemon not ready");
+        let ready_at = Instant::now();
         if let Some(bound) = serde_json::from_str::<Value>(&ready)
             .ok()
             .and_then(|v| v["socket"].as_str().map(PathBuf::from))
@@ -90,7 +96,7 @@ impl Daemon {
             self.socket = bound;
         }
         self.child = Some(child);
-        spawned
+        StartTiming { spawned, ready: ready_at }
     }
 
     fn sigterm(&mut self) {
@@ -381,28 +387,49 @@ async fn a_prompt_is_accepted_as_soon_after_a_start_in_a_god_chat_as_in_a_small_
     let middle = format!("chat-{:04}", chats / 2);
     let targets = ["god", "small", middle.as_str()];
     let mut times: Vec<Vec<f64>> = vec![Vec::new(); targets.len()];
+    let mut ready_times = Vec::new();
     for round in 0..rounds {
         for (t, target) in targets.iter().enumerate() {
-            let spawned = daemon.start();
+            let timing = daemon.start();
             let mut rpc = daemon.rpc().await;
             let accepted = rpc.prompt(target, &format!("round {round}")).await;
-            times[t].push(accepted.duration_since(spawned).as_secs_f64() * 1000.0);
+            times[t].push(accepted.duration_since(timing.spawned).as_secs_f64() * 1000.0);
+            ready_times.push(timing.ready.duration_since(timing.spawned).as_secs_f64() * 1000.0);
             drop(rpc);
             daemon.sigterm();
         }
     }
     let mut p95 = Vec::new();
+    let mut accepted_summary = Vec::new();
     for (t, target) in targets.iter().enumerate() {
         let (p50, p) = (percentile(&mut times[t], 50.0), percentile(&mut times[t], 95.0));
         eprintln!(
             "start to prompt_accepted, {target}: p50 {p50:.0} ms, p95 {p:.0} ms ({rounds} rounds)"
         );
         p95.push(p);
+        accepted_summary.push(json!({"target": target, "p50_ms": p50, "p95_ms": p}));
     }
+    let ready_p50 = percentile(&mut ready_times, 50.0);
+    let ready_p95 = percentile(&mut ready_times, 95.0);
     let ratio = p95[0] / p95[1];
     eprintln!(
         "god p95 / small p95: {ratio:.2} (bar 1.2); {chats} chats p95 {:.0} ms (bar 2000)",
         p95[2]
+    );
+    println!(
+        "{}",
+        json!({
+            "acpmux_spawn_to_accept_ms": {
+                "p50_ms": accepted_summary[0]["p50_ms"],
+                "p95_ms": accepted_summary[0]["p95_ms"],
+                "target": "god",
+            },
+            "cmux_tui_spawn_to_ready_ms": {"p50_ms": ready_p50, "p95_ms": ready_p95},
+            "samples": rounds * targets.len(),
+            "god_mb": god_mb,
+            "chats": chats,
+            "accept_by_target": accepted_summary,
+        })
     );
     let _ = HERMETIC;
 }
