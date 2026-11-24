@@ -1943,6 +1943,22 @@ export async function runPreclaimBurst(args: {
 
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Why a running machine has not paused, from its record: `last_active_at` (Idle.ts idleClockStart: null means no
+ * report speaks for its activity, so the idle rule never runs; a recent time means something keeps it in use) and the
+ * activity the platform keeps (open sessions, the workload block), whichever the record carries.
+ */
+export async function idleHeldBy(api: Api, machine: string, now = Date.now()): Promise<string> {
+  const m = await Promise.resolve().then(() => api.read("cloud.machine.get", { machine })).catch((error) => error as Error);
+  if (m instanceof Error) return `idle facts unreadable: ${m.message.slice(0, 200)}`;
+  const last = m?.last_active_at;
+  const clock = typeof last === "number" ? `idle clock started ${Math.round((now - last) / 1000)} s ago` : "idle clock not running (last_active_at null: no report speaks for its activity)";
+  const activity = m?.activity ?? m?.report?.activity;
+  const bits = [clock, `idle policy ${m?.idle_seconds ?? m?.idle_policy?.idle_seconds ?? "?"} s`];
+  if (activity && typeof activity === "object") bits.push(`activity ${short(activity)}`);
+  return bits.join("; ");
+}
+
 /** Test-side bounded wait on a machine field (the product never polls; this is the harness). */
 export async function waitMachine(api: Api, machine: string, want: (m: any) => boolean, budgetMs: number, goneOk = false): Promise<any> {
   const t0 = Date.now();
@@ -5436,7 +5452,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         if (!idleDefault) await api.op("cloud.machine.idle_policy.set", { machine: created.id, idle_seconds: idlePauseS }, `${tag}-idle`);
         // The deadline covers the post-chat hold (staging CLOUD_POST_CHAT_WARM_SECONDS=600 keeps a machine up after a
         // chat turn whatever its idle policy) plus the alarm's re-check, so a pause the platform owes is never missed.
-        const m = await waitMachine(api, created.id, (x) => x.status === "paused", (Math.max(idlePauseS, POST_CHAT_HOLD_S) + 300) * 1000);
+        const m = await waitMachine(api, created.id, (x) => x.status === "paused", (Math.max(idlePauseS, POST_CHAT_HOLD_S) + 300) * 1000).catch(async (error) => {
+          // A pause that never came: name what held the machine (the idle clock's start, the report's open sessions and
+          // workload), so the failure says why instead of only "still running" (two walks on 2026-11-24 could not tell).
+          throw new Error(`${(error as Error).message}; ${await idleHeldBy(api, created.id)}`);
+        });
         const took = Math.round((Date.now() - idleSet) / 1000);
         return { value: m, detail: idleDefault ? `paused ${took} s after the turn ended, at the deployment's default idle pause` : `paused ${took} s after a ${idlePauseS} s idle policy was set` };
       });
