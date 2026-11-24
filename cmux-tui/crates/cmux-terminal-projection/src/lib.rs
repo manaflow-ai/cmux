@@ -194,10 +194,16 @@ impl Projection {
         self.paint().into_iter().collect()
     }
 
-    /// The next paint starts the phone's terminal over.
+    /// The next paint starts the phone's terminal over: the host's replay
+    /// (its whole scrollback again) follows. Rows the replay pushes are not
+    /// rows the phone missed, so that paint holds the tail window (and
+    /// [`View::keep_from`]), not every replayed row: a phone whose empty grid
+    /// painted before the attach's replay held all 3,000 lines of it (#51584's
+    /// reach from the last paint; #43189: the phone holds a window).
     pub fn request_reset(&mut self) {
         if let Some(view) = &mut self.view {
             view.request_reset();
+            view.pushed_at_paint = None;
         }
     }
 
@@ -229,8 +235,11 @@ impl Projection {
                 segments.push(Segment::Raw(bytes.get(start..=i).unwrap_or_default().to_vec()));
                 self.term.passthrough.clear();
                 segments.push(Segment::Alternate(false));
-                // The phone's primary screen was drawn at another grid meanwhile.
-                self.request_reset();
+                // The phone's primary screen was drawn at another grid meanwhile
+                // (rows pushed since the last paint still reach the phone).
+                if let Some(view) = &mut self.view {
+                    view.request_reset();
+                }
             }
         }
         if let Some(start) = raw_start {
