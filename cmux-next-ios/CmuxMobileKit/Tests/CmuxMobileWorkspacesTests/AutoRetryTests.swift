@@ -70,6 +70,8 @@ import Testing
         #expect(calls == 0)
         retry.update(foreground: true)
         #expect(await until { calls == 1 }, "one attempt right away on return to the foreground")
+        // Let that attempt finish: a return while one is in flight starts none of its own.
+        #expect(await until { retry.attempts == 1 && !retry.isAttemptInFlight })
         retry.update(visible: false)
         retry.update(visible: true)
         #expect(await until { calls == 2 }, "and on the screen appearing again")

@@ -160,12 +160,13 @@ import Testing
         #expect(sources.offCard == .off)
     }
 
-    @Test func aFailedTurnOnOffersTryAgainAndASuccessClearsIt() async {
+    @Test func aFailedTurnOnIsMadeAgainOnItsOwnAndASuccessClearsIt() async {
         Service.reset(503, #"{}"#)
         let (sources, chief) = sourcesWithTheBrainOff()
         await sources.turnOn(chief)
         #expect(sources.offCard == .failed)
-        #expect(sources.offCard?.offersTurnOn == true)
+        // No Try Again: Home's AutoRetry makes the same Turn On again (Leo, 2026-11-22).
+        #expect(sources.offCard?.offersTurnOn == false)
         Service.reset(200, #"{"ok":true,"value":{"config":{"enabled":true}}}"#)
         await sources.turnOn(chief)
         #expect(sources.turnOnRefusal == nil)

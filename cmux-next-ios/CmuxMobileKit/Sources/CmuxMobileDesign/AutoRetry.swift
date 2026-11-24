@@ -102,6 +102,9 @@ public final class AutoRetry {
         if !visible { stopLoop() } else if returned { schedule(immediately: true) }
     }
 
+    /// An attempt is running now (a return to the screen meanwhile starts none of its own).
+    public var isAttemptInFlight: Bool { inFlight }
+
     private var canRun: Bool { failing && visible && foreground && !inFlight }
 
     private func schedule(immediately: Bool) {
