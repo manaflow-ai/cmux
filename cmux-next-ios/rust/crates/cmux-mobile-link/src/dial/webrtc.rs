@@ -38,31 +38,29 @@ async fn literal_urls(
     urls: &[String],
     routes: &std::sync::Arc<crate::route_literals::RouteLiterals>,
 ) -> Vec<String> {
-    let mut out = Vec::with_capacity(urls.len());
-    for url in urls {
-        let Some((scheme, rest)) =
-            url.split_once(':').filter(|(scheme, _)| matches!(*scheme, "stun" | "turn"))
-        else {
-            out.push(url.clone());
-            continue;
-        };
-        let (host_port, query) = rest.split_once('?').map_or((rest, None), |(hp, q)| (hp, Some(q)));
-        let Some((host, port)) = crate::route_literals::split_host_port(host_port, 3478) else {
-            out.push(url.clone());
-            continue;
-        };
-        let ipv4 = routes
-            .resolve_host(&host)
-            .await
-            .ok()
-            .and_then(|found| found.into_iter().find(std::net::IpAddr::is_ipv4));
-        out.push(match (ipv4, query) {
-            (Some(ip), Some(query)) => format!("{scheme}:{ip}:{port}?{query}"),
-            (Some(ip), None) => format!("{scheme}:{ip}:{port}"),
-            (None, _) => url.clone(),
-        });
+    // Every URL at once: a hanging DNS costs the dial one bound, not one per URL.
+    futures_util::future::join_all(urls.iter().map(|url| literal_url(url, routes))).await
+}
+
+async fn literal_url(url: &str, routes: &std::sync::Arc<crate::route_literals::RouteLiterals>) -> String {
+    let Some((scheme, rest)) = url.split_once(':').filter(|(scheme, _)| matches!(*scheme, "stun" | "turn"))
+    else {
+        return url.to_owned();
+    };
+    let (host_port, query) = rest.split_once('?').map_or((rest, None), |(hp, q)| (hp, Some(q)));
+    let Some((host, port)) = crate::route_literals::split_host_port(host_port, 3478) else {
+        return url.to_owned();
+    };
+    let ipv4 = routes
+        .resolve_host(&host)
+        .await
+        .ok()
+        .and_then(|found| found.into_iter().find(std::net::IpAddr::is_ipv4));
+    match (ipv4, query) {
+        (Some(ip), Some(query)) => format!("{scheme}:{ip}:{port}?{query}"),
+        (Some(ip), None) => format!("{scheme}:{ip}:{port}"),
+        (None, _) => url.to_owned(),
     }
-    out
 }
 
 /// The data channel label (PROTOCOL.md).

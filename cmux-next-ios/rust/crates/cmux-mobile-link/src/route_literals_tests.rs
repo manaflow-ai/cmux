@@ -97,10 +97,73 @@ async fn dns_down_dials_the_remembered_literals() {
     assert_eq!(routes.resolve("turn.example:3478", 0).await.unwrap(), vec![sa("192.0.2.1:3478")]);
     let took = started.elapsed();
     assert!(took < DNS_GRACE + Duration::from_millis(400), "{took:?}");
-    // The hanging refresh is still out: a second lookup does not stack another, nor wait.
+    // The hanging refresh is still out: a second lookup joins it rather than stacking another,
+    // and waits no longer than the grace.
+    let asked = fake.asked.load(Ordering::Relaxed);
     let started = Instant::now();
     routes.resolve("turn.example:3478", 0).await.unwrap();
-    assert!(started.elapsed() < DNS_GRACE / 2, "{:?}", started.elapsed());
+    assert!(started.elapsed() < DNS_GRACE + Duration::from_millis(400), "{:?}", started.elapsed());
+    assert_eq!(fake.asked.load(Ordering::Relaxed), asked, "a second DNS lookup was stacked");
+}
+
+/// A dial's legs ask for one host at once (TURN over UDP and TLS, STUN, ICE URLs) after the
+/// server moved: each gets DNS's new answer, not the dead remembered literal, and DNS is asked
+/// once.
+#[tokio::test]
+async fn legs_asking_at_once_all_get_dns_answer_over_a_stale_literal() {
+    let fake = Arc::new(Slow { asked: AtomicU32::new(0), answer: vec![ip(9)] });
+    let routes = Arc::new(RouteLiterals::new(Arc::clone(&fake) as Arc<dyn Resolver>));
+    routes.store("turn.example", &[ip(1)]);
+    let (a, b, c) = tokio::join!(
+        routes.resolve_host("turn.example"),
+        routes.resolve_host("turn.example"),
+        routes.resolve_host("turn.example"),
+    );
+    for found in [a, b, c] {
+        assert_eq!(found.unwrap(), vec![ip(9)]);
+    }
+    assert_eq!(fake.asked.load(Ordering::Relaxed), 1);
+}
+
+/// With nothing remembered, a resolver that never answers ends the lookup at the bound rather
+/// than holding the dial.
+#[tokio::test(start_paused = true)]
+async fn with_nothing_remembered_a_hanging_dns_is_bounded() {
+    let routes = memory(&Fake::new(Answer::Hang));
+    let started = tokio::time::Instant::now();
+    assert!(routes.resolve_host("turn.example").await.is_err());
+    assert!(started.elapsed() <= super::DNS_BOUND + Duration::from_millis(10), "{:?}", started.elapsed());
+}
+
+/// A dial that gave up on a hanging DNS leaves its lookup running to the bound; once DNS is
+/// back, the next dial (past the join window) asks again instead of joining the stuck one.
+#[tokio::test(start_paused = true)]
+async fn a_lookup_stuck_on_dns_that_came_back_is_not_joined() {
+    let fake = Fake::new(Answer::Hang);
+    let routes = memory(&fake);
+    assert!(tokio::time::timeout(Duration::from_secs(3), routes.resolve_host("turn.example")).await.is_err());
+    fake.set(Answer::With(vec![ip(2)]));
+    let started = tokio::time::Instant::now();
+    assert_eq!(routes.resolve_host("turn.example").await.unwrap(), vec![ip(2)]);
+    assert!(started.elapsed() < Duration::from_millis(10), "{:?}", started.elapsed());
+    assert_eq!(fake.asked.load(Ordering::Relaxed), 2);
+}
+
+/// A resolver that answers after 20 ms, well inside the grace.
+struct Slow {
+    asked: AtomicU32,
+    answer: Vec<IpAddr>,
+}
+
+impl Resolver for Slow {
+    fn lookup(&self, _host: &str) -> Lookup {
+        self.asked.fetch_add(1, Ordering::Relaxed);
+        let answer = self.answer.clone();
+        Box::pin(async move {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            Ok(answer)
+        })
+    }
 }
 
 /// Healthy DNS wins over a stale literal (the server moved), and its answer refreshes the

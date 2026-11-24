@@ -18,7 +18,7 @@
 //! names a file, [`RouteLiterals::set_file`]) as versioned JSON ([`FORMAT_VERSION`]); a file
 //! of another version or shape loads as what it can, never fails a dial.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::future::Future;
 use std::io;
 use std::net::{IpAddr, SocketAddr};
@@ -62,6 +62,10 @@ pub const TTL: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 pub const DNS_GRACE: Duration = Duration::from_millis(100);
 /// How long a refresh waits for DNS before it gives up (a resolver that never answers).
 pub const DNS_BOUND: Duration = Duration::from_secs(10);
+/// A caller joins a host's running lookup only while it is this young: the legs of one dial
+/// ask together, while a lookup older than this is likely stuck on a DNS that has since come
+/// back, so the next caller asks again (at most `DNS_BOUND / JOIN_WINDOW` per host at once).
+pub const JOIN_WINDOW: Duration = Duration::from_secs(1);
 /// The persisted format's version.
 pub const FORMAT_VERSION: u32 = 1;
 /// An unchanged entry is written again only once it is this old (constant writes per dial).
@@ -86,10 +90,56 @@ struct Stored {
     hosts: HashMap<String, Entry>,
 }
 
+/// One shared DNS lookup: `None` while it runs, then its answer (`None` when DNS failed).
+type SharedLookup = tokio::sync::watch::Receiver<Option<Option<Vec<IpAddr>>>>;
+
+/// Takes a host's lookup off [`State::refreshing`] however its task ends (a runtime that
+/// shuts down mid-lookup too), so the next caller asks DNS again.
+struct Unregister {
+    routes: Arc<RouteLiterals>,
+    host: String,
+    id: u64,
+}
+
+impl Drop for Unregister {
+    fn drop(&mut self) {
+        let mut state = self.routes.lock();
+        // A newer lookup for the host may have taken the slot; leave it.
+        if state.refreshing.get(&self.host).is_some_and(|running| running.id == self.id) {
+            state.refreshing.remove(&self.host);
+        }
+    }
+}
+
+/// A host's lookup under way.
+struct Running {
+    id: u64,
+    started: tokio::time::Instant,
+    lookup: SharedLookup,
+}
+
+/// The answer `lookup` gives within `limit`: `None` when DNS failed, ended or is slower.
+async fn answer_within(mut lookup: SharedLookup, limit: Duration) -> Option<Vec<IpAddr>> {
+    let wait = async move {
+        loop {
+            if let Some(found) = lookup.borrow_and_update().clone() {
+                return found;
+            }
+            if lookup.changed().await.is_err() {
+                return lookup.borrow().clone().flatten();
+            }
+        }
+    };
+    tokio::time::timeout(limit, wait).await.ok().flatten()
+}
+
 #[derive(Default)]
 struct State {
     hosts: HashMap<String, Entry>,
-    refreshing: HashSet<String>,
+    /// The DNS lookup under way for each host, shared by every caller that asks meanwhile.
+    refreshing: HashMap<String, Running>,
+    /// The id the next lookup takes.
+    next_lookup: u64,
     file: Option<PathBuf>,
 }
 
@@ -176,43 +226,52 @@ impl RouteLiterals {
         if let Ok(ip) = host.parse::<IpAddr>() {
             return Ok(vec![ip]);
         }
-        let Some(remembered) = self.remembered(&host) else {
-            let found = self.resolver.lookup(&host).await?;
-            if found.is_empty() {
-                return Err(io::Error::new(io::ErrorKind::NotFound, format!("{host}: no address")));
-            }
-            self.store(&host, &found);
-            return Ok(found);
+        let remembered = self.remembered(&host);
+        let lookup = self.shared_lookup(&host);
+        let Some(remembered) = remembered else {
+            // Nothing to fall back on: wait for DNS, bounded so a resolver that hangs ends the
+            // lookup rather than the dial.
+            return answer_within(lookup, DNS_BOUND)
+                .await
+                .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("{host}: no address")));
         };
-        if !self.lock().refreshing.insert(host.clone()) {
-            // A refresh is under way (a dial's other leg, or DNS hanging): it updates the memory.
-            return Ok(remembered);
+        // Every caller waits out the grace on the one shared lookup, so a dial's legs that ask
+        // for the same host at once each get DNS's answer when it comes in time.
+        if let Some(found) = answer_within(lookup, self.grace).await {
+            return Ok(found);
         }
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        let (me, lookup) = (Arc::clone(self), self.resolver.lookup(&host));
-        let refreshing = host.clone();
+        tracing::info!(%host, grace_ms = self.grace.as_millis(), "DNS failed or slow; dialing the remembered literals");
+        Ok(remembered)
+    }
+
+    /// The DNS lookup of `host` under way, or a new one. Its answer is remembered.
+    fn shared_lookup(self: &Arc<Self>, host: &str) -> SharedLookup {
+        let mut state = self.lock();
+        let now = tokio::time::Instant::now();
+        if let Some(running) = state.refreshing.get(host)
+            && now.duration_since(running.started) < JOIN_WINDOW
+        {
+            return running.lookup.clone();
+        }
+        let (tx, rx) = tokio::sync::watch::channel(None);
+        let id = state.next_lookup;
+        state.next_lookup += 1;
+        state.refreshing.insert(host.to_owned(), Running { id, started: now, lookup: rx.clone() });
+        drop(state);
+        let unregister = Unregister { routes: Arc::clone(self), host: host.to_owned(), id };
+        let lookup = self.resolver.lookup(host);
         tokio::spawn(async move {
             let found = match tokio::time::timeout(DNS_BOUND, lookup).await {
                 Ok(Ok(found)) if !found.is_empty() => {
-                    me.store(&refreshing, &found);
+                    unregister.routes.store(&unregister.host, &found);
                     Some(found)
                 }
                 _ => None,
             };
-            me.lock().refreshing.remove(&refreshing);
-            let _ = tx.send(found);
+            drop(unregister);
+            let _ = tx.send(Some(found));
         });
-        match tokio::time::timeout(self.grace, rx).await {
-            Ok(Ok(Some(found))) => Ok(found),
-            Ok(_) => {
-                tracing::info!(%host, "DNS failed; dialing the remembered literals");
-                Ok(remembered)
-            }
-            Err(_) => {
-                tracing::info!(%host, grace_ms = self.grace.as_millis(), "DNS slow; dialing the remembered literals");
-                Ok(remembered)
-            }
-        }
+        rx
     }
 
     /// Remember `found` as `host`'s addresses (a DNS answer), the address a dial last reached
@@ -288,7 +347,8 @@ impl RouteLiterals {
         count
     }
 
-    /// Forget everything (sign out); the file too, when there is one.
+    /// Forget everything; the file too, when there is one. The literals are public servers'
+    /// addresses, nothing of the account's, so sign-out need not call it.
     pub fn clear(&self) {
         let mut state = self.lock();
         state.hosts.clear();
@@ -337,7 +397,10 @@ fn write_atomically(path: &Path, text: &str) -> io::Result<()> {
         std::fs::create_dir_all(parent)?;
     }
     let partial = path.with_extension("partial");
-    std::fs::write(&partial, text)?;
+    let mut file = std::fs::File::create(&partial)?;
+    std::io::Write::write_all(&mut file, text.as_bytes())?;
+    // On disk before the rename, so a crash leaves the old file or the new one, never a torn one.
+    file.sync_all()?;
     std::fs::rename(&partial, path)
 }
 
