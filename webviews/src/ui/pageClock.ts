@@ -1,6 +1,6 @@
 // Page-owned repeating work: a hidden page owns no timer, and the last subscriber releases
 // both the timer and its visibility listener. Diagnostics count allocated timers, not callbacks.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type Clock = { name: string; running: boolean; subscribers: () => number; document?: Document };
 const clocks = new Set<Clock>();
@@ -177,9 +177,17 @@ export function usePageNow(running: boolean, now: () => number = Date.now): numb
   // On the wall clock, a running label starts at the shared clock's sample, as its next ticks are.
   const wall = now === Date.now;
   const [time, setTime] = useState(() => (running && wall ? (subscribePageSecond.sample() ?? now()) : now()));
+  // The sample it shows, so subscribing (which hands over the current sample at once) sets nothing when
+  // the label already shows it: React can't always drop an equal set unasked, and then it renders and commits.
+  const shown = useRef(time);
   useEffect(() => {
     if (!running) return;
-    return subscribePageSecond((at) => setTime(wall ? at : now()));
+    return subscribePageSecond((at) => {
+      const sample = wall ? at : now();
+      if (sample === shown.current) return;
+      shown.current = sample;
+      setTime(sample);
+    });
   }, [running, now, wall]);
   return time;
 }
