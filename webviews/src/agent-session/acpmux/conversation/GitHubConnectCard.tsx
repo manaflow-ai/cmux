@@ -94,6 +94,23 @@ export function GitHubConnectCardView({
   );
 }
 
+/// Sets a card's phase in the store (it outlives a redraw) and in the component.
+function storePhase(phaseKey: string, setPhase: (next: GitHubConnectPhase) => void, next: GitHubConnectPhase) {
+  setCardPhase(phaseKey, next);
+  setPhase(next);
+}
+
+/// Sends Continue once: a card already continuing does nothing.
+function continueOnce(
+  phaseKey: string,
+  setPhase: (next: GitHubConnectPhase) => void,
+  offer: GitHubConnectOffer | undefined,
+) {
+  if (!offer || cardPhase(phaseKey).kind === "continuing") return;
+  storePhase(phaseKey, setPhase, { kind: "continuing" });
+  void offer.continue();
+}
+
 /// The card under a turn whose GitHub call asked for a connect (TurnFooter). `phaseKey` names the
 /// chat and turn, so the card keeps its phase when the transcript draws it again.
 export function GitHubConnectCard({ need, phaseKey }: { need: GitHubConnectNeed; phaseKey: string }) {
@@ -101,16 +118,9 @@ export function GitHubConnectCard({ need, phaseKey }: { need: GitHubConnectNeed;
   const readOnly = useTranscriptReadOnly();
   const offer: GitHubConnectOffer | undefined = readOnly ? undefined : githubConnect;
   const [phase, setPhase] = useState<GitHubConnectPhase>(() => cardPhase(phaseKey));
-  const set = (next: GitHubConnectPhase) => {
-    setCardPhase(phaseKey, next);
-    setPhase(next);
-  };
+  const set = (next: GitHubConnectPhase) => storePhase(phaseKey, setPhase, next);
   useEffect(() => setPhase(cardPhase(phaseKey)), [phaseKey]);
-  const goOn = () => {
-    if (!offer || cardPhase(phaseKey).kind === "continuing") return;
-    set({ kind: "continuing" });
-    void offer.continue();
-  };
+  const goOn = () => continueOnce(phaseKey, setPhase, offer);
   // While GitHub's page is open: leaving the page (the browser in front, the app in the background)
   // marks the card, and coming back after that sends Continue once. An event, never a timer.
   const waiting = phase.kind === "waiting";
@@ -118,8 +128,8 @@ export function GitHubConnectCard({ need, phaseKey }: { need: GitHubConnectNeed;
     if (!waiting || !offer) return;
     const seen = (visible: boolean) => {
       const next = afterVisibility(cardPhase(phaseKey), visible);
-      if (next === "continue") return goOn();
-      if (next !== cardPhase(phaseKey)) set(next);
+      if (next === "continue") return continueOnce(phaseKey, setPhase, offer);
+      if (next !== cardPhase(phaseKey)) storePhase(phaseKey, setPhase, next);
     };
     const onVisibility = () => seen(document.visibilityState !== "hidden");
     // Focus moving into a frame of this page is not leaving it.
@@ -133,8 +143,6 @@ export function GitHubConnectCard({ need, phaseKey }: { need: GitHubConnectNeed;
       window.removeEventListener("blur", onBlur);
       window.removeEventListener("focus", onFocus);
     };
-    // goOn and set read the store, not render state.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [waiting, offer, phaseKey]);
   const connect = () => {
     if (!offer) return;
