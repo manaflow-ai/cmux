@@ -1,6 +1,6 @@
 import CmuxNextCloud
 import CmuxNextWakeups
-import Foundation
+public import Foundation
 
 /// One chat as the place controls see it, read by the app (``CloudPlaceHost``).
 public struct CloudPlaceChat: Sendable {
@@ -129,20 +129,19 @@ public final class CloudPlaceDriver {
         guard !queue.isEmpty else { return }
         place.beginEvacuation(direction: request.direction, chats: queue.map { ($0.session, $0.title) })
         // task-owner: one-shot; ends when the last move ends.
+        // `parallel` main-actor workers take the next queued chat until the queue is empty or Cancel stops it.
+        let pending = CloudPlaceQueue(queue)
         Task {
-            var next = queue.makeIterator()
             await withTaskGroup(of: Void.self) { group in
-                func launch() -> Bool {
-                    guard !self.place.evacuationStopped, let chat = next.next() else { return false }
-                    self.place.evacuationPhase(chat.session, .running)
+                for _ in 0..<max(1, plan.parallel) {
                     group.addTask { @MainActor in
-                        await self.moved(chat, toCloud: toCloud, trigger: .evacuate)
-                        self.place.evacuationPhase(chat.session, .ended)
+                        while !self.place.evacuationStopped, let chat = pending.next() {
+                            self.place.evacuationPhase(chat.session, .running)
+                            await self.moved(chat, toCloud: toCloud, trigger: .evacuate)
+                            self.place.evacuationPhase(chat.session, .ended)
+                        }
                     }
-                    return true
                 }
-                for _ in 0..<max(1, plan.parallel) { if !launch() { break } }
-                for await _ in group { _ = launch() }
             }
         }
     }
@@ -218,4 +217,12 @@ public final class CloudPlaceDriver {
             }
         }
     }
+}
+
+/// The chats an Evacuate or Bring Back All run has not started yet, taken in order by its workers.
+@MainActor
+private final class CloudPlaceQueue {
+    private var chats: [CloudPlaceChat]
+    init(_ chats: [CloudPlaceChat]) { self.chats = chats.reversed() }
+    func next() -> CloudPlaceChat? { chats.popLast() }
 }
