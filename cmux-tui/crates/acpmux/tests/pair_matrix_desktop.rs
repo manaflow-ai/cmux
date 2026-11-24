@@ -558,7 +558,7 @@ fn profile(name: &str) -> LinkProfile {
 
 fn condition_profile(condition: &str) -> &'static str {
     match condition {
-        "loss" => "lossy-3",
+        "loss" | "sleep-loss" => "lossy-3",
         "handoff" => "5g-lte-handoff",
         _ => "lte",
     }
@@ -796,7 +796,7 @@ async fn measure(
     let start = Instant::now();
     let end = match condition {
         "loss" | "latency" | "long" => s.link.blackout(BLIP),
-        "sleep" => s.link.blackout(SLEEP),
+        "sleep" | "sleep-loss" => s.link.blackout(SLEEP),
         "handoff" => s.link.disrupt().ok_or("5g-lte-handoff has no disruption")?,
         // The direct path dies for good; the relay must take over.
         "failover" => {

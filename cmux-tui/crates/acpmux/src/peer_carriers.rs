@@ -647,7 +647,26 @@ impl Peer {
             // while no attempt connected (`happy_dial::connect_tcp_again`): a dial sent into an
             // outage otherwise waits out its SYN retransmissions after the network is back.
             let tcp = if self.linked_once.load(Ordering::SeqCst) {
-                crate::happy_dial::connect_tcp_again(&host, port, URL_REDIAL_AGAIN).await
+                // A wake or a network change starts a fresh attempt at once, not at the next tick.
+                let kick = || async {
+                    let mut slept = crate::peer_link::SleepWatch::now();
+                    tokio::select! {
+                        () = self.network_changed() => {
+                            tracing::info!(peer = %self.name, "network changed mid-dial; dialing again now");
+                        }
+                        () = async {
+                            loop {
+                                tokio::time::sleep(URL_REDIAL_AGAIN).await;
+                                if slept.check().is_some() {
+                                    break;
+                                }
+                            }
+                        } => {
+                            tracing::info!(peer = %self.name, "this computer slept mid-dial; dialing again now");
+                        }
+                    }
+                };
+                crate::happy_dial::connect_tcp_again(&host, port, URL_REDIAL_AGAIN, kick).await
             } else {
                 crate::happy_dial::connect_tcp(&host, port).await
             }

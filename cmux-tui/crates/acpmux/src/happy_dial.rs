@@ -92,36 +92,93 @@ pub async fn connect_tcp(host: &str, port: u16) -> io::Result<TcpStream> {
     Ok(stream)
 }
 
-/// [`connect_tcp`], started again every `every` while no attempt has connected; the first
-/// connect wins and the others are dropped. For a redial of a host that already answered: a
-/// dial sent into an outage waits on its SYN retransmissions (1, 2, 4, 8, 16 s apart), so after
-/// a minute's outage the network can be back for ten seconds before that dial's next SYN goes
-/// out. A fresh attempt every `every` puts a SYN on the wire within `every` of the network
-/// coming back, and none of them counts as a failed dial. An attempt that fails while none
-/// other runs ends the call with its error (a refused port fails at once, as before).
-pub async fn connect_tcp_again(host: &str, port: u16, every: Duration) -> io::Result<TcpStream> {
-    again(every, || connect_tcp(host, port)).await
+/// At most this many TCP connects run at once in [`connect_tcp_again`]; at the cap a fresh
+/// attempt replaces the oldest, whose next SYN is the furthest off.
+pub const AGAIN_AT_MOST: usize = 4;
+
+/// [`connect_tcp`], started again every `every` while no attempt has connected, and at once
+/// whenever `kick` resolves (the caller's wake or network-change signal); the first connect
+/// wins and every other attempt is aborted, closing its socket. For a redial of a host that
+/// already answered: a dial sent into an outage waits on its SYN retransmissions (1, 2, 4, 8,
+/// 16 s apart), so after a minute's outage the network can be back for ten seconds before that
+/// dial's next SYN goes out. A fresh attempt every `every` puts a SYN on the wire within `every`
+/// of the network coming back, and none of them counts as a failed dial. At most
+/// [`AGAIN_AT_MOST`] run at once. An attempt that fails while none other runs ends the call
+/// with its error (a refused port fails at once, as before).
+pub async fn connect_tcp_again<K, KFut>(
+    host: &str,
+    port: u16,
+    every: Duration,
+    kick: K,
+) -> io::Result<TcpStream>
+where
+    K: FnMut() -> KFut,
+    KFut: Future<Output = ()>,
+{
+    let host = host.to_owned();
+    again(every, AGAIN_AT_MOST, kick, move || {
+        let host = host.clone();
+        async move { connect_tcp(&host, port).await }
+    })
+    .await
 }
 
-/// `dial` now and again every `every` until one succeeds, or one fails with no other running.
-pub async fn again<T, F, Fut>(every: Duration, mut dial: F) -> io::Result<T>
+/// `dial` now, again every `every` and at once on each `kick`, keeping at most `at_most`
+/// attempts (the oldest is aborted to make room), until one succeeds or one fails with no
+/// other running. Returning aborts every attempt still running.
+pub async fn again<T, F, Fut, K, KFut>(
+    every: Duration,
+    at_most: usize,
+    mut kick: K,
+    mut dial: F,
+) -> io::Result<T>
 where
+    T: Send + 'static,
     F: FnMut() -> Fut,
-    Fut: Future<Output = io::Result<T>>,
+    Fut: Future<Output = io::Result<T>> + Send + 'static,
+    K: FnMut() -> KFut,
+    KFut: Future<Output = ()>,
 {
-    let mut running = FuturesUnordered::new();
-    running.push(dial());
+    let at_most = at_most.max(1);
+    let mut running = tokio::task::JoinSet::new();
+    let mut oldest_first = std::collections::VecDeque::new();
+    let mut start =
+        |running: &mut tokio::task::JoinSet<io::Result<T>>,
+         oldest_first: &mut std::collections::VecDeque<tokio::task::AbortHandle>| {
+            if oldest_first.len() >= at_most
+                && let Some(oldest) = oldest_first.pop_front()
+            {
+                oldest.abort();
+            }
+            oldest_first.push_back(running.spawn(dial()));
+        };
+    start(&mut running, &mut oldest_first);
     let mut next = tokio::time::Instant::now() + every;
+    let mut kicked = Box::pin(kick());
     loop {
         tokio::select! {
-            Some(result) = running.next() => match result {
-                Ok(connected) => return Ok(connected),
-                Err(error) if running.is_empty() => return Err(error),
-                Err(_) => {}
-            },
+            Some(joined) = running.join_next_with_id() => {
+                let (id, result) = match joined {
+                    Ok((id, result)) => (id, result),
+                    // Aborted to make room: the attempt that replaced it is running.
+                    Err(error) if error.is_cancelled() => continue,
+                    Err(error) => (error.id(), Err(io::Error::other(error.to_string()))),
+                };
+                oldest_first.retain(|handle| handle.id() != id);
+                match result {
+                    Ok(connected) => return Ok(connected),
+                    Err(error) if running.is_empty() => return Err(error),
+                    Err(_) => {}
+                }
+            }
             () = tokio::time::sleep_until(next) => {
-                running.push(dial());
+                start(&mut running, &mut oldest_first);
                 next += every;
+            }
+            () = &mut kicked => {
+                start(&mut running, &mut oldest_first);
+                next = tokio::time::Instant::now() + every;
+                kicked = Box::pin(kick());
             }
         }
     }

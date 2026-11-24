@@ -1,5 +1,7 @@
 use super::*;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
 use std::time::Instant;
 
 fn v4(n: u8) -> SocketAddr {
@@ -169,14 +171,18 @@ async fn a_name_with_no_aaaa_dials_ipv4_as_before() {
     assert_eq!(body, "v4");
 }
 
+fn never() -> std::future::Pending<()> {
+    std::future::pending()
+}
+
 #[tokio::test(start_paused = true)]
 async fn again_starts_a_fresh_attempt_every_interval_and_the_first_to_connect_wins() {
-    let started = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let started = Arc::new(AtomicUsize::new(0));
     let counter = started.clone();
     let begun = tokio::time::Instant::now();
-    // Attempt 0 hangs (a SYN into an outage); attempt 2 connects 100 ms after it starts.
-    let won = again(Duration::from_secs(2), move || {
-        let n = counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    // Attempts 0 and 1 hang (SYNs into an outage); attempt 2 connects 100 ms after it starts.
+    let won = again(Duration::from_secs(2), 4, never, move || {
+        let n = counter.fetch_add(1, SeqCst);
         async move {
             if n == 2 {
                 tokio::time::sleep(Duration::from_millis(100)).await;
@@ -190,13 +196,13 @@ async fn again_starts_a_fresh_attempt_every_interval_and_the_first_to_connect_wi
     .unwrap();
     assert_eq!(won, 2);
     assert_eq!(begun.elapsed(), Duration::from_millis(4100));
-    assert_eq!(started.load(std::sync::atomic::Ordering::SeqCst), 3);
+    assert_eq!(started.load(SeqCst), 3);
 }
 
 #[tokio::test(start_paused = true)]
 async fn again_returns_a_lone_attempts_error_at_once() {
     let begun = tokio::time::Instant::now();
-    let error = again(Duration::from_secs(2), || async {
+    let error = again(Duration::from_secs(2), 4, never, || async {
         Err::<(), _>(io::Error::from(io::ErrorKind::ConnectionRefused))
     })
     .await
@@ -207,12 +213,12 @@ async fn again_returns_a_lone_attempts_error_at_once() {
 
 #[tokio::test(start_paused = true)]
 async fn again_keeps_waiting_on_a_hung_attempt_when_a_later_one_fails() {
-    let started = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let started = Arc::new(AtomicUsize::new(0));
     let counter = started.clone();
     let outcome = tokio::time::timeout(
         Duration::from_secs(5),
-        again(Duration::from_secs(2), move || {
-            let n = counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        again(Duration::from_secs(2), 4, never, move || {
+            let n = counter.fetch_add(1, SeqCst);
             async move {
                 if n == 0 {
                     std::future::pending::<io::Result<()>>().await
@@ -224,5 +230,73 @@ async fn again_keeps_waiting_on_a_hung_attempt_when_a_later_one_fails() {
     )
     .await;
     assert!(outcome.is_err(), "a failed later attempt must not end the call while one runs");
-    assert_eq!(started.load(std::sync::atomic::Ordering::SeqCst), 3);
+    assert_eq!(started.load(SeqCst), 3);
+}
+
+/// Counts attempts alive (started and not yet dropped).
+struct Alive(Arc<AtomicUsize>);
+impl Drop for Alive {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, SeqCst);
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn again_keeps_at_most_the_cap_running_and_closes_the_rest_when_one_wins() {
+    let alive = Arc::new(AtomicUsize::new(0));
+    let peak = Arc::new(AtomicUsize::new(0));
+    let started = Arc::new(AtomicUsize::new(0));
+    let (a, p, s) = (alive.clone(), peak.clone(), started.clone());
+    let won = again(Duration::from_secs(2), 4, never, move || {
+        let n = s.fetch_add(1, SeqCst);
+        let now = a.fetch_add(1, SeqCst) + 1;
+        p.fetch_max(now, SeqCst);
+        let guard = Alive(a.clone());
+        async move {
+            let _guard = guard;
+            if n == 9 { Ok(n) } else { std::future::pending::<io::Result<usize>>().await }
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(won, 9);
+    assert_eq!(peak.load(SeqCst), 4, "never more than the cap at once");
+    // Aborted tasks drop on the runtime's next turns.
+    for _ in 0..10 {
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(alive.load(SeqCst), 0, "every loser is closed once one wins");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_kick_starts_a_fresh_attempt_at_once() {
+    let kicks = Arc::new(tokio::sync::Notify::new());
+    let started = Arc::new(AtomicUsize::new(0));
+    let (k, s) = (kicks.clone(), started.clone());
+    let begun = tokio::time::Instant::now();
+    let kicker = kicks.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        kicker.notify_one();
+    });
+    let won =
+        again(
+            Duration::from_secs(2),
+            4,
+            move || {
+                let k = k.clone();
+                async move { k.notified().await }
+            },
+            move || {
+                let n = s.fetch_add(1, SeqCst);
+                async move {
+                    if n == 1 { Ok(n) } else { std::future::pending::<io::Result<usize>>().await }
+                }
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(won, 1);
+    assert_eq!(begun.elapsed(), Duration::from_millis(500), "the kick, not the 2 s tick");
+    assert_eq!(started.load(SeqCst), 2);
 }
