@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError};
 
-use cmux_worktree_care::inventory::{self, Facts, FinishedMemo, Repo};
+use cmux_worktree_care::inventory::{self, Facts, FinishedMemo, Guarded, Repo};
 use cmux_worktree_care::pass::{self, Options};
 use cmux_worktree_care::policy::{Action, Pressure, Settings};
 use cmux_worktree_care::procs::{Open, Uses};
@@ -19,6 +19,17 @@ fn nothing() -> Arc<Uses> {
 
 fn closed() -> Arc<Open> {
     Arc::new(|_| Ok(None))
+}
+
+/// No folder is privacy-protected.
+fn unguarded() -> Arc<Guarded> {
+    Arc::new(|_| false)
+}
+
+/// The folders under `dir` stand in for the Desktop: privacy-protected.
+fn guarded_under(dir: &Path) -> Arc<Guarded> {
+    let dir = dir.to_path_buf();
+    Arc::new(move |path: &Path| path.starts_with(&dir))
 }
 
 fn scratch(name: &str) -> PathBuf {
@@ -399,6 +410,7 @@ fn care_a_pass_reclaims_idle_work_and_keeps_an_open_session_s() {
         },
         uses: nothing(),
         open: closed(),
+        guarded: unguarded(),
         apply: true,
         pressure: Some(Pressure::Critical),
         only: Vec::new(),
@@ -546,6 +558,7 @@ fn care_a_worktree_whose_folder_is_missing_keeps_its_git_state() {
         settings: Settings::default(),
         uses: nothing(),
         open: closed(),
+        guarded: unguarded(),
         apply: true,
         pressure: Some(Pressure::Critical),
         only: Vec::new(),
@@ -591,6 +604,7 @@ fn care_a_claude_session_registered_in_a_worktree_keeps_it() {
             )
         }),
         open: closed(),
+        guarded: unguarded(),
         settings: Settings {
             recent_hours: zero,
             idle_pushed_hours: zero,
@@ -608,4 +622,86 @@ fn care_a_claude_session_registered_in_a_worktree_keeps_it() {
     let item = report.items.iter().find(|i| i.path == wt).unwrap();
     assert_eq!(item.verdict.action, Action::Keep, "{}", item.verdict.reason);
     assert!(wt.exists());
+}
+
+/// LAUNCH-NO-TCC-PROMPTS (2026-11-22, air-blue): a daemon's start-up pass ran
+/// `git rev-parse --git-common-dir` in a recorded session's folder on the
+/// Desktop, and a fresh copy of the app got the Desktop privacy prompt with
+/// nobody asking. A guarded session folder is never handed to git.
+#[test]
+fn care_a_session_folder_in_a_guarded_location_is_never_read() {
+    let base = scratch("guarded-session");
+    let desk = base.join("Desktop");
+    let session = desk.join("videos");
+    std::fs::create_dir_all(&session).unwrap();
+    git(&session, &["init", "-q"]);
+    let extra = vec![session.clone()];
+    // Unguarded, the session's repository is found (by a git run in it).
+    assert_eq!(inventory::repositories(&[], &extra, &*unguarded()).len(), 1);
+    assert!(
+        inventory::repositories(&[], &extra, &*guarded_under(&desk)).is_empty(),
+        "a guarded session folder reached git"
+    );
+}
+
+/// A worktree under a scanned root whose repository lives in a guarded
+/// folder: its `.git` file is read in the process, and no git runs (git would
+/// read the guarded git folder first).
+#[test]
+fn care_a_worktree_of_a_repository_in_a_guarded_location_is_skipped() {
+    let (base, main) = repository("guarded-repo");
+    let desk = base.clone();
+    let roots = scratch("guarded-repo-roots");
+    let wt = roots.join("wt-g");
+    git(&main, &["worktree", "add", "-q", "-b", "feat/g", wt.to_str().unwrap()]);
+    assert_eq!(inventory::repositories(&[roots.clone()], &[], &*unguarded()).len(), 1);
+    assert!(inventory::repositories(&[roots], &[], &*guarded_under(&desk)).is_empty());
+}
+
+/// A linked worktree someone put in a guarded folder is neither read nor
+/// acted on, even by a pass that removes every idle worktree.
+#[test]
+fn care_a_linked_worktree_in_a_guarded_location_is_left_alone() {
+    let _slot = merge_tree_slot();
+    let (base, main) = repository("guarded-wt");
+    let desk = base.join("Desktop");
+    std::fs::create_dir_all(&desk).unwrap();
+    let wt = desk.join("wt-d");
+    git(&main, &["worktree", "add", "-q", "-b", "feat/d", wt.to_str().unwrap()]);
+    let common = std::fs::canonicalize(main.join(".git")).unwrap();
+    let all =
+        inventory::scan_guarded(&common, &[], Arc::new(FinishedMemo::memory()), &*unguarded())
+            .unwrap();
+    assert!(all.worktrees.iter().any(|w| w.path == wt));
+    let repo = inventory::scan_guarded(
+        &common,
+        &[],
+        Arc::new(FinishedMemo::memory()),
+        &*guarded_under(&desk),
+    )
+    .unwrap();
+    assert!(repo.worktrees.iter().all(|w| w.path != wt), "a guarded worktree was read");
+    let zero = [0, 0, 0];
+    let options = Options {
+        roots: vec![base.clone()],
+        sessions: Vec::new(),
+        settings: Settings {
+            recent_hours: zero,
+            idle_pushed_hours: zero,
+            idle_unpushed_hours: zero,
+            trim_hours: zero,
+            ..Settings::default()
+        },
+        uses: nothing(),
+        open: closed(),
+        guarded: guarded_under(&desk),
+        apply: true,
+        pressure: Some(Pressure::Critical),
+        only: Vec::new(),
+        measure: false,
+    };
+    let store = Store::open(base.join("store")).unwrap();
+    let report = pass::run(&options, &store).unwrap();
+    assert!(report.items.iter().all(|i| i.path != wt));
+    assert!(wt.join("README").exists(), "the pass removed a guarded worktree");
 }
