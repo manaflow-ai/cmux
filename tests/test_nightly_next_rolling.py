@@ -386,6 +386,35 @@ TIP = "c" * 40
 IDLE = [run(21, 40, status="completed", head_sha=HEAD)]
 
 
+class SignerStaggerTests(unittest.TestCase):
+    """2 slots: one building run leaves the other signer Mac free, but the second start waits half a build
+    (SIGNER_STAGGER_MINUTES) after the newest start so the two finish apart."""
+
+    def decide(self, starts, slots=2, waiting=True):
+        return rolling.decide(NOW, head=HEAD, head_runs=[r for r in starts if r.get("head_sha") == HEAD],
+                              jobs_of=lambda r: ONE_BUILDING, promotions=[],
+                              oldest_waiting=(WAITING, NOW - dt.timedelta(minutes=5)) if waiting else None,
+                              starts=starts, slots=slots)
+
+    def test_one_build_half_done_promotes_onto_the_other_mac(self):
+        go, reason = self.decide([run(40, 20, head_sha=HEAD)])
+        self.assertTrue(go, reason)
+        self.assertIn("1 of 2 nightly-next slots busy", reason)
+
+    def test_one_build_just_started_waits_half_a_build(self):
+        go, reason = self.decide([run(41, 12, head_sha=HEAD)])
+        self.assertFalse(go, reason)
+        self.assertIn("started 12 of 16 min ago", reason)
+
+    def test_a_free_slot_with_nothing_waiting_waits(self):
+        go, reason = self.decide([run(45, 20, head_sha=HEAD)], waiting=False)
+        self.assertFalse(go, reason)
+
+    def test_one_slot_is_unchanged(self):
+        go, reason = self.decide([run(44, 20, head_sha=HEAD)], slots=1)
+        self.assertFalse(go, reason)
+
+
 class Api:
     """Answers by path prefix, as `gh api` does; a value that is an exception is raised."""
 
@@ -794,6 +823,43 @@ class LocalGapTests(unittest.TestCase):
 
     def test_main_reads_the_gap_from_the_checkout(self):
         self.assertIn("local_gap=git_oldest_after", SCRIPT.read_text(encoding="utf-8"))
+
+
+class GhApiSpareTokenTests(unittest.TestCase):
+    """gh_api: a refused read goes out once more on SPARE_READ_TOKEN, and a refusal names gh's words."""
+
+    def runner(self, answers):
+        calls = []
+
+        def run(argv, capture_output, text, env):
+            calls.append((env or {}).get("GH_TOKEN", "job"))
+            code, out, err = answers.pop(0)
+            return subprocess.CompletedProcess(argv, code, out, err)
+        return run, calls
+
+    def test_a_refused_read_is_read_on_the_spare_token(self):
+        run, calls = self.runner([(1, "", "HTTP 403: API rate limit exceeded"), (0, '{"ok": 1}', "")])
+        self.assertEqual(rolling.gh_api("repos/o/r/actions/runs", env={"SPARE_READ_TOKEN": "s"}, run=run), {"ok": 1})
+        self.assertEqual(calls, ["job", "s"])
+
+    def test_no_spare_fails_once_with_gh_s_words(self):
+        run, calls = self.runner([(1, "", "HTTP 403: API rate limit exceeded\n")])
+        with self.assertRaises(subprocess.CalledProcessError) as caught:
+            rolling.gh_api("repos/o/r/actions/runs", env={}, run=run)
+        self.assertEqual(calls, ["job"])
+        self.assertIn("API rate limit exceeded", repr(caught.exception))
+
+    def test_both_refused_names_the_spare_s_refusal(self):
+        run, calls = self.runner([(1, "", "HTTP 403: rate limit"), (1, "", "HTTP 404: Not Found")])
+        with self.assertRaises(subprocess.CalledProcessError) as caught:
+            rolling.gh_api("repos/o/r/actions/runs", env={"SPARE_READ_TOKEN": "s"}, run=run)
+        self.assertEqual(calls, ["job", "s"])
+        self.assertIn("404", repr(caught.exception))
+
+    def test_a_good_read_never_touches_the_spare(self):
+        run, calls = self.runner([(0, "[]", "")])
+        self.assertEqual(rolling.gh_api("repos/o/r/x", env={"SPARE_READ_TOKEN": "s"}, run=run), [])
+        self.assertEqual(calls, ["job"])
 
 
 if __name__ == "__main__":
