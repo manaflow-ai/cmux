@@ -1,0 +1,37 @@
+/* Static mocks for the banner placements that are not the shipped one (SummaryPlacements.gallery.tsx). */
+.sp-stack{display:grid;gap:14px;padding:8px 8px 120px;color:var(--agent-text);font:13px var(--font-ui)}
+.sp-cell{display:grid;gap:3px}
+.sp-label{display:grid;gap:1px;font-size:11px;color:var(--agent-muted);line-height:1.35}
+.sp-label b{color:var(--agent-text);font-weight:600}
+.sp-frame{position:relative;outline:1px solid var(--agent-border)}
+
+/* B: hover-expand. One ellipsized line beside the title; hovering it opens an overlay card under it. */
+.sp-b{position:relative;flex:1 1 0;min-width:0;height:26px}
+.sp-b__line{display:block;width:100%;border:0;background:none;font:inherit;text-align:start;cursor:default;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--agent-muted);font-size:var(--text-detail);line-height:26px;padding:0 4px;border-radius:6px}
+.sp-b__line em{font-style:normal;color:var(--agent-soft)}
+.sp-b__line strong{font-weight:400;color:var(--agent-text)}
+.sp-b__card{position:absolute;inset-inline-start:0;inset-block-start:0;z-index:var(--layer-dropdown);width:max(100%,260px);max-width:340px;box-sizing:border-box;padding:4px 8px 8px;border-radius:8px;background:var(--surface-popup,var(--agent-page-bg));box-shadow:0 6px 24px rgba(0,0,0,.28),0 0 0 .5px var(--agent-border);opacity:0;pointer-events:none;transform:translateY(-2px);line-height:1.45;font-size:var(--text-detail);color:var(--agent-muted);white-space:normal}
+.sp-b__card strong{display:block;font-weight:400;color:var(--agent-text);margin-top:2px}
+.sp-b:hover .sp-b__card,.sp-b:has([data-popup-open]) .sp-b__card,.sp-b[data-open] .sp-b__card{opacity:1;pointer-events:auto;transform:none}
+@media (prefers-reduced-motion:no-preference){.sp-b__card{transition:opacity var(--agent-motion-in,120ms) ease-out,transform var(--agent-motion-in,120ms) ease-out}}
+
+/* C: the composer footer's status dot with a hover rundown (PR #51343). */
+.sp-composer{margin:0 8px;border-radius:12px;border:.5px solid var(--agent-border);background:var(--agent-page-bg);padding:8px 10px;display:grid;gap:8px}
+.sp-composer__input{color:var(--agent-soft);font-size:13px}
+.sp-composer__footer{display:flex;align-items:center;gap:6px;color:var(--agent-muted);font-size:var(--text-detail);position:relative}
+.sp-dot-btn{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 6px;border:0;border-radius:6px;background:none;color:inherit;font:inherit;cursor:default}
+.sp-dot-btn:hover,.sp-dot-btn[data-open]{background:var(--acpmux-header-tool-hover,var(--ds-surface-inset,rgba(127,127,127,.15)))}
+.sp-dot{width:7px;height:7px;border-radius:50%;background:var(--agent-status-success,#3fb950)}
+.sp-rundown{position:absolute;inset-inline-start:0;inset-block-end:28px;z-index:var(--layer-dropdown);width:max-content;max-width:min(340px,100%);box-sizing:border-box;padding:8px 10px;border-radius:8px;background:var(--surface-popup,var(--agent-page-bg));box-shadow:0 6px 24px rgba(0,0,0,.28),0 0 0 .5px var(--agent-border);display:grid;gap:4px;line-height:1.45;opacity:0;pointer-events:none}
+.sp-rundown p{margin:0;white-space:normal}
+.sp-rundown p:last-child{color:var(--agent-text)}
+.sp-dot-wrap:hover .sp-rundown,.sp-dot-wrap:has([data-popup-open]) .sp-rundown,.sp-dot-wrap[data-open] .sp-rundown{opacity:1;pointer-events:auto}
+.sp-dot-wrap{position:relative}
+.sp-composer__spacer{flex:1}
+
+/* D: a two-line title block, the title over a small summary line; the header is 40px. */
+.sp-d{display:flex;flex-direction:column;justify-content:center;flex:1 1 0;min-width:0;height:100%;padding:0 4px}
+.sp-d__title{font-size:var(--text-control,13px);font-weight:var(--weight-emphasis,600);line-height:16px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.sp-d__sub{font-size:11px;line-height:14px;color:var(--agent-muted);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.sp-d__sub em{font-style:normal;color:var(--agent-soft)}
+.sp-d__sub strong{font-weight:400;color:var(--agent-text)}

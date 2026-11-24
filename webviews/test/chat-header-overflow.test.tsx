@@ -95,6 +95,21 @@ test("the fold count covers the overflow by whole buttons and does not depend on
   expect(headerFoldCount(200 - 32, 1, 199, 4, 32)).toBe(1);
 });
 
+// Leo 2026-11-23: "the fucking buttons on the top right NEED to be done right, especially when things are at compressed
+// width panes". In the pane's tab row the App keeps the tools only while they take at most half the row
+// (PaneTabRowSharing.fitsTabRow); wider, they dropped to a second row under the tabs. The fold's room there is capped
+// at that half (less the gap the page adds to its report), so a quick action folds into "..." first.
+test("in the tab row the fold room never exceeds half the row the App offers", async () => {
+  const { headerFoldRoom, HEADER_LEADING_RESERVE } = await import("../src/agent-session/acpmux/header/headerOverflow");
+  const { TAB_ROW_GAP } = await import("../src/agent-session/acpmux/header/tabRow");
+  for (const content of [248, 328, 448, 768]) {
+    expect(headerFoldRoom(content, 8, false)).toBe(content - 8 - HEADER_LEADING_RESERVE);
+    const tabRow = headerFoldRoom(content, 8, true);
+    expect(tabRow + TAB_ROW_GAP).toBeLessThanOrEqual(content / 2);
+    expect(tabRow).toBeLessThanOrEqual(content - 8 - HEADER_LEADING_RESERVE);
+  }
+});
+
 test("the measured pitch is a square tool's, never a text chip's ahead of it", async () => {
   const { measuredPitch, HEADER_TOOL_PITCH } = await import("../src/agent-session/acpmux/header/headerOverflow");
   // No gap set (jsdom computes none), so the pitch is the square's own width.
