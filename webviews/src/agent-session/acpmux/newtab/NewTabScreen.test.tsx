@@ -2880,3 +2880,60 @@ test("a Cloud machine folder starts the chat on its existing peer", async () => 
   expect(asks[0]?.[2]).toBe("/home/cmux/work/api");
   expect(asks[0]?.at(-1)).toMatchObject({ peer: "builder" });
 });
+
+// cmux#53226 (Austin): with This Mac picked, picking a GitHub repository in the folder menu cloned it at once.
+// The pick is the chip's choice only; Return checks it out here (cloned first when there is none), then asks there.
+test("with This Mac picked a GitHub repository's pick checks nothing out; Return checks it out, then asks there", async () => {
+  setNativeHost(async (method) => {
+    if (method === "github.status") return { state: "ready", repos_scope: "all" };
+    if (method === "github.repos.list")
+      return { repos: [{ full_name: "acme/api", private: false, default_branch: "main" }], truncated: false };
+    return undefined;
+  });
+  const asks: unknown[][] = [];
+  const worktrees: unknown[][] = [];
+  let land: (folder: string | undefined) => void = () => {};
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        snapshot={noChat([])}
+        cwd="/Users/you/src/cmux"
+        startCwd="/Users/you/src/cmux"
+        projects={[{ cwd: "/Users/you/src/cmux", label: "cmux" }]}
+        environments
+        runMode={{ mode: "persistent", onMode: () => {} }}
+        onAsk={(...args) => asks.push(args)}
+        onNewWorktree={(cwd, github) => {
+          worktrees.push([cwd, github]);
+          return new Promise((resolve) => (land = resolve));
+        }}
+      />,
+    );
+  });
+  const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  const folder = () => container.querySelector<HTMLButtonElement>('.acpmux-composer-context [aria-label="Folder"]')!;
+  await act(async () => folder().click());
+  await settle();
+  const repo = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) =>
+    option.textContent?.includes("acme/api"),
+  );
+  expect(repo, "no acme/api row").toBeTruthy();
+  await act(async () => repo!.click());
+  await settle();
+  // The pick names the repository on the chip and clones nothing.
+  expect(worktrees).toEqual([]);
+  expect(folder().textContent).toContain("acme/api");
+  await typePrompt("fix the login bug");
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  await settle();
+  // Return checks it out here and holds the prompt until the checkout lands.
+  expect(worktrees).toEqual([["github:acme/api", { repo: "acme/api", candidates: [] }]]);
+  expect(asks).toEqual([]);
+  await act(async () => land("/Users/you/.cmux/worktrees/api/lane"));
+  await settle();
+  await settle();
+  expect(asks.length).toBe(1);
+  expect(asks[0]![1]).toBe("fix the login bug");
+  expect(asks[0]![2]).toBe("/Users/you/.cmux/worktrees/api/lane");
+});

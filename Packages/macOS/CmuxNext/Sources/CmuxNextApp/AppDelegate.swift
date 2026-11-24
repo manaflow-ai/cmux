@@ -216,6 +216,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         firstFrame.whenOpen { [weak services] in services?.startPostFrameFeeds(); LaunchTypeProbe(environment: ProcessInfo.processInfo.environment) { DebugTimings.markLaunch($0) }?.type() } // launch-ready type=1
         // Before the first window opens (restoreWhenLoaded opens one at once).
+        launchReads.shell.content.contentReady = services.launchReveal.whenContentReady // swap over stage 0 once regions show content
         services.windows.onPresent = { [weak services, shell = launchReads.shell] controller in
             services?.crashRecovery.showRestartNotice(on: controller.window); shell.presented(controller.window) // the first takes stage 0's frame, then its place
         }
@@ -285,8 +286,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return pane != nil
         }
         DebugTimings.markLaunch("dfl.home_history")
+        services.windows.layoutCache = launchReads.shell.layoutCache // the last run's layout, read before stage 0's commit
         services.windows.restoreWhenLoaded(); if services.windows.controllers.first?.window?.commitFirstFrameNow() == true { DebugTimings.markLaunch("first_window_flushed") } // CMUX-629: the frame now, not after the queued launch work
-        firstFrame.whenOpen { [weak services] in services?.windows.recordSaver.launchRecord.schedule() }
+        firstFrame.whenOpen { [weak services] in services?.windows.recordSaver.launchRecord.schedule(); services?.windows.recordSaver.layoutCache.note() }
         DebugTimings.markLaunch("dfl.windows")
         services.observeBorders()
         services.observeGlass()
@@ -536,6 +538,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         cloudBootstrap?.cancel()
         cloudBootstrap = nil
         services?.crashRecovery.applicationWillTerminate()
+        services?.windows.recordSaver.layoutCache.flushNow() // what the quit's awaited flushes missed: one write, on this thread
         services?.crashReporting.reporter.stallSummary.close()  // the open hour's stall counts
         // The release push's socket closes and nothing reconnects (ReleasePushListener).
         services?.updater.stopReleasePush()
@@ -597,6 +600,7 @@ extension AppDelegate {
             async let files: Void = services.stateFilesDrained()
             await services.home.flushCacheForQuit()
             await services.windows.recordSaver.launchRecord.flush()
+            await services.windows.recordSaver.layoutCache.flush()
             await files
         }, armDeadline: armDeadline, deadlineEnd: services()?.quitDeadlineEnd(), end: end)
     }
