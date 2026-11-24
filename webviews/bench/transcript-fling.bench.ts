@@ -2,21 +2,34 @@
 // A stable, report-only fling benchmark for the transcript replacement work in RFD 0040 decision 2.
 // The web arm renders the current transcript row shape at 100k rows. The bare arm draws the same row count as
 // plain text and both arms use the named fling step sequence, leaving a floor for a future native arm to join.
+// The transcript arm is the shipped React transcript (VirtualTranscript, through test/browser/transcript-fling.html
+// as transcript-scroll-frame.bench.ts drives it) at TRANSCRIPT_ROWS (default 3,000, RFD 0121's fling row), flung
+// bottom to top by the pane's own debug fling for FLING_SECONDS: the "before" the native transcript is measured
+// against. Linux headless: `bun bench/transcript-fling.bench.ts`; a Mac: perf-bench.sh transcriptfling=on.
+// TRANSCRIPT_FLING_OUT=path writes every arm as JSON lines for perf-bench.sh's BENCH.md section; ARMS=transcript
+// (comma list of web,bare,transcript) runs a subset.
 /// <reference types="bun" />
+import { appendFileSync, writeFileSync } from "node:fs";
 import { chromium } from "./browsers";
 import { perfRow } from "./perfRow";
+import { gotoBenchPage, requireProductionReact, serveBenchPage } from "./support/benchPage";
 
 const ROWS = Number(process.env.ROWS ?? 100_000);
 const PAGES = Number(process.env.PAGES ?? 24);
+const TRANSCRIPT_ROWS = Number(process.env.TRANSCRIPT_ROWS ?? 3000);
+const FLING_SECONDS = Number(process.env.FLING_SECONDS ?? 3);
+const FLING_ROUNDS = Number(process.env.FLING_ROUNDS ?? 3);
+const ARMS = new Set((process.env.ARMS ?? "web,bare,transcript").split(",").map((arm) => arm.trim()));
+const OUT = process.env.TRANSCRIPT_FLING_OUT;
 const LATE_FRAME_MS = 1000 / 120;
 const SCHEMA = "cmux/transcript-fling/v1";
 const FLING_STEPS = [1500, 2400, 1900, 3000, 2100];
 
 type Arm = {
   schema: typeof SCHEMA;
-  arm: "web" | "bare" | "native";
+  arm: "web" | "bare" | "transcript" | "native";
   engine: "chromium";
-  fixture: "flat";
+  fixture: "flat" | "harness";
   rows: number;
   mode: "fling";
   frames: number;
@@ -155,9 +168,79 @@ async function runBareArm(frames: number): Promise<Arm> {
   }
 }
 
-const web = await runWebArm();
-console.log(`TRANSCRIPT_FLING_JSON ${JSON.stringify(web)}`);
-perfRow({ name: "transcript_fling.web.frame_interval", p50: web.frame_p50_ms, p95: web.frame_p95_ms, target: 8.33 });
-const bare = await runBareArm(web.frames);
-console.log(`TRANSCRIPT_FLING_JSON ${JSON.stringify(bare)}`);
-perfRow({ name: "transcript_fling.bare.frame_interval", p50: bare.frame_p50_ms, p95: bare.frame_p95_ms, target: 8.33 });
+/// The shipped React transcript: FLING_ROUNDS flings (after one warm-up) of FLING_SECONDS each, bottom to top,
+/// one scrollTop step per animation frame (debug.ts startFling). Intervals come from the pane's own frame ring;
+/// blank frames are the pane's model-blank count (no mounted row under the viewport).
+async function runTranscriptArm(): Promise<Arm> {
+  const served = await serveBenchPage("/test/browser/transcript-fling.html");
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1100, height: 800 } });
+    await gotoBenchPage(page, served);
+    await requireProductionReact(page, { dev: served.dev });
+    await page.waitForFunction(() => "__debug" in window);
+    await page.evaluate(`window.__debug.seedRows(${TRANSCRIPT_ROWS})`);
+    type Debug = {
+      startFling(
+        seconds: number,
+        options: { wait: boolean },
+      ): Promise<{ frames: number; running: boolean; distance_px: number }>;
+      perfStats(options: { raw: boolean }): { blank_frames: number; samples?: { interval_ms: number }[] };
+    };
+    const fling = () =>
+      page.evaluate(async (seconds) => {
+        const debug = (window as unknown as { __debug: Debug }).__debug;
+        const run = await debug.startFling(seconds, { wait: true });
+        const { samples, blank_frames } = debug.perfStats({ raw: true });
+        if (!samples?.length || run.running || run.distance_px <= 0)
+          throw new Error(`transcript-fling: incomplete fling ${JSON.stringify(run)}`);
+        return { intervals: samples.map((sample) => sample.interval_ms), blank: blank_frames };
+      }, FLING_SECONDS);
+    await fling();
+    const intervals: number[] = [];
+    let blank = 0;
+    for (let round = 0; round < FLING_ROUNDS; round += 1) {
+      const run = await fling();
+      intervals.push(...run.intervals);
+      blank += run.blank;
+    }
+    const rounded = (value: number) => Math.round(value * 100) / 100;
+    return {
+      schema: SCHEMA,
+      arm: "transcript",
+      engine: "chromium",
+      fixture: "harness",
+      rows: TRANSCRIPT_ROWS,
+      mode: "fling",
+      frames: intervals.length,
+      frame_p50_ms: rounded(percentile(intervals, 50)),
+      frame_p95_ms: rounded(percentile(intervals, 95)),
+      frame_max_ms: rounded(Math.max(0, ...intervals)),
+      late_frames: intervals.filter((interval) => interval > LATE_FRAME_MS).length,
+      blank_frames: blank,
+    };
+  } finally {
+    await browser.close();
+    await served.close();
+  }
+}
+
+if (OUT) writeFileSync(OUT, "");
+const report = (arm: Arm) => {
+  console.log(`TRANSCRIPT_FLING_JSON ${JSON.stringify(arm)}`);
+  if (OUT) appendFileSync(OUT, `${JSON.stringify(arm)}\n`);
+  perfRow({
+    name: `transcript_fling.${arm.arm}.frame_interval`,
+    p50: arm.frame_p50_ms,
+    p95: arm.frame_p95_ms,
+    target: 8.33,
+  });
+};
+let webFrames = PAGES * 120;
+if (ARMS.has("web")) {
+  const web = await runWebArm();
+  webFrames = web.frames;
+  report(web);
+}
+if (ARMS.has("bare")) report(await runBareArm(webFrames));
+if (ARMS.has("transcript")) report(await runTranscriptArm());
