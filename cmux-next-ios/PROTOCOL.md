@@ -1185,6 +1185,13 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   `c~<machine_id>~<team_id>`: the desktop of a Cloud machine the account owns
   (exactly one owner link from the app, else `forbidden`; not running: `asleep`),
   view only: hostd sends the source no input from the phone.
+  With `mac-display-v1` (2026-11-23), `tab` may be `d~<display>`: this Mac's own
+  display (a CGDirectDisplayID in decimal, no leading zero; `d~0` the main display),
+  the Mac screen as rd/1 on this link with its video on the media lane, view only like
+  a Cloud desktop. hostd lists `mac-display-v1` only when the app's source captures
+  displays (`CMUX_MOBILE_MAC_DISPLAY=1`, else `no_surface_host`); the app starts a
+  capture only while Share This Mac is on (else the open fails `unavailable`) and
+  stops it when sharing turns off or the viewer goes.
   `tab` is the phone tab's key `s<surface>`;
   hostd opens it only when the daemon's `list-workspaces` lists that surface
   as a page tab with `conversation.page: "phone"` (else `forbidden`; not a
@@ -1252,6 +1259,7 @@ cmux-tui daemon's names hostd itself declares or checks. Printed from
 | `browser-video-track-v1` | hostd `version` | With `browser-stream-v1`: `browser {"video":"track"}` carries the page's video on the media lane (WebRTC, and WireGuard since 2026-10-14). |
 | `surface-stream-v1` | hostd `version` | (2026-10-22) The host streams the Mac's phone tabs' simulators (`surface`); listed only when the Mac app streams simulators. |
 | `cloud-desktop-v1` | hostd `version` | (2026-11-02) `surface` also streams an owned Cloud machine's desktop, view only, on the key `c~<machine_id>~<team_id>`. |
+| `mac-display-v1` | hostd `version` | (2026-11-23) `surface` also streams this Mac's own display as rd/1 on the link, view only, on the key `d~<display>` (CGDirectDisplayID, 0 the main display); served while Share This Mac is on. |
 | `cloud-mobile-chat-v1` | cmux-tui daemon | On a `cloud-acpmux` carrier hostd requires the Cloud daemon's `identify` to list it before declaring it (phone prompt restrictions). |
 | `conversation-tabs-v1` | cmux-tui daemon | Declared in `set-client-info`: conversation tabs read as `conversation` with their record, not `browser`. |
 | `page-tabs-v1` | cmux-tui daemon | Declared in `set-client-info`: page tabs read as `conversation` with their `page` (a phone tab is a simulator tab). |
