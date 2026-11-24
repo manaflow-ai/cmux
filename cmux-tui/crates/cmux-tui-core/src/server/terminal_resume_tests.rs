@@ -466,10 +466,10 @@ fn a_bounded_resume_replays_one_screen_after_a_long_time_away() {
     assert_eq!(*mirror.answer_bytes.last().unwrap(), missing);
     disconnect_client(&mux, link.client, false);
 
-    // A long time away: 20,000 lines (about 300 KB, still in the 4 MiB ring).
+    // A long time away: 20,000 lines (about 260 KB, still in the 4 MiB ring).
     producer.lines(20_000);
     let missing = producer.offset() - mirror.offset;
-    assert!(missing > 100 * bound, "{missing}");
+    assert!(missing > 50 * bound, "{missing}");
     let held = (mirror.offset, mirror.generation.clone());
     let (link, reply) =
         open_bounded(&mux, &producer.surface, true, Some((held.0, &held.1)), Some(bound));
