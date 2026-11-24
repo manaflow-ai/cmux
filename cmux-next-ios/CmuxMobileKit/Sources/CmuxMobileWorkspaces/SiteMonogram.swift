@@ -109,6 +109,9 @@ struct SiteMonogramFace: View {
 public struct SiteMonogramGallery: View {
     static let hosts = ["developer.apple.com", "github.com", "news.ycombinator.com", "localhost", "www.bbc.co.uk", "192.168.1.20"]
 
+    /// The page a gallery card is laid out at before it is scaled to 110 pt wide, as TabsKit does.
+    static let page = CGSize(width: 400, height: 611)
+
     public init() {}
 
     public var body: some View {
@@ -137,8 +140,8 @@ public struct SiteMonogramGallery: View {
                         VStack(spacing: 4) {
                             // A page-sized face scaled to a grid card, as TabsKit does.
                             face(host)
-                                .frame(width: 393, height: 600)
-                                .scaleEffect(0.28, anchor: .topLeading)
+                                .frame(width: Self.page.width, height: Self.page.height)
+                                .scaleEffect(110 / Self.page.width, anchor: .topLeading)
                                 .frame(width: 110, height: 168, alignment: .topLeading)
                                 .clipShape(.rect(cornerRadius: 12, style: .continuous))
                             Text(host).font(.caption2).foregroundStyle(.secondary).lineLimit(1).frame(width: 110)
