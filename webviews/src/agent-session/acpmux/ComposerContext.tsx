@@ -47,7 +47,7 @@ import type { PeerLinkDetail } from "./linkState";
 import type { UnavailableGroup } from "./environmentPickerModel";
 import { FolderPopover } from "./FolderPopover";
 import { cloudRepositoryPick, cloudSourceFolders, type CloudFolder } from "./sourcePickerModel";
-import { GitHubGlyph } from "./GitHubIcons";
+import { GitHubMark } from "./GitHubIcons";
 import { githubFolderRepo, useGitHubPicker, type GitHubPicker } from "./githubRepos";
 import { ExtraFolderList } from "./ExtraFolderList";
 import {
@@ -1100,7 +1100,7 @@ export function ComposerContext({
                 <LocationFace
                   icon={
                     currentGitHub ? (
-                      <GitHubGlyph />
+                      <GitHubMark chip />
                     ) : currentLocation ? (
                       <ProjectBadge
                         project={{

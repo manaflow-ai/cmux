@@ -902,8 +902,15 @@ button.acpmux-edited-file:hover{background:var(--ds-surface-hover)}
 .acpmux-switch-notice{display:block;padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 6px;padding-right:var(--cv-inset-end,var(--cv-inset));color:var(--agent-muted);font-size:12px;line-height:16px}
 .acpmux-newtab-folder-ask{position:relative;z-index:var(--layer-raised,2);padding-top:8px}
 .acpmux-folder-choice-button{padding:0;border:0;background:none;color:var(--agent-accent,inherit);font:inherit;text-decoration:underline;cursor:default}
-/* A New Tab start failure's Details stays on its line until opened (newtab/StartFailure.tsx). */
-.acpmux-start-failure-details:not([open]),.acpmux-start-failure-details:not([open])>summary{display:inline}
+/* A New Tab start failure's Details stays on its line until opened (newtab/StartFailure.tsx). Its summary stays an
+   inline flex row, so the chevron centers on the label (a plain inline svg sat on the baseline, 1.5 px high), and the
+   chevron is the composer chips' chevron at their size, at every density (test/newtab-chip-icon-sizes.test.ts). */
+.acpmux-start-failure-details:not([open]){display:inline}
+.acpmux-start-failure-details:not([open])>summary{display:inline-flex;align-items:center}
+.acpmux-start-failure-details>summary{font:inherit;letter-spacing:inherit}
+/* The chevron takes no more height than its 12 px line at Default: at a larger density its box overhangs the line evenly
+   above and below, so the line never grows and the chevron stays centered on Details. */
+.acpmux-start-failure-details .acpmux-chip-disclosure{margin-block:calc((12px - var(--acpmux-composer-chevron,calc(12px * var(--acpmux-density,1)))) / 2);flex:none;width:var(--acpmux-composer-chevron,calc(12px * var(--acpmux-density,1)));height:var(--acpmux-composer-chevron,calc(12px * var(--acpmux-density,1)))}
 /* Agent question card (question/QuestionCard.tsx), after the Claude app's (Leo 2026-10-19; restyled 2026-11-05 after "kind of ugly"): a "Needs your input" small-radius rect (no capsule: agent-pane-no-capsules) tinted with the mark, holding the Needs you dot over a rounded card whose header strip is the question in regular weight; radio (or checkbox) rows with a regular label and a muted description; Other types inline in a quiet field; Skip and Submit with outlined keycaps (esc, ⌘ ↩) at the bottom right, as the permission card's. The app's gray language otherwise: the highlighted row is a soft fill, Submit is the text color inverted. Previews sit beside the list and wrap under it when narrow. appearance.borders none drops the edge (--acpmux-question-edge). */
 /* Needs your input: one mark for a chat that waits on the user, on every surface (the question card's pill, the Needs you dot, badge and pill, the sidebar and Chief dock marks, the status lines). It is the theme's attention colour, which the app sends as --agent-warning (AgentPaneTheme.swift, tokens.attention), the same Palette.attention the native sidebar, tabs and priority rows draw; never the accent, which a grey-accent theme turns into the idle grey. test/needs-input-mark-color.test.ts reads every surface. */
 /* The needs-you mark holds 3:1 (a mark's tier); words in it lean 45% toward the text ink, the strongest ink on every ground, so they read as text (test/control-contrast-N.test.ts: the pill's words read 2.7:1; at 35% a yellow attention colour, Kerf's and Paper's, read 4.3:1 on its tint: golden-look-contrast-N.test.ts). */
