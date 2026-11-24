@@ -7699,11 +7699,19 @@ a.cv-sha:focus-visible {
 :root:not([data-glass="lens"], [data-glass="spectrum"]) .acpmux-jump-latest {
   --glass-tint: color-mix(in srgb, var(--agent-page-bg) var(--ds-glass-popover-tint), transparent);
 }
-/* Hover lays a wash of the text over the glass, in every mode. */
+/* Hover and press lay a wash of the text over the glass, in every mode, on the composer controls'
+   ink ladder (hq docs/design/design-system-decisions A1: hover 8, pressed 16, pressed is fill only;
+   Leo, 2026-11-23: "nor style properly"). */
 .acpmux-jump-latest:hover {
   background-image: linear-gradient(
-    color-mix(in srgb, var(--agent-text) 6%, transparent),
-    color-mix(in srgb, var(--agent-text) 6%, transparent)
+    color-mix(in srgb, var(--agent-text) 8%, transparent),
+    color-mix(in srgb, var(--agent-text) 8%, transparent)
+  );
+}
+.acpmux-jump-latest:active {
+  background-image: linear-gradient(
+    color-mix(in srgb, var(--agent-text) 16%, transparent),
+    color-mix(in srgb, var(--agent-text) 16%, transparent)
   );
 }
 /* Keyboard focus: the pane's focus pill (agent-session/shared/styles.css) laid over the glass, with
