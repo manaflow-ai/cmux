@@ -237,6 +237,16 @@ import Testing
         #expect(editor.selectedRange() == NSRange(location: 0, length: (editor.string as NSString).length), "the whole address is selected")
     }
 
+    /// A popup opens with the keyboard in its page, not its omnibar with the address selected (a deck's presenter
+    /// window showed its whole address highlighted, 2026-11-22).
+    @Test func aPopupOpensWithThePageAsItsFirstResponder() {
+        let (popups, _, window, _) = open("https://example.com/deck.html")
+        defer { popups.closeAll() }
+        #expect(window.initialFirstResponder === window.page.contentView)
+        window.makeFirstResponder(window.initialFirstResponder)
+        #expect(!window.addressBar.isEditing)
+    }
+
     @Test func aSignInWindowTakesCmdL() {
         let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://accounts.example.com/signin")))
         let window = BrowserPopupWindow(page: tab, frame: CGRect(x: 0, y: 0, width: 480, height: 600), readOnlyAddress: true, activeLook: nil)

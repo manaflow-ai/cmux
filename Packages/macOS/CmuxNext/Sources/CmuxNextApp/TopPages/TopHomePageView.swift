@@ -112,8 +112,8 @@ final class TopHomePageView: NSView {
             sidebar.place(id, at: index)
             self?.list.update(sidebar.model())
         }
-        let home = services.home
-        let registry = services.registry
+        let home = services.home, registry = services.registry
+        list.setDragOut(LinkDragSession.chiefDragOut(services) { [weak home] in home.flatMap(Self.chief) })
         // Mark as Read: the user's unread mark goes, and the read cursor moves to the newest message.
         list.onMarkRead = { id in
             sidebar.setMarkedUnread(false, id)
@@ -151,7 +151,6 @@ final class TopHomePageView: NSView {
             }
         }
         list.onNewMessage = { [weak self] in self?.presentNewMessage() }
-        list.onNewChief = { [weak self] in self?.startChiefConversation() }
         list.onCloseDraft = { [weak self] in self?.performCloseNewMessage() }
         list.onOpenRequests = { [weak self] in self?.presentRequests() }
         list.composeMenu = { [weak services] in services.map { HomePageMenus.backgroundMenu(registry: $0.registry) } }

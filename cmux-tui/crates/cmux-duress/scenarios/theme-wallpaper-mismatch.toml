@@ -1,0 +1,33 @@
+name = "theme-wallpaper-mismatch"
+summary = "theme switches mid-stream: the terminal's colors follow every switch"
+sources = [
+  "TerminalDemo.swift (flag -CmuxMobileTerminalDemoLight): Solarized Light, bg #fdf6e3, fg #657b83",
+  "TerminalKeyboardToggleFlickerUITests.testFullScreenAppInALightTheme (line 71)",
+  "#50696 (follow the Mac's theme), #50780 (theme-save repaint timing, scripts/ci/cmux_next_pair_e2e.py)",
+  "Solarized Dark (#002b36 / #839496) is the standard counterpart",
+]
+headless_reason = "headless covers the terminal's default colors after each switch (ghostty-vt state) and the switch's frame cost; the wallpaper and chrome behind the terminal are SwiftUI, sim only"
+spec = "duress,stream_seconds=20,chat_records=0,link=none"
+headless = true
+
+[[event]]
+kind = "theme"
+every_ms = 700
+themes = [
+  { name = "solarized-dark", fg = "#839496", bg = "#002b36" },
+  { name = "solarized-light", fg = "#657b83", bg = "#fdf6e3" },
+]
+
+[[check]]
+metric = "theme_mismatch"
+max = 0
+
+[[check]]
+metric = "theme_ms"
+stat = "p95"
+max = 16.7
+
+[sim]
+ui = ["TerminalKeyboardToggleFlickerUITests"]
+duress = "duress"
+covers = "the wallpaper and chrome colors against the terminal's in a light theme"

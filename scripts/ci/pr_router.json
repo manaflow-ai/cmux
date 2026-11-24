@@ -99,6 +99,29 @@
     "linux"
    ],
    "table_why": "The step table's jobs this workflow runs (ci/steps.toml, `ci/run`). It starts when the change routes a step of one of them: a step's `inputs` are the path filter of the workflow it replaced. Runs on a draft, as those workflows did."
+  },
+  "screen-share-drop-gate.yml": {
+   "types": [
+    "opened",
+    "synchronize",
+    "reopened",
+    "ready_for_review"
+   ],
+   "paths": [
+    "cmux-tui/crates/cmux-rd-host/**",
+    "cmux-tui/crates/cmux-rd-link/**",
+    "cmux-tui/crates/cmux-rd-proto/**",
+    "cmux-tui/crates/cmux-transport/**",
+    ".github/workflows/screen-share-drop-gate.yml"
+   ],
+   "affects": [
+    "cmux-tui/crates/cmux-rd-host/**",
+    "cmux-tui/crates/cmux-rd-link/**",
+    "cmux-tui/crates/cmux-rd-proto/**",
+    "cmux-tui/crates/cmux-transport/**",
+    ".github/workflows/screen-share-drop-gate.yml"
+   ],
+   "affects_why": "The gate builds cmux-rd from cmux-rd-host (its own Cargo workspace, which pulls the link, proto and transport crates by path) and runs scripts/screen-share-netem.py from cmux-rd-host's tree; nothing else changes what it measures."
   }
  }
 }
