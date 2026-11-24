@@ -2065,3 +2065,132 @@ async fn a_daemon_joins_an_incoming_circuit_on_a_second_socket_when_the_first_ha
         .expect("relay registration shutdown did not complete");
     server.abort();
 }
+
+/// A daemon's registration open is hedged like its circuit Join: an open that never answers gets a
+/// second beside it after the stagger, and the first Ok wins.
+#[tokio::test(start_paused = true)]
+async fn a_hung_registration_open_gets_a_second_attempt_after_the_stagger() {
+    let started = Instant::now();
+    let launched = Arc::new(AtomicUsize::new(0));
+    let opened = hedged_open(
+        {
+            let launched = launched.clone();
+            move || {
+                let n = launched.fetch_add(1, AtomicOrdering::SeqCst);
+                async move {
+                    if n == 0 {
+                        std::future::pending::<()>().await;
+                    }
+                    tokio::time::sleep(Duration::from_millis(300)).await;
+                    Ok::<_, &str>(n)
+                }
+            }
+        },
+        Duration::from_secs(1),
+        3,
+        |_| false,
+    )
+    .await;
+    assert_eq!(opened, Ok(1), "the second open won");
+    assert_eq!(launched.load(AtomicOrdering::SeqCst), 2, "no third open once one opened");
+    assert_eq!(started.elapsed(), Duration::from_millis(1_300));
+}
+
+/// A healthy open is the only one, a refused authentication or a failure with nothing else in
+/// flight ends it at once (the caller's retry decides), and a fatal error does not wait for a
+/// hung open beside it.
+#[tokio::test(start_paused = true)]
+async fn a_registration_open_that_answers_or_fails_fast_is_never_hedged() {
+    let launched = Arc::new(AtomicUsize::new(0));
+    let fast = hedged_open(
+        {
+            let launched = launched.clone();
+            move || {
+                launched.fetch_add(1, AtomicOrdering::SeqCst);
+                async { Ok::<_, &str>(()) }
+            }
+        },
+        Duration::from_secs(1),
+        3,
+        |_| false,
+    )
+    .await;
+    assert!(fast.is_ok());
+    assert_eq!(launched.load(AtomicOrdering::SeqCst), 1);
+
+    let started = Instant::now();
+    let refused =
+        hedged_open(|| async { Err::<(), _>("refused") }, Duration::from_secs(1), 3, |_| false)
+            .await;
+    assert_eq!(refused, Err("refused"));
+    assert_eq!(started.elapsed(), Duration::ZERO, "a fast failure is the caller's retry");
+
+    let started = Instant::now();
+    let launched = Arc::new(AtomicUsize::new(0));
+    let fatal = hedged_open(
+        {
+            let launched = launched.clone();
+            move || {
+                let n = launched.fetch_add(1, AtomicOrdering::SeqCst);
+                async move {
+                    if n == 0 {
+                        std::future::pending::<()>().await;
+                    }
+                    Err::<(), _>("unauthorized")
+                }
+            }
+        },
+        Duration::from_secs(1),
+        3,
+        |error| *error == "unauthorized",
+    )
+    .await;
+    assert_eq!(fatal, Err("unauthorized"));
+    assert_eq!(started.elapsed(), Duration::from_secs(1));
+}
+
+/// A fresh machine's first registration WebSocket hangs before its upgrade (its network is still
+/// settling): the daemon registers on a second one in about the stagger, instead of after the
+/// 10 s open bound. The registration's own time is the harness's create-to-registered number.
+#[tokio::test]
+async fn a_daemon_registers_on_a_second_socket_when_the_first_open_hangs() {
+    use crate::identity::AuthDatabase;
+    use crate::session::SessionLimits;
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = Url::parse(&format!("relay+ws://{}", listener.local_addr().unwrap())).unwrap();
+    let server = tokio::spawn(async move {
+        // The first open connects and is never answered.
+        let (_hung, _) = listener.accept().await.unwrap();
+        let (stream, _) = listener.accept().await.unwrap();
+        let (mut control, _) = accept_with_authorization(stream).await;
+        assert!(matches!(receive_test_control(&mut control).await, RelayControl::Register { .. }));
+        send_test_control(&mut control, &RelayControl::Registered { lease_seconds: 30 }).await;
+        while control.next().await.is_some() {}
+    });
+
+    let directory = tempfile::tempdir().unwrap();
+    let auth =
+        AuthDatabase::load_or_create(directory.path(), "relay-hedged-register", true).unwrap();
+    let (daemon, _clients) = RemoteDaemon::new(auth, SessionLimits::default());
+    let started = Instant::now();
+    let registration = register_relay_daemon(
+        daemon,
+        RelayDaemonConfig {
+            endpoint,
+            slot: "hedged-register-slot".into(),
+            ticket: "registration-ticket".into(),
+            maximum_frame_bytes: 65_535,
+            control_timeout: Duration::from_secs(15),
+        },
+    )
+    .await
+    .unwrap();
+    let registered_after = started.elapsed();
+    eprintln!("registered {registered_after:?} after the first open hung");
+    assert!(registered_after < Duration::from_secs(3), "{registered_after:?}");
+    tokio::time::timeout(Duration::from_secs(2), registration.shutdown())
+        .await
+        .expect("relay registration shutdown did not complete");
+    server.abort();
+}

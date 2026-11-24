@@ -91,10 +91,11 @@ fn agent_memory_is_off_until_the_setting_turns_it_on() {
 }
 
 /// Every session gets the Computer Use bridge, whether or not a worker runs:
-/// nothing on disk decides it, only `computerUse.mode: "off"` in cmux.json
-/// (and no acpmux binary to run it, in a test without one).
+/// nothing on disk decides it, not even `computerUse.mode: "off"` (a chat
+/// keeps its tools when the person turns Computer Use on later), only no
+/// acpmux binary to run it, in a test without one.
 #[test]
-fn every_session_gets_computer_use_unless_the_mode_is_off() {
+fn every_session_gets_computer_use_even_when_the_mode_is_off() {
     let root = std::env::temp_dir().join(format!("acpmux-cu-server-{}", uuid::Uuid::now_v7()));
     std::fs::create_dir_all(&root).unwrap();
     let exe = std::path::PathBuf::from("/usr/local/bin/acpmux");
@@ -115,11 +116,14 @@ fn every_session_gets_computer_use_unless_the_mode_is_off() {
         Some(r#"{"computerUse":{"mode":"fullAccess"}}"#),
         Some(r#"{"computerUse":{"mode":"lookOnly"}}"#),
         Some(r#"{"computerUse.mode":"askEveryTime"}"#),
+        Some(r#"{"computerUse":{"mode":"off"}}"#),
+        Some("{\n// mine\n\"computerUse.mode\": \"off\",\n}"),
     ] {
         assert!(has(json), "{json:?}");
     }
-    assert!(!has(Some(r#"{"computerUse":{"mode":"off"}}"#)));
-    assert!(!has(Some("{\n// mine\n\"computerUse.mode\": \"off\",\n}")));
+    // Off still lists the cmux-computer-use skill beside the server.
+    let off = super::resolve(&inputs(Some(r#"{"computerUse":{"mode":"off"}}"#)));
+    assert!(off.lists_skill("cmux-computer-use"));
     // The session's own key, this daemon and nothing inherited.
     let tools = super::resolve(&inputs(None)).for_session("s-cu");
     let cu =
@@ -340,97 +344,6 @@ fn gh_env_is_what_the_agent_starts_with() {
     assert!(super::gh_env(&std::collections::BTreeMap::new(), Vec::new).is_empty());
 }
 
-/// A hook binary that does not know `__bg-hook` never blocks the chat's Bash calls: as the cmux
-/// CLI does (gcp-codex-swarm-09, 2026-11-02), the bare command refuses with exit 2, which Claude
-/// Code takes as "block this call", and the plugin's command runs the call instead. A deny the
-/// hook prints still reaches Claude Code.
-#[test]
-fn a_hook_binary_that_does_not_know_the_hook_lets_the_call_run() {
-    use std::io::Write;
-    let root = std::env::temp_dir().join(format!("acpmux-hook-skew-{}", uuid::Uuid::now_v7()));
-    std::fs::create_dir_all(&root).unwrap();
-    let script = |name: &str, body: &str| {
-        let path = root.join(name);
-        crate::test_exec::write_executable(&path, format!("#!/bin/sh\ncat >/dev/null\n{body}\n"));
-        path.to_string_lossy().into_owned()
-    };
-    let run = |command: &str| {
-        let mut child = std::process::Command::new("sh")
-            .arg("-c")
-            .arg(command)
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .unwrap();
-        // A binary that is gone never reads its input: the write may fail with a broken pipe.
-        let _ = child.stdin.take().unwrap().write_all(br#"{"tool_name":"Bash"}"#);
-        child.wait_with_output().unwrap()
-    };
-    let words = |exe: String| vec![exe, crate::bg_hook::HOOK_ARG.to_owned(), "/h".to_owned()];
-    // Whatever the patterns, a started binary never blocks: here every call starts it.
-    let every = ["*".to_owned()];
-    let old =
-        words(script("cmux", r#"echo 'cmux: unknown resource scope "__bg-hook".' >&2; exit 2"#));
-    let bare: Vec<String> = old.iter().map(|w| format!("'{w}'")).collect();
-    assert_eq!(run(&bare.join(" ")).status.code(), Some(2), "the skew this guards against");
-    let out = run(&super::hook_command(&old, &every));
-    assert!(out.status.success(), "a refusing hook binary blocked the call: {out:?}");
-    // A binary that is gone does not block either.
-    let gone = words(root.join("gone").to_string_lossy().into_owned());
-    assert!(run(&super::hook_command(&gone, &every)).status.success());
-    // The hook's own answer still gets through.
-    let deny = words(script("acpmux", r#"echo '{"deny":true}'"#));
-    let out = run(&super::hook_command(&deny, &every));
-    assert!(out.status.success());
-    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), r#"{"deny":true}"#);
-    let _ = std::fs::remove_dir_all(&root);
-}
-
-/// The hook of a subagent's calls (`PostToolUse`, `SubagentStop`, the acpmux MCP calls) starts
-/// the binary only when Claude Code's input names an `agent_id`, which it does only for a
-/// subagent's call: the lead's calls never start it, and a subagent's input reaches it whole. A
-/// binary that refuses blocks no call.
-#[test]
-fn the_subagent_hook_starts_the_binary_only_for_a_subagents_call() {
-    use std::io::Write;
-    let root = std::env::temp_dir().join(format!("acpmux-hook-sub-{}", uuid::Uuid::now_v7()));
-    std::fs::create_dir_all(&root).unwrap();
-    let seen = root.join("seen");
-    let script = |name: &str, body: &str| {
-        let path = root.join(name);
-        crate::test_exec::write_executable(&path, format!("#!/bin/sh\n{body}\n"));
-        let words = [path.to_string_lossy().into_owned(), crate::bg_hook::HOOK_ARG.to_owned()];
-        super::hook_command(&words, &[crate::bg_hook::SUBAGENT_PATTERN.to_owned()])
-    };
-    let run = |command: &str, input: &str| {
-        let mut child = std::process::Command::new("sh")
-            .arg("-c")
-            .arg(command)
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .unwrap();
-        child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
-        child.wait_with_output().unwrap()
-    };
-    let hook = script("acpmux", &format!("cat > '{}'\necho answer", seen.display()));
-    // The lead's call: its input names `agent_id` only inside a command's own text.
-    let lead = r#"{"hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"echo agent_id"}}"#;
-    let out = run(&hook, lead);
-    assert!(out.status.success() && out.stdout.is_empty(), "{out:?}");
-    assert!(!seen.exists(), "the lead's call started the binary");
-    let subagent = r#"{"hook_event_name":"PostToolUse","tool_name":"Bash","agent_id":"a0","agent_type":"Explore"}"#;
-    let out = run(&hook, subagent);
-    assert!(out.status.success(), "{out:?}");
-    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "answer");
-    assert_eq!(std::fs::read_to_string(&seen).unwrap(), subagent);
-    let refusing = script("refusing", "cat >/dev/null; exit 2");
-    assert!(run(&refusing, subagent).status.success(), "a refusing binary blocked the call");
-    let _ = std::fs::remove_dir_all(&root);
-}
-
 /// `github_status` lives in the `acpmux` server, which every harness gets the same way: Claude
 /// Code in its `--mcp-config`, every ACP harness (Codex, OpenCode, Gemini, pi) in `mcpServers`,
 /// and, folded behind `cmux`, in its upstreams.
@@ -541,7 +454,7 @@ fn a_skill_for_a_server_the_chat_lacks_is_not_listed() {
     for kept in ["cmux-browser", "cmux-chat", "acpmux", "cmux-live"] {
         assert!(fit.join("skills").join(kept).join("SKILL.md").is_file(), "{kept} is gone");
     }
-    assert!(fit.join("hooks/hooks.json").is_file());
+    assert!(!fit.join("hooks/hooks.json").exists());
     let rows: Vec<_> = without.tool_rows(true, true).into_iter().map(|r| r.id).collect();
     assert!(rows.contains(&"skill:cmux:cmux-browser".to_owned()), "{rows:?}");
     assert!(

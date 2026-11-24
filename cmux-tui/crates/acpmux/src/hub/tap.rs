@@ -125,10 +125,11 @@ impl Hub {
         let hook_calls = StdMutex::new(std::collections::HashSet::<String>::new());
         // This tap's number: once a Stop ended its agent, nothing it logs is a sign of work.
         let tap_number = session.taps.fetch_add(1, Ordering::SeqCst) + 1;
-        // The last stderr line of this agent that says why it would die, for its `exited` record
-        // (`exit_reason.rs`). Kept here, in entry order: the hub's stderr tail may not have
-        // taken the host's last lines yet when its exit entry comes through.
-        let last_stderr: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+        // The last stderr line of this agent process that says why it would die, for its `exited`
+        // record (`exit_reason::ExitLine`): a turn it ended well clears it, and a new process has
+        // a new tap. Kept here, in entry order: the hub's stderr tail may not have taken the
+        // host's last lines yet when its exit entry comes through.
+        let last_stderr = std::sync::Mutex::new(super::exit_reason::ExitLine::default());
         Arc::new(move |dir: Direction, msg: &Message, host_seq: Option<u64>| -> bool {
             let muted = tap_number <= tap_session.muted_taps.load(Ordering::SeqCst);
             // The sign of work is published before a tool call's end can bring the stalled
@@ -149,6 +150,9 @@ impl Hub {
                 && method == crate::rpc::method::SESSION_UPDATE
             {
                 tap_hub.note_tool_update(&tap_session, &p["update"]);
+                if !tap_session.loading.load(Ordering::SeqCst) {
+                    tap_hub.note_verify(&tap_session, &p["update"]);
+                }
                 // Counted before it is logged, so no check waits for the inbound loop to apply
                 // it (review 69 of #23322).
                 if super::full_access_bound::own_full_access_report(&tap_session, p) {
@@ -159,6 +163,9 @@ impl Hub {
                     }
                 }
             }
+            if matches!(dir, Direction::In) && super::exit_reason::ends_a_turn_well(msg) {
+                last_stderr.lock().unwrap_or_else(|e| e.into_inner()).turn_ended_well();
+            }
             let (d, kind) = match (dir, msg) {
                 // Agent host stderr and exit entries: logged here, in entry
                 // order, before the entry is acknowledged.
@@ -166,11 +173,8 @@ impl Hub {
                     if method == crate::agent::HOST_STDERR =>
                 {
                     let text = params.as_ref().and_then(|p| p.get("text")).cloned();
-                    if let Some(line) = text.as_ref().and_then(Value::as_str).map(str::trim)
-                        && super::exit_reason::explains_exit(line)
-                    {
-                        *last_stderr.lock().unwrap_or_else(|e| e.into_inner()) =
-                            Some(line.to_owned());
+                    if let Some(line) = text.as_ref().and_then(Value::as_str) {
+                        last_stderr.lock().unwrap_or_else(|e| e.into_inner()).heard(line);
                     }
                     return tap_hub
                         .append_logged(
@@ -208,7 +212,8 @@ impl Hub {
                             } else if intentional {
                                 json!({"code": code})
                             } else {
-                                let last = last_stderr.lock().unwrap_or_else(|e| e.into_inner());
+                                let last =
+                                    last_stderr.lock().unwrap_or_else(|e| e.into_inner()).take();
                                 super::exit_reason::exited_data(code, last.as_deref())
                             },
                             host_seq,

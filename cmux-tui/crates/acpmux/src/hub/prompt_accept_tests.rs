@@ -97,6 +97,49 @@ async fn a_prompt_behind_one_about_to_start_its_turn_is_accepted_queued_at_once(
     assert_eq!(order, [json!("g1-a"), json!("g1-b")]);
 }
 
+/// Two prompts sent while a turn is ahead of them both queue. The first of them waits in
+/// `queue_slot` for that whole turn; it must not keep the admission order's lock while it
+/// waits, or the second is never accepted (ten live moves: "q-2 never queued").
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_second_queued_prompt_is_accepted_while_the_first_still_waits() {
+    let (hub, s) = chat().await;
+    let (arrived_tx, arrived) = tokio::sync::oneshot::channel();
+    let (release, release_rx) = tokio::sync::oneshot::channel::<()>();
+    *hub.prompt_start_seam.lock().unwrap() = Some((arrived_tx, release_rx));
+    let (first_tx, _first_accepted) = tokio::sync::oneshot::channel();
+    let first = prompt(&hub, &s, "q-0", "first", first_tx);
+    tokio::time::timeout(WAIT, arrived).await.unwrap().unwrap();
+
+    let mut waiting = vec![first];
+    for (position, id) in [(1, "q-1"), (2, "q-2")] {
+        let (tx, accepted) = tokio::sync::oneshot::channel();
+        waiting.push(prompt(&hub, &s, id, id, tx));
+        let accepted = tokio::time::timeout(Duration::from_secs(5), accepted)
+            .await
+            .unwrap_or_else(|_| panic!("{id} is accepted while the prompts ahead still wait"))
+            .unwrap();
+        assert_eq!(
+            (&accepted["queued"], &accepted["position"]),
+            (&json!(true), &json!(position)),
+            "{accepted}"
+        );
+    }
+
+    release.send(()).unwrap();
+    for done in waiting {
+        let r = tokio::time::timeout(WAIT, done).await.unwrap().unwrap().unwrap();
+        assert_eq!(r["stopReason"], "end_turn", "{r}");
+    }
+    let order: Vec<Value> = hub
+        .events(&s.id, 0, 10_000)
+        .unwrap()
+        .into_iter()
+        .filter(|r| r.kind == "user_message")
+        .map(|r| r.msg["promptId"].clone())
+        .collect();
+    assert_eq!(order, [json!("q-0"), json!("q-1"), json!("q-2")]);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_slow_attachment_cannot_be_overtaken_before_queue_admission() {
     let (hub, s) = chat().await;

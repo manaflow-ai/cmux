@@ -10,7 +10,7 @@ import {
   limitResetsAt,
   offersOwnRoute,
 } from "./failureCopy";
-import { currentLanguage, type Translate, translatorFor } from "./i18n";
+import { currentLanguage, STRING_TABLES, type Translate, translatorFor } from "./i18n";
 import { resetTime } from "./usageLimits";
 
 // The connection drops acpmux retries by itself (hub/turn_errors.rs `says_connection_dropped`) read
@@ -69,6 +69,29 @@ test("a Claude sign-in failure on a team Cloud machine says it takes no personal
   expect(isTeamMachineSignIn("auth", { ...team, hostKind: "local" })).toBe(false);
   expect(isTeamMachineSignIn("rate-limited", team)).toBe(false);
   expect(failureCopy(t, "429 Too Many Requests", team)).toBe("turn.failure.rateLimited");
+});
+
+// An expired sign-in on an older Cloud machine (its acpmux has no `agent-login-v1`, so no in-card
+// sign-in): Sign in again runs the agent's own login in a terminal there, and the card's sentence says
+// why after the cause. Every other card, a current machine's among them, reads as it did.
+test("an expired sign-in on an older Cloud machine says Sign in again opens a terminal there", () => {
+  const expired = "OAuth token expired (HTTP 401)";
+  const older = { hostKind: "cloud" as const, harness: "Claude Code", terminalSignIn: true };
+  for (const lang of Object.keys(STRING_TABLES)) {
+    const t = translatorFor(lang);
+    const cause = t("turn.failure.cloudAuthExpired", { harness: "Claude Code" });
+    const why = t("turn.failure.cloudSignInInTerminal", { harness: "Claude Code" });
+    expect(STRING_TABLES[lang]!["turn.failure.cloudSignInInTerminal"], lang).toBeTruthy();
+    expect(why, lang).toContain("Claude Code");
+    expect(why, lang).not.toContain("{harness}");
+    expect(failureCopy(t, expired, older), lang).toBe(`${cause} ${why}`);
+    expect(failureCopy(t, expired, { ...older, terminalSignIn: undefined }), lang).toBe(cause);
+  }
+  const t = ((key: string) => key) as Translate;
+  expect(failureCopy(t, "Not logged in · Please run /login", older)).toBe(
+    "turn.failure.cloudAuthRejected turn.failure.cloudSignInInTerminal",
+  );
+  expect(failureCopy(t, "429 Too Many Requests", older)).toBe("turn.failure.rateLimited");
 });
 
 // Lucas's fresh Codex chat failed with only "failed to load workspace requirements: invalid input
