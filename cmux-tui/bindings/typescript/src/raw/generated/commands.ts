@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR c6baa0b327c73f2ef54aa458e95eb5f7c82a3cc2f11850e121db55cc6ebbdbe3. */
+/* cmux-tui mux protocol 12, IR 410f84de1f7cde14ad7e4bbaad29f5dab712c1b9d5efcd27b3147b5db6e37aa0. */
 
 
 import type * as T from "./types.js";
@@ -2506,6 +2506,7 @@ export interface SetCellPixelsRequest extends CmuxRequestBase {
 export interface SetClientInfoRequest extends CmuxRequestBase {
   cmd: "set-client-info";
   "api_revision"?: (number) | null;
+  "api_version"?: (string) | null;
   "capabilities"?: (Array<string>) | null;
   "device_id"?: (string) | null;
   "device_kind"?: (string) | null;
@@ -2518,7 +2519,6 @@ export interface SetClientInfoRequest extends CmuxRequestBase {
   "user_id"?: (string) | null;
   "version"?: (string) | null;
 }
-export type SetClientInfoResult = T.EmptyResult;
 
 /** Protocol v10; authority: control. */
 export interface SetClientSizingRequest extends CmuxRequestBase {
@@ -5424,7 +5424,7 @@ export interface CmuxCommandDefinitionMap {
   };
   "set-client-info": {
     request: SetClientInfoRequest;
-    result: SetClientInfoResult;
+    result: T.SetClientInfoResult;
     authority: "control";
     since: 6;
     capability: null;

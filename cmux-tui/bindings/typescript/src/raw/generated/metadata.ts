@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR c6baa0b327c73f2ef54aa458e95eb5f7c82a3cc2f11850e121db55cc6ebbdbe3. */
+/* cmux-tui mux protocol 12, IR 410f84de1f7cde14ad7e4bbaad29f5dab712c1b9d5efcd27b3147b5db6e37aa0. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "c6baa0b327c73f2ef54aa458e95eb5f7c82a3cc2f11850e121db55cc6ebbdbe3" as const;
+export const SDK_IR_SHA256 = "410f84de1f7cde14ad7e4bbaad29f5dab712c1b9d5efcd27b3147b5db6e37aa0" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -3026,6 +3026,10 @@ export const COMMAND_METADATA = {
     "capability": null,
     "fields": {
       "api_revision": {
+        "since": 12,
+        "capability": null
+      },
+      "api_version": {
         "since": 12,
         "capability": null
       },
@@ -8122,6 +8126,17 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "uint32"
         }
       },
+      "api_version": {
+        "constraints": [
+          "The newest dated API version this daemon serves (YYYY-MM-DD; cmux-tui/spec/api-versioning.md). Only with identify {revisions: true}."
+        ],
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "app": {
         "nullable": false,
         "presence": "required",
@@ -8316,6 +8331,17 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint32"
+        }
+      },
+      "min_api_version": {
+        "constraints": [
+          "The oldest dated API version this daemon still serves for a client that pins it with set-client-info api_version. Only with identify {revisions: true}."
+        ],
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       },
       "pid": {
@@ -13002,6 +13028,34 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
             "name": "CellPixelResize"
           },
           "kind": "array"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "SetClientInfoResult": {
+    "additional_properties": false,
+    "fields": {
+      "api_revision": {
+        "constraints": [
+          "The numbered revision behind api_version. Only when the request sent api_version."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
+      "api_version": {
+        "constraints": [
+          "The dated API version that serves this connection (YYYY-MM-DD). Only when the request sent api_version."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },
@@ -23281,7 +23335,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         },
         "revisions": {
           "constraints": [
-            "Adds api_revision, min_api_revision, crate_version, install and update_command to the reply. Off by default so strict older SDK decoders keep reading the reply."
+            "Adds api_revision, min_api_revision, api_version, min_api_version, crate_version, install and update_command to the reply. Off by default so strict older SDK decoders keep reading the reply."
           ],
           "nullable": false,
           "presence": "optional",
@@ -28608,6 +28662,19 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "uint32"
           }
         },
+        "api_version": {
+          "constraints": [
+            "A dated API version, YYYY-MM-DD (for example 2026-11-24). The daemon serves the newest revision dated on or before it and answers with api_version and api_revision; a date before min_api_version is refused; with api_revision too, both must name the same revision. Absent: unchanged behaviour. Promise: cmux-tui/spec/api-versioning.md."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
         "capabilities": {
           "constraints": [
             "Advertises additive client capabilities for this connection."
@@ -28762,7 +28829,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     },
     "result": {
       "kind": "ref",
-      "name": "EmptyResult"
+      "name": "SetClientInfoResult"
     }
   },
   "set-client-sizing": {
