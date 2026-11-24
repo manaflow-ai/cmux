@@ -1318,14 +1318,14 @@ fn is_echo(v: &Value, prompt_id: &str) -> bool {
         return false;
     }
     let p = v["params"].to_string();
-    p.contains("user_message") && p.contains(prompt_id)
+    p.contains("user_message") && p.contains(&format!("\"{prompt_id}\""))
 }
 
 fn reply_has_echo(reply: &Value, prompt_id: &str) -> bool {
     reply["events"].as_array().is_some_and(|events| {
         events.iter().any(|e| {
             let s = e.to_string();
-            s.contains("user_message") && s.contains(prompt_id)
+            s.contains("user_message") && s.contains(&format!("\"{prompt_id}\""))
         })
     })
 }
@@ -1348,13 +1348,10 @@ async fn chat_send_once(
 ) -> (Option<f64>, u64) {
     let deadline = tap + send_bound();
     let mut retries = 0;
-    let mut request = match link
+    let mut request = link
         .post(method::SESSION_PROMPT, prompt_params(session, "ping", prompt_id, false))
         .await
-    {
-        Ok(id) => Some(id),
-        Err(_) => None,
-    };
+        .ok();
     let mut last_ping = Instant::now();
     loop {
         if request.is_some() {
@@ -1451,7 +1448,7 @@ async fn applied_prompts(
                     .iter()
                     .filter(|e| {
                         let s = e.to_string();
-                        s.contains("user_message") && s.contains(pid.as_str())
+                        s.contains("user_message") && s.contains(&format!("\"{pid}\""))
                     })
                     .count()
             })
