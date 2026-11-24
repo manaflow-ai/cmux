@@ -94,6 +94,28 @@ import Testing
         gone.listChanged()
         #expect(gone.alert?.refusal == .notFound)
     }
+
+    /// A screen link (`cmux://mac-screen?device=…`) names a device by id: it waits for the list
+    /// like a tap, View Only unless the link asked for control; a device the list doesn't hold
+    /// is the not-found alert, under the link's label until the list names it.
+    @Test func aScreenLinkOpensItsDeviceByIDOnceTheListIsRead() throws {
+        let service = makeService(try makeStore(holding: [studio()]))
+        service.open(deviceID: "STUDIO", name: "ui run", scope: .view)
+        #expect(service.pendingSelection == .init(hostID: "studio", hostName: "Studio", scope: .view))
+        service.demoDiscovery = .listed
+        service.demoMacs = [studio(online: false)]
+        service.listChanged()
+        #expect(service.alert?.refusal == .hostOffline)
+        #expect(service.alert?.requested == .view)
+
+        let gone = makeService(try makeStore(holding: []))
+        gone.demoDiscovery = .listed
+        gone.demoMacs = [studio()]
+        gone.open(deviceID: "elsewhere", name: "ui run", scope: .full)
+        #expect(gone.alert?.refusal == .notFound)
+        #expect(gone.alert?.hostName == "ui run")
+        #expect(gone.viewer == nil)
+    }
     #endif
 
     @Test func theLastListIsKeptAndSigningOutForgetsIt() throws {
