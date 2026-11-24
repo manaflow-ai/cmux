@@ -239,6 +239,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_classic_api_guard.py
 
+      - name: Validate the controller's idle classic API guard step
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_advisory_idle_step.py
+
       - name: Validate the classic-frozen guard
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_classic_frozen_guard.py
