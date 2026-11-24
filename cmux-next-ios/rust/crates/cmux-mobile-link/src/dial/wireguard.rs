@@ -2092,6 +2092,7 @@ static CELLULAR_PATH: AtomicBool = AtomicBool::new(false);
 /// data stays within its data bytes, and its peer is told to keep to that.
 pub fn set_cellular_path(cellular: bool) {
     CELLULAR_PATH.store(cellular, Ordering::Relaxed);
+    crate::metered::refresh();
 }
 
 /// The last value [`set_cellular_path`] stored.
