@@ -199,6 +199,37 @@ struct SubagentsScreen: View {
 
 /// A row of the Subagents list. Its own view, so a change to one subagent evaluates its row,
 /// not every row of the list.
+/// A subagent's time: its run's length once it ended, and while it runs a clock of its own that
+/// ticks each second (the row is not evaluated for that, nor for other subagents' changes). The
+/// list's inline row showed the time at its last evaluation: frozen while nothing changed.
+struct SubagentElapsed: View {
+    let startedAt: Date
+    let endedAt: Date?
+    #if DEBUG
+    /// The running clock's draws (tests: it ticks with no change to the store).
+    static var ticks = 0
+    #endif
+
+    var body: some View {
+        if let endedAt {
+            label(endedAt)
+        } else {
+            TimelineView(.periodic(from: startedAt, by: 1)) { context in
+                #if DEBUG
+                let _ = Self.ticks += 1
+                #endif
+                label(context.date)
+            }
+        }
+    }
+
+    private func label(_ now: Date) -> some View {
+        Text(Duration.seconds(max(0, now.timeIntervalSince(startedAt))).formatted(.units(allowed: [.minutes, .seconds], width: .narrow)))
+            .font(.footnote.monospacedDigit())
+            .foregroundStyle(.tertiary)
+    }
+}
+
 struct SubagentRow: View {
     let name: String
     let subtitle: String
@@ -222,10 +253,7 @@ struct SubagentRow: View {
                 Text(subtitle).font(.footnote).foregroundStyle(.secondary).lineLimit(2)
             }
             Spacer(minLength: 4)
-            Text(Duration.seconds((endedAt ?? Date()).timeIntervalSince(startedAt))
-                .formatted(.units(allowed: [.minutes, .seconds], width: .narrow)))
-                .font(.footnote.monospacedDigit())
-                .foregroundStyle(.tertiary)
+            SubagentElapsed(startedAt: startedAt, endedAt: endedAt)
             // Drill-down affordance, as on every pushed row.
             Image(systemName: "chevron.right")
                 .font(.system(size: 13, weight: .semibold))

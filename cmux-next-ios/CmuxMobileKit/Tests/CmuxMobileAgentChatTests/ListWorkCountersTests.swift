@@ -282,5 +282,25 @@ import UIKit
         window.isHidden = true
         #expect(perChange.allSatisfy { $0 <= 2 }, "row body evaluations per change of one subagent: \(perChange)")
     }
+
+    /// A running subagent's time advances with nothing changing in the store (its own clock), as
+    /// the list's row did only when some subagent changed.
+    @Test func aRunningSubagentsTimeAdvancesInAQuietStore() async {
+        let store = AgentChatStore(source: SmoothChatTests.Silent())
+        store.nextFrame = nil
+        store.apply(.subagent(AgentSubagentChange(id: "q", name: "Quiet", task: "Wait", state: .running, at: Date())))
+        let host = UIHostingController(rootView: NavigationStack { SubagentsScreen(store: store, surface: AgentChatSurface()) })
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        window.rootViewController = host
+        window.isHidden = false
+        for _ in 0..<6 { await Self.frame(window) }
+        let rows = SubagentRow.bodies
+        let ticks = SubagentElapsed.ticks
+        let deadline = Date().addingTimeInterval(2.5)
+        while Date() < deadline { await Self.frame(window) }
+        window.isHidden = true
+        #expect(SubagentElapsed.ticks - ticks >= 2, "the running time drew \(SubagentElapsed.ticks - ticks) times in 2.5 s with no change")
+        #expect(SubagentRow.bodies == rows, "the row itself was not evaluated again (\(SubagentRow.bodies - rows))")
+    }
 }
 #endif
