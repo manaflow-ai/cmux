@@ -147,6 +147,12 @@ const MAX_SPRAY: usize = 6;
 const ANNOUNCE_GRACE: Duration = Duration::from_millis(300);
 /// Receive errors in a row on the second socket before it waits.
 const MAX_ERRORS: usize = 8;
+/// The second socket's first STUN retry; each later one waits twice as
+/// long, up to [`STUN_RETRY_MAX`]. One request lost on a lossy carrier link
+/// (or in a carrier NAT's first-packet race) must not leave the peer without
+/// the metered address: then no copy goes out before Wi-Fi dies.
+const STUN_RETRY_FIRST: Duration = Duration::from_millis(200);
+const STUN_RETRY_MAX: Duration = Duration::from_secs(2);
 
 /// A socket bound to the second interface, as the session hands it over.
 pub(super) struct SecondarySocket {
@@ -170,6 +176,8 @@ pub(super) struct Secondary {
     reflexive: mpsc::UnboundedSender<Option<SocketAddr>>,
     /// When its reflexive address went to the session for the peer.
     announced: Option<Instant>,
+    /// When the unanswered STUN requests go again, and the wait after that.
+    stun_retry: (Instant, Duration),
 }
 
 impl Secondary {
@@ -187,6 +195,23 @@ impl Secondary {
         let _ = self.reflexive.send(Some(reflexive));
         self.announced.get_or_insert_with(Instant::now);
         true
+    }
+
+    /// Send the unanswered STUN requests again when their wait is over.
+    fn retry_stun(&mut self, now: Instant) {
+        if self.stun.is_empty() || now < self.stun_retry.0 {
+            return;
+        }
+        let gap = self.stun_retry.1;
+        self.stun_retry = (now + gap, (gap * 2).min(STUN_RETRY_MAX));
+        for (transaction, server) in &self.stun {
+            let _ = self.socket.try_send_to(&cmux_transport::stun::binding_request(*transaction), *server);
+        }
+        tracing::debug!(
+            interface = self.interface,
+            pending = self.stun.len(),
+            "the second socket asks STUN again"
+        );
     }
 }
 
@@ -244,15 +269,19 @@ impl HybridUnderlay {
             stun = stun.len(),
             "WireGuard takes a second socket"
         );
+        // Every transaction is kept, sent or not: a socket the runtime just
+        // took may refuse its first send, and a request that never left must
+        // be asked again like one lost on the way.
         let mut transactions = Vec::new();
+        let mut unsent = false;
         for server in stun {
             let mut transaction = [0u8; 12];
             getrandom::fill(&mut transaction).expect("operating system randomness");
             let request = cmux_transport::stun::binding_request(transaction);
-            if socket.try_send_to(&request, server).is_ok() {
-                transactions.push((transaction, server));
-            }
+            unsent |= socket.try_send_to(&request, server).is_err();
+            transactions.push((transaction, server));
         }
+        let first_retry = if unsent { Duration::ZERO } else { STUN_RETRY_FIRST };
         self.assist.secondary = Some(Secondary {
             socket,
             interface,
@@ -261,6 +290,7 @@ impl HybridUnderlay {
             stun: transactions,
             reflexive,
             announced: None,
+            stun_retry: (Instant::now() + first_retry, STUN_RETRY_FIRST),
         });
         self.wake_receiver();
     }
@@ -284,11 +314,14 @@ impl HybridUnderlay {
         if self.assist.secondary.is_none() && self.assist.metered_from.is_none() {
             return;
         }
+        let now = Instant::now();
+        if let Some(secondary) = &mut self.assist.secondary {
+            secondary.retry_stun(now);
+        }
         let alive = self.primary_alive();
         if alive && !matches!(class, SendClass::Input | SendClass::Control) {
             return;
         }
-        let now = Instant::now();
         if let Some(secondary) = &self.assist.secondary {
             let targets: Vec<SocketAddr> = match secondary.heard_peer(now) {
                 Some(peer) => vec![peer],
@@ -689,6 +722,65 @@ mod tests {
         });
         assert_eq!(underlay.socket.local_addr().unwrap(), fresh_addr);
         assert!(underlay.assist.secondary.is_some());
+    }
+
+    /// The first STUN request on cell is lost: the second socket asks again
+    /// until it is answered, and then announces the address as metered.
+    #[tokio::test]
+    async fn a_lost_stun_request_is_asked_again_until_answered() {
+        let stun = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let stun_addr = stun.local_addr().unwrap();
+        let peer = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let peer_addr = peer.local_addr().unwrap();
+        let mut underlay =
+            underlay(&[peer_addr.to_string()], UdpSocket::bind("127.0.0.1:0").await.unwrap(), WG_VERSION);
+        drive(&mut underlay, peer_addr, Instant::now());
+        let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        socket.set_nonblocking(true).unwrap();
+        let (reflexive, mut answers) = mpsc::unbounded_channel();
+        underlay.apply(Control::Secondary(Some(SecondarySocket {
+            socket,
+            interface: "pdp_ip0".into(),
+            stun: vec![stun_addr],
+            reflexive,
+        })));
+        // The first request (sent at once, or on the first send after a
+        // refused one) arrives and is dropped: lost on the carrier link.
+        underlay.assist.secondary.as_ref().unwrap().socket.writable().await.unwrap();
+        underlay.assist_send(&data(64, 0), SendClass::Input);
+        let mut buffer = [0u8; 1500];
+        tokio::time::timeout(Duration::from_secs(1), stun.recv_from(&mut buffer)).await.unwrap().unwrap();
+        // Before the retry is due, a keystroke sends no request.
+        underlay.assist_send(&data(64, 1), SendClass::Input);
+        assert!(tokio::time::timeout(Duration::from_millis(50), stun.recv_from(&mut buffer)).await.is_err());
+        tokio::time::sleep(STUN_RETRY_FIRST).await;
+        underlay.assist_send(&data(64, 2), SendClass::Bulk);
+        let (len, from) =
+            tokio::time::timeout(Duration::from_secs(1), stun.recv_from(&mut buffer)).await.unwrap().unwrap();
+        let transaction: [u8; 12] = buffer[8..20].try_into().unwrap();
+        assert_eq!(&buffer[..len], cmux_transport::stun::binding_request(transaction).as_slice());
+        let reflexive_addr: SocketAddr = "198.18.0.43:40000".parse().unwrap();
+        stun.send_to(&cmux_transport::stun::binding_success(transaction, reflexive_addr), from)
+            .await
+            .unwrap();
+        let answered = tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                std::future::poll_fn(|cx| {
+                    let _ = underlay.poll_secondary(cx, &mut buffer);
+                    Poll::Ready(())
+                })
+                .await;
+                if let Ok(answer) = answers.try_recv() {
+                    return answer;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(answered, Some(reflexive_addr));
+        let secondary = underlay.assist.secondary.as_ref().unwrap();
+        assert!(secondary.stun.is_empty() && secondary.announced.is_some());
     }
 
     /// Nothing heard on cell yet and its address not yet told to the peer:
