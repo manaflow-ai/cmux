@@ -117,6 +117,9 @@ public final class TerminalProjectingSession: TerminalSession {
     public func sendPasteAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void, maybeSent: @escaping @MainActor () -> Void) -> Bool {
         inner.sendPasteAndSubmit(text, notSent: notSent, maybeSent: maybeSent)
     }
+    public func sendTypedAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void, maybeSent: @escaping @MainActor () -> Void) -> Bool {
+        inner.sendTypedAndSubmit(text, notSent: notSent, maybeSent: maybeSent)
+    }
     public func stop() {
         claimHoldDeadline?.cancel()
         claimHoldDeadline = nil
