@@ -184,7 +184,11 @@ async fn a_cancelled_add_lists_nothing_and_removes_only_its_home() {
     .unwrap();
     std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
 
-    let before = super::super::accounts::list(Some(&routes_dir), &routes::Bindings::default());
+    let before = super::super::accounts::list(
+        Some(&routes_dir),
+        &root.join("state"),
+        &routes::Bindings::default(),
+    );
     let (id, name) = new_account("claude", &before, None, |id| account_home(&root, id).exists());
     let home = account_home(&root, &id);
     let file = add_file("claude", &name, &home).expect("a route file");
@@ -211,7 +215,11 @@ async fn a_cancelled_add_lists_nothing_and_removes_only_its_home() {
     assert!(!login::running(&started.login_id) && !adding(&id));
     assert!(!home.exists(), "the add's home stayed");
     assert!(neighbour.join("keep").is_file(), "a folder the add did not make went");
-    let after = super::super::accounts::list(Some(&routes_dir), &routes::Bindings::default());
+    let after = super::super::accounts::list(
+        Some(&routes_dir),
+        &root.join("state"),
+        &routes::Bindings::default(),
+    );
     assert_eq!(after.len(), before.len(), "the cancelled add was listed");
     assert!(!after.iter().any(|a| a["id"] == id.as_str()));
     // A home that was there before the add is never removed.

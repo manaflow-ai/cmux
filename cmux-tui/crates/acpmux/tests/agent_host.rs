@@ -70,6 +70,7 @@ fn spec(dir: &Path, session: &str) -> SpawnSpec {
         holder: None,
         copilot_scratch: None,
         local_chatgpt_expiry: None,
+        local_kimi_expiry: None,
     }
 }
 
@@ -666,6 +667,7 @@ fn discovery_rejects_linked_records_and_socket_paths_outside_the_host_namespace(
         host_level: 0,
         holder: None,
         local_chatgpt_expiry: None,
+        local_kimi_expiry: None,
     };
     let wrong = record("wrong-socket", outside_socket.clone());
     let wrong_path = hosts.join("wrong-socket.json");

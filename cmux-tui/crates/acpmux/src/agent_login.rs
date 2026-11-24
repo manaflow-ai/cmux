@@ -1047,7 +1047,7 @@ async fn claude_auth_command(cli: &Cli, args: &[&str]) -> Result<std::process::O
 pub(crate) async fn claude_logout(machine: &Machine, cli: &Cli) -> Result<(), LoginError> {
     machine.refuse_shared()?;
     let _guard = CLAUDE_ACCOUNT.lock().await;
-    if lock_table().contains_key(&Agent::Claude) {
+    if lock_table().keys().any(|(agent, _)| *agent == Agent::Claude) {
         return Err(LoginError::new(reason::BUSY, "Claude Code is signing in"));
     }
     if !claude_auth_command(cli, &["auth", "logout"]).await?.status.success() {
