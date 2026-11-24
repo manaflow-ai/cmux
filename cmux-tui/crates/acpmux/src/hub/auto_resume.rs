@@ -47,7 +47,9 @@
 //!   decision for no retry records `auto_resume_settled` `{turnId, why}`, so a peer that keeps
 //!   the row hears it too.
 //! - A capacity error does not hop to the fallback profile: the SR2 pool reports it, and a 529
-//!   is the provider's whatever account asks, so the session waits where it is.
+//!   is the provider's whatever account asks, so the session waits where it is. After
+//!   `capacityFallbackAfter` capacity failures of one prompt (default 3), its attempts run on a
+//!   smaller model of the same harness until a turn there ends well ([`capacity_failover`]).
 //! - A continuation that completes resumes the prompts the cut turn held (`pause_queue`), and
 //!   only those: they waited only because of the connection. A failed attempt holds nothing
 //!   new (the cut turn already holds them), so attempt `n` follows the attempts before it back
@@ -123,6 +125,9 @@ mod unread_steers;
 
 /// A turn the agent failed on its model goes again once, under the model's catalog id.
 mod model_reroute;
+
+/// A sustained overload goes on on a smaller model, and back once a turn there ends well.
+mod capacity_failover;
 
 /// The loop as Settings > Agents > Retry After Errors sets it (`agents.autoRetry.*`).
 mod settings;
@@ -1523,6 +1528,10 @@ impl Hub {
             self.clear_fired(session, cut_turn);
             skip("superseded");
             return;
+        }
+        // A sustained overload: this attempt runs on a smaller model (`capacity_failover.rs`).
+        if reason == "capacity" {
+            self.fail_over_on_capacity(session, root, attempt).await;
         }
         let held = self.held_by(session, root, cut_turn);
         // At a rate limit's reset, what queued meanwhile goes in as the one next turn, carrying

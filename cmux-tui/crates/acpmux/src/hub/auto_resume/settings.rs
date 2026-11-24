@@ -10,6 +10,34 @@ use serde_json::Value;
 pub const SETTING_ENABLED: &str = "agents.autoRetry.enabled";
 pub const SETTING_INTERVAL: &str = "agents.autoRetry.intervalSeconds";
 pub const SETTING_ATTEMPTS: &str = "agents.autoRetry.attempts";
+/// After how many capacity attempts on one cut prompt its next one runs on a smaller model
+/// (`capacity_failover.rs`); 0 never switches.
+pub const SETTING_CAPACITY_FALLBACK: &str = "agents.autoRetry.capacityFallbackAfter";
+
+/// [`SETTING_CAPACITY_FALLBACK`]'s default: three capacity failures, then the smaller model.
+pub const DEFAULT_CAPACITY_FALLBACK_AFTER: usize = 3;
+
+/// The capacity failover's attempt in force: `configured` (config.json's
+/// `capacityFallbackAfter`) when set, else the settings file's, else the default. Held to
+/// 0..=[`MAX_CONFIGURED_ATTEMPTS`], a fraction rounded down.
+pub(in crate::hub) fn capacity_fallback_after(configured: Option<u64>) -> usize {
+    if let Some(n) = configured {
+        return usize::try_from(n).unwrap_or(usize::MAX).min(MAX_CONFIGURED_ATTEMPTS);
+    }
+    match crate::user_settings::read() {
+        crate::user_settings::Settings::Parsed(doc) => settings_fallback_after(&doc),
+        _ => DEFAULT_CAPACITY_FALLBACK_AFTER,
+    }
+}
+
+fn settings_fallback_after(doc: &Value) -> usize {
+    crate::user_settings::value(doc, SETTING_CAPACITY_FALLBACK)
+        .and_then(|v| v.as_f64())
+        .filter(|n| n.is_finite())
+        .map_or(DEFAULT_CAPACITY_FALLBACK_AFTER, |n| {
+            n.floor().clamp(0.0, MAX_CONFIGURED_ATTEMPTS as f64) as usize
+        })
+}
 
 /// The waits in force, one per attempt: `configured` (config.json's `autoResumeDelaysMs`) when
 /// set, else the settings file's, else the default. A settings file that cannot be read keeps
@@ -116,6 +144,23 @@ mod tests {
         assert_eq!(settings_delays(&low), vec![DEFAULT_DELAYS_MS[0]]);
         let junk = json!({"agents": {"autoRetry": {"enabled": "no", "intervalSeconds": "x"}}});
         assert_eq!(settings_delays(&junk), DEFAULT_DELAYS_MS.to_vec());
+    }
+
+    #[test]
+    fn capacity_fallback_reads_its_key_held_to_its_range() {
+        assert_eq!(settings_fallback_after(&json!({})), DEFAULT_CAPACITY_FALLBACK_AFTER);
+        let off = json!({"agents": {"autoRetry": {"capacityFallbackAfter": 0}}});
+        assert_eq!(settings_fallback_after(&off), 0);
+        let dotted = json!({"agents.autoRetry.capacityFallbackAfter": 5.7});
+        assert_eq!(settings_fallback_after(&dotted), 5);
+        let high = json!({"agents": {"autoRetry": {"capacityFallbackAfter": 99}}});
+        assert_eq!(settings_fallback_after(&high), MAX_CONFIGURED_ATTEMPTS);
+        let junk = json!({"agents": {"autoRetry": {"capacityFallbackAfter": "x"}}});
+        assert_eq!(settings_fallback_after(&junk), DEFAULT_CAPACITY_FALLBACK_AFTER);
+        // config.json's comes first.
+        assert_eq!(capacity_fallback_after(Some(0)), 0);
+        assert_eq!(capacity_fallback_after(Some(2)), 2);
+        assert_eq!(capacity_fallback_after(Some(500)), MAX_CONFIGURED_ATTEMPTS);
     }
 
     #[test]

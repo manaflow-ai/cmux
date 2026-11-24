@@ -9,6 +9,9 @@ mod agent_revive;
 #[path = "auto_resume_capacity.rs"]
 mod capacity;
 
+#[path = "auto_resume_capacity_failover.rs"]
+mod capacity_failover;
+
 #[path = "auto_resume_context.rs"]
 mod context;
 

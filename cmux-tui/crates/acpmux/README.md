@@ -455,7 +455,12 @@ id `<promptId>~resume-<n>` and `_meta.provenance.kind` `auto_resume`. Stop, clos
 anything else run in it meanwhile cancels it, and a continuation that completes resumes the
 prompts the cut turn held (`hub/auto_resume.rs`). While it waits the session row's `retry` is
 `{attempt, of, reason, nextAt, promptId, turnId}` (`reason` `capacity`, `rate_limit`, `transport` or
-`agent_exited`), null otherwise. Sign-in failures never retry this way. An account's usage or
+`agent_exited`), null otherwise. From the `capacityFallbackAfter`th capacity attempt of one prompt
+on (default 3, `0` never; Settings' `agents.autoRetry.capacityFallbackAfter` when config.json has
+none), a chat on Opus or Fable continues on the catalog's newest Sonnet, with one
+`capacity_failover {from, to, attempt, promptId, text}` notice row and log line; the first turn
+that ends well there puts its own model back (`capacity_restored`), and the chat's meta keeps
+that model across a daemon restart (`hub/auto_resume/capacity_failover.rs`). Sign-in failures never retry this way. An account's usage or
 rate limit (HTTP 429, `rate_limit`) holds the whole chat until its reset (`hub/rate_hold.rs`): no
 turn starts, what comes in queues and goes in as one turn at the reset with the continuation's
 words (a context past 200K tokens compacts first), the row's `rateLimitedUntil` says until when,

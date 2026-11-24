@@ -752,6 +752,7 @@ impl Hub {
             preset: parent_meta.preset.clone(),
             model_request: parent_meta.model_request.clone(),
             effort_request: parent_meta.effort_request.clone(),
+            capacity_fallback: None,
             cwd,
             // A fork sees what its parent saw, but never its own folder twice.
             additional_directories: fork_dirs,

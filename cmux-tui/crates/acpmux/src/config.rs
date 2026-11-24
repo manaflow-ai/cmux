@@ -1707,6 +1707,12 @@ pub struct Config {
         deserialize_with = "crate::hub::auto_resume::delays_from_config"
     )]
     pub auto_resume_delays_ms: Option<Vec<u64>>,
+    /// `capacityFallbackAfter`: after this many capacity attempts on one cut prompt (HTTP 529,
+    /// "overloaded"), the next runs on a smaller model of the same harness, and the chat's own
+    /// model comes back once a turn there ends well (`hub/auto_resume/capacity_failover.rs`).
+    /// 0 never switches. Unset: Settings' `agents.autoRetry.capacityFallbackAfter`, default 3.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capacity_fallback_after: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub websocket: Option<WebSocketConfig>,
     #[serde(default)]
