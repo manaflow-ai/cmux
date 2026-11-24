@@ -686,6 +686,11 @@ async function startLive(ctx: Ctx, daemon: Daemon, log: ReplayLog): Promise<Live
           includeObjectsCollectedByMajorGC: true,
           includeObjectsCollectedByMinorGC: true,
         });
+      if (process.env.TRACE_SS)
+        await page.evaluate(() => {
+          (globalThis as any).__ss = {};
+          (globalThis as any).__ssOn = true;
+        });
       const taskBefore = await metric(clock, "TaskDuration");
       const windowStart = await page.evaluate(() => performance.now());
       const playBurst = async () => {
@@ -728,6 +733,16 @@ async function startLive(ctx: Ctx, daemon: Daemon, log: ReplayLog): Promise<Live
         await paint(page, 2);
       }
       const taskMs = ((await metric(clock, "TaskDuration")) - taskBefore) * 1000;
+      if (process.env.TRACE_SS) {
+        const ss = await page.evaluate(() => {
+          (globalThis as any).__ssOn = false;
+          return (globalThis as any).__ss ?? {};
+        });
+        for (const [k, n] of Object.entries(ss)
+          .sort((a: any, b: any) => b[1] - a[1])
+          .slice(0, 12))
+          console.log(`  SS ${burst.kind} ${burst.rows} ${n} ${k}`);
+      }
       const profiled = PROFILE ? ((await cdp.send("Profiler.stop")) as { profile: CpuProfile }).profile : undefined;
       if (profiled && process.env.RAWDIR)
         fs.writeFileSync(
@@ -1086,6 +1101,22 @@ if (import.meta.main) {
       configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
       build: { outDir: out, emptyOutDir: true, ...(PROFILE ? { minify: false } : {}) },
       logLevel: "error",
+      plugins: process.env.TRACE_SS
+        ? [
+            {
+              name: "tmp-ss",
+              enforce: "pre",
+              transform(code: string, id: string) {
+                if (!id.includes("react-dom-client.production")) return;
+                return code.replace(
+                  "function scheduleUpdateOnFiber(root, fiber, lane) {",
+                  `function scheduleUpdateOnFiber(root, fiber, lane) {
+  if ((executionContext & 4) && globalThis.__ssOn) { const m = (globalThis.__ss ??= {}); const k = (fiber.type && (fiber.type.displayName || fiber.type.name)) + " | " + (new Error().stack || "").split("\\n").slice(2, 9).map((l) => l.trim().replace(/https?:[^ )]*\\//, "")).join(" < "); m[k] = (m[k] || 0) + 1; }`,
+                );
+              },
+            },
+          ]
+        : [],
     });
     console.log(`transcript-replay: pane built in ${((performance.now() - builtAt) / 1000).toFixed(0)} s`);
     const statics = Bun.serve({
