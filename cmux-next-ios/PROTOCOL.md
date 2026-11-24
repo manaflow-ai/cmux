@@ -1899,6 +1899,78 @@ muted the Mac. A Mac with more than 20 boxes splits one event:
   spent id's outcome on disk until it expires, and applies nothing while that
   file cannot be read.
 
+### Store and forward (`mailbox-send-v1`, API 0.18.0)
+
+A chat send or a composer queue action the phone makes while its Mac sleeps
+or is offline goes through the same mailbox, sealed and signed the same way,
+held for hours, and applied once, in order, when the Mac's signaling socket
+comes back. Every field below is optional on the wire: an older phone, hub or
+Mac keeps the reply mailbox above as it is.
+
+**Hub (Worker user hub).**
+
+- `POST /v1/devices/:macId/mailbox` takes `hold` (seconds, an integer from 1
+  to 86400; absent, 600). The answer adds `seq` and `expiresAt` (ms): a phone
+  that gets no `seq` talks to an older hub, which holds every item 10 minutes.
+- `seq` is per (Mac, phone): 1, 2, 3, ... in post order, never reused, also
+  after items expire or are settled. A retried post of the same item answers
+  its first `seq`.
+- Bounds: items with `hold` of at most 600 count against the 32 pending per
+  Mac as before. Longer holds count per (Mac, phone): at most 64 queued and
+  at most 524288 sealed characters (`429 rate_limited`, the phone's
+  `full`). An outcome stays readable 10 minutes past its item's expiry.
+- Delivery: `mailbox` items add `seq` (absent from an older hub). The hub
+  sends a Mac's queued items ordered by phone, then `seq`, at most 32 in one
+  frame, each once per socket; after each `mailbox_ack` it sends the next
+  page. An item posted while the socket is open goes at once unless 32 sent
+  items still wait for their ack on it. Items not acked are sent again on the
+  next socket.
+- `GET /v1/devices/:macId/mailbox/:id` adds `seq` and `expiresAt` for an item
+  that has them; `expired` is reported once `expiresAt` passed unsettled.
+
+**Mac (hostd).**
+
+- hostd keeps the highest settled `seq` per phone in
+  `<state>/mailbox-cursor.json` (0600), written after the item's outcome is
+  in `mailbox-spent.json` and before its ack is sent. An item whose `seq` is
+  at or under its phone's cursor is never applied: hostd answers its first
+  outcome from the spent file (signed), else `replayed`. With the spent file
+  claimed before applying, a redelivery, an ack lost on the way, a hub retry
+  or a hostd crash mid-apply never applies an item twice.
+- Order: a phone's items are applied in `seq` order. An item that cannot be
+  settled yet (`unavailable`) holds that phone's later items back, unacked,
+  until it settles; other phones' items go on.
+- An item with no `seq` (an older hub) is handled as before, by id alone.
+- hostd lists `mailbox-send-v1` in `version` when it takes the kinds below.
+  A phone routes a send to the mailbox only to a Mac that listed it on its
+  last link.
+
+**New kinds** (the sealed plaintext of "Reply mailbox"; `target.sessionId`
+required for both):
+
+- `send`: a chat message to an agent session. `action: {type: "text", text,
+  steer?}` (`steer` defaults to true, as Send in the chat). The mailbox item's
+  `id` is the composer's client message id, used as the acpmux `promptId`
+  (`resend: true`), so the same message sent over the link and through the
+  mailbox runs once whichever comes first.
+- `compose`: a composer queue action, keyed by its item id. `action: {type:
+  "queue", op: "update" | "remove" | "send_now" | "move", promptId, text?,
+  index?}` (`text` for `update`, `index` from 0 for `move`), applied as
+  `_acpmux/queue_edit` (`queue_remove` for `remove`). A queued prompt that is
+  gone is `not_pending`.
+- Their lifetime is up to 24 hours: `expiresAt` at most 86400 s after
+  `issuedAt` and at most 86460 s after the Mac's clock. Every other kind keeps
+  600 s. The phone posts them with `hold` equal to its time left.
+
+**Phone (`cmux-mobile-link`, Rust).** One router decides each send: the link
+up and the Mac present goes the link; the link down or the Mac offline, with
+`mailbox-send-v1` from the Mac, goes the mailbox; neither, it fails as
+before. Both paths carry the same id, so a send that went the link and then
+the mailbox (or the reverse, after a link drop) runs once. Each item's state
+is `queued`, `applied`, `rejected` (with its reason) or `expired`; `applied`
+and `rejected` count only with the Mac's signed ack, else "Not confirmed by
+<Mac>".
+
 ### Terminal replies
 
 The `daemon` policy allows `notification-reply {notification, text, reply_id?}`
