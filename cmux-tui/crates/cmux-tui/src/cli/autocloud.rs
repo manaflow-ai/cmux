@@ -1094,13 +1094,11 @@ fn percent(value: &str) -> String {
 
 /// A verb's answer from the platform's status and body.
 pub(super) fn answer(verb: &Verb, status: u16, body: &Value, now_ms: i64) -> Value {
-    if let Verb::Overview = verb {
-        return overview(status, body, now_ms);
-    }
-    if !(200..300).contains(&status) {
+    if !matches!(verb, Verb::Overview) && !(200..300).contains(&status) {
         return api_error(status, body);
     }
     match verb {
+        Verb::Overview => overview(status, body, now_ms),
         Verb::Runs { id, .. } => {
             let runs = body.get("runs").and_then(Value::as_array).cloned().unwrap_or_default();
             json!({"ok": true, "automation": id, "runs": runs.iter().map(|r| run_view(r, now_ms)).collect::<Vec<_>>()})
