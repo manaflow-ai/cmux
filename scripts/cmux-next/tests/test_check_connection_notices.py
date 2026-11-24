@@ -389,6 +389,33 @@ class NativeShapes(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("PeersSidebar shows a connection state", out)
 
+    def test_a_web_list_row_with_a_run_handler_is_an_action(self):
+        """A picker row the person clicks through `run:` (the GitHub source row in SourcePicker: "GitHub offline"
+        with a Retry row) carries the person's action; a row list without one does not."""
+        clicked = ('export function GitHubRows() {\n'
+                   '  return [{ id: "github", status: "Offline", run: () => goTo("github") },\n'
+                   '          { id: "retry", label: "Retry", run: github.onRetry }];\n}\n')
+        unclicked = ('export function GitHubStatus() {\n'
+                     '  return [{ id: "github", status: "Offline" }, { id: "resume", run: (agent) => resume(agent) }];\n}\n')
+        tree = Tree(self)
+        tree.write(f"{WEB}/GitHubRows.tsx", clicked)
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+        tree.write(f"{WEB}/GitHubStatus.tsx", unclicked)
+        code, out = tree.check()
+        self.assertEqual(code, 1, out)
+        self.assertIn("GitHubStatus shows a connection state", out)
+
+    def test_a_scheduler_signature_is_not_a_run_action(self):
+        """`run: () => void` is a timer's parameter type, not a row the person clicks."""
+        tree = Tree(self)
+        tree.write(f"{WEB}/Retrying.tsx", ('export function Retrying() {\n'
+                                           '  const timeout = (run: () => void, ms: number) => setTimeout(run, ms);\n'
+                                           '  return <p>Reconnecting\u2026</p>;\n}\n'))
+        code, out = tree.check()
+        self.assertEqual(code, 1, out)
+        self.assertIn("Retrying shows a connection state", out)
+
     def test_tests_and_galleries_are_not_read(self):
         tree = Tree(self)
         tree.write(f"{IOS}/Tests/TerminalStatusLineTests.swift", IOS_OLD)
