@@ -921,7 +921,11 @@ def main(argv: list[str] | None = None) -> int:
                 env = smoke.fresh_env(root, root / "s.sock", -1, updater="sparkle-update" in args.paths)
                 env.pop("CMUX_NEXT_LAUNCH_MARKS_FD", None)
                 ui.login_keychain(env)
-                folder = Path(env["HOME"]) / ".config" / "cmux" / "harnesses"
+                # A DEV build's acpmux reads harnesses from its own build home, not ~/.config/cmux, unless the run
+                # names its config root (acpmux ProfileSources::current): without this a tagged build (quit-gamut.sh
+                # head=) answered "unknown harness" to every round.
+                env["XDG_CONFIG_HOME"] = str(Path(env["HOME"]) / ".config")
+                folder = Path(env["XDG_CONFIG_HOME"]) / "cmux" / "harnesses"
                 folder.mkdir(parents=True, exist_ok=True)
                 (folder / f"{HARNESS}.toml").write_text(
                     f'schema = 1\nid = "{HARNESS}"\nname = "Gamut test agent"\nprotocol = "acp"\n'

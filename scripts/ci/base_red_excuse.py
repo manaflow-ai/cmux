@@ -5727,7 +5727,8 @@ GUARD_READS = {
 CHECK_RULE_JOBS = {
     "check-spawn-owner": {
         "script": "scripts/cmux-next/check-spawn-owner.py",
-        "reads": ("scripts/cmux-next/check-spawn-owner.py", "scripts/cmux-next/spawn-owner-baseline.tsv"),
+        "reads": ("scripts/cmux-next/check-spawn-owner.py", "scripts/cmux-next/spawn-owner-baseline.tsv",
+                  "scripts/cmux-next/baseline_renames.py"),
         "site": re.compile(r"^  (cmux-tui/crates/\S+\.rs):\d+: \S"),
         "done": re.compile(r"^next: spawn the task with its owner's "),
         "note": re.compile(r"^check-spawn-owner: (cmux-tui/crates/\S+\.rs) now has \d+ spawn line\(s\) with no owner, "
@@ -5822,7 +5823,6 @@ GUARD_WORKFLOWS = {
         "coalesce": "the window gate (base-coalesce.yml): decides whether a push runs the guards, reads no tree",
         "pinned-asset-store": "reads the pinned asset store over the network, not the tree",
         "nightly-guards": "calls ci-guards.yml, whose jobs are classified there (GUARD_JOB_SUFFIXES)",
-        "signing-runner-variables": "reads the repository's runner variables, not the tree",
         "ci-guard-group": "judged step by step against the base by its own rule (GUARD_GROUP_JOB)",
         "release-notary": "skipped on a pull request (its `if:`): it judges a push to the branch on its own "
                           "(guards_new_reds.py --tip), so no pull request's red is its",
