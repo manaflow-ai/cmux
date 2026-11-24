@@ -1,0 +1,95 @@
+name: Pause-policy A/B (staging)
+
+# How long a cmux Cloud machine stays awake under each pause policy for the same chat:
+# scripts/cmux-next/pause-ab.ts signs in as the staging agent test account, creates --per-arm machines per arm
+# (`pause-ab-<tag>-<arm>-<i>`), sets each arm with cloud.machine.idle_policy.set {pause_policy}, drives the same seeded
+# stub-model chat on all of them, and reports awake/paused seconds, resumes and resume latency per arm, plus whether
+# the guest advertised `activity-turn-end`. Every machine it made is deleted, pass or fail.
+#
+# Secrets: CMUX_DOGFOOD_STACK_EMAIL/_PASSWORD in cmux-next-vm-image-dev (the pair cloud-journey-pr.yml reads).
+# Manual only: `gh workflow run pause-ab.yml --repo manaflow-ai/cmux --ref <branch>` (workflow_dispatch needs this
+# file on the default branch first).
+
+run-name: Pause-policy A/B (staging) ${{ github.ref_name }} ${{ inputs.arms }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      arms:
+        description: "Comma-separated pause policies, one arm each"
+        required: false
+        type: string
+        default: "turn_end,aggressive"
+      per_arm:
+        description: "Machines per arm"
+        required: false
+        type: string
+        default: "2"
+      turns:
+        description: "Stub turns per machine"
+        required: false
+        type: string
+        default: "8"
+      seed:
+        description: "Seed for the idle gaps"
+        required: false
+        type: string
+        default: "7"
+      gaps:
+        description: "Idle gap choices in seconds"
+        required: false
+        type: string
+        default: "20,45,90,180"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pause-ab-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  ab:
+    if: github.repository == 'manaflow-ai/cmux'
+    environment:
+      name: cmux-next-vm-image-dev
+      deployment: false
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /scripts/cmux-next/
+            /tests/fixtures/model-stub/
+            /Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials/
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+      - name: Unit tests
+        run: bun test scripts/cmux-next/pause-ab.test.ts
+      - name: A/B on staging
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          ARMS: ${{ inputs.arms }}
+          PER_ARM: ${{ inputs.per_arm }}
+          TURNS: ${{ inputs.turns }}
+          SEED: ${{ inputs.seed }}
+          GAPS: ${{ inputs.gaps }}
+        run: >-
+          bun scripts/cmux-next/pause-ab.ts --backend staging --out "$RUNNER_TEMP/pause-ab"
+          --arms "$ARMS" --per-arm "$PER_ARM" --turns "$TURNS" --seed "$SEED" --gaps "$GAPS"
+      - name: Summary
+        if: always()
+        run: cat "$RUNNER_TEMP/pause-ab/summary.md" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "no summary written" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: pause-ab-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/pause-ab/
+          if-no-files-found: warn
+          retention-days: 7
