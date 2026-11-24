@@ -593,6 +593,7 @@ impl Peer {
             Err(error) if !self.stop.load(Ordering::SeqCst) => {
                 self.path_failed(via);
                 if self.another_path_alive(via) && self.link().is_ready() {
+                    self.went_down(Some(crate::protocol::peer_state::DialFail::PathChanged));
                     tracing::info!(peer = %self.name, via = via.as_str(), "the link's path failed ({error}); moving to another path");
                     return Ok(LinkEnd::Switching);
                 }
@@ -1199,6 +1200,7 @@ impl Peer {
                     let silent = heard.as_ref().map_or(last_frame.elapsed(), |h| h.silent().min(last_frame.elapsed())).min(reader.reading());
                     if silent >= silence {
                         self.with_silence(|b| b.dropped(now));
+                        self.went_down(Some(crate::protocol::peer_state::DialFail::Timeout));
                         break Err(format!("peer stopped answering ({}s without a frame)", silent.as_secs()));
                     }
                     if silent >= timings.ping_every {
