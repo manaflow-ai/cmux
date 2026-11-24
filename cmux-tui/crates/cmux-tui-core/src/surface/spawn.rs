@@ -493,16 +493,22 @@ impl LocalReaderTask {
             // A holder stream blocks here, holding no read buffer and no lock;
             // a quiet one parks, holding no thread either.
             #[cfg(unix)]
-            if let Some(sink) = self.park_sink.clone()
-                && !self.reader.wait_readable_for(HOLDER_READER_PARK_AFTER)
-            {
-                match sink.park(self, LocalReaderTask::resume) {
-                    Ok(()) => return,
-                    Err(task) => self = task,
+            let parks = self.park_sink.clone();
+            #[cfg(not(unix))]
+            let parks: Option<()> = None;
+            match parks {
+                #[cfg(unix)]
+                Some(sink) => {
+                    if !self.reader.wait_readable_for(HOLDER_READER_PARK_AFTER) {
+                        match sink.park(self, LocalReaderTask::resume) {
+                            Ok(()) => return,
+                            Err(task) => self = task,
+                        }
+                        continue;
+                    }
                 }
-                continue;
+                _ => self.reader.wait_readable(),
             }
-            self.reader.wait_readable();
             #[cfg(unix)]
             let ready = if let (Some(fd), Some(wake)) = (self.read_fd, self.wake_reader.as_mut()) {
                 match wait_for_local_output(fd, wake) {
