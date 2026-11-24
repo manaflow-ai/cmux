@@ -28,6 +28,7 @@ on:
     branches: [feat-cmux-next]
     paths:
       - Packages/**
+      - cmux-next-ios/CmuxMobileKit/**
       - vendor/stack-auth-swift-sdk-prerelease/**
       - scripts/ci/swift-linux-packages.txt
       - scripts/ci/package-test-lane.sh
@@ -93,7 +94,7 @@ jobs:
         id: key
         run: |
           set -euo pipefail
-          inputs="$({ find Packages vendor/stack-auth-swift-sdk-prerelease -type d \( -name .build -o -name .git -o -name node_modules \) -prune -o \
+          inputs="$({ find Packages cmux-next-ios/CmuxMobileKit vendor/stack-auth-swift-sdk-prerelease -type d \( -name .build -o -name .git -o -name node_modules \) -prune -o \
               -type f \( -name Package.swift -o -name Package.resolved \) -print0
             printf '%s\0' scripts/ci/swift-linux-packages.txt scripts/ci/swift-test-debug-info.sh; } |
             LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d ' ' -f1)"
@@ -109,6 +110,7 @@ jobs:
         with:
           path: |
             Packages/**/.build
+            cmux-next-ios/CmuxMobileKit/.build
             vendor/stack-auth-swift-sdk-prerelease/.build
           key: swift-linux-packages-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ runner.arch }}-${{ matrix.group }}-${{ steps.key.outputs.inputs }}
           restore-keys: |
@@ -167,5 +169,6 @@ jobs:
         with:
           path: |
             Packages/**/.build
+            cmux-next-ios/CmuxMobileKit/.build
             vendor/stack-auth-swift-sdk-prerelease/.build
           key: swift-linux-packages-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ runner.arch }}-${{ matrix.group }}-${{ steps.key.outputs.inputs }}

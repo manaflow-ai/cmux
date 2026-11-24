@@ -1,5 +1,6 @@
 // swift-tools-version: 6.2
 
+import Foundation
 import PackageDescription
 
 // CmuxMobileKit: every module of the cmux-next-ios app. See ../PLAN.md.
@@ -279,3 +280,23 @@ let package = Package(
     ],
     swiftLanguageModes: [.v6]
 )
+
+#if os(Linux)
+// Linux (RFD 0051, route 2): the UI-free targets only, Notifications and Realtime and their tests, which
+// need Foundation alone (CryptoKit's API from swift-crypto). Every other target links UIKit, SwiftUI,
+// libghostty, WebRTC, Stack Auth or the gitignored CmuxMobileLinkFFI.xcframework, so it drops out with
+// the package dependencies. Only the Linux package jobs (swift-linux-packages.yml, through
+// scripts/ci/swift-linux-packages.txt) set CMUX_SWIFTPM_TARGET_LINUX; a build for an Apple platform on a
+// Linux host (the fleet) and every Mac build read the manifest above unchanged.
+if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
+    let linuxTargets: Set<String> = [
+        "CmuxMobileNotifications", "CmuxMobileNotificationsTests", "CmuxMobileRealtime", "CmuxMobileRealtimeTests",
+    ]
+    package.products = package.products.filter { linuxTargets.contains($0.name) }
+    package.targets = package.targets.filter { linuxTargets.contains($0.name) }
+    package.dependencies = [.package(url: "https://github.com/apple/swift-crypto.git", exact: "3.15.1")]
+    for name in ["CmuxMobileNotifications", "CmuxMobileNotificationsTests"] {
+        package.targets.first { $0.name == name }?.dependencies.append(.product(name: "Crypto", package: "swift-crypto"))
+    }
+}
+#endif
