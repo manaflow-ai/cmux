@@ -12,17 +12,17 @@ use cmux_remote_protocol::{
     TERMINAL_BYTES_VIEWER_SIZE_PRIORITY, TERMINAL_BYTES_VIEWER_SIZE_PRIORITY_PREFERRED,
     WorkspaceRequest, WorkspaceResponse,
 };
-use cmux_tui_core::resource::TerminalPublicId;
 #[cfg(unix)]
-use cmux_tui_core::terminal_host::{
+use cmux_terminal_host_protocol::terminal_host::{
     CapabilityRights, CapabilityToken, ClientHello, ClientRole, HostHello, HostIncarnation,
     TerminalId,
 };
 #[cfg(unix)]
-use cmux_tui_core::terminal_host_protocol::{
+use cmux_terminal_host_protocol::terminal_host_protocol::{
     FLAG_SMART_RENDERER, FLAG_VIEWER_SIZE_ACKS, FLAG_VIEWER_SIZE_PRIORITY, Frame, FrameDecoder,
     HEADER_LEN, MAX_FRAME_PAYLOAD, MessageKind, PROTOCOL_VERSION, encode_frame, frame_payload_len,
 };
+use cmux_tui_core::resource::TerminalPublicId;
 #[cfg(unix)]
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
