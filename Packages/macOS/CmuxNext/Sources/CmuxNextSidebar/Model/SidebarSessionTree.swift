@@ -199,6 +199,7 @@ public final class SidebarSessionTree {
         didSet {
             // Only the agents' states moved (a lane's turn started or ended, many a second across 10,000 sessions):
             // `statesRevision`, which redraws no row unless a folded parent rolls them up. Anything else: the shape.
+            if state?.parents != oldValue?.parents { parentsRevision &+= 1 }
             var (now, was) = (state, oldValue)
             now?.states = [:]
             was?.states = [:]
@@ -227,6 +228,9 @@ public final class SidebarSessionTree {
     /// tree, folds): what the list draws changes. A render compares this counter, never the tree's whole-list
     /// dictionaries (cmuxterm-hq#13493).
     public private(set) var shapeRevision: UInt64 = 0
+    /// Moves on every write that changed the lineage (`SidebarSessionTreeState.parents`, nil and empty apart): a
+    /// restore's arrival (`SidebarView.isRestoreArrival`) compares this, never the parents dictionary.
+    public private(set) var parentsRevision: UInt64 = 0
     /// Moves on a write that changed only the agents' states (`SidebarSessionTreeState.states`).
     public private(set) var statesRevision: UInt64 = 0
     /// Moves on every write of `pullRequests`.

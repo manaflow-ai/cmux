@@ -37,6 +37,8 @@ extension SidebarViewComponents {
         /// a render compares no row (cmuxterm-hq#13493; it compared every session's state and badge on each render).
         var treeShape: UInt64
         var treeStates: UInt64
+        /// The drawn lineage (`SidebarSessionTree.parentsRevision`): a restore's arrival shows in one step.
+        var treeParents: UInt64
         /// Every row's pull request badge, tree or not (`SidebarSessionTree.pullRequestsRevision`); the render patches
         /// the rows whose badge changed against the badges it drew last (`SidebarView.drawnPullRequests`).
         var pullRequests: UInt64
@@ -109,6 +111,7 @@ extension SidebarViewComponents {
             cards = SidebarBottomCards(update: model.updateCard, nowPlaying: model.nowPlaying, updated: model.updatedCard, notice: model.noticeCard)
             treeShape = SidebarSessionTree.shared.shapeRevision
             treeStates = SidebarSessionTree.shared.statesRevision
+            treeParents = SidebarSessionTree.shared.parentsRevision
             pullRequests = SidebarSessionTree.shared.pullRequestsRevision
             treeHasParents = !(SidebarSessionTree.shared.state?.parents.isEmpty ?? true)
             history = SidebarChatHistory.shared.state
@@ -301,7 +304,7 @@ extension SidebarViewComponents {
     /// that ended the launch order hold (`released`).
     static func isRestoreArrival(from old: RenderState?, to new: RenderState, released: UInt64?) -> Bool {
         guard let old else { return false }
-        return old.tree?.parents != new.tree?.parents || (released != nil && released == new.sectionsRevision && old.sectionsRevision != new.sectionsRevision)
+        return old.treeParents != new.treeParents || (released != nil && released == new.sectionsRevision && old.sectionsRevision != new.sectionsRevision)
     }
 
     /// Whether a sections change animates its rows. Provisional rows swap in place.
