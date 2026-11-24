@@ -118,6 +118,12 @@ pub const AGENT_TRANSFER_CONTINUES_CAPABILITY: &str = "agent-transfer-continues-
 /// pump that lost its begin answer can prove the frozen move is its own and end it at once
 /// instead of waiting out the source's lease. An acpmux that keeps no token echoes none.
 pub const AGENT_TRANSFER_BEGIN_TOKEN_CAPABILITY: &str = "agent-transfer-begin-token-v1";
+/// The optional bundle files this daemon's acpmux takes on a receive, by acpmux's own ids
+/// (acpmux `capabilities::OPTIONAL_BUNDLE_FILES`): a pump leaves out of a move to a machine each
+/// one its `identify` does not list, so an older machine image takes the chat without it
+/// instead of refusing the whole move (`cmux link agent move`).
+pub const AGENT_TRANSFER_BUNDLE_FILE_CAPABILITIES: &[&str] =
+    &["transfer-composers-v1", "transfer-images-v1"];
 /// Tail first, history after (`agent_transfer/history_later.rs`): the prepare, stage and
 /// history verbs, `prepare_id` on a begin and `stage_id` on a receive.
 pub const AGENT_TRANSFER_HISTORY_LATER_CAPABILITY: &str = "agent-transfer-history-later-v1";

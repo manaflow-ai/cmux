@@ -157,9 +157,7 @@ impl Hub {
             let Ok(inner) = std::fs::read_dir(entry.path()) else { continue };
             for chat in inner.flatten().filter(|e| e.path().is_dir()) {
                 let id = chat.file_name().to_string_lossy().into_owned();
-                let Some(session) =
-                    self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(&id).cloned()
-                else {
+                let Some(session) = self.session_get(&id) else {
                     continue;
                 };
                 // A crash after the epoch marker was written but before `transfer_out` was

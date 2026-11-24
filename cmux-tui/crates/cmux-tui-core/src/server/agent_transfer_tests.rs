@@ -172,6 +172,33 @@ fn the_capability_is_advertised_with_an_acpmux_socket_and_a_host() {
 }
 
 #[test]
+fn a_move_target_lists_the_optional_bundle_files_its_acpmux_takes() {
+    // 2026-11-24: an older target refused a whole move over `composers.json`; the pump now
+    // leaves out what identify does not list, so identify must list what this build takes.
+    let acpmux_ids: Vec<&str> =
+        acpmux::capabilities::OPTIONAL_BUNDLE_FILES.iter().map(|(id, _)| *id).collect();
+    assert_eq!(super::AGENT_TRANSFER_BUNDLE_FILE_CAPABILITIES, acpmux_ids.as_slice());
+    let fake = FakeAcpmux::start("xfiles");
+    let home = Home::new("files");
+    let mux = mux_with(&fake, "atx-files");
+    let listed = |mux: &Arc<Mux>| -> Vec<String> {
+        run(mux, json!({"cmd":"identify"}))["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|value| value.as_str().map(str::to_owned))
+            .filter(|id| acpmux_ids.contains(&id.as_str()))
+            .collect()
+    };
+    assert!(listed(&mux).is_empty(), "no host: no receive, so no bundle file is taken");
+    mux.set_agent_transfer_host(Some(AgentTransferHost { cloud: false, home: home.path.clone() }));
+    assert_eq!(listed(&mux), acpmux_ids);
+    for id in &acpmux_ids {
+        assert!(super::super::native_owner::carries(id), "the native carrier drops {id}");
+    }
+}
+
+#[test]
 fn without_a_host_every_target_verb_is_unavailable() {
     let fake = FakeAcpmux::start("xnohost");
     let home = Home::new("nohost");
