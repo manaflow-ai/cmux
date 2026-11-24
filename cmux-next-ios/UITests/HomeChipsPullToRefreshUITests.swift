@@ -117,8 +117,9 @@ final class HomeChipsPullToRefreshUITests: XCTestCase {
             XCTAssertLessThan(rest - top, 80, "a short pull never refreshes: at most the search drawer opened")
             attach(app, "ptr-1b-after-short-pull-\(mode)")
             // A full pull: past 186 pt the wheel spins in its slot while the refresh runs.
-            start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 420)),
-                        withVelocity: .slow, thenHoldForDuration: 0.3)
+            // A full pull, top of the list to the bottom of the screen: UIKit's rubber band turns
+            // it into the 186 pt that starts a refresh (420 pt of drag gives only about 180 pt).
+            fullPull(app)
             attach(app, "ptr-2-refreshing-\(mode)")
             XCTAssertGreaterThan(first.frame.minY, rest + 40, "the rows sit under the refresh slot\n\(app.debugDescription)")
             // Done (4 s): the slot closes and the rows settle back where they were.
@@ -138,12 +139,18 @@ final class HomeChipsPullToRefreshUITests: XCTestCase {
         XCTAssertTrue(updatingChip(app).waitForExistence(timeout: 15), "Updating first")
         waitOutQuietBound()
         attach(app, "ptr-updating-before-pull-light")
-        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0)).withOffset(CGVector(dx: 0, dy: first.frame.minY + 20))
-        start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 420)),
-                    withVelocity: .slow, thenHoldForDuration: 0.3)
+        fullPull(app)
         XCTAssertTrue(updatingChip(app).waitForNonExistence(timeout: 3), "no Updating during the pull\n\(app.debugDescription)")
         attach(app, "ptr-updating-hidden-during-pull-light")
         app.terminate()
+    }
+
+    /// From just under the toolbar to the bottom of the screen, slowly, then let go.
+    @MainActor
+    private func fullPull(_ app: XCUIApplication) {
+        let top = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.13))
+        let bottom = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.97))
+        top.press(forDuration: 0.1, thenDragTo: bottom, withVelocity: .slow, thenHoldForDuration: 0.3)
     }
 
     @MainActor
