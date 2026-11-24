@@ -1,5 +1,4 @@
-// acpmux/FileSearch (the "Search files" palette) answering N results, N its cap (FILE_SEARCH_LIMIT):
-// the palette lists what the host answers, and the host is asked for that many.
+// FileSearch displays the results returned by its source. Exercise both the host cap and longer replies.
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { FileSearch } from "../../../src/agent-session/acpmux/FileSearch";
@@ -37,7 +36,7 @@ const fileSearchCase: VisibleListCase = {
       await new Promise((done) => requestAnimationFrame(done));
     return {
       rowSelector: '[role="option"]',
-      rowComponents: ["FileResultRow"],
+      rowComponents: ["ListboxRow"],
       scroller: list,
       list,
       filter: () => input,

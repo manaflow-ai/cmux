@@ -5,7 +5,8 @@
 //! works with cmux quit.
 //!
 //! - `import FILE [--name N] [--from F] [--replace]`: reads a base16 YAML,
-//!   iTerm2 `.itermcolors`, Windows Terminal JSON or Ghostty theme file and
+//!   iTerm2 `.itermcolors`, Windows Terminal JSON, VS Code color theme
+//!   (JSON with comments) or Ghostty theme file and
 //!   installs it as the Ghostty theme `N` (default: the scheme's own name,
 //!   else the file's) in the user's themes folder, where Ghostty and every
 //!   cmux theme picker find it. A shipped theme is never shadowed.
@@ -18,6 +19,13 @@
 //!   and ANSI held to the theme contrast floors. With `--name` it is
 //!   installed; else the file is printed. PNG and binary PPM decode here;
 //!   convert other formats (JPEG, HEIC) first.
+//! - `new --canvas C --accent A [--name N] [--appearance dark|light]
+//!   [--format F] [--output FILE] [--replace]`: a whole scheme from two
+//!   colors (`#rrggbb`, `rrggbb` or a CSS name): every key of the file
+//!   (background, foreground, cursor, selection, ANSI 0...15, the chrome
+//!   accent) derives from them, text held to WCAG AA on the canvas.
+//!   Appearance defaults from the canvas's luminance. With `--name` it is
+//!   installed; else the file is printed.
 //! - `formats`: the formats and their names.
 //!
 //! A file that does not parse exits 1 with `FILE:LINE: what is wrong`.
@@ -25,8 +33,8 @@
 use std::path::{Path, PathBuf};
 
 use cmux_theme_tokens::{
-    Appearance, Env, InstallError, Pixels, Scheme, SchemeFormat, decode_ppm, find_theme_file,
-    install_scheme, palette_from_image,
+    Appearance, Env, InstallError, Pixels, Rgb, Scheme, SchemeFormat, decode_ppm, find_theme_file,
+    install_scheme, palette_from_image, parse_color, theme_from_two_colors,
 };
 use serde_json::{Value, json};
 
@@ -35,19 +43,22 @@ use super::{GlobalArgs, OutputMode};
 const USAGE: &str = "\
 cmux theme: 16-color schemes in and out of cmux.
   cmux theme import FILE [--name N] [--from F] [--replace]
-      install a base16 .yaml, iTerm2 .itermcolors, Windows Terminal .json or Ghostty
-      theme as the Ghostty theme N (default: the scheme's name, else the file's)
+      install a base16 .yaml, iTerm2 .itermcolors, Windows Terminal .json, VS Code
+      color theme .json (comments allowed) or Ghostty theme as the Ghostty theme N
+      (default: the scheme's name, else the file's)
   cmux theme export NAME [--format F] [--output FILE]   an installed theme as F (default base16)
   cmux theme convert FILE --to F [--from F] [--output FILE]
   cmux theme from-image PATH (PNG or PPM) [--name N] [--appearance dark|light] [--format F] [--output FILE] [--replace]
       a scheme from an image's colors; accent and ANSI keep text readable. --name installs it
+  cmux theme new --canvas C --accent A [--name N] [--appearance dark|light] [--format F] [--output FILE] [--replace]
+      a whole theme from two colors (#rrggbb): every color derives from them, text keeps WCAG AA. --name installs it
   cmux theme formats
-Formats: ghostty, base16, iterm2, windows-terminal.";
+Formats: ghostty, base16, iterm2, windows-terminal, vscode.";
 
 /// Most bytes of an image `from-image` reads (a 4K PNG wallpaper fits).
 const MAX_IMAGE_BYTES: u64 = 64 * 1024 * 1024;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 enum Request {
     Import {
         file: PathBuf,
@@ -68,6 +79,15 @@ enum Request {
     },
     FromImage {
         path: PathBuf,
+        name: Option<String>,
+        appearance: Option<Appearance>,
+        format: SchemeFormat,
+        output: Option<PathBuf>,
+        replace: bool,
+    },
+    New {
+        canvas: Rgb,
+        accent: Rgb,
         name: Option<String>,
         appearance: Option<Appearance>,
         format: SchemeFormat,
@@ -121,10 +141,9 @@ fn theme_file_request(rest: &[String]) -> Option<Result<super::theme_file::Reque
     let takes = match verb.as_str() {
         verb if super::theme_file::VERBS.contains(&verb) => true,
         "export" => positional() == 0 || args.iter().any(|w| w == "--save" || w == "--use"),
-        "import" => args
-            .iter()
-            .find(|word| !word.starts_with('-'))
-            .is_some_and(|file| super::theme_file::is_theme_file(Path::new(file))),
+        "import" => args.iter().find(|word| !word.starts_with('-')).is_some_and(|file| {
+            super::theme_file::is_theme_file(Path::new(file)) && !is_vscode_theme(file)
+        }),
         "-h" | "--help" | "help" => {
             return Some(Err(format!("{}\n\n{USAGE}", super::theme_file::USAGE)));
         }
@@ -133,11 +152,26 @@ fn theme_file_request(rest: &[String]) -> Option<Result<super::theme_file::Reque
     takes.then(|| super::theme_file::parse(rest))
 }
 
+/// Whether `file` reads as a VS Code color theme, which `import` installs as
+/// a terminal scheme even when its keys (`name`, `colors`) could be a cmux
+/// theme file's.
+fn is_vscode_theme(file: &str) -> bool {
+    std::fs::read_to_string(file)
+        .is_ok_and(|text| SchemeFormat::detect(file, &text) == SchemeFormat::VsCode)
+}
+
 fn format_flag(value: Option<&String>, flag: &str) -> Result<SchemeFormat, String> {
     let value = value.ok_or_else(|| format!("{flag} needs a format\n\n{USAGE}"))?;
     SchemeFormat::from_name(value).ok_or_else(|| {
-        format!("unknown format {value:?}: one of ghostty, base16, iterm2, windows-terminal")
+        format!(
+            "unknown format {value:?}: one of ghostty, base16, iterm2, windows-terminal, vscode"
+        )
     })
+}
+
+fn color_flag(value: Option<&String>, flag: &str) -> Result<Rgb, String> {
+    let value = value.ok_or_else(|| format!("{flag} needs a color\n\n{USAGE}"))?;
+    parse_color(value).ok_or_else(|| format!("{flag}: {value:?} is not a color (try #rrggbb)"))
 }
 
 fn parse(args: &[String]) -> Result<Request, String> {
@@ -146,6 +180,7 @@ fn parse(args: &[String]) -> Result<Request, String> {
     let mut positional: Vec<String> = Vec::new();
     let (mut name, mut from, mut to, mut output, mut appearance, mut replace) =
         (None, None, None, None, None, false);
+    let (mut canvas, mut accent) = (None, None);
     let mut words = rest.iter();
     while let Some(word) = words.next() {
         match word.as_str() {
@@ -160,6 +195,8 @@ fn parse(args: &[String]) -> Result<Request, String> {
                     _ => return Err(format!("--appearance is dark or light\n\n{USAGE}")),
                 });
             }
+            "--canvas" => canvas = Some(color_flag(words.next(), "--canvas")?),
+            "--accent" => accent = Some(color_flag(words.next(), "--accent")?),
             "--replace" => replace = true,
             "-h" | "--help" => return Err(usage()),
             flag if flag.starts_with('-') && flag.len() > 1 => {
@@ -197,6 +234,15 @@ fn parse(args: &[String]) -> Result<Request, String> {
             output,
             replace,
         },
+        "new" if from.is_none() && positional.is_empty() => Request::New {
+            canvas: canvas.ok_or_else(|| format!("new needs --canvas COLOR\n\n{USAGE}"))?,
+            accent: accent.ok_or_else(|| format!("new needs --accent COLOR\n\n{USAGE}"))?,
+            name,
+            appearance,
+            format: to.unwrap_or(SchemeFormat::Ghostty),
+            output,
+            replace,
+        },
         "formats" if positional.is_empty() && rest.is_empty() => Request::Formats,
         _ => return Err(usage()),
     };
@@ -227,7 +273,8 @@ fn default_name(scheme: &Scheme, file: &Path) -> String {
     }
     let stem = match file.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase) {
         Some(ext)
-            if ["yaml", "yml", "itermcolors", "json", "conf", "theme"].contains(&ext.as_str()) =>
+            if ["yaml", "yml", "itermcolors", "json", "jsonc", "conf", "theme"]
+                .contains(&ext.as_str()) =>
         {
             file.file_stem()
         }
@@ -343,6 +390,19 @@ fn run(global: &GlobalArgs, request: Request) -> i32 {
                 Err((code, message)) => fail(global, &code, message),
             }
         }
+        Request::New { canvas, accent, name, appearance, format, output, replace } => {
+            let theme = theme_from_two_colors(canvas, accent, appearance);
+            let extra = json!({
+                "appearance": if theme.appearance == Appearance::Dark { "dark" } else { "light" },
+                "canvas": format!("#{:06x}", theme.scheme.background.to_hex()),
+                "accent": format!("#{:06x}", theme.accent.to_hex()),
+                "glassTint": format!("#{:08x}", theme.glass_tint.to_rgba_u32()),
+            });
+            match name {
+                Some(name) => install(global, &name, &theme.scheme, replace, extra),
+                None => emit(global, &theme.scheme.export(format), output.as_deref(), extra),
+            }
+        }
         Request::FromImage { path, name, appearance, format, output, replace } => {
             let (width, height, channels, data) = match decode_image(&path) {
                 Ok(decoded) => decoded,
@@ -428,65 +488,5 @@ fn decode_png(bytes: &[u8]) -> Result<(u32, u32, u8, Vec<u8>), String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn args(words: &[&str]) -> Vec<String> {
-        words.iter().map(|w| (*w).to_owned()).collect()
-    }
-
-    #[test]
-    fn parses_each_verb() {
-        assert_eq!(
-            parse(&args(&["import", "x.yaml", "--name", "Mine", "--replace"])).unwrap(),
-            Request::Import {
-                file: "x.yaml".into(),
-                name: Some("Mine".into()),
-                from: None,
-                replace: true
-            }
-        );
-        assert_eq!(
-            parse(&args(&["export", "Nord", "--format", "iterm2"])).unwrap(),
-            Request::Export { name: "Nord".into(), format: SchemeFormat::Iterm2, output: None }
-        );
-        assert_eq!(
-            parse(&args(&["export", "Nord"])).unwrap(),
-            Request::Export { name: "Nord".into(), format: SchemeFormat::Base16, output: None }
-        );
-        assert!(matches!(
-            parse(&args(&["from-image", "w.png", "--appearance", "light"])).unwrap(),
-            Request::FromImage {
-                appearance: Some(Appearance::Light),
-                format: SchemeFormat::Ghostty,
-                ..
-            }
-        ));
-        assert!(parse(&args(&["convert", "x.yaml"])).is_err(), "convert needs --to");
-        assert!(parse(&args(&["export", "Nord", "--format", "png"])).is_err());
-        assert!(parse(&args(&["import"])).is_err());
-        assert!(parse(&args(&["nope"])).is_err());
-    }
-
-    #[test]
-    fn an_imported_file_is_named_by_its_scheme_then_its_file() {
-        let mut scheme = Scheme::from_theme_input(&cmux_theme_tokens::ThemeInput::GHOSTTY_DEFAULT);
-        assert_eq!(default_name(&scheme, Path::new("/x/tokyo-night.yaml")), "tokyo-night");
-        assert_eq!(default_name(&scheme, Path::new("/x/Nord")), "Nord");
-        scheme.name = Some("Tokyo Night".into());
-        assert_eq!(default_name(&scheme, Path::new("/x/tokyo-night.yaml")), "Tokyo Night");
-    }
-
-    #[test]
-    fn a_png_decodes_to_rgb() {
-        let mut bytes = Vec::new();
-        {
-            let mut encoder = png::Encoder::new(&mut bytes, 2, 1);
-            encoder.set_color(png::ColorType::Rgb);
-            encoder.set_depth(png::BitDepth::Eight);
-            let mut writer = encoder.write_header().unwrap();
-            writer.write_image_data(&[1, 2, 3, 4, 5, 6]).unwrap();
-        }
-        assert_eq!(decode_png(&bytes).unwrap(), (2, 1, 3, vec![1, 2, 3, 4, 5, 6]));
-    }
-}
+#[path = "theme_scheme_tests.rs"]
+mod tests;

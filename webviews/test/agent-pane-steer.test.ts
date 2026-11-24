@@ -37,7 +37,16 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
 
   const SESSION = "steer-session";
   // The retained stop metadata names cmux's forced end without adding visible recovery text.
-  const FORCED_STOP = `.cv-turn-stopped[title="The agent didn't answer Stop, so cmux ended its turn."]`;
+  // It is the stopped word's description (FactsHoverCard.tsx `WithFacts`, aria-describedby), not a `title`.
+  const FORCED_STOP_TEXT = "The agent didn't answer Stop, so cmux ended its turn.";
+  const forcedStops = (page: Page) =>
+    page.evaluate(
+      (text) =>
+        [...document.querySelectorAll(".cv-turn-stopped")].filter(
+          (word) => document.getElementById(word.getAttribute("aria-describedby") ?? "")?.textContent === text,
+        ).length,
+      FORCED_STOP_TEXT,
+    );
   // A compaction still running: the running turn's live line while the turn runs (Thinking.tsx
   // `data-compacting`), its own transcript row once the turn has ended.
   const RUNNING_COMPACTION = '.cv-compaction[data-state="running"], .cv-worked--live[data-compacting]';
@@ -464,10 +473,9 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       await page.locator(".cv-worked", { hasText: /^You stopped after / }).waitFor({ timeout: 5_000 });
       // Read the stopped turn at rest after any end-of-turn motion.
       await page.locator("[data-turn-end-folding]").waitFor({ state: "detached", timeout: 5_000 });
-      expect(await page.locator(FORCED_STOP).count()).toBe(1);
-      expect(
-        await page.getByText("The agent didn't answer Stop, so cmux ended its turn.", { exact: true }).count(),
-      ).toBe(0);
+      expect(await forcedStops(page)).toBe(1);
+      // Not in the transcript's visible words: only the stopped word's hidden description holds it.
+      expect(await page.getByText(FORCED_STOP_TEXT, { exact: true }).filter({ visible: true }).count()).toBe(0);
       expect(await page.getByRole("button", { name: "Continue", exact: true }).count()).toBe(0);
       await page.getByRole("button", { name: "Resume", exact: true }).waitFor();
       // The cancelled compaction can report its boundary after a new explicit prompt. It must not
@@ -523,7 +531,7 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       await page.getByRole("button", { name: "Stopping…", exact: true }).waitFor();
       await page.clock.runFor(6_000);
       await drawn(page);
-      expect(await page.locator(FORCED_STOP).count()).toBe(0);
+      expect(await forcedStops(page)).toBe(0);
       expect(await page.getByRole("button", { name: "Stopping…", exact: true }).count()).toBe(1);
       record("turn_end", { stopReason: "cancelled", turnId: "turn-1" });
       await drawn(page);
@@ -563,7 +571,7 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       // Past the old five-second client deadline, then draw another record.
       await page.clock.runFor(6_000);
       await drawn(page);
-      expect(await page.locator(FORCED_STOP).count()).toBe(0);
+      expect(await forcedStops(page)).toBe(0);
       expect(await page.getByRole("button", { name: "Stop", exact: true }).count()).toBe(1);
       await page.close();
     });
@@ -579,7 +587,7 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       // Past the old five-second client deadline, then draw another record.
       await page.clock.runFor(6_000);
       await drawn(page);
-      expect(await page.locator(FORCED_STOP).count()).toBe(0);
+      expect(await forcedStops(page)).toBe(0);
       expect(await page.getByRole("button", { name: "Stop", exact: true }).count()).toBe(1);
       await page.close();
     });
@@ -593,7 +601,7 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       await page.clock.runFor(6_000);
       await drawn(page);
       expect(await page.getByRole("button", { name: "Stopping…", exact: true }).count()).toBe(1);
-      expect(await page.locator(FORCED_STOP).count()).toBe(0);
+      expect(await forcedStops(page)).toBe(0);
       await page.close();
     });
 
@@ -607,7 +615,7 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       socket?.send(JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { session: summary } }));
       try {
         await page.getByRole("button", { name: "Resume", exact: true }).waitFor();
-        expect(await page.locator(FORCED_STOP).count()).toBe(1);
+        expect(await forcedStops(page)).toBe(1);
         await lag(page);
         expect(await page.getByRole("button", { name: "Resume", exact: true }).isVisible()).toBe(true);
         expect(await page.getByRole("button", { name: "Stop", exact: true }).count()).toBe(0);

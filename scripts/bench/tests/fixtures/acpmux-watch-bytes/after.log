@@ -1,0 +1,4 @@
+ACPMUX-WATCH-BYTES {"bytes_per_read":635,"chats":20,"elapsed_ms":18,"reads":60,"rows_told":20,"watcher_bytes":38150}
+test hub::list_guard::stream_tell_tests::a_streaming_chats_row_is_told_once_per_window_however_often_the_list_is_read ... ok
+test hub::list_guard::stream_tell_tests::a_held_streaming_row_is_told_at_the_first_read_after_its_window ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 6313 filtered out; finished in 0.31s

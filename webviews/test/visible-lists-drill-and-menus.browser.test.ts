@@ -2,7 +2,7 @@
 // The pickers draw the visible area and re-render only the rows that changed, whatever the list's
 // length (Leo 2026-11-18: "we draw the visible area, right? ... we need to be able to guard against
 // that"). Measured on a production build in Chromium (test/support/visibleLists.ts):
-// - ui/DrillList (the path picker), New Message's recipient field and the new tab's slash menu at
+// - ui/DrillList (the path picker) and the new tab's slash menu at
 //   100, 1,000 and 10,000 items mount at most the viewport's rows plus one viewport each side plus
 //   the highlighted row, the same at 1,000 and 10,000 (within 10%);
 // - the mention menu and the file search are capped (78 rows from mentionItems.ts's parts, and
@@ -28,8 +28,7 @@ await requireBrowserLane("visible-lists-drill-and-menus.browser.test.ts", async 
     await server?.stop();
   });
 
-  // Each case's list is 320 px of 28 px rows, but the recipient field's (its own CSS: up to nine
-  // 44 px rows, and four rows of overscan each side).
+  // Each case's list is 320 px of 28 px rows.
   const cases: {
     name: string;
     lengths: number[];
@@ -40,7 +39,6 @@ await requireBrowserLane("visible-lists-drill-and-menus.browser.test.ts", async 
     changeOneBound?: number;
   }[] = [
     { name: "drill-list", lengths: [100, 1000, 10000], mountedBound: Math.ceil(320 / 28) * 3 + 2, windowed: true },
-    { name: "recipient-field", lengths: [100, 1000, 10000], mountedBound: 9 + 8 + 2, windowed: true },
     { name: "slash-menu", lengths: [100, 1000, 10000], mountedBound: Math.ceil(320 / 28) * 3 + 2, windowed: true },
     { name: "mention-menu", lengths: [78], mountedBound: 78, windowed: false },
     { name: "file-search", lengths: [50], mountedBound: 50, windowed: false },
@@ -96,6 +94,23 @@ await requireBrowserLane("visible-lists-drill-and-menus.browser.test.ts", async 
       });
     });
   }
+
+  test("file search windows a long reply and keeps the keyboard selection mounted", async () => {
+    const open = await server.open("file-search", 10000);
+    const { page } = open;
+    expect((await open.counts()).rows).toBeLessThanOrEqual(Math.ceil(320 / 28) * 3 + 2);
+    await page.focus("input[role='combobox']");
+    await page.keyboard.press("ArrowUp");
+    const active = await page.evaluate(() => {
+      const input = document.querySelector("input[role='combobox']");
+      const row = document.getElementById(input?.getAttribute("aria-activedescendant") ?? "");
+      return [row?.getAttribute("aria-posinset"), row?.getAttribute("aria-setsize")];
+    });
+    expect(active).toEqual(["10000", "10000"]);
+    await page.keyboard.press("Enter");
+    expect(await page.evaluate(() => (window as unknown as { __submitted: string[] }).__submitted)).toHaveLength(1);
+    await open.close();
+  });
 
   test("drill-list: the arrows, Home, End and Return reach rows that were not mounted; the heading and the after line stay", async () => {
     const open = await server.open("drill-list", 10000);

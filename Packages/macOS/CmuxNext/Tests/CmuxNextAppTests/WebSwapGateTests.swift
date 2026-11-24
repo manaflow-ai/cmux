@@ -6,6 +6,23 @@ import Testing
 /// update reloads each open page on its own, with nothing modal open, once that page answers that a
 /// reload keeps what it holds and, for the page being typed into, once input went quiet.
 struct WebSwapGateTests {
+    /// A page on screen never reloads for a swap (a reload draws it blank until it boots), whatever
+    /// else allows it; out of sight it takes the update (Leo, 2026-11-22: "the agent pane just
+    /// blanked out entirely yet again").
+    @Test func aPageInSightIsNeverReloadedBySwap() {
+        #expect(WebSwapGate.sight(inSight: true) == .later(after: WebSwapGate.retry, reason: "page.in-sight"))
+        #expect(WebSwapGate.sight(inSight: false) == .askPages)
+    }
+
+    /// The safe point asks the sight half before every reload, at the first look and again right
+    /// before it reloads (a page brought into sight while the pages answered).
+    @Test func theSafePointAsksSightBeforeEachReload() throws {
+        let file = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appending(path: "Sources/CmuxNextWebUpdates/WebUpdates+SafePoint.swift")
+        let source = try String(contentsOf: file, encoding: .utf8)
+        #expect(source.components(separatedBy: "WebSwapGate.sight(inSight: Self.inSight(view))").count - 1 >= 2)
+    }
+
     @Test func recentInputHoldsOnlyThePageBeingTypedInto() {
         #expect(WebSwapGate.input(focused: true, active: true, idle: 4, waited: 0)
             == .later(after: .seconds(26), reason: "input"))
@@ -62,17 +79,17 @@ struct WebSwapGateTests {
     }
 
     @Test func aCheckIsBookedItsIntervalAfterTheLastOne() {
-        // In the front a minute after the last; behind other apps two minutes after it.
+        // A minute after the last, in the front and behind other apps alike.
         #expect(WebUpdater.delay(after: 20, interval: .seconds(60)) == .seconds(40))
-        #expect(WebUpdater.delay(after: 20, interval: WebUpdater.defaultBackgroundInterval) == .seconds(100))
+        #expect(WebUpdater.delay(after: 20, interval: WebUpdater.defaultBackgroundInterval) == .seconds(40))
         // Overdue: now, never a negative wait.
         #expect(WebUpdater.delay(after: 900, interval: .seconds(600)) == .zero)
     }
 
-    @Test func aBackgroundedAppChecksOftenEnoughToSwapAMergeWithinFiveMinutes() {
-        // Merge to signed pointer takes about two minutes; the background check must leave room
-        // for the download and the grace before the swap.
-        #expect(WebUpdater.defaultBackgroundInterval == .seconds(120))
+    @Test func aBackgroundedAppReadsThePointerEveryMinuteLikeAFrontOne() {
+        // A published update is picked up within about a minute whether cmux is in the front or
+        // behind other apps (Leo, 2026-11-22: "this should've been fast").
+        #expect(WebUpdater.defaultBackgroundInterval == .seconds(60))
     }
 }
 

@@ -109,7 +109,8 @@
 #        | cloud-server-path [--tree|--pin] (where fetch puts cmux-cloud)
 #        | browser-host-path [--tree|--pin] (where fetch puts cmux-browser-host)
 #        | agent-screen-detection-path [--tree|--pin] (where fetch puts cmux-agent-screen-detection)
-#        | acpmux-path (where a tree fetch puts acpmux)
+#        | acpmux-path (where a tree fetch puts acpmux; CMUX_TUI_TREE_TARGET=x86_64-apple-darwin:
+#          its x86_64 slice, which fetch-acpmux brings when CMUX_NEXT_ACPMUX_ARCHS asks for x86_64)
 #        | resolve-commit (the commit that published this tree; waits for it)
 #        | resolve-exact (release and RC builds: resolve-commit for HEAD itself, printed
 #          as commit=, key=, source_commit= (HEAD), tip_key=, behind=0 and behind_hours=0
@@ -122,7 +123,13 @@
 #          no Mac Release compile is required: the nightly compiles the app itself)
 #        | runs-state <commit> (its cmux-tui artifacts runs: active, none, unknown, or "ended <conclusions>")
 #        | active-publisher <key> (the head commit of an active cmux-tui artifacts run whose
-#          commit has tree <key>; nothing when none; "unknown" when the runs cannot all be read)
+#          commit has tree <key>; nothing when none; "unknown" when the runs cannot all be read;
+#          CMUX_TUI_TREE_SKIP_PUBLISHERS, space-separated commits, are passed over)
+#        | run-progress <commit> (its active cmux-tui artifacts runs, from their jobs:
+#          building, "failed <job>: <url>", "stalled <what>", none or unknown)
+#        | tree-publisher <key> <candidate>... (who will publish tree <key>, the nightly's one
+#          reading for resolve-tree-pending.sh and await-tree-client.sh: "building <commit>",
+#          "stuck <why>", ended, none or unknown; see tree_publisher)
 #        | verify-key <key> (commit=<publishing commit> when tree <key> is published and its
 #          manifest sha256 verifies; exit 1 not published (a 404), 3 a read failure or unverifiable)
 #        | wait (wait for the tree; superseded=true output for a superseded commit)
@@ -137,6 +144,8 @@
 #        | local-build <binary> (exit 0 when that build has this checkout's key)
 #        | show | pin --commit <sha> [--verified-run <id>]
 set -euo pipefail
+# A stalled git transfer (under 1 KB/s for 120 s) ends instead of holding the nightly (run 44232805509).
+export GIT_HTTP_LOW_SPEED_LIMIT="${GIT_HTTP_LOW_SPEED_LIMIT:-1000}" GIT_HTTP_LOW_SPEED_TIME="${GIT_HTTP_LOW_SPEED_TIME:-120}"
 
 # The binary the cmux-next app bundles and the gate commands (probe, wait,
 # resolve-commit, resolve-newest-published, pin) read on any host.
@@ -194,12 +203,20 @@ read_pin() {
 # a published manifest, then lost the fourth download to one timed-out TLS read
 # and failed the job (cx-4pdg, 2026-10-11). So every failure except an HTTP
 # error (exit 22: the object is not there, which callers poll for) is retried
-# here, with a short backoff.
+# here, with a short backoff. The HTTP status decides what is an HTTP error, not
+# the exit code: macOS curl 8.7.1 over HTTP/2 exits 56, not 22, on a --fail 404,
+# so every unpublished key cost 4 attempts and 12 s of backoff, and the nightly's
+# fallback search (resolve-tree-pending.sh) spent 6 to 12 min of each build
+# walking 24 to 48 of them (nightly-next runs 44990363506, 44992267457,
+# 44993740115). A 4xx returns 22 at once (curl's --retry already retried 408
+# and 429); a transfer that failed with no status (000) or a 2xx is retried.
 download() {
-  local attempt=1 rc=0
+  local attempt=1 rc=0 code=""
   while :; do
     rc=0
-    curl -fsSL --proto '=https' --retry 4 --retry-delay 2 --connect-timeout 20 --max-time 600 -o "$2" "$1" || rc=$?
+    code="$(curl -fsSL --proto '=https' --retry 4 --retry-delay 2 --connect-timeout 20 --max-time 600 \
+      -w '%{http_code}' -o "$2" "$1")" || rc=$?
+    if (( rc != 0 )) && [[ "$code" =~ ^4[0-9][0-9]$ ]]; then return 22; fi
     (( rc == 0 || rc == 22 || attempt >= ${CMUX_TUI_DOWNLOAD_ATTEMPTS:-4} )) && return "$rc"
     echo "warning: download of $1 failed (curl exit $rc, attempt $attempt); retrying" >&2
     sleep "$(( attempt * ${CMUX_TUI_DOWNLOAD_BACKOFF_SECONDS:-2} ))"
@@ -449,6 +466,180 @@ else:
 ' <<<"$body" 2>/dev/null || echo unknown
 }
 
+# Prints how cmux-tui artifacts runs of commit <sha> are doing, one line,
+# from their jobs, so a waiter follows the run's live state instead of only "active":
+#   building             a run is making progress: nothing below holds for it
+#   failed <job>: <url>  every active run has a failed preflight, build or publish job on its last
+#                        retry attempt, so none publishes the tree
+#   stalled <what>       every active run is stuck: a job (or the run itself, with no
+#                        jobs yet) has waited for a runner longer than
+#                        CMUX_TUI_TREE_RUNNER_STALL_SECONDS (default 900)
+#   none                 no run, or the newest completed run has no required-job failure
+#   unknown              the runs or a run's jobs could not be read (keep waiting)
+# A queued job is one with no runner: GitHub lists it before any runner takes it.
+artifacts_run_progress() {
+  local sha="$1" api runs body ids id jobs_dir verdicts=() stall now
+  stall="${CMUX_TUI_TREE_RUNNER_STALL_SECONDS:-900}"
+  [[ "$stall" =~ ^[1-9][0-9]*$ ]] || stall=900
+  now="$(date +%s)"; now="${now%%.*}"
+  api="${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY:-manaflow-ai/cmux}"
+  runs="$(github_get "$api/actions/workflows/cmux-tui-artifacts.yml/runs?head_sha=$sha&per_page=20")" || { echo unknown; return 0; }
+  ids="$(python3 -c '
+import json, sys
+try:
+    runs = json.loads(sys.stdin.read())["workflow_runs"]
+except Exception:
+    print("unknown"); sys.exit(0)
+assert isinstance(runs, list) and all(isinstance(r, dict) for r in runs)
+active = [r for r in runs if r.get("status") != "completed"]
+# Active retries take precedence over older terminal attempts. With none active,
+# inspect the newest run so a completed preflight failure keeps its job and URL.
+for r in active or runs[:1]:
+    print(r.get("id"))
+' <<<"$runs" 2>/dev/null || echo unknown)"
+  [[ "$ids" != unknown ]] || { echo unknown; return 0; }
+  [[ -n "$ids" ]] || { echo none; return 0; }
+  jobs_dir="$(mktemp -d "${TMPDIR:-/tmp}/cmux-tui-jobs.XXXXXX")" || { echo unknown; return 0; }
+  mkdir -p "$jobs_dir/jobs"
+  printf '%s\n' "$runs" > "$jobs_dir/runs.json"
+  while read -r id; do
+    [[ "$id" =~ ^[0-9]+$ ]] || { rm -rf "$jobs_dir"; echo unknown; return 0; }
+    body="$(github_get "$api/actions/runs/$id/jobs?filter=latest&per_page=100")" || { rm -rf "$jobs_dir"; echo unknown; return 0; }
+    printf '%s\n' "$body" > "$jobs_dir/jobs/$id"
+  done <<<"$ids"
+  python3 - "$jobs_dir" "$now" "$stall" "${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:-manaflow-ai/cmux}" <<'PY' 2>/dev/null || echo unknown
+import datetime, json, os, re, sys
+jobs_dir, now, stall, web = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4]
+runs = {str(r.get("id")): r for r in json.load(open(os.path.join(jobs_dir, "runs.json")))["workflow_runs"] if isinstance(r, dict)}
+# Jobs whose failure means the run publishes no tree: preflight, builds and publish. The
+# primary macOS leg is left out: build-darwin-fallback rebuilds it when it fails.
+REQUIRED = re.compile(r"^(cmux-tui tree preflight$|build(-linux|-darwin-fallback)?( / |$)|publish (to R2|tree-addressed))")
+DARWIN_PRIMARY = re.compile(r"^build / .*-apple-darwin")
+# cmux-tui-artifacts-retry re-runs a failed run's failed jobs until attempt MAX_ATTEMPTS
+# (scripts/ci/cmux_tui_artifacts_retry.py): an active attempt before the last is not final.
+# A completed failure retains its error; callers give retries two observations to start.
+# (tree 453a2f94 published on such a retry, 2026-11-18).
+MAX_ATTEMPTS = 3
+def age(stamp):
+    if not stamp:
+        return 0
+    t = datetime.datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
+    return now - int(t.timestamp())
+failed, stalled = [], []
+for run_id in sorted(os.listdir(os.path.join(jobs_dir, "jobs"))):
+    run = runs.get(run_id, {})
+    jobs = json.load(open(os.path.join(jobs_dir, "jobs", run_id)))["jobs"]
+    url = run.get("html_url") or f"{web}/actions/runs/{run_id}"
+    bad = [j for j in jobs if j.get("conclusion") in ("failure", "timed_out", "cancelled")
+           and REQUIRED.match(j.get("name", "")) and not DARWIN_PRIMARY.match(j.get("name", ""))]
+    if bad and (run.get("status") == "completed" or int(run.get("run_attempt") or 1) >= MAX_ATTEMPTS):
+        failed.append(f"{bad[0]['name']}: {url}")
+        continue
+    if run.get("status") == "completed":
+        continue
+    # Preflight, build and publish jobs hold the tree back; a shadow or upload job may queue.
+    waiting = [j for j in jobs if j.get("status") in ("queued", "waiting", "pending") and not j.get("runner_name")
+               and REQUIRED.match(j.get("name", ""))]
+    late = [j for j in waiting if age(j.get("created_at")) >= stall]
+    if late:
+        j = max(late, key=lambda j: age(j.get("created_at")))
+        labels = ",".join(j.get("labels") or []) or "no label"
+        stalled.append(f"{j.get('name')} queued {age(j.get('created_at')) // 60} min for {labels}: {url}")
+        continue
+    if not jobs and age(run.get("created_at")) >= stall:
+        stalled.append(f"run pending {age(run.get('created_at')) // 60} min with no job started: {url}")
+        continue
+    print("building"); sys.exit(0)
+print(("failed " + failed[0]) if failed else ("stalled " + stalled[0]) if stalled else "none")
+PY
+  rm -rf "$jobs_dir"
+}
+
+# Prints who will publish tree <key>, given <candidate>... (the commits whose
+# artifacts runs build it, oldest first), one line:
+#   building <commit>  an active run of <commit> (a candidate's first, then any
+#                      same-key run) is making progress (artifacts_run_progress)
+#   stuck <why>        active runs exist, and none of them is making progress: a
+#                      build failed on its last retry attempt, or waits for a runner
+#                      past CMUX_TUI_TREE_RUNNER_STALL_SECONDS
+#   ended              no active run, and a candidate's runs ended
+#   none               no active run, and no candidate has a run yet
+#   unknown            a runs list or a run's jobs could not be read
+# resolve-tree-pending.sh and await-tree-client.sh both read this, so the nightly
+# that decides to wait for a tree and the wait itself judge a publisher alike
+# (2026-11-18: the resolver took owner 44223233076, whose builds had sat queued with
+# no runner since 02:32Z, as a publisher; nightly 44235456054 then waited 45 min on it).
+tree_publisher() {
+  local key="$1" candidate state progress found scan stuck="" skip="" unknown=false ended=false
+  shift
+  for candidate in "$@"; do
+    state="$(artifacts_runs_state "$candidate")"
+    case "$state" in
+      active|ended\ *)
+        [[ "$state" == active ]] || ended=true
+        progress="$(artifacts_run_progress "$candidate")"
+        case "$progress" in
+          building) echo "building $candidate"; return 0 ;;
+          unknown) unknown=true ;;
+          # The first read observed an active run; preserve it across list lag.
+          none) [[ "$state" != active ]] || { echo "building $candidate"; return 0; } ;;
+          *) stuck="the run of ${candidate:0:12} is $progress"; skip="$skip $candidate" ;;
+        esac ;;
+      unknown) unknown=true ;;
+    esac
+  done
+  if [[ "$unknown" == true ]]; then echo unknown; return 0; fi
+  # Inspect alternatives within a finite bound. An incomplete scan cannot prove
+  # that no publisher can finish the tree.
+  for ((scan = 0; scan < 20; scan++)); do
+    found="$(CMUX_TUI_TREE_SKIP_PUBLISHERS="$skip" active_publisher_for_key "$key")"
+    case "$found" in
+      unknown) echo unknown; return 0 ;;
+      "") break ;;
+      *)
+        progress="$(artifacts_run_progress "$found")"
+        case "$progress" in
+          building|none) echo "building $found"; return 0 ;;
+          unknown) echo unknown; return 0 ;;
+          *) stuck="the run of ${found:0:12} is $progress"; skip="$skip $found" ;;
+        esac ;;
+    esac
+  done
+  if (( scan >= 20 )); then echo unknown
+  elif [[ -n "$stuck" ]]; then echo "stuck $stuck"
+  elif [[ "$ended" == true ]]; then echo ended
+  else echo none
+  fi
+}
+
+# Succeeds when every cmux-tui artifacts run of <sha> ended success because it was coalesced:
+# its coalesce job (base-coalesce.yml, "coalesce / coalesce") succeeded and its tree preflight was
+# skipped, so it built and published nothing by design (cmux-tui-artifacts.yml builds one
+# feat-cmux-next tree per window). Fails on any other run, or when a runs or jobs list is unreadable.
+artifacts_runs_coalesced() {
+  local sha="$1" api runs ids id jobs
+  api="${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY:-manaflow-ai/cmux}"
+  runs="$(github_get "$api/actions/workflows/cmux-tui-artifacts.yml/runs?head_sha=$sha&per_page=20")" || return 1
+  ids="$(python3 -c '
+import json, sys
+runs = json.loads(sys.stdin.read())["workflow_runs"]
+if not runs or any(r.get("status") != "completed" or r.get("conclusion") != "success" for r in runs):
+    sys.exit(1)
+for r in runs:
+    print(int(r["id"]))
+' <<<"$runs" 2>/dev/null)" || return 1
+  while read -r id; do
+    jobs="$(github_get "$api/actions/runs/$id/jobs?filter=latest&per_page=100")" || return 1
+    python3 -c '
+import json, sys
+jobs = json.loads(sys.stdin.read())["jobs"]
+coalesce = [j.get("conclusion") for j in jobs if j.get("name") == "coalesce" or str(j.get("name")).startswith("coalesce /")]
+preflight = [j.get("conclusion") for j in jobs if j.get("name") == "cmux-tui tree preflight"]
+sys.exit(0 if "success" in coalesce and preflight and all(c == "skipped" for c in preflight) else 1)
+' <<<"$jobs" 2>/dev/null || return 1
+  done <<<"$ids"
+}
+
 # Prints the newer head of the pushed branch (GITHUB_REF) when <sha> was
 # superseded: every artifacts run for it ended cancelled or skipped (success
 # without publishing) and the branch head has moved. Prints nothing otherwise,
@@ -522,7 +713,8 @@ try:
     runs = json.loads(sys.stdin.read()).get("workflow_runs", [])
 except Exception:
     runs = []
-active = [r for r in runs if r.get("status") != "completed"]
+skip = set(sys.argv[1].split())
+active = [r for r in runs if r.get("status") != "completed" and r.get("head_sha") not in skip]
 # The cmux-next branches publish the trees other runs wait for: compare them first.
 active.sort(key=lambda r: r.get("head_branch") not in ("feat-cmux-next", "feat-cmux-next-acpmux"))
 seen = set()
@@ -531,7 +723,7 @@ for run in active:
     if sha not in seen:
         seen.add(sha)
         print(sha)
-' <<<"$body")
+' "${CMUX_TUI_TREE_SKIP_PUBLISHERS:-}" <<<"$body")
   (( ${#candidates[@]} > 0 )) || return 0
   deadline=$(( $(date +%s) + budget ))
   if (( ${#missing[@]} > 0 )); then
@@ -1131,7 +1323,31 @@ fetch_tree_acpmux() {
     exit 1
   }
   echo "using attested same-tree acpmux companion: $dir/acpmux"
+  # The arm64 companion above is thin. A universal build (a Release reload:
+  # CMUX_NEXT_ACPMUX_ARCHS="arm64 x86_64") also needs the owner's x86_64 slice,
+  # attested by the same manifest; build-acpmux.sh joins the two. Only main and
+  # rc/** publish it, so elsewhere it is recorded as none and build-acpmux.sh
+  # names the missing architecture instead of a failed fetch (a developer Mac's
+  # RAM bench at 7802ece0, 2026-11-22: the fetch succeeded, reload.sh then said
+  # "no published acpmux of its cmux-tui tree could be fetched").
+  if acpmux_wants_x86_64; then
+    local x86_dir
+    TARGET=x86_64-apple-darwin
+    x86_dir="$(tree_dir "$key")"
+    mkdir -p "$x86_dir"
+    cp -f "$source_file" "$x86_dir/source.json"
+    fetch_tree_companion "$key" "$x86_dir" acpmux acpmux
+    TARGET="$GATE_TARGET"
+    if [[ -x "$x86_dir/acpmux" && "$(cat "$x86_dir/acpmux.sha256")" != none ]]; then
+      echo "using attested same-tree x86_64 acpmux companion: $x86_dir/acpmux"
+    else
+      echo "note: tree $key has no x86_64 acpmux (published on main and rc/** only)"
+    fi
+  fi
 }
+
+# Whether the acpmux build asks for an x86_64 slice (build-acpmux.sh reads the same variables).
+acpmux_wants_x86_64() { [[ "${CMUX_NEXT_ACPMUX_ARCHS:-${ARCHS:-}}" =~ x86_64|amd64 ]]; }
 
 # The cmux-next gate: waits for this checkout's tree like fetch, without
 # downloading the binary. A commit superseded by a newer branch head (its
@@ -1284,6 +1500,15 @@ probe_checkout_tree() {
       if [[ -n "$superseded" ]]; then
         state=superseded
         reason="$(git -C "$repo_root" rev-parse HEAD) was superseded by $superseded on ${GITHUB_REF#refs/heads/}: its tree $key was not published, and the newer head is tested"
+      elif [[ "$source" == commit:* && -n "$publisher" ]] && artifacts_runs_coalesced "$publisher"; then
+        # A coalesced push (cmux-tui-artifacts.yml's coalesce job: one feat-cmux-next build per
+        # window, #48943) builds nothing by design, so its success is no failed publish. Until
+        # 2026-11-22 the tip read it as one, and every coalesced tip's same-tree cmux-tui was red
+        # (run 44988509777 at 80e3d5099479: "ended without publishing tree 3c101a06 (success)").
+        # The wait marker stays: the tree's next publish (the next window's push with this key, a
+        # re-run of this run, or cmux-tui-tree-request.yml) starts the tree jobs.
+        state=deferred
+        reason="the cmux-tui artifacts run for ${source#*:} was coalesced (one feat-cmux-next build per window, base-coalesce.yml), so it builds no tree; tree $key's next publish starts the tree jobs"
       else
         reason="the cmux-tui artifacts runs for ${source#*:} ended without publishing tree $key (${state#ended }). Re-run that run, or for an unmerged commit: $(pin_push_hint)"
         state=failed
@@ -1881,6 +2106,17 @@ PY
   active-publisher)
     [[ "${1:-}" =~ ^[0-9a-f]{40}$ ]] || { echo "error: active-publisher takes a 40-hex tree key" >&2; exit 2; }
     active_publisher_for_key "$1"
+    ;;
+  run-progress)
+    [[ "${1:-}" =~ ^[0-9a-f]{40}$ ]] || { echo "error: run-progress takes a 40-hex commit" >&2; exit 2; }
+    artifacts_run_progress "$1"
+    ;;
+  tree-publisher)
+    [[ "${1:-}" =~ ^[0-9a-f]{40}$ ]] || { echo "error: tree-publisher takes a 40-hex tree key" >&2; exit 2; }
+    for candidate in "${@:2}"; do
+      [[ "$candidate" =~ ^[0-9a-f]{40}$ ]] || { echo "error: tree-publisher candidate $candidate is not a 40-hex commit" >&2; exit 2; }
+    done
+    tree_publisher "$@"
     ;;
   resolve-exact)
     resolve_exact_tree

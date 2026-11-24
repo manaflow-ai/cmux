@@ -59,6 +59,12 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
                                              UnsafeMutableRawPointer?) -> Int32)?
     /// Fork API 30: `cmux_shim_browser_set_detached_hosting` (1 when the fork took it); nil in an older shim.
     let browserSetDetachedHosting: (@convention(c) (Int32, Int32) -> Int32)?
+    /// Fork API 35: `cmux_shim_browser_set_draw_on_input` (1 when the fork took it); nil in an older shim
+    /// (`CEFDrawOnInput`).
+    let browserSetDrawOnInput: (@convention(c) (Int32, Int32) -> Int32)?
+    /// Fork API 35: `cmux_shim_draw_on_input_key_frames` (frames that mode drew for a key on this page,
+    /// -1 without the call); nil in an older shim. Proves the mode is live, not inert (`CEFDrawOnInput`).
+    let drawOnInputKeyFrames: (@convention(c) (Int32) -> Int32)?
     let initialize: @convention(c) (
         UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
         UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
@@ -89,6 +95,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let setAccessibility: @convention(c) (Int32, Int32) -> Void
     /// Chromium's print preview over the page; 0 when the browser is gone.
     let printPage: @convention(c) (Int32) -> Int32
+    /// `cmux_shim_page_command` (`cmux_shim_page_command_t`): nil on a shim without it.
+    let pageCommand: (@convention(c) (Int32, Int32) -> Int32)?
     let find: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, Int32, Int32, Int32) -> Void
     let stopFinding: @convention(c) (Int32, Int32) -> Void
     let close: @convention(c) (Int32) -> Void
@@ -192,6 +200,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let setPasswordGenerationEnabled: @convention(c) (Int32) -> Int32
     /// Password filling on or off in one tab (off while an agent drives it).
     let setPasswordFill: @convention(c) (Int32, Int32) -> Int32
+    /// WebAuthn refused (1) or allowed (0) in one tab (refused while an agent drives it; fork API 23).
+    let setWebAuthnMode: @convention(c) (Int32, Int32) -> Int32
     /// Profile (Touch ID) passkeys, metadata only (fork API 18; see CEFRuntime+Passkeys).
     let passkeysAvailable: @convention(c) () -> Int32
     let passkeysList: @convention(c) (UnsafePointer<CChar>?, Int32) -> Int32
@@ -367,6 +377,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         browserSetResizeSync = try r("cmux_shim_browser_set_resize_sync")
         browserResizeFence = r.optional("cmux_shim_browser_resize_fence")
         browserSetDetachedHosting = r.optional("cmux_shim_browser_set_detached_hosting")
+        browserSetDrawOnInput = r.optional("cmux_shim_browser_set_draw_on_input")
+        drawOnInputKeyFrames = r.optional("cmux_shim_draw_on_input_key_frames")
         initialize = try r("cmux_shim_initialize")
         doWork = try r("cmux_shim_do_work")
         createWindow = try r("cmux_shim_create_window")
@@ -387,6 +399,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         setAudioMuted = r.optional("cmux_shim_set_audio_muted")
         setAccessibility = try r("cmux_shim_set_accessibility")
         printPage = try r("cmux_shim_print")
+        pageCommand = r.optional("cmux_shim_page_command")
         find = try r("cmux_shim_find")
         stopFinding = try r("cmux_shim_stop_finding")
         close = try r("cmux_shim_close")
@@ -453,6 +466,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         passwordPromptAnswer = try r("cmux_shim_password_prompt_answer")
         setPasswordGenerationEnabled = try r("cmux_shim_set_password_generation_enabled")
         setPasswordFill = try r("cmux_shim_set_password_fill")
+        setWebAuthnMode = try r("cmux_shim_tab_set_webauthn_mode")
         passkeysAvailable = try r("cmux_shim_passkeys_available")
         passkeysList = try r("cmux_shim_passkeys_list")
         passkeyDelete = try r("cmux_shim_passkey_delete")
