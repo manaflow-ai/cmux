@@ -245,16 +245,16 @@ await requireBrowserLane("new-chat-composer.test.ts", async () => {
     const menu = await page.evaluate(() => {
       const popup = document.querySelector(".acpmux-location-menu");
       return {
-        choose: popup?.querySelector('[data-choose=""]')?.textContent?.trim() ?? null,
+        actions: [...(popup?.querySelectorAll(".acpmux-location-action") ?? [])].map((row) => row.textContent?.trim()),
         privateFolder: popup?.textContent?.includes("private folder") ?? false,
         sentence: document.querySelector(".acpmux-folder-choice") !== null,
       };
     });
     await page.close();
-    expect(menu).toEqual({ choose: "Add folder…", privateFolder: false, sentence: false });
+    expect(menu).toEqual({ actions: ["Add project…"], privateFolder: false, sentence: false });
   });
 
-  test("the folder chip's Add folder… asks the host's workspace folder sheet", async () => {
+  test("Folder on this Mac asks the host's workspace folder sheet", async () => {
     const page = await open("choose-folder");
     await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay));
     const result = await page.evaluate(() => ({
@@ -267,9 +267,10 @@ await requireBrowserLane("new-chat-composer.test.ts", async () => {
     expect(result.calls).not.toContain("project.browse");
   });
 
-  test("a real pointer click on Choose folder asks the workspace sheet once", async () => {
+  test("a real pointer click on Folder on this Mac asks the workspace sheet once", async () => {
     const page = await open("folder-menu");
-    await page.locator('.acpmux-location-menu [data-choose=""]').click();
+    await page.getByRole("option", { name: "Add project…", exact: true }).click();
+    await page.getByRole("option", { name: /^Folder on this Mac/ }).click();
     await page.waitForFunction(() =>
       (window as unknown as { cmuxGalleryLog: { method: string }[] }).cmuxGalleryLog.some(
         ({ method }) => method === "workspace.chooseFolder",
