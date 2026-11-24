@@ -22,6 +22,11 @@ struct FakeHub {
     unknown: std::sync::atomic::AtomicBool,
     /// How many more sends the hub keeps but whose answer is lost on the way back.
     lose: std::sync::atomic::AtomicUsize,
+    /// Until when every send is answered 529 with the hub's `retryAfterSeconds`, as an
+    /// overloaded hub does.
+    busy_until: Mutex<Option<(tokio::time::Instant, Duration)>>,
+    /// When the hub took each post, and its key.
+    taken: Mutex<Vec<(tokio::time::Instant, String)>>,
 }
 
 impl MeshHub for FakeHub {
@@ -48,10 +53,21 @@ impl MeshHub for FakeHub {
                 e.code = Some("mesh.unknown_recipient".into());
                 return Err(e);
             }
+            let busy = *self.busy_until.lock().unwrap();
+            if let Some((until, retry_after)) = busy
+                && tokio::time::Instant::now() < until
+            {
+                let mut e = HubError::unavailable("overloaded");
+                e.status = Some(529);
+                e.retry_after = Some(retry_after);
+                return Err(e);
+            }
             let lose = &self.lose;
             if lose.fetch_update(SeqCst, SeqCst, |n| n.checked_sub(1)).is_ok() {
                 return Err(HubError::unavailable("the connection reset"));
             }
+            let key = message.idempotency_key.clone();
+            self.taken.lock().unwrap().push((tokio::time::Instant::now(), key));
             Ok(receipt("queued", message.to.clone()))
         })
     }
@@ -412,4 +428,48 @@ async fn a_peer_ready_during_an_attempt_ends_the_retry_wait() {
         waited < Duration::from_secs(RETRY_DELAYS_SECS[0]),
         "attempt 2 waited {waited:?} with the peer ready"
     );
+}
+
+/// Twenty sends queued while the hub answers 529 for one window (its `retryAfterSeconds`): they
+/// wait behind its gate, not each on its own back-off, and all go once one probe gets through,
+/// within that one window. A send repeated under the same prompt id goes once.
+#[tokio::test(start_paused = true)]
+async fn twenty_sends_refused_for_one_window_drain_together_when_it_ends() {
+    const WINDOW: Duration = Duration::from_secs(30);
+    let fake = FakeHub::default();
+    let start = tokio::time::Instant::now();
+    *fake.busy_until.lock().unwrap() = Some((start + WINDOW, WINDOW));
+    let (hub, fake) = setup(fake);
+    let mut ids = Vec::new();
+    for n in 0..20 {
+        let id =
+            queue(&hub, request(&format!("huge-blue/drain-{n}"), &format!("p-drain-{n}"))).await;
+        ids.push(id);
+    }
+    // The same prompt again: the delivery already queued, not a second post.
+    let again = queue(&hub, request("huge-blue/drain-3", "p-drain-3")).await;
+    assert_eq!(again, ids[3]);
+    let deadline = start + Duration::from_secs(3_600);
+    loop {
+        let changed = hub.outbox.changed.notified();
+        if ids.iter().all(|id| hub.outbox.get(id).is_some_and(|d| d.state == State::Delivered)) {
+            break;
+        }
+        assert!(tokio::time::timeout_at(deadline, changed).await.is_ok(), "not all delivered");
+    }
+    let taken = fake.taken.lock().unwrap().clone();
+    let last = taken.iter().map(|(at, _)| *at).max().unwrap();
+    let drain = last.duration_since(start);
+    let first = taken.iter().map(|(at, _)| *at).min().unwrap();
+    eprintln!(
+        "drain of 20 queued sends after one refused window of {}s: {:.2}s (first taken {:.2}s)",
+        WINDOW.as_secs(),
+        drain.as_secs_f64(),
+        first.duration_since(start).as_secs_f64(),
+    );
+    let mut keys: Vec<_> = taken.iter().map(|(_, k)| k.clone()).collect();
+    keys.sort();
+    keys.dedup();
+    assert_eq!((taken.len(), keys.len()), (20, 20), "each once: {taken:?}");
+    assert!(drain < WINDOW + Duration::from_secs(1), "20 sends took {drain:?}, not one window");
 }

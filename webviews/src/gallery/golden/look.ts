@@ -34,6 +34,8 @@ export type GoldenLook = {
   /** agent-pane/theme.css (cmux.agentPane.style/1 tokens). */
   themeCSS?: string;
   composerLook?: "claude" | "codex";
+  /** The setup folder a look came from (a look repo), absolute; absent for theme files and registry looks. */
+  setupDir?: string;
 };
 
 export type Scheme = "light" | "dark";
