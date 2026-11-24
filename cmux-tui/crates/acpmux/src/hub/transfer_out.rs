@@ -556,7 +556,17 @@ impl Hub {
                 );
                 return Err(unfreeze(e, None));
             }
-            carried = self.log_continuation(session, &running, super::auto_resume::Cut::Move);
+            // At a tool boundary with no background work of the turn's, nothing was cut short:
+            // the continuation says so, and Claude Code goes on from its own transcript with no
+            // prompt of acpmux's (`claude_stdio/resume_cut.rs`). `--interrupt`, or a turn with a
+            // background shell or subagent (which did not come along and must be told so), keeps
+            // the continuation's text.
+            let how = if cut == TurnCut::AtToolBoundary && !self.runs_background_work(session) {
+                super::auto_resume::Cut::MoveAtBoundary
+            } else {
+                super::auto_resume::Cut::Move
+            };
+            carried = self.log_continuation(session, &running, how);
             // Its place at the head, as a record of its own: a guarded target drops the
             // provenance that would put it there (`transfer_guard.rs` `guarded_record`).
             if let Some(id) = &carried {

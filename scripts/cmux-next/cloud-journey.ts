@@ -4248,6 +4248,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   let localGatewayDir: string | null = null;
   let deleted = false;
   let firstTextObserver: Promise<void> | undefined;
+  /** A check the app does not run before the first text: the journey runs it after, outside the timed window. */
+  let afterFirstText: (() => Promise<void>) | undefined;
   let createAnsweredAt: number | null = null;
   let createSentAt: number | null = null;
   // The chat machine's exec once the run has one, for the failure facts below.
@@ -4956,14 +4958,20 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     } else if (!login) {
       J.skip(loginStep, provider === "codex" ? "no CODEX_AUTH_JSON: the reply needs the person's Codex login on the machine" : "no CLAUDE_CODE_OAUTH_TOKEN: the reply needs the person's Claude login on the machine");
     } else if (loginPathAfterClaim({ receipt: Boolean(prepared?.spare === created.id && preclaimLoginCmux && preclaimStateDir && await spareLoginReceipt(preclaimLoginCmux, api, preclaimStateDir, install.token, prepared!, created.id)), launchCredential, launchOnMiss }) === "receipt") {
-      // The claim handed out the spare whose login was copied on spare.ready, and its receipt says installed: what is
-      // left of the login is the app's post-bind check that the launcher sees it.
+      // The claim handed out the spare whose login was copied on spare.ready, and its receipt says installed. The app
+      // reads that receipt from its own ledger (spare_warm.rs login_receipt, no machine call) and starts the agent;
+      // it runs no launcher check on the machine. So the journey's check that the launcher sees the login (one
+      // machine exec, ~1.6 s in stub leg 45298742268) runs after first text, outside create_to_first_text_ms.
       probeExtra.login_path = "receipt";
-      await J.step(loginStep, async () => {
-        const own = await exec(`. /etc/cmux/agent-auth.sh >/dev/null 2>&1 && HOME=/home/cmux cmux_agent_has_own_login ${provider} && echo own-login`);
-        if (!own.stdout.includes("own-login")) throw new Error(`the receipt says installed, but the image's launcher does not see an own ${provider} login`);
-        return { value: null, detail: "the person's own login, copied on spare.ready (receipt installed); the launcher picks it" };
-      });
+      await J.step(loginStep, async () => ({ value: null, detail: "the person's own login, copied on spare.ready (receipt installed); the launcher check runs after first text" }));
+      const loginProvider = provider;
+      afterFirstText = async () => {
+        await J.step("login seen by the launcher", async () => {
+          const own = await exec(`. /etc/cmux/agent-auth.sh >/dev/null 2>&1 && HOME=/home/cmux cmux_agent_has_own_login ${loginProvider} && echo own-login`);
+          if (!own.stdout.includes("own-login")) throw new Error(`the receipt says installed, but the image's launcher does not see an own ${loginProvider} login`);
+          return { value: null, detail: "the launcher picks the login copied on spare.ready" };
+        });
+      };
     } else if (launchCredential || launchOnMiss) {
       launchCredential = true;
       // cmux#40159: a Cloud chat runs on the person's model connection, given to that chat's agent when it starts; the
@@ -4973,10 +4981,17 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       probeExtra.login_path = "launch";
       await J.step(loginStep, async () => {
         if (!validLogin(provider, login)) throw new Error("CLAUDE_CODE_OAUTH_TOKEN is not a `claude setup-token` login");
-        const own = await exec(`. /etc/cmux/agent-auth.sh >/dev/null 2>&1 && HOME=/home/cmux cmux_agent_has_own_login ${provider} && echo own-login`);
-        const held = own.stdout.includes("own-login") ? "the machine also holds a Claude login of its own" : "the machine holds none";
-        return { value: null, detail: `the person's model connection, given to the agent at its start (cmux#40159); ${held}` };
+        return { value: null, detail: "the person's model connection, given to the agent at its start (cmux#40159)" };
       });
+      // Whether the machine also holds a login of its own is a report, not a step the app takes: one machine exec,
+      // read after first text so it stays outside create_to_first_text_ms.
+      const loginProvider = provider;
+      afterFirstText = async () => {
+        await J.step("machine's own login", async () => {
+          const own = await exec(`. /etc/cmux/agent-auth.sh >/dev/null 2>&1 && HOME=/home/cmux cmux_agent_has_own_login ${loginProvider} && echo own-login`);
+          return { value: null, detail: own.stdout.includes("own-login") ? "the machine also holds a Claude login of its own" : "the machine holds none" };
+        });
+      };
     } else {
       probeExtra.login_path = "copy";
       // The journey's own login install on a Worker machines client: preflight (which also makes and checks the staging
@@ -5212,6 +5227,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return { value: last, detail: last.slice(0, 280) };
       });
       await firstTextObserver;
+      await afterFirstText?.();
       await journeyOnly();
       // `--agent claude/MODEL`: the session must run the model asked for. Read from what ran: the `model` of every
       // assistant message in the session's Claude transcript, never the reply's own words (a model gets them wrong
