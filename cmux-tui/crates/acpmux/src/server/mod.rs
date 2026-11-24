@@ -2752,11 +2752,13 @@ mod inventory_watch;
 mod lane_parent;
 mod list_reply;
 use lane_parent::lane_parent;
+mod agent_home;
 mod bg_tasks;
 mod github_prs;
 mod goal;
 pub mod local_app;
 pub(crate) mod machine_enroll;
+mod machine_files_relay;
 pub(crate) mod machine_health;
 mod machine_join_ssh;
 #[cfg(feature = "hub-carrier")]
