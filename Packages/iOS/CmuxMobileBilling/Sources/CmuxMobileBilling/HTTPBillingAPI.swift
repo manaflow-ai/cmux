@@ -67,13 +67,29 @@ public struct HTTPBillingAPI: BillingAPI {
         return try await send(request, decoding: BillingTransactionReceipt.self)
     }
 
-    /// Builds a `POST` request; exposed to tests to pin the header contract.
+    public func paymentPastDue() async throws -> Bool {
+        let request = try await makeRequest(path: "/api/billing/plan", method: "GET", body: nil)
+        return Self.paymentPastDue(planReply: try await sendData(request))
+    }
+
+    /// `paymentPastDue` of a `GET /api/billing/plan` reply: true only for a
+    /// JSON `true`. A missing field (an older server), another type or a body
+    /// that is not JSON reads as false, as on the Mac.
+    /// - Parameter data: The reply body.
+    /// - Returns: Whether the latest renewal payment failed.
+    static func paymentPastDue(planReply data: Data) -> Bool {
+        struct Reply: Decodable { let paymentPastDue: Bool? }
+        return (try? JSONDecoder().decode(Reply.self, from: data))?.paymentPastDue == true
+    }
+
+    /// Builds a request; exposed to tests to pin the header contract.
     /// - Parameters:
     ///   - path: The route path, starting with `/`.
-    ///   - body: The JSON body.
+    ///   - method: The HTTP method, `POST` unless given.
+    ///   - body: The JSON body; nil sends none.
     /// - Returns: The authenticated request.
     /// - Throws: ``BillingAPIError/notSignedIn`` or ``BillingAPIError/invalidURL``.
-    func makeRequest(path: String, body: Data) async throws -> URLRequest {
+    func makeRequest(path: String, method: String = "POST", body: Data?) async throws -> URLRequest {
         guard let url = URL(string: baseURL + path), url.scheme != nil, url.host != nil else {
             throw BillingAPIError.invalidURL
         }
@@ -85,7 +101,7 @@ public struct HTTPBillingAPI: BillingAPI {
         }
         guard let pair else { throw BillingAPIError.notSignedIn }
         var request = URLRequest(url: url)
-        request.httpMethod = "POST"
+        request.httpMethod = method
         request.timeoutInterval = timeout
         request.setValue("Bearer \(pair.accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue(pair.refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
@@ -97,12 +113,24 @@ public struct HTTPBillingAPI: BillingAPI {
             request.setValue(environment, forHTTPHeaderField: "x-cmux-storekit-environment")
         }
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = body
+        if let body {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = body
+        }
         return request
     }
 
     private func send<Response: Decodable>(_ request: URLRequest, decoding: Response.Type) async throws -> Response {
+        let data = try await sendData(request)
+        do {
+            return try JSONDecoder().decode(Response.self, from: data)
+        } catch {
+            throw BillingAPIError.invalidResponse
+        }
+    }
+
+    /// Sends `request` and returns a 2xx reply's body.
+    private func sendData(_ request: URLRequest) async throws -> Data {
         let data: Data
         let response: URLResponse
         do {
@@ -117,11 +145,7 @@ public struct HTTPBillingAPI: BillingAPI {
             }
             throw BillingAPIError.rejected(statusCode: http.statusCode)
         }
-        do {
-            return try JSONDecoder().decode(Response.self, from: data)
-        } catch {
-            throw BillingAPIError.invalidResponse
-        }
+        return data
     }
 
     private struct TransactionBody: Encodable {

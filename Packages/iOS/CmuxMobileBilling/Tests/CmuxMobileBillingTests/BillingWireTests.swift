@@ -130,6 +130,43 @@ import Testing
         #expect(request.value(forHTTPHeaderField: "x-cmux-bundle-id") == "com.cmux.app")
     }
 
+    /// New-user journeys, 2026-11-23: a failed web renewal was invisible on
+    /// the iPhone. Its read is `GET /api/billing/plan`, the Mac's.
+    @Test func paymentPastDueIsAGetOfThePlanRoute() async throws {
+        let api = HTTPBillingAPI(
+            baseURL: "https://cmux.example",
+            bundleID: "com.cmux.app",
+            credentials: { BillingAPICredentials(accessToken: "access", refreshToken: "refresh") },
+            session: URLSession(configuration: .ephemeral)
+        )
+        let request = try await api.makeRequest(path: "/api/billing/plan", method: "GET", body: nil)
+        #expect(request.url?.absoluteString == "https://cmux.example/api/billing/plan")
+        #expect(request.httpMethod == "GET")
+        #expect(request.httpBody == nil)
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer access")
+        #expect(request.value(forHTTPHeaderField: "X-Stack-Refresh-Token") == "refresh")
+
+        let pastDue = StubURLProtocol.api(host: "past-due.example", status: 200, body: #"{"isPro":true,"paymentPastDue":true}"#)
+        #expect(try await pastDue.paymentPastDue())
+        let older = StubURLProtocol.api(host: "older.example", status: 200, body: #"{"isPro":true}"#)
+        #expect(try await !older.paymentPastDue())
+        let refused = StubURLProtocol.api(host: "refused.example", status: 503, body: "")
+        await #expect(throws: BillingAPIError.rejected(statusCode: 503)) {
+            _ = try await refused.paymentPastDue()
+        }
+    }
+
+    @Test func onlyAJSONTrueOfPaymentPastDueIsAFailedPayment() {
+        let read = { (text: String) in HTTPBillingAPI.paymentPastDue(planReply: Data(text.utf8)) }
+        #expect(read(#"{"isPro":true,"paymentPastDue":true}"#))
+        #expect(!read(#"{"isPro":true,"paymentPastDue":false}"#))
+        #expect(!read(#"{"isPro":true}"#))
+        #expect(!read(#"{"paymentPastDue":"true"}"#))
+        #expect(!read(#"{"paymentPastDue":null}"#))
+        #expect(!read("not json"))
+        #expect(!read(""))
+    }
+
     @Test func signedOutRequestIsNotBuilt() async throws {
         let api = HTTPBillingAPI(
             baseURL: "https://cmux.example",

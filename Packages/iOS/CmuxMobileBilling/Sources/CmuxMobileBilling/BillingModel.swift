@@ -44,6 +44,11 @@ public final class BillingModel {
     public private(set) var purchase: BillingPurchasePhase = .idle
     /// The current restore attempt.
     public private(set) var restore: BillingRestorePhase = .idle
+    /// The web (Stripe) subscription that grants the plan failed its latest
+    /// renewal (`GET /api/billing/plan` `paymentPastDue`, the field the Mac's
+    /// Cloud page reads). Read with the account, and only for a plan billed on
+    /// the web; any other plan, a failed read or a signed-out account is false.
+    public private(set) var paymentPastDue = false
 
     /// Whether the plans screen offers purchases in this app
     /// (``BillingPurchaseAvailability``). When false it shows the current
@@ -287,6 +292,7 @@ public final class BillingModel {
         account = .idle
         offers = []
         offersFailure = nil
+        paymentPastDue = false
         purchase = .idle
         waitingPurchases = [:]
         restore = .idle
@@ -369,6 +375,19 @@ public final class BillingModel {
         account = .loaded(loaded)
         await loadOffers(for: loaded, generation: generation)
         await loadCurrentAppleProduct(for: loaded, generation: generation)
+        await loadPaymentPastDue(for: loaded, generation: generation)
+    }
+
+    /// Reads ``paymentPastDue`` for a plan billed on the web. The server
+    /// reports it only for Stripe, so every other plan skips the request.
+    private func loadPaymentPastDue(for account: BillingAccount, generation: Int) async {
+        guard account.currentPlan.source == .stripe else {
+            paymentPastDue = false
+            return
+        }
+        let pastDue = (try? await api.paymentPastDue()) ?? false
+        guard generation == accountGeneration else { return }
+        paymentPastDue = pastDue
     }
 
     private func loadOffers(for account: BillingAccount, generation: Int) async {
