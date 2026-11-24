@@ -268,6 +268,8 @@ export const PreviewCard = React.forwardRef<
   }
   /// The content the card was last placed for: a card for another row centers again on its row.
   const placedFor = useRef<readonly unknown[]>([]);
+  /// A place asked for by a commit that changed nothing the card shows, run once in the next frame.
+  const placeFrame = useRef<number | undefined>(undefined);
   // After every commit on purpose: the rail can move under the card with any render.
   useLayoutEffect(() => {
     const node = self.current;
@@ -277,11 +279,31 @@ export const PreviewCard = React.forwardRef<
       now.length !== placedFor.current.length ||
       !now.every((value, index) => Object.is(value, placedFor.current[index]))
     ) {
+      // A card that opens or moves to another row is placed before this paint.
       placedFor.current = now;
       openTop.current = undefined;
+      if (placeFrame.current !== undefined) cancelAnimationFrame(placeFrame.current);
+      placeFrame.current = undefined;
+      place();
+      return;
     }
-    place();
+    // Any other commit (the transcript loading pages and mounting rows under an open card, many
+    // commits a frame on a rail click) places it once, in the frame's animation callbacks, before that
+    // frame paints. Placed here, each commit forced a layout of the whole transcript mid-commit, and the
+    // commit's own writes after it laid the transcript out again: 40 to 145 ms of a 160 to 450 ms click.
+    if (placeFrame.current === undefined)
+      placeFrame.current = requestAnimationFrame(() => {
+        placeFrame.current = undefined;
+        place();
+      });
   });
+  useLayoutEffect(
+    () => () => {
+      if (placeFrame.current !== undefined) cancelAnimationFrame(placeFrame.current);
+      placeFrame.current = undefined;
+    },
+    [],
+  );
   // After the card is placed, so the blur's first measure finds it where it draws.
   useSeeThroughBlur(self, !!layer, underCard);
   // Content that grows or shrinks without a render (a font loading, a wrap, the card opening over
