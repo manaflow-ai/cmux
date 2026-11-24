@@ -18,8 +18,9 @@ import ObjectiveC
 /// (bundle id ending `.nightly` or containing `.nightly.`), else log. Every unlisted host prints one
 /// `egress.unlisted host=H site=S mode=M` line to stderr.
 ///
-/// Redirects: a session made without a delegate also checks each redirect target. A session made with the
-/// caller's own delegate checks the first request's host only, because the gate must not take over the delegate.
+/// Redirects: the system loads each redirect target through the session's protocol classes again, so the gate
+/// checks every hop of every gated session, with or without the caller's own delegate, and a refused hop fails the
+/// task with `cannotConnectToHost` like a refused first request.
 public enum CmuxEgress {
     public enum Mode: String, Sendable {
         case enforce, log, off
@@ -132,7 +133,7 @@ public enum CmuxEgress {
         copy.protocolClasses = [gateClass(site: site)] + (copy.protocolClasses ?? [])
         return URLSession(
             configuration: copy,
-            delegate: delegate ?? RedirectGate(site: site),
+            delegate: delegate,
             delegateQueue: delegateQueue
         )
     }
@@ -219,7 +220,7 @@ public enum CmuxEgress {
         var host = authority
         if authority.hasPrefix("[") {
             host = authority.dropFirst().prefix { $0 != "]" }
-        } else if let colon = authority.lastIndex(of: ":"),
+        } else if let colon = authority.lastIndex(of: ":"), authority.firstIndex(of: ":") == colon,
                   authority[authority.index(after: colon)...].allSatisfy(\.isASCIIDigit) {
             host = authority[..<colon]
         }
@@ -243,7 +244,10 @@ public enum CmuxEgress {
 
     static func isLocal(_ host: String) -> Bool {
         if host.isEmpty || host == "localhost" || host == "example.com" || host.hasSuffix(".example.com") { return true }
-        if [".localhost", ".test", ".example", ".invalid", ".local", ".home.arpa"].contains(where: host.hasSuffix) {
+        // A name with no dot is a machine on the person's own network (`mac-mini`, `devbox`).
+        if !host.contains(".") { return true }
+        let privateSuffixes = [".localhost", ".test", ".example", ".invalid", ".local", ".home.arpa", ".ts.net", ".internal", ".lan"]
+        if privateSuffixes.contains(where: host.hasSuffix) {
             return true
         }
         return isIPLiteral(host)
@@ -316,35 +320,15 @@ public enum CmuxEgress {
     private static func gateClass(site: String) -> AnyClass {
         #if canImport(ObjectiveC)
         let name = GateProtocol.namePrefix + site
-        if let existing = NSClassFromString(name) { return existing }
-        if let made = objc_allocateClassPair(GateProtocol.self, name, 0) {
+        // Under the state lock, so two first sessions for one site never race between allocate and register.
+        state.withLock { _ in
+            guard NSClassFromString(name) == nil, let made = objc_allocateClassPair(GateProtocol.self, name, 0) else { return }
             objc_registerClassPair(made)
-            return made
         }
         return NSClassFromString(name) ?? GateProtocol.self
         #else
         return GateProtocol.self
         #endif
-    }
-
-    /// Checks every redirect target of a session made without the caller's own delegate.
-    final class RedirectGate: NSObject, URLSessionTaskDelegate, Sendable {
-        let site: String
-        init(site: String) { self.site = site }
-
-        func urlSession(
-            _ session: URLSession,
-            task: URLSessionTask,
-            willPerformHTTPRedirection response: HTTPURLResponse,
-            newRequest request: URLRequest,
-            completionHandler: @escaping @Sendable (URLRequest?) -> Void
-        ) {
-            if let host = request.url?.host, CmuxEgress.blocks(host, site: site) {
-                completionHandler(nil)
-            } else {
-                completionHandler(request)
-            }
-        }
     }
 }
 

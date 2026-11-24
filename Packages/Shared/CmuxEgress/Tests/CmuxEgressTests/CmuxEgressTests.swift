@@ -11,6 +11,12 @@ struct CmuxEgressTests {
         #expect(CmuxEgress.verdict("10.0.0.5") == .local)
         #expect(CmuxEgress.verdict("[::1]:80") == .local)
         #expect(CmuxEgress.verdict("tracker.example.org") == .unlisted)
+        #expect(CmuxEgress.verdict("::1") == .local)
+        #expect(CmuxEgress.verdict("mac-mini") == .local)
+        #expect(CmuxEgress.verdict("mac.tail1234.ts.net") == .local)
+        #expect(CmuxEgress.verdict("git.corp.internal") == .local)
+        #expect(CmuxEgress.verdict("nas.lan") == .local)
+        #expect(CmuxEgress.verdict("ts.net.evil-gate-test.org") == .unlisted)
     }
 
     @Test func namedHostsPass() {
@@ -22,6 +28,9 @@ struct CmuxEgressTests {
     @Test func hostParsing() {
         #expect(CmuxEgress.hostOf("https://User@Example.ORG.:8080/a?b#c") == "example.org")
         #expect(CmuxEgress.hostOf("[::1]:9") == "::1")
+        #expect(CmuxEgress.hostOf("::1") == "::1")
+        #expect(CmuxEgress.hostOf("fe80::1") == "fe80::1")
+        #expect(CmuxEgress.hostOf("http://devbox:3000/") == "devbox")
     }
 
     @Test func enforceRefusesAndLogOnlyReports() throws {
