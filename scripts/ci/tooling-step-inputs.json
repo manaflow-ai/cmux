@@ -22,7 +22,9 @@
           "tests/process_gone.py",
           "ghostty",
           "ghostty-next",
-          "cmux-next-ios/verify/**"
+          "cmux-next-ios/verify",
+          "cmux-next-ios/verify/**",
+          "Packages/macOS/CmuxNext/Tests/CmuxNextCompatTests/**"
         ],
         "why": "run-all.sh runs every scripts/measure/tests/*.test.sh and *.test.py by a loop variable; no-unattended-prompts reads every tracked file under scripts/ and .github/"
       }
