@@ -162,6 +162,7 @@ pub(super) mod idle;
 mod idle_census;
 mod paused_fs;
 mod person_prompt_at;
+mod turn_rules;
 pub(crate) mod unattended_presets;
 pub(crate) use idle::SessionAtWork;
 mod tool_start;
@@ -186,6 +187,7 @@ mod live_ages;
 mod live_ages_tests;
 mod live_models;
 mod locate;
+pub(crate) mod lock_bridge;
 pub mod media_handles;
 pub mod media_read;
 mod mesh_book;
@@ -334,6 +336,8 @@ mod question_replies;
 mod resume;
 mod secrets;
 mod seen;
+// Mask old tool output instead of summarizing it (harness magic).
+pub(crate) mod surgery;
 pub(crate) use seen::{Look, reader_of};
 mod session;
 pub(crate) mod session_pages;
@@ -539,6 +543,7 @@ pub(crate) mod views;
 mod warm;
 mod watch_events;
 pub(crate) mod watches;
+mod wip_ref;
 
 /// The longest `match` a durable watch takes (`_acpmux/watch_add`): a stubbed reply chunk keeps
 /// that much of its text's end (`paging.rs` `stub_msg`), so a match across chunks is never lost.
@@ -705,11 +710,12 @@ pub struct HubEvent {
     pub peer_batch: bool,
 }
 
-/// A [`HubEvent`]'s cells its receivers share: its row, without and with its tools, and the clock
-/// of its fan-out to the connections (`gauges::FanoutClock`).
+/// A [`HubEvent`]'s cells its receivers share: its row without its tools, with them, and with
+/// them but no time breakdown (a client that draws none, `omitTimeBreakdown`), and the clock of
+/// its fan-out to the connections (`gauges::FanoutClock`).
 #[derive(Debug, Default)]
 pub struct EventRow {
-    pub cells: [SharedRow; 2],
+    pub cells: [SharedRow; 3],
     pub fanout: crate::gauges::FanoutClock,
 }
 
@@ -3593,6 +3599,7 @@ impl Hub {
             self.append(session, "mux", "status", json!({"status": status.to_string()}));
             self.save_meta(session);
             self.care_status(status);
+            self.lock_bridge_wake();
             // A sub-session that starts or ends a turn, or closes, changes its parent's work.
             self.refresh_parent_work_below(session);
             // One that starts or stops waiting on the person changes its parent's asks below.
