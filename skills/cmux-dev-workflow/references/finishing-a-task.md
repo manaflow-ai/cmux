@@ -7,8 +7,19 @@ such a change ends with the dev build link, the fleet simulator evidence and the
 Use one task tag, `<task-slug>` (for example `sidebar-star-align-v1`), for the Mac and iOS builds.
 A documentation-only change needs no build; give the file path instead.
 A change to the cmux-next API (`backend/apps/api`, `backend/db`) is tried on its own per-tag stack,
-`scripts/cmux-next/cloud-dev-stack.sh up --tag <task-slug> --journey`, and stopped with `down` when done
+`scripts/cmux-next/cloud-dev-stack.sh up --tag <task-slug> --journey`
 ([cmux-backend](../../cmux-backend/SKILL.md#run-your-unmerged-cmux-next-api-a-per-tag-stack-on-the-dev-vm)).
+`review.sh` brings that stack up by default (below), so a dev build talks to the tag's own backend,
+and the stack lives as long as the build may be used.
+- **The tag's own backend (default).** `review.sh --tag <task-slug>` runs `cloud-dev-stack.sh up --tag
+  <task-slug>` beside the fleet builds. It brings up the tag's stack, or re-ups it with this checkout's
+  backend code, then points both apps at it.
+  - The Mac takes the tailnet origin, and the phone the stack's public origin
+    (`https://api.s<N>.wdev.cmux.dev`), which also works off the tailnet.
+  - Idle stops the stack and its next request wakes it, with the same data. It is released 7 days
+    after its last `up`, so there is nothing to `down` at the end of a task.
+  - `--backend dev` keeps the shared dev Workers. An `up` that fails falls back to them, and the
+    report's `Backend:` line says why.
 The report also names, for the person to run, the command that puts the change into their running cmux now, from
 [the loop](../../../CLAUDE.md#the-loop-use-it-first-then-test) (`cmux app try <PR>`, `cmux customize use pr:N`), so they
 use it before the build is done. The agent itself runs it there only when asked; otherwise it uses a side copy (`hot-verify.py look`).
