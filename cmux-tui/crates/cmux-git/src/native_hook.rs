@@ -52,7 +52,7 @@ pub fn wait(source: &str, event: &str, native: &Value, timeout: Duration) -> io:
     let deadline = std::time::Instant::now() + timeout;
     if read_only && paths.len() > 1 {
         // The working folder is where the paths resolve, not something the tool reads.
-        for path in &paths[1..] {
+        for path in paths.iter().skip(1) {
             crate::sync_barrier::wait_filled(
                 path,
                 deadline.saturating_duration_since(std::time::Instant::now()),
