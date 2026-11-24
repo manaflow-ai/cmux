@@ -100,6 +100,41 @@ function defineCaretTrace() {
       const previous = rectOf(before);
       if (previous && previous.height > 0 && !(before instanceof HTMLBRElement))
         return { x: previous.right, top: previous.top, bottom: previous.bottom };
+      // A neighbor with no size yet still stands at its place in the line: an attachment's node in
+      // the frames between the transaction that placed it and its chip portaling in (0×0 at the end
+      // of the chip before it). The caret is at its edge, on that line's text band (a run of text or
+      // the trailing break, the height the native caret takes there). Never the paragraph's start:
+      // that read a caret right after a chip as standing at the start of the prompt (CI, PR #50135).
+      const edge =
+        previous && !(before instanceof HTMLBRElement)
+          ? { x: previous.right, y: (previous.top + previous.bottom) / 2 }
+          : next && !(after instanceof HTMLBRElement)
+            ? { x: next.left, y: (next.top + next.bottom) / 2 }
+            : undefined;
+      if (edge) {
+        let band: { top: number; bottom: number } | undefined;
+        let distance = Infinity;
+        for (const child of element.childNodes) {
+          if (child instanceof Element && (child.hasAttribute("data-inline-attachment") || child.tagName === "IMG"))
+            continue;
+          let rects: DOMRectList | DOMRect[];
+          if (child.nodeType === Node.ELEMENT_NODE) rects = [(child as Element).getBoundingClientRect()];
+          else {
+            const around = document.createRange();
+            around.selectNodeContents(child);
+            rects = around.getClientRects();
+          }
+          for (const rect of rects) {
+            if (rect.height <= 0) continue;
+            const off = Math.max(0, rect.top - edge.y, edge.y - rect.bottom);
+            if (off < distance) {
+              distance = off;
+              band = { top: rect.top, bottom: rect.bottom };
+            }
+          }
+        }
+        if (band) return { x: edge.x, ...band };
+      }
       const line = element.getBoundingClientRect();
       const style = getComputedStyle(element);
       const height = parseFloat(style.lineHeight) || parseFloat(style.fontSize) * 1.2;
