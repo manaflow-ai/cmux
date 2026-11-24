@@ -65,7 +65,8 @@ if git -C "$repo" apply --summary "$patch" | grep -qE 'mode change|create mode 1
   echo "refused: the patch changes a file mode, adds a symlink or renames a file" >&2
   exit 1
 fi
-# Bot-only outputs (#21946, RFD 0045: the defaults snapshot, the CI target graph): the
+# Bot-only outputs (#21946, RFD 0045 and 0048: the defaults snapshot, the CI target graph,
+# the web docs copies of the catalog and the schema): the
 # repair rewrites them, but only the base autofix commits them, after a merge. The
 # ownership table beside this script names them (generated_outputs.py bot-only).
 patched="$(git -C "$repo" apply --numstat "$patch" | cut -f3-)"
