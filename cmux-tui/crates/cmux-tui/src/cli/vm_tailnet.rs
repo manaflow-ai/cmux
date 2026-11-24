@@ -36,6 +36,7 @@ Nothing changes your routes, exit nodes or ACLs. `cmux vm rm` leaves first for a
   --ephemeral          leave the tailnet when the VM goes offline
   --serve PORT[:HTTPS] show localhost:PORT on the tailnet over HTTPS (default 443)
   --funnel PORT[:HTTPS] the same, public on the internet through Funnel
+  --allow-http         let --login-server be plain http:// (the key crosses unencrypted)
   --switch             join even if the VM is on another tailnet (adds a profile)
   --timeout SECONDS    how long to wait for the join (default 180)
 ";
@@ -74,6 +75,7 @@ pub(super) fn parse_join(words: &[String]) -> Result<JoinArgs, String> {
         ephemeral: false,
         serve: Vec::new(),
         switch_from_other_tailnet: false,
+        allow_http: false,
     };
     let mut timeout = Duration::from_secs(180);
     while let Some(word) = words.next() {
@@ -94,6 +96,7 @@ pub(super) fn parse_join(words: &[String]) -> Result<JoinArgs, String> {
             "--ssh" => request.ssh = true,
             "--ephemeral" => request.ephemeral = true,
             "--switch" => request.switch_from_other_tailnet = true,
+            "--allow-http" => request.allow_http = true,
             "--serve" | "--funnel" => {
                 request.serve.push(serve_port(&value()?, flag == "--funnel")?);
             }
@@ -365,6 +368,29 @@ pub(super) fn run(
 }
 
 /// Before `cmux vm rm VM`: leave the tailnet when this machine joined it. Never stops the delete.
+/// The VM a `fork VM` or `snapshot create VM` copies, if the words are one.
+pub(super) fn cloned_vm(rest: &[String]) -> Option<&str> {
+    let id = match rest {
+        [verb, id, ..] if verb == "fork" => id,
+        [verb, sub, id, ..] if verb == "snapshot" && sub == "create" => id,
+        _ => return None,
+    };
+    (!id.starts_with('-')).then_some(id.as_str())
+}
+
+/// A copy of a VM on the user's tailnet carries its node key (`tailscaled.state`): the copy
+/// would come up as the same node and the two would fight. Refuse until the VM has left.
+pub(super) fn refuse_clone_of_joined(
+    vm_id: &str,
+    env: &dyn Fn(&str) -> Option<String>,
+) -> Option<String> {
+    joined_here(env, vm_id).then(|| {
+        format!(
+            "cmux: {vm_id} is on your tailnet; a copy would carry its node key and come up as the same node. Run `cmux vm tailnet leave {vm_id}` first, copy it, then join each again."
+        )
+    })
+}
+
 pub(super) fn leave_before_delete(vm_id: &str, env: &dyn Fn(&str) -> Option<String>) {
     if !joined_here(env, vm_id) {
         return;

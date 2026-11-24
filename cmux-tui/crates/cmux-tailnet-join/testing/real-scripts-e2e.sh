@@ -6,7 +6,7 @@
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 work=$(mktemp -d); trap 'rm -rf "$work"' EXIT
-req='{"credential":{"kind":"auth_key","key":"rendered-only-never-sent"},"controlUrl":"http://headscale:8080","hostname":"cmux-vm-test","ssh":true,"serve":[{"localPort":8000,"httpsPort":80}]}'
+req='{"credential":{"kind":"auth_key","key":"rendered-only-never-sent"},"controlUrl":"http://headscale:8080","allowHttp":true,"hostname":"cmux-vm-test","ssh":true,"serve":[{"localPort":8000,"httpsPort":80}]}'
 (cd "$here/../../.." && printf '%s' "$req" | cargo run -q -p cmux-tailnet-join --example join_script) >"$work/join.sh"
 (cd "$here/../../.." && printf '%s' "$req" | cargo run -q -p cmux-tailnet-join --example join_script leave) >"$work/leave.sh"
 # The harness mounts the key read-only; the real script reads (and deletes) a writable copy.

@@ -108,6 +108,10 @@ pub struct JoinRequest {
     /// profile and switches to it. Only after the user said so for this machine.
     #[serde(default)]
     pub switch_from_other_tailnet: bool,
+    /// The user chose plain `http://` for this login server, knowing the key crosses unencrypted.
+    /// Never inferred from the address.
+    #[serde(default)]
+    pub allow_http: bool,
 }
 
 /// Why a request is refused, in words for the user.
@@ -150,7 +154,7 @@ impl JoinRequest {
             return invalid("The key is empty or has spaces or other characters a key never has.");
         }
         if let Some(url) = &self.control_url {
-            self.control_url = Some(check_control_url(url)?);
+            self.control_url = Some(check_control_url(url, self.allow_http)?);
         }
         let on_tailscale = self.control_url.is_none();
         match &self.credential {
@@ -205,17 +209,16 @@ impl JoinRequest {
     }
 }
 
-fn check_control_url(url: &str) -> Result<String, Invalid> {
+fn check_control_url(url: &str, allow_http: bool) -> Result<String, Invalid> {
     let url = url.trim().trim_end_matches('/');
     let rest = if let Some(rest) = url.strip_prefix("https://") {
         rest
     } else if let Some(rest) = url.strip_prefix("http://") {
-        // A key over plain HTTP is readable on the way: only a server on this machine's own
-        // private network (a lab Headscale) may use it.
-        let host = rest.split(['/', ':']).next().unwrap_or_default();
-        if !private_host(host) {
+        // A key over plain HTTP is readable on the way, on any network: only when the user chose
+        // it for this server, never guessed from the address.
+        if !allow_http {
             return invalid(
-                "The server URL must be https:// (http:// only for a server on a private network).",
+                "The server URL must be https://. Plain http:// sends the key unencrypted; choose it explicitly (--allow-http) only for a server you trust the path to.",
             );
         }
         rest
@@ -230,20 +233,6 @@ fn check_control_url(url: &str) -> Result<String, Invalid> {
         return invalid("The server URL is not a plain https://host[:port][/path] address.");
     }
     Ok(url.to_owned())
-}
-
-fn private_host(host: &str) -> bool {
-    if host == "localhost" || !host.contains('.') {
-        return true; // localhost, or a single-label name on a lab network
-    }
-    match host.parse::<std::net::Ipv4Addr>() {
-        Ok(ip) => {
-            ip.is_private()
-                || ip.is_loopback()
-                || ip.octets()[0] == 100 && (ip.octets()[1] & 0xc0) == 64
-        }
-        Err(_) => false,
-    }
 }
 
 /// A device name: one DNS label, lowercased.
@@ -337,6 +326,7 @@ pub fn vm_join_script(checked: &Checked) -> String {
     let mut s = String::new();
     s.push_str("#!/bin/sh\n# cmux: join this machine to the user's tailnet (cmux-tailnet-join).\nset -eu\n");
     s.push_str(&format!("k={KEY_FILE}\ntrap 'rm -f \"$k\" 2>/dev/null || true' EXIT INT TERM\n"));
+    s.push_str("if [ -L \"$k\" ] || [ ! -f \"$k\" ]; then echo 'cmux-tailnet: the key file is missing or a symlink' >&2; exit 3; fi\n");
     s.push_str("[ -f \"$k\" ] || { echo 'cmux-tailnet: no key file' >&2; exit 2; }\n");
     s.push_str(
         "if ! command -v tailscale >/dev/null 2>&1; then\n  curl -fsSL https://tailscale.com/install.sh | sh >&2\nfi\n",
@@ -418,7 +408,7 @@ const ROOT: &str = r#"root() { if [ "$(id -u)" = 0 ]; then "$@"; else sudo -n "$
 /// `user` is the account the file API writes as; the folder is made its own, 0700.
 pub fn prepare_command(user: &str) -> String {
     format!(
-        "{ROOT}; u={}; root mkdir -p {RUN_DIR} && root chown \"$u\" {RUN_DIR} && root chmod 700 {RUN_DIR} && root rm -f {RUN_DIR}/out {RUN_DIR}/err {RUN_DIR}/rc && echo prepared",
+        "{ROOT}; u={}; if [ -L {RUN_DIR} ]; then echo 'cmux-tailnet: run dir is a symlink' >&2; exit 3; fi; root mkdir -p {RUN_DIR} && root chown -h \"$u\" {RUN_DIR} && root chmod 700 {RUN_DIR} && root rm -f {KEY_FILE} {RUN_DIR}/out {RUN_DIR}/err {RUN_DIR}/rc && echo prepared",
         shell_quote(user)
     )
 }

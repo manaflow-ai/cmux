@@ -12,6 +12,7 @@ fn request(credential: Credential) -> JoinRequest {
         ephemeral: true,
         serve: vec![ServePort { local_port: 3000, https_port: 443, funnel: false }],
         switch_from_other_tailnet: false,
+        allow_http: false,
     }
 }
 
@@ -79,21 +80,29 @@ fn headscale_takes_any_key_and_its_own_server() {
 }
 
 #[test]
-fn plain_http_servers_only_on_a_private_network() {
-    for (url, ok) in [
-        ("http://headscale:8080", true),
-        ("http://10.0.0.5:8080", true),
-        ("http://100.64.0.1", true),
-        ("http://hs.example.com", false),
-        ("http://8.8.8.8", false),
-        ("ftp://hs", false),
-        ("https://hs.example.com/$(id)", false),
-        ("https://hs example.com", false),
+fn plain_http_only_when_the_user_chose_it() {
+    for (url, allow, ok) in [
+        ("http://headscale:8080", false, false),
+        ("http://10.0.0.5:8080", false, false),
+        ("http://10.0.0.5:8080", true, true),
+        ("http://hs.example.com", true, true),
+        ("https://hs.example.com", false, true),
+        ("ftp://hs", true, false),
+        ("https://hs.example.com/$(id)", false, false),
+        ("https://hs example.com", false, false),
     ] {
         let mut r = request(Credential::AuthKey { key: Secret::new("k") });
         r.control_url = Some(url.to_owned());
-        assert_eq!(r.check().is_ok(), ok, "{url}");
+        r.allow_http = allow;
+        assert_eq!(r.check().is_ok(), ok, "{url} allow={allow}");
     }
+}
+
+#[test]
+fn the_key_path_is_never_followed_through_a_symlink() {
+    assert!(prepare_command("cmux").contains("[ -L /run/cmux-tailnet ]"));
+    assert!(prepare_command("cmux").contains("rm -f /run/cmux-tailnet/authkey"));
+    assert!(vm_join_script(&request(auth_key()).check().unwrap()).contains("[ -L \"$k\" ]"));
 }
 
 #[test]
