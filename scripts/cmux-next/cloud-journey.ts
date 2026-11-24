@@ -128,7 +128,7 @@ import { fileURLToPath } from "node:url";
 import { appStartDetail } from "./cloud-chat-matrix.ts";
 import { collectGuestDiagnostics, type GuestDiagnostics } from "./cloud-journey-guest-diagnostics.ts";
 import { ChatClient, chaosProbeRow, countingTurnScript, feltTurnScript, runChaos } from "./cloud-chaos.ts";
-import { FAIL_STREAK, parseServerTiming, RESUME_ARMS, type ResumeArm, resumeMarkdown, type ResumeSample, type ResumeStop, runProviderArm, runResumeMatrix, syncRunning } from "./cloud-resume-matrix.ts";
+import { FAIL_STREAK, parseServerTiming, RESUME_ARMS, type ResumeArm, resumeMarkdown, resumeRouteCall, type ResumeSample, type ResumeStop, runProviderArm, runResumeMatrix, syncRunning } from "./cloud-resume-matrix.ts";
 import { clientSpans, hopDurations, readStartTrace, slowestHop, traceMarkdown } from "./cloud-start-trace.ts";
 import { answeredPath, answerTimings, DAEMON_CHECK, MachineFailed, pickVmApiTenant, type StartPath, type StartSample, type StartTarget, startBenchMarkdown, summarize, timeStart, traceFacts } from "./cloud-start-bench.ts";
 
@@ -5579,13 +5579,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           const h = r.headers?.get("server-timing") ?? null;
           return { serverTiming: parseServerTiming(h), serverTimingHeader: h };
         };
-        // The resume arm: the person's resume route, which answers Server-Timing (cmux-platform ResumeTiming.ts).
-        const resumeRoute = async (): Promise<{ serverTiming?: Record<string, number>; serverTimingHeader: string | null }> => {
-          const r = await api.raw("POST", `/v1/machines/${created.id}/resume`, {}, 180_000);
-          const h = r.headers?.get("server-timing") ?? null;
-          if ([400, 404, 405, 501].includes(r.status)) throw new Error(`unavailable here: POST /v1/machines/{id}/resume answered HTTP ${r.status} ${short(r.body?.error ?? r.body)}`);
-          if (r.status < 200 || r.status >= 300) throw new Error(`resume route: HTTP ${r.status} ${short(r.body?.error ?? r.body)}`);
-          return { serverTiming: parseServerTiming(h), serverTimingHeader: h };
+        // The resume arm: the person's resume route, served by cmux-platform at client-config's platform_origin
+        // (cloud-resume-matrix.ts resumeRouteCall); the API host has no /v1/machines and answered an empty 404.
+        let resumePlatform: string | null = null;
+        const resumeRoute = async () => {
+          resumePlatform ??= clientPlatformOrigin((await api.raw("GET", "/v1/client-config", undefined, 30_000)).body);
+          return resumeRouteCall(resumePlatform, created.id, { authorization: `Bearer ${api.bearer}`, ...(api.team ? { "x-cmux-team": api.team } : {}) }, http);
         };
         // The CLI processes the matrix starts (its chat dial, each exec) read the token from here, so a new sign-in
         // reaches every one started after it.
