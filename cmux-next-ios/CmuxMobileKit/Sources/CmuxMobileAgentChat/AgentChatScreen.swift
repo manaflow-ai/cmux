@@ -1044,11 +1044,7 @@ struct StreamingMarkdown: View {
         // blocks keep their ids: only the last block's inline markers change).
         MarkdownView(MarkdownDocument(blocks: parse.blocks(markdown, isStreaming: isStreaming)), isStreaming: isStreaming,
                      animatesBlocks: animatesBlocks, marks: findMarks)
-            .contextMenu {
-                Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = markdown }
-                Button("Select Text", systemImage: "selection.pin.in.out") { ChatSelectText.present(markdown) }
-                ShareLink(item: markdown) { Label("Share", systemImage: "square.and.arrow.up") }
-            }
+            .selectionMenu { source in messageSelectionActions({ markdown }, from: source) }
     }
 }
 
@@ -1062,7 +1058,7 @@ final class StreamParseBox {
     }
 }
 
-/// SPEC 4.4 user bubble with a timestamp-headed context menu and select-text sheet.
+/// User bubble with the message actions under its timestamp in the selection menu.
 struct UserBubble: View {
     let prompt: String
     let attachments: [AgentAttachment]
@@ -1072,7 +1068,7 @@ struct UserBubble: View {
     /// Edit and Resend of an earlier prompt (a fork before it), when the chat offers it.
     var editEarlier: (() -> Void)?
     /// Bookmark and Read Aloud.
-    var polish: ChatPolishMenuButtons?
+    var polishActions: (() -> [UIMenuElement])?
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 6) {
@@ -1082,25 +1078,20 @@ struct UserBubble: View {
             bubbleText
                 .padding(.horizontal, 16)
                 .padding(.vertical, 11)
-                .foregroundStyle(Color.cmuxMobileChatBubbleText.map(AnyShapeStyle.init) ?? AnyShapeStyle(.primary))
                 .background(Color.cmuxMobileChatBubble, in: .rect(cornerRadius: 20, style: .continuous))
-                .contentShape(.contextMenuPreview, .rect(cornerRadius: 20, style: .continuous))
-                .contextMenu {
-                    Section(AgentTurn.menuTimestamp(promptAt)) {
-                        Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = prompt }
-                        Button("Select Text", systemImage: "selection.pin.in.out") { ChatSelectText.present(prompt) }
-                        if isLast {
-                            Button("Edit and Resend", systemImage: "pencil") { editAndResend() }
-                        } else if let editEarlier {
-                            Button("Edit and Resend", systemImage: "pencil") { editEarlier() }
-                        }
-                        ShareLink(item: prompt) { Label("Share", systemImage: "square.and.arrow.up") }
-                        polish
-                    }
-                }
         }
+        .selectionMenu(menuRows)
         .containerRelativeFrame(.horizontal, alignment: .trailing) { width, _ in Self.maxWidth(in: width) }
         .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+
+    private func menuRows(from source: UIView) -> [UIMenuElement] {
+        var actions = messageSelectionActions({ prompt }, from: source)
+        if let edit = isLast ? editAndResend : editEarlier {
+            actions.append(SelectionMenu.action("Edit and Resend", "pencil") { edit() })
+        }
+        actions += polishActions?() ?? []
+        return [UIMenu(title: AgentTurn.menuTimestamp(promptAt), options: .displayInline, children: actions)]
     }
 
     /// 80% of the column, at most 560 pt: on an unfolded foldable's wide screen 80% would
@@ -1111,17 +1102,39 @@ struct UserBubble: View {
 extension UserBubble {
     /// The prompt, its leading quote drawn as the Mac draws one: muted, behind a bar.
     @ViewBuilder var bubbleText: some View {
-        if let split = NextStepAsk.replyQuote(prompt) {
+        if prompt.isEmpty {
+            // An attachment-only message has no word to hold.
+            MessageActionsButton(rows: menuRows)
+        } else if let split = NextStepAsk.replyQuote(prompt) {
             VStack(alignment: .leading, spacing: 6) {
-                Text(split.quote)
-                    .font(.body).lineSpacing(4).foregroundStyle(.secondary)
+                SelectableText(split.quote, color: .secondaryLabel, lineSpacing: 4)
                     .padding(.leading, 10)
                     .overlay(alignment: .leading) { Capsule().fill(.tertiary).frame(width: 2) }
-                Text(split.body).font(.body).lineSpacing(4)
+                SelectableText(split.body, color: .cmuxMobileChatBubbleText, lineSpacing: 4)
             }
         } else {
-            Text(prompt).font(.body).lineSpacing(4)
+            SelectableText(prompt, color: .cmuxMobileChatBubbleText, lineSpacing: 4)
         }
+    }
+}
+
+/// The same menu as a held word on a prompt that contains only attachments.
+private struct MessageActionsButton: UIViewRepresentable {
+    let rows: @MainActor (UIView) -> [UIMenuElement]
+
+    func makeUIView(context: Context) -> UIButton {
+        let button = UIButton(type: .system)
+        button.setImage(UIImage(systemName: "ellipsis"), for: .normal)
+        button.accessibilityLabel = String(localized: "Message actions")
+        button.showsMenuAsPrimaryAction = true
+        return button
+    }
+
+    func updateUIView(_ button: UIButton, context: Context) {
+        button.menu = UIMenu(children: [UIDeferredMenuElement.uncached { [weak button, rows] completion in
+            guard let button else { completion([]); return }
+            completion(rows(button))
+        }])
     }
 }
 
