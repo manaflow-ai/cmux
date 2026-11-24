@@ -3758,3 +3758,7 @@ mod remote_args_tests;
 #[cfg(test)]
 #[path = "main_tests.rs"]
 mod tests;
+
+#[cfg(target_os = "macos")]
+#[link(name = "GameController", kind = "framework")]
+unsafe extern "C" {}
