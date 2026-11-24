@@ -34,6 +34,7 @@ dependencies = [
  "cmux-coderouter",
  "cmux-codex-acp",
  "cmux-command-class",
+ "cmux-composer-send",
  "cmux-computer-use",
  "cmux-config",
  "cmux-device-kind",
