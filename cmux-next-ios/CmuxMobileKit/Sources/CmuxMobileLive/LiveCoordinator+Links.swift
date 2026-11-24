@@ -1198,7 +1198,6 @@ extension LiveCoordinator {
             // Back: the banner just goes. No "Connected" flash after a reconnect (audit 20,
             // ceremony): the live rows say it, and a flapping link flashed it every time.
             bannerHold.show(nil)
-            everConnected = true
             if let macID = session.link.target?.macID { connectedMacIDs.insert(macID) }
         case .connecting:
             // Dialing or redialing: nothing until it has lasted the quiet bound, then the
