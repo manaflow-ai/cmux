@@ -3410,6 +3410,14 @@ jobs:
           clean: false
           fetch-depth: 2
 
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-556
+      - name: Build on the base's current tip
+        if: ${{ env.CMUX_FAST_TIER_FLEET != 'report' && github.event_name == 'pull_request' && (vars.CI_FAST_TIER_CURRENT_BASE || '1') != '0' }}
+        continue-on-error: true
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: python3 -I scripts/ci/fast_tier_current_base.py --base-ref "$BASE_REF" --summary "$GITHUB_STEP_SUMMARY"
+
       # Why: docs/ci/cmux-next-workflow-notes.md#note-202
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
         if: env.CMUX_FAST_TIER_FLEET != 'report'

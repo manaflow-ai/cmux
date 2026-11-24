@@ -5002,3 +5002,16 @@ fleet_gateway() still keeps the job only with an idle gateway runner of its own,
 `queued` hands it back, which with the switch off waits on the owned route rather than a Blacksmith label
 no runner serves (side_lane_placement.handback()). `vars.CI_FAST_TIER_FLEET_SPILL` set to `0` turns the
 spill off; unset or any other value leaves it on.
+
+## note-556
+
+Above `fast-tier: Build on the base's current tip` in `.github/workflows/cmux-next.yml`.
+
+A pull_request run checks out the merge commit GitHub made when the run was queued, and the fast tier waits 1 to
+4 hours for a Mac. So it compiled bases hours old: on 2026-11-24 from 01:30 to 03:02Z it failed 50 times and
+passed 3 (34 runner-hours). Every failure sampled was the BrowserPageTunables compile error from #48267, which
+#53025 had fixed at 01:07Z. Job 138099435473 started at 02:16Z on a base from 23:34Z, 151 commits behind.
+scripts/ci/fast_tier_current_base.py applies the pull request's merged change to the base's current tip in a
+scratch index and checks out a merge commit with parents (tip, PR head). On any failure (a conflict, a fetch that
+fails or times out), the run's own merge stays checked out. `vars.CI_FAST_TIER_CURRENT_BASE` set to `0` turns it
+off.
