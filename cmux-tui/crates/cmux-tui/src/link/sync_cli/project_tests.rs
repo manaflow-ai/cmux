@@ -1,5 +1,4 @@
 use super::*;
-use std::io::{BufRead as _, Write as _};
 
 #[test]
 fn the_manifest_holds_what_a_copy_sends_and_never_a_secret() {
@@ -152,7 +151,7 @@ fn a_quiet_refusal_is_a_failed_dial_and_the_redial_waits_half_a_second_flat() {
     });
     let (dialed, went_quiet) = redial(&socket, "p1", "/w", &[], None);
     assert!(went_quiet);
-    let error = format!("{:#}", dialed.err().expect("an unanswered dial fails"));
+    let error = format!("{:#}", dialed.expect_err("an unanswered dial fails"));
     assert!(error.contains("without answering"), "{error}");
 
     let mut backoff = Duration::from_millis(200);
@@ -166,4 +165,19 @@ fn a_quiet_refusal_is_a_failed_dial_and_the_redial_waits_half_a_second_flat() {
         [200, 400, 800, 1600, 3200, 6400, 10_000, 10_000],
         "the main socket backs off"
     );
+}
+
+#[test]
+fn the_ready_line_splits_the_gate_into_listing_encoding_and_mount() {
+    let timing = ready_timing(21_592, 900, 950, 2_000_000, 2_100, Some(400));
+    assert_eq!(timing["entries"], 21_592);
+    assert_eq!(timing["listed_ms"], 900);
+    assert_eq!(timing["encoded_ms"], 950);
+    assert_eq!(timing["manifest_bytes"], 2_000_000);
+    assert_eq!(timing["ready_ms"], 2_100);
+    assert_eq!(timing["mount_ms"], 400);
+    // An older machine's answer has no mount time.
+    assert!(ready_timing(2, 1, 1, 10, 5, None)["mount_ms"].is_null());
+    // One line in the log, for the start matrix to read back.
+    assert!(!timing.to_string().contains('\n'));
 }
