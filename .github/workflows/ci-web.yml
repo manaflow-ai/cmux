@@ -1033,6 +1033,36 @@ jobs:
           python3 scripts/ci/guards_new_reds.py --label "PR-scoped webview rule" \
             "$RUNNER_TEMP/pr-scoped-head.json" "$RUNNER_TEMP/pr-scoped-base.json"
 
+      # The React Compiler's output (CMUX_VITE_TRANSFORM_CACHE, webviews/reactCompiler.mjs) from earlier runs. A
+      # shard's 4 concurrent dev-server files each compiled the agent pane on an empty cache: about 90 s each before
+      # their first test on 16 cores, against 12 s with the cache filled; a cache 27 commits older, written in another
+      # checkout path, took 6.9 s (33 of 2,087 modules compiled again). Entries are keyed by each module's exact code,
+      # so an old one is never wrong, only unused. Best effort: a miss is the cold start every shard had before.
+      # cmuxterm-hq docs/findings/2026-11-24-shard-transform-cache.md.
+      - name: Key the React Compiler transform cache
+        id: transform-cache
+        if: ${{ !cancelled() && steps.receipt.outputs.hit != 'true' }}
+        env:
+          LOCK: ${{ hashFiles('webviews/bun.lock') }}
+        run: |
+          # A 6-hour bucket: a feat-cmux-next push saves at most one new copy a bucket (about 12.5 MB; Save the React
+          # Compiler transform cache, below), and every run restores the newest one for its lockfile.
+          prefix="vite-transforms-v1-$RUNNER_OS-$RUNNER_ARCH-$LOCK-"
+          echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+          echo "key=$prefix$(( $(date +%s) / 21600 ))" >> "$GITHUB_OUTPUT"
+          echo "dir=$RUNNER_TEMP/vite-transforms" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the React Compiler transform cache
+        id: transform-cache-restore
+        if: ${{ !cancelled() && steps.transform-cache.outputs.key != '' }}
+        continue-on-error: true
+        timeout-minutes: 3
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ steps.transform-cache.outputs.dir }}
+          key: ${{ steps.transform-cache.outputs.key }}
+          restore-keys: ${{ steps.transform-cache.outputs.prefix }}
+
       # A newer head cancels this run (ci.yml's concurrency) while its shards are still testing: over 11-22 03-05Z
       # react-apps-check shards lost about 19,000 runner minutes a day that way, cancelled at a median 46 of their
       # 65 min. Each shard keeps the files that passed at its head, as they pass (Upload the files that passed, below),
@@ -1081,6 +1111,8 @@ jobs:
           # Shard 1 runs the shard-independent checks above first (107-132 s in runs 43338660731
           # to 43342364793); the split gives it that much less test work (webviews_test_shards.py).
           CMUX_WEB_TEST_SHARD_HEAD_START: "1:120"
+          # Restored above (Restore the React Compiler transform cache); empty, the runner uses a fresh folder of its own.
+          CMUX_VITE_TRANSFORM_CACHE: ${{ steps.transform-cache.outputs.dir }}
           CMUX_WEB_TEST_RESULTS: ${{ runner.temp }}/webviews-head-results/webviews-head-results.json
           CMUX_WEB_TEST_RAW_LOG_DIR: ${{ runner.temp }}/webviews-head-results/raw-logs
           CMUX_WEB_TEST_SKIP_BASE: ${{ github.event_name == 'pull_request' && '1' || '0' }}
@@ -1356,6 +1388,33 @@ jobs:
         with:
           path: .same-tree/react-shard-receipt
           key: ${{ steps.receipt-key.outputs.key }}
+
+      # A feat-cmux-next push keeps its shard's React Compiler output for later runs (Restore the React Compiler
+      # transform cache): the first shard to finish in a 6-hour bucket saves it, the others find the key taken. Entries
+      # no run has read in 2 days are dropped first (a hit touches its entry, webviews/reactCompiler.mjs), so the
+      # cache holds what the tree compiles now, not every past version of it.
+      - name: Prune the React Compiler transform cache
+        id: transform-cache-prune
+        if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.transform-cache.outputs.key != '' && steps.transform-cache-restore.outputs.cache-hit != 'true' && steps.webview-tests.outcome != 'skipped' }}
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          DIR: ${{ steps.transform-cache.outputs.dir }}
+        run: |
+          [ -d "$DIR" ] || { echo "no transform cache to save"; exit 1; }
+          find "$DIR" -type f -name '*.json' -mmin +2880 -delete
+          find "$DIR" -type f ! -name '*.json' -delete
+          find "$DIR" -mindepth 1 -type d -empty -delete
+          echo "saving $(find "$DIR" -type f | wc -l) entries, $(du -sh "$DIR" | cut -f1)"
+
+      - name: Save the React Compiler transform cache
+        if: ${{ steps.transform-cache-prune.outcome == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 3
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ steps.transform-cache.outputs.dir }}
+          key: ${{ steps.transform-cache.outputs.key }}
 
   # The base's recorded red files, replayed on the merge parent while the head shards run. react-apps-base-check
   # replays each head red file once, alone, on the merge parent, but only after every head shard ends, and the
