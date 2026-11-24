@@ -332,16 +332,21 @@ impl TabsMirror {
         vec![framed(&Message::Want(order).encode())]
     }
 
-    /// Of `on_disk`, the blob names no row shows any more: the ones the phone may delete.
+    /// Of `on_disk`, the blob names no row shows any more: the ones the phone deletes.
     /// Before a first manifest nothing is known to be unused, so nothing is returned.
+    /// The mirror stops holding them: the mirror lives across reconnects, and a `have` that
+    /// still named a deleted blob would keep the Mac from sending it when a row names it again
+    /// (a page reopened shows its old favicon hash).
     pub fn unreferenced(&self, on_disk: Vec<String>) -> Vec<String> {
-        let state = self.state();
+        let mut state = self.state();
         if state.mirror.rev().is_none() {
             return Vec::new();
         }
         let used: HashSet<String> =
             state.mirror.rows().iter().flat_map(Row::hashes).map(|h| h.to_hex()).collect();
-        on_disk.into_iter().filter(|name| !used.contains(name)).collect()
+        let gone: Vec<String> = on_disk.into_iter().filter(|name| !used.contains(name)).collect();
+        state.mirror.forget(gone.iter().filter_map(|name| BlobHash::from_hex(name)));
+        gone
     }
 }
 
@@ -576,6 +581,31 @@ mod tests {
         assert!(mirror.unreferenced(names.clone()).is_empty(), "nothing known before a manifest");
         recv(&mirror, manifest(1, three()));
         assert_eq!(mirror.unreferenced(names), vec![old]);
+    }
+
+    /// The mirror lives across reconnects: a blob the phone deleted is not in the next
+    /// `have`, and a row naming it again (a closed page reopened) asks for it.
+    #[test]
+    fn a_deleted_blob_is_not_claimed_on_reconnect_and_is_asked_for_again() {
+        let gone = row("d", b"f-reopened", b"td");
+        let mirror = TabsMirror::new(vec![h(b"f-reopened").to_hex(), h(b"td").to_hex()]);
+        recv(&mirror, manifest(1, three()));
+        let deleted = mirror.unreferenced(vec![h(b"f-reopened").to_hex(), h(b"td").to_hex()]);
+        assert_eq!(deleted.len(), 2);
+        let frames = mirror.link_up(TabsViewport::default());
+        let have = frames.iter().find_map(|f| match Message::decode(&unframed(f)) {
+            Ok(Message::Have(hashes)) => Some(hashes),
+            _ => None,
+        });
+        assert!(have.is_none(), "nothing held any more: {have:?}");
+        let mut rows = three();
+        rows.push(gone);
+        let TabsEvent::Rows { rows, send, .. } = recv(&mirror, manifest(2, rows)) else {
+            panic!("rows expected");
+        };
+        assert!(!rows[3].filled, "a deleted blob does not fill its card");
+        let wanted = wants(&send);
+        assert!(wanted.contains(&h(b"f-reopened")) && wanted.contains(&h(b"td")), "{wanted:?}");
     }
 
     /// What the phone needs on the wire to paint the overview of 29 tabs: the cold manifest,
