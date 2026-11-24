@@ -93,6 +93,8 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
             "race_start",
             "race_show",
             "send_status",
+            "wait",
+            "cancel",
             "machine_read",
             "machine_edit",
             "machine_exec"
@@ -639,6 +641,52 @@ fn messages_to_one_session_form_one_chain() {
     assert_eq!(send::same_session(&aliases), vec![vec![0, 2], vec![1, 6, 7], vec![3, 5], vec![4]]);
 }
 
+/// The detailed record is fetched once, and finding aliases for any number of sends uses the
+/// daemon's mirrored list. Only the initial info read may reach the peer.
+#[cfg(unix)]
+#[tokio::test]
+async fn far_work_info_and_batch_aliases_read_each_source_once() {
+    use crate::rpc::Message;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+    let dir = cmux_unix_socket::short_test_dir("acpmux-far-info");
+    let socket = dir.path().join("d.sock");
+    let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let (rd, mut wr) = stream.into_split();
+        let mut lines = BufReader::new(rd).lines();
+        for expected in [method::INITIALIZE, method::MUX_INFO, method::MUX_RESOLVE] {
+            let line = lines.next_line().await.unwrap().unwrap();
+            let Message::Request { id, method, params } = Message::parse(&line).unwrap() else {
+                panic!("expected an RPC request");
+            };
+            assert_eq!(method, expected);
+            let params = params.unwrap();
+            let reply = match expected {
+                method::MUX_INFO => {
+                    assert_eq!(params["sessionId"], "far/lane");
+                    assert_ne!(params["row"], true, "info needs the full record");
+                    json!({"sessionId":"abc", "peer":"far", "lastSeq":42})
+                }
+                method::MUX_RESOLVE => {
+                    assert_eq!(params["query"], "far/lane");
+                    json!({"matches":[{"sessionId":"abc","peer":"far","status":"idle"}]})
+                }
+                _ => json!({}),
+            };
+            wr.write_all(Message::ok(id, reply).to_line().as_bytes()).await.unwrap();
+        }
+    });
+    let client = Client::connect(&socket).await.unwrap();
+    let info = call(&client, &tool("info", json!({"name":"far/lane"}))).await;
+    assert_eq!(info["structuredContent"]["lastSeq"], 42, "{info}");
+    let targets = [target(0, "far/lane", "far/lane"), target(1, "far/lane", "far/lane")];
+    let aliases = send::aliases(&client, &targets).await;
+    assert!(aliases.iter().all(|names| names.iter().any(|n| n == "far/abc")), "{aliases:?}");
+    server.await.unwrap();
+}
+
 /// Codex review: a session named by its name in one item and by its id in another is one
 /// session, so its messages are one chain; a tag's target is its id already.
 #[tokio::test]
@@ -1030,6 +1078,9 @@ fn a_fleet_sized_list_answers_small_and_live_first() {
             "lastPrompt": big, "lastTurn": big, "enforcement": {"detail": big}}),
         );
     }
+    let newest = sessions.last_mut().unwrap();
+    newest["via"] = json!("relay");
+    newest["asOfMs"] = json!(42);
     let all = json!({"sessions": sessions});
 
     let r = ls_result(&all, &json!({}));
@@ -1040,6 +1091,8 @@ fn a_fleet_sized_list_answers_small_and_live_first() {
     assert!(rows.iter().all(|s| s["status"] != "closed"), "closed rows by default");
     assert!(rows[0].get("lastPrompt").is_none(), "rows are slim: {}", rows[0]);
     assert_eq!(rows[0]["name"], "lane-299", "newest first");
+    assert_eq!(rows[0]["via"], "relay");
+    assert_eq!(rows[0]["asOfMs"], 42);
     assert_eq!(r["structuredContent"]["more"], json!(300 - LS_DEFAULT_LIMIT));
     assert!(text(&r).lines().last().unwrap().contains("more"), "{}", text(&r));
 
