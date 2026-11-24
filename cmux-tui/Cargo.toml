@@ -99,6 +99,7 @@ members = [
     "crates/cmux-projection",
     "crates/cmux-deadline",
     "crates/cmux-tailnet-join",
+    "crates/cmux-bounded",
     "crates/cmux-remote-protocol",
     "crates/cmux-build-identity",
     "crates/cmux-netwatch",
@@ -250,6 +251,7 @@ default-members = [
     "crates/cmux-install-check",
     "crates/cmux-deadline",
     "crates/cmux-tailnet-join",
+    "crates/cmux-bounded",
     "crates/cmux-remote-protocol",
     "crates/cmux-build-identity",
     "crates/cmux-netwatch",
@@ -387,6 +389,7 @@ cmux-web-pieces = { path = "crates/cmux-web-pieces" }
 cmux-projection = { path = "crates/cmux-projection" }
 cmux-deadline = { path = "crates/cmux-deadline" }
 cmux-tailnet-join = { path = "crates/cmux-tailnet-join" }
+cmux-bounded = { path = "crates/cmux-bounded" }
 cmux-worktree-care = { path = "crates/cmux-worktree-care" }
 cmux-conductor-import = { path = "crates/cmux-conductor-import" }
 cmux-browser-import = { path = "crates/cmux-browser-import" }
