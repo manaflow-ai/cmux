@@ -33,6 +33,8 @@ public final class MacPins: @unchecked Sendable {
 
     /// Account deletion: this account's pins go.
     public func removeAll() {
+        let macs = lock.withLock { pins.keys.filter { !Self.isTunnelEntry($0) } }
+        if file != nil { for mac in macs { Self.tellLocalLink(mac: mac, key: nil) } }
         lock.withLock {
             pins = [:]
             if let file { try? FileManager.default.removeItem(at: file) }
@@ -47,6 +49,14 @@ public final class MacPins: @unchecked Sendable {
     public init(file: URL?) {
         self.file = file
         pins = file.flatMap { try? Data(contentsOf: $0) }.flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
+        // A file of pins (the app's, not a test's) tells the nearby-Mac filter each key at launch,
+        // before any auth: a dial with no internet trusts only an ad with the pinned key's tag.
+        if file != nil { for (mac, key) in pins where !Self.isTunnelEntry(mac) { Self.tellLocalLink(mac: mac, key: key) } }
+    }
+
+    /// Hands a pin change to the core's nearby-Mac filter (ultra-connectivity P7).
+    private static func tellLocalLink(mac: String, key: String?) {
+        LocalLinkPins.pair(mac: mac, identityKey: key)
     }
 
     /// The pinned key of `mac` (X9.63, lowercase hex), if any.
@@ -60,6 +70,7 @@ public final class MacPins: @unchecked Sendable {
             pins[mac.lowercased()] = key
             save()
         }
+        if file != nil { Self.tellLocalLink(mac: mac, key: key) }
     }
 
     /// The person removed `mac`: its next pairing pins again.
@@ -69,6 +80,7 @@ public final class MacPins: @unchecked Sendable {
             pins[Self.tunnelEntry(mac)] = nil
             save()
         }
+        if file != nil { Self.tellLocalLink(mac: mac, key: nil) }
     }
 
     /// Whether `mac` once proved its identity over a tunnel's keys (a v2
@@ -90,6 +102,8 @@ public final class MacPins: @unchecked Sendable {
     /// The entry beside a Mac's key pin that says it proves tunnel keys (a
     /// device id never contains `#`).
     private static func tunnelEntry(_ mac: String) -> String { "tunnel#" + mac.lowercased() }
+    /// A `tunnelEntry` record, not a Mac's key pin.
+    private static func isTunnelEntry(_ key: String) -> Bool { key.hasPrefix("tunnel#") }
 
     private func save() {
         guard let file, let data = try? JSONEncoder().encode(pins) else { return }
