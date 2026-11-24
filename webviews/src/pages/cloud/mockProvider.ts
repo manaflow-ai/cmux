@@ -18,6 +18,7 @@ import {
   NATIVE_ACTIONS,
   type CloudMachine,
   type CloudPlan,
+  type CloudUsage,
   type CloudRetention,
   type CloudSnapshot,
   type MachineEvent,
@@ -164,6 +165,11 @@ export class MockCloudProvider implements PageClient {
    * true answers `{payment_past_due: true}`; `"fail"` makes the read fail.
    */
   paymentPastDue: boolean | "fail" = false;
+  /**
+   * This month's usage (`cloud.usage.current`): a record answers it, `"fail"` makes the read fail, `"hold"`
+   * never answers (the loading state). Unset: a server that does not serve it.
+   */
+  usage?: CloudUsage | "fail" | "hold";
   /** How many times Manage Billing (`billing.openPortal`) ran. */
   billingPortalOpens = 0;
   holdTransfers: boolean;
@@ -213,6 +219,12 @@ export class MockCloudProvider implements PageClient {
     if (op === ACTION_RUN && p.action === CloudActions.manageBilling)
       return ((this.billingPortalOpens += 1), { ran: true }) as R;
     if (op === ACTION_RUN) return this.runAction(p) as R;
+    if (op === CloudOps.usageCurrent) {
+      if (this.usage === undefined) throw pageError("cmux.cloud.unknown_op", `${op} is not a Cloud op`);
+      if (this.usage === "fail") throw pageError("cmux.cloud.upstream_error", "The Cloud service did not answer.", true);
+      if (this.usage === "hold") return new Promise<R>(() => {});
+      return structuredClone(this.usage) as R;
+    }
     if (op === CloudOps.billingStatus) {
       if (this.unsupported.has(op)) throw pageError("cmux.cloud.unknown_op", `${op} is not a Cloud op`);
       if (this.paymentPastDue === "fail") throw pageError("cmux.cloud.unavailable", "cmux.com did not answer", true);

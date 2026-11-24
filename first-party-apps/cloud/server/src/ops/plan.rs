@@ -7,7 +7,7 @@
 
 use crate::api::args;
 use crate::api::{CloudError, ControlPlane, Ctx, codes, decode_answer};
-use cmux_cloud_wire::{CloudPlanGetOp, Op};
+use cmux_cloud_wire::{CloudPlanGetOp, CloudUsageCurrentOp, Op};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -43,6 +43,15 @@ pub(super) fn run<C: ControlPlane>(
             let plan: <CloudPlanGetOp as Op>::Result =
                 decode_answer(name, ctx.wire(name, json!({}))?.value)?;
             Ok(json!(plan))
+        }
+        // The team's usage this month and its price, from the billing owner
+        // (cmux-platform metering): checked against the catalog shape, then
+        // passed through. The server prices nothing.
+        "cloud.usage.current" => {
+            args::object(raw, &[])?;
+            let usage: <CloudUsageCurrentOp as Op>::Result =
+                decode_answer(name, ctx.wire(name, json!({}))?.value)?;
+            Ok(json!(usage))
         }
         "cloud.billing.checkout" => {
             let map = args::object(raw, &["plan"])?;
