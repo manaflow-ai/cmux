@@ -313,7 +313,7 @@ jobs:
         # A picker failure must not skip the web billing steps after it;
         # ios-billing then takes the Blacksmith macOS 26 fallback in its runs-on.
         # A refused `runner: owned` (a flake hunt or the nightly) stays red.
-        continue-on-error: ${{ (inputs.runner || 'auto') != 'owned' }}
+        continue-on-error: ${{ inputs.runner != 'owned' }}
         timeout-minutes: 3
         env:
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
@@ -321,7 +321,10 @@ jobs:
           GH_REPO: ${{ github.repository }}
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
           FORK_PULL_REQUEST: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
-          REQUESTED_RUNNER: ${{ inputs.runner || 'auto' }}
+          # While Blacksmith macOS is off (vars.CI_BLACKSMITH_MACOS not `on`,
+          # note-350) its labels have no runner, so the job waits for an owned
+          # simulator mini (`owned`) instead of the iOS lane's Blacksmith default.
+          REQUESTED_RUNNER: ${{ inputs.runner || vars.CI_BLACKSMITH_MACOS != 'on' && 'owned' || 'auto' }}
           RUNNER_VARIABLE: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS }}
           IOS_OWNED: ${{ vars.CI_IOS_OWNED }}
           POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
@@ -469,11 +472,11 @@ jobs:
     needs: billing
     # Runs even when a web billing step failed, from the routing billing wrote.
     # An iOS simulator host from billing's pick (an owned mini with
-    # glaeda-ios-sim, else Blacksmith macOS 26), Blacksmith macOS 26 on a
-    # re-run or a fork: never a plain Mac label, which may have no iOS 26
-    # runtime for the StoreKit slot.
+    # glaeda-ios-sim; Blacksmith macOS 26 only while vars.CI_BLACKSMITH_MACOS
+    # is `on`, also for a re-run), Blacksmith macOS 26 for a fork: never a
+    # plain Mac label, which may have no iOS 26 runtime for the StoreKit slot.
     if: ${{ !cancelled() && (needs.billing.outputs.ios == 'true' || needs.billing.outputs.storekit_kind != '') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && needs.billing.outputs.retry_runs_on || needs.billing.outputs.runs_on || '"blacksmith-6vcpu-macos-26"') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && vars.CI_BLACKSMITH_MACOS == 'on' && needs.billing.outputs.retry_runs_on || needs.billing.outputs.runs_on || '"blacksmith-6vcpu-macos-26"') }}
     # A flake hunt's iterations take about 4 minutes each on a 6 vCPU runner
     # (storekit_iterations is capped at 25 below).
     timeout-minutes: ${{ inputs.storekit_iterations != '' && inputs.storekit_iterations != '1' && 130 || 30 }}
