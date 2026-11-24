@@ -1,0 +1,13 @@
+$ bash ../scripts/ci/run-webviews-tests.sh src/pages/settings/devices.test.tsx src/pages/settings/lazyCards.test.ts src/pages/settings/mockProvider.test.ts src/pages/settings/rowSummary.test.tsx src/pages/settings/sidebarSections.test.tsx src/pages/settings/themePane.test.tsx
+running 6 webviews test files, 12 at a time, beside 0 browser files 4 at a time (0 dev server files after, 4 at a time), 120s each
+START src/pages/settings/mockProvider.test.ts (hard limit 120s)
+START src/pages/settings/lazyCards.test.ts (hard limit 120s)
+START src/pages/settings/devices.test.tsx (hard limit 120s)
+START src/pages/settings/rowSummary.test.tsx (hard limit 360s)
+START src/pages/settings/themePane.test.tsx (hard limit 120s)
+START src/pages/settings/sidebarSections.test.tsx (hard limit 120s)
+FAIL src/pages/settings/mockProvider.test.ts (raw log retained for the final bounded summary)
+FAIL src/pages/settings/lazyCards.test.ts (raw log retained for the final bounded summary)
+FAIL src/pages/settings/sidebarSections.test.tsx (raw log retained for the final bounded summary)
+FAIL src/pages/settings/devices.test.tsx (raw log retained for the final bounded summary)
+FAIL src/pages/settings/themePane.test.tsx (raw log retained for the final bounded summary)
