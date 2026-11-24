@@ -224,6 +224,12 @@ final class KeyboardInputInjector {
         let scroll = target as? UIScrollView
         if show {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { MainActor.assumeIsolated { touch.send(.ended) } }
+            // After the tap ends: does the field still hold the keyboard (a
+            // wrong target, a button of the stack, would take it or end editing).
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self, weak target] in MainActor.assumeIsolated {
+                guard let self else { return }
+                self.write(String(format: "t=%.4f ev=injectFocus id=%d fr=%d", self.now(), id, target?.isFirstResponder == true ? 1 : 0))
+            } }
         } else {
             // A short drag down the content: a scroll, as the bench's own second input.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.016) { MainActor.assumeIsolated { touch.move(by: 15); touch.send(.moved) } }
