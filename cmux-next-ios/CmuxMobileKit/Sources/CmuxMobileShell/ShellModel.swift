@@ -66,6 +66,11 @@ final class ShellModel {
     }
     var feedPath: [AgentChatDestination] = [] { didSet { updateInteractiveOpen() } }
     var settingsPath: [SettingsRoute] = [] { didSet { updateInteractiveOpen() } }
+    /// Taps on the selected tab at its root, per tab: each one asks that tab's list to scroll to
+    /// its top (`TabRetapScroll`; the Feed takes its own).
+    private(set) var topRequests: [RootTab: Int] = [:]
+    /// Every tap on the selected tab (the selection haptic's trigger, as a tab change is).
+    private(set) var tabRetaps = 0
 
     var toast: CmuxMobileToast?
     var editingTeam: Team?
@@ -120,6 +125,16 @@ final class ShellModel {
         let id = UUID()
         let attention: CloudChatAttention?
     }
+    /// A Mac screen link being opened: Screen Sharing as a sheet, that device's share asked for.
+    var macScreenLink: MacScreenLinkPresentation?
+    /// The ``macScreenLink`` Screen Sharing already opened: the sheet's page appears again when
+    /// the viewer's full-screen cover closes, and that must not ask the Mac again.
+    @ObservationIgnored var macScreenLinkOpened: UUID?
+
+    struct MacScreenLinkPresentation: Identifiable {
+        let id = UUID()
+        let link: CmuxLink.MacScreenLink
+    }
     /// Debug-driven scroll target for the Settings list.
     var settingsScrollTarget: String?
     /// Where the user was, kept across launches (design/terminal P10).
@@ -153,6 +168,8 @@ final class ShellModel {
         self.settings = settings
         self.sidebar = sidebar
         terminalTabs.accountUserIDProvider = { [weak auth] in auth?.user?.id }
+        // Every tab card's last-known picture is this account's alone.
+        TabCardSnapshots.shared.accountID = { [weak auth] in auth?.user?.id }
         // Mock content only in DEBUG mock mode (mock auth); a live account
         // never falls back to it.
         let mockMode = TerminalSessionChoice.mockCompiledIn && auth.isMock
@@ -702,6 +719,22 @@ final class ShellModel {
     /// (a conversation still loading) showed it in the others.
     func showsTabBar(on tab: RootTab) -> Bool {
         tab == .settings || depth(of: tab) == 0
+    }
+
+    /// A tap on the tab that is already selected (the iOS Mail pattern): a pushed screen pops
+    /// back to the tab's root; at the root, the tab's list scrolls to its top.
+    func retapped(_ tab: RootTab) {
+        tabRetaps += 1
+        guard depth(of: tab) > 0 else {
+            topRequests[tab, default: 0] += 1
+            return
+        }
+        switch tab {
+        case .home: homePath = NavigationPath()
+        case .workspaces: workspacesPath = []
+        case .feed: feedPath = []
+        case .settings: settingsPath = []
+        }
     }
 
     /// The drawer pan only opens from a tab root (stack depth 1).

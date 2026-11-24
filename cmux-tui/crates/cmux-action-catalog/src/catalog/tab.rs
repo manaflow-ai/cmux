@@ -203,6 +203,7 @@ pub static ACTIONS: &[Action] = &[
         targets: &["pane"],
         cli_name: "tab new-mac-screen",
         main_menu: Some("file"),
+        description: Some("Opens a Screen Sharing tab. --device takes one of your devices by name (its Computer Name, matched without case; `mac-mini` also finds \"Mac Mini\") or by device id; an unknown or ambiguous name fails with your devices listed as name (id). Without --device it opens the Screen Sharing home page. From the CLI or an agent the tab waits at its Connect button: only a person's click connects."),
         ..Action::DEFAULT
     },
     Action {

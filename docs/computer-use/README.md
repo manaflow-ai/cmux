@@ -185,8 +185,14 @@ the agent's words.
 | `fullAccess` (default) | Every app that is not denied. |
 
 - `computerUse.deniedApps` (exact id, `prefix*`, `name:App Name`) holds password
-  managers and keychains, System Settings, terminals and cmux by default; the
-  person can remove any entry. No agent screenshot shows a denied window: on
+  managers and keychains and System Settings by default; the person can remove
+  any entry or add one (a terminal, say). Agents may act in cmux itself and in
+  terminals by default (Leo, 2026-11-22: "why not. it should be able to"); a
+  list an earlier build stored with the terminals and cmux on it loses those
+  entries and keeps the person's own. Settings > Computer Use, its Saved
+  Approvals and `cmux settings set computerUse.* --confirm` change only with
+  the person's own click or key (posted input is refused), and the approval
+  prompts are cmux Remote's (protected) or person-only buttons. No agent screenshot shows a denied window: on
   macOS the capture itself leaves out every window of every denied app, at
   every window level, and the compositor draws what is behind them (an allowed
   window in front keeps its pixels); elsewhere, and for an app that started
