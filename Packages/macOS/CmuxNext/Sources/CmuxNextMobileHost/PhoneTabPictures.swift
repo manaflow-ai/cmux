@@ -52,17 +52,23 @@ public final class PhoneTabPictures {
     /// Each live page's favicon follow, by the app's tab key.
     private var favicons: [String: Task<Void, Never>] = [:]
 
+    /// Whether a phone wants the pictures, in place of the iPhone service's answer (a seam for tests).
+    private let wantedNow: (@MainActor () -> Bool)?
+
     public init(iphone: IPhoneHostService, folder: URL = BuildStatePaths.current.phoneTabPicturesCache,
-                surface: @escaping @MainActor (_ key: String) -> UInt64?, encode: @escaping Encode) {
+                surface: @escaping @MainActor (_ key: String) -> UInt64?, encode: @escaping Encode,
+                wanted: (@MainActor () -> Bool)? = nil) {
         self.iphone = iphone
         self.folder = folder
         self.surface = surface
         self.encode = encode
+        wantedNow = wanted
     }
 
     /// Whether a phone can get the pictures: iPhone connections are on and one is paired. Until then nothing is
     /// encoded or written.
     public var wanted: Bool {
+        if let wantedNow { return wantedNow() }
         guard let iphone else { return false }
         return iphone.allowed && !(iphone.paired?.devices.isEmpty ?? true)
     }
