@@ -381,9 +381,11 @@ public final class MacScreenSession {
         // `cursor`: the host leaves its cursor out of the pictures and the pane draws one cursor.
         // `video.scaled`: the pane draws a smaller picture into the stream's rect and its input
         // stays in stream pixels (`streamSize`), so the host may shrink it on a slow link.
+        // `clock` and `ledger`: every frame's stage times, on the host's clock.
         // `video.sharp_text`: the person asked a Linux host for screen usage (`offersSharpText`).
         let hello = RemoteRdHello(user: "viewer", install: "mac-screen", maxDatagram: 1126, token: nil,
-                                  caps: [RemoteRdHello.cursorCap, RemoteRdHello.videoScaledCap]
+                                  caps: [RemoteRdHello.cursorCap, RemoteRdHello.videoScaledCap,
+                                         RemoteRdHello.clockCap, RemoteRdHello.ledgerCap]
                                       + (offersSharpText ? [RemoteRdHello.sharpTextCap] : []))
         guard let transport = RemoteRdStreamTransport(carrier: carrier, hello: hello, startKey: UUID().uuidString,
                                                       control: true, clipboard: offersClipboard) else {
