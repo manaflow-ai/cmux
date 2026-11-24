@@ -280,7 +280,6 @@
     "sdk-publish-java.yml:bindings-e2e-java": {"class": "linux-rust", "warm": [], "exempt": "cold: cargo from an empty target directory; no warm source wired yet"},
     "sdk-publish-npm.yml:bindings-e2e-typescript": {"class": "linux-rust", "warm": ["actions-cache"]},
     "sdk-publish-python.yml:bindings-e2e-python": {"class": "linux-rust", "warm": [], "exempt": "cold: cargo from an empty target directory; no warm source wired yet"},
-    "seed-derived-data.yml:seed": {"class": "warm-seed", "warm": ["deriveddata-reuse", "ssd-cas", "actions-cache", "product-reuse"]},
     "seed-swiftpm-manifests.yml:seed": {"class": "warm-seed", "warm": ["ssd-cas", "actions-cache"]},
     "signing-keychain-macos.yml:bash32-syntax": {"class": "linux-build", "warm": ["actions-cache"]},
     "signing-keychain-macos.yml:real-import": {"class": "mac-sign", "warm": [], "exempt": "signs with a throwaway identity to test the keychain helper; compiles nothing"},
