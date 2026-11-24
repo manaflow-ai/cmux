@@ -26,7 +26,7 @@ import { FOCUS_LOCATION_EVENT, type NewTabHost, type NewTabChat } from "../newTa
 import type { NewTabStartFailure } from "../newtab/StartFailure";
 import type { NewTabScreenActions } from "../newtab/NewTabScreen";
 import { LazyNewTabPage, LazyNewTabScreen } from "../newtab/lazyNewTab";
-import { HistoryScreen } from "../newtab/HistoryScreen";
+import { HistoryScreen } from "../lazyScreens";
 import { NewTabAppSlot } from "../newtab/NewTabAppSlot";
 import { NewTabClock } from "../newtab/NewTabClock";
 import { historyPages } from "../queue/historyPages";
@@ -47,10 +47,11 @@ import { ComputerUsePreviewCard } from "../computerUse/ComputerUsePreviewCard";
 import { translate, type Translate } from "../i18n";
 import { LINK_DOWN_SAID_MS } from "../afterDelay";
 import { PeerCopyBanner } from "../PeerCopyBanner";
-import { Inspector, type ExportOutcome } from "../Inspector";
+import type { ExportOutcome } from "../Inspector";
+import { Inspector } from "../lazyScreens";
 import { SummaryButton } from "../summary/SummaryButton";
 import { chatProcessesHere } from "../processTerminal";
-import { BackgroundTasksPanel } from "../backgroundTasks/BackgroundTasksPanel";
+import { BackgroundTasksPanel } from "../lazyScreens";
 import { backgroundTasksLook } from "../backgroundTasks/backgroundTasksLook.experiment";
 import { AgentTonesContext } from "../subagents/agentTones";
 import { WorkflowSideTab } from "../summary/WorkflowSideTab";
@@ -94,7 +95,7 @@ import { SteerQueue, type SteerActions } from "../steerQueue/SteerQueue";
 import { StatusIsland } from "../statusIsland/StatusIsland";
 import { experimentArm } from "../../../experiments/experiment";
 import { sandboxRetryable, type SandboxTab, type RunModeRows, type SandboxRun } from "../sandboxRun";
-import { SandboxRunView } from "../SandboxRunView";
+import { SandboxRunView } from "../lazyScreens";
 import { PaneFeatureTips } from "../featureTips";
 import { callNative } from "../callNative";
 import { openOfferChat } from "../rows/rowActions";
@@ -380,6 +381,8 @@ export type PaneBodyDeps = NewTabShown &
     reconnectPeer: (peer: string) => Promise<unknown>;
     previewShown: boolean;
     computerUsePreview: ComputerUsePreview | null;
+    /// The Environment card at the chat's top right (session-info/EnvironmentCard.tsx), null when off.
+    environmentCardNode: React.JSX.Element | null;
     viewedSandbox: SandboxRun | undefined;
     pendingWake: React.RefObject<ComposerWake | undefined>;
     sandboxWake: React.RefObject<ComposerWake | undefined>;
@@ -421,6 +424,8 @@ export type PaneBodyDeps = NewTabShown &
     saveDocumentNatively: SaveDocument;
     backgroundPanel: { sessionId?: string | undefined; expanded: boolean; dismissed: ReadonlySet<string> } | undefined;
     backgroundList: BackgroundGroup[];
+    /// acpmux's list of the chat's subagents has not answered yet (backgroundTasks/useListedSubagents.ts).
+    backgroundListing: boolean;
     clientEpoch: number;
     backgroundFocus: BackgroundFocus | undefined;
     stopSubagent: ((id: string) => Promise<unknown>) | undefined;
@@ -649,6 +654,7 @@ export function drawPaneBody({
   reconnectPeer,
   previewShown,
   computerUsePreview,
+  environmentCardNode,
   viewedSandbox,
   pendingWake,
   sandboxWake,
@@ -691,6 +697,7 @@ export function drawPaneBody({
   saveDocumentNatively,
   backgroundPanel,
   backgroundList,
+  backgroundListing,
   clientEpoch,
   backgroundFocus,
   stopSubagent,
@@ -1484,6 +1491,7 @@ export function drawPaneBody({
                   preview={previewShown ? computerUsePreview : null}
                   onClose={() => ignoreFailure(callNative("chat.computerUsePreview", { action: "close" }))}
                 />
+                {environmentCardNode}
                 {underHeader.watching &&
                   snapshot.summary?.watching &&
                   // A chat its terminal drives is a live view of the same session, not View Only.
@@ -1675,6 +1683,7 @@ export function drawPaneBody({
             <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
               <BackgroundTasksPanel
                 groups={backgroundList}
+                loading={backgroundListing}
                 readsOutput={
                   chatProcessesHere(snapshot.summary) &&
                   clientEpoch > 0 &&

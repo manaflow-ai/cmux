@@ -6151,7 +6151,7 @@
           "operations" : [
 
           ],
-          "reason" : "action ids; toggled from the tab bar's More menu (Show in Tab Bar)",
+          "reason" : "action ids; toggled from the command palette (Pin or Unpin Tab Bar Button…)",
           "row" : null
         },
         "socket" : {
@@ -73292,7 +73292,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "folder",
+      "default" : "auto",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
