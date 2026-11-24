@@ -1189,6 +1189,7 @@ fn emit(row: &Row, profile: &str, load: &str, run: u64, m: Option<&Measured>) {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "the round-trip audit bench: run with --ignored --nocapture"]
 async fn round_trips() {
+    let _ = HERMETIC;
     let file = ProfileFile::builtin();
     let profiles: Vec<_> = env_list("RTT_PROFILES", &["lte", "lossy-3"])
         .iter()
