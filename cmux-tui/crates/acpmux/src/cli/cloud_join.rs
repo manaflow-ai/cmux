@@ -641,20 +641,49 @@ pub(crate) fn join_incomplete() -> Result<bool> {
 /// Update only the credential that made the request. A late response from an old
 /// replaced credential must never revoke or timestamp the replacement.
 pub(crate) fn record_auth_result(token: &str, revoked: bool, heartbeat: bool) -> Result<()> {
+    let now = crate::store::now_ms();
+    // A heartbeat lands every few seconds; the stored one only has to stay inside the doctor's
+    // `HEARTBEAT_WITHIN_MS`. A fresh one already on disk is no change: no lock, no fsync'd
+    // rewrite of the credential file (it ran every 10 s on every joined machine).
+    if heartbeat
+        && !revoked
+        && load()?.is_some_and(|record| {
+            record.credential == token && !record.revoked && heartbeat_fresh(&record, now)
+        })
+    {
+        return Ok(());
+    }
     let _lock = join_lock()?;
     if let Some(mut record) = load()? {
         if record.credential != token {
             return Ok(());
         }
-        if revoked {
+        let mut changed = false;
+        if revoked && !record.revoked {
             record.revoked = true;
+            changed = true;
         }
-        if heartbeat {
-            record.last_heartbeat = Some(crate::store::now_ms().to_string());
+        if heartbeat && !heartbeat_fresh(&record, now) {
+            record.last_heartbeat = Some(now.to_string());
+            changed = true;
         }
-        save(&record)?;
+        if changed {
+            save(&record)?;
+        }
     }
     Ok(())
+}
+
+/// How old a stored heartbeat may be before a new one is written: a third of the doctor's
+/// `HEARTBEAT_WITHIN_MS`, so `host join --status` never reads a live machine as stale.
+const HEARTBEAT_PERSIST_MS: u64 = crate::cli::host_join_doctor::HEARTBEAT_WITHIN_MS / 3;
+
+fn heartbeat_fresh(record: &MachineCredential, now_ms: u64) -> bool {
+    record
+        .last_heartbeat
+        .as_deref()
+        .and_then(|at| at.parse::<u64>().ok())
+        .is_some_and(|at| at <= now_ms && now_ms - at < HEARTBEAT_PERSIST_MS)
 }
 
 /// Records the WireGuard public key the hub now holds for `machine_id` (a rekey,
@@ -1425,6 +1454,23 @@ mod tests {
         let previous =
             MeshRelayConfig { control_from: vec![narrowed.clone()], ..Default::default() };
         assert_eq!(super::joined_control_from(Some(previous)), vec![narrowed]);
+    }
+
+    #[test]
+    fn a_heartbeat_rewrites_the_credential_only_once_the_stored_one_ages() {
+        let at = |ms: Option<u64>| super::MachineCredential {
+            last_heartbeat: ms.map(|ms| ms.to_string()),
+            ..Default::default()
+        };
+        let now = 10_000_000;
+        assert!(!super::heartbeat_fresh(&at(None), now));
+        assert!(super::heartbeat_fresh(&at(Some(now - 10_000)), now));
+        assert!(!super::heartbeat_fresh(&at(Some(now - super::HEARTBEAT_PERSIST_MS)), now));
+        // A clock that stepped back never pins an old heartbeat as fresh.
+        assert!(!super::heartbeat_fresh(&at(Some(now + 5_000)), now));
+        assert!(
+            super::HEARTBEAT_PERSIST_MS * 2 < crate::cli::host_join_doctor::HEARTBEAT_WITHIN_MS
+        );
     }
 
     #[test]
