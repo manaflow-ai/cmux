@@ -266,7 +266,7 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         try await waitUntil { if case .failed = screenState { true } else { false } }
         #expect(!screenState.isAttached)
         #expect(!screenState.showsProgress)
-        #expect(screenState.label != nil)
+        #expect(screenState.quietLine != nil)
         #expect(session.connectionState == screenState)
         let attempts = daemon.recorded.filter { $0["cmd"] as? String == "attach-surface" }.count
         session.reconnect()
@@ -852,7 +852,7 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         session.setMacOffline(true)
         #expect(session.connectionState == .offline(mac: "mini"))
         #expect(events.last == .connection(.offline(mac: "mini")))
-        #expect(TerminalConnectionState.offline(mac: "mini").label == "mini is offline")
+        #expect(TerminalConnectionState.offline(mac: "mini").quietLine == "mini is offline")
 
         session.setMacOffline(false)
         #expect(events.last == .connection(.reattaching(mac: "mini")))

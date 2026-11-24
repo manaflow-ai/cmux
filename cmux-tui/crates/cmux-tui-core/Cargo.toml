@@ -16,6 +16,7 @@ workspace = true
 hotpatch = ["dep:subsecond"]
 
 [dependencies]
+cmux-egress.workspace = true
 cmux-build-space.workspace = true
 cmux-json.workspace = true
 # Names a crash sidecar's backtrace in a stripped release binary.
