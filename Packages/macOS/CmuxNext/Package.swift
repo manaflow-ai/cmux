@@ -736,7 +736,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // SwiftUI `Icon` view and template NSImages. A leaf: no dependencies.
         .target(
             name: "CmuxNextIcons",
-            dependencies: ["CmuxNextCompat"],
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextCompat",
+                .product(name: "CmuxEgress", package: "CmuxEgress"),
+            ],
             resources: [
                 .process("Resources"),
             ],

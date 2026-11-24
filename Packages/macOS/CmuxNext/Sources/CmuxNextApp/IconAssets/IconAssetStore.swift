@@ -4,7 +4,6 @@ import CoreGraphics
 import ImageIO
 import UniformTypeIdentifiers
 import CmuxNextIcons
-import CmuxEgress
 
 /// Where an icon picker session stores an Image or SVG asset: the picked object's owner, its
 /// daemon's blob store (`icon-assets-v1`). The daemon sanitizes and validates an SVG again and
@@ -93,10 +92,7 @@ nonisolated enum IconAssetKind: String {
     /// scaling never block it.
     @concurrent func download(_ url: URL) async throws -> (mediaType: String, data: Data) {
         guard url.scheme?.lowercased() == "https" else { throw IconAssetDownloadError.notHTTPS }
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = 15
-        configuration.timeoutIntervalForResource = 30
-        let session = Egress.session(site: "CmuxNextApp.IconAssetStore", configuration: configuration, delegate: HTTPSOnlyRedirects(), delegateQueue: nil)
+        let session = IconAssetDownloadSession.make(for: url)
         // Cancels a body still arriving when the read stops early (too large, cancelled).
         defer { session.invalidateAndCancel() }
         let (bytes, response) = try await session.bytes(from: url)
@@ -113,15 +109,6 @@ nonisolated enum IconAssetKind: String {
         }
         guard let prepared = prepare(downloaded: data) else { throw IconAssetDownloadError.notThisKind }
         return prepared
-    }
-}
-
-/// Follows a redirect only to another https URL. The completion-handler form: Swift 6.3's
-/// SILGen crashes on the async form's Objective-C thunk.
-private nonisolated final class HTTPSOnlyRedirects: NSObject, URLSessionTaskDelegate, Sendable {
-    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
-                    newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
-        completionHandler(request.url?.scheme?.lowercased() == "https" ? request : nil)
     }
 }
 
