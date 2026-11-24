@@ -99,6 +99,7 @@ import {
   DEV_TREE_SCRIPT,
   FIRST_BUILD,
 } from "./dev-tree";
+import { gitDefaultsCommand } from "./git-defaults";
 import { GITHUB_SHIM_DIR, githubAuthFiles, githubAuthLinkCommand } from "./github-auth";
 import {
   AGENT_TOOLS_BAKED_ROLES,
@@ -816,6 +817,8 @@ async function installStore(ctx: Ctx): Promise<void> {
   // git and gh with repo-scoped GitHub App tokens and no secret at rest (github-auth.ts).
   for (const file of githubAuthFiles()) await writeGuestFile(vm, file.path, file.text, file.mode);
   await L.step(vm, "github-auth", githubAuthLinkCommand(STORE_PATH));
+  // Parallel checkout, untracked cache, index v4 for every machine (RFD 0065 piece 3; git-defaults.ts).
+  await L.step(vm, "git-defaults", gitDefaultsCommand());
 }
 
 /** The supervisor runs `$HOME/.cmux/bin/cmux-tui`: link it (and the hook helper beside it) into the store. */

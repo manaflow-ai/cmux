@@ -589,6 +589,7 @@ Ops no app may call:
 - `cloud.machine.chief_start`
 - `cloud.machine.create`
 - `cloud.machine.delete`
+- `cloud.machine.fork`
 - `cloud.machine.io`
 - `cloud.machine.link_token`
 - `cloud.machine.resize`
