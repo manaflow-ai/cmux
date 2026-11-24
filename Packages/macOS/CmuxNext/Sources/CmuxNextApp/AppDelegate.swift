@@ -178,6 +178,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppProcessRoot.shared.adopt(hangReports: WatchdogReporting.install(control.watchdog, services: services))
         services.quit.watchdog = control.watchdog
         DebugTimings.markReveal(services.launchReveal)
+        services.launchReveal.firstFrame = firstFrame // the views' own launch work waits on it (FirstFrameHold)
         // This launch's times and stages (LaunchStages), in every build, for `cmux app launch-times` (CMUX-571): after the first frame, at Home's reveal or 10 s on (a relaunch into another workspace never shows Home).
         if let bundleID = environment.launch.bundleID, let file = LaunchTimesFile.app(bundleID: bundleID) {
             let recorder = LaunchTimesRecorder(file: file, work: services.work, info: Bundle.main.infoDictionary ?? [:], listen: AgentPaneLaunchTimings.shared.listen, marks: DebugTimings.launchMarkTimes) { StagedUpdatePrewarm.consumeLaunchMarker(build: $0, bundleIdentifier: bundleID) }
@@ -192,9 +193,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let ghosttyKeybinds = GhosttyKeybindSync(router: services.keyRouter)
         self.ghosttyKeybinds = ghosttyKeybinds
         ghosttyKeybinds.start()
-        let ghosttyConfigLiveReload = GhosttyConfigLiveReload()
-        self.ghosttyConfigLiveReload = ghosttyConfigLiveReload
-        ghosttyConfigLiveReload.start()
         // App-scoped Ghostty actions (quit, toggle_visibility, ...) arrive with no surface.
         TerminalHooks(services: services).install()
         DebugTimings.markLaunch("dfl.bind")
@@ -216,7 +214,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                               terminalEnvironmentProvider: environment.terminalEnvironmentProvider(prefersGhosttyTerm: { [weak self] in self?.services?.settings?.snapshot.terminalTerm == .xtermGhostty }),
                               resolvesShellIntegration: environment.resolvesShellIntegration, prestart: daemonPrestart, launchSnapshot: launchSnapshot)
         FeaturePolicyEnforcer(services: services).start()
-        cloudContext = services.startCloud()
         // Labs > Live Code starts the live code watcher with the other non-paint services.
         firstFrame.whenOpen { [weak services] in services?.startNonPaintServices(); services?.liveCode.labsSwitch(services?.settings?.snapshot.liveCode == true) }
         firstFrame.whenOpen { [weak services] in services?.startPostFrameFeeds(); LaunchTypeProbe(environment: ProcessInfo.processInfo.environment) { DebugTimings.markLaunch($0) }?.type() } // launch-ready type=1
@@ -270,12 +267,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let profilesDirectory = BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID)
         services.browserProfiles.load(directory: profilesDirectory, importStore: services.onboarding.importStore)
         DebugTimings.markLaunch("dfl.first_window_hooks")
-        services.home.start()
-        services.harnessIcons.start()
         mouseSideButtons.start { [weak services] in _ = services?.registry.perform($0 == .back ? "focusHistoryBack" : "focusHistoryForward") }
         services.keybindingsFile.start(); services.machines.local.languagePacks.start()  // CMUX-570
-        services.bookmarks.start(directory: profilesDirectory, importStore: services.onboarding.importStore)
-        services.history.start(supportDirectory: profilesDirectory.deletingLastPathComponent())
         // cmux-page:// first-party pages for Chromium, before any window can start it.
         FirstPartyPageSchemes.install()
         // Every cmux page view follows `browser.defaultEngine` (Chromium by default) through this one host.
@@ -296,14 +289,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.windows.restoreWhenLoaded(); if services.windows.controllers.first?.window?.commitFirstFrameNow() == true { DebugTimings.markLaunch("first_window_flushed") } // CMUX-629: the frame now, not after the queued launch work
         firstFrame.whenOpen { [weak services] in services?.windows.recordSaver.launchRecord.schedule(); services?.windows.recordSaver.layoutCache.note() }
         DebugTimings.markLaunch("dfl.windows")
-        // After two quick unexpected ends in a row, Chromium starts only
-        // when the user reloads a browser tab.
-        services.observeBorders()
-        services.observeGlass()
-        services.updateFeedObservation = UpdateFeedPosting.follow(services)
         // The runtime pack check wires the engine reason at once; its download waits until asked.
         services.startChromiumRuntime()
-        firstFrame.whenOpen { [weak services] in services?.startLaterTabWarmups() }
         // Other apps' sign-ins, before any request a launch by one delivers.
         // The engines' incognito profiles and the Chromium engine's sign-in tabs (AppServices).
         let webAuthWindows = WebAuthSessionWindows(host: services, logger: services.daemon.logger,
@@ -315,10 +302,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURLEvent(_:reply:)),
                                                      forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
         services.windows.onContentDidAppear = { [weak services] in services?.externalOpen.flush(); services?.pageHostPool.windowDidAppear($0.window) }
-        NSApp.servicesProvider = CmuxServicesProvider(open: services.externalOpen)
         // A launch whose first window never draws (no window, a daemon that never answers) still
         // starts the work waiting for that frame.
         openedURLs.start { [weak self] in self?.routeReadyURL($0) }
+        // Work the launch window does not draw: each step in its own main turn after the first frame.
+        // Chromium's crash-loop border (observeBorders) and the glass look follow the first frame too.
+        firstFrame.afterOpen(stop: { [weak services] in services?.windows.isTerminating ?? true }, [
+            { [weak self, weak services] in self?.cloudContext = services?.startCloud() },
+            { [weak services] in services?.home.start() },
+            { [weak services] in services?.harnessIcons.start() },
+            { [weak services] in if let services { services.bookmarks.start(directory: profilesDirectory, importStore: services.onboarding.importStore) } },
+            { [weak services] in services?.history.start(supportDirectory: profilesDirectory.deletingLastPathComponent()) },
+            { [weak services] in services?.observeBorders(); services?.observeGlass() },
+            { [weak services] in if let services { services.updateFeedObservation = UpdateFeedPosting.follow(services) } },
+            { [weak self] in self?.ghosttyConfigLiveReload = GhosttyConfigLiveReload(); self?.ghosttyConfigLiveReload?.start() },
+            { [weak services] in if let services { NSApp.servicesProvider = CmuxServicesProvider(open: services.externalOpen) } },
+            { [weak services] in services?.startLaterTabWarmups() },
+        ])
         firstFrame.armBackstop(after: .seconds(3))
     }
 

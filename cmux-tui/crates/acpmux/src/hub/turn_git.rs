@@ -72,6 +72,7 @@ impl Hub {
         msg.set("pendingPermissions", self.session_summary(session)["pendingPermissions"].clone());
         // Which harness-magic features ran this turn, for the scorecard's like-with-like split.
         super::harness_magic::stamp(&mut msg);
+        self.turn_rules_end(session, &mut msg);
         self.record_last_turn(session, &msg);
         // The chat's page after the turn (`turn_shots.rs`), taken once the result is written.
         let turn = msg.get("turnId").and_then(Value::as_str).map(str::to_owned);
