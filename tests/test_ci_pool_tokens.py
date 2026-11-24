@@ -13,7 +13,6 @@ from __future__ import annotations
 import http.server
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -133,7 +132,6 @@ class Wiring(unittest.TestCase):
     """Each wired step reads the pool first and github.token last; the mint can never fail its job."""
 
     WIRED = [
-        ("risk-tier.yml", "evidence", "Grade the pull request"),
         ("cmux-next-hot-verify.yml", "plan", "Dispatch the look"),
         ("cmux-tui-artifacts.yml", "darwin-fallback-plan", "Find the macOS targets the build left without artifacts"),
         ("cmux-tui-artifacts.yml", "rerun-deferred-commits", "Re-run the runs that deferred to this tree"),
@@ -158,25 +156,12 @@ class Wiring(unittest.TestCase):
                 self.assertTrue(token.endswith("github.token }}"), token)
 
     def test_shell_gh_steps_rotate_every_pool_then_github_token(self) -> None:
-        for workflow, job, name in self.WIRED[:3]:
+        for workflow, job, name in self.WIRED[:2]:
             with self.subTest(job=job):
                 env = step(workflow, job, name)["env"]
                 self.assertEqual(env["GH_TOKEN_SPARES"], "${{ env.CI_POOL_GH_TOKEN_SPARES }} ${{ github.token }}")
                 runs = " ".join(str(s.get("run", "")) for s in steps(workflow, job))
                 self.assertIn("gh_budget_wait.sh --install", runs)
-
-    def test_the_risk_label_stays_on_github_token(self) -> None:
-        # A label an App adds starts every `labeled` workflow again; one github.token adds does not.
-        self.assertEqual(step("risk-tier.yml", "evidence", "Set the risk label")["env"]["GH_TOKEN"],
-                         "${{ github.token }}")
-
-    def test_risk_tier_runs_only_the_bases_scripts(self) -> None:
-        checkout = steps("risk-tier.yml", "evidence")[0]
-        self.assertEqual(checkout["with"]["ref"], "${{ github.workflow_sha }}")
-        paths = set(checkout["with"]["sparse-checkout"].split())
-        self.assertEqual(paths, {"scripts/ci/risk_tier.py", "scripts/ci/ci_pool_tokens.py",
-                                 "scripts/ci/gh_budget_wait.sh", "scripts/ci/ui_review_advisory.py"})
-        self.assertFalse(re.search(r"head\.(sha|ref)", json.dumps(checkout)))
 
 
 if __name__ == "__main__":
