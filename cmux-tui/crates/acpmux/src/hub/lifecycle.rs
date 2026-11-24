@@ -1746,7 +1746,10 @@ impl Hub {
                 );
             }
         }
-        if saved.agent_session_id.is_some() || saved.fork_before.is_some() {
+        // A guarded relay import may retire the source ACP id when its native agent files are
+        // absent. Its carried choices still need replaying after the fresh session/new, just as
+        // they do for an ordinary respawn or fork.
+        if saved.agent_session_id.is_some() || saved.fork_before.is_some() || saved.remote_origin {
             self.replay_config(session, &child, &saved, off).await;
         }
         self.cap_full_access(session, &child, profile, off).await?;
