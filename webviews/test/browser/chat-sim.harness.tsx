@@ -358,7 +358,6 @@ async function seek(name: string, options: SeekOptions) {
   return { start: plan.start, startAt: plan.startAt, steps: scenario.steps.length, rows: dump() };
 }
 
-
 /** Plays `name` in real time (each step at its virtual time; a wait over `maxWaitMs` is cut to it) with
  *  the pane's motion as the page has it, while a per-frame watcher (chatChurnWatch.ts) reads every drawn
  *  row: the layout shifts above the reader's anchor and the rows drawn under a second. */
