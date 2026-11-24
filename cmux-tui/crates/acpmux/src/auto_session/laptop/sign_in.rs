@@ -73,6 +73,10 @@ fn api_of(issuer: &str, dev_build: bool) -> Option<String> {
     if let Some(api) = own {
         return Some(api.to_owned());
     }
+    // An origin, never an environment's bare name (`preview-42`), which `parse` also reads.
+    if !issuer.starts_with("https://") {
+        return None;
+    }
     match Environment::parse(issuer) {
         Ok(preview @ Environment::Preview(_)) => Some(preview.configuration().api_origin),
         Ok(Environment::Tailnet(origin)) if dev_build => Some(origin),
@@ -197,6 +201,8 @@ mod tests {
             "https://cmux-api-preview-42.debussy.workers.dev.example.com",
             "https://cmux-api-preview-x.debussy.workers.dev",
             "http://127.0.0.1:8787",
+            "preview-42",
+            "dev",
         ] {
             let json = format!(r#"{{"access_token":"tok","api_origin":"{other}"}}"#);
             assert!(parse(json.as_bytes(), now, true).answer.is_err(), "{other}");
