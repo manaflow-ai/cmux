@@ -2085,6 +2085,11 @@ impl Hub {
                             o.insert("cancelForced".into(), Value::Bool(true));
                         }
                         o.extend(usage);
+                        // Harness magic's counts for the turn (`claude_stdio/dedupe.rs`).
+                        if let Some(hm) = v.pointer("/_meta/harnessMagic").filter(|m| m.is_object())
+                        {
+                            o.insert("harnessMagic".into(), hm.clone());
+                        }
                         if let Some(to) = carried_to() {
                             o.insert("carriedTo".into(), to);
                         }
