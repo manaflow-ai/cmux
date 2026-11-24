@@ -173,8 +173,12 @@ pub struct AgentBudget {
 }
 
 impl AgentBudget {
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "f64 to u64 saturates; RAM times a share in [0, 1] fits"
+    )]
     pub fn of(setting: &ReserveSetting, sample: &ReserveSample) -> Self {
-        let rest = f64::from(100 - setting.reserve()) / 100.0;
+        let rest = f64::from(100u8.saturating_sub(setting.reserve())) / 100.0;
         Self {
             cores: sample.performance_cores.max(0.0) * rest,
             rss_bytes: (sample.ram_bytes as f64 * rest) as u64,
@@ -475,9 +479,15 @@ pub fn append_shadow(path: &Path, line: &ShadowLine) -> std::io::Result<bool> {
     }
     if std::fs::metadata(path).is_ok_and(|m| m.len() >= SHADOW_LOG_MAX_BYTES) {
         let old = std::fs::read(path)?;
+        // Keep the newer half, starting at a line boundary.
         let half = old.len() / 2;
-        let cut = old[half..].iter().position(|b| *b == b'\n').map_or(old.len(), |i| half + i + 1);
-        std::fs::write(path, &old[cut..])?;
+        let tail = old.get(half..).unwrap_or_default();
+        let kept = tail
+            .iter()
+            .position(|b| *b == b'\n')
+            .and_then(|i| tail.get(i.saturating_add(1)..))
+            .unwrap_or_default();
+        std::fs::write(path, kept)?;
     }
     let mut text = serde_json::to_string(line).map_err(std::io::Error::other)?;
     text.push('\n');
