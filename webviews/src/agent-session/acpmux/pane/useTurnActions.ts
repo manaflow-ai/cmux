@@ -42,6 +42,8 @@ import { trayWaitAgents, turnViewFrom, type TurnView } from "../conversation/tur
 import type { Folds } from "../conversation/viewFolds";
 import type { AcpmuxDirectClient } from "../direct";
 import { translate } from "../i18n";
+import { sessionLink } from "../links";
+import { GITHUB_CONNECT_ACTION, type GitHubConnectOffer } from "../conversation/githubConnect";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import { postNative } from "../native";
 import { openPicker } from "../pickerOpeners";
@@ -502,6 +504,26 @@ export function turnActionsFrom(deps: TurnActionsDeps): TurnActions {
             ? answerThrough(callNative)(text)
             : Promise.reject(new Error(CHAT_CHANGED))
       )(restartChat),
+    }),
+    // Connect GitHub (githubConnect.ts, a GitHub call that found no connection for this chat): the
+    // app's `accounts.githubConnect` with the call's repository and this chat's link, which GitHub's
+    // return opens; then Continue, with Continue's reach. A Connect the app did not run rejects with
+    // its reason, for the card.
+    ...(restartChat && {
+      githubConnect: ((owner: string): GitHubConnectOffer => ({
+        connect: (repo) => {
+          const returnTo = sessionLink(owner);
+          return callNative("action.run", {
+            id: GITHUB_CONNECT_ACTION,
+            ...(repo && { repo }),
+            ...(returnTo && { returnTo }),
+          }).then(() => undefined);
+        },
+        continue: () =>
+          restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession)
+            ? resumeThrough(callNative)()
+            : Promise.resolve(),
+      }))(restartChat),
     }),
     // A context-full failure's Compact sends the agent's own /compact as Continue sends its prompt,
     // with the same reach: never to a View Only chat or a read-only pane, never the next chat.
