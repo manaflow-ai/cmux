@@ -162,7 +162,10 @@ fn after_turn_failed(name: &str, bound: std::time::Duration) -> String {
 
 /// How long a move waits, after its commit, for this machine to list the chat reachable on the
 /// target (`await_arrival`), and how often it asks. The row is there within a poll or two of
-/// the commit while the link is up; the bound is for a link that is down.
+/// the commit while the link is up; the bound is for a link on its way back (connecting,
+/// reconnecting, degraded). A link that is offline (never reached and its attempts failed,
+/// removed, or its token refused) ends the wait at once (`link_gone`): no row comes from it
+/// within the bound, and waiting it out cost every such move the whole 5 s.
 const ARRIVAL_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 const ARRIVAL_POLL: std::time::Duration = std::time::Duration::from_millis(50);
 
@@ -201,6 +204,25 @@ fn arrived(reply: &Value, id: &str) -> Result<(), String> {
     Err(why)
 }
 
+/// Why the peer `name` in a `_acpmux/peers` answer will not list a moved chat within the
+/// arrival bound: its link is offline (never reached and its attempts failed, or removed), or
+/// a person must act (its token refused, the peer too old). None while it is up or on its way.
+fn link_gone(peers: &Value, name: &str) -> Option<String> {
+    let peer = peers
+        .get("peers")
+        .and_then(Value::as_array)?
+        .iter()
+        .find(|p| p.get("name").and_then(Value::as_str) == Some(name))?;
+    let link = peer.get("link").or_else(|| peer.get("state")).and_then(Value::as_str)?;
+    if !matches!(link, "offline" | "authFailed" | "updateRequired") {
+        return None;
+    }
+    Some(match peer.get("error").and_then(Value::as_str) {
+        Some(error) => format!("peer {link}: {error}"),
+        None => format!("peer {link}"),
+    })
+}
+
 /// Waits, at most `bound`, asking every `poll` (one request for all still waited on), until
 /// `observer` lists every moved chat in `there` as reachable on its new machine (`arrived`): a move
 /// that ends before then leaves `ls` showing it unknown, its peer reconnecting, though it runs
@@ -214,6 +236,8 @@ async fn await_arrival(
 ) -> Vec<(String, String)> {
     let deadline = tokio::time::Instant::now() + bound;
     let mut left = entries.to_vec();
+    // Chats already named late because their peer link is offline.
+    let mut done: Vec<(String, String)> = Vec::new();
     loop {
         let keys: Vec<&str> = left.iter().map(|(key, _)| key.as_str()).collect();
         let reply = observer
@@ -231,7 +255,30 @@ async fn await_arrival(
             }
         }
         if late.is_empty() || tokio::time::Instant::now() + poll > deadline {
-            return late.into_iter().map(|(_, id, why)| (id, why)).collect();
+            return done
+                .into_iter()
+                .chain(late.into_iter().map(|(_, id, why)| (id, why)))
+                .collect();
+        }
+        // A chat whose peer link is offline is not coming within the bound: name it now.
+        let mut gone = Vec::new();
+        if late.iter().any(|(key, _, _)| key.contains('/')) {
+            if let Ok(peers) = observer.request("_acpmux/peers", json!({})).await {
+                late.retain(|(key, id, _)| {
+                    let peer = key.split_once('/').map(|(peer, _)| peer);
+                    match peer.and_then(|peer| link_gone(&peers, peer)) {
+                        Some(why) => {
+                            gone.push((id.clone(), why));
+                            false
+                        }
+                        None => true,
+                    }
+                });
+            }
+        }
+        done.extend(gone);
+        if late.is_empty() {
+            return done;
         }
         left = late.into_iter().map(|(key, id, _)| (key, id)).collect();
         tokio::time::sleep(poll).await;
