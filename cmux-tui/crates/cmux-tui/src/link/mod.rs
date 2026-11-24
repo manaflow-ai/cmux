@@ -271,11 +271,13 @@ fn verb_help_from(action: &str, help: &str, enrollment: &str) -> Option<String> 
     let mut lines = help.lines();
     // `USAGE: cmux link <init|show|…> [OPTIONS]` becomes `USAGE: cmux link init [OPTIONS]`.
     let first = lines.next()?;
-    let usage = match (first.find('<'), first.find('>')) {
-        (Some(open), Some(close)) if open < close => {
-            format!("{}{action}{}", &first[..open], &first[close + 1..])
-        }
-        _ => first.to_owned(),
+    // `split_once` keeps this free of byte-index slicing (the panic ratchet).
+    let usage = match first.split_once('<') {
+        Some((head, rest)) => match rest.split_once('>') {
+            Some((_, tail)) => format!("{head}{action}{tail}"),
+            None => first.to_owned(),
+        },
+        None => first.to_owned(),
     };
     let mut own = String::new();
     let mut inside = false;

@@ -202,7 +202,7 @@ fn verb_help(args: &[String]) -> Option<String> {
         .map(String::as_str)
         .collect::<Vec<_>>();
     let (verb, lines) = (1..=words.len()).rev().find_map(|count| {
-        let verb = words[..count].join(" ");
+        let verb = words.get(..count)?.join(" ");
         let prefix = format!("  cmux agents {verb}");
         let lines = HELP
             .lines()
