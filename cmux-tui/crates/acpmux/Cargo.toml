@@ -175,6 +175,8 @@ cmux-scope.workspace = true
 flate2.workspace = true
 # A cold-archived chat's log, one compressed file (src/store/cold.rs).
 zstd.workspace = true
+# A moved chat's history follows it as a session pack (`hub/transfer_history.rs`).
+cmux-session-pack = { path = "../cmux-session-pack" }
 tokio-util = { version = "0.7", features = ["codec"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
