@@ -16,6 +16,9 @@ use super::*;
 /// How often closed sessions' folders still there are tried again.
 const SWEEP_EVERY: std::time::Duration = std::time::Duration::from_secs(60 * 60);
 
+/// How long a pass waits for a session's `spawn_lock`.
+const LOCK_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+
 /// What one pass did, for its log line and the tests.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct FreedTmp {
@@ -92,8 +95,12 @@ impl Hub {
         let mut pass = FreedTmp::default();
         let mut aside = Vec::new();
         for session in candidates.iter().filter(|s| with_folder.contains(&s.id)) {
-            // A start under way holds it: that session is not closed for long.
-            let Ok(_spawning) = session.spawn_lock.try_lock() else { continue };
+            // A start under way holds it, and the session is read as closed again below; one that
+            // holds it longer than this is left to the next pass.
+            let Ok(_spawning) = tokio::time::timeout(LOCK_WAIT, session.spawn_lock.lock()).await
+            else {
+                continue;
+            };
             let current = self
                 .sessions
                 .lock()
@@ -136,19 +143,13 @@ impl Hub {
 
 #[cfg(all(test, unix))]
 mod tests {
+    use super::super::former_names::tests::{chat, hub};
     use super::*;
-    use crate::config::{Config, StoreMode};
 
     #[tokio::test]
     async fn a_closed_chats_folder_goes_and_an_open_ones_stays() {
-        let root = std::env::temp_dir().join(format!("acpmux-closed-tmp-{}", uuid::Uuid::now_v7()));
-        let mut cfg = Config::default();
-        cfg.store.mode = StoreMode::Local;
-        let store = crate::store::open(&cfg.store, &root).unwrap();
-        let closed = uuid::Uuid::now_v7().to_string();
-        let idle = uuid::Uuid::now_v7().to_string();
-        let probe = uuid::Uuid::now_v7().to_string();
-        let held = uuid::Uuid::now_v7().to_string();
+        let hub = hub();
+        let [closed, idle, held, probe] = std::array::from_fn(|_| uuid::Uuid::now_v7().to_string());
         let base = crate::agent::session_tmp::per_user_base();
         let home = crate::config::home();
         let make = |id: &str| crate::agent::session_tmp::make(&base, &home, id).unwrap();
@@ -157,20 +158,10 @@ mod tests {
         // An open probe chat works in the held chat's folder.
         let probe_cwd = held_dir.join("probe-1");
         std::fs::create_dir(&probe_cwd).unwrap();
-        for (id, status, cwd) in [
-            (&closed, "closed", std::path::Path::new("/tmp")),
-            (&idle, "idle", std::path::Path::new("/tmp")),
-            (&held, "closed", std::path::Path::new("/tmp")),
-            (&probe, "idle", probe_cwd.as_path()),
-        ] {
-            let meta = json!({
-                "schema": crate::store::META_SCHEMA, "id": id, "name": id, "harness": "claude",
-                "cwd": cwd, "status": status, "createdAt": 1, "updatedAt": 2,
-            });
-            store.save(&serde_json::from_value(meta).unwrap()).unwrap();
-        }
-        drop(store);
-        let hub = Hub::new(cfg.clone(), crate::store::open(&cfg.store, &root).unwrap());
+        let sessions: Vec<_> = [&closed, &idle, &held, &probe].map(|id| chat(&hub, id, id)).into();
+        hub.edit_test_meta(&sessions[0], |m| m.status = SessionStatus::Closed);
+        hub.edit_test_meta(&sessions[2], |m| m.status = SessionStatus::Closed);
+        hub.edit_test_meta(&sessions[3], |m| m.cwd = probe_cwd.clone());
 
         let pass = hub.free_closed_tmps(hub.session_handles()).await;
         assert_eq!(pass, FreedTmp { freed: 1, kept: 1 });
@@ -189,11 +180,36 @@ mod tests {
         let again = make(&closed);
         assert_eq!(again, closed_dir);
         assert_eq!(std::fs::read_dir(&again).unwrap().count(), 0);
+        hub.edit_test_meta(&sessions[0], |m| m.status = SessionStatus::Idle);
+        assert_eq!(
+            hub.free_closed_tmps(hub.session_handles()).await,
+            FreedTmp { freed: 0, kept: 1 }
+        );
+        assert!(again.is_dir(), "the reopened chat's folder went");
+
+        // The probe chat moves on: the held chat's folder goes at the next pass.
+        hub.edit_test_meta(&sessions[3], |m| m.cwd = "/tmp".into());
+        assert_eq!(
+            hub.free_closed_tmps(hub.session_handles()).await,
+            FreedTmp { freed: 1, kept: 0 }
+        );
+        assert!(!held_dir.exists());
+
+        // A stop frees the folder on its own.
+        let stopped = uuid::Uuid::now_v7().to_string();
+        let stopped_dir = make(&stopped);
+        let session = chat(&hub, &stopped, &stopped);
+        hub.kill(&session, false).await.unwrap();
+        assert_eq!(session.status(), SessionStatus::Closed);
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while stopped_dir.exists() && std::time::Instant::now() < until {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        assert!(!stopped_dir.exists(), "the stop left its folder");
 
         hub.shutdown_all().await;
-        for dir in [again, idle_dir, held_dir] {
+        for dir in [again, idle_dir] {
             let _ = std::fs::remove_dir_all(dir);
         }
-        let _ = std::fs::remove_dir_all(&root);
     }
 }
