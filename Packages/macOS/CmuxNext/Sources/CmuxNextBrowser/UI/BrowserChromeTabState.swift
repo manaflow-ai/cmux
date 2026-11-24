@@ -117,6 +117,13 @@ public final class BrowserChromeTabState: Sendable {
 extension BrowserChromeView {
     /// Shows `tab` with its own toolbar state `state` (`BrowserChromeTabSwitch`): a tab switch in a pane whose tabs share this chrome.
     public func bind(_ tab: any BrowserTab, state: BrowserChromeTabState) { BrowserChromeTabSwitch(chrome: self).bind(tab, state) }
+
+    /// Whether this chrome shows `state` now: a tab whose state moved to another tab id (a new tab's stand-in replaced by
+    /// the daemon's tab, `TabContentCache.moveBrowser`) is the same tab here, so its omnibar keeps the keyboard and its text.
+    ///
+    /// - Parameter state: The toolbar state of the tab the pane is about to show.
+    /// - Returns: True when ``bind(_:state:)`` would change nothing.
+    public func shows(_ state: BrowserChromeTabState) -> Bool { boundState === state }
 }
 
 /// A tab switch in a shared chrome (`BrowserChromeView.bind(_:state:)`). The tab that leaves keeps its state and its
@@ -193,7 +200,9 @@ struct BrowserChromeTabSwitch {
             chrome.pageOverlays.remove(notice)
         }
         // The cookie import offer waits, hidden, for its tab (it shows once per launch).
-        if let card = chrome.currentCookieImportCard, !card.isHidden {
+        if let card = chrome.currentCookieImportCard, card.wasSeen {
+            chrome.hideCookieImportOffer()  // seen: another tab showing closes it (``BrowserCookieImportCard/wasSeen``)
+        } else if let card = chrome.currentCookieImportCard, !card.isHidden {
             card.heldFor = state
             state.cookieOfferHolder = chrome
             card.isHidden = true

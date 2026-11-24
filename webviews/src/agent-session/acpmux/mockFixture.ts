@@ -44,6 +44,17 @@ export type MockSession = {
   history?: (at: number) => SeedStep[];
   /// Config options this chat offers beyond the harness's usual ones (the Options chip's).
   extraOptions?: Record<string, unknown>[];
+  /// The chat's task list across its turns (acpmux's summary `taskList`): the composer's hat keeps it
+  /// between turns while steps are left.
+  taskList?: {
+    source: "harness" | "agent" | "chief";
+    done: number;
+    total: number;
+    current?: string;
+    next?: string;
+    items: { content: string; status: "pending" | "in_progress" | "completed" }[];
+    updatedAt: number;
+  };
   /// The agent's suggested next prompt after its last turn. acpmux sends it live only (a page
   /// never holds it, hub/paging.rs NON_TRANSCRIPT_UPDATES), so the mock sends it when the chat opens.
   suggestion?: string;
@@ -584,6 +595,22 @@ export const mockSessions: MockSession[] = [
     host: LOCAL_HOST,
     hostKind: "local",
     reply: "Replaying 100k events takes 310 ms, 92% of it in JSON parsing.",
+    // l10n-allow: mock task steps
+    taskList: {
+      source: "harness",
+      done: 2,
+      total: 5,
+      current: "Parse events with simd-json",
+      next: "Rerun the 100k replay bench",
+      items: [
+        { content: "Profile the 100k replay", status: "completed" },
+        { content: "Find the hot path", status: "completed" },
+        { content: "Parse events with simd-json", status: "in_progress" },
+        { content: "Rerun the 100k replay bench", status: "pending" },
+        { content: "Post the before and after numbers", status: "pending" },
+      ],
+      updatedAt: 1_795_000_000_000,
+    },
   },
   {
     sessionId: "mock-home-screen",
@@ -1124,6 +1151,116 @@ export function listedSession(index: number, now: number): Record<string, unknow
     unread: index % 10 === 3,
     turnCount: 1 + (index % 7),
     usageStats: { costUsd24h: (index % 97) / 10, tokens24h: 1000 * (index % 31), updatedAt: now },
+  };
+}
+
+/// Text of `length` characters for a fleet row's free text (titles, previews, prompts).
+const fleetText = (seed: number, length: number) =>
+  `${`Fleet chat ${seed} `.padEnd(length, "lorem ipsum dolor sit amet ")}`.slice(0, length);
+
+/// The peers a fleet Mac mirrors (2026-11-18: 27 machines behind one daemon's list).
+const FLEET_PEERS = Array.from({ length: 27 }, (_, index) => `fleet-host-${index}`);
+
+/// Every this-many listed rows of a fleet list, one is open (not closed): about 5 %, as on a fleet Mac.
+export const FLEET_OPEN_EVERY = 20;
+/// Coordinators other fleet chats were started by (`parent`, `spawnedBy`, `lane.reportsTo`): 366 for 2,330
+/// started chats in the measured list, a few with 100 or more.
+const FLEET_COORDINATORS = 366;
+
+/// A fleet row's folder: about 4,000 of them, nearly all named for their worktree's lane; the
+/// measured list's most shared folder name ("review") named 32 of them, so one in 125 shares one.
+const fleetFolder = (index: number) => {
+  const folder = index % 4000;
+  return `/home/fleet/code/repo-${folder % 40}/${folder % 125 === 0 ? "review" : `lane-${folder}`}`;
+};
+
+/// Listed session `index` of a fleet-sized list (`cmuxAcpmuxMockListShape: "fleet"`; bench/session-scale-typing):
+/// the shape of the rows a Mac that mirrors a fleet lists, measured on one (Leo's, 2026-11-18: 10,790 rows, 38 MB
+/// of JSON, 3.9 KB a row at the median): on another machine (`peer`), closed but one in twenty, a fifth started by
+/// another chat (`parent`, `root`, `spawnedBy`, `lane.reportsTo`) of a few hundred coordinators, in one of about
+/// 4,000 folders, with the turn, receipt and policy members every acpmux row carries.
+export function fleetListedSession(index: number, now: number): Record<string, unknown> {
+  const sessionId = `listed-${index}`;
+  const open = index % FLEET_OPEN_EVERY === 0;
+  const peer = index % 19 === 5 ? undefined : FLEET_PEERS[index % FLEET_PEERS.length];
+  // Skewed fan-out: low coordinator numbers start most chats.
+  const started = index % 5 === 1 && index > FLEET_COORDINATORS;
+  const coordinator = Math.floor(((index * 7919) % 1000) ** 2 / ((1000 * 1000) / FLEET_COORDINATORS));
+  const parent = started ? `listed-${coordinator}` : null;
+  const updatedAt = now - (index + 10) * 60_000;
+  const harness = ["claude", "codex", "codex-review-box", "claude"][index % 4]!;
+  return {
+    ...newSessionSummary(sessionId, fleetFolder(index), updatedAt),
+    agentSessionId: `agent-${index}`,
+    attached: 0,
+    children: 0,
+    commandsRunning: 0,
+    createdBy: started ? { kind: "agent", session: parent } : null,
+    depth: started ? 1 : 0,
+    effort: "high",
+    enforcement: {
+      detail: fleetText(index, 82),
+      isolation: "unverified",
+      label: "native_policy",
+      policy: "approve-all",
+    },
+    eventCount: 1000 + index,
+    family: harness.startsWith("codex") ? "codex" : "claude",
+    harness,
+    heldMessages: [],
+    hostBuild: open ? "1.0.0-fleet" : null,
+    hostBuildDiffers: open,
+    indicator: open ? (index % 3 === 0 ? "working" : "done") : null,
+    lane:
+      open && started
+        ? { state: "working", since: updatedAt, step: fleetText(index, 201), title: fleetText(index, 32) }
+        : null,
+    lastMessage: { role: "agent", text: fleetText(index, 160) },
+    lastPrompt: fleetText(index + 1, 200),
+    lastSeq: 1000 + index,
+    lastTurn: {
+      endedAt: updatedAt,
+      promptId: `prompt-${index}`,
+      status: "completed",
+      stopReason: "end_turn",
+      turnCount: 10,
+      turnId: `turn-${index}`,
+      turnSeq: 900 + index,
+    },
+    model: harness.startsWith("codex") ? "gpt-codex" : "claude-opus",
+    name: `fleet-lane-${index}`,
+    nameGiven: index % 3 !== 0,
+    parent,
+    parentId: null,
+    ...(peer ? { peer, peerState: "connected", stale: false, qualifiedSessionId: `${peer}/${sessionId}` } : {}),
+    pendingPermissions: 0,
+    policy: "approve-all",
+    preview: fleetText(index + 2, 160),
+    pullRequests: index % 25 === 0 ? [{ number: 40000 + index, repo: "fleet/repo", state: "open" }] : [],
+    queue: [],
+    root: parent ?? sessionId,
+    sessionReceipt: {
+      agentSessionId: `agent-${index}`,
+      generation: updatedAt,
+      hostId: peer ?? "local",
+      muxSessionId: sessionId,
+    },
+    shortName: index % 4 === 0 ? `lane-${index}` : null,
+    spawnedBy: parent,
+    startedBy: started && index % 12 === 1 ? parent : null,
+    state: open ? "running" : "closed",
+    status: open ? (index % 3 === 0 ? "running" : "idle") : "closed",
+    steering: true,
+    tags: started
+      ? { "lane.reportsTo": parent, ...(index % 10 === 1 ? { "mux.parent": parent, "mux.handle": `h-${index}` } : {}) }
+      : {},
+    title: fleetText(index, 32),
+    titleSource: "harness",
+    turnCount: 1 + (index % 41),
+    unread: false,
+    updatedAt,
+    usageStats:
+      index % 16 === 0 ? { costUsd24h: (index % 97) / 10, tokens24h: 1000 * (index % 31), updatedAt: now } : undefined,
   };
 }
 

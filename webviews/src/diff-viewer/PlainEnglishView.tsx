@@ -434,9 +434,7 @@ const HunkSentence = memo(function HunkSentence({
             {hunk.preview}
           </code>
           {state.kind === "ready" ? (
-            <span className="plain-english-sentence" title={state.text}>
-              {state.text}
-            </span>
+            <span className="plain-english-sentence">{state.text}</span>
           ) : state.kind === "failed" ? (
             <span className="plain-english-sentence plain-english-failed">{label("hunkSummaryFailed")}</span>
           ) : (
