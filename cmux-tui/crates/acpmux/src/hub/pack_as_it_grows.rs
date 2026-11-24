@@ -142,7 +142,8 @@ impl Hub {
         }
         let store = self.pack_store(id)?;
         let stamp = self.store.log_stamp(id)?;
-        let checked = self.pack_checked.lock().unwrap_or_else(|e| e.into_inner()).get(id) == Some(&stamp);
+        let checked =
+            self.pack_checked.lock().unwrap_or_else(|e| e.into_inner()).get(id) == Some(&stamp);
         let work = store.root().join(format!("work-{}", uuid::Uuid::now_v7().simple()));
         let sealed = (|| -> anyhow::Result<Sealed> {
             if checked && let Some(extended) = self.extend_pack(&session, through, &store, &work)? {

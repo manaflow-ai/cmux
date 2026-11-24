@@ -49,7 +49,13 @@ impl Text {
 }
 
 /// Appends records through the hub until the chat's log holds `bytes`; each append's time.
-fn grow(hub: &Hub, session: &Session, sessions: &Path, bytes: u64, text: &mut Text) -> Vec<Duration> {
+fn grow(
+    hub: &Hub,
+    session: &Session,
+    sessions: &Path,
+    bytes: u64,
+    text: &mut Text,
+) -> Vec<Duration> {
     let mut times = Vec::new();
     let mut n = 0u64;
     while n % 256 != 0 || log_bytes(sessions, &session.id) < bytes {
