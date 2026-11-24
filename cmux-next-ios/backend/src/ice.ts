@@ -18,11 +18,18 @@ const b64 = (bytes: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(b
  * base64 HMAC-SHA1 of it under the relay's shared secret, so minting is a local computation: no vendor call,
  * no per-byte meter, nothing to cache. `TURN_SELF_URLS` is a comma list of turn:/turns: URLs.
  */
-export const selfTurn = async (env: Env, ttl: number, now = Date.now()): Promise<IceServer | undefined> => {
+const selfTurnConfig = (env: Env): { urls: Array<string>; secret: string } | undefined => {
   const urls = (env.TURN_SELF_URLS ?? "").split(",").map((u) => u.trim()).filter((u) => /^turns?:/.test(u))
   if (!urls.length || !env.TURN_SELF_SECRET) return undefined
+  return { urls, secret: env.TURN_SELF_SECRET }
+}
+
+export const selfTurn = async (env: Env, ttl: number, now = Date.now()): Promise<IceServer | undefined> => {
+  const config = selfTurnConfig(env)
+  if (!config) return undefined
+  const { urls } = config
   const username = `${Math.floor(now / 1000) + ttl}:cmux`
-  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(env.TURN_SELF_SECRET), { name: "HMAC", hash: "SHA-1" }, false, ["sign"])
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(config.secret), { name: "HMAC", hash: "SHA-1" }, false, ["sign"])
   const credential = b64(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(username)))
   return { urls, username, credential }
 }
@@ -119,8 +126,9 @@ async function loadShared(env: Env, scope: IceScope, ctx: ExecutionContext): Pro
 }
 
 export async function cachedIceServers(env: Env, ctx: ExecutionContext): Promise<IceAnswer> {
-  // Our own relay's credentials are an HMAC away: nothing to cache or wait for.
-  if ((env.TURN_SELF_URLS && env.TURN_SELF_SECRET) || !env.TURN_KEY_ID || !env.TURN_KEY_API_TOKEN) return iceServers(env)
+  // Our own relay's credentials are an HMAC away: nothing to cache or wait for. The same parse decides
+  // here and in iceServers, so a self setting with no usable URL keeps Cloudflare on the cached path.
+  if (selfTurnConfig(env) || !env.TURN_KEY_ID || !env.TURN_KEY_API_TOKEN) return iceServers(env)
   // A TURN mint uses the Worker's key and TTL, irrespective of caller or team.
   // This reserved object in the existing binding is accessible on every ingress.
   const key = JSON.stringify(["turn-cache-v1", env.ENVIRONMENT, env.TURN_KEY_ID, iceTtl(env)])
