@@ -472,6 +472,44 @@ requestAnimationFrame(() => {
     await context.close();
   });
 
+  test("rows placed past a million pixels down a long chat draw where the page drew them", async () => {
+    // Leo, 2026-11-24, on a revive: "tons of layout shifts". The style attribute writes a length with six
+    // significant digits, so a 6000-turn chat's rows (`top: 1026212.5px`) read `top: 1.02621e+06px`, and the
+    // copy drew each up to 5 px off the live page it gave way to.
+    const context = await newContext(800, 600);
+    const writer = await context.newPage();
+    await writer.route("http://chat.test/a.html", (route) =>
+      route.fulfill({ contentType: "text/html", body: htmlDocument(`<main id="root">${MARKUP()}</main>`) }),
+    );
+    await writer.goto("http://chat.test/a.html");
+    await writer.addScriptTag({ content: capture });
+    const read = (scope: ParentNode) =>
+      Array.from(scope.querySelectorAll<HTMLElement>(".acpmux-row"))
+        .map((row) => [row.dataset.rowId, Math.round(row.getBoundingClientRect().top * 64) / 64] as const)
+        .filter(([, top]) => top > -40 && top < 600);
+    const { snapshot, drawn } = await writer.evaluate((readText) => {
+      const readRows = new Function(`return ${readText}`)();
+      const base = 1_026_212.5;
+      document.querySelector<HTMLElement>(".acpmux-spacer")!.style.height = `${base + 100 * 41.75 + 3.25}px`;
+      document.querySelectorAll<HTMLElement>(".acpmux-row").forEach((row, at) => {
+        row.style.top = `${base + at * 41.75}px`;
+      });
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      scroller.scrollTop = scroller.scrollHeight;
+      return { snapshot: (globalThis as any).captureSnapshot(document, "theme-1"), drawn: readRows(document) };
+    }, read.toString());
+    expect(drawn.length).toBeGreaterThan(5);
+    expect(snapshot.html).not.toMatch(/\de\+0\d/);
+    const page = await context.newPage();
+    await relaunched(page, snapshot, "theme-1", { holdDraw: true });
+    const copied = await page.evaluate((readText) => {
+      const readRows = new Function(`return ${readText}`)();
+      return readRows(document.querySelector("cmux-chat-snapshot")!.shadowRoot!);
+    }, read.toString());
+    expect(copied).toEqual(drawn);
+    await context.close();
+  });
+
   test("a box's checked state is written as it shows, both ways", async () => {
     const context = await newContext(800, 600);
     const page = await context.newPage();

@@ -1083,6 +1083,17 @@ try {
         return { snapshot: snapshot ?? null, miss: snapshot ? "" : w.captureMiss() };
       }, THEME);
       if (TRACE) console.log(`warm bottom band:\n  ${(await page.evaluate(bottomBand)).join("\n  ")}`);
+      if (TRACE)
+        console.log(
+          `warm rows at the copy: ${(
+            await page.evaluate(() =>
+              Array.from(document.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]"))
+                .map((row) => [row.dataset.rowId, row.getBoundingClientRect()] as const)
+                .filter(([, box]) => box.bottom > 0 && box.top < innerHeight)
+                .map(([id, box]) => `${id}@${box.top.toFixed(0)}+${box.height.toFixed(0)}`),
+            )
+          ).join(" ")}`,
+        );
       if (!written.snapshot) throw new Error(`the settled page wrote no copy: ${written.miss}`);
       return written.snapshot;
     } finally {
@@ -1527,6 +1538,13 @@ try {
               `composer ${composer}`,
               `scrollTop ${frame.scrollTop === null ? "-" : frame.scrollTop.toFixed(0)}`,
               ...(shifts.has(at) ? [shifts.get(at)!] : []),
+              // A shift names every row in view on both sides of it, so the row that came, went or moved shows.
+              ...(shifts.has(at) && at > 0
+                ? [
+                    `was ${worst.frames[at - 1]!.rows.map((row) => `${row.id}@${row.top.toFixed(0)}`).join(" ")}`,
+                    `now ${frame.rows.map((row) => `${row.id}@${row.top.toFixed(0)}`).join(" ")}`,
+                  ]
+                : []),
             ].join(" | "),
           );
         });
