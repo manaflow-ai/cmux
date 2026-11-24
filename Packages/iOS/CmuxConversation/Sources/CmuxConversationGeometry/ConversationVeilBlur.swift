@@ -1,4 +1,8 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
+#else
+import Foundation
+#endif
 
 /// A blurred veil over the transcript built from public UIKit pieces: a
 /// system material held part way by a paused animator, under a solid wash.
