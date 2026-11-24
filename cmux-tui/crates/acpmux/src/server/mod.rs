@@ -2994,6 +2994,7 @@ mod review_queue;
 mod run_elsewhere;
 mod sign_in_follow;
 mod ssh_carry;
+mod surgery;
 mod task_list;
 pub use pairing::serve_connection_device;
 mod chat_place;
