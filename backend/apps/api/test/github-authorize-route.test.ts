@@ -33,7 +33,11 @@ describe("GitHub authorize route", { timeout: 60_000 }, () => {
     const state = await connect(a.session, { return_to: app })
     // What the app gets today: GitHub's redirect has the installation and no code, and nothing can finish it.
     const stuck = await op(a.session, "integration.complete", { state, installation_id: "99", setup_action: "update" })
-    expect(stuck.body).toMatchObject({ ok: false, error: { code: "integration.state_invalid" } })
+    expect(stuck.body).toMatchObject({ ok: false, error: { code: "integration.state_invalid", next_action: "accounts.githubConnect" } })
+    // An organization member's install is a request to the owners: the step is to wait for their approval, not to start again.
+    const asked = await op(a.session, "integration.complete", { state, setup_action: "request" })
+    expect(asked.body).toMatchObject({ ok: false, error: { code: "integration.state_invalid", next: expect.stringContaining("owner of the GitHub organization") } })
+    expect("next_action" in asked.body.error).toBe(false)
 
     const res = await authorize({ state, installation_id: "99" })
     expect(res.status).toBe(302)
