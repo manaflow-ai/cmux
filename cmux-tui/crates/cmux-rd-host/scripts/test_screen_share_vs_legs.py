@@ -231,6 +231,23 @@ class Shape(unittest.TestCase):
         self.assertEqual(printed, [[{"leg": "wired"}]])
         self.assertIn("wifi-away", str(e.exception))
 
+    def test_every_leg_failed_prints_no_table(self):
+        class Orch:
+            def __init__(self, a):
+                pass
+
+            def main(self):
+                raise RuntimeError("down")
+        old = vs.Orchestrator, vs.format_legs
+        vs.Orchestrator = Orch
+        vs.format_legs = lambda budgets: self.fail("table printed with no leg")
+        try:
+            with self.assertRaises(SystemExit) as e:
+                vs.cmd_run(argparse.Namespace(legs="wired,wifi-away"))
+        finally:
+            vs.Orchestrator, vs.format_legs = old
+        self.assertIn("wired, wifi-away", str(e.exception))
+
     def test_an_unshaped_leg_never_touches_the_shaper(self):
         o = orchestrator(shape=None)
         o.measure = lambda: None

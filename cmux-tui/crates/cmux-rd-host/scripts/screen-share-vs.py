@@ -2915,8 +2915,10 @@ def cmd_run(args):
         except (Exception, SystemExit) as e:  # noqa: BLE001 - one failed leg must not lose the others
             failed.append(name)
             print(f"leg {name} failed: {e!r}"[:600], file=sys.stderr, flush=True)
-    print()
-    print("\n".join(format_legs([b for b in budgets if b])))
+    budgets = [b for b in budgets if b]
+    if budgets:  # every leg failed: no table, so the failure below is the last line
+        print()
+        print("\n".join(format_legs(budgets)))
     if failed:
         raise SystemExit(f"legs failed: {', '.join(failed)} (the table holds the rest)")
 
