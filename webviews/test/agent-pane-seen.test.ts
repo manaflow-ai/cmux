@@ -7,9 +7,8 @@
 // - Hiding the page (a tab in a background workspace, an occluded window) sends
 //   `_acpmux/view` visible false; showing it again sends true.
 // - A reader who steps away (no pointer move, wheel, key or focus for the idle time, attention.ts)
-//   leaves the chat unread but still on screen: `_acpmux/view` visible true, attending false; their
-//   next move sends attending true. The page stays on screen, so acpmux keeps sending its chat's
-//   stream (`quietHidden` leaves it out only while the page is hidden, CMUX-571).
+//   leaves attendance: `_acpmux/view` stays visible but sends attending false; their next move
+//   sends attending true.
 // - acpmux handles each request on its own task, so a view sent while the attach is in flight
 //   could overtake it and be refused; the pane sends it once the attach is answered.
 //
@@ -210,7 +209,7 @@ await requireBrowserLane("agent-pane-seen.test.ts", async () => {
         await sentViews(2);
         await settled();
         expect(views()).toEqual([
-          { sessionId: SESSION, visible: false, attending: true },
+          { sessionId: SESSION, visible: false, attending: false },
           { sessionId: SESSION, visible: true, attending: true },
         ]);
       } finally {
@@ -218,7 +217,7 @@ await requireBrowserLane("agent-pane-seen.test.ts", async () => {
       }
     }, 120_000);
 
-    test("a reader who steps away leaves the chat unshown, and their next move shows it", async () => {
+    test("a reader who steps away leaves attendance, and their next move restores it", async () => {
       const from = sent.length;
       const pane = await openPane((p) => p.clock.install());
       try {
@@ -261,7 +260,7 @@ await requireBrowserLane("agent-pane-seen.test.ts", async () => {
         releaseAttach!();
         await until(() => views(from).length >= 1, "the view");
         await settled();
-        expect(views(from)).toEqual([{ sessionId: SESSION, visible: false, attending: true }]);
+        expect(views(from)).toEqual([{ sessionId: SESSION, visible: false, attending: false }]);
       } finally {
         holdAttach = false;
         await page.close();
@@ -285,7 +284,7 @@ await requireBrowserLane("agent-pane-seen.test.ts", async () => {
         await until(() => views(from).length >= 2, "both views");
         await settled();
         expect(views(from)).toEqual([
-          { sessionId: SESSION, visible: false, attending: true },
+          { sessionId: SESSION, visible: false, attending: false },
           { sessionId: SESSION, visible: true, attending: true },
         ]);
       } finally {

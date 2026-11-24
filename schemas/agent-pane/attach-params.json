@@ -134,7 +134,8 @@
           "usage_limits",
           "usage_update"
         ],
-        "visible": true
+        "visible": true,
+        "attending": true
       }
     }
   ]

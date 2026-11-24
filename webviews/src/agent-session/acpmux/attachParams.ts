@@ -36,12 +36,12 @@ export function plainAttach(
   options: {
     settled: boolean;
     visible: boolean;
-    attending: boolean;
+    attending?: boolean;
     local: boolean;
     maxBytes: number;
     afterSeq?: number;
   },
-): AttachParams {
+): AttachParams & { attending: boolean } {
   const forward = options.afterSeq !== undefined && options.afterSeq > 0;
   return {
     sessionId,
@@ -78,7 +78,7 @@ export function plainAttach(
     // (`quietHidden`, CMUX-571); the view that shows it again sends one `_acpmux/lagged`, and the page
     // reads what it missed from its cursor (direct.ts `resyncAfterLag`).
     visible: options.visible,
-    attending: options.attending,
+    attending: options.attending ?? true,
     quietHidden: true,
   };
 }
