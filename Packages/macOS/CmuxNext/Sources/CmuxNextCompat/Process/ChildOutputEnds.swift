@@ -10,7 +10,8 @@ public import Foundation
 /// open in the app. NIGHTLY held about 2,000 pipes when it hung 391 s in a pipe write
 /// (cmuxterm-hq#8747). A grandchild still writing then gets EPIPE instead of filling a pipe nobody
 /// reads.
-public enum ChildOutputEnds {
+public struct ChildOutputEnds {
+    public init() {}
     /// How long after the child's exit its readers still drain what it wrote before the read ends
     /// close: the bytes are already in the pipe at exit, so a reader that is not stalled takes
     /// milliseconds.
