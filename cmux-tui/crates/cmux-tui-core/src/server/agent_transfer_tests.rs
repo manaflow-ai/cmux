@@ -1370,10 +1370,10 @@ fn a_tail_first_move_stages_the_tail_and_sends_the_history_after() {
     assert_eq!(sent["params"]["stageId"], json!("stg_1"));
     ok_data(&client.request(json!({"cmd":"agent-transfer-finish","receive_id":"rcv_1"})));
     let _finish = fake.frame();
-    // After: have, export, install.
+    // After: have, export, install, for the chat the receive's manifest named.
     let have = client.request(json!({"cmd":"agent-transfer-history-have","receive_id":"rcv_1"}));
     assert_eq!(ok_data(&have)["have"], json!(0));
-    assert_eq!(fake.frame()["params"], json!({"sessionId":"acp_moved"}));
+    assert_eq!(fake.frame()["params"], json!({"sessionId":"acp_moving"}));
     let export = client.request(json!({"cmd":"agent-transfer-history-export",
                                        "transfer_id":"xfer_1","have":0}));
     let export = ok_data(&export).clone();
@@ -1386,7 +1386,7 @@ fn a_tail_first_move_stages_the_tail_and_sends_the_history_after() {
     assert_eq!(ok_data(&installed)["records"], json!(5));
     let sent = fake.frame();
     assert_eq!(sent["method"], json!("_acpmux/transfer_history"));
-    assert_eq!(sent["params"], json!({"sessionId":"acp_moved","stageId":"stg_1"}));
+    assert_eq!(sent["params"], json!({"sessionId":"acp_moving","stageId":"stg_1"}));
 }
 
 #[test]
