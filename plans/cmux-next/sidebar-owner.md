@@ -2801,6 +2801,11 @@ Commits logged without a trailer (the card above):
   round-control corner (22), which made it a two-line capsule. The single-change second line is gone: every change is
   one hover away. Gallery: `card-shape-*` in updateSurfaces.gallery.tsx.
   Sidebar-Look: "the fuck is a pill with 2 lines supposed to be for anyways? the fuck kind of information are you showing with a single fucking line of content?"
+- 2026-11-23 (Updated card, reverted): the one-line card above is reverted to the two-line look it had before: "Updated
+  to Nightly" alone on the first line, the update's top change on the second, at the composer's corner. At a sidebar's
+  width the one line cut the title to "Update..." to fit What's New ↗ beside it. The photo contrast tokens from #52432
+  stay (gallery `card-photo-*`). Test: webviews/test/updated-card-original-look.test.tsx.
+  Sidebar-Look: "this update thing is ugly now (the button) just revert the bottom left button thing to what it originally was."
   2026-11-22 (follow-up to #49591): a favicon's raster box grows with its larger optical side, so its bitmap holds the
   pixels its frame draws (SidebarFaviconLegibilityTests: 32 px drawn as 17 pt). The gap test measures a favicon from
   its own square's end: it starts on the glyphs' edge and fills the tab's side, so it ends nearer its title by design.
