@@ -19,5 +19,5 @@ import { isVm, PARKED, vmHolder, type AutoRecord } from "./model.ts"
 export const machineGone = (r: AutoRecord, machine: string): AutoRecord | null => {
   if (!r.auto || !isVm(r.holder) || r.holder !== vmHolder(machine) || r.leaseExpiresAt !== 0) return null
   if (r.assignment !== "takeover" && r.assignment !== "create") return null
-  return { ...r, holder: PARKED, epoch: r.epoch + 1, assignment: null, blocked: "no_machine", parkedFrom: null, resumedEpoch: 0, needsRun: true, leaseExpiresAt: 0, owesImport: false }
+  return { ...r, holder: PARKED, epoch: r.epoch + 1, assignment: null, blocked: "no_machine", parkedFrom: null, resumedEpoch: 0, needsRun: true, leaseExpiresAt: 0, owesImport: false, move: null }
 }

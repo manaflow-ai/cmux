@@ -1,9 +1,9 @@
 import type { Env } from "../env.ts"
 import { callerFor, isRefused, type Refused } from "./callers.ts"
 import { MAX_EVENTS_PAGE, type EventIn } from "./events.ts"
-import { answer, bodyOf, bounded, bytesOf, CHAT_ID, count, DEVICE, fail, HARNESS, hex, invalid, json, MACHINE, MESSAGE_ID, noContent, notFound, rawJson, refusal, repoOf, TEAM, titleOf, WRITER_HELP, writerOf } from "./http.ts"
+import { answer, bodyOf, bounded, bytesOf, CHAT_ID, count, DEVICE, fail, HARNESS, hex, invalid, isLaptop, json, MACHINE, MESSAGE_ID, noContent, notFound, rawJson, refusal, repoOf, TEAM, titleOf, WRITER_HELP, writerOf } from "./http.ts"
 import { mayUseTeam, type AutoListCursor } from "./index-do.ts"
-import { MAX_CHUNK_BYTES, MAX_EVENTS_PER_POST, MAX_EVENTS_POST_BYTES, MAX_INBOX_TEXT_BYTES, MAX_MANIFEST_BYTES, MAX_WAIT_MS, type AutoCaller, type AutoSessionView } from "./model.ts"
+import { MAX_CHUNK_BYTES, MAX_EVENTS_PER_POST, MAX_EVENTS_POST_BYTES, MAX_INBOX_TEXT_BYTES, MAX_MANIFEST_BYTES, MAX_WAIT_MS, type AutoCaller, type AutoSessionView, type MoveTo } from "./model.ts"
 import { SHA256_HEX } from "./snapshots.ts"
 
 /**
@@ -18,7 +18,7 @@ import { SHA256_HEX } from "./snapshots.ts"
  *                                                        when they have none there
  *   PUT  /v1/auto-sessions/machine              owner    {team, machine} -> {team, machine}; one per owner, for every team's chats; it replaces every pick
  *   GET  /v1/auto-sessions?limit=&cursor=       owner    -> {sessions, nextCursor}
- *   POST /v1/auto-sessions                      owner    {title?, harness, repo: {remote, branch}, firstMessage: {id, text}}
+ *   POST /v1/auto-sessions                      owner    {title?, harness, repo: {remote, branch}, firstMessage: {id, text}, keepInCloud?}
  *                                                        -> 201 {session}: the Auto machine holds it, assignment `create`; 409 auto.no_machine
  *                                                        only when the owner named none and has no Cloud machine of their own
  *   GET  /v1/auto-sessions/assignments?timeoutMs=  machine  -> {assignments: [{kind, session}]}, held until one exists or the deadline
@@ -26,7 +26,8 @@ import { SHA256_HEX } from "./snapshots.ts"
  *                                                        held by `device:<device>` at epoch 1; `{auto: false}` closes it, 409 auto.held_in_cloud while a machine holds it
  *   GET  /v1/auto-sessions/:id                  owner, machine -> {session}
  *   GET  /v1/auto-sessions/:id/wait?after=<version>&timeoutMs=  owner -> {session} once its version passes `after`, or at the deadline (at most 25 s)
- *   POST /v1/auto-sessions/:id/lease            owner, machine {holder, epoch, needsRun, standby?} -> {session, role: holder|standby|lost, leaseMs}
+ *   POST /v1/auto-sessions/:id/lease            owner, machine {holder, epoch, needsRun, standby?} -> {session, role: holder|standby|lost, leaseMs, move?};
+ *                                                        `move` (cloud|local) tells the holder the person asked to move the chat
  *   POST /v1/auto-sessions/:id/release          holder   {holder, epoch} -> {session}: parked, or the standby laptop's
  *   POST /v1/auto-sessions/:id/events           holder   {holder, epoch, events: [{seq, record}]} (at most 256, 1 MiB) -> {lastSeq}; 409 auto.seq_gap with lastSeq
  *   GET  /v1/auto-sessions/:id/events?after=<seq>&limit=  owner, machine -> {events, lastSeq}
@@ -38,6 +39,11 @@ import { SHA256_HEX } from "./snapshots.ts"
  *   GET  /v1/auto-sessions/:id/inbox?after=<n>  holder   -> {messages: [{n, id, text, at}]}
  *   POST /v1/auto-sessions/:id/inbox/ack        holder   {holder, epoch, through} -> {session}
  *   POST /v1/auto-sessions/:id/keep             owner    {keepInCloud} -> {session}
+ *   POST /v1/auto-sessions/:id/move             owner    {to: cloud|local, device?: "device:<id>"} -> {session}: the wish in `session.move`, and
+ *                                                        `keepInCloud` set with it; a parked chat goes at once. 409 auto.off, auto.no_machine,
+ *                                                        auto.no_laptop, auto.not_copied (a parked chat with no snapshot, to the Cloud)
+ *   POST /v1/auto-sessions/:id/give             holder   {holder, epoch} -> {session}: the chat with the Auto machine (a `takeover`) or the
+ *                                                        laptop; 409 auto.no_move, auto.not_copied until a snapshot covers the last event
  *   POST /v1/auto-sessions/:id/assignment/ack   machine  {holder, epoch} -> {session}
  *
  * A write that names a holder or epoch that is not current is refused 409 auto.not_holder or auto.stale_epoch.
@@ -145,6 +151,18 @@ const postInbox = async (c: Call): Promise<Response> => {
   return answer(await chat(c).post(c.by.owner, { id: b.id, text: b.text }), (v) => v)
 }
 
+/** `POST move`: where the person wants the chat to run now, and the laptop when they named one. */
+const postMove = async (c: Call): Promise<Response> => {
+  const b = await bodyOf(c.request)
+  if (b instanceof Response) return b
+  const to: MoveTo | null = b.to === "cloud" ? "cloud" : b.to === "local" ? "local" : null
+  if (to === null) return invalid("to: cloud (the Cloud machine) or local (a laptop)")
+  const device = b.device === undefined ? null : isLaptop(b.device) ? b.device : undefined
+  if (device === undefined) return invalid("device: the laptop to move the chat to, as device:<id>")
+  if (device !== null && to === "cloud") return invalid("device: only with to: local")
+  return answer(await chat(c).move(c.by.owner, to, device), session)
+}
+
 /** A chat's routes, by method and the path after its id (`chunks/:` stands for a chunk's name). */
 const ROUTES: Record<string, Route> = {
   "GET ": { allow: "either", run: async (c) => answer(await chat(c).get(who(c)), session) },
@@ -176,6 +194,8 @@ const ROUTES: Record<string, Route> = {
       return typeof b.keepInCloud === "boolean" ? answer(await chat(c).keep(c.by.owner, b.keepInCloud), session) : invalid("keepInCloud: true or false")
     }
   },
+  "POST move": { allow: "owner", run: postMove },
+  "POST give": { allow: "either", run: (c) => written(c, async (holder, epoch) => answer(await chat(c).give(who(c), holder, epoch), session)) },
   "POST assignment/ack": { allow: "machine", run: (c) => written(c, async (holder, epoch) => answer(await chat(c).ackAssignment(who(c), holder, epoch), session)) }
 }
 const METHODS = ["GET", "PUT", "POST"]
@@ -220,10 +240,11 @@ const collection = async (request: Request, env: Env): Promise<Response> => {
   if (!repo) return invalid("repo: {remote, branch}, the repository and branch the chat works in")
   const first = b.firstMessage as { id?: unknown; text?: unknown } | null | undefined
   if (!first || typeof first.id !== "string" || !MESSAGE_ID.test(first.id) || typeof first.text !== "string" || first.text.length === 0 || first.text.length > MAX_INBOX_TEXT_BYTES) return invalid(`firstMessage: {id, text}, the chat's first message (at most ${MAX_INBOX_TEXT_BYTES} characters)`)
+  if (b.keepInCloud !== undefined && typeof b.keepInCloud !== "boolean") return invalid("keepInCloud: true or false")
   if (env.CLOUD_MUTATION_LIMIT && !(await env.CLOUD_MUTATION_LIMIT.limit({ key: `auto-session:${by.owner}` })).success) return fail(429, "rate_limited", "too many new chats just now; retry in a minute")
   // The id is the first message's: a retry after a lost answer reaches the chat it made.
   const id = `as_${(await hex(`${by.owner}\u0000${first.id}`)).slice(0, 20)}`
-  return answer(await stub(env, by.owner, id).createCloud(by.owner, id, by.team, { title, harness: b.harness, repo, message: { id: first.id, text: first.text } }), session, 201)
+  return answer(await stub(env, by.owner, id).createCloud(by.owner, id, by.team, { title, harness: b.harness, repo, ...(typeof b.keepInCloud === "boolean" ? { keepInCloud: b.keepInCloud } : {}), message: { id: first.id, text: first.text } }), session, 201)
 }
 
 /**

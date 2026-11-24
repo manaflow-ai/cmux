@@ -15,6 +15,8 @@
 export const RENEW_MS = 10_000
 export const LEASE_MS = 45_000
 export const SELF_STOP_MS = 35_000
+/** How long a wish to move a chat waits for its holder to act on it (move.ts). */
+export const MOVE_MS = 120_000
 /** The longest one wait holds a request (a chat's wait and a machine's assignments). */
 export const MAX_WAIT_MS = 25_000
 /** One chunk, and all the chunks one snapshot of a chat may name. */
@@ -44,6 +46,14 @@ export type AutoRepo = { readonly remote: string; readonly branch: string }
 export type AutoMachine = { readonly team: string; readonly machine: string }
 /** A laptop that is online, has the chat, and does not hold it. It stops counting when it stops renewing. */
 export type Standby = { readonly holder: string; readonly expiresAt: number }
+export type MoveTo = "cloud" | "local"
+/**
+ * A wish to move the chat now (move.ts), kept until its holder gives the chat. `device`: the laptop named for a
+ * move to a laptop (`device:<id>`; null: the one that stands by). `at`: when it was asked. `machine`: the machine
+ * the owner's index keeps started while the wish waits: the Auto machine a move to the Cloud will go to, or the
+ * machine that holds the chat and has to give it.
+ */
+export type MoveWish = { readonly to: MoveTo; readonly device: string | null; readonly at: number; readonly machine: AutoMachine | null }
 
 /** One chat's record: the row of record-store.ts. */
 export type AutoRecord = {
@@ -76,6 +86,8 @@ export type AutoRecord = {
    * refused until it has, and its lease running out parks the chat as the Cloud's, not as that laptop's.
    */
   readonly owesImport: boolean
+  /** The person asked to move the chat and its holder has not given it yet; null when nobody asked. Any change of holder clears it. */
+  readonly move: MoveWish | null
   readonly lastSeq: number
   /** The newest snapshot's number, and the `lastSeq` its manifest names. */
   readonly snapshot: number
@@ -107,6 +119,8 @@ export type AutoSessionView = {
   readonly blocked: "no_machine" | null
   readonly needsRun: boolean
   readonly standby: ReadonlyArray<string>
+  /** The move the person asked for that the holder has not carried out yet: where to, the laptop named (left out when none was), and when. Left out when nobody asked. */
+  readonly move?: { readonly to: MoveTo; readonly device?: string; readonly at: number }
   readonly lastSeq: number
   readonly snapshot: number
   readonly inbox: number
@@ -133,17 +147,25 @@ export type AutoFail =
   | "auto.chunk_mismatch"
   | "auto.too_large"
   | "auto.closed"
+  | "auto.off"
+  | "auto.no_laptop"
+  | "auto.no_move"
+  | "auto.not_copied"
 /** A refusal carries the chat as it is now (when the caller may see it), and what the code promises: `lastSeq`, `missing`. */
 export type RefusalExtra = { readonly lastSeq?: number; readonly missing?: ReadonlyArray<string> }
 export type AutoRefusal = { readonly ok: false; readonly code: AutoFail; readonly message: string; readonly session?: AutoSessionView; readonly extra?: RefusalExtra }
 export type AutoResult<T> = { readonly ok: true; readonly value: T } | AutoRefusal
 
-/** The owner's index row for one chat (index-do.ts): its view, and the assignment its machine has not acked. */
+/**
+ * The owner's index row for one chat (index-do.ts): its view, the assignment its machine has not acked, and the
+ * machine a move waits on (`wake`), which the index keeps started as it does for an assignment.
+ */
 export type AutoIndexEntry = {
   readonly id: string
   readonly owner: string
   readonly view: AutoSessionView
   readonly assignment: { readonly kind: AssignmentKind; readonly machine: string; readonly team: string } | null
+  readonly wake: AutoMachine | null
 }
 
 export const liveStandby = (r: Pick<AutoRecord, "standby">, now: number): ReadonlyArray<Standby> => r.standby.filter((s) => s.expiresAt > now)
@@ -171,6 +193,7 @@ export const viewOf = (r: AutoRecord, now: number): AutoSessionView => ({
   blocked: r.blocked,
   needsRun: r.needsRun,
   standby: liveStandby(r, now).map((s) => s.holder),
+  ...(r.move ? { move: { to: r.move.to, ...(r.move.device === null ? {} : { device: r.move.device }), at: r.move.at } } : {}),
   lastSeq: r.lastSeq,
   snapshot: r.snapshot,
   inbox: r.inbox,
