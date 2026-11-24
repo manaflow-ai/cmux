@@ -16,6 +16,7 @@ pub mod machine_create;
 pub mod machine_repo;
 pub mod machine_route;
 pub mod moves;
+pub mod place_mode;
 pub mod sequence;
 pub mod start;
 pub mod vm_kind;
