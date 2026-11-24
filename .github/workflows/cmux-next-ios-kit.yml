@@ -270,10 +270,12 @@ jobs:
           python3 scripts/ci/same_tree_reuse.py decide --keys "$KEYS" --hits "$HITS" \
             --receipts .same-tree --audit-percent "$AUDIT_PERCENT" >> "$GITHUB_OUTPUT"
 
-  # Run the source-only lint alongside placement, on the same commit the Mac checks.
+  # Run the source-only lint on Linux when the Mac kit needs a fresh verdict.
   # Keep its exit status on the public kit check and let the advisory benches run after a failure.
   connection-notices:
-    timeout-minutes: 5
+    needs: runner
+    if: ${{ !fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].reuse }}
+    timeout-minutes: 10
     permissions:
       contents: read
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}

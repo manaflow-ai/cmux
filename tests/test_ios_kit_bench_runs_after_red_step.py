@@ -74,6 +74,8 @@ class BenchRunsAfterARedStep(unittest.TestCase):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         linux = jobs["connection-notices"]
         self.assertEqual(linux["runs-on"], jobs["runner"]["runs-on"])
+        self.assertEqual(linux["needs"], "runner")
+        self.assertIn(linux["if"].removeprefix("${{ ").removesuffix(" }}"), jobs["kit-tests"]["if"])
         check = next(step for step in linux["steps"] if step.get("name") == "Connection notices")
         self.assertNotIn("continue-on-error", check)
         self.assertIn("check-connection-notices.py", check["run"])
