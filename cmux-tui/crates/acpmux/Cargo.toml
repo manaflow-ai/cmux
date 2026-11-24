@@ -99,8 +99,6 @@ chrono.workspace = true
 chrono-tz.workspace = true
 cmux-server = { path = "../cmux-server" }
 cmux-json.workspace = true
-# The aggressive pause policy's applied machine.toml (`parked_wait.rs`).
-cmux-cloud-start-core.workspace = true
 cmux-netwatch.workspace = true
 # The settings file's path and JSONC reader (src/user_settings.rs), the settings owner's.
 cmux-config.workspace = true
