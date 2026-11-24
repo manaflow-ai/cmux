@@ -87,8 +87,13 @@ public struct WorkspaceAutoNameReader {
                                                                nameRevision: workspace.nameRevision,
                                                                allowsLegacyDefaults: allowsLegacyDefaults)
             let sessionName = turns.sessionName(for: session)
-            let launcherNamed = workspace.nameRevision == 0 && sessionName != nil
-                && (workspace.name == sessionName || workspace.name == SidebarMapping.shortSessionName(sessionName))
+            let givenName = NewWorkspaceName.clean(turns.displayName(for: session))
+            // A rename moves the session's old name into `formerNames`: a workspace its launcher named after the
+            // agent still reads as the agent's name now, never frozen on the name it had at launch.
+            let formerNames = turns.formerNames(for: session)
+            let launcherNamed = workspace.nameRevision == 0
+                && SidebarMapping.isSessionNamed(workspace.name, sessionName: sessionName, displayName: givenName,
+                                                 formerSessionNames: formerNames)
             let mayName = (workspace.title ?? "").isEmpty && (!protectedName || launcherNamed)
             guard rule.enabled, mayName else { hold.forget(workspace: workspace.id); return nil }
             let task = (turns.detail(for: session)?.prompt ?? face.agent?.lastPrompt)
@@ -99,7 +104,7 @@ public struct WorkspaceAutoNameReader {
                 workspaceTitle: "", workspaceName: workspace.name,
                 workspaceNameSource: workspace.nameSource, workspaceNameRevision: workspace.nameRevision,
                 explicitWorkspaceTitle: workspace.title, sessionName: sessionName,
-                displayName: NewWorkspaceName.clean(turns.displayName(for: session)),
+                displayName: givenName, formerSessionNames: formerNames,
                 chatTitle: NewWorkspaceName.clean(turns.generatedTitle(for: session)),
                 explicitChatTitle: NewWorkspaceName.clean(face.name), taskSummary: task)
             // A chat with none of those (an unnamed session whose title was never generated) reads
