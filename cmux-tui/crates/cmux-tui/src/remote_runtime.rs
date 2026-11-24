@@ -2023,10 +2023,16 @@ async fn run_daemon(
                         daemon.clone(),
                         address,
                         MAX_CARRIER_FRAME_BYTES,
-                        DirectWebSocketOptions::new(
-                            options.allow_insecure_non_loopback,
-                            options.trusted_carrier_websocket,
-                        ),
+                        DirectWebSocketOptions {
+                            // `--remote-ws-trusted-carrier` is the operator's explicit
+                            // opt-in for compatibility machines; the daemon still grants
+                            // carrier auth only to private-address peers.
+                            allow_trusted_carrier_non_loopback: options.trusted_carrier_websocket,
+                            ..DirectWebSocketOptions::new(
+                                options.allow_insecure_non_loopback,
+                                options.trusted_carrier_websocket,
+                            )
+                        },
                     )
                     .await?,
                 ),
