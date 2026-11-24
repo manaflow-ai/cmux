@@ -52,9 +52,15 @@ function transcript(next: "none" | "running" | "ended"): AcpmuxRow[] {
   if (next === "none") return rows;
   rows.push(
     notice("bg2", 61, next === "running"),
-    run("verify", [call("c6", "gh api steps", next === "running" ? "in_progress" : "completed")], {
-      inBackground: "bg2",
-    }),
+    // Three calls: a turn folds under "Worked for" only with three work rows or five seconds
+    // (workedForSmallTurns.test.tsx), and this one is about a turn that does.
+    run(
+      "verify",
+      ["c6", "c7", "c8"].map((id) => call(id, "gh api steps", next === "running" ? "in_progress" : "completed")),
+      {
+        inBackground: "bg2",
+      },
+    ),
   );
   if (next === "ended")
     rows.push(

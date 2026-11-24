@@ -156,17 +156,19 @@ const looseWork = (rows: readonly AcpmuxRow[]) =>
 for (const agentFamily of ["claude", "codex", undefined]) {
   const family = agentFamily ?? "default";
 
-  test(`${family}: (a) and (b) each wake turn's thought and send fold under its one closed Worked for`, () => {
+  // (a) is one thought and a reply with no time of its own: too little to fold, it draws flat (Leo,
+  // 2026-11-24, on such a wake: "honestly in these cases should we just... not do our folding
+  // situation? this edge case? cuz otherwise it's so weird"; workedForSmallTurns.test.tsx).
+  test(`${family}: (a) draws flat, too small to fold; (b)'s thought and send fold under its one closed Worked for`, () => {
     const view = turnView(wakes(), new Set(), { now: 120_000, agentFamily });
-    expect(looseWork(view)).toEqual([]);
-    for (const background of ["bg-a", "bg-b"]) {
-      const worked = view.filter((entry) => entry.id === `worked-${backgroundTurnRowId(background)}`);
-      expect(worked).toHaveLength(1);
-      expect(worked[0]).toMatchObject({ kind: "worked", foldOpen: false });
-    }
-    // The replies stay in sight, each under its own fold; (b)'s line keeps heading its turn.
+    expect(looseWork(view)).toEqual(["thought-a"]);
+    expect(view.some((entry) => entry.id === `worked-${backgroundTurnRowId("bg-a")}`)).toBe(false);
+    const worked = view.filter((entry) => entry.id === `worked-${backgroundTurnRowId("bg-b")}`);
+    expect(worked).toHaveLength(1);
+    expect(worked[0]).toMatchObject({ kind: "worked", foldOpen: false });
+    // The replies stay in sight; (b)'s under its fold, and (b)'s line keeps heading its turn.
     const drawn = ids(view);
-    expect(drawn.indexOf("reply-a")).toBeGreaterThan(drawn.indexOf(`worked-${backgroundTurnRowId("bg-a")}`));
+    expect(drawn.indexOf("reply-a")).toBeGreaterThan(drawn.indexOf("thought-a"));
     expect(drawn.indexOf("reply-b")).toBeGreaterThan(drawn.indexOf(`worked-${backgroundTurnRowId("bg-b")}`));
     expect(drawn.indexOf(backgroundTurnRowId("bg-b"))).toBeLessThan(
       drawn.indexOf(`worked-${backgroundTurnRowId("bg-b")}`),
