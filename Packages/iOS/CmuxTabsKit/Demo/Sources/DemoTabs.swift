@@ -171,6 +171,16 @@ final class DemoTabs: TabsDataSource {
         ]]
     }
 
+    /// `-stacks`: the first three tabs are one stack and the last two another, as a
+    /// Mac's panes are in cmux (the grid shows each as one card in a glass encasement).
+    private let stacksDemo = ProcessInfo.processInfo.arguments.contains("-stacks")
+    func stack(of id: String) -> TabsKitStack? {
+        guard stacksDemo, let i = order.firstIndex(of: id) else { return nil }
+        if i < 3 { return TabsKitStack(id: "first", title: "First three", frontTabID: order.first) }
+        if order.count >= 5, i >= order.count - 2 { return TabsKitStack(id: "last", title: "Last two") }
+        return nil
+    }
+
     var supportsReordering: Bool { true }
 
     /// Pinned tabs come first in `order` (Safari's pinned area).

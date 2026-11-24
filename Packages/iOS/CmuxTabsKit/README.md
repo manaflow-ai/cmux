@@ -108,6 +108,15 @@ transport or models.
   neighboring tab. Swiping past the last tab creates a new one. Swiping up
   opens the grid, the page following the finger. A swipe never triggers the
   button it started on.
+- **Stacks.** Return a `TabsKitStack` from `stack(of:)` for tabs that belong
+  together (cmux: a Mac pane's tabs). A stack of two or more shows as one card,
+  its front tab (the active tab when it is in the stack), in a liquid glass
+  encasement with a chevron where the close button is. The chevron, or a tap on
+  the encasement, opens the stack in place: its other tabs slide out from under
+  the front card into the following slots, the encasement grows around them
+  across rows, and the cards after it reflow, all on one interruptible spring
+  (0.44 / 0.84). Tapped again, they fold back under the front card. Pinned tabs never
+  stack. The demo shows it with `-stacks`.
 - **Status bar.** The style follows each tab's `statusBarStyle`.
 - **Reduce Motion.** Spatial animations become short crossfades.
 
