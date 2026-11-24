@@ -65,7 +65,8 @@ public struct PaneTrailingSlots {
 /// come next: an accessory takes only what is left once every tab has its full width, so the tabs fill the row up to the
 /// tools, shrink only when it is full, and scroll only past that. Before, the summary took up to half of the row and
 /// the tabs shrank and scrolled beside it (or beside its empty room, kept for a chat not selected).
-public enum TabRowAccessoryFit {
+public struct TabRowAccessoryFit {
+    public init() {}
     /// In a row `width` wide whose trailing slot is `base`, with tabs that need `tabs` to keep their full width
     /// (``TabStripView/naturalWidth``) and accessories that take `accessory`: the slot the strip gives up, and `room`,
     /// the most the accessories may take (offered to the page, ``PaneTabRowSharing/setTabRowAccessoryRoom(_:)``).
