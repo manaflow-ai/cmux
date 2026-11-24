@@ -62,6 +62,13 @@ const TCP_KEEP_ALIVE: Duration = Duration::from_secs(15);
 /// with the same floor against each other's delayed ACKs, and smoltcp delays
 /// an ACK by 10 ms.
 const TCP_MIN_RTO: Duration = Duration::from_millis(200);
+/// The retransmission timeout before a connection has an RTT sample, which
+/// is what a lost SYN or SYN-ACK waits. smoltcp defaults to RFC 6298's 1 s,
+/// so one lost SYN held a cold dial a full second (3% of them on a lossy
+/// phone link). 300 ms is above a typical cellular round trip; a slower one
+/// resends a SYN early, which costs one segment, and no RTT sample is taken
+/// from a resent segment (Karn), so the estimate is not skewed.
+const TCP_INITIAL_RTO: Duration = Duration::from_millis(300);
 /// How long a peer may hold an ACK, in the tail-loss probe timeout
 /// (`2 * SRTT` plus this). smoltcp peers delay ACKs 10 ms; the margin covers
 /// a kernel peer's first delayed ACK. A probe sent too early costs one
@@ -414,6 +421,9 @@ impl TcpStack {
         socket.set_congestion_control(congestion);
         socket.set_min_rto(smoltcp::time::Duration::from_micros(
             u64::try_from(TCP_MIN_RTO.as_micros()).unwrap_or(u64::MAX),
+        ));
+        socket.set_initial_rto(smoltcp::time::Duration::from_micros(
+            u64::try_from(TCP_INITIAL_RTO.as_micros()).unwrap_or(u64::MAX),
         ));
         // A lone lost segment is resent after about two round trips, not the RTO.
         socket.set_tail_loss_probe(Some(smoltcp::time::Duration::from_micros(
