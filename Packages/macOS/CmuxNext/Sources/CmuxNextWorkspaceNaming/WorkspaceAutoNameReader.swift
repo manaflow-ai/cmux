@@ -90,10 +90,14 @@ public struct WorkspaceAutoNameReader {
             let givenName = NewWorkspaceName.clean(turns.displayName(for: session))
             // A rename moves the session's old name into `formerNames`: a workspace its launcher named after the
             // agent still reads as the agent's name now, never frozen on the name it had at launch.
-            let formerNames = turns.formerNames(for: session)
-            let launcherNamed = workspace.nameRevision == 0
-                && SidebarMapping.isSessionNamed(workspace.name, sessionName: sessionName, displayName: givenName,
-                                                 formerSessionNames: formerNames)
+            // acpmux keeps only a few former names, so the hold remembers a match once seen (`WorkspaceAutoNameHold`).
+            var formerNames = turns.formerNames(for: session)
+            let launcherNamed = workspace.nameRevision == 0 && sessionName != nil
+                && hold.launcherNamed(workspace: workspace.id, name: workspace.name, session: session.session ?? "",
+                                      matches: SidebarMapping.isSessionNamed(workspace.name, sessionName: sessionName,
+                                                                             displayName: givenName,
+                                                                             formerSessionNames: formerNames))
+            if launcherNamed, !formerNames.contains(workspace.name) { formerNames.append(workspace.name) }
             let mayName = (workspace.title ?? "").isEmpty && (!protectedName || launcherNamed)
             guard rule.enabled, mayName else { hold.forget(workspace: workspace.id); return nil }
             let task = (turns.detail(for: session)?.prompt ?? face.agent?.lastPrompt)
