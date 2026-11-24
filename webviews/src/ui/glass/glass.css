@@ -169,22 +169,32 @@
      (cmux#37794), which matched native menus and no native popover. */
   --host-glass-fill: transparent;
 }
+/* A look's menu fill (--menu-fill, ui/README.md "Menu tokens a look sets"): a menu's and popover's
+   tint, on the page's glass and on the App's. Unset: the level's own, above. */
+.ui-popup.ui-glass {
+  --glass-tint: var(--menu-fill, color-mix(in srgb, var(--glass-surface) var(--ds-transient-web-tint), transparent));
+  --host-glass-fill: var(--menu-fill, transparent);
+}
 /* A MENU'S OWN GLASS FOLLOWS THE THEME'S VEIL (design/glass-system.md, rule 5). A native menu raises its veil
    per theme until the theme's text reads over its glass on its own window, white and black
    (GlassMenuMaterial.veil(for:): 40% in most of the old numbers, up to the 90% cap); on the App's glass a web
    menu is that native panel already (HOST GLASS, below). Where the page draws a menu's glass itself, its tint
    lets through the same share less: WebTheme's --cmux-menu-clear, (1 - veil) / (1 - 40%), 1 where the theme
    keeps 40%. Rose Pine Dawn's text read 2.6:1 on the 80% glass over a black page. The old numbers
-   (previous glass: --glass-menu-clear 1), the lens and glass off keep their own tints. */
+   (previous glass: --glass-menu-clear 1), the lens and glass off keep their own tints. A look's --menu-fill
+   (above) still wins here. */
 :root {
   --glass-menu-clear: var(--cmux-menu-clear, 1);
 }
 :root:not([data-glass="lens"], [data-glass="spectrum"], [data-reduce-transparency], [data-glass="off"])
   .ui-popup.ui-glass[data-host-glass="menu"] {
-  --glass-tint: color-mix(
-    in srgb,
-    var(--glass-surface) calc(100% - (100% - var(--ds-transient-web-tint)) * var(--glass-menu-clear)),
-    transparent
+  --glass-tint: var(
+    --menu-fill,
+    color-mix(
+      in srgb,
+      var(--glass-surface) calc(100% - (100% - var(--ds-transient-web-tint)) * var(--glass-menu-clear)),
+      transparent
+    )
   );
 }
 :root[data-glass-lens]:is([data-glass="lens"], [data-glass="spectrum"]) :is(.ui-popup, .ui-card, .ui-dialog, .ui-glass-transient).ui-glass {
