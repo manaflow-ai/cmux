@@ -22,6 +22,8 @@ cmux-mobile-link = { path = "crates/cmux-mobile-link" }
 cmux-build-space = { path = "../../cmux-tui/crates/cmux-build-space" }
 cmux-wg = { path = "../../cmux-tui/crates/cmux-wg" }
 cmux-fault = { path = "../../cmux-tui/crates/cmux-fault" }
+# The terminal composer's Send: one keyed request, kept across a reconnect.
+cmux-composer-send = { path = "../../cmux-tui/crates/cmux-composer-send" }
 cmux-transport = { path = "../../cmux-tui/crates/cmux-transport" }
 # cmux.rd/1 + cmux.rb/1 (streamed browser tabs, verify/browser-stream.md).
 cmux-rd-proto = { path = "../../cmux-tui/crates/cmux-rd-proto", features = ["serde"] }
@@ -29,6 +31,8 @@ cmux-tab-snapshots = { path = "../../cmux-tui/crates/cmux-tab-snapshots" }
 cmux-rd-core = { path = "../../cmux-tui/crates/cmux-rd-core" }
 cmux-rd-engine = { path = "../../cmux-tui/crates/cmux-rd-engine" }
 cmux-rd-ffi = { path = "../../cmux-tui/crates/cmux-rd-ffi" }
+# The cmux.rd/1 secure link (Noise over UDP, STUN, TURN): a joined Mac's screen through the hub share.
+cmux-rd-link = { path = "../../cmux-tui/crates/cmux-rd-link", features = ["net"] }
 # Predictive local echo, the engine the Mac app asks over cmux-app-ffi.
 cmux-terminal-prediction = { path = "../../cmux-tui/crates/cmux-terminal-prediction" }
 # The phone's own reflowed view of a Mac terminal it does not size.
@@ -47,6 +51,7 @@ bytes = "1"
 flate2 = "1"
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 getrandom = "0.3"
+libc = "0.2"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-webpki-roots"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "logging", "tls12"] }
 serde = { version = "1", features = ["derive"] }
