@@ -893,7 +893,11 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   `offset` is a byte offset represented as a number or decimal string, default
   zero. The upload folder uses `device-<SHA-256 of lowercase phone device ID>`
   in place of the link session so the same phone can resume after redial.
-  The host keeps the partial file at `<upload-folder>/.<upload_id>.part`,
+  The host keeps the partial file at `.parts/.<upload_id>.part`, a `.parts`
+  folder beside the upload folders (`<cwd>/.cmux/attachments/.parts`, or
+  `<uploads>/.parts`), keyed by the random `upload_id` alone, so a new link
+  with a new device or session finds it. The finished file is published into
+  the upload folder,
   truncates it to `offset`, and first answers `{"have":offset}\n`. If the
   requested offset is past the partial file, it answers
   `{"error":"resume_gap","have":length}\n` and closes `resume_gap`. An offset
@@ -907,7 +911,7 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   and closes `stalled`. Receiving more than `size` bytes deletes the partial
   file and closes `bad_request`. Resumable replies are one JSON object per
   newline-terminated line. The host removes resumable parts older than 24 hours
-  when it next opens that upload folder. Uploads without `upload_id` retain the
+  when it next opens the `.parts` folder. Uploads without `upload_id` retain the
   legacy reply framing and interruption behavior.
 - `browser`: `{"tab", "url"?}` a streamed Mac browser tab
   (verify/browser-stream.md). The channel carries the `cmux.rd/1` stream

@@ -269,7 +269,8 @@ Services (default deny, `unknown_service` otherwise):
   replies. The file goes into
   `<cwd>/.cmux/attachments/phone-<session>/` when `cwd` is a folder of one of
   the daemon's tabs or inside a root, else into `CMUX_MOBILE_UPLOADS_DIR/<session>/`.
-  Resumable uploads use a stable device folder in place of the session so they survive a redial.
+  Resumable uploads publish to a stable device folder in place of the session, and keep their partial
+  files in a `.parts` folder beside it, keyed by `upload_id`, so they survive a redial.
   It never overwrites. The name is made safe. A refusal is answered
   `{"error","message"}`. See `../SECURITY.md`.
 

@@ -1244,8 +1244,92 @@ async fn resumable_upload_stall_keeps_part_and_refuses() {
         ]
     );
     let _mac = host.await.unwrap();
-    let session = std::fs::read_dir(&fixture.uploads).unwrap().next().unwrap().unwrap().path();
-    assert_eq!(std::fs::read(session.join(format!(".{upload_id}.part"))).unwrap(), b"x");
+    let parts = fixture.uploads.join(".parts");
+    assert_eq!(std::fs::read(parts.join(format!(".{upload_id}.part"))).unwrap(), b"x");
+}
+
+/// The publish folder of `uploads`: its one entry that is not the `.parts` directory.
+fn publish_folder(uploads: &std::path::Path) -> std::path::PathBuf {
+    std::fs::read_dir(uploads)
+        .unwrap()
+        .flatten()
+        .map(|entry| entry.path())
+        .find(|path| path.file_name() != Some(std::ffi::OsStr::new(".parts")))
+        .expect("publish folder")
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_new_phone_device_and_link_resumes_an_earlier_part() {
+    const HALF: usize = 1 << 20;
+    let fixture = fixture(FakeOptions::default()).await;
+    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
+    let upload_id = "77777777-7777-7777-7777-777777777777";
+    let mut first = connected
+        .link
+        .open("upload", serde_json::json!({"name": "moved.bin", "size": HALF * 2, "upload_id": upload_id}))
+        .await
+        .unwrap();
+    let mut buffer = Vec::new();
+    assert_eq!(next_line(&mut first, &mut buffer).await, serde_json::json!({"have": 0}));
+    let first_bytes = vec![0x41; HALF];
+    first.send(Bytes::from(first_bytes.clone())).await.unwrap();
+    let last_ack = next_line(&mut first, &mut buffer).await["ack"].as_u64().unwrap();
+    assert_eq!(last_ack, HALF as u64);
+    first.close("cancelled", "retry").await;
+    let _ = drain(&mut first).await;
+    connected.link.close("redial");
+
+    // A second link from a different phone device and session, as after a
+    // reinstall or a different link: it must find the part by upload_id alone.
+    let (client, server) = tokio::io::duplex(64 << 10);
+    let phone =
+        cmux_mobile_link::Link::new(client, cmux_mobile_link::Role::Phone, LinkConfig::default(), None);
+    let mac = cmux_mobile_link::Link::new(server, cmux_mobile_link::Role::Mac, LinkConfig::default(), None);
+    let services = Arc::clone(&fixture.services);
+    let peer = cmux_mobile_host::services::Peer {
+        device_id: uuid::Uuid::new_v4().to_string(),
+        session_id: "second-link".into(),
+        video: None,
+        session_exposure: None,
+        route: None,
+        path: None,
+    };
+    let host = tokio::spawn(async move {
+        let incoming = mac.accept().await.unwrap();
+        cmux_mobile_host::services::serve_with_upload_timeout(
+            services,
+            peer,
+            Arc::default(),
+            incoming,
+            Duration::from_secs(5),
+        )
+        .await;
+        mac
+    });
+    let mut second = phone
+        .open(
+            "upload",
+            serde_json::json!({"name": "moved.bin", "size": HALF * 2, "upload_id": upload_id, "offset": last_ack.to_string()}),
+        )
+        .await
+        .unwrap();
+    let mut buffer = Vec::new();
+    assert_eq!(next_line(&mut second, &mut buffer).await, serde_json::json!({"have": HALF}));
+    let second_bytes = vec![0x42; HALF];
+    second.send(Bytes::from(second_bytes.clone())).await.unwrap();
+    let (reply, code) = drain(&mut second).await;
+    assert_eq!(code, "eof", "reply: {}", String::from_utf8_lossy(&reply));
+    let path = reply
+        .split(|byte| *byte == b'\n')
+        .filter(|line| !line.is_empty())
+        .map(|line| serde_json::from_slice::<serde_json::Value>(line).unwrap())
+        .find_map(|line| line.get("path").and_then(serde_json::Value::as_str).map(std::path::PathBuf::from))
+        .expect("path");
+    let mut expected = first_bytes;
+    expected.extend(second_bytes);
+    assert_eq!(sha256(&std::fs::read(path).unwrap()), sha256(&expected));
+    let _mac = host.await.unwrap();
+    drop(phone);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1256,23 +1340,24 @@ async fn resumable_upload_cleans_old_parts_and_discards_oversize_data() {
     let args = serde_json::json!({"name": "video", "upload_id": id, "size": 1});
     let mut upload = connected.link.open("upload", args.clone()).await.unwrap();
     assert_eq!(next_line(&mut upload, &mut Vec::new()).await, serde_json::json!({"have": 0}));
-    let folder = std::fs::read_dir(&fixture.uploads).unwrap().next().unwrap().unwrap().path();
+    let folder = publish_folder(&fixture.uploads);
+    let parts = fixture.uploads.join(".parts");
     let yesterday = std::time::SystemTime::now() - Duration::from_secs(25 * 3600);
     for name in [".stale.part", ".part", "other.part"] {
-        std::fs::File::create(folder.join(name)).unwrap().set_modified(yesterday).unwrap();
+        std::fs::File::create(parts.join(name)).unwrap().set_modified(yesterday).unwrap();
     }
-    std::fs::write(folder.join(".fresh.part"), b"keep").unwrap();
+    std::fs::write(parts.join(".fresh.part"), b"keep").unwrap();
     let mut overlapping = connected.link.open("upload", args).await.unwrap();
     assert_eq!(drain(&mut overlapping).await.1, "busy");
-    assert!(!folder.join(".stale.part").exists());
+    assert!(!parts.join(".stale.part").exists());
     for name in [".part", "other.part", ".fresh.part"] {
-        assert!(folder.join(name).is_file());
+        assert!(parts.join(name).is_file());
     }
     upload.send(Bytes::from_static(b"xx")).await.unwrap();
     let (reply, code) = drain(&mut upload).await;
     assert_eq!(code, "bad_request");
     assert!(reply.ends_with(b"\n"));
-    assert!(!folder.join(format!(".{id}.part")).exists());
+    assert!(!parts.join(format!(".{id}.part")).exists());
     assert!(!folder.join("video").exists());
 }
 

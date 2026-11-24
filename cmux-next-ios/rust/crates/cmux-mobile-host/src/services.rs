@@ -2125,6 +2125,24 @@ async fn upload_folder(
     Ok(resolved)
 }
 
+/// The directory of a resumable upload's part: `.parts` beside the upload
+/// folders (`<cwd>/.cmux/attachments/.parts`, or `<uploads>/.parts`). It is keyed
+/// by the phone's random `upload_id`, not by its device or link, so a new link
+/// finds the part an earlier one wrote.
+fn upload_parts_dir(folder: &Path) -> Result<PathBuf, Refusal> {
+    let parent = folder.parent().ok_or_else(|| Refusal::new("io", "the upload folder has no parent"))?;
+    let parent = std::fs::canonicalize(parent).map_err(|e| Refusal::new("io", e.to_string()))?;
+    let parts = parent.join(".parts");
+    std::fs::create_dir_all(&parts)
+        .map_err(|e| Refusal::new("io", format!("cannot create the upload parts: {e}")))?;
+    // `.parts` may be a symlink out of the upload folders.
+    let resolved = std::fs::canonicalize(&parts).map_err(|_| Refusal::new("io", "upload parts vanished"))?;
+    if !resolved.starts_with(&parent) {
+        return Err(Refusal::new("forbidden", "the upload parts leave the upload folders"));
+    }
+    Ok(resolved)
+}
+
 fn create_private_dir(path: &Path) -> Result<(), Refusal> {
     use std::os::unix::fs::DirBuilderExt;
     match std::fs::DirBuilder::new().recursive(true).mode(0o700).create(path) {
@@ -2235,8 +2253,9 @@ async fn receive_upload(
         }
         .ok_or_else(|| Refusal::new("bad_request", "invalid offset"))?;
         let folder = upload_folder(config, peer, cwd, true).await?;
-        cleanup_stale_upload_parts(&folder);
-        let part = folder.join(format!(".{id}.part"));
+        let parts = upload_parts_dir(&folder)?;
+        cleanup_stale_upload_parts(&parts);
+        let part = parts.join(format!(".{id}.part"));
         let io_error = |e: std::io::Error| Refusal::new("io", e.to_string());
         // Drop the descriptor before waking a retry, including on cancellation.
         let _release;
@@ -2253,7 +2272,7 @@ async fn receive_upload(
             return Err(Refusal::new("busy", "upload part changed"));
         }
         let mut file = tokio::fs::File::from_std(raw);
-        confine_open(std::slice::from_ref(&folder), &file)?;
+        confine_open(std::slice::from_ref(&parts), &file)?;
         let length = meta.len();
         if offset > length {
             let _ =
