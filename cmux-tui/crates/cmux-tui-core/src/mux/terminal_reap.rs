@@ -22,7 +22,10 @@
 //! connects again. A relaunch (Restart to Update) leaves many terminals unplaced for a moment
 //! while the new window restores its tabs; past the cap they ended at once, agents mid-turn with
 //! them (exit 143), instead of waiting the grace the restore uses to place them again. Each still
-//! waits only its own grace, so the hold never keeps a closed terminal's PTY past its grace.
+//! graces do not run out while that frontend is gone either: a relaunch slower than the grace (an
+//! update that downloads, verifies and reopens) found every one of them ended. They start a fresh
+//! grace when a frontend connects again, and run out as usual once the app has stayed away for
+//! [`MAX_FRONTEND_AWAY_HOLD`].
 //!
 //! The grace runs across owner restarts. The registry keeps the wall-clock
 //! time the owner first saw each terminal unplaced
@@ -54,6 +57,10 @@ pub(crate) const MAX_TERMINALS_IN_REAP_GRACE: usize = 16;
 /// Largest accepted reap grace period: one week.
 pub const MAX_TERMINAL_REAP_GRACE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
+/// How long the app's frontend may stay away with the graces of its closed terminals held. Past
+/// it the app is taken as not coming back, and each terminal ends at its own grace again.
+pub(crate) const MAX_FRONTEND_AWAY_HOLD: Duration = Duration::from_secs(24 * 60 * 60);
+
 const TERMINAL_REAP_MUTATION_ORIGIN: &str = "cmux-tui-terminal-reap";
 pub(super) const END_TERMINALS_MUTATION_ORIGIN: &str = "cmux-tui-end-terminals";
 
@@ -84,6 +91,9 @@ pub(crate) struct ReapSchedule {
     /// When the app's frontend was first seen connected in its current
     /// connection run; `None` while none is connected (relaunch hold).
     frontend_since: Option<Instant>,
+    /// When a frontend this owner served was first seen gone; `None` while
+    /// one is connected or none ever was.
+    frontend_gone_since: Option<Instant>,
 }
 
 impl ReapSchedule {
@@ -131,7 +141,9 @@ impl ReapSchedule {
     /// relaunching. `seen`: this owner has had a role-main connection;
     /// `connected`: one is connected now. Held while a frontend this owner
     /// served is gone, and for one `grace` after a frontend connects again,
-    /// the time its window takes to restore and place its tabs. An owner
+    /// the time its window takes to restore and place its tabs. While it is
+    /// gone (up to [`MAX_FRONTEND_AWAY_HOLD`]) no terminal's own grace runs
+    /// out either, and each gets a whole grace from the reconnect. An owner
     /// that never served an app (headless, CLI only) keeps the cap.
     pub(crate) fn relaunch_hold(
         &mut self,
@@ -142,10 +154,33 @@ impl ReapSchedule {
     ) -> bool {
         if !connected {
             self.frontend_since = None;
-            return seen;
+            if !seen {
+                return false;
+            }
+            let gone = *self.frontend_gone_since.get_or_insert(now);
+            let held = now.saturating_duration_since(gone) < MAX_FRONTEND_AWAY_HOLD;
+            if held {
+                self.hold_deadlines(deadline_after(now, grace.max(MIN_RETRY)));
+            }
+            return held;
+        }
+        if self.frontend_gone_since.take().is_some() {
+            // The app is back: its window gets one whole grace to place its tabs again.
+            self.hold_deadlines(deadline_after(now, grace.max(MIN_RETRY)));
         }
         let since = *self.frontend_since.get_or_insert(now);
         now.saturating_duration_since(since) < grace
+    }
+
+    /// No deadline comes before `until`. Pushed out, never dropped, so the
+    /// reaper thread still sleeps to a real deadline instead of spinning on
+    /// past-due ones.
+    fn hold_deadlines(&mut self, until: Instant) {
+        for deadline in self.deadlines.values_mut() {
+            if *deadline < until {
+                *deadline = until;
+            }
+        }
     }
 
     /// [`ReapSchedule::observe_unplaced`] for terminals unplaced just now.

@@ -578,3 +578,42 @@ fn terminal_reap_attached_terminal_survives_the_guarded_reap_close() {
 }
 
 mod detach_cap;
+
+/// While the app this owner served is gone no closed terminal's grace runs out; each gets a whole
+/// grace from the reconnect, and the hold ends once the app has stayed away past its bound.
+#[test]
+fn frontend_away_holds_each_terminals_grace_until_it_is_back_or_gone_for_good() {
+    let start = Instant::now();
+    let grace = Duration::from_secs(30);
+    let reapable: HashSet<String> = ["a".to_string(), "b".to_string()].into_iter().collect();
+    let mut schedule = ReapSchedule::default();
+    schedule.observe(start, grace, &reapable);
+    // The app quit; ten graces later nothing is due.
+    let mut now = start;
+    for _ in 0..10 {
+        now += grace;
+        schedule.observe(now, grace, &reapable);
+        assert!(schedule.relaunch_hold(now, grace, true, false));
+        assert!(schedule.due(now).is_empty(), "a grace ran out while the app was relaunching");
+    }
+    // It is back: a whole grace from here, then they end as usual.
+    let back = now + Duration::from_secs(5);
+    schedule.observe(back, grace, &reapable);
+    assert!(schedule.relaunch_hold(back, grace, true, true));
+    assert!(schedule.due(back + grace - Duration::from_millis(1)).is_empty());
+    assert_eq!(schedule.due(back + grace).len(), 2);
+
+    // An app that never comes back: past the bound the graces run out again.
+    let mut schedule = ReapSchedule::default();
+    schedule.observe(start, grace, &reapable);
+    assert!(schedule.relaunch_hold(start, grace, true, false));
+    let late = start + MAX_FRONTEND_AWAY_HOLD;
+    assert!(!schedule.relaunch_hold(late, grace, true, false), "the hold has an end");
+    assert_eq!(schedule.due(late).len(), 2);
+
+    // An owner that never served an app holds nothing.
+    let mut schedule = ReapSchedule::default();
+    schedule.observe(start, grace, &reapable);
+    assert!(!schedule.relaunch_hold(start + grace, grace, false, false));
+    assert_eq!(schedule.due(start + grace).len(), 2);
+}
