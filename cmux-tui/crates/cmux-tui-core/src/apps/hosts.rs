@@ -86,7 +86,9 @@ impl Supervisor {
             }
             // Safe mode: no host, no stream, no mount; the place shows its
             // native view (R5).
-            if inner.safe_mode.is_some() && super::safe_mode::holds_off(package) {
+            if super::safe_mode_bisect::held_off(&inner, app)
+                && super::safe_mode::holds_off(package)
+            {
                 return Err(ApiError::new("apps.safe_mode", super::safe_mode::OFF));
             }
             // Paused by its budget: no host until Resume (budget.rs).
@@ -266,7 +268,9 @@ impl Supervisor {
             return self.fail_host_locked(inner, key, "the app is gone");
         };
         // Every path to a host (mount, run, restart) ends here.
-        if inner.safe_mode.is_some() && super::safe_mode::holds_off(&package) {
+        if super::safe_mode_bisect::held_off(inner, &key.app)
+            && super::safe_mode::holds_off(&package)
+        {
             return self.end_host_locked(inner, key, super::safe_mode::OFF, "off");
         }
         if !key.preview && inner.ladders.get(&key.app).is_some_and(|l| l.paused.is_some()) {
