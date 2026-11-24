@@ -44,8 +44,9 @@ HERE = Path(__file__).resolve().parent
 TASKS = HERE / "tasks"
 # Task sets: `tasks` (small, saturated for current models), `tasks_hard` (aimed at single ~0.3-0.5, but single 0.85
 # for haiku) and `tasks_real` (real cmux bug fixes ported to Python: the buggy code, its bug report and the spec;
-# saturated too: haiku solved 36 of 36 at effort low, results/ holds the runs).
-SETS = ("tasks", "tasks_hard", "tasks_real")
+# saturated too: haiku solved 36 of 36 at effort low, results/ holds the runs) and `tasks_deep` (modules where the
+# reported symptom is one site of a bug class, or a contract with interacting edge cases; aimed at single 0.5-0.7).
+SETS = ("tasks", "tasks_hard", "tasks_real", "tasks_deep")
 
 
 def use_set(work: Path, chosen: str | None = None) -> str:
@@ -199,11 +200,14 @@ def hidden_tests(name: str, folder: Path) -> tuple[int, int, list[str]]:
 
 
 def check() -> int:
-    """Each task's hidden tests pass on its reference.py and fail on its starter: the set is solvable and not free."""
+    """Each task's hidden tests pass on its reference.py and fail on its starter (and on partial.py, a fix of only the
+    reported symptom, where a task has one): the set is solvable and not free."""
     bad = 0
     for name in tasks(None):
         with tempfile.TemporaryDirectory() as tmp:
-            for src, want in (("reference.py", True), ("starter.py", False)):
+            for src, want in (("reference.py", True), ("starter.py", False), ("partial.py", False)):
+                if src == "partial.py" and not (TASKS / name / src).is_file():
+                    continue
                 if not (TASKS / name / src).is_file():
                     print(f"{name}: no {src}")
                     bad += src == "reference.py"
