@@ -85,16 +85,38 @@ open class ComposerReturnTextView: UITextView {
     /// Unicode normalization: hundreds of ms per key in a 10,000-character chat draft, in
     /// stacks of `NSBigMutableString characterAtIndex` and `_NFCNormalizer` under
     /// `AgentChatSurface.text` and `ViewBodyAccessor` (Leo, 2026-11-24; ComposerTypingLagUITests).
-    /// One native copy per key (a memcpy) makes each of those a buffer compare, and the copy
-    /// kept here lets `differs(from:)` answer the binding's next update by identity.
+    /// One native copy per key (`nativeCopy(of:)`, one bulk conversion) makes each of those a
+    /// buffer compare, and the copy kept here lets `differs(from:)` answer the binding's next
+    /// update by identity.
     public func draftText() -> String {
-        var draft: String = text ?? ""
         #if DEBUG
-        if Self.measuresWholeDraft { return draft }
+        if Self.measuresWholeDraft { return text ?? "" }
         #endif
-        draft.makeContiguousUTF8()
+        let draft = Self.nativeCopy(of: textStorage.string as NSString)
         handedDraft = draft
         return draft
+    }
+
+    /// A native Swift string of `string` in one bulk UTF-16 to UTF-8 conversion
+    /// (`CFStringGetBytes`). `makeContiguousUTF8()` on the bridged text copied it through
+    /// String's foreign-string path a scalar at a time (`_foreignSubscript` in the
+    /// long-text matrix's stacks). A string CFStringGetBytes cannot convert whole (a lone
+    /// surrogate) takes that path still.
+    static func nativeCopy(of string: NSString) -> String {
+        let length = string.length
+        guard length > 0 else { return "" }
+        let capacity = CFStringGetMaximumSizeForEncoding(length, CFStringBuiltInEncodings.UTF8.rawValue)
+        var converted = 0
+        let copy = String(unsafeUninitializedCapacity: capacity) { buffer in
+            var used = 0
+            converted = CFStringGetBytes(string, CFRange(location: 0, length: length), CFStringBuiltInEncodings.UTF8.rawValue,
+                                         0, false, buffer.baseAddress, capacity, &used)
+            return used
+        }
+        if converted == length { return copy }
+        var slow = string as String
+        slow.makeContiguousUTF8()
+        return slow
     }
 
     /// Whether the binding's draft differs from the view's text (`updateUIView`). The

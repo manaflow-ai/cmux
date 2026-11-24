@@ -63,21 +63,26 @@ final class ComposerTypingLagUITests: XCTestCase {
     @MainActor
     private func matrix(wholeDraft: Bool) throws {
         for surface in ["chat", "terminal"] {
-            for chars in [100, 1_000, 5_000, 10_000, 20_000] {
+            for chars in [100, 1_000, 10_000, 50_000] {
                 try matrixCell(surface: surface, chars: chars, wholeDraft: wholeDraft)
             }
+        }
+        // The same 10k draft as one paragraph (a pasted run with no line breaks): TextKit lays a
+        // paragraph out whole, so a key's layout here grows with the paragraph, not the draft.
+        for surface in ["chat", "terminal"] {
+            try matrixCell(surface: surface, chars: 10_000, wholeDraft: wholeDraft, oneParagraph: true)
         }
     }
 
     @MainActor
-    private func matrixCell(surface: String, chars: Int, wholeDraft: Bool) throws {
+    private func matrixCell(surface: String, chars: Int, wholeDraft: Bool, oneParagraph: Bool = false) throws {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchEnvironment["CMUX_MOBILE_INPUT_LATENCY"] = "1"
-        app.launchEnvironment["CMUX_MOBILE_DEMO_COMPOSER"] = "chars:\(chars):bare"
+        app.launchEnvironment["CMUX_MOBILE_DEMO_COMPOSER"] = "chars:\(chars):bare\(oneParagraph ? ":oneline" : "")"
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-term-no-intro"]
         if surface == "chat" {
-            app.launchEnvironment["CMUX_MOBILE_DEMO_CHAT_COMPOSER"] = "chars:\(chars)"
+            app.launchEnvironment["CMUX_MOBILE_DEMO_CHAT_COMPOSER"] = "chars:\(chars)\(oneParagraph ? ":oneline" : "")"
             app.launchArguments += ["-cmux-mobile-demo", "kbd-chat"]
         } else {
             app.launchArguments += ["-cmux-mobile-demo", "ws-terminal-composer"]
@@ -116,6 +121,7 @@ final class ComposerTypingLagUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(hitches["n"] ?? 0, 50, "\(surface) \(chars) key samples")
         let report: [String: Any] = [
             "surface": surface,
+            "one_paragraph": oneParagraph,
             "chars": chars,
             "before": wholeDraft,
             "keys": hitches["n"] ?? 0,
@@ -130,11 +136,11 @@ final class ComposerTypingLagUITests: XCTestCase {
         print("TYPINGMATRIX \(String(decoding: data, as: UTF8.self))")
         if let file = InputLatencyUITests.traceFile(), let text = try? String(contentsOf: file, encoding: .utf8) {
             let log = XCTAttachment(string: text)
-            log.name = "typing-matrix-\(surface)-\(chars)-\(wholeDraft ? "before" : "after").jsonl"
+            log.name = "typing-matrix-\(surface)\(oneParagraph ? "1p" : "")-\(chars)-\(wholeDraft ? "before" : "after").jsonl"
             log.lifetime = .keepAlways
             add(log)
             for row in text.split(separator: "\n").filter({ $0.contains(#""type":"hitch""#) }).prefix(8) {
-                print("TYPINGMATRIX_HITCH \(surface) \(chars) \(row.prefix(4_000))")
+                print("TYPINGMATRIX_HITCH \(surface)\(oneParagraph ? "1p" : "") \(chars) \(row.prefix(4_000))")
             }
         }
         app.terminate()

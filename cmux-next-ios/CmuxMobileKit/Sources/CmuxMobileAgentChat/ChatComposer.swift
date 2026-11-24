@@ -136,9 +136,9 @@ struct ChatComposer: View {
             guard !didFillTypingDemo,
                   let mode = ProcessInfo.processInfo.environment["CMUX_MOBILE_DEMO_CHAT_COMPOSER"],
                   mode.hasPrefix("chars:"), text.isEmpty,
-                  let count = Int(mode.dropFirst("chars:".count)) else { return }
+                  let count = Int(mode.dropFirst("chars:".count).prefix(while: \.isNumber)) else { return }
             didFillTypingDemo = true
-            text = Self.demoTypingText(count)
+            text = Self.demoTypingText(count, oneParagraph: mode.hasSuffix(":oneline"))
             focus.wrappedValue = true
             #endif
         }
@@ -191,9 +191,18 @@ struct ChatComposer: View {
     }
 
     #if DEBUG
-    private static func demoTypingText(_ count: Int) -> String {
-        let seed = "The quick brown fox jumps over the lazy dog. "
-        return String(String(repeating: seed, count: max(1, count / seed.count + 1)).prefix(count))
+    /// ComposerTypingLagUITests' long draft: the terminal's demo prose (a paragraph break every
+    /// four sentences), or with `oneParagraph` the same text as a single paragraph.
+    private static func demoTypingText(_ count: Int, oneParagraph: Bool) -> String {
+        let sentence = "The build fails on the second step when the cache is cold, so check the log and the screenshots before rerunning it. "
+        var text = ""
+        var index = 0
+        while text.utf8.count < count {
+            text += sentence
+            index += 1
+            if index % 4 == 0, !oneParagraph { text += "\n\n" }
+        }
+        return String(text.prefix(count))
     }
     #endif
 
