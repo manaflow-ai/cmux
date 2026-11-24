@@ -36,8 +36,8 @@ extension AppControl {
                                        "last_error": services.cloud.lastError.map(JSONValue.string) ?? .null]))
             },
             // `cmux automation --target cloud`, and `cmux app ls|versions` off a Cloud machine: as the signed-in person.
-            .cloudRelay("cloud.automation", seconds: 30, disabledFeatures: { services.registry.disabledFeatures }, relay: CloudCLICall(cli: services.bundledCLI).automationRelay(signedIn: services.cloud.auth)),
-            .cloudRelay("cloud.apps", seconds: 35, disabledFeatures: { services.registry.disabledFeatures }, relay: CloudCLICall(cli: services.bundledCLI).appsRelay(signedIn: services.cloud.auth)),
+            .cloudRelay("cloud.automation", seconds: 30, disabledFeatures: { services.registry.disabledFeatures }, mayCallCloud: { services.cloud.mayCallCloud }, relay: CloudCLICall(cli: services.bundledCLI).automationRelay(signedIn: services.cloud.auth)),
+            .cloudRelay("cloud.apps", seconds: 35, disabledFeatures: { services.registry.disabledFeatures }, mayCallCloud: { services.cloud.mayCallCloud }, relay: CloudCLICall(cli: services.bundledCLI).appsRelay(signedIn: services.cloud.auth)),
         ])
         registerRunMethods(services); CaptureAuthControl().register(on: service?.router, remote: services.cmuxRemote.capture) { [weak services] in services?.cloud.auth }
         registerCloudEnvironmentMethods(services)
