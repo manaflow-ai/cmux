@@ -99,6 +99,27 @@ review_run
         self.assertIn(f'iPhone:     iPhone (iPhone 16 Plus, {PHONE}): installed, signed in (auto_login), paired', r.stdout)
         self.assertIn('after the Mac app relaunched: signed in (restored), paired and linked', r.stdout)
 
+    def test_a_rerun_reuses_this_heads_iphone_build_that_passed(self):
+        # 2026-11-24: the hand-off of 0e728c2b25 passed its iPhone step (3808c362) while the Mac build failed; the
+        # rerun sent the iPhone step again, the controller refused its key ("409: step_key already names a different
+        # step": a new sign-in key), and the run had nothing for the phone. A head's passed iPhone build is reused.
+        reuse = """mkdir -p "$STATE"; printf '%s\\n' step-passed > "$STATE/ios-passed"; echo zip > "$STATE/ios.zip"
+fleet_start_sim() { echo SIM_STARTED; }
+fleet_finish_sim() { echo SIM_FINISHED; }
+read_ios_artifact() { echo "READ_STEP=$SIM_STEP"; REPORT_SIM="fleet simulator (aws-m4pro-3, iPhone-17 on iOS-26-5), signed in: /e"; }"""
+        r = self.run_review([(PHONE, 'iPhone')], reuse)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn('SIM_STARTED', r.stdout)
+        self.assertNotIn('SIM_FINISHED', r.stdout)
+        self.assertIn("==> iPhone app: reusing this head's build from step step-passed (its simulator check passed)", r.stdout)
+        self.assertIn('READ_STEP=step-passed', r.stdout)
+        # No marker, or a marker with no artifact beside it: a step as before.
+        for setup in ('', 'mkdir -p "$STATE"; echo step-passed > "$STATE/ios-passed"'):
+            with self.subTest(setup=setup):
+                r = self.run_review([(PHONE, 'iPhone')], setup + "\nfleet_start_sim() { echo SIM_STARTED; }")
+                self.assertIn('SIM_STARTED', r.stdout, r.stderr)
+                self.assertNotIn('reusing this head', r.stdout)
+
     def test_two_phones_get_one_line_each(self):
         other = '00008110-000000000000001E'
         r = self.run_review([(PHONE, 'iPhone'), (other, 'Spare')], '')
@@ -1544,6 +1565,39 @@ class ManifestAndZipTests(unittest.TestCase):
 safe_unzip() {{ :; }}
 read_ios_artifact; echo "SIM=$REPORT_SIM\"""")
         self.assertIn("SIM=BLOCKED: step step1: handoff.json does not match this run: tag is 'other'", r.stdout)
+
+    def test_a_passed_artifact_marks_the_head_reusable_and_a_failed_one_does_not(self):
+        for status, marked in (('pass', True), ('fail', False)):
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                (root / 'ios').mkdir()
+                (root / 'ios/handoff.json').write_text(json.dumps({**self.good, 'simulator': {
+                    'status': status, 'device': 'iPhone-17', 'reason': '' if status == 'pass' else 'no receipt'}}))
+                (root / 'ios-passed').write_text('older-step\n')
+                r = bash(f"""source "{REVIEW}"; set +e; SLUG={TAG} SHA={SHA} STATE="{root}" SIM_STEP=step1
+safe_unzip() {{ [ "$2" = "{root}/device" ] && mkdir -p "$2/CmuxMobileApp.app"; :; }}
+read_ios_artifact; echo RC=$?""")
+                self.assertIn('RC=0', r.stdout, r.stderr)
+                marker = root / 'ios-passed'
+                self.assertEqual(marker.exists(), marked)
+                if marked:
+                    self.assertEqual(marker.read_text().strip(), 'step1')
+
+    def test_an_unsafe_zip_or_another_heads_manifest_clears_the_reuse_mark(self):
+        # Review of #53313: the mark was cleared only after these early returns, so a stale one survived them and
+        # every rerun reused the bad artifact.
+        for case in ('unsafe-zip', 'other-head'):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                (root / 'ios').mkdir()
+                (root / 'ios/handoff.json').write_text(json.dumps({**self.good, 'source_sha': 'c' * 40}))
+                (root / 'ios-passed').write_text('older-step\n')
+                unzip = 'return 1' if case == 'unsafe-zip' else ':'
+                r = bash(f"""source "{REVIEW}"; set +e; SLUG={TAG} SHA={SHA} STATE="{root}" SIM_STEP=step1
+safe_unzip() {{ {unzip}; }}
+read_ios_artifact; echo RC=$?""")
+                self.assertIn('RC=1', r.stdout, r.stderr)
+                self.assertFalse((root / 'ios-passed').exists())
 
     def zip_with(self, links):
         import zipfile
