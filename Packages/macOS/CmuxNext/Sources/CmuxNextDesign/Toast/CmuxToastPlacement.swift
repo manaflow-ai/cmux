@@ -4,4 +4,6 @@ public nonisolated enum CmuxToastPlacement: String, Sendable, Hashable {
     case bottomCenter
     /// Bottom trailing corner, out of the middle of the work, the newest lowest.
     case bottomTrailing
+    /// Bottom leading corner (the Star on GitHub ask), the newest lowest.
+    case bottomLeading
 }

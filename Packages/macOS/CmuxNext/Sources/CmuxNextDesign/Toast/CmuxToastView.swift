@@ -101,6 +101,7 @@ public final class CmuxToastView: NSView {
         self.style = style
         var look = style.look
         if let corner { look.corner = corner }
+        if let placement = toast.placement { look.placement = placement }
         self.look = look
         // A solid toast draws on the opaque surface, as under Reduce Transparency, and fits its text to it.
         // glass-opaque-allow: the Solid style is a look the person picks in the Toast Playground on purpose.

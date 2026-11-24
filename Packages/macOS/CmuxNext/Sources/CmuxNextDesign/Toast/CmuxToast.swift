@@ -64,6 +64,9 @@ public nonisolated struct CmuxToast: Equatable, Sendable {
     /// The toast shows for exactly ``duration``: it echoes a live change (a zoom percent, a density
     /// level) and would linger past it. Every other toast shows longer (``CmuxToastTuning``).
     public var keepsDuration: Bool
+    /// Where this toast rests whatever the picked style says (the Star on GitHub ask sits bottom-leading);
+    /// nil: the style's placement.
+    public var placement: CmuxToastPlacement?
 
     /// A duration that never times out: the toast stays until its action or close button
     /// (the server-update prompt, which asks for a decision).
@@ -72,8 +75,9 @@ public nonisolated struct CmuxToast: Equatable, Sendable {
     public init(id: String, kind: String? = nil, message: String, detail: String? = nil, action: Action? = nil,
                 secondaryAction: Action? = nil, duration: Duration = .seconds(6), tone: CmuxToastTone? = nil,
                 oneWindow: Bool = false, keepsDuration: Bool = false, style: CmuxToastStyle? = nil,
-                working: Bool = false) {
+                working: Bool = false, placement: CmuxToastPlacement? = nil) {
         self.id = id
+        self.placement = placement
         self.secondaryAction = secondaryAction
         self.tone = tone ?? (id == Self.refusalID ? .error : .neutral)
         self.style = style
