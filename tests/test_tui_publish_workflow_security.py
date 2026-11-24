@@ -544,7 +544,7 @@ def test_npm_bootstrap_preserves_the_first_stable_version() -> None:
         assert (
             "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
             "github.event_name == 'pull_request' && "
-            "github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') "
+            "github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' "
             "|| 'cmux-linux' }}" in block
         )
     assert f"{PROVENANCE_RUNS_ON} # github-hosted-required: npm provenance publishing" in publish
@@ -575,7 +575,7 @@ def test_pypi_bootstrap_reserves_the_project_before_release_tags() -> None:
     assert workflow_triggers(bootstrap) == {
         "repository_dispatch": {"types": ["sdk-bootstrap-pypi"]}
     }
-    assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}" in bootstrap
+    assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}" in bootstrap
     assert "id-token: write" in bootstrap
     assert "name: pypi-bootstrap" in bootstrap
     assert "PYPI_BOOTSTRAP_TOKEN" not in bootstrap
@@ -638,7 +638,7 @@ def test_crates_bootstrap_preserves_the_first_stable_version() -> None:
     assert workflow_triggers(bootstrap) == {
         "repository_dispatch": {"types": ["sdk-bootstrap-crates"]}
     }
-    assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}" in bootstrap
+    assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}" in bootstrap
     assert 'RUST_TOOLCHAIN: "1.95.0"' in bootstrap
     assert 'BOOTSTRAP_VERSION: "0.0.0-bootstrap.0"' in bootstrap
     assert "CARGO_BOOTSTRAP_TOKEN" in bootstrap

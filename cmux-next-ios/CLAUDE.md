@@ -60,7 +60,7 @@ What CI runs on a PR into `feat-cmux-next` (checked against the workflows on 202
 - `billing.yml`: its StoreKit lane runs on a Mac when the PR touches `Packages/iOS/CmuxMobileBilling/**` or
   billing files in the app.
 - Most Linux jobs on our own branches run on the `cmux-linux` label (cmux#48644); fork PRs use
-  `CI_FORK_LINUX_RUNNER` or `ubuntu-24.04`. A few, such as the kit's `runner` job, still pick from `RUNNER_POOLS`.
+  GitHub-hosted `ubuntu-24.04`. A few, such as the kit's `runner` job, still pick from `RUNNER_POOLS`.
 
 ## Try a PR on the person's phone: cmux Dev
 

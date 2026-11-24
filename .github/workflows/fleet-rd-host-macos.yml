@@ -77,7 +77,7 @@ jobs:
     # The gateway label, as fleet-compile-check.yml's: the `if:` above already skips a fork or a repository with
     # neither variable set, so the Linux branches only keep the expression readable (a gateway job hands the step to
     # the controller; the Mac is the fleet worker, not this runner).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_RD_HOST_GATEWAY || vars.CI_TEST_COMPILE_GATEWAY || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_RD_HOST_GATEWAY || vars.CI_TEST_COMPILE_GATEWAY || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     permissions: {}
     # Longer than the client's queue (1200 s) plus run (3600 s) timeouts and its
     # report: a job timeout concludes as a failure, which would read as red.
