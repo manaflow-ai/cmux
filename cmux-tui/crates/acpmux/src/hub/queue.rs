@@ -809,6 +809,13 @@ impl Hub {
         if let Some(key) = p.supersede {
             queued.set("supersede", json!(key));
         }
+        // The person's steer that waits only for its turn to show (`QueuedPrompt::steer_on_start`):
+        // a client keeps its bubble in the transcript, never a queued row it leaves a moment later
+        // (Leo, 2026-11-24: "my message passes through the composer hat/composer area and it looks
+        // like it goes through the queue and THEN goes properly").
+        if p.steer_on_start {
+            queued.set("steerOnStart", json!(true));
+        }
         // It waits for the owner (`queue_approve.rs`); a restart keeps it waiting.
         if awaiting_owner {
             queued.set("awaitingOwner", json!(true));

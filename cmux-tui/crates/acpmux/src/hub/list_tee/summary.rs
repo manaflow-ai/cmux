@@ -436,7 +436,7 @@ mod tests {
         store.save(&serde_json::from_value(meta).unwrap()).unwrap();
         let hub = Hub::new(config, store);
         hub.wait_store().await;
-        let session = hub.sessions.lock().unwrap().get("fixture").cloned().unwrap();
+        let session = hub.session_get("fixture").unwrap();
         (hub, session)
     }
 

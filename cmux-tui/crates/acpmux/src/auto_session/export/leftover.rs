@@ -95,3 +95,7 @@ pub(crate) async fn discard(leftover: &Leftover) {
     let path = Path::new(&leftover.path).to_path_buf();
     let _ = tokio::task::spawn_blocking(move || std::fs::remove_file(path)).await;
 }
+
+#[cfg(all(test, unix))]
+#[path = "leftover_tests.rs"]
+mod tests;
