@@ -281,7 +281,7 @@ public:
     [[nodiscard]] Result<ServerStatsResult> server_stats(const ServerStatsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<SetAttachVisibilityResult> set_attach_visibility(const SetAttachVisibilityRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<SetCellPixelsResult> set_cell_pixels(const SetCellPixelsRequest& request, RequestOptions options = {});
-    [[nodiscard]] Result<EmptyResult> set_client_info(const SetClientInfoRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<SetClientInfoResult> set_client_info(const SetClientInfoRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> set_client_sizing(const SetClientSizingRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> set_column_dock(const SetColumnDockRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> set_default_colors(const SetDefaultColorsRequest& request = {}, RequestOptions options = {});
@@ -322,6 +322,7 @@ public:
     [[nodiscard]] Result<EventStream> terminal_clipboard_subscribe(const TerminalClipboardSubscribeRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<TerminalCommandContextResult> terminal_command_context(const TerminalCommandContextRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<TerminalEventsResult> terminal_events(const TerminalEventsRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> terminal_find(const TerminalFindRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<TerminalHistoryPagesResult> terminal_history(const TerminalHistoryRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<TerminalLastCommandResult> terminal_last_command(const TerminalLastCommandRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<TerminalPortsResult> terminal_ports(const TerminalPortsRequest& request, RequestOptions options = {});
