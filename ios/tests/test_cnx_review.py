@@ -757,6 +757,64 @@ fleet_start_sim; fleet_finish_sim; echo "STEP=$SIM_STEP"''', {'CMUX_CI': str(ci)
         self.assertNotIn('--label', args)
         self.assertNotIn('--detach', args)
 
+    def test_urgent_puts_the_simulator_step_first_and_promotes_the_mac_build(self):
+        # A hand-off with the person waiting on the phone (2026-11-23): the simulator step sat 2 h in a
+        # queue of 126 (step 1e1c4a5c2700774f73411917) and the Mac build 45 min at agent priority (job
+        # dc0dd1e42a065339b8191fb2), until both were raised by hand. --urgent does it, with a reason.
+        for urgent in (0, 1):
+            with self.subTest(urgent=urgent), tempfile.TemporaryDirectory() as temp:
+                ci = Path(temp) / 'cmux-ci'
+                ci.write_text('#!/bin/sh\necho "$@" >> "%s/calls"\n'
+                              '[ "$1" = build ] && echo \'{"id": "job123"}\'\n'
+                              '[ "$1" = run ] && echo "cmux-ci: step 0123456789abcdef01234567 (simulator, key k)" >&2\n'
+                              'exit 0\n' % temp)
+                ci.chmod(0o755)
+                r = bash(f'''source "{REVIEW}"; SLUG={TAG} SHA={SHA} STATE="{temp}" WORKSPACE=w URGENT={urgent} CMUX_CI="{ci}"
+fleet_start_sim; fleet_finish_sim; fleet_submit_mac; echo "JOB=$MAC_JOB"; echo "RETRY=$(retry_command)"''', {'CMUX_CI': str(ci)})
+                self.assertIn('JOB=job123', r.stdout, r.stderr)
+                calls = (Path(temp) / 'calls').read_text().splitlines()
+                run = next(c for c in calls if c.startswith('run '))
+                promote = [c for c in calls if c.startswith('promote ')]
+                if urgent:
+                    self.assertIn(' --urgent ', run + ' ')
+                    self.assertIn('--reason', run)
+                    self.assertEqual(len(promote), 1)
+                    self.assertTrue(promote[0].startswith('promote job123 --reason '), promote)
+                    self.assertIn(' --urgent', r.stdout.split('RETRY=')[1])
+                else:
+                    self.assertNotIn('--urgent', run)
+                    self.assertEqual(promote, [])
+                    self.assertNotIn('--urgent', r.stdout.split('RETRY=')[1])
+
+    def test_a_step_that_got_no_sign_in_session_is_sent_once_more(self):
+        # Step 1e1c4a5c2700774f73411917 (2026-11-24) ran after 2 h in the queue and failed: "sign-in: no session
+        # was delivered within 10m0s" while the controller timed out. Nothing about the build was wrong, so the
+        # hand-off sends one new step (a new key) by itself; a second miss is reported as the sign-in delivery.
+        # A status read that fails too (the controller timing out) still sends the new step under a new key.
+        for second_ok, status_ok in ((True, True), (False, True), (True, False)):
+            with self.subTest(second_ok=second_ok, status_ok=status_ok), tempfile.TemporaryDirectory() as temp:
+                ci = Path(temp) / 'cmux-ci'
+                status = 'echo \'{"id": "x", "state": "failed"}\'; exit 0' if status_ok else 'echo "cmux-ci: cannot reach the build controller" >&2; exit 69'
+                ci.write_text('#!/bin/sh\n'
+                              f'if [ "$1" = status ]; then {status}; fi\n'
+                              f'[ "$1" = run ] || exit 0\necho "$@" >> "{temp}/args"\n'
+                              f'n=$(wc -l < "{temp}/args" | tr -d " ")\n'
+                              'echo "cmux-ci: step 00000000000000000000000$n (simulator, key k)" >&2\n'
+                              f'if [ "$n" = 1 ] || [ "{0 if second_ok else 1}" = 1 ]; then\n'
+                              '  echo "sign-in: no session was delivered within 10m0s; the submitter\'s cmux-ci must follow the step to deliver it"\n'
+                              '  echo "ci-step k exited 1"; exit 1\nfi\nexit 0\n')
+                ci.chmod(0o755)
+                r = bash(f'''source "{REVIEW}"; SLUG={TAG} TAG={TAG} SHA={SHA} STATE="{temp}" CMUX_CI="{ci}"
+fleet_start_sim; if fleet_finish_sim; then echo "OK STEP=$SIM_STEP"; else echo "SIM=$REPORT_SIM"; fi''', {'CMUX_CI': str(ci)})
+                keys = [line.split('--key ')[1].split()[0] for line in (Path(temp) / 'args').read_text().splitlines()]
+                base = f'cnx-ios-handoff-{TAG}-{SHA[:12]}'
+                self.assertEqual(keys, [base, base + '-r1'], r.stdout + r.stderr)
+                self.assertIn('no sign-in session reached it', r.stdout)
+                if second_ok:
+                    self.assertIn('OK STEP=000000000000000000000002', r.stdout)
+                else:
+                    self.assertIn('SIM=BLOCKED: the fleet iPhone build got no sign-in session from this Mac twice', r.stdout)
+
     def test_a_superseded_simulator_step_is_not_reported_as_a_failed_build(self):
         # A newer head of the same tag cancels this head's step; the report said "the fleet iPhone build
         # failed (exit 76)" for step f06392e4d16521e2f9762f4b (2026-11-19), though nothing failed.
