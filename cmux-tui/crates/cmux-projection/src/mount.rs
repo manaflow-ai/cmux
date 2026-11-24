@@ -29,7 +29,10 @@ use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use fuser::consts::{FOPEN_CACHE_DIR, FOPEN_KEEP_CACHE, FUSE_AUTO_INVAL_DATA, FUSE_DO_READDIRPLUS};
+use fuser::consts::{
+    FOPEN_CACHE_DIR, FOPEN_KEEP_CACHE, FUSE_ATOMIC_O_TRUNC, FUSE_AUTO_INVAL_DATA,
+    FUSE_DO_READDIRPLUS,
+};
 use fuser::{
     BackgroundSession, FileAttr, FileType, Filesystem, KernelConfig, MountOption, Notifier,
     ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory, ReplyDirectoryPlus, ReplyEmpty, ReplyEntry,
@@ -80,6 +83,18 @@ impl Mounted {
         match &self.notifier {
             Some(notifier) => notifier.inval_entry(parent, OsStr::new(name)),
             None => Ok(()),
+        }
+    }
+
+    /// Tells the kernel to drop what it cached of each folder or file in `inos` (numbers the
+    /// overlay gave): its attributes, its pages, and a folder's listing, so the next `stat`,
+    /// read and `ls` ask the overlay again: after [`Overlay::extend`].
+    pub fn forget_inodes(&self, inos: &[u64]) {
+        if let Some(notifier) = &self.notifier {
+            for ino in inos {
+                // ENOENT: the kernel holds nothing of it, which is fine.
+                let _ = notifier.inval_inode(*ino, 0, 0);
+            }
         }
     }
 
@@ -452,6 +467,9 @@ impl Filesystem for Fs {
     fn init(&mut self, _req: &Request<'_>, config: &mut KernelConfig) -> Result<(), libc::c_int> {
         // A kernel without it still works: an open of a changed file drops its pages anyway.
         let _ = config.add_capabilities(FUSE_AUTO_INVAL_DATA);
+        // open(O_TRUNC) arrives as one open with the flag, not an open and then a truncate: a
+        // lower file it empties copies up empty, never fetching the bytes it drops.
+        let _ = config.add_capabilities(FUSE_ATOMIC_O_TRUNC);
         // Every listing carries its entries' attributes (not `FUSE_READDIRPLUS_AUTO`, which sends
         // them only for a folder's first chunk or one already looked up in): the manifest answers
         // them with no fetch, and a walk then never asks per file. A kernel without it lists as

@@ -153,7 +153,7 @@ class Workflow(unittest.TestCase):
         self.assertIn("needs.pick-archive-runner.outputs.attempt == format('{0}', github.run_attempt) && "
                       "needs.pick-archive-runner.outputs.dedicated != '' && "
                       "needs.pick-archive-runner.outputs.dedicated || ", runs_on)
-        self.assertTrue(runs_on.rstrip("} ").endswith("|| fromJSON(vars.RUNNER_POOLS).macos_26"))
+        self.assertTrue(runs_on.rstrip("} ").endswith("|| vars.CI_OVERFLOW_MAC || 'cmux-mac'"))
         self.assertEqual(archive["needs"], "pick-archive-runner")
         self.assertIn("!cancelled()", archive["if"])
         self.assertIn("vars.CI_IOS_INTERNAL_RUNNER", jobs["pick-archive-runner"]["steps"][-1]["env"]["DEDICATED_LABEL"])

@@ -17,6 +17,50 @@ function workTurn(b: SimBuilder, calls: number, { thoughts = true, middleText = 
 }
 
 export const SCENARIOS: Record<string, () => SimScenario> = {
+  // Leo, 2026-11-22: "this is also a crazy situation for the folding and whatever the steer and you think and
+  // messages and situations come in and subagents come in and out", "i am still seeing flickers and flashes of
+  // bullshit. sub-second in and out bullshit." A coordinator's busy turn: thoughts between quick commands,
+  // steers that land mid-turn, subagents that start and finish, another agent's message, a turn that settles
+  // and a prompt sent right after it.
+  churn: () => {
+    const b = sim(
+      "churn",
+      "A busy coordinator turn: quick commands, thoughts, steers, subagents in and out, then a prompt right after the turn settles.",
+    );
+    b.prompt("Find out why the land keeps waiting on broker calls.");
+    b.think("Reading the land's log first.", { chunks: 2 });
+    b.tool("Inspect stuck wt reclaim process", { ms: 400 });
+    b.think("The stdout pipe is full at 16384 bytes.", { chunks: 2 });
+    b.tool("List open files of the stuck process", { ms: 300 });
+    b.say("Its stdout pipe holds 16384 bytes, which looks like a full buffer. I'll find who holds the read end.", {
+      chunks: 3,
+    });
+    b.tool("Find the reader end of the pipe", { ms: 350 });
+    b.subagent("Fix doubled handbook row on hq main", { ms: 2_500, report: "finished" });
+    b.steer("not sure why there are 595 held for you", { after: 300, readMs: 1_200 });
+    b.tool("Inspect tail and parent processes", { ms: 300 });
+    b.think("I'm puzzled why tail -3 seems alive but isn't reading.", { chunks: 2 });
+    b.say("Leo's question first: why 595 messages are held for me.", { chunks: 2 });
+    for (let call = 0; call < 3; call += 1) b.tool(`Show acpmux inbox step ${call + 1}`, { ms: 250 + call * 150 }, 150);
+    b.think("I'm looking for where the held count in the chat UI comes from.", { chunks: 2 });
+    b.subagent("Summarize held inbox messages by sender", { ms: 1_800, report: "finished" });
+    b.steer("and the pill keeps popping in and out", { after: 200, readMs: 800 });
+    b.steer("remove it", { after: 400, readMs: 600 });
+    b.tool("Show my acpmux session info", { ms: 300 });
+    b.think("Both steers ask for the same thing.", { chunks: 2 });
+    for (let call = 0; call < 4; call += 1) b.tool(`rg -n held src/part${call}.ts`, { ms: 200 + call * 100 }, 120);
+    b.say("The held count is the inbox's unread total; I'll take the pill out.", { chunks: 3 });
+    b.turnEnd();
+    b.wait(4_000);
+    // The prompt sent right after the turn settled (Leo, 21:41Z: "it was as if briefliy the worked for
+    // disappeared and then reappeared").
+    b.prompt("these should just be gone", 0);
+    b.think("Sorting out what Leo asked for.", { chunks: 2 });
+    b.tool("Find lanes owning update pill and chat folding", { ms: 600 });
+    b.say("Two lanes own these; I'll forward it.", { chunks: 2 });
+    return b.turnEnd().build();
+  },
+
   basic: () =>
     sim("basic", "One prompt: a thought, commands with text between, a reply, the turn ends.")
       .prompt("The retry test is flaky. Find out why and fix it.")
@@ -85,6 +129,44 @@ export const SCENARIOS: Record<string, () => SimScenario> = {
     return b.turnEnd().build();
   },
 
+  // Leo, 2026-11-22 08:29Z (ST-02, his screenshot 1159): "this one seems to have an unnecessary gap due to being a
+  // recieved message. these aren't categorized properly under our tool call formatting." Another agent's message
+  // opens a turn that sends one and replies; the reader opens its "Worked for" (the message its first entry, then
+  // "Sent to"). A notice opens the next turn, which receives a message mid-turn and sends between its calls. The
+  // received and "Sent to" rows are activity rows: each stands the gap a tool row stands in its place, every step.
+  "received-sent-as-activity": () => {
+    const b = sim(
+      "received-sent-as-activity",
+      "Another agent's message opens a turn that sends one and replies; a notice opens the next, which receives a message mid-turn and sends one.",
+    );
+    b.prompt("Map all chat stream edge cases with your helper.");
+    b.think("Starting the helper.");
+    b.tool("acpmux send map-edge-cases 'Map all chat stream edge cases.'", { ms: 500 });
+    b.turnEnd();
+    b.wait(20_000).incoming("chat-scenarios: no lane of mine holds it; it's yours.", {
+      kind: "agent_message",
+      fromName: "claude-sr2-coord",
+    });
+    b.tool("acpmux send map-edge-cases 'claude-sr2-coord says chat-scenarios is ours; carry on.'", { ms: 500 });
+    b.say("Got it, thanks. My helper owns chat-scenarios, covering the stream edge cases as well as the oddities.");
+    b.turnEnd();
+    // 1159: the reader opens that turn's "Worked for": the message that opened it is its first entry, then "Sent to".
+    b.reader({ open: "worked-user-12" });
+    b.wait(20_000).incoming("Prioritize visible cmux under load finished", {
+      kind: "notice",
+      fromName: "visible-under-load",
+      title: "Prioritize visible cmux under load finished",
+    });
+    b.tool("acpmux send visible-under-load 'Keep going; send me the numbers.'", { ms: 500 });
+    b.tool("rg -n 'under load' docs", { ms: 400 });
+    b.message("The numbers: p95 frame 9 ms under load.", { fromName: "visible-under-load" });
+    b.tool("acpmux send visible-under-load 'Thanks, land it.'", { ms: 500 });
+    b.tool("git status --short", { ms: 300 });
+    b.say("Both helpers have their next steps.");
+    b.turnEnd();
+    return b.reader({ open: "worked-user-24" }).build();
+  },
+
   "background-task": () => {
     const b = sim(
       "background-task",
@@ -143,6 +225,360 @@ export const SCENARIOS: Record<string, () => SimScenario> = {
     b.turnEnd();
     b.reader({ scroll: "bottom" }, 1_000);
     return b.build();
+  },
+
+  // ---- The map (sim/map.ts): one scenario per way a chat's display has gone wrong, or plausibly can. ----
+  // Leo, 2026-11-22: "there are probably more bullshit scenarios. we need to map them all out and note what
+  // expected behaviours are for all."
+
+  "stopped-turn": () => {
+    const b = sim("stopped-turn", "The person stops a turn while a command runs, then prompts again.");
+    b.prompt("Run the whole suite.");
+    b.think("Starting with the slow tests.");
+    b.tool("bun test slow/", { ms: 700 });
+    b.say("The slow tests pass; running the rest.");
+    b.tool("bun test", { open: true });
+    b.wait(5_000).stop({ calls: ["call-2"] });
+    b.prompt("Only the api tests, please.", 4_000);
+    b.tool("bun test api/", { ms: 900 });
+    b.say("The api tests pass.");
+    return b.turnEnd().build();
+  },
+
+  "failed-turn": () => {
+    const b = sim("failed-turn", "A turn fails halfway through its work, and the next prompt carries on.");
+    b.prompt("Fix the flaky test.");
+    workTurn(b, 2, { middleText: false });
+    b.say("Two callers left.");
+    b.tool("rg -n withRetry src", { open: true });
+    b.fail("API Error: 529 overloaded");
+    b.prompt("Try again.", 5_000);
+    b.tool("rg -n withRetry src", { ms: 500 });
+    b.say("Fixed the last two.");
+    return b.turnEnd().build();
+  },
+
+  "retrying-turn": () => {
+    const b = sim("retrying-turn", "The model cannot be reached mid-turn; acpmux retries, then the turn carries on.");
+    b.prompt("Summarize the diff.");
+    b.think("Reading the diff.");
+    b.tool("git diff --stat", { ms: 400 });
+    b.say("Three files changed.");
+    b.retry();
+    b.tool("git diff", { ms: 600 });
+    b.say("The change is a rename and two call sites.");
+    return b.turnEnd().build();
+  },
+
+  "steer-mid-turn": () => {
+    const b = sim(
+      "steer-mid-turn",
+      "The person types twice while the turn runs: between commands, and while a reply streams.",
+    );
+    b.prompt("Refactor the retry helper.");
+    b.think("Reading it first.");
+    b.tool("sed -n 1,80p src/api/client.ts", { kind: "read" });
+    b.steer("Keep the public signature as it is.");
+    b.tool("rg -n withRetry src", { ms: 500 });
+    b.say(PARAGRAPH, { chunks: 3 });
+    b.steer("And add a test.", { after: 40 });
+    b.say(PARAGRAPH, { chunks: 3 });
+    b.tool("bun test api/", { ms: 900 });
+    b.say("Refactored, signature kept, test added.");
+    return b.turnEnd().build();
+  },
+
+  "queued-prompt": () => {
+    const b = sim("queued-prompt", "A prompt sent while the turn runs waits in the queue, then runs as the next turn.");
+    b.prompt("Run the migration.");
+    workTurn(b, 2, { middleText: false });
+    b.record("mux", "queued", { promptId: "prompt-2", text: "Then run the tests.", client: "pane" }, 300);
+    b.tool("bun run migrate", { ms: 2_000 });
+    b.say("Migrated.");
+    b.turnEnd();
+    b.record("mux", "dequeued", { promptId: "prompt-2" }, 50);
+    b.prompt("Then run the tests.", 50);
+    b.tool("bun test", { ms: 900 });
+    b.say("Green.");
+    return b.turnEnd().build();
+  },
+
+  "permission-wait": () => {
+    const b = sim(
+      "permission-wait",
+      "A command waits on the person's Allow for a while, runs, and a second one is denied.",
+    );
+    b.prompt("Clean the build folder and push.");
+    b.think("Removing the old build.");
+    b.tool("rm -rf build", { open: true });
+    b.permission("call-1", { ms: 30_000 });
+    b.toolEnd("call-1");
+    b.say("Cleaned; pushing.");
+    b.tool("git push --force", { open: true });
+    b.permission("call-2", { allow: false });
+    b.toolEnd("call-2", { status: "failed", output: "The person denied this." });
+    b.say("I did not push: you denied the force push.");
+    return b.turnEnd().build();
+  },
+
+  "plan-checklist": () => {
+    const b = sim(
+      "plan-checklist",
+      "A turn writes a checklist, ticks it off between commands, and the next turn clears it.",
+    );
+    b.prompt("Migrate the three services.");
+    b.plan([
+      ["Migrate auth", "in_progress"],
+      ["Migrate billing", "pending"],
+      ["Migrate mail", "pending"],
+    ]);
+    b.tool("bun run migrate auth", { ms: 800 });
+    b.plan([
+      ["Migrate auth", "completed"],
+      ["Migrate billing", "in_progress"],
+      ["Migrate mail", "pending"],
+    ]);
+    b.say("Auth is done.");
+    b.tool("bun run migrate billing", { ms: 800 });
+    b.tool("bun run migrate mail", { ms: 800 });
+    b.plan([
+      ["Migrate auth", "completed"],
+      ["Migrate billing", "completed"],
+      ["Migrate mail", "completed"],
+    ]);
+    b.say("All three migrated.");
+    b.turnEnd();
+    b.prompt("Now the docs.", 5_000);
+    b.plan([]);
+    b.tool("rg -n migrate docs", { ms: 500 });
+    b.say("Docs updated.");
+    return b.turnEnd().build();
+  },
+
+  "long-output": () => {
+    const b = sim(
+      "long-output",
+      "A command prints thousands of lines, and the reply is fifty paragraphs with a table and code.",
+    );
+    b.prompt("Dump the log and explain it.");
+    b.tool("cat build.log", {
+      ms: 1_500,
+      output: Array.from({ length: 4_000 }, (_, line) => `line ${line}: ${"x".repeat(line % 180)}`).join("\n"),
+    });
+    b.say(
+      Array.from({ length: 50 }, (_, part) =>
+        part % 10 === 4
+          ? "| step | ms |\n| --- | --- |\n| link | 900 |\n| sign | 12000 |\n"
+          : part % 10 === 7
+            ? "```sh\nbun run build --profile\n```\n"
+            : `${PARAGRAPH}\n`,
+      ).join("\n"),
+      { chunks: 120, chunkMs: 30 },
+    );
+    b.tool("rg -c error build.log", { ms: 300 });
+    b.say("The build spends its time signing.");
+    return b.turnEnd().build();
+  },
+
+  "parallel-tools": () => {
+    const b = sim(
+      "parallel-tools",
+      "Four commands start together and end out of order, one failing, while text streams.",
+    );
+    b.prompt("Check all four packages.");
+    b.think("Running them at once.");
+    for (const name of ["api", "web", "cli", "docs"]) b.tool(`bun test ${name}/`, { open: true }, 20);
+    b.toolEnd("call-3", { ms: 400 });
+    b.toolEnd("call-1", { ms: 700 });
+    b.toolEnd("call-4", { ms: 200, status: "failed", output: "2 fail" });
+    b.toolEnd("call-2", { ms: 2_500 });
+    b.say("Three pass; docs has two failures.");
+    b.tool("bun test docs/ --only-failures", { ms: 800 });
+    b.say("Both failures are stale snapshots.");
+    return b.turnEnd().build();
+  },
+
+  "thought-only-turn": () => {
+    const b = sim(
+      "thought-only-turn",
+      "A turn that only thinks, one that only runs a command, and one that replies with nothing else.",
+    );
+    b.prompt("Think about whether we need the cache.");
+    b.think("The cache saves one read per request, and the read is already fast.", { chunks: 5 });
+    b.turnEnd();
+    b.prompt("Check the build.", 4_000);
+    b.tool("bun run build", { ms: 900 });
+    b.turnEnd();
+    b.prompt("So do we need it?", 4_000);
+    b.say("No.");
+    return b.turnEnd().build();
+  },
+
+  "empty-turn": () => {
+    const b = sim("empty-turn", "A turn that ends with nothing drawn, between two ordinary turns.");
+    b.prompt("Fix the flaky test.");
+    workTurn(b, 2);
+    b.say("Done.");
+    b.turnEnd();
+    b.prompt("ok", 4_000);
+    b.turnEnd("completed", 800);
+    b.prompt("Now rebase.", 4_000);
+    b.tool("git rebase origin/main", { ms: 900 });
+    b.say("Rebased.");
+    return b.turnEnd().build();
+  },
+
+  "incoming-burst": () => {
+    const b = sim(
+      "incoming-burst",
+      "Five notices and messages from other agents in a row, each answered with one line or one command.",
+    );
+    b.prompt("Coordinate the three lanes.");
+    workTurn(b, 2, { middleText: false });
+    b.say("All three have their tasks.");
+    b.turnEnd();
+    for (let index = 0; index < 5; index += 1) {
+      b.incoming(
+        `lane-${index}: step ${index} finished`,
+        { kind: index % 2 ? "agent_message" : "notice", fromName: `lane-${index}` },
+        index === 0 ? 20_000 : 600,
+      );
+      if (index % 2) b.say(`Noted, lane-${index}.`);
+      else if (index === 2) b.tool("git fetch origin", { ms: 400 });
+      // Not played: an incoming line the agent answers with nothing, with another right under it. Chrome
+      // draws the second flush under the first (map.ts, `silent-received-flush`).
+      else b.say("Seen.");
+      b.turnEnd();
+    }
+    b.prompt("Where are we?", 8_000);
+    b.say("All five steps are in.");
+    return b.turnEnd().build();
+  },
+
+  "compaction-at-end": () => {
+    const b = sim(
+      "compaction-at-end",
+      "A compaction is still running when the turn ends, and the next turn opens on its summary.",
+    );
+    b.prompt("Keep going with the migration.");
+    workTurn(b, 3, { middleText: false });
+    b.say("Halfway.");
+    b.record(
+      "in",
+      "compaction",
+      {
+        jsonrpc: "2.0",
+        method: "session/update",
+        params: { sessionId: "agent-1", update: { sessionUpdate: "compaction", state: "started" } },
+      },
+      300,
+      "compaction started",
+    );
+    b.turnEnd();
+    b.prompt("Continue.", 6_000);
+    b.record(
+      "in",
+      "compaction",
+      {
+        jsonrpc: "2.0",
+        method: "session/update",
+        params: { sessionId: "agent-1", update: { sessionUpdate: "compaction", state: "completed" } },
+      },
+      300,
+      "compaction completed",
+    );
+    workTurn(b, 2);
+    b.say("Migration done.");
+    return b.turnEnd().build();
+  },
+
+  "lost-result": () => {
+    const b = sim(
+      "lost-result",
+      "A command's result never arrives: the turn ends with the call still open, and the next turn runs.",
+    );
+    b.prompt("Deploy it.");
+    b.think("Deploying.");
+    b.tool("bun run deploy", { open: true });
+    b.wait(10_000).say("Deployed.");
+    b.turnEnd();
+    b.prompt("And the docs?", 5_000);
+    b.tool("bun run deploy:docs", { ms: 900 });
+    b.say("Docs deployed.");
+    b.turnEnd();
+    // The reader opens the first turn: what its command reads as now.
+    return b.reader({ open: "worked-user-1" }).build();
+  },
+
+  "failed-helpers": () => {
+    const b = sim("failed-helpers", "A subagent fails and a background shell exits non-zero after its turn ended.");
+    b.prompt("Scan the logs and start the server.");
+    b.tool("Scan the last 50 CI logs", {
+      kind: "think",
+      tool: "Agent",
+      ms: 3_000,
+      status: "failed",
+      output: "The subagent hit its limit.",
+    });
+    b.background("bun run dev", { ms: 15_000 });
+    b.say("The scan failed; the server is starting.");
+    b.turnEnd();
+    b.wait(15_000);
+    b.record(
+      "in",
+      "background_task_update",
+      {
+        jsonrpc: "2.0",
+        method: "session/update",
+        params: {
+          sessionId: "agent-1",
+          update: {
+            sessionUpdate: "background_task_update",
+            taskId: "bg-call-2",
+            toolCallId: "call-2",
+            command: "bun run dev",
+            description: "bun run dev",
+            origin: "bash",
+            state: "failed",
+            exitCode: 1,
+          },
+        },
+      },
+      0,
+      "background failed",
+    );
+    b.prompt("Did the server start?", 5_000);
+    b.say("No: it exited with status 1.");
+    return b.turnEnd().build();
+  },
+
+  "reader-opens-mid-turn": () => {
+    const b = sim(
+      "reader-opens-mid-turn",
+      "The reader opens the finished turn's Worked for while the next turn runs, and it stays open.",
+    );
+    b.prompt("Fix the flaky test.");
+    workTurn(b, 3);
+    b.say("Done.");
+    b.turnEnd();
+    b.prompt("Now the lint.", 4_000);
+    b.tool("bun run lint", { ms: 900 });
+    b.reader({ open: "worked-user-1" });
+    workTurn(b, 2, { middleText: false });
+    b.say("Lint is clean.");
+    return b.turnEnd().build();
+  },
+
+  "codex-turn": () => {
+    const b = sim("codex-turn", "A Codex turn: commentary between commands, then the final answer.", "codex");
+    b.prompt("Fix the flaky test.");
+    b.say("I'll read the helper first.");
+    b.tool("sed -n 1,80p src/api/client.ts", { kind: "read" });
+    b.say("The loop allows one attempt too many.");
+    b.tool("bun test api/", { ms: 900 });
+    b.tool("git diff --stat", { ms: 300 });
+    b.say("Fixed: the loop now makes exactly `attempts` calls. " + PARAGRAPH, { chunks: 6 });
+    return b.turnEnd().build();
   },
 };
 

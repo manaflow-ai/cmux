@@ -262,6 +262,8 @@
     "cmux-tui-sdks": {
       "workflow": "cmux-tui-sdks.yml",
       "paths": [
+        ".github/workflows/base-coalesce.yml",
+        "scripts/ci/cmux_tui_tree_key.py",
         "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings",
         "schemas/agent-pane/stylesheet-guard.json",
         "schemas/settings/source/general.json",
@@ -284,19 +286,17 @@
         ".github/workflows/cmux-tui-sdks.yml",
         ".github/workflows/cmux-tui-spec.yml",
         ".github/workflows/relay-publish-npm.yml",
-        ".github/workflows/sdk-bootstrap-crates.yml",
-        ".github/workflows/sdk-bootstrap-npm.yml",
-        ".github/workflows/sdk-bootstrap-pypi.yml",
         ".github/workflows/sdk-publish-crates.yml",
         ".github/workflows/sdk-publish-go.yml",
         ".github/workflows/sdk-publish-java.yml",
         ".github/workflows/sdk-publish-npm.yml",
         ".github/workflows/sdk-publish-python.yml",
-        ".github/workflows/sdk-release-cut.yml",
         ".github/workflows/tui-publish-npm.yml",
         ".github/workflows/tui-publish-pypi.yml",
         "tests/test_tui_installers.py",
         "tests/test_tui_publish_workflow_security.py",
+        ".github/workflows/base-coalesce.yml",
+        "scripts/ci/cmux_tui_tree_key.py",
         "tests/workflow_jobs.py",
         "scripts/ci/gh_expressions.py",
         "webviews/bench/link-profiles.json",
@@ -407,6 +407,9 @@
         "skills/cmux-customization/references/local-app-views.md",
         "skills/cmux-customization/references/viewer-types.md",
         "skills/cmux-customization/templates/clock-weather/cmux-app.json",
+        "skills/cmux-extension-author/recipes/**",
+        ".github/workflows/base-coalesce.yml",
+        "scripts/ci/cmux_tui_tree_key.py",
         "skills/cmux-customization/templates/clock-weather/main.js",
         "skills/cmux-customization/templates/my-prs/cmux-app.json",
         "skills/cmux-customization/templates/my-prs/main.js",
@@ -420,9 +423,26 @@
         "workers/cmux-vm/cli/crates/cmux-vm-client/Cargo.toml",
         "workers/cmux-vm/cli/crates/cmux-vm-client/src/**",
         "workers/cmux-vm/cli/crates/cmux-vm/Cargo.toml",
-        "workers/cmux-vm/cli/crates/cmux-vm/src/**"
+        "workers/cmux-vm/cli/crates/cmux-vm/src/**",
+        "scripts/ci/cmux_tui_tree_key.py",
+        ".github/workflows/base-coalesce.yml"
       ],
       "jobs": {"conformance": "seven-language live conformance", "packages": "${{ matrix.language }} package", "consumers": "${{ matrix.language }} consumer", "rust-msrv": "Rust SDK MSRV (1.88)", "code-mode": "code-mode MCP cancellation"}
+    },
+    "cmux-tui-spec": {
+      "workflow": "cmux-tui-spec.yml",
+      "paths": [],
+      "jobs": {
+        "acpmux-tests": "acpmux tests (lib, hub_integration)",
+        "acpmux-sim": "acpmux simulation (seeds)",
+        "carrier-sim": "carrier simulation (seeds)",
+        "clippy": "clippy (changed cmux-tui packages)",
+        "rustfmt": "rustfmt",
+        "router-replay": "crate-graph router replay",
+        "inventory": "inventory",
+        "api-compat": "api-compat",
+        "acpmux-protocol-ir": "acpmux protocol IR is current"
+      }
     }
   }
 }

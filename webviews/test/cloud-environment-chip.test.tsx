@@ -472,7 +472,9 @@ test("New Cloud machine… runs New Cloud Machine with the picked environment, a
 
 test("New environment… makes one named after the folder, then picks it; Edit opens the current one", async () => {
   const editor = await import("../src/agent-session/acpmux/cloudEnvironment");
-  await mount({ flag: true, mode: "cloud" });
+  const render = await mount({ flag: true, mode: "cloud" });
+  const cwd = "/Users/you/src/cmux";
+  await render({ projectChoices: [{ cwd, label: "cmux", repo: { root: cwd, name: "cmux", github: "acme/cmux" } }] });
   await openChip();
   await act(async () => row(t("composer.envNew"))!.click());
   const request = editor.cloudEnvironmentRequest();
@@ -544,4 +546,53 @@ test("the recent list: remembered per folder, most recent first, only environmen
     "env_gpu",
   ]);
   expect(choice.autoEnvironment(environments as never)).toEqual({ id: "env_default", name: "Default" });
+});
+
+// Leo, 2026-11-22 (ask c-922dfe5e36): "we need to be able to make sure arbitrary paying
+// users/teammates can properly use it with the way that we properly use it". A teammate's Auto runs
+// in the team's Default, as the platform boots a team chat with no environment.
+test("Auto in a team's context is the team's Default; personal Default otherwise", async () => {
+  const choice = await import("../src/agent-session/acpmux/cloudEnvironmentChoice");
+  const teamDefault = { ...environments[0]!, id: "env_team_default", scope: "team", name: "Default" };
+  const teamOther = { ...environments[1]!, id: "env_team_web", scope: "team", is_default: false };
+  // Team context: the team's Default wins over the personal one, whatever the order.
+  for (const listed of [
+    [...environments, teamDefault, teamOther],
+    [teamDefault, ...environments],
+  ]) {
+    expect(choice.autoEnvironment(listed as never)).toEqual({ id: "env_team_default", name: "Default" });
+    expect(choice.autoEditEnvironment(listed as never)).toBe("env_team_default");
+  }
+  // A team with no Default listed: the personal one, and Edit opens it as before (no id).
+  expect(choice.autoEnvironment([...environments, teamOther] as never)).toEqual({ id: "env_default", name: "Default" });
+  expect(choice.autoEditEnvironment([...environments, teamOther] as never)).toBeUndefined();
+  // Personal-only: unchanged.
+  expect(choice.autoEnvironment(environments as never)).toEqual({ id: "env_default", name: "Default" });
+  expect(choice.autoEditEnvironment(environments as never)).toBeUndefined();
+});
+
+test("Edit on Auto opens the team's Default in a team's context, and the personal one (no id) without", async () => {
+  const editor = await import("../src/agent-session/acpmux/cloudEnvironment");
+  const nativeHost = (await import("../src/agent-session/acpmux/native")).setNativeHost;
+  const teamDefault = { ...environments[0]!, id: "env_team_default", scope: "team" };
+  for (const [listed, expected] of [
+    [[...environments, teamDefault], "env_team_default"],
+    [environments, undefined],
+  ] as const) {
+    nativeHost(async (method, params) => {
+      native.push([method, params]);
+      return method === "cloud.environment.list" ? listed : {};
+    });
+    await mount({ flag: true, mode: "cloud" });
+    await flush();
+    await openChip();
+    await act(async () => row(t("composer.envEdit", { name: "Default" }))!.click());
+    const request = editor.cloudEnvironmentRequest();
+    expect(request?.environmentId).toBe(expected);
+    expect(request?.section).toBe("script");
+    editor.closeCloudEnvironmentRequest(request!.request);
+    act(() => root?.unmount());
+    root = undefined;
+    host.replaceChildren();
+  }
 });

@@ -75,10 +75,14 @@ enum AgentSessionWorkspace {
         }
         let logger = daemon.logger
         let targetHost = host ?? services.agentTabs.localHost ?? ""
-        // A caller's key that names a listed workspace already shows the
-        // session (a launcher run again), or its stand-in (the key's first run in flight): nothing is opened twice. It answers its live chat tab, else the workspace.
-        if let listed = services.machines.workspace(id: key.rawValue)?.0 ?? daemon.store.workspaces.first(where: { $0.key == key }) {
-            let live = AgentSessionTab.liveTab(showing: session, host: host, services: services, in: key.rawValue), answer = AgentSessionOpenAnswer.fields(session: session, tab: live?.tab, pane: live?.pane, workspace: listed)
+        // A caller's key that names a listed workspace already shows the session (a launcher run again), or its stand-in (the key's first run in flight);
+        // a session a live tab of any workspace shows (an agent's open-tab, an open under another key) gets no second workspace either: one session, one
+        // sidebar row (ask-e3ce1c3684). Nothing is opened twice: it answers that chat tab (shown when the run may change the view), else the workspace.
+        let listed = services.machines.workspace(id: key.rawValue)?.0 ?? daemon.store.workspaces.first(where: { $0.key == key })
+        let live = AgentSessionTab.liveTab(showing: session, host: host, services: services, in: listed == nil ? nil : key.rawValue)
+        if listed != nil || live != nil {
+            if focus, listed == nil, let live { _ = services.revealTab(live.tab.id) }
+            let answer = AgentSessionOpenAnswer.fields(session: session, tab: live?.tab, pane: live?.pane, workspace: listed ?? live.flatMap { services.daemon(for: $0.pane).store.workspace(containing: $0.pane.handle) })
             return Task { .success(answer) }
         }
         let windows = services.windows
@@ -183,10 +187,6 @@ enum AgentSessionWorkspace {
             do {
                 guard let pane = await daemon.store.firstPane(mirroring: WorkspaceKey(rawValue: row.rawValue)) else {
                     return .failure(ActionWorkFailure("agent.openSessionWorkspace: the pane of workspace \(row.rawValue) did not appear"))
-                }
-                if let live = AgentSessionTab.liveTab(showing: session, host: host, services: services, in: row.rawValue) { // the same open again: that tab, never a second
-                    if focus { for window in services.windows.controllers { window.state.selection.select(live.tab.id, in: live.pane.id) } }
-                    return .success(AgentSessionOpenAnswer.fields(session: session, tab: live.tab, pane: live.pane, workspace: daemon.store.workspace(containing: live.pane.handle)))
                 }
                 let pending = try services.agentTabs.open(in: pane.handle, of: daemon, session: session, linked: true, host: host,
                                                           idempotencyKey: key.rawValue)

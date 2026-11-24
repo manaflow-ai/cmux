@@ -60,7 +60,7 @@ function windowName(id: string, t: Translate): string {
 }
 
 /// The reset time with its date and time zone: a weekly window can reset days from now.
-function resetTime(seconds: number, locale?: string): string {
+export function resetTime(seconds: number, locale?: string): string {
   const options: Intl.DateTimeFormatOptions = {
     month: "short",
     day: "numeric",

@@ -116,6 +116,17 @@ pub enum RelayControl {
     Registered {
         lease_seconds: u32,
     },
+    /// A daemon socket held open for one inline circuit (RFD 0039 cut 5), on
+    /// the slot's control route with the same Register ticket. The relay
+    /// answers `Registered`, then `Ready` once it pairs the socket with a
+    /// client's inline `Connect`; from then on the socket carries that
+    /// circuit's binary frames. It is not the slot's registration: `Incoming`
+    /// never goes to it. A relay that predates this answers `Error` and closes.
+    Standby {
+        protocol: u8,
+        slot: String,
+        ticket: String,
+    },
     Connect {
         protocol: u8,
         slot: String,
@@ -131,6 +142,14 @@ pub enum RelayControl {
         /// ([`RelayTicketClaims::grant`]). Absent on the wire when None.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         grant: Option<String>,
+        /// The client takes its circuit on this socket (RFD 0039 cut 5): a
+        /// relay with a daemon `Standby` socket free answers `Ready` here and
+        /// forwards binary frames between this socket and that one, with no
+        /// circuit hop. Otherwise, as for a client that leaves this unset, it
+        /// answers `Allocated` and the circuit is joined as before. A relay
+        /// that predates this ignores it. Absent on the wire when false.
+        #[serde(default, skip_serializing_if = "is_false")]
+        inline: bool,
     },
     /// The relay holds this Connect until the slot's daemon registers, then
     /// answers it with `Allocated`. Sent only to a client that set
@@ -191,21 +210,35 @@ impl fmt::Debug for RelayControl {
                 .field("slot", slot)
                 .field("ticket", &"[REDACTED]")
                 .finish(),
+            Self::Standby { protocol, slot, .. } => formatter
+                .debug_struct("Standby")
+                .field("protocol", protocol)
+                .field("slot", slot)
+                .field("ticket", &"[REDACTED]")
+                .finish(),
             Self::Registered { lease_seconds } => {
                 formatter.debug_struct("Registered").field("lease_seconds", lease_seconds).finish()
             }
-            Self::Connect { protocol, slot, lane, generation, accepts_parked, grant, .. } => {
-                formatter
-                    .debug_struct("Connect")
-                    .field("protocol", protocol)
-                    .field("slot", slot)
-                    .field("ticket", &"[REDACTED]")
-                    .field("lane", lane)
-                    .field("generation", generation)
-                    .field("accepts_parked", accepts_parked)
-                    .field("grant", &grant.as_ref().map(|_| "[REDACTED]"))
-                    .finish()
-            }
+            Self::Connect {
+                protocol,
+                slot,
+                lane,
+                generation,
+                accepts_parked,
+                grant,
+                inline,
+                ..
+            } => formatter
+                .debug_struct("Connect")
+                .field("protocol", protocol)
+                .field("slot", slot)
+                .field("ticket", &"[REDACTED]")
+                .field("lane", lane)
+                .field("generation", generation)
+                .field("accepts_parked", accepts_parked)
+                .field("grant", &grant.as_ref().map(|_| "[REDACTED]"))
+                .field("inline", inline)
+                .finish(),
             Self::Parked { lane, generation } => formatter
                 .debug_struct("Parked")
                 .field("lane", lane)
@@ -321,6 +354,7 @@ mod grant_tests {
             generation: 1,
             accepts_parked: false,
             grant: grant.map(str::to_owned),
+            inline: false,
         };
         let bare = serde_json::to_value(connect(None)).unwrap();
         assert!(bare.get("grant").is_none());

@@ -25,6 +25,19 @@
 # 3. Base-merge warning (always, never refuses): scripts/ci/base_merge_warning.py says when the push
 #    merges the base into a branch whose old head still has CI running, which the push cancels.
 # 4. Namespace autofix (opt-in): only when installed with --namespace-fix.
+# Pass cache (always): steps 0a, 1 and 2 judge a push once. A run where all three passed records the push's key: every
+#    pushed ref line (local sha, remote ref, remote sha), each pushed head's merge base with origin/feat-cmux-next and
+#    origin/main, the installed hook, gate and web lint, the checks copy (its versioned name), the remote, and the
+#    CMUX_* settings that change a verdict. The same key again (a retry after git or GitHub failed the push, a second
+#    `wt push` of the same head) skips the queue, the fast tier, the web lint and the gate, and says so. A record lasts
+#    CMUX_PREPUSH_PASS_TTL_MINUTES [360] in the clone's common git dir (cmux-prepush-pass/), shared by its worktrees.
+#    CMUX_PREPUSH_PASS_CACHE=0 judges anyway. 2026-11-22 on cosmic-gray (load 163-234 while Leo typed): 181 of 511
+#    pushes in six hours repeated a sha already tried, and each ran the whole hook again.
+# Loaded host (always): when the 1-minute load average is at CMUX_PREPUSH_DEFER_LOAD_PER_CPU [1] per core or past it,
+#    the gate leaves the layers the PR's fast-gates CI job runs with the same refusal (scanners, ast-grep, SwiftLint:
+#    the gate's --base/--head run) to that job, for a push of a branch other than feat-cmux-next, main and perf/*;
+#    every hook-only layer still runs here. A pass recorded that way answers only another loaded run.
+#    A run where a step was stopped at its time limit or the web lint's findings were let through records nothing.
 # Time limits: every step but the extras and the namespace autofix runs in its own process group under a wall-clock
 # limit; past it the group is stopped (SIGTERM, SIGKILL 5 s later), one line names the limit, and the push goes on
 # (CI checks it). Each limit's variable, in seconds (0: none): checks refresh CMUX_PREPUSH_REFRESH_TIMEOUT_SECONDS
@@ -61,7 +74,7 @@ phase() {  # phase NAME: end the running phase (if any) and start NAME; `phase "
 }
 finish() {
     local status=$?
-    rm -f "$REFS_FILE"
+    rm -f "$REFS_FILE" "$REFS_FILE.let-through"
     (( TIMED )) || return 0
     local failed="$PHASE"
     phase ""
@@ -131,12 +144,79 @@ PYTHON3_BIN="$HOOK_PYTHON"
 # The gate's PyYAML refusal names these, so its fix is not for one interpreter alone.
 export CMUX_HOOK_PYTHON_TRIED="$HOOK_PYTHON_TRIED"
 
+# Loaded host (header): the 1-minute load average at CMUX_PREPUSH_DEFER_LOAD_PER_CPU per core or past it. Builtins and
+# sysctl only: this runs before the queue, on a host already short of CPU.
+LOADED=0
+CPUS="$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 0)"
+LOAD1=""
+if [[ -r /proc/loadavg ]]; then
+    read -r LOAD1 _ < /proc/loadavg || true
+else
+    LOAD1="$(sysctl -n vm.loadavg 2>/dev/null || true)"  # "{ 192.70 189.32 175.14 }"
+    LOAD1="${LOAD1#\{ }"
+    LOAD1="${LOAD1%% *}"
+fi
+LOAD1="${CMUX_PREPUSH_LOAD_FOR_TEST:-$LOAD1}"
+PER_CPU="${CMUX_PREPUSH_DEFER_LOAD_PER_CPU:-1}"
+if [[ "${LOAD1%%.*}" =~ ^[0-9]+$ && "$CPUS" =~ ^[0-9]+$ && "$PER_CPU" =~ ^[0-9]+$ ]] && (( PER_CPU > 0 && CPUS > 0 )) \
+        && (( ${LOAD1%%.*} >= CPUS * PER_CPU )); then
+    LOADED=1
+fi
+
+# The pass cache (header). The key is computed once, before the queue, and handed to the queued run with the queue's
+# own variable, so a retry of a judged push waits for no turn and starts no check.
+PASS_KEY=""
+PASS_HIT=""
+PASS_DIR=""
+PASS_TTL="${CMUX_PREPUSH_PASS_TTL_MINUTES:-360}"
+[[ "$PASS_TTL" =~ ^[0-9]+$ ]] || PASS_TTL=360
+if [[ "${CMUX_PREPUSH_PASS_CACHE:-1}" != 0 ]]; then
+    if [[ -n "${CMUX_PREPUSH_QUEUE_HELD:-}" && "${CMUX_PREPUSH_PASS_KEY_HELD:-}" =~ ^[0-9a-f]{40,64}$ ]]; then
+        PASS_KEY="$CMUX_PREPUSH_PASS_KEY_HELD"
+    else
+        # The installed copies that judge (the checks copy is in the record's name, below: a refresh moves it).
+        PASS_SOURCE="$(cd "$HOOK_DIR" && git hash-object -- pre-push web_lint_prepush.py cmux_next_prepush_gate.py \
+            2>/dev/null || echo unreadable)"$'\n'
+        PASS_SOURCE+="remote ${1:-} ${2:-}"$'\n'
+        for PASS_VAR in CMUX_WEB_LINT_SKIP_REASON CMUX_NEXT_CHECKS_SKIP_REASON CMUX_LOCAL_HEAVY_CHECKS \
+                CMUX_LOCAL_HEAVY_WHEN_FREE_GB CMUX_FAST_TIER_DISABLED CMUX_NEXT_GATE_LIMIT_SECONDS; do
+            PASS_SOURCE+="$PASS_VAR=${!PASS_VAR-<unset>}"$'\n'
+        done
+        while IFS=' ' read -r PASS_LOCAL_REF PASS_LOCAL_SHA PASS_REMOTE_REF PASS_REMOTE_SHA; do
+            [[ -n "$PASS_LOCAL_SHA" ]] || continue
+            PASS_SOURCE+="ref $PASS_LOCAL_REF $PASS_LOCAL_SHA $PASS_REMOTE_REF $PASS_REMOTE_SHA"
+            if [[ ! "$PASS_LOCAL_SHA" =~ ^0+$ ]]; then
+                # The base the gate measures a new branch from: where the head meets the integration branches.
+                for PASS_BASE_REF in refs/remotes/origin/feat-cmux-next refs/remotes/origin/main; do
+                    PASS_SOURCE+=" $(git merge-base "$PASS_LOCAL_SHA" "$PASS_BASE_REF" 2>/dev/null || echo none)"
+                done
+            fi
+            PASS_SOURCE+=$'\n'
+        done < "$REFS_FILE"
+        PASS_KEY="$(printf '%s' "$PASS_SOURCE" | git hash-object --stdin 2>/dev/null || true)"
+        [[ "$PASS_KEY" =~ ^[0-9a-f]{40,64}$ ]] || PASS_KEY=""
+    fi
+    PASS_DIR="$(cd "$(git rev-parse --git-common-dir 2>/dev/null || echo /nonexistent)" 2>/dev/null && pwd -P)" || PASS_DIR=""
+    [[ -z "$PASS_DIR" ]] || PASS_DIR="$PASS_DIR/cmux-prepush-pass"
+    if [[ -n "$PASS_KEY" && -n "$PASS_DIR" ]]; then
+        PASS_CHECKS="$(readlink "$HOOK_DIR/cmux-next-checks" 2>/dev/null || echo none)"
+        # A full pass answers any run; a pass that left the CI layers to CI answers only another loaded run.
+        for PASS_KIND in full $( (( LOADED )) && echo loaded ); do
+            PASS_FILE="$PASS_DIR/$PASS_KEY.${PASS_CHECKS##*/}.$PASS_KIND"
+            if [[ -f "$PASS_FILE" && -n "$(find "$PASS_FILE" -mmin "-$PASS_TTL" 2>/dev/null)" ]]; then
+                PASS_HIT="$PASS_KIND"
+                break
+            fi
+        done
+    fi
+fi
+
 # The queue (header, 0a). The hook runs again as the child of a python3 that holds one of the slot locks until
 # the child exits, as install-git-hooks.sh holds install.lock: only that parent has the lock file open (Python
 # opens it close-on-exec), so nothing a check starts can keep a slot after the hook ends. The locks are in /tmp,
 # not $TMPDIR: every agent has its own $TMPDIR, and the queue is for the whole Mac. The program is a -c argument
 # and free of single quotes (bash 5.1+ writes a here-document into a pipe first; see REFS_FILE above).
-if [[ -z "${CMUX_PREPUSH_QUEUE_HELD:-}" ]]; then
+if [[ -z "${CMUX_PREPUSH_QUEUE_HELD:-}" && -z "$PASS_HIT" ]]; then
     QUEUE_HOLDER='
 import fcntl
 import os
@@ -195,12 +275,13 @@ sys.exit(code if code >= 0 else 128 - code)
 '
     exec 3< "$REFS_FILE"
     rm -f "$REFS_FILE"
+    export CMUX_PREPUSH_PASS_KEY_HELD="$PASS_KEY"
     exec "$PYTHON3_BIN" -I -c "$QUEUE_HOLDER" "${CMUX_PREPUSH_QUEUE_DIR:-/tmp}" "${BASH_SOURCE[0]}" "$@" <&3
 fi
-if [[ "$CMUX_PREPUSH_QUEUE_HELD" =~ ^[0-9]+$ ]]; then
+if [[ "${CMUX_PREPUSH_QUEUE_HELD:-}" =~ ^[0-9]+$ ]]; then
     PHASE_TIMES="queue ${CMUX_PREPUSH_QUEUE_HELD}s"  # the wait for a turn, first in the hook-times line
 fi
-unset CMUX_PREPUSH_QUEUE_HELD  # a push a check starts (none does today) queues for itself
+unset CMUX_PREPUSH_QUEUE_HELD CMUX_PREPUSH_PASS_KEY_HELD  # a push a check starts (none does today) queues for itself
 if [[ -n "$HOOK_PYTHON_TRIED" ]]; then
     echo "pre-push: checking with $PYTHON3_BIN; passed over: $HOOK_PYTHON_TRIED." \
         "scripts/install-git-hooks.sh records the best one." >&2
@@ -296,6 +377,17 @@ def group_alive():
     return True
 
 
+def let_through():
+    # The pass cache records only a run every step judged (header, "Pass cache").
+    mark = os.environ.get("CMUX_PREPUSH_LET_THROUGH_FILE", "")
+    if mark:
+        try:
+            with open(mark, "a") as out:
+                out.write(name + "\n")
+        except OSError:
+            pass
+
+
 def forward(number, frame):
     signalled.append(number)
     stop(number)
@@ -317,17 +409,19 @@ except subprocess.TimeoutExpired:
     child.wait()
     print(f"pre-push: {name} ran past its {limit:g}s limit ({limit_name}); stopped it and every process it started. "
           f"The push goes on; {ci_check}.", file=sys.stderr, flush=True)
+    let_through()
     sys.exit(0)
 code = code if code >= 0 else 128 - code
 if code and findings == "pass" and not signalled and os.environ.get("CMUX_WEB_LINT_STRICT", "").strip() != "1":
     print(f"pre-push: {name} found problems (exit {code}, above); the push goes on, lint never stops a push: "
           f"{ci_check}. Fix forward with scripts/web-lint.sh --fix. CMUX_WEB_LINT_STRICT=1 refuses instead.",
           file=sys.stderr, flush=True)
+    let_through()
     sys.exit(0)
 sys.exit(code)
 '
 bounded() {
-    "$PYTHON3_BIN" -I -c "$BOUNDED" "$@"
+    CMUX_PREPUSH_LET_THROUGH_FILE="$REFS_FILE.let-through" "$PYTHON3_BIN" -I -c "$BOUNDED" "$@"
 }
 
 REFRESH="$HOOK_DIR/refresh_checks.py"
@@ -338,11 +432,19 @@ if [[ -f "$REFRESH" ]]; then
         --remote-url "${2:-}" < "$REFS_FILE" || true
 fi
 
+if [[ -n "$PASS_HIT" ]]; then
+    phase pass-cache
+    echo "pre-push: these refs already passed the fast tier, the web lint and the cmux-next gate in this clone" \
+        "($PASS_HIT pass, key ${PASS_KEY:0:12}: the same commits, base and installed checks); not judged again." \
+        "CMUX_PREPUSH_PASS_CACHE=0 judges anyway." >&2
+fi
+
 WEB_LINT="$HOOK_DIR/web_lint_prepush.py"
 # The bounded tier supplies the first signal before any existing checker can dispatch fleet work.
 # Its installed reviewed copy reads commit blobs; candidate tests run only in its disposable sandbox.
 # A deadline or missing warm tool is deferred to the existing mandatory checks, never called a pass.
 FAST_TIER="$CHECKS/prepush_fast_tier.py"
+if [[ -z "$PASS_HIT" ]]; then
 phase fast-tier
 if [[ -f "$FAST_TIER" ]]; then
     bounded "fast tier" CMUX_PREPUSH_FAST_TIER_TIMEOUT_SECONDS 120 "CI runs these suites" refuse -- \
@@ -362,13 +464,36 @@ GATE="$HOOK_DIR/cmux_next_prepush_gate.py"
 phase cmux-next-gate
 if [[ -f "$GATE" ]]; then
     # The remote's URL ($2): the compile trailer rule applies only to a push to manaflow-ai/cmux's feat-cmux-next.
+    GATE_ARGS=()
+    PASS_KIND=full
+    if (( LOADED )); then
+        # The gate names what it leaves to the PR's CI, and leaves nothing on a push to an integration branch.
+        GATE_ARGS+=(--defer-ci-layers)
+        PASS_KIND=loaded
+    fi
     bounded "cmux-next gate" CMUX_PREPUSH_GATE_TIMEOUT_SECONDS 180 "CI's \`cmux-next checks\` job checks it" refuse -- \
-        env CMUX_PREPUSH_REMOTE_URL="${2:-}" "$PYTHON3_BIN" -I "$GATE" --pre-push \
+        env CMUX_PREPUSH_REMOTE_URL="${2:-}" "$PYTHON3_BIN" -I "$GATE" --pre-push ${GATE_ARGS[@]+"${GATE_ARGS[@]}"} \
         --repo "$REPO_ROOT" --remote "$PUSHED_REMOTE" --trusted-scripts-dir "$CHECKS" < "$REFS_FILE"
 else
     echo "pre-push: cmux-next checks gate is missing; rerun scripts/install-git-hooks.sh." >&2
     exit 1
 fi
+# All three passed (a failure exited above): record the key under the checks copy that judged it (a refresh above may
+# have moved the link), so the same push is not judged twice. Records past the TTL go with each write.
+# A step stopped at its limit, or web lint findings let through, is not a pass: record nothing.
+if [[ -s "$REFS_FILE.let-through" ]]; then
+    PASS_KEY=""
+fi
+rm -f "$REFS_FILE.let-through"
+if [[ -n "$PASS_KEY" && -n "$PASS_DIR" ]] && mkdir -p "$PASS_DIR" 2>/dev/null; then
+    PASS_CHECKS="$(readlink "$CHECKS" 2>/dev/null || echo none)"
+    PASS_TMP="$PASS_DIR/.$PASS_KEY.$$"
+    if printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$PASS_KIND" > "$PASS_TMP" 2>/dev/null; then
+        mv -f "$PASS_TMP" "$PASS_DIR/$PASS_KEY.${PASS_CHECKS##*/}.$PASS_KIND" 2>/dev/null || rm -f "$PASS_TMP"
+    fi
+    find "$PASS_DIR" -type f -mmin "+$PASS_TTL" -delete 2>/dev/null || true
+fi
+fi  # the pass cache's miss
 
 # A base merge pushed while the old head's CI runs cancels it: warn, never refuse.
 BASE_MERGE_WARNING="$HOOK_DIR/base_merge_warning.py"

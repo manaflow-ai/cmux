@@ -18,9 +18,9 @@
    without field-sizing) to the shared twelve-line cap (markdownField.css), and never past 40% of the pane; then it scrolls.
    The row follows the content line height, with one content-size unit above and below. Nothing cuts
    the draft. */
-.nt-field{flex:1;min-width:0;display:block;box-sizing:border-box;field-sizing:content;min-height:calc(1lh + 2 * var(--nt-input-pad-block));max-height:min(calc(var(--acpmux-composer-max-lines, 30) * 1lh + 2 * var(--nt-input-pad-block)),60vh);margin:0;border:0;outline:0;padding:var(--nt-input-pad-block) 0;resize:none;overflow-x:hidden;overflow-y:auto;white-space:pre-wrap;overflow-wrap:break-word;background:none;color:var(--agent-text);caret-color:var(--cmux-caret, var(--agent-text));font:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height)}
+.nt-field{flex:1;min-width:0;display:block;box-sizing:border-box;field-sizing:content;min-height:calc(1lh + 2 * var(--nt-input-pad-block));max-height:min(var(--acpmux-composer-max-height, calc(384px * var(--cmux-interface-scale, 1))),50vh);margin:0;border:0;outline:0;padding:var(--nt-input-pad-block) 0;resize:none;overflow-x:hidden;overflow-y:auto;white-space:pre-wrap;overflow-wrap:break-word;background:none;color:var(--agent-text);caret-color:var(--cmux-caret, var(--agent-text));font:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height)}
 /* The hint stays one line (the empty field keeps its one-line row); only the draft wraps. */
-.nt-field.acpmux-md-field{--nt-field-pad-inline-start:0px;--acpmux-field-grows:down;flex:1;min-width:0;display:block;box-sizing:border-box;min-height:calc(1lh + 2 * var(--nt-input-pad-block));max-height:min(calc(var(--acpmux-composer-max-lines, 30) * 1lh + 2 * var(--nt-input-pad-block)),60vh);margin:0;padding:var(--nt-input-pad-block) 0;overflow-x:hidden;overflow-y:auto;background:none;color:var(--agent-text);font:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height)}
+.nt-field.acpmux-md-field{--nt-field-pad-inline-start:0px;--acpmux-field-grows:down;flex:1;min-width:0;display:block;box-sizing:border-box;min-height:calc(1lh + 2 * var(--nt-input-pad-block));max-height:min(var(--acpmux-composer-max-height, calc(384px * var(--cmux-interface-scale, 1))),50vh);margin:0;padding:var(--nt-input-pad-block) 0;overflow-x:hidden;overflow-y:auto;background:none;color:var(--agent-text);font:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height)}
 .nt-field.acpmux-md-field .acpmux-md-root{min-height:1lh;box-sizing:border-box}
 .nt-field.acpmux-md-field .acpmux-md-placeholder{inset-inline-start:var(--nt-field-pad-inline-start);right:0;top:calc(var(--nt-input-pad-block) + var(--acpmux-text-drop, 0px))}
 .nt-field.acpmux-md-field .acpmux-md{min-height:var(--text-content--line-height);font-size:inherit;line-height:inherit;letter-spacing:inherit;color:inherit;white-space:pre-wrap;overflow-wrap:break-word}
@@ -63,6 +63,8 @@
 .nt-row-shortcut{flex:none;margin-left:auto;display:flex;align-items:center;gap:var(--ds-space-1);color:var(--acpmux-composer-dim);font-size:var(--nt-row-detail,var(--text-detail));letter-spacing:var(--text-detail--letter-spacing)}
 /* The palette's keycaps use the control corner less one spacing step, as the Send menu's caps do. */
 .nt-row-shortcut kbd{padding:var(--grid-half-step) var(--ds-space-1);border-radius:max(0px,calc(var(--ds-radius-control,8px) - var(--ds-space-1,4px)));background:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));color:var(--agent-soft);font:inherit;line-height:1}
+/* A chord's two strokes (⌘J then S): "then" between them as plain text, not a cap. */
+.nt-row-then{color:var(--acpmux-composer-dim)}
 .nt-command-symbol{width:100%;height:100%;background:currentColor;mask-size:contain;mask-position:center;mask-repeat:no-repeat}
 /* Filled logos (harness marks and favicons) need less room than outline icons for matching ink height: 12 of the
    outline icons' 14, at every density (Lucas 2026-11-18: Google's favicon read bigger than Claude's mark). */
@@ -820,7 +822,7 @@
 /* The icon column's arms (iconColumn.experiment.ts; the gallery's agent-pane.new-tab-icon-column).
    Each keeps the folder glyph, + and the shield on one center line (newtab-icon-column.test.ts) and
    changes only what carries the chips, so the arms read apart at a glance (Leo 2026-11-15: "those
-   all look the same to me"). pad, the bare text above, has no rule here; tiles (below) ships.
+   all look the same to me"). pad, the bare text above, has no rule here and ships (Lucas 2026-11-23).
    - tray: the strip sits in a filled tray inset by --nt-tray-inset from the box's sides and tucked
      --nt-tray-tuck under its top edge, the box raised over it (Codex's desktop composer). The strip
      steps back out by the inset, so its glyphs stay on the column. */
@@ -873,7 +875,7 @@
    the glyph's place: each tile is drawn around the glyph's own box (below), so its center stays on
    the column (newtab-icon-column.test.ts) and only the label steps out by the tile's room. A
    project's badge gets the same tile. One stroke (the 16 grid's 1.25) for every glyph.
-   - tiles (shipped): line glyphs in the chip's own ink on soft square tiles, as a system settings
+   - tiles: line glyphs in the chip's own ink on soft square tiles, as a system settings
      sidebar; the names stay.
    - appicon: app-icon squircles. The folder is the hero, on the accent's tile in the accent's ink;
      the machine and the shield sit on neutral tiles, + on a round one; the project's name in the
@@ -1368,11 +1370,12 @@
   --nt-glow-divider: 50%;
 }
 /* A light page has less dark around the glow to carry it: a little more color, the same reach. */
-:root.light .nt-cards[data-glow] {
-  --nt-glow-mix: 16%;
+/* `data-theme` is what the app sets on the root (shared/theme.ts); it has no `light` class. */
+:root[data-theme="light"] .nt-cards[data-glow] {
+  --nt-glow-mix: 28%;
 }
-:root.light .nt-cards[data-glow="vivid"] {
-  --nt-glow-mix: 30%;
+:root[data-theme="light"] .nt-cards[data-glow="vivid"] {
+  --nt-glow-mix: 52%;
 }
 .nt-cards[data-glow] .nt-card {
   position: relative;
@@ -1407,7 +1410,7 @@
     transition: opacity var(--cmux-motion-large, 240ms) var(--cmux-ease-out, ease-out);
   }
 }
-/* Return's row (NewTabScreen): a ↩ keycap at its end, in the shortcut keycaps' dress, so the highlight
+/* Return's row (NewTabScreen): a "return" keycap at its end, in the shortcut keycaps' dress, so the highlight
    reads as "Return does this" before Return is pressed (David Beyer 2026-11-20: words he typed ran as a
    shell command). It takes no room from the title: the row's end, after any shortcut. */
 .nt-row-return{flex:none;margin-left:auto;padding:var(--grid-half-step) var(--ds-space-1);border-radius:max(0px,calc(var(--ds-radius-control,8px) - var(--ds-space-1,4px)));background:var(--ds-surface-inset);color:var(--agent-soft);font:inherit;font-size:var(--nt-row-detail,var(--text-detail));line-height:1}

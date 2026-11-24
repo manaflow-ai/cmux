@@ -15,10 +15,11 @@ with an agent chat on the acpmux test agent, one turn answered), then workspaces
   FRONT    what the front window shows at the quit and so after the relaunch: `chat` (l5-b's chat tab, typed into
            its composer) or `terminal` (l5-a's terminal, typed into its shell's tty, which echoes).
   KIND     `cold_install`: the copy is deleted and copied again (ditto) from the one kept at the start, so the launch
-           is the first exec of new files, as a fresh install; `cold_after_update`: the same fresh copy after the
-           updater's StagedUpdatePrewarm sequence; `warm`: the same copy relaunched right after the quit
-           (launch-ready.sh prerun=0); `warm60`: before it, one full run of the same copy that stays up 60 s after
-           its window shows, then quits (launch-ready.sh prerun=60).
+           is the first exec of new files, as a fresh install; `cold_after_update`: a fresh copy after the updater's
+           StagedUpdatePrewarm sequence, run in a staging folder that is then renamed into place (updated_copy, as
+           nightly-fresh-launch.py's update arm): the launch after an update, of the same pre-warmed copy; `warm`:
+           the same copy relaunched right after the quit (launch-ready.sh prerun=0); `warm60`: before it, one full run
+           of the same copy that stays up 60 s after its window shows, then quits (launch-ready.sh prerun=60).
 
 Each round is Quit and Keep Sessions, then the app started again with the run's environment, the typing probe on
 (CMUX_NEXT_TYPING_PROBE, a release build's own key-to-echo timeline) and a fresh launch-marks pipe. From the start the
@@ -102,6 +103,24 @@ PROBE_TOOK_FRONT = ("terminal.probe_app_inactive", "terminal.probe_window_not_ke
 KEPT_MARKS = ("main_start", "first_window_frame_committed", "reveal.pane", "reveal.home", "agent_pane.painted",
               CHAT_MARK, "first_terminal_surface_created", "terminal_input_accepted", "terminal_echo", PROBE_TYPED,
               PROBE_NO_KEY_WINDOW, *PROBE_TOOK_FRONT)
+# Every mark of the steps between the first frame and the chat drawn, kept too: Chromium's start (cef.*, its
+# cef.step.* split), the page host (chromium_page.*), the page's own navigation and paint (first_page.*), the chat's
+# handshake and paint (agent_pane.*) and Home (home.*). Without them a round says only that webview_ready or
+# first_chat_paint was late, never which step (a warm-vs-update gap on 2026-11-23 could not be split from the logs).
+KEPT_MARK_PREFIXES = ("cef.", "chromium_page.", "first_page.", "agent_pane.", "home.", "reveal.")
+KEPT_MARKS_MAX = 120  # a round's line stays small; the stage marks and KEPT_MARKS always fit first
+
+
+def kept_marks(marks: dict) -> dict:
+    """The marks a round's line carries: KEPT_MARKS and every stage mark, then each mark under KEPT_MARK_PREFIXES in
+    launch order, at most KEPT_MARKS_MAX in all."""
+    named = set(KEPT_MARKS) | set(launch_stages.MARKS)
+    out = {k: marks[k] for k in marks if k in named}
+    rest = sorted((k for k in marks if k not in named and k.startswith(KEPT_MARK_PREFIXES)),
+                  key=lambda k: (_num(marks[k]) is None, _num(marks[k]) or 0.0, k))
+    for k in rest[:max(0, KEPT_MARKS_MAX - len(out))]:
+        out[k] = marks[k]
+    return out
 
 
 def log(message: str) -> None:
@@ -171,6 +190,13 @@ def activate(pid: int) -> None:
 
 
 # ---- the typing probe -----------------------------------------------------------------------
+
+def load_1m() -> float | None:
+    try:
+        return round(os.getloadavg()[0], 2)
+    except OSError:
+        return None
+
 
 def _num(value) -> float | None:
     try:
@@ -309,14 +335,21 @@ def seed_list(inst: rr.Instance, made: dict, workspaces: int, chats: int, work: 
 
 # ---- one round ------------------------------------------------------------------------------
 
-def quit_app(inst: rr.Instance, process) -> str | None:
+def quit_app(inst: rr.Instance, process, timing: dict | None = None) -> str | None:
+    """Quit and Keep Sessions, then wait for the process to end. `timing`, when given, gets `quit_ms`: the ask to the
+    old process's end (or to its kill), so a round can tell a slow relaunch from a slow quit before it."""
+    asked = time.monotonic()
     reply = rr.call(inst.sock, "action.run", {"action": "quitKeepSessions"}, timeout=10)
     try:
         process.wait(timeout=20)
     except subprocess.TimeoutExpired:
         process.kill()
         process.wait(timeout=10)
+        if timing is not None:
+            timing["quit_ms"], timing["quit_killed"] = round((time.monotonic() - asked) * 1000, 1), True
         return f"the app did not end within 20 s of Quit and Keep Sessions ({reply.get('error') or 'ok'})"
+    if timing is not None:
+        timing["quit_ms"] = round((time.monotonic() - asked) * 1000, 1)
     if os.path.exists(inst.sock):
         try:
             os.remove(inst.sock)
@@ -325,7 +358,7 @@ def quit_app(inst: rr.Instance, process) -> str | None:
     return None
 
 
-def fresh_copy(app: Path, pristine: Path, n: int) -> Path:
+def fresh_copy(app: Path, pristine: Path, n: int | str) -> Path:
     """A new copy of PRISTINE for round N's cold launch, in a folder of its own beside APP's (under the smoke's root,
     which its cleanup removes), and the copy APP was is removed, best effort. Never into APP's own path: a bundle
     path a process has launched from refuses new files there on a fleet Mac ("ditto: ...: Operation not permitted",
@@ -335,6 +368,18 @@ def fresh_copy(app: Path, pristine: Path, n: int) -> Path:
     subprocess.run(["ditto", str(pristine), str(new)], check=True, timeout=600)
     shutil.rmtree(app, ignore_errors=True)
     return new
+
+
+def updated_copy(app: Path, pristine: Path, n: int, env: dict) -> tuple[Path, dict]:
+    """Round N's cold_after_update copy, made the way scripts/measure/nightly-fresh-launch.py's update arm
+    (prewarm-update-moved, NOW's app_update_launch_ms) makes it: a new copy in a staging folder, the updater's pre-warm
+    run there (staged_update_prewarm), then the folder renamed into place, as an installed update is moved; the launch
+    is that same pre-warmed copy. Returns the placed app and the pre-warm's record."""
+    staged = fresh_copy(app, pristine, f"stage-{n}")
+    prewarm = staged_update_prewarm(staged, env)
+    placed = staged.parent.parent / f"app-cold-{n}"
+    os.rename(staged.parent, placed)
+    return placed / staged.name, prewarm
 
 
 def staged_prewarm_plan(app: Path) -> list[tuple[Path, list[str]]]:
@@ -442,26 +487,32 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
         failures.append(put)
         rr.safe_print("TTI-ROUND " + json.dumps(row, default=str), flush=True)
         return row, process, app
-    why = quit_app(inst, process)
+    why = quit_app(inst, process, row)
+    quit_end = time.monotonic()
     if why:
         failures.append(why)
     if kind in ("cold_install", "cold_after_update"):
         try:
-            app = fresh_copy(app, pristine, n)
+            if kind == "cold_after_update":
+                app, row["prewarm"] = updated_copy(app, pristine, n, env)
+            else:
+                app = fresh_copy(app, pristine, n)
         except (OSError, subprocess.SubprocessError) as error:
             failures.append(f"the fresh copy failed: {error}")
             rr.safe_print("TTI-ROUND " + json.dumps(row, default=str), flush=True)
             return row, process, app
         # The seeded session's CLI is the running copy's (Instance.cli): follow the app to its new path.
         inst.app, inst.cli = str(app), os.path.join(str(app), "Contents", "Resources", "bin", "cmux")
-        if kind == "cold_after_update":
-            row["prewarm"] = staged_update_prewarm(app, env)
     elif kind == "warm60":
         _, why = prerun(inst, app, env, out, PRERUN_S)
         if why:
             failures.append(why)
     probe = out / f"typing-round{n}.csv"
     probe.unlink(missing_ok=True)
+    # The old process's end to this launch (a cold round's copy and prewarm sit in it, a warm round's is ~0), and the
+    # Mac's 1-minute load at the launch: a stage median mixes rounds, and both decide whether rounds compare.
+    row["quit_to_launch_ms"] = round((time.monotonic() - quit_end) * 1000, 1)
+    row["load_1m"] = load_1m()
     spawned = uptime_ns()
     process, fd, _ = rr.launch(app, launch_env(env, probe, path, args.launch_delay_ms), out / "app-tti.log")
     start_ns = process_start_uptime_ns(process.pid)
@@ -530,7 +581,7 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
     row.update(split(row.get("input_ms"), row["main_ms"]))
     if path == "in_app":
         row["probe_focus"] = probe_focus(marks)
-    row["marks"] = {k: marks[k] for k in KEPT_MARKS if k in marks}
+    row["marks"] = kept_marks(marks)
     row["stages"] = launch_stages.spans(marks)
     if process.poll() is not None:
         failures.append(f"the app exited (status {process.poll()})")

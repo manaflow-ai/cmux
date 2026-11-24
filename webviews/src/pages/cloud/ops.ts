@@ -45,6 +45,12 @@ export const CloudOps = {
   snapshotDelete: "cmux.cloud.snapshot.delete",
   planGet: "cmux.cloud.plan.get",
   billingCheckout: "cmux.cloud.billing.checkout",
+  /**
+   * The host's read of the account's billing (`billing.status`, cmux.com's `GET /api/billing/plan`):
+   * `{payment_past_due}`, true when the latest renewal failed. Served by the app, not the Cloud app
+   * server; a host that does not serve it, a signed-out account or a failed read shows no notice.
+   */
+  billingStatus: "cmux.cloud.billing.status",
   migrationStatus: "cmux.cloud.migration.status",
   migrationStart: "cmux.cloud.migration.start",
   fsList: "cmux.cloud.fs.list",
@@ -68,7 +74,14 @@ export const CloudOps = {
 export const CloudActions = {
   previewShare: "cloudPreviewShare",
   previewRevoke: "cloudPreviewRevoke",
+  /** Manage Billing: the app's `billing.openPortal`, the page `cmux billing portal` opens. */
+  manageBilling: "billing.openPortal",
 } as const;
+
+/** `cmux.cloud.billing.status`: only a JSON `true` means the latest payment failed. */
+export interface BillingStatus {
+  payment_past_due?: boolean;
+}
 
 export interface PreviewShareResult {
   confirmed?: boolean;
@@ -339,7 +352,31 @@ export type CloudMachine = Omit<Wire.CloudMachine, "status"> & {
   readonly status: MachineStatus;
   /** Optional until the Cloud projection receives a VM health report. */
   readonly disk_health?: CloudDiskHealth | null;
+  /** Who started it, as its create said (cmux-platform `MachineOrigin`); a surge slot is `{kind: "person", label: "Surge"}`. */
+  readonly origin?: { readonly kind?: string; readonly label: string } | null;
 };
+
+/**
+ * The latest surge (cmux-platform RFD 0025), as the Cloud app server computes it from its machine
+ * projection (first-party-apps/cloud/server/src/ops/surge.rs) and adds to the list's last page.
+ */
+export interface CloudSurge {
+  /** When the surge's first machine was created (ms). */
+  readonly started_at: number;
+  /** Its machines still listed. */
+  readonly count: number;
+  /** Machines that came up (running, or paused after running). */
+  readonly ready: number;
+  /** Machines still provisioning or starting: the surge's queue. */
+  readonly starting: number;
+  readonly failed: number;
+  /** No machine is still provisioning or starting. */
+  readonly drained: boolean;
+  /** From the start to the last machine running (ms); absent until it is known. */
+  readonly last_ready_ms?: number;
+  /** Its machine ids, newest first. */
+  readonly machines: readonly string[];
+}
 
 export interface MachineListResult {
   machines: CloudMachine[];
@@ -347,6 +384,8 @@ export interface MachineListResult {
   next_cursor?: string | null;
   /** The projection revision; watch events at or below it are already in the page. */
   revision: number;
+  /** The last page only: the latest surge, when one is listed (an older server sends none). */
+  surge?: CloudSurge;
 }
 
 /** One event of `cmux.cloud.machine.watch`. Events of one projection change share its revision. */

@@ -198,3 +198,76 @@ export function clockLabel(utcMs: number, zone = DEFAULT_ZONE): string {
     .format(new Date(utcMs));
   return `${local} (${new Date(utcMs).toISOString().slice(11, 19)}Z)`;
 }
+
+// A chat on another host, read over the mesh hub (sim/README.md "Capture from another host"). The hub does
+// not carry `acpmux session export`, but it does carry `session history --json` (one summary per turn: the
+// seq and time of its prompt) and `session tail --json --since SEQ` (every record after SEQ, one JSON line
+// each, page by page). The history says where the window's running turn began, so the tail reads only from
+// there, and stops once the records pass the window's end.
+
+/** One turn of `acpmux session history --json`: its prompt's seq and time, its prompt (cut short). */
+export type HistoryTurn = { seq: number; startedAt: number; endedAt?: number; prompt?: string };
+
+/// The turns of `acpmux session history --json` output (`{peer, sessionId, turns: [...]}`), oldest first.
+/// Turns missing a seq or a start are left out. Throws when the text is not that object.
+export function parseHistory(text: string): HistoryTurn[] {
+  const parsed = JSON.parse(text) as { turns?: unknown };
+  if (!Array.isArray(parsed?.turns)) throw new Error("no turns in the history");
+  const turns: HistoryTurn[] = [];
+  for (const raw of parsed.turns as Record<string, unknown>[]) {
+    if (typeof raw?.seq !== "number" || typeof raw.startedAt !== "number") continue;
+    turns.push({
+      seq: raw.seq,
+      startedAt: raw.startedAt,
+      endedAt: typeof raw.endedAt === "number" ? raw.endedAt : undefined,
+      prompt: typeof raw.prompt === "string" ? raw.prompt : undefined,
+    });
+  }
+  return turns.sort((a, b) => a.seq - b.seq);
+}
+
+/// The records of `acpmux session tail --json` lines, in the shape a session folder's events/*.ndjson holds:
+/// the tail adds a `cursor` (`HOST/<sessionId>:<seq>`), which is dropped, and a record with no `sessionId`
+/// takes the cursor's. Blank and broken lines (a torn last line of a stopped tail) are skipped.
+export function parseTail(text: string): EventRecord[] {
+  const out: EventRecord[] = [];
+  for (const line of text.split("\n")) {
+    if (!line.trim()) continue;
+    let raw: Record<string, unknown>;
+    try {
+      raw = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    if (typeof raw?.seq !== "number" || typeof raw.kind !== "string" || typeof raw.at !== "number") continue;
+    const { cursor, ...record } = raw;
+    if (typeof record.sessionId !== "string" && typeof cursor === "string") {
+      const id = cursor.replace(/^.*\//, "").replace(/:\d+$/, "");
+      if (id) record.sessionId = id;
+    }
+    out.push(record as unknown as EventRecord);
+  }
+  return out;
+}
+
+/// The seq to read the tail after so the records hold the window and the turn running when it opened: just
+/// before the prompt of the last turn that started at or before `start` (0, the whole log, when none did).
+export function readAfterSeq(turns: readonly HistoryTurn[], start: number): number {
+  let after = 0;
+  for (const turn of turns) if (turn.startedAt <= start) after = Math.max(0, turn.seq - 1);
+  return after;
+}
+
+/// The last turn whose prompt holds `text` (case and spacing ignored; the history cuts prompts short, so the
+/// text should be from their start). Unlike findReport it cannot tell the person's prompts from an agent's.
+export function findReportTurn(turns: readonly HistoryTurn[], text: string): HistoryTurn | undefined {
+  const want = text.toLowerCase().replace(/\s+/g, " ").trim();
+  for (let index = turns.length - 1; index >= 0; index -= 1) {
+    const prompt = (turns[index]!.prompt ?? "").toLowerCase().replace(/\s+/g, " ").replace(/…$/, "");
+    if (want && prompt.includes(want)) return turns[index];
+  }
+  return undefined;
+}
+
+/** `HOST/NAME`: a chat on a peer, read over the hub, when no folder or local id goes by that name. */
+export const REMOTE_SESSION = /^[A-Za-z0-9][\w.-]*\/[^/\s]+$/;

@@ -57,6 +57,7 @@ pub mod inspect;
 pub mod link_preview;
 pub mod lock;
 pub mod log;
+pub mod machine_limits;
 pub mod mcp;
 pub mod mcp_hub;
 pub mod membership;

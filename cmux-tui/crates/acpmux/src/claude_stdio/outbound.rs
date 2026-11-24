@@ -12,7 +12,6 @@ impl Translator {
                 let p = params.clone().unwrap_or(Value::Null);
                 match m.as_str() {
                     method::INITIALIZE => {
-                        self.pending.lock().await.insert(id.to_string(), Pending::Initialize);
                         // None for a process no person started (`hub/host_level.rs`).
                         let for_agent = p
                             .pointer(&format!(
@@ -22,10 +21,17 @@ impl Translator {
                             .and_then(Value::as_bool)
                             == Some(true);
                         let suggestions = prompt_suggestions::enabled_in_settings() && !for_agent;
+                        let mut request = initialize_request(suggestions);
+                        if self.stop_condition.load(std::sync::atomic::Ordering::Relaxed) {
+                            request.set_path(&["hooks", "Stop"], json!([{"hookCallbackIds": [super::hook_callback::STOP_CALLBACK], "timeout": 5}]));
+                        }
+                        if self.plugin_hook_home.get().is_some() {
+                            super::hook_callback::add_tool_hooks(&mut request);
+                        }
                         let mut lines = vec![json!({
                             "type": "control_request",
                             "request_id": format!("init-{}", id),
-                            "request": initialize_request(suggestions)
+                            "request": request
                         })];
                         lines.extend(self.suggestion_init(id, suggestions));
                         // Ultracode and fast mode survive a respawn on the live channel
@@ -34,7 +40,17 @@ impl Translator {
                         if let Some(settings) = startup_settings(&effort, *self.fast.lock().await) {
                             lines.push(json!({"type": "control_request", "request_id": format!("boot-{}", id), "request": {"subtype": "apply_flag_settings", "settings": settings}}));
                         }
-                        Outbound::Lines(lines)
+                        // Answered now, not when Claude Code answers its `init-*`: that answer
+                        // comes only once Claude Code booted (0.7 to 6.5 s, its own startup and
+                        // network calls), and every start waited it out in `session/new` (a
+                        // production Cloud start's session_new was always a cold boot: 533 ms at
+                        // best, 4 to 6.5 s in its tail). The answer is the same for every Claude
+                        // Code; its slash commands follow as an update when it boots, and the
+                        // prompt the start sends next waits in its stdin until then.
+                        Outbound::LinesThenReply(
+                            lines,
+                            Message::ok(id.clone(), initialize_answer()),
+                        )
                     }
                     method::SESSION_NEW | method::SESSION_LOAD => {
                         // The claude process already carries the session.
@@ -75,6 +91,13 @@ impl Translator {
                         // (`task_plan.rs`).
                         if !steer {
                             self.task_plan.lock().await.begin_turn();
+                        }
+                        // `/clear` empties the context: nothing read before it is in it (dedupe.rs).
+                        if p.pointer("/prompt/0/text")
+                            .and_then(Value::as_str)
+                            .is_some_and(|t| t.trim_start().starts_with("/clear"))
+                        {
+                            self.dedupe.reset();
                         }
                         // The hub's prompt for the turn Claude Code runs on steers it read after
                         // its turn ended: nothing to write (`carry.rs`).
@@ -587,6 +610,19 @@ fn resource_text(b: &Value) -> String {
 /// "WELL THAT STOP BUTTON STOPPED LITERALLY EVERYTHING").
 ///
 /// `promptSuggestions` asks for a predicted next prompt after each turn (`prompt_suggestions.rs`).
+/// The ACP `initialize` answer, the same for every Claude Code and given before
+/// it boots: its version is unknown then (nothing reads it), and its commands
+/// come as an update once it answers `init-*`.
+pub(super) fn initialize_answer() -> Value {
+    json!({
+        "protocolVersion": 1,
+        "agentInfo": {"name": AGENT_NAME, "title": "Claude Code", "version": null, "_meta": {"acpmux": {"toolGate": cfg!(unix)}}},
+        "agentCapabilities": {"loadSession": true, "promptCapabilities": {"image": true, "embeddedContext": true}, "sessionCapabilities": {"fork": {}, "list": {}, "close": {}}},
+        "authMethods": [],
+        "_meta": {"steering": {"supported": true}}
+    })
+}
+
 pub(super) fn initialize_request(suggestions: bool) -> Value {
     let mut request = json!({
         "subtype": "initialize",
@@ -606,6 +642,18 @@ pub(super) fn initialize_request(suggestions: bool) -> Value {
             "timeout": super::policy_gate::GATE_TIMEOUT_S, "onFailure": "block"
         }]}),
     );
+    // Harness magic `dedupe` (`dedupe.rs`): no `onFailure`, so a callback that fails lets the call
+    // run.
+    #[cfg(unix)]
+    if super::dedupe::enabled()
+        && let Some(hooks) = request.pointer_mut("/hooks/PreToolUse").and_then(Value::as_array_mut)
+    {
+        hooks.push(json!({
+            "matcher": super::dedupe::DEDUPE_MATCHER,
+            "hookCallbackIds": [super::dedupe::DEDUPE_CALLBACK],
+            "timeout": super::dedupe::DEDUPE_TIMEOUT_S,
+        }));
+    }
     if suggestions {
         request.set("promptSuggestions", json!(true));
     }

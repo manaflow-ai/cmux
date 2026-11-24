@@ -106,6 +106,56 @@ pub fn new_machine_start(is_default: bool, by_user: bool, has_window: bool) -> N
     }
 }
 
+/// How long after a typing prewarm's resume failed the next keystroke may not try again. A failed
+/// resume (a 503 retried for up to 30 s inside the call) was asked again on every keystroke: the
+/// page clears its dedupe on a declined hint, and the machine is `paused` again once the call fails.
+pub const PREWARM_RETRY_AFTER_MS: u64 = 15_000;
+
+/// The facts of a typing prewarm (`cloudMachine.prewarm`): a hint, never a gesture.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PrewarmFacts {
+    /// The App may call Cloud: signed in, Cloud on, not unavailable.
+    pub allowed: bool,
+    /// The machine list is the loaded one for the signed-in account.
+    pub loaded: bool,
+    /// The machine's status in that list (`paused`, `running`, ...); None when it is not listed.
+    pub status: Option<String>,
+    /// Milliseconds since this machine's last prewarm resume failed; None when none did.
+    pub since_failure_ms: Option<u64>,
+}
+
+/// What a typing prewarm does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Prewarm {
+    /// Resume the machine now (script-originated).
+    Resume,
+    /// Do nothing, for this reason.
+    Skip(&'static str),
+}
+
+/// Resumes only a `paused` machine of the loaded list while Cloud may be called: not one that
+/// runs, is `pausing`, `starting` or unknown, and not within [`PREWARM_RETRY_AFTER_MS`] of a
+/// failed resume.
+pub fn prewarm(facts: &PrewarmFacts) -> Prewarm {
+    if !facts.allowed {
+        return Prewarm::Skip("notAllowed");
+    }
+    if !facts.loaded {
+        return Prewarm::Skip("notLoaded");
+    }
+    match facts.status.as_deref() {
+        None => return Prewarm::Skip("notListed"),
+        Some("paused") => {}
+        Some(_) => return Prewarm::Skip("notPaused"),
+    }
+    match facts.since_failure_ms {
+        Some(ms) if ms < PREWARM_RETRY_AFTER_MS => Prewarm::Skip("coolingDown"),
+        _ => Prewarm::Resume,
+    }
+}
+
 /// Where the workspace setup's creation is. Mirroring removes the progress row normally;
 /// explicit teardown ends the wizard even when it already opened a workspace.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]

@@ -13,8 +13,8 @@ use tokio::task::JoinHandle;
 
 use crate::per_lane::PerLane;
 
-const INGRESS_BYTES_PER_LANE: usize = 8 * 1_024 * 1_024;
-const INGRESS_ACCOUNTING_FLOOR_BYTES: usize = 1_024;
+pub(crate) const INGRESS_BYTES_PER_LANE: usize = 8 * 1_024 * 1_024;
+pub(crate) const INGRESS_ACCOUNTING_FLOOR_BYTES: usize = 1_024;
 const INGRESS_FRAMES_PER_LANE: usize = INGRESS_BYTES_PER_LANE / INGRESS_ACCOUNTING_FLOOR_BYTES;
 const PRIORITY_BURST_FRAMES: usize = 32;
 const PRIORITY_LANES: [Lane; 4] = [Lane::Interactive, Lane::Control, Lane::Tunnel, Lane::Bulk];
