@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileDesign
+import CmuxMobileMarkdown
 import SwiftUI
 import UIKit
 
@@ -207,8 +208,12 @@ extension EnvironmentValues {
     /// a control UIKit draws (`Menu`, `ShareLink`, a text field) comes out as its yellow "can't
     /// render" placeholder (Leo, 2026-11-17: "Weird placeholder for retries esp in preview", the
     /// error card's Retry with another model). A row reads this and draws that control's label
-    /// as plain SwiftUI instead, at the same size, so the still looks like the live chat.
-    @Entry var chatStill = false
+    /// as plain SwiftUI instead, at the same size, so the still looks like the live chat. The
+    /// transcript's text (`SelectableText`, a `UILabel` a hold selects in) reads the same flag.
+    var chatStill: Bool {
+        get { selectableTextIsStill }
+        set { selectableTextIsStill = newValue }
+    }
 }
 
 /// The card's rows: the transcript's rows (memoized per turn, an answer parsed by its

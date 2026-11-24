@@ -194,10 +194,16 @@ impl Projection {
         self.paint().into_iter().collect()
     }
 
-    /// The next paint starts the phone's terminal over.
+    /// The next paint starts the phone's terminal over: the host's reset
+    /// (`TerminalProjectingSession` on iOS, at attach and every reconnect),
+    /// whose replay rebuilds the model. The replay's rows were never
+    /// streamed to the phone, so its reset paints the window
+    /// ([`project::TAIL_SCREENS`] screens), not every row the replay pushed
+    /// since the last paint (that was the whole scrollback on attach).
     pub fn request_reset(&mut self) {
         if let Some(view) = &mut self.view {
             view.request_reset();
+            view.pushed_at_paint = None;
         }
     }
 
@@ -229,8 +235,11 @@ impl Projection {
                 segments.push(Segment::Raw(bytes.get(start..=i).unwrap_or_default().to_vec()));
                 self.term.passthrough.clear();
                 segments.push(Segment::Alternate(false));
-                // The phone's primary screen was drawn at another grid meanwhile.
-                self.request_reset();
+                // The phone's primary screen was drawn at another grid
+                // meanwhile (rows pushed since its last paint still paint).
+                if let Some(view) = &mut self.view {
+                    view.request_reset();
+                }
             }
         }
         if let Some(start) = raw_start {

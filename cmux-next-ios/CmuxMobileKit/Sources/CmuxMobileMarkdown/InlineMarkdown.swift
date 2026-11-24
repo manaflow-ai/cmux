@@ -34,12 +34,19 @@ public final class InlineMarkdownCache {
         let output = NSMutableAttributedString()
         for run in parsed.runs {
             let intent = run.inlinePresentationIntent ?? []
-            var descriptor = font.fontDescriptor
-            if intent.contains(.code) { descriptor = descriptor.withDesign(.monospaced) ?? descriptor }
-            var traits = descriptor.symbolicTraits
+            var runFont = font
+            if intent.contains(.code) {
+                // A text style's descriptor drops `withDesign(.monospaced)` when its traits are set
+                // again; build the mono face as the native rows do (ChatNativeLayout).
+                let weight = (font.fontDescriptor.object(forKey: .traits) as? [UIFontDescriptor.TraitKey: Any])?[.weight] as? CGFloat
+                runFont = UIFont.monospacedSystemFont(ofSize: font.pointSize, weight: UIFont.Weight(weight ?? 0))
+            }
+            var traits: UIFontDescriptor.SymbolicTraits = []
             if intent.contains(.stronglyEmphasized) { traits.insert(.traitBold) }
             if intent.contains(.emphasized) { traits.insert(.traitItalic) }
-            let runFont = UIFont(descriptor: descriptor.withSymbolicTraits(traits) ?? descriptor, size: font.pointSize)
+            if !traits.isEmpty, let descriptor = runFont.fontDescriptor.withSymbolicTraits(runFont.fontDescriptor.symbolicTraits.union(traits)) {
+                runFont = UIFont(descriptor: descriptor, size: font.pointSize)
+            }
             var attributes: [NSAttributedString.Key: Any] = [
                 .font: runFont, .foregroundColor: color, .paragraphStyle: paragraph,
             ]

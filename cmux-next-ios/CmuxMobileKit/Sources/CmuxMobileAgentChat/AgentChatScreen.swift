@@ -1099,6 +1099,7 @@ struct UserBubble: View {
     var editEarlier: (() -> Void)?
     /// Bookmark and Read Aloud.
     var polishActions: (() -> [UIMenuElement])?
+    @Environment(\.chatStill) private var still
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 6) {
@@ -1132,7 +1133,10 @@ struct UserBubble: View {
 extension UserBubble {
     /// The prompt, its leading quote drawn as the Mac draws one: muted, behind a bar.
     @ViewBuilder var bubbleText: some View {
-        if prompt.isEmpty {
+        if prompt.isEmpty, still {
+            // The button is a UIKit control, a placeholder in a still: its glyph alone.
+            Image(systemName: "ellipsis").foregroundStyle(.tint)
+        } else if prompt.isEmpty {
             // An attachment-only message has no word to hold.
             MessageActionsButton(rows: menuRows)
         } else if let split = NextStepAsk.replyQuote(prompt) {

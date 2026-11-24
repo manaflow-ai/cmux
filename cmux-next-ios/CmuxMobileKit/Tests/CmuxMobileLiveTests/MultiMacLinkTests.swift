@@ -443,6 +443,8 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
         // Publish the waiting phase synchronously: link observation otherwise
         // runs after this MainActor test yields, which would test the fallback.
         live.phaseChanged(first)
+        // A reconnect is quiet for the first 10 s (QuietStatusGate); this one outlasted that bound.
+        live.bannerHold.show(.reconnecting(to: "Aziz's MacBook Pro", identity: "m1"))
         try #require(live.banner?.identity == "m1")
         // The displayed banner still belongs to m1 when focus moves to m2.
         live.focusedMacID = "m2"
