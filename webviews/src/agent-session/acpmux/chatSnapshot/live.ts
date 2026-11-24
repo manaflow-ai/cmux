@@ -163,7 +163,8 @@ export function reportChatSnapshot(
 ): void {
   if (typeof window === "undefined") return;
   const shows = () => {
-    void report("pane.painted", { drewKeptTail: true }).catch(() => undefined);
+    // `copy`: the inert saved copy, not the page's own paint, which reports again (AgentPaneRequest `painted`).
+    void report("pane.painted", { drewKeptTail: true, copy: true }).catch(() => undefined);
     // The copy is the page's first paint: what moves from here is the launch's settle (launchSettle.ts).
     watchLaunchSettle(report, SNAPSHOT_HOST_TAG);
     // A click or key while the copy shows ends the copy and does nothing else: the live page under
