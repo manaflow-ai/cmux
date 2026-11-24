@@ -72,6 +72,8 @@ mod preflight;
 use link::SLOW_COPY;
 #[path = "session_move_snapshot.rs"]
 pub(crate) mod snapshot;
+#[path = "session_move_target_ask.rs"]
+mod target_ask;
 
 /// `--timeout`'s default: the longest an `--after-turn` move waits for the running turn.
 pub(crate) const DEFAULT_TURN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
@@ -816,7 +818,33 @@ async fn move_steps(
         }
         anyhow!(e)
     })?;
+    // The target is asked what `transfer_receive` will ask, before anything is frozen or copied:
+    // a refusal it can give without the bytes ends the move (and the dry run) here, in its words.
+    let opened =
+        waiting(&o.name, "opening the target's daemon", target_ask::open(&target, &remote)).await?;
+    let asked =
+        waiting(&o.name, "asking the target to take it", target_ask::ask(&opened.dst, &id, &info))
+            .await;
+    let answer = match asked {
+        Ok(answer) => answer,
+        Err(e) => {
+            o.error_code = target_ask::refusal_code(&e);
+            opened.close().await;
+            return Err(e);
+        }
+    };
     if args.dry_run {
+        opened.close().await;
+        if answer == target_ask::Answer::Unasked {
+            // An older acpmux there: nothing says the move would land, so the dry run does not.
+            o.error_code = Some("target_unasked");
+            bail!(
+                "{} could not be asked whether it takes this chat: its acpmux is older than \
+                 this check (update acpmux there; a move without --dry-run still asks it at \
+                 the copy)",
+                target.name
+            );
+        }
         o.cwd = Some(match &planned {
             Folder::Plain { cwd } => cwd.clone(),
             Folder::Worktree { repo, branch, subdir, snapshot: false, .. } => {
@@ -845,12 +873,11 @@ async fn move_steps(
         }
         Source::Peer { .. } => None,
     };
-    // The target's daemon first: the chat's history is staged there before the freeze when both
+    // The target's daemon: the chat's history is staged there before the freeze when both
     // daemons can (`transfer::precopy`), so the freeze moves only what follows.
     let name = o.name.clone();
-    let connecting = super::transfer::connect_target(&target.ssh, &remote.socket);
-    let (forward, dst_client, dst_init) =
-        waiting(&name, "connecting to the target's daemon", connecting).await?;
+    // Its client is the one the target was asked on above, before anything froze.
+    let target_ask::Opened { forward, dst: dst_client, init: dst_init } = opened;
     // Both ends come back after a dropped forward or a daemon swap mid-move (`move_end.rs`).
     let dst_reach = if target.ssh.is_empty() {
         Reach::Socket { path: PathBuf::from(&remote.socket) }
@@ -879,7 +906,7 @@ async fn move_steps(
     )
     .await;
     let record = match prepared {
-        Ok(p) => p,
+        Ok(record) => record,
         Err(e) => {
             super::transfer::abort_move(&mut src_end, &id, &begun).await;
             return Err(e);
@@ -938,7 +965,7 @@ async fn move_steps(
 
 /// The frozen chat's folder made on the target: the checkout read again (it may have changed
 /// before the freeze), its branch pushed, the folder made there. Returns the move's record
-/// (`movedTo`).
+/// (`movedTo`). The client of the target's daemon is `target_ask::open`'s, from before the freeze.
 async fn prepare(
     cwd: &Path,
     home: &Path,
