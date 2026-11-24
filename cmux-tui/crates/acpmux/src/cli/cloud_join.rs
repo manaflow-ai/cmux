@@ -694,7 +694,8 @@ fn heartbeat_fresh(record: &MachineCredential, now_ms: u64) -> bool {
         .last_heartbeat
         .as_deref()
         .and_then(|at| at.parse::<u64>().ok())
-        .is_some_and(|at| at <= now_ms && now_ms - at < HEARTBEAT_PERSIST_MS)
+        .and_then(|at| now_ms.checked_sub(at))
+        .is_some_and(|age| age < HEARTBEAT_PERSIST_MS)
 }
 
 /// Records the WireGuard public key the hub now holds for `machine_id` (a rekey,
@@ -1517,9 +1518,11 @@ mod tests {
         assert!(!super::heartbeat_fresh(&at(Some(now - super::HEARTBEAT_PERSIST_MS)), now));
         // A clock that stepped back never pins an old heartbeat as fresh.
         assert!(!super::heartbeat_fresh(&at(Some(now + 5_000)), now));
-        assert!(
-            super::HEARTBEAT_PERSIST_MS * 2 < crate::cli::host_join_doctor::HEARTBEAT_WITHIN_MS
-        );
+        const {
+            assert!(
+                super::HEARTBEAT_PERSIST_MS * 2 < crate::cli::host_join_doctor::HEARTBEAT_WITHIN_MS
+            );
+        }
     }
 
     #[test]

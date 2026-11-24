@@ -287,7 +287,7 @@ impl Cooldown {
             .0
             .get(host)
             .map_or(COOLDOWN_FIRST, |(_, last)| last.saturating_mul(2).min(COOLDOWN_MAX));
-        self.0.insert(host.to_owned(), (now + wait, wait));
+        self.0.insert(host.to_owned(), (now.checked_add(wait).unwrap_or(now), wait));
     }
 }
 
