@@ -756,6 +756,16 @@ pub enum Command {
     /// (tools_mcp.rs; not for people).
     #[command(hide = true)]
     ToolsMcp,
+    /// Experiment (personal-orchestration canary): a read-only, redacted activity monitor for
+    /// one chat: a typed `snapshot`, then its events from the cursor; a gap or new generation
+    /// re-snapshots (`resyncing`). Sends no prompt, cancel or permission answer.
+    #[command(hide = true)]
+    Monitor {
+        session: String,
+        /// Print the snapshot and stop.
+        #[arg(long)]
+        once: bool,
+    },
     // Old spellings, kept working but hidden from help.
     #[command(hide = true)]
     Tail {

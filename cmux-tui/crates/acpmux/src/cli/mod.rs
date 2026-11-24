@@ -60,6 +60,8 @@ pub(crate) mod ls_far;
 pub(crate) mod ls_ssh;
 pub mod ls_table;
 pub mod machine_auth;
+pub(crate) mod monitor;
+pub(crate) mod monitor_envelope;
 pub(crate) mod owned_child;
 pub mod scorecard;
 pub mod standing_grant;
