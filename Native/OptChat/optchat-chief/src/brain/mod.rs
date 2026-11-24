@@ -22,7 +22,10 @@
 //! `Settings::turn_limit`.
 
 mod approvals;
+mod automations;
+pub use automations::{AutomationsRequest, UPDATE_ACTIONS};
 mod background;
+mod budget_hold;
 mod chief_inbox;
 pub use chief_inbox::name as chief_inbox_name;
 mod children;
@@ -179,6 +182,10 @@ pub enum Input {
         harness: Option<String>,
         /// Acpmux's health and login snapshot, read off the brain thread.
         machines: Vec<crate::place_route::Machine>,
+        /// The subagent numbers (`a<N>`) whose session names acpmux already
+        /// holds, read off the brain thread: a spawn never gives one of them
+        /// (a deleted memory restarts the counter while the old sessions stay).
+        taken: Vec<u64>,
         reply: Sender<Result<crate::subagents::SpawnPlan, String>>,
     },
     /// A queued subagent's launch, saved in its record.
@@ -362,6 +369,16 @@ pub enum Input {
     Sleep {
         call: crate::tools::SleepCall,
         reply: Sender<Result<String, String>>,
+    },
+    /// `automation(action, ...)` (automations.rs): the Chief's tool.
+    Automation {
+        call: crate::automations::AutomationCall,
+        reply: Sender<Result<String, String>>,
+    },
+    /// chief.automation.list / chief.automation.update from Home.
+    Automations {
+        request: AutomationsRequest,
+        reply: Sender<serde_json::Value>,
     },
     /// `watch(...)` (watches.rs): start, cancel or list watches.
     Watch {
@@ -603,6 +620,10 @@ pub struct ReactionFields {
     /// or `unset` to clear), cmux#37392. Not a reaction field: it rides in
     /// this box so `EngineRequest` stays small (clippy large_enum_variant).
     pub permission_mode: Option<String>,
+    /// The Cloud machine this Chief does computer use on (engine.rs
+    /// `computer`, cmux issue 36047): `machine:<id>`, or `none`/`default` to
+    /// detach. Not a reaction field either; boxed here for the same reason.
+    pub computer: Option<String>,
 }
 
 impl From<DaemonEvent> for Input {
@@ -912,6 +933,9 @@ pub struct Brain {
     landed_refused: bool,
     /// The subagents the running turn started (spawn_text.rs).
     turn_spawned: Vec<String>,
+    /// The newest top-level texts of the Chief conversation by seq, true for
+    /// a person's: the loop guard's count (budget_hold.rs).
+    guard_rows: std::collections::BTreeMap<u64, bool>,
     /// The running turn posted words by `send` or `reply` (spawn_text.rs).
     turn_said: bool,
     /// The running turn was queued by a silent spawn turn's note: it is not nudged again.
@@ -1013,6 +1037,8 @@ pub struct Brain {
     agent_keys: Option<std::sync::Arc<dyn crate::agent_keys::AgentKeys>>,
     agent_key_done_since: std::collections::BTreeMap<String, u64>,
     agent_key_revoking: std::collections::BTreeSet<String>,
+    /// When the cloud checks last ran (`control::next_cloud_tick`).
+    cloud_ticked_at: Option<Instant>,
     /// How long a keyed subagent stays done before its key is revoked.
     agent_key_grace: std::time::Duration,
     /// Most subagents at work at once (`subagents::live_limit`); None: no cap.
@@ -1071,6 +1097,10 @@ pub struct Brain {
     /// The running turn carries another person's text: it runs with policy
     /// `ask`, and every local effect it asks for is refused at once.
     turn_ask: bool,
+    /// The running turn took an automation's note (automations.rs): what it
+    /// spawns never fires an `agent_done` automation, so one cannot start
+    /// itself again and again.
+    turn_from_automation: bool,
     /// The last turn was an ask turn: a tool call of it that reaches the
     /// host after it ended is still held to its rules (`turn_gate`) until
     /// the next turn starts.
@@ -1252,6 +1282,7 @@ impl Brain {
             turn_posts: String::new(),
             landed_refused: false,
             turn_spawned: Vec::new(),
+            guard_rows: Default::default(),
             turn_said: false,
             spawn_text_nudged: false,
             owner_stopped: false,
@@ -1278,6 +1309,7 @@ impl Brain {
             ttl_stale: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             chief,
             turn_ask: false,
+            turn_from_automation: false,
             last_turn_ask: false,
             turn_relay: None,
             turn_denied: Vec::new(),
@@ -1304,6 +1336,7 @@ impl Brain {
             agent_keys: None,
             agent_key_done_since: Default::default(),
             agent_key_revoking: Default::default(),
+            cloud_ticked_at: None,
             agent_key_grace: crate::agent_keys::REVOKE_AFTER_DONE,
             max_live: None,
             clock: Arc::new(now_ms),
@@ -1520,10 +1553,7 @@ impl Brain {
         vms: Option<std::sync::Arc<dyn crate::cloud_vms::CloudVms>>,
         idle: std::time::Duration,
     ) {
-        // A host that runs cloud subagents checks its VMs every few seconds.
-        if vms.is_some() && self.cloud_vms.is_none() {
-            control::start_cloud_ticker(self.tx.clone());
-        }
+        // The cloud checks run from the brain's own timer (`next_cloud_tick`).
         self.cloud_vms = vms;
         self.cloud_idle = idle;
     }
@@ -1559,9 +1589,6 @@ impl Brain {
         keys: Option<std::sync::Arc<dyn crate::agent_keys::AgentKeys>>,
         grace: std::time::Duration,
     ) {
-        if keys.is_some() && self.agent_keys.is_none() && self.cloud_vms.is_none() {
-            control::start_cloud_ticker(self.tx.clone());
-        }
         self.agent_keys = keys;
         self.agent_key_grace = grace;
     }
@@ -1653,10 +1680,12 @@ impl Brain {
             let timer = [
                 self.next_timer(),
                 self.next_wake(),
+                self.next_automation_due(),
                 self.next_unanswered_due(),
                 self.next_reply_due(),
                 self.next_outcome_due(),
                 self.next_check_in(),
+                self.next_cloud_tick(),
             ]
             .into_iter()
             .flatten()
@@ -1667,9 +1696,11 @@ impl Brain {
                     Err(RecvTimeoutError::Timeout) => {
                         self.on_timer();
                         self.fire_wakes_at(now_ms());
+                        self.fire_automations_at(now_ms());
                         self.fire_reply_checks_at(now_ms());
                         self.fire_outcome_checks_at(now_ms());
                         self.fire_check_in();
+                        self.fire_cloud_checks_if_due();
                         let now = (self.clock)();
                         self.deny_overdue_permissions_at(now);
                         continue;
@@ -1724,6 +1755,7 @@ impl Brain {
                 place,
                 harness,
                 machines,
+                taken,
                 reply,
             } => {
                 // `cloud:SIZE`: on the cloud, at that VM size.
@@ -1748,6 +1780,7 @@ impl Brain {
                             size.as_deref(),
                             &machines,
                             family,
+                            &taken,
                         )
                     })
                     .map(|mut plan| {
@@ -1880,6 +1913,12 @@ impl Brain {
             Input::Sleep { call, reply } => {
                 let _ = reply.send(self.sleep(call));
             }
+            Input::Automation { call, reply } => {
+                let _ = reply.send(self.automation(call));
+            }
+            Input::Automations { request, reply } => {
+                let _ = reply.send(self.automations_control(request));
+            }
             Input::WakeTool { call, reply } => {
                 let _ = reply.send(self.wake_tool(call));
             }
@@ -1923,12 +1962,7 @@ impl Brain {
                     let _ = reply.send(answer);
                 }
             }
-            Input::CloudTick => {
-                self.cloud_tick();
-                self.agent_key_tick();
-                self.cloud_reap_tick();
-                self.fleet_tick();
-            }
+            Input::CloudTick => self.run_cloud_checks(),
             Input::FleetJobFinished { id, job, state } => {
                 self.fleet_job_finished(&id, &job, &state)
             }

@@ -55,6 +55,23 @@ if [ "$(bun --version 2>/dev/null || true)" != "$bun_pin" ]; then
 fi
 (cd webviews && bash ../scripts/ci/bun-install.sh --frozen-lockfile) 2>&1 | tee -a "$setup_log" || setup_yield "bun install"
 
+# A Node.js for the packages' node scripts (node_modules/.bin/playwright, used here and by ensure-system-chrome.sh, is
+# `#!/usr/bin/env node`). The build-fleet Linux pool workers have bun but no node on the step PATH: from 2026-11-21
+# every web-ui part's setup here failed with "/usr/bin/env: 'node': No such file or directory" and yielded, so each
+# Linux part ran on the runner job only after two unanswered requests (record_part), three ticks a part, and tip
+# measurement 9a55953f reached its 12 h bound with 3 of its parts still to do (abandoned 2026-11-22 07:14Z). The
+# pool's own Node.js when it has one (/opt/node-v*, as its runner image keeps it), else bun, which runs a script as
+# Node does when it is called as `node` (what `bun --bun` sets up).
+if ! command -v node >/dev/null 2>&1; then
+  mkdir -p "$work/node-bin"
+  node_bin=""
+  for candidate in /opt/node-v*/bin/node; do [ -x "$candidate" ] && node_bin="$candidate"; done
+  [ -n "$node_bin" ] || node_bin="$(command -v bun)" || setup_yield "node (no Node.js and no bun on the step PATH)"
+  ln -sfn "$node_bin" "$work/node-bin/node"
+  export PATH="$work/node-bin:$PATH"
+  echo "perf-cron-linux.sh: no node on the step PATH; node is $node_bin" | tee -a "$setup_log"
+fi
+
 case "$part" in
   web-ui*)
     # Playwright's WebKit in the cache, one directory per Playwright version; Chromium is the system Chrome
@@ -79,10 +96,12 @@ esac
 # make the worker's warm clone shallow.
 cron="$root/scripts/cmux-next/perf-cron.py"
 if timeout 300 git fetch --no-tags origin feat-cmux-next 2>/dev/null \
-    && git show FETCH_HEAD:scripts/cmux-next/perf-cron.py > "$work/perf-cron-tip.py" 2>/dev/null; then
+    && git show FETCH_HEAD:scripts/cmux-next/perf-cron.py > "$work/perf-cron-tip.py" 2>/dev/null \
+    && grep -q "\"name\": \"$part\"" "$work/perf-cron-tip.py"; then
   cp "$work/perf-cron-tip.py" scripts/cmux-next/perf-cron-tip.py && cron="$root/scripts/cmux-next/perf-cron-tip.py"
 else
-  echo "perf-cron-linux.sh: the branch tip's perf-cron.py was not fetched; using the commit's own"
+  # A part the measured commit adds (a PR's new bench, measured before it merges) is not in the tip's PARTS yet.
+  echo "perf-cron-linux.sh: the branch tip's perf-cron.py was not fetched or has no part $part; using the commit's own"
 fi
 
 python3 -I "$cron" run-linux-part --part "$part" --runner-class fleet-linux-c4d-32 --out "$work/part"

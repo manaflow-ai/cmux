@@ -355,6 +355,11 @@ impl Dir {
         .map(drop)
     }
 
+    /// Removes the folder `name` here when it is empty (an error otherwise).
+    pub(super) fn remove_empty_dir(&self, name: &str) -> io::Result<()> {
+        self.unlink(name, true)
+    }
+
     fn unlink(&self, name: &str, folder: bool) -> io::Result<()> {
         let c = c_name(name)?;
         let flags = if folder { libc::AT_REMOVEDIR } else { 0 };
@@ -381,7 +386,113 @@ pub(super) fn parent_of(root: &Dir, relative: &str) -> io::Result<Option<(Dir, S
     Ok(Some((dir, name)))
 }
 
+/// The folders on the way to the last path asked for, held open: paths that
+/// come in order (git lists them sorted) reopen only the folders they do not
+/// share with the one before, so a listing costs one open per folder, not
+/// one per folder per file. Each folder is still opened by descriptor
+/// without following a symlink, as [`parent_of`] does.
+#[derive(Default)]
+pub(super) struct Chain {
+    open: Vec<(String, Dir)>,
+}
+
+impl Chain {
+    /// The folder holding `relative` under `root` and the name in it, as
+    /// [`parent_of`]: None when a folder on the way is missing; an error
+    /// when one is not a folder (a symlink).
+    pub(super) fn parent_of<'a>(
+        &'a mut self,
+        root: &'a Dir,
+        relative: &'a str,
+    ) -> io::Result<Option<(&'a Dir, &'a str)>> {
+        let (folders, name) = match relative.rsplit_once('/') {
+            Some((folders, name)) => (folders, name),
+            None => ("", relative),
+        };
+        let parts: Vec<&str> =
+            if folders.is_empty() { Vec::new() } else { folders.split('/').collect() };
+        let shared =
+            self.open.iter().zip(&parts).take_while(|((open, _), part)| open == *part).count();
+        self.open.truncate(shared);
+        for part in parts.iter().skip(shared) {
+            let at = self.open.last().map_or(root, |(_, dir)| dir);
+            let Some(next) = at.child(part)? else { return Ok(None) };
+            self.open.push(((*part).to_string(), next));
+        }
+        Ok(Some((self.open.last().map_or(root, |(_, dir)| dir), name)))
+    }
+}
+
 impl Dir {
+    /// Writes `bytes` at `name` with `mode`, replacing the regular file
+    /// there (or taking the name while it is missing): to a hidden name
+    /// first, then `renameat` in this folder. A symlink, folder or special
+    /// file at `name` is refused and left as it is (`InvalidInput`).
+    pub(super) fn replace_file(&self, name: &str, bytes: &[u8], mode: u32) -> io::Result<()> {
+        use std::io::Write as _;
+        if !matches!(self.entry(name)?, Entry::Missing | Entry::File { .. }) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("{name} is not a file"),
+            ));
+        }
+        let (part, mut file) = {
+            let mut tries = 0u32;
+            loop {
+                let part = format!(".{name}.{}-{tries}.cmux-sync-part", std::process::id());
+                match self.create_file(&part, mode) {
+                    Ok(file) => break (part, file),
+                    Err(error) if error.kind() == io::ErrorKind::AlreadyExists && tries < 64 => {
+                        tries += 1;
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
+        };
+        let written = file.write_all(bytes).and_then(|()| file.sync_all());
+        drop(file);
+        // Checked again at the last moment: a link swapped in since is
+        // refused, never replaced (a rename would only replace the link
+        // itself, but the carried file must land where the plan saw a file).
+        let placed = written.and_then(|()| {
+            if matches!(self.entry(name)?, Entry::Missing | Entry::File { .. }) {
+                self.rename(&part, self, name)
+            } else {
+                Err(io::Error::new(io::ErrorKind::InvalidInput, format!("{name} is not a file")))
+            }
+        });
+        if placed.is_err() {
+            let _ = self.unlink(&part, false);
+        }
+        placed
+    }
+
+    /// Removes the regular file `name`; a missing one is fine, anything
+    /// else there (a symlink, a folder) is refused and left (`InvalidInput`).
+    pub(super) fn remove_file(&self, name: &str) -> io::Result<()> {
+        match self.entry(name)? {
+            Entry::Missing => Ok(()),
+            Entry::File { .. } => match self.unlink(name, false) {
+                Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+                other => other,
+            },
+            _ => Err(io::Error::new(io::ErrorKind::InvalidInput, format!("{name} is not a file"))),
+        }
+    }
+
+    /// The folder `name` here, made when missing; a symlink or file there
+    /// is an error.
+    pub(super) fn child_or_make(&self, name: &str) -> io::Result<Self> {
+        if let Some(dir) = self.child(name)? {
+            return Ok(dir);
+        }
+        match self.mkdir(name) {
+            Err(error) if error.kind() != io::ErrorKind::AlreadyExists => return Err(error),
+            _ => {}
+        }
+        self.child(name)?.ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))
+    }
+
     fn dup(&self) -> io::Result<Self> {
         Ok(Self(self.0.try_clone()?))
     }
@@ -583,6 +694,12 @@ impl Transaction {
             self.undo.push(Undo::RemovedLink { relative: relative.into(), aside, text: found });
         }
         Err(Changed(relative.into()).into())
+    }
+
+    /// Makes the folder `relative` and any missing folder above it (each undone by roll back);
+    /// nothing when it is there.
+    pub(super) fn folder(&mut self, relative: &str) -> anyhow::Result<()> {
+        self.folder_for(&format!("{relative}/.")).map(drop)
     }
 
     /// Puts back everything this pull changed, newest first. The error
