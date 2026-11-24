@@ -78,12 +78,23 @@ pub struct MoveSessionsArgs {
     /// frozen, and this says why.
     #[arg(long, conflicts_with_all = ["all_idle", "dry_run", "slow_ok"])]
     pub abort: bool,
+    /// With --abort: give the chat back here even though its move's target cannot say whether
+    /// it took it, once the chat was offered back (`session info` shows `move undecided`, about
+    /// ten minutes after the move's client went away). If the target did take it and comes back,
+    /// it holds a second copy.
+    #[arg(long, requires = "abort")]
+    pub take_back: bool,
     /// Start the chats on the machine from this machine's copy of them, for a machine that does
     /// not answer: their transcript (the newest records kept here) and name, in a new chat
     /// there. Name each as MACHINE/CHAT, or pass --from MACHINE. The chat on the dead machine is
     /// left as it is.
     #[arg(long, conflicts_with_all = ["all_idle", "interrupt", "after_turn", "carry_changes", "leave_dirty"])]
     pub from_snapshot: bool,
+    /// Land the chats on the machine's harness HARNESS instead of the one named like theirs
+    /// here: one that runs the same agent (a `claude-sr2` chat onto a machine that has only
+    /// `claude`). The machine refuses a harness for another agent, or one it does not have.
+    #[arg(long = "as", value_name = "HARNESS", conflicts_with = "from_snapshot")]
+    pub as_harness: Option<String>,
 }
 
 #[derive(Parser)]
@@ -330,6 +341,10 @@ pub enum Command {
     /// Print the agent guide: how a script or another agent drives acpmux. Also `guide`, `--guide`, `--skill`.
     #[command(aliases = aliases::SKILL)]
     Skill,
+    /// A sub-agent's job on a fork of this machine: the job JSON on stdin, its frames on
+    /// stdout (`placement/sub_fork_run.rs`; the parent's runner starts it over ssh).
+    #[command(name = "sub-fork-job", hide = true)]
+    SubForkJob,
     /// Execute one authenticated Cloud trigger operation from a JSON stdin envelope.
     #[command(name = "trigger-chat", hide = true)]
     TriggerChat {
@@ -1527,7 +1542,8 @@ pub enum SessionCmd {
         last: u64,
         #[arg(long, short)]
         follow: bool,
-        /// Start after this cursor (`<sessionId>:<seq>` or a seq). A cursor past the log is an error.
+        /// Start after a cursor (`<sessionId>:<seq>` or a seq), or use `seen` for the reader's cutover.
+        /// A chat the reader has never focused has no recap.
         #[arg(long)]
         since: Option<String>,
     },
