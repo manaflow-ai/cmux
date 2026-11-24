@@ -63,7 +63,7 @@ struct TaskComposerScreen: View {
         NavigationStack {
             canvas
                 .safeAreaInset(edge: .bottom, spacing: 0) { accessory }
-                .background(theme.colors.bg.color.ignoresSafeArea())
+                .background(CmuxMobileGround(.sheet, legacy: theme.colors.bg.color).ignoresSafeArea())
                 .navigationTitle(titleBinding)
                 .navigationSubtitle(subtitle)
                 .navigationBarTitleDisplayMode(.inline)

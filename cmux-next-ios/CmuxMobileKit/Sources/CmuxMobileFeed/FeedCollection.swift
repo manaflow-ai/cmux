@@ -196,7 +196,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
 
     func makeView() -> FeedCollectionView {
         let view = FeedCollectionView(frame: .zero, style: .plain)
-        view.backgroundColor = .cmuxMobileBackground
+        view.backgroundColor = CmuxMobileGroundRows.fill(.root, legacy: .cmuxMobileBackground)
         view.alwaysBounceVertical = true
         view.keyboardDismissMode = .interactive
         view.contentInsetAdjustmentBehavior = .automatic
@@ -1388,7 +1388,7 @@ final class FeedPinnedLabelCell: UITableViewCell {
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         selectionStyle = .none
-        backgroundColor = .cmuxMobileBackground
+        backgroundColor = CmuxMobileGroundRows.fill(.root, legacy: .cmuxMobileBackground)
         label.textColor = .secondaryLabel
         label.accessibilityTraits = .header
         label.accessibilityIdentifier = "feed.needsYouLabel"

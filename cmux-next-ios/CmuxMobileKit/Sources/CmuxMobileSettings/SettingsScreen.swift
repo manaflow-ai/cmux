@@ -38,6 +38,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
     private let callPreferences = VoiceCallPreferences.shared
     private let accentTheme = CmuxMobileAccentTheme.shared
     @Bindable private var macTheme = CmuxMobileMacTheme.shared
+    @Bindable private var backgrounds = CmuxMobileBackgroundSetting.shared
     @State private var confirmsSignOut = false
     @State private var editingTeam: Team?
     /// One device list for the "Devices" count here and the Devices page.
@@ -144,6 +145,16 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                         SettingsLabel("Match Mac theme", symbol: "macbook.and.iphone")
                     }
                     .accessibilityIdentifier("settings.matchMacTheme")
+                    // Prototype: one background policy for every screen (Settings > Appearance > Backgrounds).
+                    Picker(selection: $backgrounds.policy) {
+                        ForEach(CmuxMobileBackgroundPolicy.allCases) { policy in
+                            Text(policy.title).tag(policy)
+                        }
+                    } label: {
+                        SettingsLabel("Backgrounds", symbol: "square.stack.3d.down.right")
+                    }
+                    .pickerStyle(.menu)
+                    .accessibilityIdentifier("settings.backgroundPolicy")
                     NavigationLink(value: SettingsRoute.accentColor) {
                         SettingsLabel("Accent color", symbol: "paintpalette", value: AccentColorPage.title(accentTheme))
                     }
@@ -225,7 +236,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
             .listStyle(.insetGrouped)
             .environment(\.defaultMinListRowHeight, theme.metrics.settingsRowHeight)
             .scrollContentBackground(.hidden)
-            .background(theme.colors.bgGrouped.color.ignoresSafeArea())
+            .background(CmuxMobileGround(.root, grouped: true, legacy: theme.colors.bgGrouped.color).ignoresSafeArea())
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { leading() }

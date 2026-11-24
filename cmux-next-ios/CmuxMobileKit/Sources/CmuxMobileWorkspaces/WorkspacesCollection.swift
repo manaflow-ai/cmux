@@ -374,7 +374,7 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
                 .minSize(width: nil, height: 0)
         }
         var background = UIBackgroundConfiguration.clear()
-        if item.isRow { background.backgroundColor = theme.colors.bg.uiColor }
+        if item.isRow { background.backgroundColor = CmuxMobileGroundRows.fill(.root, legacy: theme.colors.bg.uiColor) }
         cell.backgroundConfiguration = background
         // Rows draw the separator under them from the text column; titles, group
         // headers, Mac lines and placeholders draw none (as the SwiftUI list did).

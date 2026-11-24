@@ -61,7 +61,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                 }
             .overlay(alignment: .bottom) { DoneUndoBar(store: store) }
             .overlay(alignment: .top) { newPill }
-            .background(Color.cmuxMobileBackground)
+            .background(CmuxMobileGround(.root, legacy: Color.cmuxMobileBackground).ignoresSafeArea())
             .navigationTitle("Feed")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -205,7 +205,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .background(Color.cmuxMobileBackground)
+        .background(Color(uiColor: CmuxMobileGroundRows.fill(.root, legacy: .cmuxMobileBackground)))
         .environment(appStore)
     }
 

@@ -182,10 +182,10 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
         #endif
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         selectionStyle = .none
-        backgroundColor = .cmuxMobileBackground
+        backgroundColor = CmuxMobileGroundRows.fill(.root, legacy: .cmuxMobileBackground)
         contentView.clipsToBounds = true
         contentView.addSubview(row)
-        row.backgroundColor = .cmuxMobileBackground
+        row.backgroundColor = CmuxMobileGroundRows.fill(.root, legacy: .cmuxMobileBackground)
         contentView.addSubview(divider)
         divider.backgroundColor = .separator
 

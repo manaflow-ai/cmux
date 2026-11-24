@@ -67,7 +67,7 @@ struct TeamSidebar: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(CmuxMobileBackdrop().ignoresSafeArea())
+        .background(CmuxMobileGround(.root) { CmuxMobileBackdrop() }.ignoresSafeArea())
         .alert("Create team", isPresented: $creatingTeam) {
             TextField("Team name", text: $newTeamName)
                 // Names and prompts are code-like: no capitals (full verify D5); autocorrect stays on, as on every GUI field (Leo, 2026-11-23).

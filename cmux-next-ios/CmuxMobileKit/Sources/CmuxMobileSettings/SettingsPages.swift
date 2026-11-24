@@ -16,7 +16,7 @@ extension View {
         listStyle(.insetGrouped)
             .environment(\.defaultMinListRowHeight, theme.metrics.settingsRowHeight)
             .scrollContentBackground(.hidden)
-            .background(theme.colors.bgGrouped.color.ignoresSafeArea())
+            .background(CmuxMobileGround(.page, grouped: true, legacy: theme.colors.bgGrouped.color).ignoresSafeArea())
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
     }

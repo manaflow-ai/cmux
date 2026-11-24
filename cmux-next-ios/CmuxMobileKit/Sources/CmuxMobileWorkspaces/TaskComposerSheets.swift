@@ -43,7 +43,7 @@ struct TaskComposerOptionsSheet: View {
                 .padding(.horizontal, 20)
                 .padding(.vertical, 16)
             }
-            .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
+            .background(CmuxMobileGround(.sheet, grouped: true, legacy: Color(uiColor: .systemGroupedBackground)).ignoresSafeArea())
             .navigationTitle("Task Options")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
