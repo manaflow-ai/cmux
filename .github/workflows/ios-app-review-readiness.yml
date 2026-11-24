@@ -65,7 +65,7 @@ jobs:
     if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/main'
     permissions:
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2 || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     environment: release
     steps:
