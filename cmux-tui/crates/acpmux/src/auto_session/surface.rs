@@ -10,6 +10,11 @@
 //!   and `discard` -> `{autoSession}`. `apply` that meets a conflict is refused
 //!   `auto.leftover_conflict` and changes nothing.
 //! - `_acpmux/auto_session/wake` (no params): the system woke.
+//! - `_acpmux/auto_session/transcript {sessionId, after?, version?}` -> `{version, projection,
+//!   events, more}`: while another holder runs the chat, the Cloud's events after seq `after`
+//!   as a read-only projection (`runtime/projection.rs`); `projection: null` while the chat is
+//!   held here. A `version` past the one served is refused `auto.transcript_version`, so a
+//!   newer client reads the chat's own log, as it does from a daemon without this read.
 //!
 //! Who may call them is `server/auto_gate.rs`.
 
@@ -103,6 +108,23 @@ async fn leftover(
         (!record.spent()).then_some(record)
     });
     Ok(row_of(hub, session))
+}
+
+/// `_acpmux/auto_session/transcript`: reads only what the holder loop already holds; it never
+/// wakes the chat, starts its agent or writes its log.
+pub(crate) fn transcript(hub: &Hub, session: &Session, params: &Value) -> Result<Value, RpcError> {
+    use super::runtime::projection::VERSION;
+    let asked = params.get("version").and_then(Value::as_u64).unwrap_or(VERSION);
+    if asked > VERSION {
+        return Err(RpcError::new(
+            -32000,
+            format!("auto.transcript_version: this daemon serves version {VERSION}"),
+        )
+        .with_data(json!({"reason": "auto.transcript_version", "version": VERSION})));
+    }
+    let after = params.get("after").and_then(Value::as_u64).unwrap_or(0);
+    let read = hub.auto_holder.get().and_then(|holder| holder.transcript(&session.id, after));
+    Ok(read.unwrap_or_else(|| json!({"version": VERSION, "projection": null, "events": []})))
 }
 
 /// `_acpmux/auto_session/wake`: every Auto chat stops and asks the store before it goes on.

@@ -183,6 +183,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/auto_session/set": (["sessionId", "auto", "keepInCloud"], []),
         // `action`: show, apply or discard.
         "_acpmux/auto_session/leftover": (["sessionId", "action"], []),
+        // The Cloud's events after seq `after`; `version`: the read the page speaks.
+        "_acpmux/auto_session/transcript": (["sessionId", "after", "version"], []),
         "_acpmux/run_elsewhere/plan": (["sessionId", "command"], []),
         "_acpmux/run_elsewhere/start": (["sessionId", "command", "peer", "digest", "sendSecrets"], []),
         "_acpmux/bg/output": (["sessionId", "id", "fromByte", "maxBytes"], []), // maxBytes: bgTail, a finished task line's tail.
