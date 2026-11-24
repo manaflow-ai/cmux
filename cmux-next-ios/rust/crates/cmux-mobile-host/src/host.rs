@@ -726,7 +726,7 @@ async fn answer_session(
             );
         },
     ));
-    let auth = Arc::new(crate::pairing::LinkAuth::default());
+    let auth = Arc::new(crate::pairing::LinkAuth::with_tunnel_keys(connected.tunnel_keys.clone()));
     // The phone may open a WebRTC media session for this link's video.
     let _hybrid = match (&peer.video, connected.webrtc_media) {
         (Some(video), true) => Some(crate::media_session::register(
