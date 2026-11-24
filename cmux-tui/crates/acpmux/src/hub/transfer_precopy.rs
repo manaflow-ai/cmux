@@ -148,10 +148,13 @@ impl Hub {
         if session.moving().is_some() {
             return Err(transfer_error("moving", "this chat is being moved"));
         }
+        let mut steps = super::transfer_live::MoveSteps::new("prepare");
         self.sweep();
+        steps.step("sweep");
         // The log's kind index made now, not under the freeze: the begin reads its held prompts
         // and its ownership epoch from it.
         let warmed = self.store.scan_kinds(&session.id, &["queued"], &mut |_| true);
+        steps.step("kind_index");
         if let Err(error) = warmed {
             tracing::debug!(session = %session.id, "kind index not made before a move: {error:#}");
         }
@@ -171,6 +174,7 @@ impl Hub {
             Some(later) => Ok((later, true)),
             None => Ok((self.write_prefix(session, &events, base.as_ref())?, false)),
         });
+        steps.step("prefix");
         let ((after_seq, digest, stamp), history_later) = match made {
             Ok(made) => made,
             Err(error) => {
@@ -200,6 +204,7 @@ impl Hub {
                 }
             }
         }
+        steps.step("native");
         if history_later {
             self.write_prefix_fold(session, &root, after_seq, Value::Object(native));
             self.prepack_history(session, after_seq);
@@ -566,6 +571,7 @@ impl Hub {
     /// written, as the store writes them, to a synced segment `000000`, and indexed. Answers `{stageId, afterSeq,
     /// records}`.
     pub(in crate::hub) fn transfer_stage_finish(&self, params: &Value) -> Result<Value, RpcError> {
+        let mut steps = super::transfer_live::MoveSteps::new("stage_finish");
         let stage_id = params.get("stageId").and_then(Value::as_str).unwrap_or("");
         let dir = inside(&transfers_dir(), &format!("in-{stage_id}"))?;
         let manifest = read_json(&dir.join("manifest.json"))
@@ -609,6 +615,7 @@ impl Hub {
             self.write_staged(&bundle.join("events"), &segment, chat, base, control)
         });
         let (records, last) = written.map_err(|e| transfer_error("stage", format!("{e:#}")))?;
+        steps.step("write_staged");
         if last != after_seq {
             let _ = crate::home_fs::remove_dir_all(dir.join("store"));
             return Err(transfer_error(
@@ -617,6 +624,7 @@ impl Hub {
             ));
         }
         index_staged(&dir.join("store"), chat);
+        steps.step("index");
         // The native files stay for the move's receive, with what each holds: the freeze pages
         // only what they grew by since (`transfer_live.rs`).
         let native = super::transfer_live::keep_staged_native(&dir);
