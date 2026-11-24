@@ -86,9 +86,6 @@ pub const MENUS: &[HandBuiltMenu] = &[
     menu("agentPaneMessage", "CmuxNextAgentPane/AgentPaneContextMenu.swift", &["agentPane.togglePointerInspector"])
         .contexts(&["agentChat"])
         .pointer_rows("rows on the message, image, code, path or link part or selection under the pointer, which the palette cannot name"),
-    menu("paneTabBarRows", "CmuxNextApp/PaneToolbar.swift", &["palette.toggleTerminalChat", "tab.search", "tabs.toolbar.togglePin"])
-        .contexts(&["tab", "pane", "newTab"])
-        .pointer_rows("the docked page's own rows (Home's Chief Actions and Subagents), which that page offers"),
     menu("browserReload", "CmuxNextBrowser/UI/BrowserReloadMenu.swift", &["browserReload", "browserHardReload"]),
     menu("browserDownloads", "CmuxNextApp/Handlers/BrowserDownloadsMenu.swift", &[
         "browser.download.open", "browser.download.reveal", "browser.download.togglePause", "browser.download.retry",

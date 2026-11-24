@@ -47,8 +47,7 @@ await requireBrowserLane("new-tab-row-truncation.test.ts", async () => {
       await editor.waitFor();
       await editor.focus();
       await page.keyboard.type(text);
-      // New Tab draws no Ask row: a long prompt lists the web search row alone.
-      await page.waitForFunction(() => document.querySelectorAll('.nt-rows [role="option"]').length >= 1);
+      await page.waitForFunction(() => document.querySelectorAll('.nt-rows [role="option"]').length > 1);
       return await page.evaluate(() =>
         [...document.querySelectorAll<HTMLElement>('.nt-rows [role="option"]')].flatMap((row) => {
           const title = row.querySelector<HTMLElement>(".nt-row-title");

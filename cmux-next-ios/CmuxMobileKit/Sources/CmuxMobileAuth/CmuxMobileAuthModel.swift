@@ -37,6 +37,17 @@ public final class CmuxMobileAuthModel {
         public let id: String
         public let name: String
         public let email: String?
+        /// The App Review demo account (Stack's read-only `cmuxReviewDemoContent`
+        /// metadata, which only the server writes): the app shows a demo Mac and
+        /// never dials a real one.
+        public let reviewDemo: Bool
+
+        public init(id: String, name: String, email: String?, reviewDemo: Bool = false) {
+            self.id = id
+            self.name = name
+            self.email = email
+            self.reviewDemo = reviewDemo
+        }
 
         public var initials: String {
             let parts = name.split(separator: " ").prefix(2)
@@ -73,6 +84,11 @@ public final class CmuxMobileAuthModel {
     /// (`CloudIdentity.workerUserID` on the Mac). Nil in mock mode.
     public let stackProjectID: String?
     private var mockSignedIn: Bool
+    /// DEBUG `CMUX_MOBILE_REVIEW_DEMO=1`: the signed-in account (a development or the
+    /// mock one) acts as the App Review demo account, for fleet simulator and UI test
+    /// proof of the demo, which the server flag gates in shipping builds. Always false
+    /// outside DEBUG.
+    @ObservationIgnored var forcesReviewDemo = false
 
     /// The provider whose flow is in flight (its button shows a spinner).
     public private(set) var busyProvider: Provider?
@@ -113,6 +129,7 @@ public final class CmuxMobileAuthModel {
         if environment["CMUX_MOBILE_MOCK_AUTH"] == "1" || DeveloperOptions.mockData {
             let model = CmuxMobileAuthModel(coordinator: nil, isMock: true)
             model.mockSignedIn = environment["CMUX_MOBILE_CLEAR_AUTH"] != "1"
+            model.forcesReviewDemo = environment["CMUX_MOBILE_REVIEW_DEMO"] == "1"
             return model
         }
         #else
@@ -221,6 +238,9 @@ public final class CmuxMobileAuthModel {
                                         buildSpace: buildSpace)
         // The welcome screen says why this build's cloud never answers.
         model.errorMessage = buildSpace.refusal?.localizedDescription
+        #if DEBUG
+        model.forcesReviewDemo = environment["CMUX_MOBILE_REVIEW_DEMO"] == "1"
+        #endif
         return model
     }
 
@@ -294,7 +314,29 @@ public final class CmuxMobileAuthModel {
         }
         guard let user = coordinator?.currentUser else { return nil }
         let name = user.displayName?.isEmpty == false ? user.displayName! : (user.primaryEmail ?? "cmux user")
-        return User(id: user.id, name: name, email: user.primaryEmail)
+        return User(id: user.id, name: name, email: user.primaryEmail,
+                    reviewDemo: Self.isReviewDemoAccount(email: user.primaryEmail, serverFlag: user.demonstrationContentEnabled))
+    }
+
+    /// The App Review demo account (App Store Connect's demo account field). Its inbox is a public
+    /// Mailinator one, so anyone can already sign in to it; matching its address gives it the demo
+    /// with no server step. Stack's read-only `cmuxReviewDemoContent` metadata turns it on for
+    /// another account the same way.
+    nonisolated static let reviewDemoAccountEmail = "cmux-rev-0e6ba145@mailinator.com"
+
+    /// Whether an account gets the App Review demo: the review account's exact address, or the
+    /// server-written flag. Case and surrounding spaces in the address do not matter.
+    nonisolated static func isReviewDemoAccount(email: String?, serverFlag: Bool) -> Bool {
+        if serverFlag { return true }
+        guard let email else { return false }
+        return email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == reviewDemoAccountEmail
+    }
+
+    /// Signed in to the App Review demo account (``User/reviewDemo``): its teams, Mac
+    /// and workspaces are the demo's (`AppStore.loadReviewDemo`), with no live data.
+    public var isReviewDemo: Bool {
+        guard isSignedIn, let user else { return false }
+        return forcesReviewDemo || (!isMock && user.reviewDemo)
     }
 
     /// Stack teams for the signed-in account (empty in mock mode, whose
