@@ -17,12 +17,15 @@ workspace = true
 resolver = "2"
 members = [
     "crates/acpmux",
-    "crates/desktop-lease",
+    "crates/cmux-terminal-host-protocol",
+    "crates/acpmux-tui",
+    "crates/cmux-egress",
     "crates/acpmux-core",
     "crates/acpmux-client",
     "crates/acpmux-list-types",
     "crates/cmux-agent-cli-render",
     "crates/cmux-tailnet",
+    "crates/cmux-tailnet-local",
     "crates/acpmux-build-id",
     "crates/acpmux-standalone",
     "crates/acpmux-book",
@@ -33,6 +36,7 @@ members = [
     "crates/cmux-chat-index",
     "crates/cmux-apps",
     "crates/cmux-cloud-cli",
+    "crates/cmux-autocloud",
     "crates/cmux-cloud-environment",
     "crates/cmux-conversation",
     "crates/cmux-message-preview",
@@ -59,6 +63,8 @@ members = [
     "crates/cmux-json",
     "crates/cmux-local-url",
     "crates/cmux-journal",
+    "crates/cmux-session-pack",
+    "crates/cmux-bundle",
     "crates/cmux-kitty-media",
     "crates/cmux-api-compat",
     "crates/cmux-tui-remote-access",
@@ -76,6 +82,7 @@ members = [
     "crates/cmux-cloud-handlers",
     "crates/cmux-window-rules",
     "crates/cmux-build-space",
+    "crates/cmux-output-paint",
     "crates/cmux-cloud-client",
     "crates/cmux-cloud-api",
     "crates/cmux-unix-socket",
@@ -91,17 +98,21 @@ members = [
     "crates/cmux-web-pieces",
     "crates/cmux-scope",
     "crates/cmux-file-lock",
+    "crates/cmux-tag-cache",
     "crates/cmux-install-check",
     "crates/cmux-files-host",
     "crates/cmux-projection",
     "crates/cmux-deadline",
+    "crates/cmux-tailnet-join",
     "crates/cmux-remote-protocol",
+    "crates/cmux-braid-session",
     "crates/cmux-build-identity",
     "crates/cmux-netwatch",
     "crates/cmux-remote",
     "crates/cmux-terminal-client",
     "crates/cmux-relay",
     "crates/cmux-fault",
+    "crates/cmux-composer-send",
     "crates/cmux-duress",
     "crates/chatmux-relay",
     "crates/cmux-tui-machine-agent-protocol",
@@ -111,6 +122,8 @@ members = [
     "crates/cmux-wg-tun",
     "crates/cmux-weft",
     "crates/cmux-transport",
+    "crates/cmux-braid-carrier",
+    "crates/cmux-braid-path",
     "crates/cmux-tasks-core",
     "crates/cmux-bookmarks-core",
     "crates/cmux-bookmarks-ops",
@@ -146,10 +159,12 @@ members = [
     "crates/cmux-daemon-launch-core",
     "crates/cmux-health-core",
     "crates/cmux-launch-image",
+    "crates/cmux-pane-pictures",
     "crates/cmux-supervise-core",
     "crates/cmux-cookie-sync",
     "crates/cmux-browser-import",
     "crates/cmux-terminal-prediction",
+    "crates/cmux-felt",
     "crates/cmux-terminal-projection",
     "crates/cmux-link",
     "crates/cmux-pane-protocol",
@@ -160,6 +175,7 @@ members = [
     "crates/cmux-cloud-wire",
     "crates/cmux-tab-snapshots",
     "crates/cmux-palette-ranker",
+    "crates/cmux-terminal-find",
     "crates/cmux-palette-eval",
     "crates/cmux-backdrop-gen",
     "crates/cmux-action-catalog",
@@ -177,6 +193,7 @@ members = [
     "crates/cmux-source-scan",
     "crates/cmux-embed",
     "crates/cmux-embed-macros",
+    "crates/cmux-redact",
 ]
 default-members = [
     "crates/acpmux",
@@ -189,6 +206,7 @@ default-members = [
     "crates/cmux-coderouter",
     "crates/cmux-apps",
     "crates/cmux-cloud-cli",
+    "crates/cmux-autocloud",
     "crates/cmux-conversation",
     "crates/cmux-message-preview",
     "crates/cmux-share-approval",
@@ -228,6 +246,7 @@ default-members = [
     "crates/cmux-cloud-handlers",
     "crates/cmux-window-rules",
     "crates/cmux-build-space",
+    "crates/cmux-output-paint",
     "crates/cmux-cloud-client",
     "crates/cmux-cloud-api",
     "crates/cmux-pty",
@@ -238,9 +257,12 @@ default-members = [
     "crates/cmux-web-pieces",
     "crates/cmux-scope",
     "crates/cmux-file-lock",
+    "crates/cmux-tag-cache",
     "crates/cmux-install-check",
     "crates/cmux-deadline",
+    "crates/cmux-tailnet-join",
     "crates/cmux-remote-protocol",
+    "crates/cmux-braid-session",
     "crates/cmux-build-identity",
     "crates/cmux-netwatch",
     "crates/cmux-remote",
@@ -255,6 +277,8 @@ default-members = [
     "crates/cmux-wg-tun",
     "crates/cmux-weft",
     "crates/cmux-transport",
+    "crates/cmux-braid-carrier",
+    "crates/cmux-braid-path",
     "crates/cmux-tasks-core",
     "crates/cmux-bookmarks-core",
     "crates/cmux-bookmarks-ops",
@@ -288,10 +312,12 @@ default-members = [
     "crates/cmux-daemon-launch-core",
     "crates/cmux-health-core",
     "crates/cmux-launch-image",
+    "crates/cmux-pane-pictures",
     "crates/cmux-supervise-core",
     "crates/cmux-cookie-sync",
     "crates/cmux-browser-import",
     "crates/cmux-terminal-prediction",
+    "crates/cmux-felt",
     "crates/cmux-terminal-projection",
     "crates/cmux-link",
     "crates/cmux-pane-protocol",
@@ -301,6 +327,7 @@ default-members = [
     "crates/cmux-mobile-ffi",
     "crates/cmux-cloud-wire",
     "crates/cmux-palette-ranker",
+    "crates/cmux-terminal-find",
     "crates/cmux-palette-eval",
     "crates/cmux-action-catalog",
     "crates/cmux-host-budget",
@@ -316,7 +343,6 @@ exclude = [
     "vendor/crossterm",
     "vendor/smoltcp",
     "crates/cmux-rd-host",
-    "crates/cmux-cellgrid-bench",
     "crates/cmux-codecs",
     "crates/acpmux-hot/guest",
 ]
@@ -354,6 +380,7 @@ await_holding_refcell_ref = "deny"
 # Evaluated and dropped: needless_pass_by_value causes signature churn across cmux-tui-core call sites.
 
 [workspace.dependencies]
+cmux-egress = { path = "crates/cmux-egress" }
 chrono = "0.4"
 chrono-tz = "0.10"
 cmux-coderouter = { path = "crates/cmux-coderouter" }
@@ -366,11 +393,13 @@ cmux-tui-core = { path = "crates/cmux-tui-core" }
 cmux-git = { path = "crates/cmux-git" }
 cmux-supervise-core = { path = "crates/cmux-supervise-core" }
 cmux-file-lock = { path = "crates/cmux-file-lock" }
+cmux-tag-cache = { path = "crates/cmux-tag-cache" }
 cmux-install-check = { path = "crates/cmux-install-check" }
 cmux-signed-envelope = { path = "crates/cmux-signed-envelope" }
 cmux-web-pieces = { path = "crates/cmux-web-pieces" }
 cmux-projection = { path = "crates/cmux-projection" }
 cmux-deadline = { path = "crates/cmux-deadline" }
+cmux-tailnet-join = { path = "crates/cmux-tailnet-join" }
 cmux-worktree-care = { path = "crates/cmux-worktree-care" }
 cmux-conductor-import = { path = "crates/cmux-conductor-import" }
 cmux-browser-import = { path = "crates/cmux-browser-import" }
@@ -391,6 +420,7 @@ cmux-cloud-handlers = { path = "crates/cmux-cloud-handlers" }
 cmux-window-rules = { path = "crates/cmux-window-rules" }
 cmux-apps = { path = "crates/cmux-apps" }
 cmux-build-space = { path = "crates/cmux-build-space" }
+cmux-output-paint = { path = "crates/cmux-output-paint" }
 cmux-cloud-client = { path = "crates/cmux-cloud-client" }
 cmux-cloud-api = { path = "crates/cmux-cloud-api" }
 cmux-cloud-environment = { path = "crates/cmux-cloud-environment" }
@@ -401,6 +431,7 @@ cmux-daemon-conn-core = { path = "crates/cmux-daemon-conn-core" }
 acpmux-hot = { path = "crates/acpmux-hot" }
 cmux-chat-index = { path = "crates/cmux-chat-index" }
 cmux-palette-ranker = { path = "crates/cmux-palette-ranker" }
+cmux-terminal-find = { path = "crates/cmux-terminal-find" }
 cmux-theme-tokens = { path = "crates/cmux-theme-tokens" }
 cmux-theme-pack = { path = "crates/cmux-theme-pack" }
 cmux-image-linear = { path = "crates/cmux-image-linear" }
@@ -420,7 +451,9 @@ cmux-hub-host = { path = "crates/cmux-hub-host" }
 cmux-signed-bundle = { path = "crates/cmux-signed-bundle" }
 cmux-scope = { path = "crates/cmux-scope" }
 cmux-flow-trace = { path = "crates/cmux-flow-trace" }
+cmux-felt = { path = "crates/cmux-felt" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
+cmux-braid-session = { path = "crates/cmux-braid-session" }
 cmux-conversation = { path = "crates/cmux-conversation" }
 cmux-message-preview = { path = "crates/cmux-message-preview" }
 cmux-share-approval = { path = "crates/cmux-share-approval" }
@@ -440,6 +473,7 @@ cmux-tui-image-paste = { path = "crates/cmux-tui-image-paste" }
 cmux-tui-hooks = { path = "crates/cmux-tui-hooks" }
 cmux-agent-customize = { path = "crates/cmux-agent-customize" }
 cmux-tui-util = { path = "crates/cmux-tui-util" }
+cmux-terminal-host-protocol = { path = "crates/cmux-terminal-host-protocol" }
 cmux-json = { path = "crates/cmux-json" }
 cmux-embed = { path = "crates/cmux-embed" }
 cmux-local-url = { path = "crates/cmux-local-url" }
@@ -451,9 +485,12 @@ cmux-link = { path = "crates/cmux-link" }
 cmux-build-identity = { path = "crates/cmux-build-identity" }
 cmux-netwatch = { path = "crates/cmux-netwatch" }
 cmux-fault = { path = "crates/cmux-fault" }
+cmux-composer-send = { path = "crates/cmux-composer-send" }
 cmux-duress = { path = "crates/cmux-duress" }
 cmux-remote = { path = "crates/cmux-remote", default-features = false, features = ["wireguard-transport"] }
 cmux-wg = { path = "crates/cmux-wg" }
+cmux-braid-carrier = { path = "crates/cmux-braid-carrier" }
+cmux-braid-path = { path = "crates/cmux-braid-path" }
 cmux-server = { path = "crates/cmux-server" }
 cmux-server-core = { path = "crates/cmux-server-core" }
 cmux-host = { path = "crates/cmux-host" }
@@ -501,6 +538,9 @@ ip_network = "0.4"
 smoltcp = { version = "0.14", default-features = false, features = ["std", "medium-ip", "proto-ipv4", "proto-ipv6", "socket-tcp", "socket-tcp-cubic", "async"] }
 png = "0.17"
 libc = "0.2"
+# One poller for every idle terminal-host link (cmux-tui-core surface/idle_links.rs); tokio
+# already links mio with these features.
+mio = { version = "1", features = ["os-poll", "os-ext"] }
 memchr = "2"
 tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
 # Debug-only daemon hot-patching (cmux-tui-core feature `hotpatch`); pinned to
@@ -674,6 +714,20 @@ lto = "off"
 codegen-units = 16
 
 [profile.gate.package.acpmux]
+codegen-units = 16
+
+# A custom profile inherits its parent's package overrides too, so every
+# `[profile.release.package.X]` above that sets codegen-units = 1 needs its
+# line here. cmux-tui-core at one unit (from #47836) made its gate test build
+# take 35 minutes, and the v2 gate step ran out its limit before the last group
+# (acpmux-v2-connection, the `v2.pr04.*` rows) started. cmux-tui gets opt-level
+# 3 too: the gates time optimized code, not release's "z".
+# test_gate_profile_overrides_every_single_unit_release_package keeps this whole.
+[profile.gate.package.cmux-tui-core]
+codegen-units = 16
+
+[profile.gate.package.cmux-tui]
+opt-level = 3
 codegen-units = 16
 
 # Debug builds are what mux-dev dogfood runs; opt-level 0 makes the

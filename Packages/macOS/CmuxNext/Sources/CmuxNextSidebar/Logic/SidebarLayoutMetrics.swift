@@ -219,6 +219,7 @@ nonisolated extension SidebarLayoutOptions {
     func rowContent(_ ws: SidebarWorkspace, machine: String?) -> WorkspaceRowContent {
         var content = baseRowContent(ws, machine: machine)
         content.detailedStatus = detailedStatus
+        content.statusLeads = workspaceRow.statusPlacement == .leading
         content.runsInCloud = cloudMachines.contains(ws.machineID) || ws.startsInCloud
         content.machine = cloudMachines.contains(ws.machineID) ? nil : machines[ws.machineID].map(SidebarMachineMark.init)
         // Every mode (each density, workspaces as tabs), mark drawn or not: VoiceOver says the
@@ -227,7 +228,7 @@ nonisolated extension SidebarLayoutOptions {
         if let sessionTree { content.keycap = keycaps[ws.id] }
         if let parent = parentTitles[ws.id], WorkspaceRowContent.sameTitle(ws.title, parent) { content.subagentOf = parent }
         // The chat's subagents under its name (Claude desktop's Code tab): rows while open in the session tree, one
-        // stacked line while folded or with the tree off. A parent of subagents only gets the tree's chevron too;
+        // stacked line while folded, nothing with the tree off. A parent of subagents only gets the tree's chevron too;
         // the layout's tree pass keeps a chevron of its own (a parent of sessions) over this one.
         if !workspacesAsTabs, let subagents = ws.subagents {
             let folded = sessionTree?.collapsed.contains(ws.id) == true && filterMatches == nil
@@ -260,11 +261,8 @@ nonisolated extension SidebarLayoutOptions {
         if content.titleParts == nil, content.detail != nil, let step = ws.agentStep {
             (content.now, content.detail) = (step, step)
         }
-        // Steps left in the agent's task list: a quiet "3/7" where a one-line status would sit, never
-        // over a status or an expanded row's age, and never a line of its own.
-        if let tasks = ws.taskProgress, content.trailingStatus == nil, content.time == nil {
-            (content.tasks, content.trailingStatus) = (tasks, tasks.countText)
-        }
+        // Steps left in the agent's task list (`ws.taskProgress`) show in the hover card only: a workspace
+        // row draws no "3/7" count (https://github.com/manaflow-ai/cmux/issues/52977).
         return content
     }
 

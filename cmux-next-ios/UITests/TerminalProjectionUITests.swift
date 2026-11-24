@@ -90,7 +90,7 @@ final class TerminalProjectionUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-CmuxMobileTerminalDemo", "-CmuxMobileTerminalDemoEmbedded",
-                                "-CmuxMobileTerminalDemoPhases", "altproj"]
+                                "-CmuxMobileTerminalDemoPhases", "altproj", "-cmuxMobile.settings.terminalZoomFullScreenApps", "YES"]
         if let chrome = ProcessInfo.processInfo.environment["CMUX_ZOOM_CHROME"] {
             app.launchArguments += ["-CmuxMobileTerminalZoomChrome", chrome]
         }
@@ -239,7 +239,7 @@ final class TerminalProjectionUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-CmuxMobileTerminalDemo", "-CmuxMobileTerminalDemoEmbedded",
-                                "-CmuxMobileTerminalDemoPhases", "altproj", "-CmuxMobileTerminalDemoMacKeepsSize", "YES"]
+                                "-CmuxMobileTerminalDemoPhases", "altproj", "-cmuxMobile.settings.terminalZoomFullScreenApps", "YES", "-CmuxMobileTerminalDemoMacKeepsSize", "YES"]
         app.launch()
         let probe = app.staticTexts["debug.terminal-demo"]
         XCTAssertTrue(probe.waitForExistence(timeout: 30), "the terminal demo's step label\n\(app.debugDescription)")
@@ -301,7 +301,7 @@ final class TerminalProjectionUITests: XCTestCase {
             let app = XCUIApplication()
             app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
             app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-CmuxMobileTerminalDemo", "-CmuxMobileTerminalDemoEmbedded",
-                                    "-CmuxMobileTerminalDemoPhases", "altproj", "-CmuxMobileTerminalZoomChrome", chrome,
+                                    "-CmuxMobileTerminalDemoPhases", "altproj", "-cmuxMobile.settings.terminalZoomFullScreenApps", "YES", "-CmuxMobileTerminalZoomChrome", chrome,
                                     "-CmuxMobileTerminalZoomChromePinned", "YES"]
             app.launch()
             let probe = app.staticTexts["debug.terminal-demo"]
@@ -426,6 +426,118 @@ final class TerminalProjectionUITests: XCTestCase {
             XCTAssertEqual(counts.wide, 0, "\(pane) \(name) drew the Mac's grid instead of the phone's (\(counts))")
             XCTAssertEqual(counts.narrow, 0, "\(pane) \(name) showed a terminal narrower than the phone (\(counts))")
             XCTAssertEqual(counts.bounces, 0, "\(pane) \(name) moved the terminal against the keyboard (\(counts))")
+        }
+    }
+}
+
+/// Leo, 2026-11-23: "if the data was sent through... why cant you simply
+/// scroll through the depiction that was already given?" The demo's
+/// `tuiheld` phases: a full-screen app without the mouse whose transcript
+/// scrolls off its region's top, behind the phone's projection. One finger
+/// reads back through it for 10 s (drags toward older rows, twice as many as
+/// back toward newer, so the reader never passes the live screen): every pan
+/// is painted on the phone from the rows it already drew, so the phone sends
+/// the Mac 0 bytes in 0 sends and the app scrolls 0 times. `NoHeldRows`
+/// variants run the same pans with every wheel sent to the app (the path
+/// before held rows): the "before" in one harness. `-load` streams a row
+/// every 16 ms throughout: the reader stays where they read (dictator,
+/// 2026-11-24: output while panned into held rows does not return to live).
+/// Each readout is a
+/// `tuiheld ...` attachment (frames, receive-to-paint, gesture-to-paint).
+extension TerminalProjectionUITests {
+    @MainActor func testPanWithinHeldRowsSendsNothing() throws {
+        try heldPan(variant: "keys", holds: true)
+    }
+
+    @MainActor func testPanWithinHeldRowsWhileStreamingSendsNothing() throws {
+        try heldPan(variant: "keys-load", holds: true)
+    }
+
+    @MainActor func testPanWithoutHeldRowsScrollsTheApp() throws {
+        try heldPan(variant: "keys", holds: false)
+    }
+
+    @MainActor func testPanWithoutHeldRowsWhileStreamingScrollsTheApp() throws {
+        try heldPan(variant: "keys-load", holds: false)
+    }
+
+    private static func value(_ name: String, in demo: String) -> Int? {
+        demo.split(separator: " ").lazy.compactMap { word -> Int? in
+            let pair = word.split(separator: "=", maxSplits: 1)
+            return pair.count == 2 && pair[0] == name ? Int(pair[1]) : nil
+        }.first
+    }
+
+    @MainActor
+    private func heldPan(variant: String, holds: Bool) throws {
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
+        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-CmuxMobileTerminalDemo", "-CmuxMobileTerminalDemoEmbedded",
+                                "-CmuxMobileTerminalDemoPhases", "tuiheld-\(variant)"]
+        if !holds { app.launchArguments.append("-CmuxMobileTerminalDemoNoHeldRows") }
+        app.launch()
+        defer { app.terminate() }
+
+        let probe = app.staticTexts["debug.terminal-demo"]
+        XCTAssertTrue(probe.waitForExistence(timeout: 30), "the terminal demo's step label\n\(app.debugDescription)")
+        var demo = ""
+        var deadline = Date().addingTimeInterval(60)
+        while Date() < deadline, !demo.hasPrefix("tuiheld-\(variant) ready") {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+            demo = probe.label
+        }
+        XCTAssertTrue(demo.hasPrefix("tuiheld-\(variant) ready"), "the app is up with rows held: \(demo)")
+
+        let window = app.windows.firstMatch
+        let high = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.32))
+        let low = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.66))
+        let panEnd = Date().addingTimeInterval(10)
+        var drags = 0
+        while Date() < panEnd {
+            // Older, older, newer: a thumb reading back with a glance down.
+            let older = drags % 3 != 2
+            (older ? high : low).press(forDuration: 0.02, thenDragTo: older ? low : high,
+                                      withVelocity: XCUIGestureVelocity(900), thenHoldForDuration: 0)
+            drags += 1
+        }
+
+        deadline = Date().addingTimeInterval(60)
+        while Date() < deadline, !demo.hasPrefix("tuiheld-\(variant) done") {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+            demo = probe.label
+        }
+        let sendsPerDrag = drags > 0 ? Double(Self.value("sends", in: demo) ?? 0) / Double(drags) : 0
+        let label = "tuiheld \(holds ? "held" : "noheld") \(demo) drags=\(drags)"
+            + String(format: " sendsPerDrag=%.2f", sendsPerDrag)
+        print(label)
+        let numbers = XCTAttachment(string: label + "\n")
+        numbers.name = "tuiheld-\(holds ? "held" : "noheld")-\(variant) " + demo
+        numbers.lifetime = .keepAlways
+        add(numbers)
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "tuiheld-\(holds ? "held" : "noheld")-\(variant)-end"
+        shot.lifetime = .keepAlways
+        add(shot)
+        XCTAssertTrue(demo.hasPrefix("tuiheld-\(variant) done"), "the phase finished: \(demo)")
+
+        var values: [String: Int] = [:]
+        for word in demo.split(separator: " ") {
+            let pair = word.split(separator: "=", maxSplits: 1)
+            if pair.count == 2, let value = Int(pair[1]) { values[String(pair[0])] = value }
+        }
+        XCTAssertTrue(demo.contains("isTUI=true"), "the app is on the alternate screen: \(demo)")
+        XCTAssertGreaterThan(values["frames"] ?? 0, 60, "frames were measured while the finger panned: \(demo)")
+        if holds {
+            XCTAssertGreaterThan(values["heldPaints"] ?? 0, 0, "the pans were painted from held rows: \(demo)")
+            XCTAssertEqual(values["sends"] ?? -1, 0, "a pan within held rows sent the Mac nothing: \(demo)")
+            XCTAssertEqual(values["bytes"] ?? -1, 0, "a pan within held rows sent 0 bytes: \(demo)")
+            XCTAssertEqual(values["appScrolls"] ?? -1, 0, "the app never scrolled: \(demo)")
+            // Read back, then the finger lifts: the app's output (a row every
+            // 16 ms under `-load`) leaves the reader where they are.
+            XCTAssertGreaterThan(values["back"] ?? 0, 0, "the reader is still back after the app's output: \(demo)")
+        } else {
+            XCTAssertGreaterThan(values["appScrolls"] ?? 0, 0, "every pan went to the app: \(demo)")
         }
     }
 }

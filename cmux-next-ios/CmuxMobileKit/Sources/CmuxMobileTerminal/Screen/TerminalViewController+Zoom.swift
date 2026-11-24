@@ -11,9 +11,10 @@ import UIKit
 /// body (a god file): the body calls these from its placement, its gestures
 /// and its TUI switch.
 extension TerminalViewController {
-    /// The zoom applies: a full-screen app in the TUI host whose grid is not the phone's.
+    /// The zoom applies: a full-screen app in the TUI host whose grid is not the phone's,
+    /// with Settings → Terminal → Zoom Full-Screen Apps on (``tuiZoomEnabled``).
     var tuiZoomActive: Bool {
-        model.isTUI && surface.superview === tuiHost && cell.width > 0 && cell.height > 0 && hostLayout.followsHost
+        tuiZoomEnabled && model.isTUI && surface.superview === tuiHost && cell.width > 0 && cell.height > 0 && hostLayout.followsHost
     }
 
     /// The Mac's grid and the TUI area, at scale 1.

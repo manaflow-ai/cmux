@@ -160,7 +160,8 @@ import Testing
     @Test func theAlternateScreenIsShownAtTheMacsGridAndTypingFitsOnce() {
         TerminalFitMemory.reset()
         let mac = MacPaneMockSession(columns: 120, rows: 40, program: "htop")
-        let session = TerminalSessionChoice.session(live: mac, mockDataEnabled: false, macName: "Mac", programName: "zsh")
+        // Settings → Terminal → Zoom Full-Screen Apps on (off by default).
+        let session = TerminalProjectingSession(inner: mac, zooms: true)
         var grids: [(columns: Int, alternate: Bool)] = []
         var alternate = false
         var claim = Debounce()

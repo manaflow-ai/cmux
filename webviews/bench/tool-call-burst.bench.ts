@@ -449,7 +449,7 @@ if (import.meta.main) {
       headless: true,
     });
     releases.push(() => browser.close());
-    const url = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${sessionId}`;
+    const url = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&scheme=cmux&session=${sessionId}`;
     for (const pace of PACES) {
       const rounds: Round[] = [];
       for (let index = 0; index < ROUNDS; index += 1) rounds.push(await round(browser, url, pace.gap));
