@@ -18,7 +18,7 @@
 //! `NETCOND {"surface":"chat","profile":"lte@1","phase":"cold","scale":"1x","metric":
 //! "first_content_ms","value":123.4,"run":0,"seed":0}`. A measurement that times out prints
 //! `null` and a `NETCOND-ERROR` line; it never fails the test. `#[ignore]`: run it with
-//! `cargo test -p acpmux --test mobile_link_conditions -- --ignored --nocapture`.
+//! `cargo test -p acpmux --test acpmux_all mobile_link_conditions -- --ignored --nocapture`.
 #![cfg(unix)]
 
 #[path = "support/daemon_env.rs"]

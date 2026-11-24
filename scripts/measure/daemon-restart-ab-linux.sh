@@ -43,7 +43,7 @@ echo "daemon-restart-ab: A=$base ($base_sha) B=HEAD ($head_sha)"
 # HEAD: the test binary and the daemon.
 cd "$root/cmux-tui"
 build_start=$SECONDS
-cargo test --locked --release -p acpmux --test god_daemon --no-run 2>&1 | tail -n 2
+cargo test --locked --release -p acpmux --test acpmux_all --no-run 2>&1 | tail -n 2
 cargo build --locked --release -p acpmux --bin acpmux 2>&1 | tail -n 1
 target="${CARGO_TARGET_DIR:-$root/cmux-tui/target}"
 test_bin="$(ls -t "$target"/release/deps/god_daemon-* | grep -v '\.d$' | head -n 1)"

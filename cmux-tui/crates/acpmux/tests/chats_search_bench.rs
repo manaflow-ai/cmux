@@ -2,7 +2,7 @@
 //! chat-history-search: at most 150 ms p95 per keystroke). Ignored by `cargo test`; the perf cron's
 //! chat-search Linux part runs it:
 //!
-//!   cargo test --release -p acpmux --test chats_search_bench -- --ignored --nocapture
+//!   cargo test --release -p acpmux --test acpmux_all chats_search_bench -- --ignored --nocapture
 //!
 //! `chats/text_scale_bench_tests.rs` times the text index alone on small chats at 1k to 500k
 //! chats. This bench times what the page waits for, through the daemon's protocol, on stores the

@@ -368,7 +368,7 @@ fn a_chief_home_of_purged_leftovers_and_chats_stays_within_the_memory_budget() {
 }
 
 /// Real-daemon retained-state measurement, run unchanged on base and head on the same host:
-/// `cargo test -p acpmux --test daemon_memory idle_session_resident_memory_benchmark --
+/// `cargo test -p acpmux --test acpmux_all idle_session_resident_memory_benchmark --
 /// --ignored --exact --nocapture --test-threads=1`.
 /// `ACPMUX_MEMORY_BENCH_BINARY=/absolute/path/to/acpmux` selects another build while the
 /// harness and its fixture stay identical. The environment remains hermetic and denies agents.

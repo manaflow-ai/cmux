@@ -9,7 +9,7 @@
 //! ```text
 //! ACPMUX_SUBSESSIONS_LIVE_CLAUDE=/abs/claude ANTHROPIC_BASE_URL=http://127.0.0.1:31415 \
 //! ACPMUX_SUBSESSIONS_LIVE_CODEX=/abs/codex CODEX_HOME=/path/to/home \
-//!   cargo nextest run -p acpmux --test subsessions_live
+//!   cargo nextest run -p acpmux --test acpmux_all
 //! ```
 //!
 //! Without the variable for an agent its test says so and passes (CI has no model).

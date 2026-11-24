@@ -45,9 +45,9 @@
 //! its heap (dhat) and the test prints its allocation sites: the bytes each held at the heap's
 //! peak and in total, grouped by the first acpmux frame, and the sites of its 640-byte blocks
 //! (serde_json's BTreeMap leaves). Manual, on Linux CI:
-//! `cargo test -p acpmux --release --test god_daemon -- --ignored --nocapture`, and the profile:
+//! `cargo test -p acpmux --release --test acpmux_all god_daemon -- --ignored --nocapture`, and the profile:
 //! `CARGO_PROFILE_RELEASE_DEBUG=line-tables-only ACPMUX_GOD_DHAT=1 cargo test -p acpmux --release
-//! --features dhat-heap --test god_daemon -- --ignored --nocapture` (line tables name inlined frames).
+//! --features dhat-heap --test acpmux_all god_daemon -- --ignored --nocapture` (line tables name inlined frames).
 
 // The baseline's `json!` has more keys than the default limit expands, as in `lib.rs`.
 #![recursion_limit = "256"]
@@ -1790,7 +1790,7 @@ fn pin_process(pid: u32, cpus: usize) {
 /// (a starved daemon, as at a load average of 125-256 on Leo's Mac); the peer runs free.
 /// `ACPMUX_CHURN_FOLLOW=1` cuts without a restart, so the link follows: the control.
 /// Manual, on Linux CI:
-/// `cargo test -p acpmux --release --test god_daemon whole_lists -- --ignored --nocapture`.
+/// `cargo test -p acpmux --release --test acpmux_all whole_lists -- --ignored --nocapture`.
 #[cfg(target_os = "linux")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "manual: a churn lab; run on Linux CI"]
@@ -2585,7 +2585,7 @@ fn size_ratios(base: &Value, size: &Value) -> (Value, Option<(String, f64)>) {
 /// The sweep: `CHAT-SIZE {...}` per size, `CHAT-SIZE-RATIO {...}` per size against the first,
 /// and `infinite_chat_size_ratio_max <ratio> <key> <size>` (the daemon's part of the goal).
 /// Manual, on Linux CI (release): `ACPMUX_CHAT_SIZES=1M,100M,1G,4G cargo test -p acpmux --release
-/// --test god_daemon chat_size_sweep -- --ignored --nocapture`.
+/// --test acpmux_all chat_size_sweep -- --ignored --nocapture`.
 #[test]
 #[ignore = "manual: writes chats up to 4 GB; run on Linux CI"]
 fn chat_size_sweep() {

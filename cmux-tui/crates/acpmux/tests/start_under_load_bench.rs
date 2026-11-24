@@ -15,7 +15,7 @@
 //! spinning, at the test's own priority, as a build's compilers would be), and the p50 and p95 of
 //! each are printed with the loaded/idle ratio.
 //!
-//! `cargo test -p acpmux --release --test start_under_load_bench -- --ignored --nocapture`
+//! `cargo test -p acpmux --release --test acpmux_all start_under_load_bench -- --ignored --nocapture`
 //! (`START_BENCH_LOAD`, `START_BENCH_SAMPLES` override the load and the sample count;
 //! `START_BENCH_LOAD_NICE` runs the loops at that nice: 0 is load from outside acpmux, 5 (Linux)
 //! the agent tier's, as the tools of other agents run; `START_BENCH_SPARE=1` lets the daemon keep its

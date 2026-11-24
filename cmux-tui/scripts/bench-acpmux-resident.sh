@@ -41,7 +41,7 @@ restore
 cd cmux-tui
 cargo build --locked --release -p acpmux --bin acpmux
 cp "$target/release/acpmux" "$out/acpmux-after"
-cargo test --locked --release -p acpmux --test daemon_memory --no-run --message-format=json > "$out/build.jsonl"
+cargo test --locked --release -p acpmux --test acpmux_all --no-run --message-format=json > "$out/build.jsonl"
 test_exe=$(python3 - "$out/build.jsonl" <<'PY'
 import json, sys
 for line in open(sys.argv[1]):
@@ -65,4 +65,4 @@ for pass in 1 2; do
 done
 cargo test --locked --release -p acpmux --lib -- shared_value model_options full_access preset_bind policy_mode deferred log_deferral
 cargo test --locked --release -p acpmux --test hub_integration -- fork_before
-cargo test --locked --release -p acpmux --test hermetic_daemon_guard -- only_the_hermetic_helper_starts_the_acpmux_binary
+cargo test --locked --release -p acpmux --test acpmux_all hermetic_daemon_guard -- only_the_hermetic_helper_starts_the_acpmux_binary

@@ -19,7 +19,7 @@ import tempfile
 def main():
     built = subprocess.run([
         "cargo", "test", "--locked", "--manifest-path", "cmux-tui/Cargo.toml",
-        "-p", "acpmux", "--test", "machine_join", "--test", "person_allow",
+        "-p", "acpmux", "--test", "acpmux_all",
         "--no-run", "--message-format=json",
     ], check=True, text=True, stdout=subprocess.PIPE)
     binaries = {}
@@ -47,14 +47,14 @@ def main():
         account = pwd.getpwnam(user)
         subprocess.run(["sudo", "-n", "chown", f"{account.pw_uid}:{account.pw_gid}", str(root), str(home)], check=True)
         # timeout owns only this invocation's child process group; no name-based kills.
-        for name, filters in [("machine_join", []), ("person_allow", ["machine_consent_"])]:
+        for name, filters in [("machine_join", ["machine_join"]), ("person_allow", ["person_allow", "machine_consent_"])]:
             subprocess.run([
                 "sudo", "-n", "timeout", "--kill-after=5s", "120s", "runuser", "-u", user, "--", "env", "-i",
                 "PATH=/usr/bin:/bin", f"HOME={home}", f"ACPMUX_TEST_ACCOUNT_HOME={home}",
                 # The selected tests start no agents. Avoid the harness's compiled
                 # runner-owned scratch dir; children still use daemon_env's clean
                 # per-process fixtures. No real CLI accounts enter the environment.
-                "ACPMUX_TEST_HERMETIC=1", f"ACPMUX_TEST_BINARY={binaries['acpmux']}", binaries[name], *filters,
+                "ACPMUX_TEST_HERMETIC=1", f"ACPMUX_TEST_BINARY={binaries['acpmux']}", binaries["acpmux_all"], *filters,
                 "--include-ignored", "--test-threads=1", "--nocapture",
             ], check=True)
     finally:

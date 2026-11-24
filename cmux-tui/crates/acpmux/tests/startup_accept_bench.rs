@@ -14,7 +14,7 @@
 //! Each round stops the daemon, starts it, and sends one prompt to one of the three chats; its
 //! time is from the spawn to the acceptance. The god's p95 over the small's is the bar (1.2).
 //! Run by hand, as `update_cost_bench`:
-//! `cargo test -p acpmux --release --test startup_accept_bench -- --ignored --nocapture`.
+//! `cargo test -p acpmux --release --test acpmux_all startup_accept_bench -- --ignored --nocapture`.
 #![cfg(unix)]
 
 #[path = "support/daemon_env.rs"]
@@ -337,7 +337,7 @@ fn percentile(samples: &mut [f64], p: f64) -> f64 {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "a bench, run by hand: cargo test -p acpmux --release --test startup_accept_bench -- --ignored --nocapture"]
+#[ignore = "a bench, run by hand: cargo test -p acpmux --release --test acpmux_all startup_accept_bench -- --ignored --nocapture"]
 async fn a_prompt_is_accepted_as_soon_after_a_start_in_a_god_chat_as_in_a_small_one() {
     let god_mb = env_usize("ACPMUX_BENCH_GOD_MB", 1024);
     let chats = env_usize("ACPMUX_BENCH_CHATS", 525);

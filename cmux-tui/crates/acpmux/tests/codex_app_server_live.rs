@@ -5,7 +5,7 @@
 //!
 //! ```text
 //! ACPMUX_CODEX_LIVE=/path/to/codex CODEX_HOME=/path/to/home \
-//!   cargo test -p acpmux --test codex_app_server_live -- --test-threads 3
+//!   cargo test -p acpmux --test acpmux_all codex_app_server_live -- --test-threads 3
 //! ```
 //!
 //! Without ACPMUX_CODEX_LIVE each test says so and passes (CI has no model).

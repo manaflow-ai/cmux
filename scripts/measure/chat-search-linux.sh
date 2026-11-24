@@ -26,12 +26,12 @@ command -v cargo >/dev/null || ./scripts/install-rust-ci.sh
 command -v clang >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq clang libclang-dev pkg-config; }
 export PATH="$HOME/.cargo/bin:$PATH"
 cd "$root/cmux-tui"
-cargo test --locked --release -p acpmux --test chats_search_bench --no-run 2>&1 | tail -n 3
+cargo test --locked --release -p acpmux --test acpmux_all --no-run 2>&1 | tail -n 3
 [[ "$build_only" == 1 ]] && exit 0
 out="$(mktemp -d)"
 trap 'rm -rf "$out"' EXIT
 CHAT_SEARCH_BENCH_CHATS="$chats" CHAT_SEARCH_BENCH_MIB="$mib" \
-  cargo test --locked --release -p acpmux --test chats_search_bench -- --ignored --nocapture 2>&1 | tee "$out/bench.log"
+  cargo test --locked --release -p acpmux --test acpmux_all chats_search_bench -- --ignored --nocapture 2>&1 | tee "$out/bench.log"
 python3 -c 'import json,sys
 rows = [json.loads(l[len("PERF_ROW "):]) for l in open(sys.argv[1]) if l.startswith("PERF_ROW ")]
 print(json.dumps({"rows": rows}))' "$out/bench.log"

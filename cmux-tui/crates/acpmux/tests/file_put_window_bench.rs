@@ -8,7 +8,7 @@
 //! and streaming ticks while the uploads run (the round-trip audit's duress, fewer turns).
 //! Env: `FPW_BYTES` (2097152,104857600), `FPW_PROFILES` (lte,lossy-3), `FPW_LOADS` (idle),
 //! `FPW_WINDOWS` (1,8), `FPW_RUNS` (3).
-//! `cargo test --release -p acpmux --test file_put_window_bench -- --ignored --nocapture`
+//! `cargo test --release -p acpmux --test acpmux_all file_put_window_bench -- --ignored --nocapture`
 #![cfg(unix)]
 
 #[path = "support/daemon_env.rs"]

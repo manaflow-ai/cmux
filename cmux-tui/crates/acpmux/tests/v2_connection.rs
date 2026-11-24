@@ -1,5 +1,5 @@
 //! PR4's release gates use the shared small/god shapes and the real Unix stream
-//! driver. Run alone: cargo test -p acpmux --release --test v2_connection -- --ignored --nocapture --test-threads=1
+//! driver. Run alone: cargo test -p acpmux --release --test acpmux_all v2_connection -- --ignored --nocapture --test-threads=1
 #![cfg(target_os = "linux")]
 
 use acpmux_book::gate_rounds::{self, all_p95, best_p95};
