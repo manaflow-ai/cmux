@@ -237,6 +237,7 @@ extension IconName {
     nonisolated public static let placeholder = IconName("placeholder")
     nonisolated public static let policyReject = IconName("policy.reject")
     nonisolated public static let profileDot = IconName("profile.dot")
+    nonisolated public static let promptSave = IconName("prompt.save")
     nonisolated public static let radioOff = IconName("radio.off")
     nonisolated public static let radioOn = IconName("radio.on")
     nonisolated public static let remoteDisplay = IconName("remote.display")

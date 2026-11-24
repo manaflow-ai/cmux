@@ -679,6 +679,32 @@ class TheRepository(unittest.TestCase):
         self.assertIsNone(daemon.reason("cmux-tui/crates/cmux-app-ffi/src/lib.rs"))  # the app links its pinned release
         self.assertEqual(set(router.DAEMON_PATHS) - set(router._daemon_map_inputs(ROOT)), set())
 
+    def test_the_gate_passes_over_only_changes_no_routed_job_reads(self):
+        """`gate` lets the changes job skip the graph: every input of each of cmux-tui-spec.yml's routed jobs, a Rust
+        source or manifest anywhere, the map and the router need it; a web or Swift change does not, and `route` on
+        such a change runs none of the workflow's jobs, so skipping it changes no answer."""
+        workflow = ".github/workflows/cmux-tui-spec.yml"
+        map_text = (ROOT / jobs.MAP).read_text()
+        workspace_inputs, all_jobs = jobs.load_map(map_text)
+        with git_tree.GitTree(ROOT) as tree:
+            graph = jobs.Graph(tree, workspace_inputs, all_jobs)
+            inputs = sorted({entry for job in all_jobs if job.workflow == workflow for entry in graph.inputs(job)})
+            for entry in inputs:
+                probe = entry.rstrip("/") + "/x" if jobs.is_directory(tree, entry) else entry
+                with self.subTest(input=probe):
+                    self.assertTrue(jobs.gate(ROOT, [probe], workflow, map_text=map_text)[0], probe)
+            for path in ("Native/x/src/lib.rs", "cmux-next-ios/rust/Cargo.toml", jobs.MAP, *jobs.SELF, workflow,
+                         ".github/post-merge-batch.json", "scripts/ci/pr_router.json", "cmux-tui/README.md"):
+                with self.subTest(path=path):
+                    self.assertTrue(jobs.gate(ROOT, [path], workflow, map_text=map_text)[0], path)
+            outside = ["webviews/src/App.tsx", "Packages/macOS/CmuxNext/Sources/X/Y.swift", "docs/x.md"]
+            self.assertFalse(jobs.gate(ROOT, outside, workflow, map_text=map_text)[0])
+            result = jobs.route(tree, outside, map_text=map_text, workflow=workflow)
+            self.assertFalse(any(result.run.values()), result.lines())
+        self.assertTrue(jobs.gate(ROOT, outside, workflow, event="push", map_text=map_text)[0])
+        self.assertTrue(jobs.gate(ROOT, outside, workflow, labels=[jobs.FULL_LABEL], map_text=map_text)[0])
+        self.assertTrue(jobs.gate(ROOT, None, workflow, map_text=map_text)[0])
+
     def test_the_workflow_paths_reader(self):
         text = 'on:\n  push:\n    paths:\n      - "a/**"\n      # c\n      - b.txt\n  pull_request:\njobs:\n  x:\n'
         self.assertEqual(jobs.workflow_paths(text, "push"), ["a/**", "b.txt"])
