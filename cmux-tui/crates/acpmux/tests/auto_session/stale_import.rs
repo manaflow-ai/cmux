@@ -35,6 +35,7 @@ impl SessionImporter for Gated {
     }
 }
 
+#[derive(Clone)]
 struct Gate {
     reached: Arc<AtomicBool>,
     open: Arc<Semaphore>,
@@ -108,7 +109,11 @@ async fn prompt_during_import(rig: &mut Rig, id: &str) {
 async fn an_import_that_lost_the_chat_meanwhile_starts_nothing_and_changes_nothing() {
     let _hermetic = &HERMETIC;
     let gate = Gate::new();
-    let mut rig = Rig::with_importer(|hub, cloud, root| gate.importer(hub, cloud, root)).await;
+    let mut rig = Rig::with_importer({
+        let g = gate.clone();
+        move |hub, cloud, root| g.importer(hub, cloud, root)
+    })
+    .await;
     let (id, home) = import_at_the_gate(&mut rig, &gate).await;
     let (agent_before, anchor_before) = (rig.prompts_at_agent(), rig.record(&id).unwrap().anchor);
 
@@ -138,7 +143,11 @@ async fn an_import_that_lost_the_chat_meanwhile_starts_nothing_and_changes_nothi
 async fn an_import_the_store_still_stands_behind_activates_once() {
     let _hermetic = &HERMETIC;
     let gate = Gate::new();
-    let mut rig = Rig::with_importer(|hub, cloud, root| gate.importer(hub, cloud, root)).await;
+    let mut rig = Rig::with_importer({
+        let g = gate.clone();
+        move |hub, cloud, root| g.importer(hub, cloud, root)
+    })
+    .await;
     let (id, home) = import_at_the_gate(&mut rig, &gate).await;
     let agent_before = rig.prompts_at_agent();
 
