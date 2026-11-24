@@ -8583,6 +8583,13 @@
             "null"
           ]
         },
+        "topLevelOnly": {
+          "description": "`_acpmux/sessions` only (a watch refuses it): exclude side chats (a `side` tag) and\nsessions another chat's agent started (`spawnedBy`, `startedBy`) before pagination: the\nchats a list shows on their own (capability `session-list-top-level-v1`).",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "usage": {
           "description": "`_acpmux/sessions` only: read each chat's usage from its harness's records first\n(`usageStats`; at most one read every 5 s, waited for at most 750 ms). Without it the\nrows carry what the last read found.",
           "type": [
