@@ -1,7 +1,9 @@
 //! A peer link over the hub carrier drops and rejoins, quiet and under duress: how long until the
 //! link reads `connected` again and how many dials the relay saw for it. The numbers for the
 //! "auto connect" change (cmux#52580: peer links and hub probes ride the pair's one kept hub
-//! circuit as streams), measured with this same file at that change's parent and at it.
+//! circuit as streams). Its before is the same binary with `acpmux_streams(false)` on both
+//! carriers, the knob #52580 kept for a daemon from before it: acpmux dials go plain, no hello,
+//! as every acpmux dial did. Before and after alternate on one runner, quiet and under load.
 //!
 //! The duress bench (`duress_daemon.rs`) peers over local proxies with hub circuits 0, so it
 //! never exercises the hub path; this file is that leg. Two real hubs: B serves a session on
@@ -21,7 +23,8 @@
 //!   --test hub_rejoin_duress -- --ignored --nocapture'
 //! ```
 //!
-//! Prints `REJOIN-NUMBERS quiet ...` and `REJOIN-NUMBERS duress ...`. No gate: numbers only.
+//! Prints `REJOIN-NUMBERS quiet plain ...`, `quiet kept`, `duress plain` and `duress kept`. No
+//! gate: numbers only.
 #![cfg(all(target_os = "linux", feature = "hub-carrier"))]
 
 #[path = "support/daemon_env.rs"]
@@ -274,7 +277,7 @@ struct Pair {
     _home: tempfile::TempDir,
 }
 
-async fn pair() -> Pair {
+async fn pair(acpmux_streams: bool) -> Pair {
     let relay_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let relay_address = relay_listener.local_addr().unwrap();
     let relay = cmux_relay::Relay::new(cmux_relay::RelayConfig {
@@ -313,6 +316,7 @@ async fn pair() -> Pair {
         key_b,
         fast,
     );
+    carrier_b.acpmux_streams(acpmux_streams);
     let serving = carrier_b.serve(b_ws);
 
     let a = hub();
@@ -324,6 +328,7 @@ async fn pair() -> Pair {
         key_a,
         fast,
     );
+    carrier_a.acpmux_streams(acpmux_streams);
     carrier_a.set_route("b", &public(&key_b));
     a.hub_carrier.set(carrier_a.clone());
     let dead = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
@@ -396,12 +401,15 @@ async fn rounds(label: &str, p: &Pair) {
 #[ignore = "numbers on demand"]
 async fn hub_rejoin_numbers() {
     let _ = HERMETIC;
-    let quiet = pair().await;
-    rounds("quiet", &quiet).await;
-    drop(quiet);
+    for kept in [false, true] {
+        let quiet = pair(kept).await;
+        rounds(if kept { "quiet kept" } else { "quiet plain" }, &quiet).await;
+    }
     let load = Load::start();
     tokio::time::sleep(Duration::from_secs(5)).await;
-    let busy = pair().await;
-    rounds("duress", &busy).await;
+    for kept in [false, true] {
+        let busy = pair(kept).await;
+        rounds(if kept { "duress kept" } else { "duress plain" }, &busy).await;
+    }
     drop(load);
 }
