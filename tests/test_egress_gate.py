@@ -52,7 +52,8 @@ FORMS = {
         "ureq": r"\bureq::",
     },
     ".swift": {
-        "urlsession": r"\bURLSession\((?:configuration|\))",
+        # `\s*`: the initializer split over lines, `URLSession(\n    configuration:`, is one too.
+        "urlsession": r"\bURLSession\(\s*(?:configuration|\))",
         "urlsession-shared": r"\bURLSession\.shared\b",
         # A defaulted parameter or stored property: `session: URLSession = .shared` is the shared session too.
         "urlsession-default": r"\bURLSession\s*=\s*\.shared\b",
@@ -181,6 +182,9 @@ class Matcher(unittest.TestCase):
               'func f(session: sending URLSession = .shared) {}\nlet c = Client(session: .shared)\n')
         self.assertEqual(sites_in(sw, "Packages/macOS/CmuxNext/Sources/X/A.swift"),
                          {"urlsession-default": 3, "urlsession-shared-arg": 1})
+        # The initializer split over lines.
+        sw = 'session = URLSession(\n    configuration: c,\n    delegate: d,\n    delegateQueue: nil\n)\n'
+        self.assertEqual(sites_in(sw, "Packages/macOS/CmuxNext/Sources/X/A.swift"), {"urlsession": 1})
 
     def test_comments_and_test_modules_are_skipped(self):
         self.assertEqual(sites_in("// reqwest::Client::new()\n#[cfg(test)]\nmod tests {\n fn t() { "
