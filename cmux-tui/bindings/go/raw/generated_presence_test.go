@@ -10283,6 +10283,32 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 		}
 		assertGeneratedFieldJSON(t, presentValue, "resume_generation", true, "\"value\"")
 	})
+	t.Run("AttachSurfaceRequest.ResumeMaxBytes", func(t *testing.T) {
+		var missing AttachSurfaceRequest
+		if err := json.Unmarshal([]byte("{}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if !missing.ResumeMaxBytes.IsAbsent() {
+			t.Fatal("ResumeMaxBytes did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "resume_max_bytes", false, "")
+		var nullValue AttachSurfaceRequest
+		if err := json.Unmarshal([]byte("{\"resume_max_bytes\":null}"), &nullValue); err != nil {
+			t.Fatal(err)
+		}
+		if !nullValue.ResumeMaxBytes.IsNull() {
+			t.Fatal("ResumeMaxBytes did not preserve null")
+		}
+		assertGeneratedFieldJSON(t, nullValue, "resume_max_bytes", true, "null")
+		var presentValue AttachSurfaceRequest
+		if err := json.Unmarshal([]byte("{\"resume_max_bytes\":1}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := presentValue.ResumeMaxBytes.Get(); !ok {
+			t.Fatal("ResumeMaxBytes did not preserve a value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "resume_max_bytes", true, "1")
+	})
 	t.Run("AttachSurfaceRequest.ResumeOffset", func(t *testing.T) {
 		var missing AttachSurfaceRequest
 		if err := json.Unmarshal([]byte("{}"), &missing); err != nil {
@@ -67383,8 +67409,8 @@ func TestGeneratedConstrainedFieldsRejectUnknownValuesOnMarshal(t *testing.T) {
 }
 
 const (
-	generatedFieldShapeCount               = 1887
-	generatedOptionalNullableFieldCount    = 1322
+	generatedFieldShapeCount               = 1888
+	generatedOptionalNullableFieldCount    = 1323
 	generatedRequiredNullableFieldCount    = 174
 	generatedOptionalNonnullableFieldCount = 391
 	generatedRequiredFieldCount            = 1617
