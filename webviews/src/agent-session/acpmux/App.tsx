@@ -227,7 +227,14 @@ import { askOnSingleCard, cardTakesShortcuts, heldOnCard } from "./permissionKey
 import { agentName } from "./agents";
 import { translate, usePaneLanguage, useT } from "./i18n";
 import { chatCloudMachine, createStopWaiter } from "./cloudMachineMenu";
-import { refreshCloudMachines, useCloudMachines, useCloudSignedIn, type CloudMachine } from "./cloudMachines";
+import { autoCloudOn } from "./autoCloud";
+import {
+  refreshCloudMachines,
+  useCloudMachines,
+  useCloudPlan,
+  useCloudSignedIn,
+  type CloudMachine,
+} from "./cloudMachines";
 import {
   AUTO_LOOK,
   autoTargets,
@@ -296,6 +303,7 @@ import { OpenBackgroundTasks, requestBackgroundFocus, useBackgroundFocus } from 
 import { backgroundGroups, type TaskCache } from "./backgroundTasks/backgroundTasks";
 import { useListedSubagents } from "./backgroundTasks/useListedSubagents";
 import { settleTrayExit } from "./subagents/trayMotionModel";
+import { useStopPresence } from "./composer/turnPresence";
 import { configureWorkflowCardOpen, configureWorkflowCardSideTab } from "./summary/workflowCardModel";
 import {
   type DoneLineCache,
@@ -491,6 +499,7 @@ import { retryWithSetUpPick, type CloudSetupAction, type CloudSetupNeed } from "
 import { ClaudeConnectContext, setupConnect } from "./claudeConnect";
 import { type QuickActionMode } from "./header/quickActions";
 import {
+  useAutoCloudKey,
   useChangesPillOn,
   useChatDisplay,
   useChatMinimap,
@@ -1111,12 +1120,22 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // `chat.select` switches chats with no new handshake (cloudTurnCheckpoints.ts `ChatMarks`).
   const [cloudTurnRewind, publishCloudTurnRewind] = useState<ChatMarks>();
   const cloudTurnRewindRef = useRef<ChatMarks | undefined>(undefined);
+  // The marks last handed to `publishCloudTurnRewind`. Each snapshot publishes the held marks (a
+  // hidden page holds them back); handed the same marks again, React still queues the update, and
+  // the pane's next render then draws the whole pane a second time to settle it: once per streamed
+  // record, a token or a tool call's start or end.
+  const publishedCloudTurnRewind = useRef<ChatMarks | undefined>(undefined);
+  const publishHeldCloudTurnRewind = (marks: ChatMarks | undefined) => {
+    if (document.visibilityState === "hidden" || marks === publishedCloudTurnRewind.current) return;
+    publishedCloudTurnRewind.current = marks;
+    publishCloudTurnRewind(marks);
+  };
   const setCloudTurnRewind = (
     update: ChatMarks | undefined | ((marks: ChatMarks | undefined) => ChatMarks | undefined),
   ) => {
     const next = typeof update === "function" ? update(cloudTurnRewindRef.current) : update;
     cloudTurnRewindRef.current = next;
-    if (document.visibilityState !== "hidden") publishCloudTurnRewind(next);
+    publishHeldCloudTurnRewind(next);
   };
   // A handshake that named no chat: its list joins the first chat a snapshot shows.
   const cloudTurnRewindUnbound = useRef(false);
@@ -1130,7 +1149,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     (answer, session) => setCloudTurnRewind((marks) => chatWithCheckpoint(marks, answer, session)),
   );
   const observeCloudTurn = (next: AcpmuxSnapshot) => {
-    if (document.visibilityState !== "hidden") publishCloudTurnRewind(cloudTurnRewindRef.current);
+    publishHeldCloudTurnRewind(cloudTurnRewindRef.current);
     cloudCheckpoints.current?.observe(next);
     const session = next.sessionId;
     if (!cloudTurnRewindUnbound.current || !session) return;
@@ -2221,6 +2240,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const doneLines = useRef<DoneLineCache>(new Map());
   const childDoneLines = useRef<DoneLineCache>(new Map());
   const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
+  // The turn as the composer hat reads it: the composer's Stop hysteresis (composer/turnPresence.ts),
+  // so a turn that ends and the next that starts a few hundred ms later (a queued prompt, a steer, a
+  // subagent's notice) never moves the plan out of the hat and back, nor drops and redraws its
+  // running lines. Leo, 2026-11-24: "composer hat seems to be getting a lot of flickers recently. it
+  // needs to stay tight like the composer".
+  const hatWorking = useStopPresence(snapshot.isWorking, shownSessionId).shown;
   // The open folds as the shown chat's transcript view draws them: Normal is `expanded` itself;
   // Thinking and Verbose also open each finished turn's "Worked for" (conversation/viewFolds.ts).
   // One object per view, set or toggle change, so the turns are not reshaped per event.
@@ -2666,16 +2691,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [hatPillArm] = useState(() => experimentArm(hatPillPlace));
   const hatHandle = hatSide(jumpPlaceArm, trayHandle, hatPillArm);
   // Debug Settings agent.sessionStatus draws its activity line under the pinned list, so it pins it.
-  const planInHat = !pinnedPlan && !sessionStatus && !quick && !childRows && snapshot.isWorking;
+  const planInHat = !pinnedPlan && !sessionStatus && !quick && !childRows && hatWorking;
   const hatPlanRow = useMemo(() => (planInHat ? liveTurnPlan(turnRowsShown) : undefined), [planInHat, turnRowsShown]);
   // A running turn with no list of its own yet keeps the agent's earlier list with steps left in
   // sight, marked as from before the person's last message (turns.ts earlierTurnPlan). It stays folded in its own turn too; the copy goes once the agent writes a list.
   const earlierPlanRow = useMemo(
     () =>
-      snapshot.isWorking && !quick && !childRows && !liveTurnPlan(turnRowsShown)
-        ? earlierTurnPlan(turnRowsShown)
-        : undefined,
-    [snapshot.isWorking, quick, childRows, turnRowsShown],
+      hatWorking && !quick && !childRows && !liveTurnPlan(turnRowsShown) ? earlierTurnPlan(turnRowsShown) : undefined,
+    [hatWorking, quick, childRows, turnRowsShown],
   );
   // The chat's task list across its turns (acpmux `taskList`, chatTaskList.ts): between turns the hat
   // shows it while steps are left, and a running turn without a list of its own shows it when the
@@ -2683,7 +2706,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const tasksInHat = !pinnedPlan && !sessionStatus && !quick && !childRows;
   const hatTasks = tasksInHat
     ? hatPlanOf({
-        working: snapshot.isWorking,
+        working: hatWorking,
         live: hatPlanRow?.plan,
         earlier: earlierPlanRow?.plan,
         list: snapshot.summary?.taskList,
@@ -4309,8 +4332,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   };
   const pickAutoRef = useRef(pickAuto);
   pickAutoRef.current = pickAuto;
+  /// AutoCloud (autoCloud.ts): the plan and the hidden `cloud.autoCloud` key turn Auto's row into a
+  /// chevron that opens Auto, Cloud only and Machine…. Off, Auto is the one row it was.
+  const autoCloud = autoCloudOn({ key: useAutoCloudKey(), plan: useCloudPlan() });
   const autoRow: AutoRow | undefined = autoOffered
-    ? { picked: autoPicked, onPick: (on) => pickAutoRef.current(on), look: AUTO_LOOK }
+    ? {
+        picked: autoPicked,
+        onPick: (on) => pickAutoRef.current(on),
+        look: AUTO_LOOK,
+        ...(autoCloud ? { cloud: true } : {}),
+      }
     : undefined;
   /// Where Auto put this page's chat, said on the arrival line (AutoArrival): `deciding` while the
   /// daemon has not answered. Kept for the page it was decided on.
@@ -4790,6 +4821,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The composer's Send: the one Auto decided keeps the decision only if it goes (whenSendRefused).
   /// Auto picked and not yet decided: the daemon says where first; the prompt stays until it has.
   const autoSendGate = {
+    /// Auto picked: a send may stop at `holds` (asking nothing here), so it never goes ahead of its files.
+    picked: autoPicked,
     /// true: the composer's send stops here (the prompt stays); Auto sends it once decided.
     holds: (text: string): boolean => {
       if (autoPicked && autoDecided.current !== newTabGeneration) {
@@ -5410,9 +5443,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     [workflowLabsEnabled, chatAgents],
   );
   const trayList = useMemo(
-    () => trayItems(trayAgents, runningCommandList, childSessions, snapshot.isWorking),
+    () => trayItems(trayAgents, runningCommandList, childSessions, hatWorking),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runningCommandList is new on every snapshot; its key is not
-    [trayAgents, commandsKey, childSessions, snapshot.isWorking],
+    [trayAgents, commandsKey, childSessions, hatWorking],
   );
   // What ended stays in the hat a while as done, failed or stopped, then goes (subagents/trayLinger.ts;
   // Leo, 2026-11-07: "it's probably better to let them expire after a while. But the key point: after
@@ -6008,7 +6041,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             chat={shownSessionId}
             items={trayList}
             finished={trayFinished}
-            working={snapshot.isWorking}
+            working={hatWorking}
             waiting={waitingAgents}
             onOpen={showSubagent}
             onOpenCommand={openTrayCommand}
@@ -6031,7 +6064,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             planEarlier={hatEarlier}
             planKept={hatKept}
             onTuck={trayPlacement === "tray" ? tuckTray : undefined}
-            tuckSide={hatHandle}
+            // The open hat's tuck stands where the person put the handle (middle by default), never where
+            // the tucked pill steps aside for Jump to latest: it is the hat's own control, on the hat's
+            // own axis, clear of the header's split icon and chevron (Leo, 2026-11-24).
+            tuckSide={trayHandle}
             onHold={setHatHeld}
             onSeen={setHatSeen}
           />
@@ -6765,6 +6801,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     requestAnimationFrame(() =>
       setTimeout(() => {
         if (settledNow) document.documentElement.dataset.acpmuxSettledDrawn = "true";
+        if (first && newTabNow.current === undefined) acpmuxPerf.markLaunch("rowsDrawn");
+        if (settledNow) acpmuxPerf.markLaunch("settledDrawn");
         // When the host is told the page shows the chat, beside the report itself: the flicker log's
         // first-load record counts what moved after it apart, what the reader saw (firstLoadWatch.ts
         // `seen`); what moved before it was still under the host's cover.
