@@ -47,8 +47,9 @@ pub struct Start<'a> {
     /// `service.setup`, run first in the same process, bounded.
     pub setup: Option<&'a str>,
     pub port: u16,
-    /// `PATH`, `LANG`, `TZ` and the `service.env` literals; the agent adds `HOME` and `PORT`
-    /// and nothing else.
+    /// `PATH`, `LANG`, `TZ`, the `service.env` literals, and this app's own secrets (the
+    /// platform's `process-env`, held only in memory); the agent adds `HOME` and `PORT` and
+    /// nothing else.
     pub env: &'a [(String, String)],
     /// A restart (rollback) runs the tree the version first started from; a fresh start
     /// replaces it with the staged archive.
@@ -131,4 +132,10 @@ pub trait AppsTransport {
 /// The process listening on a port, as this machine's agent reads it for the asking user.
 pub trait Listeners {
     fn holder(&self, port: u16) -> Result<Inferred, String>;
+}
+
+/// The version's first frame (RFD 0003, publish step 7): `http://127.0.0.1:port/` rendered
+/// once to a PNG, in a fresh headless browser profile with no cookies.
+pub trait Capture {
+    fn png(&self, port: u16) -> Result<Vec<u8>, String>;
 }
