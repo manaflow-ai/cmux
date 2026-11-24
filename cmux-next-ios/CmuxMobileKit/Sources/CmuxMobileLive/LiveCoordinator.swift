@@ -122,6 +122,10 @@ public final class LiveCoordinator {
     @ObservationIgnored let instants: ClockInstants
     @ObservationIgnored private var presence: PresenceListener?
     @ObservationIgnored private var isBackgrounded = false
+    /// The Mac whose link a call (a Chief call, voice mode) uses (`setCallMac`).
+    @ObservationIgnored var callMacID: String?
+    /// The hold that keeps that link out of the park, and the link it is on.
+    @ObservationIgnored var callHold: (link: ObjectIdentifier, hold: LinkAwakeHold)?
     /// When the scene last went to the background (ContinuousClock counts the suspension).
     @ObservationIgnored private var backgroundedAt: ContinuousClock.Instant?
     /// Major connectivity incidents of a cmux team account, for the team's Slack (PROTOCOL.md
@@ -714,7 +718,7 @@ public final class LiveCoordinator {
             // Macs (0.10.0), so a Mac new to the list is the caller's.
             let owner = othersMacs.contains(mac.deviceId) ? known?.ownerUserID : (known?.ownerUserID ?? userID)
             let device = MacDevice(id: mac.deviceId, name: mac.name, isOnline: mac.online, lastSeenAt: mac.lastSeenDate,
-                                   ownerUserID: owner, machineID: mac.machineId ?? known?.machineID)
+                                   ownerUserID: owner, machineID: mac.machineId ?? known?.machineID, quietMs: mac.quietMs)
             if let index = current.firstIndex(where: { $0.id == mac.deviceId }) { current[index] = device } else { current.append(device) }
             store.setMacs(current, teamID: teamID)
             let session = sessions[mac.deviceId]
@@ -764,7 +768,7 @@ public final class LiveCoordinator {
             if let owner = mac.ownerUserId, owner != userID { othersMacs.insert(mac.deviceId) } else { othersMacs.remove(mac.deviceId) }
         }
         store.setMacs(macs.map { MacDevice(id: $0.deviceId, name: $0.name, isOnline: $0.online, lastSeenAt: $0.lastSeenDate,
-                                           ownerUserID: $0.ownerUserId, machineID: $0.machineId) }, teamID: teamID)
+                                           ownerUserID: $0.ownerUserId, machineID: $0.machineId, quietMs: $0.quietMs) }, teamID: teamID)
         retarget()
         steerToInvite()
         scheduleSnapshotSave()
@@ -982,7 +986,7 @@ public final class LiveCoordinator {
         let found = macs.compactMap { mac -> DiscoveredMac? in
             guard let teamID = mac.teamId else { return nil }
             return DiscoveredMac(id: mac.deviceId, name: mac.name, isOnline: mac.online, lastSeenAt: mac.lastSeenDate, teamID: teamID,
-                                 ownerUserID: mac.ownerUserId ?? userID, machineID: mac.machineId)
+                                 ownerUserID: mac.ownerUserId ?? userID, machineID: mac.machineId, quietMs: mac.quietMs)
         }
         store.mergeDiscoveredMacs(found, personal: personal)
         if store.accountMacCount != found.count { store.accountMacCount = found.count }
@@ -1088,6 +1092,9 @@ public final class LiveCoordinator {
         presence = nil
         registeredTeamID = nil
         startedTeamID = nil
+        callMacID = nil
+        callHold?.hold.release()
+        callHold = nil
         closeAllSessions()
         let link = idleSession.link
         Task { await link.resetWarmState() }
@@ -1143,6 +1150,8 @@ public final class LiveCoordinator {
         isBackgrounded = true
         backgroundedAt = ContinuousClock.now
         incidents.appActive(false)
+        // A call's link may have been opened since the call started.
+        holdCallLink()
         for session in sessions.values { session.link.send(.background) }
         discovery.pause()
         presence?.backgrounded = true
@@ -1152,6 +1161,7 @@ public final class LiveCoordinator {
     /// seeded with it now (a sign-in made in front has no scene change to start it).
     public func followApplicationState() {
         incidents.followApplicationState()
+        LinkController.useApplicationBackgroundTasks()
     }
 
     /// Before sign-out, while the token works: open connectivity incidents end and are sent.
