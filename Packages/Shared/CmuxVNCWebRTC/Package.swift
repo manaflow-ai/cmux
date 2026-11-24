@@ -24,10 +24,8 @@ let package = Package(
         .executable(name: "cmux-vnc-host", targets: ["cmux-vnc-host"]),
     ],
     dependencies: [
-        .package(path: "../CmuxVNC"),
-    ],
-    dependencies: [
         .package(path: "../CmuxEgress"),
+        .package(path: "../CmuxVNC"),
     ],
     targets: [
         .binaryTarget(

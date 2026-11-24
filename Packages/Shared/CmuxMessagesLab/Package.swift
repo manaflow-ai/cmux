@@ -21,14 +21,12 @@ let package = Package(
         .library(name: "MessagesLabSidebar", targets: ["MessagesLabSidebar"]),
     ],
     dependencies: [
+        .package(path: "../CmuxEgress"),
         .package(path: "../CmuxHomeCore"),
         .package(path: "../CmuxHomeRender"),
         .package(path: "../CmuxAgentQuestion"),
         .package(path: "../CmuxAgentBrands"),
         .package(path: "../CmuxSpinner"),
-    ],
-    dependencies: [
-        .package(path: "../CmuxEgress"),
     ],
     targets: [
         .target(
