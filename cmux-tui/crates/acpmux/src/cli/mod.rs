@@ -12,6 +12,7 @@ pub mod bg;
 pub(crate) use crate::bounded_child;
 pub mod account;
 pub mod bridge;
+pub mod channel;
 pub mod chats;
 pub mod ci_wait;
 pub mod cli_agent;
