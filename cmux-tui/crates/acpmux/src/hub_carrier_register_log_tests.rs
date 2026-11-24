@@ -142,6 +142,12 @@ fn ticket_renewal_log_keeps_the_operation_and_safe_reason() {
     assert!(log.contains("Register ticket renewal failed: the hub answered 429 mesh.rate_limited"));
     assert!(log.contains("Connect ticket renewal failed: the hub: error sending request"));
     assert!(log.contains("Register ticket renewal failed: the hub answered 503"));
+    assert!(
+        log.lines().any(|l| l.ends_with("Connect ticket renewal failed: the hub answered 403"))
+    );
+    assert!(
+        log.lines().any(|l| l.ends_with("Register ticket renewal failed: ticket source failed"))
+    );
     assert!(!log.contains("secret-ticket"));
     assert!(!log.contains("Authorization"));
 }
