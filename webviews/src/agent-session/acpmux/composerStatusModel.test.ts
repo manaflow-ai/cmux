@@ -142,6 +142,19 @@ describe("items", () => {
       items: [],
       facts: [{ kind: "context", fraction: 0.5, live: false }],
     });
+    // atRest is read only as true; anything else is absent.
+    expect(
+      readComposerStatus({
+        items: [],
+        facts: [
+          { kind: "machine", text: "m", live: false, atRest: true },
+          { kind: "folder", text: "/x", live: false, atRest: "yes" },
+        ],
+      })?.facts,
+    ).toEqual([
+      { kind: "machine", text: "m", live: false, atRest: true },
+      { kind: "folder", text: "/x", live: false },
+    ]);
   });
 
   test("a peer link's status rides along with its link, absent from an older daemon", () => {

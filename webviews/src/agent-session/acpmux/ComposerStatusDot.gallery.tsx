@@ -65,6 +65,10 @@ const facts: FooterFact[] = [
   { kind: "queued", count: 12, live: true },
 ];
 
+// A chat on another machine, as acpmux marks it: its machine earns its name at rest.
+const remoteFacts: FooterFact[] = facts.map((fact) => (fact.kind === "machine" ? { ...fact, atRest: true } : fact));
+const quietRemoteFacts = remoteFacts.filter((fact) => !fact.live);
+
 const ACTIONS = new Set(["reconnect", "resumeQueue"] as const);
 
 // The composer stands at the pane's foot as in the dock, full width, so the card has the room above
@@ -97,7 +101,14 @@ function Row({ before = false, ...props }: Props) {
               onReconnect={() => undefined}
             />
           ) : (
-            <ComposerStatusDot now={NOW} arm="off" actions={ACTIONS} onAction={() => undefined} {...props} />
+            <ComposerStatusDot
+              now={NOW}
+              arm="off"
+              machineAtRest="off"
+              actions={ACTIONS}
+              onAction={() => undefined}
+              {...props}
+            />
           )}
         </div>
       </form>
@@ -157,6 +168,22 @@ const variants: Record<string, { note: string; props: Props }> = {
   "facts-strip": {
     note: "Experiment arm strip: one low-contrast line in the free middle (machine, folder, branch, context, turn) and the live counters; the cut-off path at narrow widths is why it is not the pick.",
     props: { items: [], connectedTo: MACHINE, facts, arm: "strip" },
+  },
+  "machine-at-rest-off": {
+    note: "Switch composer-machine-at-rest off (the default, as shipped): a connected remote chat at rest is the green dot alone.",
+    props: { items: [], connectedTo: MACHINE, facts: quietRemoteFacts },
+  },
+  "machine-at-rest-name": {
+    note: "Switch on: a chat on another machine keeps its machine's name beside the dot at rest (acpmux marks the fact atRest); a click on it pins the card.",
+    props: { items: [], connectedTo: MACHINE, facts: quietRemoteFacts, machineAtRest: "on" },
+  },
+  "machine-at-rest-name-counters": {
+    note: "Switch on with facts arm pulse: the name, then the live counters (subagents, queued 9+); the name is cut before it can push the model chip.",
+    props: { items: [], connectedTo: MACHINE, facts: remoteFacts, arm: "pulse", machineAtRest: "on" },
+  },
+  "machine-at-rest-offline": {
+    note: "Switch on while the link is down: the dot takes the item's ink, and the name stays where it was, so nothing moves.",
+    props: { items: [offline], facts: quietRemoteFacts, machineAtRest: "on" },
   },
 };
 

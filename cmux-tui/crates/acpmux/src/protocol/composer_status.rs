@@ -242,11 +242,26 @@ pub struct FooterFact {
     pub since: Option<u64>,
     /// Worth a counter in the footer row itself now; else the hover card lists it only.
     pub live: bool,
+    /// Worth its words in the footer at rest, with no status and no hover: the machine of a
+    /// session on another machine, where a command does something else than here (RFD 0130: "a
+    /// chat on another machine earns its machine name in view"). The pane draws it only behind
+    /// its own switch (`composer-machine-at-rest`, default off). Absent otherwise.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(default)]
+    pub at_rest: bool,
 }
 
 impl FooterFact {
     fn new(kind: FactKind) -> Self {
-        Self { kind, text: None, count: None, fraction: None, since: None, live: false }
+        Self {
+            kind,
+            text: None,
+            count: None,
+            fraction: None,
+            since: None,
+            live: false,
+            at_rest: false,
+        }
     }
 
     fn text(kind: FactKind, text: Option<&str>) -> Option<Self> {
@@ -485,7 +500,11 @@ pub fn composer_status(facts: &SessionFacts<'_>) -> ComposerStatus {
     items.sort_by_key(|item| (std::cmp::Reverse(item.level), item.since.unwrap_or(u64::MAX)));
 
     let mut out = Vec::with_capacity(FactKind::ALL.len());
-    out.extend(FooterFact::text(FactKind::Machine, facts.peer));
+    // A peer's machine is the one fact that earns its name at rest.
+    out.extend(
+        FooterFact::text(FactKind::Machine, facts.peer)
+            .map(|fact| FooterFact { at_rest: true, ..fact }),
+    );
     out.extend(FooterFact::text(FactKind::Folder, facts.cwd));
     out.extend(FooterFact::text(FactKind::Branch, facts.branch));
     out.extend(FooterFact::text(FactKind::Harness, facts.harness));

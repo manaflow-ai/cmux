@@ -262,3 +262,23 @@ test("the strip arm draws the static facts as a line and the live ones as counte
   expect(host.querySelector(".acpmux-composer-status-strip")).toBeNull();
   expect(host.querySelector(".acpmux-composer-status-count")).toBeNull();
 });
+
+test("the machine name at rest draws only behind its switch, only for the fact acpmux marks, and a click pins", async () => {
+  const facts = [
+    { kind: "machine" as const, text: "walk-remote", live: false, atRest: true },
+    { kind: "folder" as const, text: "/Users/leo/Projects/cmux", live: false },
+  ];
+  const name = () => host.querySelector<HTMLButtonElement>(".acpmux-composer-status-machine");
+  await dot({ facts, machineAtRest: "off", connectedTo: "walk-remote", now: 1 });
+  expect(name()).toBeNull();
+  await dot({ facts, machineAtRest: "on", connectedTo: "walk-remote", now: 1 });
+  expect(name()?.textContent).toBe("walk-remote");
+  expect(button().hasAttribute("data-shown")).toBe(true);
+  await click(name()!);
+  expect(card()?.getAttribute("data-state")).toBe("pinned");
+  // A machine fact acpmux did not mark draws nothing, and the strip arm writes the name in its line.
+  await dot({ facts: [{ kind: "machine", text: "walk-remote", live: false }], machineAtRest: "on", now: 2 });
+  expect(name()).toBeNull();
+  await dot({ facts, machineAtRest: "on", arm: "strip", now: 3 });
+  expect(name()).toBeNull();
+});
