@@ -231,6 +231,8 @@ def mac_live(args):
     """The Mac live update payload of a commit manifest (--manifest only: the darwin build is not this job's)."""
     if not args.manifest or not args.live_from or args.machine_path or args.channel or args.cargo_version:
         fail("--purpose mac-live takes --manifest and --live-from only")
+    if args.tree_key and not re.fullmatch(r"[0-9a-f]{40}", args.tree_key):
+        fail(f"bad tree key {args.tree_key!r}")
     binaries = expected_sha256(args)
     commits, daemon = live_from(args)
     os.makedirs(args.download_dir, exist_ok=True)
@@ -254,6 +256,11 @@ def mac_live(args):
     value = {"schema": SCHEMA, "purpose": MAC_LIVE_PURPOSE, "channel": MAC_LIVE_CHANNEL, "commit": args.commit,
              "committed_at": int(args.committed_at), "published_at": now, "expires_at": now + LIFETIME,
              "live_from": commits, "targets": {MAC_LIVE_TARGET: files}} | ({"daemon_from": daemon} if daemon else {})
+    # The commit's cmux-tui tree: a Team-signed app (a NIGHTLY) takes its daemon from the tree's Team-signed
+    # set (cmux-tui/tree/<key>/team-signed/, cmux-tui-team-signed.yml), each file bound to the unsigned
+    # sha256 named here; the ad-hoc bytes above would leave its Cloud unverified (cmuxterm-hq#11364).
+    if args.tree_key:
+        value["tree_key"] = args.tree_key
     if args.screen_sharing_helper:
         value[MAC_LIVE_HELPER_KEY] = screen_sharing_helper(args)
     return value

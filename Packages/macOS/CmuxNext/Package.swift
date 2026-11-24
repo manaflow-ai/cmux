@@ -65,6 +65,8 @@ import PackageDescription
 //   CmuxNextHistoryDaemon -> Daemon, History, Wakeups (the daemon history module's client, `history-v1`)
 //   CmuxNextStash -> Compat, Daemon, DaemonService (Stash on this Mac's daemon: Save and Close, the
 //     Stashed Tabs page's restore and delete; the App answers StashHost)
+//   CmuxNextAppInstallLink -> Compat, Daemon, Design (cmux.com's Open in cmux link: forwards it to the bundled
+//     `cmux apps install-link`, shows its consent card and runs Install only on the person's yes)
 //   CmuxNextHistoryPages -> BrowserAutomation, DaemonService, Design, Pages, Settings, Stash, Wakeups (the React
 //     History and Stashed Tabs pages' native ops: Cookie Backups, stash restore and delete with Undo)
 //   CmuxNextAppHealth -> Compat, Control, Daemon, DaemonService, Design, Pages, Server, Settings, Wakeups (app health's
@@ -191,7 +193,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: 11d6a529b5dfdad3f8cbfed63cbd7d775a483287c63ad61181c1339b18a09868
+// app-ffi-pin-checksum: 6518d5e546f66e0b7aae72f02dab0cd6a0c671416bc7be404d436a693c20af7f
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -353,6 +355,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextAgentUpdates",
                 "CmuxNextAppCore",
                 "CmuxNextAppHealth",
+                "CmuxNextAppInstallLink",
                 "CmuxNextAppTry",
                 "CmuxNextApps",
                 "CmuxNextBookmarks",
@@ -618,6 +621,20 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDaemon",
                 "CmuxNextDaemonService",
                 "CmuxNextHistory",
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // cmux.com's Open in cmux link (cmux://apps/install?repo=…&commit=…): the CLI checks and installs;
+        // this shows the consent card and runs Install only on the person's yes.
+        .target(
+            name: "CmuxNextAppInstallLink",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextCompat",
+                "CmuxNextDaemon",
+                "CmuxNextDesign",
+            ],
+            resources: [
+                .process("Resources"),
             ],
             swiftSettings: uiSwiftSettings
         ),
