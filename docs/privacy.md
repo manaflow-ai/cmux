@@ -107,6 +107,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `home.atlassian.com` | connects | the Jira integration, only when an agent uses it in your signed-in browser |
 | `*.atlassian.net` | connects | the Jira integration: your company's Jira site, only when an agent uses it in your signed-in browser |
 | `api.bing.com` | connects | search suggestions as you type, when Bing is your search engine |
+| `auth.openai.com` | connects | OpenAI sign-in: the sign-in page opens when you sign Codex in, then the app sends the sign-in code or refresh token there and gets your ChatGPT tokens back |
 | `chatgpt.com` | connects | OpenAI's Codex backend, when you use Codex with a ChatGPT sign-in; install script |
 | `api.cloudflare.com` | connects | the Cloudflare API, only when you run `cmux keys connect cloudflare` or `cmux keys mint` |
 | `cdnjs.cloudflare.com` | connects | scripts and styles an agent's rendered page may load |
@@ -253,7 +254,6 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `nytimes.com` | opens | a site the address bar suggests before it is in your history |
 | `ollama.com` | opens | a provider's download page, opened from Settings |
 | `openai.com` | opens | a site the address bar suggests before it is in your history |
-| `auth.openai.com` | opens | OpenAI sign-in, opened when you sign Codex in |
 | `developers.openai.com` | opens | setup docs for an agent, opened from onboarding |
 | `platform.openai.com` | opens | a page to get an API key, opened from Settings |
 | `www.qwant.com` | opens | a search engine, when you search with it |

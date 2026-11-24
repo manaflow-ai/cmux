@@ -190,12 +190,26 @@ fn label_matches(pattern: &str, label: &str) -> bool {
     glob(pattern.as_bytes(), label.as_bytes())
 }
 
+/// A host that never reaches a third party by name: an IP literal, a dotless name (resolved by
+/// the person's own search domains), a reserved suffix, or a private-network suffix (tailnet,
+/// `.internal`, `.lan`).
 fn is_local(host: &str) -> bool {
     host.parse::<IpAddr>().is_ok()
         || host == "localhost"
-        || [".localhost", ".test", ".example", ".invalid", ".local", ".home.arpa"]
-            .iter()
-            .any(|suffix| host.ends_with(suffix))
+        || (!host.is_empty() && !host.contains('.'))
+        || [
+            ".localhost",
+            ".test",
+            ".example",
+            ".invalid",
+            ".local",
+            ".home.arpa",
+            ".ts.net",
+            ".internal",
+            ".lan",
+        ]
+        .iter()
+        .any(|suffix| host.ends_with(suffix))
         || host == "example.com"
         || host.ends_with(".example.com")
 }
@@ -443,6 +457,7 @@ mod tests {
         assert_eq!(verdict("a.b.atlassian.net"), Verdict::Unlisted);
         assert_eq!(verdict("cmux-api-preview-42.debussy.workers.dev"), Verdict::Listed);
         assert_eq!(verdict("other-42.debussy.workers.dev"), Verdict::Unlisted);
+        assert_eq!(verdict("ts.net.evil-gate-test.org"), Verdict::Unlisted);
     }
 
     #[test]
@@ -454,6 +469,11 @@ mod tests {
             "app.localhost",
             "x.test",
             "example.com",
+            "mac-mini",
+            "http://devbox:3000/",
+            "mac.tail1234.ts.net",
+            "git.corp.internal",
+            "nas.lan",
         ] {
             assert_eq!(verdict(host), Verdict::Local, "{host}");
         }
