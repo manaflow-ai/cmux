@@ -18,6 +18,9 @@ use crate::mesh::{HubError, Kind, MeshHub, Mode, OutMessage, Receipt, Sender, Ta
 use crate::prompt_class::PromptClass;
 use std::time::Duration;
 
+/// How long a cached peer spool route may take to accept one delivery.
+const DIRECT_WAIT: Duration = Duration::from_secs(30);
+
 /// The prefix of a delivery id the hub holds.
 pub(super) const PREFIX: &str = "mesh:";
 
@@ -81,7 +84,7 @@ fn down_peer_recipient(hub: &Hub, target: &str) -> Option<Target> {
     // A target that only the team hub knows is still sent from the local durable spool. The
     // worker reaches this fallback after its direct attempt, so a hub outage cannot lose the
     // record or make the caller's send depend on discovery latency.
-    if hub.mesh_may_route(target) {
+    if hub.mesh.get().is_some() && hub.mesh_may_route(target) {
         return Some(recipient_in(hub, target));
     }
     hub.peer_down_for(target)?;
@@ -147,6 +150,103 @@ pub(super) async fn relay(
     });
     note(hub, &posted);
     Some(posted.map(|receipt| relay_row(hub, delivery, &message, &receipt)))
+}
+
+/// Deliver a mesh-only send to the cached machine address before asking the hub to relay it.
+///
+/// Discovery populates `MeshBook` and the carrier keeps the last daemon address in that book.
+/// The address remains usable while a later hub read is failing, so a 503 delays discovery but
+/// does not delay a delivery whose peer is already cached. The far daemon's own `send_queue`
+/// writes its durable outbox before it answers, giving this hop the same at-least-once boundary as
+/// a local enqueue. A missing cache or carrier returns `None`, allowing the caller to use the hub
+/// relay fallback.
+#[cfg(feature = "hub-carrier")]
+pub(super) async fn direct(
+    hub: &Arc<Hub>,
+    delivery: &crate::hub::outbox::Delivery,
+) -> Option<Result<Value, String>> {
+    let target = delivery.target.as_str();
+    let session = hub.mesh_book_resolve(target)?;
+    let host = hub.mesh_book_host(&session)?;
+    let daemon = hub
+        .mesh_book_machines()
+        .into_iter()
+        .find(|(_, listed)| listed == &host || listed.eq_ignore_ascii_case(&host))
+        .map(|(daemon, _)| daemon)?;
+    let carrier = hub.hub_carrier.get()?;
+    let mut stream = match carrier
+        .dial_service(&daemon, crate::hub_carrier::CircuitService::CmuxTuiSession)
+        .await
+    {
+        Ok(stream) => stream,
+        Err(error) => return Some(Err(format!("cached peer {host} unavailable: {error}"))),
+    };
+    let mut request = delivery.request.clone();
+    request["sessionId"] = Value::String(session.clone());
+    if let Some(caller) = delivery.caller.as_deref() {
+        let sender = json!({
+            "name": hub.session_name(caller),
+            "sessionId": caller,
+            "host": crate::pairing::mesh_host(),
+        });
+        crate::hub::merge_mux_meta(&mut request, json!({"messageSender": sender}));
+    }
+    let (read, mut write) = tokio::io::split(&mut stream);
+    let mut read = tokio::io::BufReader::new(read);
+    let initialize = Message::request(
+        1,
+        method::INITIALIZE,
+        json!({"protocolVersion": 1, "clientCapabilities": {},
+               "clientInfo": {"name": "acpmux-direct-outbox", "version": crate::hub::VERSION}}),
+    );
+    let queued = Message::request(2, method::MUX_SEND_QUEUE, json!({"request": request}));
+    if let Err(error) = write.write_all(initialize.to_line().as_bytes()).await {
+        return Some(Err(format!("cached peer {host} write failed: {error}")));
+    }
+    if let Err(error) = write.write_all(queued.to_line().as_bytes()).await {
+        return Some(Err(format!("cached peer {host} write failed: {error}")));
+    }
+    let reply = tokio::time::timeout(DIRECT_WAIT, async {
+        loop {
+            let mut line = String::new();
+            if read.read_line(&mut line).await.ok()? == 0 {
+                return None;
+            }
+            let message = Message::parse(&line).ok()?;
+            if let Message::Response { id, result, error } = message {
+                if id == json!(2) {
+                    return Some(match error {
+                        Some(error) => Err(error.to_string()),
+                        None => Ok(result.unwrap_or(Value::Null)),
+                    });
+                }
+            }
+        }
+    })
+    .await;
+    match reply {
+        Ok(Some(Ok(mut status))) => {
+            let remote_delivery = status.get("deliveryId").cloned().unwrap_or(Value::Null);
+            status["via"] = json!("mesh-direct");
+            status["remoteDeliveryId"] = remote_delivery;
+            status["deliveryId"] = json!(delivery.id);
+            Some(Ok(status))
+        }
+        Ok(Some(Err(error))) => Some(Err(format!("cached peer {host} refused delivery: {error}"))),
+        Ok(None) => Some(Err(format!("cached peer {host} closed before accepting delivery"))),
+        Err(_) => Some(Err(format!(
+            "cached peer {host} did not accept within {}s",
+            DIRECT_WAIT.as_secs()
+        ))),
+    }
+}
+
+#[cfg(not(feature = "hub-carrier"))]
+pub(super) async fn direct(
+    _hub: &Arc<Hub>,
+    _delivery: &crate::hub::outbox::Delivery,
+) -> Option<Result<Value, String>> {
+    None
 }
 
 /// The code of a relay attempt the hub's gate kept from asking (`mesh_gate.rs`).

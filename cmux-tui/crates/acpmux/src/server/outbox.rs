@@ -144,7 +144,7 @@ pub(super) async fn handle(
         && hub.resolve_remote(&target).is_none()
         && hub.peer_down_for(&target).is_none()
         && hub.no_session_is_final(&target)
-        && !hub.mesh_may_route(&target)
+        && !(hub.mesh.get().is_some() && hub.mesh_may_route(&target))
     {
         // The machine is reachable and has no such session: refused now, never queued, with the
         // closest names there so the sender can pick one (`hub/no_session.rs`). A mesh-routable
@@ -733,6 +733,28 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
             crate::hub::open_delivery::name_generation(&mut request, pin.as_ref());
             let caller = Caller::of(&delivery);
             let mut outcome = attempt_once(hub, caller, request, Origin::Local).await;
+            if matches!(outcome, Err((_, Next::NoSession)))
+                && hub.mesh.get().is_some()
+                && hub.mesh_may_route(&delivery.target)
+            {
+                if let Some(direct) = super::mesh_send::direct(hub, &delivery).await {
+                    outcome = match direct {
+                        Ok(accepted) => Ok(accepted),
+                        Err(error) => Err((error, Next::Unsent)),
+                    };
+                }
+            }
+            // A mesh-only target has no local peer row to forward through. Keep the same
+            // at-least-once worker path as a down peer, then let `relay_attempt` ask the hub only
+            // after this delivery's durable record exists. A hub 503 therefore leaves the local
+            // spool queued for retry instead of failing the send before it was saved.
+            if matches!(outcome, Err((_, Next::NoSession)))
+                && hub.mesh.get().is_some()
+                && hub.mesh_may_route(&delivery.target)
+            {
+                outcome =
+                    Err(("the target is discovered through the mesh hub".into(), Next::Unsent));
+            }
             link_unsent = matches!(outcome, Err((_, Next::Unsent)));
             // The link is still down on a later attempt: an ssh peer's machine is tried over a
             // plain ssh login (`ssh_carry.rs`). Taken there, it is delivered and never sent
