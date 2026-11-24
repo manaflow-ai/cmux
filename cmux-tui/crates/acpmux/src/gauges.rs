@@ -337,6 +337,8 @@ impl Links {
             "hubPlainDials": n(&self.hub_plain_dials),
             "hubKeptDials": n(&self.hub_kept_dials),
             "keptStreamOpens": n(&self.kept_stream_opens),
+            "dialGateInFlight": crate::peer_dial_gate::global().in_flight(),
+            "dialGateWaited": crate::peer_dial_gate::global().waited(),
         })
     }
 }

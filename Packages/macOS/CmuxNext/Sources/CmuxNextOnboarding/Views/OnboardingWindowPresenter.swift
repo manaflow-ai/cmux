@@ -32,10 +32,13 @@ public final class OnboardingWindowPresenter {
 
     /// Opens the window for `step`, or brings the open one forward when it
     /// shows `step`. `prepare` sets up the window's model before it shows
-    /// (`reused`: the open window's).
-    public func show(step: OnboardingModel.Step, prepare: ((_ model: OnboardingModel, _ reused: Bool) -> Void)? = nil) {
+    /// (`reused`: the open window's). `quietly`: the run is not the person's own, so the window
+    /// comes forward without the keys (``OnboardingWindowController/presentsQuietly``).
+    public func show(step: OnboardingModel.Step, quietly: Bool = false,
+                     prepare: ((_ model: OnboardingModel, _ reused: Bool) -> Void)? = nil) {
         if let controller, controller.model.step == step {
             prepare?(controller.model, true)
+            controller.presentsQuietly = quietly
             return presentWindow(controller)
         }
         if let old = controller {
@@ -46,6 +49,7 @@ public final class OnboardingWindowPresenter {
         guard let model = makeModel?(step) else { return }
         prepare?(model, false)
         let controller = OnboardingWindowController(model: model, activeLook: activeLook)
+        controller.presentsQuietly = quietly
         controller.onClose = { [weak self, weak controller] in self?.windowDidClose(controller) }
         self.controller = controller
         presentWindow(controller)
