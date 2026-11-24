@@ -191,8 +191,9 @@ export function stepPlace(layout: Layout, from: Place, direction: "left" | "righ
   if (direction === "right") return from.index < line.length - 1 ? { line: from.line, index: from.index + 1 } : null;
   const next = from.line + (direction === "up" ? -1 : 1);
   if (next < 0) return null;
-  // The last line's only chip has nowhere new to go: moving it down would leave its line empty.
-  if (next === layout.lines.length && line.length === 1) return null;
+  // A later last line's only chip has nowhere new to go: moving it down would leave its line empty.
+  // Line one keeps the name, so its last chip can start line two.
+  if (from.line > 0 && next === layout.lines.length && line.length === 1) return null;
   if (next > layout.lines.length || next >= MAX_LINES) return null;
   if (next < layout.lines.length && lineFull(layout, next)) return null;
   return { line: next, index: layout.lines[next]?.length ?? 0 };
@@ -254,21 +255,24 @@ export function readMap(value: unknown): Array<[string, Layout]> {
   });
 }
 
-/** The map with `id` set to `layout` (null removes it); written in the order the editor lists. */
-export function writeMap(
-  entries: Array<[string, Layout]>,
-  id: string,
-  layout: Layout | null,
-): Record<string, Token[][]> {
-  const out: Record<string, Token[][]> = {};
+/**
+ * The stored map with `id` set to `layout` (null removes it). Every other entry is kept exactly as
+ * stored, so editing one kind or agent never rewrites another's layout. Keys are set as own
+ * properties, so an agent id such as `__proto__` stays an entry.
+ */
+export function writeMap(stored: unknown, id: string, layout: Layout | null): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  const put = (key: string, entry: unknown) =>
+    Object.defineProperty(out, key, { value: entry, enumerable: true, writable: true, configurable: true });
+  const entries = typeof stored === "object" && stored !== null && !Array.isArray(stored) ? Object.entries(stored) : [];
   let placed = false;
   for (const [key, entry] of entries) {
     if (key === id) {
       placed = true;
-      if (layout) out[key] = writeLayout(layout);
-    } else out[key] = writeLayout(entry);
+      if (layout) put(key, writeLayout(layout));
+    } else put(key, entry);
   }
-  if (!placed && layout) out[id] = writeLayout(layout);
+  if (!placed && layout) put(id, writeLayout(layout));
   return out;
 }
 

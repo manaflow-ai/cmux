@@ -3288,7 +3288,7 @@ button.menu-disclosure {
 
 .row-layout-preview-name {
   overflow: hidden;
-  font-weight: 500;
+  font-weight: var(--font-weight-emphasis);
   color: var(--text);
   text-overflow: ellipsis;
 }
@@ -3343,7 +3343,7 @@ button.menu-disclosure {
 .row-layout-line-label {
   overflow: hidden;
   font-size: var(--text-caption);
-  font-weight: 500;
+  font-weight: var(--font-weight-emphasis);
   color: var(--muted-text);
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -3560,7 +3560,7 @@ button.menu-disclosure {
 .row-layout-entry-title {
   margin: 0 auto 0 0;
   font-size: var(--text-body);
-  font-weight: 500;
+  font-weight: var(--font-weight-emphasis);
 }
 
 .row-layout-entry-head:has(.row-layout-entry-note) .row-layout-entry-title {

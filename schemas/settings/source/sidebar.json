@@ -2488,6 +2488,7 @@
             "customize",
             "tokens"
           ],
+          "palette_hidden": "the Sidebar page's row layout editor edits it (CMUX-383): the palette has no nested-JSON value page",
           "swift_owner": {
             "type": "WorkspaceRowSetting",
             "prefixed": true
@@ -2561,6 +2562,7 @@
             "agent",
             "browser"
           ],
+          "palette_hidden": "the Sidebar page's row layout editor edits it (CMUX-383): the palette has no nested-JSON value page",
           "swift_owner": {
             "type": "WorkspaceRowSetting",
             "prefixed": true
@@ -2631,6 +2633,7 @@
             "claude",
             "codex"
           ],
+          "palette_hidden": "the Sidebar page's row layout editor edits it (CMUX-383): the palette has no nested-JSON value page",
           "swift_owner": {
             "type": "WorkspaceRowSetting",
             "prefixed": true

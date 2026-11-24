@@ -553,7 +553,10 @@
               "sidebar.workspaceRow.working",
               "sidebar.workspaceRow.log",
               "sidebar.workspaceRow.notification",
-              "sidebar.workspaceRow.secondLineOrder"
+              "sidebar.workspaceRow.secondLineOrder",
+              "sidebar.workspaceRow.lines",
+              "sidebar.workspaceRow.linesByKind",
+              "sidebar.workspaceRow.linesByAgent"
             ],
             "title" : {
               "key" : "settings.group.workspaceRows",
@@ -82873,13 +82876,13 @@
           "app_operations" : [
 
           ],
-          "editor" : "options",
-          "offered" : true,
+          "editor" : null,
+          "offered" : false,
           "operations" : [
 
           ],
-          "reason" : null,
-          "row" : "setting:sidebar.workspaceRow.lines"
+          "reason" : "the Sidebar page's row layout editor edits it (CMUX-383): the palette has no nested-JSON value page",
+          "row" : null
         },
         "socket" : {
           "aliases" : [
@@ -83082,13 +83085,13 @@
           "app_operations" : [
 
           ],
-          "editor" : "options",
-          "offered" : true,
+          "editor" : null,
+          "offered" : false,
           "operations" : [
 
           ],
-          "reason" : null,
-          "row" : "setting:sidebar.workspaceRow.linesByKind"
+          "reason" : "the Sidebar page's row layout editor edits it (CMUX-383): the palette has no nested-JSON value page",
+          "row" : null
         },
         "socket" : {
           "aliases" : [
@@ -83284,13 +83287,13 @@
           "app_operations" : [
 
           ],
-          "editor" : "options",
-          "offered" : true,
+          "editor" : null,
+          "offered" : false,
           "operations" : [
 
           ],
-          "reason" : null,
-          "row" : "setting:sidebar.workspaceRow.linesByAgent"
+          "reason" : "the Sidebar page's row layout editor edits it (CMUX-383): the palette has no nested-JSON value page",
+          "row" : null
         },
         "socket" : {
           "aliases" : [

@@ -8,10 +8,12 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { Button } from "../../../ui/Button";
+import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { focusRoute } from "../../../ui/focusRoute";
 import { Input } from "../../../ui/Input";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../../ui/Tabs";
+import { useRowMenu } from "../components/SettingRow";
 import { useRowState, useStore, type RowState } from "../context";
 import { Icon } from "../icons";
 import {
@@ -61,6 +63,9 @@ const DRAG_THRESHOLD = 4;
 
 type Tab = "all" | "kind" | "agent";
 const TAB_OF: Record<LayoutKey, Tab> = { [LINES_KEY]: "all", [BY_KIND_KEY]: "kind", [BY_AGENT_KEY]: "agent" };
+const KEY_OF: Record<Tab, LayoutKey> = { all: LINES_KEY, kind: BY_KIND_KEY, agent: BY_AGENT_KEY };
+/** Text fields keep WebKit's Cut, Copy and Paste on right-click (as SettingRow's control menu). */
+const TEXT_FIELDS = 'input:not([type="checkbox"]):not([type="radio"]), textarea';
 
 /** A refused write of one key: what the daemon said was wrong, and the value it refused. */
 type Refusal = { problems: Problem[]; written: unknown };
@@ -113,6 +118,12 @@ export function RowLayoutEditor({ row, disabled, labelId }: EditorProps) {
     [BY_AGENT_KEY]: useRowState(BY_AGENT_KEY),
   } as Record<LayoutKey, RowState>;
   const [tab, setTab] = useState<Tab>(TAB_OF[row.key as LayoutKey] ?? "all");
+  const menus = {
+    [LINES_KEY]: useRowMenu(LINES_KEY),
+    [BY_KIND_KEY]: useRowMenu(BY_KIND_KEY),
+    [BY_AGENT_KEY]: useRowMenu(BY_AGENT_KEY),
+  } as Record<LayoutKey, ContextMenuItem[]>;
+  const menu = (key: LayoutKey) => menus[key];
   const [refused, setRefused] = useState<Partial<Record<LayoutKey, Refusal>>>({});
   const off = (key: LayoutKey) => (key === row.key ? disabled : !usable(states[key]));
   const write = async (key: LayoutKey, value: unknown) => {
@@ -132,47 +143,52 @@ export function RowLayoutEditor({ row, disabled, labelId }: EditorProps) {
     refusal: refused[key],
     error: key === row.key ? undefined : states[key].error?.message,
   });
+  // Reset to Default (the right-click menu and the reset command) resets the tab shown, not the
+  // row's own key: under By Agent it must never reset All Rows.
+  const shownKey = KEY_OF[tab];
   return (
-    <div className="row-layout" data-row-layout-editor="" aria-labelledby={labelId}>
-      <Tabs variant="segmented" value={tab} onValueChange={(value) => setTab(value as Tab)}>
-        <TabsList className="row-layout-tabs" aria-label={t("settingsPage.rowLayout.tabs")}>
-          <TabsTrigger value="all" data-customized={states[LINES_KEY].customized ? "" : undefined}>
-            {t("settingsPage.rowLayout.tab.all")}
-          </TabsTrigger>
-          <TabsTrigger value="kind" data-customized={states[BY_KIND_KEY].customized ? "" : undefined}>
-            {t("settingsPage.rowLayout.tab.kind")}
-          </TabsTrigger>
-          <TabsTrigger value="agent" data-customized={states[BY_AGENT_KEY].customized ? "" : undefined}>
-            {t("settingsPage.rowLayout.tab.agent")}
-          </TabsTrigger>
-        </TabsList>
-        <TabsContent value="all" className="row-layout-panel">
-          <AllRowsPanel
-            value={states[LINES_KEY].value}
-            {...panel(LINES_KEY)}
-            onWrite={(value) => void write(LINES_KEY, value)}
-            start={startLayout}
-          />
-        </TabsContent>
-        <TabsContent value="kind" className="row-layout-panel">
-          <KindsPanel
-            value={states[BY_KIND_KEY].value}
-            inherited={readLayout(states[LINES_KEY].value) !== null}
-            {...panel(BY_KIND_KEY)}
-            onWrite={(value) => void write(BY_KIND_KEY, value)}
-            start={startLayout}
-          />
-        </TabsContent>
-        <TabsContent value="agent" className="row-layout-panel">
-          <AgentsPanel
-            value={states[BY_AGENT_KEY].value}
-            {...panel(BY_AGENT_KEY)}
-            onWrite={(value) => void write(BY_AGENT_KEY, value)}
-            start={startLayout}
-          />
-        </TabsContent>
-      </Tabs>
-    </div>
+    <ContextMenu className="row-layout-menu" items={menu(shownKey)} ignore={TEXT_FIELDS}>
+      <div className="row-layout" data-row-layout-editor="" data-reset-key={shownKey} aria-labelledby={labelId}>
+        <Tabs variant="segmented" value={tab} onValueChange={(value) => setTab(value as Tab)}>
+          <TabsList className="row-layout-tabs" aria-label={t("settingsPage.rowLayout.tabs")}>
+            <TabsTrigger value="all" data-customized={states[LINES_KEY].customized ? "" : undefined}>
+              {t("settingsPage.rowLayout.tab.all")}
+            </TabsTrigger>
+            <TabsTrigger value="kind" data-customized={states[BY_KIND_KEY].customized ? "" : undefined}>
+              {t("settingsPage.rowLayout.tab.kind")}
+            </TabsTrigger>
+            <TabsTrigger value="agent" data-customized={states[BY_AGENT_KEY].customized ? "" : undefined}>
+              {t("settingsPage.rowLayout.tab.agent")}
+            </TabsTrigger>
+          </TabsList>
+          <TabsContent value="all" className="row-layout-panel">
+            <AllRowsPanel
+              value={states[LINES_KEY].value}
+              {...panel(LINES_KEY)}
+              onWrite={(value) => void write(LINES_KEY, value)}
+              start={startLayout}
+            />
+          </TabsContent>
+          <TabsContent value="kind" className="row-layout-panel">
+            <KindsPanel
+              value={states[BY_KIND_KEY].value}
+              inherited={readLayout(states[LINES_KEY].value) !== null}
+              {...panel(BY_KIND_KEY)}
+              onWrite={(value) => void write(BY_KIND_KEY, value)}
+              start={startLayout}
+            />
+          </TabsContent>
+          <TabsContent value="agent" className="row-layout-panel">
+            <AgentsPanel
+              value={states[BY_AGENT_KEY].value}
+              {...panel(BY_AGENT_KEY)}
+              onWrite={(value) => void write(BY_AGENT_KEY, value)}
+              start={startLayout}
+            />
+          </TabsContent>
+        </Tabs>
+      </div>
+    </ContextMenu>
   );
 }
 
@@ -244,7 +260,7 @@ function KindsPanel({
   const entries = useMemo(() => readMap(value), [value]);
   const of = new Map(entries);
   const set = (kind: Kind, layout: Layout | null) => {
-    const next = writeMap(entries, kind, layout);
+    const next = writeMap(value, kind, layout);
     // The last entry gone removes the setting, so nothing is left behind.
     onWrite(Object.keys(next).length === 0 ? null : next);
   };
@@ -322,7 +338,7 @@ function AgentsPanel({ value, disabled, refusal, error, onWrite, start }: PanelP
   const [draft, setDraft] = useState("");
   const fieldId = useId();
   const set = (id: string, layout: Layout | null) => {
-    const next = writeMap(entries, id, layout);
+    const next = writeMap(value, id, layout);
     onWrite(Object.keys(next).length === 0 ? null : next);
   };
   const id = agentId(draft);
@@ -570,7 +586,9 @@ function LayoutEditor({
     if (!origin) return null;
     if (state.newLine && y >= state.newLine.top) {
       const line = layout.lines.length;
-      if (layout.lines[state.from.line]!.length === 1 && state.from.line === line - 1) return null;
+      // A later line's only chip has nowhere new to go; line one keeps the name, so its last chip can start line two.
+      if (state.from.line > 0 && layout.lines[state.from.line]!.length === 1 && state.from.line === line - 1)
+        return null;
       return {
         line,
         index: 0,
