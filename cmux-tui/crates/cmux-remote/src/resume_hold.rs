@@ -267,7 +267,7 @@ impl<L: AsyncRead + AsyncWrite + Send + 'static> Parking<L> {
         loop {
             // Made before the check, so a take between the two still wakes it.
             let taken = self.taken.notified();
-            if !self.pipes().get(&token).is_some_and(|p| p.runs == run) {
+            if self.pipes().get(&token).is_none_or(|p| p.runs != run) {
                 return;
             }
             if tokio::time::timeout_at(deadline, taken).await.is_err() {

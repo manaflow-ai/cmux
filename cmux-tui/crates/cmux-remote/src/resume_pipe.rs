@@ -57,8 +57,10 @@ pub fn next_frame(buf: &mut BytesMut) -> Result<Option<(u8, Bytes)>, String> {
     if buf.len() < HEADER {
         return Ok(None);
     }
-    let kind = buf[0];
-    let len = u32::from_be_bytes([buf[1], buf[2], buf[3], buf[4]]) as usize;
+    let Some((&[kind, a, b, c, d], _)) = buf.split_first_chunk::<HEADER>() else {
+        return Ok(None);
+    };
+    let len = u32::from_be_bytes([a, b, c, d]) as usize;
     if len > MAX_PAYLOAD {
         return Err(format!("a resumable pipe frame claims {len} bytes"));
     }
@@ -357,7 +359,7 @@ impl<L: AsyncRead + AsyncWrite + Send> Claim<'_, L> {
                     let _ = frames.send((FIN, Bytes::new())).await;
                     return std::future::pending().await;
                 }
-                let bytes = Bytes::copy_from_slice(&buf[..n]);
+                let bytes = Bytes::copy_from_slice(buf.get(..n).unwrap_or_default());
                 pipe.state().log.push(bytes.clone());
                 // Already in the log: a transport that breaks here sends it again on the next.
                 if frames.send((DATA, bytes)).await.is_err() {
@@ -396,7 +398,7 @@ impl<L: AsyncRead + AsyncWrite + Send> Claim<'_, L> {
                                     }
                                 };
                                 pipe.state().received += n as u64;
-                                rest = &rest[n..];
+                                rest = rest.get(n..).unwrap_or_default();
                             }
                             pipe.ack_due.notify_one();
                         }
