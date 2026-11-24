@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextCompat
+import CmuxNextWakeups
 
 /// A zero-size subview of an agent pane that says when the pane may have come into sight: it
 /// moved to a window, it or an ancestor was shown or hidden, or its window's occlusion changed. The pane's
@@ -18,6 +19,9 @@ import CmuxNextCompat
         if let window {
             occlusion = MainActorObservation(NSWindow.didChangeOcclusionStateNotification, object: window) { [weak self] in
                 self?.onChange?()
+                // A Space switch can post occlusion before `isOnActiveSpace` turns true, and the pacer's
+                // sight reads it: look once more after this pass's commit so a shown chat never keeps its stream out.
+                AfterFrameCommit().run { [weak self] in self?.onChange?() }
             }
         }
         onChange?()
@@ -33,20 +37,5 @@ import CmuxNextCompat
     override func viewDidHide() {
         super.viewDidHide()
         onChange?()
-    }
-
-    /// `pane` moved to another superview (``AgentPaneView/viewDidMoveToSuperview()``): every probe in
-    /// it and in its page hears it. A move within one window (Cmd-T adopting the parked New Tab spare
-    /// into a pane, a parked painted page shown) sends no window move, and leaving the parking is
-    /// what makes such a page seen (``NSView/nobodySees(painted:)``): its held frames, pushes and
-    /// seen signal go in the turn of the move.
-    static func superviewMoved(in pane: NSView) {
-        for child in pane.subviews {
-            if let probe = child as? AgentPaneVisibilityProbe {
-                probe.onChange?()
-                continue
-            }
-            for grandchild in child.subviews { (grandchild as? AgentPaneVisibilityProbe)?.onChange?() }
-        }
     }
 }

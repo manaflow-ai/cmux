@@ -2,14 +2,16 @@ import Darwin
 public import Foundation
 import MachO
 
-/// Function names of the app executable, for symbolicating its frames in hang
+/// Function names of the app's code image, for symbolicating its frames in hang
 /// records and exception traces.
 ///
-/// The cmux NEXT Release executable links without exports
-/// (`LD_EXPORT_SYMBOLS = NO`, `-no_exported_symbols`) and the release
-/// strip removes its symbol table, so `dladdr` finds no names in it. Before
+/// The app's code is `Contents/Frameworks/CmuxNextApp.framework` behind a stub
+/// executable (Package.swift, CMUX-629; a live code build links it into the
+/// executable instead): ``codeImage`` is whichever image holds this code. The
+/// Release image exports only the stub's entry point and the release strip
+/// removes its symbol table, so `dladdr` finds no names in it. Before
 /// stripping, `scripts/write-app-symbol-map.py` writes them into
-/// `Contents/Resources/cmux-symbols.bin`: per executable slice, its `LC_UUID`
+/// `Contents/Resources/cmux-symbols.bin`: per image slice, its `LC_UUID`
 /// and the `__TEXT,__text` functions as offsets from the image's Mach-O
 /// header, ending with an unnamed entry at the end of `__TEXT,__text`.
 /// Builds that skip the release strip (DEV) have no map and keep
@@ -23,12 +25,27 @@ public struct AppSymbolMap: Sendable {
     /// Where each name starts in ``nameBytes``, one per offset.
     let nameStarts: [UInt32]
 
-    /// The map of the running executable, or nil when the bundle has none or
-    /// it holds no slice with this executable's UUID. Loaded on first use;
-    /// read it off the main thread.
+    /// The Mach-O header of the image that holds the app's code (this module's own):
+    /// `CmuxNextApp.framework`, or the executable in a build that links it statically.
+    public static var codeImage: UnsafePointer<mach_header> {
+        #dsohandle.assumingMemoryBound(to: mach_header.self)
+    }
+
+    /// The file name of ``codeImage`` as `dladdr` names its frames: `CmuxNextApp`, or the
+    /// executable's name in a static build.
+    public static let codeImageName: String? = {
+        var info = Dl_info()
+        guard dladdr(UnsafeRawPointer(codeImage), &info) != 0, let name = info.dli_fname else { return nil }
+        return (String(cString: name) as NSString).lastPathComponent
+    }()
+
+    /// The map of the running app's code image, or nil when the bundle has none
+    /// or it holds no slice with that image's UUID. Loaded on first use; read it
+    /// off the main thread.
     // Immutable data read from the bundle once, not runtime state.
     public static let main: AppSymbolMap? = {
-        guard let header = _dyld_get_image_header(0), let uuid = Self.uuid(of: header),
+        let header = codeImage
+        guard let uuid = Self.uuid(of: header),
               let url = Bundle.main.url(forResource: "cmux-symbols", withExtension: "bin"),
               // concurrency-allow: diagnostics only, read once off the main thread.
               let data = try? Data(contentsOf: url, options: .mappedIfSafe)
@@ -44,7 +61,9 @@ public struct AppSymbolMap: Sendable {
     ///   - uuid: The executable's `LC_UUID`.
     public init?(data: Data, uuid: UUID) {
         var file = Reader(bytes: [UInt8](data))
-        guard file.take(8) == Array("CMXSYM1\0".utf8), let count = file.uint32() else { return nil }
+        guard let magic = file.take(8), let count = file.uint32() else { return nil }
+        let sharesPrefixes = magic == Array("CMXSYM2\0".utf8)
+        guard sharesPrefixes || magic == Array("CMXSYM1\0".utf8) else { return nil }
         let wanted = withUnsafeBytes(of: uuid.uuid) { Array($0) }
         for _ in 0..<count {
             guard let slice = file.take(16), let size = file.uint32(),
@@ -52,7 +71,7 @@ public struct AppSymbolMap: Sendable {
             else { return nil }
             guard slice == wanted else { continue }
             guard let inflated = try? (Data(payload) as NSData).decompressed(using: .zlib),
-                  let table = Self.table(Reader(bytes: [UInt8](inflated as Data)))
+                  let table = Self.table(Reader(bytes: [UInt8](inflated as Data)), sharesPrefixes: sharesPrefixes)
             else { return nil }
             offsets = table.offsets
             nameBytes = table.nameBytes
@@ -101,8 +120,10 @@ public struct AppSymbolMap: Sendable {
         return nil
     }
 
-    /// Decodes a slice payload: u32 count, LEB128 offset deltas, NUL-joined names.
-    private static func table(_ payload: Reader) -> (offsets: [UInt], nameBytes: [UInt8], nameStarts: [UInt32])? {
+    /// Decodes a slice payload: u32 count, LEB128 offset deltas, then the names: NUL-joined
+    /// (`CMXSYM1`), or per name the length of the prefix it shares with the one before and then
+    /// each rest and a NUL (`CMXSYM2`, which stores a Rust legacy `17h<hash>E` tail as 0x01).
+    private static func table(_ payload: Reader, sharesPrefixes: Bool) -> (offsets: [UInt], nameBytes: [UInt8], nameStarts: [UInt32])? {
         var payload = payload
         guard let count = payload.uint32() else { return nil }
         var offsets: [UInt] = []
@@ -113,7 +134,8 @@ public struct AppSymbolMap: Sendable {
             offset = offset.addingReportingOverflow(delta).partialValue
             offsets.append(offset)
         }
-        let nameBytes = Array(payload.rest)
+        let nameBytes = sharesPrefixes ? Self.expand(Array(payload.rest), count: Int(truncatingIfNeeded: count)) : Array(payload.rest)
+        guard let nameBytes else { return nil }
         var nameStarts: [UInt32] = [0]
         nameStarts.reserveCapacity(offsets.count)
         for (index, byte) in nameBytes.enumerated() where byte == 0 {
@@ -122,6 +144,32 @@ public struct AppSymbolMap: Sendable {
         }
         guard nameStarts.count == offsets.count else { return nil }
         return (offsets, nameBytes, nameStarts)
+    }
+
+    /// The names of a `CMXSYM2` block as `CMXSYM1` held them: whole, joined by NUL. A hash
+    /// mark reads back as `17h0000000000000000E`, which the demangler never prints.
+    private static func expand(_ block: [UInt8], count: Int) -> [UInt8]? {
+        guard count >= 0, block.count >= count else { return nil }
+        let noHash = Array("17h0000000000000000E".utf8)
+        var rests = block.dropFirst(count).split(separator: 0, omittingEmptySubsequences: false).makeIterator()
+        var names: [UInt8] = []
+        names.reserveCapacity(block.count * 3)
+        var previous: [UInt8] = []
+        var first = true
+        for shared in block.prefix(count) {
+            guard let rest = rests.next(), previous.count >= Int(truncatingIfNeeded: shared) else { return nil }
+            previous.removeSubrange(Int(truncatingIfNeeded: shared)...)
+            previous.append(contentsOf: rest)
+            if !first { names.append(0) }
+            first = false
+            if previous.last == 1 {
+                names.append(contentsOf: previous.dropLast())
+                names.append(contentsOf: noHash)
+            } else {
+                names.append(contentsOf: previous)
+            }
+        }
+        return names
     }
 
     /// Reads little-endian fields from a byte array; a read past the end is nil.

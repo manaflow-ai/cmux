@@ -25,8 +25,6 @@ import AppKit
     /// The pane's page moved to another chat in place (``AgentPaneModel/adoptSession(_:)``): the
     /// owner of the chats' owed work hands the pane the new chat's (``AgentPaneOwedWork``).
     var onSessionChange: (@MainActor () -> Void)?
-    /// The page's seen signal (``AgentPageSeenSignal``), which reaches a hidden page.
-    let seen = AgentPageSeenSignal()
 
     /// Owes `name`'s push to `view`'s page: `send` runs once, on a later turn while `view` is seen,
     /// replacing any `name` push still owed. A `newTabOnly` push (the New Tab cards' device chats,
@@ -83,73 +81,6 @@ import AppKit
         // Set first: AppKit may call the probe back inside addSubview.
         self.probe = probe
         view.addSubview(probe)
-    }
-}
-
-/// Tells an agent page whether anybody sees it: `window.cmuxPageSeen?.(false)` makes the page treat
-/// itself as hidden (its `document.visibilityState` reads "hidden", a `visibilitychange` fires, and
-/// it pauses its acpmux session watch), `window.cmuxPageSeen?.(true)` shows it again and it catches up
-/// in one snapshot. Leo, 2026-11-18: "Why should non visible thing even affect the renderer thread
-/// anyways?" The browser's own visibility misses the pages that cost the most: the New Tab spare in
-/// the key window 100,000 pt off screen, and Chromium pages kept drawing so they adopt painted.
-///
-/// The check is the gates' own (``AgentPaneFramePacer/nobodySees(_:)``): a painted parked spare is
-/// unseen, the adopted one seen in the turn of the reparent (``AgentPaneVisibilityProbe/superviewMoved(in:)``),
-/// before the pane's paint hold ends; a hidden tab and a covered or minimized window are unseen.
-/// The call goes straight to the page, never through ``AgentPaneShownPushes``, so a hidden page gets
-/// it. Each document starts seen, so a load sends the value again only when it is unseen; otherwise
-/// only a change sends.
-@MainActor final class AgentPageSeenSignal {
-    /// Whether nobody can see the pane (tests replace it).
-    var isHidden: @MainActor (AgentPaneView) -> Bool = AgentPaneFramePacer.nobodySees
-    /// What the page holds now: a document starts seen.
-    private(set) var pageSeen = true
-    /// Calls sent (tests).
-    private(set) var calls = 0
-    private var probe: AgentPaneVisibilityProbe?
-    /// A first paint is awaited: a parked page that paints becomes unseen.
-    private var awaitsPaint = false
-
-    /// The script that tells the page.
-    static func script(seen: Bool) -> String { "window.cmuxPageSeen?.(\(seen));" }
-
-    /// `view`'s page loaded a document or took its handshake: it holds seen; tell it if it is not,
-    /// and follow every change from here.
-    func pageLoaded(_ view: AgentPaneView) {
-        pageSeen = true
-        follow(view)
-    }
-
-    /// Follows `view`: the page hears each change of whether anybody sees it.
-    func follow(_ view: AgentPaneView) {
-        if probe == nil {
-            let probe = AgentPaneVisibilityProbe(frame: .zero)
-            probe.onChange = { [weak self, weak view] in
-                guard let self, let view else { return }
-                update(view)
-            }
-            // Set first: AppKit may call the probe back inside addSubview.
-            self.probe = probe
-            view.addSubview(probe)
-        }
-        update(view)
-    }
-
-    /// Sends the page the value of now when it changed.
-    func update(_ view: AgentPaneView) {
-        if !view.model.hasPainted, !awaitsPaint {
-            awaitsPaint = true
-            view.model.whenPainted { [weak self, weak view] in
-                guard let self else { return }
-                awaitsPaint = false
-                if let view { update(view) }
-            }
-        }
-        let seen = !isHidden(view)
-        guard seen != pageSeen else { return }
-        pageSeen = seen
-        calls += 1
-        view.evaluateScript(Self.script(seen: seen))
     }
 }
 

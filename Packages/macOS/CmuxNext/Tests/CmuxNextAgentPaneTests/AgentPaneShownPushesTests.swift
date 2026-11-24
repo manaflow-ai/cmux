@@ -140,74 +140,6 @@ struct AgentPaneShownPushesTests {
         }
     }
 
-    /// A pane in a window that shows, under `parent` (made in the window when nil).
-    private static func shownWindow() -> (ShownWindow, NSView) {
-        _ = NSApplication.shared
-        let window = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless],
-                                 backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        let content = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
-        window.contentView = content
-        return (window, content)
-    }
-
-    /// The shared seen check (``AgentPaneFramePacer/nobodySees(_:)``): the painted spare parked off
-    /// screen is unseen, an unpainted one is seen (it must draw its first frame before Cmd-T adopts
-    /// it), and the adopted one is seen. Red at base: the parked spare counted as seen.
-    @Test func aPaintedParkedSpareIsUnseenAndAnUnpaintedOneIsSeen() throws {
-        let (window, content) = Self.shownWindow()
-        defer { window.close() }
-        let parking = PageOffscreenParking(frame: PageOffscreenParking.frame(in: content.bounds, size: content.bounds.size))
-        content.addSubview(parking)
-        let spare = try Self.view()
-        parking.addSubview(spare)
-        #expect(spare.isParkedOutOfSight)
-        #expect(!AgentPaneFramePacer.nobodySees(spare), "an unpainted parked spare was unseen: it would never paint before adoption")
-        spare.model.markPainted()
-        #expect(AgentPaneFramePacer.nobodySees(spare), "the painted parked spare counted as seen")
-        let probe = NSView()
-        spare.addSubview(probe)
-        #expect(AgentPaneFramePacer.nobodySees(probe), "a view in the parked spare counted as seen")
-        let pane = NSView(frame: content.bounds)
-        content.addSubview(pane)
-        pane.addSubview(spare)
-        #expect(!spare.isParkedOutOfSight)
-        #expect(!AgentPaneFramePacer.nobodySees(spare), "the adopted spare counted as unseen")
-        pane.isHidden = true
-        #expect(AgentPaneFramePacer.nobodySees(spare), "a pane behind another tab counted as seen")
-    }
-
-    /// The page hears `cmuxPageSeen(false)` once the parked spare painted, and `cmuxPageSeen(true)` in
-    /// the turn Cmd-T moves it into a pane; a hidden tab sends false again. No value is sent twice.
-    @Test func theSeenSignalSendsFalseThenTrueAcrossParkAndAdopt() throws {
-        let (window, content) = Self.shownWindow()
-        defer { window.close() }
-        let parking = PageOffscreenParking(frame: PageOffscreenParking.frame(in: content.bounds, size: content.bounds.size))
-        content.addSubview(parking)
-        let spare = try Self.view()
-        var scripts: [String] = []
-        spare.evaluateScript = { if $0.contains("cmuxPageSeen") { scripts.append($0) } }
-        parking.addSubview(spare)
-        spare.shownPushes.seen.pageLoaded(spare)
-        #expect(scripts.isEmpty, "an unpainted spare was told it is unseen before its first frame")
-        spare.model.markPainted()
-        #expect(scripts == [AgentPageSeenSignal.script(seen: false)])
-        // A load again: the document starts seen, so it hears false again.
-        spare.shownPushes.seen.pageLoaded(spare)
-        #expect(scripts.count == 2)
-        let pane = NSView(frame: content.bounds)
-        content.addSubview(pane)
-        pane.addSubview(spare) // Cmd-T: a move in the same window
-        #expect(scripts.last == AgentPageSeenSignal.script(seen: true), "the adopted page was not told it is seen in the turn of the move")
-        #expect(scripts.count == 3)
-        pane.isHidden = true
-        #expect(scripts.last == AgentPageSeenSignal.script(seen: false), "a hidden tab's page was not told")
-        pane.isHidden = false
-        #expect(scripts.last == AgentPageSeenSignal.script(seen: true))
-        #expect(scripts.count == 5)
-        #expect(AgentPageSeenSignal.script(seen: false) == "window.cmuxPageSeen?.(false);")
-    }
-
     /// Each app-wide push waits while its pane is hidden and sends the newest value once on show:
     /// the attention list, Remote Control, recently closed, Now Playing, read aloud.
     @Test func eachPushWaitsWhileHiddenAndSendsTheNewestOnceOnShow() throws {
@@ -266,28 +198,6 @@ struct AgentPaneShownPushesTests {
         let sent = Self.deviceChatScripts(scripts)
         #expect(sent.count == 1)
         #expect(sent.first?.contains("claude-code:s-3") == true)
-    }
-
-    /// The link places (up to 4,096, ~600 KB) are encoded once per change for every page, and a page
-    /// that has the newest list is not sent it again.
-    @Test func linkPlacesEncodeOncePerChangeAndSkipAPageThatHasThem() throws {
-        let attention = AgentPaneAttentionTabs()
-        var views: [AgentPaneView] = []
-        var sends = 0
-        var later: [@MainActor () -> Void] = []
-        for _ in 0..<4 {
-            let model = AgentPaneModel(host: NoHost(), attentionTabs: attention)
-            let view = try #require(AgentPaneView(model: model, source: .bundled(URL(filePath: "/dev/null"))))
-            view.evaluateScript = { if $0.contains("applyLinkPlaces") { sends += 1 } }
-            view.shownPushes.isHidden = { _ in false }
-            view.shownPushes.nextTurn = { later.append($0) }
-            attention.places.push(to: view)
-            views.append(view)
-        }
-        #expect(sends == 4)
-        #expect(attention.places.encodes == 1, "four pages encoded the list \(attention.places.encodes) times")
-        _ = attention.places.event(for: views[0])
-        #expect(attention.places.encodes == 1, "a page host subscriber encoded the unchanged list again")
     }
 
     /// A window that says it is on screen: the real seen check (``AgentPaneFramePacer/nobodySees(_:)``)

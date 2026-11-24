@@ -19,7 +19,7 @@ export const SCROLL_HOLD_MAX_MS = 5_000;
 const ANNOUNCE_MS = 100;
 const CHANNEL = "cmux-acpmux-scroll";
 
-type Clock = { now(): number; set(run: () => void, ms: number): unknown; clear(id: unknown): void };
+export type Clock = { now(): number; set(run: () => void, ms: number): unknown; clear(id: unknown): void };
 const realClock: Clock = {
   now: () => performance.now(),
   set: (run, ms) => setTimeout(run, ms),
@@ -41,8 +41,7 @@ type Channel = Pick<BroadcastChannel, "postMessage" | "close"> & {
   onmessage: ((event: MessageEvent) => void) | null;
 };
 
-/// `channel`: the renderer's pages' channel; `null` (tests on a manual clock) opens none.
-export function createScrollQuiet(clock: Clock = realClock, channel: Channel | null = openChannel() ?? null): ScrollQuiet {
+export function createScrollQuiet(clock: Clock = realClock, channel: Channel | undefined = openChannel()): ScrollQuiet {
   let restAt = -Infinity;
   let announcedAt = -Infinity;
   const waits = new Set<{ run: () => void; since: number }>();
@@ -118,8 +117,9 @@ export function pageScrollQuiet(): ScrollQuiet | undefined {
   return shared;
 }
 
-/// Drops the page's own, so the next test file's pages start with no scroll heard.
-export function resetPageScrollQuietForTests(): void {
+/// Drops the page's own, so the next test file's pages start with no scroll heard; with `clock`, the
+/// page's own runs on it (a test moves time by hand instead of waiting).
+export function resetPageScrollQuietForTests(clock?: Clock): void {
   shared?.dispose();
-  shared = undefined;
+  shared = clock ? createScrollQuiet(clock, undefined) : undefined;
 }

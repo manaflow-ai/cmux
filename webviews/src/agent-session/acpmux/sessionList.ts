@@ -4,6 +4,7 @@
 import { type Translate, translate } from "./i18n";
 import { withoutRelayLabel, withoutRelayLabelOfMessage } from "./conversation/relayEnvelope";
 import { readRetry, type RetryState } from "./subagents/retryState";
+import { parseSessionIcon, type HarnessIconSpec } from "../shared/harnessIcons";
 import { senderSessionName } from "./senderIdentity";
 import { replacedSince } from "./sessionIndex";
 import { type SessionUsageStats, usageStatsOf } from "./usageStats";
@@ -12,6 +13,13 @@ import { type SessionUsageStats, usageStatsOf } from "./usageStats";
 export type AcpmuxSessionEntry = {
   sessionId: string;
   displayTitle?: string;
+  /** The name it was given (acpmux `displayName`, "Mango"): every human-visible surface shows it
+   *  first. Absent when none was given. */
+  displayName?: string;
+  /** Its names before its renames, oldest first (acpmux `formerNames`): "fka" lines read the last. */
+  formerNames?: string[];
+  /** The icon it set (acpmux `icon`), drawn in place of its harness mark (`SessionMark`). */
+  icon?: HarnessIconSpec;
   title?: string;
   name?: string;
   harness?: string;
@@ -100,6 +108,10 @@ export type AcpmuxSessionEntry = {
    *  subsession_send.rs `waiting_on`); a summary that does not leaves it unknown. */
   waitingOn?: SessionWaiting;
   forkSeq?: number;
+  /** acpmux forks and edits it through any completed turn, not only its latest (`forksAnyTurn`:
+   *  its harness cuts a conversation at a turn, by kind, whatever its family is named). Unset
+   *  from an older acpmux. */
+  forksAnyTurn?: boolean;
   /** Completed turns, the copied ones of a fork included. */
   turnCount?: number;
   /** Nothing was sent in it yet (acpmux names no last prompt, no turn, nothing queued or waiting on
@@ -298,6 +310,19 @@ export function sessionWaiting(session: Record<string, any>): SessionWaiting | u
   return prompt ? { on: "question", prompt } : { on: "question" };
 }
 
+/** `formerNames` as acpmux sends it (oldest first), its non-blank strings; absent for none. */
+export function formerNamesOf(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const names = value.filter((name): name is string => typeof name === "string" && name.trim() !== "");
+  return names.length > 0 ? names : undefined;
+}
+
+/** The newest of its former names ("fka claude-sr2-coord-old"), unless it is the name shown now. */
+export function formerName(entry: { formerNames?: string[]; displayTitle?: string }): string | undefined {
+  const last = entry.formerNames?.at(-1);
+  return last && last !== entry.displayTitle ? last : undefined;
+}
+
 /** What a row draws at its right edge, most urgent first. */
 export type SessionMark = "input" | "running" | "error" | "unread" | undefined;
 
@@ -309,6 +334,9 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
   return {
     sessionId: session.sessionId,
     displayTitle: sessionTitle(session),
+    displayName: text(session.displayName),
+    formerNames: formerNamesOf(session.formerNames),
+    icon: parseSessionIcon(session.icon),
     title: session.title,
     name: session.name,
     harness: session.harness,
@@ -358,6 +386,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     doingTool: session.lane?.state === "working" ? text(session.turn?.activity) : undefined,
     waitingOn: sessionWaiting(session),
     forkSeq: typeof session.forkSeq === "number" ? session.forkSeq : undefined,
+    ...(typeof session.forksAnyTurn === "boolean" && { forksAnyTurn: session.forksAnyTurn }),
     turnCount: typeof session.turnCount === "number" ? session.turnCount : undefined,
     unsent:
       session.lastPrompt === null &&
@@ -464,12 +493,14 @@ export function isOpaqueName(bare: string): boolean {
 }
 
 /**
- * The title (the agent's title, else the first prompt) when the name was generated (`codex`,
+ * Its given name (acpmux `displayName`) when it has one. Else the title (the agent's title, else
+ * the first prompt) when the name was generated (`codex`,
  * `codex-3`, `codex-fork`, after the harness profile or its family), else the name the user gave. A generated
  * name is the launch profile's (`claude-sr`), so a chat with no prompt yet is a "New chat".
  */
 export function sessionTitle(
   session: {
+    displayName?: string;
     title?: string;
     lastPrompt?: string;
     name?: string;
@@ -480,6 +511,9 @@ export function sessionTitle(
   },
   t: Translate = translate,
 ): string {
+  // The name it was given (acpmux decides it: a given handle) reads everywhere first.
+  const given = session.displayName?.trim();
+  if (given) return given;
   const name = senderSessionName(session.name ?? "", session.peer);
   const bare = name.split("/").pop() ?? name;
   // acpmux names a session `agent` or `agent-N`, and a fork `<name>-fork`, also made unique with `-N`.
@@ -518,10 +552,21 @@ const shown = (value: unknown): string | undefined => {
 
 /**
  * A folderless workspace's private chat folder, `~/Library/Application Support/cmux/agent-home/<workspace-id>`
- * (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE). It is not a project, so it is never shown by its id.
+ * (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE), or a DEV build's own,
+ * `~/Library/Application Support/cmux-next/builds/<key>/agent-home/<workspace-id>` (BuildStatePaths `agentHome`).
+ * It is not a project, so it is never shown by its id (cmux#53226: a tagged build listed its own by UUID).
  */
 export function isAgentHome(cwd: string | undefined): boolean {
-  return /\/Library\/Application Support\/cmux\/agent-home(?:\/|$)/.test(cwd ?? "");
+  return /\/Library\/Application Support\/(?:cmux|cmux-next\/builds\/[^/]+)\/agent-home(?:\/|$)/.test(cwd ?? "");
+}
+
+/**
+ * A system temporary folder (`/tmp`, `/private/tmp`, `/var/folders`, anything under `/private/var`):
+ * a harness's scratchpad or a script's chat runs there, so it is never a project (cmux#49610: the
+ * New Tab composer started on "tmp", the folder of the newest agent chat, instead of the last one used).
+ */
+export function isTemporaryFolder(cwd: string | undefined): boolean {
+  return /^\/(?:tmp|var\/tmp|var\/folders|private\/tmp|private\/var)(?:\/|$)/.test(cwd ?? "");
 }
 
 /// The folder of the most recently used chat on this Mac (Leo 2026-10-18): where a New Tab with no
@@ -624,22 +669,25 @@ export function recentLocalFolders(sessions: readonly AcpmuxSessionEntry[], limi
 }
 
 /// The folders `folderOf` names, of the newest chat first, each once (a tie keeps the list's order).
+/// One pass keeps each folder's newest chat (the first in the list among equals, as a stable sort
+/// leaves it), then only the folders are sorted: every page reads this on each change of a chat of
+/// this Mac, and sorting all of a large profile's chats there took the scrolled page's frames
+/// (bench/session-scale-scroll.bench.ts).
 export function recentFolders(
   sessions: readonly AcpmuxSessionEntry[],
   folderOf: (session: AcpmuxSessionEntry) => string | undefined,
   limit = Infinity,
 ): string[] {
-  const named = sessions.flatMap((session) => {
+  const newest = new Map<string, { at: number; index: number }>();
+  sessions.forEach((session, index) => {
     const folder = folderOf(session);
-    return folder === undefined ? [] : [{ folder, at: activityTime(session) ?? 0 }];
+    if (folder === undefined) return;
+    const at = activityTime(session) ?? 0;
+    const kept = newest.get(folder);
+    if (!kept || at > kept.at) newest.set(folder, { at, index });
   });
-  named.sort((l, r) => r.at - l.at);
-  const folders = new Set<string>();
-  for (const { folder } of named) {
-    folders.add(folder);
-    if (folders.size >= limit) break;
-  }
-  return [...folders];
+  const folders = [...newest].sort(([, left], [, right]) => right.at - left.at || left.index - right.index);
+  return folders.slice(0, limit).map(([folder]) => folder);
 }
 
 /// The folder `recentLocalFolders` lists a session under, or undefined when it lists none for it.
@@ -718,9 +766,9 @@ export class FolderRecency {
   }
 }
 
-/// The first of `folders` (newest first) a New Tab may start in: not the home folder, and with
-/// `known` (the host's project list; absent or empty is not loaded yet) one in it. `null`: the host
-/// answered and lists no project (every one removed or missing), so no folder is one.
+/// The first of `folders` (newest first) a New Tab may start in: not the home folder or a temporary
+/// folder, and with `known` (the host's project list; absent or empty is not loaded yet) one in it.
+/// `null`: the host answered and lists no project (every one removed or missing), so no folder is one.
 export function firstProject(
   folders: readonly string[],
   home?: string,
@@ -729,13 +777,16 @@ export function firstProject(
   if (known === null) return undefined;
   const projects = known?.length ? new Set(known.map((path) => path.replace(/(.)\/+$/, "$1"))) : undefined;
   const homeFolder = home?.replace(/\/+$/, "");
-  return folders.find((cwd) => cwd !== homeFolder && (!projects || projects.has(cwd)));
+  return folders.find((cwd) => cwd !== homeFolder && !isTemporaryFolder(cwd) && (!projects || projects.has(cwd)));
 }
 
-/** A project's name for its header: the folder's last component, `~` for a home folder. */
+/**
+ * A project's name for its header: the folder's last component, `~` for a home folder, `/` for the
+ * filesystem root. Only no folder at all reads No folder: a folder is never called that.
+ */
 export function projectLabel(cwd: string | undefined, t: Translate = translate): string {
   const trimmed = (cwd ?? "").replace(/\/+$/, "");
-  if (!trimmed) return t("project.noFolder");
+  if (!trimmed) return cwd ? "/" : t("project.noFolder");
   const parts = trimmed.split("/").filter(Boolean);
   if (parts.length === 2 && (parts[0] === "Users" || parts[0] === "home")) return "~";
   return parts[parts.length - 1] ?? trimmed;
@@ -794,4 +845,17 @@ export function shortAge(updatedAt: number | undefined, now: number, t: Translat
   if (hours < 24) return t("age.hours", { n: hours });
   const days = Math.floor(hours / 24);
   return days < 14 ? t("age.days", { n: days }) : t("age.weeks", { n: Math.floor(days / 7) });
+}
+
+/** First shared wall-clock minute where shortAge's text changes (clock.ts useLabelClock), so its
+ *  label wakes then and not every minute. */
+export function nextShortAge(at: number, now: number): number {
+  if (!Number.isFinite(at)) return Infinity;
+  const minute = 60_000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  const elapsed = Math.max(0, now - at);
+  const size = elapsed < hour ? minute : elapsed < day ? hour : elapsed < 14 * day ? day : 7 * day;
+  const change = at + (Math.floor(elapsed / size) + 1) * size;
+  return Math.max(now + minute, Math.ceil(change / minute) * minute);
 }

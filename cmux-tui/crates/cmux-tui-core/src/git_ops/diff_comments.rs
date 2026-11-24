@@ -79,7 +79,13 @@ pub(super) fn dispatch(
     match request.envelope.operation {
         ResourceOperation::DiffCommentsList => {
             let file = store.read(root).map_err(|error| io_failed(operation, &error))?;
-            Ok(json!({"root": root, "comments": file.sorted()}))
+            let mut listed = json!({"root": root, "comments": file.sorted()});
+            // A pull request review's worktree (`git.review.start`) says which
+            // pull request its comments go to.
+            if let (Some(review), Some(fields)) = (&file.review, listed.as_object_mut()) {
+                fields.insert("review".into(), review.clone());
+            }
+            Ok(listed)
         }
         ResourceOperation::DiffCommentsSave => {
             let comment = comment(&request.fields)?;
@@ -103,7 +109,7 @@ pub(super) fn dispatch(
 /// Runs one keyed mutation of `root`'s file under its lock: a replayed key
 /// returns its first result; otherwise `change` edits the file, which is
 /// written when it changed, and its value is committed to the ledger.
-fn mutate(
+pub(super) fn mutate(
     mux: &Arc<Mux>,
     store: &Store,
     request: &ParsedResourceRequest,
@@ -150,7 +156,7 @@ fn cleared(
 
 /// Stamps and stores `comment`: an edit of the comment its `id` names, or a
 /// new one. Returns `{comment}`.
-fn save(
+pub(super) fn save(
     file: &mut File,
     root: &str,
     key: &str,
@@ -202,7 +208,11 @@ fn save(
 /// `versions` names stays unless its `updatedAt` is still that version, so
 /// an edit saved after the caller read it is never removed. Returns
 /// `{deleted, ids}`: the count and the ids removed.
-fn delete(file: &mut File, ids: &[String], versions: &Map<String, Value>) -> (Value, bool) {
+pub(super) fn delete(
+    file: &mut File,
+    ids: &[String],
+    versions: &Map<String, Value>,
+) -> (Value, bool) {
     let mut removed = Vec::new();
     file.comments.retain(|comment| {
         let Some(id) = comment.get("id").and_then(Value::as_str) else { return true };
@@ -219,7 +229,7 @@ fn delete(file: &mut File, ids: &[String], versions: &Map<String, Value>) -> (Va
 }
 
 /// `root`: an absolute path, at most 4096 bytes, without NUL.
-fn root(fields: &Map<String, Value>) -> Result<&str, ResourceError> {
+pub(super) fn root(fields: &Map<String, Value>) -> Result<&str, ResourceError> {
     let root = fields.get("root").and_then(Value::as_str).unwrap_or_default();
     if !root.starts_with('/') || root.len() > MAX_ROOT_BYTES || root.contains('\0') {
         return Err(ResourceError::validation_invalid(
@@ -236,7 +246,7 @@ fn comment(fields: &Map<String, Value>) -> Result<Map<String, Value>, ResourceEr
     })
 }
 
-fn ids(fields: &Map<String, Value>) -> Result<Vec<String>, ResourceError> {
+pub(super) fn ids(fields: &Map<String, Value>) -> Result<Vec<String>, ResourceError> {
     let ids = fields
         .get("ids")
         .and_then(Value::as_array)
@@ -309,7 +319,7 @@ fn new_id(root: &str, key: &str) -> String {
     format!("dc_{}", hex(digest.get(..16).unwrap_or_default()))
 }
 
-fn io_failed(operation: &str, error: &io::Error) -> ResourceError {
+pub(super) fn io_failed(operation: &str, error: &io::Error) -> ResourceError {
     let message = format!("the diff comment store could not be read or written: {error}");
     ResourceError::operation_failed(operation, "store_failed", json!({"message": message}))
 }
@@ -318,7 +328,12 @@ fn io_failed(operation: &str, error: &io::Error) -> ResourceError {
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub(super) struct File {
     root: String,
-    comments: Vec<Map<String, Value>>,
+    pub(super) comments: Vec<Map<String, Value>>,
+    /// The pull request a review worktree's comments go to, when
+    /// `git.review.start` made the worktree: `{url, repo, number, title,
+    /// head, base}`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) review: Option<Value>,
 }
 
 impl File {
@@ -330,7 +345,7 @@ impl File {
 
     /// Oldest first: by `createdAt` (RFC 3339 UTC, which sorts as text),
     /// then insertion order.
-    fn sorted(&self) -> Vec<&Map<String, Value>> {
+    pub(super) fn sorted(&self) -> Vec<&Map<String, Value>> {
         let mut comments: Vec<_> = self.comments.iter().collect();
         comments.sort_by(|left, right| {
             let created = |comment: &Map<String, Value>| {
@@ -349,7 +364,7 @@ pub(super) struct Store {
 
 impl Store {
     /// The session's store, or `no_state_directory` for an in-memory session.
-    fn open(mux: &Mux, operation: &str) -> Result<Self, ResourceError> {
+    pub(super) fn open(mux: &Mux, operation: &str) -> Result<Self, ResourceError> {
         let Some(session) = mux.session_state_directory() else {
             let message = "this session keeps no durable state, so it cannot hold diff comments";
             return Err(ResourceError::operation_failed(
@@ -374,12 +389,30 @@ impl Store {
         let file: Option<File> = read_json(&self.path(root))?;
         Ok(file
             .filter(|file| file.root == root)
-            .unwrap_or_else(|| File { root: root.to_string(), comments: Vec::new() }))
+            .unwrap_or_else(|| File { root: root.to_string(), ..File::default() }))
     }
 
     pub(super) fn write(&self, root: &str, file: &File) -> io::Result<()> {
         private_directory(&self.directory)?;
         write_json(&self.path(root), file)
+    }
+
+    /// Records the pull request `root`'s comments go to (`git.review.start`).
+    /// A review of the same pull request and head keeps its drafts; any
+    /// other comments under the root (a removed worktree's path made again,
+    /// another head) are dropped, so they never go to this review.
+    pub(super) fn set_review(&self, root: &str, review: Value) -> io::Result<()> {
+        self.exclusive(root, || {
+            let mut file = self.read(root)?;
+            let same = |name: &str| {
+                file.review.as_ref().and_then(|prior| prior.get(name)) == review.get(name)
+            };
+            if !(same("url") && same("head")) {
+                file.comments.clear();
+            }
+            file.review = Some(review);
+            self.write(root, &file)
+        })
     }
 
     /// Runs `body` holding `root`'s lock, shared by every connection.
@@ -398,107 +431,5 @@ impl Store {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn comment(value: Value) -> Map<String, Value> {
-        value.as_object().unwrap().clone()
-    }
-
-    #[test]
-    fn save_stamps_edits_and_deletes() {
-        let mut file = File::default();
-        let (first, _) = save(&mut file, "/r", "k1", comment(json!({"message": "a"}))).unwrap();
-        let id = first["comment"]["id"].as_str().unwrap().to_string();
-        assert!(id.starts_with("dc_") && id.len() == 35, "{first}");
-        let created = first["comment"]["createdAt"].clone();
-        assert_eq!(first["comment"]["updatedAt"], created);
-        let edit = comment(json!({"id": id, "message": "b", "createdAt": "1999"}));
-        let (edited, _) = save(&mut file, "/r", "k2", edit).unwrap();
-        assert_eq!(edited["comment"]["createdAt"], created, "createdAt is the daemon's");
-        assert_eq!(edited["comment"]["message"], "b");
-        assert_eq!(file.comments.len(), 1);
-        let (chosen, _) = save(&mut file, "/r", "k3", comment(json!({"id": "mine"}))).unwrap();
-        assert_eq!(chosen["comment"]["id"], "mine");
-        let (bad, _) = save(&mut file, "/r", "k4", comment(json!({"id": "has space"}))).unwrap();
-        assert!(bad["comment"]["id"].as_str().unwrap().starts_with("dc_"));
-        let stale = Map::from_iter([("mine".to_string(), json!("1999"))]);
-        let (kept, changed) = delete(&mut file, &["mine".into()], &stale);
-        assert_eq!(
-            kept,
-            json!({"deleted": 0, "ids": []}),
-            "an edit since the caller read it stays"
-        );
-        assert!(!changed);
-        let (deleted, changed) = delete(&mut file, &[id.clone(), "unknown".into()], &Map::new());
-        assert_eq!(deleted, json!({"deleted": 1, "ids": [id]}));
-        assert!(changed);
-        assert_eq!(file.comments.len(), 2);
-    }
-
-    #[test]
-    fn save_refuses_large_comments_and_full_roots() {
-        let mut file = File::default();
-        let large = comment(json!({"message": "x".repeat(MAX_COMMENT_BYTES)}));
-        assert_eq!(save(&mut file, "/r", "k", large).unwrap_err().code, "validation.invalid");
-        for index in 0..MAX_COMMENTS {
-            save(&mut file, "/r", &format!("k{index}"), comment(json!({}))).unwrap();
-        }
-        let error = save(&mut file, "/r", "full", comment(json!({}))).unwrap_err();
-        assert_eq!(error.details["reason"], "too_many_comments", "{error:?}");
-    }
-
-    #[test]
-    fn send_clears_only_comments_still_at_their_sent_version() {
-        let mut file = File::default();
-        let (a, _) = save(&mut file, "/r", "k1", comment(json!({"message": "a"}))).unwrap();
-        let (b, _) = save(&mut file, "/r", "k2", comment(json!({"message": "b"}))).unwrap();
-        let (a, b) = (a["comment"].clone(), b["comment"].clone());
-        let ids = [a["id"].as_str().unwrap().to_string(), b["id"].as_str().unwrap().to_string()];
-        let versions = Map::from_iter([
-            (ids[0].clone(), a["updatedAt"].clone()),
-            (ids[1].clone(), json!("1999-01-01T00:00:00.000Z")),
-        ]);
-        let (answer, changed) = cleared(&mut file, &ids, &versions, ids.len());
-        assert_eq!(answer, json!({"sent": 2, "cleared": [ids[0]]}));
-        assert!(changed);
-        assert_eq!(file.comments.len(), 1, "the comment edited since the send stays");
-        let (answer, changed) = cleared(&mut file, &ids[..1], &Map::new(), 1);
-        assert_eq!(answer, json!({"sent": 1, "cleared": []}));
-        assert!(!changed);
-    }
-
-    #[test]
-    fn send_fields_are_checked() {
-        let fields = |value: Value| value.as_object().unwrap().clone();
-        let ok = fields(json!({"acp_session": "fake-session-1", "text": "Review comment"}));
-        assert_eq!(acp_session(&ok).unwrap(), "fake-session-1");
-        assert_eq!(prompt(&ok).unwrap(), "Review comment");
-        for bad in [json!({}), json!({"acp_session": ""}), json!({"acp_session": "a b"})] {
-            let error = acp_session(&fields(bad)).unwrap_err();
-            assert_eq!(error.code, "validation.invalid");
-        }
-        let large = "x".repeat(MAX_PROMPT_BYTES + 1);
-        for bad in [json!({}), json!({"text": " \n"}), json!({"text": large})] {
-            assert_eq!(prompt(&fields(bad)).unwrap_err().code, "validation.invalid");
-        }
-        assert!(prompt(&fields(json!({"text": "x".repeat(MAX_PROMPT_BYTES)}))).is_ok());
-    }
-
-    #[test]
-    fn store_round_trips_and_lists_oldest_first() {
-        let directory =
-            std::env::temp_dir().join(format!("diff-comments-{}-{}", std::process::id(), now_ms()));
-        let store = Store::at(directory.clone());
-        assert!(store.read("/repo").unwrap().comments.is_empty());
-        let mut file = store.read("/repo").unwrap();
-        file.comments.push(comment(json!({"id": "b", "createdAt": "2026-11-07T12:00:01.000Z"})));
-        file.comments.push(comment(json!({"id": "a", "createdAt": "2026-11-07T12:00:00.000Z"})));
-        store.write("/repo", &file).unwrap();
-        let read = store.read("/repo").unwrap();
-        let ids: Vec<_> = read.sorted().iter().map(|c| c["id"].as_str().unwrap()).collect();
-        assert_eq!(ids, ["a", "b"]);
-        assert!(store.read("/other").unwrap().comments.is_empty());
-        let _ = std::fs::remove_dir_all(directory);
-    }
-}
+#[path = "diff_comments_tests.rs"]
+mod tests;
