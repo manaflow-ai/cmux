@@ -36,16 +36,21 @@ function isAddedRepo(value: unknown): value is AddedRepo {
 
 /// The added repositories, most recently used first.
 export function readAddedRepos(): AddedRepo[] {
-  let stored: unknown;
+  // This page's copy only when there is no store to read: an empty store is an empty list (forgotten
+  // by another page, or cleared).
+  let stored: unknown = memory;
   try {
-    const text = storage()?.getItem(KEY);
-    stored = text ? JSON.parse(text) : undefined;
+    const store = storage();
+    if (store) {
+      const text = store.getItem(KEY);
+      stored = text ? JSON.parse(text) : [];
+    }
   } catch {
-    stored = undefined;
+    stored = memory;
   }
   const list = Array.isArray(stored)
     ? stored.filter(isAddedRepo).map((repo) => ({ fullName: repo.fullName, private: repo.private === true, at: repo.at }))
-    : memory;
+    : [];
   return [...list].sort((a, b) => b.at - a.at);
 }
 

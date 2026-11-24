@@ -163,7 +163,7 @@ export function FolderPopover({
     });
   };
   const typedPath = !cloud && /^(?:\/|~\/)/.test(typed) && !shown.has(typed) ? typed : undefined;
-  // The GitHub repositories added as projects, read as the menu opens; a menu with no sources lists none.
+  // The GitHub repositories added as projects, read as the menu opens.
   const [added, setAdded] = useState<readonly AddedRepo[]>(NO_REPOS);
   // The repositories a listed folder is a clone of: that folder is their row. Listing the account's
   // repositories beside the folders drew this Mac's clone of one twice, once by folder, once by name.
@@ -275,7 +275,8 @@ export function FolderPopover({
       setHighlightBy("none");
       if (!open) {
         // The repositories added as projects, as they are now: one added since the last open is listed.
-        setAdded(sources ? readAddedRepos() : NO_REPOS);
+        // Only where a repository can be picked: none in a Sandboxed chat (no GitHub source), or a menu with no sources.
+        setAdded(github ? readAddedRepos() : NO_REPOS);
         // The closed menu grouped nothing: find the current folder's repository once, at the open.
         const opening = groupByRepo(
           folders.filter((folder) => !/^\/+$/.test(folder.id)),

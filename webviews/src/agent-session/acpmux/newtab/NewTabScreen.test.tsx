@@ -2944,4 +2944,5 @@ test("with This Mac picked a GitHub repository's pick checks nothing out; Return
   expect(asks.length).toBe(1);
   expect(asks[0]![1]).toBe("fix the login bug");
   expect(asks[0]![2]).toBe("/Users/you/.cmux/worktrees/api/lane");
+  forgetAddedRepos();
 });
