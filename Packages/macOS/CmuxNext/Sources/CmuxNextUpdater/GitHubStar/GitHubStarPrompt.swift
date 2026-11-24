@@ -7,6 +7,7 @@ import CmuxNextWakeups
 /// from the sixth on ask once per launch until the person stars or dismisses; any close is for good.
 /// Storage that cannot keep a dismissal never asks.
 public nonisolated struct GitHubStarPromptRule: Sendable {
+    public nonisolated init() {}
     static let launchesBeforeAsking = 5
     static let launchesKey = "cmux.githubStar.launches"
     static let dismissedKey = "cmux.githubStar.dismissed"
