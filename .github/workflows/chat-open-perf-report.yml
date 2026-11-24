@@ -88,10 +88,18 @@ jobs:
           node-version: "24.22.1"
 
       - name: Cache Bun package cache
+        if: ${{ (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-chat-open-perf-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+
+      - name: Cache Bun package cache (restore only off base branches)
+        if: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
 
       - name: Install webviews dependencies
         working-directory: webviews
@@ -177,6 +185,31 @@ jobs:
               out.append(f"**The bench crashed or did not finish (status {status}).** The check passes anyway; "
                          "the log is in the step above and the `chat-open-perf` artifact.")
           series = []
+          # A side with no rows: name its first error from the per-open logs (a head that does not build, a page
+          # that never attaches), so the summary and NOW say why instead of "crashed or did not run".
+          ansi = re.compile(r"\x1b\[[0-9;]*m")
+          for side, label in (("before", "base"), ("after", "head")):
+              if any((side, f) in rows for f in ("small", "god")):
+                  continue
+              first = ""
+              for name in sorted(os.listdir(f"{tmp}/chat-open/logs")) if os.path.isdir(f"{tmp}/chat-open/logs") else []:
+                  if not name.startswith(side + "-"):
+                      continue
+                  try:
+                      lines = [ansi.sub("", l).strip() for l in open(f"{tmp}/chat-open/logs/{name}", errors="replace")]
+                  except OSError:
+                      continue
+                  hits = [l for l in lines if re.search(r"\b\w*Error\b:|\berror:|\bTimeout\b", l)]
+                  # The most specific line: one naming a source file, else the first error line.
+                  first = next((l for l in hits if re.search(r"\.(tsx?|jsx?|mjs):", l)), hits[0] if hits else "")
+                  if first:
+                      first = re.sub(r"/home/runner/work/[^/]+/[^/]+/", "", first)[:300]
+                      break
+              if first:
+                  out.append(f"**No {label} rows:** `{first}`")
+                  series.append({"series": f"chat_open.error.{label}@{klass}", "runner_class": klass,
+                                 "side": label, "error": first, "base_sha": base, "head_sha": head,
+                                 "event": os.environ.get("GITHUB_EVENT_NAME"), "ref": os.environ.get("GITHUB_REF")})
           if rows:
               out += ["", "| fixture | n | base p50 | head p50 | p50 delta | base p95 | head p95 | p95 delta | reads as |",
                       "|---|---|---|---|---|---|---|---|---|"]
