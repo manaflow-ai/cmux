@@ -8,6 +8,7 @@
 // says so (sign-ins and downloads work once it is back); it goes by itself when the network returns.
 import { useEffect, useSyncExternalStore, type ReactNode } from "react";
 import { DialogButton } from "../../ui/DialogButton";
+import { useConnectionQuiet } from "../../ui/lasting";
 import { StableLabel } from "../../ui/StableLabel";
 import type { Strings } from "../shared/i18n";
 import { AgentsStep, DEFAULT_AGENTS_LOOK, type AgentsLook } from "./AgentsStep";
@@ -83,6 +84,8 @@ function Scaffold({
   const agents = state.step === "agents";
   const make = state.step === "makeItYours";
   const sources = !agents && !make && state.importer != null ? <ImportSources importer={state.importer} /> : null;
+  // A blip offline says nothing; the line shows once the Mac has been offline CONNECTION_QUIET_MS.
+  const offlineShown = useConnectionQuiet(!online);
   return (
     <div className="onb-scaffold" data-step={state.step}>
       <header className="onb-header">
@@ -95,7 +98,7 @@ function Scaffold({
         </h1>
         {agents && <p className="onb-sentence">{strings.t("onboarding.agents.body")}</p>}
         {make && <p className="onb-sentence">{strings.t("onboarding.makeItYours.body")}</p>}
-        {!online && (
+        {offlineShown && (
           <output className="onb-offline" aria-live="polite">
             {strings.t("onboarding.offline")}
           </output>
