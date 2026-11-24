@@ -634,22 +634,22 @@ export function EnvironmentPicker({
     list === "auto"
       ? [AUTO_RUN, CLOUD_ONLY, MACHINE_MENU]
       : list === "moves"
-      ? moveRows
-      : list === "devices"
-        ? devicesGrouped.rows
-        : listRows === "machines" && list === "main"
-          ? machineChoices
-          : machineList
-            ? machines
-            : listRows === "where" || listRows === "run"
-              ? listRows === "run"
-                ? [
-                    ...autoRows,
-                    ...ordered.filter(isLocal).map((environment) => environment.id),
-                    ...(cloudRow ? [cloudRow] : []),
-                  ]
-                : where
-              : main;
+        ? moveRows
+        : list === "devices"
+          ? devicesGrouped.rows
+          : listRows === "machines" && list === "main"
+            ? machineChoices
+            : machineList
+              ? machines
+              : listRows === "where" || listRows === "run"
+                ? listRows === "run"
+                  ? [
+                      ...autoRows,
+                      ...ordered.filter(isLocal).map((environment) => environment.id),
+                      ...(cloudRow ? [cloudRow] : []),
+                    ]
+                  : where
+                : main;
   // The rows as they settle while the list is open (rowPresence.ts): it opens with its final rows,
   // and a row the data adds or drops while it stays open grows or shrinks in place. Another list
   // (Machines…) or a search replaces the rows at once.
@@ -869,7 +869,13 @@ export function EnvironmentPicker({
           )}
           <span className="acpmux-menu-text acpmux-location-name">
             <span className="acpmux-menu-label">
-              {t(value === AUTO_RUN ? "composer.auto" : value === CLOUD_ONLY ? "composer.autoCloudOnly" : "composer.autoMachine")}
+              {t(
+                value === AUTO_RUN
+                  ? "composer.auto"
+                  : value === CLOUD_ONLY
+                    ? "composer.autoCloudOnly"
+                    : "composer.autoMachine",
+              )}
             </span>
             {value === AUTO_RUN && <span className="acpmux-menu-description">{t("composer.autoPlaceDetail")}</span>}
           </span>
@@ -1192,7 +1198,7 @@ export function EnvironmentPicker({
         {listRows === "run" && <div className="acpmux-env-heading">{t("composer.whereRun")}</div>}
         {list === "moves" && <div className="acpmux-env-heading">{t("composer.moveToMenu")}</div>}
         {list === "devices" && <div className="acpmux-env-heading">{t("composer.otherDevices")}</div>}
-        {list === "auto" && <div className="acpmux-env-heading">{t("composer.whereRun")}</div>}
+        {list === "auto" && listRows !== "run" && <div className="acpmux-env-heading">{t("composer.whereRun")}</div>}
         <Combobox
           suggestions={presence.rows}
           // A short list has no search: the field only carries the arrows, Return and Escape.

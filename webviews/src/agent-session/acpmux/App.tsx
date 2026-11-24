@@ -228,7 +228,13 @@ import { agentName } from "./agents";
 import { translate, usePaneLanguage, useT } from "./i18n";
 import { chatCloudMachine, createStopWaiter } from "./cloudMachineMenu";
 import { autoCloudOn } from "./autoCloud";
-import { refreshCloudMachines, useCloudMachines, useCloudPlan, useCloudSignedIn, type CloudMachine } from "./cloudMachines";
+import {
+  refreshCloudMachines,
+  useCloudMachines,
+  useCloudPlan,
+  useCloudSignedIn,
+  type CloudMachine,
+} from "./cloudMachines";
 import {
   AUTO_LOOK,
   autoTargets,
