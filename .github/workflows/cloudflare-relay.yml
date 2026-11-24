@@ -303,6 +303,7 @@ jobs:
       # feat-cmux-next's commits (no blobs) for the ancestry check: one branch, not checkout's fetch-depth 0
       # of every branch and tag, which stalled under 1000 B/s on 2026-11-23.
       - name: Fetch the release rails' feat-cmux-next history
+        working-directory: ${{ github.workspace }}
         run: .relay-tools/scripts/ci/fetch_branch_history.sh feat-cmux-next .relay-tools
       - name: Restore pinned Node 22.23.4 from the CI cache bucket
         shell: bash
@@ -643,6 +644,7 @@ jobs:
       # feat-cmux-next's commits (no blobs) for the ancestry check: one branch, not checkout's fetch-depth 0
       # of every branch and tag, which stalled under 1000 B/s on 2026-11-23.
       - name: Fetch the release rails' feat-cmux-next history
+        working-directory: ${{ github.workspace }}
         run: .relay-tools/scripts/ci/fetch_branch_history.sh feat-cmux-next .relay-tools
       - name: Restore pinned Node 22.23.4 from the CI cache bucket
         shell: bash
