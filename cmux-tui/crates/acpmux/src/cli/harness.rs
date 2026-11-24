@@ -694,7 +694,7 @@ fn with_launch(text: &str, command: Option<&str>, launch: &LaunchEdits) -> Resul
     let mut doc: toml_edit::DocumentMut =
         text.parse().map_err(|e| anyhow!("the profile does not parse: {e}"))?;
     if let Some(command) = command {
-        doc["command"] = toml_edit::value(command);
+        doc.insert("command", toml_edit::value(command));
     }
     if !launch.args.is_empty() {
         let mut args =
@@ -702,7 +702,7 @@ fn with_launch(text: &str, command: Option<&str>, launch: &LaunchEdits) -> Resul
         for a in &launch.args {
             args.push(a.as_str());
         }
-        doc["args"] = toml_edit::value(args);
+        doc.insert("args", toml_edit::value(args));
     }
     let mut env = launch.env.clone();
     if let Some(home) = &launch.home {
@@ -723,11 +723,14 @@ fn with_launch(text: &str, command: Option<&str>, launch: &LaunchEdits) -> Resul
     }
     if !env.is_empty() {
         if !doc.contains_table("env") {
-            doc["env"] = toml_edit::table();
+            doc.insert("env", toml_edit::table());
         }
-        let table = doc["env"].as_table_mut().ok_or_else(|| anyhow!("env is not a table"))?;
+        let table = doc
+            .get_mut("env")
+            .and_then(toml_edit::Item::as_table_mut)
+            .ok_or_else(|| anyhow!("env is not a table"))?;
         for (k, v) in env {
-            table[k.as_str()] = toml_edit::value(v);
+            table.insert(&k, toml_edit::value(v));
         }
     }
     Ok(doc.to_string())

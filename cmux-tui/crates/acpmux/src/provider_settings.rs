@@ -60,7 +60,7 @@ impl Provider {
         if profile.kind == HarnessKind::ClaudeStdio && stem == "claude" {
             return Some(Self::Claude);
         }
-        if crate::codex_app_server::is_launch(program, &profile.argv[1..]) {
+        if crate::codex_app_server::is_launch(program, profile.argv.get(1..).unwrap_or_default()) {
             return Some(Self::Codex);
         }
         None
