@@ -2936,6 +2936,28 @@ class JoblessStatusChecks(unittest.TestCase):
             self.judge()
         self.assertFalse(any("commits?sha=" in route for route in self.gh.routes))
 
+    def test_required_checks_status_red_asks_its_own_rerun(self):
+        # cmux#49885 at 8b11f0c2: the pool's 'clippy (changed cmux-tui packages)' failed while its Actions twin was
+        # skipped; judging the twin said "re-run it", and an Actions rerun comes back skipped.
+        name = "clippy (changed cmux-tui packages)"
+        self.CONTEXT = name
+        pool = f"failed on the cmux pool (exit 1); rerun: POST /v1/required-checks/rerun?head={HEAD[:12]}"
+        self.head = {"context": name, "state": "failure", "description": pool,
+                     "target_url": f"http://100.89.225.106:18765/v1/required-checks?head={HEAD}"}
+        self.base = {self.TIP: [], self.OLDER: [dict(self.head, state="success", description="passed on the cmux pool")]}
+        with unittest.mock.patch.dict(os.environ, {"CMUX_CI_CONTROLLER": "http://controller.test:1/"}):
+            with self.assertRaises(excuse.Refused) as said:
+                self.judge()
+        text = str(said.exception)
+        self.assertIn(f"base {self.OLDER[:12]} has it success: passed on the cmux pool", text)
+        self.assertIn(f"rerun the pool: POST http://controller.test:1/v1/required-checks/rerun?head={HEAD}", text)
+        self.assertNotIn("re-run it", text)
+        self.assertFalse(any("actions/runs" in route for route in self.gh.routes))  # its Actions twin is never judged
+        # The base sharing the red excuses nothing: the description names no failure to compare.
+        self.base[self.TIP] = [dict(self.head)]
+        with self.assertRaisesRegex(excuse.Refused, rf"base {self.TIP[:12]} has it failure: .*rerun the pool: POST "):
+            self.judge()
+
     IGNORED = "Canceled by Ignored Build Step"
 
     def pr_files(self, *paths, number=7192, changed=None):
@@ -8193,6 +8215,94 @@ class WsCheckPerTest(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "names no failed steps"):
             self.judge()
 
+    def discounted_red(self, description, *, base_failed=True, own_unit="test_b.py"):
+        """HEAD red on DEPLOY's units test_a.py (main's red too: its own base pass failed it on main) and OWN_UNIT, main
+        red on test_a.py's test_a: the run's WS_CHECK_RESULT lists DEPLOY, its status DESCRIPTION (tools/ws-check
+        discount_base_reds counted only OWN_UNIT)."""
+        self.gh.verdict(self.gh.TIP, 2, {self.DEPLOY: {"test_a.py": self.ws_deploy("test_a")}})
+        self.gh.verdict(HEAD, 1, {self.DEPLOY: {"test_a.py": self.ws_deploy("test_a"),
+                                                own_unit: self.ws_deploy("test_b")}}, description=description)
+        log = self.gh.logs[11].split("\n")
+        at = next(n for n, line in enumerate(log) if "WS_CHECK_RESULT=" in line)
+        stamp = "2026-11-05T04:39:27.9954759Z "
+        log[at:at] = [stamp + f"ws-check base pass whole: main {self.gh.TIP}, 1 of 2 failed units fail on main too (9.0 s)"]
+        if base_failed:
+            log[at:at] = [stamp + f"ws-check step FAILED on main too: {self.DEPLOY} [test_a.py] (exit 1, ran 4, skipped 0, "
+                                  "gh calls 0)"]
+        self.gh.logs[11] = "\n".join(log)
+
+    def test_a_status_that_discounted_mains_reds_is_read(self):
+        # 2026-11-24: since leo-workspace#9404 tools/ws-check reruns a run's failed units on main and counts only the
+        # rest ("12 of 929 steps failed: UNIT (+K base red discounted, main SHA8)", cut at 139), while WS_CHECK_RESULT
+        # still lists every failed step: lw#9704, #9760, #9702 and #9753 were refused "does not match run ...".
+        own = f"{self.DEPLOY} [test_b.py]"
+        main8 = self.gh.TIP[:8]
+        for description in (f"1 of 77 steps failed: {own} (+1 base red discounted, main {main8})"[:139],
+                            f"1 of 77 steps failed: {own} (+1 base red discounted, main {main8})"[:100],
+                            f"1 of 77 steps failed (+1 base red discounted, main {main8}): {own}"[:139]):
+            with self.subTest(description=description):
+                self.discounted_red(description)
+                with self.assertRaisesRegex(excuse.Refused, "test_b"):  # read, and test_b is the head's own red
+                    self.judge()
+                try:
+                    self.judge()
+                except excuse.Refused as error:
+                    self.assertNotIn("does not match", str(error))
+
+    def test_a_discounted_status_that_the_log_does_not_bear_out_is_refused(self):
+        own = f"{self.DEPLOY} [test_b.py]"
+        main8 = self.gh.TIP[:8]
+        for description, kwargs in (
+                (f"1 of 77 steps failed: {own} (+2 base red discounted, main {main8})", {}),  # count
+                (f"1 of 77 steps failed: {own} (+1 base red discounted, main {'0' * 8})", {}),  # main
+                (f"1 of 77 steps failed (+1 base red discounted, main {main8}): {self.DEPLOY} [test_c.py]", {}),  # unit
+                (f"1 of 77 steps failed: {own} (+1 base red discounted, main {main8})", {"base_failed": False})):
+            with self.subTest(description=description, **kwargs):
+                self.discounted_red(description, **kwargs)
+                with self.assertRaisesRegex(excuse.Refused, "does not match run 1's WS_CHECK_RESULT"):
+                    self.judge()
+
+    def test_a_global_git_config_write_is_read_from_its_own_line(self):
+        # ws_check_run.py adds "global git config changed by a step" to `failed` with no step line, only "ws-check: a
+        # step changed the global git config PATH (...)": lw#9703 at 85551f8b (run 45341796653) was refused "has no
+        # 'ws-check step FAILED: global git config changed by a step' line".
+        step, said = excuse.WS_CHECK_GIT_CONFIG_STEP, excuse.WS_CHECK_GIT_CONFIG_LINE
+        for sha, run, path in ((self.gh.TIP, 2, "/home/a/.gitconfig"), (HEAD, 1, "/home/b/.gitconfig")):
+            self.gh.verdict(sha, run, {self.RELAY: self.relay_lint()})
+            log = self.gh.logs[run * 10 + 1]
+            result = json.loads(log.rsplit("WS_CHECK_RESULT=", 1)[1])
+            result["failed"].append(step)
+            log = log.rsplit("\n", 1)[0] + (f"\n2026-11-05T04:39:27.9954759Z {said} {path} (ran 8 at a time, first "
+                                            f"watching step: x)\n2026-11-05T04:39:27.9954759Z WS_CHECK_RESULT="
+                                            + json.dumps(result))
+            self.gh.logs[run * 10 + 1] = log
+            self.gh.statuses[sha][0]["description"] = f"2 of 77 steps failed: {self.RELAY}"[:139]
+        audit = self.judge()
+        self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", audit[0])
+        # Not red that way on main: the head's own.
+        self.gh.verdict(self.gh.TIP, 2, {self.RELAY: self.relay_lint()})
+        with self.assertRaisesRegex(excuse.Refused, "global git config changed by a step"):
+            self.judge()
+        # Named in `failed` with no line saying it: refused, never guessed.
+        self.gh.logs[11] = self.gh.logs[11].replace(said, "something else")
+        with self.assertRaisesRegex(excuse.Refused, f"has no '{said}' line"):
+            self.judge()
+
+    def test_an_unreadable_main_verdict_is_passed_over_for_an_older_one(self):
+        # 2026-11-24: main 106d10145c's run 45341598629 kept only the last 200 lines of a red suite (16 of 17 FAIL
+        # lines), and every leo-workspace PR was refused "its failing tests cannot be listed" on main's run.
+        self.deploy_red(f"1 of 77 steps failed: {self.DEPLOY}")
+        self.gh.verdict(self.gh.OLDER, 3, {self.DEPLOY: self.ws_deploy("test_a")})
+        broken = {self.DEPLOY: self.ws_deploy("test_a")[:-1] + ["FAILED (failures=1, errors=1)"]}
+        self.gh.verdict(self.gh.TIP, 2, broken)
+        audit = self.judge()
+        self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", audit[0])
+        self.assertTrue(any(self.gh.OLDER[:12] in line for line in audit), audit)
+        # The head's own unreadable red is still refused.
+        self.gh.verdict(HEAD, 1, broken)
+        with self.assertRaisesRegex(excuse.Refused, "its failing tests cannot be listed"):
+            self.judge()
+
     def test_a_test_list_that_disagrees_with_its_summary_is_not_excused(self):
         red = {self.DEPLOY: self.ws_deploy("test_a")}
         self.gh.verdict(self.gh.TIP, 2, red)
@@ -8203,7 +8313,10 @@ class WsCheckPerTest(unittest.TestCase):
 
     def test_an_unreadable_main_verdict_is_not_excused(self):
         self.gh.logs[21] = self.gh.logs[21].replace(f"ws-check step FAILED: {self.RELAY}", "ws-check step ok: x")
-        with self.assertRaisesRegex(excuse.Refused, f"'ws-check' on {self.gh.TIP}: .*has no 'ws-check step FAILED"):
+        # Passed over for an older verdict (test_an_unreadable_main_verdict_is_passed_over_for_an_older_one); with none,
+        # the refusal still says why main's could not be read.
+        with self.assertRaisesRegex(excuse.Refused, f"1 unreadable, first {self.gh.TIP[:12]}: .*has no 'ws-check step "
+                                                    "FAILED"):
             self.judge()
 
     def test_main_green_head_red_is_not_excused(self):
@@ -16061,6 +16174,11 @@ SCANNERS = {
     "test_reds.gallery_states": lambda f: TR.gallery_states(f.log),
     "test_reds.gallery_entries": lambda f: TR.gallery_entries(f.log),
     "test_reds.gallery_classify": lambda f: TR.gallery_classify(f.log, f.log),
+    # A ws-check run's base pass and FAILED labels, read once each over the log's lines.
+    "base_red_excuse.ws_check_discount": lambda f: excuse.ws_check_discount(f.lines, len(f.lines), ["x"]),
+    "base_red_excuse.ws_check_described": lambda f: excuse.ws_check_described(
+        excuse.WS_CHECK_DESCRIPTION.fullmatch("1 of 2 steps failed: x (+1 base red discounted, main 0123abcd)"),
+        ["x"], 2, f.lines, len(f.lines)),
 }
 # Readers the sweep does not time, each with why.
 NOT_SWEPT = {
