@@ -521,6 +521,7 @@
         "experiments.glassToolbarGroups",
         "experiments.composerV2",
         "experiments.hoverLook",
+        "experiments.jumpLatestLands",
         "experiments.agentBadges",
         "experiments.agentBadgesBeam",
         "experiments.menuStyleV2",

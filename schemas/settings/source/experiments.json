@@ -84,6 +84,30 @@
           ]
         },
         {
+          "key": "experiments.jumpLatestLands",
+          "note": "Design dp-c070192381 (cmuxterm-hq docs/design/proposals/2026-11-23-jump-to-bottom-one-smooth-ride-and-no-bouncing-dots.md), its decided slice: one eased ride, with the fade after landing. The agent chat's Jump to latest stays through its ride to the bottom and fades once the view lands there, instead of fading as the ride starts (webviews jumpLatestLands.experiment.ts, VirtualTranscript.tsx rideToLatest). Off by default; off keeps today's button.",
+          "title": {
+            "key": "settings.experiments.jumpLatestLands",
+            "text": "Jump to Latest Fades on Landing"
+          },
+          "help": {
+            "key": "settings.experiments.jumpLatestLands.help",
+            "text": "After you click Jump to latest, the button stays until the chat reaches the bottom, then fades."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "jump",
+            "latest",
+            "bottom",
+            "scroll",
+            "chat"
+          ]
+        },
+        {
           "key": "experiments.agentBadges",
           "note": "Taste build 5 (2026-11-19): agent counts and status on the tab strip and the sidebar, drawn natively (CmuxNextTabs TabCell+CountPill, CmuxNextSidebar WorkspaceRowView+AgentPill; DesignSettings.agentBadges). An agent chat tab shows a neutral count pill (unread plus a pending approval) in a slot always as wide as \"99+\", so no tab moves; a sidebar row shows one tinted status pill (Running, Needs approval, Done) in a slot as wide as the widest label. Off by default; off keeps today's marks.",
           "title": {
