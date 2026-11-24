@@ -5,7 +5,7 @@
 # idle and a loaded host. A cell: time to first content, resume after the change, delta bytes, failures per n.
 # Offline: real Rust clients and daemons in one process behind cmux-fault's seeded shapers, a fake agent, no network.
 #
-#   scripts/measure/transport-pair-matrix.sh [pairs=ios-mac,ios-linux,mac-mac,mac-linux] [paths=direct,relay]
+#   scripts/measure/transport-pair-matrix.sh [pairs=ios-mac,ios-linux,mac-mac,mac-linux,rtt] [paths=direct,relay]
 #     [conditions=loss,latency,handoff,sleep,failover,long] [loads=idle,duress] [n=5] [seed=0] [long_minutes=60]
 #     [out=PATH.md]
 #   cmux-ci test --timeout 3000 -- bash scripts/measure/transport-pair-matrix.sh pairs=ios-mac n=5   # one CI runner per pair
@@ -21,7 +21,7 @@
 set -euo pipefail
 trap 'echo "transport-pair-matrix.sh: line $LINENO exited $? ($BASH_COMMAND)" >&2' ERR
 
-pairs="ios-mac,ios-linux,mac-mac,mac-linux" paths="direct,relay" conditions="loss,latency,handoff,sleep,failover,long"
+pairs="ios-mac,ios-linux,mac-mac,mac-linux,rtt" paths="direct,relay" conditions="loss,latency,handoff,sleep,failover,long"
 loads="idle,duress" n=5 seed=0 long_minutes=60 out=""
 for kv in "$@"; do
   case "$kv" in
@@ -36,7 +36,7 @@ for kv in "$@"; do
     *) echo "transport-pair-matrix.sh: unknown arg '$kv' (pairs=, paths=, conditions=, loads=, n=, seed=, long_minutes=, out=)" >&2; exit 2 ;;
   esac
 done
-[[ "$pairs" =~ ^(ios-mac|ios-linux|mac-mac|mac-linux)(,(ios-mac|ios-linux|mac-mac|mac-linux))*$ ]] || { echo "transport-pair-matrix.sh: pairs=ios-mac,ios-linux,mac-mac,mac-linux" >&2; exit 2; }
+[[ "$pairs" =~ ^(ios-mac|ios-linux|mac-mac|mac-linux|rtt)(,(ios-mac|ios-linux|mac-mac|mac-linux|rtt))*$ ]] || { echo "transport-pair-matrix.sh: pairs=ios-mac,ios-linux,mac-mac,mac-linux,rtt (rtt: the round-trip audit bench)" >&2; exit 2; }
 [[ "$paths" =~ ^(direct|relay)(,(direct|relay))?$ ]] || { echo "transport-pair-matrix.sh: paths=direct,relay" >&2; exit 2; }
 [[ "$conditions" =~ ^(loss|latency|handoff|sleep|failover|long)(,(loss|latency|handoff|sleep|failover|long))*$ ]] || { echo "transport-pair-matrix.sh: conditions=loss,latency,handoff,sleep,failover,long" >&2; exit 2; }
 [[ "$loads" =~ ^(idle|duress)(,(idle|duress))?$ ]] || { echo "transport-pair-matrix.sh: loads=idle,duress" >&2; exit 2; }
@@ -93,7 +93,9 @@ done
 
 # Item 7, the round-trip audit: its bench prints ROUNDTRIP lines; its report writes the second table.
 rtt_md=""
-if [[ -f cmux-tui/crates/acpmux/tests/round_trip_audit.rs && -f scripts/measure/round-trip-audit-report.py ]]; then
+if [[ ",$pairs," != *,rtt,* ]]; then
+  :
+elif [[ -f cmux-tui/crates/acpmux/tests/round_trip_audit.rs && -f scripts/measure/round-trip-audit-report.py ]]; then
   bench rtt cmux-tui acpmux round_trip_audit || status=1
   rtt_md="$work/round-trip-audit.md"
   python3 -I "$root/scripts/measure/round-trip-audit-report.py" "$work/rtt.log" --out "$rtt_md" || status=1
