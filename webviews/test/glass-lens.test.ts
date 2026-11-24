@@ -10,7 +10,7 @@ import os from "node:os";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { PNG } from "pngjs";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("glass-lens.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -99,7 +99,10 @@ await requireBrowserLane("glass-lens.test.ts", async () => {
 
   for (const [name, engine] of [
     ["chromium", chromium],
-    ["webkit", webkit],
+    // WebKit runs where it launches; where it cannot and the lane is not required, it skips (probeEngineOrSkip).
+    ...((await probeEngineOrSkip("glass-lens webkit", "webkit", webkit))
+      ? [["webkit", webkit] as [string, BrowserType]]
+      : []),
   ] as [string, BrowserType][]) {
     describe(`glass lens in ${name}`, () => {
       let browser: Browser;
