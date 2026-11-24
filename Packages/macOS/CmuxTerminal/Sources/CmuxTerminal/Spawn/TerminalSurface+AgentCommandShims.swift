@@ -174,34 +174,38 @@ extension TerminalSurface {
         }
         guard !shims.isEmpty else { return nil }
         // Held until the directory is in place, so a sweep or a close in
-        // another cmux cannot move it away halfway. The wait is short and
-        // bounded: an install must never be held up by a stuck holder, so
-        // past it the install goes ahead without the lock.
+        // another cmux cannot move it away halfway. An install never waits
+        // for it: when the lock is taken it publishes without one.
         let publishLock = TerminalSurfaceAgentCommandShimCleanup.DirectoryLock(
-            shimParentDirectory: shimParentDirectory,
-            waitingUpTo: .milliseconds(200)
+            shimParentDirectory: shimParentDirectory
         )
         defer { withExtendedLifetime(publishLock) {} }
         // Names this process as an owner of the pane's directory, so a sweep
         // in any cmux leaves it alone while this one runs. Another cmux that
         // restored the same surface keeps its claim.
         shimCleanup.recordOwners(inStagingDirectory: stagingDirectory, replacing: shimDirectory)
-        do {
-            if fileManager.fileExists(atPath: shimDirectory.path) {
-                guard privateDirectoryCheck.makePrivate(atPath: shimDirectory.path) else { return nil }
-                _ = try fileManager.replaceItemAt(
-                    shimDirectory,
-                    withItemAt: stagingDirectory,
-                    backupItemName: nil,
-                    options: []
-                )
-            } else {
-                try fileManager.moveItem(at: stagingDirectory, to: shimDirectory)
+        func publish() -> Bool {
+            do {
+                if fileManager.fileExists(atPath: shimDirectory.path) {
+                    guard privateDirectoryCheck.makePrivate(atPath: shimDirectory.path) else { return false }
+                    _ = try fileManager.replaceItemAt(
+                        shimDirectory,
+                        withItemAt: stagingDirectory,
+                        backupItemName: nil,
+                        options: []
+                    )
+                } else {
+                    try fileManager.moveItem(at: stagingDirectory, to: shimDirectory)
+                }
+            } catch {
+                return false
             }
-        } catch {
-            return nil
+            return privateDirectoryCheck.makePrivate(atPath: shimDirectory.path)
         }
-        guard privateDirectoryCheck.makePrivate(atPath: shimDirectory.path) else { return nil }
+        // Without the lock a sweep can take the directory away between the
+        // look and the move. It has settled by a second attempt: the
+        // directory is gone, or back.
+        guard publish() || publish() else { return nil }
         return TerminalSurfaceAgentCommandShimSet(
             directoryPath: shimDirectory.path,
             shims: shims

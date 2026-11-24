@@ -29,6 +29,11 @@ public struct TerminalSurfaceAgentCommandShimCleanup {
     /// that installed it; the process id follows.
     public static let ownerRecordFilePrefix = ".owner."
 
+    /// The file an install leaves in a shim directory that it took over from
+    /// an owner it could not name: a cmux built before owner records, which
+    /// may still have the pane open.
+    public static let unrecordedOwnerMarkerFileName = ".unrecorded-owner"
+
     /// How many owner records a directory is read for. Two is already rare.
     private static let ownerRecordLimit = 16
 
@@ -88,7 +93,9 @@ public struct TerminalSurfaceAgentCommandShimCleanup {
             try? fileManager.removeItem(at: ownerRecordURL(inDirectory: directory, pid: owner.pid))
             owners.removeAll { $0 == owner }
         }
-        guard !owners.contains(where: ownerIsRunning) else { return false }
+        // An owner nobody could name may still have the pane open; only the
+        // sweep knows whether another cmux runs.
+        guard !owners.contains(where: ownerIsRunning), !hasUnrecordedOwner(directory) else { return false }
         return removeOwnedDirectory(directory)
     }
 
@@ -122,16 +129,33 @@ public struct TerminalSurfaceAgentCommandShimCleanup {
     ///
     /// The owner is recorded in `stagingDirectory`, together with every other
     /// cmux process that still runs and had a record in the directory being
-    /// replaced, so a cmux that restored the same surface keeps its claim.
+    /// replaced, so a cmux that restored the same surface keeps its claim. A
+    /// directory that exists with no record at all came from a cmux built
+    /// before the records, which may still have that pane open, so its claim
+    /// is kept as a marker.
     ///
     /// - Parameters:
     ///   - stagingDirectory: The directory about to be published.
     ///   - publishedDirectory: The directory it replaces, if there is one.
     func recordOwners(inStagingDirectory stagingDirectory: URL, replacing publishedDirectory: URL) {
-        for other in ownerRecords(inDirectory: publishedDirectory) where other != owner && ownerIsRunning(other) {
+        let published = ownerRecords(inDirectory: publishedDirectory)
+        if hasUnrecordedOwner(publishedDirectory)
+            || (published.isEmpty && fileManager.fileExists(atPath: publishedDirectory.path)) {
+            let marker = stagingDirectory
+                .appendingPathComponent(Self.unrecordedOwnerMarkerFileName, isDirectory: false)
+            try? Data().write(to: marker)
+        }
+        for other in published where other != owner && ownerIsRunning(other) {
             write(other, inDirectory: stagingDirectory)
         }
         writeOwnerRecord(inDirectory: stagingDirectory)
+    }
+
+    /// Whether `directory` was taken over from an owner nobody could name.
+    private func hasUnrecordedOwner(_ directory: URL) -> Bool {
+        fileManager.fileExists(
+            atPath: directory.appendingPathComponent(Self.unrecordedOwnerMarkerFileName, isDirectory: false).path
+        )
     }
 
     @discardableResult
@@ -180,37 +204,29 @@ public struct TerminalSurfaceAgentCommandShimCleanup {
     ///
     /// The kernel releases the lock when its holder exits, however it exits.
     /// A holder can also be stopped while it holds the lock, so nobody waits
-    /// for it without a bound.
+    /// for it: each caller says what it does without the lock. An actor
+    /// cannot stand in, because the other party is another process.
     public final class DirectoryLock {
         private let descriptor: Int32
 
-        /// Takes the lock for the shim directories under `shimParentDirectory`.
+        /// Takes the lock for the shim directories under `shimParentDirectory`
+        /// if nobody holds it.
         ///
-        /// - Parameters:
-        ///   - shimParentDirectory: The directory that holds one directory
-        ///     per surface. It must already exist.
-        ///   - patience: How long to keep trying while another process holds
-        ///     the lock. Zero tries once.
-        /// - Returns: `nil` when the lock cannot be taken in that time.
-        public init?(shimParentDirectory: URL, waitingUpTo patience: Duration = .zero) {
+        /// - Parameter shimParentDirectory: The directory that holds one
+        ///   directory per surface. It must already exist.
+        /// - Returns: `nil` when another holder has the lock, or it cannot be
+        ///   opened.
+        public init?(shimParentDirectory: URL) {
             let path = shimParentDirectory.appendingPathComponent(".lock", isDirectory: false).path
             let descriptor = open(path, O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0o600)
             guard descriptor >= 0 else { return nil }
-            // flock has no timed wait, so a bounded wait is a few spaced
-            // attempts. A holder keeps the lock for one rename or one
-            // removal, well under an interval.
-            let interval = Duration.milliseconds(10)
-            let deadline = ContinuousClock.now + patience
-            while flock(descriptor, LOCK_EX | LOCK_NB) != 0 {
-                let failure = errno
-                guard ContinuousClock.now < deadline, failure == EINTR || failure == EWOULDBLOCK else {
-                    close(descriptor)
-                    return nil
-                }
-                if failure == EWOULDBLOCK {
-                    var pause = timespec(tv_sec: 0, tv_nsec: Int(interval.components.attoseconds / 1_000_000_000))
-                    nanosleep(&pause, nil)
-                }
+            var result: Int32
+            repeat {
+                result = flock(descriptor, LOCK_EX | LOCK_NB)
+            } while result != 0 && errno == EINTR
+            guard result == 0 else {
+                close(descriptor)
+                return nil
             }
             self.descriptor = descriptor
         }
@@ -226,10 +242,11 @@ public struct TerminalSurfaceAgentCommandShimCleanup {
     ///
     /// A directory is removed when nothing has written to it since `cutoff`,
     /// no running process names it, and no process that installed it still
-    /// runs. A directory with no owner record was made by a build older than
-    /// the records or by a shell integration, and may belong to a pane in
-    /// another cmux that is still open; the caller says whether such a cmux
-    /// could be running.
+    /// runs. A directory with no owner record, or one taken over from an
+    /// owner nobody could name, was made by a build older than the records
+    /// or by a shell integration, and may belong to a pane in another cmux
+    /// that is still open; the caller says whether such a cmux could be
+    /// running.
     ///
     /// Only directories this code can have created are considered: a surface
     /// id, a shell process id (the shell integrations' fallback name) or a
@@ -269,8 +286,11 @@ public struct TerminalSurfaceAgentCommandShimCleanup {
                 guard let lastWrite = lastWriteDate(of: location), lastWrite < cutoff else { return false }
                 guard kind == .surface else { return true }
                 let owners = ownerRecords(inDirectory: location)
-                guard !owners.isEmpty else { return removesDirectoriesWithoutOwnerRecord }
-                return !owners.contains(where: ownerIsRunning)
+                guard !owners.contains(where: ownerIsRunning) else { return false }
+                guard !owners.isEmpty, !hasUnrecordedOwner(location) else {
+                    return removesDirectoriesWithoutOwnerRecord
+                }
+                return true
             }
             guard isUnused(directory) else { continue }
             // Taken per directory, so a sweep of many never holds up a pane
