@@ -102,7 +102,8 @@ if [ ! -x "$cargo_bin/rustup" ]; then
   sum="$(curl -fsSL --retry 3 --max-time 30 "$url.sha256" | cut -d' ' -f1)"
   echo "$sum  $CI_TOOLS/rustup-init" | sha256 -c -
   chmod +x "$CI_TOOLS/rustup-init"
-  "$CI_TOOLS/rustup-init" -y --profile minimal --default-toolchain none --no-modify-path
+  # A system rustc/cargo on PATH makes rustup-init refuse ("cannot install while Rust is installed"); skip that check.
+  RUSTUP_INIT_SKIP_PATH_CHECK=yes "$CI_TOOLS/rustup-init" -y --profile minimal --default-toolchain none --no-modify-path
 fi
 "$cargo_bin/rustup" toolchain install 1.94.0 --profile minimal --component clippy,rustfmt
 mkdir -p "$CI_TOOLS/bin"
