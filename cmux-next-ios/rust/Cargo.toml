@@ -24,6 +24,8 @@ cmux-wg = { path = "../../cmux-tui/crates/cmux-wg" }
 cmux-fault = { path = "../../cmux-tui/crates/cmux-fault" }
 # The terminal composer's Send: one keyed request, kept across a reconnect.
 cmux-composer-send = { path = "../../cmux-tui/crates/cmux-composer-send" }
+# Where the person was (workspace, chat or terminal, scroll anchor, selection), opened again on launch.
+cmux-mobile-last-place = { path = "../../cmux-tui/crates/cmux-mobile-last-place" }
 cmux-transport = { path = "../../cmux-tui/crates/cmux-transport" }
 # cmux.rd/1 + cmux.rb/1 (streamed browser tabs, verify/browser-stream.md).
 cmux-rd-proto = { path = "../../cmux-tui/crates/cmux-rd-proto", features = ["serde"] }
