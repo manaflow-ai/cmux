@@ -466,6 +466,9 @@ python3 tests/test_ci_parallel_artifact_transport.py
 [step.ci-artifact-worker]
 job = "linux"
 timeout = 360
+# broker.test.mjs times its deadlines in wall-clock milliseconds: beside the other linux steps "concurrent cold misses
+# time out together" failed on #53426 three runs out of three (534 ms, 2330 ms); coderouter is alone for the same test.
+alone = true
 title = "CI artifact Worker"
 about = "the artifact Worker (workers/ci-artifacts) typechecks and passes its tests against local R2 and Durable Objects; its dependencies install without scripts"
 needs = ["node"]
