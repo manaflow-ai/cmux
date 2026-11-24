@@ -1,6 +1,20 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "mobile.chief.live.copyDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Copy Detail"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Detail kopieren"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Copier le détail"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "نسخ التفاصيل"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Copiar detalle"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "複製詳細內容"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "复制详细内容"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "세부 내용 복사"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "詳細をコピー"}}
+      }
+    },
     "mobile.chief.preview.table": {
       "extractionState": "manual",
       "localizations": {
