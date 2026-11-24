@@ -82,7 +82,9 @@ jobs:
     name: Scan new pr-media files for private names
     needs: check
     if: ${{ needs.check.outputs.changed == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    # Reads PR_MEDIA_PRIVATE_TERMS, so it runs on an ephemeral GitHub-hosted Linux VM, never the persistent pool
+    # (tests/test_ci_fork_runner_routing.py secret-runner rule).
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: write
