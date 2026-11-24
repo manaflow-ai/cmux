@@ -557,15 +557,19 @@ async fn late_roam(slow: impl FnOnce(&TestTurn), within: Duration) -> LateRoam {
     };
     let mut roam_done: Option<(u128, bool)> = None;
     let mut adopted = None;
+    // The server may hand a released port out again: an address the session
+    // offered before the roam counts once the roam dropped it.
+    let mut dropped: Vec<String> = Vec::new();
     let deadline = started + within;
     while Instant::now() < deadline && (adopted.is_none() || roam_done.is_none()) {
         if adopted.is_none() {
             let endpoints = wireguard::session_endpoints(&session_id, true).unwrap_or_default();
+            dropped.extend(before.iter().filter(|old| !endpoints.contains(old)).cloned());
             let fresh = turn.grants().into_iter().filter(|(at, _)| *at >= started).map(|(_, relayed)| relayed);
             let fresh: Vec<_> = fresh.collect();
             if let Some(relayed) = endpoints
                 .iter()
-                .filter(|endpoint| !before.contains(endpoint))
+                .filter(|endpoint| !before.contains(endpoint) || dropped.contains(endpoint))
                 .filter_map(|endpoint| endpoint.parse::<std::net::SocketAddr>().ok())
                 .find(|addr| fresh.contains(addr))
             {
@@ -623,8 +627,13 @@ async fn roam_late_turn_grant_timeline() {
     let spike = Duration::from_millis(env("ROAM_LATE_SPIKE_MS", 1600));
     let window = Duration::from_millis(env("ROAM_LATE_WINDOW_MS", 4000));
     let profile = std::env::var("ROAM_LATE_PROFILE").unwrap_or_else(|_| "none".into());
+    let first = env("ROAM_LATE_FIRST", 0);
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_test_writer()
+        .try_init();
     let mut adopted = Vec::new();
-    for run in 0..runs {
+    for run in first..first + runs {
         set_link_profile((profile != "none").then(|| LinkProfile::named(&profile)), 0x5241_4d00 + run);
         let shaped = profile != "none";
         let result = late_roam(

@@ -410,7 +410,9 @@ impl Session {
             }
             found
         };
-        let (reflexive, turn) = tokio::join!(reflexive, turn_beside(&self.options, false, turn_side));
+        let late = LateTurn::default();
+        let (reflexive, turn) =
+            tokio::join!(reflexive, turn_beside_keeping(&self.options, false, turn_side, Some(&late)));
         let blocked = asked > 0 && reflexive.is_empty();
         // A STUN answer came after all: the early allocation is dropped
         // (released) unused.
@@ -442,7 +444,7 @@ impl Session {
             self.install_turn(turn, (relayed.clone(), relayed_tls.clone()));
             let _ = net.refresh().await;
         } else if turn_missed {
-            self.retry_turn("no TURN allocation at answer; taking one", async { true });
+            self.retry_turn_after("no TURN allocation at answer; taking one", async { true }, late);
         }
         if endpoints.len() != known {
             self.announce(endpoints, relayed, relayed_tls);

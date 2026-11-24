@@ -1,7 +1,7 @@
 {
  "owners": [
   {
-   "at": "2026-11-24T10:51:24Z",
+   "at": "2026-11-24T11:08:31Z",
    "harness": "claude",
    "host": "gcp-agent-lane-11",
    "name": "mobile-failover-relay",
@@ -9,7 +9,7 @@
    "pr": null,
    "proc_start": "27128377",
    "session_id": "01a1ffaa-366a-76a4-9447-2e8e358d8f16",
-   "worktree": "/home/cmux/.wt/checkouts/cmux/lane--roam-turn-late/cmux-next-ios/rust/crates/cmux-mobile-link/../.."
+   "worktree": "/home/cmux/.wt/checkouts/cmux/lane--roam-turn-late/tmp-lmg/cmux-next-ios/rust"
   }
  ],
  "schema": "cargo-target-owner/v1"

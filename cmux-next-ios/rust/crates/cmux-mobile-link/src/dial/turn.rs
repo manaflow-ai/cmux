@@ -357,8 +357,9 @@ impl TurnCarrier {
     /// Allocate on the servers `options` offer: UDP first (unless UDP is
     /// blocked), then, if UDP gives nothing, a stream (TLS on 443 first).
     /// `None` when there is no server or every allocation failed in time.
+    #[cfg(test)]
     pub async fn allocate(options: &DialOptions) -> Option<Self> {
-        Self::allocate_with(options, None, false).await
+        Self::allocate_with(options, None, false, None).await
     }
 
     /// [`Self::allocate`], keeping in `late` each attempt that ran past its
@@ -366,7 +367,7 @@ impl TurnCarrier {
     /// allocation after all ([`LateTurn::landed`]) instead of being
     /// released. The bounds, and what this returns, are `allocate`'s.
     pub(crate) async fn allocate_keeping(options: &DialOptions, late: &LateTurn) -> Option<Self> {
-        Self::allocate_inner_with(options, None, false, Some(late)).await
+        Self::allocate_with(options, None, false, Some(late)).await
     }
 
     /// [`Self::allocate`], told by the STUN wait running beside it whether
@@ -377,17 +378,9 @@ impl TurnCarrier {
     /// every dial on a network that drops UDP (a hotel, a guest network)
     /// about 1.5 s before TURN over TLS. `stream_now` (a dial): the stream
     /// allocation starts at once, beside UDP, instead of after its stagger.
+    /// Each attempt that runs past its bound is kept in `late` (when given)
+    /// instead of dropping its answer.
     pub(crate) async fn allocate_with(
-        options: &DialOptions,
-        udp_silent: Option<watch::Receiver<bool>>,
-        stream_now: bool,
-    ) -> Option<Self> {
-        Self::allocate_inner_with(options, udp_silent, stream_now, None).await
-    }
-
-    /// [`Self::allocate_with`], keeping each attempt that ran past its bound
-    /// in `late` (when given) instead of dropping its answer.
-    pub(crate) async fn allocate_inner_with(
         options: &DialOptions,
         udp_silent: Option<watch::Receiver<bool>>,
         stream_now: bool,
@@ -1145,11 +1138,6 @@ impl LateTurn {
         if let Some(waker) = late.waiting.take() {
             waker.wake();
         }
-    }
-
-    /// Whether no attempt is still running.
-    pub(crate) fn is_empty(&self) -> bool {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner).attempts.is_empty()
     }
 
     /// The first late attempt to land a carrier, or `None` once every one
