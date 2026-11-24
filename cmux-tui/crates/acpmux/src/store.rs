@@ -746,6 +746,10 @@ pub struct SessionMeta {
     /// `total_cost_usd`), which the next turn's cost is measured from.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub harness_cost_usd: Option<f64>,
+    /// What this session's tasks cost so far, model and compute (`hub/turn_cost.rs`): the
+    /// `sessionCostUsd` its last priced turn carried. A fork starts its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_cost_usd: Option<f64>,
     /// The pull requests this session's `gh pr create` calls printed (`hub/pull_requests.rs`),
     /// once each, oldest first. A fork starts with none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
