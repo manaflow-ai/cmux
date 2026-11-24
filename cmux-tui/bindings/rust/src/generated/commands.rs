@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR bdb028958566c963a3f102b8942b37f167b9419102ca45ea866bcc996b2434cc.
+// cmux-tui mux protocol 12, IR 624be7fd5a31842931b633e4dcd212de255eda70ab0753d5d595d1d99c932f93.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -88,6 +88,8 @@ pub struct AttachSurfaceRequest {
     pub replay_history_start: Optional<u64>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub resume_generation: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub resume_max_bytes: Optional<u64>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub resume_offset: Optional<u64>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -3583,6 +3585,8 @@ pub struct SetClientInfoRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub api_revision: Optional<u32>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub api_version: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub capabilities: Optional<Vec<String>>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub device_id: Optional<String>,
@@ -3605,9 +3609,6 @@ pub struct SetClientInfoRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub version: Optional<String>,
 }
-
-#[rustfmt::skip]
-pub type SetClientInfoResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -4602,6 +4603,9 @@ impl CmuxClient {
         }
         if !request.resume_generation.is_missing() {
             self.require_capability_field("attach-surface", "terminal-resume-v1")?;
+        }
+        if !request.resume_max_bytes.is_missing() {
+            self.require_capability_field("attach-surface", "terminal-resume-bounded-v1")?;
         }
         if !request.resume_offset.is_missing() {
             self.require_capability_field("attach-surface", "terminal-resume-v1")?;
@@ -5941,8 +5945,11 @@ impl CmuxClient {
         self.execute(&SET_CELL_PIXELS_METADATA, &request)
     }
 
-    pub fn set_client_info(&mut self, request: SetClientInfoRequest) -> Result<SetClientInfoResult> {
+    pub fn set_client_info(&mut self, request: SetClientInfoRequest) -> Result<T::SetClientInfoResult> {
         if !request.api_revision.is_missing() {
+            self.require_protocol_field("set-client-info", 12)?;
+        }
+        if !request.api_version.is_missing() {
             self.require_protocol_field("set-client-info", 12)?;
         }
         if !request.device_id.is_missing() {

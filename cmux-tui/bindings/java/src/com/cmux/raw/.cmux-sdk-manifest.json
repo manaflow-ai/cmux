@@ -112,8 +112,8 @@
     },
     {
       "path": "AttachSurfaceRequest.java",
-      "sha256": "b37fbeb5b3560f81868dc392e6ceab4a0b992f8e6755430ea3f8ca196a9ccd5a",
-      "size": 15244
+      "sha256": "d9dbed614b45cac0d8ab679e315b69eb1515e49fec7e0ee249811b509feccdb2",
+      "size": 16042
     },
     {
       "path": "AttachSurfaceRequestMode.java",
@@ -787,8 +787,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "5d3eaed4a901e0af8998d8e97d544413479a10c3e5506d7ab944980e5079f0f1",
-      "size": 86840
+      "sha256": "abec1d967af78c06bdd75102a35e671e78c67b51fccc52ad4458762bee0ced6b",
+      "size": 86932
     },
     {
       "path": "ComputerUseApprovalsRequest.java",
@@ -1502,8 +1502,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "9a5cb914df1ed91895c001adf8a5e56d88d146877483ae91efe40278c3067129",
-      "size": 74268
+      "sha256": "0e5d12972327b7c67766e8257add3bc11fc38f2607b35db0b042dee55d0bb7e8",
+      "size": 74284
     },
     {
       "path": "GetBlobRequest.java",
@@ -1667,8 +1667,8 @@
     },
     {
       "path": "IdentifyResult.java",
-      "sha256": "baa2f783ae4f8cd0c3d8f672cb80a7f1f8e28f2a7b8384fc9c187e4a69bf59f4",
-      "size": 23298
+      "sha256": "a67d6a745aeb18dfbddc3f09df92fe64b84ae00f2b681790285f4819dd7a4a48",
+      "size": 24779
     },
     {
       "path": "IdsRequest.java",
@@ -2282,7 +2282,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "f3956c0156b3cc58c4b4f0a4c3f9a4b36913667e39e9bff0cf0adb8d83636132",
+      "sha256": "45cb9e5f8a1588a359267248f9b40b6df8dc3f0c760e2cdcf8aaa161dd0c176d",
       "size": 8511
     },
     {
@@ -2877,8 +2877,13 @@
     },
     {
       "path": "SetClientInfoRequest.java",
-      "sha256": "5662381127a3aeb3c98d2bcbff052221df5f204b450b1da180c48eecf10ff3c4",
-      "size": 9559
+      "sha256": "a726911bc6be3091e866d7222877a5c2e0596a83b3506fe10a974005a3ee1b07",
+      "size": 10274
+    },
+    {
+      "path": "SetClientInfoResult.java",
+      "sha256": "035190548c455269a3ab7538832d8204df5d85b7a6a347d088fe789b09682956",
+      "size": 2636
     },
     {
       "path": "SetClientSizingRequest.java",
@@ -3832,7 +3837,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "bdb028958566c963a3f102b8942b37f167b9419102ca45ea866bcc996b2434cc",
+  "ir_sha256": "624be7fd5a31842931b633e4dcd212de255eda70ab0753d5d595d1d99c932f93",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

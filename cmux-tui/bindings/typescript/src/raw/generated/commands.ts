@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR bdb028958566c963a3f102b8942b37f167b9419102ca45ea866bcc996b2434cc. */
+/* cmux-tui mux protocol 12, IR 624be7fd5a31842931b633e4dcd212de255eda70ab0753d5d595d1d99c932f93. */
 
 
 import type * as T from "./types.js";
@@ -71,6 +71,7 @@ export interface AttachSurfaceRequest extends CmuxRequestBase {
   "replay_history_rows"?: (number) | null;
   "replay_history_start"?: (bigint) | null;
   "resume_generation"?: (string) | null;
+  "resume_max_bytes"?: (bigint) | null;
   "resume_offset"?: (bigint) | null;
   "rows"?: (number) | null;
   "snapshot"?: (string) | null;
@@ -2500,6 +2501,7 @@ export interface SetCellPixelsRequest extends CmuxRequestBase {
 export interface SetClientInfoRequest extends CmuxRequestBase {
   cmd: "set-client-info";
   "api_revision"?: (number) | null;
+  "api_version"?: (string) | null;
   "capabilities"?: (Array<string>) | null;
   "device_id"?: (string) | null;
   "device_kind"?: (string) | null;
@@ -2512,7 +2514,6 @@ export interface SetClientInfoRequest extends CmuxRequestBase {
   "user_id"?: (string) | null;
   "version"?: (string) | null;
 }
-export type SetClientInfoResult = T.EmptyResult;
 
 /** Protocol v10; authority: control. */
 export interface SetClientSizingRequest extends CmuxRequestBase {
@@ -5418,7 +5419,7 @@ export interface CmuxCommandDefinitionMap {
   };
   "set-client-info": {
     request: SetClientInfoRequest;
-    result: SetClientInfoResult;
+    result: T.SetClientInfoResult;
     authority: "control";
     since: 6;
     capability: null;
