@@ -322,3 +322,208 @@ fn a_pending_version_the_platform_never_got_settles_failed_and_stops() {
     assert_eq!(*world.procs.stopped.borrow(), [500]);
     assert_eq!(app.live, None);
 }
+
+const SECRET: &str = "sk_live_only_for_web";
+
+fn with_secret(world: &World) {
+    world
+        .agent
+        .secrets
+        .borrow_mut()
+        .insert("web".into(), [("STRIPE_KEY".to_owned(), SECRET.to_owned())].into_iter().collect());
+}
+
+#[test]
+fn an_apps_secret_reaches_its_own_process_after_the_service_env_literals() {
+    let world = World::new();
+    with_secret(&world);
+    world
+        .agent
+        .secrets
+        .borrow_mut()
+        .get_mut("web")
+        .unwrap()
+        .insert("NODE_ENV".into(), "staging".into());
+    world.fs.file(
+        "/state/apps/web/v1/src/.cmux/apps/web/app.json",
+        br#"{"service": {"env": {"NODE_ENV": "production", "LOG_LEVEL": "info"}}}"#,
+    );
+    world.with(|host| publish(host, &request())).unwrap();
+
+    let reads = world.process_env_reads();
+    assert_eq!(reads.len(), 1);
+    assert_eq!(
+        (reads[0].method.as_str(), reads[0].path.as_str()),
+        ("POST", "/v1/cloud/apps/web/process-env")
+    );
+    assert_eq!(reads[0].body, Some(json!({"machine": "vm_self"})));
+    let env = world.procs.spawned.borrow()[0].env.clone();
+    assert!(env.contains(&("STRIPE_KEY".to_owned(), SECRET.to_owned())), "{env:?}");
+    assert!(env.contains(&("LOG_LEVEL".to_owned(), "info".to_owned())));
+    // A secret wins over a literal of the same name, and each name appears once.
+    assert!(env.contains(&("NODE_ENV".to_owned(), "staging".to_owned())), "{env:?}");
+    assert_eq!(env.iter().filter(|(k, _)| k == "NODE_ENV").count(), 1);
+    // Never on disk: not in the version record, the app state, or anything else written.
+    assert!(!world.stored_anywhere(SECRET), "a secret value was written to disk");
+}
+
+#[test]
+fn a_secret_never_reaches_another_apps_process() {
+    let world = World::new();
+    with_secret(&world);
+    world.with(|host| publish(host, &request())).unwrap();
+    let mut other = request();
+    other.name = Some("api".into());
+    world.with(|host| publish(host, &other)).unwrap();
+
+    let spawned = world.procs.spawned.borrow();
+    assert_eq!((spawned[0].slug.as_str(), spawned[1].slug.as_str()), ("web", "api"));
+    assert!(spawned[0].env.iter().any(|(_, v)| v == SECRET));
+    assert!(
+        spawned[1].env.iter().all(|(k, v)| k != "STRIPE_KEY" && v != SECRET),
+        "{:?}",
+        spawned[1].env
+    );
+    let paths: Vec<String> = world.process_env_reads().into_iter().map(|s| s.path).collect();
+    assert_eq!(paths, ["/v1/cloud/apps/web/process-env", "/v1/cloud/apps/api/process-env"]);
+}
+
+#[test]
+fn a_process_env_refusal_fails_the_publish_before_start_and_keeps_live() {
+    let world = World::new();
+    world.with(|host| publish(host, &request())).unwrap();
+    let before = world.changes().len();
+    *world.agent.process_env_answer.borrow_mut() = Some((
+        503,
+        json!({"error": {"code": "cloud.app.secret_unreadable", "message": "secret STRIPE_KEY can't be opened; set it again"}}),
+    ));
+    let failure = world.with(|host| publish(host, &request())).unwrap_err();
+
+    assert_eq!(failure.code, "app.secrets");
+    assert!(failure.message.contains("cloud.app.secret_unreadable"), "{}", failure.message);
+    assert!(failure.message.contains("STRIPE_KEY"), "{}", failure.message);
+    assert_eq!(world.procs.spawned.borrow().len(), 1, "v2 started without its secrets");
+    assert_eq!(world.changes().len(), before, "a version without its secrets reached the platform");
+    let app = world.with(|host| state::load(host.fs, &host.apps_root, "web")).unwrap().unwrap();
+    assert_eq!(app.live, Some(1));
+    assert_eq!(app.version(1).unwrap().state, VersionState::Live);
+    assert_eq!(app.version(2).unwrap().state, VersionState::Failed);
+}
+
+#[test]
+fn an_app_the_platform_does_not_know_yet_starts_with_no_secrets() {
+    let world = World::new();
+    *world.agent.process_env_answer.borrow_mut() =
+        Some((404, json!({"error": {"code": "cloud.app.not_found", "message": "no such app"}})));
+    let done = world.with(|host| publish(host, &request())).unwrap();
+    assert_eq!(done.version.state, VersionState::Live);
+
+    // Any other 404 (the machine is not the creator's) is a refusal.
+    *world.agent.process_env_answer.borrow_mut() = Some((
+        404,
+        json!({"error": {"code": "cloud.app.machine_not_found", "message": "no such Cloud machine of yours"}}),
+    ));
+    let failure = world.with(|host| publish(host, &request())).unwrap_err();
+    assert_eq!(failure.code, "app.secrets");
+}
+
+#[test]
+fn a_rollback_restart_gets_its_apps_secrets_and_a_refusal_keeps_live() {
+    let world = World::new();
+    with_secret(&world);
+    world.with(|host| publish(host, &request())).unwrap();
+    world.with(|host| publish(host, &request())).unwrap();
+    world.procs.dead.borrow_mut().insert(500);
+
+    *world.agent.process_env_answer.borrow_mut() = Some((
+        503,
+        json!({"error": {"code": "cloud.app.secrets_unconfigured", "message": "app secrets are not configured on this deployment"}}),
+    ));
+    let failure =
+        world.with(|host| rollback(host, "web", None, Duration::from_secs(60))).unwrap_err();
+    assert_eq!(failure.code, "app.secrets");
+    assert_eq!(world.procs.spawned.borrow().len(), 2);
+    let app = world.with(|host| state::load(host.fs, &host.apps_root, "web")).unwrap().unwrap();
+    assert_eq!(app.live, Some(2));
+
+    *world.agent.process_env_answer.borrow_mut() = None;
+    world.with(|host| rollback(host, "web", None, Duration::from_secs(60))).unwrap();
+    let spawned = world.procs.spawned.borrow();
+    assert!(spawned[2].restart);
+    assert!(spawned[2].env.contains(&("STRIPE_KEY".to_owned(), SECRET.to_owned())));
+    assert!(!world.stored_anywhere(SECRET));
+}
+
+#[test]
+fn a_publish_uploads_the_first_frame_of_the_promoted_version_after_the_promote() {
+    let world = World::new();
+    let done = world.with(|host| publish(host, &request())).unwrap();
+    assert!(done.warnings.is_empty(), "{:?}", done.warnings);
+    // Rendered from the version's own loopback port, not the edge.
+    assert_eq!(*world.capture.ports.borrow(), [done.version.port]);
+    let frames = world.frames();
+    assert_eq!(frames.len(), 1);
+    assert_eq!(frames[0].method, "PUT");
+    assert_eq!(frames[0].path, "/v1/cloud/apps/web/versions/1/frame");
+    assert_eq!(frames[0].key, None);
+    let png = common::decode_frame(&frames[0]);
+    assert_eq!(png, common::tiny_png());
+    // The upload comes after the promote.
+    let sent = world.agent.sent.borrow();
+    let promote = sent.iter().position(|s| s.path.ends_with("/versions")).unwrap();
+    let frame = sent.iter().position(|s| s.path.ends_with("/frame")).unwrap();
+    assert!(promote < frame);
+}
+
+#[test]
+fn the_frame_names_the_platforms_version_number_not_the_local_one() {
+    let world = World::new();
+    world.agent.promoted.set(6);
+    let done = world.with(|host| publish(host, &request())).unwrap();
+    assert_eq!((done.version.n, done.version.platform_n), (1, Some(7)));
+    assert_eq!(world.frames()[0].path, "/v1/cloud/apps/web/versions/7/frame");
+}
+
+#[test]
+fn a_failed_capture_publishes_anyway_with_no_frame_and_a_warning() {
+    let world = World::new();
+    *world.capture.failure.borrow_mut() = Some("no headless browser on this machine".into());
+    let done = world.with(|host| publish(host, &request())).unwrap();
+    assert_eq!(done.version.state, VersionState::Live);
+    assert!(world.frames().is_empty(), "a frame was sent without a capture");
+    assert_eq!(done.warnings.len(), 1);
+    assert!(done.warnings[0].contains("no first frame"), "{:?}", done.warnings);
+    assert!(done.warnings[0].contains("no headless browser"), "{:?}", done.warnings);
+}
+
+#[test]
+fn a_capture_that_is_not_a_png_is_never_sent() {
+    let world = World::new();
+    *world.capture.png.borrow_mut() = Some(b"<html>sign in</html>".to_vec());
+    let done = world.with(|host| publish(host, &request())).unwrap();
+    assert!(world.frames().is_empty());
+    assert!(done.warnings[0].contains("not a PNG"), "{:?}", done.warnings);
+}
+
+#[test]
+fn a_refused_upload_publishes_anyway_with_a_warning() {
+    let world = World::new();
+    *world.agent.frame_answer.borrow_mut() = Some((
+        409,
+        json!({"error": {"code": "cloud.app.frame_not_kept", "message": "only live and previous keep a frame"}}),
+    ));
+    let done = world.with(|host| publish(host, &request())).unwrap();
+    assert_eq!(done.version.state, VersionState::Live);
+    assert_eq!(world.frames().len(), 1);
+    assert!(done.warnings[0].contains("cloud.app.frame_not_kept"), "{:?}", done.warnings);
+}
+
+#[test]
+fn a_failed_or_pending_promote_renders_no_frame() {
+    let world = World::new();
+    world.agent.lose_answers.set(cmux_apps::platform::PROMOTE_TRIES);
+    let failure = world.with(|host| publish(host, &request())).unwrap_err();
+    assert_eq!(failure.code, "app.promote_pending");
+    assert!(world.capture.ports.borrow().is_empty());
+    assert!(world.frames().is_empty());
+}

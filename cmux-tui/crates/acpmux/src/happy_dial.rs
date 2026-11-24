@@ -62,18 +62,13 @@ where
         // Wait for an attempt to end, or for the stagger when another address remains.
         let wait = tokio::time::sleep(stagger);
         tokio::pin!(wait);
-        loop {
-            tokio::select! {
-                Some(result) = running.next() => match result {
-                    Ok(connected) => return Ok(connected),
-                    Err(error) => {
-                        last_error = Some(error);
-                        break;
-                    }
-                },
-                () = &mut wait, if pending.len() > 0 => break,
-                else => break,
-            }
+        tokio::select! {
+            Some(result) = running.next() => match result {
+                Ok(connected) => return Ok(connected),
+                Err(error) => last_error = Some(error),
+            },
+            () = &mut wait, if pending.len() > 0 => {}
+            else => {}
         }
     }
 }
@@ -107,6 +102,55 @@ pub async fn connect_ws(request: impl IntoClientRequest) -> Result<(Socket, Resp
     };
     let tcp = connect_tcp(&host, port).await.map_err(WsError::Io)?;
     tokio_tungstenite::client_async_tls_with_config(request, tcp, None, None).await
+}
+
+/// reqwest's resolver for the daemon's HTTP clients: the system lookup, then [`interleave`].
+///
+/// reqwest's connector already races the families: it dials the addresses of the first
+/// address's family and starts the other family 300 ms later (RFC 8305). Its default resolver
+/// hands it musl's order, IPv4 first on a host whose only IPv6 is ULA, so the race always led
+/// with IPv4 and IPv6 only got the leftovers of a stalled IPv4 dial. Handing it IPv6 first makes
+/// IPv6 the lead and IPv4 the hedge; a name with no AAAA (GitHub's) resolves and dials as before.
+#[derive(Clone)]
+pub struct V6FirstResolver {
+    lookup: std::sync::Arc<dyn Fn(String) -> Lookup + Send + Sync>,
+}
+
+/// A name's addresses, as [`V6FirstResolver`]'s lookup returns them (the port is replaced).
+pub type Lookup = std::pin::Pin<Box<dyn Future<Output = io::Result<Vec<SocketAddr>>> + Send>>;
+
+impl Default for V6FirstResolver {
+    fn default() -> Self {
+        Self::with_lookup(|host| {
+            Box::pin(
+                async move { Ok(tokio::net::lookup_host((host.as_str(), 0)).await?.collect()) },
+            )
+        })
+    }
+}
+
+impl V6FirstResolver {
+    /// Resolve with `lookup` instead of the system's (tests: a name with both families).
+    pub fn with_lookup(lookup: impl Fn(String) -> Lookup + Send + Sync + 'static) -> Self {
+        Self { lookup: std::sync::Arc::new(lookup) }
+    }
+}
+
+impl reqwest::dns::Resolve for V6FirstResolver {
+    fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
+        let lookup = (self.lookup)(name.as_str().to_owned());
+        Box::pin(async move {
+            let addresses = lookup.await?;
+            let addresses: reqwest::dns::Addrs = Box::new(interleave(&addresses).into_iter());
+            Ok(addresses)
+        })
+    }
+}
+
+/// `reqwest::Client::builder()` with [`V6FirstResolver`]: every HTTP client the daemon builds
+/// starts here, so each leads with IPv6 where the host has it and hedges IPv4 after 300 ms.
+pub fn http_client() -> reqwest::ClientBuilder {
+    reqwest::Client::builder().dns_resolver(V6FirstResolver::default())
 }
 
 #[cfg(test)]
