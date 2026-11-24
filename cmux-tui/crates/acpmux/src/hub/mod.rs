@@ -144,6 +144,7 @@ pub mod forum;
 pub(crate) mod full_access_bound;
 pub(crate) mod full_access_children;
 mod handoff;
+mod harness_magic;
 mod harness_view;
 mod harness_watch;
 mod health_view;
@@ -233,6 +234,7 @@ pub use model_options::{
 mod earned_access;
 #[cfg_attr(not(test), allow(dead_code))]
 mod earned_events;
+mod hybrid_hold;
 pub mod ledger;
 mod list_order;
 mod model_alias;
