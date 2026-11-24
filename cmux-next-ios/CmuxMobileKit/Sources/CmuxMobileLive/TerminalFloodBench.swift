@@ -220,7 +220,7 @@ final class TerminalFloodBench {
                 "frameIntervalP50ms": frames.percentile(0.5), "frameIntervalP95ms": frames.percentile(0.95),
                 "frameIntervalMaxms": frames.max() ?? 0,
                 "pingP50ms": pings.percentile(0.5), "pingP99ms": pings.percentile(0.99), "pingMaxms": pings.max() ?? 0,
-                "keyCount": keyMs.count, "keyMainP50ms": keyMs.percentile(0.5), "keyMainP95ms": keyMs.percentile(0.95),
+                "keyCount": keyMs.count, "keyMainP50ms": keyMs.percentile(0.5), "keyMainP95ms": keyMs.percentile(0.95),  // gitleaks:allow (metric names, not a key)
                 "keyMainMaxms": keyMs.max() ?? 0,
                 "echoCount": echoes.count, "echoP50ms": echoes.percentile(0.5), "echoP90ms": echoes.percentile(0.9), "echoMaxms": echoes.max() ?? 0,
                 "presentsPerSecondAvg": rows.isEmpty ? 0 : Double(rows.compactMap { $0["presents"] as? Int }.reduce(0, +)) / Double(rows.count),
