@@ -68,8 +68,5 @@ release.yml: build-sign-notarize-blacksmith: Cache Swift packages
 release.yml: build-sign-notarize: Cache Swift packages
 reload-build.yml: build: Save DerivedData cache
 reload-build.yml: build: Save SPM SourcePackages cache
-seed-derived-data.yml: seed: Save Swift packages
-seed-derived-data.yml: seed: Save SwiftPM manifest cache
-seed-derived-data.yml: seed: Save seed
 signing-keychain-macos.yml: bash32-syntax: Save bash 3.2.57
 web-complexity.yml: complexity: Cache Bun package cache

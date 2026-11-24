@@ -88,8 +88,6 @@ EDIT_READS: dict[tuple[str, str], tuple[frozenset[str], str]] = {
         "lines; its job never takes a job-level if, since a skipped `risk evidence` reads as a pass (#38003)"),
     ("thunderdome-label.yml", "pull_request_target"): (frozenset({"title", "base"}), "labels a pull request "
         "whose title names the thunderdome; not a check"),
-    ("web-complexity-trusted.yml", "pull_request_target"): (ALL, "keeps its context literal and evaluates "
-        "the real verdict on every event; a skip under its name would read as a pass"),
 }
 
 # A comment event whose jobs may start on any comment or review, and why.

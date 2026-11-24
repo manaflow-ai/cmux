@@ -589,7 +589,6 @@
       "class": "apple-signing-release",
       "picker_followup": "signs with release keys on an ephemeral Blacksmith Mac; an owned route needs a picker with the per-job keychain and exclusive claim (signing_runner.py)"
     },
-    "seed-derived-data.yml#seed": "apple-app-build",
     "seed-swiftpm-manifests.yml#seed": {
       "class": "apple-app-build",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
