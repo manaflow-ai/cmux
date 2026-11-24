@@ -38,11 +38,10 @@ struct CloudBuildSpaceTests {
         override func stopLoading() {}
     }
 
-    static func workerClient(_ buildSpace: CMUXBuildSpaceState) -> CloudAPIClient {
+    static func workerClient(_ buildSpace: CMUXBuildSpaceState) -> CloudDaemon {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [Recorder.self]
-        return CloudAPIClient.workerMachines(baseURL: Self.base, accessToken: { "session" }, teamID: { "team_1" },
-                                             session: URLSession(configuration: configuration),
+        return CloudDaemon.workerMachines(baseURL: Self.base, accessToken: { "session" }, teamID: { "team_1" },
                                              installToken: { "install" }, buildSpace: buildSpace)
     }
 
@@ -89,7 +88,7 @@ struct CloudBuildSpaceTests {
 
     // MARK: - Clients
 
-    @Test("CloudAPIClient sends the header on a Worker request with a build space, none without", arguments: [true, false])
+    @Test("CloudDaemon sends the header on a Worker request with a build space, none without", arguments: [true, false])
     func workerClient(tagged: Bool) async throws {
         Recorder.requests = []
         _ = try await Self.workerClient(Self.state(tagged)).listDomains()
@@ -98,7 +97,7 @@ struct CloudBuildSpaceTests {
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer session")
     }
 
-    @Test("CloudAPIClient of a misconfigured dev build refuses before anything is sent")
+    @Test("CloudDaemon of a misconfigured dev build refuses before anything is sent")
     func workerClientRefuses() async {
         Recorder.requests = []
         await #expect(throws: CMUXBuildSpaceError.self) { try await Self.workerClient(Self.misconfigured).listDomains() }
