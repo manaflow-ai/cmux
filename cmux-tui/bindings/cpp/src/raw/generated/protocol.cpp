@@ -17679,6 +17679,11 @@ Result<Json> Codec<AttachSurfaceRequest>::encode(const AttachSurfaceRequest& val
         if (!encoded) return std::move(encoded).error();
         object.emplace("resume_generation", std::move(encoded).value());
     }
+    if (!value.resume_max_bytes.is_absent()) {
+        auto encoded = encode_value(value.resume_max_bytes);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("resume_max_bytes", std::move(encoded).value());
+    }
     if (!value.resume_offset.is_absent()) {
         auto encoded = encode_value(value.resume_offset);
         if (!encoded) return std::move(encoded).error();
@@ -17824,6 +17829,16 @@ Result<AttachSurfaceRequest> Codec<AttachSurfaceRequest>::decode(const Json& val
             auto decoded = decode_value<std::string>(*field_resume_generation);
             if (!decoded) return std::move(decoded).error();
             result.resume_generation = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_resume_max_bytes = value.find("resume_max_bytes");
+    if (field_resume_max_bytes) {
+        if (field_resume_max_bytes->is_null()) {
+            result.resume_max_bytes = Field<std::uint64_t>::null();
+        } else {
+            auto decoded = decode_value<std::uint64_t>(*field_resume_max_bytes);
+            if (!decoded) return std::move(decoded).error();
+            result.resume_max_bytes = Field<std::uint64_t>(std::move(decoded).value());
         }
     }
     const Json* field_resume_offset = value.find("resume_offset");
@@ -48146,7 +48161,7 @@ Result<Event> Codec<Event>::decode(const Json& value) {
 }
 
 namespace {
-constexpr std::array<CommandFieldRequirement, 17> kCommand4FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 18> kCommand4FieldRequirements{{
     {"cols", 0U, "attach-initial-size"},
     {"expected_generation", 0U, "attach-identity-v1"},
     {"expected_terminal_id", 0U, "attach-identity-v1"},
@@ -48157,6 +48172,7 @@ constexpr std::array<CommandFieldRequirement, 17> kCommand4FieldRequirements{{
     {"replay_history_rows", 0U, "attach-replay-history-rows-v1"},
     {"replay_history_start", 0U, "attach-replay-history-window-v1"},
     {"resume_generation", 0U, "terminal-resume-v1"},
+    {"resume_max_bytes", 0U, "terminal-resume-bounded-v1"},
     {"resume_offset", 0U, "terminal-resume-v1"},
     {"rows", 0U, "attach-initial-size"},
     {"snapshot", 0U, "terminal-snapshot-v1"},
