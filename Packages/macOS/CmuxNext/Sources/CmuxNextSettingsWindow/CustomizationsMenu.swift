@@ -7,8 +7,11 @@ import os
 /// anywhere (Leo 2026-11-22, ask-931361017e). The rows come from `SettingsSchema.quickToggleGroups`
 /// and are rebuilt each time the menu opens, so the checkmarks show the value in effect and a new
 /// schema row appears with no edit here. A click flips the switch through
-/// `SettingsController.flip` (the guarded `setSetting`); a managed row is disabled. The last row
-/// runs `openAll` (Settings > Customize).
+/// `SettingsController.flip` (the guarded `setSetting`); a managed row is disabled. Under the
+/// groups, Turn Off All Experiments and Labs puts every opt-in switch back to its default
+/// (`SettingsController.turnAllOff`), native, so it works when a customization broke the Settings
+/// page (Leo, 2026-11-23, c-dc594b45e0: "have good recovery options"); it is disabled while none is
+/// on. The last row runs `openAll` (Settings > Customize).
 @MainActor
 public final class CustomizationsMenu: NSObject, NSMenuDelegate {
     private let settings: @MainActor () -> SettingsController?
@@ -44,7 +47,8 @@ public final class CustomizationsMenu: NSObject, NSMenuDelegate {
     public func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
         let settings = settings()
-        for group in SettingsSchema.quickToggleGroups(developerTools: DevTools.isEnabled) {
+        let groups = SettingsSchema.quickToggleGroups(developerTools: DevTools.isEnabled)
+        for group in groups {
             menu.addItem(.sectionHeader(title: group.title))
             for descriptor in group.rows {
                 let row = NSMenuItem(title: descriptor.title, action: #selector(flip(_:)), keyEquivalent: "")
@@ -57,6 +61,10 @@ public final class CustomizationsMenu: NSObject, NSMenuDelegate {
             }
         }
         menu.addItem(.separator())
+        let off = NSMenuItem(title: SettingsWindowStrings.turnAllOff, action: #selector(turnAllOff(_:)), keyEquivalent: "")
+        off.target = self
+        off.isEnabled = settings.map { !$0.turnOffTargets(in: groups).isEmpty } ?? false
+        menu.addItem(off)
         let all = NSMenuItem(title: SettingsWindowStrings.allCustomizations, action: #selector(openAllClicked(_:)), keyEquivalent: "")
         all.target = self
         menu.addItem(all)
@@ -70,6 +78,18 @@ public final class CustomizationsMenu: NSObject, NSMenuDelegate {
                 try await settings.flip(descriptor)
             } catch {
                 Self.logger.error("customizations menu \(id, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
+    @objc private func turnAllOff(_ sender: NSMenuItem) {
+        guard let settings = settings() else { return }
+        let groups = SettingsSchema.quickToggleGroups(developerTools: DevTools.isEnabled)
+        Task {
+            do {
+                try await settings.turnAllOff(in: groups)
+            } catch {
+                Self.logger.error("customizations menu turn all off failed: \(String(describing: error), privacy: .public)")
             }
         }
     }

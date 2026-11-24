@@ -88,3 +88,31 @@ test("the search filters every group at once and opens All Switches to its match
   expect(card().querySelector("[data-checklist-group]")).toBeNull();
   expect(card().textContent).toContain("no switch is called this");
 });
+
+// Leo, 2026-11-23, c-dc594b45e0: "I want people to not accidentally soft lock themselves and like
+// have good recovery options". Turn All Off shows only while an opt-in switch is on, and puts each
+// back to its default.
+test("Turn All Off shows while a Labs switch is on and puts every one back to its default", async () => {
+  await open();
+  const turnOff = () => group("labs")!.querySelector<HTMLButtonElement>('[data-checklist-turn-off="labs"]');
+  expect(turnOff()).toBeNull();
+  await click(toggle("labs.liveTree"));
+  await settle();
+  expect(count("labs")).toBe(`1 of ${ids("labs").length} on`);
+  expect(turnOff()).not.toBeNull();
+  await click(turnOff()!);
+  await settle();
+  expect(toggle("labs.liveTree").getAttribute("aria-checked")).toBe("false");
+  expect(count("labs")).toBe(`0 of ${ids("labs").length} on`);
+  expect(turnOff()).toBeNull();
+});
+
+test("the library's Turn All Off runs `customize library off` for each entry that is on", async () => {
+  await open();
+  const turnOff = group("library")!.querySelector<HTMLButtonElement>('[data-checklist-turn-off="library"]');
+  expect(turnOff).not.toBeNull();
+  await click(turnOff!);
+  await settle();
+  expect(page!.provider.libraryRuns.length).toBeGreaterThan(0);
+  expect(page!.provider.libraryRuns.every((run) => run.verb === "off")).toBe(true);
+});

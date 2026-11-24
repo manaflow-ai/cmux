@@ -247,6 +247,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   shortcutKeycaps,
   holdToApprove,
   holdToApproveDuration,
+  shortcutKeycaps,
   jumpLatestPlace,
   hatPillPlace,
   dockBand,

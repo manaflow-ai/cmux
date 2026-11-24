@@ -6,6 +6,13 @@
 // a library entry or an installed look runs the library card's own `on`/`off`. A look that is not
 // installed has no host op that installs it yet: its click opens the Customize chat with the
 // install drafted (`store.askCmux`). Opened by `#/settings/customize`.
+//
+// Recovery (Leo, 2026-11-23, c-dc594b45e0: "I want people to not accidentally soft lock themselves
+// and like have good recovery options"): Experiments, Labs and the library each get a Turn All Off
+// in their head while any of their switches is on. A setting goes back to its shipped default
+// (`store.reset`, the row menu's Reset to Default), so a switch that ships on stays on; a library
+// entry runs `customize library off`. The app menu's Customizations submenu has the same row,
+// native, for when this page is the thing that broke (CustomizationsMenu.swift).
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId, useMemo, useState } from "react";
 import { Input } from "../../../ui/Input";
@@ -24,7 +31,7 @@ import { shippedLooks } from "../customizeLooks";
 import { Switch } from "../editors/ToggleEditor";
 import { Icon } from "../icons";
 import type { LibraryRun } from "../ops";
-import { schema } from "../schema";
+import { rowsByKey, schema } from "../schema";
 import { LIBRARY_KEY, libraryQuery, type LibraryRead } from "../sectionQueries";
 import { managedOf, managedText, valueOf } from "../store";
 import { t } from "../strings";
@@ -100,8 +107,35 @@ export function CustomizeChecklistCard() {
     }
     void store.set(item.id, on);
   };
+  const onTurnAllOff = async (group: ChecklistGroup) => {
+    const on = turnOffTargets(group);
+    if (group.id === "library") {
+      for (const item of on) await runLibrary({ verb: "off", name: item.id.slice(8) });
+      return;
+    }
+    for (const item of on) await store.reset(item.id);
+  };
   return (
-    <CustomizeChecklistView groups={groups} query={query} onQuery={setQuery} onToggle={onToggle} refusal={refusal} />
+    <CustomizeChecklistView
+      groups={groups}
+      query={query}
+      onQuery={setQuery}
+      onToggle={onToggle}
+      onTurnAllOff={(group) => void onTurnAllOff(group)}
+      refusal={refusal}
+    />
+  );
+}
+
+/** The groups with a Turn All Off: the ones that hold opt-in switches. */
+const TURN_OFF_GROUPS: ReadonlySet<ChecklistGroupId> = new Set(["experiments", "labs", "library"]);
+
+/** What Turn All Off changes in `group`: each switch that is on, not locked, and (for a setting) off
+ * by default, so the reset leaves nothing on that the person did not turn on. */
+export function turnOffTargets(group: ChecklistGroup): ChecklistItem[] {
+  if (!TURN_OFF_GROUPS.has(group.id)) return [];
+  return group.items.filter(
+    (item) => item.on && item.locked === null && (group.id === "library" || rowsByKey.get(item.id)?.default !== true),
   );
 }
 
@@ -110,6 +144,7 @@ export function CustomizeChecklistView({
   query,
   onQuery,
   onToggle,
+  onTurnAllOff,
   refusal = null,
   layout = "rows",
   allOpen: allOpenAtFirst = false,
@@ -118,6 +153,8 @@ export function CustomizeChecklistView({
   query: string;
   onQuery: (query: string) => void;
   onToggle: (item: ChecklistItem, on: boolean) => void;
+  /** Turns every opt-in switch of the group off (``turnOffTargets``); no button when absent. */
+  onTurnAllOff?: (group: ChecklistGroup) => void;
   refusal?: string | null;
   layout?: ChecklistLayout;
   allOpen?: boolean;
@@ -175,8 +212,20 @@ export function CustomizeChecklistView({
               ) : (
                 <span className="checklist-group-title">{t(GROUP_TITLE[group.id])}</span>
               )}
-              <span className="checklist-count" data-checklist-count="">
-                {t("settingsPage.customizeChecklist.count", String(group.on), String(group.total))}
+              <span className="checklist-head-trailing">
+                {onTurnAllOff && turnOffTargets(group).length > 0 && (
+                  <button
+                    type="button"
+                    className="link-button checklist-turn-off"
+                    data-checklist-turn-off={group.id}
+                    onClick={() => onTurnAllOff(group)}
+                  >
+                    {t("settingsPage.customizeChecklist.turnAllOff")}
+                  </button>
+                )}
+                <span className="checklist-count" data-checklist-count="">
+                  {t("settingsPage.customizeChecklist.count", String(group.on), String(group.total))}
+                </span>
               </span>
             </div>
             {open &&
