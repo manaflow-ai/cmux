@@ -183,7 +183,7 @@ struct ToolOutputImages: View {
     var body: some View {
         let images = Array(call.images.prefix(Self.maxShown))
         VStack(alignment: .leading, spacing: 6) {
-            ForEach(images.indices, id: \.self) { index in
+            ForEach(images.indices, id: \.self) { index in // visible-only: at most maxShown (8) pictures of one call, in the order the call holds them
                 let image = images[index]
                 if let picture = ToolImageCache.image(key: "\(call.id)#\(index)", base64: image.data) {
                     Image(uiImage: picture)
