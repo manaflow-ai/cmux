@@ -1412,7 +1412,7 @@ async fn dispatch_request_with_identity(
                 // The daemon run decision proofs bind (`hub/person.rs`).
                 "personInstance": hub.person.instance(),
                 "extensions": extensions, "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::fork_through::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", crate::config::chief_builtins::BRAIN_PRESETS_FEATURE, "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::journal_restore::PAGES_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::agent_login::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, crate::hub::pause::FEATURE, crate::hub::release_to_watch::FEATURE, SESSION_RESUME_FEATURE, workflow_dispatch::FEATURE, crate::peer::HANDSHAKE_PIPELINE_FEATURE, super::dual_requests::FEATURE, crate::hub::require_asking::FEATURE, crate::hub::create_key::FEATURE, crate::sender_token::FEATURE, crate::hub::register::AUTO_FEATURE, crate::request_cancel::FEATURE, super::fork_through::RETARGET_FEATURE], "trustGate": true}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", crate::config::chief_builtins::BRAIN_PRESETS_FEATURE, "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::journal_restore::PAGES_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::agent_login::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, crate::hub::pause::FEATURE, crate::hub::release_to_watch::FEATURE, SESSION_RESUME_FEATURE, workflow_dispatch::FEATURE, crate::peer::HANDSHAKE_PIPELINE_FEATURE, super::dual_requests::FEATURE, crate::hub::require_asking::FEATURE, crate::hub::create_key::FEATURE, crate::sender_token::FEATURE, crate::hub::register::AUTO_FEATURE, crate::request_cancel::FEATURE, super::fork_through::RETARGET_FEATURE, crate::hub::fork_subagent::FEATURE], "trustGate": true}}
             });
             // This link carries the v2 list stream (`link_v2.rs`): the one change `peers` makes
             // to what v1 sends a link.
@@ -2480,12 +2480,19 @@ async fn dispatch_request_with_identity(
             let retarget = super::fork_through::retarget(&params)?
                 .map(|r| crate::hub::Retarget { remote: remote_switch, ..r });
             let switched = retarget.is_some();
+            // A subagent's own conversation, a model, a mode (`hub/fork_subagent.rs`). The mode
+            // pick is the person's own on this Mac: one that does not ask widens a narrow policy
+            // first, as their mode pick does (`SESSION_SET_MODE` below).
+            let start = crate::hub::fork_subagent::ForkStart::from_params(
+                &params,
+                conn.is_person() && !conn.origin.web_class(),
+            )?;
             let who = who(conn);
             let (new, warning) = if let Some(prompt) =
                 params.pointer("/_meta/acpmux/beforePromptId").and_then(Value::as_str)
             {
                 // A switch forks the chat as it is now; a fork before a prompt keeps its harness.
-                if retarget.is_some() {
+                if retarget.is_some() || !start.is_plain() {
                     return Err(RpcError::invalid_params(
                         "a fork before a prompt keeps the chat's harness: omit harness",
                     ));
@@ -2507,6 +2514,24 @@ async fn dispatch_request_with_identity(
                     // Onto another harness (`_meta.acpmux.harness`, `hub/fork.rs` `Retarget`): a
                     // pick of another harness's model in a started chat, at its next send.
                     let new = match retarget {
+                        _ if !start.is_plain() => {
+                            if through.is_some() {
+                                return Err(RpcError::invalid_params(
+                                    "a fork of a subagent, or one on a picked model or mode, forks the chat as it is now: omit throughSeq",
+                                ));
+                            }
+                            let fork = hub.fork_with_start(
+                                &s,
+                                retarget,
+                                name,
+                                cwd,
+                                env,
+                                workspace_id,
+                                start_later,
+                                start,
+                            );
+                            admitted.run(fork).await?
+                        }
                         Some(retarget) => {
                             let fork = hub.fork_to(
                                 &s,
