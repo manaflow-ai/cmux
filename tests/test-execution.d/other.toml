@@ -118,6 +118,11 @@ path = "tests/test_chromium_staleness.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_fast_track.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/ci/fast_track.py (the fast-track class) and its use in scripts/ci/pr_router.py; run python3 -m unittest tests/test_ci_fast_track.py yourself after editing either or risk_tier.py's RULES."
+
+[[test]]
 path = "tests/test_classic_api_guard.py"
 lane = "linux-guard"
 
@@ -209,6 +214,10 @@ path = "tests/test_fake_socket_env.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_fast_gates_lanes.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_feat_ci_guard_group.py"
 lane = "linux-guard"
 
@@ -225,13 +234,14 @@ path = "tests/test_fetch_run_artifact.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_fleet_test_host.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_files_host_dev_only.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). Proves cmux Files (dev) never reaches a shipped build (docs/cmux-files-host.md, Production): runs the real embed-files-host-dev.sh for every Release configuration and shipped bundle id against a stub asset, and checks FilesHost's #if DEBUG gate. Run python3 tests/test_files_host_dev_only.py on a fleet Mac after changing the embed phase, FilesHost or the pin (seconds; macOS ditto and codesign, no build)."
+
+[[test]]
+path = "tests/test_fleet_test_host.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_fleet_test_host.py"
 
 [[test]]
 path = "tests/test_format_post_edit.py"
@@ -341,10 +351,6 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_intent_familiar_warning.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_iroh_drift_issue.py"
 lane = "linux-guard"
 
 [[test]]
@@ -508,6 +514,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_next_batch_groups.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_next_closes_issues.py"
 lane = "linux-guard"
 
 [[test]]
