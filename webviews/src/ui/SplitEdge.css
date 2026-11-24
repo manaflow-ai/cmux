@@ -1,7 +1,8 @@
 /* The draggable edge between two panes (SplitEdge.tsx), drawn as a native split divider: the pane's
    own hairline stays the line at rest; hovered or dragged, a 2px line in the focus ring's color at 60%
    over it (DividerHandleView's active color). The hit zone is 8px, centred on the pane's edge. The
-   pane it sizes must be positioned (relative or absolute). */
+   pane it sizes must be positioned (relative or absolute). A theme sets that line's color and width
+   (--cmux-split-divider-color, --cmux-split-divider-width); unset, today's. */
 .ui-split-edge {
   --ui-split-edge-hit: 8px;
   position: absolute;
@@ -30,14 +31,14 @@
   top: 0;
   bottom: 0;
   left: 50%;
-  width: 2px;
+  width: var(--cmux-split-divider-width, 2px);
   translate: -50% 0;
   background: transparent;
   transition: background-color var(--acpmux-motion-hover, 80ms) var(--acpmux-motion-ease, ease-out);
 }
 .ui-split-edge:hover::after,
 [data-split-resizing] > .ui-split-edge::after {
-  background: color-mix(in srgb, var(--cmux-app-focus-ring, var(--agent-border, CanvasText)) 60%, transparent);
+  background: var(--cmux-split-divider-color, color-mix(in srgb, var(--cmux-app-focus-ring, var(--agent-border, CanvasText)) 60%, transparent));
 }
 /* While dragging (SplitEdge marks the page), the resize cursor holds over every pane, a frame's
    included, and nothing is selected. */
