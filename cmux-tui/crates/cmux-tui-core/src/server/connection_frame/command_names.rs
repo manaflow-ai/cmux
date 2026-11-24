@@ -312,6 +312,7 @@ impl Command {
             Self::RenameSurface { .. } => "rename-surface",
             Self::RenameScreen { .. } => "rename-screen",
             Self::RenameWorkspace { .. } => "rename-workspace",
+            Self::ReleaseWorkspaceNames { .. } => "release-workspace-names",
             Self::RenameProviderManagedWorkspace { .. } => "rename-provider-managed-workspace",
             Self::ResizeSurface { .. } => "resize-surface",
             Self::ResizeAttachedView { .. } => "resize-attached-view",

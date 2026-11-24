@@ -54,10 +54,14 @@ p = json.load(open(sys.argv[1]))
 print(p["purpose"], p.get("channel") or "-", p["commit"], p.get("tree_key") or "-")' "$payload")
 [[ "$channel" == - ]] && channel=""
 [[ "$release_tree" == - ]] && release_tree=""
-if [[ -n "$release_tree" && ( "$purpose" != cmux-linux-release || ! "$release_tree" =~ ^[0-9a-f]{40}$ ) ]]; then
-  echo "::error::$payload names tree_key $release_tree: only a Linux release payload names a tree, by its 40-hex key"
+if [[ -n "$release_tree" && ( ( "$purpose" != cmux-linux-release && "$purpose" != cmux-mac-live-update ) \
+      || ! "$release_tree" =~ ^[0-9a-f]{40}$ ) ]]; then
+  echo "::error::$payload names tree_key $release_tree: only a Linux release or Mac live payload names a tree, by its 40-hex key"
   exit 1
 fi
+# A Mac live payload names its tree for the Team-signed set a NIGHTLY's daemon updater takes
+# (cmux-tui/tree/<key>/team-signed/); only a Linux release file is also written under the tree.
+[[ "$purpose" == cmux-mac-live-update ]] && release_tree=""
 case "$purpose" in
   cmux-cloud-machine-update) object=cmux-tui/channels/cloud-machine.json label="Cloud machine channel" ;;
   cmux-linux-release) object="cmux-tui/channels/linux-$channel.json" label="Linux release channel $channel"
