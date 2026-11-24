@@ -20,9 +20,19 @@
 //! - CPU: `ACPMUX_SESSION_CPU_WEIGHT` (default 50, systemd's is 100) and a ceiling
 //!   `ACPMUX_SESSION_CPU_QUOTA_PCT`, a percent of the whole machine (default 75: one session
 //!   never takes every core).
-//! - IO: `ACPMUX_SESSION_IO_WEIGHT` (default 50). Where the user manager has no `io`
-//!   controller delegated (the lane VMs as of 2026-11-24) systemd keeps it and the kernel
-//!   ignores it until it is delegated.
+//! - IO: `ACPMUX_SESSION_IO_WEIGHT` (default 50). It takes effect only where the user manager
+//!   has the `io` controller delegated (`Delegate=` on `user@.service`) and a block device runs a
+//!   weight policy (iocost `enable=1` in the root `io.cost.qos`, or the `bfq` scheduler); else
+//!   systemd keeps the property and the kernel ignores it. [`IoState`] says which, in
+//!   `sessionBudgets.io` (version 2), so an inert weight shows instead of passing for a limit.
+//!   The lane VMs delegate no `io` and run `none` with iocost off, and stay that way: with both
+//!   turned on (2026-11-24, scripts/measure/session-budget-runaway/io.sh, a 4 GB writer) the
+//!   weight reached the scope (`io.weight default 10`) but a neighbor's 4 KB fsync was no better,
+//!   median p50/p99 25/271 ms with it against 35/213 ms without: the ext4 journal, not the
+//!   device share, is what the neighbor waits on. No bandwidth cap (`IOWriteBandwidthMax`)
+//!   either: a capped writer's dirty pages sit in the journal commit every neighbor's fsync waits
+//!   on, and a 100 MB/s cap took the neighbor's fsync p99 from 231-336 ms to 779-859 ms. The disk
+//!   watcher (`hub/session_budget_watch.rs`) is the session's disk limit.
 //! - disk: `ACPMUX_SESSION_DISK_MB` / `session.diskMb`, default this host's registry
 //!   `lanes.disk_per_lane_gb`, else a tenth of the home filesystem between 2 and 64 GiB. The
 //!   kernel has no per-scope disk limit here, so `hub/session_budget_watch.rs` measures it.
@@ -36,8 +46,10 @@ use serde_json::{Value, json};
 
 /// The `sessionBudgets` shape's version in `daemon status`. A reader takes the fields it knows
 /// from any version (`budget_line`), so a newer daemon's additions never break an older CLI.
-/// 2 added `store`, the per-session store budget (`session_store.rs`).
-pub(crate) const VERSION: u64 = 2;
+///
+/// 2 (2026-11-24): `io`, whether the IO weight takes effect.
+/// 3: `store`, the per-session store budget (`session_store.rs`).
+pub(crate) const VERSION: u64 = 3;
 
 /// How many lanes' worth of RAM one session may use: a lane is a coordinator and its helpers,
 /// and one of them bursts (a link) while the others idle.
@@ -67,6 +79,104 @@ pub(crate) struct Host {
     pub disk_total: u64,
     /// The registry's per-lane disk, bytes.
     pub disk_per_lane: Option<u64>,
+    /// Whether an `IOWeight` takes effect here.
+    pub io: IoState,
+}
+
+/// Whether the kernel honors a scope's `IOWeight` on this host.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct IoState {
+    /// The user manager's cgroup (`user@UID.service`) has the `io` controller: systemd's
+    /// `Delegate=` for `user@.service` names it. None: not under a user manager (unknown).
+    pub delegated: Option<bool>,
+    /// A block device's weight policy: iocost on, else bfq. None: no device has one, so
+    /// `io.weight` is accepted and ignored.
+    pub policy: Option<IoPolicy>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum IoPolicy {
+    Iocost,
+    Bfq,
+}
+
+impl IoPolicy {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Iocost => "iocost",
+            Self::Bfq => "bfq",
+        }
+    }
+}
+
+impl IoState {
+    /// From `/proc/self/cgroup` (`cgroup`), a reader of a cgroup file under `/sys/fs/cgroup`
+    /// (`cg`), the root `io.cost.qos` and each non-loop device's scheduler line.
+    pub(crate) fn from(
+        cgroup: &str,
+        cg: &dyn Fn(&str) -> Option<String>,
+        cost_qos: &str,
+        schedulers: &[String],
+    ) -> Self {
+        let path = cgroup.lines().find_map(|l| l.strip_prefix("0::")).unwrap_or("");
+        let manager = path
+            .split('/')
+            .position(|part| part.starts_with("user@") && part.ends_with(".service"))
+            .map(|i| path.split('/').take(i + 1).collect::<Vec<_>>().join("/"));
+        let delegated = manager.map(|dir| {
+            cg(&format!("{dir}/cgroup.controllers"))
+                .is_some_and(|c| c.split_whitespace().any(|name| name == "io"))
+        });
+        let iocost = cost_qos.lines().any(|l| l.split_whitespace().any(|w| w == "enable=1"));
+        let bfq = schedulers.iter().any(|s| s.contains("[bfq]"));
+        let policy = if iocost {
+            Some(IoPolicy::Iocost)
+        } else if bfq {
+            Some(IoPolicy::Bfq)
+        } else {
+            None
+        };
+        Self { delegated, policy }
+    }
+
+    /// This process's state: a few small sysfs reads, no cache (a `daemon-reexec` can delegate
+    /// `io` while the daemon runs).
+    pub(crate) fn here() -> Self {
+        #[cfg(target_os = "linux")]
+        {
+            let read = |p: &str| std::fs::read_to_string(p).ok();
+            let cg = |rel: &str| read(&format!("/sys/fs/cgroup{rel}"));
+            let schedulers: Vec<String> = std::fs::read_dir("/sys/block")
+                .into_iter()
+                .flatten()
+                .flatten()
+                .filter(|e| !e.file_name().to_string_lossy().starts_with("loop"))
+                .take(64)
+                .filter_map(|e| read(&format!("{}/queue/scheduler", e.path().display())))
+                .collect();
+            Self::from(
+                &read("/proc/self/cgroup").unwrap_or_default(),
+                &cg,
+                &read("/sys/fs/cgroup/io.cost.qos").unwrap_or_default(),
+                &schedulers,
+            )
+        }
+        #[cfg(not(target_os = "linux"))]
+        Self::default()
+    }
+
+    /// Whether a scope's `IOWeight` takes effect (None: unknown).
+    pub(crate) fn effective(&self) -> Option<bool> {
+        self.delegated.map(|d| d && self.policy.is_some())
+    }
+
+    pub(crate) fn json(&self) -> Value {
+        json!({
+            "delegated": self.delegated,
+            "policy": self.policy.map(IoPolicy::name),
+            "weightEffective": self.effective(),
+        })
+    }
 }
 
 /// One scope's limits; 0 (or None for tasks) is off.
@@ -246,6 +356,7 @@ pub(crate) fn this_host() -> Host {
             lanes,
             disk_total: home_disk().map_or(0, |(total, _)| total),
             disk_per_lane: limits.disk_mb.map(|mb| mb * MIB).or(registry_lanes().1),
+            io: IoState::here(),
         }
     }
     #[cfg(not(target_os = "linux"))]
@@ -299,9 +410,9 @@ pub(crate) fn home_disk() -> Option<(u64, u64)> {
 
 /// `daemon status`'s `sessionBudgets`: the version, the per-scope budget (a session's harness
 /// scope; `perTaskScope` for agent host and background task scopes), what it was sized
-/// from, whether the disk watcher runs, and each measured scope's use (`use`, from
-/// `hub/session_budget_watch.rs`); `store` is the per-session store budget and its readings
-/// (`session_store::Watch::json`, version 2).
+/// from, whether the IO weight takes effect (`io`, version 2), whether the disk watcher runs,
+/// and each measured scope's use (`use`, from `hub/session_budget_watch.rs`); `store` is the
+/// per-session store budget and its readings (`session_store::Watch::json`, version 3).
 pub(crate) fn status(
     budget: &Budget,
     task: &Budget,
@@ -319,6 +430,7 @@ pub(crate) fn status(
             "lanes": host.lanes,
             "diskBytes": host.disk_total,
         },
+        "io": host.io.json(),
         "watch": watch,
         "store": store,
     })
@@ -348,6 +460,20 @@ pub(crate) fn budget_line(v: &Value) -> Option<String> {
         per.get("cpuWeight").and_then(Value::as_u64).unwrap_or(0),
         gib("diskBytes"),
     );
+    // Version 2's `io`: the weight, and why it does nothing when it does nothing. An older
+    // daemon has no `io`, and its line stays as it was.
+    let weight = per.get("ioWeight").and_then(Value::as_u64).filter(|w| *w > 0);
+    if let (Some(io), Some(weight)) = (v.get("io"), weight) {
+        line.push_str(&format!(", io weight {weight}"));
+        let inert = match (io.get("delegated").and_then(Value::as_bool), io.get("policy")) {
+            (Some(false), _) => Some("io not delegated"),
+            (Some(true), Some(Value::Null)) => Some("no iocost or bfq"),
+            _ => None,
+        };
+        if let Some(why) = inert {
+            line.push_str(&format!(" (inert: {why})"));
+        }
+    }
     if let Some(lanes) = lanes {
         line.push_str(&format!(", sized for {lanes} lanes"));
     }

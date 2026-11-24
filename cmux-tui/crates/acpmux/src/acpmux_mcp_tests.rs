@@ -1323,6 +1323,42 @@ fn instructions_stay_short() {
     assert!(crate::computer_use::tools::INSTRUCTIONS.len() <= 900);
 }
 
+/// A thread listing says each thread once: the id it is replied by, not that id again under
+/// another name; the sender's shown name in `from`, not the whole sender record the chat pane
+/// reads; and no flag that is off, no count that is none, no id of the chat doing the reading.
+/// The text line keeps printing the unread count the rows no longer carry.
+#[test]
+fn a_thread_listing_names_its_sender_once_and_the_reader_never() {
+    let as_the_daemon_lists = || {
+        json!({"sessionId": "00000000-0000-4000-8000-000000000001", "threads": [
+            {"threadId": "pr:12", "key": "pr:12", "label": "#12", "class": "action",
+             "from": ["lane-a"], "unread": 0, "new": 0, "count": 3, "newestAt": 1,
+             "surgeHeld": false, "needYou": false, "newestPreview": "merged",
+             "sender": {"label": "lane-a", "session": null, "machine": null, "relay": null,
+                        "harness": null, "kind": null, "pid": null, "owner": null}}]})
+    };
+    let mut listed = as_the_daemon_lists();
+    let text = crate::cli::session_inbox::describe(&listed);
+    trim_threads(&mut listed);
+    assert!(text.contains("0 unread of 3"), "the text line stopped saying it: {text}");
+    assert!(listed.get("sessionId").is_none(), "the reader's own id: {listed}");
+    let row = listed["threads"][0].as_object().unwrap();
+    for gone in ["key", "sender", "unread", "new", "surgeHeld", "needYou"] {
+        assert!(!row.contains_key(gone), "{gone} is said twice or not at all: {listed}");
+    }
+    for kept in ["threadId", "label", "class", "from", "count", "newestPreview"] {
+        assert!(row.contains_key(kept), "{kept} was dropped: {listed}");
+    }
+    let before = as_the_daemon_lists().to_string().len();
+    assert!(listed.to_string().len() * 2 < before, "{listed} of {before} bytes");
+    // A thread's own read is not a listing: every sender it names stays.
+    let mut read = json!({"threadId": "pr:12", "sessionId": "s-1",
+        "messages": [{"from": "lane-a", "text": "hi", "sender": {"label": "lane-a"}}]});
+    let whole = read.clone();
+    trim_threads(&mut read);
+    assert_eq!(read, whole, "a thread read was trimmed like a listing");
+}
+
 /// The census of 2026-11-23 (cmuxterm-hq docs/findings/2026-11-23-mcp-tool-error-census.md)
 /// counted inbox_reply's `inbox.no_sender` refusals and calls naming `to` but no thread: both
 /// now reach the sender by name, and say so.
