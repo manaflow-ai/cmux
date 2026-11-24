@@ -1833,10 +1833,11 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         if let alsoKinds { params["alsoKinds"] = .array(alsoKinds) }
         if let version = read.timeBreakdownVersion {
             params["timeBreakdownVersion"] = .string(version)
-            // The phone draws no breakdown: once the daemon has named a version (it knows the
-            // field), ask it to leave the breakdown out even after new turns changed it.
-            params["omitTimeBreakdown"] = .bool(true)
         }
+        // The phone draws no breakdown: ask for none from the first attach, so a cold open's
+        // reply and the attachment's rows leave it out (a busy chat's row carried ~32 KB of it).
+        // A daemon that does not know the field ignores it.
+        params["omitTimeBreakdown"] = .bool(true)
         if read.firstAttach {
             params["maxBytes"] = .number(Double(openBytes))
             params["toolOutputMaxBytes"] = .number(Double(toolOutputMaxBytes))
