@@ -12,8 +12,8 @@ use serde_json::{Value, json};
 use super::super::{base, local};
 use super::{
     GIVE_UP_AFTER, Listed, Offer, base_of_listing, code, dial, elapsed_ms, from_set, hold_lock,
-    keep_base, note_failure, ok, print_ready, ready_timing, record_listing, redial, retry_wait,
-    serve_full, serve_reads, stamp_ready,
+    keep_base, note_failure, ok, packs, print_ready, ready_timing, record_listing, redial,
+    retry_wait, serve_full, serve_reads, stamp_ready,
 };
 
 pub(super) fn list_head(folder: &Path) -> anyhow::Result<Listed> {
@@ -51,6 +51,7 @@ pub(super) fn serve_head(
     if !ok(&answer) {
         return Ok(answer);
     }
+    let packed = packs(&answer);
     let close_head = reader.get_ref().try_clone()?;
     let _lock = hold_lock(at);
     if let Some(data) = answer.get_mut("data").and_then(Value::as_object_mut) {
@@ -70,7 +71,7 @@ pub(super) fn serve_head(
 
     drop(encoded);
     let prepared = std::thread::scope(|scope| {
-        scope.spawn(|| serve_reads(reader, &head));
+        scope.spawn(|| serve_reads(reader, &head, packed));
         let result = (|| -> anyhow::Result<_> {
             let full = list_full(folder)?;
             let encoded = full.manifest.encode()?;
@@ -93,7 +94,7 @@ pub(super) fn serve_head(
     drop(head);
     let (full, encoded, stream) =
         prepared.map_err(|error| error.context(AfterHeadReady(at.to_owned())))?;
-    serve_full(socket, name, at, &encoded, &full, stream);
+    serve_full(socket, name, at, &encoded, &full, (stream, packed));
     Ok(Value::Null)
 }
 

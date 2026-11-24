@@ -117,7 +117,7 @@ fn head_extend_keeps_thousands_of_nested_files_out_of_the_head() {
 fn ask_read(listed: &Listed, entry: u32) -> Part {
     let (machine, mac) = std::os::unix::net::UnixStream::pair().unwrap();
     std::thread::scope(|scope| {
-        let worker = scope.spawn(|| serve_reads(BufReader::new(mac), listed));
+        let worker = scope.spawn(|| serve_reads(BufReader::new(mac), listed, false));
         let mut lines = cmux_tui_core::projection::LineWriter::new(&machine);
         cmux_projection::wire::Ask::Read { ask: 7, entry, offset: 0, len: 64 }
             .write(&mut lines)
