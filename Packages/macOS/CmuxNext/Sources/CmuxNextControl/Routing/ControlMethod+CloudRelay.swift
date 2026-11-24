@@ -1,4 +1,5 @@
 public import CmuxNextActions
+public import CmuxNextSettings
 public import Foundation
 
 extension ControlMethod {
