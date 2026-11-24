@@ -348,7 +348,10 @@ pub(super) fn listed(
             return Verdict::ReadFirst;
         }
         let moved = listing.stamp.is_none() || listing_stamp(root, git_dir) != listing.stamp;
-        if moved {
+        // Only the first ask to see the move invalidates: once the entry is
+        // stale, a read behind it may already run, and a later invalidation
+        // would land that read stale too and cost another read.
+        if moved && fresh {
             cache().entries().invalidate(Tag::Index(root.clone()));
         }
         if moved || !fresh || listing.read_at.elapsed() > MAX_FRESH {
@@ -422,7 +425,11 @@ fn refs_reply(
         let Cached::Reply(reply) = cached else { return Verdict::ReadFirst };
         if reply.stamp.is_none() || refs_stamp(&reply.root, &reply.git_dir) != reply.stamp {
             // The status and the branches of this repository both read again.
-            cache().entries().invalidate(Tag::Refs(reply.root.clone()));
+            // A stale entry was invalidated already, and a read may run
+            // since: invalidating again would land that read stale too.
+            if fresh {
+                cache().entries().invalidate(Tag::Refs(reply.root.clone()));
+            }
             return Verdict::ReadFirst;
         }
         if !fresh {
