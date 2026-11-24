@@ -43,6 +43,12 @@ impl Runs {
         }
     }
 
+    /// How many seeds run when `CMUX_FAULT_RUNS` is not set (a heavy scenario's own default).
+    pub fn default_runs(mut self, runs: u64) -> Self {
+        self.runs = env_u64("CMUX_FAULT_RUNS").unwrap_or(runs);
+        self
+    }
+
     /// At most this many runs at once (a scenario whose runs share a scarce resource).
     pub fn at_most_parallel(mut self, parallel: usize) -> Self {
         self.parallel = self.parallel.min(parallel.max(1));
