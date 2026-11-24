@@ -121,9 +121,9 @@ import PackageDescription
 //     plans/cmux-next/server.md)
 //   CmuxNextRemoteView -> Design, Icons (remote desktop pane: decode, presenters, chrome, input capture;
 //     no daemon; the App supplies the stream source and input sink; plans/cmux-next/remote-desktop.md)
-//   CmuxNextMacScreen -> Compat, Settings, Wakeups, Actions, Control, Design, RemoteView, Devices, CmuxScreenKit (Mac Screen tabs: another
-//     Mac's screen as a WebRTC stream, the user's devices from the device hub, pairing home page (DEV), Share This Mac host,
-//     host approval prompt, Settings > Devices state; CmuxScreenKit links WebRTC.framework)
+//   CmuxNextMacScreen -> Compat, Settings, Wakeups, Actions, Control, Design, RemoteView, Devices, Phone, CmuxScreenKit (Mac Screen tabs:
+//     another Mac's screen as a WebRTC stream, the user's devices from the device hub, pairing home page (DEV), Share This Mac host,
+//     host approval prompt, Settings > Devices state, this Mac's displays as the iPhone's surfaces; CmuxScreenKit links WebRTC.framework)
 //   CmuxNextDevices -> Compat, Wakeups, CCmuxAppFFI (the device hub: Secure Enclave device identity, the signed
 //     HTTP client, the User DO socket, relay sealing and the @Observable DeviceHub; no UI; the App
 //     supplies the account token and the hub URL; docs/device-hub/PROTOCOL.md)
@@ -415,6 +415,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextImportSuggestions",
                 "CmuxNextKeepAwake",
                 "CmuxNextKeys",
+                "CmuxNextLaunchImages",
                 "CmuxNextLayout",
                 "CmuxNextLiveCode",
                 "CmuxNextMacScreen",
@@ -1365,6 +1366,19 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // action, working local agents and (sessions.keepAwakeForCommands) long terminal
         // commands, released on battery unless the user chose Always. IOKit's power-source
         // notification and one deadline from the Rust command rule, no polling.
+        // Each window's last frame for the next launch's stage 0: the capture, published into the
+        // launch image store (cmux-launch-image) on the Rust schedule; the app hands it its windows.
+        .target(
+            name: "CmuxNextLaunchImages",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
+                "CmuxNextCompat",
+                "CmuxNextControl",
+                "CmuxNextDesign",
+                "CmuxNextWakeups",
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
         .target(
             name: "CmuxNextKeepAwake",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
@@ -1842,6 +1856,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDesignTokens",
                 "CmuxNextDevices",
                 "CmuxNextPalette",
+                "CmuxNextPhone",
                 "CmuxNextRemoteView",
                 "CmuxNextSettings",
                 "CmuxNextWakeups",
@@ -2463,6 +2478,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextPalette",
                 "CmuxNextResources",
                 "CmuxNextSettings",
+                "CmuxNextSignposts",
                 "CmuxNextWakeups",
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
             ],
