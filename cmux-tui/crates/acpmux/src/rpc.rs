@@ -701,6 +701,10 @@ pub mod method {
     /// Personal stats over every session log (`stats.rs`); the local unix
     /// socket only (the app reaches it there), never a WebSocket origin.
     pub const MUX_STATS: &str = "_acpmux/stats";
+    /// The harness-magic scorecard over every session log (`scorecard.rs`): tokens and leo-units
+    /// per settled pull request, steering rate, time to the first useful result, by feature;
+    /// the local unix socket only, like `MUX_STATS`.
+    pub const MUX_SCORECARD: &str = "_acpmux/scorecard";
     /// What turns cost, per session, workspace, repository, pull request, day, person, vendor,
     /// model and account (`hub/ledger`); the local unix socket and the local app only.
     pub const MUX_LEDGER: &str = "_acpmux/ledger";
@@ -1107,7 +1111,7 @@ pub mod method {
     /// Sent to the prompting connection when a `session/prompt` that asked to wait for its
     /// chat's link (`_meta.acpmux.waitForLink`) is held because the peer it lives on is down:
     /// `{sessionId, promptId, peer}`. The prompt goes once the link is back, on the same
-    /// connection (`server/peer_forward.rs` `hold_for_link`).
+    /// connection (`server/peer_forward.rs` `wait_for_prompt_link`).
     pub const MUX_PROMPT_HELD: &str = "_acpmux/prompt_held";
     /// To a peer daemon's link, for a record of an attached session it is not sent live (an
     /// agent request or answer, `server/mod.rs` `deliver`): `{sessionId, seq}`, so the owner's
