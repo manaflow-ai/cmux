@@ -92,6 +92,39 @@ test("chat simulator: a sanitized replay of a recorded lane chat keeps rule a", 
   expect(broken(replayed(), "a-")).toEqual([]);
 });
 
+// Leo, 2026-11-22 22:10Z, on the six minutes from 22:05 to 22:11Z this fixture replays (his acpmux
+// chat on cosmic-gray, sanitized): "IMMENSE BULLSHIT JUST HAPPENED. ENTIRE THING FUCKING BLANKED AND
+// FUCKING SHIFTED AND PLAYED SOME BULLSHIT ANIMATIONS WHEN YOU STARTED A SUBAGENT AND THE PANE JUST WENT
+// CRAZY STUPID". His screenshots showed ~15 "started working" rows a turn, each 6-12 chips, the chips
+// squeezed empty or to one or two letters. Rule (d): a turn has one start line, it names at most three
+// subagents, each by name and each one the pane saw start (one first read mid-run is not news), and
+// the chat never blanks, never moves a settled row, never ends a turn with only its action row, and
+// draws a steer where it was sent.
+const burst = (from = 0) => {
+  const records = parseRecords(readFileSync(join(FIXTURES, "leo-2205-subagent-burst.ndjson"), "utf8"));
+  expect(records.length).toBeGreaterThan(2_000);
+  return runSimulation(replayScenario("leo-2205-subagent-burst", records.slice(from)), { rowsInTraceUpTo: 0 });
+};
+describe("chat simulator: Leo's 22:05-22:11Z subagent burst keeps rule d", () => {
+  const whole = burst();
+  for (const rule of [
+    "d-started-pill",
+    "d-started-lines",
+    "d-blank",
+    "d-shift",
+    "d-action-only",
+    "d-steer-order",
+    "b-",
+  ])
+    test(rule, () => expect(broken(whole, rule)).toEqual([]));
+  // The pane reads a chat's newest 400 records first (hub/settled_view.rs MAX_RECORDS), and again after
+  // a lag or a reconnect: subagents whose spawn is older than the read are first met mid-run. They are
+  // not drawn as starting now (they were the fake ten-chip "started working" rows).
+  for (const from of [400, 1_200])
+    test(`read from record ${from}: no start line for subagents it never saw start`, () =>
+      expect(broken(burst(from), "d-started")).toEqual([]));
+});
+
 test("chat simulator: the sanitizer keeps the shape and drops every word", () => {
   const raw = [
     { sessionId: "real-id", seq: 7, at: 1_000, dir: "out", kind: "claude.stdin", msg: { text: "secret" } },

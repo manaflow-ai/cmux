@@ -12,7 +12,7 @@
 //   only the transcript knows (a peer's chat, whose end never arrived) does not pin the tray.
 // - The tray's lines are the summary card's Subagents rows: one component (AgentLine.tsx).
 import { PHASE_DWELL_MS } from "../src/agent-session/acpmux/subagents/hatStep";
-import { afterAll, afterEach, beforeAll, describe, expect, setSystemTime, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, setSystemTime, test, afterEach } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { teardownDom } from "./support/domTeardown";
 import { RUNNING_TRAY_LINE, RUNNING_TRAY_LIST_LINE } from "../src/agent-session/acpmux/subagents/subagentSelectors";
@@ -60,7 +60,7 @@ const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 const { setPaneLanguage } = await import("../src/agent-session/acpmux/i18n");
 const { SUBAGENTS } = await import("../src/agent-session/acpmux/subagents/subagentFold");
 const { SUBAGENT_DONE, SUBAGENT_STARTED } = await import("../src/agent-session/acpmux/subagents/subagentRows");
-const { trayItems, finishedTrayItems, withSubagentLines, configureSubagentTray } =
+const { trayItems, finishedTrayItems, withSubagentLines } =
   await import("../src/agent-session/acpmux/subagents/runningTray");
 const { SubagentTray } = await import("../src/agent-session/acpmux/subagents/SubagentTray");
 const { resetTrayOpenMemory } = await import("../src/agent-session/acpmux/subagents/trayFoldMemory");
@@ -90,7 +90,6 @@ type Subagent = import("../src/agent-session/acpmux/subagents/subagentFold").Sub
 
 afterAll(async () => {
   setPaneLanguage("en");
-  configureSubagentTray(true);
   await teardownDom(saved, { window: dom.window, scope });
 });
 setPaneLanguage("en");
