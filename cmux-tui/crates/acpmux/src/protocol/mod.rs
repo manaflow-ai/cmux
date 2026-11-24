@@ -204,6 +204,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_PERF, Request),
         // Each caller's requests over a recent window (caller_stats.rs).
         untyped(method::MUX_CALLERS, Request),
+        // The felt-latency histograms (cmux-felt).
+        untyped(method::MUX_FELT_SNAPSHOT, Request),
         untyped(method::MUX_CONTEXT, Request),
         untyped(method::MUX_CONTEXT_OVERRIDE, Request),
         // Cloud whole-machine turn fencing. These methods are served by the
@@ -272,6 +274,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_AUDIT, Request),
         untyped(method::MUX_GITHUB_ACTION, Request),
         untyped(method::MUX_GITHUB_APP_LEASE, Request),
+        untyped(method::MUX_GITHUB_REST, Request),
         keyed::<params::BookmarkGetParams>(method::MUX_BOOKMARK_GET, Request),
         keyed::<params::BookmarkSetParams>(method::MUX_BOOKMARK_SET, Request),
         // Saved prompts (`prompts.rs`).
@@ -340,8 +343,10 @@ pub fn registry() -> Vec<MethodDecl> {
         keyed::<params::BtwParams>(method::MUX_BTW, Request),
         untyped(method::MUX_TAG, Request),
         untyped(method::MUX_DETACH_PARENT, Request),
+        untyped(method::MUX_CONTROLS, Request),
         untyped(method::MUX_INFO, Request),
         untyped(method::MUX_MACHINE_INFO, Request),
+        untyped(method::MUX_SCORECARD, Request),
         untyped(method::MUX_SESSION_FILES, Request),
         request::<events::EventsParams, events::EventsResult>(method::MUX_EVENTS),
         keyed::<params::AttachmentParams>(method::MUX_ATTACHMENT, Request),
@@ -557,9 +562,12 @@ pub fn registry() -> Vec<MethodDecl> {
         keyed::<params::PeersParams>("_acpmux/peers", Request),
         untyped("_acpmux/peer_status", Request),
         untyped("_acpmux/host_health", Request),
+        untyped("_acpmux/host_overload", Request),
         untyped("_acpmux/vm_host", Request),
         untyped("_acpmux/host_notice", Request),
         untyped("_acpmux/place", Request),
+        untyped("_acpmux/chat_place", Request),
+        untyped("_acpmux/chat_place_set", Request),
         untyped(method::MUX_PLACE_CHAT, Request),
         keyed::<params::MoveTargetsParams>("_acpmux/move_targets", Request),
         untyped("_acpmux/peer_add", Request),
@@ -611,6 +619,7 @@ pub fn registry() -> Vec<MethodDecl> {
         notification::<peer_state::PeerStateChanged>(method::MUX_PEER_STATE_CHANGED),
         untyped(method::MUX_HARNESSES_CHANGED, Notification),
         untyped(method::MUX_CONNECTIONS_CHANGED, Notification),
+        untyped(method::MUX_CONTROL, Notification),
         untyped(method::MUX_HARNESS_INVENTORY, Notification),
         untyped(method::MUX_START_MODE_CHANGED, Notification),
         untyped(method::MUX_PROMPT_ACCEPTED, Notification),

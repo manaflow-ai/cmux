@@ -102,7 +102,7 @@ import Testing
         #expect(MacStatusLine.make(mac: online, connection: .connecting, live: true, presence: "Online")
             == MacStatusLine(dot: .connecting, text: "Online · Connecting…"))
         #expect(MacStatusLine.make(mac: online, connection: .failed("x"), live: true, presence: "Online")
-            == MacStatusLine(dot: .failed, text: "Online · No reply"))
+            == MacStatusLine(dot: .failed, text: "Online · Not responding"))
         #expect(MacStatusLine.make(mac: online, connection: nil, live: true, presence: "Online").dot == .connecting)
     }
 
