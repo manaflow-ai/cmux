@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# tooling-steps runs: scripts/ci/run-webviews-tests.sh scripts/ci/webviews_*.py
 # Runs every webviews test file in its own `bun test` process, run from webviews/.
 #
 # One `bun test` process for the whole suite stalled in a different file each run
