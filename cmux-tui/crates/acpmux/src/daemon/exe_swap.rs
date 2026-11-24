@@ -376,19 +376,41 @@ fn service_restart() -> Option<Vec<String>> {
         );
     }
     #[cfg(target_os = "macos")]
-    if std::env::var("XPC_SERVICE_NAME").ok().as_deref()
-        == Some(crate::cli::daemon_service::LAUNCHD_LABEL)
     {
+        let label = std::env::var("XPC_SERVICE_NAME").ok()?;
         // SAFETY: getuid has no preconditions.
         let uid = unsafe { libc::getuid() };
-        return Some(vec![
-            "launchctl".into(),
-            "kickstart".into(),
-            "-k".into(),
-            format!("gui/{uid}/{}", crate::cli::daemon_service::LAUNCHD_LABEL),
-        ]);
+        let pid = std::process::id();
+        return launchd_restart_command(&label, uid, pid, |job| {
+            let output =
+                std::process::Command::new("launchctl").args(["print", job]).output().ok()?;
+            output.status.success().then(|| String::from_utf8_lossy(&output.stdout).into_owned())
+        });
     }
+    #[cfg(not(target_os = "macos"))]
     None
+}
+
+/// The launchd job that owns `pid`, in the GUI or system domain, and its restart command.
+/// Matching the PID prevents a similarly named job in the other domain from being restarted.
+fn launchd_restart_command(
+    label: &str,
+    uid: u32,
+    pid: u32,
+    mut print: impl FnMut(&str) -> Option<String>,
+) -> Option<Vec<String>> {
+    let gui = format!("gui/{uid}/{label}");
+    let system = format!("system/{label}");
+    let target =
+        [&gui, &system].into_iter().find(|job| launchd_job_pid(&print(job)) == Some(pid))?;
+    Some(vec!["launchctl".into(), "kickstart".into(), "-k".into(), target.clone()])
+}
+
+fn launchd_job_pid(print: &Option<String>) -> Option<u32> {
+    print
+        .as_deref()?
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("pid = ").and_then(|pid| pid.parse().ok()))
 }
 
 #[cfg(test)]
@@ -406,6 +428,33 @@ mod tests {
 
     /// The restart child killed by the stop it issued (signal 15) handed over; one that exited
     /// non-zero or died of another signal did not.
+    #[test]
+    fn a_launchd_launchdaemon_restart_targets_system_instead_of_takeover() {
+        let label = "com.cmux.acpmux.daemon.077f602dcb3c3936";
+        let command = launchd_restart_command(label, 501, 420, |job| {
+            (job == &format!("system/{label}")).then(|| "state = running\npid = 420\n".into())
+        });
+        assert_eq!(
+            command,
+            Some(vec![
+                "launchctl".into(),
+                "kickstart".into(),
+                "-k".into(),
+                format!("system/{label}"),
+            ])
+        );
+        assert_eq!(launchd_job_pid(&Some("state = running\npid = 419\n".into())), Some(419));
+        assert_eq!(launchd_job_pid(&None), None);
+    }
+
+    #[test]
+    fn a_launchd_job_with_no_matching_pid_is_not_restarted_as_a_takeover() {
+        let command = launchd_restart_command("com.acpmux.daemon", 501, 420, |_| {
+            Some("state = running\npid = 419\n".into())
+        });
+        assert_eq!(command, None);
+    }
+
     #[test]
     fn a_restart_child_killed_by_sigterm_handed_over() {
         let restart = "systemctl --user restart --no-block acpmux.service";

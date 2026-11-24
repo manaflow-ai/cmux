@@ -378,6 +378,24 @@ mod tests {
     }
 
     #[test]
+    fn ctime_and_link_count_changes_without_identity_are_not_a_loss() {
+        use std::os::unix::fs::MetadataExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        std::fs::create_dir(&home).unwrap();
+        let lock = home.join("daemon.lock");
+        std::fs::write(&lock, "").unwrap();
+        let owned = Owned::now(&[&home, &lock]).unwrap();
+        let before = std::fs::symlink_metadata(&lock).unwrap();
+        std::fs::hard_link(&lock, dir.path().join("daemon.lock.prev")).unwrap();
+        let after = std::fs::symlink_metadata(&lock).unwrap();
+        assert_eq!((before.dev(), before.ino()), (after.dev(), after.ino()));
+        assert!(after.nlink() > before.nlink(), "hard-link changed no link count");
+        assert_eq!(owned.lost(), None, "ctime/link-count-only change was treated as replacement");
+    }
+
+    #[test]
     fn an_ancestor_rename_is_lost_even_when_the_home_is_unchanged() {
         let dir = tempfile::tempdir().unwrap();
         let parent = dir.path().join("parent");

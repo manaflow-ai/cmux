@@ -560,6 +560,29 @@ impl FakePeer {
 
 #[test]
 #[cfg(unix)]
+fn an_identical_push_leaves_the_installed_binary_and_previous_build_untouched() {
+    let peer = FakePeer::new("identical-push");
+    let previous = fake_acpmux("previous", Some("previous"));
+    peer.exe(".local/bin/acpmux.prev", &previous);
+    let installed = peer.home.join(".local/bin/acpmux");
+    let prev = peer.home.join(".local/bin/acpmux.prev");
+    let installed_before = std::fs::metadata(&installed).unwrap();
+    let prev_before = std::fs::metadata(&prev).unwrap();
+    let binary = peer.home.join(format!("binaries/acpmux-{TARGET}"));
+    peer.exe(&format!("binaries/acpmux-{TARGET}"), &fake_acpmux(OLD, Some(OLD)));
+
+    let version = push_update(&peer, &binary, Some(OLD), false, false).unwrap();
+
+    assert_eq!(version, format!("acpmux 1.0.0 ({OLD})"));
+    assert_eq!(peer.read(".local/bin/acpmux"), fake_acpmux(OLD, Some(OLD)));
+    assert_eq!(peer.read(".local/bin/acpmux.prev"), previous);
+    assert_eq!(std::fs::metadata(&installed).unwrap().ino(), installed_before.ino());
+    assert_eq!(std::fs::metadata(&prev).unwrap().ino(), prev_before.ino());
+    assert!(!peer.exists(".local/bin/.acpmux-new"));
+}
+
+#[test]
+#[cfg(unix)]
 fn an_update_pushes_the_targets_binary_and_restarts_the_unit() {
     let peer = FakePeer::new("update");
     peer.offer(NEW, Some(NEW));
