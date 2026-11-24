@@ -192,5 +192,48 @@ class LockedCrateImportTests(unittest.TestCase):
         self.assertEqual(missing, [])
 
 
+# cmux-tui's own `#[link(name = "X", kind = "framework")] extern` blocks: every name declared there must be in
+# X.tbd when we stub X. The stubs come from older Mac-built binaries, so a new declaration (kSecGuestAttributePid in
+# cmux-rd-host's webrtc_child.rs, #51585) failed every Linux cross link of cmux-tui from 2026-11-23 21:04Z
+# ("ld64.lld: undefined symbol: kSecGuestAttributePid", cmux-tui artifacts run 45285325164), and each tree took
+# the macOS fallback build instead: 2 h from landing to a published tree, the nightly waiting on it. A framework
+# with no stub file is not ours to judge here (stubs-check reads what the Mac binaries link).
+FRAMEWORK_EXTERN = re.compile(
+    r'#\[link\(name\s*=\s*"([A-Za-z]+)",\s*kind\s*=\s*"framework"\)\]\s*(?:unsafe\s+)?extern\s+"C"\s*\{')
+EXTERN_ITEM = re.compile(r"\b(?:static(?:\s+mut)?|fn)\s+([A-Za-z_][A-Za-z0-9_]*)")
+
+
+def framework_externs(text: str) -> list[tuple[str, list[str]]]:
+    out = []
+    for match in FRAMEWORK_EXTERN.finditer(text):
+        depth, end = 1, match.end()
+        while depth and end < len(text):
+            depth += {"{": 1, "}": -1}.get(text[end], 0)
+            end += 1
+        out.append((match.group(1), EXTERN_ITEM.findall(text[match.end():end - 1])))
+    return out
+
+
+class SourceExternTests(unittest.TestCase):
+    def test_an_extern_block_names_one_framework_and_each_item(self) -> None:
+        text = ('#[link(name = "Security", kind = "framework")]\nunsafe extern "C" {\n'
+                "    static kSecGuestAttributePid: CFTypeRef;\n    fn SecCodeCopySelf(flags: u32) -> i32;\n}\n")
+        self.assertEqual(framework_externs(text), [("Security", ["kSecGuestAttributePid", "SecCodeCopySelf"])])
+
+    def test_every_framework_name_cmux_tui_declares_is_in_its_stub(self) -> None:
+        stubs, missing = ROOT / "scripts" / "ci" / "macos-stubs", []
+        for path in sorted((ROOT / "cmux-tui").glob("**/*.rs")):
+            if "target" in path.relative_to(ROOT).parts:
+                continue
+            for framework, names in framework_externs(path.read_text(errors="replace")):
+                stub = stubs / f"{framework}.tbd"
+                if not stub.is_file():
+                    continue
+                held = set(re.findall(r"'(_[A-Za-z0-9_$]+)'", stub.read_text()))
+                missing += [f"{path.relative_to(ROOT)}: {framework}.tbd lacks _{name}"
+                            for name in names if f"_{name}" not in held]
+        self.assertEqual(missing, [])
+
+
 if __name__ == "__main__":
     unittest.main()
