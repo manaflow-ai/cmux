@@ -33,7 +33,7 @@ permissions:
 
 # One run at a time: every run signs in to the same account and names its Mac the same.
 concurrency:
-  group: cmux-next-pair-e2e-vm
+  group: cmux-next-pair-e2e-vm-${{ github.ref }}
   cancel-in-progress: false
 
 env:
