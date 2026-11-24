@@ -80,7 +80,7 @@ if has move; then
   for _ in $(seq "$moves"); do
     cargo test --locked -p acpmux --release --test transfer_cli move_matrix -- --nocapture >"$out/move-run.log" 2>&1 \
       || { echo "move_matrix failed:"; grep -E -A12 '^error' "$out/move-run.log" | head -n 40; tail -n 30 "$out/move-run.log"; }
-    grep -E '^MATRIX .* moved ' "$out/move-run.log" >>"$out/move.log" || true
+    grep -E '^MATRIX [^ ]+ moved ' "$out/move-run.log" >>"$out/move.log" || true
   done
   python3 - "$out/move.log" <<'PY'
 import json, os, re, socket, sys
