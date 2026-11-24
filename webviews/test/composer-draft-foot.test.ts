@@ -7,8 +7,8 @@
 // Real gallery frames (agent-pane.draft-foot, one variant per arm), the draft scrolled a third down.
 // For every arm it sums the draft's ink (the frame against the same frame with the draft hidden) in
 // the field's bottom 18 px, the band the shipped mask faded to nothing, and in the 18 px over it.
-// The shipping arm must keep more ink than the before in that band, at least 1.3x its ink in
-// the last 6 px against the rim, and keep some fade: less ink than the hard edge. With FAST_CHECKS_OUT or CMUX_DRAFT_FOOT_CAPTURE set, it writes foot.json and
+// The shipping arm must keep more ink than the before in that band, at least 30% of the hard
+// edge's gain in the last 6 px against the rim, and keep some fade: less ink than the hard edge. With FAST_CHECKS_OUT or CMUX_DRAFT_FOOT_CAPTURE set, it writes foot.json and
 // 2x stills of the box for every arm, light and dark.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -128,7 +128,9 @@ await requireBrowserLane("composer-draft-foot.test.ts", async () => {
       expect(Math.abs(chosen.above - before.above)).toBeLessThan(before.above * 0.1 + 1);
       // The shipping foot shows the draft there, down to the rim (Leo: "more stuff there") ...
       expect(chosen.foot).toBeGreaterThan(before.foot * 1.1);
-      expect(chosen.edge).toBeGreaterThan(before.edge * 1.3);
+      // Against the rim, measured on the hard edge's gain: where a runner's font puts no glyph in the
+      // last 6 px, every arm reads the same ink there and the hard edge gains nothing either.
+      expect(chosen.edge - before.edge).toBeGreaterThanOrEqual(0.3 * (hard.edge - before.edge));
       // ... and still softens it (Leo: "we do want some blur").
       expect(chosen.foot).toBeLessThan(hard.foot);
     }
