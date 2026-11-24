@@ -171,8 +171,15 @@ export type QuickFamily = {
   models: QuickModel[];
   more: QuickModel[];
   note?: string;
+  /** Shows the Cloud availability hint below the Connect row. */
+  cloudSoon?: boolean;
+  /** A Cloud family with no connection yet: its models and levels draw as the local picker's, muted and
+   *  not pickable, so the menu keeps its size, and its Connect row (`logIn`) leads the list. */
+  locked?: boolean;
+  cloudReason?: string;
   /// Runs a signed-out harness's login (its Log In row).
   logIn?(): void;
+  logInLabel?: string;
   /// Sets up a harness this machine does not have (its Install… row).
   setUp?(): void;
   /// The Claude Connect row that leads the tab (ClaudeConnectRow.tsx), while no Claude connection

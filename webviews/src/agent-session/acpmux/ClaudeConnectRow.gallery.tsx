@@ -47,16 +47,15 @@ export default componentEntry<Props>({
       </div>
     );
     const Flow = () => {
-      const { row, dialog } = useClaudeConnectFlow();
+      const row = useClaudeConnectFlow();
       return (
         <Section>
           {row && <ClaudeConnectRow name="Claude Code" connected={row.connected} onConnect={row.onConnect} />}
-          {dialog}
         </Section>
       );
     };
     return function GalleryClaudeConnectRow({ state }: Props) {
-      const [host] = useState(() => ({ needed: true, add: async () => undefined }));
+      const [host] = useState(() => ({ needed: true, open: () => undefined }));
       if (state === "flow")
         return (
           <ClaudeConnectContext.Provider value={host}>

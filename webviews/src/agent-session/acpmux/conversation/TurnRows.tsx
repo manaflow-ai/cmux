@@ -55,7 +55,14 @@ import { RetryModelMenu } from "./RetryModelMenu";
 import { CloudSignIn } from "./CloudSignIn";
 import { offersGateway, type CloudSignIn as CloudSignInActions } from "../cloudAgentLogin";
 import { useT, type Translate } from "../i18n";
-import { failureCopy, failureKind, failureRecovery, isTeamMachineSignIn, type FailureRoute } from "../failureCopy";
+import {
+  cloudClaudeTokenRejected,
+  failureCopy,
+  failureKind,
+  failureRecovery,
+  isTeamMachineSignIn,
+  type FailureRoute,
+} from "../failureCopy";
 import { experimentArm } from "../../../experiments/experiment";
 import { turnErrorCard } from "./turnErrorCard.experiment";
 import { codeRouterOffer } from "./codeRouterOffer.experiment";
@@ -397,6 +404,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
     retryWith,
     reauthenticate,
     cloudSignIn,
+    openClaudeCloudSettings,
     apiKeySignIn,
     resume,
     compact,
@@ -548,6 +556,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           compact={compact}
           reauthenticate={reauthenticate}
           cloudSignIn={cloudSignIn}
+          openClaudeCloudSettings={openClaudeCloudSettings}
           apiKeySignIn={apiKeySignIn}
           retryRowId={row.retryRowId}
           prompt={prompt}
@@ -640,6 +649,7 @@ function TurnFailure({
   compact,
   reauthenticate,
   cloudSignIn,
+  openClaudeCloudSettings,
   apiKeySignIn,
   retryRowId,
   prompt,
@@ -664,6 +674,7 @@ function TurnFailure({
   reauthenticate?: () => void;
   /// A Cloud chat's own sign-in on its machine (cloudAgentLogin.ts, CloudSignIn.tsx).
   cloudSignIn?: CloudSignInActions;
+  openClaudeCloudSettings?: () => void;
   /// A chat here whose built-in Claude Code or Codex is not signed in: Use an API key
   /// (cloudAgentLogin.ts `localApiKeyLogin`).
   apiKeySignIn?: CloudSignInActions;
@@ -726,14 +737,16 @@ function TurnFailure({
   // An expired login leads with Sign in again, and Continue or Retry follows it for once the login
   // is done. Where the chat has no login to run (a Cloud chat, a harness that names none), the card
   // is as it was: Switch model or CodeRouter, and no Retry, which would fail the same way.
-  const signInFirst = recovery === "sign-in" && reauthenticate !== undefined;
+  const renewClaude = cloudClaudeTokenRejected(message, route, code) ? openClaudeCloudSettings : undefined;
+  const signInFirst = !renewClaude && recovery === "sign-in" && reauthenticate !== undefined;
   // A Cloud chat's agent signs in on its own machine (Leo 2026-11-01, on the one-click sign-in:
   // "yes those are important"): Sign in to Claude or Codex leads the card, Use an API key beside it,
   // and Switch model follows them outlined.
   // A team Cloud machine takes no personal login (isTeamMachineSignIn): Switch model leads, and the
   // card keeps only Use an API key of the sign-in, never Sign in to Claude, which would dead-end.
   const teamMachine = isTeamMachineSignIn(kind, route);
-  const cloudSignInLeads = recovery === "sign-in" && cloudSignIn !== undefined && !signInFirst && !teamMachine;
+  const cloudSignInLeads =
+    !renewClaude && recovery === "sign-in" && cloudSignIn !== undefined && !signInFirst && !teamMachine;
   // A chat here whose built-in Claude Code or Codex is not signed in (Leo 2026-10-26: "if user picks a
   // model they don't have api key, we offer them to add credits or add their own api key"): Use an API
   // key follows Sign in again, outlined; the key goes where the agent's own CLI reads it.
@@ -817,6 +830,11 @@ function TurnFailure({
         )}
         {teamAccountKey && (
           <CloudSignIn signIn={teamAccountKey} rowId={retryRowId} prompt={prompt} keyOnly actionsRef={actionsRef} />
+        )}
+        {renewClaude && (
+          <button type="button" className="cv-turn-auth-action cv-turn-error__primary" onClick={renewClaude}>
+            {t("turn.action.claudeCloudSetup")}
+          </button>
         )}
         {accessButtons}
         {offerLeads && (

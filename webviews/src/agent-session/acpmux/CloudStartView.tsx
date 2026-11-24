@@ -590,8 +590,7 @@ export function CloudStartView({
   onPickRepo?: (path: string) => void;
   onPickFolder?: () => void;
   onStartWithoutFolder?: () => void;
-  /// Set up Cloud's buttons (`cloud_setup_required`, cloudSetup.ts): one of Settings > Models' ways in, then
-  /// the start goes again by itself once a connection serves the model; and its Not now.
+  /// Opens Settings > Cloud > Cloud models for a missing connection. A held start resumes once the family is served.
   onSetUp?: (action: CloudSetupAction) => void;
   onSetUpDismiss?: () => void;
   /// A start refused because a chat is already starting in this tab (`unavailable_now`): a new Cloud chat with the
@@ -687,6 +686,8 @@ export function CloudStartView({
         <CloudSetupCard
           need={setup}
           waiting={!failed}
+          runHereLabel={planLabels.runHere}
+          {...(onRunHere ? { onRunHere } : {})}
           {...(onSetUp ? { onSetUp } : {})}
           {...(onSetUpDismiss ? { onDismiss: onSetUpDismiss } : {})}
         />

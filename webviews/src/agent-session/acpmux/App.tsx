@@ -497,6 +497,7 @@ import { createCloudPlanSubscribe } from "./cloudPlanSubscribe";
 import { type CloudSignInWait } from "./cloudSignIn";
 import { retryWithSetUpPick, type CloudSetupAction, type CloudSetupNeed } from "./cloudSetup";
 import { ClaudeConnectContext, setupConnect } from "./claudeConnect";
+import { useCloudServed, CloudServedContext, selectFamilyOnReturn } from "./cloudServed";
 import { type QuickActionMode } from "./header/quickActions";
 import {
   useAutoCloudKey,
@@ -3690,6 +3691,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const cloudSignIn = cloudAgentLogin(login);
     const owner = snapshot.sessionId;
     return {
+      ...(connected &&
+        cloudMachineID &&
+        !cloudTeamMachine && {
+          openClaudeCloudSettings: () => void callNative("cloud.connect", { family: "claude" }).catch(() => undefined),
+        }),
       cloudSignIn:
         cloudSignIn && owner
           ? {
@@ -3743,6 +3749,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     recheckHealth,
     connected,
     cloudMachineID,
+    cloudTeamMachine,
     chatElsewhere,
     snapshot.sessionId,
     snapshot.summary?.harness,
@@ -4598,9 +4605,51 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   });
   const cloudSetupNeed = cloudStart?.state === "failed" ? cloudStart.cloudSetup : undefined;
   const cloudSetupWaiting = cloudStart?.signingIn === true;
+  const cloudPickerMachine = useCallback(() => cloudDraftMachineID.current ?? undefined, []);
+  const cloudServed = useCloudServed(callNative, cloudPicked, { readMachine: cloudPickerMachine });
+  const { openSettings: connectCloudPicker, refresh: refreshCloudPicker } = cloudServed;
+  const openCloudPickerSettings = useCallback(
+    (family: string) => {
+      const readPick = () => {
+        if (cloudStartShown || !cloudComposeEligible.current) return undefined;
+        const client = directClient.current;
+        const { intent, model } = harnessSwitch.view();
+        const summary = snapshotRef.current?.summary;
+        return {
+          harness: intent?.harness ?? summary?.harness,
+          revision: [
+            client,
+            client?.selectionToken,
+            composerHandle.current,
+            sessionIdRef.current,
+            lastCloudAttempt.current,
+            cloudDraftMachineID.current,
+            summary?.configOptions?.map((option) => option.currentValue).join("\u0000"),
+            JSON.stringify(intent?.config.options ?? {}),
+            intent?.id,
+            intent?.config.model ?? model?.model ?? summary?.model,
+          ],
+        };
+      };
+      const select = selectFamilyOnReturn(family, readPick, () => {
+        // The normal harness-pick action already chooses that harness's saved model.
+        void callNative("chat.new", { harness: family, deferred: !sessionIdRef.current }).catch(() => undefined);
+      });
+      connectCloudPicker(family, select);
+    },
+    [connectCloudPicker, cloudStartShown, harnessSwitch],
+  );
+  const cloudPickerSetup = useMemo(
+    () => ({ ...cloudServed, openSettings: openCloudPickerSettings }),
+    [cloudServed, openCloudPickerSettings],
+  );
   const modelConnect = useMemo(
-    () => setupConnect(cloudSetupNeed, cloudSetupWaiting, (action) => setUpCloudNow.current(action)),
-    [cloudSetupNeed, cloudSetupWaiting],
+    () =>
+      setupConnect(cloudSetupNeed, cloudSetupWaiting, (action) => {
+        if (cloudPicked && cloudSetupNeed) openCloudPickerSettings(cloudSetupNeed.family);
+        else setUpCloudNow.current(action);
+      }),
+    [cloudPicked, cloudSetupNeed, cloudSetupWaiting, openCloudPickerSettings],
   );
   /// Set up Cloud's Not now: a wait still out is withdrawn (the start then ends here), else the card goes.
   const dismissCloudSetUp = () => (cloudStart?.signingIn ? cancelCloudSignIn() : dismissCloudFailure());
@@ -8740,10 +8789,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const onCloudMachinePicked = useCallback(
     (machine: CloudMachine | undefined) => {
       cloudDraftMachineID.current = machine?.id ?? null;
+      refreshCloudPicker();
       // A Cloud machine picked is a pick of Cloud: the hint is done.
       if (machine) cloudHintUsed();
     },
-    [cloudHintUsed],
+    [cloudHintUsed, refreshCloudPicker],
   );
   const newTabSnapshot = useMemo(
     () =>
@@ -10475,7 +10525,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             <AgentProgressContext.Provider value={progressStore}>
               <OpenBackgroundTasks.Provider value={quick ? undefined : openBackgroundTask}>
                 <ClaudeConnectContext.Provider value={modelConnect}>
-                  <NoticeSlot>{pane}</NoticeSlot>
+                  <CloudServedContext.Provider value={cloudPicked ? cloudPickerSetup : undefined}>
+                    <NoticeSlot>{pane}</NoticeSlot>
+                  </CloudServedContext.Provider>
                 </ClaudeConnectContext.Provider>
               </OpenBackgroundTasks.Provider>
             </AgentProgressContext.Provider>

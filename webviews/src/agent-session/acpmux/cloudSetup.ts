@@ -1,18 +1,35 @@
+import { CLOUD_CHATGPT_SIGN_IN_READY } from "../shared/cloudModelConnections";
 import { CLOUD_SIGN_IN_ANSWERS, type CloudSignInWait } from "./cloudSignIn";
 import type { CloudStartAnswer } from "./cloudRun";
 
 /// Cloud first use (cmux-tui/docs/model-connections.md, "Cloud first use"): the host refused a Cloud
 /// start with `cloud_setup_required` because no connection serves the picker's model (CloudSetup.swift).
-/// The chat shows the Set up Cloud card (conversation/CloudSetupCard.tsx) naming that model; each button
-/// is one of Settings > Models' ways in (`cloud.setUp {key, action, family}`, AgentPaneCloudStart.swift
-/// `setUpCloud`), and the start goes again by itself once a connection serving the family appears, on
-/// the click the host kept (`cloud.startChat {..., signedIn: true}`), with no retyping.
+/// The card opens Settings > Cloud > Cloud models for that family (`cloud.setUp {key, action, family}`). Once
+/// the host finds a connection, the start goes again on the click it kept, with no retyping.
 
-/// The families a Cloud chat runs (CloudSetup.families).
-export type CloudSetupFamily = "claude" | "codex";
+const setupNames = {
+  claude: "Claude",
+  codex: "Codex",
+  gemini: "Gemini",
+  grok: "Grok",
+  "github-copilot": "GitHub Copilot",
+  openrouter: "OpenRouter",
+} as const;
+
+export function cloudSetupName(family: string): string {
+  return Object.hasOwn(setupNames, family) ? setupNames[family as keyof typeof setupNames] : family;
+}
+
+function setupFamily(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length <= 128 &&
+    value.split("/").every((part) => part.length > 0 && !/[^a-zA-Z0-9._:@-]/.test(part))
+  );
+}
 
 /// What the card names: the picker's agent family and its model id, when the host said one.
-export type CloudSetupNeed = { family: CloudSetupFamily; model?: string };
+export type CloudSetupNeed = { family: string; model?: string; timedOut?: true };
 
 /// The card's ways in, as `cloud.setUp {action}` names them (CloudSetup.Action).
 export const CLOUD_SETUP_ACTIONS = ["connectChatGPT", "setUpClaude", "addKey", "openSettings"] as const;
@@ -27,18 +44,21 @@ export const CLOUD_SETUP_LIMIT_MS = 600_000;
 
 /// The refusal's details (`{family, model}`) as the card's need; undefined for anything else.
 export function readCloudSetupNeed(details: unknown): CloudSetupNeed | undefined {
-  const raw = (details && typeof details === "object" ? details : {}) as { family?: unknown; model?: unknown };
-  if (raw.family !== "claude" && raw.family !== "codex") return undefined;
+  const raw = (details && typeof details === "object" ? details : {}) as {
+    family?: unknown;
+    model?: unknown;
+    timedOut?: unknown;
+  };
+  if (!setupFamily(raw.family)) return undefined;
   const model = typeof raw.model === "string" && raw.model.trim() ? raw.model.trim().slice(0, 128) : undefined;
-  return { family: raw.family, ...(model ? { model } : {}) };
+  return { family: raw.family, ...(model ? { model } : {}), ...(raw.timedOut === true ? { timedOut: true } : {}) };
 }
 
-/// The card's buttons for `need`, in order: the family's own subscription first, then the other's,
-/// then a key and Settings (Capy's Models page: subscriptions, then API keys).
-export function cloudSetupActions(need: CloudSetupNeed): CloudSetupAction[] {
-  return need.family === "codex"
-    ? ["connectChatGPT", "setUpClaude", "addKey", "openSettings"]
-    : ["setUpClaude", "connectChatGPT", "addKey", "openSettings"];
+/// The card's single way in, using the same provider as the picker's Connect.
+export function cloudSetupAction(need: CloudSetupNeed, chatGPTReady = CLOUD_CHATGPT_SIGN_IN_READY): CloudSetupAction {
+  if (need.family === "claude") return "setUpClaude";
+  if (need.family === "codex") return chatGPTReady ? "connectChatGPT" : "addKey";
+  return "openSettings";
 }
 
 type Native = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
@@ -51,7 +71,10 @@ export function waitForCloudSetUp(
   key: string,
   action: CloudSetupAction,
   need: CloudSetupNeed,
-  limitMs = CLOUD_SETUP_LIMIT_MS,
+  schedule = (run: () => void) => {
+    const deadline = setTimeout(run, CLOUD_SETUP_LIMIT_MS);
+    return () => clearTimeout(deadline);
+  },
 ): CloudSignInWait {
   let finish!: (end: "signedIn" | CloudStartAnswer) => void;
   const ended = new Promise<"signedIn" | CloudStartAnswer>((resolve) => {
@@ -59,16 +82,17 @@ export function waitForCloudSetUp(
   });
   let over = false;
   // Not set up yet: the card again, naming the same model.
-  const notReady: CloudStartAnswer = { ok: false, code: CLOUD_SETUP_REQUIRED, details: need };
+  const { timedOut: _timedOut, ...details } = need;
+  const notReady: CloudStartAnswer = { ok: false, code: CLOUD_SETUP_REQUIRED, details };
   const end = (value: "signedIn" | CloudStartAnswer, cancel = false) => {
     if (over) return;
     over = true;
-    clearTimeout(deadline);
+    cancelDeadline();
     // The host's wait ends with the page's: `cloud.signInCancel` cancels it and keeps no click.
     if (cancel) void call("cloud.signInCancel", {}).catch(() => undefined);
     finish(value);
   };
-  const deadline = setTimeout(() => end(notReady, true), limitMs);
+  const cancelDeadline = schedule(() => end({ ...notReady, details: { ...details, timedOut: true } }, true));
   call("cloud.setUp", { key, action, family: need.family }).then(
     () => end("signedIn"),
     (error: unknown) => {

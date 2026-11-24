@@ -30,6 +30,7 @@ import { isModelRouterKind } from "./routerKinds";
 import { authLoginText, authText, canSessionLogin } from "./sessionAuth";
 import { useChatAccounts, type ChatAccount } from "./chatAccounts";
 import { QuickModelMenu, StarIcon, UsedMark } from "./QuickModelMenu";
+import { ClaudeConnectRow } from "./ClaudeConnectRow";
 import { CHAT_COLUMN } from "./modelPickerLayout";
 import { startPopupResize, type PopupResizeAxes } from "../../ui/popupResizeDrag";
 import {
@@ -335,7 +336,8 @@ function Columns({
   // above never runs again: take the keyboard as the menu opens, not a frame later.
   useLayoutEffect(() => {
     const node = field.current;
-    if (open && node && !node.ownerDocument.activeElement?.closest(".acpmux-cols")) node.focus({ preventScroll: true });
+    const active = node?.ownerDocument.activeElement;
+    if (open && node && !active?.closest(".acpmux-cols")) node.focus({ preventScroll: true });
   }, [open]);
   const updateAction = useRef<HTMLButtonElement | null>(null);
   // The menu never shrinks while open: a tab, a search or a model with fewer rows keeps its size, so
@@ -574,9 +576,12 @@ function Columns({
     observer.observe(column);
     return () => observer.disconnect();
   }, [widthOf, popupNode]);
-  const shown = list.find((family) => family.id === tab);
+  const shown =
+    list.find((family) => family.id === tab) ??
+    list.find((family) => family.id === families.current) ??
+    list.find((family) => !family.starred);
   const tabs = useMemo(() => familyTabs(list), [list]);
-  const shownTab = tabs.find((entry) => entry.routes.some((route) => route.id === tab));
+  const shownTab = tabs.find((entry) => entry.routes.some((route) => route.id === shown?.id));
   const found = useMemo(() => (query && search ? search.find(query) : undefined), [query, search]);
   const groups = useMemo(
     () => (found ? searchGroups(found, list, families.current) : undefined),
@@ -630,7 +635,10 @@ function Columns({
 
   // Until the arrows or the pointer move it, the running model's row is the one shown, else the
   // first one: the settings column always shows the model its rows apply to, never an empty column.
-  const firstIndex = rows.findIndex((model) => !model.disabled);
+  // A locked Cloud tab (no connection yet) still shows its first model's levels and Fast, muted, so the
+  // columns keep the local picker's size; nothing in it can be picked.
+  const locked = !query && !!shown?.locked;
+  const firstIndex = locked && rows.length > 0 ? 0 : rows.findIndex((model) => !model.disabled);
   // The chat's own tab with no row for the running model (its catalog has not loaded, or does not
   // list it: a model newer than the harness's catalog) still shows the session's levels and Fast,
   // as the list menu's Effort row did. Its first row never stands in for the running model: Fast
@@ -1104,14 +1112,16 @@ function Columns({
   const kindLabel = (kind: string | undefined) =>
     kind === "direct-api-key" ? t("turn.signIn.keyLabel") : isModelRouterKind(kind) ? t("picker.provider") : undefined;
   const faceName = signedOut
-    ? t("picker.notSignedIn")
+    ? ((owner?.logInLabel ? owner.note : undefined) ?? t("picker.notSignedIn"))
     : onChatTab && activeAccount
       ? activeAccount.name
       : routes.length > 1 && owner
         ? owner.name
         : login;
   const faceDetail = signedOut
-    ? t("picker.signInToUse", { harness: ownerName })
+    ? owner?.logInLabel
+      ? ownerName
+      : t("picker.signInToUse", { harness: ownerName })
     : [onChatTab && activeAccount ? kindLabel(activeAccount.kind) : undefined, ownerName].filter(Boolean).join(" · ");
   const chatChoices = (accounts.list?.accounts ?? []).filter(
     (choice) =>
@@ -1214,7 +1224,7 @@ function Columns({
               else auth?.onLogin?.();
             }}
           >
-            {t("picker.signInTo", { harness: ownerName })}
+            {owner?.logInLabel ?? t("picker.signInTo", { harness: ownerName })}
           </button>
         </div>
       )}
@@ -1399,7 +1409,7 @@ function Columns({
     );
   };
 
-  const tabEmpty = !query && !!shown && rows.length === 0;
+  const tabEmpty = !query && !!shown && !shown.cloudSoon && rows.length === 0;
   return (
     <>
       <button
@@ -1646,7 +1656,7 @@ function Columns({
                       data-tooltip-side="left"
                       className="acpmux-cols-tab"
                       data-hl={selected ? "" : undefined}
-                      data-off={family.setUp ? "" : undefined}
+                      data-off={family.setUp || family.logInLabel ? "" : undefined}
                       onPick={() => {
                         setCol(1);
                         showTab(index);
@@ -1692,7 +1702,51 @@ function Columns({
                 data-cmux-scroll-only=""
                 onScroll={(event) => markFades(event.currentTarget)}
                 data-col-focus={col === 1 ? "" : undefined}
+                data-locked={locked ? "" : undefined}
               >
+                {/* A locked Cloud tab, or one Cloud cannot run yet: its Connect row leads, two lines, the action over
+                    the cause ("Not connected", "Runs on Cloud soon"). */}
+                {(locked || (!query && !!shown?.cloudSoon)) && shown?.logIn && (
+                  <DrivenRow
+                    kind="button"
+                    className="acpmux-cols-row acpmux-cols-unlock"
+                    data-cloud-connect=""
+                    onPick={() => {
+                      close();
+                      shown.logIn?.();
+                    }}
+                  >
+                    <span className="acpmux-cols-name">{shown.logInLabel ?? t("harness.logIn")}</span>
+                    {shown.cloudSoon ? (
+                      <span className="acpmux-cols-detail" data-cloud-coming-soon="">
+                        {t("picker.cloud.comingSoon")}
+                      </span>
+                    ) : (
+                      (shown.cloudReason ?? shown.note) && (
+                        <span className="acpmux-cols-detail">{shown.cloudReason ?? shown.note}</span>
+                      )
+                    )}
+                  </DrivenRow>
+                )}
+                {/* The connection row for a Cloud start already waiting for setup. */}
+                {!query && shown?.connect && (
+                  <DrivenRow
+                    kind="button"
+                    className="acpmux-cols-row acpmux-cols-connect"
+                    aria-disabled={shown.connect.connected || undefined}
+                    onPick={() => {
+                      if (shown.connect?.connected) return;
+                      close();
+                      shown.connect?.onConnect();
+                    }}
+                  >
+                    <ClaudeConnectRow
+                      name={shown.name}
+                      {...(shown.mark ? { mark: shown.mark } : {})}
+                      connected={shown.connect.connected}
+                    />
+                  </DrivenRow>
+                )}
                 {models}
                 {query && rows.length === 0 && (
                   <div className="acpmux-cols-row acpmux-cols-note" aria-disabled="true">
@@ -1711,7 +1765,7 @@ function Columns({
                     <span className="acpmux-cols-name">{shown.note}</span>
                   </div>
                 )}
-                {!query && shown?.note && shown.logIn && (
+                {!query && !locked && !shown?.cloudSoon && shown?.note && shown.logIn && (
                   <DrivenRow
                     kind="button"
                     className="acpmux-cols-row"
@@ -1720,8 +1774,13 @@ function Columns({
                       shown.logIn?.();
                     }}
                   >
-                    <span className="acpmux-cols-name">{t("harness.logIn")}</span>
+                    <span className="acpmux-cols-name">{shown.logInLabel ?? t("harness.logIn")}</span>
                   </DrivenRow>
+                )}
+                {!query && shown?.cloudSoon && !shown.logIn && (
+                  <div className="acpmux-cols-row acpmux-cols-note" aria-disabled="true" data-cloud-coming-soon="">
+                    <span className="acpmux-cols-name">{t("picker.cloud.comingSoon")}</span>
+                  </div>
                 )}
                 {!query && shown?.note && shown.setUp && (
                   <DrivenRow
@@ -1749,6 +1808,7 @@ function Columns({
             <div
               className="acpmux-cols-list acpmux-cols-tune"
               data-col-focus={col === 2 ? "" : undefined}
+              data-locked={locked ? "" : undefined}
               aria-label={t("picker.reasoning")}
             >
               <div

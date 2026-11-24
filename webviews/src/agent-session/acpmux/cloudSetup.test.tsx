@@ -12,7 +12,7 @@ import { CloudStartView } from "./CloudStartView";
 import { cloudStartEnded, cloudStartSignedIn, type CloudStartProgress } from "./cloudStartProgress";
 import { cloudPickExtras, makeCloudSignInRetry, startCloudChat, type CloudStartAnswer } from "./cloudRun";
 import {
-  cloudSetupActions,
+  cloudSetupAction,
   readCloudSetupNeed,
   retryWithSetUpPick,
   waitForCloudSetUp,
@@ -74,20 +74,21 @@ test("the host's refusal becomes Set up Cloud naming the model, never a failure 
   const ended = cloudStartEnded(begun, "k", refused);
   expect(ended?.cloudSetup).toEqual({ family: "claude", model: "claude-opus-5-5" });
   const html = renderToStaticMarkup(<CloudStartView start={ended!} onSetUp={() => undefined} />);
-  expect(html).toContain(translate("cloudSetup.title"));
-  expect(html).toContain(translate("cloudSetup.body"));
+  expect(html).toContain(translate("cloudSetup.title", { name: "Claude" }));
+  expect(html).toContain(translate("cloudSetup.body", { name: "Claude" }));
   expect(html).toContain(translate("cloudSetup.model", { model: "claude-opus-5-5" }));
-  for (const label of ["cloudSetup.claude", "cloudSetup.chatgpt", "cloudSetup.apiKey", "cloudSetup.settings"] as const)
-    expect(html).toContain(translate(label));
+  expect(html).toContain('data-action="setUpClaude"');
+  expect(html.match(/data-role="default"/g)).toHaveLength(1);
+  expect(html).not.toContain('data-action="addKey"');
   // No checklist and no host words: nothing started.
   expect(html).not.toContain("acpmux-cloud-start__failure");
   expect(html).not.toContain("cloud_setup_required");
 });
 
-test("the family's own subscription leads", () => {
-  expect(cloudSetupActions({ family: "claude" })[0]).toBe("setUpClaude");
-  expect(cloudSetupActions({ family: "codex" })[0]).toBe("connectChatGPT");
-  expect(readCloudSetupNeed({ family: "gemini" })).toBeUndefined();
+test("each family has one setup action", () => {
+  expect(cloudSetupAction({ family: "claude" })).toBe("setUpClaude");
+  expect(cloudSetupAction({ family: "codex" })).toBe("addKey");
+  expect(cloudSetupAction({ family: "codex" }, true)).toBe("connectChatGPT");
   expect(readCloudSetupNeed({ family: "codex", model: "  " })).toEqual({ family: "codex" });
 });
 
@@ -125,11 +126,17 @@ test("a button runs its way in for the start's key, and the start goes again onc
 test("a set up past its limit shows the card again, naming the same model", async () => {
   const call = (method: string) =>
     method === "cloud.setUp" ? new Promise<unknown>(() => undefined) : Promise.resolve();
-  const wait = waitForCloudSetUp(call, "k", "openSettings", { family: "claude", model: "claude-opus-5-5" }, 1);
+  let expire!: () => void;
+  const wait = waitForCloudSetUp(call, "k", "setUpClaude", { family: "claude", model: "claude-opus-5-5" }, (run) => {
+    expire = run;
+    return () => undefined;
+  });
+  expire();
   const end = await wait.ended;
   expect(end).not.toBe("signedIn");
   const ended = cloudStartEnded(begun, "k", end as Exclude<typeof end, "signedIn">);
-  expect(ended?.cloudSetup).toEqual({ family: "claude", model: "claude-opus-5-5" });
+  expect(ended?.cloudSetup).toEqual({ family: "claude", model: "claude-opus-5-5", timedOut: true });
+  expect(renderToStaticMarkup(<CloudStartView start={ended!} />)).toContain("No connection yet.");
 });
 
 test("a click on the card asks for that way in; while it waits the buttons rest", async () => {
@@ -145,7 +152,8 @@ test("a click on the card asks for that way in; while it waits the buttons rest"
     root!.render(<CloudStartView start={{ ...ended, state: "starting", signingIn: true }} onSetUp={() => undefined} />),
   );
   expect(mount.textContent).toContain(translate("cloudSetup.waiting"));
-  expect(button("connectChatGPT").disabled).toBe(true);
+  expect(button("setUpClaude")).toBeNull();
+  expect(button("run-here")).toBeNull();
 });
 
 test("a Set up Cloud press the resend did not take leaves no pick for a later Sign in", async () => {
@@ -207,6 +215,17 @@ test("the start carries the picker's effort and account", async () => {
 test("every gallery state renders", () => {
   for (const variant of Object.values(setupGallery.variants)) {
     const props = variant.props as Parameters<typeof CloudStartView>[0];
-    expect(renderToStaticMarkup(<CloudStartView {...props} />)).toContain(translate("cloudSetup.title"));
+    expect(renderToStaticMarkup(<CloudStartView {...props} />)).toContain(
+      translate("cloudSetup.title", { name: props.start.cloudSetup?.family === "codex" ? "Codex" : "Claude" }),
+    );
   }
+});
+
+test("an unconnected provider chat points to its own settings", () => {
+  for (const family of ["github-copilot", "openrouter", "gemini", "grok", "providers/custom"]) {
+    const need = readCloudSetupNeed({ family });
+    expect(need).toEqual({ family });
+    expect(cloudSetupAction(need!)).toBe("openSettings");
+  }
+  expect(readCloudSetupNeed({ family: "providers//custom" })).toBeUndefined();
 });

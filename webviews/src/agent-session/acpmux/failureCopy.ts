@@ -12,6 +12,8 @@ export type FailureKind =
   | "needs-credits"
   | "team-cap"
   | "no-credit"
+  | "model-not-found"
+  | "no-supergrok-access"
   | "cloud-auth-expired"
   | "rate-limited"
   | "unreachable"
@@ -68,7 +70,9 @@ const TEAM_CAP = /\bteam\.cap_reached\b|team reached its (?:spending|monthly usa
 /// `billing_hard_limit_reached`, a gateway's "insufficient credits". Not a rate limit: waiting does not
 /// help, and OpenAI sends it as a 429, so it goes before RATE.
 const NO_CREDIT =
-  /credit balance (?:is )?too low|billing[ _-]hard[ _-]limit|exceeded your current quota|\binsufficient credits?\b|payment required/i;
+  /credit balance (?:is )?too low|billing[ _-]hard[ _-]limit|exceeded your current quota|\binsufficient credits?\b|insufficient balance|no resource package|\b1113\b|payment required/i;
+const MODEL_ACCESS =
+  /(?:no|does not have|do not have) access to (?:the )?model|model.*does not exist or you do not have access/i;
 /// `insufficient_quota` alone is weaker: the cmux model router types its own rate limits with it (a
 /// 429 `free.rate`, "too many requests; wait a moment", backend inference/free.ts; a team's
 /// `inference.daily_limit`). It counts only without a router code or rate words beside it.
@@ -161,6 +165,8 @@ const SPAWN_FAILED =
 /// acpmux's typed reasons (`errorCode`), by the words in them: the kind its text would give, when
 /// the text says less.
 const TYPED: readonly [RegExp, FailureKind][] = [
+  [/^model_not_found$/, "model-not-found"],
+  [/^subscription\.no_supergrok_access$/, "no-supergrok-access"],
   // The cmux model router's own codes, when they reach the turn typed.
   [/inference\.plan_required|credits\.insufficient/i, "needs-credits"],
   [/insufficient[_.-]?quota|billing|credit/i, "no-credit"],
@@ -214,6 +220,25 @@ export function isAuthenticationFailure(message: string | undefined): boolean {
   return kind === "subscription-login" || kind === "auth";
 }
 
+export function cloudClaudeTokenRejected(message?: string, route?: FailureRoute, code?: string): boolean {
+  if (
+    route?.hostKind !== "cloud" ||
+    route.teamMachine ||
+    agentKey(route.harness?.split("/").pop() ?? "") !== "claude"
+  ) {
+    return false;
+  }
+  if (code === "claude_cloud_token_rejected") return true;
+  const detail = message ?? "";
+  // Older Cloud daemons keep the provider's OAuth rejection in their explanation.
+  return (
+    !UNREACHABLE.test(detail) &&
+    !RATE.test(detail) &&
+    /\bsetup[- ]token\b/i.test(detail) &&
+    /\boauth token (?:has been |has |is )?(?:expired|revoked|invalid)\b/i.test(detail)
+  );
+}
+
 /// A Claude sign-in failure on a team Cloud machine (`route.teamMachine`): cmux passes no personal
 /// login to a machine teammates share, so neither the person's own sign-in nor a login transfer gets
 /// it signed in (the transfer refuses: "Personal credentials can only be transferred to a Cloud
@@ -238,6 +263,7 @@ export function failureVia(message: string | undefined, route?: FailureRoute): s
 /// `code`: acpmux's typed reason for the failure (the turn's `errorCode`), when it gives one.
 export function failureKind(message: string | undefined, route?: FailureRoute, code?: string): FailureKind {
   if (TEAM_CAP.test(message ?? "") || TEAM_CAP.test(code ?? "")) return "team-cap";
+  if (cloudClaudeTokenRejected(message, route, code)) return "auth";
   const typed = code ? TYPED.find(([words]) => words.test(code))?.[1] : undefined;
   // The router types its own limits `insufficient_quota` too: its code in the text makes it a limit.
   if (typed === "no-credit" && message && ROUTER_CODE.test(message)) return "rate-limited";
@@ -260,6 +286,7 @@ export function failureKind(message: string | undefined, route?: FailureRoute, c
     return "no-credit";
   if (cloudSignIn(message)) return "cloud-auth-expired";
   // Capacity and network first: their messages often mention authentication or keys in passing.
+  if (/model[_ ]not[_ ]found/i.test(message) || MODEL_ACCESS.test(message)) return "model-not-found";
   if (RATE.test(message)) return "rate-limited";
   // Connection words count only outside addresses: a URL's path or query (`…/oauth/token`,
   // `?error=ETIMEDOUT`) names what was asked, not what happened.
@@ -339,6 +366,8 @@ export function failureRecovery(kind: FailureKind): "retry" | "switch-model" | "
     case "invalid-key":
     case "proxy-auth":
     case "no-credit":
+    case "model-not-found":
+    case "no-supergrok-access":
     // At the team's cap every cmux-routed call is refused until an admin raises it: a model on the
     // person's own account is the way on.
     case "team-cap":
@@ -356,6 +385,7 @@ export function failureRecovery(kind: FailureKind): "retry" | "switch-model" | "
 /// The agent's raw message stays available as the detail, never as the sentence ("we need to have
 /// prettier errors", Leo 2026-10-22): an unknown failure still reads human.
 export function failureCopy(t: Translate, message: string | undefined, route?: FailureRoute, code?: string): string {
+  if (cloudClaudeTokenRejected(message, route, code)) return t("turn.failure.claudeCloudSetup");
   const kind = failureKind(message, route, code);
   if (!message && kind === "other") return t("turn.failed");
   const harness = route?.name || route?.harness || t("turn.failure.theAgent");
@@ -384,6 +414,10 @@ export function failureCopy(t: Translate, message: string | undefined, route?: F
       return t("turn.failure.teamCap", { harness });
     case "no-credit":
       return t("turn.failure.noCredit", { harness });
+    case "model-not-found":
+      return MODEL_ACCESS.test(message ?? "") ? t("turn.failure.modelAccess") : t("turn.failure.modelNotFound");
+    case "no-supergrok-access":
+      return t("turn.failure.noSuperGrokAccess");
     case "cloud-auth-expired": {
       const found = message ? cloudSignIn(message, route) : undefined;
       if (found?.command) return t("turn.failure.cloudSignInExpired", { harness, command: found.command });

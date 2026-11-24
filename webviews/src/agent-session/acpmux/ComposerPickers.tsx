@@ -4,6 +4,7 @@ import React, { useCallback, useContext, useEffect, useEffectEvent, useMemo, use
 import type { SignIn } from "./signIn";
 import { useChatAccounts } from "./chatAccounts";
 import { useClaudeConnectFlow } from "./ClaudeConnectRow";
+import { CloudServedContext } from "./cloudServed";
 import type { QuickMenuExtras } from "./QuickModelMenu";
 import { sessionModels } from "./modelCatalog";
 import { modelChipFallback } from "./agents";
@@ -1278,12 +1279,15 @@ export function ComposerPickers({
   // A New Tab on a Mac whose acpmux names no default (only the built-in Chief and UniiChat) starts
   // on no agent (newTabStart): its chip is Add harness, as with none installed.
   const unpickedNewTab = onNewTab && !harness && listedNoDefault(snapshot.catalog);
+  const cloudServed = useContext(CloudServedContext)?.served;
   const picksModel =
-    !unpickedNewTab &&
-    (snapshot.catalog.length > 0 || Boolean(harness) || Boolean(pickerCatalog?.harnesses.length && !harnessesListed));
+    !!cloudServed ||
+    (!unpickedNewTab &&
+      (snapshot.catalog.length > 0 ||
+        Boolean(harness) ||
+        Boolean(pickerCatalog?.harnesses.length && !harnessesListed)));
   const chips = (
     <div className="acpmux-chips">
-      {claudeConnect.dialog}
       {picksModel ? (
         <ModelPicker
           catalog={pickerEntries}
@@ -1322,7 +1326,7 @@ export function ComposerPickers({
           onSetUpPick={setUpPick}
           harnessFixed={locked}
           {...(signIn ? { signedOut: pickableSignedOut(signIn.signedOut, summary), onLogIn: signIn.logIn } : {})}
-          {...(claudeConnect.row ? { claudeConnect: claudeConnect.row } : {})}
+          {...(claudeConnect ? { claudeConnect: claudeConnect } : {})}
           {...(fastMode && (!reasoningMenu || (fastOffered && !held && !switching))
             ? { fastMode: { ...fastMode, lastOnValue: fastMode.lastOnValue ?? rememberedFastValue } }
             : {})}

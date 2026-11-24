@@ -165,10 +165,35 @@ export const CHAT_COLUMN = ".acpmux-main";
 export function pickerHeightBounds(
   room: unknown,
   opened: number | undefined,
+  floor = 0,
 ): { maxHeight: number; minHeight: number } {
   const maxHeight = typeof room === "number" && Number.isFinite(room) ? Math.max(0, room) : MODEL_PICKER_INITIAL_HEIGHT;
-  const minHeight = Math.min(maxHeight, Math.max(MODEL_PICKER_MIN_HEIGHT, opened ?? 0));
+  const minHeight = Math.min(maxHeight, Math.max(MODEL_PICKER_MIN_HEIGHT, opened ?? 0, floor));
   return { maxHeight, minHeight };
+}
+
+const LOCAL_HEIGHT_KEY = "cmux.acpmux.localPickerHeight";
+
+/// The height the This Mac picker last opened at. The Cloud picker opens at least this tall, so a
+/// family that shows only its Connect row keeps the local picker's default height; before any local
+/// open it uses MODEL_PICKER_INITIAL_HEIGHT. Both stay inside the anchor's room (pickerHeightBounds).
+export function cloudPickerFloor(): number {
+  try {
+    const saved = Number(localStorage.getItem(LOCAL_HEIGHT_KEY));
+    return Number.isFinite(saved) && saved >= MODEL_PICKER_MIN_HEIGHT ? saved : MODEL_PICKER_INITIAL_HEIGHT;
+  } catch {
+    return MODEL_PICKER_INITIAL_HEIGHT;
+  }
+}
+
+/// Records the This Mac picker's opened height for cloudPickerFloor.
+export function rememberLocalPickerHeight(height: number): void {
+  if (!Number.isFinite(height) || height < MODEL_PICKER_MIN_HEIGHT) return;
+  try {
+    localStorage.setItem(LOCAL_HEIGHT_KEY, String(Math.round(height)));
+  } catch {
+    // Blocked storage: the Cloud picker uses the initial height.
+  }
 }
 
 /// A pick ``ModelPickerProps.onSetUpPick`` gets: the model and its harness, whether the harness is

@@ -132,6 +132,7 @@ export type PickerHarness = {
   /** The installed harness's own model-menu order, separate from the full catalog. */
   topModels?: string[];
   id: string;
+  endpoint?: true;
   name: string;
   /** acpmux family, when this profile was reported (for family-specific picker behavior). */
   family?: string;
@@ -161,10 +162,66 @@ type AcpmuxHarness = AcpmuxCatalog[number];
 type AcpmuxModel = AcpmuxHarness["models"][number];
 type ConfigOptions = NonNullable<NonNullable<AcpmuxSnapshot["summary"]>["configOptions"]>;
 
+const providerHarnesses: CatalogHarness[] = [
+  {
+    id: "grok",
+    name: "Grok Build",
+    brand: "grok",
+    families: ["grok"],
+    modelSource: "catalog",
+    defaultModel: "grok-build-0.1",
+    models: [
+      { id: "grok-build-0.1", name: "Grok Build", shortName: "Grok Build" },
+      { id: "grok-4.7", name: "Grok 4.7", shortName: "4.7" },
+    ],
+  },
+  {
+    id: "github-copilot",
+    name: "GitHub Copilot",
+    brand: "opencode",
+    families: ["github-copilot"],
+    modelSource: "catalog",
+    defaultModel: "github-copilot/gpt-5-mini",
+    models: [
+      { id: "github-copilot/gpt-5-mini", name: "GPT-5 mini", shortName: "GPT-5 mini" },
+      { id: "github-copilot/gpt-5.4", name: "GPT-5.4", shortName: "GPT-5.4" },
+    ],
+  },
+  {
+    id: "openrouter",
+    name: "OpenRouter",
+    brand: "opencode",
+    families: ["openrouter"],
+    modelSource: "catalog",
+    defaultModel: "openrouter/openai/gpt-5.4-mini",
+    models: [
+      { id: "openrouter/openai/gpt-5.4-mini", name: "GPT-5.4 mini", shortName: "GPT-5.4 mini" },
+      { id: "openrouter/google/gemini-3.1-pro-preview", name: "Gemini 3.1 Pro", shortName: "3.1 Pro" },
+    ],
+  },
+];
+
+function withProviderHarnesses(harnesses: CatalogHarness[]): CatalogHarness[] {
+  const byId = new Map(harnesses.map((harness) => [harness.id, harness]));
+  for (const fallback of providerHarnesses) {
+    const harness = byId.get(fallback.id);
+    if (!harness) byId.set(fallback.id, fallback);
+    else if (!harness.models.length)
+      byId.set(harness.id, {
+        ...harness,
+        modelSource: fallback.modelSource,
+        defaultModel: harness.defaultModel ?? fallback.defaultModel,
+        models: fallback.models,
+      });
+  }
+  return [...byId.values()];
+}
+
 /** The catalog bundled with the page: what the picker shows before the host answers, and offline. */
 export const BUNDLED_MODEL_CATALOG: ModelCatalog = {
   ...(bundledCatalog as ModelCatalog),
   delivery: "bundled",
+  harnesses: withProviderHarnesses((bundledCatalog as ModelCatalog).harnesses),
 };
 
 const EFFORT_ORDER: readonly EffortValue[] = ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"];
@@ -174,7 +231,7 @@ export function readModelCatalog(value: unknown): ModelCatalog | undefined {
   if (!isRecord(value) || value.schemaVersion !== 1 || !Array.isArray(value.harnesses)) return undefined;
   if (!isRecord(value.models) || !isRecord(value.providers)) return undefined;
   const harnesses = (value.harnesses as unknown[]).filter(isCatalogHarness).map(withoutDisabled);
-  return { ...(value as ModelCatalog), harnesses };
+  return { ...(value as ModelCatalog), harnesses: withProviderHarnesses(harnesses) };
 }
 
 /** Drops the models the catalog disabled, and a default model that is one of them. */
@@ -367,14 +424,15 @@ export function buildPickerCatalog({
   const hidden = hiddenHarnesses(user);
   const covered = new Set<string>();
   const harnesses = layered.harnesses.map((harness) => {
-    const members = acpmux.filter((entry) => harness.families.includes(familyOf(entry)));
+    const members = acpmux.filter((entry) => !entry.endpoint && harness.families.includes(familyOf(entry)));
     for (const member of members) covered.add(member.id);
     return catalogHarness(harness, members, join);
   });
   // A profile whose family a hidden catalog harness covers stays hidden with it.
   for (const harness of catalog.harnesses)
     if (hidden.has(harness.id))
-      for (const entry of acpmux) if (harness.families.includes(familyOf(entry))) covered.add(entry.id);
+      for (const entry of acpmux)
+        if (!entry.endpoint && harness.families.includes(familyOf(entry))) covered.add(entry.id);
   for (const entry of acpmux) {
     if (!covered.has(entry.id) && !hidden.has(entry.id)) harnesses.push(uncataloguedHarness(entry, join));
   }
@@ -523,7 +581,8 @@ function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
   // name the release its session pins, and the aliases the agent names as one fold into it.
   const key = agentKey(familyOf(entry));
   const kin = join.catalog.harnesses.find(
-    (harness) => harness.modelSource === "catalog" && key !== undefined && harness.families.includes(key),
+    (harness) =>
+      !entry.endpoint && harness.modelSource === "catalog" && key !== undefined && harness.families.includes(key),
   );
   const reported = reportedNames(entry.models, live);
   const hiddenReleases = hiddenReleaseIds(entry.id, kin?.id, reported, join);
@@ -555,6 +614,7 @@ function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
   const iconUrl = entry.icon && !declaredBrand && isIconFile(entry.icon) ? entry.icon : undefined;
   return {
     id: entry.id,
+    ...(entry.endpoint ? { endpoint: true as const } : {}),
     name: agentName(entry.id, entry.name),
     ...(entry.family ? { family: entry.family } : {}),
     brand: declaredBrand ?? agentBrand(entry.id) ?? null,
