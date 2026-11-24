@@ -14,12 +14,39 @@ import os
 /// session shows Starting; Esc cancels it. Nothing leaves the machine once
 /// the model is on disk.
 public actor ParakeetDictationTranscriber: SpeechTranscribing {
-    /// Hands tap buffers to one pump task in order. The tap is a real-time
-    /// callback and cannot await an actor; `yield` is synchronous.
-    private struct Buffer: @unchecked Sendable { let pcm: AVAudioPCMBuffer }
+    /// One tap buffer's samples, copied so they cross to the pump task by value. The tap is a
+    /// real-time callback and cannot await an actor; `yield` is synchronous.
+    private struct Buffer: Sendable {
+        let channels: [[Float]]
+        let sampleRate: Double
+
+        init?(_ pcm: AVAudioPCMBuffer) {
+            guard let data = pcm.floatChannelData else { return nil }
+            let frames = Int(pcm.frameLength)
+            channels = (0..<Int(pcm.format.channelCount)).map { Array(UnsafeBufferPointer(start: data[$0], count: frames)) }
+            sampleRate = pcm.format.sampleRate
+        }
+
+        /// The samples as a buffer again, on the pump's side.
+        var pcm: AVAudioPCMBuffer? {
+            let frames = channels.first?.count ?? 0
+            guard frames > 0,
+                  let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: AVAudioChannelCount(channels.count)),
+                  let pcm = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frames)),
+                  let data = pcm.floatChannelData else { return nil }
+            pcm.frameLength = AVAudioFrameCount(frames)
+            for (index, samples) in channels.enumerated() {
+                samples.withUnsafeBufferPointer { if let base = $0.baseAddress { data[index].update(from: base, count: frames) } }
+            }
+            return pcm
+        }
+    }
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "dictation")
     private static let eventBufferCapacity = 32
+    /// Tap buffers waiting for the recognizer: 4096 frames each, so 128 is several seconds of
+    /// speech; past that the oldest audio drops rather than memory growing.
+    private static let audioBufferCapacity = 128
     private let store: ParakeetModelStore
     private let levelMeter: DictationAudioLevelMeter?
     private var manager: SlidingWindowAsrManager?
@@ -66,10 +93,13 @@ public actor ParakeetDictationTranscriber: SpeechTranscribing {
             bufferingPolicy: .bufferingNewest(Self.eventBufferCapacity)
         )
         self.continuation = continuation
-        let (buffers, input) = AsyncStream<Buffer>.makeStream(bufferingPolicy: .unbounded)
+        let (buffers, input) = AsyncStream<Buffer>.makeStream(bufferingPolicy: .bufferingNewest(Self.audioBufferCapacity))
         self.input = input
         pump = Task {
-            for await buffer in buffers { await manager.streamAudio(buffer.pcm) }
+            for await buffer in buffers {
+                guard let pcm = buffer.pcm else { continue }
+                await manager.streamAudio(pcm)
+            }
         }
         reader = Task { [weak self] in
             for await _ in updates {
@@ -126,7 +156,7 @@ public actor ParakeetDictationTranscriber: SpeechTranscribing {
         let meter = levelMeter
         node.installTap(onBus: 0, bufferSize: 4096, format: format) { buffer, _ in
             meter?.record(buffer)
-            input.yield(Buffer(pcm: buffer))
+            if let copy = Buffer(buffer) { input.yield(copy) }
         }
         engine.prepare()
         try engine.start()

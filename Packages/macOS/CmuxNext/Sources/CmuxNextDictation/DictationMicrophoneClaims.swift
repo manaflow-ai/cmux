@@ -11,6 +11,10 @@ public final class DictationMicrophoneClaims {
     public static let shared = DictationMicrophoneClaims()
 
     private weak var holder: AnyObject?
+
+    /// The engine that listens in place of On This Mac (Labs), or `nil` for On This Mac; read at
+    /// each session's start (``DictationEngineFactory``).
+    public var engine: DictationEngineFactory?
     private var stopHolder: (@MainActor () -> Void)?
 
     public init() {}

@@ -67,7 +67,7 @@ public final class DictationSession {
     public init(
         authorizer: any DictationAuthorizing = SystemDictationAuthorizer(),
         makeTranscriber: @escaping @MainActor (DictationAudioLevelMeter) -> any SpeechTranscribing = { meter in
-            OnDeviceDictationTranscriber(levelMeter: meter)
+            OnDeviceDictationTranscriber(levelMeter: meter, engine: DictationMicrophoneClaims.shared.engine)
         },
         locale: @escaping @MainActor () -> Locale = { Locale.current },
         stopDeadline: Duration = .seconds(3),

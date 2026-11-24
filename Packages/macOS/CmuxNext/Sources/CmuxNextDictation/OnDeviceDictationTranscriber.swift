@@ -12,6 +12,8 @@ public actor OnDeviceDictationTranscriber: SpeechTranscribing {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "dictation")
     private let levelMeter: DictationAudioLevelMeter?
     private let authorizer: any DictationAuthorizing
+    /// Labs' engine in place of this one (``DictationEngineFactory``), or `nil`.
+    private let engine: DictationEngineFactory?
     private var active: (any SpeechTranscribing)?
     private var isFinishing = false
     #if DEBUG || CMUX_BENCH_HOOKS
@@ -22,22 +24,22 @@ public actor OnDeviceDictationTranscriber: SpeechTranscribing {
     public init(levelMeter: DictationAudioLevelMeter?, recordedInput url: URL) {
         self.levelMeter = levelMeter
         self.authorizer = RecordedInputAuthorizer()
+        self.engine = nil
         self.recordedInput = url
     }
     #endif
 
-    public init(levelMeter: DictationAudioLevelMeter?, authorizer: any DictationAuthorizing = SystemDictationAuthorizer()) {
+    /// - Parameter engine: Labs' engine to dictate with instead (``DictationMicrophoneClaims/engine``);
+    ///   `nil` keeps On This Mac.
+    public init(levelMeter: DictationAudioLevelMeter?, authorizer: any DictationAuthorizing = SystemDictationAuthorizer(),
+                engine: DictationEngineFactory? = nil) {
         self.levelMeter = levelMeter
         self.authorizer = authorizer
+        self.engine = engine
     }
 
     public func transcribe(locale: Locale) async throws -> AsyncThrowingStream<DictationTranscriptionEvent, any Error> {
-        #if DEBUG || CMUX_BENCH_HOOKS
-        let hearsRecording = recordedInput != nil
-        #else
-        let hearsRecording = false
-        #endif
-        if !hearsRecording, let make = DictationEngineChoice.engine {
+        if let make = engine {
             let chosen = make(levelMeter)
             active = chosen
             Self.logger.info("dictation engine: Labs choice")
