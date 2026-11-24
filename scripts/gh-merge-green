@@ -1364,6 +1364,7 @@ merged_head_checks() {
       'retry on the current head'
   fi
   tmp=$(mktemp -d)
+  tmp_files+=("$tmp")
   merged="$tmp/merged"
   mkdir -p "$merged"
   # The helper checkout is commonly a blob:none partial clone. Materializing a
