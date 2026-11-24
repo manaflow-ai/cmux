@@ -49,6 +49,9 @@ use cmux_session_pack as pack;
 
 /// The one file of a history export's manifest: a session-pack bundle.
 pub(in crate::hub) const HISTORY_FILE: &str = "events/history.cspb";
+
+#[path = "pack_as_it_grows.rs"]
+mod pack_as_it_grows;
 /// Each chat's newest history-later prepare's pack ([`Hub::prepack_history`]): the seq it packs
 /// through, and its result once done.
 static PREPACKS: std::sync::LazyLock<std::sync::Mutex<HashMap<String, (u64, Arc<Prepack>)>>> =
@@ -430,13 +433,37 @@ impl Hub {
         store: &pack::Store,
         work: &Path,
     ) -> anyhow::Result<(pack::Manifest, pack::PackStats, String)> {
-        use std::io::Write as _;
         crate::home_fs::create_dirs(work)?;
-        // The lines as an export writes them, so a chat packed again packs the same bytes.
         let lines = work.join("history.ndjson");
-        let mut out = std::io::BufWriter::new(crate::home_fs::create_file(&lines)?);
-        let (mut last, mut digest, mut failed) = (0u64, String::new(), None::<anyhow::Error>);
-        self.store.scan(&session.id, 0, &mut |mut e: EventRecord| {
+        let written = self.write_lines(session, 0, through, &lines);
+        let packed = written.and_then(|(last, digest)| {
+            anyhow::ensure!(last == through, "the log here holds no record at seq {through}");
+            let params = pack::Params::default();
+            let packed =
+                pack::pack(store, &session.id, std::slice::from_ref(&lines), &params, false);
+            Ok((packed.map_err(pack_error)?, digest))
+        });
+        let _ = crate::home_fs::remove_file(&lines);
+        let ((manifest, stats), digest) = packed?;
+        Ok((manifest, stats, digest))
+    }
+
+    /// Writes chat `session`'s records after seq `after` through seq `through` to `lines`, one a
+    /// line as an export writes them (after [`Hub::display_logged`]), so a chat packed again, or
+    /// packed as it grows (`pack_as_it_grows.rs`), packs the same bytes. Returns the last seq
+    /// written (`after` when none) and the digest of the record at `through` (empty when the log
+    /// holds none there).
+    fn write_lines(
+        &self,
+        session: &Session,
+        after: u64,
+        through: u64,
+        lines: &Path,
+    ) -> anyhow::Result<(u64, String)> {
+        use std::io::Write as _;
+        let mut out = std::io::BufWriter::new(crate::home_fs::create_file(lines)?);
+        let (mut last, mut digest, mut failed) = (after, String::new(), None::<anyhow::Error>);
+        self.store.scan(&session.id, after, &mut |mut e: EventRecord| {
             if e.seq > through {
                 return false;
             }
@@ -457,20 +484,10 @@ impl Hub {
             failed.is_none() && !at_end
         })?;
         if let Some(e) = failed {
-            let _ = crate::home_fs::remove_file(&lines);
             return Err(e);
         }
         out.flush()?;
-        drop(out);
-        let packed = (|| {
-            anyhow::ensure!(last == through, "the log here holds no record at seq {through}");
-            let params = pack::Params::default();
-            pack::pack(store, &session.id, std::slice::from_ref(&lines), &params, false)
-                .map_err(pack_error)
-        })();
-        crate::home_fs::remove_file(&lines)?;
-        let (manifest, stats) = packed?;
-        Ok((manifest, stats, digest))
+        Ok((last, digest))
     }
 
     /// At a history-later prepare through seq `through`: packs the chat's log through it into

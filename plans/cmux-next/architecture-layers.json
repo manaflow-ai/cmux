@@ -148,6 +148,8 @@
     "CmuxFeedPushCore": {"layer": "core", "package": "Packages/Shared/CmuxFeedPushCore", "note": "feed push crypto values"},
     "CmuxTheme": {"layer": "core", "package": "Packages/Shared/CmuxTheme", "note": "theme values; core CmuxNextDesignTokens depends on it"},
     "CmuxTerminalSizing": {"layer": "core", "package": "Packages/Shared/CmuxTerminalSizing", "note": "pure terminal sizing math"},
+    "CmuxVisibleRows": {"layer": "core", "package": "Packages/Shared/CmuxVisibleRows", "note": "the visible-rows work meter a list keeps (no AppKit, no UIKit)"},
+    "CmuxVisibleRowsTesting": {"layer": "core", "package": "Packages/Shared/CmuxVisibleRows", "note": "the visible-rows contract test helper and its baseline (test-only link)"},
     "CmuxSentryScrubbing": {"layer": "core", "package": "Packages/Shared/CmuxSentryTelemetry", "note": "pure report scrubber"},
     "CmuxAgentCursor": {"layer": "core", "package": "Packages/Shared/CmuxAgentCursor", "note": "vendored cursor command logic, QuartzCore only"},
     "CmuxGhosttyKitLink": {"layer": "core", "package": "Packages/Shared/CmuxGhosttyKit", "note": "link shim of the Ghostty binary"},

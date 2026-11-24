@@ -48,6 +48,7 @@ mod auth;
 mod held;
 pub(crate) mod policy;
 mod reaper;
+mod reserved;
 mod spare;
 mod start;
 use held::{TapSlot, holding_inbound, holding_tap};
@@ -426,6 +427,9 @@ impl Hub {
                 }
                 if v.hinted {
                     roles.push("hinted");
+                }
+                if v.reserved {
+                    roles.push("reserved");
                 }
                 if v.spare {
                     roles.push("spare");
