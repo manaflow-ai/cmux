@@ -96,7 +96,7 @@ public struct WorkspacesList: View {
     @State private var revealedRequest: Int?
     /// The list is on screen (not under a pushed workspace page): a reveal waits for it.
     @State private var isShown = false
-    /// The remembered row is scrolled once each time this list becomes visible.
+    /// The remembered row was scrolled to (or found hidden): once per launch.
     @State private var restoredLastWorkspace = false
 
     public init(store: AppStore, creator: WorkspaceCreator, accountEmail: String? = nil,
@@ -459,55 +459,27 @@ public struct WorkspacesList: View {
                 guard let request, isShown else { return }
                 reveal(request.workspaceID)
             }
-            .onChange(of: rememberedWorkspaceID) { _, _ in
-                restoredLastWorkspace = false
-                restoreLastWorkspace(inbox)
-            }
             .onChange(of: store.activeWorkspaces.map(\.id)) { _, _ in
-                restoreLastWorkspace(inbox)
-            }
-            .onChange(of: query) { _, _ in
-                restoreLastWorkspace(inbox)
-            }
-            .onChange(of: unfolded) { _, _ in
-                restoreLastWorkspace(inbox)
-            }
-            .onChange(of: creator.groupsRevision) { _, _ in
                 restoreLastWorkspace(inbox)
             }
             .onAppear {
                 isShown = true
                 if let request = store.revealRequest, request.id != revealedRequest { reveal(request.workspaceID) }
-                restoredLastWorkspace = false
                 restoreLastWorkspace(inbox)
             }
-            .onDisappear {
-                isShown = false
-                restoredLastWorkspace = false
-            }
+            .onDisappear { isShown = false }
     }
 
-    /// Scrolls to the remembered row after cached or live rows first include it.
-    /// Closed groups and offline Mac folds are opened without the reveal flash used for an explicit request.
+    /// Once per launch, scrolls to the remembered row as soon as cached or live rows include it. Backing out of a
+    /// workspace keeps the list where it was, so only the first appearance scrolls. Only a row the list already
+    /// shows is a target: a restore never opens a collapsed group (that writes the Mac's sidebar), unfolds a Mac
+    /// or clears a search the user typed; the row is still marked when they get to it.
     private func restoreLastWorkspace(_ inbox: WorkspaceInbox) {
-        guard isShown, !restoredLastWorkspace,
+        guard isShown, !restoredLastWorkspace, query.isEmpty,
               let workspaceID = LastOpenRestore.listTarget(savedWorkspaceID: rememberedWorkspaceID,
-                                                           workspaces: store.activeWorkspaces),
-              let workspace = store.workspace(id: workspaceID) else { return }
-        if !query.isEmpty {
-            query = ""
-            return
-        }
-        if let group = workspace.group, group.isCollapsed {
-            creator.setGroupCollapsed(group, on: workspace.macID, false)
-            return
-        }
-        if let fold = inbox.folds.first(where: { $0.mac.id == workspace.macID }), !fold.isForcedOpen {
-            unfolded.insert(workspace.macID)
-            return
-        }
-        guard listModel(inbox).items[WorkspacesListModel.rowID(workspaceID)] != nil else { return }
+                                                           workspaces: store.activeWorkspaces) else { return }
         restoredLastWorkspace = true
+        guard listModel(inbox).items[WorkspacesListModel.rowID(workspaceID)] != nil else { return }
         Task { @MainActor in
             await Task.yield()
             guard isShown else { return }
