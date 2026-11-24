@@ -13,28 +13,38 @@
 //! (`cmux-bench share-latency`).
 use super::super::super::GUEST_PREFIX;
 use super::*;
+
+// Keep the fake-room proof and staging flow on the exact same statistics and bound code.
+#[path = "share_latency_report.rs"]
+mod share_latency_report;
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::sync::mpsc::RecvTimeoutError;
 
 /// Leo's bound for both: live and cut off.
-const BOUND: Duration = Duration::from_secs(1);
+const BOUND: Duration = Duration::from_millis(share_latency_report::BOUND_MS as u64);
 /// How often a wait on the room's channel also reads the daemon's connection table.
 const TICK: Duration = Duration::from_millis(1);
 
 fn ms(d: Duration) -> f64 {
-    (d.as_secs_f64() * 10_000.0).round() / 10.0
+    share_latency_report::rounded_ms(d.as_secs_f64() * 1_000.0)
 }
 
-/// Prints `case`'s p50 and max, then holds the slowest to [`BOUND`].
-fn report(case: &str, load: &str, mut samples: Vec<Duration>) {
-    assert!(!samples.is_empty(), "{case} ({load}): no sample");
-    samples.sort();
-    let (p50, max) = (samples[samples.len() / 2], samples[samples.len() - 1]);
-    let line = json!({"case": case, "load": load, "n": samples.len(), "p50_ms": ms(p50),
-        "max_ms": ms(max), "bound_ms": ms(BOUND)});
+/// Prints `case`'s p50, p95 and max, then holds every raw sample to the 1 s bound.
+fn report(case: &str, load: &str, samples: Vec<Duration>) {
+    let raw: Vec<f64> = samples.iter().map(|sample| sample.as_secs_f64() * 1_000.0).collect();
+    let summary = share_latency_report::summarize(&raw).unwrap_or_else(|error| {
+        panic!("{case} ({load}): {error}");
+    });
+    let line = json!({"case": case, "load": load, "n": summary.n, "p50_ms": summary.p50_ms,
+        "p95_ms": summary.p95_ms, "max_ms": summary.max_ms, "bound_ms": ms(BOUND),
+        "within_1s": summary.within_1s});
     println!("SHARE-LATENCY {line}");
-    assert!(max < BOUND, "{case} ({load}): the slowest took {} ms, over the 1 s bound", ms(max));
+    assert!(
+        summary.all_samples_within_1s,
+        "{case} ({load}): the slowest took {} ms, over the 1 s bound",
+        summary.max_ms
+    );
 }
 
 /// Reads what the room sees, each with the moment it was read, until `done` holds (`true`) or
@@ -116,9 +126,10 @@ fn guests_of(owner: &mut Client, share: &str, account: &str, count: usize) -> Ve
         .collect()
 }
 
-/// Each guest's browser joins the newest host socket (`conn`); back once each has its snapshot,
-/// so its relay is attached.
-fn join(room: &FakeRoom, conn: u64, guests: &[String]) {
+/// Each guest's browser joins the newest host socket (`conn`). The snapshot is not the relay's
+/// attach barrier because the relay asks acpmux to mark the session visible immediately after it
+/// emits the snapshot. Wait for the fake's view response before pushing a live record.
+fn join(room: &FakeRoom, fake: &FakeAcpmux, conn: u64, guests: &[String]) {
     for guest in guests {
         room.send(json!({"v": 1, "t": "guest_joined", "guest_id": guest}));
     }
@@ -126,6 +137,9 @@ fn join(room: &FakeRoom, conn: u64, guests: &[String]) {
     while !waiting.is_empty() {
         let snapshot = room.next(conn, "snapshot");
         waiting.remove(snapshot["to"].as_str().unwrap());
+    }
+    for _ in guests {
+        fake.wait_for_attachment();
     }
 }
 
@@ -301,7 +315,7 @@ fn a_new_record_reaches_a_joined_guest_within_a_second() {
     let (mut fake, _mux, surface, mut owner) = bridged("latency-live", &room);
     let (share, conn) = open(&room, &mut owner, surface);
     let ann = guests_of(&mut owner, &share, "ann@example.com", 1);
-    join(&room, conn, &ann);
+    join(&room, &fake, conn, &ann);
     let samples = (100..140).flat_map(|seq| live(&room, &mut fake, seq, &ann, &[])).collect();
     report("live", "alone", samples);
 }
@@ -316,7 +330,7 @@ fn a_revoke_cuts_the_guest_off_within_a_second() {
     for round in 0..5 {
         let (share, conn) = open(&room, &mut owner, surface);
         let guests = guests_of(&mut owner, &share, &format!("r{round}@example.com"), 1);
-        join(&room, conn, &guests);
+        join(&room, &fake, conn, &guests);
         let start = Instant::now();
         let revoke = owner.request(json!({"cmd":"agent-session-share-revoke", "share_id":share}));
         assert_eq!(revoke["ok"], true, "{revoke}");
@@ -340,11 +354,11 @@ fn a_kick_cuts_one_guest_off_within_a_second_and_the_other_stays_live() {
     let (mut fake, mux, surface, mut owner) = bridged("latency-kick", &room);
     let (share, conn) = open(&room, &mut owner, surface);
     let bob = guests_of(&mut owner, &share, "bob@example.com", 1);
-    join(&room, conn, &bob);
+    join(&room, &fake, conn, &bob);
     let (mut kicks, mut closes, mut next, mut gone) = (vec![], vec![], vec![], vec![]);
     for round in 0..5_u64 {
         let ann = guests_of(&mut owner, &share, &format!("k{round}@example.com"), 1);
-        join(&room, conn, &ann);
+        join(&room, &fake, conn, &ann);
         // Both are live first.
         let both = [ann[0].clone(), bob[0].clone()];
         live(&room, &mut fake, 200 + round * 2, &both, &[]);
@@ -372,12 +386,12 @@ fn an_uninvite_cuts_off_every_guest_of_the_account_within_a_second() {
     let (mut fake, mux, surface, mut owner) = bridged("latency-uninvite", &room);
     let (share, conn) = open(&room, &mut owner, surface);
     let bob = guests_of(&mut owner, &share, "bob@example.com", 1);
-    join(&room, conn, &bob);
+    join(&room, &fake, conn, &bob);
     let (mut kicks, mut closes, mut next, mut gone) = (vec![], vec![], vec![], vec![]);
     for round in 0..3_u64 {
         let account = format!("u{round}@example.com");
         let vera = guests_of(&mut owner, &share, &account, 4);
-        join(&room, conn, &vera);
+        join(&room, &fake, conn, &vera);
         let start = Instant::now();
         let uninvite = owner.request(json!({"cmd":"agent-session-share-uninvite",
             "share_id":share, "account":account}));
@@ -416,7 +430,7 @@ fn under_duress_records_stay_live_and_cuts_land_within_a_second() {
         let (share, conn) = open(&room, &mut owner, surface);
         let account = format!("d{k}@example.com");
         let guests = guests_of(&mut owner, &share, &account, GUESTS_PER_ACCOUNT);
-        join(&room, conn, &guests[..JOINED]);
+        join(&room, &fake, conn, &guests[..JOINED]);
         shares.push((share, conn, account, guests));
     }
     // The burst, on its own thread: every record to every connection, as acpmux fans one out.
