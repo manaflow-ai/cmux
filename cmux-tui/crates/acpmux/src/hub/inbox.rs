@@ -2407,7 +2407,7 @@ impl Hub {
                 "inbox_removed" => {
                     let id = e.msg.get("promptId").and_then(Value::as_str).unwrap_or_default();
                     for slot in slots.remove(id).unwrap_or_default() {
-                        if let Some(item) = items[slot].take() {
+                        if let Some(item) = items.get_mut(slot).and_then(Option::take) {
                             removed_held.push(item.prompt_id);
                         }
                     }
