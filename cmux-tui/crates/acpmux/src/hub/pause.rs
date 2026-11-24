@@ -61,7 +61,7 @@ impl Hub {
         }
         // Nothing it did not report may end with it (`idle_census.rs`).
         let sidecars = self.sidecars(&child).await;
-        let census = self.idle_census(child.pid, sidecars).await;
+        let census = self.idle_census(child.pid, sidecars, false).await;
         if !matches!(census, super::idle_census::Census::Clear) {
             self.note_refusal(session, &census);
             return Err(not_idle(session, "process"));

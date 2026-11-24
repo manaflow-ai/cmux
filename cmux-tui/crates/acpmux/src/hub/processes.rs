@@ -906,6 +906,21 @@ impl Hub {
         self.process_table(session).running.len()
     }
 
+    /// The session's running background processes as `(command, cwd, description, started_at)`
+    /// (unix ms), reading its log once if this daemon has not yet (`wait_handoff.rs`).
+    pub(super) fn running_commands(
+        &self,
+        session: &Session,
+    ) -> Vec<(String, String, Option<String>, u64)> {
+        let table = self.process_table(session);
+        table
+            .running
+            .iter()
+            .filter_map(|&at| table.processes.get(at))
+            .map(|p| (p.command.clone(), p.cwd.clone(), p.description.clone(), p.started_at))
+            .collect()
+    }
+
     /// How many of the session's background processes run, from a table this
     /// daemon has read already: never a log scan (`host_load.rs` asks for every chat).
     pub(super) fn running_processes_read(&self, session: &Session) -> usize {
