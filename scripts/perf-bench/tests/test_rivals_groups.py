@@ -55,11 +55,38 @@ class Groups(unittest.TestCase):
                     "pids": [{"pid": 1, "kind": "main"}, {"pid": 2, "kind": "webkit-webcontent"}]}]
         text = report(samples, ["cmux", "safari"])
         self.assertIn("## Idle by process group", text)
-        self.assertIn("| Idle GPU: footprint, end (MB) | 140 | 60 (cmux 2.3x more) |", text)
+        self.assertIn("| Idle, GPU: footprint, end (MB) | 140 | 60 (cmux 2.3x more) |", text)
         self.assertNotIn("Idle acpmux", text)  # unused groups have no rows
         self.assertIn("WebKit XPC processes (WebContent, GPU, Networking) counted: 1 in", text)
         missing = report([s for s in samples if s["row"] != "soak-detail"], ["cmux", "safari"])
         self.assertIn("NONE FOUND", missing)
+
+
+class Growth(unittest.TestCase):
+    def test_troughs_take_each_buckets_lowest(self):
+        points = [(0, 100), (10, 90), (20, 120), (30, 95), (40, 130), (50, 99)]
+        self.assertEqual(rivals.troughs(points, 20), [(10, 90), (30, 95), (50, 99)])
+        self.assertEqual(rivals.troughs(points, 0), [])
+        self.assertAlmostEqual(rivals.slope_per_min(rivals.troughs(points, 20)), 13.5)
+
+    def test_trough_every_default(self):
+        self.assertEqual(rivals.trough_every(300, None), 0)
+        self.assertEqual(rivals.trough_every(28800, None), 2400)
+        self.assertEqual(rivals.trough_every(300, 60), 60)
+
+    def test_report_prints_extra_passes_only_when_measured(self):
+        base = [{"browser": "chrome", "round": 1, "row": "soak-memory-growth", "value": 0.4}]
+        text = report(base, ["cmux", "chrome"])
+        self.assertNotIn("## Signed in", text)
+        self.assertNotIn("## Background tabs", text)
+        self.assertNotIn("trough growth", text)
+        more = base + [{"browser": "chrome", "round": 1, "row": "tabs-soak-memory-end", "value": 900.0},
+                       {"browser": "chrome", "round": 1, "row": "soak-memory-trough-growth", "value": 0.01},
+                       {"browser": "claude", "round": 1, "row": "signed-in-soak-memory-end", "value": 700.0}]
+        text = report(more, ["cmux", "chrome", "claude"])
+        self.assertIn("| Background tabs, idle: footprint at end (MB) | – | – | 900 |", text)
+        self.assertIn("| Signed in, idle: footprint at end (MB) | – | 700 | – |", text)
+        self.assertIn("| Idle: trough growth (MB/min) | – | – | +0.010 |", text)
 
 
 if __name__ == "__main__":
