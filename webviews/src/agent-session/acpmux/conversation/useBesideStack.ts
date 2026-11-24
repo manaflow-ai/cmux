@@ -22,22 +22,48 @@ const ASKS = ":scope > .acpmux-asks-stack";
 const PENDING_PARTS =
   ".acpmux-pending-ask__label, .acpmux-pending-ask__dismiss, .acpmux-pending-ask > .acpmux-next-step";
 
-const painted = (root: HTMLElement): HTMLElement[] => {
-  const elements = [root, ...root.querySelectorAll<HTMLElement>("*")];
-  return elements.filter((element) => {
+/// What `root` draws, as boxes in `box`'s coordinates: each element that paints (a fill, a border, a
+/// shadow, glass), each replaced element (an icon, a field), and each line of its words. A notice
+/// line with no fill of its own (the switch notice, the managed banner, the host's line) hides the
+/// rows behind its words and buttons only, never across its whole width (Leo, 2026-11-17: "why do
+/// you have the entire row blanked out? don't ever do that").
+const drawn = (root: HTMLElement, box: DOMRect): BandHole[] => {
+  const holes: BandHole[] = [];
+  const push = (rect: DOMRect, radius: number) => {
+    if (rect.width <= 0.25 || rect.height <= 0.25) return;
+    holes.push({
+      left: rect.left - box.left,
+      top: rect.top - box.top,
+      right: rect.right - box.left,
+      bottom: rect.bottom - box.top,
+      radius,
+    });
+  };
+  for (const element of [root, ...root.querySelectorAll<HTMLElement>("*")]) {
     const style = getComputedStyle(element);
+    if (style.visibility === "hidden" || style.display === "none") continue;
     const background = style.backgroundColor.trim();
     const transparentBackground =
-      background === "transparent" || background.endsWith(", 0)") || background.endsWith("/ 0)");
-    return (
-      (!transparentBackground && background.length > 0) ||
+      !background || background === "transparent" || background.endsWith(", 0)") || background.endsWith("/ 0)");
+    const paints =
+      !transparentBackground ||
       style.backgroundImage !== "none" ||
       style.boxShadow !== "none" ||
       (style.borderStyle !== "none" && style.borderWidth !== "0px") ||
-      style.backdropFilter !== "none" ||
-      style.getPropertyValue("-webkit-backdrop-filter") !== "none"
-    );
-  });
+      (!!style.backdropFilter && style.backdropFilter !== "none") ||
+      (style.getPropertyValue("-webkit-backdrop-filter") || "none") !== "none" ||
+      element.matches("svg, img, input, textarea, select, canvas, video");
+    if (paints) push(element.getBoundingClientRect(), Number.parseFloat(style.borderTopLeftRadius) || 0);
+  }
+  const words = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const range = document.createRange();
+  for (let node = words.nextNode(); node; node = words.nextNode()) {
+    if (!node.textContent?.trim()) continue;
+    range.selectNodeContents(node);
+    for (const line of range.getClientRects()) push(line, 0);
+  }
+  range.detach();
+  return holes;
 };
 
 /// Keeps `scroller`'s beside-the-stack mask layers on `dock`'s surfaces. `ghostClass` marks the copy
@@ -81,10 +107,11 @@ export function useBesideStack(
         const area = asks.getBoundingClientRect();
         const holes: BandHole[] = [];
         for (const part of asks.children) {
-          const drawn = part.classList.contains("acpmux-pending-ask")
-            ? [...part.querySelectorAll<HTMLElement>(PENDING_PARTS)]
-            : painted(part as HTMLElement);
-          for (const element of drawn) {
+          if (!part.classList.contains("acpmux-pending-ask")) {
+            holes.push(...drawn(part as HTMLElement, box));
+            continue;
+          }
+          for (const element of part.querySelectorAll<HTMLElement>(PENDING_PARTS)) {
             const rect = element.getBoundingClientRect();
             holes.push({
               left: rect.left - box.left,
@@ -104,23 +131,16 @@ export function useBesideStack(
       let noticeMask: ReturnType<typeof bandMask>;
       for (const notice of notices) {
         const area = notice.getBoundingClientRect();
-        const holes = painted(notice).map((element) => {
-          const rect = element.getBoundingClientRect();
-          return {
-            left: rect.left - box.left,
-            top: rect.top - box.top,
-            right: rect.right - box.left,
-            bottom: rect.bottom - box.top,
-            radius: Number.parseFloat(getComputedStyle(element).borderTopLeftRadius) || 0,
-          } satisfies BandHole;
-        });
+        const holes = drawn(notice, box);
         noticeMask = joinMasks(
           noticeMask,
           bandMask({ top: area.top - box.top, bottom: Math.min(area.bottom, box.bottom) - box.top, holes }, box.width),
         );
       }
       // The rows run under the card only where its glass frosts them (a see-through window, Lens,
-      // Spectrum). An opaque window's card blurs nothing and Reduce Transparency draws it solid.
+      // Spectrum). An opaque window's card blurs nothing (composerStates.css `--glass-backdrop: none`)
+      // and Reduce Transparency draws it solid: under them the rows read sharp through the prompt, so
+      // the band stays as it ships (test/agent-pane-dock-band.test.ts).
       const card = dock.querySelector<HTMLElement>(".acpmux-composer-box");
       const frosts = (() => {
         if (arm === "shipped" || !card) return false;
