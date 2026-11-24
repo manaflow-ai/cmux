@@ -7,6 +7,7 @@
 1 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Notifications/Panel/NotificationsPanelController.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/Files/MarkdownShare/MarkdownMenuAction.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneToolbar.swift
+1 Packages/macOS/CmuxNext/Sources/CmuxNextApps/Client/AppToolbarButtons.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkFolderMenu.swift
 2 Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFDevToolsDivider.swift
 2 Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/AddressBarView+Display.swift
@@ -21,12 +22,14 @@
 1 Packages/macOS/CmuxNext/Sources/CmuxNextFilesUI/FileSidebarView.swift
 2 Packages/macOS/CmuxNext/Sources/CmuxNextFloating/ChiefPet/ChiefPetPanel.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextHistory/TitlebarHistoryMenu.swift
+1 Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomePlusMenu.swift
 2 Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefTeleport/ChiefTeleportMenuBuilder.swift
 2 Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomeChiefSettingsView.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomePageMenus.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/MacScreenButtons.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageSelectionMenu.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextRemoteView/Pane/RemoteHoverToolbar.swift
+2 Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/CustomizationsMenu.swift
 2 Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarNoticeCardView.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarUpdateCardView.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextTabs/PaneToolbarView.swift
