@@ -218,6 +218,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var tapStoppedScroll = false
     /// A vertical drag in a full-screen app scrolls the app (T-SCROLL-12).
     private let tuiScroll = TerminalTUIScrollController()
+    /// Leo, 2026-11-23: a full-screen app's row jumps while the finger scrolls it.
+    let tuiSmoother = TerminalTUISmoother()
     /// Every pan's frame times, to the Mac (`phone-frames`), in every build.
     private lazy var panFrames: TerminalPanFrameRecorder = {
         let recorder = TerminalPanFrameRecorder()
@@ -1306,6 +1308,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
     private func sendResize(_ size: TerminalResizeSettle.Size, why: String) {
+        #if DEBUG
+        // Counted so a typing test can show a keystroke sends the Mac no resize (ComposerTypingLagUITests).
+        InputLatencyTrace.shared?.sample("terminal_resize_sent", ms: 0)
+        #endif
         sizingLog.notice("resize \(size.columns, privacy: .public)x\(size.rows, privacy: .public) cause=\(why, privacy: .public)\(self.model.isTUI ? "-tui" : "", privacy: .public) attached=\(self.model.connectionState.isAttached, privacy: .public) (TUI \(self.model.isTUI, privacy: .public))")
         model.session.resize(columns: size.columns, rows: size.rows)
         model.ptyResizesSent += 1
@@ -1347,6 +1353,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// size is measured again, and the page's insets follow in this pass.
     func composerCardHeightChanged(_ height: CGFloat) {
         guard let host = composerHost else { return }
+        #if DEBUG
+        // Counted: a keystroke that keeps the line count relays out nothing here (ComposerTypingLagUITests).
+        InputLatencyTrace.shared?.sample("terminal_composer_relayout", ms: 0)
+        #endif
         host.view.invalidateIntrinsicContentSize()
         host.view.setNeedsLayout()
         view.setNeedsLayout()
@@ -1471,6 +1481,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         frameLog.stop()
         #endif
         panFrames.finish()
+        tuiSmoother.reset()
         stopBlankWatch()
         stopFollowFallback()
         if chrome == .embedded, let image = snapshot() { model.snapshot = image }
@@ -1558,6 +1569,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         if let full = surface.screenText() { parts.append("screenText.lines=\(full.split(separator: "\n", omittingEmptySubsequences: false).count)") }
         return parts.joined(separator: " | ")
     }
+
+    /// The bench's content position (points): where the rows were drawn this frame, the page's
+    /// scroll offset on the primary screen, the full-screen app's presented rows on the alternate one.
+    var debugContentY: CGFloat { model.isTUI ? tuiSmoother.contentY : -scrollView.contentOffset.y }
+    /// The bench's row height (points).
+    var debugRowHeight: CGFloat { cell.height }
 
     /// DEBUG diagnostics for the demo timeline.
     var debugState: String {
@@ -2362,6 +2379,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             if output.isEmpty { stopOutputLink() }
             return
         }
+        if model.isTUI {
+            // The app drew its screen again: its highlights go where their text went.
+            tuiSelection.followRows()
+            finder.screenRedrawn()
+        }
         if replayDone {
             // The Mac's grid is parsed: the area takes the page's rows now,
             // behind the held frame, which the next present lets go (or the
@@ -2776,6 +2798,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// a frame or more (the last rows under the composer after a zoom in,
     /// a gap above it after a zoom out), then jumped.
     private func cellSizeChanged(from previous: CGSize) {
+        // The cells changed size: every highlight is laid over them again.
+        defer {
+            selection.redraw()
+            tuiSelection.redraw()
+            finder.redraw()
+        }
         guard !model.isTUI, previous.height != cell.height else { return }
         scroll.rowHeightChanged(from: previous.height, to: cell.height, topInset: scrollView.contentInset.top)
         if let document { setContentHeight(document.contentHeight(cellHeight: cell.height)) }
@@ -2993,6 +3021,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         if model.isTUI, freezeView != nil, heldFrameMayGo() { unfreeze() }
         // The pinned header shows the frame just presented, in this transaction.
         if tuiHeaderRows > 0 { applyTUIHeader() }
+        if model.isTUI { tuiSmoother.presented() }
         guard !model.isTUI, cell.height > 0 else { return }
         let scale = view.window?.screen.scale ?? surface.renderScale
         let rowPixels = Int((cell.height * scale).rounded())
@@ -3301,6 +3330,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             // The app's screen is gone: its selection and fling go with it.
             tuiSelection.clear()
             tuiScroll.stopMomentum()
+            tuiSmoother.reset()
             endGridHold(layout: false)
             apply(replayHold.cancel(), pageWide: true)
             scrollView.isScrollEnabled = true
@@ -3770,7 +3800,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
     /// The rows on screen between the top chrome and the dock.
-    private var visibleRowRange: Range<Int>? {
+    private var rowsBetweenChrome: Range<Int>? {
         guard let document, cell.height > 0 else { return nil }
         let top = scrollView.contentOffset.y + scrollView.adjustedContentInset.top
         let bottom = scrollView.contentOffset.y + scrollView.bounds.height - scrollView.adjustedContentInset.bottom
@@ -3784,7 +3814,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         guard let host = lastSentHost else { return }
         if lastSentTop.constant != chromeTop { lastSentTop.constant = chromeTop }
         var text: String?
-        if let lastSent, let visible = visibleRowRange, !jumpingToLastSent,
+        if let lastSent, let visible = rowsBetweenChrome, !jumpingToLastSent,
            TerminalLastSent.stripShows(row: lastSent.row, visibleRows: visible, isTUI: model.isTUI) {
             text = lastSent.preview
         }
@@ -4238,6 +4268,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             guard let self else { return false }
             return model.isTUI && cell.height > 0 && surface.superview === tuiHost
         }
+        // The app redraws its screen: the selection follows its text (`followRows`).
+        tuiSelection.followsRows = true
         tuiSelection.columns = { [weak self] in max(1, self?.surface.grid.columns ?? 1) }
         tuiSelection.documentRows = { [weak self] in 0..<max(0, self?.surface.grid.rows ?? 0) }
         tuiSelection.cellAt = { geometry().cell(at: $0) }
@@ -4280,9 +4312,18 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             panFrames.begin(.tui, rows: documentRows)
         }
         tuiScroll.panEnded = { [weak self] in self?.panFrames.finish(.tui) }
-        #if DEBUG
-        tuiScroll.wheelSent = { [weak self] in self?.rttLog.wheelSent() }
-        #endif
+        tuiScroll.wheelSent = { [weak self] in
+            guard let self else { return }
+            tuiSmoother.wheelSent()
+            #if DEBUG
+            rttLog.wheelSent()
+            #endif
+        }
+        tuiSmoother.geometry = { [weak self] in
+            guard let self, model.isTUI, surface.superview === tuiHost, cell.height > 0 else { return nil }
+            let scale = view.window?.screen.scale ?? surface.renderScale
+            return (surface, cell.height, scale, max(tuiRows, feedHostRows ?? 0))
+        }
         tuiScroll.install(in: tuiClip, surface: surface, tap: tuiTap)
     }
 
@@ -4712,6 +4753,9 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
         tuiHeaderRows = placement.headerRows
         applyTUIHeader()
         positionHostGridNote()
+        // The surface moved (a sideways pan, the rows shifted to keep the cursor): the
+        // highlights move with its cells.
+        tuiSelection.redraw()
         if finder.isActive { finder.redraw() }
     }
 
