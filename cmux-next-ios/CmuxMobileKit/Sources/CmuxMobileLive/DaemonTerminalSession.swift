@@ -61,14 +61,29 @@ public final class DaemonTerminalSession: TerminalSession {
     public let terminalID: String?
     public private(set) var programName: String
     public private(set) var isAlternateScreen = false
-    /// The Mac terminal's rows (`vt-state`, `resized`), else the size asked for.
-    public var remoteRows: Int? { reportedRows ?? lastSize?.rows ?? 24 }
+    /// The Mac terminal's rows the screen was shown (`vt-state`, `resized`),
+    /// else the size asked for. A grid the reclaim hold keeps back is not the
+    /// screen's yet: read here, the page laid its mirror out at the Mac's
+    /// 118x69 while the phone's claim was out (Leo, 2026-11-23: "im sometimes
+    /// seeing these 118x69 load ins which are wide... then it properly goes").
+    public var remoteRows: Int? { shownGrid?.rows ?? lastSize?.rows ?? 24 }
     private var reportedRows: Int?
     /// The Mac's grid changed since the screen was last told (``TerminalSessionEvent/hostGrid(columns:rows:)``).
     private var hostGridChanged = false
-    /// The Mac terminal's columns (`vt-state`, `resized`); nil before the
-    /// first attach. The screen renders this grid when it is not the phone's.
-    public var remoteColumns: Int? { reportedColumns }
+    /// The Mac terminal's columns the screen was shown (`vt-state`,
+    /// `resized`); nil before the first grid reaches the screen. The screen
+    /// renders this grid when it is not the phone's.
+    public var remoteColumns: Int? { shownGrid?.columns }
+    /// The last grid given to the screen (past the reclaim hold).
+    private var shownGrid: (columns: Int, rows: Int)?
+
+    /// Gives the screen events past the reclaim hold, noting the grid it now has.
+    private func deliver(_ events: [TerminalSessionEvent]) {
+        for event in events {
+            if case .hostGrid(let columns, let rows) = event { shownGrid = (columns, rows) }
+            handler?(event)
+        }
+    }
     /// The owner the screen was last told (``TerminalSessionEvent/hostGridOwner(_:)``).
     private var toldHostGridOwner: String??
 
@@ -80,11 +95,27 @@ public final class DaemonTerminalSession: TerminalSession {
         handler?(.hostGridOwner(name))
     }
 
-    /// The device that sets the Mac's grid, when it is not this phone.
+    /// The device that sets the Mac's grid, other than this view: the first
+    /// owner that is not this phone's view. Several views can own one grid
+    /// (under Fit the Smallest Viewer a narrow Mac pane sets the columns
+    /// while the phone sets the rows), so the phone owning one dimension
+    /// still names the device that set the other. Nil when no other view
+    /// owns it; the note then names no device.
     public var hostGridOwnerName: String? {
-        guard let state = sizing.state, !sizing.selfIsOwner, let owner = state.owners.first,
-              let row = state.participants.first(where: { $0.id == owner }) else { return nil }
-        return row.deviceName ?? row.displayName
+        guard let state = sizing.state else { return nil }
+        let others = state.owners.filter { $0 != sizing.selfParticipant }
+        guard let row = others.lazy.compactMap({ owner in state.participants.first { $0.id == owner } }).first
+        else { return nil }
+        // Another view of this same phone (a second page on the terminal).
+        if let own = clientInfo["device_id"], row.deviceID == own, !row.isDesktop { return "this iPhone" }
+        if let name = row.deviceName ?? row.displayName { return name }
+        switch row.deviceKind {
+        case "mac": return "a Mac"
+        case "iphone": return "an iPhone"
+        case "ipad": return "an iPad"
+        case "tui": return "a terminal"
+        default: return nil
+        }
     }
     /// The last attach or send failure (shown nowhere yet; logged).
     public private(set) var lastError: String?
@@ -996,7 +1027,7 @@ public final class DaemonTerminalSession: TerminalSession {
             info["capabilities"] = Self.capabilities(agentCLIHybrid: hybridWanted)
             // Which attach the Mac sends (byte stream, or lean frames at most one per 100 ms):
             // the setting this phone holds, read in its log beside the link's path and rtt.
-            log.info("attach agent_cli_hybrid=\(Self.agentCLIHybridEnabled(agentCLIHybridDefaults), privacy: .public) wanted=\(hybridWanted, privacy: .public)")
+            log.info("attach agent_cli_hybrid=\(Self.agentCLIHybridEnabled(self.agentCLIHybridDefaults), privacy: .public) wanted=\(self.hybridWanted, privacy: .public)")
             var batch: [(cmd: String, params: [String: Any])] = [(cmd: "set-client-info", params: info), (cmd: "identify", params: [:])]
             if let quickSize { batch.append((cmd: "attach-surface", params: historyAttachParams(size: quickSize))) }
             let setup = await client.requests(batch)
@@ -1429,7 +1460,7 @@ public final class DaemonTerminalSession: TerminalSession {
                 armReclaimDeadline()
             }
         }
-        for event in events { handler?(event) }
+        deliver(events)
     }
 
     /// On screen with a grid the phone did not ask for: its size again, at
@@ -1486,7 +1517,7 @@ public final class DaemonTerminalSession: TerminalSession {
         let events = reclaimHold.release(from: grid)
         guard !events.isEmpty else { return }
         log.notice("surface \(self.surface, privacy: .public): reclaim hold released, \(events.count, privacy: .public) events shown")
-        for event in events { handler?(event) }
+        deliver(events)
     }
 
     /// Shown with the Mac's grid held. The Mac already at the phone's grid
