@@ -339,24 +339,23 @@ test("an input method's text opens the list once committed, never while it compo
 // The @ list read the caret the same first-paragraph way, so `@` on a later line opened nothing.
 const mentionRows = () => [...host.querySelectorAll<HTMLElement>("#acpmux-mention-menu [role=option]")];
 
-test("@ on a later line lists other chats; Return writes the mention there as one undo step", async () => {
-  const others = [{ sessionId: "other-chat", title: "Release checklist" }];
-  const { field, prompt, sent } = await composer("first line\n\nsecond", others);
-  await type(prompt, " @relea");
+// The @ list's built-in tools show in any chat (toolMentions.ts), so `@brow` lists Browser use.
+test("@ on a later line lists its rows; Return writes the mention there as one undo step", async () => {
+  const { field, prompt, sent } = await composer("first line\n\nsecond");
+  await type(prompt, " @brow");
   expect(mentionRows().length).toBeGreaterThan(0);
   await press(field, "Enter", { keyCode: 13 });
   expect(sent).toEqual([]);
   expect(mentionRows()).toEqual([]);
-  expect(prompt.plainText()).toBe('first line\nsecond cmux session "Release checklist" (other-chat) ');
+  expect(prompt.plainText()).toBe("first line\nsecond @browser-use ");
   await act(async () => prompt.undo());
-  expect(prompt.plainText()).toBe("first line\nsecond @relea");
+  expect(prompt.plainText()).toBe("first line\nsecond @brow");
 });
 
 test("@ inside a code span opens no list", async () => {
-  const others = [{ sessionId: "other-chat", title: "Release checklist" }];
-  await composer("run `@relea` now", others);
+  await composer("run `@brow` now");
   const prompt = host.querySelector<MarkdownFieldElement>(".acpmux-md-field")!.acpmuxMarkdownField!;
-  await act(async () => prompt.setCaret("run @relea".length));
+  await act(async () => prompt.setCaret("run @brow".length));
   await settle();
   expect(mentionRows()).toEqual([]);
 });
