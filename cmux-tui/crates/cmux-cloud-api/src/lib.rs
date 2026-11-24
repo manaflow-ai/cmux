@@ -41,9 +41,8 @@
 //! `plan_required` (`message`, `upgrade_url`, `plan`) or `decoding` (`message`): the app's
 //! `CloudAPIError` cases one for one.
 //!
-//! Auth: `stack` is classic cmux.com's (only [`classic_runs`]' drain of a Run made before the
-//! daemon ran Runs sends it): the Stack access token as the
-//! bearer, the refresh token in `X-Stack-Refresh-Token`, the team in `X-Cmux-Team-Id`. `owner` is
+//! Auth: `stack` is classic cmux.com's, which no call sends to any more (a call under it is
+//! refused before any request): the Stack access token as the bearer, the refresh token in `X-Stack-Refresh-Token`, the team in `X-Cmux-Team-Id`. `owner` is
 //! the cmux API Worker's person routes: `Authorization` and `x-cmux-team` only (the Worker's
 //! invocation log records every other header and the URL, so nothing else may carry a key).
 //! `worker` is the platform's machine routes through the generated client, `previews.*` and the
@@ -57,10 +56,10 @@ pub mod background;
 mod chat;
 pub mod chief_machine;
 pub mod chief_resize;
-pub mod classic_runs;
 mod fork_runs;
 mod http;
 mod machine;
+pub mod machine_destroy;
 pub mod machine_io;
 mod network;
 mod owner;
@@ -108,15 +107,14 @@ pub fn parse(input: &[u8]) -> Result<(Request, Zeroizing<Vec<u8>>), String> {
     let (head, tail) = (parts.next().unwrap_or_default(), parts.next().unwrap_or_default());
     let mut head: Map<String, Value> = serde_json::from_slice(head)
         .map_err(|_| "the request is not a cloud api request".to_owned())?;
-    // The app's classic Cloud session, when it has one (`classic`), or the word that it could not
-    // read it (`classic_unread`): [`classic_runs::attach`] decides which call takes it.
-    let classic = head.remove("classic");
-    let unread = head.remove("classic_unread").as_ref().and_then(Value::as_bool).unwrap_or(false);
+    // An app built before classic Cloud's Runs were deleted still sends its classic session
+    // (`classic`, `classic_unread`) beside a Runs call; no call reads it, so it is dropped here.
+    head.remove("classic");
+    head.remove("classic_unread");
     let mut request: Request = serde_json::from_value(Value::Object(head))
         .map_err(|_| "the request is not a cloud api request".to_owned())?;
     request.credential = request.credential.trim().to_owned();
     request.api = request.api.trim().to_owned();
-    classic_runs::attach(&mut request, classic.as_ref(), unread);
     Ok((request, Zeroizing::new(tail.to_vec())))
 }
 

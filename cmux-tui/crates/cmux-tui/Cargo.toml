@@ -69,6 +69,7 @@ path = "src/bin/cmux-tui-host.rs"
 [dependencies]
 tempfile = "3"
 cmux-json.workspace = true
+cmux-egress.workspace = true
 cmux-lifeline.workspace = true
 cmux-build-space.workspace = true
 cmux-cloud-client.workspace = true
@@ -81,6 +82,7 @@ cmux-cloud-machine.workspace = true
 cmux-cloud-wire.workspace = true
 # `cmux chat --repo`: the repository spec `cloud new-machine --repo` reads (cli/chat_start/local_repo.rs).
 cmux-cloud-start-core.workspace = true
+cmux-tailnet-join.workspace = true
 ghostty-vt.workspace = true
 cmux-theme-tokens.workspace = true
 png.workspace = true
@@ -280,6 +282,8 @@ cmux-tui-platform = { workspace = true, features = ["test-support"] }
 rusqlite.workspace = true
 # tests/mobile_link_conditions.rs: the phone's link profiles and shaper.
 cmux-fault.workspace = true
+# tests/composer_send_duress.rs: the phone composer's keyed Send under link duress.
+cmux-composer-send.workspace = true
 # cli/apps_store.rs: what opening a pane cmux draws itself runs (the sidebar and `app.open` share it).
 cmux-layout-reducer.workspace = true
 # cli/catalog_request_tests.rs: a palette request row sends what its CLI verb sends.

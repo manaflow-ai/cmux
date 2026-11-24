@@ -500,7 +500,7 @@ mod tests {
             introduced(sheet(".a { background: url(https://x.example/b) }"), &before).len(),
             1
         );
-        assert_eq!(introduced(before.clone(), &[]).len(), 1);
+        assert_eq!(introduced(before, &[]).len(), 1);
     }
 
     #[test]

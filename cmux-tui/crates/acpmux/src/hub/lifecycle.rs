@@ -928,7 +928,7 @@ impl Hub {
             // outlived the stop. It reopens for this request, ready.
             if session.status() == SessionStatus::Closed {
                 self.reopen_to_start(session, stops)?;
-                self.set_status(session, SessionStatus::Ready);
+                self.set_status(session, NotWaiting::Ready);
             }
             return Ok(child);
         }
@@ -1067,13 +1067,14 @@ impl Hub {
             // Boxed: a cold start is a deep future, and this loop keeps it beside the retry's
             // state on the stack its caller polls it on.
             let started = Box::pin(self.cold_start(session, profile, stops, off));
-            // The person's start has no deadline, one that asked to wait on its harness ends when
-            // the harness stops working (`waiting_start`); an agent's or a lane's has a deadline.
+            // The person's start has no deadline, nor has one that asked to wait on its harness:
+            // both end when the harness stops working (`waiting_start`, `StartWatch`); an
+            // agent's or a lane's has a deadline.
+            let hung_after = *self.start_hung.lock().unwrap_or_else(|e| e.into_inner());
             let waited = async {
-                if session.person.load(Ordering::SeqCst) {
-                    self.waiting_start(session, budget, started, None).await
-                } else if session.wait_start.load(Ordering::SeqCst) {
-                    self.waiting_start(session, budget, started, Some(StartWatch::default())).await
+                if waits_on_harness(session) {
+                    let watch = StartWatch::after(hung_after);
+                    self.waiting_start(session, budget, started, Some(watch)).await
                 } else {
                     tokio::time::timeout(budget, started).await.ok()
                 }
@@ -1104,8 +1105,7 @@ impl Hub {
             // A start that waits on its harness ends with None only when its harness did no work
             // for `START_HUNG` (`StartWatch`): said apart from a missed deadline, so its caller
             // does not wait on it again; Chief starts a fresh harness (`turn::is_hung_start`).
-            let hung =
-                !session.person.load(Ordering::SeqCst) && session.wait_start.load(Ordering::SeqCst);
+            let hung = waits_on_harness(session);
             // A policy refusal is no start failure: the same agent would be refused again.
             let refused = failed.as_ref().is_some_and(|e| {
                 e.data.as_ref().and_then(|d| d.get("reason")).and_then(Value::as_str)
@@ -1133,7 +1133,7 @@ impl Hub {
                 None => {
                     self.abandon_cold_start(session, budget).await;
                     if hung {
-                        start_hung(&harness)
+                        start_hung(&harness, hung_after)
                     } else {
                         start_deadline_exceeded(budget, &harness)
                     }
@@ -1173,21 +1173,24 @@ impl Hub {
         }
         session.loading.store(false, Ordering::SeqCst);
         if session.status() != SessionStatus::Closed {
-            self.set_status(session, SessionStatus::Idle);
+            self.set_status(session, NotWaiting::Idle);
         }
     }
 
     /// The person's agent start (`Session::person`) has no deadline: a loaded host may take
     /// minutes, and Leo: "I TSHOULDN'T FUCKING MATTER IF MY COMPUTER IS LOADED" / "I SHOULD BE
-    /// ALWAYS ABLE TO SATRT NEW FUCKGN CHATS". It ends only as the start does: answered, or failed
-    /// because its harness exited, its spawn failed or a stop ended it. Every `START_PROGRESS`
+    /// ALWAYS ABLE TO SATRT NEW FUCKGN CHATS". It ends as the start does: answered, or failed
+    /// because its harness exited, its spawn failed or a stop ended it; or when its harness did
+    /// no work at all for `START_HUNG` (`StartWatch`, no-hangs 2026-11-24: a harness waiting on
+    /// input or a lock held the person's new chat "starting" forever, and Linux read no harness
+    /// state, so nothing ended it there). A loaded host still does work, so it still waits. Every `START_PROGRESS`
     /// (sooner when `agentStartTimeoutMs` is shorter) its log says it is still starting
     /// (`agent_start_waiting`, `waitedMs`), so the app can show that the host is busy. An agent's
     /// or a lane's start keeps `agentStartTimeoutMs` (cx-m5up).
     ///
-    /// A start that asked to wait on its harness (`Session::wait_start`) waits the same way under
-    /// `watch`, and answers None when its harness stopped working (`StartWatch`), which the caller
-    /// ends as a missed deadline.
+    /// A start that asked to wait on its harness (`Session::wait_start`) waits the same way. Under
+    /// `watch` it answers None when its harness stopped working (`StartWatch`), which the caller
+    /// ends as `harness_hung`.
     async fn waiting_start<T>(
         &self,
         session: &Arc<Session>,
@@ -1258,6 +1261,13 @@ impl Hub {
         // Its worktree back if cleanup reclaimed it, and reopened if stopped.
         self.ready_to_start(session, stops).await?;
         let meta = session.meta();
+        // Its requests say interactive (the person's chat, a coordinator) or background
+        // (subrouter_priority.rs), so the gateways keep a share for the chats Leo talks to.
+        let for_person = super::host_level::made_for_a_person(
+            meta.created_by.as_ref(),
+            session.person.load(std::sync::atomic::Ordering::SeqCst),
+        );
+        let profile = &crate::subrouter_priority::profile_with(profile, &meta.name, for_person);
         let tap = self.session_tap(session);
         let is_claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;
         let mut existing_sid = session.meta().agent_session_id.clone();
@@ -1389,7 +1399,25 @@ impl Hub {
             plan.args.extend(super::stop_condition::claude_args(&meta));
             // A restricted chat's folder settings and MCP servers stay off (`restricted.rs`).
             plan.args.extend(super::restricted::claude_args(&meta));
-            let (plan, profile) = self.remote_chain_plan(session, profile, plan).await?;
+            let (plan, mut profile) = self.remote_chain_plan(session, profile, plan).await?;
+            // The continuation of a turn a move cut at a tool boundary starts this process: it
+            // goes on from its own transcript, once the Stop's line is out of it
+            // (`claude_stdio/resume_cut.rs`). A transcript that does not end at a tool result
+            // keeps the continuation's text.
+            let resumes_cut_turn = session.resume_cut_ask.load(Ordering::SeqCst)
+                && resume.is_some()
+                && !fork
+                && crate::native::locate(&meta).into_iter().any(|(label, path)| {
+                    label == "claude-project"
+                        && crate::claude_stdio::resume_cut::prepare(&path).unwrap_or(false)
+                });
+            session.resumed_cut.store(resumes_cut_turn, Ordering::SeqCst);
+            if resumes_cut_turn {
+                let env = &mut profile.to_mut().env;
+                for (key, value) in crate::claude_stdio::resume_cut::env() {
+                    env.insert(key.into(), value.into());
+                }
+            }
             // A fresh process was given its id; a resumed one already has it.
             let known = if fork { None } else { fresh_id.clone().or_else(|| existing_sid.clone()) };
             if self.agent_hosts_enabled() {
@@ -1402,6 +1430,8 @@ impl Hub {
                     prompt_suggestions: suggestions,
                     recap: recap.clone(),
                     claude_session_id: known.clone(),
+                    resumes_cut_turn,
+                    stop_condition: meta.stop_condition.is_some(),
                 };
                 self.spawn_hosted_child(
                     session,
@@ -1421,7 +1451,11 @@ impl Hub {
                 );
                 *tr.fast.lock().await = fast;
                 tr.prompt_suggestions.store(suggestions, std::sync::atomic::Ordering::SeqCst);
+                tr.stop_condition.store(meta.stop_condition.is_some(), Ordering::Relaxed);
                 tr.set_recap(recap.as_deref());
+                if resumes_cut_turn {
+                    tr.owe_resumed();
+                }
                 if let Some(sid) = known {
                     *tr.session_id.lock().await = Some(sid);
                 }
@@ -1610,7 +1644,7 @@ impl Hub {
                 self.stop_started_agent(session, false, "policy_refused", record).await;
                 return Err(e);
             }
-            self.set_status(session, SessionStatus::Ready);
+            self.set_status(session, NotWaiting::Ready);
             self.note_launch(session, &child);
             self.note_start_level(session, &child, true);
             self.save_meta(session);
@@ -1721,7 +1755,7 @@ impl Hub {
             self.replay_config(session, &child, &saved, off).await;
         }
         self.cap_full_access(session, &child, profile, off).await?;
-        self.set_status(session, SessionStatus::Ready);
+        self.set_status(session, NotWaiting::Ready);
         self.note_launch(session, &child);
         self.note_start_level(session, &child, true);
         self.save_meta(session);
@@ -2020,4 +2054,11 @@ impl<'a> ReplayHold<'a> {
             self.session.end_replay(self.agent.generation);
         }
     }
+}
+
+/// Whether `session`'s start waits on its harness instead of a deadline: the person's
+/// (`Session::person`), or one that asked to (`Session::wait_start`). Either ends when its harness
+/// does no work for `START_HUNG` (`StartWatch`).
+fn waits_on_harness(session: &Session) -> bool {
+    session.person.load(Ordering::SeqCst) || session.wait_start.load(Ordering::SeqCst)
 }

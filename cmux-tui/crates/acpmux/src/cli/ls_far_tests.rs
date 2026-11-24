@@ -56,12 +56,12 @@ async fn a_relay_that_never_answers_is_waited_on_once_then_listed_as_unknown_at_
             )
         );
     }
-    // Its first answer is kept and retires the miss: the next ls lists those rows, stale-marked.
+    // Its first answer is kept and retires the miss: the next ls lists those rows with their asOfMs.
     write_cache(&cache, "sh", &[json!({"sessionId": "r-1"})], crate::store::now_ms());
     let far = start_with(Some(stalled_relay()), cache, None, FAR_BUDGET).finish().await;
     let relay = far.relay.unwrap();
     assert!(matches!(relay.state, RemoteState::Stale { .. }));
-    assert_eq!(relay.rows[0]["stale"], true);
+    assert!(relay.rows[0].get("stale").is_none(), "a kept row is not a down peer's");
 }
 
 #[tokio::test]
@@ -88,7 +88,7 @@ async fn a_fresh_relay_listing_is_kept_and_the_next_ls_serves_it_without_waiting
     let RemoteState::Stale { as_of_ms } = stale.state else { panic!("{:?}", stale.state) };
     assert_eq!(stale.rows.len(), 1);
     assert_eq!(stale.rows[0]["sessionId"], "r-1");
-    assert_eq!(stale.rows[0]["stale"], true);
+    assert!(stale.rows[0].get("stale").is_none());
     assert_eq!(stale.rows[0]["asOfMs"], as_of_ms);
     let line = stale.line(as_of_ms + 180_000).unwrap();
     assert_eq!(
