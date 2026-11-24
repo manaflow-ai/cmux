@@ -1361,6 +1361,8 @@ mod provider_changed;
 mod provider_channel;
 #[path = "supervisor_safe_mode_tests.rs"]
 mod safe_mode;
+#[path = "supervisor_safe_mode_bisect_tests.rs"]
+mod safe_mode_bisect;
 #[path = "supervisor_server_tests.rs"]
 mod servers;
 #[path = "supervisor_signal_source_tests.rs"]
@@ -1396,6 +1398,9 @@ mod activation;
 
 #[path = "supervisor_load_tests.rs"]
 mod under_load;
+
+#[path = "supervisor_git_tests.rs"]
+mod git_installs;
 
 #[path = "supervisor_scale_tests.rs"]
 mod at_scale;

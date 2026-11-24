@@ -36,6 +36,10 @@ public final class TerminalModel {
     /// The terminal surface is first responder: keys go to the PTY as typed.
     public internal(set) var directTyping = false
     public internal(set) var isScrolledUp = false
+    /// The last line sent from the phone, while its row is off screen: the
+    /// top strip shows it, and a tap there scrolls back to it
+    /// (`TerminalLastSentStrip`). Nil hides the strip.
+    public internal(set) var lastSentStripText: String?
     /// Whether the screen shows the Mac's terminal; anything else draws the
     /// connecting placeholder over it.
     public internal(set) var connectionState: TerminalConnectionState
@@ -56,9 +60,20 @@ public final class TerminalModel {
     var sticky = TerminalStickyModifiers()
 
     // Composer
+    /// The draft. Only the text field reads it while typing: a view body that read it was
+    /// built again on every key (the whole composer, its strip and its buttons: tens of size
+    /// questions per key in a long draft; Leo, 2026-11-23). Views read `composerHasText`.
     public var composerText = "" {
-        didSet { if composerText != oldValue { onDraftChange?() } }
+        didSet {
+            guard composerText != oldValue else { return }
+            let hasText = !composerText.isEmpty
+            if composerHasText != hasText { composerHasText = hasText }
+            composerEdited()
+            onDraftChange?()
+        }
     }
+    /// Whether the draft has any text: changes on the first key and on clearing, not per key.
+    public private(set) var composerHasText = false
     /// Told when the draft to keep changes (``draftToKeep``): the shell writes it to disk.
     @ObservationIgnored public var onDraftChange: (@MainActor () -> Void)?
     /// Voice mode on this terminal's agent (set by the shell); the composer's
@@ -158,9 +173,10 @@ public final class TerminalModel {
     public var pageStarted: Bool { controller?.started == true }
 
     /// A tab rebuilt after it was cooled out of the warm set (a new, empty
-    /// surface): its page as last seen, which the page shows dimmed under the
-    /// connecting label until the Mac's terminal is attached again. Cleared on
-    /// attach, so a later dropped link never covers the live surface with it.
+    /// surface): its page as last seen, for the tab's grid card. The page itself
+    /// never shows it (a still takes no scroll or tap): its surface shows the
+    /// kept rows live (``restoreLastRows(_:)``). Cleared once the Mac's output
+    /// is drawn, so a later dropped link never stands for the live surface.
     public private(set) var coldFrame: UIImage?
 
     public func restoreLastFrame(_ image: UIImage?) {
@@ -168,6 +184,43 @@ public final class TerminalModel {
         coldFrame = image
         restoredFrame = image
         if snapshot == nil { snapshot = image }
+    }
+
+    /// The page as last seen, as rows (`TerminalSeed`): fed into this host's fresh surface
+    /// when its session starts (``takeSeed()``), so a restored page is live at once.
+    @ObservationIgnored private var seedRows: String?
+    /// The rows this host was given, kept for a host cooled before it drew the Mac's output.
+    @ObservationIgnored private var restoredRows: String?
+    /// The surface was fed the page's rows before the attach: it shows them live (scrollable,
+    /// taking keys), so nothing covers it while it connects.
+    public private(set) var seeded = false
+
+    /// The page's rows as last seen on this phone (a cold launch, a tab back from the warm set).
+    public func restoreLastRows(_ rows: String?) {
+        guard let rows, !rows.isEmpty else { return }
+        seedRows = rows
+        restoredRows = rows
+    }
+
+    /// The bytes this host's fresh surface shows before the Mac's replay: its kept rows, else
+    /// the Mac's screen text when it came first. Once, at the session's start.
+    func takeSeed() -> Data? {
+        guard !seeded, let rows = seedRows ?? cardScreenText.flatMap(TerminalSeed.rows(fromScreenText:)) else { return nil }
+        seedRows = nil
+        seeded = true
+        return TerminalSeed.bytes(rows: rows)
+    }
+
+    /// The page's rows for the next host or launch: nil while the surface holds nothing of the
+    /// Mac's (the same gate as a frame, `TerminalFrameKeep`). Takes the surface lock: on demand.
+    public func rowsForSaving() -> String? {
+        guard drewLiveOutput, let text = controller?.surface.screenText() else { return nil }
+        return TerminalSeed.rows(fromScreenText: text)
+    }
+
+    /// What a cooled host hands the next one: its live rows, else the rows it was given.
+    public func rowsToKeep() -> String? {
+        rowsForSaving() ?? restoredRows
     }
 
     /// The cached frame this host was given (`restoreLastFrame`), kept after
@@ -337,9 +390,23 @@ public final class TerminalModel {
                 composerText = held.text
             }
             heldComposerSend = nil
+        case .inputHeld(let bytes):
+            heldKeyBytes = max(0, bytes)
         case .hostGrid, .hostGridOwner, .paintMark:
             break
         }
+    }
+
+    /// Typed bytes waiting for the attach (``TerminalSessionEvent/inputHeld(bytes:)``): while
+    /// any do, the composer says so and offers Discard (``discardHeldKeys()``).
+    public internal(set) var heldKeyBytes = 0
+
+    /// The person's Discard on the pending-keys line: the held keys are never sent, and their
+    /// predicted glyphs go.
+    public func discardHeldKeys() {
+        session.discardHeldInput()
+        heldKeyBytes = 0
+        controller?.surface.prediction?.inputDropped()
     }
 
     /// Files and links in a batch of output (the screen's per-frame batch).
@@ -609,9 +676,14 @@ public final class TerminalModel {
         // no Mac daemon goes through the mirror as before.
         let submit = ComposerSubmit(text: composerText, pressReturn: true, fullScreenApp: isTUI)
         let text = composerText
+        controller?.noteSent(text)
         composerSending = true
         let viaDaemon = submit.steps.first == .paste(text)
-            && session.sendPasteAndSubmit(text, notSent: { [weak self] in self?.composerSendNotSent(text) })
+            && session.sendPasteAndSubmit(
+                text,
+                notSent: { [weak self] in self?.composerSendNotSent(text) },
+                maybeSent: { [weak self] in self?.composerSendMaybeSent(text) }
+            )
         composerSending = false
         if !viaDaemon {
             controller?.surface.sendText(text, pressReturn: true, fullScreenApp: isTUI)
@@ -623,7 +695,7 @@ public final class TerminalModel {
     @ObservationIgnored private var composerSending = false
 
     /// The session dropped, refused or got an error for a composer send
-    /// (``TerminalSession/sendPasteAndSubmit(_:notSent:)``): never silent.
+    /// (``TerminalSession/sendPasteAndSubmit(_:notSent:maybeSent:)``): never silent.
     /// The notice shows and the text comes back to an empty composer (one the
     /// person typed into since keeps what they typed).
     private func composerSendNotSent(_ text: String) {
@@ -633,6 +705,20 @@ public final class TerminalModel {
             composerSendRefused = true
         } else if composerText.isEmpty {
             composerText = text
+        }
+    }
+
+    /// A composer send went out and its answer never came: the Mac may have
+    /// typed it. The notice says so, and the text never comes back as unsent
+    /// (Leo, 2026-11-23: "there's like a sort of like double send type
+    /// thing"); a blip's restore that already put it back is taken out again.
+    private func composerSendMaybeSent(_ text: String) {
+        composerNotice = TerminalConnectionState.composerSendMaybeSentNotice
+        heldComposerSend = nil
+        if composerSending {
+            composerSendRefused = false
+        } else if composerText == text {
+            composerText = ""
         }
     }
 
@@ -672,6 +758,7 @@ public final class TerminalModel {
     @discardableResult
     public func sendVoicePrompt(_ text: String) -> Bool {
         guard connectionState.composerNotSentNotice == nil, let controller else { return false }
+        controller.noteSent(text)
         controller.surface.sendText(text, pressReturn: true, fullScreenApp: isTUI)
         return true
     }
@@ -728,6 +815,7 @@ public final class TerminalModel {
             guard let self else { return }
             self.isUploading = false
             let submit = ComposerSubmit(attachmentPaths: paths, text: self.composerText, pressReturn: pressReturn)
+            if pressReturn { self.controller?.noteSent(self.composerText) }
             self.controller?.surface.perform(submit)
             self.composerText = ""
             self.attachments.removeAll { attachment in pending.contains { $0.id == attachment.id } }
@@ -761,7 +849,7 @@ public final class TerminalModel {
     #if DEBUG
     /// Demo drivers (`ws-terminal-composer`): a draft, with two photos and a
     /// file attached when asked, for gallery captures of the composer.
-    public func demoFillComposer(_ text: String, attachments withAttachments: Bool) {
+    public func demoFillComposer(_ text: String, attachments withAttachments: Bool, file: Bool = true) {
         composerText = text
         guard withAttachments else { return }
         let colors: [UIColor] = [.systemOrange, .systemTeal]
@@ -774,7 +862,22 @@ public final class TerminalModel {
             }
             addAttachment(ComposerAttachment(kind: .image, name: "Photo \(index + 1).png", thumbnail: image, data: image.pngData()))
         }
+        guard file else { return }
         addAttachment(ComposerAttachment(kind: .file, name: "build.log", data: Data(repeating: 0x61, count: 18_432)))
+    }
+
+    /// `count` characters of prose, sentences and paragraph breaks, for
+    /// typing-cost captures of a long draft (`ComposerTypingLagUITests`).
+    public static func demoProse(_ count: Int) -> String {
+        let sentence = "The build fails on the second step when the cache is cold, so check the log and the screenshots before rerunning it. "
+        var text = ""
+        var index = 0
+        while text.count < count {
+            text += sentence
+            index += 1
+            if index % 4 == 0 { text += "\n\n" }
+        }
+        return String(text.prefix(count))
     }
 
     /// Demo drivers (`ws-terminal-reattach`): the session's link changes as a
@@ -886,6 +989,12 @@ public final class TerminalModel {
 
     public func scrollToBottom() {
         controller?.scrollToBottom(animated: true)
+    }
+
+    /// The top strip's tap: back to the last line sent from the phone, with
+    /// a short scroll and a brief highlight on its row.
+    public func jumpToLastSent() {
+        controller?.jumpToLastSent()
     }
 }
 

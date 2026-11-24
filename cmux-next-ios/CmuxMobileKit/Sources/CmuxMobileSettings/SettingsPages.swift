@@ -347,6 +347,14 @@ struct TerminalPage: View {
                 Text("Shows a Jump to bottom button above the composer when you scroll up. Full-screen apps such as vim never show it.")
             }
             Section {
+                Toggle(isOn: $settings.terminalComposerAutocorrect) {
+                    SettingsLabel("Composer Autocorrect", symbol: "textformat.abc")
+                }
+                .accessibilityIdentifier("settings.terminalComposerAutocorrect")
+            } footer: {
+                Text("Corrects and predicts words in the terminal composer, for talking to an agent in prose. Also in the composer's + menu.")
+            }
+            Section {
                 Toggle(isOn: $settings.terminalChatToggle) {
                     SettingsLabel("Terminal and Chat Toggle", symbol: "arrow.left.arrow.right")
                 }
@@ -378,6 +386,9 @@ struct ComposerPage: View {
             Section {
                 Toggle(isOn: $settings.dismissKeyboardAfterSend) {
                     SettingsLabel("Dismiss keyboard after sending", symbol: "keyboard.chevron.compact.down")
+                }
+                Toggle(isOn: $settings.swipeDownCollapsesComposer) {
+                    SettingsLabel("Swipe down to collapse", symbol: "chevron.compact.down")
                 }
                 Picker(selection: $settings.followUp) {
                     ForEach(FollowUpBehavior.allCases) { Text($0.title).tag($0) }
@@ -665,10 +676,8 @@ struct TransportDetails: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(verbatim: store.teams.lazy.flatMap(\.macs).first(where: { $0.id == macID })?.name ?? String(localized: "Mac"))
                             .font(theme.type.rowTitle)
-                        Text(verbatim: store.macLinkDiagnostics[macID] ?? "")
-                            .font(theme.type.meta)
-                            .foregroundStyle(theme.colors.label2)
-                            .textSelection(.enabled)
+                        InPlaceSelectionLabel(store.macLinkDiagnostics[macID] ?? "", textStyle: .footnote,
+                                              color: theme.colors.label2.uiColor)
                     }
                     .accessibilityElement(children: .combine)
                 }

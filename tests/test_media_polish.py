@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -41,7 +42,8 @@ class FakeTools:
     def __call__(self, argv, **_kwargs):
         self.calls.append(list(argv))
         if argv[0] == "ffprobe":
-            width, height = self.sizes[Path(argv[-1]).name]
+            # An output the tool wrote (trim's mp4, which the gif step probes for its rate) has the first size.
+            width, height = self.sizes.get(Path(argv[-1]).name) or next(iter(self.sizes.values()))
             body = {"streams": [{"width": width, "height": height, "r_frame_rate": self.fps}],
                     "format": {"duration": str(self.duration)}}
             return SimpleNamespace(returncode=0, stdout=json.dumps(body), stderr="")
@@ -401,6 +403,54 @@ class CommandTests(TempDirTest):
         self.assertEqual(MODULE.private_path(Path("/tmp/x.png")), "/tmp/x.png")
 
 
+class SbsTests(unittest.TestCase):
+    """Where before and after differ, and the cut kept around it."""
+
+    @staticmethod
+    def frame(value: int, size: int = 100) -> bytes:
+        return bytes([value]) * size
+
+    def test_divergence_finds_the_first_and_last_differing_frames(self):
+        before = [self.frame(10)] * 10
+        after = [self.frame(10)] * 6 + [self.frame(200)] * 3 + [self.frame(10)]
+        first, last, fractions = MODULE.divergence(before, after, threshold=24, min_fraction=0.02)
+        self.assertEqual((first, last), (6, 8))
+        self.assertEqual(fractions[7], 1.0)
+
+    def test_small_changes_under_the_fraction_or_threshold_do_not_count(self):
+        before = [self.frame(10)] * 4
+        speck = bytes([200]) + bytes([10]) * 99  # 1% of the pixels
+        faint = self.frame(20)  # every pixel, but by 10 levels
+        self.assertIsNone(MODULE.divergence(before, [speck, faint, speck, faint], threshold=24, min_fraction=0.02))
+
+    def test_a_first_paint_a_frame_apart_is_not_a_difference(self):
+        blank, painted = self.frame(0), self.frame(220)
+        before = [blank] * 3 + [painted] * 7
+        after = [blank] * 4 + [painted] * 6
+        self.assertIsNone(MODULE.divergence(before, after, threshold=24, min_fraction=0.02, cut_fraction=0.9))
+        self.assertEqual(MODULE.divergence(before, after, threshold=24, min_fraction=0.02)[:2], (3, 3))
+
+    def test_window_pads_the_difference_inside_the_clip(self):
+        window = MODULE.sbs_window(53.6, 60.0, 60.0, pad=2.0, limit=15.0)
+        self.assertEqual((window.start, window.end, window.pad, window.capped), (51.6, 60.0, 2.0, None))
+
+    def test_window_shrinks_the_pad_to_fit_the_limit(self):
+        window = MODULE.sbs_window(10.0, 22.0, 60.0, pad=2.0, limit=15.0)
+        self.assertEqual((window.start, window.end, window.pad), (8.5, 23.5, 1.5))
+        self.assertIn("pad shrunk", window.capped)
+
+    def test_a_long_difference_is_cut_to_its_start(self):
+        window = MODULE.sbs_window(0.8, 60.0, 60.0, pad=2.0, limit=15.0)
+        self.assertEqual((window.start, window.end), (0.0, 15.0))
+        self.assertIn("longer than 15s", window.capped)
+
+    def test_bad_pad_or_limit_is_refused(self):
+        with self.assertRaises(PolishError):
+            MODULE.sbs_window(1.0, 2.0, 5.0, pad=-1.0, limit=15.0)
+        with self.assertRaises(PolishError):
+            MODULE.sbs_window(1.0, 2.0, 5.0, pad=1.0, limit=0.0)
+
+
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg is not installed")
 class EndToEndTests(TempDirTest):
     """Real ffmpeg on 64x48 test patterns: what the tool writes has the size the sidecar says."""
@@ -440,6 +490,47 @@ class EndToEndTests(TempDirTest):
                 self.assertEqual(self.dims(path), record["dims"])
         self.assertEqual(self.dims(outputs[1]), self.dims(outputs[2]))
         self.assertEqual(self.dims(outputs[7]), {"w": 12, "h": 10})
+
+    def color_clip(self, name: str, spans: list[tuple[str, float]]) -> Path:
+        """A 64x48 clip of solid colors, one (color, seconds) span after another."""
+        path = self.dir / name
+        args = ["ffmpeg", "-nostdin", "-loglevel", "error", "-y"]
+        for color, seconds in spans:
+            args += ["-f", "lavfi", "-i", f"color=c={color}:size=64x48:rate=10:d={seconds}"]
+        joined = "".join(f"[{i}:v]" for i in range(len(spans))) + f"concat=n={len(spans)}:v=1:a=0[v]"
+        subprocess.run([*args, "-filter_complex", joined, "-map", "[v]", "-pix_fmt", "yuv420p", str(path)],
+                       check=True)
+        return path
+
+    def test_sbs_keeps_only_the_differing_tail_side_by_side(self):
+        before = self.color_clip("before.mp4", [("gray", 30.0)])
+        after = self.color_clip("after.mp4", [("gray", 26.0), ("white", 2.0), ("gray", 2.0)])
+        out = self.dir / "sbs/diff.mp4"
+        self.assertEqual(MODULE.main(["sbs", str(before), str(after), "--out", str(out)], out=io.StringIO()), 0)
+        record = json.loads(Path(str(out) + ".media.json").read_text())
+        trim = record["trim"]
+        self.assertAlmostEqual(trim["diverge_start"], 26.0, delta=0.15)
+        self.assertAlmostEqual(trim["diverge_end"], 28.0, delta=0.15)
+        self.assertAlmostEqual(trim["start"], 24.0, delta=0.15)
+        self.assertAlmostEqual(trim["source_duration"], 30.0, delta=0.15)
+        self.assertIsNone(trim["capped"])
+        media = MODULE.probe(out, subprocess.run)
+        self.assertAlmostEqual(media.duration, trim["end"] - trim["start"], delta=0.25)
+        self.assertLessEqual(media.duration, 15.0)
+        self.assertEqual(self.dims(out), record["dims"])
+        self.assertEqual(record["labels"], ["before", "after"])
+        for extra in ("diff.gif", "diff.poster.png"):
+            self.assertTrue((self.dir / "sbs" / extra).is_file(), extra)
+
+    def test_sbs_refuses_clips_that_never_differ(self):
+        before = self.color_clip("a.mp4", [("gray", 2.0)])
+        after = self.color_clip("b.mp4", [("gray", 2.0)])
+        err = io.StringIO()
+        with unittest.mock.patch("sys.stderr", err):
+            code = MODULE.main(["sbs", str(before), str(after), "--out", str(self.dir / "x.mp4")], out=io.StringIO())
+        self.assertEqual(code, 1)
+        self.assertIn("never differ", err.getvalue())
+        self.assertFalse((self.dir / "x.mp4").exists())
 
 
 if __name__ == "__main__":
