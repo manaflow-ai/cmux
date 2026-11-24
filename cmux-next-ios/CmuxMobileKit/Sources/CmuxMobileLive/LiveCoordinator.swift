@@ -135,14 +135,12 @@ public final class LiveCoordinator {
     /// "Connectivity incidents"); idle for everyone else.
     @ObservationIgnored let incidents: ConnectivityIncidentReporter
     @ObservationIgnored private var teamTask: Task<Void, Never>?
-    @ObservationIgnored var bannerTask: Task<Void, Never>?
     /// The banner's slot: quiet link states wait out their bound before they show (`phaseChanged`).
     @ObservationIgnored lazy var bannerHold = HeldNotice<ConnectionBannerState>(clock: clock) { [weak self] in
         self?.banner = $0
     }
-    @ObservationIgnored var everConnected = false
-    /// Macs a link was connected to: a failed redial to one says
-    /// "Reconnecting", not "Can't reach" (the link keeps retrying).
+    /// Macs a link was connected to (the banner's caller passes it on; a lost link to one
+    /// redials on its own).
     @ObservationIgnored var connectedMacIDs: Set<String> = []
     /// The acpmux session (and Mac) each cached chat store was built for (nil: unbound).
     /// `provisional`: built before the Mac's tree listed the tab (a relaunch, a link still
@@ -920,6 +918,7 @@ public final class LiveCoordinator {
         if store.macLinkStatus[id] != nil { store.macLinkStatus[id] = nil }
         store.macLinkDiagnostics[id] = nil
         session.offlineTask?.cancel()
+        session.quietStatusTask?.cancel()
         session.stallTask?.cancel()
         session.workspacesTimeout?.cancel()
         session.acpmux.cancelWaiters()
