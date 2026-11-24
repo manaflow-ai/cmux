@@ -18,6 +18,7 @@ resolver = "2"
 members = [
     "crates/acpmux",
     "crates/cmux-egress",
+    "crates/cmux-proxy",
     "crates/desktop-lease",
     "crates/acpmux-core",
     "crates/acpmux-client",
@@ -362,6 +363,7 @@ await_holding_refcell_ref = "deny"
 
 [workspace.dependencies]
 cmux-egress = { path = "crates/cmux-egress" }
+cmux-proxy = { path = "crates/cmux-proxy" }
 chrono = "0.4"
 chrono-tz = "0.10"
 cmux-coderouter = { path = "crates/cmux-coderouter" }

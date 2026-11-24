@@ -21,6 +21,7 @@ async-trait = "0.1"
 base64.workspace = true
 bytes.workspace = true
 cmux-build-space.workspace = true
+cmux-proxy.workspace = true
 cmux-rd-core.workspace = true
 cmux-rd-proto.workspace = true
 cmux-transport.workspace = true
@@ -31,10 +32,6 @@ getrandom.workspace = true
 reqwest.workspace = true
 rcgen = { version = "0.13", optional = true }
 rustls.workspace = true
-# The OS trust store for the link's own TLS (signaling, `/v1/ice`, TURN over TLS): the Apple
-# Security framework on iOS and macOS, so a root an MDM profile installed (a company network that
-# inspects TLS) is trusted like Safari trusts it (src/egress/tls.rs).
-rustls-platform-verifier = "0.7"
 serde.workspace = true
 serde_json.workspace = true
 # Larger UDP socket buffers for the tunnel (a replay burst after a roam).
@@ -52,12 +49,6 @@ webpki-roots = "1"
 webrtc.workspace = true
 x25519-dalek.workspace = true
 zeroize.workspace = true
-
-[target.'cfg(target_vendor = "apple")'.dependencies]
-# The system's proxy settings (manual, PAC, WPAD, MDM) through CFNetwork (src/egress/apple.rs);
-# already in the graph through rustls-platform-verifier.
-core-foundation = "0.10"
-core-foundation-sys = "0.8"
 
 [dev-dependencies]
 cmux-mobile-link = { path = ".", features = ["testing"] }
