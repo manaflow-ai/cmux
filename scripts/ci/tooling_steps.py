@@ -508,12 +508,16 @@ def verify(root: Path, workflow: str, job_name: str, only: list[str] | None = No
             if not ran:
                 problems.append(f"{key}: read {path}, outside its declared inputs and its resolved inputs")
         for folder in sorted(trace.dirs):
+            if any(f.endswith(".py") and f.rsplit("/", 1)[0] == folder for f in trace.files):
+                continue  # Python lists a folder on sys.path when it imports a module from it: the module's read counts
             probe = folder + "/__tooling_steps_probe__"
             if not declared_hit(globs, {probe}):
                 ran, _ = judge_step(repo, walker, step, env, "", {probe}, globs)
                 if not ran:
                     problems.append(f"{key}: listed folder {folder}/, which its declared inputs do not cover")
-        for path in sorted(trace.probes):
+        ignored = set(subprocess.run(["git", "-C", str(repo.root), "check-ignore", "--stdin"], input="\n".join(
+            sorted(trace.probes)), capture_output=True, text=True).stdout.split()) if trace.probes else set()
+        for path in sorted(trace.probes - ignored):  # a git-ignored path (.build/) is no pull request's change
             if not declared_hit(globs, {path}) and not any(path.startswith(d + "/") for d in trace.dirs) \
                     and not judge_step(repo, walker, step, env, "", {path}, globs)[0]:
                 problems.append(f"{key}: looked for {path} (not there), outside its declared inputs")
