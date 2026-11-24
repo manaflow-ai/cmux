@@ -450,9 +450,10 @@ export const RAIL_FADE = 40;
 export const railFade = (height: number) => Math.max(0, Math.min(RAIL_FADE, Math.floor(height / 4)));
 
 /// Which of the list's edge fades draw at offset `top`: an edge with more rows past it fades, unless
-/// the fade would lie over the band (the prompts on screen), which always draws in full ink.
+/// following the transcript would put its highlighted prompts under that fade. A reader browsing
+/// the rail independently can scroll those prompts out of view in either direction.
 export function railFades(
-  band: { first: number; last: number },
+  band: { first: number; last: number } | undefined,
   count: number,
   height: number,
   top: number,
@@ -460,8 +461,8 @@ export function railFades(
 ): { top: boolean; bottom: boolean } {
   const fade = railFade(height);
   return {
-    top: top > 0 && band.first * pitch - top >= fade,
-    bottom: count * pitch - top - height > 1 && (band.last + 1) * pitch - top <= height - fade,
+    top: top > 0 && (!band || band.first * pitch - top >= fade),
+    bottom: count * pitch - top - height > 0 && (!band || (band.last + 1) * pitch - top <= height - fade),
   };
 }
 
