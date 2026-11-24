@@ -484,7 +484,8 @@ fn wake_if_composing(peer: &crate::peer::Peer, m: &str, params: &Value, origin: 
 }
 
 /// Whether request `m` says a person is writing to the chat: typing turned on
-/// (`_acpmux/typing`), or a surface's unsent text that is not blank (`_acpmux/composer_set`).
+/// (`_acpmux/typing`), or a surface's unsent draft that is not blank: text, or an image
+/// (`_acpmux/composer_set`).
 /// Clearing it or stopping typing is not, and neither is `_acpmux/draft_set`: the pane saves the
 /// last chat's draft when it switches away, unchanged, which is no one writing.
 fn composing(m: &str, params: &Value) -> bool {
@@ -492,6 +493,7 @@ fn composing(m: &str, params: &Value) -> bool {
         method::MUX_TYPING => params.get("on").and_then(Value::as_bool) == Some(true),
         method::MUX_COMPOSER_SET => {
             params.get("text").and_then(Value::as_str).is_some_and(|text| !text.trim().is_empty())
+                || params.get("images").and_then(Value::as_array).is_some_and(|i| !i.is_empty())
         }
         _ => false,
     }
