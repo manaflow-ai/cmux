@@ -8221,6 +8221,74 @@ class WsCheckPerTest(unittest.TestCase):
         self.gh.verdict(self.gh.TIP, 2, {other: {"test_lane_place.py 3/4": self.ws_deploy("test_check")}})
         self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", self.judge()[0])
 
+    def test_a_suite_red_on_main_and_untouched_is_a_per_suite_base_red(self):
+        # 2026-11-24: 11 of 27 land-judge overrides in 9 h were leo-workspace heads red only in suites the PR did not
+        # touch and main failed too (lw#10075 at e1457204: test_now_tool, test_reach, test_role_timer ... "failing
+        # another way there" by a tmp path or a list's order, test_hook_daemon_http's other test). Rulebook
+        # [base-red-not-yours]: "A red failing the same way on base is not yours". Such a suite is excused whole.
+        other = ".github/workflows/tools-tests.yml test: every other tools/test_*.py (a new suite runs without a step)"
+        self.gh.verdict(HEAD, 1, {other: {"test_lane_place.py 2/4": self.ws_deploy("test_place", "test_other")}})
+        self.gh.verdict(self.gh.TIP, 2, {other: {"test_lane_place.py 1/4": self.ws_deploy("test_place")}})
+        audit = self.judge()
+        self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", audit[0])
+        self.assertIn("per suite for 1 suite(s) this PR does not touch: test_lane_place.py", audit[0])
+        self.assertIn(f"excused 'ws-check' test '{other} :: [test_lane_place.py] test_other (__main__.FastForward."
+                      f"test_other)': its suite(s) test_lane_place.py red on main {self.gh.TIP[:12]} "
+                      f"(https://github.com/{self.gh.HOST}/actions/runs/2) too, and this PR changes none of their "
+                      "files: a per-suite base red", audit)
+        # Its verdict for the lane-gh broker is base_red too.
+        self.assertEqual(excuse.ws_check_red(self.gh.REPO, "main", HEAD, self.gh)["kind"], "base_red")
+
+    def test_a_per_suite_base_red_is_refused_when_the_pr_touches_the_suite_or_its_module(self):
+        other = ".github/workflows/tools-tests.yml test: every other tools/test_*.py (a new suite runs without a step)"
+        self.gh.verdict(HEAD, 1, {other: {"test_lane_place.py": self.ws_deploy("test_place", "test_other")}})
+        self.gh.verdict(self.gh.TIP, 2, {other: {"test_lane_place.py": self.ws_deploy("test_place")}})
+        for files in (["tools/test_lane_place.py"], ["tools/lane_place.py"], ["tools/lane-place"],
+                      ["tools/lane_place/core.py"], []):  # [] reads as an unread diff: fail closed
+            self.gh.pr_files = files
+            with self.subTest(files=files), self.assertRaisesRegex(excuse.Refused, r"1 failure\(s\) not on main: "
+                                                                                    r".*test_other"):
+                self.judge()
+
+    def test_a_per_suite_base_red_is_refused_when_a_new_line_names_the_prs_file(self):
+        # leo-workspace#5683: a repo-wide lint suite red on main too, whose head failure lists the PR's own file.
+        other = ".github/workflows/tools-tests.yml test: every other tools/test_*.py (a new suite runs without a step)"
+        lint = ["=" * 70, "FAIL: test_ratchet (__main__.Ratchet.test_ratchet)", "-" * 70,
+                "Traceback (most recent call last):", '  File "x.py", line 3, in test_ratchet',
+                "AssertionError: offenders:", "tools/old.py: no encoding"]
+        tail = ["-" * 70, "Ran 1 test in 0.1s", "", "FAILED (failures=1)"]
+        self.gh.verdict(HEAD, 1, {other: {"test_text_io_encoding.py": lint + ["tools/guards.py: no encoding"] + tail}})
+        self.gh.verdict(self.gh.TIP, 2, {other: {"test_text_io_encoding.py": lint + tail}})
+        with self.assertRaisesRegex(excuse.Refused, "failing another way there"):
+            self.judge()
+        # A new line naming no file of the PR's (a tmp path, another file) is the suite's base red.
+        self.gh.verdict(HEAD, 1, {other: {"test_text_io_encoding.py": lint + ["tools/other.py: no encoding"] + tail}})
+        self.assertIn("a per-suite base red", "\n".join(self.judge()))
+
+    def test_a_per_suite_base_red_needs_mains_newest_verdict_readable(self):
+        # Fail closed: main's newest verdict unreadable, an older red one is not "main's latest finished run".
+        other = ".github/workflows/tools-tests.yml test: every other tools/test_*.py (a new suite runs without a step)"
+        self.gh.verdict(HEAD, 1, {other: {"test_lane_place.py": self.ws_deploy("test_place", "test_other")}})
+        self.gh.verdict(self.gh.OLDER, 3, {other: {"test_lane_place.py": self.ws_deploy("test_place")}})
+        self.gh.statuses[self.gh.TIP][0]["description"] = "fleet rule lints: tools/x.py: names a host"
+        with self.assertRaisesRegex(excuse.Refused, r"1 failure\(s\) not on main: .*test_other"):
+            self.judge()
+        # A newer run that never reported (cut before its WS_CHECK_RESULT, as main's often are) never finished: the
+        # older red is main's latest finished verdict (lw#10075's main 36e3dd7f).
+        self.gh.statuses[self.gh.TIP][0]["description"] = "no WS_CHECK_RESULT line: the checks did not report"
+        self.assertIn("a per-suite base red", "\n".join(self.judge()))
+        # No status at all, the same.
+        del self.gh.statuses[self.gh.TIP]
+        self.assertIn("a per-suite base red", "\n".join(self.judge()))
+
+    def test_a_step_not_split_into_suites_is_still_read_per_test(self):
+        # A whole-step test or lint keeps its strict reading (test_another_test_of_a_step_red_on_main_is_not_excused):
+        # only a "STEP [SUITE]" unit is judged as a suite.
+        self.gh.verdict(HEAD, 1, {self.DEPLOY: self.ws_deploy("test_a", "test_b")})
+        self.gh.verdict(self.gh.TIP, 2, {self.DEPLOY: self.ws_deploy("test_a")})
+        with self.assertRaisesRegex(excuse.Refused, r"1 failure\(s\) not on main: .*test_b"):
+            self.judge()
+
     def test_a_test_failing_on_main_too_is_excused_by_name(self):
         red = {self.RELAY: self.relay_lint(), self.DEPLOY: self.ws_deploy("test_units_that_never_let_go")}
         self.gh.verdict(HEAD, 1, red)
@@ -8884,6 +8952,7 @@ class WsCheckFailureText(unittest.TestCase):
 
     def judge(self, head, main):
         gh = WsCheckGitHub()
+        gh.pr_files = ["tools/merge_hold.py", "tools/test_merge_hold.py"]  # leo-workspace#5683's own files
         gh.verdict(HEAD, 1, {self.STEP: {self.UNIT: head}})
         gh.verdict(gh.TIP, 2, {self.STEP: {self.UNIT: main}})
         return excuse.judge(gh.REPO, "main", HEAD, [], gh)
@@ -16224,6 +16293,8 @@ SCANNERS = {
     "base_red_excuse._sub_shas": lambda f: excuse._sub_shas(f.log, []),
     "base_red_excuse.mask_shas": lambda f: excuse.mask_shas(f.log),
     "base_red_excuse.normalise_error": lambda f: excuse.normalise_error(f.log),
+    # A ws-check head's new failure lines, looked through for a path the PR changes (at most COMPARE_FILES_CAP).
+    "base_red_excuse.ws_check_names_paths": lambda f: excuse.ws_check_names_paths(f.lines, ["tools/guards.py"] * 50),
     # A workflow `if:` is the head's own text: its parsers are timed on the log, nested parentheses and all.
     "base_red_excuse._top_level": lambda f: (excuse._top_level(f.log, "||"), excuse._top_level(f.log, "&&")),
     "base_red_excuse._unwrapped": lambda f: excuse._unwrapped("(" * len(f.lines) + f.log + ")" * len(f.lines)),
