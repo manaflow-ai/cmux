@@ -1,0 +1,41 @@
+// Minimal sessions: the sidebar as a plain list of sessions. One line per workspace, its program status
+// first (a spinner while it works, its own mark when it is blocked, done or failed, nothing when idle),
+// then its name. No colors, folders, branches, times or counts. Only the sidebar changes: the terminal
+// theme, the colors and the wallpaper stay yours. Pick it with
+// `cmux settings set appearance.themeFile minimal-sessions`, or copy it to
+// ~/.config/cmux/themes/minimal-sessions.json (yours wins over this one), edit and save: the running app
+// redraws the sidebar at once, no relaunch. `cmux settings reset appearance.themeFile` goes back.
+{
+  "name": "Minimal sessions",
+  "description": "One line per session: its status, then its name.",
+
+  // One short line per row, at the default text size, in one flat list.
+  "sidebar.density": "compact",
+  "sidebar.textSize": "default",
+  "sidebar.groupBy": "none",
+  "sidebar.groupHeader.memberCount": false,
+  "sidebar.groupHeader.unreadCount": false,
+
+  // The status leads the row, with a separate mark for working, blocked, done and error. A running program
+  // spins as an agent does (`progress` is also the busy mark of running work; a known progress draws a thin bar).
+  "sidebar.workspaceRow.statusPlacement": "leading",
+  "sidebar.detailedStatusIcons": true,
+  "appearance.statusIndicator.iconSet": "symbols",
+  "sidebar.workspaceRow.working": true,
+  "sidebar.workspaceRow.progress": true,
+
+  // Only the name follows it: no icon, second line, counts, times or colors.
+  "sidebar.workspaceRow.icon": false,
+  "sidebar.workspaceRow.notification": false,
+  "sidebar.workspaceRow.directory": false,
+  "sidebar.workspaceRow.branch": false,
+  "sidebar.workspaceRow.process": false,
+  "sidebar.workspaceRow.agentStatus": false,
+  "sidebar.workspaceRow.tabCount": false,
+  "sidebar.workspaceRow.ports": false,
+  "sidebar.workspaceRow.lastActivity": false,
+  "sidebar.workspaceRow.pullRequest": false,
+  "sidebar.workspaceRow.log": false,
+  "sidebar.showTimestamps": false,
+  "sidebar.showColors": false
+}
