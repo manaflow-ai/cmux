@@ -282,19 +282,28 @@ let package = Package(
 )
 
 #if os(Linux)
-// Linux (RFD 0051, route 2): the UI-free targets only, Notifications and Realtime and their tests, which
-// need Foundation alone (CryptoKit's API from swift-crypto). Every other target links UIKit, SwiftUI,
-// libghostty, WebRTC, Stack Auth or the gitignored CmuxMobileLinkFFI.xcframework, so it drops out with
-// the package dependencies. Only the Linux package jobs (swift-linux-packages.yml, through
-// scripts/ci/swift-linux-packages.txt) set CMUX_SWIFTPM_TARGET_LINUX; a build for an Apple platform on a
-// Linux host (the fleet) and every Mac build read the manifest above unchanged.
+// The Linux package job (swift-linux-packages.yml, group ios-kit) builds and tests the modules that need no
+// UI framework, and no binary target (the gitignored CmuxMobileLinkFFI.xcframework, libghostty, WebRTC).
+// Only that job sets CMUX_SWIFTPM_TARGET_LINUX: the fleet reads this manifest on Linux hosts to build for
+// iOS and macOS, and keeps the whole package. cmux-next-ios-kit.yml skips these test targets on the Mac.
 if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
-    let linuxTargets: Set<String> = [
-        "CmuxMobileNotifications", "CmuxMobileNotificationsTests", "CmuxMobileRealtime", "CmuxMobileRealtimeTests",
+    let linuxModules: Set<String> = [
+        "CmuxMobileModel", "CmuxMobileNotifications", "CmuxMobileRealtime", "CmuxMobileTransport",
     ]
-    package.products = package.products.filter { linuxTargets.contains($0.name) }
-    package.targets = package.targets.filter { linuxTargets.contains($0.name) }
-    package.dependencies = [.package(url: "https://github.com/apple/swift-crypto.git", exact: "3.15.1")]
+    let linuxTests = Set(linuxModules.map { $0 + "Tests" })
+    package.products.removeAll { !linuxModules.contains($0.name) }
+    package.targets.removeAll { !linuxModules.contains($0.name) && !linuxTests.contains($0.name) }
+    for target in package.targets {
+        target.dependencies.removeAll {
+            if case .targetItem(name: "CmuxMobileLinkFFI", condition: _) = $0 { return true }
+            return false
+        }
+    }
+    // CmuxMobileNotifications seals pushes with CryptoKit; swift-crypto is the same API on Linux.
+    package.dependencies = [
+        .package(path: "../../Packages/Shared/CMUXAuthCore"),
+        .package(url: "https://github.com/apple/swift-crypto.git", exact: "3.15.1"),
+    ]
     for name in ["CmuxMobileNotifications", "CmuxMobileNotificationsTests"] {
         package.targets.first { $0.name == name }?.dependencies.append(.product(name: "Crypto", package: "swift-crypto"))
     }

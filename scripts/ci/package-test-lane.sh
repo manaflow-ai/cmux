@@ -131,11 +131,10 @@ case "${1:-}" in
     if [ "$#" -lt 3 ]; then
       echo "usage: package-test-lane.sh suite PACKAGE_DIR FILTER[,FILTER...] [FILTER...]" >&2; exit 2
     fi
-    # A Packages/ path inside the checkout (or the iPhone app's kit, cmux-next-ios/CmuxMobileKit), and
-    # filters that are not options.
-    if ! [[ "$suite_package" =~ ^(Packages/[A-Za-z0-9_][A-Za-z0-9_./-]*|cmux-next-ios/CmuxMobileKit)$ ]] || [[ "$suite_package" == *..* ]] \
+    # A Packages/ path inside the checkout, and filters that are not options.
+    if ! [[ "$suite_package" =~ ^Packages/[A-Za-z0-9_][A-Za-z0-9_./-]*$ ]] || [[ "$suite_package" == *..* ]] \
       || [ ! -f "$suite_package/Package.swift" ]; then
-      echo "package-test-lane.sh: suite needs a package directory under Packages/ or cmux-next-ios/CmuxMobileKit (got '$suite_package')" >&2; exit 2
+      echo "package-test-lane.sh: suite needs a package directory under Packages/ (got '$suite_package')" >&2; exit 2
     fi
     shift 2
     suite_filters=()

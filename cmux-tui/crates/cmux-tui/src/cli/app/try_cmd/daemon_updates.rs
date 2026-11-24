@@ -1,4 +1,4 @@
-//! `updates.daemon`: the app daemon's opt-in live updater (cmuxterm-hq
+//! `updates.daemon`: the app daemon's live updater (cmuxterm-hq
 //! docs/design/nightly-live-updates.md, "Live updates", step 3). It is the Mac
 //! counterpart of `cmux host`'s updater role. The logic is all here, in Rust.
 //! Swift only shows the setting.
@@ -6,9 +6,18 @@
 //! Leo, 2026-11-22: "this should've been fast, AND shouldn't have needed me to
 //! listen to the nightly feed for a full build for it to update me".
 //!
-//! The setting is `updates.daemon`: `off` (the default, and any value other
-//! than `every-merge`) or `every-merge`. When it is `every-merge`, the app's
-//! own headless daemon does this:
+//! Leo, 2026-10-22 (ask-061e3574a6): "how do we get cmux next users (esp just
+//! the team rn) to update to the latest acpmux ddaemon!?", answered on
+//! cmuxterm-hq#5334: "Every machine does this by itself: Leo's Macs, the fleet
+//! hosts, AND teammates' machines through the cmux app's
+//! normal update." "The app ships the daemon, and the daemon follows the app's
+//! channel. No manual `acpmux host update`." "The daemon updates itself without
+//! waiting for idle."
+//!
+//! The setting is `updates.daemon`: `every-merge` (the default: no value is
+//! on) or anything else, `off` say, to turn it off. Only NIGHTLY and the tip
+//! app ever take updates (the gate below), so a Release build is unchanged.
+//! The app's own headless daemon does this:
 //!
 //! 1. It checks the signed nightly-live pointer (`channels/mac-live.json`) 30 s
 //!    after it starts, then every 15 s plus jitter. It re-reads the setting at
@@ -21,10 +30,13 @@
 //!
 //!    So a commit that failed or rolled back is never tried again, but the
 //!    next one is.
-//! 3. It waits for a safe point: no agent working or blocked on a permission,
-//!    and no person's input in the last [`INPUT_QUIET`]. It reads both from the
-//!    daemon's own `subscribe-activity` snapshot. An unreadable snapshot counts
-//!    as busy.
+//!    A Team-signed app (NIGHTLY) also needs the pointer's `tree_key` and that
+//!    tree's Team-signed set: the apply takes those files, never the ad-hoc
+//!    build (cmuxterm-hq#11364). Until CI has signed it, the commit waits.
+//! 3. It does not wait for idle: agents keep running (the hand-off keeps
+//!    terminals, and acpmux's exe swap keeps its agents). It holds only while a
+//!    person typed in the last [`INPUT_QUIET`], at most [`INPUT_HOLD_MAX`] per
+//!    commit, read from the daemon's own `subscribe-activity` snapshot.
 //! 4. It records the attempt, then runs `bin/cmux --json app try channel --app
 //!    <bundle>` in its own process group. That is the existing apply: the
 //!    store lock, the forward-only check, the swap, the daemon hand-off with
@@ -56,7 +68,7 @@ use super::live::{self, ChannelPayload, Store};
 
 /// The setting's key path in cmux.json.
 pub(super) const SETTING: [&str; 2] = ["updates", "daemon"];
-/// The one value that turns the updater on; everything else (and no value) is off.
+/// The value that turns the updater on, and the default; any other value is off.
 pub(super) const EVERY_MERGE: &str = "every-merge";
 /// The first look after the daemon starts (a launch, or the hand-off of an update).
 const START_DELAY: Duration = Duration::from_secs(30);
@@ -66,6 +78,8 @@ const INTERVAL: Duration = Duration::from_secs(15);
 const JITTER_MS: u64 = 3_750;
 /// A person's input this recent holds the swap (the design's "no terminal input in the last 30 s").
 pub(super) const INPUT_QUIET: Duration = Duration::from_secs(30);
+/// The longest a commit waits on a person typing before it goes anyway (Leo: "without waiting for idle").
+pub(super) const INPUT_HOLD_MAX: Duration = Duration::from_secs(120);
 /// The attempt record beside `channel.json` in the app-try store.
 pub(super) const ATTEMPT_FILE: &str = "daemon-updates.json";
 /// The apply's output, appended, in the app-try store.
@@ -76,12 +90,12 @@ const NIGHTLY_BUNDLE: &str = "com.cmuxterm.app.nightly";
 const TIP_BUNDLE: &str = "com.cmuxterm.app.debug.next";
 const TIP_FEED_PREFIX: &str = "https://files.cmux.com/nightly-next/tip/";
 
-/// Whether the person turned the updater on: `updates.daemon` is `every-merge`.
+/// Whether the updater is on: `updates.daemon` is unset (the default) or `every-merge`.
 pub(super) fn setting_on(settings: Option<&Value>) -> bool {
-    settings
-        .and_then(|root| cmux_config::value::value_at(root, &SETTING[..]))
-        .and_then(Value::as_str)
-        == Some(EVERY_MERGE)
+    match settings.and_then(|root| cmux_config::value::value_at(root, &SETTING[..])) {
+        None | Some(Value::Null) => true,
+        Some(value) => value.as_str() == Some(EVERY_MERGE),
+    }
 }
 
 /// Whether a bundle takes daemon updates: NIGHTLY (`com.cmuxterm.app.nightly[.<tag>]`) and the
@@ -175,19 +189,22 @@ pub(super) fn look(
     Look::Take { commit: payload.commit.clone(), committed_at: payload.committed_at }
 }
 
-/// Whether the daemon's activity snapshot (`subscribe-activity`'s `activity`)
-/// allows a swap at `now_ms`: no live agent and no person's input within
-/// [`INPUT_QUIET`]. An unreadable snapshot is busy.
-pub(super) fn safe_point(activity: Option<&Value>, now_ms: u64) -> Result<(), String> {
+/// Whether the swap goes at `now_ms`, given the daemon's activity snapshot
+/// (`subscribe-activity`'s `activity`) and when this commit first waited
+/// (`held_since_ms`). Agents never hold it (Leo: "The daemon updates itself
+/// without waiting for idle"); a person's input within [`INPUT_QUIET`] holds
+/// it, and an unreadable snapshot too, for at most [`INPUT_HOLD_MAX`].
+pub(super) fn safe_point(
+    activity: Option<&Value>,
+    now_ms: u64,
+    held_since_ms: u64,
+) -> Result<(), String> {
+    if now_ms >= held_since_ms.saturating_add(INPUT_HOLD_MAX.as_millis() as u64) {
+        return Ok(());
+    }
     let Some(activity) = activity.filter(|value| value.is_object()) else {
         return Err("the daemon's activity is unreadable".to_owned());
     };
-    let Some(agents) = activity.get("live_agents").and_then(Value::as_u64) else {
-        return Err("the daemon's activity has no live_agents".to_owned());
-    };
-    if agents > 0 {
-        return Err(format!("{agents} agent(s) working or waiting on a permission"));
-    }
     if let Some(input) = activity.get("last_user_input_at_ms").and_then(Value::as_u64) {
         let quiet = INPUT_QUIET.as_millis() as u64;
         if now_ms < input.saturating_add(quiet) {
@@ -195,6 +212,27 @@ pub(super) fn safe_point(activity: Option<&Value>, now_ms: u64) -> Result<(), St
         }
     }
     Ok(())
+}
+
+/// Whether a Team-signed app can take the pointer now: it names a tree whose
+/// Team-signed set `signed_set` finds. An app that is not Team-signed (a local
+/// or tip build) takes the ad-hoc build as before.
+pub(super) fn team_set_ready(
+    team_signed: bool,
+    tree_key: Option<&str>,
+    signed_set: impl FnOnce(&str) -> Result<bool, String>,
+) -> Result<(), String> {
+    if !team_signed {
+        return Ok(());
+    }
+    let Some(key) = live::tree_key(tree_key) else {
+        return Err("waits for a pointer naming its tree (this app is Team-signed)".to_owned());
+    };
+    match signed_set(key) {
+        Ok(true) => Ok(()),
+        Ok(false) => Err(format!("waits for tree {}'s Team-signed set", short(key))),
+        Err(error) => Err(format!("tree {}'s Team-signed set is unreadable ({error})", short(key))),
+    }
 }
 
 /// The last attempt's `committed_at`, `None` when there was none. A record that
@@ -252,6 +290,8 @@ fn worker(session: &str, socket: Option<PathBuf>) {
     std::thread::sleep(START_DELAY);
     let mut last_line = String::new();
     let mut child: Option<cmux_process::Child> = None;
+    // The commit waiting on input, and since when (ms): the hold is capped per commit.
+    let mut held: Option<(String, u64)> = None;
     loop {
         // One apply at a time: a child still running holds every look.
         let running = child.as_mut().is_some_and(|c| matches!(c.try_wait(), Ok(None)));
@@ -259,7 +299,7 @@ fn worker(session: &str, socket: Option<PathBuf>) {
             "an apply is still running".to_owned()
         } else {
             child = None;
-            match check(session, socket.as_deref()) {
+            match check(session, socket.as_deref(), &mut held) {
                 Ok((line, started)) => {
                     child = Some(started);
                     line
@@ -277,7 +317,11 @@ fn worker(session: &str, socket: Option<PathBuf>) {
 
 /// One look: the started apply and its log line, else why nothing started.
 #[cfg(target_os = "macos")]
-fn check(session: &str, socket: Option<&Path>) -> Result<(String, cmux_process::Child), String> {
+fn check(
+    session: &str,
+    socket: Option<&Path>,
+    held: &mut Option<(String, u64)>,
+) -> Result<(String, cmux_process::Child), String> {
     let exe = std::env::current_exe().ok().and_then(|exe| exe.canonicalize().ok());
     let app = exe.as_deref().and_then(crate::app_identity::containing_app_bundle);
     let info = app.as_deref().and_then(|app| {
@@ -321,8 +365,17 @@ fn check(session: &str, socket: Option<&Path>) -> Result<(String, cmux_process::
             Look::Nothing(why) => return Err(why),
             Look::Take { commit, committed_at } => (commit, committed_at),
         };
+    team_set_ready(cmux_link::app_caller::signed_app_build(), payload.tree_key.as_deref(), |key| {
+        let url = live::team_signed_url(&live::files_base(), key);
+        live::get_small(&url, live::LIVE_MAX_BYTES).map(|body| body.is_some())
+    })
+    .map_err(|why| format!("{} {why}", short(&commit)))?;
     let now_ms = super::now().saturating_mul(1000);
-    safe_point(activity(session, socket).as_ref(), now_ms)
+    if held.as_ref().is_none_or(|(waiting, _)| *waiting != commit) {
+        *held = Some((commit.clone(), now_ms));
+    }
+    let since = held.as_ref().map_or(now_ms, |(_, since)| *since);
+    safe_point(activity(session, socket).as_ref(), now_ms, since)
         .map_err(|why| format!("{} waits: {why}", short(&commit)))?;
     record_attempt(&store, &commit, committed_at, super::now())
         .map_err(|error| format!("{} not attempted: {error}", short(&commit)))?;
