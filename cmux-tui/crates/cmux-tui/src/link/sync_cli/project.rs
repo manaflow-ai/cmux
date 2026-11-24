@@ -610,6 +610,7 @@ fn stamp_ready(answer: &mut Value, timing: Value) {
         (answer.get_mut("data").and_then(Value::as_object_mut), timing)
     {
         data.extend(timing);
+        data.insert("kept_on_mac".into(), json!(listed.manifest.kept_count()));
     }
 }
 
@@ -947,13 +948,15 @@ fn ask(
 }
 
 /// The folder as the copy lists it ([`local::listed`], no cap), with every file's size and
-/// modification time, as a manifest.
+/// modification time, as a manifest; and every tracked file the copy's rules keep here, listed by
+/// its stat alone ([`super::project_kept`]), whose bytes are never served.
 fn list(folder: &Path) -> anyhow::Result<Listed> {
     let (set, _) = local::listed(folder, Rules::Copy, None)?;
     from_set(folder, set, Vec::new())
 }
 
 fn from_set(folder: &Path, set: local::LocalSet, dirs: Vec<String>) -> anyhow::Result<Listed> {
+    let home = super::project_kept::tracked_kept(folder, &set);
     let root_mtime = std::fs::metadata(folder).map(|meta| mtime_ns(&meta)).unwrap_or(0);
     let files: Vec<(String, LocalFile)> = set.files.into_iter().collect();
     let stats = stat_all(&files);
@@ -993,7 +996,28 @@ fn from_set(folder: &Path, set: local::LocalSet, dirs: Vec<String>) -> anyhow::R
             link: Some(linked.target.clone()),
         });
     }
-    let manifest = Manifest::build(root_mtime, items)?;
+    let manifest = if home.is_empty() {
+        Manifest::build(root_mtime, items)?
+    } else {
+        let without = items.clone();
+        items.extend(home.iter().map(|kept| kept.item.clone()));
+        match Manifest::build(root_mtime, items) {
+            Ok(mut manifest) => {
+                for kept in &home {
+                    if let Some(index) = manifest.resolve(&kept.item.path) {
+                        manifest.keep_home(index, kept.why.text())?;
+                    }
+                }
+                manifest
+            }
+            // A kept file that no longer fits the listing (its folder became a file since): the
+            // folder goes without them, as before.
+            Err(error) => {
+                eprintln!("cmux link project: tracked files kept here are not listed: {error:#}");
+                Manifest::build(root_mtime, without)?
+            }
+        }
+    };
     let mut served: Vec<Option<Served>> = Vec::new();
     served.resize_with(manifest.len(), || None);
     for (relative, file) in kept {
