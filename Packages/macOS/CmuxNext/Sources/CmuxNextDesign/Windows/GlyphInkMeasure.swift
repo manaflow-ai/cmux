@@ -16,7 +16,7 @@ public final class GlyphInkMeasure {
         let key = ObjectIdentifier(image)
         if let hit = cache[key], hit.image === image { return hit.glyph }
         let glyph = Self.measure(image)
-        if cache.count > 16 { cache.removeAll() }
+        if cache.count > 128 { cache.removeAll() } // the toggle's 50 slide glyphs and the band's others
         cache[key] = (image, glyph)
         return glyph
     }

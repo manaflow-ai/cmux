@@ -39,15 +39,22 @@ extension PageWebView {
 
     /// Whether a page out of sight draws now: until it painted and drew at the size it waits at, while
     /// a frame wait or picture of it runs, and while its owner holds it away (``drawsWhileAway``).
+    /// A new size alone waits while the window's chrome resizes the content area (the sidebar's slide,
+    /// ``isInChromeSlide``): a page out of sight there took a new size on every frame and showed to Chromium for
+    /// each, a page window hide and show per frame (3 to 5 ms of main thread on each, cmux21, 60 Hz). It draws
+    /// at its landed size once, at the landing (``paneMotionDidSettle()``).
     var drawsAway: Bool {
-        !hasPainted || drawsWhileAway || awayDrawing.holds > 0 || awayDrawing.drawnSize != bounds.size
+        !hasPainted || drawsWhileAway || awayDrawing.holds > 0 || (awayDrawing.drawnSize != bounds.size && !isInChromeSlide)
     }
+
+    /// Whether the window's chrome resizes the content area on an animation now (``ContentAreaMotionHosting``).
+    var isInChromeSlide: Bool { (window as? any ContentAreaMotionHosting)?.isContentAreaInMotion == true }
 
     /// A painted page out of sight that has not drawn at its size there: one frame wait at that size, after
     /// which it reports hidden (the wait's hold ends with it).
     func drawAwayIfNeeded() {
         let size = bounds.size
-        guard hasPainted, !drawsWhileAway, awayDrawing.holds == 0, awayDrawing.drawnSize != size,
+        guard hasPainted, !drawsWhileAway, awayDrawing.holds == 0, awayDrawing.drawnSize != size, !isInChromeSlide,
               awayDrawing.drawing != size, size.width >= 1, size.height >= 1 else { return }
         awayDrawing.drawing = size
         afterFrame(at: size) { [weak self] in
@@ -74,4 +81,10 @@ extension PageWebView {
         awayDrawing.holds -= 1
         if awayDrawing.holds == 0 { setChromiumVisibility(true) }
     }
+}
+
+/// The window's chrome resize landed (`WindowRootView` tells the whole window): a page out of sight that held its
+/// new size through the slide (``PageWebView/drawsAway``) draws at the landed one now.
+extension PageWebView: PaneMotionSettling {
+    public func paneMotionDidSettle() { setChromiumVisibility(true) }
 }
