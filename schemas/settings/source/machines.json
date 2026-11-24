@@ -625,35 +625,6 @@
           }
         },
         {
-          "key": "cloud.autoMode",
-          "name": "autoMode",
-          "note": "Off by default. The default for new chats (plans/cmux-next/auto-mode/DESIGN.md): the acpmux daemon reads it from the settings file when a chat starts, and a chat's own Auto row in its menu overrides it (`_acpmux/auto_session/set`). The app reads it nowhere.",
-          "title": {
-            "key": "settings.cloud.autoMode",
-            "text": "Auto"
-          },
-          "help": {
-            "key": "settings.cloud.autoMode.help",
-            "text": "Chats keep running in the Cloud when this Mac sleeps or goes offline, and come back when it returns."
-          },
-          "kind": "toggle",
-          "default": false,
-          "keywords": [
-            "cloud",
-            "auto",
-            "automatic",
-            "sleep",
-            "offline",
-            "lid",
-            "keep running",
-            "background",
-            "continue",
-            "machine",
-            "chat",
-            "handoff"
-          ]
-        },
-        {
           "key": "cloud.agentsStartWithoutAsking",
           "title": {
             "key": "settings.cloud.agentsStartWithoutAsking",
@@ -712,7 +683,7 @@
         {
           "key": "cloud.autoCloud",
           "name": "autoCloud",
-          "note": "AutoCloud (Leo, 2026-11-24): the new-chat Where menu's Auto opens Auto, Cloud only and Machine…, and Auto may start a chat on a Cloud VM when this Mac has no room. Hidden until it ships; the plan gate still applies.",
+          "note": "AutoCloud (Leo, 2026-11-24): the new-chat Where menu's Auto opens Auto, Cloud only and Machine…, and Auto may start a chat on a Cloud VM when this Mac has no room. Also the switch for keeping a chat running: with it on, a chat that starts on this Mac is copied to the Cloud, goes on there when this Mac sleeps or goes offline, and comes home (plans/cmux-next/auto-mode/DESIGN.md; the acpmux daemon reads it when a chat starts). Hidden until it ships; the plan gate still applies.",
           "title": {
             "key": "settings.cloud.autoCloud",
             "text": "Auto Places Chats in Cloud"

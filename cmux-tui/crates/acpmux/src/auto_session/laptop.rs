@@ -3,7 +3,7 @@
 //! [`start`] runs the holder loop ([`super::runtime`]) for a laptop's daemon: as `device:<id>`
 //! ([`device`]), over the owner's transport (`cmux_cloud_api::auto_sessions::OwnerAutoCloud`,
 //! signed in as the person through the cmux app, [`sign_in`]), with the system's clock, this
-//! machine's network notices and the setting `cloud.autoMode` for new chats.
+//! machine's network notices and AutoCloud's switch (`cloud.autoCloud`) for new chats.
 //!
 //! What only a laptop does is the state machine's laptop half, run by the loop: it stops a
 //! chat's process tree when no renewal was answered for
@@ -25,20 +25,13 @@ use super::machine::chats_root;
 use super::runtime::SystemClock;
 use super::{HolderHandle, HolderOptions, SessionImporter, spawn_holder_with};
 use crate::hub::Hub;
-use crate::user_settings::{self, Settings};
 
-/// The setting that switches Auto on for every new chat.
-const AUTO_MODE_SETTING: &str = "cloud.autoMode";
-
-/// Whether a chat made now starts with Auto on: the settings file is read when the chat is
-/// made, so a change of the setting needs no restart. A file that cannot be read keeps Auto off.
+/// Whether a chat made now starts with Auto on: AutoCloud's switch (`cloud.autoCloud`), the one
+/// the place picker's Auto reads too ([`crate::placement::auto_cloud_on`]). The settings file is
+/// read when the chat is made, so a change of the setting needs no restart. A file that cannot
+/// be read keeps Auto off.
 fn auto_for_new_chats() -> bool {
-    match user_settings::read() {
-        Settings::Parsed(document) => user_settings::value(&document, AUTO_MODE_SETTING)
-            .and_then(|value| value.as_bool())
-            .unwrap_or(false),
-        Settings::Missing | Settings::Unreadable(_) => false,
-    }
+    crate::placement::auto_cloud_on()
 }
 
 /// Starts Auto mode on a laptop's daemon. None on a Cloud machine, whose own side starts the

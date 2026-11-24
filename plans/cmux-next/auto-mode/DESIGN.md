@@ -1,7 +1,12 @@
-# Auto mode: a session keeps running when the laptop goes away
+# AutoCloud: a chat keeps running when the laptop goes away
+
+Named AutoCloud since 2026-11-24 (Austin): this is the keep-running half of the feature whose other half is
+the place picker's Auto (where a new chat starts). One name, one switch (`cloud.autoCloud`). In the code the
+parts keep the names they were built under: `auto_session`, `cmux-auto-session`, `/v1/auto-sessions`, and this
+folder. "Auto mode" below means AutoCloud's keep-running half.
 
 Status: building on branch `cloud-cmux-mode`, one integration PR into `feat-cmux-next`. Off by default
-(setting `cloud.autoMode`); the store is unbound in production until it ships there, as hand-offs are.
+(the hidden switch `cloud.autoCloud`); the store is unbound in production until it ships there, as hand-offs are.
 
 Builds on cloud work mode (`backend/apps/api/src/handoffs`, Leo 2026-10-27): there the person sends a chat to a
 Cloud machine by hand. Auto mode makes the same move happen by itself when the laptop goes away, and back when
@@ -13,10 +18,8 @@ is the decision of where a new chat starts (This Mac, a joined machine or Cloud)
 move, and it moves a chat while the Mac is still there to carry the move out (it hears `willSleep`). This work
 is what holds when the Mac is not there to do anything: the Cloud keeps a lease and a copy, so a chat goes on
 after a closed lid, a dead battery or a lost network, and the phone reaches it with no Mac. Neither needs the
-other to land, and nothing here reads `placement` tags or calls `_acpmux/place_chat`. Both use the word Auto in
-the UI for now (`agentPane.newChatsIn: "auto"` there, `cloud.autoMode` and the chat menu's Auto row here): one
-name for both is an open product decision, and the natural end state is that a chat placed on Auto is also kept
-running by this store.
+other to land, and nothing here reads `placement` tags or calls `_acpmux/place_chat`. Both are AutoCloud now: one switch (`cloud.autoCloud`) turns on the picker's Auto and this store's
+keep-running, so a chat placed on Auto is also kept running.
 
 ## What the person sees
 
@@ -161,7 +164,8 @@ patch, standby.
   `too_large` or `offline`. A change goes out as the row's ordinary change notice.
 - An Auto chat this laptop does not have (started on the phone, or on another laptop) is a row read from
   `GET /v1/auto-sessions`; opening it reads its events and waits on `/wait`; a send goes to its inbox.
-- The setting `cloud.autoMode` (default off) is the default for new chats.
+- AutoCloud's switch `cloud.autoCloud` (hidden, default off) is the default for new chats: with it on, a chat
+  that starts on this Mac has Auto on.
 
 ## Cloud API
 
@@ -501,9 +505,15 @@ chat runs after it started:
   chat then comes home by the handback rule), Cloud is `keepInCloud: true` and a move to the Cloud in one store
   write, This Mac is a move to the laptop when a machine holds the chat, and Auto goes off once the laptop has
   stored its own snapshot (the `owesImport` rule already refuses it earlier).
-- The setting `cloud.autoMode` (this branch, on hold until ship) stays the switch for the whole feature: while
-  it is off, a chat in place mode Auto that started on this Mac runs here and is not copied, exactly as on the
-  base. There is no `cloud.chatMode`.
+- AutoCloud's switch `cloud.autoCloud` (the base's, hidden until it ships) is the switch for the whole
+  feature: while it is off, a chat that started on this Mac runs here and is not copied, exactly as on the
+  base. This branch's own `cloud.autoMode` setting is gone, and there is no `cloud.chatMode`. With the switch on
+  and no store to reach (production until the store is bound there), a chat runs here as before: the laptop
+  keeps asking to register and never stops the agent for it (`holder/laptop.rs` `registering`).
+- The switch is one an agent may set (`schemas/settings/source/agent-policy.json`, the base's choice for the
+  picker). Keep-running copies a chat and its folder to the person's Cloud machine, which this branch's own
+  setting kept for the person alone to turn on. Whether the one switch should be the person's alone is an open
+  decision for Leo.
 - A chat started in a new Cloud VM (the base's Cloud, or Auto with a busy Mac) lives on that VM and needs no
   Auto record. The Cloud machine an Auto chat is taken over by is the team's one Auto machine
   (`machine-pick.ts`), not a new VM per chat. Both are "Cloud" to the person; making them one machine policy is

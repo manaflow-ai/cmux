@@ -62,7 +62,7 @@ pub struct HolderOptions {
     pub clock: Arc<dyn WallClock>,
     /// Changes of this machine's network (`peer::network::changes`); None: never told.
     pub network: Option<watch::Receiver<u64>>,
-    /// Whether a new chat starts with Auto on (the setting `cloud.autoMode`), asked when a chat
+    /// Whether a new chat starts with Auto on (the setting `cloud.autoCloud`), asked when a chat
     /// is made. None: never.
     pub new_chats: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
 }
