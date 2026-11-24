@@ -308,8 +308,8 @@ extension AgentPaneModel {
                 return AgentPaneReply.failure(code: "unavailable", message: "Could not copy text")
             }
             return AgentPaneReply.success()
-        case .tabRowTools(let width):
-            tabRow.report(width: CGFloat(width)) // used only while the pane offered the row
+        case .tabRowTools(let width, let need):
+            tabRow.report(width: CGFloat(width), need: need.map { CGFloat($0) }) // used only while the pane offered the row
             return AgentPaneReply.success()
         case .tabRowToolsSet(let tools):
             guard tabRow.nativeToolsEnabled else { return AgentPaneReply.success() }

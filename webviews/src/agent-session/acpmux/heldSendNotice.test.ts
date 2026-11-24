@@ -23,3 +23,19 @@ test("a refusal the person can act on still says so", () => {
   expect(heldSendNotice({ reason: "message.too_large" })).toBe(translate("prompt.failure.tooLarge"));
   expect(heldSendNotice(coded("transport.intent_invalid"))).toBe(translate("prompt.failure.pane"));
 });
+
+// A send on a closed connection read the browser's own words ("Not sent: WebSocket is not open:
+// readyState 3 (CLOSED)") or blamed the app ("The app refused this request"): both say the agent
+// connection is not open, with Retry beside it (new-user journeys, F4).
+test("a send on a closed connection says the connection is not open", () => {
+  const closed = translate("prompt.notSent", { reason: translate("error.notOpen") });
+  expect(failedSendText(new Error("WebSocket is not open: readyState 3 (CLOSED)"), false)).toBe(closed);
+  expect(failedSendText(coded("transport.closed", { message: "socket closed" }), false)).toBe(closed);
+  expect(failedSendText(coded("transport.closed"), true)).toBe(
+    translate("prompt.stillNotSent", { reason: translate("error.notOpen") }),
+  );
+  // Another refusal keeps its words.
+  expect(failedSendText(coded("transport.gesture_required"), false)).toBe(
+    translate("prompt.notSent", { reason: translate("prompt.gestureReason") }),
+  );
+});
