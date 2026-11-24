@@ -34,17 +34,6 @@ public nonisolated protocol AgentPaneHostProviding: Sendable {
     /// app's. Only while `owner`, the binary the refusal named, still holds the socket. True when
     /// it stopped.
     func restartAcpmux(owner: AcpmuxSocketOwner) async -> Bool
-    /// A person asked to restart this app's own acpmux while the pane of `sessionId` waits for it
-    /// (the pane's "Restart agent service"): stops that daemon, keeping its sessions, so the next
-    /// handshake starts a new one. Only the host the pane's handshake goes to, only one that
-    /// starts its daemon, and only while a lookup waits on it. True when it stopped.
-    func restartStuckAcpmux(sessionId: String?) async -> Bool
-    /// A person asked to restart this app's own acpmux after the pane of `sessionId` stopped asking
-    /// (its handshake loop's bound, hostRetry.ts `hostRetryStep`): no lookup waits then, so
-    /// ``restartStuckAcpmux(sessionId:)`` would refuse. Stops that daemon if one runs (SIGTERM,
-    /// ``AcpmuxDaemonStop``), and answers true when the pane's next handshake may start one: also
-    /// when none runs. Never an attached daemon or the Chief home's.
-    func restartGaveUpAcpmux(sessionId: String?) async -> Bool
     /// One event each time this host's own acpmux answers a lookup (any pane's, a restart's): a pane
     /// whose handshake loop stopped asks again then (AgentPaneView `observeAcpmuxAnswers`). Nil when
     /// this host has no daemon of its own.
@@ -81,12 +70,6 @@ extension AgentPaneHostProviding {
 
     /// Hosts without a daemon have none to restart.
     public func restartAcpmux(owner: AcpmuxSocketOwner) async -> Bool { false }
-
-    /// Hosts without a daemon have none to restart.
-    public func restartStuckAcpmux(sessionId: String?) async -> Bool { false }
-
-    /// Hosts without a daemon have none to restart.
-    public func restartGaveUpAcpmux(sessionId: String?) async -> Bool { false }
 
     /// Hosts without a daemon have no answers to tell.
     public func acpmuxAnswers() -> AsyncStream<Void>? { nil }
@@ -205,7 +188,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// The app's local daemons (``AcpmuxLocalDaemons``): its marks say restarting in Settings while
     /// a handoff runs; it keeps two Restart acpmux from stopping two daemons.
     private let daemons: AcpmuxLocalDaemons
-    /// Stops this app's own daemon when a person asks (``restartStuckAcpmux(sessionId:)``); one per host.
+    /// Stops this app's own daemon for ``restartOutdatedAcpmux(sessionId:)``; one per host.
     private let daemonStop = AcpmuxDaemonStop()
     /// Gets this Mac's approver key to each daemon this host connects (``AgentPanePeerApprover``); nil: none.
     private let peerApprover: AgentPanePeerApprover?
@@ -360,35 +343,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         return await AcpmuxSocketOwner.takeOver(environment: environment, owner: owner, daemons: daemons)
     }
 
-    /// The person's "Restart agent service" while a pane waits for this host's daemon: only this
-    /// app's own daemon (never an attached one, never the Chief home's), and only while a lookup
-    /// waits on it, so the page cannot stop a daemon that answers. The lookup that waits ends when
-    /// the daemon exits, and the page's next handshake starts a new one.
-    public func restartStuckAcpmux(sessionId: String?) async -> Bool {
-        guard startsDaemons, !inFlight.isEmpty else { return false }
-        if environment == nil { environment = resolveEnvironment() }
-        guard let environment, !environment.isAttached else { return false }
-        prewarmed.drop()
-        daemons.noteStoppedByPerson(home: environment.home)
-        return await daemonStop.restart(environment)
-    }
-
     public nonisolated func acpmuxAnswers() -> AsyncStream<Void>? {
         daemons.answers()
-    }
-
-    /// The person's "Restart agent service" after the pane stopped asking: no lookup waits, so the
-    /// guard of ``restartStuckAcpmux(sessionId:)`` does not apply; the person's click decides (rule R5).
-    /// A daemon of this home that runs gets SIGTERM; none running is a restart too, since the pane's
-    /// next handshake (a `ready`, which starts daemons) starts one.
-    public func restartGaveUpAcpmux(sessionId: String?) async -> Bool {
-        guard startsDaemons else { return false }
-        if environment == nil { environment = resolveEnvironment() }
-        guard let environment, !environment.isAttached else { return false }
-        prewarmed.drop()
-        guard await daemonStop.daemon(environment) != nil else { return true }
-        daemons.noteStoppedByPerson(home: environment.home)
-        return await daemonStop.restart(environment)
     }
 
     /// Restarts this app's own daemon after a request it lacked, then starts the bundled one (a

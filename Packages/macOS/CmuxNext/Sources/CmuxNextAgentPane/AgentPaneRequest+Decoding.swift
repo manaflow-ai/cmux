@@ -322,8 +322,6 @@ extension AgentPaneRequest {
             }
         case "acpmux.restart":
             self = .restartAcpmux
-        case "acpmux.restartStuck":
-            self = .restartStuckAcpmux(gaveUp: params?["gaveUp"] as? Bool == true)
         case "harness.restart":
             self = .harnessRestart
         case "shell.run":
