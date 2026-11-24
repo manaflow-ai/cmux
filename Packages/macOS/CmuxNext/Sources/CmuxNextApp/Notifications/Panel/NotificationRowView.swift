@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
+import CmuxNextNotifications
 
 /// One notification in the panel: unread dot, title and time, the source
 /// workspace, the body (two lines), and a dismiss button. A press opens it;
@@ -171,7 +172,7 @@ final class NotificationRowView: NSView {
     /// The press already opened it.
     override func mouseUp(with event: NSEvent) {}
 
-    override func menu(for event: NSEvent) -> NSMenu? { callbacks.menu() }
+    override func menu(for event: NSEvent) -> NSMenu? { NSMenu.withoutSystemItems(callbacks.menu()) }
 
     override func accessibilityPerformPress() -> Bool {
         callbacks.open()

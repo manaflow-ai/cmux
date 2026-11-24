@@ -27,9 +27,8 @@ pub(super) async fn info(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<
             attempt.as_str().ok_or_else(|| RpcError::invalid_params("invalid deliveryAttempt"))?;
         return Ok(json!({"deliveryAttempt": hub.permission_delivery_status(&s, id)?}));
     }
-    // Never waited for: the next read has it (`hub/usage_view.rs`).
-    let later = hub.clone();
-    tokio::spawn(async move { later.refresh_usage_stats().await });
+    // Never waited for: the next read has it (`hub/usage_view.rs`), one pass behind at a time.
+    hub.revalidate_usage();
     // After a restart the chat logs are read after the ready line; until
     // then the queue, the turn and the status are the session list's. Info
     // waits for this chat's (#22916; read now if the background pass has not
@@ -52,6 +51,10 @@ pub(super) async fn info(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<
         obj.insert("logsLoading".into(), json!(!hub.session_log_loaded(&s)));
         obj.insert("transferBlocked".into(), json!(s.transfer_blocked()));
         obj.insert("ownershipEpoch".into(), json!(s.ownership_epoch()));
+        // A move of the chat under way, as its client reports it, and what a move copies
+        // (`hub/transfer_live.rs`).
+        obj.insert("moveProgress".into(), hub.move_progress(&s.id));
+        obj.insert("historyBytes".into(), json!(hub.history_bytes(&s.id)));
     }
     // The session env reaches the unix socket only: no summary or
     // event carries it, so a key added to the allowlist later never
@@ -113,10 +116,9 @@ async fn rows(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, RpcE
         Some(Value::Bool(tools)) => *tools,
         Some(_) => return Err(RpcError::invalid_params("withTools must be a boolean")),
     };
-    // One usage read for the request, as `_acpmux/sessions {usage: true}` waits for it.
+    // One usage read for the request, as `_acpmux/sessions {usage: true}` makes it.
     if params.get("usage") == Some(&Value::Bool(true)) {
-        let read = hub.refresh_usage_stats();
-        let _ = tokio::time::timeout(crate::hub::USAGE_READ_WAIT, read).await;
+        hub.read_usage_for_list().await;
     }
     rows_reply(&keys, hub.rows_by_key(&keys, tools), ROWS_REPLY_BYTES)
 }

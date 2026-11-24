@@ -24,8 +24,8 @@ The renderer accepts the existing [scene ABI](../../../../cmux-tui/crates/cmux-a
 
 - VStack, HStack, ZStack and LazyVStack render child layout with `spacing`;
   vertical stacks support `alignment`. Group and ForEach place children inline.
-  Reorderable has the native renderer's current stack layout; list drag handling
-  is not yet implemented in either renderer.
+  Reorderable with an `onMove` handler lets a person drag a row within the list.
+  A drop sends the row key and its final zero-based index to the app, which owns the order.
 - Text supports `text`, named or numeric `font`, `weight`, `italic`, `monospaced`, `fontDesign`
   (`rounded`, `serif`, `monospaced`: the system font's design at the same size), `strikethrough`,
   `color`, `lineLimit` and `contentTransition`. Layout uses the pane's typography and spacing tokens.
@@ -61,13 +61,15 @@ The renderer accepts the existing [scene ABI](../../../../cmux-tui/crates/cmux-a
   `rotation` turns it about its center (a clock hand). A ZStack child's `position {x, y, unit?}` places
   its center in points or as a fraction of the stack, outside the stack's sizing.
 - Shared decorations support `padding` (number or edge object),
-  `paddingHorizontal`, `paddingVertical`, `frame`, `background`, `hoverBackground`,
+  `paddingHorizontal`, `paddingVertical`, `frame`, `background`, `glass`, `hoverBackground`,
   `color`, `borderColor`, `borderWidth`, `cornerRadius`, `opacity`, `rotation`,
   `fixedSize`, `cursor`, `help`, `disabled`, `onTap` and context `menu` entries.
   Colors accept semantic ABI tokens and `#RRGGBB[AA]`, rather than arbitrary CSS.
 
 Input dispatches `tap`, `menu {path:number[]}`, `edit {text}`, `submit {text}`,
-`change {value}` (Toggle and Slider) and `cancel`, using the original node id. A Toggle flip
+`change {value}` (Toggle and Slider) and `cancel {text}`, using the original node id. A TextField keeps
+what the person types as its `text` in the store (`reflectText`), as the app host does, so the app's
+value replaces it only when it differs (a draft cleared after a submit clears the field). A Toggle flip
 shows at once, and the next `value` the app sends wins. A Slider sends a value only when its
 snapped value changes, so values between two snaps are dropped, never delayed; during a drag
 the app's echoes do not move the thumb, and the app's value shows on release. Menu paths retain all indexes, including
@@ -89,9 +91,15 @@ Details, or the disconnected line alone. Reload calls `cmux.apps.panels.reload` 
 from the click (the host accepts it only from a gesture). `SceneMount` reports its drawn height
 with `cmux.apps.panels.layout {mount_id, height}`, once per change.
 
-`cmux.apps.panels.mount` takes `surface` (`pane`, `sidebarSection`, `hoverCard` or
-`sessionInfoSection`) and resolves the app's implementation as that surface's native host does
-(`AppMountSurface`).
+`cmux.apps.panels.mount` takes `surface` (`pane`, `sidebarSection`, `hoverCard`,
+`sessionInfoSection` or `chatWidget`) and resolves the app's implementation as that surface's
+native host does (`AppMountSurface`).
+
+A chat widget (`cmux.chat.widget/1`) mounts in two steps, both answered by the daemon:
+`cmux.apps.panels.route {key, tool}` names the extension that draws under a finished tool call
+and the context its render gets (`{widget: null}` when none does), and the page mounts that answer
+on the `chatWidget` surface (`chatWidgetClient.ts`, drawn by `ToolWidget.tsx`). The page does no
+matching of its own.
 
 ## Bundle images
 

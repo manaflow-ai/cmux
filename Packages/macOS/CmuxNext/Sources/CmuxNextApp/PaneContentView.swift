@@ -1,4 +1,6 @@
 import AppKit
+import CmuxNextActions
+import CmuxNextBridge
 import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextBrowserHost
@@ -50,8 +52,8 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
     var swapDrag: PaneSwapDrag?
     /// The acting agent's name tag (`PaneContentView+AgentTag`).
     let agentTag = AgentPresenceTagView()
-    /// A zoomed pane's Exit Zoom button at the content's top-right (`PaneContentView+AgentTag`).
-    private(set) lazy var zoomIndicator = PaneZoomIndicatorView(model: stripView.model)
+    /// A zoomed pane's Exit Zoom button at the content's top-right (`PaneContentView+AgentTag`), made at its first zoom.
+    var zoomIndicator: PaneZoomIndicatorView?
     private var agentTagObservation: Task<Void, Never>?
     /// No strip: the person hid this pane's tab bar (``PaneTabBar``).
     var hidesStrip = false {
@@ -203,7 +205,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
         }
         // Lay out the browser's band after the host frame its constraints depend on.
         super.layout()
-        toolbar?.view.refreshCorner() // "…"'s hover spans the strip's frame, set above or by the band's constraints
+        toolbar?.view.refreshCorner() // the controls' hover spans the strip's frame, set above or by the band's constraints
         // Restored terminal views are attached while the pane is still at
         // zero size. Reapply their frame after the host receives its launch
         // bounds so Ghostty and its find/glass overlays get a real first
@@ -331,8 +333,8 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
     func show(_ view: NSView?) -> NSView? {
         let previous = content
         guard previous !== view || (view != nil && !hostsContent && !(view?.staysParked(awayFrom: self) ?? false)) else { return previous }
-        tabSwitchMark("show")
-        defer { tabSwitchMark("shown") }
+        Self.tabSwitchMark("show")
+        defer { Self.tabSwitchMark("shown") }
         // Another pane may have reparented `previous` already (a moved tab):
         // only a view still installed here is removed.
         let hosted = previous.flatMap { $0.superview === contentHost ? $0 : nil }
@@ -470,7 +472,21 @@ extension PaneContentView: TitlebarPressDeciding {
 /// Tab switch timeline marks (cx-asb1): wall-clock ms, so a bench can line
 /// them up with the page's own clock. Debug level: nothing is written unless
 /// a `log stream --level debug` reads category "tab-switch".
-private let tabSwitchLog = Logger(subsystem: "com.cmuxterm.app.next", category: "tab-switch")
-private func tabSwitchMark(_ name: String) {
-    tabSwitchLog.debug("tab-switch \(name, privacy: .public) \(Date().timeIntervalSince1970 * 1_000, format: .fixed(precision: 3), privacy: .public)")
+private extension PaneContentView {
+    static let tabSwitchLog = Logger(subsystem: "com.cmuxterm.app.next", category: "tab-switch")
+    static func tabSwitchMark(_ name: String) { tabSwitchLog.debug("tab-switch \(name, privacy: .public) \(Date().timeIntervalSince1970 * 1_000, format: .fixed(precision: 3), privacy: .public)") }
+}
+
+extension PaneSwapDrag {
+    /// A pane's drag: a drop runs Swap with Session with the pane under the pointer, the swap's one path (shown in the drop's turn).
+    convenience init(pane: PaneController) {
+        self.init(strip: pane.view.stripView, pane: pane.layoutPaneID, layout: { [weak pane] in pane?.workspace?.layoutView },
+                  dragKey: { [weak pane] in pane?.pane.tabs.first?.id },
+                  move: { [weak pane] target in if let pane { TabMoves.movePane(pane, to: target) } },
+                  swap: { [weak pane] _, to in
+                      guard let pane, let other = pane.workspace?.panes[to] else { return }
+                      let swap = ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.paneKey), arguments: ["pane": .target(ActionTargetRef(kind: .pane, id: other.paneKey))])
+                      _ = pane.services.registry.perform("palette.swapWithSession", invocation: swap.onMachine(pane.daemon.machineID))
+                  })
+    }
 }
