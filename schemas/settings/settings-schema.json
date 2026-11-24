@@ -335,7 +335,8 @@
               "appearance.backgroundOpacity",
               "appearance.backgroundBlur",
               "appearance.inactiveWindowDim",
-              "appearance.wallpaperTint"
+              "appearance.wallpaperTint",
+              "appearance.terminalCellBackgrounds"
             ],
             "title" : {
               "key" : "settings.group.windowBackground",
@@ -553,7 +554,10 @@
               "sidebar.workspaceRow.working",
               "sidebar.workspaceRow.log",
               "sidebar.workspaceRow.notification",
-              "sidebar.workspaceRow.secondLineOrder"
+              "sidebar.workspaceRow.secondLineOrder",
+              "sidebar.workspaceRow.lines",
+              "sidebar.workspaceRow.linesByKind",
+              "sidebar.workspaceRow.linesByAgent"
             ],
             "title" : {
               "key" : "settings.group.workspaceRows",
@@ -825,7 +829,8 @@
             "key" : "terminal.3",
             "rows" : [
               "newTerminal.opensWorkspace",
-              "app.warnBeforeClosingTab"
+              "app.warnBeforeClosingTab",
+              "terminal.predictiveLocalEcho"
             ],
             "title" : {
               "key" : "settings.pageGroup.terminalBehavior",
@@ -37670,6 +37675,179 @@
     },
     {
       "accepts" : [
+        "opaque",
+        "window",
+        "tint",
+        "tintWindow"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.terminalCellBackgrounds.opaque",
+            "text" : "Opaque"
+          },
+          "value" : "opaque"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.terminalCellBackgrounds.window",
+            "text" : "Window Opacity"
+          },
+          "value" : "window"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.terminalCellBackgrounds.tint",
+            "text" : "Tint"
+          },
+          "value" : "tint"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.terminalCellBackgrounds.tintWindow",
+            "text" : "Tint at Window Opacity"
+          },
+          "value" : "tintWindow"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "opaque",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.terminalCellBackgrounds.help",
+        "text" : "How program-painted cell backgrounds (a TUI's message band, status line) draw over a translucent window or wallpaper: opaque (default), at the window's opacity (window), fading near-background greys to a tint (tint), or both (tintWindow)."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.terminalCellBackgrounds",
+      "keywords" : [
+        "terminal",
+        "cell",
+        "background",
+        "transparent",
+        "translucent",
+        "opacity",
+        "wallpaper",
+        "tui",
+        "claude",
+        "codex",
+        "pi",
+        "opencode"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "terminalCellBackgrounds"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.terminalCellBackgrounds"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.terminalCellBackgrounds",
+        "text" : "Terminal Cell Backgrounds"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         0,
         1,
         0.5
@@ -61037,6 +61215,143 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.terminalTyping",
+        "text" : "Typing"
+      },
+      "help" : {
+        "key" : "settings.terminal.predictiveLocalEcho.help",
+        "text" : "Shows characters you type in a terminal on another machine right away when the link is slow, underlined until the remote confirms them. Local terminals, password prompts and full-screen programs are never predicted."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "terminal.predictiveLocalEcho",
+      "keywords" : [
+        "predictive",
+        "echo",
+        "local echo",
+        "latency",
+        "lag",
+        "ssh",
+        "remote",
+        "typing"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "terminal",
+        "predictiveLocalEcho"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "terminal",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:terminal.predictiveLocalEcho"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.terminal.predictiveLocalEcho",
+        "text" : "Predictive Local Echo"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
 
       ],
       "agent_refusal" : "userOnly",
@@ -82775,7 +83090,7 @@
         "tokens"
       ],
       "kind" : "json",
-      "page_hidden" : true,
+      "page_hidden" : false,
       "path" : [
         "sidebar",
         "workspaceRow",
@@ -82878,7 +83193,7 @@
           "operations" : [
 
           ],
-          "reason" : "The Sidebar page's row layout editor edits it (CMUX-383); cmux settings set and the file keep working.",
+          "reason" : "the Sidebar page's row layout editor edits it (CMUX-383): the palette has no nested-JSON value page",
           "row" : null
         },
         "socket" : {
@@ -82973,7 +83288,7 @@
         "browser"
       ],
       "kind" : "json",
-      "page_hidden" : true,
+      "page_hidden" : false,
       "path" : [
         "sidebar",
         "workspaceRow",
@@ -83087,7 +83402,7 @@
           "operations" : [
 
           ],
-          "reason" : "The Sidebar page's row layout editor edits it (CMUX-383); cmux settings set and the file keep working.",
+          "reason" : "the Sidebar page's row layout editor edits it (CMUX-383): the palette has no nested-JSON value page",
           "row" : null
         },
         "socket" : {
@@ -83177,7 +83492,7 @@
         "codex"
       ],
       "kind" : "json",
-      "page_hidden" : true,
+      "page_hidden" : false,
       "path" : [
         "sidebar",
         "workspaceRow",
@@ -83289,7 +83604,7 @@
           "operations" : [
 
           ],
-          "reason" : "The Sidebar page's row layout editor edits it (CMUX-383); cmux settings set and the file keep working.",
+          "reason" : "the Sidebar page's row layout editor edits it (CMUX-383): the palette has no nested-JSON value page",
           "row" : null
         },
         "socket" : {
