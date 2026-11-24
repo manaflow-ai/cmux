@@ -142,7 +142,10 @@ describe("auto sessions: the Auto machine nobody named", { timeout: 60_000 }, ()
     m.machines.push(listed(a, M2, { status: "running" }))
     await takenOver(a, "moved")
     expect((await get(a.installToken, "moved")).body.session).toMatchObject({ holder: VM2, epoch: 2 })
+    // Only one of the owner's own machines can be named: M is listed while it is named, and not after.
+    m.machines.push(listed(a, M))
     expect((await setMachine(a)).body).toEqual({ team: a.team, machine: M })
+    m.machines.pop()
     // The chat the pick never picked up goes to the named machine.
     expect((await get(a.installToken, "moved")).body.session).toMatchObject({ holder: VM, epoch: 3, state: "resuming" })
     expect((await machine(a.installToken)).body).toEqual({ team: a.team, machine: M })
@@ -200,6 +203,7 @@ describe("auto sessions: the Auto machine nobody named", { timeout: 60_000 }, ()
     expect((await get(a.installToken, "first")).body.session).toMatchObject({ holder: VM, epoch: 3, state: "resuming" })
     // With none left, the pick is dropped and chats wait as they do for an owner with no machine.
     m.machines.length = 0
+    m.gone.push(M)
     advance(60_001)
     await takenOver(a, "third")
     expect((await get(a.installToken, "third")).body.session).toMatchObject({ holder: "parked", epoch: 2, blocked: "no_machine" })
@@ -271,6 +275,7 @@ describe("auto sessions: a pick is its team's, and a pick that is gone", { timeo
     expect(m.asked.filter((q) => q.op === "cloud.machine.list")).toHaveLength(3)
     for (const q of m.asked) expect(q.as).toEqual({ kind: "session", user: a.user, team: q.team })
     // A machine the owner names is for every chat of theirs, whatever its team, as before.
+    m.machines.push(listed(a, other("c")))
     expect((await setMachine(a, other("c"))).body).toEqual({ team: a.team, machine: other("c") })
     for (const id of ["home", "home2", "work", "work2"]) expect((await session(a, id)).holder, id).toBe(`vm:${other("c")}`)
   })
@@ -281,7 +286,7 @@ describe("auto sessions: a pick is its team's, and a pick that is gone", { timeo
     await takenOver(a, "one")
     await takenOver(a, "two")
     expect([await session(a, "one"), await session(a, "two")]).toMatchObject([{ holder: "parked", blocked: "no_machine" }, { holder: "parked", blocked: "no_machine" }])
-    m.machines.push(listed(a, M2, { status: "running" }))
+    m.machines.push(listed(a, M2, { status: "running" }), listed(a, M))
     lookAgain()
     // The owner's `PUT machine` lands in the store (`nameMachine`, what the route calls) after the pick is kept and
     // before its word reaches the first chat, so the pick's word for that chat arrives after the named machine's.

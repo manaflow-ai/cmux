@@ -56,7 +56,7 @@ export type CloudAsk = { op: string; team: string; as: { kind?: string; user?: s
 /**
  * The platform's Cloud, as the store sees it: what a read answers, and the starts it was asked for. `machines`:
  * the machines of every team, for the tests of the store's own pick (`lists` counts the pages read of a team's
- * list; `endless`: every page says another follows). A machine not in it reads as the one machine `status`
+ * list; `endless`: every page says another follows). A machine not in it reads as the owner's own machine `status`
  * describes, as the tests that name their Auto machine expect, unless it is in `gone`: then it does not exist.
  * `asked`: every call, with who it was made as.
  */
@@ -77,7 +77,7 @@ export const fakeCloud = async (owner: string): Promise<FakeMachine> => {
       // Once the test lists machines, one that is not listed is gone.
       const known = m.machines.find((x) => x.team === team && x.id === params?.machine)
       if (m.gone.includes(params?.machine ?? "") || (m.machines.length > 0 && !known)) return { ok: false, code: "cloud.machine.not_found", message: "no such machine in this team" }
-      return known ? { ok: true, revision: m.revision, value: known } : { ok: true, revision: m.revision, value: { machine: { status: m.status } } }
+      return known ? { ok: true, revision: m.revision, value: known } : { ok: true, revision: m.revision, value: { machine: { id: params?.machine, creator: owner, team, status: m.status, classic: false } } }
     },
     submit: async (team: string, p: CloudAsk["as"], frame: { op: string; idempotency_key: string; params?: { machine?: string } }) => {
       m.asked.push({ op: frame.op, team, as: { kind: p.kind, user: p.user, team: p.team } })
