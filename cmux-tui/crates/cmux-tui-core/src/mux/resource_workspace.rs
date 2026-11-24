@@ -7,6 +7,8 @@ use cmux_json::JsonSet as _;
 
 impl Mux {
     pub(crate) fn registry_projection(&self, state: &State) -> Vec<RegistryWorkspace> {
+        #[cfg(test)]
+        crate::walk_counters::workspace_list_walked(state.workspaces.len());
         state
             .workspaces
             .iter()
@@ -276,7 +278,7 @@ impl Mux {
         workspace_revision?;
         let index = state.workspace_index_by_key(workspace_key)?;
         let workspace = state.workspaces[index].id;
-        let decorations = self.tree_decorations_in_state(state);
+        let decorations = self.workspace_tree_decorations_in_state(state, index);
         let entity = crate::server::tree_entity_json(state, &decorations, kind, workspace)?;
         Some(TreeDelta {
             kind,
@@ -623,21 +625,11 @@ impl Mux {
                     move |state| {
                         if changed {
                             state.move_workspace(old_index, new_index);
-                            for (workspace_index, _, _) in state.split_screens.values_mut() {
-                                *workspace_index = if *workspace_index == old_index {
-                                    new_index
-                                } else if old_index < new_index
-                                    && (old_index + 1..=new_index).contains(workspace_index)
-                                {
-                                    workspace_index.saturating_sub(1)
-                                } else if new_index < old_index
-                                    && (new_index..old_index).contains(workspace_index)
-                                {
-                                    workspace_index.saturating_add(1)
-                                } else {
-                                    *workspace_index
-                                };
-                            }
+                            Self::reindex_workspace_positions(
+                                state,
+                                old_index.min(new_index),
+                                old_index.max(new_index),
+                            );
                             state.active_workspace = active_slot
                                 .and_then(|slot| state.workspace_index(slot))
                                 .unwrap_or_else(|| state.workspaces.len().saturating_sub(1));
