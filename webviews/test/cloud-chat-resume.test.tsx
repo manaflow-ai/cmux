@@ -645,3 +645,92 @@ test.serial(
     await act(async () => root.render(null));
   },
 );
+
+test.serial(
+  "a list read that never answers is let go at its deadline and the next read brings the chat back",
+  async () => {
+    const { useCloudChatRecovery } = await import("../src/agent-session/acpmux/useCloudChatRecovery");
+    let listReads = 0;
+    let rechecks = 0;
+    Object.assign(dom.window, {
+      webkit: {
+        messageHandlers: {
+          agentSession: {
+            postMessage: ({ method }: { method: string }) => {
+              if (method === "cloudMachine.attach") return { ok: true, value: {} };
+              const inventory = (stage: string) => ({
+                ok: true,
+                value: {
+                  signedIn: true,
+                  loaded: true,
+                  complete: true,
+                  account: ["user", null],
+                  machines: [{ id: "vm-demo", name: "Demo machine", stage }],
+                },
+              });
+              if (method === "cloudMachine.list") {
+                listReads += 1;
+                // A starved Mac: the resume's first read never answers (the bridge lost it).
+                if (listReads === 1) return new Promise(() => {});
+                return inventory("connecting");
+              }
+              return inventory("paused");
+            },
+          },
+        },
+      },
+    });
+    const recheck = async () => {
+      rechecks += 1;
+    };
+    function Recovery() {
+      const recovery = useCloudChatRecovery({
+        cloud: { id: "vm-demo", account: ["user", null] },
+        session: "chat-demo",
+        active: true,
+        recheck,
+        readMs: 300,
+      });
+      return (
+        <div>
+          <button data-action="stuck-wake" onClick={recovery.resume}>
+            Resume
+          </button>
+          <span data-action="stuck-state">
+            {JSON.stringify({ state: recovery.state, resuming: recovery.resuming })}
+          </span>
+        </div>
+      );
+    }
+    await act(async () => root.render(<Recovery />));
+    await act(async () => mount.querySelector<HTMLButtonElement>('[data-action="stuck-wake"]')!.click());
+    expect(listReads).toBe(1);
+    const started = performance.now();
+    await act(async () => {
+      // fixed-wait: the read's 300 ms deadline plus the loop's 1 s spacing, with margin.
+      await new Promise((resolve) => setTimeout(resolve, 2_000));
+    });
+    // Before: the reads stopped for good behind the first one (listReads stayed 1, state paused).
+    expect(listReads).toBeGreaterThanOrEqual(2);
+    expect(rechecks).toBeGreaterThanOrEqual(1);
+    expect(mount.querySelector('[data-action="stuck-state"]')?.textContent).toContain('"state":"live"');
+    expect(mount.querySelector('[data-action="stuck-state"]')?.textContent).toContain('"resuming":true');
+    console.log(
+      `recovery read after a lost answer: ${Math.round(performance.now() - started)} ms window, ${listReads} reads`,
+    );
+    await act(async () => root.render(null));
+  },
+  10_000,
+);
+
+test("beforeDeadline answers late past its deadline and drops a late refusal", async () => {
+  const { beforeDeadline } = await import("../src/agent-session/acpmux/useCloudChatRecovery");
+  expect(await beforeDeadline(Promise.resolve(3), performance.now() + 1_000)).toEqual({ kind: "done", value: 3 });
+  let refuse!: (error: Error) => void;
+  const pending = new Promise<number>((_, reject) => {
+    refuse = reject;
+  });
+  expect(await beforeDeadline(pending, performance.now() + 20)).toEqual({ kind: "late" });
+  refuse(new Error("late"));
+  await expect(beforeDeadline(Promise.reject(new Error("now")), performance.now() + 1_000)).rejects.toThrow("now");
+});
