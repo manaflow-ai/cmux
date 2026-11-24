@@ -1,4 +1,6 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
+#endif
 import Foundation
 
 /// UIKit on iOS 26 starts a fling's deceleration a frame late: the display

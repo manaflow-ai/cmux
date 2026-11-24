@@ -1,4 +1,8 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
+#else
+import Foundation
+#endif
 
 /// The Messages bubble outline, shared by the iOS and macOS surfaces. Paths
 /// use top-left-origin coordinates (UIKit, or a flipped AppKit view).

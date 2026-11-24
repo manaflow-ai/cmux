@@ -1,4 +1,6 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
+#endif
 
 /// When the transcript's system scroll edge effects should be live.
 // lint:allow namespace-type -- vendored CmuxConversation snapshot

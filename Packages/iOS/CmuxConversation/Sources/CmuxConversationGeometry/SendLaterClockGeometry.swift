@@ -1,4 +1,8 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
+#else
+import Foundation
+#endif
 import Foundation
 
 /// The Send Later clock, from ChatKit's `clock-sendlater.ca` (shared by iOS

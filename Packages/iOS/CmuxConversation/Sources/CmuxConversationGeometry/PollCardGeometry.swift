@@ -1,4 +1,6 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
+#endif
 
 /// Layout of a Messages poll card, shared by the iOS and macOS surfaces.
 /// Coordinates are top-left origin, relative to the card. Platform code

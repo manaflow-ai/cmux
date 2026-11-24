@@ -1,4 +1,8 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
+#else
+import Foundation
+#endif
 
 /// The thread line that joins an inline reply's quote to the reply, as
 /// Messages draws it (`CKReplyLineView`): a 4 pt line in its own column at

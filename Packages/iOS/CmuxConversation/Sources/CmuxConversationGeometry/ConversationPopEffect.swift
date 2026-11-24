@@ -1,4 +1,7 @@
+#if canImport(QuartzCore)  // Core Animation: Apple only (the Linux CI package build skips this file)
+#if canImport(CoreGraphics)
 import CoreGraphics
+#endif
 import Foundation
 import QuartzCore
 #if canImport(UIKit)
@@ -224,3 +227,4 @@ struct SplitMix64 {
         mutating get { CGFloat(next() >> 11) / CGFloat(1 << 53) }
     }
 }
+#endif

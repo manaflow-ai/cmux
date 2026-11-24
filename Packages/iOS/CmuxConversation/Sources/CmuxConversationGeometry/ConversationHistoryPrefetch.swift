@@ -1,4 +1,6 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
+#endif
 
 /// When the transcript asks for older history while the reader scrolls.
 ///

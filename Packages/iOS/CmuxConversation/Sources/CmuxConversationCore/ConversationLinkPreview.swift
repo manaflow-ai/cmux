@@ -1,4 +1,6 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
+#endif
 import Foundation
 
 /// Rich link metadata for a URL in a message, as Messages shows it: a card
@@ -152,9 +154,15 @@ public struct ConversationLinkSplit: Sendable, Hashable {
         return ConversationRichText.normalized(shifted, utf16Count: bodyText.utf16.count)
     }
 
+    #if canImport(Darwin)
     nonisolated(unsafe) private static let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+    #endif
 
     private static func urlRange(in text: String, matching url: URL) -> Range<String.Index>? {
+        #if !canImport(Darwin)
+        // NSDataDetector is Apple only (the Linux CI package build finds no link).
+        return nil
+        #else
         var found: Range<String.Index>?
         detector?.enumerateMatches(in: text, range: NSRange(text.startIndex..., in: text)) { match, _, stop in
             guard let match, let matchURL = match.url, let range = Range(match.range, in: text) else { return }
@@ -164,6 +172,7 @@ public struct ConversationLinkSplit: Sendable, Hashable {
             }
         }
         return found
+        #endif
     }
 
     private static func normalized(_ url: URL) -> String {
@@ -384,11 +393,13 @@ public enum ConversationLinkTint {
 /// addresses and dates, each underlined and tappable.
 // lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationDataDetection {
+    #if canImport(Darwin)
     public static let types: NSTextCheckingTypes =
         NSTextCheckingResult.CheckingType.link.rawValue
         | NSTextCheckingResult.CheckingType.phoneNumber.rawValue
         | NSTextCheckingResult.CheckingType.address.rawValue
         | NSTextCheckingResult.CheckingType.date.rawValue
+    #endif
 
     /// The opacity of a detected item's underline over its text color, as
     /// DataDetectorsUI lightens it (`lightUnderlineColorFromTextColor:`):
@@ -399,8 +410,10 @@ public enum ConversationDataDetection {
         saturation < 0.02 && brightness > 0.98 ? 0.46 : 0.26
     }
 
+    #if canImport(Darwin)
     // NSDataDetector is documented thread-safe for matching; it is created once.
     nonisolated(unsafe) private static let detector = try? NSDataDetector(types: types)
+    #endif
 
     /// Markdown marks a detected link may take in when an agent's text shows them as written
     /// (`**https://a.com**` is detected as `https://a.com**`).
@@ -410,6 +423,10 @@ public enum ConversationDataDetection {
     /// ends (Lawrence 2026-10-23: a tap on a Chief's `**https://github.com/login/device**`
     /// opened `https://github.com/login/device**`).
     public static func items(in text: String) -> [ConversationDetectedItem] {
+        #if !canImport(Darwin)
+        // NSDataDetector is Apple only (the Linux CI package build detects nothing).
+        return []
+        #else
         let ns = text as NSString
         guard let detector, ns.length > 0 else { return [] }
         return detector.matches(in: text, range: NSRange(location: 0, length: ns.length)).compactMap { match in
@@ -424,7 +441,10 @@ public enum ConversationDataDetection {
             let again = detector.firstMatch(in: trimmed, range: NSRange(location: 0, length: (trimmed as NSString).length))
             return ConversationDetectedItem(range: range, url: again?.url ?? URL(string: trimmed))
         }
+        #endif
     }
+
+    #if canImport(Darwin)
 
     /// What a tap opens: the link, a call, Maps, or Calendar at that date.
     public static func actionURL(for match: NSTextCheckingResult) -> URL? {
@@ -447,4 +467,5 @@ public enum ConversationDataDetection {
             return nil
         }
     }
+    #endif
 }

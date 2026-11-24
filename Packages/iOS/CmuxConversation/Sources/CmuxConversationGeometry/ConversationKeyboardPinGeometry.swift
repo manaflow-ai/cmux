@@ -1,4 +1,6 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
+#endif
 
 /// Where the iOS composer sits relative to the keyboard.
 ///

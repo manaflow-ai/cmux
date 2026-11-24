@@ -1,4 +1,6 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
+#endif
 import Foundation
 
 /// The conversation header's static layout, as iOS 26.5 and 27.0 Messages

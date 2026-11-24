@@ -1,4 +1,6 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
+#endif
 import Foundation
 
 /// The composer's queued-photo shelf in Messages, measured on iOS 26.5 and
