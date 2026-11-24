@@ -32,4 +32,6 @@ tokio = { version = "1.52", features = ["rt-multi-thread", "macros", "io-util", 
 unicode-width.workspace = true
 
 [dev-dependencies]
+# A paused clock for the bounded-wait tests (`reconnect_wait.rs`).
+tokio = { version = "1.52", features = ["test-util"] }
 uuid = { version = "1.20", features = ["v7"] }
