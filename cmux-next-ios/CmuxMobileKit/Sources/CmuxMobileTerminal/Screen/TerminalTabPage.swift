@@ -197,7 +197,6 @@ public struct TerminalTabCard: View {
     public var content: TerminalCardContent {
         let started = model.controller?.started == true
         return TerminalCardContent.choose(sessionStarted: started,
-                                          connecting: model.connectionState.cardShowsConnecting(sessionStarted: started),
                                           hasSnapshot: model.snapshot != nil, screenText: model.cardScreenText,
                                           screenTextIsNewer: model.cardScreenTextIsNewer)
     }
@@ -208,8 +207,6 @@ public struct TerminalTabCard: View {
                 Color(uiColor: (model.hostTheme ?? CmuxMobileTerminalThemes.shared.theme(for: model.hostMacID))?.backgroundColor
                     ?? CmuxMobileGhosttyApp.background)
                 switch content {
-                case .connecting:
-                    TerminalConnectingView(topInset: insets.top, lastFrame: model.snapshot)
                 case .screenText:
                     TerminalCardScreenText(text: model.cardScreenText ?? "", topInset: insets.top, width: geo.size.width)
                 case .snapshot, .savedFrame:
@@ -222,7 +219,9 @@ public struct TerminalTabCard: View {
                         visibility: TerminalDockVisibility(chromeHidden: model.chromeHidden, composerPresented: model.composerPresented))
                     let crop = TerminalCardCrop(width: geo.size.width, imageHeight: image.size.height * scale,
                                                 bottomTrim: max(0, insets.bottom + composer - 6) * scale)
-                    // The newest rows and the prompt at the card's bottom edge (V5-6).
+                    // The newest rows and the prompt at the card's bottom edge (V5-6). A frame
+                    // from an earlier launch is the last-known page, shown as it is (not
+                    // dimmed) until the Mac's screen replaces it.
                     Image(uiImage: image)
                         .resizable()
                         .interpolation(.medium)
@@ -230,24 +229,10 @@ public struct TerminalTabCard: View {
                         .offset(y: crop.imageTop)
                         .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
                         .clipped()
-                        // A frame from an earlier launch stands in, dimmed like a page
-                        // that is not live, until the Mac's screen arrives (T-TABS-01).
-                        .opacity(content.isCurrent ? 1 : 0.55)
                     }
-                case .placeholder:
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("\(model.programName) — \(model.title)")
-                            .foregroundStyle(Color.white.opacity(0.45))
-                        HStack(spacing: 0) {
-                            Text("$ ")
-                            Rectangle().fill(Color.white.opacity(0.85)).frame(width: 8, height: 15)
-                        }
-                    }
-                    .font(.system(size: 13, design: .monospaced))
-                    .foregroundStyle(Color.white.opacity(0.9))
-                    .padding(.horizontal, 12)
-                    .padding(.top, insets.top + 8)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                case .nothing:
+                    // Nothing known yet: the terminal's background, no stand-in.
+                    EmptyView()
                 }
             }
         }

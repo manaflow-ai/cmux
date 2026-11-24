@@ -35,6 +35,18 @@ import UIKit
         return UIGraphicsImageRenderer(size: CGSize(width: width, height: height), format: format).image { context in
             color.setFill()
             context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+            // A stripe: a picture of one solid colour is a placeholder (`CardPictureGate`), never kept.
+            UIColor.white.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: max(1, width / 4), height: height))
+        }
+    }
+
+    static func solid(_ color: UIColor, width: CGFloat = 40, height: CGFloat = 56) -> UIImage {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: CGSize(width: width, height: height), format: format).image { context in
+            color.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: width, height: height))
         }
     }
 
@@ -206,15 +218,68 @@ import UIKit
             context.fill(CGRect(x: 10, y: 18, width: 20, height: 20))
         }
         #expect(CannotDrawMark.isIn(mark))
-        first.put(mark, for: Self.key("marked"))
+        // Saved as an earlier build did (this one never saves it: `CardPictureGate`).
+        store.save(try #require(mark.jpegData(compressionQuality: 0.8)), pixelWidth: 40, pixelHeight: 56,
+                   capturedAtMs: 1, source: .phone, for: Self.key("marked"))
         first.put(Self.picture(.systemBlue), for: Self.key("clean"))
-        try await Self.wait("both pictures are written") { first.saves == 2 }
+        try await Self.wait("the clean picture is written") { first.saves == 1 }
 
         let next = TabCardSnapshots(store: store, memoryPressure: MemoryPressure(observesSystem: false))
         next.warm([Self.key("marked"), Self.key("clean")])
         try await Self.wait("both reads finish") { next.loads == 2 }
         #expect(next.entry(Self.key("marked")).image == nil, "the mark is never on a card")
         #expect(next.entry(Self.key("clean")).image != nil)
+    }
+
+    /// Leo, 2026-11-24, on a grid of black cards: "wer need to chase all these placeholders doen and
+    /// prevent them". A picture of one solid colour (a capture of a page that had drawn nothing) is
+    /// neither shown nor saved, from the phone or the Mac; the card keeps its last real picture.
+    @Test func aSolidPictureIsNeverShownOrSaved() async throws {
+        #expect(CardPictureGate.isPlaceholder(Self.solid(.black)))
+        #expect(CardPictureGate.isPlaceholder(Self.solid(.white, width: 1200, height: 2600)))
+        #expect(!CardPictureGate.isPlaceholder(Self.picture(.black)))
+        let store = TabSnapshotStore(directory: Self.directory())
+        let snapshots = TabCardSnapshots(store: store, memoryPressure: MemoryPressure(observesSystem: false))
+        snapshots.put(Self.picture(.systemRed), for: Self.key("a"))
+        try await Self.wait("the real picture is written") { snapshots.saves == 1 }
+        let real = store.picture(Self.key("a"))
+        snapshots.put(Self.solid(.black), for: Self.key("a"))
+        snapshots.put(Self.solid(.black, width: 1200, height: 2600), for: Self.key("page"), pixelWidth: 520)
+        try await Self.wait("the black one is dropped and the real one read back") {
+            snapshots.entry(Self.key("a")).image.map { !CardPictureGate.isPlaceholder($0) } ?? false
+        }
+        await snapshots.diskSettled()
+        #expect(snapshots.saves == 1, "no black picture is saved")
+        #expect(store.picture(Self.key("a")) == real)
+        #expect(snapshots.entry(Self.key("page")).image == nil)
+
+        let (cards, pictures) = Self.cards(Self.directory())
+        let black = try #require(Self.solid(.black, width: 8, height: 8).pngData())
+        cards.cards([(tabID: "web", info: MacCardInfo(title: "A", kind: "browser", thumbHash: Self.hash(black), capturedAtMs: 10))], macID: "mac-1")
+        cards.save(black, hash: Self.hash(black), macID: "mac-1")
+        await cards.blobArrived(hash: Self.hash(black), tabIDs: ["web"], macID: "mac-1")?.value
+        #expect(pictures.entry(Self.key("web")).image == nil, "the Mac's black thumbnail is not a card's picture")
+    }
+
+    /// Leo's 51 tabs: a list's warm reads its first `limit`; a card that appears reads its own, so
+    /// one past the limit, or one evicted since, shows its picture rather than a stand-in.
+    @Test func aCardPastTheWarmLimitOrEvictedIsReadWhenItAppears() async throws {
+        let store = TabSnapshotStore(directory: Self.directory())
+        let first = TabCardSnapshots(store: store, memoryPressure: MemoryPressure(observesSystem: false))
+        for tab in ["a", "b", "c"] { first.put(Self.picture(.systemGreen), for: Self.key(tab)) }
+        try await Self.wait("the pictures are written") { first.saves == 3 }
+
+        let next = TabCardSnapshots(store: store, limit: 2, memoryPressure: MemoryPressure(observesSystem: false))
+        next.warm([Self.key("a"), Self.key("b"), Self.key("c")])
+        try await Self.wait("the list's reads finish") { next.loads == 2 }
+        #expect(next.entry(Self.key("c")).image == nil)
+        next.warm(Self.key("c"))
+        try await Self.wait("the appearing card's read finishes") { next.loads == 3 }
+        #expect(next.entry(Self.key("c")).image != nil)
+        let evicted = try #require(["a", "b"].first { next.entry(Self.key($0)).image == nil }, "one of a and b was evicted")
+        next.warm(Self.key(evicted))
+        try await Self.wait("the evicted card's read finishes") { next.loads == 4 }
+        #expect(next.entry(Self.key(evicted)).image != nil)
     }
 
     @Test func aPagesSnapshotIsKeptAtTheCardsResolution() async throws {

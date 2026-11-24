@@ -268,10 +268,9 @@ struct StreamedBrowserOverlay: View {
     }
 }
 
-/// The grid card: the last frame, else a globe (an iPhone for a simulator tab).
+/// The grid card: the last frame, else the tab's last-known picture, else the page's background.
 public struct StreamedBrowserCard: View {
     let model: StreamedBrowserModel
-    let placeholder: String
     /// A simulator's frame is shown whole and centred; a page's fills the width from the top.
     let fit: Bool
     /// A page's insets (`StreamedBrowserPage`'s): its picture sits where the
@@ -281,10 +280,9 @@ public struct StreamedBrowserCard: View {
     /// The tab's last-known picture, kept across launches: shown until this launch has a frame.
     let lastKnown: CGImage?
 
-    public init(model: StreamedBrowserModel, placeholder: String = "globe", fit: Bool = false,
+    public init(model: StreamedBrowserModel, fit: Bool = false,
                 insets: EdgeInsets? = nil, lastKnown: CGImage? = nil) {
         self.model = model
-        self.placeholder = placeholder
         self.fit = fit
         self.insets = insets
         self.lastKnown = lastKnown
@@ -309,12 +307,8 @@ public struct StreamedBrowserCard: View {
                         .frame(width: geo.size.width,
                                height: geo.size.width * CGFloat(image.height) / CGFloat(max(1, image.width)))
                 }
-            } else {
-                Image(systemName: placeholder)
-                    .font(.system(size: 72, weight: .light))
-                    .foregroundStyle(.tertiary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            // No frame yet: the page's background, never a stand-in glyph.
         }
     }
 }

@@ -6,9 +6,11 @@ import Testing
 /// A terminal card shows the Mac's screen, a picture of the page, or nothing: never a waiting
 /// state (the connecting cover and its skeleton) and never a stand-in (the labeled `$` prompt).
 @Suite struct TerminalCardNoPlaceholderTests {
-    /// The card's face for one combination of what the phone has.
+    /// The card's face for one combination of what the phone has. A link that is down no
+    /// longer changes the face (on base it was the `connecting:` argument, and it drew the cover).
     static func face(started: Bool, linkDown: Bool, snapshot: Bool, text: String?) -> String {
-        "\(TerminalCardContent.choose(sessionStarted: started, connecting: linkDown, hasSnapshot: snapshot, screenText: text))"
+        _ = linkDown
+        return "\(TerminalCardContent.choose(sessionStarted: started, hasSnapshot: snapshot, screenText: text))"
     }
 
     @Test func noCombinationShowsAWaitingStateOrAStandIn() {
