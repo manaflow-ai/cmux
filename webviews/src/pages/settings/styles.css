@@ -1308,6 +1308,35 @@ mark {
   margin-left: auto;
 }
 
+/* Settings > Integrations (IntegrationsHubCard): one card of sections. A row with no control on its
+   right (an approval, Link Stripe) lets its text run the card's width; its buttons sit one step under
+   the text, not on it. Notes and the pause card keep a step from the Refresh line above them. */
+.hub-actions {
+  padding-top: var(--ds-space-2);
+}
+
+.hub-note {
+  margin-top: var(--ds-space-2);
+}
+
+.hub-lead {
+  margin-bottom: var(--ds-space-2);
+}
+
+.hub-below {
+  margin-top: var(--ds-space-2);
+  margin-bottom: 0;
+}
+
+.hub-form {
+  gap: var(--ds-space-2);
+  align-items: flex-start;
+}
+
+.accounts-buttons > .hub-field {
+  width: var(--page-size-160);
+}
+
 /* Settings > Devices: tones reuse the Accounts status dot; the history is a compact table. */
 .devices-header {
   justify-content: flex-start;
@@ -3020,52 +3049,6 @@ button.menu-disclosure {
 /* banner: ui/Notice's warning across the top of the column. */
 .doctor-banner {
   margin: 0 0 var(--ds-space-4);
-}
-
-/* chip: the dot and the line at the bottom of the sidebar, the app-health footer's look. The
-   section list above scrolls; nothing else moves when it comes and goes. */
-/* One column: the sidebar is narrow, so the line takes two rows (what it is and the first
-   finding) and Recover… sits under it, never cutting the line to "3 customiza…". */
-.doctor-chip {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  justify-items: start;
-  flex: none;
-  gap: var(--ds-space-1);
-  min-width: 0;
-}
-
-.doctor-chip-open .doctor-line {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
-  white-space: normal;
-}
-
-.doctor-chip-open {
-  flex: 0 1 auto;
-  justify-content: flex-start;
-  gap: var(--ds-space-2);
-  min-width: 0;
-  max-width: 100%;
-  color: var(--muted-text);
-  font-size: var(--text-detail);
-  text-align: start;
-}
-
-.doctor-chip-open {
-  height: auto;
-  align-items: flex-start;
-}
-
-.doctor-chip-open .doctor-dot {
-  align-self: flex-start;
-  margin-top: 0.45em;
-}
-
-.doctor-chip-recover {
-  flex: none;
 }
 
 /* A font row's pictures (components/FontPreview.tsx): a tile per face choice, drawn in that face at the

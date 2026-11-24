@@ -1198,7 +1198,7 @@ BASE_DISPATCH_EVERY = timedelta(minutes=60)
 ROUTE_IF = re.compile(r"\$\{\{ *inputs\.(\w+) *== *'true' *\}\}")
 # A job a feat-cmux-next pull request runs as a ci/steps.toml step instead (pr-pipeline.yml): it skips only there, and
 # its rollup counts that skip as fine, so it has no route input and every other run is judged as an unrouted job's.
-STEP_TABLE_SKIP_IF = "${{ github.event_name != 'pull_request' || !startsWith(github.base_ref, 'feat-cmux-next') }}"
+STEP_TABLE_SKIP_IF = "${{ github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' }}"
 # A route report the Guard status prints: always read, even for a job the contract does not name (refused as unknown).
 ROUTE_REPORT = r"workflow-guard-[\w-]+|linux_guard_\w+"
 HOOK_REFUSAL = "glaeda-cmux-runner-hook: refused"
@@ -3955,6 +3955,46 @@ SAME_TREE_SUFFIX = " (same-tree)"
 # dispatched run's head_sha is the feat-cmux-next tip, not the PR head, so its red is never compared by the run: it is
 # the PR's own at that base (a merger reruns one at a stale base), never a base red (cmux#38640, 2026-11-09).
 FAST_GATES_STATUS = "cmux-next/fast-gates"
+# The controller's required-checks pool posts its verdicts as commit statuses (manaflow-checks[bot]); a failed one says
+# "failed on the cmux pool (exit 1); rerun: POST /v1/required-checks/rerun?head=<sha>". cmux#49885 at 8b11f0c2
+# (2026-11-22): 'clippy (changed cmux-tui packages)' failed there while its Actions twin of the same name was skipped by
+# path routing, so this script judged the skipped twin and said "re-run it": an Actions rerun comes back skipped, and
+# nothing moved until a person POSTed the pool's rerun by hand. Leo: "should've been caught and fixed faster. hell,
+# maybe even should've been automatic...". A pool red is never judged by its Actions twin: it is refused with the
+# base's newest status of the same context beside it and the pool's own rerun as the next step (land-judge's
+# pool_rerun_note makes that POST once per head). Its description names no failure, so the base sharing it excuses
+# nothing.
+POOL_RERUN = re.compile(r"\brerun: POST /v1/required-checks/rerun\?head=(?P<head>[0-9a-fA-F]{7,40})\b")
+POOL_CONTROLLER_DEFAULT = "http://100.89.225.106:18765"  # scripts/ci/expected_wait.py DEFAULT_CONTROLLER
+
+
+def pool_controller() -> str:
+    """The controller a pool rerun goes to: CMUX_CI_CONTROLLER, else POOL_CONTROLLER_DEFAULT."""
+    base = (os.environ.get("CMUX_CI_CONTROLLER") or "").strip()
+    return (base if base.startswith(("http://", "https://")) else POOL_CONTROLLER_DEFAULT).rstrip("/")
+
+
+def pool_status_refusal(repo: str, base: str | None, sha: str, name: str, state: str, description: str, github,
+                        evidence: "Evidence | None" = None) -> str:
+    """The refusal of required-checks pool status NAME red at SHA: the base's newest status of NAME (or why it is
+    unread) and the pool's rerun, never an Actions rerun."""
+    seen = ""
+    if base:
+        try:
+            for commit in (evidence or Evidence(repo, base, github)).status_commits():
+                statuses = github.json(f"repos/{repo}/commits/{commit}/status?per_page=100").get("statuses") or []
+                if (found := next((s for s in statuses if s.get("context") == name), None)) is not None:
+                    seen = (f"; base {commit[:12]} has it {found.get('state')}: "
+                            f"{found.get('description') or 'no description'}")
+                    break
+            else:
+                seen = f"; no recent {base} commit has a status '{name}'"
+        except (Refused, RuntimeError, OSError, ValueError, AttributeError) as why:
+            seen = f"; its {base} status is unread ({str(why)[:160]})"
+    return (f"'{name}': the required-checks pool's status is {state} at {sha[:12]} ({description}){seen}. It is "
+            "the pool's verdict, not an Actions job's (an Actions rerun of its twin comes back skipped), and its "
+            f"description names no failure to compare with the base: rerun the pool: POST {pool_controller()}"
+            f"/v1/required-checks/rerun?head={sha}")
 
 
 # The controller's required-checks pool posts its verdicts as commit statuses (manaflow-checks[bot]); a failed one says
@@ -4026,6 +4066,10 @@ def status_job(repo: str, sha: str, name: str, github, base: str | None = None,
             return f"ignored '{name}': it gave no compile verdict, but {proof} compiled {sha} and passed"
         # Its target_url is the source run, with no job of this name (inherited_compile_red).
         return inherited_compile_red(repo, base, sha, name, github, evidence)
+    if state in ("failure", "error") and (pool := POOL_RERUN.search(status.get("description") or "")) \
+            and sha.lower().startswith(pool["head"].lower()):
+        raise Refused(pool_status_refusal(repo, base, sha, name, state, status.get("description") or "", github,
+                                          evidence))
     url = status.get("target_url") or ""
     match = re.fullmatch(r"https://github\.com/" + re.escape(repo) + r"/actions/runs/(\d+)(?:/job/\d+)?/?", url)
     if match:
@@ -7262,8 +7306,59 @@ WS_CHECK_COMMITS = 30  # base commits read for a verdict, newest first (most mai
 # leo-workspace tools/ws-check describes a failure "N of M steps failed: STEP", cut to 139 characters. It may lead with
 # "base red (main SHA8 fails it too) " (main's own run fails those steps) and end the step with a hint ("STEP; lints
 # before the next push: ..."); ws_check_names_step reads the step text.
-WS_CHECK_DESCRIPTION = re.compile(r"(?:base red \(main [0-9a-f]{8} fails it too\) )?(\d+) of (\d+) steps failed: (.*)",
-                                  re.S)
+# Since leo-workspace#9404 (2026-11-23) a run reruns its failed units on main and tools/ws-check discounts those that
+# fail there too (discount_base_reds): the status counts only the run's own failed steps, "N of M steps failed: UNIT
+# (+K base red discounted, main SHA8)", or since lw#9754 "N of M steps failed (+K base red discounted, main SHA8): UNIT",
+# while WS_CHECK_RESULT's `failed` still lists every failed step. ws_check_discount reads that count back from the log.
+WS_CHECK_DESCRIPTION = re.compile(r"(?:base red \(main [0-9a-f]{8} fails it too\) )?(\d+) of (\d+) steps failed"
+                                  r"(?: \(\+(\d+) base red discounted, main ([0-9a-f]{8})\))?: (.*)", re.S)
+# ws_check_run.py's own base pass lines (leo-workspace tools/ws-check own_base_pass reads the same ones): one "whole" or
+# "cut" line naming the main the failed units ran again on, and a "FAILED on main too" line per unit that failed there.
+WS_CHECK_BASE_PASS = re.compile(r"^ws-check base pass (?:whole: main ([0-9a-f]{40}),|cut: main ([0-9a-f]{40}): "
+                                r"[1-9]\d* of \d+ reruns ended)")
+WS_CHECK_BASE_FAILED = re.compile(r"^ws-check step FAILED on main too: (.+?) \(exit -?\d+")
+WS_CHECK_FAILED_LABEL = re.compile(r"^ws-check step FAILED: (.+?) \(exit -?\d+")
+# ws_check_run.py's pseudo-step for a run that wrote the global git config (cmux#28148): no step line of its own, only
+# "ws-check: a step changed the global git config PATH (...)". Before this it was refused "has no 'ws-check step
+# FAILED: global git config changed by a step' line" (leo-workspace#9703 at 85551f8b, run 45341796653, 2026-11-24).
+WS_CHECK_GIT_CONFIG_STEP = "global git config changed by a step"
+WS_CHECK_GIT_CONFIG_LINE = "ws-check: a step changed the global git config"
+
+
+def ws_check_discount(lines: list[str], at: int, failed: list[str]) -> tuple[list[str], int, str] | None:
+    """(the run's own failed labels, sorted, how many it discounted, the main it reran them on) as tools/ws-check
+    discount_base_reds counts them from LINES before AT: every FAILED label less those its one base pass failed on main
+    too. None when the log holds no such pass (none, several, or one that reran nothing), or a failed step has no
+    FAILED line (ws-check discounts nothing then)."""
+    ours = {m[1] for line in lines[:at] if (m := WS_CHECK_FAILED_LABEL.match(line))}
+    passes = [m[1] or m[2] for line in lines[:at] if (m := WS_CHECK_BASE_PASS.match(line))]
+    if not ours or len(passes) != 1 or set(failed) - {label.split(" [", 1)[0] for label in ours}:
+        return None
+    theirs = {m[1] for line in lines[:at] if (m := WS_CHECK_BASE_FAILED.match(line))}
+    if not ours & theirs:
+        return None
+    return sorted(ours - theirs), len(ours & theirs), passes[0]
+
+
+def ws_check_described(named: re.Match, failed: list[str], steps, lines: list[str], at: int) -> bool:
+    """Whether a ws-check status's description (NAMED, a WS_CHECK_DESCRIPTION match) is its run's WS_CHECK_RESULT: the
+    count and first step of FAILED, or the count and first unit tools/ws-check left after discounting main's reds."""
+    count, total, described = int(named[1]), int(named[2]), named[5]
+    if total != steps:
+        return False
+    if not named[3] and count == len(failed) and ws_check_names_step(described, failed[0]):
+        return True
+    found = ws_check_discount(lines, at, failed)
+    if found is None or not found[0]:
+        return False
+    own, discounted, main = found
+    if count != len({label.split(" [", 1)[0] for label in own}):
+        return False
+    marker = f" (+{discounted} base red discounted, main {main[:8]})"
+    if named[3]:  # lw#9754's shape: the marker before the unit
+        return (int(named[3]), named[4]) == (discounted, main[:8]) and ws_check_names_step(described, own[0])
+    # The marker after the unit, both cut together at 139 characters.
+    return (own[0] + marker).startswith(described)
 
 
 def ws_check_names_step(described: str, step: str) -> bool:
@@ -7755,10 +7850,16 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
         # Which checkout or runner ran it says nothing; what it tested does. A head's snapshot run is held to its tree
         # (ws_check_red: the head merged with the base tip, ws_check_squash_tree); a base commit's is read as before.
         found["snapshot"] = {"run": link[1], "tree": receipt.get("source_tree")}
-    if (int(named[1]), int(named[2])) != (len(failed), result.get("steps")) or not ws_check_names_step(named[3], failed[0]):
+    if not ws_check_described(named, failed, result.get("steps"), lines, at):
         raise Refused(f"{where}: its status (\"{description}\") does not match run {link[1]}'s WS_CHECK_RESULT")
     steps = {}
     for step in failed:
+        if step == WS_CHECK_GIT_CONFIG_STEP:
+            # No step line: the run's own line says it, one fact with no tests (its path and first watcher vary).
+            if not any(line.startswith(WS_CHECK_GIT_CONFIG_LINE) for line in lines[:at]):
+                raise Refused(f"{where}: run {link[1]} has no '{WS_CHECK_GIT_CONFIG_LINE}' line")
+            steps[step] = {"tests": frozenset(), "lines": frozenset({WS_CHECK_GIT_CONFIG_LINE}), "failures": {}}
+            continue
         # The step's red result lines, one per red unit ("STEP" alone from a runner before units, else "STEP [UNIT]"),
         # each read in its own group; the step's tests and lines are every red unit's together.
         result = re.compile(re.escape(f"ws-check step FAILED: {step}") + f"({WS_CHECK_UNIT})" + r" \(exit ")
@@ -7863,6 +7964,19 @@ def ws_check_fix(repo: str, merge_base: str, tip: str, commits: list[str], githu
     return fix
 
 
+def ws_check_base_verdict(repo: str, commit: str, github) -> tuple[str, dict]:
+    """ws_check_verdict of a base COMMIT in the window the head is compared with (never the merge-base, whose read
+    stays strict), with a failure whose log cannot be read as "none" (no verdict): it only takes
+    evidence away, so the comparison goes on to the base's other verdicts. Before this one unreadable main verdict
+    refused every head: 2026-11-24, main 106d10145c's run 45341598629 kept only the last 200 lines of its red
+    test_demand_scaler.py (leo-workspace tools/ws_check_collect.py quiet), 16 of 17 FAIL lines, and every
+    leo-workspace PR was refused "its failing tests cannot be listed" on main's run, not its own."""
+    try:
+        return ws_check_verdict(repo, commit, github)
+    except Refused as error:
+        return "none", {"why": f"its verdict cannot be read ({str(error)[:300]})", "url": "", "unreadable": True}
+
+
 def ws_check_red(repo: str, base: str, sha: str, github, evidence: "Evidence | None" = None) -> dict:
     """The one verdict on SHA's ws-check status against BASE: {"kind" (one of WS_CHECK_KINDS), "fix" (the fixing base
     commit, for "fixed_on_base", else ""), "message" (what a refusal says), "audit" (the lines an excuse prints)}.
@@ -7881,12 +7995,18 @@ def ws_check_red(repo: str, base: str, sha: str, github, evidence: "Evidence | N
     commits = evidence.status_commits(WS_CHECK_COMMITS)
     if head.get("snapshot"):
         ws_check_tested_tree(repo, base, sha, head["snapshot"], commits[0] if commits else "", github)
-    verdicts = ((commit, *ws_check_verdict(repo, commit, github)) for commit in commits)
-    verdicts = (found for found in verdicts if found[1] != "none")
+    unreadable: list[str] = []
+
+    def readable(found: tuple) -> bool:
+        if found[1] == "none" and found[2].get("unreadable"):
+            unreadable.append(f"{found[0][:12]}: {found[2]['why']}")
+        return found[1] != "none"
+    verdicts = ((commit, *ws_check_base_verdict(repo, commit, github)) for commit in commits)
+    verdicts = (found for found in verdicts if readable(found))
     newest = next(verdicts, None)
     if newest is None:
         raise Refused(f"'{WS_CHECK}': none of the {WS_CHECK_COMMITS} newest {base} commits has a ws-check verdict to "
-                      "compare with")
+                      "compare with" + (f" ({len(unreadable)} unreadable, first {unreadable[0]})" if unreadable else ""))
     tip, tip_kind, tip_verdict = newest
     tested = f"{base} {tip[:12]} ({tip_verdict['url'] or 'no run'})"
 
@@ -8044,6 +8164,21 @@ def list_base_runs(repo: str, base: str, workflow, github, base_runs: dict) -> N
          if isinstance(run, dict) and run.get("event") not in ("pull_request", "pull_request_target")
          and run.get("conclusion") != "skipped" and not post_merge_probe(run)),
         key=lambda run: run.get("created_at") or "", reverse=True)
+
+
+# A namesake read as a mismatch (2026-11-24, hq#20438): two workflows each ran a job 'tests' on the head, and the
+# refusal named only the base run, so the green base run of one ('lane-gh-broker tests', whose own 'tests' red was a
+# test budget overrun) was taken for the base verdict of the other ('fleet-reconcilers tests', excused as a shared base
+# red). The verdict was right; the text hid which workflow each run was. So the refusal names both runs' workflows.
+def workflow_label(run: dict, workflow=None) -> str:
+    """RUN's workflow as a refusal names it: its name and file, else WORKFLOW (an id or a file) when RUN has neither."""
+    name = run.get("name") if isinstance(run, dict) else None
+    file = workflow_file(run)
+    if name and file:
+        return f"workflow '{name}' ({file})"
+    if name or file:
+        return f"workflow '{name or file}'"
+    return f"workflow {workflow}"
 
 
 def workflow_file(run: dict) -> str | None:
@@ -9422,6 +9557,8 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                                   "the merge-base has a verdict for it" + (f": {dispatch}" if dispatch else "")
                                   ) from None
                 raise Refused(f"'{name}' is not red on {base} run {base_run['id']} ({base_job.get('conclusion')}), "
+                              f"{workflow_label(base_run, base_workflow)}, the base's run of the head's red in run "
+                              f"{job.get('run_id')} ({workflow_label(workflow_info, workflow)}), "
                               f"and not fixed on base: {why}; fix it on this head") from None
             continue
         bare = view is not UNPLACED and got.unplaced is not None

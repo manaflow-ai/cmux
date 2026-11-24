@@ -31,6 +31,27 @@ import Testing
         #expect(residency.nextToBuild() != nil)
     }
 
+    /// Leo (2026-11-22): "why do things move when i scroll around". A card the grid already
+    /// built stays built while the grid moves: releasing it mid-fling tore its view down, and
+    /// scrolling back built it again from nothing in a scroll frame (a blank, then a layout).
+    /// Far cards are released once the grid rests.
+    @Test func aMovingGridReleasesNoCard() {
+        let residency = Self.residency()
+        #expect(residency.slot("t0").built, "the first card is on screen, so it is built")
+        residency.setScrolling(true)
+        // Far past the release band (4 screens): a long fling.
+        residency.scrolled(to: 6_000)
+        #expect(residency.slot("t0").built, "a fling released a built card mid-scroll")
+        residency.scrolled(to: 6_400)
+        #expect(residency.slot("t0").built, "a fling released a built card mid-scroll")
+    }
+
+    @Test func aScrollFromCodeReleasesNoCard() {
+        let residency = Self.residency()
+        residency.scrolled(to: 6_000)
+        #expect(residency.slot("t0").built, "a scroll from code released a built card while moving")
+    }
+
     @Test func aScrollFromCodeBuildsNothingAhead() {
         let residency = Self.residency()
         residency.scrolled(to: 40)

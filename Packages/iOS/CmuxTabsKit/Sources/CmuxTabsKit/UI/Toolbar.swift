@@ -9,8 +9,12 @@ struct ToolbarLayout {
     var capsule: CGRect
     var right: CGRect
 
-    static func make(metrics m: TabsKitTheme.Metrics, size: CGSize, safeBottom: CGFloat, keyboard: CGFloat, bar: ChromeState.Bar,
-                     editing: Bool, splitBack: Bool, labelWidth: CGFloat, noBack: Bool = false) -> ToolbarLayout {
+    static func make(metrics m: TabsKitTheme.Metrics, size: CGSize, safeTop: CGFloat = 0, safeBottom: CGFloat, keyboard: CGFloat,
+                     bar: ChromeState.Bar, editing: Bool, splitBack: Bool, labelWidth: CGFloat, noBack: Bool = false) -> ToolbarLayout {
+        if m.barEdge == .top {
+            return makeTop(metrics: m, size: size, safeTop: safeTop, bar: bar, editing: editing, splitBack: splitBack,
+                           labelWidth: labelWidth, noBack: noBack)
+        }
         let w = size.width
         let bottom = size.height - max(safeBottom, 20)
         let backW = m.control + (splitBack ? m.forwardExtra : 0)
@@ -43,6 +47,44 @@ struct ToolbarLayout {
         return ToolbarLayout(back: back, capsule: capsule, right: tabs)
     }
 
+    /// The bar under the status bar (`barEdge == .top`). It never moves for the keyboard:
+    /// Back, the address and Tabs stay one tap away while a composer below is focused.
+    /// Editing keeps the field in the bar's row (Safari's top address bar); collapsed, the
+    /// pill sits just under the status bar.
+    private static func makeTop(metrics m: TabsKitTheme.Metrics, size: CGSize, safeTop: CGFloat, bar: ChromeState.Bar,
+                                editing: Bool, splitBack: Bool, labelWidth: CGFloat, noBack: Bool) -> ToolbarLayout {
+        let w = size.width
+        let inset = m.topSideInset
+        let backW = m.control + (splitBack ? m.forwardExtra : 0)
+        let barY = topBarY(metrics: m, safeTop: safeTop)
+        let back = CGRect(x: inset, y: barY, width: backW, height: m.control)
+        let tabs = CGRect(x: w - inset - m.control, y: barY, width: m.control, height: m.control)
+        let capsuleX = noBack || editing ? inset : back.maxX + m.gap
+        let capsule = CGRect(x: capsuleX, y: barY, width: tabs.minX - m.gap - capsuleX, height: m.control)
+        if editing { return ToolbarLayout(back: back, capsule: capsule, right: tabs) }
+        if bar == .collapsed {
+            let pillW = CollapsedPill.width(labelWidth: labelWidth, scale: m.collapsedScale, padding: m.pillPadding,
+                                            maxWidth: collapsedMaxWidth(metrics: m, screenWidth: w, backWidth: backW))
+            let pill = CGRect(x: (w - pillW) / 2, y: max(0, safeTop - m.pillHeight / 4), width: pillW, height: m.pillHeight)
+            let b = CGRect(x: pill.minX - m.gap - back.width, y: pill.midY - m.control / 2, width: back.width, height: m.control)
+            let t = CGRect(x: pill.maxX + m.gap, y: pill.midY - m.control / 2, width: m.control, height: m.control)
+            return ToolbarLayout(back: b, capsule: pill, right: t)
+        }
+        return ToolbarLayout(back: back, capsule: capsule, right: tabs)
+    }
+
+    /// The top bar's row: just under the status bar (20 pt where a screen reports none).
+    static func topBarY(metrics m: TabsKitTheme.Metrics, safeTop: CGFloat) -> CGFloat {
+        max(safeTop, 20) + m.topBarGap
+    }
+
+    /// The page height the bar covers from its edge, gap below it included: the content inset on that edge.
+    static func barInset(metrics m: TabsKitTheme.Metrics, size: CGSize, safeTop: CGFloat, safeBottom: CGFloat) -> CGFloat {
+        let expanded = make(metrics: m, size: size, safeTop: safeTop, safeBottom: safeBottom, keyboard: 0, bar: .expanded,
+                            editing: false, splitBack: false, labelWidth: 69)
+        return m.barEdge == .top ? expanded.capsule.maxY + 8 : max(0, size.height - expanded.capsule.minY + 8)
+    }
+
     static func collapsedMaxWidth(metrics m: TabsKitTheme.Metrics, screenWidth: CGFloat, backWidth: CGFloat) -> CGFloat {
         CollapsedPill.maxWidth(screenWidth: screenWidth, sideInset: m.sideInset, backWidth: backWidth, control: m.control,
                                gap: m.gap, padding: m.pillPadding)
@@ -56,6 +98,7 @@ struct TabsToolbar: View {
     @Bindable var chrome: ChromeState
     var tab: TabsKitTab?
     var size: CGSize
+    var safeTop: CGFloat = 0
     var safeBottom: CGFloat
     var keyboard: CGFloat
     /// Long-press menus on back and forward (nil: none).
@@ -109,7 +152,7 @@ struct TabsToolbar: View {
 
     var body: some View {
         let m = theme.metrics
-        let layout = ToolbarLayout.make(metrics: m, size: size, safeBottom: safeBottom, keyboard: keyboard, bar: chrome.bar,
+        let layout = ToolbarLayout.make(metrics: m, size: size, safeTop: safeTop, safeBottom: safeBottom, keyboard: keyboard, bar: chrome.bar,
                                         editing: chrome.editing, splitBack: splitBack, labelWidth: labelWidth,
                                         noBack: !features.contains(.history))
         let sideOpacity: Double = chrome.sidesVisible && !chrome.editing ? 1 : 0
@@ -457,8 +500,9 @@ struct TabsToolbar: View {
                 if swipeAxis == nil { swipeAxis = axis }
                 switch axis {
                 case .horizontal: onSwipeChanged(v.translation.width)
-                case .up: onSwipeUpChanged(-v.translation.height, -v.velocity.height)
-                case .down: break
+                // Away from the bar's edge into the page opens the grid: up from a bottom bar, down from a top one.
+                case towardPage: onSwipeUpChanged(gridTravel(v.translation.height), gridTravel(v.velocity.height))
+                default: break
                 }
             }
             .onEnded { v in
@@ -466,14 +510,19 @@ struct TabsToolbar: View {
                 swipeAxis = nil
                 // After the button under the finger saw this touch-up.
                 Task { @MainActor in swipeMoved = false }
-                switch axis {
-                case .horizontal?:
+                if axis == .horizontal {
                     if chrome.swiping { onSwipeEnded(v.translation.width, v.predictedEndTranslation.width) }
-                case .up?: onSwipeUpEnded(-v.translation.height, -v.velocity.height)
-                default: break
+                } else if axis == towardPage {
+                    onSwipeUpEnded(gridTravel(v.translation.height), gridTravel(v.velocity.height))
                 }
             }
     }
+
+    /// The bar drag that opens the grid: into the page, away from the bar's edge.
+    private var towardPage: BarSwipe.Axis { theme.metrics.barEdge == .top ? .down : .up }
+
+    /// A vertical drag as travel into the page (positive), from either edge.
+    private func gridTravel(_ dy: CGFloat) -> CGFloat { theme.metrics.barEdge == .top ? dy : -dy }
 
     // MARK: Progress
 
