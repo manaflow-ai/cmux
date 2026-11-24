@@ -2,6 +2,7 @@ package import Foundation
 
 /// The exact key-page URLs linked by the Settings model catalog, including its region choices.
 package nonisolated struct SettingsModelKeyPages {
+    package nonisolated init() {}
     package static func contains(_ url: URL) -> Bool { urls.contains(url.absoluteString) }
 
     private static let urls: Set<String> = [

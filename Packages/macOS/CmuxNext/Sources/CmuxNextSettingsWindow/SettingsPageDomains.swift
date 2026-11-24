@@ -5,6 +5,7 @@ import CmuxNextSettings
 /// The value domains the Settings page offers in menus, listed once per launch.
 @MainActor
 package struct SettingsPageDomains {
+    package init() {}
     /// Installed fixed-pitch families the terminal accepts, sorted.
     package static let fontFamilies: [String] = {
         let names = NSFontManager.shared.availableFontNames(with: .fixedPitchFontMask) ?? []
