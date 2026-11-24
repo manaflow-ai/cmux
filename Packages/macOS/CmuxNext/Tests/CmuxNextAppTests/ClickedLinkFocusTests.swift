@@ -23,10 +23,10 @@ struct ClickedLinkFocusTests {
     static let link = URL(string: "https://github.com/manaflow-ai/cmux/pull/1")!
 
     /// The link's tab opens in the source's own pane (Open Links and Files set to Same Pane): the source
-    /// pane keeps the focus with the new tab selected, and its close selects the source tab again,
-    /// not the tab after it. `native`: the pull request link opens the GitHub page (``WebPageTab/openGitHub(_:from:services:)``)
-    /// instead of its web tab, with the same opener.
-    @Test(arguments: [false, true]) func aLinksTabInItsPaneTakesTheFocusAndItsCloseSelectsTheSourceAgain(native: Bool) async throws {
+    /// pane keeps the focus with the new tab selected, and its close selects the tab after it, as every tab's close
+    /// does (a link's tab has no close opener, `TabCloseSelection.linkOpened`). `native`: the pull request link opens
+    /// the GitHub page (``WebPageTab/openGitHub(_:from:services:)``) instead of its web tab, with the same rule.
+    @Test(arguments: [false, true]) func aLinksTabInItsPaneTakesTheFocusAndItsCloseSelectsTheNextTab(native: Bool) async throws {
         try await PinnedPageTests.withApp { services, connection in
             let store = services.daemon.store
             let content = try #require(services.windows.active?.workspaceContent)
@@ -50,8 +50,9 @@ struct ClickedLinkFocusTests {
             #expect(services.registry.perform("closeTab", invocation: ActionInvocation(origin: .user)))
             try await PinnedPageTests.until({ store.tab(id: opened) == nil }, report: { "the link's tab did not close" })
             #expect(store.tab(id: source) != nil, "Cmd-W closed the page the link was clicked in")
-            try await PinnedPageTests.until({ pane.stripModel.selectedID?.rawValue == source && content.focusedPane === pane },
-                                            report: { "after the close: " + Self.describe(content, source) })
+            let next = try #require(store.tab(surface: other.surface)?.id)
+            try await PinnedPageTests.until({ pane.stripModel.selectedID?.rawValue == next && content.focusedPane === pane },
+                                            report: { "after the close: " + Self.describe(content, next) })
         }
     }
 

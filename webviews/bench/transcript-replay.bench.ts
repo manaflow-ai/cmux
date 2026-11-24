@@ -686,11 +686,6 @@ async function startLive(ctx: Ctx, daemon: Daemon, log: ReplayLog): Promise<Live
           includeObjectsCollectedByMajorGC: true,
           includeObjectsCollectedByMinorGC: true,
         });
-      if (process.env.TRACE_SS)
-        await page.evaluate(() => {
-          (globalThis as any).__ss = {};
-          (globalThis as any).__ssOn = true;
-        });
       const taskBefore = await metric(clock, "TaskDuration");
       const windowStart = await page.evaluate(() => performance.now());
       const playBurst = async () => {
@@ -714,9 +709,6 @@ async function startLive(ctx: Ctx, daemon: Daemon, log: ReplayLog): Promise<Live
         const sum = (prefix: string) =>
           Object.entries(renders).reduce((total, [name, count]) => total + (name.startsWith(prefix) ? count : 0), 0);
         const per = (value: number) => Math.round((value / records) * 100) / 100;
-        console.log(
-          `  PROBEMS ${burst.kind} ${burst.rows}: script ${per((cost as any).scriptMs)} layout ${per((cost as any).layoutMs)} style ${per((cost as any).styleMs)} paint ${per((cost as any).paintMs)} layouts ${per((cost as any).layouts)} styles ${per((cost as any).styleRecalcs)}`,
-        );
         probe = {
           reads: per(cost.reads),
           forced: per(cost.forcedLayouts ?? 0),
@@ -733,17 +725,8 @@ async function startLive(ctx: Ctx, daemon: Daemon, log: ReplayLog): Promise<Live
         await paint(page, 2);
       }
       const taskMs = ((await metric(clock, "TaskDuration")) - taskBefore) * 1000;
-      if (process.env.TRACE_SS) {
-        const ss = await page.evaluate(() => {
-          (globalThis as any).__ssOn = false;
-          return (globalThis as any).__ss ?? {};
-        });
-        for (const [k, n] of Object.entries(ss)
-          .sort((a: any, b: any) => b[1] - a[1])
-          .slice(0, 12))
-          console.log(`  SS ${burst.kind} ${burst.rows} ${n} ${k}`);
-      }
       const profiled = PROFILE ? ((await cdp.send("Profiler.stop")) as { profile: CpuProfile }).profile : undefined;
+      // RAWDIR=dir keeps each burst's raw profile, to read past the summary's top functions.
       if (profiled && process.env.RAWDIR)
         fs.writeFileSync(
           `${process.env.RAWDIR}/${burst.kind}-${Date.now()}.cpuprofile`,
@@ -1101,18 +1084,6 @@ if (import.meta.main) {
       configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
       build: { outDir: out, emptyOutDir: true, ...(PROFILE ? { minify: false } : {}) },
       logLevel: "error",
-      plugins: process.env.TRACE_SS
-        ? [
-            {
-              name: "tmp-ss",
-              enforce: "pre",
-              transform(code: string, id: string) {
-                if (!id.includes("react-dom-client.production")) return;
-                return require(process.env.TRACE_SS!)(code);
-              },
-            },
-          ]
-        : [],
     });
     console.log(`transcript-replay: pane built in ${((performance.now() - builtAt) / 1000).toFixed(0)} s`);
     const statics = Bun.serve({
