@@ -238,19 +238,38 @@ impl Hub {
         manifest: &Value,
     ) -> Result<(), RpcError> {
         let harness = manifest["session"]["harness"].as_str().unwrap_or("");
-        let family = {
+        let (family, startable) = {
             let cfg = self.config.read().await;
             let profile = cfg.harnesses.get(harness).filter(|p| p.kind != HarnessKind::Terminal);
             let profile = profile.ok_or_else(|| {
                 guard_error("harness", format!("agent {harness:?} does not run here as a chat"))
             })?;
-            crate::config::derive_family(harness, profile)
+            let startable = crate::web_modes::remote_start_for_config(&cfg, harness, profile);
+            (crate::config::derive_family(harness, profile), startable)
         };
         if guard.control == Control::Web && self.web_modes().refused().contains(&family) {
             return Err(guard_error(
                 "family",
                 format!("a {family} chat is never driven from a remote connection"),
             ));
+        }
+        // A guarded chat lands as a remote one (`guard_session`), and its agent starts only
+        // under the remote start rule (`spawn.rs`, `resolve::admit_remote_profile`). A chat
+        // that rule refuses here would land and refuse every prompt sent to it (the ring run
+        // of 2026-11-24: sends right after the move answered "no reviewed asking mode", each
+        // a lost message). Refused here instead, before the source freezes it (the preflight
+        // runs this too), so the chat stays where its prompts run.
+        if let Err(why) = startable {
+            let e = guard_error(
+                "harness",
+                format!(
+                    "agent {harness:?} cannot start here for a moved chat ({why}): this \
+                     machine needs a `webAskingModes` entry for it"
+                ),
+            );
+            return Err(
+                e.with_data(json!({"reason": "remote.mode_not_asking", "harness": harness}))
+            );
         }
         let (mut native, mut native_bytes) = (0usize, 0u64);
         for f in manifest["files"].as_array().into_iter().flatten() {

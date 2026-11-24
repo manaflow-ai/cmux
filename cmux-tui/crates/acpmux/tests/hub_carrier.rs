@@ -3317,9 +3317,11 @@ mod move_out;
 /// chat are taken and run, never refused: the ring run of 2026-11-24 saw `acpmux send --no-wait`
 /// on the target refused "this harness has no reviewed asking mode for a remote WebSocket
 /// connection" for about a second after the move reported the chat landed, each refusal a lost
-/// message. `asking`: whether the target names a reviewed asking mode for the chat's harness (a
-/// bench harness names none). Each send goes the CLI's way (`_acpmux/send_queue` on the local
-/// socket) as soon as the target answered the move, before and after the source commits it.
+/// message: the target took a chat whose agent may not start there. `asking`: whether the target
+/// names a reviewed asking mode for the chat's harness (a bench harness names none); with none
+/// the move is refused before it lands and the chat's prompt runs on the source. Each send goes
+/// the CLI's way (`_acpmux/send_queue` on the local socket) as soon as the target answered the
+/// move, before and after the source commits it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn hub_carrier_a_prompt_sent_on_the_target_as_a_move_lands_is_taken_and_runs() {
     for asking in [true, false] {
@@ -3429,7 +3431,39 @@ async fn send_as_a_move_lands(asking: bool) {
     .unwrap();
     let ack = within("B's pull over the relay", hook.control(&b, &message)).await;
     let ack = serde_json::to_value(ack.expect("an answer within the hook's wait")).unwrap();
-    assert_eq!(ack["state"], "delivered", "asking {asking}: {ack}");
+    if !asking {
+        // A chat whose agent may not start here is refused before it lands (it would refuse
+        // every prompt): the move gives it back and a prompt sent then runs on the source.
+        assert_ne!(ack["state"], "delivered", "{ack}");
+        assert!(ack.to_string().contains("cannot start here for a moved chat"), "{ack}");
+        ca.call(
+            "_acpmux/transfer_abort",
+            json!({"sessionId": id, "transferId": begin["transferId"], "epoch": begin["epoch"]}),
+        )
+        .await;
+        let queued = ca
+            .call(
+                method::MUX_SEND_QUEUE,
+                json!({"request": {"sessionId": id,
+                                   "prompt": [{"type": "text", "text": "sent as it was refused"}]}}),
+            )
+            .await;
+        let delivery = queued["deliveryId"].as_str().expect("a delivery id").to_owned();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+        loop {
+            let status = ca
+                .call(method::MUX_SEND_STATUS, json!({"deliveryId": delivery, "waitMs": 2000}))
+                .await;
+            assert_ne!(status["status"], "failed", "refused on the source: {status}");
+            if status["status"] == "delivered" {
+                break;
+            }
+            assert!(tokio::time::Instant::now() < deadline, "{status}");
+        }
+        let _ = std::fs::remove_dir_all(&root);
+        return;
+    }
+    assert_eq!(ack["state"], "delivered", "{ack}");
 
     // The move answered: the chat is on B. B's own sends, at once, then after the commit.
     let mut cb = client(b.clone()).await;
