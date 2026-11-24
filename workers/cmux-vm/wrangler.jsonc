@@ -152,7 +152,7 @@
         // resize follows. No entry of VM_BOOT_IMAGES above carries `large` yet, so this changes nothing until a roll
         // publishes one. No reads: a first attempt sends no exact-slug read and no boot image read before the create.
         // Rollback: remove the line.
-        "CMUX_VM_SIZED_IMAGE_SERVICE_IDS": "cloud-platform-dev",
+        "CMUX_VM_SIZED_IMAGE_SERVICE_IDS": "cloud-platform-dev,cloud-platform-staging",
         "CMUX_VM_CREATE_NO_READS_SERVICE_IDS": "cloud-platform-dev,cloud-platform-staging"
       }
     },
