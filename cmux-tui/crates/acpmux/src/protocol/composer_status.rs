@@ -253,7 +253,15 @@ pub struct FooterFact {
 
 impl FooterFact {
     fn new(kind: FactKind) -> Self {
-        Self { kind, text: None, count: None, fraction: None, since: None, live: false, at_rest: false }
+        Self {
+            kind,
+            text: None,
+            count: None,
+            fraction: None,
+            since: None,
+            live: false,
+            at_rest: false,
+        }
     }
 
     fn text(kind: FactKind, text: Option<&str>) -> Option<Self> {
@@ -494,7 +502,8 @@ pub fn composer_status(facts: &SessionFacts<'_>) -> ComposerStatus {
     let mut out = Vec::with_capacity(FactKind::ALL.len());
     // A peer's machine is the one fact that earns its name at rest.
     out.extend(
-        FooterFact::text(FactKind::Machine, facts.peer).map(|fact| FooterFact { at_rest: true, ..fact }),
+        FooterFact::text(FactKind::Machine, facts.peer)
+            .map(|fact| FooterFact { at_rest: true, ..fact }),
     );
     out.extend(FooterFact::text(FactKind::Folder, facts.cwd));
     out.extend(FooterFact::text(FactKind::Branch, facts.branch));
