@@ -1636,6 +1636,7 @@ function AccessMenu({
           side={newTab ? "bottom" : "top"}
           align="start"
           className="acpmux-access-menu"
+          resize={{ id: "composer.access" }}
           // ui-allow: 1 to 9 pick the mode in that place while the menu is open, as in Claude's mode menu.
           onKeyDown={(event) => {
             if (event.metaKey || event.ctrlKey || event.altKey || !/^[1-9]$/.test(event.key)) return;
@@ -2057,6 +2058,7 @@ export function Picker({
   tooltip,
   shortcut,
   onOpen,
+  resizeId,
   returnHint = false,
 }: {
   label: string;
@@ -2070,6 +2072,8 @@ export function Picker({
   /// The keycaps of the shortcut that opens it, shown after the tooltip (shortcuts.ts).
   shortcut?: string | undefined;
   onOpen?: () => void;
+  /// Resizable from its edges away from the button, its size kept under this name (ui/PopupResize.tsx).
+  resizeId?: string;
   /// The highlighted row ends in the Return keycap and its choice's `verb` (the + menu). Off: no hint.
   returnHint?: boolean;
 }) {
@@ -2110,6 +2114,7 @@ export function Picker({
           // shared policy here also preserves prompt focus when a native capture is cancelled.
           finalFocus={undefined}
           className={cx("acpmux-menu acpmux-picker-menu", className)}
+          {...(resizeId ? { resize: { id: resizeId } } : {})}
         >
           {heading && (
             <div className="acpmux-menu-heading" aria-hidden="true">
@@ -2331,12 +2336,7 @@ export const PlusIcon = () => (
     <path d="M8 2.75v10.5M2.75 8h10.5" />
   </Icon>
 );
-/** Send's arrow: a plain outline glyph with the mic's stroke (Leo 2026-10-21: no disc). */
-export const ArrowUpIcon = () => (
-  <Icon>
-    <path d="M8 12.9V3.4M3.9 7.5 8 3.4l4.1 4.1" />
-  </Icon>
-);
+export { ArrowUpIcon } from "./icons/arrowUpIcon";
 export const ReturnIcon = () => (
   <Icon>
     <path d={RETURN_GLYPH_PATH} />

@@ -251,3 +251,114 @@ async fn a_page_of_its_own_rows_is_the_whole_lists_page() {
         assert_eq!(page, expect(&params), "{params}");
     }
 }
+
+/// A hub on a memory store like [`seeded`], each row about `row_bytes` wide (its `cwd`), its
+/// closed and idle chats interleaved, newest first, as a lane VM's list is.
+fn seeded_wide(closed: usize, idle: usize, row_bytes: usize) -> Arc<Hub> {
+    let mut cfg = crate::config::Config::default();
+    cfg.store.mode = crate::config::StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let total = closed + idle;
+    for i in 0..total {
+        // Every k-th chat is idle, the rest closed.
+        let status = if i * idle / total != (i + 1) * idle / total { "idle" } else { "closed" };
+        let meta = json!({"schema": "acpmux.session.v1", "id": format!("w-{i:05}"),
+            "name": format!("chat-{i}"), "harness": "claude",
+            "cwd": format!("/work/{}", "d".repeat(row_bytes)),
+            "status": status, "createdAt": 1, "updatedAt": 1_000 + i});
+        store.save(&serde_json::from_value(meta).unwrap()).unwrap();
+    }
+    Hub::new(cfg, store)
+}
+
+/// The page path before 2026-11-23 (cmuxterm-hq docs/findings/2026-11-23-acpmux-cli-startup-tax.md),
+/// kept to measure against: every row a `limit=1000` page picks is built, then the page is cut to
+/// its bytes. Returns (pages, rows built, ms) for a whole read.
+fn old_whole_paged_read(hub: &Arc<Hub>) -> (usize, usize, f64) {
+    use crate::hub::list_guard::{cut_page, serialize_in_order};
+    use std::sync::atomic::Ordering::SeqCst;
+    let budget = crate::rpc::REPLY_PAGE_BYTES - (16 << 10);
+    let before = hub.summaries_built.load(SeqCst);
+    let start = Instant::now();
+    let (mut pages, mut params) = (0_usize, json!({"limit": 1000, "localOnly": true}));
+    loop {
+        let (rows, next) = hub.session_page_rows(&params, false).unwrap();
+        let (text, spans, keys) = serialize_in_order(&rows);
+        let page: Value = serde_json::from_str(&cut_page(
+            (text.as_str(), spans.as_slice()),
+            &keys,
+            next,
+            &params,
+            budget,
+        ))
+        .unwrap();
+        pages += 1;
+        match page["nextCursor"].as_str() {
+            Some(cursor) => params["cursor"] = json!(cursor),
+            None => break,
+        }
+    }
+    (
+        pages,
+        (hub.summaries_built.load(SeqCst) - before) as usize,
+        start.elapsed().as_secs_f64() * 1000.0,
+    )
+}
+
+/// docs/findings/2026-11-23-acpmux-cli-startup-tax.md (cmuxterm-hq): a lane VM's whole local
+/// `acpmux ls` (833 chats, 4 KB rows, 512 closed) took 355 ms, 8x one row. `ls` reads pages of
+/// 1000 rows and more; a page's 1 MB holds about 260 of these rows, and the daemon built every
+/// picked row before cutting the page to its bytes, so each page built up to 1000 rows to send
+/// 260, and the whole read built its live rows about twice over (N²/520 rows). The whole read, at
+/// 833 chats and at 3,332, builds each row about once: what it sends.
+#[tokio::test]
+async fn a_whole_paged_read_builds_each_row_once_not_per_page() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let mut times = Vec::new();
+    for (closed, idle) in [(512_usize, 321_usize), (2_048, 1_284)] {
+        let n = closed + idle;
+        let hub = seeded_wide(closed, idle, 4_000);
+        // Warm the closed rows' cache, as a long-running daemon has it.
+        let _ =
+            read_whole(&hub, "_acpmux/sessions", json!({"limit": 1000, "localOnly": true})).await;
+        let before = hub.summaries_built.load(SeqCst);
+        let (mut pages, mut params, mut ids, mut ms) =
+            (0_usize, json!({"limit": 1000, "localOnly": true}), Vec::new(), 0.0);
+        loop {
+            let (page, _, time) = read(&hub, "_acpmux/sessions", params.clone()).await;
+            pages += 1;
+            ms += time;
+            for row in page["sessions"].as_array().unwrap() {
+                ids.push(row["sessionId"].as_str().unwrap().to_owned());
+            }
+            match page["nextCursor"].as_str() {
+                Some(cursor) => params["cursor"] = json!(cursor),
+                None => break,
+            }
+        }
+        let built = (hub.summaries_built.load(SeqCst) - before) as usize;
+        println!(
+            "PERF whole-paged-read chats={n} live={idle} pages={} built={built} ms={ms:.1}",
+            pages
+        );
+        let (old_pages, old_built, old_ms) = old_whole_paged_read(&hub);
+        println!(
+            "PERF whole-paged-read-before chats={n} live={idle} pages={old_pages} \
+             built={old_built} ms={old_ms:.1} (every picked row built, then cut to the page bytes)"
+        );
+        assert_eq!(old_pages, pages, "{n} chats: the old and new paths page alike");
+        times.push((n, built, ms));
+        assert!(pages > 1, "{n} chats: one page; the rows are too narrow to test cutting");
+        let unique: std::collections::HashSet<&String> = ids.iter().collect();
+        assert_eq!(unique.len(), n, "{n} chats: every chat once");
+        assert_eq!(ids.len(), n, "{n} chats: no chat twice");
+        // Each live row is built for the page that sends it; a closed one is its cached bytes.
+        // One more per page: the row a page's bytes stop at may be built and not sent.
+        assert!(
+            built <= idle + pages,
+            "{n} chats ({idle} live): the whole read built {built} rows in {} pages",
+            pages
+        );
+    }
+    println!("PERF whole-paged-read {times:?} (chats, rows built, ms)");
+}
