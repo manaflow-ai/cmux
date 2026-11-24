@@ -266,39 +266,44 @@ pub fn acpmux_harness() -> AcpmuxHarness {
 
 impl Harness for AcpmuxHarness {
     async fn run(&self, job: &Job, out: &mut (dyn FnMut(&str) + Send)) -> Result<i32, String> {
-        let mut new = tokio::process::Command::new(&self.acpmux);
+        let mut new = cmux_process::Command::new(&self.acpmux);
         new.arg("new").arg("--detach").arg("--quiet").arg("--name").arg(&job.name);
         new.arg("--cwd").arg(&job.checkout);
         if let Some(model) = &job.model {
             new.arg("--model").arg(model);
         }
-        let made = new
-            .stdin(std::process::Stdio::null())
-            .output()
-            .await
-            .map_err(|e| format!("acpmux new: {e}"))?;
+        new.stdin(cmux_process::Stdio::null());
+        let made = output(new).await.map_err(|e| format!("acpmux new: {e}"))?;
         if !made.status.success() {
             return Err(format!("acpmux new: {}", String::from_utf8_lossy(&made.stderr).trim()));
         }
-        let mut send = tokio::process::Command::new(&self.acpmux);
+        // Owned: dropped while it runs (the turn cancelled), it ends with its handle.
+        let mut send = cmux_process::Command::new(&self.acpmux);
         send.arg("send").arg(&job.name).arg("-");
-        send.stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::inherit())
-            .kill_on_drop(true);
+        send.stdin(cmux_process::Stdio::piped())
+            .stdout(cmux_process::Stdio::piped())
+            .stderr(cmux_process::Stdio::inherit());
         let mut child = send.spawn().map_err(|e| format!("acpmux send: {e}"))?;
-        if let Some(mut stdin) = child.stdin.take() {
+        if let Some(stdin) = child.stdin.take() {
+            let mut stdin = tokio::process::ChildStdin::from_std(stdin)
+                .map_err(|e| format!("acpmux send: {e}"))?;
             stdin
                 .write_all(job.prompt.as_bytes())
                 .await
                 .map_err(|e| format!("acpmux send: {e}"))?;
         }
         let stdout = child.stdout.take().ok_or("acpmux send: no stdout")?;
+        let stdout = tokio::process::ChildStdout::from_std(stdout)
+            .map_err(|e| format!("acpmux send: {e}"))?;
         let mut lines = tokio::io::BufReader::new(stdout).lines();
         while let Some(l) = lines.next_line().await.map_err(|e| format!("acpmux send: {e}"))? {
             out(&l);
         }
-        let status = child.wait().await.map_err(|e| format!("acpmux send: {e}"))?;
+        // Its stdout ended, so it is exiting: the wait is short, off the runtime's workers.
+        let status = tokio::task::spawn_blocking(move || child.wait())
+            .await
+            .map_err(|e| format!("acpmux send: {e}"))?
+            .map_err(|e| format!("acpmux send: {e}"))?;
         Ok(status.code().unwrap_or(-1))
     }
 }
@@ -374,13 +379,12 @@ impl ForkLink for CloudLink {
     async fn open(&self, fork: &str, job: &Job) -> Result<Lines, String> {
         let dir = tempfile::tempdir().map_err(|e| format!("key folder: {e}"))?;
         let key = dir.path().join("id");
-        let made = tokio::process::Command::new("ssh-keygen")
+        let mut keygen = cmux_process::Command::new("ssh-keygen");
+        keygen
             .args(["-q", "-t", "ed25519", "-N", "", "-C", "cmux-sub-fork", "-f"])
             .arg(&key)
-            .stdin(std::process::Stdio::null())
-            .output()
-            .await
-            .map_err(|e| format!("ssh-keygen: {e}"))?;
+            .stdin(cmux_process::Stdio::null());
+        let made = output(keygen).await.map_err(|e| format!("ssh-keygen: {e}"))?;
         if !made.status.success() {
             return Err(format!("ssh-keygen: {}", String::from_utf8_lossy(&made.stderr).trim()));
         }
@@ -401,7 +405,7 @@ impl ForkLink for CloudLink {
         let name = if port == 22 { host.clone() } else { format!("[{host}]:{port}") };
         std::fs::write(&known, format!("{name} {host_key}\n"))
             .map_err(|e| format!("known hosts: {e}"))?;
-        let mut ssh = tokio::process::Command::new("ssh");
+        let mut ssh = cmux_process::Command::new("ssh");
         ssh.arg("-i").arg(&key);
         ssh.arg("-o").arg(format!("UserKnownHostsFile={}", known.display()));
         for opt in [
@@ -416,16 +420,19 @@ impl ForkLink for CloudLink {
         }
         ssh.arg("-p").arg(port.to_string()).arg(format!("{user}@{host}"));
         ssh.arg("acpmux sub-fork-job");
-        ssh.stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::null())
-            .kill_on_drop(true);
+        ssh.stdin(cmux_process::Stdio::piped())
+            .stdout(cmux_process::Stdio::piped())
+            .stderr(cmux_process::Stdio::null());
         let mut child = ssh.spawn().map_err(|e| format!("ssh: {e}"))?;
-        let mut stdin = child.stdin.take().ok_or("ssh: no stdin")?;
+        let stdin = child.stdin.take().ok_or("ssh: no stdin")?;
+        let mut stdin =
+            tokio::process::ChildStdin::from_std(stdin).map_err(|e| format!("ssh: {e}"))?;
         let body = serde_json::to_vec(job).map_err(|e| format!("job: {e}"))?;
         stdin.write_all(&body).await.map_err(|e| format!("ssh: {e}"))?;
         drop(stdin);
         let stdout = child.stdout.take().ok_or("ssh: no stdout")?;
+        let stdout =
+            tokio::process::ChildStdout::from_std(stdout).map_err(|e| format!("ssh: {e}"))?;
         if let Ok(mut held) = self.dir.lock() {
             *held = Some(dir);
         }
@@ -434,10 +441,15 @@ impl ForkLink for CloudLink {
     }
 }
 
+/// `cmd`'s output, waited for off the runtime's workers.
+async fn output(mut cmd: cmux_process::Command) -> std::io::Result<cmux_process::Output> {
+    tokio::task::spawn_blocking(move || cmd.output()).await.map_err(std::io::Error::other)?
+}
+
 /// A reader that keeps its process alive (and kills it when dropped).
 struct Owned<R> {
     reader: R,
-    _child: tokio::process::Child,
+    _child: cmux_process::Child,
 }
 
 impl<R: tokio::io::AsyncRead + Unpin> tokio::io::AsyncRead for Owned<R> {

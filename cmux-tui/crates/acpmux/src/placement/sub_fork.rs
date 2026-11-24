@@ -320,15 +320,17 @@ impl<M: Machines> WarmSlot<M> {
     /// placement took it.
     pub fn park(self: &Arc<Self>, machines: Arc<M>, fork: WarmFork) {
         let old = self.held.lock().ok().and_then(|mut h| h.replace(fork.clone()));
-        let Ok(rt) = tokio::runtime::Handle::try_current() else { return };
+        if tokio::runtime::Handle::try_current().is_err() {
+            return;
+        }
         if let Some(old) = old {
             let m = machines.clone();
-            rt.spawn(async move {
+            scope().spawn_named("sub_fork: delete a replaced warm fork", async move {
                 let _ = m.delete(&old.id).await;
             });
         }
         let slot = self.clone();
-        rt.spawn(async move {
+        scope().spawn_named("sub_fork: warm fork expiry", async move {
             tokio::time::sleep(slot.ttl).await;
             let expired = slot
                 .held
@@ -388,8 +390,8 @@ impl<M: Machines> Drop for ForkGuard<M> {
         let Some(id) = self.id.take() else { return };
         let machines = self.machines.clone();
         match tokio::runtime::Handle::try_current() {
-            Ok(rt) => {
-                rt.spawn(async move {
+            Ok(_) => {
+                scope().spawn_named("sub_fork: delete a cancelled fork", async move {
                     if let Err(e) = machines.delete(&id).await {
                         tracing::warn!(fork = %id, error = %e, "sub_fork: deleting a cancelled fork failed");
                     }
@@ -493,7 +495,7 @@ async fn place_on<M: Machines, R: SubRun>(
                     let source = machine.to_owned();
                     let tree = base_tree.clone();
                     let m = machines.clone();
-                    tokio::spawn(async move {
+                    scope().spawn_named("sub_fork: finish a fork past the budget", async move {
                         match forking.await {
                             Ok(id) => {
                                 let fork_ms = started.elapsed().as_millis() as u64;
@@ -669,6 +671,13 @@ pub fn apply(checkout: &Path, patch: &[u8]) -> Result<usize, String> {
     git(checkout, None, &["apply", "--binary", "-"], Some(patch))?;
     // One `diff --git` header per file the patch touched (the patch is git's own output).
     Ok(patch.split(|b| *b == b'\n').filter(|l| l.starts_with(b"diff --git ")).count())
+}
+
+/// The owner of the runner's background work: deleting a replaced, expired or cancelled fork,
+/// and finishing a fork past the budget so it waits warm. Each task ends on its own.
+fn scope() -> &'static cmux_scope::Scope {
+    static SCOPE: std::sync::OnceLock<cmux_scope::Scope> = std::sync::OnceLock::new();
+    SCOPE.get_or_init(|| cmux_scope::Scope::new("sub_fork runner"))
 }
 
 #[cfg(test)]
