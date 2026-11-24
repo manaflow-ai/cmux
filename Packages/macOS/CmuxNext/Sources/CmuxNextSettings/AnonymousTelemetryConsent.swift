@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// The person's opt-in for crash reports and anonymous analytics (`app.sendAnonymousTelemetry`,
 /// Settings > Privacy and Security > Crash Reports and Analytics). Off until the person turns it on
