@@ -244,6 +244,10 @@ impl Hub {
         {
             self.release_protected_hold(session);
         }
+        // The person's own prompt, proven by its connection, lifts a hold (`session_hold.rs`).
+        if opts.human_authenticated && opts.after_turn.is_none() {
+            self.release_session_hold_for_person(session);
+        }
         let Some(prompt_id) = opts.prompt_id.clone() else {
             // `session/prompt` accepts prompts without a client id.  They still need a
             // durable message id when they came from another session, so wrap the
@@ -534,9 +538,13 @@ impl Hub {
                 )
                 .map_err(|e| RpcError::invalid_params(e.to_string()))?;
         }
-        if let Some(receipt) =
-            self.hold_surge_message(session, &prompt_id, client, &blocks, &opts)?
-        {
+        // A held chat keeps what is not the person's in its inbox, with no turn
+        // (`session_hold.rs`); else the surge may hold it.
+        let held = match self.hold_for_session_hold(session, &prompt_id, client, &blocks, &opts)? {
+            Some(receipt) => Some(receipt),
+            None => self.hold_surge_message(session, &prompt_id, client, &blocks, &opts)?,
+        };
+        if let Some(receipt) = held {
             if let Some(accept) = opts.on_accepted.take() {
                 accept(receipt.clone());
             }
@@ -1778,6 +1786,8 @@ impl Hub {
         if matches!(&result, Ok(v) if v.get("stopReason").and_then(Value::as_str) != Some("cancelled"))
         {
             self.rate_turn_ok(session);
+            // Nothing its process said before this end explains a later exit (`exit_reason.rs`).
+            session.exit_line.lock().unwrap_or_else(|e| e.into_inner()).turn_ended_well();
         }
         // A model switch (`detach_child`) ended this turn already: its failure is not the queue's.
         let in_place = next.map(|n| n.next.clone());
