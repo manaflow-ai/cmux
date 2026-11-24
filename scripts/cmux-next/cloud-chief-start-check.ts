@@ -14,10 +14,10 @@
  *   5. a third call with the same key: the same machine and Chief (resume never makes a second one);
  *   6. the host: cmux-chief.service active with one main pid and no restart 20 s on, and the Chief listed as
  *      placed on the machine's install, and `GET /v1/chief/chiefs` listing it with location kind "machine";
- *   7. finally: archive the Chief, revoke the install, delete the machine.
- *
- * A message and its reply wait on the Chief's model route (the "Claude is not signed in" fix); until then step 6
- * is the reachability check.
+ *   7. a message sent the way the Mac and iPhone send (`message.send` on the Chief's conversation) gets a reply
+ *      from the Chief within 4 min, and one sent the way the phone's web page sends (`POST /v1/chief/messages`
+ *      with `chiefId`, cmux-platform#1637) does too where this Worker serves that route to a bearer;
+ *   8. finally: archive the Chief, revoke the install, delete the machine.
  *
  * Usage: bun scripts/cmux-next/cloud-chief-start-check.ts --call PATH --binary PATH [--target staging] [--out DIR] [--run ID]
  * Env: CMUX_DOGFOOD_STACK_EMAIL, CMUX_DOGFOOD_STACK_PASSWORD, PRODUCT_TEAM (optional).
@@ -89,6 +89,36 @@ const unitFacts = async (exec: Exec) => {
   return Object.fromEntries(out.split("\n").map((l) => l.split("=", 2) as [string, string]));
 };
 const journal = (exec: Exec) => exec(asRoot("journalctl -u cmux-chief.service --no-pager -o cat -n 60"), 30_000).then((r) => r.stdout.trim().slice(-2500));
+
+const REPLY_DEADLINE_MS = 240_000;
+const rowText = (m: any): string =>
+  (Array.isArray(m?.parts) ? m.parts : []).filter((p: any) => p?.type === "text").map((p: any) => String(p.text ?? "")).join("\n") || String(m?.text ?? "");
+
+/** The Chief's first message in its conversation not seen before (the snapshot's newest 50), or null by the deadline. */
+async function chiefReply(api: Api, conversation: string, chief: string, seen: Set<string>, deadlineMs: number): Promise<{ text: string } | null> {
+  const until = Date.now() + deadlineMs;
+  for (;;) {
+    const snap = await api.read("conversation.snapshot", { conversation, tail: 50 });
+    const rows = (snap?.rows?.rows ?? []).map((r: any) => r?.row ?? r);
+    for (const m of rows) {
+      const who = String(m?.author ?? m?.sender ?? m?.sender_id ?? "");
+      const id = String(m?.id ?? m?.message_id ?? m?.seq ?? "");
+      if (who !== chief || seen.has(id)) continue;
+      const text = rowText(m);
+      if (!text.trim()) continue;
+      seen.add(id);
+      return { text };
+    }
+    if (Date.now() >= until) return null;
+    await sleep(3_000);
+  }
+}
+
+const rowsSeen = (api: Api, conversation: string) =>
+  api.read("conversation.snapshot", { conversation, tail: 8 }).then(
+    (snap) => JSON.stringify((snap?.rows?.rows ?? []).map((r: any) => r?.row ?? r).map((m: any) => `${m?.author ?? m?.sender ?? "?"}: ${rowText(m).slice(0, 60)}`)),
+    (e) => `(snapshot failed: ${String(e).slice(0, 200)})`,
+  );
 
 async function main(): Promise<number> {
   const callPath = arg("--call");
@@ -188,6 +218,29 @@ async function main(): Promise<number> {
       const at = row?.location;
       if (at?.kind !== "machine" || at?.install !== install) throw new Error(`chief ${chief} lists as ${JSON.stringify(at ?? null)}, not on machine install ${install}`);
       return { value: null, detail: `${chief}: location machine, host ${at.host}, install ${at.install}` };
+    });
+    const conversation = String(done.conversation ?? "");
+    const seen = new Set<string>();
+    await J.step("a message from the app gets the Chief's reply (message.send, as the Mac and iPhone send)", async () => {
+      if (!conversation) throw new Error(`chief_start answered no conversation: ${JSON.stringify(done)}`);
+      const word = `pong-${run}`;
+      const sentAt = Date.now();
+      await api.op("message.send", { conversation, client_msg_id: `chief-start-${run}-app`, parts: [{ type: "text", text: `Reply with only the word ${word}` }] }, `chief-start-${run}-app`);
+      const reply = await chiefReply(api, conversation, chief, seen, REPLY_DEADLINE_MS);
+      if (!reply) throw new Error(`no reply from ${chief} in ${REPLY_DEADLINE_MS / 1000} s; newest rows ${await rowsSeen(api, conversation)}\n${await journal(exec)}`);
+      if (/not signed in|not logged in/i.test(reply.text)) throw new Error(`the Chief answered without a model: ${reply.text.slice(0, 300)}`);
+      return { value: null, detail: `reply in ${Math.round((Date.now() - sentAt) / 1000)} s: ${JSON.stringify(reply.text.slice(0, 200))}${reply.text.includes(word) ? "" : " (did not echo the word)"}` };
+    });
+    await J.step("a message from the phone's web page gets the reply (POST /v1/chief/messages with chiefId)", async () => {
+      const sentAt = Date.now();
+      const r = await api.raw("POST", "/v1/chief/messages", { chiefId: chief, text: "Reply with only the word again", clientMessageId: `chief-start-${run}-web` }, 30_000);
+      // The platform's /c/ surface (cmux-platform#1637) signs in with its page cookie; where this Worker does not
+      // serve it to a bearer, the step says so and the reply check above stands.
+      if (r.status === 404 || r.status === 401 || r.status === 403) return { value: null, detail: `POST /v1/chief/messages answered HTTP ${r.status} to a bearer on ${backend.api}; not read here` };
+      if (r.status !== 200 || r.body?.ok !== true) throw new Error(`POST /v1/chief/messages: HTTP ${r.status} ${JSON.stringify(r.body).slice(0, 400)}`);
+      const reply = await chiefReply(api, conversation, chief, seen, REPLY_DEADLINE_MS);
+      if (!reply) throw new Error(`no reply from ${chief} in ${REPLY_DEADLINE_MS / 1000} s`);
+      return { value: null, detail: `reply in ${Math.round((Date.now() - sentAt) / 1000)} s: ${JSON.stringify(reply.text.slice(0, 200))}` };
     });
     return J.steps.some((s) => s.status === "fail") ? 1 : 0;
   } catch (e) {
