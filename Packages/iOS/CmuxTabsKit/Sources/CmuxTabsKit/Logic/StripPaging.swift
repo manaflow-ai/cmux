@@ -64,6 +64,13 @@ struct StripPaging: Equatable {
     /// view turns the page on a short flick).
     static let flingVelocity: CGFloat = 220
 
+    /// A drag past an end moves the row 0.35 as far, as UIScrollView's bounce does near its edge.
+    static func rubberBand(_ x: CGFloat, low: CGFloat, high: CGFloat) -> CGFloat {
+        if x < low { return low - (low - x) * 0.35 }
+        if x > high { return high + (x - high) * 0.35 }
+        return x
+    }
+
     /// The row's full width.
     var contentWidth: CGFloat {
         leadingPad + widths.reduce(0, +) + gap * CGFloat(max(0, count - 1)) + trailingPad

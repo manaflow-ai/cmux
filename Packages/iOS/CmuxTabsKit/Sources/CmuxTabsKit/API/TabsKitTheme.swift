@@ -64,7 +64,7 @@ public struct TabsKitTheme: Sendable {
         /// The paged strip's chips (Conductor's iPhone toolbar measured at 3x, scaled to the kit's
         /// 48 pt controls): 40 pt glass capsules 10 pt apart, 16 pt side padding, an 8 pt gap
         /// between the glyph and a 15 pt medium title, at most 200 pt wide.
-        public var stripChipHeight: CGFloat = 40
+        public var stripChipHeight: CGFloat = 42
         public var stripChipGap: CGFloat = 10
         public var stripChipPadding: CGFloat = 16
         public var stripChipIconGap: CGFloat = 7
@@ -72,7 +72,7 @@ public struct TabsKitTheme: Sendable {
         public var stripChipMaxWidth: CGFloat = 200
         /// The strip runs under Back and Tabs; over this many points from each end its chips
         /// fade out (Conductor's chips are gone at the back circle's edge, solid about 30 pt in).
-        public var stripEdgeFade: CGFloat = 76
+        public var stripEdgeFade: CGFloat = 30
         /// The top bar's distance below the status bar.
         public var topBarGap: CGFloat = 2
         /// The top bar's side inset: the grid header's (20), so Back sits in one place on page and grid.

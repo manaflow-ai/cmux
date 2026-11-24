@@ -18,8 +18,6 @@ final class ChromeState {
     /// Horizontal finger offset of a toolbar tab swipe.
     var swipeOffset: CGFloat = 0
     var swiping = false
-    /// The paged strip's position while it moves, a fractional index into its pages (nil at rest).
-    var stripPosition: CGFloat?
 
     /// Accumulated finger travel for the current drag direction.
     @ObservationIgnored private var dragTravel: CGFloat = 0

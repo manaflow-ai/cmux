@@ -53,6 +53,8 @@ struct TabsScreen<Source: TabsDataSource>: View {
     @State private var chrome = ChromeState()
     /// Bumped when the strip must go back to the active chip by itself (a New Tab that failed).
     @State private var stripRestToken = 0
+    /// A tapped chip the page is sliding to.
+    @State private var stripTapTarget: Int?
     /// Close All Tabs is waiting for the person's answer.
     @State private var confirmingCloseAll: CloseAllConfirmation?
     /// The page <-> grid transition (one interruptible progress value).
@@ -329,7 +331,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
                         onSwipeUpChanged: swipeUpChanged, onSwipeUpEnded: swipeUpEnded,
                         onSwipeCancelled: swipeCancelled,
                         strip: showsStrip ? ToolbarStrip(entries: stripEntries, activeID: activeID, restToken: stripRestToken,
-                                                         onMove: stripMoved, onSettle: stripSettled) : nil)
+                                                         onMove: stripMoved, onRelease: stripReleased) : nil)
                 .opacity(1 - overviewShown)
                 // Usable on the page, and while a zoom heads back to the page
                 // (the tabs button then reverses it).
@@ -947,52 +949,53 @@ struct TabsScreen<Source: TabsDataSource>: View {
 
     private var stripActiveIndex: Int { stripEntries.firstIndex { $0.id == activeID } ?? 0 }
 
-    /// The strip moved: the page follows it 1:1, a page width per chip.
-    private func stripMoved(_ position: CGFloat?) {
-        guard let position else {
-            if chrome.swiping, chrome.stripPosition != nil { endStripSwipe() }
-            return
-        }
-        chrome.stripPosition = position
+    /// The strip moved under the finger: the page follows it 1:1, a page width per chip.
+    private func stripMoved(_ position: CGFloat) {
+        guard stripTapTarget == nil else { return }
         chrome.swipeOffset = (CGFloat(stripActiveIndex) - position) * size.width
         if !chrome.swiping { chrome.swiping = true }
+    }
+
+    /// The strip is heading to `index` (a release, a tapped chip) on the swipe spring: the page
+    /// runs the same spring beside it, then that tab becomes active; the active page itself
+    /// springs back. New Tab makes a tab; its blank page stays until the tab opens.
+    private func stripReleased(_ index: Int) {
+        let entries = stripEntries
+        guard entries.indices.contains(index) else { return }
+        let active = stripActiveIndex
+        stripTapTarget = index
+        chrome.swiping = true
+        withAnimation(theme.motion.resolve(theme.motion.swipe)) {
+            chrome.swipeOffset = (CGFloat(active) - CGFloat(index)) * size.width
+        } completion: {
+            guard stripTapTarget == index else { return }
+            stripTapTarget = nil
+            switch entries[index] {
+            case .tab(let tab):
+                var t = Transaction()
+                t.disablesAnimations = true
+                withTransaction(t) {
+                    if tab.id != activeID { source.activate(tab.id) }
+                    chrome.swipeOffset = 0
+                    chrome.swiping = false
+                }
+            case .newTab:
+                guard let option = source.newTabOptions.first else { return endStripSwipe() }
+                Task {
+                    let id = await source.createTab(option)
+                    endStripSwipe()
+                    if id == nil { stripRestToken += 1 }
+                }
+            }
+        }
     }
 
     private func endStripSwipe() {
         var t = Transaction()
         t.disablesAnimations = true
         withTransaction(t) {
-            chrome.stripPosition = nil
             chrome.swipeOffset = 0
             chrome.swiping = false
-        }
-    }
-
-    /// The strip came to rest on `index`: that tab becomes active (the page is already there),
-    /// or New Tab makes one; the blank page stays until it opens.
-    private func stripSettled(_ index: Int) {
-        let entries = stripEntries
-        guard entries.indices.contains(index) else { return endStripSwipe() }
-        switch entries[index] {
-        case .tab(let tab):
-            var t = Transaction()
-            t.disablesAnimations = true
-            withTransaction(t) {
-                if tab.id != activeID { source.activate(tab.id) }
-                chrome.stripPosition = nil
-                chrome.swipeOffset = 0
-                chrome.swiping = false
-            }
-        case .newTab:
-            guard let option = source.newTabOptions.first else { return endStripSwipe() }
-            chrome.stripPosition = CGFloat(index)
-            chrome.swipeOffset = (CGFloat(stripActiveIndex) - CGFloat(index)) * size.width
-            chrome.swiping = true
-            Task {
-                let id = await source.createTab(option)
-                endStripSwipe()
-                if id == nil { stripRestToken += 1 }
-            }
         }
     }
 
@@ -1000,8 +1003,9 @@ struct TabsScreen<Source: TabsDataSource>: View {
     /// position, side by side with no gap (Conductor's pages slide flat, unscaled).
     @ViewBuilder private var stripNeighbors: some View {
         let entries = stripEntries
-        let position = chrome.stripPosition ?? CGFloat(stripActiveIndex)
-        let pages = Set([Int(position.rounded(.down)), Int(position.rounded(.up))])
+        let active = stripActiveIndex
+        let position = CGFloat(active) - chrome.swipeOffset / max(1, size.width)
+        let pages = Set([Int(position.rounded(.down)), Int(position.rounded(.up))] + (stripTapTarget.map { [$0] } ?? []))
             .filter { entries.indices.contains($0) && $0 != stripActiveIndex }
             .sorted()
         ZStack(alignment: .topLeading) {
@@ -1016,7 +1020,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
                 }
                 .frame(width: size.width, height: size.height)
                 .clipped()
-                .offset(x: (CGFloat(index) - position) * size.width)
+                .offset(x: CGFloat(index - active) * size.width + chrome.swipeOffset)
             }
         }
         .frame(width: size.width, height: size.height)

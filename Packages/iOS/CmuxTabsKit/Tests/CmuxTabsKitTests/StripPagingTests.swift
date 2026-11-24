@@ -45,4 +45,10 @@ struct StripPagingTests {
         #expect(one.leadingPad == 136)
         #expect(one.target(start: 0, projected: 50, velocity: 2000) == 0)
     }
+
+    @Test func rubberBandSlowsTheRowPastEitherEnd() {
+        #expect(StripPaging.rubberBand(50, low: 0, high: 100) == 50)
+        #expect(abs(StripPaging.rubberBand(-100, low: 0, high: 100) - -35) < 0.001)
+        #expect(abs(StripPaging.rubberBand(200, low: 0, high: 100) - 135) < 0.001)
+    }
 }

@@ -174,12 +174,27 @@ struct TabsToolbar: View {
                 .position(x: row.midX, y: row.midY)
                 .allowsHitTesting(!collapsed)
                 .accessibilityHidden(true)
+            if showsStrip {
+                // Conductor's bar sits on the page's own color, which fades out below it (the
+                // top scroll edge effect): the page scrolls under a calm band, never under the
+                // chips' text.
+                let bottom = layout.capsule.maxY + 14
+                LinearGradient(stops: [.init(color: theme.colors.pageBackground, location: 0),
+                                       .init(color: theme.colors.pageBackground, location: (layout.capsule.maxY - 6) / bottom),
+                                       .init(color: theme.colors.pageBackground.opacity(0), location: 1)],
+                               startPoint: .top, endPoint: .bottom)
+                    .frame(width: size.width, height: bottom)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
             if showsStrip, let strip {
-                // Under Back and Tabs: its chips slide out beneath them and fade.
-                let frame = CGRect(x: layout.back.minX, y: layout.capsule.minY,
-                                   width: layout.right.maxX - layout.back.minX, height: layout.capsule.height)
+                // Its chips fade out at both ends before Back and Tabs.
+                // Between Back and Tabs, as Conductor's: a chip is gone by the side buttons' edge.
+                let m = theme.metrics
+                let frame = CGRect(x: layout.back.maxX + m.gap / 2, y: layout.capsule.minY,
+                                   width: layout.right.minX - layout.back.maxX - m.gap, height: layout.capsule.height)
                 PagedTabStrip(entries: strip.entries, activeID: strip.activeID, restToken: strip.restToken, frame: frame, screenWidth: size.width,
-                              onMove: strip.onMove, onSettle: strip.onSettle, onActiveTap: {
+                              onMove: strip.onMove, onRelease: strip.onRelease, onActiveTap: {
                                   if features.contains(.addressEditing) { onBeginEditing() } else if features.contains(.pageMenu) { onMenu() }
                               })
                     .opacity(chrome.menuOpen ? 0.3 : 1)
@@ -567,8 +582,8 @@ struct ToolbarStrip {
     var activeID: String?
     /// Bumped to send the strip back to the active chip (a New Tab that failed).
     var restToken: Int
-    var onMove: (CGFloat?) -> Void
-    var onSettle: (Int) -> Void
+    var onMove: (CGFloat) -> Void
+    var onRelease: (Int) -> Void
 }
 
 /// Glass buttons highlight through the interactive glass itself; the

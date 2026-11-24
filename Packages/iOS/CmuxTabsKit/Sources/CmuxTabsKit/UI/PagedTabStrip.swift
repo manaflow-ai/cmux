@@ -15,10 +15,12 @@ enum StripEntry: Hashable, Identifiable {
 }
 
 /// Conductor's horizontal tabs (`TabsKitToolbarStyle.pagedTabs`): the active tab's pane's tabs as
-/// glass chips in a native horizontal scroll view, the active chip centered on the screen. A
-/// drag pages it one chip at a time (`StripPaging`); its position (a fractional page) drives the
-/// page under it 1:1 (`onMove`), and where it comes to rest picks the tab (`onSettle`). Its ends
-/// fade under Back and Tabs with the system's soft scroll edge effect.
+/// glass chips in one row, the active chip centered on the screen. The row tracks the finger 1:1
+/// (rubber-banding past either end), and a release pages it one chip at most (`StripPaging`) on
+/// the toolbar's swipe spring. Its position, a fractional page, drives the page under it 1:1
+/// while the finger is down (`onMove`); a release or a tapped chip hands the page it goes to to
+/// the parent (`onRelease`), which runs the page on the same spring, so strip and page land
+/// together. Its ends fade out before Back and Tabs (the soft scroll edge effect).
 struct PagedTabStrip: View {
     static let newTabID = "tabs.strip.new"
 
@@ -26,26 +28,32 @@ struct PagedTabStrip: View {
     var activeID: String?
     var restToken: Int = 0
     /// The strip's frame in the toolbar (screen points) and the screen width: the active chip is
-    /// centered on the screen, not on the strip.
+    /// centered on the screen.
     var frame: CGRect
     var screenWidth: CGFloat
-    /// The strip moved by the person (a drag, its fling, or a tapped chip's scroll): the page
-    /// it shows as a fractional index into `entries`; nil when it rests on the active page.
-    var onMove: (CGFloat?) -> Void
-    /// The strip came to rest on `entries[index]`.
-    var onSettle: (Int) -> Void
+    /// The finger moved the strip: the page it shows, as a fractional index into `entries`.
+    var onMove: (CGFloat) -> Void
+    /// The strip is heading to `entries[index]` on the swipe spring (a release or a tapped chip);
+    /// the active page itself when a drag springs back.
+    var onRelease: (Int) -> Void
     /// The active chip was tapped (the page menu, or the address field of a web page).
     var onActiveTap: () -> Void
 
     @Environment(\.tabsKitTheme) private var theme
     @State private var widths: [String: CGFloat] = [:]
-    @State private var position = ScrollPosition(idType: String.self)
-    @State private var offset: CGFloat = 0
-    @State private var phase: ScrollPhase = .idle
-    /// The page the current drag began on (the paging limit: one page per drag).
-    @State private var dragStart = 0
-    /// A chip tap scrolled the strip: its animation drives the page like a drag does.
-    @State private var tapScroll = false
+    /// The row's scroll offset: page `i` is `paging.offset(i)`.
+    @State private var x: CGFloat = 0
+    /// The offset the finger's drag started from (nil: no drag).
+    @State private var dragBase: CGFloat?
+    /// What the strip last did, for UI tests (its accessibility value).
+    @State private var trace = ""
+    /// When the last drag ended: a chip's tap that lands with a drag's release is the drag's.
+    @State private var dragEnded = Date.distantPast
+    /// The row is moving (a drag, or its spring after one): every chip shows in full. At rest
+    /// only the active chip does; the others fade to a dim title without a capsule (Conductor).
+    @State private var moving = false
+    /// Bumped by each move, so only the last spring's end settles the row.
+    @State private var moveToken = 0
 
     private var activeIndex: Int { entries.firstIndex { $0.id == activeID } ?? 0 }
 
@@ -55,91 +63,71 @@ struct PagedTabStrip: View {
                            anchor: screenWidth / 2 - frame.minX, viewport: frame.width)
     }
 
-    /// The person is moving the strip (or it settles after a fling or a tapped chip's scroll).
-    private var driven: Bool {
-        switch phase {
-        case .tracking, .interacting, .decelerating: true
-        case .animating: tapScroll
-        case .idle: false
-        @unknown default: false
-        }
-    }
-
     var body: some View {
         let p = paging
-        let at = p.position(offset: offset)
-        ScrollView(.horizontal) {
-            HStack(spacing: theme.metrics.stripChipGap) {
-                ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
-                    chip(entry, emphasis: max(0, 1 - abs(CGFloat(index) - at)))
-                        .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { w in
-                            if widths[entry.id] != w { widths[entry.id] = w }
-                        }
-                }
+        let at = p.position(offset: x)
+        HStack(spacing: theme.metrics.stripChipGap) {
+            ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
+                chip(entry, index: index, emphasis: moving ? 1 : max(0, 1 - abs(CGFloat(index) - at)))
+                    .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { w in
+                        if widths[entry.id] != w { widths[entry.id] = w }
+                    }
             }
-            .padding(.leading, p.leadingPad)
-            .padding(.trailing, p.trailingPad)
-            .frame(height: frame.height)
         }
-        .scrollIndicators(.hidden)
-        .scrollPosition($position)
-        .scrollTargetBehavior(StripPagingBehavior(paging: p, start: dragStart))
-        .scrollEdgeEffectStyle(.soft, for: .horizontal)
-        .scrollClipDisabled(false)
-        .frame(width: frame.width, height: frame.height)
+        .fixedSize()
+        .offset(x: p.leadingPad - x)
+        .frame(width: frame.width, height: frame.height, alignment: .leading)
+        .contentShape(.rect)
+        .clipped()
         .mask(StripEdgeFade(width: frame.width, fade: theme.metrics.stripEdgeFade))
-        .onScrollGeometryChange(for: CGFloat.self, of: { $0.contentOffset.x }) { _, x in
-            offset = x
-            report()
-        }
-        .onScrollPhaseChange { old, new, context in
-            phase = new
-            if new == .interacting || new == .tracking, old == .idle || old == .animating {
-                tapScroll = false
-                dragStart = Int(p.position(offset: context.geometry.contentOffset.x).rounded())
-            }
-            if new == .idle {
-                tapScroll = false
-                let page = Int(p.position(offset: offset).rounded())
-                onMove(nil)
-                onSettle(min(max(0, page), max(0, entries.count - 1)))
-            } else {
-                report()
-            }
-        }
-        // The active tab changed elsewhere (the grid, a tap, a settle): rest on its chip.
-        .onChange(of: activeID) { _, _ in rest(animated: false) }
-        .onChange(of: p) { _, _ in if phase == .idle { rest(animated: false) } }
-        .onChange(of: restToken) { _, _ in rest(animated: true) }
-        .onAppear { rest(animated: false) }
+        .highPriorityGesture(drag)
+        .onChange(of: activeID) { _, _ in if dragBase == nil { rest() } }
+        .onChange(of: p) { _, _ in if dragBase == nil { rest() } }
+        .onChange(of: restToken) { _, _ in withAnimation(theme.motion.resolve(theme.motion.swipe)) { rest() } }
+        .onAppear { rest() }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("tabs.strip")
+        .accessibilityValue(trace)
     }
 
-    private func report() {
-        guard driven else { return }
-        let at = paging.position(offset: offset)
-        onMove(abs(at - CGFloat(activeIndex)) < 0.0005 ? nil : at)
+    /// Puts the active chip in the middle (no animation unless the caller animates).
+    private func rest() { x = paging.offset(activeIndex) }
+
+    private var drag: some Gesture {
+        DragGesture(minimumDistance: 8, coordinateSpace: .global)
+            .onChanged { v in
+                let p = paging
+                let base = dragBase ?? x
+                if dragBase == nil { dragBase = base }
+                if !moving { withAnimation(.easeOut(duration: 0.12)) { moving = true } }
+                moveToken += 1
+                x = StripPaging.rubberBand(base - v.translation.width, low: 0, high: p.offset(p.count - 1))
+                onMove(p.position(offset: x))
+            }
+            .onEnded { v in
+                let p = paging
+                let base = dragBase ?? x
+                dragBase = nil
+                dragEnded = Date()
+                let start = Int(p.position(offset: base).rounded())
+                let page = p.target(start: start, projected: base - v.predictedEndTranslation.width, velocity: -v.velocity.width)
+                trace = "release from \(start) at \(Int(x)) v \(Int(-v.velocity.width)) -> \(page)"
+                go(to: page)
+            }
     }
 
-    /// Scrolls to the active chip.
-    private func rest(animated: Bool) {
-        let x = paging.offset(activeIndex)
-        guard abs(x - offset) > 0.5 else { return }
-        if animated {
-            withAnimation(theme.motion.resolve(theme.motion.swipe)) { position.scrollTo(x: x) }
-        } else {
-            var t = Transaction()
-            t.disablesAnimations = true
-            withTransaction(t) { position.scrollTo(x: x) }
+    /// Springs the row to `index` and tells the parent, which springs the page with it.
+    private func go(to index: Int) {
+        moveToken += 1
+        let token = moveToken
+        if !moving { withAnimation(.easeOut(duration: 0.12)) { moving = true } }
+        withAnimation(theme.motion.resolve(theme.motion.swipe)) {
+            x = paging.offset(index)
+        } completion: {
+            guard token == moveToken, dragBase == nil else { return }
+            withAnimation(.easeOut(duration: 0.25)) { moving = false }
         }
-    }
-
-    /// A tap on another chip scrolls to it, and the page follows the scroll.
-    private func select(_ index: Int) {
-        tapScroll = true
-        dragStart = activeIndex
-        withAnimation(theme.motion.resolve(theme.motion.swipe)) { position.scrollTo(x: paging.offset(index)) }
+        onRelease(index)
     }
 
     private func estimate(_ entry: StripEntry) -> CGFloat {
@@ -151,12 +139,17 @@ struct PagedTabStrip: View {
 
     // MARK: Chips
 
-    @ViewBuilder private func chip(_ entry: StripEntry, emphasis: CGFloat) -> some View {
+    @ViewBuilder private func chip(_ entry: StripEntry, index: Int, emphasis: CGFloat) -> some View {
         let m = theme.metrics
-        let index = entries.firstIndex { $0.id == entry.id } ?? 0
         let isActive = entry.id == activeID
         Button {
-            if isActive { onActiveTap() } else { select(index) }
+            guard dragBase == nil, Date().timeIntervalSince(dragEnded) > 0.25 else { return }
+            if isActive {
+                onActiveTap()
+            } else {
+                trace = "tap \(index) from \(activeIndex)"
+                go(to: index)
+            }
         } label: {
             HStack(spacing: m.stripChipIconGap) {
                 switch entry {
@@ -176,16 +169,17 @@ struct PagedTabStrip: View {
                         .lineLimit(1)
                 }
             }
-            // The resting page's chip reads at full strength; the others dim, and a chip
-            // brightens as the strip carries it to the middle.
-            .foregroundStyle(theme.colors.label.opacity(0.5 + 0.5 * Double(emphasis)))
+            .foregroundStyle(theme.colors.label)
             .padding(.horizontal, m.stripChipPadding)
             .frame(height: m.stripChipHeight)
             .frame(maxWidth: m.stripChipMaxWidth)
             .contentShape(.capsule)
         }
         .buttonStyle(GlassContentButtonStyle())
-        .glassEffect(.regular.interactive(), in: .capsule)
+        // A drag moves the row, not one chip: only a press at rest lights the chip's glass.
+        .glassEffect(moving ? .regular : .regular.interactive(), in: .capsule)
+        // At rest a neighbor's capsule is gone and its title dim; it fills in as the row moves.
+        .opacity(isActive || moving ? 1 : 0.38 + 0.62 * Double(emphasis))
         .fixedSize(horizontal: true, vertical: false)
         .frame(maxWidth: m.stripChipMaxWidth)
         .accessibilityIdentifier(entry.id == Self.newTabID ? Self.newTabID : "tabs.strip.chip.\(entry.id)")
@@ -198,17 +192,6 @@ struct PagedTabStrip: View {
         case .tab(let tab): tab.title.isEmpty ? "Untitled" : tab.title
         case .newTab: "New Tab"
         }
-    }
-}
-
-/// One page per drag, toward a fling (`StripPaging.target`).
-struct StripPagingBehavior: ScrollTargetBehavior {
-    var paging: StripPaging
-    var start: Int
-
-    func updateTarget(_ target: inout ScrollTarget, context: TargetContext) {
-        let page = paging.target(start: start, projected: target.rect.minX, velocity: context.velocity.dx)
-        target.rect.origin.x = paging.offset(page)
     }
 }
 

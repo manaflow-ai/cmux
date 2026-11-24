@@ -44,10 +44,10 @@ final class PagedTabStripUITests: XCTestCase {
         // A slow drag, held half way: both pages show, side by side.
         let y = strip.frame.midY
         let center = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: app.frame.midX, dy: y))
-        center.press(forDuration: 0.05, thenDragTo: center.withOffset(CGVector(dx: -60, dy: 0)),
+        center.press(forDuration: 0.05, thenDragTo: center.withOffset(CGVector(dx: -35, dy: 0)),
                      withVelocity: 120, thenHoldForDuration: 0.6)
         report(app, "\(a)-after-short-drag")
-        // Released at 60 pt (well under half a chip, slowly): it springs back.
+        // Released at 35 pt (well under half a chip, slowly): it springs back.
         pause(0.8)
         shot(app, "\(a)-02-short-drag-springs-back")
         assertActive(app, "t-strip-wellbeing", "a short slow drag springs back")
@@ -69,8 +69,12 @@ final class PagedTabStripUITests: XCTestCase {
 
         // A tap on a neighbor chip: the strip and the page slide to it.
         let zsh = app.buttons["tabs.strip.chip.t-strip-zsh"]
-        if zsh.waitForExistence(timeout: 5), zsh.isHittable { zsh.tap() }
+        // Partly under the strip's trailing fade: tap its visible leading edge, as a person would.
+        if zsh.waitForExistence(timeout: 5) { zsh.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)).tap() }
+        print("CMUX_STRIP_TAP zsh=\(zsh.frame) strip=\(strip.frame)")
         pause(1.0)
+        print("CMUX_STRIP_TRACE \(strip.value as? String ?? "-")")
+        report(app, "\(a)-after-tap")
         shot(app, "\(a)-05-tap-neighbor")
         assertActive(app, "t-strip-zsh", "a tapped chip becomes the tab")
 
@@ -78,14 +82,17 @@ final class PagedTabStripUITests: XCTestCase {
         center.press(forDuration: 0.05, thenDragTo: center.withOffset(CGVector(dx: 150, dy: 0)),
                      withVelocity: 300, thenHoldForDuration: 0.2)
         pause(1.0)
+        print("CMUX_STRIP_TRACE_BACK \(strip.value as? String ?? "-")")
         shot(app, "\(a)-06-paged-back")
         assertActive(app, "t-strip-greeting", "a drag right pages back")
 
         // Out to the last tab (the long title, truncated) and the New Tab chip after it.
-        for _ in 0..<3 {
+        for expected in ["t-strip-zsh", "t-strip-docs", "t-strip-long"] {
             center.press(forDuration: 0.02, thenDragTo: center.withOffset(CGVector(dx: -120, dy: 0)),
                          withVelocity: 2000, thenHoldForDuration: 0)
             pause(0.9)
+            print("CMUX_STRIP_TRACE_FLING \(expected) \(strip.value as? String ?? "-") active=\(activeID(app) ?? "-")")
+            assertActive(app, expected, "each fling pages one chip")
         }
         shot(app, "\(a)-07-long-title")
         assertActive(app, "t-strip-long", "three flings reach the last tab")
@@ -183,6 +190,8 @@ final class PagedTabStripUITests: XCTestCase {
 
     @MainActor
     private func shot(_ app: XCUIApplication, _ name: String) {
+        // Wall clock of the shot, to find it in the step's screen recording (ui-video-start.txt).
+        print("CMUX_STRIP_SHOT \(name) t=\(String(format: "%.3f", Date().timeIntervalSince1970))")
         let a = XCTAttachment(screenshot: app.screenshot())
         a.name = "strip-\(name)"
         a.lifetime = .keepAlways
