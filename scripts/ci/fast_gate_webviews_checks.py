@@ -62,6 +62,7 @@ CHECKS = (
     "check:catalog-keys",
     "check:catalog-unused",
     "check:popup-hover-reveals",
+    "check:refresh-exports",
 )
 # Per check: ("lint", "") reports and is fixed forward on the nightly (--advisory-out); ("blocks", why) still fails it.
 LINT = ("lint", "")
@@ -76,6 +77,7 @@ CHECK_CLASSES = {
     "check:catalog-keys": LINT,
     "check:catalog-unused": LINT,
     "check:popup-hover-reveals": LINT,
+    "check:refresh-exports": LINT,
 }
 ADVISORY_EXCERPT = 40  # findings per check in the advisory report; the run log holds them all
 # A typecheck red only in files the app never ships (benches, tests, galleries, the dev server, scripts) says
@@ -379,6 +381,9 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             if check == "check:ui-review" and not (base_webviews / "scripts/check-ui-review.ts").is_file():
                 print("webviews checks: check:ui-review is new; base has no command, so this transition is not charged", flush=True)
+                continue
+            if check == "check:refresh-exports" and not (base_webviews / "scripts/check-refresh-exports.mjs").is_file():
+                print("webviews checks: check:refresh-exports is new; base has no command, so this transition is not charged", flush=True)
                 continue
             base_code, base_output = run_check(base_webviews, check)
             new, old = (compare(output, base_output, str(repo), str(base_webviews.parent)) if base_code != 0
