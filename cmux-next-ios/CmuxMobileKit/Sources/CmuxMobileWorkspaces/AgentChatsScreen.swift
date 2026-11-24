@@ -229,7 +229,6 @@ struct AgentChatsScreen: View {
     let source: WorkspaceTabsSource
     @State private var model: AgentChatsModel
     @State private var confirmingStopAll = false
-    @State private var showsUpdating = false
 
     private var stopAllTitle: String {
         let count = model.activeChats.count
@@ -245,17 +244,8 @@ struct AgentChatsScreen: View {
         @Bindable var model = model
         content
             .navigationTitle(model.scope == .archived ? "Archived Chats" : "Agent Chats")
-            // Like the Workspaces list: a reopen's refresh of the kept rows says "Updating…" here,
-            // and only once it is slow, instead of a row that pushes every chat down and back up.
-            .navigationSubtitle(showsUpdating && model.refreshing && !model.reconnecting ? "Updating…" : "")
-            .task(id: model.refreshing) {
-                guard model.refreshing else {
-                    showsUpdating = false
-                    return
-                }
-                try? await Task.sleep(for: .seconds(1.5))
-                if !Task.isCancelled { showsUpdating = true }
-            }
+            // Like the Workspaces list: a reopen's refresh of the kept rows says nothing; they
+            // update in place (Leo, 2026-11-24: "they dont need to know that it's updating before they KNOW it's updating").
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.visible, for: .navigationBar)
             .searchable(text: $model.query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search chats")
@@ -353,9 +343,9 @@ struct AgentChatsScreen: View {
     private var list: some View {
         let rows = model.visible
         return List {
-            // The kept rows show while the Mac's newest page loads; "Updating…" is the nav bar
-            // subtitle (see body) and a dropped link is a chip over the list (``linkChip``), so
-            // no row is inserted above them and nothing shifts.
+            // The kept rows show while the Mac's newest page loads, with no word that they do;
+            // a dropped link is a chip over the list (``linkChip``), so no row is inserted above
+            // them and nothing shifts.
             ForEach(rows) { chat in
                 row(chat)
             }
