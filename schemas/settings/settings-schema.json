@@ -553,7 +553,10 @@
               "sidebar.workspaceRow.working",
               "sidebar.workspaceRow.log",
               "sidebar.workspaceRow.notification",
-              "sidebar.workspaceRow.secondLineOrder"
+              "sidebar.workspaceRow.secondLineOrder",
+              "sidebar.workspaceRow.lines",
+              "sidebar.workspaceRow.linesByKind",
+              "sidebar.workspaceRow.linesByAgent"
             ],
             "title" : {
               "key" : "settings.group.workspaceRows",
@@ -73292,7 +73295,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "folder",
+      "default" : "auto",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -82775,7 +82778,7 @@
         "tokens"
       ],
       "kind" : "json",
-      "page_hidden" : true,
+      "page_hidden" : false,
       "path" : [
         "sidebar",
         "workspaceRow",
@@ -82878,7 +82881,7 @@
           "operations" : [
 
           ],
-          "reason" : "The Sidebar page's row layout editor edits it (CMUX-383); cmux settings set and the file keep working.",
+          "reason" : "the Sidebar page's row layout editor edits it (CMUX-383): the palette has no nested-JSON value page",
           "row" : null
         },
         "socket" : {
@@ -82973,7 +82976,7 @@
         "browser"
       ],
       "kind" : "json",
-      "page_hidden" : true,
+      "page_hidden" : false,
       "path" : [
         "sidebar",
         "workspaceRow",
@@ -83087,7 +83090,7 @@
           "operations" : [
 
           ],
-          "reason" : "The Sidebar page's row layout editor edits it (CMUX-383); cmux settings set and the file keep working.",
+          "reason" : "the Sidebar page's row layout editor edits it (CMUX-383): the palette has no nested-JSON value page",
           "row" : null
         },
         "socket" : {
@@ -83177,7 +83180,7 @@
         "codex"
       ],
       "kind" : "json",
-      "page_hidden" : true,
+      "page_hidden" : false,
       "path" : [
         "sidebar",
         "workspaceRow",
@@ -83289,7 +83292,7 @@
           "operations" : [
 
           ],
-          "reason" : "The Sidebar page's row layout editor edits it (CMUX-383); cmux settings set and the file keep working.",
+          "reason" : "the Sidebar page's row layout editor edits it (CMUX-383): the palette has no nested-JSON value page",
           "row" : null
         },
         "socket" : {
