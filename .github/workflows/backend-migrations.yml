@@ -342,9 +342,12 @@ jobs:
           bun migrate.ts --env production --dir "$GITHUB_WORKSPACE/head-migrations" --verify
 
   gate:
-    # A skipped job reads as success for a required check, so an ignored edit's or label's skipped gate
-    # publishes another name and never answers for `backend migrations applied`.
-    name: ${{ github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && github.event.pull_request.base.ref == 'feat-cmux-next' && 'backend migrations metadata edit (ignored)' || github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["backend:apply-migrations","full-ci"]'), github.event.label.name) && 'backend migrations label (ignored)' || 'backend migrations applied' }}
+    # A literal name, never a ${{ }} expression: a job skipped by its `if:` posts its name unevaluated, so
+    # an expression-named gate skipped on a clean plan reported as that raw expression and never as the
+    # required `backend migrations applied`, which left every PR into main without a migration change
+    # unmergeable (cmux#54576 at 64df778). This copy only runs for PRs into main (pull_request_target
+    # takes the base's file), so the feat-cmux-next renames of ignored edits and labels never applied here.
+    name: backend migrations applied
     needs: [plan, apply-production]
     # A plan that succeeded with no migration change starts no gate VM: a job skipped by its `if:` reports
     # success for the required check, which is the verdict this job gave there after a ~25 s VM (3.7k VMs a
