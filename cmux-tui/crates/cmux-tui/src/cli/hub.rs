@@ -234,7 +234,7 @@ pub(super) fn parse(
                         .cloned()
                         .ok_or_else(|| format!("{f} needs a value"))?,
                 };
-                let field = &f[2..];
+                let field = f.strip_prefix("--").unwrap_or(f);
                 let parsed = serde_json::from_str(&raw).unwrap_or(Value::String(raw));
                 if action_fields.insert(field.to_owned(), parsed).is_some() {
                     return Err(format!("duplicate action field {f}"));
