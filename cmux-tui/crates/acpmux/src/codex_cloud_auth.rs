@@ -67,7 +67,7 @@ pub struct Inputs<'a> {
 }
 
 impl Inputs<'_> {
-    fn codex_home(&self) -> PathBuf {
+    pub(crate) fn codex_home(&self) -> PathBuf {
         (self.var)("CODEX_HOME").map(PathBuf::from).unwrap_or_else(|| self.home.join(".codex"))
     }
 
@@ -85,7 +85,7 @@ impl Inputs<'_> {
         mode(text.lines().next().unwrap_or(""))
     }
 
-    fn own_login(&self) -> bool {
+    pub(crate) fn own_login(&self) -> bool {
         (self.var)("CODEX_API_KEY").is_some()
             || crate::agent_login::signed_in_at(
                 crate::agent_login::Agent::Codex,
