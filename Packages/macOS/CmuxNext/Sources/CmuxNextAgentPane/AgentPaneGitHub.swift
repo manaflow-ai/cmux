@@ -6,7 +6,8 @@ import Foundation
 /// (acpmux `github_rest_op.rs`, op table cmux-host `github_rest.rs`). The daemon runs it with a
 /// cmux GitHub App token minted for that one repository when the person is signed in to cmux, else
 /// with their own `gh`; neither needs a `gh` login here. This is only the wire.
-public nonisolated enum AgentPaneGitHub {
+public nonisolated struct AgentPaneGitHub {
+    public nonisolated init() {}
     /// One op's answer.
     public struct Answer: Equatable, Sendable {
         /// GitHub took it (a 2xx, and a GraphQL answer with data).
