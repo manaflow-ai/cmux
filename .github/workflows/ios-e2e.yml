@@ -234,7 +234,7 @@ jobs:
           wait "$pull"
 
       - name: Save Bun package cache
-        if: steps.bun-cache.outputs.cache-hit != 'true'
+        if: ${{ (steps.bun-cache.outputs.cache-hit != 'true') && (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -266,7 +266,7 @@ jobs:
           tar -xzf "$archive" -C "$RUNNER_TEMP/iroh-relay" ./iroh-relay
 
       - name: Save iroh-relay archive
-        if: steps.relay-cache.outputs.cache-hit != 'true'
+        if: ${{ (steps.relay-cache.outputs.cache-hit != 'true') && (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ${{ runner.temp }}/iroh-relay-archive
