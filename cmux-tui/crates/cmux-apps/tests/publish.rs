@@ -322,3 +322,134 @@ fn a_pending_version_the_platform_never_got_settles_failed_and_stops() {
     assert_eq!(*world.procs.stopped.borrow(), [500]);
     assert_eq!(app.live, None);
 }
+
+const SECRET: &str = "sk_live_only_for_web";
+
+fn with_secret(world: &World) {
+    world
+        .agent
+        .secrets
+        .borrow_mut()
+        .insert("web".into(), [("STRIPE_KEY".to_owned(), SECRET.to_owned())].into_iter().collect());
+}
+
+#[test]
+fn an_apps_secret_reaches_its_own_process_after_the_service_env_literals() {
+    let world = World::new();
+    with_secret(&world);
+    world
+        .agent
+        .secrets
+        .borrow_mut()
+        .get_mut("web")
+        .unwrap()
+        .insert("NODE_ENV".into(), "staging".into());
+    world.fs.file(
+        "/state/apps/web/v1/src/.cmux/apps/web/app.json",
+        br#"{"service": {"env": {"NODE_ENV": "production", "LOG_LEVEL": "info"}}}"#,
+    );
+    world.with(|host| publish(host, &request())).unwrap();
+
+    let reads = world.process_env_reads();
+    assert_eq!(reads.len(), 1);
+    assert_eq!(
+        (reads[0].method.as_str(), reads[0].path.as_str()),
+        ("POST", "/v1/cloud/apps/web/process-env")
+    );
+    assert_eq!(reads[0].body, Some(json!({"machine": "vm_self"})));
+    let env = world.procs.spawned.borrow()[0].env.clone();
+    assert!(env.contains(&("STRIPE_KEY".to_owned(), SECRET.to_owned())), "{env:?}");
+    assert!(env.contains(&("LOG_LEVEL".to_owned(), "info".to_owned())));
+    // A secret wins over a literal of the same name, and each name appears once.
+    assert!(env.contains(&("NODE_ENV".to_owned(), "staging".to_owned())), "{env:?}");
+    assert_eq!(env.iter().filter(|(k, _)| k == "NODE_ENV").count(), 1);
+    // Never on disk: not in the version record, the app state, or anything else written.
+    assert!(!world.stored_anywhere(SECRET), "a secret value was written to disk");
+}
+
+#[test]
+fn a_secret_never_reaches_another_apps_process() {
+    let world = World::new();
+    with_secret(&world);
+    world.with(|host| publish(host, &request())).unwrap();
+    let mut other = request();
+    other.name = Some("api".into());
+    world.with(|host| publish(host, &other)).unwrap();
+
+    let spawned = world.procs.spawned.borrow();
+    assert_eq!((spawned[0].slug.as_str(), spawned[1].slug.as_str()), ("web", "api"));
+    assert!(spawned[0].env.iter().any(|(_, v)| v == SECRET));
+    assert!(
+        spawned[1].env.iter().all(|(k, v)| k != "STRIPE_KEY" && v != SECRET),
+        "{:?}",
+        spawned[1].env
+    );
+    let paths: Vec<String> = world.process_env_reads().into_iter().map(|s| s.path).collect();
+    assert_eq!(paths, ["/v1/cloud/apps/web/process-env", "/v1/cloud/apps/api/process-env"]);
+}
+
+#[test]
+fn a_process_env_refusal_fails_the_publish_before_start_and_keeps_live() {
+    let world = World::new();
+    world.with(|host| publish(host, &request())).unwrap();
+    let before = world.changes().len();
+    *world.agent.process_env_answer.borrow_mut() = Some((
+        503,
+        json!({"error": {"code": "cloud.app.secret_unreadable", "message": "secret STRIPE_KEY can't be opened; set it again"}}),
+    ));
+    let failure = world.with(|host| publish(host, &request())).unwrap_err();
+
+    assert_eq!(failure.code, "app.secrets");
+    assert!(failure.message.contains("cloud.app.secret_unreadable"), "{}", failure.message);
+    assert!(failure.message.contains("STRIPE_KEY"), "{}", failure.message);
+    assert_eq!(world.procs.spawned.borrow().len(), 1, "v2 started without its secrets");
+    assert_eq!(world.changes().len(), before, "a version without its secrets reached the platform");
+    let app = world.with(|host| state::load(host.fs, &host.apps_root, "web")).unwrap().unwrap();
+    assert_eq!(app.live, Some(1));
+    assert_eq!(app.version(1).unwrap().state, VersionState::Live);
+    assert_eq!(app.version(2).unwrap().state, VersionState::Failed);
+}
+
+#[test]
+fn an_app_the_platform_does_not_know_yet_starts_with_no_secrets() {
+    let world = World::new();
+    *world.agent.process_env_answer.borrow_mut() =
+        Some((404, json!({"error": {"code": "cloud.app.not_found", "message": "no such app"}})));
+    let done = world.with(|host| publish(host, &request())).unwrap();
+    assert_eq!(done.version.state, VersionState::Live);
+
+    // Any other 404 (the machine is not the creator's) is a refusal.
+    *world.agent.process_env_answer.borrow_mut() = Some((
+        404,
+        json!({"error": {"code": "cloud.app.machine_not_found", "message": "no such Cloud machine of yours"}}),
+    ));
+    let failure = world.with(|host| publish(host, &request())).unwrap_err();
+    assert_eq!(failure.code, "app.secrets");
+}
+
+#[test]
+fn a_rollback_restart_gets_its_apps_secrets_and_a_refusal_keeps_live() {
+    let world = World::new();
+    with_secret(&world);
+    world.with(|host| publish(host, &request())).unwrap();
+    world.with(|host| publish(host, &request())).unwrap();
+    world.procs.dead.borrow_mut().insert(500);
+
+    *world.agent.process_env_answer.borrow_mut() = Some((
+        503,
+        json!({"error": {"code": "cloud.app.secrets_unconfigured", "message": "app secrets are not configured on this deployment"}}),
+    ));
+    let failure =
+        world.with(|host| rollback(host, "web", None, Duration::from_secs(60))).unwrap_err();
+    assert_eq!(failure.code, "app.secrets");
+    assert_eq!(world.procs.spawned.borrow().len(), 2);
+    let app = world.with(|host| state::load(host.fs, &host.apps_root, "web")).unwrap().unwrap();
+    assert_eq!(app.live, Some(2));
+
+    *world.agent.process_env_answer.borrow_mut() = None;
+    world.with(|host| rollback(host, "web", None, Duration::from_secs(60))).unwrap();
+    let spawned = world.procs.spawned.borrow();
+    assert!(spawned[2].restart);
+    assert!(spawned[2].env.contains(&("STRIPE_KEY".to_owned(), SECRET.to_owned())));
+    assert!(!world.stored_anywhere(SECRET));
+}
