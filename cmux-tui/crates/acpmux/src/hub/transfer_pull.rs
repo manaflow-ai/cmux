@@ -174,6 +174,21 @@ fn manifest_page(dir: &Path, params: &Value) -> Result<Value, RpcError> {
               "next": end, "eof": end == text.len(), "bytes": text.len()}))
 }
 
+/// The hub's code for a message to a machine whose credential it revoked with no newer one
+/// since: the machine was deleted (or removed from the team) and will never answer as that
+/// machine again. Not `machine.revoked`, which is the hub refusing this daemon's own credential.
+pub const RECIPIENT_REVOKED: &str = "mesh.recipient_revoked";
+
+/// Whether `hub_control`'s error is the hub refusing the message because its target machine is
+/// gone for good, not merely offline (an offline or paused machine is `mesh.unknown_recipient`).
+pub(super) fn target_deleted(e: &RpcError) -> bool {
+    e.data
+        .as_ref()
+        .and_then(|d| d.get("code"))
+        .and_then(Value::as_str)
+        .is_some_and(|code| code == RECIPIENT_REVOKED)
+}
+
 /// One connection to a move's source: `read` and `renew` of `_acpmux/transfer_*`, answered.
 pub trait PageSource: Send {
     fn call<'a>(
@@ -263,8 +278,7 @@ impl Hub {
 
     /// The chat `session_id` when move `transfer_id` landed here already, as a pull answers it.
     fn pulled(&self, session_id: &str, transfer_id: &str) -> Option<Value> {
-        let session =
-            self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(session_id).cloned()?;
+        let session = self.session_get(session_id)?;
         if self.moved_away(&session) {
             return None;
         }
@@ -536,21 +550,25 @@ impl Hub {
     }
 
     /// The source's watch asks the hub target `daemon` to give the move up: whether the chat
-    /// landed there; None when it cannot say.
+    /// landed there, or that the hub knows the machine is gone (its credential revoked, so it
+    /// can never answer); `Unknown` when it cannot say.
     pub(super) async fn ask_hub_forget(
         &self,
         daemon: &str,
         session_id: &str,
         transfer_id: &str,
-    ) -> Option<bool> {
+    ) -> super::transfer_watch::TargetSays {
+        use super::transfer_watch::TargetSays;
         let body = json!({"version": 1, "transferId": transfer_id, "sessionId": session_id});
         let key = format!("forget-{transfer_id}");
         let op = crate::mesh_relay_config::MOVE_FORGET_OP;
         match self.hub_control(daemon, op, body, key, FORGET_WAIT).await {
-            Ok(Ok(Some(result))) => {
-                serde_json::from_str::<Value>(&result).ok()?.get("landed")?.as_bool()
-            }
-            _ => None,
+            Ok(Ok(Some(result))) => serde_json::from_str::<Value>(&result)
+                .ok()
+                .and_then(|v| v.get("landed").and_then(Value::as_bool))
+                .map_or(TargetSays::Unknown, TargetSays::landed),
+            Err(e) if target_deleted(&e) => TargetSays::Deleted,
+            _ => TargetSays::Unknown,
         }
     }
 

@@ -77,17 +77,37 @@ public final class AgentLaneStore {
         syncCell(session)
         // Rescan only when this session's Chief tags change, not on every step of its output.
         if Self.chiefOwnership(lane) != ownedBefore { syncChiefParticipants() }
-        // Only a session that came, went or was renamed changes the names: a step of its output does not.
-        if lane?.name != nameBefore || lane?.createdAt != startBefore { syncNames() }
+        // Only a session that came, went or was renamed changes the names: a step of its output does not. Then
+        // only the name it left and the name it has are looked at, never every lane (hq#22614: 2-8 s hangs in the
+        // old whole-store rebuild, 214 chats and many peers' lanes on Leo's Mac).
+        if lane?.name != nameBefore || lane?.createdAt != startBefore {
+            let touched = nameIndex.move(session, from: nameBefore, to: lane.map { ($0.name, $0.createdAt) })
+            for name in touched { syncName(name) }
+        }
     }
 
+    /// ``names`` and ``sessionStarts`` from the whole store (a whole-store write): O(lanes).
     private func syncNames() {
-        let current = Set(storage.values.map(\.name))
+        nameIndex = LaneNameIndex(storage)
+        let current = nameIndex.names
         if names != current { names = current }
-        let starts = Dictionary(storage.values.compactMap { lane in lane.createdAt.map { (lane.name, $0) } },
-                                uniquingKeysWith: max)
+        let starts = nameIndex.starts
         if sessionStarts != starts { sessionStarts = starts }
     }
+
+    /// ``names`` and ``sessionStarts`` for `name` alone, from the index: O(sessions of that name). Each is written
+    /// only when it changed, so its readers are told only when a name comes, goes or its start moves.
+    private func syncName(_ name: String) {
+        let present = nameIndex.has(name)
+        if names.contains(name) != present {
+            if present { names.insert(name) } else { names.remove(name) }
+        }
+        let start = nameIndex.start(of: name)
+        if sessionStarts[name] != start { sessionStarts[name] = start }
+    }
+    /// Which sessions have each lane name, and their starts: what ``names`` and ``sessionStarts`` are made of, kept
+    /// per session so a session's write updates its names without a pass over every lane.
+    @ObservationIgnored private var nameIndex = LaneNameIndex()
 
     /// A lane's Chief ownership pair (its `mux.children` key and participant), on this Mac only.
     private static func chiefOwnership(_ lane: AgentActivityLane?) -> [String]? {
@@ -184,5 +204,44 @@ public final class AgentLaneStore {
         let wasLive = cell.hasLiveSession
         cell.update(lane)
         if wasLive, lane == nil { cells[session] = nil }
+    }
+}
+
+/// Lane names to the sessions that have them (and each session's start), for ``AgentLaneStore``'s ``names`` and
+/// ``sessionStarts``: moving one session costs the sessions sharing its old and new names, never every lane.
+struct LaneNameIndex {
+    private var sessions: [String: [String: Date?]] = [:]
+
+    init() {}
+
+    init(_ lanes: [String: AgentActivityLane]) {
+        for (session, lane) in lanes { sessions[lane.name, default: [:]][session] = .some(lane.createdAt) }
+    }
+
+    var names: Set<String> { Set(sessions.keys) }
+
+    /// The newest start of each name that has one (as `Dictionary(uniquingKeysWith: max)` made it).
+    var starts: [String: Date] {
+        var starts: [String: Date] = [:]
+        for name in sessions.keys { if let start = start(of: name) { starts[name] = start } }
+        return starts
+    }
+
+    func has(_ name: String) -> Bool { sessions[name] != nil }
+
+    /// The newest start among `name`'s sessions; nil when none knows its start.
+    func start(of name: String) -> Date? {
+        sessions[name]?.values.compactMap { $0 }.max()
+    }
+
+    /// Moves `session` from the name it had (`old`, nil: it had no lane) to `new` (nil: its lane ended); returns the
+    /// names whose sessions changed.
+    mutating func move(_ session: String, from old: String?, to new: (name: String, start: Date?)?) -> [String] {
+        if let old {
+            sessions[old]?[session] = nil
+            if sessions[old]?.isEmpty == true { sessions[old] = nil }
+        }
+        if let new { sessions[new.name, default: [:]][session] = .some(new.start) }
+        return [old, new?.name].compactMap { $0 }.reduce(into: []) { if !$0.contains($1) { $0.append($1) } }
     }
 }
