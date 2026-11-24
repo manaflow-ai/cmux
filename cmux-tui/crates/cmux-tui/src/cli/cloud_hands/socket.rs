@@ -46,6 +46,7 @@ pub(super) async fn session(
     if let Some(version) = app_version.and_then(|v| HeaderValue::from_str(v).ok()) {
         headers.insert("x-cmux-client-version", version);
     }
+    cmux_build_space::insert(headers).map_err(|e| e.to_string())?;
     let config = WebSocketConfig::default()
         .max_message_size(Some(MAX_MESSAGE))
         .max_frame_size(Some(MAX_MESSAGE));

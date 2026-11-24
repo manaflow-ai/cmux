@@ -39,6 +39,7 @@ from __future__ import annotations
 import argparse
 import ast
 import fnmatch
+import functools
 import json
 import os
 import re
@@ -74,6 +75,7 @@ RUN_CALLS = {"run", "call", "check_call", "check_output", "Popen", "execv", "exe
 
 
 # --------------------------------------------------------------------------------------------- filters
+@functools.lru_cache(maxsize=None)
 def glob_regex(pattern: str) -> re.Pattern:
     """A GitHub paths-filter glob: `**` crosses directories, `*` and `?` do not, `[..]` is a class."""
     out, i = "", 0

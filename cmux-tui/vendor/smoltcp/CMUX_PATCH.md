@@ -67,8 +67,17 @@ changed (cmux-wg calls it when its multipath underlay leaves the path that
 carried the session, or the peer roams). With data unacknowledged, the socket
 resends from the oldest unacknowledged byte at its next poll, as an RTO would,
 slow start included, but its RTO returns to the RTT estimate's value instead of
-doubling: the losses were the old route's. With nothing in flight it does
+doubling: the losses were the old route's. With nothing in flight it resends
 nothing.
+
+`Socket::set_retransmit_paused(true)` is for a peer that went silent on purpose
+(cmux-wg's `WgNet::hold`, a phone the OS suspended in the background). Data in
+flight is not resent while paused: no RTO, tail-loss probe or zero-window probe,
+and `poll_at` waits for ingress instead of their deadlines. New data is still
+sent once, and arriving segments are answered. `set_retransmit_paused(false)`
+with data in flight resends at the next poll as `path_changed()` does. The
+detector is `test_retransmit_paused_resends_nothing_until_resumed`, and in
+cmux-wg `a_held_tunnel_does_not_retransmit_unacknowledged_output`.
 
 `Socket::link_repairs_losses()` is for a tunnel that starts repairing its own
 losses below TCP (cmux-wg's ultra mode, which "Auto" turns on at the first
@@ -81,6 +90,40 @@ the window as usual. Without it, a loss early in slow start at a 300 ms round
 trip cut the window of a stream that needed it, and the stream ran seconds
 behind for the rest of the session; a tunnel that had repair on from the start
 never saw the loss at all. The controllers derive `Clone` for the saved copy.
+
+`Socket::unsent_queue()` returns the octets in the transmit buffer that were
+never sent (`send_queue()` also counts those in flight), and
+`Socket::smoothed_rtt()` the RFC 6298 SRTT. cmux-wg reads both to keep at most
+about one bandwidth-delay product of unsent bytes in a socket, as Linux's
+`TCP_NOTSENT_LOWAT` does: bytes in a socket can no longer be reordered, so a
+latency-bound frame queued behind them waits for all of them. The detector is
+`test_unsent_queue_and_smoothed_rtt`.
+
+A pure ACK carries the highest sequence number sent (SND.MAX), as Linux's do,
+not the send point a retransmission timeout rewound. After an RTO smoltcp
+resends from the oldest unacknowledged byte, and it numbered its ACKs from
+there too; a peer that already held data past that point (its ACK was lost)
+saw those ACKs as old segments and dropped them with the acknowledgment they
+carried (RFC 9293 3.10.7.4). With data flowing both ways through loss, both
+ends rewound, each dropped the other's ACKs, and the connection stalled until
+its user timeout. The tunnel TCP model test found it once a gate held writes
+back (seed 13 of `tunnel_tcp_delivers_every_byte_once_in_order_over_a_lossy_link`,
+12% loss). The detector is `test_pure_ack_after_rto_carries_send_max`.
+
+The patch also adds black-hole fallback (RFC 4821 section 7.7, Linux's
+`tcp_mtu_probing=1`), off by default: `Socket::set_black_hole_fallback(true)`.
+smoltcp sends with DF clear and does no path MTU discovery, so an underlay path
+smaller than the tunnel MTU that drops oversized packets silently carries the
+handshake, ACKs and keystrokes and loses every full segment: a bulk transfer
+stalls for good. With fallback on, after two retransmission timeouts in a row of
+a head segment larger than a 1280 byte IP packet's (an MSS of 1240 over IPv4,
+1220 over IPv6), with no ACK of new data between them, the connection sends
+segments that size from then on, starting with the resend at hand.
+`path_changed()` lifts the limit, also with nothing in flight, since a new
+route may carry full segments. Nothing changes on the wire but the segment
+size, so any peer works. cmux-wg turns it on; its detector is
+`cmux-wg/tests/path_mtu.rs`, a 4 MiB transfer at tunnel MTU 1420 over a
+1400 byte IPv6 path that drops longer packets.
 
 The changes are in `src/socket/tcp/congestion/cubic.rs` and `src/socket/tcp.rs`,
 each marked `cmux patch`, with tests next to them. Reno's own start is unchanged;

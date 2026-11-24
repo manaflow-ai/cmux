@@ -12,26 +12,20 @@ import type { Project } from "./ProjectChooser";
 import { fleetPeers } from "../../gallery/fixtures/acpmux";
 import { thisMacName } from "./environments";
 
-/// The Cloud face with its team (composerLocation.css, the team-tag rules): "Cloud" never cuts, the
-/// team's name cuts only when the strip has no room left, and the tag's tooltip names the team whole.
-async function checkCloudTeamFace(ctx: Parameters<Play>[0], team: string) {
+/// The Cloud face says only Cloud, whole: neither the chip nor the menu's Cloud row names the team
+/// (https://github.com/manaflow-ai/cmux/issues/45695; Austin, 2026-11-16: "get rid of the austin wang's team part just have cloud and
+/// that's it").
+async function checkCloudFace(ctx: Parameters<Play>[0]) {
   const find = () =>
-    ctx.document.querySelector<HTMLElement>('.acpmux-location-picker[data-kind="computer"] .acpmux-team-tag');
-  await ctx.waitFor(find);
-  const chip = find()!.closest<HTMLElement>(".acpmux-location-picker")!;
-  const label = chip.querySelector<HTMLElement>(".acpmux-location-label");
-  const tag = chip.querySelector<HTMLElement>(".acpmux-team-tag");
-  const name = chip.querySelector<HTMLElement>(".acpmux-team-tag-name");
-  if (!label || !tag || !name) throw new Error("the Cloud face draws no team");
+    ctx.document.querySelector<HTMLElement>(
+      '.acpmux-location-picker[data-kind="computer"] .acpmux-location-button .acpmux-location-label',
+    );
+  await ctx.waitFor(() => find()?.textContent === "Cloud");
+  const label = find()!;
+  const chip = label.closest<HTMLElement>(".acpmux-location-button")!;
+  if (chip.querySelector(".acpmux-team-tag")) throw new Error("the Cloud face names the team");
   if (label.offsetParent !== null && label.scrollWidth > label.clientWidth + 0.5)
     throw new Error(`"${label.textContent}" is cut`);
-  if (tag.getAttribute("title") !== team) throw new Error("the team's tooltip does not name it whole");
-  if (name.scrollWidth > name.clientWidth + 0.5) {
-    const leading = chip.parentElement!;
-    const last = leading.lastElementChild!.getBoundingClientRect();
-    const room = leading.getBoundingClientRect().right - last.right;
-    if (room > 8) throw new Error(`the team's name is cut with ${Math.round(room)} px of the strip empty`);
-  }
 }
 
 const projects: Project[] = [
@@ -145,7 +139,6 @@ function extraProps(
     extraFolders: {
       draft: { machine, folders },
       onChange: () => undefined,
-      ...(machine === "local" ? { onBrowse: () => undefined } : {}),
     },
   };
 }
@@ -155,17 +148,10 @@ const openFolderMenu: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-extra-folders"));
 };
 
-/// An experiment arm's wording for the extra-folder row, drawn over the shipped menu.
-const openFolderMenuWithExtraWords =
-  (words: string): Play =>
-  async (ctx) => {
-    await openFolderMenu(ctx);
-    const row = [...ctx.document.querySelectorAll(".acpmux-folder-popover .acpmux-location-action")].find(
-      (node) => node.textContent === "Add another folder…",
-    );
-    const label = row?.querySelector(".acpmux-menu-label");
-    if (label) label.textContent = words;
-  };
+const openExtraSources: Play = async (ctx) => {
+  await openFolderMenu(ctx);
+  await ctx.click({ role: "option", name: "Add project…" });
+};
 
 const openFolder: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Folder" });
@@ -289,7 +275,7 @@ const repoProps = {
   summary: {
     sessionId: "",
     harness: "claude",
-    cwd: repoProjects[0]!.cwd,
+    cwd: "/Users/you/src/cmux",
     host: "This Mac",
     hostKind: "local" as const,
   },
@@ -762,7 +748,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       props: baseProps,
     },
     "folder-menu": {
-      note: "Search, the recent folders (paths on hover, the current one checked), then the actions under them with their glyphs.",
+      note: "Search, recent folders with the current one checked, and Add project… below the list.",
       props: folderMenuProps,
       play: openFolder,
     },
@@ -798,7 +784,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       play: openEnvironmentWithInsetArm("compact"),
     },
     "folder-pinned-search": {
-      note: "Typing a project keeps its row active while the actions stay pinned above it.",
+      note: "Typing a project keeps its row active while Add project… stays pinned below the results.",
       props: {
         ...baseProps,
         onProject: (cwd) => {
@@ -813,35 +799,8 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
       play: openFolder,
     },
-    "folder-short-note": {
-      note: "A short pane with a private-folder explanation keeps project rows visible.",
-      props: {
-        ...repoProps,
-        summary: { ...repoProps.summary, cwd: "" },
-        folderNote: "New chats in this workspace start in a private folder.",
-      },
-      play: openFolder,
-    },
-    "folder-short-note-de": {
-      note: "A two-line German private-folder explanation in a short pane.",
-      props: {
-        ...repoProps,
-        summary: { ...repoProps.summary, cwd: "" },
-        folderNote: "Neue Chats in diesem Arbeitsbereich starten in einem privaten Ordner.",
-      },
-      play: openFolder,
-    },
-    "folder-short-note-fr": {
-      note: "A two-line French private-folder explanation in a short pane.",
-      props: {
-        ...repoProps,
-        summary: { ...repoProps.summary, cwd: "" },
-        folderNote: "Les nouvelles discussions de cet espace de travail démarrent dans un dossier privé.",
-      },
-      play: openFolder,
-    },
     "folder-long-list": {
-      note: "The actions stay under the list while a long folder list scrolls; the thumb stays inside the right edge.",
+      note: "Add project… stays below the scrolling folder list.",
       props: {
         ...baseProps,
         projectChoices: Array.from({ length: 40 }, (_, index) => ({
@@ -853,13 +812,13 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       play: openFolder,
     },
     "folder-favicons": {
-      note: "Projects with a favicon (public/, app/, the folder itself) show it in their tile; cmux has none and draws a plain folder.",
+      note: "The folder chip shows the selected project's icon, and folder rows use aligned text.",
       props: baseProps,
       chipHost: { projectIcons },
       play: openFolder,
     },
     "framework-marks": {
-      note: "With no favicon, each project shows its framework or language (from package.json dependencies, Package.swift, Cargo.toml…) in its brand color; a folder with no manifest shows a folder.",
+      note: "The folder chip can show a framework icon. The list shows project names without icons.",
       props: frameworkProps,
       chipHost: frameworkHost,
       play: openFolder,
@@ -885,8 +844,14 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
     },
     "repo-worktrees": {
-      note: "Worktrees fold under their repository: one cmux row (the current worktree's branch dimmed, its other worktrees counted), avatars and framework glyphs, else a plain folder.",
+      note: "The main checkout is selected. Hover or highlight the cmux row to see its worktree count.",
       props: repoProps,
+      chipHost: repoHost,
+      play: openFolder,
+    },
+    "repo-worktrees-current": {
+      note: "The current worktree is checked under its expanded repository row.",
+      props: { ...repoProps, summary: { ...repoProps.summary, cwd: repoProjects[0]!.cwd } },
       chipHost: repoHost,
       play: openFolder,
     },
@@ -1287,54 +1252,6 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-mode="cloud"][data-current]'));
       },
     },
-    "environment-picker-cloud-team-row": {
-      note: "Active team (Leo, 2026-11-09: \"i guess is team? it's kinda hard to realize tho\"): the Cloud row names the team Cloud runs in, with the people icon the account menu and Switch Active Team draw on that team's row.",
-      props: {
-        ...baseProps,
-        environments: true,
-        cloudSignedIn: true,
-        cloudTeam: { name: "cmux", personal: false },
-        runMode: { mode: "persistent", onMode: () => undefined },
-      },
-      play: async (ctx) => {
-        await ctx.click({ role: "button", name: /^Environment/ });
-        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-mode="cloud"] .acpmux-team-tag'));
-      },
-    },
-    "environment-picker-cloud-team-closed": {
-      note: "Active team: Cloud picked, the closed control says Cloud and the team it runs in.",
-      props: {
-        ...baseProps,
-        environments: true,
-        cloudSignedIn: true,
-        cloudTeam: { name: "cmux", personal: false },
-        runMode: { mode: "cloud", onMode: () => undefined },
-      },
-    },
-    "environment-picker-cloud-long-team-closed": {
-      note: "Cloud picked in a long team: the location word reads Cloud in full; the team name gives up its width first.",
-      props: {
-        ...baseProps,
-        environments: true,
-        cloudSignedIn: true,
-        cloudTeam: { name: "Austin Wang's Team", personal: false },
-        runMode: { mode: "cloud", onMode: () => undefined },
-      },
-    },
-    "environment-picker-cloud-long-team-row": {
-      note: "The Cloud row with a long team: label left, the team at the trailing edge in the shortcut's caption style (as This Mac's ⌥⌘1), the check in its own column.",
-      props: {
-        ...baseProps,
-        environments: true,
-        cloudSignedIn: true,
-        cloudTeam: { name: "Austin Wang's Team", personal: false },
-        runMode: { mode: "cloud", onMode: () => undefined },
-      },
-      play: async (ctx) => {
-        await ctx.click({ role: "button", name: /^Environment/ });
-        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-mode="cloud"] .acpmux-team-tag'));
-      },
-    },
     "folder-cloud-start-out": {
       note: "A Cloud start is out (the composer takes typing as a draft): the folder chip is a plain label of what the start carries, never this Mac's folder menu.",
       props: {
@@ -1364,41 +1281,10 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-menu, [role='listbox']"));
       },
     },
-    "environment-picker-cloud-team-long": {
-      note: 'Active team with a long name (Leo, 2026-11-10: "this broken too", the strip read "Cl..." and "leo@cmux.com\'..." beside empty room). The control takes the room the team needs: Cloud never cuts, and the team\'s name cuts only once the strip is full.',
-      props: {
-        ...baseProps,
-        environments: true,
-        cloudSignedIn: true,
-        cloudTeam: { name: "leo@cmux.com's team", personal: false },
-        runMode: { mode: "cloud", onMode: () => undefined },
-      },
-      play: async (ctx) => checkCloudTeamFace(ctx, "leo@cmux.com's team"),
-    },
-    "environment-picker-cloud-team-overlong": {
-      note: "Active team whose name cannot fit any strip: only the team's name shortens, Cloud and both icons stay whole, and the tag's tooltip names the team in full.",
-      props: {
-        ...baseProps,
-        environments: true,
-        cloudSignedIn: true,
-        cloudTeam: { name: "Platform Infrastructure and Developer Experience (EMEA)", personal: false },
-        runMode: { mode: "cloud", onMode: () => undefined },
-      },
-      play: async (ctx) => checkCloudTeamFace(ctx, "Platform Infrastructure and Developer Experience (EMEA)"),
-    },
-    "environment-picker-cloud-personal-closed": {
-      note: "Active team: the person's own team. Cloud reads Personal with a person icon, never the people icon of a shared team.",
-      props: {
-        ...baseProps,
-        environments: true,
-        cloudSignedIn: true,
-        cloudTeam: { name: "Personal", personal: true },
-        runMode: { mode: "cloud", onMode: () => undefined },
-      },
-    },
     "environment-picker-cloud-closed": {
       note: "Labs (cloud work mode): the closed control with Cloud picked, as the composer shows it before the first send.",
       props: { ...baseProps, environments: true, runMode: { mode: "cloud", onMode: () => undefined } },
+      play: checkCloudFace,
     },
     "environment-picker-cloud-machines": {
       note: "Machines…: the machines, then the account's Cloud machines acpmux does not list (`cloudMachine.list`) among the other machines, each with its stage: build box is paused (a pick resumes it), eval box is ready (a pick opens it), fresh box is still booting. They take no ⌥⌘ digit and are not greyed.",
@@ -1536,7 +1422,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
     // this Mac with two Cloud machines, a Cloud chat moved from this Mac (This Mac and another
     // machine), a Cloud chat that started there (only other machines), and a target greyed with why.
     "started-move-to-menu": {
-      note: "Preview, a started chat on this Mac with two Cloud machines: Move to… opens a list of them.",
+      note: "Preview, a started chat on this Mac with two Cloud machines: Move to… opens on This Mac, checked, then the two.",
       props: {
         ...baseProps,
         environments: true,
@@ -1598,6 +1484,28 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         },
       },
       play: openMachineCardMoves,
+    },
+    "started-move-to-many": {
+      note: "Preview, a started chat on this Mac with five Cloud machines: Move to… opens on This Mac, checked, then the machines.",
+      props: {
+        ...baseProps,
+        environments: true,
+        started: true,
+        onOffload: () => undefined,
+        offloads: ["move"],
+        moveTargets: ["dev-box", "gpu-box", "docs-box", "ci-box", "a-machine-with-a-very-long-name-for-one-row"].map(
+          (label) => ({ id: `vm-${label}`, label, kind: "cloud" as const }),
+        ),
+        onMoveTo: () => undefined,
+        summary: {
+          sessionId: "gallery-move-many",
+          harness: "claude",
+          cwd: projects[0]!.cwd,
+          host: "This Mac",
+          hostKind: "local",
+        },
+      },
+      play: openMoveTo,
     },
     "started-move-to-refused": {
       note: "Preview, Move to… with one machine that cannot take the chat now: greyed, with why under its name.",
@@ -1696,41 +1604,19 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       }),
       play: openFolderMenu,
     },
-    "extra-folders-adding": {
-      note: "Add another folder… turns the menu into a pick of one more folder: its search says Add a folder, the project and the folders already added are not offered, Add folder… opens this Mac's panel.",
-      props: extraProps("local", ["/Users/you/src/relay"], {
-        summary: { sessionId: "", harness: "claude", cwd: projects[0]!.cwd, host: "This Mac", hostKind: "local" },
-      }),
-      play: async (ctx) => {
-        await openFolderMenu(ctx);
-        await ctx.click({ role: "option", name: "Add another folder…" });
-        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-folder-popover input[placeholder="Add a folder"]'));
-      },
-    },
-    // Leo, 2026-11-06, on the old menu's Do not work in a project, Add project, Choose folder… and
-    // Add folder…: "what even is the deal with add project? what is that? and add folder? why not
-    // just add fodler? what's special about project?". One concept: a folder. These arms differ only
-    // in how the one row that is not about the chat's own folder reads.
     "folder-one-concept": {
-      note: "Shipped (Leo: \"it's just folder\"): search, the recent folders with their icons and the current one checked, then Add folder… (this Mac's folder panel), Add another folder… (one more folder the chat also sees) and No folder, each with its glyph.",
+      note: "The current folder has a check, No folder clears it, and Add project… opens the sources.",
       props: extraProps("local", ["/Users/you/notes"], {
         summary: { sessionId: "", harness: "claude", cwd: projects[0]!.cwd, host: "This Mac", hostKind: "local" },
       }),
       play: openFolderMenu,
     },
-    "folder-one-concept-also-show": {
-      note: "Experiment arm: the extra row as Also show a folder…; rejected, it reads as a view filter, not a folder the agent can read and edit.",
+    "folder-project-sources": {
+      note: "Add project sources for a chat that already sees an extra folder.",
       props: extraProps("local", ["/Users/you/notes"], {
         summary: { sessionId: "", harness: "claude", cwd: projects[0]!.cwd, host: "This Mac", hostKind: "local" },
       }),
-      play: openFolderMenuWithExtraWords("Also show a folder…"),
-    },
-    "folder-one-concept-let-see": {
-      note: "Experiment arm: the extra row as Let it see another folder…; rejected, the longest row in the menu, and nothing in the menu names the 'it'.",
-      props: extraProps("local", ["/Users/you/notes"], {
-        summary: { sessionId: "", harness: "claude", cwd: projects[0]!.cwd, host: "This Mac", hostKind: "local" },
-      }),
-      play: openFolderMenuWithExtraWords("Let it see another folder…"),
+      play: openExtraSources,
     },
     "extra-folders-peer": {
       note: "A new chat on an SSH machine: its folders are that machine's (its own folder list or a typed path, never this Mac's panel); two of them sit beside its project.",

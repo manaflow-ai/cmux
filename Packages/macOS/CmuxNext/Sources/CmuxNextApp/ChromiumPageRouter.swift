@@ -20,10 +20,7 @@ enum ChromiumPageRouter {
     /// `pane` (else the active window's focused pane), connecting at once
     /// only for a person's input, and returns nil.
     static func routed(_ url: URL, services: AppServices, focus: Bool = true, in pane: PaneController? = nil) -> URL? {
-        if let record = MacScreenRecord(url: url) {
-            services.macScreenTabs.openAddress(record, in: pane, focus: focus)
-            return nil
-        }
+        if let record = MacScreenRecord(url: url) { services.macScreenTabs.openAddress(record, in: pane, focus: focus); return nil }
         // Stashed Tabs is a top page, not a browser page: it opens instead, and nothing loads.
         if url.isStashedPage {
             _ = try? StashHandlers.show(services, focus: focus)

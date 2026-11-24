@@ -278,7 +278,8 @@ pub(crate) fn handle_push(shared: &Arc<Shared>, text: &str, consent: impl FnOnce
                     tracing::info!("{LOG}: {why}; ended");
                     // The app's sheet asks the person for what is missing (acpmux's record).
                     let _ = crate::cli::cloud_join::record_consent_refusal(surface);
-                    end_later(shared.hub(), &session_id, "failed");
+                    // Says why, so the viewer reads it rather than a failed stream (the app's host does too).
+                    end_later(shared.hub(), &session_id, "consent_required");
                 }
                 Decided::End(reason, why) => {
                     tracing::info!("{LOG}: {why}; ended");
@@ -296,7 +297,42 @@ pub(crate) fn handle_push(shared: &Arc<Shared>, text: &str, consent: impl FnOnce
             refresh_devices(shared);
             shared.relay(text);
         }
+        // Not relayed to the app: the approval is this daemon's to admit.
+        super::approval::PUSH => receive_approval(shared, push.clone()),
         _ => shared.relay(text),
+    }
+}
+
+/// A share approval the hub carried here (`approval.rs`): admitted (and sharing turned on) or
+/// refused, audited either way, off the socket thread (it reads the hub's device list and may
+/// turn sharing on). Approvals are decided one at a time, so a nonce is taken once.
+fn receive_approval(shared: &Arc<Shared>, push: Value) {
+    use super::approval;
+    let shared = shared.clone();
+    let spawned = std::thread::Builder::new().name("share-host-approval".into()).spawn(move || {
+        let hub = shared.hub();
+        let dir = super::dir(&shared.home);
+        let decision = shared.with_seen_approvals(|seen| {
+            approval::receive(&*hub, &push, approval::now_secs(), seen, |entry| {
+                approval::append_audit(&dir, entry);
+            })
+        });
+        match decision {
+            Ok(()) => {
+                shared.update_link(|link| link.sharing = Some(true));
+                tracing::info!("{LOG}: the owner's device turned sharing on");
+            }
+            Err(refused) => {
+                tracing::info!(
+                    "{LOG}: share approval refused: {} {}",
+                    refused.code,
+                    refused.message
+                );
+            }
+        }
+    });
+    if let Err(e) = spawned {
+        tracing::warn!("{LOG}: the share approval was not read: {e}");
     }
 }
 
@@ -330,7 +366,9 @@ fn decide(shared: &Shared, push: &Value, consent: impl FnOnce() -> Consent) -> D
         refresh_devices(shared);
         platform = shared.platform_of(&ticket.peer_id);
     }
-    let consent = consent();
+    // The person's own device, as the hub authenticated it, needs no consent on this Mac (the
+    // default consent is the Labs switch off: everything is allowed); others read it now.
+    let consent = if route::own_account(push) { Consent::default() } else { consent() };
     match route::route(&ticket, platform.as_deref(), shared.app_attached(), consent) {
         Route::Daemon { view_only } => Decided::Serve(view_only),
         Route::App => Decided::App,

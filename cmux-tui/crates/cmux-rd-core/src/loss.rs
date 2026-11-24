@@ -1,5 +1,7 @@
 //! Packet-weighted transport loss with bounded tolerance for reordered feedback.
 //! A later receipt exposes a possible gap, but does not prove that gap is lost.
+//! A NACK resend is the same datagram under the same transport sequence, so its
+//! receipt cannot tell the copies apart: a resent packet settles as lost.
 
 use std::collections::{HashMap, VecDeque};
 
@@ -13,6 +15,11 @@ const REORDER_GRACE_US: u64 = 100_000;
 struct Sent {
     seq: u16,
     arrived: bool,
+    /// Never sent after all (`forget`): settles as neither received nor lost.
+    retired: bool,
+    /// Resent on a NACK before any receipt (`on_resent`): settles as lost, since
+    /// a receipt of the copy would otherwise hide the original's loss.
+    resent: bool,
     settle_due_us: Option<u64>,
 }
 
@@ -41,9 +48,40 @@ impl LossMeter {
     pub fn on_sent(&mut self, seq: u16) {
         self.ordinals.insert(seq, self.next_ordinal);
         self.next_ordinal += 1;
-        self.order.push_back(Sent { seq, arrived: false, settle_due_us: None });
+        self.order.push_back(Sent {
+            seq,
+            arrived: false,
+            retired: false,
+            resent: false,
+            settle_due_us: None,
+        });
         while self.order.len() > MAX_TRACKED {
             self.pop_front(); // Eviction is unknown evidence, not network loss.
+        }
+    }
+
+    /// A datagram recorded by `on_sent` was dropped before it left (a pacer
+    /// queue emptied after an outage, D12): its missing receipt is not loss.
+    pub fn forget(&mut self, seq: u16) {
+        let first_ordinal = self.next_ordinal - self.order.len() as u64;
+        let Some(ordinal) = self.ordinals.remove(&seq) else { return };
+        if let Some(packet) = self.order.get_mut((ordinal - first_ordinal) as usize) {
+            packet.retired = true;
+        }
+    }
+
+    /// The viewer NACKed this datagram (missing past its NACK grace) and the host
+    /// resent the same bytes. Unless a receipt came first, the original counts as
+    /// lost: the resend reuses its transport sequence, so a later receipt is the
+    /// copy's. Without this a 1 % link drop that NACK repairs reads as 0 % loss.
+    /// Tail probes are speculative resends and must not call this.
+    pub fn on_resent(&mut self, seq: u16) {
+        let first_ordinal = self.next_ordinal - self.order.len() as u64;
+        let Some(&ordinal) = self.ordinals.get(&seq) else { return };
+        if let Some(packet) = self.order.get_mut((ordinal - first_ordinal) as usize)
+            && !packet.arrived
+        {
+            packet.resent = true;
         }
     }
 
@@ -105,7 +143,10 @@ impl LossMeter {
         let (mut received, mut lost) = (0u64, 0u64);
         while self.order.front().is_some_and(|p| p.settle_due_us.is_some_and(|due| now_us >= due)) {
             let Some(packet) = self.pop_front() else { break };
-            if packet.arrived {
+            if packet.retired {
+                continue;
+            }
+            if packet.arrived && !packet.resent {
                 received += 1;
             } else {
                 lost += 1;
@@ -138,6 +179,48 @@ mod tests {
         assert_eq!(m.on_arrivals(5..10, REORDER_GRACE_US), None);
         assert_eq!(m.on_arrivals([], 2 * REORDER_GRACE_US), Some(0.0));
         assert_eq!(m.on_arrivals([], 3 * REORDER_GRACE_US), None);
+    }
+
+    #[test]
+    fn a_resent_datagram_is_loss_even_when_its_copy_arrives() {
+        let mut m = sent(10);
+        assert_eq!(m.on_arrivals([0, 1, 2, 4, 5, 6, 7, 8, 9], 0), None);
+        m.on_resent(3);
+        assert_eq!(m.on_arrivals([3], 10_000), None, "the copy's receipt");
+        assert_eq!(m.on_arrivals([], REORDER_GRACE_US), Some(0.1));
+    }
+
+    #[test]
+    fn a_resend_after_a_receipt_is_not_loss() {
+        let mut m = sent(4);
+        assert_eq!(m.on_arrivals([0, 1, 2, 3], 0), None);
+        m.on_resent(2);
+        m.on_resent(77); // unknown: ignored
+        assert_eq!(m.on_arrivals([], REORDER_GRACE_US), Some(0.0));
+    }
+
+    #[test]
+    fn one_percent_repaired_by_nack_reads_one_percent() {
+        let mut m = sent(1000);
+        let dropped = |s: &u16| s % 100 == 37;
+        assert_eq!(m.on_arrivals((0..1000).filter(|s| !dropped(s)), 0), None);
+        for seq in (0..1000).filter(dropped) {
+            m.on_resent(seq);
+        }
+        assert_eq!(m.on_arrivals((0..1000).filter(dropped), 8_000), None);
+        assert_eq!(m.on_arrivals([], REORDER_GRACE_US), Some(0.01));
+    }
+
+    #[test]
+    fn a_forgotten_datagram_is_not_loss() {
+        let mut m = sent(10);
+        for seq in 3..7 {
+            m.forget(seq);
+        }
+        assert_eq!(m.on_arrivals([0, 1, 2, 7, 8, 9], 0), None);
+        assert_eq!(m.on_arrivals([], REORDER_GRACE_US), Some(0.0));
+        assert_eq!(m.take_congestion_loss(0), None, "six settled, too few for a sample");
+        m.forget(42); // unknown: ignored
     }
 
     #[test]

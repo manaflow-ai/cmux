@@ -51,8 +51,17 @@ impl Runtime {
 }
 
 /// The runtime to use: `CMUX_MCP_CODE_RUNTIME` (a path or a kind), else
-/// Deno, Node, Bun on PATH or in their usual install folders.
+/// Deno, Node, Bun on PATH or in their usual install folders; None when there
+/// is none (`runtime` says why).
 pub fn find_runtime(env: &dyn Fn(&str) -> Option<String>) -> Option<Runtime> {
+    runtime(env).ok()
+}
+
+/// [`find_runtime`], or why there is none, in words for the caller of
+/// `mcp run`. A Node too old for `command` is passed over in the search, and
+/// refused with its version when `CMUX_MCP_CODE_RUNTIME` names it, so a script
+/// never fails inside an old Node.
+pub fn runtime(env: &dyn Fn(&str) -> Option<String>) -> Result<Runtime, String> {
     let home = env("HOME").unwrap_or_default();
     let mut dirs: Vec<PathBuf> = env("PATH")
         .unwrap_or_default()
@@ -67,7 +76,7 @@ pub fn find_runtime(env: &dyn Fn(&str) -> Option<String>) -> Option<Runtime> {
     let find = |kind: &str| -> Option<Runtime> {
         dirs.iter()
             .map(|d| d.join(kind))
-            .find(|p| p.is_file())
+            .find(|p| p.is_file() && (kind != "node" || node_version(p).is_ok()))
             .map(|program| Runtime {
                 kind: kind.to_owned(),
                 program,
@@ -81,16 +90,66 @@ pub fn find_runtime(env: &dyn Fn(&str) -> Option<String>) -> Option<Runtime> {
                 .into_iter()
                 .find(|k| name.starts_with(k))
                 .unwrap_or("node");
-            return Some(Runtime {
+            if kind == "node" {
+                node_version(&path).map_err(|why| {
+                    format!(
+                        "mcp run: CMUX_MCP_CODE_RUNTIME names {}, {why}; name Node {}.{} or newer, Deno or Bun, or use action call instead",
+                        path.display(),
+                        NODE_STRIPS_TYPES.0,
+                        NODE_STRIPS_TYPES.1
+                    )
+                })?;
+            }
+            return Ok(Runtime {
                 kind: kind.to_owned(),
                 program: path,
             });
         }
-        return find(&want);
+        return find(&want).ok_or_else(|| {
+            let node = if want == "node" {
+                format!(" (Node {}.{} or newer)", NODE_STRIPS_TYPES.0, NODE_STRIPS_TYPES.1)
+            } else {
+                String::new()
+            };
+            format!(
+                "mcp run: CMUX_MCP_CODE_RUNTIME asks for {want}, and none{node} is on this machine; use action call instead"
+            )
+        });
     }
     find("deno")
         .or_else(|| find("node"))
         .or_else(|| find("bun"))
+        .ok_or_else(|| {
+            format!(
+                "mcp run: no JavaScript runtime (deno, node {}.{}+ or bun) on this machine; use action call instead",
+                NODE_STRIPS_TYPES.0, NODE_STRIPS_TYPES.1
+            )
+        })
+}
+
+/// The first Node that runs `--input-type=module-typescript` (`command`): 22.18.
+const NODE_STRIPS_TYPES: (u64, u64) = (22, 18);
+
+/// The version of the Node at `program` (its `--version`, `v22.18.0`) when it
+/// is new enough for `command`; else why not. An older Node refuses
+/// `--input-type=module-typescript`, so every script would fail (CI
+/// 2026-11-19, the runner's /usr/bin/node).
+fn node_version(program: &Path) -> Result<String, String> {
+    let out = Command::new(program)
+        .arg("--version")
+        .output()
+        .map_err(|e| format!("which did not run ({e})"))?;
+    let text = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+    let mut parts = text.trim_start_matches('v').split('.');
+    let mut next = || parts.next().and_then(|p| p.parse::<u64>().ok());
+    match (next(), next()) {
+        (Some(major), Some(minor)) if (major, minor) >= NODE_STRIPS_TYPES => Ok(text),
+        (Some(_), Some(_)) => Err(format!(
+            "Node {text}, older than {}.{}, which code mode needs to run TypeScript",
+            NODE_STRIPS_TYPES.0, NODE_STRIPS_TYPES.1
+        )),
+        _ => Err(format!("which gave no Node version ({text:?})")),
+    }
 }
 
 // ---- declarations ----
@@ -104,6 +163,17 @@ pub fn prop(name: &str) -> String {
         name.to_owned()
     } else {
         format!("{:?}", name)
+    }
+}
+
+/// How code reaches member `name`: `.name`, or `["name"]` when it is no
+/// identifier (`resolve-library-id`).
+pub fn member(name: &str) -> String {
+    let p = prop(name);
+    if p == name {
+        format!(".{name}")
+    } else {
+        format!("[{p}]")
     }
 }
 
@@ -214,7 +284,17 @@ pub fn declarations(
     flagged: &[String],
     only: Option<&str>,
 ) -> String {
-    let mut out = format!("declare namespace mcp.{} {{\n", prop(server));
+    // A namespace's functions must be identifiers; a server with a tool such as
+    // `resolve-library-id` is declared as a const object, whose methods may be quoted.
+    let quoted = tools
+        .iter()
+        .filter_map(|t| t["name"].as_str())
+        .any(|n| prop(n) != n);
+    let mut out = if quoted {
+        format!("declare namespace mcp {{\n const {}: {{\n", prop(server))
+    } else {
+        format!("declare namespace mcp.{} {{\n", prop(server))
+    };
     for tool in tools {
         let name = tool["name"].as_str().unwrap_or("");
         if only.is_some_and(|o| o != name) {
@@ -238,12 +318,13 @@ pub fn declarations(
             _ => {}
         }
         out.push_str(&format!(
-            "  /** {description}{} */\n  function {}(args{}: {}): Promise<{}>;\n",
+            "  /** {description}{} */\n  {}{}(args{}: {}): Promise<{}>;\n",
             if notes.is_empty() {
                 String::new()
             } else {
                 format!(" ({})", notes.join(", "))
             },
+            if quoted { "" } else { "function " },
             prop(name),
             if tool["inputSchema"]["required"]
                 .as_array()
@@ -259,7 +340,7 @@ pub fn declarations(
                 .unwrap_or_else(|| "any".into()),
         ));
     }
-    out.push_str("}\n");
+    out.push_str(if quoted { " };\n}\n" } else { "}\n" });
     out
 }
 

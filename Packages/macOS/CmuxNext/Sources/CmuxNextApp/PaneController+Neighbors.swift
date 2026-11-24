@@ -20,8 +20,9 @@ extension PaneController {
 
     /// The pointer rested on tab `key`: makes its content hidden when it has none yet (a tab restored at launch or
     /// opened in the background), so its click shows it ready ("just hovering on tab should immediately load the tab").
+    /// Never a New Tab page that a key opened: it has nothing to load, and it gets a page view at its show (`AgentTabStore.idlePage`).
     func loadOnHover(_ key: String) {
         guard key != currentTabKey, existingContent(for: key) == nil, !isGuestView, let tab = pane.tabs.first(where: { $0.id == key }), tab.loadsAheadOnHover else { return }
-        if tab.kind != .conversation { _ = content(for: key) } else if services.launchReveal.isReady(.pane) { _ = services.agentTabs.view(for: key, machine: daemon.machineID) }
+        if tab.kind != .conversation { _ = content(for: key) } else if services.launchReveal.isReady(.pane), !services.agentTabs.isNewTabPage(key, machine: daemon.machineID) { _ = services.agentTabs.view(for: key, machine: daemon.machineID) }
     }
 }

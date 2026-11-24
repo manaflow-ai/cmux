@@ -104,6 +104,11 @@
 #                         a deploy-staging job of a push or dispatch run on feat-cmux-next or main whose log shows its
 #                         journey made the machine and its cleanup delete failed) then
 #                         deletes exactly those, each only when proven, listed and eligible, logged before the delete.
+#   db-fault-staging      the staging database fault switch (src/db/fault.ts): sets the staging Worker's
+#                         CMUX_VM_DB_FAULT to db_fault, a latency or stall on a share of queries inside a window
+#                         of at most an hour, or `off`. The Worker turns it off at the window's end by itself;
+#                         no other environment reads it. For the Cloud chaos suite's database-stall scenario
+#                         (cmuxterm-hq tools/cloud-chaos). Environment cmux-vm-staging, so any ref can run it.
 
 name: cmux VM
 
@@ -134,7 +139,7 @@ on:
       action:
         description: Manual action
         type: choice
-        options: [cloudflare-preflight, hyperdrive-ensure, deploy-staging, deploy-production, smoke-production, migrate-staging, migrate-production, tail-production, sweep-orphans-production, journey-machines-staging, db-connections-staging]
+        options: [cloudflare-preflight, hyperdrive-ensure, deploy-staging, deploy-production, smoke-production, migrate-staging, migrate-production, tail-production, sweep-orphans-production, journey-machines-staging, db-connections-staging, db-fault-staging]
         default: cloudflare-preflight
       environment:
         description: Environment for hyperdrive-ensure
@@ -157,6 +162,10 @@ on:
         description: journey-machines-staging only, at most 5 vm_ID@JOB_ID to delete (JOB_ID the deploy-staging job that leaked it), comma separated; empty lists only
         type: string
         default: ""
+      db_fault:
+        description: db-fault-staging only, the fault as JSON ({"mode":"latency"|"stall","ms","share","from","until"}, epoch ms, window at most 1 h) or off
+        type: string
+        default: "off"
       tail_minutes:
         description: tail-production only, minutes to stream the production Worker's events (at most 25)
         type: string
@@ -186,14 +195,14 @@ permissions:
   contents: read
 
 env:
-  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
-  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
   check:
     # A label event re-runs it only for cmux-vm-breaking-change-ok.
     if: (github.event_name != 'workflow_dispatch' || inputs.action == 'deploy-staging' || inputs.action == 'deploy-production') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'cmux-vm-breaking-change-ok')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 15
     # actions: read finds an earlier run's check for an image roll commit (step roll).
     permissions:
@@ -253,6 +262,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       # Wrangler, Vitest and the Oxlint JS plugin (TypeScript sources) need a
       # current Node; the Blacksmith image ships an older one.
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -370,7 +380,7 @@ jobs:
     environment: cloudflare-ops
     name: cloudflare preflight
     if: github.event_name == 'workflow_dispatch' && inputs.action == 'cloudflare-preflight'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     steps:
       - name: Read-only Cloudflare API checks
@@ -411,7 +421,7 @@ jobs:
   hyperdrive-ensure:
     name: hyperdrive ensure
     if: github.event_name == 'workflow_dispatch' && inputs.action == 'hyperdrive-ensure' && contains(fromJSON('["cmux-vm-staging","cmux-vm-preview"]'), inputs.environment)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     environment: ${{ inputs.environment }}
     concurrency:
@@ -438,7 +448,7 @@ jobs:
   deploy-preview:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/feat-cmux-vm-')
     needs: check
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
     environment: cmux-vm-preview
     concurrency:
@@ -469,6 +479,7 @@ jobs:
         if: steps.gate.outputs.enabled == 'true'
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         if: steps.gate.outputs.enabled == 'true'
         with:
@@ -496,7 +507,7 @@ jobs:
       (github.event_name == 'workflow_dispatch' && (inputs.action == 'deploy-staging' || inputs.action == 'deploy-production'))) &&
       !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'cmux-vm-breaking-change-ok')
     needs: [check, migrate-staging]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 45
     # The after-deploy journey's verdict, for journey-proof-staging.
     outputs:
@@ -531,6 +542,7 @@ jobs:
         if: steps.gate.outputs.enabled == 'true'
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         if: steps.gate.outputs.enabled == 'true'
         with:
@@ -664,15 +676,19 @@ jobs:
     # rollback remain observable, but smoke failures never block production or
     # a feature-branch/nightly path.
     continue-on-error: true
+    # !cancelled(): deploy-staging runs past a skipped migrate-staging (every main push), and GitHub's
+    # implicit success() would skip this job there.
     if: >-
-      (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next')) ||
-      (github.event_name == 'workflow_dispatch' && (inputs.action == 'deploy-staging' || inputs.action == 'deploy-production'))
+      ${{ !cancelled() && needs.deploy-staging.result == 'success' &&
+      ((github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next')) ||
+      (github.event_name == 'workflow_dispatch' && (inputs.action == 'deploy-staging' || inputs.action == 'deploy-production'))) &&
+      !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'cmux-vm-breaking-change-ok') }}
     needs: deploy-staging
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 15
     environment: cmux-vm-staging
     concurrency:
-      group: cmux-vm-smoke-staging
+      group: cmux-vm-smoke-staging${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'cmux-vm-breaking-change-ok' && format('-label-{0}', github.run_id) || '' }}
       cancel-in-progress: false
     defaults:
       run:
@@ -699,6 +715,7 @@ jobs:
         if: steps.gate.outputs.enabled == 'true'
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       # Pin the smoke host (scripts/cmux-next/release/pin-host.ts): DoH, IPv4 first, waits up to 300 s for a
       # new domain's record. Runners have no IPv6 route and a fresh domain is NXDOMAIN at first (2026-10-09).
       - name: Pin the smoke host's address
@@ -739,7 +756,7 @@ jobs:
     # a song and dance ON AN EMPTY DATABASE"). The deploy ordering gate below still refuses a commit whose
     # migrations production lacks.
     needs: [check, migrate-production]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 45
     environment: cmux-vm-production
     concurrency:
@@ -775,6 +792,7 @@ jobs:
         if: steps.gate.outputs.enabled == 'true'
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         if: steps.gate.outputs.enabled == 'true'
         with:
@@ -910,7 +928,7 @@ jobs:
     if: >-
       (!cancelled() && needs.deploy-production.result == 'success' && needs.deploy-production.outputs.deployed == 'success') &&
       !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'cmux-vm-breaking-change-ok')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     # The full lifecycle journey's waits; cloud-journey-prod.yml allows the same.
     timeout-minutes: 30
     outputs:
@@ -932,6 +950,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Cloud journey (prod, after the deploy)
         id: journey
         env:
@@ -952,7 +971,7 @@ jobs:
       !cancelled() && github.ref == 'refs/heads/feat-cmux-next' &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       needs.deploy-staging.outputs.verdict != ''
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: write
@@ -975,7 +994,7 @@ jobs:
       !cancelled() && github.ref == 'refs/heads/feat-cmux-next' &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       needs.journey-production.outputs.verdict != ''
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: write
@@ -1001,7 +1020,7 @@ jobs:
       ((github.event_name == 'workflow_dispatch' && inputs.action == 'smoke-production') ||
       ((github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.action == 'deploy-production')) && needs.deploy-production.result == 'success'))
     needs: deploy-production
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 15
     environment: cmux-vm-production
     # id-token: the product smoke authenticates with this job's GitHub OIDC token (workers/cmux-vm/src/auth/ci-trust.ts).
@@ -1045,6 +1064,7 @@ jobs:
         if: steps.gate.outputs.enabled == 'true'
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       # Pin the smoke host (scripts/cmux-next/release/pin-host.ts): DoH, IPv4 first, waits up to 300 s for a
       # new domain's record. Runners have no IPv6 route and a fresh domain is NXDOMAIN at first (2026-10-09).
       - name: Pin the smoke host's address
@@ -1106,14 +1126,17 @@ jobs:
   #             Otherwise it dispatches deploy-production again, at most ROLLBACK_DEPLOYS deploys in all, then
   #             records rollback_failed and comments on the cloud-image-roll issue. It never lands another
   #             rollback commit, so a rollback cannot loop.
+  # When cmux-vm-production has CMUX_VM_DEPLOY_ENABLED != 1, the image roll is
+  # committed to cmux-platform/main and its settle job owns rollback. This job
+  # still starts so the environment switch is observable, then does no work.
   image-roll-settle:
     needs: [deploy-production, smoke-production]
     if: >-
-      always() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' &&
+      !cancelled() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' &&
       ((github.event_name == 'push' && startsWith(github.event.head_commit.message, 'cmux-vm: image roll')) ||
       (github.event_name == 'workflow_dispatch' && inputs.action == 'deploy-production' && inputs.image_rollback != '')) &&
       !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'cmux-vm-breaking-change-ok')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 15
     # The push App key is a repository secret; the environment (feat-cmux-next only) bounds who can reach it.
     environment: cmux-vm-production
@@ -1123,16 +1146,31 @@ jobs:
       contents: write
       issues: write
     steps:
+      - id: deploy-mode
+        working-directory: .
+        env:
+          ENABLED: ${{ vars.CMUX_VM_DEPLOY_ENABLED }}
+        run: |
+          if [ "$ENABLED" = 1 ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Image roll settle skipped: cmux-platform owns deploy and settle while CMUX_VM_DEPLOY_ENABLED is not 1."
+          fi
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: steps.deploy-mode.outputs.enabled == 'true'
         with:
           persist-credentials: false
-          ref: feat-cmux-next
+          ref: refs/heads/feat-cmux-next
           fetch-depth: 50
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        if: steps.deploy-mode.outputs.enabled == 'true'
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Read the roll
         id: roll
+        if: steps.deploy-mode.outputs.enabled == 'true'
         env:
           EVENT: ${{ github.event_name }}
           MESSAGE: ${{ github.event.head_commit.message }}
@@ -1168,7 +1206,7 @@ jobs:
           echo "Image ${kind} ${run} (${image}): ${outcome}. $(jq -r .reason "$RUNNER_TEMP/settle.json")." | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Mint the push token
         id: push-token
-        if: steps.roll.outputs.outcome == 'rollback'
+        if: steps.deploy-mode.outputs.enabled == 'true' && steps.roll.outputs.outcome == 'rollback'
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
           app-id: ${{ secrets.CMUX_PR_AUTOFIX_APP_ID }}
@@ -1176,9 +1214,33 @@ jobs:
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
           permission-contents: write
+      # cmux-platform's CLOUD_VM_API_IMAGE pins (its root wrangler.jsonc): rollback never takes a pinned image out.
+      # cmux-bot is installed on every repository (pr-autofix's installation does not have cmux-platform: roll
+      # 44852142963's mint answered 404, 2026-11-20). Read-only, cmux-platform alone.
+      - name: Mint the cmux-platform read token (its image pins)
+        id: pins-token
+        if: steps.deploy-mode.outputs.enabled == 'true' && steps.roll.outputs.outcome == 'rollback'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          owner: manaflow-ai
+          repositories: cmux-platform
+          permission-contents: read
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: steps.deploy-mode.outputs.enabled == 'true' && steps.roll.outputs.outcome == 'rollback'
+        with:
+          repository: manaflow-ai/cmux-platform
+          ref: refs/heads/main
+          path: cmux-platform-pins
+          token: ${{ steps.pins-token.outputs.token }}
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            wrangler.jsonc
       - name: Roll the image back
         id: rollback
-        if: steps.roll.outputs.outcome == 'rollback'
+        if: steps.deploy-mode.outputs.enabled == 'true' && steps.roll.outputs.outcome == 'rollback'
         env:
           TOKEN: ${{ steps.push-token.outputs.token }}
           IMAGE: ${{ steps.roll.outputs.image }}
@@ -1196,13 +1258,14 @@ jobs:
             echo "Image-Roll-Image: ${IMAGE}"
             echo "Image-Roll-Rollback-Of: ${GITHUB_SHA}"
           } > "$RUNNER_TEMP/message.txt"
-          images/cmux-vm/image-roll-push.sh rollback --image "$IMAGE" --message-file "$RUNNER_TEMP/message.txt" | tee "$RUNNER_TEMP/rollback.out"
+          images/cmux-vm/image-roll-push.sh rollback --image "$IMAGE" --message-file "$RUNNER_TEMP/message.txt" \
+            --platform-wrangler "$GITHUB_WORKSPACE/cmux-platform-pins/wrangler.jsonc" | tee "$RUNNER_TEMP/rollback.out"
           tail -1 "$RUNNER_TEMP/rollback.out" | sed 's/^/Rollback: /' >> "$GITHUB_STEP_SUMMARY"
       # A rollback not yet verified: deploy production again (the tip, which no longer has the image first) and
       # settle that deploy the same way, with the next attempt number.
       - name: Deploy the rollback again
         id: retry
-        if: steps.roll.outputs.outcome == 'retry'
+        if: steps.deploy-mode.outputs.enabled == 'true' && steps.roll.outputs.outcome == 'retry'
         env:
           GH_TOKEN: ${{ github.token }}
           IMAGE: ${{ steps.roll.outputs.image }}
@@ -1214,7 +1277,7 @@ jobs:
             -f image_rollback="$IMAGE" -f image_roll_run="$ROLL" -f image_rollback_attempt="$NEXT"
           echo "::warning title=Image rollback::${IMAGE}'s rollback is not verified yet; production deploy ${NEXT} dispatched"
       - name: Record the production smoke and any rollback
-        if: always() && steps.roll.outputs.run != ''
+        if: always() && steps.deploy-mode.outputs.enabled == 'true' && steps.roll.outputs.run != ''
         env:
           TOKEN: ${{ github.token }}
           GH_TOKEN: ${{ github.token }}
@@ -1280,7 +1343,7 @@ jobs:
     name: tail production
     # feat-cmux-next only: the job runs checked-out code (bun install, the filter) with the Cloudflare token.
     if: github.event_name == 'workflow_dispatch' && inputs.action == 'tail-production' && github.ref == 'refs/heads/feat-cmux-next'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 30
     environment: cmux-vm-production
     defaults:
@@ -1293,6 +1356,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24"
@@ -1326,7 +1390,7 @@ jobs:
     # on-demand run. feat-cmux-next only: the job runs checked-out code with the production provider key and database.
     name: sweep orphan VMs (production)
     if: github.event_name == 'workflow_dispatch' && inputs.action == 'sweep-orphans-production' && github.ref == 'refs/heads/feat-cmux-next'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 20
     environment: cmux-vm-production
     defaults:
@@ -1339,6 +1403,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - run: bun install --frozen-lockfile
       - name: Sweep cmux-vm-production orphans
         env:
@@ -1359,7 +1424,7 @@ jobs:
     # kept or any other machine). Never scheduled. feat-cmux-next only: checked-out code with the staging account.
     name: journey machines (staging agent test account)
     if: github.event_name == 'workflow_dispatch' && inputs.action == 'journey-machines-staging' && github.ref == 'refs/heads/feat-cmux-next'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     # 35 min: at most 5 ids (MAX_DELETE_IDS), each delete bounded at 5 min (180 s of retries, 120 s of read back),
     # plus sign-in, the list and the job log reads.
     timeout-minutes: 35
@@ -1375,6 +1440,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: List (and with machine_ids delete) the journey's machines
         env:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
@@ -1404,7 +1470,7 @@ jobs:
       !(github.event_name == 'push' && startsWith(github.event.head_commit.message, 'cmux-vm: image roll')) &&
       (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.action == 'migrate-production' || inputs.action == 'deploy-production')))
     needs: check
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     # A rehearsal restores a branch copy (up to 20 min) and an apply rehearses again, plus the PITR wait.
     timeout-minutes: 90
     environment: cmux-vm-production
@@ -1444,6 +1510,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24"
@@ -1503,7 +1570,7 @@ jobs:
   db-connections-staging:
     name: staging database connections
     if: github.event_name == 'workflow_dispatch' && inputs.action == 'db-connections-staging'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
     environment: cmux-vm-staging
     steps:
@@ -1513,6 +1580,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Install the release rails
         working-directory: scripts/cmux-next/release
         run: bun install --frozen-lockfile
@@ -1541,6 +1609,40 @@ jobs:
           CMUX_VM_DATABASE_URL: ${{ secrets.CMUX_VM_DATABASE_URL }}
         run: bun db-connections.ts "$MODE" --url-env CMUX_VM_DATABASE_URL --wait-seconds "$WAIT"
 
+  db-fault-staging:
+    # The staging database fault switch (src/db/fault.ts). Writes only the staging Worker's CMUX_VM_DB_FAULT; a value
+    # the Worker's own parser refuses is never written, so a run either sets a fault that ends at its `until` or `off`.
+    name: staging database fault switch
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'db-fault-staging'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    timeout-minutes: 10
+    environment: cmux-vm-staging
+    concurrency:
+      group: cmux-vm-db-fault-staging
+      cancel-in-progress: false
+    defaults:
+      run:
+        working-directory: workers/cmux-vm
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+      - run: bun install --frozen-lockfile
+      - name: Check the value with the Worker's parser
+        env:
+          DB_FAULT: ${{ inputs.db_fault }}
+        run: bun scripts/db-fault.ts check | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Set it on the staging Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          DB_FAULT: ${{ inputs.db_fault }}
+        run: printf '%s' "$DB_FAULT" | bunx wrangler secret put CMUX_VM_DB_FAULT --env staging
+
   migrate-staging:
     # Staging cmux_vm migrations (release-rails.md, "Staging migrations from CI"): every push to feat-cmux-next
     # applies them before deploy-staging, and action migrate-staging runs them alone (dry_run=true plans only).
@@ -1554,7 +1656,7 @@ jobs:
       !(github.event_name == 'push' && startsWith(github.event.head_commit.message, 'cmux-vm: image roll')) &&
       (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.action == 'migrate-staging' || inputs.action == 'deploy-staging' || inputs.action == 'deploy-production')))
     needs: check
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 30
     environment: cmux-vm-production
     concurrency:
@@ -1577,6 +1679,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Install the release rails
         working-directory: scripts/cmux-next/release
         run: bun install --frozen-lockfile

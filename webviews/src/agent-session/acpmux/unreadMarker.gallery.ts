@@ -8,10 +8,11 @@
 import { agentPaneEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import wallpaper from "../../gallery/fixtures/assets/liquid-glass-wallpaper.jpg?inline";
-import { assistant, chat, row, summary, user } from "../../gallery/fixtures/acpmux";
+import { activity, assistant, chat, row, summary, tool, user } from "../../gallery/fixtures/acpmux";
 import { SINCE_DIVIDER } from "./model";
 import { jumpPairLook } from "./jumpPair.experiment";
 import { jumpUpButton } from "./jumpUp.experiment";
+import { sinceLook } from "./conversation/sinceLook.experiment";
 import { JUMP_LATEST_SHOWN } from "./transcriptSelectors";
 
 const MARK = "gallery-unread:41";
@@ -49,6 +50,64 @@ const snapshot = chat(
   ],
   { sinceKey: MARK },
 );
+
+// "N new messages" (Leo, 2026-11-15: "we needto properly do somthing like this in the gui somehow",
+// of the terminal chat's rule). Each chat below is what a returning person opens: what they had seen,
+// the line, then `count` messages (replies; the tool runs between them are not news and never count,
+// conversation/sinceNews.ts) that came while they were away. A return lands at the line
+// (`sinceLands`), so each capture shows where the new part starts.
+const NEW_MARK = "gallery-new-messages:7";
+const newLine = (minutes: number) =>
+  row(SINCE_DIVIDER, minutes, { id: SINCE_DIVIDER, since: { key: NEW_MARK, seq: 7, turns: 1 } });
+/// `count` messages after the line: a tool run and a reply per step, a turn's end every five.
+const newMessages = (count: number, ago: number) =>
+  Array.from({ length: count }, (_, index) => {
+    const step = index + 1;
+    const at = ago - index * 0.2;
+    const run = activity([tool(`Run retry case ${step}`, "execute", "completed")], at);
+    const reply = assistant(
+      `Case ${step} passes: the client keeps the request id and stops after the last attempt.`,
+      at - 0.1,
+    );
+    return index % 5 === 4 ? [run, reply, summary(at - 0.1, { status: "completed" })] : [run, reply];
+  }).flat();
+const seenTurns = turns(1, 6, 120);
+const newChat = (before: ReturnType<typeof row>[], count: number) =>
+  chat([...seenTurns, ...before, newLine(61), ...newMessages(count, 60)], { sinceKey: NEW_MARK, sinceLands: true });
+const fewNew = newChat([user("Run the retry cases again and tell me when they pass", 62)], 3);
+const manyNew = newChat([user("Run the retry cases again and tell me when they pass", 62)], 157);
+const afterUser = newChat(
+  [
+    user("Check retry case 6", 66),
+    assistant("Case 6 passes.", 65),
+    summary(65, { status: "completed" }),
+    user("ok now run the whole suite, then the fuzz corpus, and fix whatever breaks", 62),
+  ],
+  24,
+);
+const afterTool = newChat(
+  [
+    user("Run the whole suite", 66),
+    activity(
+      [tool("bun test src/fetch", "execute", "completed"), tool("Read src/fetch/retry.ts", "read", "completed")],
+      63,
+    ),
+  ],
+  12,
+);
+
+/// A return: the view lands at the line, not the latest message.
+const landed: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-since[data-shown]"));
+  await ctx.waitFor(() => {
+    const line = ctx.document.querySelector(".cv-since");
+    const view = ctx.document.querySelector(".acpmux-scroll");
+    if (!line || !view) return false;
+    const box = line.getBoundingClientRect();
+    const frame = view.getBoundingClientRect();
+    return box.top >= frame.top && box.bottom <= frame.bottom;
+  });
+};
 
 const settle = async (ctx: Parameters<Play>[0]) =>
   ctx.waitFor(() => (ctx.document.querySelector<HTMLElement>(".acpmux-scroll")?.scrollHeight ?? 0) > 1_500);
@@ -121,15 +180,41 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/conversation/SinceDivider.tsx", "agent-session/acpmux/VirtualTranscript.tsx#JumpUp"],
   // Jump up is off by default; `on` retains its exclusive display with Jump to latest.
   experiment: { definition: jumpUpButton, script: [{ name: "scroll to the middle", run: midChat }] },
-  keywords: ["unread", "new since", "jump to bottom", "banner"],
+  keywords: ["unread", "new since", "new messages", "jump to bottom", "banner"],
   variants: {
+    "new-few": {
+      note: 'A return with 3 new messages: "3 new messages" on the line under the person\'s last message (the shipped look, at the end of the next Worked for rule); the view opens there.',
+      snapshot: fewNew,
+      play: landed,
+    },
+    "new-many": {
+      note: 'A return after a long run: "157 new messages"; the view lands at the line, the new part below.',
+      snapshot: manyNew,
+      play: landed,
+    },
+    "new-many-thin-line": {
+      note: 'The thin line look (A): "157 new messages" muted at the center of the hairline, as the terminal chat draws it; no height.',
+      snapshot: manyNew,
+      play: landed,
+      experiments: { [sinceLook.id]: "line" },
+    },
+    "after-user-message": {
+      note: "The line straight after the person's own message (Leo's screenshot): what they asked, then where the replies they missed begin.",
+      snapshot: afterUser,
+      play: landed,
+    },
+    "after-tool-run": {
+      note: "The line after a tool run the person saw: the new part starts with the next run, the count says how many replies followed.",
+      snapshot: afterTool,
+      play: landed,
+    },
     "banner-off": {
       note: "Chosen (the default): no banner and no Jump up; only the New line in the transcript, as Codex.",
       snapshot,
       play: atLatest(),
     },
     "banner-expanded": {
-      note: "Expanded (Settings > Unread Banner): the banner at the top left reads 9 new turns since the time, with Mark read.",
+      note: "Expanded (Settings > Unread Banner): the banner at the top left reads the line's count (9 new messages) since the time, with Mark read.",
       snapshot,
       play: atLatest({ "agentPane.display.unreadBanner": "expanded" }),
     },
@@ -151,7 +236,7 @@ export default agentPaneEntry({
       experiments: { [jumpUpButton.id]: "on", [jumpPairLook.id]: "frosted" },
     },
     "line-in-view": {
-      note: "The banner pressed: the New line in the message rhythm (one control row, its recap under it), the banner gone.",
+      note: "The banner pressed: the New line over the gap (no height, its recap under it), the banner gone.",
       snapshot,
       play: lineInView,
     },

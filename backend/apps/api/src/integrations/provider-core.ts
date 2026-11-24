@@ -15,7 +15,7 @@ export interface Approved {
   readonly account: { readonly key: string; readonly name: string; readonly url?: string }
   readonly scopes_granted: ReadonlyArray<string>
   readonly credential: Credential
-  readonly resources?: { readonly repos: ReadonlyArray<string> | null }
+  readonly resources?: { readonly repos: ReadonlyArray<string> | null; readonly linked_by_github_id?: number }
 }
 
 /** The parts of the team integration policy a provider needs while linking. */
@@ -54,7 +54,7 @@ export interface ProviderImpl {
   readonly refuseScopes?: (env: Env, scopes: ReadonlyArray<string>) => string | undefined
   /** `connection` lets a provider derive a per-attempt PKCE verifier on the server (never in the URL). */
   readonly authorizeUrl: (env: Env, state: string, scopes: ReadonlyArray<string>, redirectUri: string, connection: string) => string | Promise<string>
-  readonly complete: (env: Env, http: Http, p: { code?: string; installation_id?: string; redirectUri: string; policy: LinkPolicy; connection: string; state: string; scopes_requested: ReadonlyArray<string> }) => Promise<Approved>
+  readonly complete: (env: Env, http: Http, p: { code?: string; installation_id?: string; setup_action?: string; redirectUri: string; policy: LinkPolicy; connection: string; state: string; scopes_requested: ReadonlyArray<string> }) => Promise<Approved>
   /**
    * Scopes an op needs (any one of them suffices), checked against the
    * connection's granted scopes before the call; undefined = no check. With
@@ -89,6 +89,27 @@ export const json = async (res: Response): Promise<Record<string, unknown>> => {
   }
 }
 
+/** Seconds a provider asks us to wait (Retry-After, else the primary limit's reset), at least 1; 60 when it names none. */
+export const retryAfterSeconds = (res: Response, now: number): number => {
+  const [after, reset] = [Number(res.headers.get("retry-after")), Number(res.headers.get("x-ratelimit-reset"))]
+  return Number.isFinite(after) && after > 0 ? Math.ceil(after) : Number.isFinite(reset) && reset * 1000 > now ? Math.max(1, Math.ceil(reset - now / 1000)) : 60
+}
+
+/**
+ * GitHub's rate limits, read from one answer: a 429; a 403 whose headers say the primary limit is spent
+ * (`x-ratelimit-remaining: 0`) or that name a wait (`retry-after`, a secondary limit); or, when the caller read the
+ * body, a 403 whose message names a secondary rate limit or abuse detection (GitHub sends some without headers).
+ * The wait in seconds, else null.
+ */
+export const rateLimitWait = (res: Response, now: number, message = ""): number | null =>
+  res.status === 429 || (res.status === 403 && (res.headers.get("x-ratelimit-remaining") === "0" || res.headers.has("retry-after") || /rate limit|abuse detection/i.test(message)))
+    ? retryAfterSeconds(res, now)
+    : null
+
+/** What a caller reads for a rate limit: the wait, never "connect again". */
+export const rateLimitMessage = (provider: string, seconds: number) =>
+  `${provider === "github" ? "GitHub" : provider} is rate limiting cmux; try again in ${seconds} s`
+
 /**
  * Never echoes provider bodies (they can hold tokens or content); status and a
  * short code only. For the call that makes the effect (`effect`), a 5xx may
@@ -97,6 +118,10 @@ export const json = async (res: Response): Promise<Record<string, unknown>> => {
  */
 export const failed = (provider: string, res: Response, what: string, effect = false) => {
   if (res.status === 401) return new ProviderError("needs_reauth", `${provider} ${what} failed: HTTP 401`)
+  // A rate limit (a 429, or a 403 with an exhausted limit or a wait) was refused before acting: retryable, and it
+  // says nothing about the connection, so it names the wait and never asks for a reconnect.
+  const limited = rateLimitWait(res, Date.now())
+  if (limited !== null) return new ProviderError("provider.error", rateLimitMessage(provider, limited), true, res.status)
   if (effect && res.status >= 500) return new ProviderError("mutation.indeterminate", `${provider} ${what}: HTTP ${res.status}; the provider may have acted`)
   return new ProviderError("provider.error", `${provider} ${what} failed: HTTP ${res.status}`, res.status === 429 || (!effect && res.status >= 500))
 }

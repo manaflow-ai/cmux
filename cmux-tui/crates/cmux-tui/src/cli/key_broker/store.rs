@@ -90,6 +90,19 @@ impl Store {
         }
     }
 
+    /// The store a `label(suffix)` names, for `cmux keys rotate`; `None` for another suffix's label.
+    pub(super) fn from_label(label: &str, suffix: &str) -> Option<Self> {
+        let rest = label.strip_suffix(&format!("_{suffix}"))?;
+        let spec = match rest.strip_prefix("keychain:") {
+            Some(scoped) => match scoped.rsplit_once('/')? {
+                ("*", prefix) => format!("keychain:{prefix}"),
+                (repo, prefix) => format!("keychain:{repo}:{prefix}"),
+            },
+            None => rest.to_owned(),
+        };
+        Self::parse(&spec).ok()
+    }
+
     /// The place of the one value `cmux keys write` puts here: the spec's last part is its whole
     /// name, not a prefix.
     pub(super) fn spot(&self) -> String {

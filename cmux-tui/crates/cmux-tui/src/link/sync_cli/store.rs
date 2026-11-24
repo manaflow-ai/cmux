@@ -76,6 +76,11 @@ fn configured() -> Option<&'static Config> {
     CONFIG.get()
 }
 
+/// Whether this process's pushes have a store ([`configure`]).
+pub(super) fn is_configured() -> bool {
+    configured().is_some()
+}
+
 /// Whether the machine at `socket` serves `blob-fetch-v2`: a fetch job of an
 /// earlier push may still be running there. `None` when `identify` did not
 /// answer or answered with no list of capabilities: such a machine may serve
@@ -212,6 +217,9 @@ pub(super) struct Sent {
     /// write left: the caller records that one, never a later listing, and
     /// writes every other file over the link.
     pub written: BTreeMap<String, String>,
+    /// The blobs of each file cut into pieces, by the file's SHA-256: what
+    /// the folder pair's GC root names for it ([`super::roots`]).
+    pub chunks: BTreeMap<String, Vec<String>>,
 }
 
 /// The machine's fetch may have started and could not be stopped (a start or
@@ -398,6 +406,10 @@ pub(super) fn send(
             );
         }
         plan_files.push(entry);
+        if !whole && file.size > 0 {
+            sent.chunks
+                .insert(file.sha256.clone(), pieces.iter().map(|p| p.sha256.clone()).collect());
+        }
         for piece in pieces {
             wanted.entry(piece.sha256.clone()).or_insert((index, piece));
         }
@@ -503,6 +515,32 @@ pub(super) fn send(
     Ok(sent)
 }
 
+/// Sets the GC root of the folder pair `pair` to `tree` (its bytes, the
+/// [`super::roots`] format): uploads the tree when the store lacks it, then
+/// `POST /v1/sync/roots`. A store that is deleting that very tree answers
+/// 503; the tree is uploaded again and the root asked for once more.
+pub(super) fn register_root(pair: &str, tree: &[u8]) -> anyhow::Result<()> {
+    let config = configured().ok_or_else(|| anyhow!("no store"))?;
+    let client = Client::new(config)?;
+    let tree_sha = hex(&Sha256::digest(tree));
+    let mut last = anyhow!("the store did not answer");
+    for _ in 0..2 {
+        let tried = (|| {
+            if client.missing(std::slice::from_ref(&tree_sha))?.contains(&tree_sha) {
+                client.put(&tree_sha, tree.to_vec())?;
+            }
+            client
+                .runtime
+                .block_on(client.json("/v1/sync/roots", json!({"pair": pair, "tree": tree_sha})))
+        })();
+        match tried {
+            Ok(_) => return Ok(()),
+            Err(error) => last = error,
+        }
+    }
+    Err(last)
+}
+
 /// The store, as one signed-in person.
 struct Client {
     origin: String,
@@ -517,6 +555,7 @@ impl Client {
         let runtime =
             tokio::runtime::Builder::new_multi_thread().worker_threads(4).enable_all().build()?;
         let http = reqwest::Client::builder()
+            .default_headers(cmux_build_space::headers()?)
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
             .timeout(Duration::from_secs(120))
@@ -646,69 +685,96 @@ impl Client {
     }
 }
 
+/// A revision of the folder's listing, stored (RFD 0007, open question 3).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct Published {
+    /// The root piece's hash: the revision's name.
+    pub root: String,
+    /// Bytes uploaded: pieces the store already held are not sent again.
+    pub sent: u64,
+    /// Pieces in the revision.
+    pub pieces: usize,
+}
+
+/// Whether the store is on in this process.
+pub(super) fn on() -> bool {
+    configured().is_some()
+}
+
+/// The store this process signs in to, as the two lines a folder's server reads from its stdin
+/// (origin, then credential), when one is configured.
+pub(super) fn handoff() -> Option<String> {
+    configured().map(|config| format!("{}\n{}\n", config.origin, config.credential))
+}
+
+/// Takes the store a parent handed over ([`handoff`]) from `stdin`.
+pub(super) fn take_handoff(stdin: &mut dyn std::io::BufRead) -> anyhow::Result<()> {
+    let (mut origin, mut credential) = (String::new(), String::new());
+    stdin.read_line(&mut origin)?;
+    stdin.read_line(&mut credential)?;
+    let (origin, credential) = (origin.trim(), credential.trim());
+    anyhow::ensure!(!origin.is_empty() && !credential.is_empty(), "no store was handed over");
+    configure(Config { origin: origin.to_owned(), credential: credential.to_owned() });
+    Ok(())
+}
+
+/// Splits `manifest` into pieces, uploads the ones the store lacks and registers the revision's
+/// tree as the root of `pair`, so a resume or a second session reads the listing from the store.
+pub(super) fn publish(
+    manifest: &cmux_projection::manifest::Manifest,
+    pair: &str,
+) -> anyhow::Result<Published> {
+    let config = configured().ok_or_else(|| anyhow!("no store is configured"))?;
+    let client = Client::new(config)?;
+    let split = cmux_projection::revision::split(manifest)?;
+    let tree = split.tree();
+    let tree_sha = cmux_projection::revision::sha256_hex(&tree);
+    let mut blobs: Vec<(String, Vec<u8>)> =
+        split.pieces.iter().map(|piece| (piece.sha256.clone(), piece.bytes.clone())).collect();
+    blobs.push((tree_sha.clone(), tree));
+    let hashes: Vec<String> = blobs.iter().map(|(sha, _)| sha.clone()).collect();
+    let missing = client.missing(&hashes)?;
+    blobs.retain(|(sha, _)| missing.contains(sha));
+    let sent = client.put_blobs(blobs)?;
+    client
+        .runtime
+        .block_on(client.json("/v1/sync/roots", json!({ "pair": pair, "tree": tree_sha })))?;
+    Ok(Published { root: split.root, sent, pieces: split.pieces.len() })
+}
+
+/// What the machine fetches revision `root` with: the store's origin and a fresh read grant.
+pub(super) fn reference(root: &str) -> anyhow::Result<Value> {
+    let config = configured().ok_or_else(|| anyhow!("no store is configured"))?;
+    let client = Client::new(config)?;
+    let grant = client.grant()?;
+    Ok(json!({ "root": root, "origin": client.origin, "grant": grant }))
+}
+
+impl Client {
+    /// Uploads whole blobs, [`PARALLEL_UPLOADS`] at once; the bytes sent.
+    fn put_blobs(&self, blobs: Vec<(String, Vec<u8>)>) -> anyhow::Result<u64> {
+        self.runtime.block_on(async {
+            use futures_util::stream::{self, StreamExt as _};
+            let mut results = stream::iter(blobs)
+                .map(|(sha, bytes)| async move {
+                    let size = bytes.len() as u64;
+                    self.put_async(&sha, bytes).await?;
+                    anyhow::Ok(size)
+                })
+                .buffer_unordered(PARALLEL_UPLOADS);
+            let mut total = 0;
+            while let Some(result) = results.next().await {
+                total += result?;
+            }
+            Ok(total)
+        })
+    }
+}
+
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 #[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    use super::{CHUNK_MAX, CHUNK_MIN, chunks, serves_fetch};
-
-    #[test]
-    fn an_identify_answer_without_capabilities_says_nothing_about_fetch() {
-        // Unknown, so the push takes the fence of a machine it cannot read.
-        assert_eq!(serves_fetch(&json!({"build_id": "b"})), None);
-        assert_eq!(serves_fetch(&json!({"capabilities": "blob-fetch-v2"})), None);
-        assert_eq!(serves_fetch(&json!({"capabilities": ["fs-v1"]})), Some(false));
-        assert_eq!(serves_fetch(&json!({"capabilities": ["fs-v1", "blob-fetch-v2"]})), Some(true));
-    }
-
-    fn noise(len: usize, seed: u64) -> Vec<u8> {
-        let mut state = seed;
-        (0..len)
-            .map(|_| {
-                state ^= state << 13;
-                state ^= state >> 7;
-                state ^= state << 17;
-                state as u8
-            })
-            .collect()
-    }
-
-    #[test]
-    fn chunks_cover_the_file_within_bounds() {
-        let data = noise(40 * 1024 * 1024 + 123, 7);
-        let pieces = chunks(&mut data.as_slice()).unwrap();
-        assert_eq!(pieces.iter().map(|p| p.size).sum::<u64>(), data.len() as u64);
-        let mut offset = 0;
-        for (index, piece) in pieces.iter().enumerate() {
-            assert_eq!(piece.offset, offset);
-            assert!(piece.size as usize <= CHUNK_MAX);
-            if index + 1 < pieces.len() {
-                assert!(piece.size as usize > CHUNK_MIN);
-            }
-            offset += piece.size;
-        }
-        assert!(pieces.len() >= 5, "{} pieces", pieces.len());
-    }
-
-    #[test]
-    fn an_edit_in_the_middle_changes_only_the_pieces_around_it() {
-        let data = noise(48 * 1024 * 1024, 11);
-        let mut edited = data.clone();
-        edited.splice(20 * 1024 * 1024..20 * 1024 * 1024, b"inserted line\n".iter().copied());
-        let before: std::collections::BTreeSet<String> =
-            chunks(&mut data.as_slice()).unwrap().into_iter().map(|p| p.sha256).collect();
-        let after = chunks(&mut edited.as_slice()).unwrap();
-        let new = after.iter().filter(|p| !before.contains(&p.sha256)).count();
-        assert!(new <= 2, "{new} of {} pieces changed", after.len());
-    }
-
-    #[test]
-    fn the_same_bytes_always_cut_the_same_way() {
-        let data = noise(20 * 1024 * 1024, 3);
-        assert_eq!(chunks(&mut data.as_slice()).unwrap(), chunks(&mut data.as_slice()).unwrap());
-    }
-}
+#[path = "store_tests.rs"]
+mod tests;

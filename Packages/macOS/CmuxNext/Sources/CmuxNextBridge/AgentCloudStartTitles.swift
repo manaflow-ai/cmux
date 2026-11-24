@@ -19,6 +19,8 @@ public final class AgentCloudStartTitles {
     }
 
     private var titles: [ObjectIdentifier: Entry] = [:]
+    /// New Cloud Chat's own workspaces (cmux#45947): each row reads as Cloud from the click, before a Send names its chat.
+    private var cloudWorkspaces: Set<String> = []
 
     public init() {}
 
@@ -30,6 +32,15 @@ public final class AgentCloudStartTitles {
 
     /// Whether `tab` is a New Tab page whose Send is starting a Cloud chat (or a chat one started).
     public func startsInCloud(_ tab: TabModel) -> Bool { title(of: tab) != nil }
+
+    /// Whether workspace `id` is one New Cloud Chat opened for its chat (``beginWorkspace(_:)``), until its start ends.
+    public func startsInCloud(workspace id: String) -> Bool { cloudWorkspaces.contains(id) }
+
+    /// New Cloud Chat opened workspace `id` for its chat: its row draws the cloud mark from now.
+    public func beginWorkspace(_ id: String) { cloudWorkspaces.insert(id) }
+
+    /// The start in workspace `id` ended: on its machine the chat has a row of its own, and on this Mac it is a local chat.
+    public func endWorkspace(_ id: String?) { if let id, cloudWorkspaces.contains(id) { cloudWorkspaces.remove(id) } }
 
     /// The Send of `tab` starts a Cloud chat whose first prompt is `task`; `untitled` when it names nothing (only attachments).
     public func begin(_ tab: TabModel, task: String, untitled: String) {

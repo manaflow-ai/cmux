@@ -16,6 +16,10 @@ arm=base for the other side of an A/B.
   --build <sha>        that commit built as a tagged Release app on the Mac (dmg=build head=<sha>); add
                        --arg base=<sha> to build a base too and interleave its runs (arm=base)
   --arg runs=N         measured relaunches per side (1 to 10, default 5); --arg profile=1 adds a Time Profiler pass
+  --arg state=bare     every launch starts from an empty home (nothing to restore); --arg prerun=S a full run of S
+                       seconds before each measured launch (60: "a launch after a 60 s full run"); both as the harness
+  --arg engines=chromium,webkit  one side per default engine (arm=chromium, arm=webkit), the same DMG, interleaved;
+                       Chromium's start from the app's log as cef_ready, cef_initialize_start, cef_initialize_dur, ... rows
   --arg labels=a,b     worker labels (default measure, on a display worker as the harness documents)
   --arg mode=premain   scripts/measure/launch-premain.sh instead (CMUX-629's pre-main study, NIGHTLY only, about 50
                        minutes): per arm (h, a, b, c, g, d, k, e, e2, x, f, t1, t3, t6; --arg arms=, --arg reps=N) the measured launch's
@@ -32,7 +36,7 @@ import re
 import tarfile
 from pathlib import Path
 
-from benchlib.bench import Bench, BenchError, Context, parse_build
+from benchlib.bench import Bench, BenchError, Context, FleetResult, parse_build
 
 RUN = re.compile(r"LR-RUN (?:(\w+) )?(\{.*\})\s*$")
 NO_RESULT = re.compile(r"LR-RUN (\w+) (\w+) no result")
@@ -104,9 +108,23 @@ class Launch(Bench):
                                  labels=tuple(ctx.arg("labels", "measure").split(",")), timeout=5400, display=True)
             self.ingest(ctx, res.log_path)
             return
+        self.ingest(ctx, self.ready_step(ctx).log_path)
+
+    def ready_step(self, ctx: Context, **extra: str) -> FleetResult:
+        """One launch-ready.sh step on a fleet Mac for ctx's build, `extra` over ctx's own arguments."""
+        args, timeout = self.ready_args(ctx, **extra)
+        return ctx.fleet_step(self.harness, args, ".build/launch-ready/report.tgz",
+                              labels=tuple(ctx.arg("labels", "measure").split(",")), timeout=timeout, display=True)
+
+    def ready_args(self, ctx: Context, **extra: str) -> tuple[list[str], int]:
+        """launch-ready.sh's arguments for ctx's build, with `extra` (state=, prerun=) over ctx's own, and the step's
+        timeout."""
+        build = ctx.build
         args = [f"runs={ctx.arg('runs', '5')}"]
-        if ctx.arg("profile"):
-            args.append(f"profile={ctx.arg('profile')}")
+        for key in ("profile", "state", "prerun", "engines", "session", "workspaces", "windows"):
+            value = extra.get(key, ctx.arg(key))
+            if value:
+                args.append(f"{key}={value}")
         if build["channel"] == "nightly":
             args.insert(0, f"dmg={build.get('url') or ctx.arg('dmg') or 'nightly'}")
             timeout = 1800
@@ -120,31 +138,43 @@ class Launch(Bench):
             timeout = 1800
         else:
             raise BenchError("launch: --build nightly, --build <sha>, or --arg dmg=https://... (a DMG)")
-        res = ctx.fleet_step(self.harness, args, ".build/launch-ready/report.tgz",
-                             labels=tuple(ctx.arg("labels", "measure").split(",")), timeout=timeout,
-                             display=True)
-        self.ingest(ctx, res.log_path)
+        # A prerun adds S seconds and a quit to each of the runs and the priming launch.
+        prerun = int(extra.get("prerun", ctx.arg("prerun", "0")) or 0)
+        # engines=chromium,webkit: the second side's launches.
+        timeout += 900 * max(0, len((extra.get("engines", ctx.arg("engines")) or "").split(",")) - 1)
+        return args, timeout + prerun * (int(ctx.arg("runs", "5")) + 1)
 
     def ingest(self, ctx: Context, path: Path) -> None:
         if ctx.arg("mode") == "premain" or _is_premain(path):
             return self.ingest_premain(ctx, path)
+        self.ingest_ready(ctx, path)
+
+    def ingest_ready(self, ctx: Context, path: Path, extra: dict[str, str] | None = None) -> dict[str, list[dict]]:
+        """launch-ready.sh's measured launches, one row per key and side labeled arm=SIDE and `extra`; returns each
+        side's finished launches."""
         runs, text = read_runs(path)
         host = HOST.search(text)
         if host and ctx.host.get("name") in ("fleet", "", None):
             ctx.host.update({"name": host.group(1), "chip": host.group(2), "os": f"macOS {host.group(3)}"})
         if not runs:
             raise BenchError(f"{path}: no LR-RUN lines")
+        finished = {}
         for side in dict.fromkeys(r["side"] for r in runs):
-            measured = [r for r in runs if r["side"] == side and r.get("label") != "prime"]
+            # The measured relaunches (runN): not the priming launch, nor a prerun's full run before each (fullN).
+            measured = [r for r in runs if r["side"] == side and str(r.get("label", "")).startswith("run")]
             done = [r for r in measured if r.get("window_on_screen") is not None and not r.get("error")]
-            labels = {"arm": side}
+            finished[side] = done
+            labels = {"arm": side, **(extra or {})}
             ctx.row("failed_launches", len(measured) - len(done), "count", labels=labels)
             for key in TOP:
                 ctx.row(key, unit="ms", samples=[r[key] for r in done if r.get(key) is not None], labels=labels)
+            if any(r.get("shell_requested") is not None for r in done):  # state=bare: the probe opened a terminal
+                ctx.row("shell_requested", unit="ms", samples=[r.get("shell_requested") for r in done], labels=labels)
             names = dict.fromkeys(n for r in done for n in (r.get("marks") or {}))
             for name in names:
                 ctx.row(_metric(name), unit="ms", samples=[r["marks"][name] for r in done if name in r["marks"]],
                         labels=labels)
+        return finished
 
 
     def ingest_premain(self, ctx: Context, path: Path) -> None:

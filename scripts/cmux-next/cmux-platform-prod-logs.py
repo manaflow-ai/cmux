@@ -141,6 +141,7 @@ PLATFORM_MSGS = frozenset({
     "cloud.record.unknown",
     "cloud.room.failed",
     "cloud.spare.claimed",
+    "cloud.spare.gateway_read",
     "cloud.spare.ready_failed",
     "cloud.spare.ready_told",
     "cloud.spare.restarting",
@@ -227,6 +228,8 @@ PLATFORM_MSGS = frozenset({
     "mesh.device.intent_pending",
     "mesh.device.mesh_unknown",
     "mesh.device.unavailable",
+    # A team hub call that threw before answering 503 mesh.unavailable: its kind and error type (cmux-platform#1660).
+    "mesh.hub.unavailable",
     "mesh.node.detached",
     "native network target",
     "outbox dead letters replayed",
@@ -292,7 +295,11 @@ INT, TOKEN, ID = base.INT, base.TOKEN, base.ID
 PUBLIC_FIELDS = {"team": ID, "teamId": ID, "machine": ID, "machineId": ID, "vm": ID, "vmId": ID, "user": ID,
                  "outcome": TOKEN, "code": TOKEN, "type": TOKEN, "step": TOKEN, "op": TOKEN, "kind": TOKEN,
                  "site": TOKEN, "phase": TOKEN, "status": INT, "attempts": INT, "fails": INT, "ms": INT,
-                 "spares": INT, "wanted": INT, "live": INT, "total": INT, "failure": TOKEN, "reason": TOKEN}
+                 "spares": INT, "wanted": INT, "live": INT, "total": INT, "failure": TOKEN, "reason": TOKEN,
+                 "mode": TOKEN}
+# Booleans a kept line may keep, only as true or false (cloud.spare.gateway_read, cmux-platform#1629: what a spare
+# claim's gateway check read: the shared route, a gateway host here, and whether the team's creates lack a rule).
+PUBLIC_BOOLS = ("lacks", "shared", "host")
 
 
 def public_log(j):
@@ -308,6 +315,12 @@ def public_log(j):
             v = base.typed(kind, j[k])
             if v is not None:
                 out[k] = v
+    for k in PUBLIC_BOOLS:
+        if isinstance(j.get(k), bool):
+            out[k] = j[k]
+    # A gateway mode the claim could not read is null on the line; kept as "null", told apart from no field.
+    if msg == "cloud.spare.gateway_read" and "mode" in j and j["mode"] is None:
+        out["mode"] = "null"
     if "error" in j:
         out["error"] = True
     return out, None
@@ -446,6 +459,10 @@ def belongs_to(event, ident):
         if isinstance(candidate, str):
             try:
                 candidate = json.loads(candidate, object_pairs_hook=unique_identity_fields)
+            except json.JSONDecodeError:
+                # Workers Logs puts a JSON line's msg text in $metadata.message and the parsed line in source: plain
+                # text names no identity, as console_line skips it. Before this every production id read kept 0.
+                continue
             except ValueError:
                 return False
         if isinstance(candidate, dict):
@@ -463,7 +480,8 @@ def publish(events, needles, ident):
     rows = [line(e, counts) for e in events]
     rows.sort(key=lambda r: r.pop("_ts", 0))
     rows = [r for r in rows if base.matches(r, needles)]
-    # events_scanned: the window's events before the id filter; events_in_window: the ones this id owns.
+    # events_scanned: the events the query returned for the id (its needle) before the exact id filter;
+    # events_in_window: the ones this id owns.
     head = {"needles": [base.tag(n) for n in needles], "events_scanned": scanned, "events_in_window": len(events),
             "kept_any": bool(rows),
             "rows_cut": len(rows) > MAX_ROWS, **counts}
@@ -506,10 +524,14 @@ def window_totals(events, needles):
     return head, rows[:MAX_ROWS]
 
 
-def query(token, service, frm, to, offset=None):
+def query(token, service, frm, to, offset=None, needle=None):
     body = {"queryId": f"cmux-platform-prod-logs-{int(time.time())}", "timeframe": {"from": frm, "to": to},
             "view": "events", "limit": 1000,
             "parameters": {"filters": [{"key": "$metadata.service", "operation": "eq", "type": "string", "value": service}]}}
+    if needle:
+        # The id itself, matched server-side: a service-only read of a busy hour fills PAGES pages with other
+        # ids' lines and never reaches this one's (hq#13055, hq#13057: 20000 scanned, 0 in window).
+        body["parameters"]["needle"] = {"value": needle, "isRegex": False, "matchCase": True}
     if offset:
         body["offset"] = offset
     req = urllib.request.Request(
@@ -566,7 +588,8 @@ def main():
     token = sys.stdin.readline().strip()
     events, offset, pages, complete = [], None, 0, False
     while pages < PAGES:
-        got = base.dig(query(token, service, frm, to, offset), "result", "events", "events") or []
+        got = base.dig(query(token, service, frm, to, offset, needle=None if kind == WINDOW else ident),
+                       "result", "events", "events") or []
         events += got
         pages += 1
         if len(got) < 1000:

@@ -29,7 +29,10 @@ struct DensityControlsProportionTests {
             if button is SidebarIconButton || button is OverflowButton { button.updateLayer() }
             let side = min(button.bounds.width, button.bounds.height)
             #expect(side > 0)
-            #expect(button.layer?.cornerRadius == Metrics.buttonCornerRadius(proportionalTo: side))
+            // A pane's tab-row tool rounds as the tabs, the +, and the ⋮ beside it; the band keeps the proportional corner.
+            let tabRow = (button as? TitlebarBandButton)?.roundsAsTabBarControl == true
+            #expect(button.layer?.cornerRadius == (tabRow ? Metrics.tabBarControlCornerRadius(fitting: button.bounds.size)
+                                                       : Metrics.buttonCornerRadius(proportionalTo: side)))
             #expect((button.layer?.cornerRadius ?? side) < side / 2)
             if let cell = button.cell, button.image != nil {
                 let image = cell.imageRect(forBounds: button.bounds)
@@ -72,12 +75,12 @@ struct DensityControlsProportionTests {
             #expect(!plus.frame.intersects(menu.frame))
             #expect(strip.convert(cell.frame, from: strip.tabsClip).maxX <= plus.frame.minX)
             let fill = plus.look.fillLayer
-            #expect(fill.cornerRadius == Metrics.buttonCornerRadius(proportionalTo: min(fill.bounds.width, fill.bounds.height)))
+            #expect(fill.cornerRadius == Metrics.tabBarControlCornerRadius(fitting: fill.bounds.size), "the +, a tab's corner")
             let plusInk = try #require(plus.look.glyphLayer.path).boundingBoxOfPath.insetBy(dx: -plus.look.glyphLayer.lineWidth / 2,
                                                                                        dy: -plus.look.glyphLayer.lineWidth / 2)
             #expect(plus.bounds.contains(plusInk))
             for layer in menu.layer?.sublayers ?? [] where !layer.isHidden && layer.cornerRadius > 0 {
-                #expect(layer.cornerRadius == Metrics.buttonCornerRadius(proportionalTo: min(menu.bounds.width, menu.bounds.height)))
+                #expect(layer.cornerRadius == PlusButtonLook.splitCornerRadius, "the ⌄, the +'s corner")
             }
             for layer in menu.layer?.sublayers ?? [] {
                 if let glyph = layer as? CAShapeLayer, let path = glyph.path {
@@ -133,14 +136,22 @@ struct DensityControlsProportionTests {
             let font = try #require(bar.field.font)
             #expect(font.capHeight <= field.height)
             #expect(bar.bounds.contains(bar.chip.frame))
-            for control in [bar.chip, bar.starButton] as [NSView] {
-                control.layoutSubtreeIfNeeded()
-                let side = min(control.bounds.width, control.bounds.height)
-                #expect(control.layer?.cornerRadius == Metrics.buttonCornerRadius(proportionalTo: side))
-                #expect((control.layer?.cornerRadius ?? side) < side / 2)
-                for image in control.subviews.compactMap({ $0 as? NSImageView }) {
-                    #expect(control.bounds.contains(image.frame))
-                }
+            bar.chip.layoutSubtreeIfNeeded()
+            let chipSide = min(bar.chip.bounds.width, bar.chip.bounds.height)
+            #expect(bar.chip.layer?.cornerRadius == Metrics.buttonCornerRadius(proportionalTo: chipSide))
+            #expect((bar.chip.layer?.cornerRadius ?? chipSide) < chipSide / 2)
+            for image in bar.chip.subviews.compactMap({ $0 as? NSImageView }) {
+                #expect(bar.chip.bounds.contains(image.frame))
+            }
+            // The star's plate is Helium's, a quarter of its side round (Lucas 2026-11-18: "match it 1:1"), and its glyph's
+            // ink stays inside it; the glyph's clear margin may pass it.
+            let star = bar.starButton
+            star.layoutSubtreeIfNeeded()
+            let starSide = min(star.bounds.width, star.bounds.height)
+            #expect(star.layer?.cornerRadius == OmnibarStyle.starPlateCornerRadius(side: starSide))
+            for image in star.subviews.compactMap({ $0 as? NSImageView }) {
+                let inset = image.frame.height * (1 - OmnibarMetrics.starInkRatio) / 2
+                #expect(star.bounds.contains(image.frame.insetBy(dx: inset, dy: inset)), "\(preset): the star's ink passes its plate")
             }
             if !bar.starButton.isHidden {
                 #expect(field.maxX <= bar.convert(bar.starButton.bounds, from: bar.starButton).minX)
