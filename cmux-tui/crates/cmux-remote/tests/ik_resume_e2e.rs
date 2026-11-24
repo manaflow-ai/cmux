@@ -225,15 +225,20 @@ async fn ik_to_the_wrong_key_fails_the_handshake() {
 
 /// A link group that delays every frame by [`ONE_WAY`] each way, charges a round trip per open
 /// (a carrier dial), and keeps every frame the client sent, per link, for the replay test.
+/// The frames one link's client sent.
+type SentFrames = Arc<StdMutex<Vec<Bytes>>>;
+/// A delayed frame read: the time it may be delivered, or the link's end or error.
+type DelayedRead = Result<Option<(Instant, Bytes)>, LinkError>;
+
 struct DelayedGroup {
     inner: Arc<dyn LinkGroup>,
-    sent: Arc<StdMutex<Vec<(LinkRequest, Arc<StdMutex<Vec<Bytes>>>)>>>,
+    sent: Arc<StdMutex<Vec<(LinkRequest, SentFrames)>>>,
 }
 
 struct DelayedLink {
     inner: Arc<dyn FrameLink>,
     out: mpsc::UnboundedSender<(Instant, Bytes)>,
-    inc: Mutex<mpsc::UnboundedReceiver<Result<Option<(Instant, Bytes)>, LinkError>>>,
+    inc: Mutex<mpsc::UnboundedReceiver<DelayedRead>>,
     sent: Arc<StdMutex<Vec<Bytes>>>,
 }
 
