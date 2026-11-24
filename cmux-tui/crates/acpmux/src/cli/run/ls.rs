@@ -419,9 +419,29 @@ async fn scoped_output_with_budget(
     {
         status_read = Some(read.await.ok().and_then(Result::ok));
     }
+    // A daemon that lists hub machines' rows (`HUB_ROWS`) needs no `peers` to open the list, so
+    // the list's connection and upgrade open while the status is read: one wait, not two, on a
+    // loaded host. The source is kept only when the status leaves the v2 list in use (below).
+    let mut early: Option<Result<Option<list_read::Source>>> = None;
+    let mut via = Some(via);
     if walks_all && status_read.is_none() {
-        status_read =
-            Some(request_bounded(client, method::MUX_STATUS, json!({}), budget).await.ok());
+        let status = request_bounded(client, method::MUX_STATUS, json!({}), budget);
+        match via.take_if(|_| !one_page && client.daemon_lists(list_read::HUB_ROWS)) {
+            Some(via) => {
+                let open = async {
+                    match budget {
+                        Some(budget) => {
+                            bounded_step(budget, "request", via.open_knowing(client, None)).await?
+                        }
+                        None => via.open_knowing(client, None).await,
+                    }
+                };
+                let (status, source) = tokio::join!(status, open);
+                status_read = Some(status.ok());
+                early = Some(source);
+            }
+            None => status_read = Some(status.await.ok()),
+        }
     }
     let closed_listed = status_read
         .as_ref()
@@ -435,12 +455,20 @@ async fn scoped_output_with_budget(
     let remote_closed =
         walks_all && list_read::closed_remote_listed(status_read.as_ref().and_then(Option::as_ref));
     let source = if !one_page && !remote_closed && (!compact || closed_listed.is_some()) {
-        match budget {
-            Some(budget) => {
-                bounded_step(budget, "request", via.open_knowing(client, known_peers.as_deref()))
+        match (early, via) {
+            (Some(source), _) => source?,
+            (None, Some(via)) => match budget {
+                Some(budget) => {
+                    bounded_step(
+                        budget,
+                        "request",
+                        via.open_knowing(client, known_peers.as_deref()),
+                    )
                     .await??
-            }
-            None => via.open_knowing(client, known_peers.as_deref()).await?,
+                }
+                None => via.open_knowing(client, known_peers.as_deref()).await?,
+            },
+            (None, None) => None,
         }
     } else {
         None

@@ -56,6 +56,9 @@ pub struct Client {
     notifications: Mutex<Option<mpsc::Receiver<Message>>>,
     notif_tx: Arc<Mutex<mpsc::Sender<Message>>>,
     closed: Arc<std::sync::atomic::AtomicBool>,
+    /// The most requests this client had unanswered at once (the tests' count of a read's trips).
+    #[cfg(test)]
+    peak_in_flight: std::sync::atomic::AtomicUsize,
 }
 
 impl Client {
@@ -140,6 +143,8 @@ impl Client {
             notifications: Mutex::new(Some(notif_rx)),
             notif_tx,
             closed,
+            #[cfg(test)]
+            peak_in_flight: std::sync::atomic::AtomicUsize::new(0),
         });
         let mut hello = json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "acpmux-cli", "version": crate::hub::VERSION}});
         // Inside an acpmux session: say which, with the caller token the
@@ -253,6 +258,12 @@ impl Client {
             return other_socket_closed(&self.socket, context);
         }
         closed_error(context, self.daemon_build().as_deref())
+    }
+
+    /// The most requests this client had unanswered at once.
+    #[cfg(test)]
+    pub(crate) fn peak_in_flight(&self) -> usize {
+        self.peak_in_flight.load(Ordering::SeqCst)
     }
 
     /// True once the daemon has closed this connection.
@@ -385,6 +396,8 @@ impl Client {
                 return Err(self.closed(&context));
             }
             pending.insert(key.clone(), tx);
+            #[cfg(test)]
+            self.peak_in_flight.fetch_max(pending.len(), Ordering::SeqCst);
         }
         let _pending = PendingRequest { replies: &self.pending, key };
         if self.out.send(Message::request(id, m, params).to_line()).await.is_err() {

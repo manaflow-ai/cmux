@@ -775,3 +775,36 @@ async fn probe_order_at_start() {
     drop(d);
     drop(store);
 }
+
+/// One whole `acpmux --json ls` of 450 live chats sends its rows-by-key requests together: the
+/// walk's second page holds 350 keys, four requests of a hundred, and a read that sent them one
+/// at a time waited for four replies on a host whose CPUs are busy (the duress bench's `bigchat`
+/// leg, 80 busy loops). The client had one request unanswered at a time before; it has them all
+/// out at once now, and prints the same 450 rows.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_whole_read_sends_its_row_requests_together() {
+    let daemon = serve(Serves::List, |hub| {
+        let now = crate::store::now_ms();
+        for n in 0..450_u64 {
+            hub.insert_test_session(meta(
+                &format!("c-bulk-{n:03}"),
+                &format!("bulk-{n:03}"),
+                "idle",
+                now - 600_000 + n * 1_000,
+                json!({}),
+            ));
+        }
+        450
+    })
+    .await;
+    let printed = ls(&daemon, &["--json"], true, crate::store::now_ms()).await;
+    let printed: Value = serde_json::from_str(&printed).unwrap();
+    let rows = printed["sessions"].as_array().unwrap();
+    assert_eq!(rows.len(), 450, "every chat is listed");
+    assert!(
+        rows.windows(2).all(|w| w[0]["updatedAt"].as_u64() >= w[1]["updatedAt"].as_u64()),
+        "newest first"
+    );
+    let peak = daemon.client.peak_in_flight();
+    assert!(peak >= 3, "the page's row requests went one at a time: {peak} in flight at most");
+}
