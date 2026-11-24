@@ -8,7 +8,8 @@ event from the repository's GITHUB_TOKEN hour, the same hour the production prom
 runs from; it ran out and held promotes (backend.yml run 44878749398, "API rate limit exceeded for
 installation"). pr-body-checks.yml and pr-checks.yml already read git first.
 
-Each test runs the workflow step's own shell script, as Actions would, against a local origin that has the
+language-boundaries.yml is pull_request_target, so GitHub runs main's copy (feat-cmux-next has none); these
+tests cover classic-api-guard.yml. Each test runs the workflow step's own shell script, as Actions would, against a local origin that has the
 pull request's merge ref, with a `gh` on PATH that records every call. With the merge ref of this head, the
 files come from git and `gh` is never called; with no merge ref, the REST listing is still the fallback.
 """
@@ -126,10 +127,6 @@ class GuardStep:
         return self.log.read_text().splitlines() if self.log.exists() else []
 
 
-LANGUAGE = ("language-boundaries.yml", "Check the changed files against the language boundaries")
-LANGUAGE_FILES = ["scripts/ci/language_boundaries.py", ".github/language-boundaries.toml"]
-# Swift in the React chat UI: language_boundaries.py refuses it, so a pass would mean the file went unread.
-SWIFT_IN_CHAT_UI = {"webviews/src/agent-session/Transcript.swift": "struct Transcript {}\n"}
 CLASSIC = ("classic-api-guard.yml", "Check the changed paths against classic's auto-deploys")
 CLASSIC_FILES = ["scripts/ci/classic_api_guard.py", "scripts/ci/classic-auto-deploy.json"]
 # A guarded classic API path into main with no `Classic API change:` line fails.
@@ -140,21 +137,6 @@ class PullRequestGuardsReadGit(unittest.TestCase):
     def setUp(self) -> None:
         self.root = Path(tempfile.mkdtemp(prefix="pr-guards-git-"))
         self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
-
-    def test_language_boundaries_reads_the_merge_ref_without_the_files_api(self) -> None:
-        guard = GuardStep(self.root, PullRequest(self.root, SWIFT_IN_CHAT_UI), LANGUAGE_FILES)
-        done = guard.run(*LANGUAGE, env={"LABELS_JSON": "[]", "CHANGED_FILES": "1"})
-        self.assertEqual(guard.gh_calls(), [], done.stdout + done.stderr)
-        self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
-        self.assertIn("Transcript.swift", done.stdout + done.stderr)
-
-    def test_language_boundaries_falls_back_to_the_files_api_without_a_merge_ref(self) -> None:
-        guard = GuardStep(self.root, PullRequest(self.root, SWIFT_IN_CHAT_UI, merge_ref=False), LANGUAGE_FILES)
-        listing = '{"status":"added","path":"webviews/src/agent-session/Transcript.swift","old":""}\n'
-        done = guard.run(*LANGUAGE, env={"LABELS_JSON": "[]", "CHANGED_FILES": "1"}, gh_out=listing)
-        self.assertEqual(len(guard.gh_calls()), 1, guard.gh_calls())
-        self.assertIn(f"pulls/{PR}/files", guard.gh_calls()[0])
-        self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
 
     def test_classic_api_guard_reads_the_merge_ref_without_the_files_api(self) -> None:
         guard = GuardStep(self.root, PullRequest(self.root, CLASSIC_API), CLASSIC_FILES)
