@@ -12,6 +12,18 @@
 
 use serde_json::{Value, json};
 
+// Slices without a panic (plans/cmux-next/rust-panic-free.md): every index in this file comes from
+// `find`, a char walk or an ASCII count, so it is a char boundary; one that is not reads as "".
+fn head_to(s: &str, end: usize) -> &str {
+    s.get(..end).unwrap_or("")
+}
+fn tail_at(s: &str, start: usize) -> &str {
+    s.get(start..).unwrap_or("")
+}
+fn part(s: &str, start: usize, end: usize) -> &str {
+    s.get(start..end).unwrap_or("")
+}
+
 /// The element the note is wrapped in (`prompt_context::is_context_text` drops it from a replay).
 pub const TAG: &str = "<cmux-tools-context>";
 
@@ -39,13 +51,13 @@ pub fn mentioned(text: &str) -> Vec<&'static str> {
         if ch != '@' && ch != '$' {
             continue;
         }
-        if !leads(&prose[..at]) {
+        if !leads(head_to(&prose, at)) {
             continue;
         }
-        let rest = &prose[at + 1..];
+        let rest = tail_at(&prose, at + 1);
         for (i, (name, _)) in TOOLS.iter().enumerate() {
             let Some(head) = rest.get(..name.len()) else { continue };
-            if head.eq_ignore_ascii_case(name) && trails(&rest[name.len()..]) {
+            if head.eq_ignore_ascii_case(name) && trails(tail_at(rest, name.len())) {
                 found[i] = true;
             }
         }
@@ -102,10 +114,10 @@ pub fn without_own_note(text: &str) -> std::borrow::Cow<'_, str> {
             // Only the generated copy: the last one outside code. A copy the person pasted in a
             // fenced block or a code span is their text and stays.
             let mut end = text.len();
-            while let Some(at) = text[..end].rfind(&joined) {
-                let through = &text[..at + joined.len()];
+            while let Some(at) = head_to(&text, end).rfind(&joined) {
+                let through = head_to(text, at + joined.len());
                 if without_code(through).trim_end().ends_with("</cmux-tools-context>") {
-                    let rest = format!("{}{}", &text[..at], &text[at + joined.len()..]);
+                    let rest = format!("{}{}", head_to(text, at), tail_at(text, at + joined.len()));
                     if mentioned(&rest) == tools {
                         return std::borrow::Cow::Owned(rest);
                     }
@@ -201,8 +213,8 @@ fn without_code(text: &str) -> String {
         if read.code {
             prose.push_str(&blanked(&wide));
         } else {
-            prose.push_str(&blanked(&wide[..read.start]));
-            prose.push_str(&wide[read.start..]);
+            prose.push_str(&blanked(head_to(&wide, read.start)));
+            prose.push_str(tail_at(&wide, read.start));
         }
     }
     let spans = code_spans(&prose, &breaks);
@@ -212,11 +224,11 @@ fn without_code(text: &str) -> String {
     let mut out = String::with_capacity(prose.len());
     let mut at = 0;
     for (start, end) in spans {
-        out.push_str(&prose[at..start]);
-        out.push_str(&blanked(&prose[start..end]));
+        out.push_str(part(&prose, at, start));
+        out.push_str(&blanked(part(&prose, start, end)));
         at = end;
     }
-    out.push_str(&prose[at..]);
+    out.push_str(tail_at(&prose, at));
     out
 }
 
@@ -333,10 +345,10 @@ fn match_open<'a>(open: &[Option<usize>], line: &'a str) -> (usize, &'a str) {
         match container {
             None => {
                 let n = spaces(rest);
-                if n > 3 || !rest[n..].starts_with('>') {
+                if n > 3 || !tail_at(rest, n).starts_with('>') {
                     return (i, rest);
                 }
-                rest = &rest[n + 1..];
+                rest = tail_at(rest, n + 1);
                 rest = rest.strip_prefix(' ').unwrap_or(rest);
             }
             Some(indent) => {
@@ -346,7 +358,7 @@ fn match_open<'a>(open: &[Option<usize>], line: &'a str) -> (usize, &'a str) {
                 if spaces(rest) < *indent {
                     return (i, rest);
                 }
-                rest = &rest[*indent..];
+                rest = tail_at(rest, *indent);
             }
         }
     }
@@ -368,7 +380,7 @@ fn list_marker(s: &str) -> Option<usize> {
         }
         _ => return None,
     };
-    (blank(&s[length..]) || s[length..].starts_with(' ')).then_some(length)
+    (blank(tail_at(s, length)) || tail_at(s, length).starts_with(' ')).then_some(length)
 }
 
 /// Opens the block quotes and list items `rest` starts with, and gives what follows them.
@@ -378,7 +390,7 @@ fn open_new<'a>(open: &mut Vec<Option<usize>>, mut rest: &'a str) -> &'a str {
         if n > 3 {
             return rest;
         }
-        let after = &rest[n..];
+        let after = tail_at(rest, n);
         if let Some(inner) = after.strip_prefix('>') {
             open.push(None);
             rest = inner.strip_prefix(' ').unwrap_or(inner);
@@ -389,7 +401,7 @@ fn open_new<'a>(open: &mut Vec<Option<usize>>, mut rest: &'a str) -> &'a str {
             return rest;
         }
         let Some(marker) = list_marker(after) else { return rest };
-        let content = &after[marker..];
+        let content = tail_at(after, marker);
         if blank(content) {
             open.push(Some(n + marker + 1));
             return content;
@@ -400,7 +412,7 @@ fn open_new<'a>(open: &mut Vec<Option<usize>>, mut rest: &'a str) -> &'a str {
             gap => gap,
         };
         open.push(Some(n + marker + gap));
-        rest = &content[gap..];
+        rest = tail_at(content, gap);
     }
 }
 
@@ -411,10 +423,11 @@ fn opens(rest: &str) -> Option<(u8, usize)> {
     if n > 3 {
         return None;
     }
-    let after = &rest[n..];
+    let after = tail_at(rest, n);
     let mark = *after.as_bytes().first().filter(|b| **b == b'`' || **b == b'~')?;
     let length = after.bytes().take_while(|b| *b == mark).count();
-    (length >= 3 && !(mark == b'`' && after[length..].contains('`'))).then_some((mark, length))
+    (length >= 3 && !(mark == b'`' && tail_at(after, length).contains('`')))
+        .then_some((mark, length))
 }
 
 /// Whether `rest` closes the fence of `mark` and `length`.
@@ -423,9 +436,9 @@ fn closes(rest: &str, mark: u8, length: usize) -> bool {
     if n > 3 {
         return false;
     }
-    let after = &rest[n..];
+    let after = tail_at(rest, n);
     let run = after.bytes().take_while(|b| *b == mark).count();
-    run >= length && blank(&after[run..])
+    run >= length && blank(tail_at(after, run))
 }
 
 /// Whether `rest` starts a block, so it is no lazy line of a paragraph: a block quote, a list
@@ -435,7 +448,7 @@ fn starts_block(rest: &str) -> bool {
     if n > 3 {
         return false;
     }
-    let after = &rest[n..];
+    let after = tail_at(rest, n);
     after.starts_with('>')
         || list_marker(after).is_some()
         || opens(rest).is_some()
@@ -451,7 +464,7 @@ fn thematic_break(rest: &str) -> bool {
     if n > 3 {
         return false;
     }
-    let after = rest[n..].trim_end_matches([' ', '\r']);
+    let after = tail_at(rest, n).trim_end_matches([' ', '\r']);
     let Some(mark) = after.bytes().next().filter(|b| matches!(b, b'-' | b'*' | b'_')) else {
         return false;
     };
@@ -465,9 +478,10 @@ fn heading(rest: &str) -> bool {
     if n > 3 {
         return false;
     }
-    let after = &rest[n..];
+    let after = tail_at(rest, n);
     let hashes = after.bytes().take_while(|b| *b == b'#').count();
-    (1..=6).contains(&hashes) && (blank(&after[hashes..]) || after[hashes..].starts_with(' '))
+    (1..=6).contains(&hashes)
+        && (blank(tail_at(after, hashes)) || tail_at(after, hashes).starts_with(' '))
 }
 
 /// The inline code spans of `text` (CommonMark: a backtick run, then the next run of exactly as
