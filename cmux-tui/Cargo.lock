@@ -37,6 +37,7 @@ dependencies = [
  "cmux-computer-use",
  "cmux-config",
  "cmux-device-kind",
+ "cmux-egress",
  "cmux-embed",
  "cmux-fault",
  "cmux-felt",
@@ -1163,6 +1164,7 @@ dependencies = [
  "async-trait",
  "base64",
  "bytes",
+ "cmux-egress",
  "cmux-json",
  "cmux-pty",
  "cmux-unix-socket",
@@ -1431,6 +1433,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-braid-session"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-browser-host"
 version = "1.0.0"
 dependencies = [
@@ -1475,6 +1485,18 @@ dependencies = [
  "cmux-scope",
  "http",
  "tokio",
+]
+
+[[package]]
+name = "cmux-bundle"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "chacha20poly1305",
+ "cmux-fault",
+ "flate2",
+ "tokio",
+ "zstd",
 ]
 
 [[package]]
@@ -1544,6 +1566,7 @@ dependencies = [
  "cmux-cloud-environment",
  "cmux-cloud-machine",
  "cmux-cloud-wire",
+ "cmux-egress",
  "cmux-lifeline",
  "futures",
  "getrandom 0.3.4",
@@ -1576,6 +1599,7 @@ name = "cmux-cloud-environment"
 version = "0.1.0"
 dependencies = [
  "cmux-build-space",
+ "cmux-egress",
  "reqwest",
  "rustls",
  "serde",
@@ -1634,6 +1658,7 @@ dependencies = [
  "anyhow",
  "axum",
  "base64",
+ "cmux-egress",
  "cmux-json",
  "cmux-link",
  "cmux-local-auth",
@@ -1866,6 +1891,7 @@ dependencies = [
  "reqwest",
  "rustls",
  "tokio",
+ "tokio-tungstenite",
 ]
 
 [[package]]
@@ -2318,6 +2344,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bincode",
+ "cmux-egress",
  "cmux-file-lock",
  "cmux-process",
  "flate2",
@@ -2410,6 +2437,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-redact"
+version = "0.1.0"
+dependencies = [
+ "acpmux",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-relay"
 version = "0.1.0"
 dependencies = [
@@ -2438,6 +2473,7 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-braid-path",
+ "cmux-braid-session",
  "cmux-build-identity",
  "cmux-deadline",
  "cmux-fault",
@@ -2533,6 +2569,7 @@ dependencies = [
  "base64",
  "cmux-build-space",
  "cmux-cloud-environment",
+ "cmux-egress",
  "cmux-json",
  "cmux-link",
  "cmux-server-core",
@@ -2577,6 +2614,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chacha20poly1305",
+ "cmux-egress",
  "cmux-session-pack",
  "getrandom 0.3.4",
  "hex",
@@ -2660,6 +2698,7 @@ name = "cmux-stack-auth"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-egress",
  "getrandom 0.3.4",
  "httpdate",
  "reqwest",
@@ -2709,9 +2748,18 @@ name = "cmux-tailnet"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-egress",
  "libc",
  "reqwest",
  "rustls",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-tailnet-join"
+version = "0.1.0"
+dependencies = [
  "serde",
  "serde_json",
 ]
@@ -2866,6 +2914,7 @@ dependencies = [
  "cmux-customize-recipes",
  "cmux-daemon-launch-core",
  "cmux-device-kind",
+ "cmux-egress",
  "cmux-fault",
  "cmux-file-lock",
  "cmux-focus-core",
@@ -2894,6 +2943,7 @@ dependencies = [
  "cmux-server-core",
  "cmux-signed-bundle",
  "cmux-stack-auth",
+ "cmux-tailnet-join",
  "cmux-terminal-client",
  "cmux-theme-pack",
  "cmux-theme-tokens",
@@ -3012,6 +3062,7 @@ dependencies = [
  "cmux-config",
  "cmux-conversation",
  "cmux-device-kind",
+ "cmux-egress",
  "cmux-embed",
  "cmux-feed-core",
  "cmux-file-lock",
@@ -3287,6 +3338,7 @@ dependencies = [
 name = "cmux-vm-pool"
 version = "0.1.0"
 dependencies = [
+ "cmux-egress",
  "futures-util",
  "reqwest",
  "rustls",
@@ -3330,6 +3382,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64",
+ "cmux-egress",
  "cmux-wg",
  "futures-util",
  "getrandom 0.3.4",

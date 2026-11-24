@@ -82,11 +82,6 @@ public final class AgentPaneView: NSView {
     var otherInstallNotice: AgentPaneNotice?
     /// The pane's daemon is another cmux install's (cx-fcaq); the line shows only while a request waits.
     var runsOnOtherInstall = false
-    /// "Not verified as you, reconnecting identity": this pane's connection did not prove the
-    /// person, so its prompts would reach the agent as an unverified sender's.
-    var personUnprovenNotice: AgentPaneNotice?
-    /// Holds the notice back until the state has lasted ``NoticeTiming/connectionQuiet`` (a connection blip says nothing).
-    let personUnprovenHold = QuietHold(owner: "AgentPaneView.personUnproven", delay: NoticeTiming.connectionQuiet)
     /// "Remote approvals are off" (cx-0q7o), and the restart the chat's machine offers.
     var remoteApprovalsNotice: AgentPaneNotice?
     var remoteApprovals: AgentPaneRemoteApprovals?
@@ -326,6 +321,10 @@ public final class AgentPaneView: NSView {
         pageResources?.themeKey = { [weak self] in
             guard let self else { return nil }
             return self.performWithTheme { AgentPageEvent.theme(self.themeTokens, surface: self.surfaceKind)?.value["key"]?.stringValue }
+        }
+        pageResources?.agentTheme = { [weak self] in
+            guard let self else { return nil }
+            return self.performWithTheme { AgentPageEvent.theme(self.themeTokens, surface: self.surfaceKind)?.value["agent"] }
         }
         model.tabRow.supportsNativeTools = pageEvents != nil
         model.onTabRowToolInvoked = { [weak self] id, menuItemID in
@@ -608,7 +607,6 @@ public final class AgentPaneView: NSView {
         if let connection = model.transport.connection { model.transport.close(connection: connection) }
         model.transport.deliver = nil
         model.transport.onOtherInstall = nil
-        model.transport.onPersonProof = nil
         model.transport.recoverPersonProof = nil
         model.transport.onRemoteApprovalsOff = nil
         model.transport.onPeerApprovalsOff = nil

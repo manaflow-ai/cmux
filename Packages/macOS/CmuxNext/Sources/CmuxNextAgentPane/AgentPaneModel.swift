@@ -254,7 +254,7 @@ public final class AgentPaneModel {
     /// The chat header's tab actions and tab state (``AgentPaneHeaderHooks``).
     @ObservationIgnored public var header: AgentPaneHeaderHooks?
     /// The header's tools in the pane's tab row (``AgentPaneTabRow``).
-    @ObservationIgnored public let tabRow = AgentPaneTabRow()
+    @ObservationIgnored public let tabRow = AgentPaneTabRow(defaults: .standard)
     /// Page-owned Session Info content drawn by AppKit.
     @ObservationIgnored public let sessionInfo = AgentPaneSessionInfo()
     /// The page's bottom stack (a question, the tray, queued prompts, the composer) in its viewport,
@@ -605,7 +605,6 @@ public final class AgentPaneModel {
             return await AgentPaneHandshakeReply.reply(to: request, in: self)
         case .addAccount(let account): return await account.reply(in: self)
         case .restartAcpmux: return await AgentPaneHandshakeReply.restartAcpmux(in: self)
-        case .restartStuckAcpmux: return await AgentPaneHandshakeReply.restartStuckAcpmux(in: self)
         case .persistSession(let id): adoptSession(id); return AgentPaneReply.success()
         case .missingChat(let session, let reason):
             missingChatLog.record(session: session, reason: reason, tabSession: sessionId, remote: remoteChat)
@@ -640,6 +639,7 @@ public final class AgentPaneModel {
             return AgentPaneReply.success()
         case .painted(let fromKeptTail, let settled, let copy, let live):
             AgentPaneLaunchTimings.shared.mark(newTab != nil ? "agent_pane.newtab_painted" : "agent_pane.painted")
+            if settled, newTab == nil { AgentPaneLaunchTimings.shared.mark("agent_pane.painted_settled") }
             // The page's own app drew the chat (not the inert saved copy): what the relaunch bench times as
             // the chat drawn live (scripts/ci/relaunch_restore_check.py `page_painted_ms`, goal restart-to-chat).
             if !copy, newTab == nil { AgentPaneLaunchTimings.shared.mark("agent_pane.page_painted") }
