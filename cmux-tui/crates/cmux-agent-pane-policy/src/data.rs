@@ -27,7 +27,7 @@ pub enum GestureRule {
     WhenPrompting,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize)]
 pub struct KnownParams {
     pub params: BTreeSet<String>,
     pub acpmux: BTreeSet<String>,
