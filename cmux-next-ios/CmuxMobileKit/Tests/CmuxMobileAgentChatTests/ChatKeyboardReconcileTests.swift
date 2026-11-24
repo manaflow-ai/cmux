@@ -22,13 +22,26 @@ import CmuxMobileSupport
             empty: AnyView(EmptyView()), dock: AnyView(Color.clear.frame(height: 96)), jump: nil,
             keyboardTracker: tracker
         )
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        // A real scene: without one the window is never on screen, so the screen
+        // conversion in notifiedTop and the keyboard layout guide's resting frame
+        // are undefined and the posted keyboard cannot lift the dock. This test
+        // (#46792) never ran green on base for that reason (#53107).
+        let scene = try #require(
+            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first,
+            "the test host has a window scene")
+        let window = UIWindow(windowScene: scene)
+        window.frame = scene.screen.bounds
         window.rootViewController = controller
         window.makeKeyAndVisible()
         controller.view.layoutIfNeeded()
         defer { window.isHidden = true }
+        // Precondition for the notified fallback: the guide rests at the bottom
+        // (no real keyboard), so a frame 374 pt up reads as a guide that stalled.
+        try #require(controller.view.keyboardLayoutGuide.layoutFrame.minY > controller.view.bounds.maxY - 374 + 40,
+                     "guide at rest: \(controller.view.keyboardLayoutGuide.layoutFrame)")
 
-        let shown = CGRect(x: 0, y: 500, width: 402, height: 374)
+        let screen = scene.screen.bounds
+        let shown = CGRect(x: 0, y: screen.maxY - 374, width: screen.width, height: 374)
         let userInfo: [AnyHashable: Any] = [
             UIResponder.keyboardFrameEndUserInfoKey: NSValue(cgRect: shown),
             UIResponder.keyboardAnimationDurationUserInfoKey: 0.0,
