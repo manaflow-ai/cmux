@@ -1,4 +1,8 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
+#else
+import Foundation
+#endif
 
 /// Transcript sizing rules read from ChatKit on iOS 26.5 and 27.0 (iPhone 17
 /// Pro and Pro Max simulators, Large text), shared by every surface that

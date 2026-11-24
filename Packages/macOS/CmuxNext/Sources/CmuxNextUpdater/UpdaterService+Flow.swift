@@ -17,6 +17,7 @@ extension UpdaterService {
         // Update Available button (``availableButton``), not this card; a check they asked for shows here.
         if let newestCard { return newestCard }
         if let cancelledDownloadCard { return cancelledDownloadCard }
+        if let healthCard { return healthCard }
         guard !stagedPulledHeld, let card = flow.card(downloadsAutomatically: true) else { return nil }
         if card == .installing, installCardDismissed { return nil }
         if case .available(let version) = card, updateSnooze.hides(version: version, at: now()) { return nil }
