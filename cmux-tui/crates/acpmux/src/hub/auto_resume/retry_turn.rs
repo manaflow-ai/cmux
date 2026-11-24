@@ -6,7 +6,7 @@
 //! - When the last turn failed, it is sent again now as the next attempt of its prompt
 //!   (`P~resume-n` after the failed `P` or `P~resume-(n-1)`, the id an automatic retry uses): the
 //!   same prompt (its text and the images acpmux kept) when the turn produced nothing, and the
-//!   continuation an automatic retry sends (`continue_text`) when the model had started on it, a
+//!   continuation an automatic retry sends (`continue_text_for`) when the model had started on it, a
 //!   message was steered into it, it was a turn of agent messages, it carried hidden context, or
 //!   it cannot be rebuilt (a document, an image not kept). A retry that waits (the session row's
 //!   `retry`, `auto_resume.rs`) is taken over: it is this attempt, sent now, and its timer records
@@ -30,7 +30,7 @@
 //! - A sub-session whose last turn was stopped (`cancelled`) is continued instead, in the same
 //!   chat: `hub/subsession_resume.rs`.
 
-use super::{Mark, SUFFIX, continue_text, split_attempt, still_cut};
+use super::{Mark, SUFFIX, continue_text_for, split_attempt, still_cut};
 use crate::hub::digest::DIGEST_KIND;
 use crate::hub::{Control, Hub, PromptOptions, Session};
 use crate::protocol::session::{RetryKind, RetryResult};
@@ -253,7 +253,7 @@ impl Hub {
                 let reason = crate::hub::turn_errors::resume_cause(&error, &error)
                     .filter(|r| *r != "context")
                     .unwrap_or("error");
-                vec![json!({"type": "text", "text": continue_text(&error, reason)})]
+                vec![json!({"type": "text", "text": continue_text_for(session, &error, reason)})]
             }
         };
         let held = self.held_by(session, &root, &cut_turn);
@@ -573,7 +573,24 @@ mod tests {
 
     #[test]
     fn a_continuation_names_the_error_it_continues_after() {
-        assert!(continue_text("x", "transport").contains("a connection error (x)"));
-        assert!(continue_text("simulated internal error", "error").contains("cut off by an error"));
+        assert!(
+            super::super::continue_text_at("x", "transport", None, 0)
+                .contains("a connection error (x)")
+        );
+        assert!(
+            super::super::continue_text_at("simulated internal error", "error", None, 0)
+                .contains("cut off by an error")
+        );
+        // 2026-11-24T22:41:00Z cut, 23:02:00Z resumed.
+        let timed = super::super::continue_text_at(
+            "529",
+            "capacity",
+            Some(1_795_560_060_000),
+            1_795_561_320_000,
+        );
+        assert!(
+            timed.starts_with("Your previous turn was cut off by a capacity error upstream (the provider or the gateway was full) (529) at 22:41Z; acpmux paused the chat until now (23:02Z). Check"),
+            "{timed}"
+        );
     }
 }

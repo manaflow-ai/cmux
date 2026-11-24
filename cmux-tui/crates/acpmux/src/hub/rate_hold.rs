@@ -648,7 +648,7 @@ impl Hub {
                 .last_turn
                 .and_then(|t| t.get("errorText").and_then(Value::as_str).map(str::to_owned))
                 .unwrap_or_else(|| "HTTP 429".into());
-            let note = super::auto_resume::continue_text(&error, "rate_limit");
+            let note = super::auto_resume::continue_text_for(session, &error, "rate_limit");
             session.rate_note.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert(note);
         }
         self.lift_rate_hold(session, why);

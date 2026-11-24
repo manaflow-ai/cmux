@@ -270,8 +270,17 @@ fn split_attempt(prompt_id: &str) -> (&str, usize) {
     (prompt_id, 0)
 }
 
-/// The text the agent gets; `reason` is the failure's [`super::turn_errors::resume_cause`].
-pub(super) fn continue_text(error: &str, reason: &str) -> String {
+/// The text the agent gets for `session`'s cut turn; `reason` is the failure's
+/// [`super::turn_errors::resume_cause`]. It says when it was cut (its `lastTurn.endedAt`)
+/// and that the chat was paused until now: "You were paused because X at T; continue".
+pub(super) fn continue_text_for(session: &Session, error: &str, reason: &str) -> String {
+    let cut_at = session.meta().last_turn.as_ref().and_then(|t| t.get("endedAt")?.as_u64());
+    continue_text_at(error, reason, cut_at, super::now_ms())
+}
+
+/// [`continue_text_for`]'s words, with the cut's time and the resume's when `cut_at` (epoch ms)
+/// is known.
+fn continue_text_at(error: &str, reason: &str, cut_at: Option<u64>, now: u64) -> String {
     let error: String = error.chars().take(MAX_ERROR_CHARS).collect();
     let cause = match reason {
         "agent_exited" => "an agent process exit",
@@ -284,8 +293,12 @@ pub(super) fn continue_text(error: &str, reason: &str) -> String {
         "disk" => "the machine's disk filling up; acpmux waited until space was free again",
         _ => "an error",
     };
+    let when = cut_at.map_or_else(String::new, |at| {
+        let line = super::pause_state::resumes_line;
+        format!(" at {}; acpmux paused the chat until now ({})", line(Some(at)), line(Some(now)))
+    });
     format!(
-        "Your previous turn was cut off by {cause} ({error}). Check what already \
+        "Your previous turn was cut off by {cause} ({error}){when}. Check what already \
          finished (files, commands, messages), then continue from where it stopped. Do not \
          redo work that completed."
     )
@@ -1586,7 +1599,7 @@ impl Hub {
         // this continuation's words, instead of a turn of its own before it.
         if rate
             && cut.slash.is_none()
-            && self.rate_hold_due(session, &held, continue_text(cut.error, reason))
+            && self.rate_hold_due(session, &held, continue_text_for(session, cut.error, reason))
         {
             self.clear_fired(session, cut_turn);
             self.append_retry(session, "auto_resume_skipped", skipped("folded"));
@@ -1614,7 +1627,8 @@ impl Hub {
             ..PromptOptions::default()
         };
         // A cut `/compact` goes again as itself: the chat still needs compacting.
-        let mut text = cut.slash.map_or_else(|| continue_text(cut.error, reason), str::to_owned);
+        let mut text =
+            cut.slash.map_or_else(|| continue_text_for(session, cut.error, reason), str::to_owned);
         // A dead agent took the steers it had not read with it (`unread_steers.rs`). A live one
         // still holds them and runs them itself (`carried_turn.rs`).
         if reason == "agent_exited" {
