@@ -476,9 +476,8 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     // MARK: Chief's streaming reply
 
     /// The streaming reply bubble and status line (``ChiefLiveBubble``),
-    /// over the end of the transcript. Only the status line and its details
-    /// take touches (``ChiefLiveHitArea``); everywhere else the transcript
-    /// under it scrolls and takes long-presses as usual.
+    /// over the end of the transcript. The reply text, status line and details
+    /// take touches in their own bounds. The rest passes through to the transcript.
     private let liveHitArea = ChiefLiveHitArea()
     private lazy var liveBubble: UIHostingController<ChiefLiveBubble> = {
         let host = UIHostingController(rootView: ChiefLiveBubble(session: session, hitArea: liveHitArea))
