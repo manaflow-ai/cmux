@@ -13,6 +13,7 @@
 // `max` bound the drag; the surface's CSS still clamps what it reads, so a width saved in a wide pane
 // never crowds a narrow one.
 import { useLayoutEffect, useRef } from "react";
+import { RESIZE_HANDLE_PROPS } from "../scrollers";
 import "./SplitEdge.css";
 
 export type SplitEdgeProps = {
@@ -113,6 +114,7 @@ export function SplitEdge({ side, property, storageKey, unit = "px", min, max, o
     <div
       ref={handle}
       className="ui-split-edge"
+      {...RESIZE_HANDLE_PROPS}
       data-side={side}
       // A pointer affordance, as a native split divider and Session Info's edge are; the panes keep
       // their own keyboard paths.
