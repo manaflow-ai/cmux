@@ -73,6 +73,10 @@ def workflow() -> dict:
     return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
 
 
+def fast_gates_source() -> str:
+    return (ROOT / "scripts/ci/cmux_next_fast_gates.py").read_text(encoding="utf-8")
+
+
 def triggers(doc: dict) -> dict:
     # PyYAML reads the bare key `on` as the boolean True.
     return doc.get("on", doc.get(True))
@@ -135,6 +139,19 @@ class WorkflowShape(unittest.TestCase):
                 self.assertTrue(cells, f"{key}: no runs-on, or a matrix value nothing resolves")
                 for runner in cells:
                     self.assertNotIn("macos", runner.lower())
+
+    def test_checkout_holds_every_gate_input_and_walks_commits_only(self):
+        inputs = json.loads((ROOT / "scripts/ci/fast-check-inputs.json").read_text())[
+            "workflows"][".github/workflows/cmux-next-fast-gates.yml"]["fast-gates"]["inputs"]
+        step = step_named(job(workflow())["steps"], "Checkout")
+        self.assertEqual(step["with"]["filter"], "blob:none")
+        patterns = step["with"]["sparse-checkout"].split()
+        for path in inputs:
+            with self.subTest(input=path):
+                # scripts/ and .github/ are whole; a bare file or a glob is named as it is.
+                self.assertTrue("/" + path in patterns or path.lstrip("*/") in "".join(patterns)
+                                or any(("/" + path).startswith(p) and p.endswith("/") for p in patterns), path)
+        self.assertIn("--filter=tree:0", fast_gates_source())
 
     def test_triggers_have_no_paths_filter(self):
         on = triggers(workflow())
@@ -894,7 +911,7 @@ class ScriptBehavior(unittest.TestCase):
                              "--base", self.tip, "--output", str(self.tmp / "out.txt"))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.outputs()["merge"], git(work, "rev-parse", "HEAD"))
-        self.assertEqual(self.outputs()["checks"], "false")  # ci-web runs them on this same merge
+        self.assertEqual(self.outputs()["checks"], "false")  # it changes no input of the webviews checks
         self.assertEqual(self.outputs()["ratchet"], "false")  # cmux-tui-spec's clippy job ran it on this merge
         self.assertNotIn("head_sha", self.outputs(), "head and base come from resolve, not from here")
 
@@ -1036,9 +1053,12 @@ class ScriptBehavior(unittest.TestCase):
         self.assertEqual(re.findall(r"deepened by (\d+)", result.stderr), ["32"])
         merge = git(work, "rev-parse", "HEAD")
         self.assertEqual(git(work, "rev-list", "--reverse", "--no-merges", f"{base}..{merge}").split(), heads)
-        # The commit is here (the base side reaches it); its blob is not, and listing never fetches it.
-        listed = git(work, "rev-list", "--objects", "--missing=print", "-1", old_commit, "--", "old.txt").split()
-        self.assertIn(f"?{old}", listed, "the deepen brought a blob no gate read")
+        # The commit is here (the base side reaches it); its tree is not (tree:0), so neither is its blob, and
+        # listing never fetches them.
+        tree = git(seed, "rev-parse", f"{old_commit}^{{tree}}").strip()
+        listed = git(work, "rev-list", "--objects", "--missing=print", "-1", old_commit).split()
+        self.assertIn(f"?{tree}", listed, "the deepen brought a tree no gate read")
+        self.assertNotIn(old, listed, "the deepen brought a blob no gate read")
         # A gate that does read it gets it on demand: the fetch marked origin as the promisor.
         self.assertEqual(git(work, "show", f"{old_commit}:old.txt"), "newer 20")
 
@@ -1115,10 +1135,14 @@ class ScriptBehavior(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("not the pull request head", result.stderr)
 
-    def test_a_catalog_or_protocol_spec_change_runs_the_webviews_checks_on_a_pull_request(self):
-        # ci-web runs them only for a webviews/ change; check:catalog-keys and typecheck read these.
+    def test_a_webviews_catalog_or_protocol_spec_change_runs_the_webviews_checks_on_a_pull_request(self):
+        # check:catalog-keys and acpmux-protocol:check read the catalogs and the spec. A webviews/ change too, though
+        # ci-web's webview suite runs them on the same merge: land-judge's merged-tree carry lands a base merge on this
+        # status and not on that suite, so cmux#49052's base merge would have landed its `foldsPrompt` type error
+        # (cmuxterm-hq#19108) with the type check run only inside a suite nothing waited for.
         seed = self.seed
-        for path in ("Resources/Localizable.xcstrings", "cmux-tui/crates/acpmux/spec/acpmux-protocol.json"):
+        for path in ("Resources/Localizable.xcstrings", "cmux-tui/crates/acpmux/spec/acpmux-protocol.json",
+                     "webviews/src/agent-session/acpmux/conversation/turns.ts"):
             with self.subTest(path=path):
                 git(seed, "checkout", "-q", "pr")
                 head = commit(seed, {path: f"{path}\n"}, f"change {path}")
@@ -1239,7 +1263,7 @@ class ScriptBehavior(unittest.TestCase):
         self.assertEqual({e["gate"] for e in self.gate_log()}, set(GATE_SCRIPTS) - {"web lint"})
         self.assertIn("web lint: skipped (no web path changed)", result.stdout)
 
-    def test_a_pull_request_event_skips_the_webviews_checks(self):
+    def test_checks_false_skips_the_webviews_checks(self):
         work, out = self.prepared()
         result = self.script(work, "run", "--base", self.tip, "--web", "true", "--checks", "false")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

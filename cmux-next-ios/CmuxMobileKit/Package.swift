@@ -186,6 +186,8 @@ let package = Package(
             .product(name: "CmuxDeviceHub", package: "CmuxDeviceHub"),
             .product(name: "CmuxScreenKit", package: "CmuxScreenKit", condition: .when(platforms: [.iOS])),
             .product(name: "CmuxScreenKitUI", package: "CmuxScreenKit", condition: .when(platforms: [.iOS])),
+            // A `cmux://mac-screen` link's cmux.rd/1 session: Rust's MacScreenRd on the streamed-surface model.
+            "CmuxMobileBrowserStream", "CmuxMobileTransport",
             // Follow mode's camera (FollowCamera).
             .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS])),
         ]),
@@ -238,7 +240,7 @@ let package = Package(
         ]),
         .testTarget(name: "CmuxMobileNotificationsTests", dependencies: ["CmuxMobileNotifications"]),
         .testTarget(name: "CmuxMobileTransportTests", dependencies: ["CmuxMobileTransport"]),
-        .testTarget(name: "CmuxMobileAgentChatTests", dependencies: ["CmuxMobileAgentChat", "CmuxMobileDiff", "CmuxMobileMarkdown", "CmuxMobileArtifacts", "CmuxMobileDesign", "CmuxMobileTransport", "CmuxMobileRealtime"]),
+        .testTarget(name: "CmuxMobileAgentChatTests", dependencies: ["CmuxMobileAgentChat", "CmuxMobileDiff", "CmuxMobileMarkdown", "CmuxMobileArtifacts", "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileTransport", "CmuxMobileRealtime"]),
         .testTarget(name: "CmuxMobileTerminalTests", dependencies: [
             "CmuxMobileTerminal", "CmuxMobileDesign",
             .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit", condition: .when(platforms: [.iOS])),
