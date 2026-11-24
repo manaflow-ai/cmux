@@ -46,7 +46,8 @@ await requireBrowserLane("chat-image-first-frame-browser.test.ts", async () => {
   beforeAll(async () => {
     const built = await Bun.build({
       entrypoints: [path.join(import.meta.dir, "support/chatImageFirstFrame.entry.tsx")],
-      format: "iife",
+      // An ES module, loaded as one: the pane's code reads `import.meta` (a classic script refuses it).
+      format: "esm",
       target: "browser",
       define: { "process.env.NODE_ENV": '"production"' },
     });
@@ -72,7 +73,7 @@ await requireBrowserLane("chat-image-first-frame-browser.test.ts", async () => {
     const page =
       `<!doctype html><html><head><style>${css.replaceAll("</style", "<\\/style")}</style></head>` +
       `<body style="margin:0"><div id="chat" style="width:760px;display:flex"></div>` +
-      `<script>${script.replaceAll("</script", "<\\/script")}</script></body></html>`;
+      `<script type="module">${script.replaceAll("</script", "<\\/script")}</script></body></html>`;
     server = Bun.serve({
       port: 0,
       hostname: "127.0.0.1",
@@ -91,6 +92,10 @@ await requireBrowserLane("chat-image-first-frame-browser.test.ts", async () => {
     page.on("pageerror", (error) => errors.push(String(error)));
     try {
       await page.goto(`http://127.0.0.1:${server!.port}/`);
+      // A module script runs after the parse, not before `goto` resolves: wait for the page's hook.
+      await page
+        .waitForFunction(() => typeof (window as any).measureChatImage === "function", undefined, { timeout: 10_000 })
+        .catch(() => {});
       const ready = await page.evaluate(() => typeof (window as any).measureChatImage === "function");
       expect({ ready, errors }).toEqual({ ready: true, errors: [] });
       return await page.evaluate((msg) => (window as any).measureChatImage(msg, 400), record);
