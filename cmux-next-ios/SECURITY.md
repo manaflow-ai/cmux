@@ -567,10 +567,22 @@ Mac. Design and history: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux
   sizes, timing, plus the two device ids it already knows from signaling.
 - **Who can join.** Only a device that the caller's own hub (one per user and
   build space) bound to that session at its first admitted signal, with that
-  user's Stack token; a third device of the same user, another user, or a
-  session id no signal opened gets `403`. Each device gets one socket (a
-  newer join replaces it). The object is named by the verified owner key,
+  user's Stack token and that device's own relay ticket: a random value the
+  hub made for each device of the session and stamped only on the signals it
+  forwarded to that device's own signaling socket. Another user, a session id
+  no signal opened, and a third device of the same user that names a party's
+  device id get `403`, since none of them holds that device's ticket. The
+  boundary is as strong as signaling's device identity, not stronger: the
+  service has no per-device key, so a client holding the user's token could
+  take over a device's signaling socket (closing the real one with 4000) and
+  receive its ticket from the next signal. Each device gets one relay socket
+  (a newer join replaces it). The object is named by the verified owner key,
   space and session id, so two users or two dev builds never share one.
+- **Live sockets end with their session.** The hub closes a session's relay
+  sockets when the session ends (`bye`, even to an offline peer, and its 24 h
+  TTL, 4001), when one of its devices or the account is removed (4002), and
+  the kill switch closes every live socket at its next frame (4003), not only
+  new joins.
 - **No impersonation.** The relay overwrites the frame's peer field with the
   sender's authenticated device id; a receiving side drops frames that name
   anyone but its session's peer. Frames go only to the other party's socket.
@@ -578,9 +590,16 @@ Mac. Design and history: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux
   WireGuard, so the relay can never confirm a route (the retired relay's
   marker was authenticated only by the backend, which is why it went).
 - **Bounded.** Frames are 16 KiB at most, `datagrams` only, rate limited per
-  socket; the object keeps no storage. `LINK_RELAY_MODE=off` refuses every
-  join (`503 relay_off`); clients then fall back to their other paths and
-  report the relay as off.
+  socket (1500 frames, 8 MiB a second) and per user: what a socket relays is
+  granted by the user's hub (64 KiB, doubling to 1 MiB per grant) from one
+  budget across all of that user's sessions (480 MiB a minute by default),
+  so opening more sessions buys no more bandwidth. The budget fails closed: a
+  refusal holds for the hub's retry-after and a hub error grants nothing for
+  1 s, so neither an over-budget sender nor an overloaded hub gets frames
+  through or one hub call per frame, and the budget survives a hub wake. The
+  relay object keeps no storage. `LINK_RELAY_MODE=off` refuses every join (`503 relay_off`) and
+  closes live sockets; clients then fall back to their other paths and report
+  the relay as off.
 - **Debug "Relay via cmux (HTTPS) only"** (`force_relay`, simulator
   `CMUX_MOBILE_DEV_FORCE_RELAY`) only narrows the phone's own paths, like
   Block UDP.
