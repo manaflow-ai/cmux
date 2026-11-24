@@ -11,7 +11,7 @@ use serde_json::json;
 use super::{Request, http_client, perform};
 
 const HOST: &str = "cloud-api.cmux.dev";
-const MACHINE: &str = "vm_seeded0123456789abc";
+const MACHINE: &str = "vm_seeded0123456789abcd";
 
 fn seeded(op: &str, route: &str, extra: serde_json::Value) -> Request {
     let mut request = json!({
