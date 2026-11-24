@@ -104,6 +104,20 @@ for tool in rustup cargo rustc rustdoc rustfmt cargo-fmt cargo-clippy clippy-dri
 done
 '''
 
+# The Zig that builds libghostty-vt from the ghostty-next gitlink (scripts/install-zig-ci.sh: the reviewed, checksummed
+# version the submodule asks for). A host zig of that version is used as is; any other is installed into $CI_TOOLS.
+zig = '''
+bash scripts/ci/init-submodule.sh ghostty-next
+export GITHUB_PATH="$CI_TOOLS/zig-path" GITHUB_ENV="$CI_TOOLS/zig-env"
+: > "$GITHUB_PATH"
+: > "$GITHUB_ENV"
+GHOSTTY_ZIG_SOURCE=ghostty-next ZIG_SYSTEM_PREFIX="$CI_TOOLS/zig-prefix" RUNNER_TEMP="$CI_TOOLS" ./scripts/install-zig-ci.sh
+mkdir -p "$CI_TOOLS/bin"
+zig_bin="$(sed -n 's/^CMUX_ZIG=//p' "$CI_TOOLS/zig-env" | tail -n 1)"
+[ -x "$zig_bin" ] || { echo "no zig was installed"; exit 1; }
+ln -sf "$zig_bin" "$CI_TOOLS/bin/zig"
+'''
+
 # Python contract tests that each had a workflow, a runner and a checkout of their own
 # (indexnow-tests.yml, vendored-agent-cursor.yml, r2-upload-tests.yml, cmux-skill-contract.yml,
 # ci-cache-receipts.yml). `inputs` is each one's former path filter.
@@ -221,9 +235,11 @@ about = "cache restore receipts classify a restore, and their test is determinis
 inputs = [
   ".github/actions/cache-restore/action.yml",
   ".github/actions/cache-save/action.yml",
-  ".github/workflows/ci.yml",
-  ".github/workflows/ci-macos.yml",
-  ".github/workflows/nightly.yml",
+  # The read-only guard reads every workflow (who holds the R2 cache-writer credentials), so a PR to any
+  # one runs it: platform-billing-test-secrets.yml (#53839) and cmux-tui-artifacts.yml (#54343) broke
+  # base on 2026-11-24 because only these three named files reached it.
+  ".github/workflows/**",
+  "tests/workflow_jobs.py",
   "scripts/ci/cache_restore_receipt.py",
   "scripts/check-test-determinism.py",
   "tests/test_ci_cache_restore_receipt.py",
@@ -812,6 +828,35 @@ python3 scripts/ci/pr_design_spec_check.py --body-file "$RUNNER_TEMP/design-body
   || echo "::warning title=Design spec::the design spec check could not run (exit $?); see this job's log"
 '''
 
+# Capture: a pull request that changes native app UI shows a real capture of it in its description (what
+# `cmux-ci capture` prints, the media-tour label, or a `No capture: <why>` line). It was the one description lint
+# that could turn its job red (exit 2 on bad input); as a step of the `advisory` job it warns, like the rest
+# ("Advisory checks never block", CI v2). Leo, 2026-10-31: "WE DONT NEED F***ING SCREENSHOTS JUST LET ME TRY
+# THE STUFF OUT". A media-tour label event re-runs it. When git could not list the paths it reads the files API.
+[step.capture]
+job = "advisory"
+blocks = false
+class = "idle"
+timeout = 180
+title = "Capture"
+about = "a pull request that changes native app UI shows a real capture in its description, or a No capture line"
+labels = ["media-tour", "media-tour-mac"]
+run = '''
+if [ ! -f scripts/ci/pr_capture_check.py ]; then
+  # The pull request that adds the check: its base has no check to run yet.
+  echo "::notice::The base branch has no scripts/ci/pr_capture_check.py yet; nothing to check."
+  exit 0
+fi
+printf '%s' "$BODY" > "$RUNNER_TEMP/capture-body.md"
+paths="$RUNNER_TEMP/capture-paths.txt"
+if [ "${CAPTURE_LISTED:-}" != true ]; then
+  paths="$RUNNER_TEMP/capture-api-paths.txt"
+  gh api --paginate "repos/$REPOSITORY/pulls/$PR/files?per_page=100" --jq '.[].filename' > "$paths"
+fi
+python3 scripts/ci/pr_capture_check.py --body-file "$RUNNER_TEMP/capture-body.md" --paths-file "$paths" \
+  --labels "$LABELS" --head-sha "$HEAD_SHA" --pr "$PR"
+'''
+
 # A missing table is an ::error annotation on the run and never a red check. A perf label event re-runs
 # it. When git could not list the paths it reads the files API, into its own file: the other steps run
 # beside it and read paths.txt.
@@ -1166,6 +1211,7 @@ inputs = [
   "scripts/ci/guards_new_reds.py",
   "scripts/ci/webviews_test_history.py",
   "scripts/ci/ensure-system-chrome.sh",
+  "scripts/ci/playwright-apt-deps.sh*",
   "scripts/ci/web_subareas.py",
   "scripts/tests/test_pr_scoped_webviews_checks.py",
   "scripts/install-git-hooks.sh",
@@ -1197,6 +1243,84 @@ for file in test/agent-pane-new-chat-settles.test.ts test/agent-pane-picks-hold.
   echo "== $file"
   bun test "$file" || status=1
 done
+exit "$status"
+'''
+
+# cmux-next-web-lint.yml's `webviews typecheck (whole tree)` job and its hook tests, which ran on every
+# feat-cmux-next push only. Leo's ask for it: "Every push to main gets a webview type check, so a break shows up on
+# the status board within minutes." A pull request now runs it on the merge commit, so the break shows before the
+# merge. The range lint beside it (`web lint (fast)`) is cmux-next-fast-gates.yml's, which pull requests already ran.
+[step.webviews-typecheck]
+job = "linux"
+timeout = 360
+title = "Webviews typecheck (whole tree)"
+about = "the pre-push web lint hook's tests pass, webviews' locked dependencies install and the whole tree typechecks (vp check --no-fmt --no-lint)"
+needs = ["bun", "node"]
+inputs = [
+  "webviews/**",
+  "scripts/web_lint_prepush.py",
+  "tests/test_web_lint_prepush.py",
+  ".github/workflows/cmux-next-web-lint.yml",
+]
+run = '''
+rc=0
+python3 tests/test_web_lint_prepush.py || rc=1
+cd webviews
+BUN_CONFIG_HTTP_IDLE_TIMEOUT=30 BUN_CONFIG_HTTP_RETRY_COUNT=5 flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile || exit 1
+bun run typecheck || rc=1
+exit "$rc"
+'''
+
+# cmux-tui-artifacts.yml's `cmux_next_ daemon tests` job, which ran after the branch push only (its pass writes the
+# tree's daemon-tests marker, which that workflow keeps). The same cargo test, on the pull request's merge commit:
+# only the workspace members whose sources name cmux_next_, retried only on a recognized Cargo fetch failure.
+[step.cmux-next-daemon-tests]
+job = "linux"
+# 22 minutes of test compile cold, then the tests: the job's own 65-minute bound for this step.
+alone = true
+timeout = 3900
+title = "cmux_next_ daemon tests"
+about = "the cmux_next_ daemon tests of the cmux-tui workspace members that name them pass, on Linux, in a home of their own"
+needs = ["rust", "zig"]
+inputs = [
+  "cmux-tui/**",
+  "scripts/ci/cmux-next-daemon-test-packages.sh",
+  "scripts/cmux-next/cargo-locks.py",
+  "ghostty-next",
+]
+run = '''
+cd cmux-tui
+channel="$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' rust-toolchain.toml)"
+rustup toolchain install "$channel" --profile minimal --component clippy,rustfmt
+export CARGO_NET_RETRY=10 CARGO_HTTP_TIMEOUT=120 CARGO_HTTP_MULTIPLEXING=false TMPDIR=/tmp CMUX_GHOSTTY_SRC=""
+export GHOSTTY_ZIG_SOURCE=ghostty-next
+home="$(mktemp -d /tmp/acpmux-home.XXXXXX)"
+export ACPMUX_HOME="$home" ACPMUX_SOCKET=""
+log="$(mktemp /tmp/cmux-next-tests.XXXXXX.txt)"
+read -r -a members <<<"$(../scripts/ci/cmux-next-daemon-test-packages.sh)"
+echo "cmux_next_ test members: ${members[*]}"
+status=1
+for attempt in 1 2 3; do
+  cargo test "${members[@]}" --locked cmux_next_ 2>&1 | tee "$log"
+  status=${PIPESTATUS[0]}
+  if [ "$status" -ne 0 ] && python3 ../scripts/cmux-next/cargo-locks.py explain "$log"; then break; fi
+  if [ "$status" -eq 0 ]; then
+    grep -qE 'test result: ok\. [1-9][0-9]* passed' "$log" && break
+    echo "::error::cargo test ran no cmux_next_ test (the filter matched nothing)"
+    status=1
+    break
+  fi
+  if grep -qE 'test result: FAILED|error(\[E[0-9]+\])?: could not compile|^error\[E[0-9]+\]' "$log" \
+    || ! grep -qiE 'spurious network error|failed to download|unable to update registry|failed to (fetch|get|query)|could not resolve host|couldn.t resolve host|connection (reset|refused|timed out)|operation timed out|ssl (connect )?error|http2 error|early eof|download of .* failed|registry index .*(failed|error)' "$log"; then
+    echo "::error::cmux_next_ daemon tests failed with a result that is not a Cargo fetch failure; not retrying"
+    break
+  fi
+  [ "$attempt" -lt 3 ] && sleep $((attempt * 10))
+done
+# End the daemon of this home and its agents, then delete the home (a path this step made).
+acpmux="$(command -v acpmux || true)"
+[ -z "$acpmux" ] || env -u ACPMUX_SOCKET ACPMUX_HOME="$home" "$acpmux" daemon shutdown --end-agents || true
+rm -rf "$home" "$log"
 exit "$status"
 '''
 

@@ -1012,6 +1012,7 @@ struct PipeFixture {
     accepted: tokio::sync::mpsc::Receiver<Arc<cmux_remote::daemon::ServerConnection>>,
     daemon: SocketAddr,
     dialer: Arc<cmux_remote::provider::MachinePipeDialer>,
+    socket: std::path::PathBuf,
     gate: Arc<TestGate>,
     carrier_a: Arc<HubCarrier>,
     carrier_b: Arc<HubCarrier>,
@@ -1107,18 +1108,65 @@ async fn pipe_fixture() -> PipeFixture {
         tokio::time::sleep(Duration::from_millis(250)).await;
     }
     assert!(serves, "B never served: {last}");
-    let dialer = Arc::new(cmux_remote::provider::MachinePipeDialer::new(socket, "mac".into()));
+    let dialer =
+        Arc::new(cmux_remote::provider::MachinePipeDialer::new(socket.clone(), "mac".into()));
     PipeFixture {
         auth,
         accepted,
         daemon: daemon_address,
         dialer,
+        socket,
         gate,
         carrier_a,
         carrier_b,
         _serving: serving,
         _dirs: (state, home),
     }
+}
+
+/// The `_acpmux/remote.pipe` reply line says where the open's time went, so NOW's weft probe
+/// splits first byte by step: a dial after the kept circuit is open is one stream (`kept`), and
+/// a new circuit names its ticket, relay, join, Noise and answer steps.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_the_pipe_reply_reports_where_the_dial_went() {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+
+    let _ = HERMETIC;
+    let fixture = pipe_fixture().await;
+    fixture.gate.granted.store(true, Ordering::SeqCst);
+    let port = fixture.daemon.port();
+    let mut dials = Vec::new();
+    for _ in 0..2 {
+        let stream = tokio::net::UnixStream::connect(&fixture.socket).await.unwrap();
+        let (read, mut write) = stream.into_split();
+        let line = json!({"jsonrpc": "2.0", "id": 1, "method": "_acpmux/remote.pipe",
+                          "params": {"machine": "mac", "port": port}});
+        write.write_all(format!("{line}\n").as_bytes()).await.unwrap();
+        let mut reply = String::new();
+        tokio::time::timeout(
+            Duration::from_secs(20),
+            tokio::io::BufReader::new(read).read_line(&mut reply),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let reply: serde_json::Value = serde_json::from_str(&reply).unwrap();
+        assert_eq!(reply["result"]["via"], "hub", "{reply}");
+        dials.push(reply["result"]["dial"].clone());
+    }
+    let first = &dials[0];
+    match first["circuit"].as_str() {
+        Some("new") => {
+            for step in ["ticket", "relay", "peer_join", "noise", "answer", "total"] {
+                assert!(first["ms"][step].is_number(), "{step} missing: {first}");
+            }
+        }
+        Some("kept") => assert!(first["ms"]["stream"].is_number(), "{first}"),
+        _ => panic!("the reply names no dial: {first}"),
+    }
+    assert_eq!(dials[1]["circuit"], "kept", "the second dial rode the kept circuit: {dials:?}");
+    assert!(dials[1]["ms"]["stream"].is_number(), "{dials:?}");
+    assert_eq!(fixture.carrier_a.kept_circuits(&fixture.carrier_b.public_key()), 1);
 }
 
 /// One remote-protocol connection to B's daemon through the pipe: with `invitation`, a new
@@ -2709,6 +2757,10 @@ async fn standin_sshd() -> SocketAddr {
 
 struct KeptFixture {
     a: Arc<HubCarrier>,
+    /// A's node key and relay route, for an A started again with the same key (a restart).
+    a_key: [u8; 32],
+    a_route: String,
+    timings: Timings,
     b: Arc<HubCarrier>,
     b_key: String,
     sshd_port: u16,
@@ -2733,6 +2785,19 @@ impl KeptFixture {
         within("the banner", stream.read_exact(&mut banner)).await.unwrap();
         assert_eq!(banner, BANNER);
         stream
+    }
+
+    /// A new carrier on A's key and route: A's acpmux after a restart.
+    fn restarted_a(&self) -> Arc<HubCarrier> {
+        HubCarrier::new(
+            Arc::new(FixedTickets {
+                relay: self.a_route.clone(),
+                peers: vec![self.b_key.clone()],
+                asked: AtomicU64::new(0),
+            }),
+            self.a_key,
+            self.timings,
+        )
     }
 
     fn kept_circuits(&self) -> u64 {
@@ -2811,7 +2876,7 @@ async fn kept_fixture_with(
     let serving = b.serve(acpmux_b_address);
     let a = HubCarrier::new(
         Arc::new(FixedTickets {
-            relay: route,
+            relay: route.clone(),
             peers: vec![public(&key_b)],
             asked: AtomicU64::new(0),
         }),
@@ -2820,6 +2885,9 @@ async fn kept_fixture_with(
     );
     let fixture = KeptFixture {
         a,
+        a_key: key_a,
+        a_route: route,
+        timings: fast,
         b,
         b_key: public(&key_b),
         sshd_port: sshd.port(),
@@ -3175,6 +3243,9 @@ async fn hub_carrier_kept_circuit_numbers() {
         ms(percentile(&mut warm_each, 0.95)),
     );
 }
+
+#[path = "hub_carrier_cases/held_ssh.rs"]
+mod held_ssh;
 
 #[path = "hub_carrier/move_out.rs"]
 mod move_out;
