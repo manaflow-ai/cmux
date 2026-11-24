@@ -11,7 +11,13 @@
 // Prints one JSON verdict line at the end (and writes it to --out when given).
 //
 //   bun scripts/cmux-next/cloud-fork-placement.ts [--backend staging] [--sign-in password|oidc]
-//       [--team TEAM] [--runs N] [--out FILE]
+//       [--team TEAM] [--runs N] [--out FILE] [--risky]
+//
+// --risky (RFD 0163 row 25, acpmux fork_risky.rs): "Fork first" before a risky step. The parent's
+// checkout gets uncommitted work; the fork is taken with a `risky-` clientKey, as the daemon takes it
+// before it lets the step run; then the step runs on the parent (`git reset --hard && git clean
+// -fdx`), and the run checks the parent lost the work and the copy, the checkpoint, kept it.
+// `fork_call_ms` is then the time the person's Fork first holds the step.
 //
 // Credentials: CMUX_DOGFOOD_STACK_EMAIL and CMUX_DOGFOOD_STACK_PASSWORD (the staging agent test
 // account), or --sign-in oidc in a GitHub Actions job the API trusts.
@@ -42,6 +48,25 @@ const arg = (name: string, fallback?: string) => {
 const MARKER = "/tmp/cmux-fork-marker";
 const REPO = "/tmp/cmux-fork-repo";
 const COUNTER = "/tmp/cmux-fork-counter";
+const WORK = `${REPO}/uncommitted-work.txt`;
+
+/** --risky: uncommitted work in the checkout, which the risky step drops. Prints its sha256. */
+export function dirtyCommand(nonce: string): string {
+  return [`printf '%s' 'work-${nonce}' > ${WORK}`, `echo "work=$(sha256sum ${WORK} | cut -d' ' -f1)"`].join("\n");
+}
+
+/** The risky step the person allows after Fork first: drops every uncommitted change. */
+export const RISKY_STEP = `cd ${REPO} && git reset -q --hard && git clean -qfdx`;
+
+/** The work file's sha256 now, or empty when it is gone. */
+export function workCommand(): string {
+  return `echo "work=$(sha256sum ${WORK} 2>/dev/null | cut -d' ' -f1)"`;
+}
+
+/** Whether the checkpoint held: the parent lost the work and the copy kept it. */
+export function checkpointKept(before: string | undefined, parent: string | undefined, copy: string | undefined) {
+  return { parent_lost_work: !!before && !parent, copy_kept_work: !!before && copy === before };
+}
 
 export type Parity = { marker: boolean; head: boolean; process_alive: boolean; process_counting: boolean };
 export type RunRow = {
@@ -57,6 +82,8 @@ export type RunRow = {
   agent: string;
   error: string | null;
   cleanup: string[];
+  /** --risky only: the step's exit on the parent and whether the copy kept what it dropped. */
+  risky?: { step_exit: number; parent_lost_work: boolean; copy_kept_work: boolean } | null;
 };
 
 /** The setup command: marker, one-commit repo, a detached counter. Prints marker sha, HEAD, pid. */
@@ -110,7 +137,8 @@ const median = (xs: number[]) => {
 };
 
 export function verdict(rows: RunRow[], meta: Record<string, unknown>) {
-  const ok = rows.filter((r) => r.parity && Object.values(r.parity).every(Boolean));
+  const kept = (r: RunRow) => r.risky === undefined || (!!r.risky && r.risky.step_exit === 0 && r.risky.parent_lost_work && r.risky.copy_kept_work);
+  const ok = rows.filter((r) => r.parity && Object.values(r.parity).every(Boolean) && kept(r));
   const nums = (k: "fork_call_ms" | "fork_to_first_exec_ms") => rows.map((r) => r[k]).filter((v): v is number => typeof v === "number");
   return {
     kind: "cloud-fork-placement",
@@ -158,6 +186,7 @@ async function main(): Promise<number> {
   const backend = resolveBackend(arg("--backend", "staging")!);
   const runs = Math.max(1, Math.min(10, Number(arg("--runs", "1"))));
   const team = arg("--team") || undefined;
+  const risky = process.argv.includes("--risky");
   const secrets: string[] = [];
   const api = new Api(backend.api, team);
   if (arg("--sign-in", "password") === "oidc") api.bearer = (await oidcSignIn(backend.api, process.env, secrets)).token;
@@ -183,7 +212,7 @@ async function main(): Promise<number> {
   const journey = { secrets };
   const rows: RunRow[] = [];
   for (let run = 1; run <= runs; run++) {
-    const row: RunRow = { run, parent: null, child: null, parent_ready_ms: null, fork_call_ms: null, fork_status: null, fork_to_first_exec_ms: null, parity: null, child_cost: null, agent: "not tried", error: null, cleanup: [] };
+    const row: RunRow = { run, parent: null, child: null, parent_ready_ms: null, fork_call_ms: null, fork_status: null, fork_to_first_exec_ms: null, parity: null, child_cost: null, agent: "not tried", error: null, cleanup: [], ...(risky ? { risky: null } : {}) };
     try {
       const t0 = Date.now();
       const created = await api.op("cloud.machine.create", { name: `cloud fork placement ${tag} ${run}`, size: CHAT_START_SIZE }, `${tag}-parent-${run}`);
@@ -198,16 +227,33 @@ async function main(): Promise<number> {
       const before = facts(setup.stdout);
       const expect = createHash("sha256").update(nonce).digest("hex");
       if (before.marker !== expect) throw new Error(`the parent's marker is not the nonce's sha256 (${before.marker})`);
+      let work: string | undefined;
+      if (risky) {
+        const dirty = await parentExec(dirtyCommand(nonce), 30_000);
+        work = facts(dirty.stdout).work;
+        if (!work) throw new Error(`no uncommitted work on the parent: exit ${dirty.code}`);
+      }
       const f0 = Date.now();
-      const forked = await http("POST", `${platform}/v1/machines/${encodeURIComponent(row.parent)}/fork`, { clientKey: `${tag}-fork-${run}` }, platformHeaders(), 180_000, true);
+      const clientKey = risky ? `risky-${tag}-${run}` : `${tag}-fork-${run}`;
+      const forked = await http("POST", `${platform}/v1/machines/${encodeURIComponent(row.parent)}/fork`, { clientKey }, platformHeaders(), 180_000, true);
       row.fork_call_ms = Date.now() - f0;
       row.fork_status = forked.status;
       if (forked.status !== 200 || typeof forked.body?.id !== "string") throw new Error(`fork: HTTP ${forked.status} ${JSON.stringify(forked.body).slice(0, 300)}`);
       row.child = forked.body.id as string;
       const childExec = directExec(api, row.child, journey);
+      if (risky) {
+        // The fork answered: the person's allow goes through now, and the step runs on the parent.
+        const step = await parentExec(RISKY_STEP, 60_000);
+        const left = facts((await parentExec(workCommand(), 30_000)).stdout).work;
+        row.risky = { step_exit: step.code, ...checkpointKept(work, left, undefined) };
+      }
       row.fork_to_first_exec_ms = row.fork_call_ms + (await firstExec(childExec, 180_000));
       const after = await childExec(parityCommand(), 60_000);
       row.parity = parity(before, facts(after.stdout));
+      if (row.risky) {
+        const kept = facts((await childExec(workCommand(), 30_000)).stdout).work;
+        row.risky = { ...row.risky, copy_kept_work: checkpointKept(work, undefined, kept).copy_kept_work };
+      }
       // An agent on the copy: the cheap check is that the guest's acpmux answers there.
       const agent = await childExec("command -v acpmux >/dev/null && acpmux ls >/dev/null 2>&1 && echo up || echo down", 30_000).catch((e) => ({ code: 1, stdout: "", stderr: String((e as Error).message) }));
       row.agent = agent.stdout.includes("up") ? "acpmux answers on the copy" : `acpmux did not answer: ${(agent.stderr || agent.stdout).slice(0, 200)}`;
@@ -231,7 +277,7 @@ async function main(): Promise<number> {
     rows.push(row);
   }
   await api.op("install.revoke", { install: install.id }, `${tag}-install-revoke`).catch((e) => say(`install ${install.id} not revoked: ${String((e as Error).message).slice(0, 200)}`));
-  const v = verdict(rows, { backend: backend.name, platform, at: new Date().toISOString() });
+  const v = verdict(rows, { backend: backend.name, platform, at: new Date().toISOString(), mode: risky ? "risky" : "placement" });
   const line = scrub(JSON.stringify(v), secrets);
   const out = arg("--out");
   if (out) writeFileSync(out, `${line}\n`);

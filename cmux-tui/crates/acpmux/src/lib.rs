@@ -100,6 +100,7 @@ pub mod directory_input;
 pub mod disk_usage;
 pub mod folder_instructions;
 pub mod fork_place;
+pub mod fork_risky;
 #[cfg(all(test, unix))]
 mod fork_tests;
 pub mod forum;

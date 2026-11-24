@@ -1117,6 +1117,9 @@ export type AcpmuxPermission = {
   /// Whether the person may edit the plan before approving it: Claude Code's ExitPlanMode, whose
   /// allow carries the edited plan back to the agent (`_acpmux/plan/build` `plan`).
   planEditable?: boolean;
+  /// A risky step on a Cloud machine (acpmux fork_risky.rs, behind `cloud.autoCloud`): "Fork first"
+  /// forks the machine before the step runs, and the copy stays as the checkpoint.
+  forkOffer?: { machine: string; reason: string };
   pending: boolean;
   options: {
     id: string;
@@ -1722,7 +1725,13 @@ export type PreparedRow = {
   /// The summed heights of the first `count` closed blocks (`last` the last of them), at the width
   /// and metrics `key` names, and the prepared texts they read: a streaming reply measures only
   /// the blocks that closed since and its tail, never every block again for each delta.
-  closedHeight?: { key: string; count: number; last: Token | undefined; height: number; used: Set<string> };
+  closedHeight?: {
+    key: string;
+    count: number;
+    last: Token | undefined;
+    height: number;
+    used: Set<string>;
+  };
 };
 
 export type ConversationLayout = {
@@ -1765,7 +1774,11 @@ const metrics = (): ChatMetrics => {
   if (measuringPart === null) return base;
   // A reply's prose measures in `replyMeasureFont` (proseFont); its line is the reply's own.
   if (measuringPart === "reply") return { ...base, lineHeight: base.reply.lineHeight };
-  return { ...base, measureFont: base.prompt.measureFont, lineHeight: base.prompt.lineHeight };
+  return {
+    ...base,
+    measureFont: base.prompt.measureFont,
+    lineHeight: base.prompt.lineHeight,
+  };
 };
 /// Which part's row is being measured: the agent's reply, whose prose a font pack or a look can set
 /// apart (chatDisplay.ts `replyMeasureFont`, conversation.css `.cv-reply`), or the person's prompt;
@@ -3079,7 +3092,13 @@ function closedBlocksHeight(entry: PreparedRow, width: number): { height: number
   entry.measuredBlocks = closed.length - kept.count;
   for (let index = kept.count; index < closed.length; index += 1)
     height += blockHeight(closed[index]!, width, entry.prepared, kept.used);
-  entry.closedHeight = { key, count: closed.length, last: closed.at(-1), height, used: kept.used };
+  entry.closedHeight = {
+    key,
+    count: closed.length,
+    last: closed.at(-1),
+    height,
+    used: kept.used,
+  };
   return entry.closedHeight;
 }
 
@@ -3825,7 +3844,13 @@ function pickedPromptHeight(
 /// run, group, call or message open is never reused for the row once it is closed, or the other way.
 export type RowHeights = WeakMap<
   AcpmuxRow,
-  { width: number; height: number; edge?: string; scale?: number; open?: string }
+  {
+    width: number;
+    height: number;
+    edge?: string;
+    scale?: number;
+    open?: string;
+  }
 >;
 
 /// A footer with nothing to show at rest (turns.ts isEmptyFooter) lays its hover controls over the gap
@@ -4020,7 +4045,14 @@ export function layoutConversation(
         }
         // A row that draws nothing stays at 0; a custom renderer's height is its own.
         if (!custom && height > 0) height += statusDelta(row, statusEdge(row, rows[nextDrawn], prev));
-        if (known) known.set(row, { width, height, edge, scale, open: open ?? rowOpenState(sessionId, row) });
+        if (known)
+          known.set(row, {
+            width,
+            height,
+            edge,
+            scale,
+            open: open ?? rowOpenState(sessionId, row),
+          });
       }
     }
     if (height > 0) {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { facts, parity, parityCommand, setupCommand, verdict, type RunRow } from "./cloud-fork-placement.ts";
+import { RISKY_STEP, checkpointKept, dirtyCommand, facts, parity, parityCommand, setupCommand, verdict, workCommand, type RunRow } from "./cloud-fork-placement.ts";
 
 const row = (over: Partial<RunRow>): RunRow => ({
   run: 1, parent: "vm_p", child: "vm_c", parent_ready_ms: 1, fork_call_ms: 6000, fork_status: 200,
@@ -32,5 +32,18 @@ describe("cloud fork placement", () => {
     expect(setupCommand("n1")).toContain("printf '%s' 'n1'");
     expect(setupCommand("n1")).toContain("setsid");
     expect(parityCommand()).toContain("kill -0");
+  });
+
+  test("--risky: the checkpoint held only when the parent lost the work and the copy kept it", () => {
+    expect(checkpointKept("w", "", "w")).toEqual({ parent_lost_work: true, copy_kept_work: true });
+    expect(checkpointKept("w", "w", "")).toEqual({ parent_lost_work: false, copy_kept_work: false });
+    expect(checkpointKept(undefined, "", "")).toEqual({ parent_lost_work: false, copy_kept_work: false });
+    const held = { step_exit: 0, parent_lost_work: true, copy_kept_work: true };
+    expect(verdict([row({ risky: held })], {}).pass).toBe(true);
+    expect(verdict([row({ risky: { ...held, copy_kept_work: false } })], {}).pass).toBe(false);
+    expect(verdict([row({ risky: null, error: "fork: HTTP 500" })], {}).pass).toBe(false);
+    expect(RISKY_STEP).toContain("git reset -q --hard");
+    expect(dirtyCommand("n1")).toContain("work-n1");
+    expect(workCommand()).toContain("sha256sum");
   });
 });

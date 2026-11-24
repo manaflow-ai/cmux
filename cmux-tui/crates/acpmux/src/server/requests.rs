@@ -4030,6 +4030,16 @@ async fn dispatch_request_with_identity(
                 hub.respond_choice(&s, pid, choice, answered_by, answerer, control).await?;
                 return Ok(json!({}));
             }
+            // "Fork first" (`fork_risky.rs`): only the person spends a fork, and only to allow.
+            let fork_first = params.get("forkFirst").and_then(Value::as_bool) == Some(true);
+            let checkpoint = if fork_first {
+                if !conn.is_person() {
+                    return Err(RpcError::invalid_params(crate::hub::person::REASON));
+                }
+                Some(hub.fork_before_answer(&s, pid, option.as_deref()).await?)
+            } else {
+                None
+            };
             // The paired machine that answers, for D13 (`Hub::local_claude_refusal`).
             let device = super::remote_guard::sending_device(conn, &params);
             answerer.device = device.as_deref();
@@ -4044,7 +4054,7 @@ async fn dispatch_request_with_identity(
                 control,
             )
             .await?;
-            Ok(json!({}))
+            Ok(checkpoint.map_or_else(|| json!({}), |c| json!({"forkCheckpoint": c})))
         }
         method::MUX_SET_POLICY => {
             // The chat a proved raise was checked for (`hub/person/policy_grant.rs`).

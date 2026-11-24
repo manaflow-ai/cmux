@@ -9,18 +9,37 @@ import type { PlanBuildElsewhere } from "../permissions/planBuild";
 /// Answers `permission` with the option a button or key picked; rejects when acpmux refused it, which
 /// the card shows.
 const answerPermission = (permission: AcpmuxPermission) => (optionId: string) =>
-  callNative("chat.permission", { permissionId: permission.permissionId, optionId });
+  callNative("chat.permission", {
+    permissionId: permission.permissionId,
+    optionId,
+  });
+
+/// "Fork first" (acpmux fork_risky.rs): acpmux forks the Cloud machine, then allows `optionId`.
+const forkFirst = (permission: AcpmuxPermission) => (optionId: string) =>
+  callNative("chat.permission", {
+    permissionId: permission.permissionId,
+    optionId,
+    forkFirst: true,
+  });
 
 /// Builds a plan approval's plan elsewhere (`_acpmux/plan/build`): a new worktree, or two harnesses
 /// to compare. acpmux answers the ask itself once the new chats started; a refusal rejects, which
 /// the card shows.
 const buildPlan = (permission: AcpmuxPermission) => (target: PlanBuildElsewhere, plan?: string) =>
-  callNative("chat.plan.build", { permissionId: permission.permissionId, target, ...(plan ? { plan } : {}) });
+  callNative("chat.plan.build", {
+    permissionId: permission.permissionId,
+    target,
+    ...(plan ? { plan } : {}),
+  });
 
 /// Approves a plan the person edited on the card (`_acpmux/plan/build` here, with `plan`): the
 /// agent builds the edited plan.
 const approveEditedPlan = (permission: AcpmuxPermission) => (plan: string) =>
-  callNative("chat.plan.build", { permissionId: permission.permissionId, target: "here", plan });
+  callNative("chat.plan.build", {
+    permissionId: permission.permissionId,
+    target: "here",
+    plan,
+  });
 
 /// Sends a question card's reply: the harness's option (absent cancels) and its answers. The card
 /// shows a refusal (the promise rejects) and takes input again for a retry.
@@ -81,6 +100,7 @@ export function PermissionAsk({
         onApproveEditedPlan={
           buildsPlan && permission.plan && permission.planEditable ? approveEditedPlan(permission) : undefined
         }
+        onForkFirst={permission.forkOffer ? forkFirst(permission) : undefined}
         onDraft={onDraft}
         waiting={waiting}
       />
@@ -102,11 +122,18 @@ const denyWithFeedback =
   async (optionId: string, text: string): Promise<boolean> => {
     const chat = shownChat.current;
     try {
-      await callNative("chat.permission", { permissionId: permission.permissionId, optionId });
+      await callNative("chat.permission", {
+        permissionId: permission.permissionId,
+        optionId,
+      });
     } catch {
       return false;
     }
     if (text && shownChat.current === chat)
-      await callNative("chat.send", { text, attachments: [], steer: true }).catch(() => undefined);
+      await callNative("chat.send", {
+        text,
+        attachments: [],
+        steer: true,
+      }).catch(() => undefined);
     return true;
   };

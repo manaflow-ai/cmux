@@ -1041,7 +1041,7 @@ fieldset.acpmux-question[hidden]{display:none}
    What is left here is only what is the ask's own content: the clamp of the command's two lines, the plan's
    and the edits' scroll boxes, the keycap marks and the split Approve plan button. */
 .acpmux-permission-request-label{min-width:0}
-.acpmux-permission-request-description,.acpmux-permission-waiting,.acpmux-permission-one-time{margin:0;color:var(--ds-color-muted)}
+.acpmux-permission-request-description,.acpmux-permission-waiting,.acpmux-permission-one-time,.acpmux-permission-fork-offer{margin:0;color:var(--ds-color-muted)}
 .acpmux-permission-details{display:flex;flex-direction:column;gap:var(--ds-space-2);min-width:0}
 .acpmux-permission-command{display:flex;flex-direction:column;align-items:flex-start;gap:var(--ds-space-1);min-width:0}
 .acpmux-permission-command>.ui-surface-inset{align-self:stretch}
