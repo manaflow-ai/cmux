@@ -44887,127 +44887,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Turns through the pictures in a folder you choose."
+            "value": "Turns through the pictures in a folder you choose, subfolders included."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wechselt die Bilder eines Ordners, den du auswählst."
+            "value": "Wechselt die Bilder eines Ordners, den du auswählst, samt Unterordnern."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fait défiler les images d’un dossier de votre choix."
+            "value": "Fait défiler les images d’un dossier de votre choix, sous-dossiers compris."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يتنقل بين الصور في مجلد تختاره."
+            "value": "يتنقل بين الصور في مجلد تختاره، بما في ذلك مجلداته الفرعية."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Va pasando las imágenes de una carpeta que elijas."
+            "value": "Va pasando las imágenes de una carpeta que elijas, subcarpetas incluidas."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "輪播你選擇的檔案夾中的圖片。"
+            "value": "輪播你選擇的檔案夾（含子檔案夾）中的圖片。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "轮换你选择的文件夹中的图片。"
+            "value": "轮换你选择的文件夹（含子文件夹）中的图片。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "선택한 폴더의 사진을 차례로 바꿉니다."
+            "value": "선택한 폴더와 하위 폴더의 사진을 차례로 바꿉니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "選んだフォルダの画像を切り替えます。"
+            "value": "選んだフォルダ（サブフォルダを含む）の画像を切り替えます。"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mijenja slike iz mape koju odaberete."
+            "value": "Mijenja slike iz mape koju odaberete, uključujući podmape."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Skifter mellem billederne i en mappe, du vælger."
+            "value": "Skifter mellem billederne i en mappe, du vælger, inklusive undermapper."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Alterna le immagini di una cartella che scegli."
+            "value": "Alterna le immagini di una cartella che scegli, sottocartelle incluse."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ប្ដូររូបភាពក្នុងថតដែលអ្នកជ្រើសរើស។"
+            "value": "ប្ដូររូបភាពក្នុងថតដែលអ្នកជ្រើសរើស រួមទាំងថតរង។"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bytter mellom bildene i en mappe du velger."
+            "value": "Bytter mellom bildene i en mappe du velger, inkludert undermapper."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zmienia obrazy z wybranego folderu."
+            "value": "Zmienia obrazy z wybranego folderu, łącznie z podfolderami."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Alterna as imagens de uma pasta que você escolher."
+            "value": "Alterna as imagens de uma pasta que você escolher, incluindo subpastas."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Меняет изображения из выбранной папки."
+            "value": "Меняет изображения из выбранной папки, включая вложенные папки."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "สลับรูปภาพในโฟลเดอร์ที่คุณเลือก"
+            "value": "สลับรูปภาพในโฟลเดอร์ที่คุณเลือก รวมถึงโฟลเดอร์ย่อย"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Seçtiğiniz klasördeki resimleri sırayla gösterir."
+            "value": "Seçtiğiniz klasördeki ve alt klasörlerindeki resimleri sırayla gösterir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Змінює зображення з вибраної папки."
+            "value": "Змінює зображення з вибраної папки, зокрема з вкладених папок."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lần lượt đổi ảnh trong thư mục bạn chọn."
+            "value": "Lần lượt đổi ảnh trong thư mục bạn chọn, kể cả thư mục con."
           }
         }
       }
