@@ -92,6 +92,30 @@ import Testing
         #expect(host.runs == 3)
     }
 
+    /// At most one move per chat: while one runs, a second ask (the mode again, Retry) starts no copy and leaves its flow
+    /// alone, and a move the app shows moving holds the same; once it ended the next starts (review of #52230, F2).
+    @Test func oneMoveAtATimePerChat() async {
+        let recorder = Recorder(), host = Host()
+        let driver = CloudPlaceDriver(place: flows(recorder), host: host)
+        #expect(driver.setMode("cloud", tab: nil, session: "s") == nil)
+        // The first move's Task has not run yet (this test holds the main actor): it is still in flight.
+        #expect(driver.setMode("cloud", tab: nil, session: "s") == .moving)
+        #expect(driver.retry(tab: nil, session: "s") == .moving)
+        #expect(host.runs == 1)
+        var again: CloudPlaceRefusal? = .moving
+        for _ in 0..<1000 where again == .moving {
+            await Task.yield()
+            again = driver.retry(tab: nil, session: "s")
+        }
+        #expect(again == nil)
+        #expect(host.runs == 2)
+        await Task.yield()
+        host.chats[0].moving = true
+        #expect(driver.setMode("cloud", tab: nil, session: "s") == .moving)
+        #expect(driver.retry(tab: nil, session: "s") == .moving)
+        #expect(host.runs == 2)
+    }
+
     @Test func modesPersist() {
         let defaults = UserDefaults(suiteName: "CloudPlaceFlowsTests.\(UUID().uuidString)")!
         let first = CloudPlaceFlows(defaults: defaults)

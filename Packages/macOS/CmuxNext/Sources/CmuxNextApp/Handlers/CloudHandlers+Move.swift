@@ -187,6 +187,7 @@ extension CloudPlaceRefusal {
     /// What the page and the person read.
     var message: String {
         switch self {
+        case .moving: CloudMoveStrings.inProgress
         case .refused(let reason): reason
         }
     }

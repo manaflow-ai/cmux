@@ -34,8 +34,11 @@ public enum CloudPlaceRun {
     case started(@MainActor () async -> Void)
 }
 
-/// Why a place action started no move: the app refused it at once, with why (the chat's flow shows it failed, with Retry).
+/// Why a place action started no move.
 public nonisolated enum CloudPlaceRefusal: Error, Equatable {
+    /// The chat's move runs already: a second never starts beside it.
+    case moving
+    /// The app refused it at once, with why (the chat's flow shows it failed, with Retry).
     case refused(String)
 }
 
@@ -65,6 +68,8 @@ public final class CloudPlaceDriver {
     private let tick = DemandTimer(owner: "CloudPlaceDriver.tick")
     /// When each session's last turn ended (for the rule's idle time).
     private var turnEnded: [String: UInt64] = [:]
+    /// Sessions whose move this driver started and that has not ended (a person's, Auto's or Evacuate's).
+    private var running: Set<String> = []
 
     /// How often Auto reads again with no change to wake it.
     static let interval: TimeInterval = 30
@@ -92,6 +97,8 @@ public final class CloudPlaceDriver {
     @discardableResult
     public func setMode(_ mode: String, tab: String?, session: String? = nil, claims: CloudPlaceClaims = .init()) -> CloudPlaceRefusal? {
         guard ["local", "cloud", "auto"].contains(mode), let chat = chat(tab: tab, session: session) else { return nil }
+        // A chat mid-move keeps its mode and its move (Cancel stops that): the move this mode needs would run beside it.
+        if mode == "cloud" && !chat.onCloud || mode == "local" && chat.onCloud, busy(chat) { return .moving }
         place.setMode(mode, of: chat.session)
         switch mode {
         case "cloud" where !chat.onCloud: return move(chat, toCloud: true, trigger: .person, claims: claims)
@@ -188,14 +195,25 @@ public final class CloudPlaceDriver {
     private func start(_ chat: CloudPlaceChat, toCloud: Bool, trigger: CloudPlaceFlows.Trigger,
                        claims: CloudPlaceClaims = .init()) -> Result<@MainActor () async -> Void, CloudPlaceRefusal> {
         guard let host else { return .success({}) }
-        switch host.placeRun(chat, toCloud: toCloud, machine: toCloud ? ownMachine(for: chat.session) : nil, trigger: trigger, claims: claims) {
+        let session = chat.session
+        // One move per chat, whoever asked: a second never copies the chat again beside the first, nor resets its flow.
+        guard !busy(chat) else { return .failure(.moving) }
+        running.insert(session)
+        switch host.placeRun(chat, toCloud: toCloud, machine: toCloud ? ownMachine(for: session) : nil, trigger: trigger, claims: claims) {
         case .refused(let reason):
-            place.refused(chat.session, toCloud: toCloud, trigger: trigger, reason: reason)
+            running.remove(session)
+            place.refused(session, toCloud: toCloud, trigger: trigger, reason: reason)
             return .failure(.refused(reason))
         case .started(let ended):
-            return .success(ended)
+            return .success({ @MainActor in
+                await ended()
+                self.running.remove(session)
+            })
         }
     }
+
+    /// Whether the chat's move runs now: one this driver started, or one the app's flow or Bring Back shows moving.
+    private func busy(_ chat: CloudPlaceChat) -> Bool { running.contains(chat.session) || chat.moving || place.isMoving(chat.session) }
 
     func ownMachine(for session: String) -> CloudPlaceMachine? {
         struct Request: Encodable { var session: String, before: String?, machines: [CloudPlaceOwnMachine] }
