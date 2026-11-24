@@ -21,7 +21,7 @@ export const compactingLine = defineExperiment({
     },
     calm: {
       label: "Calm",
-      description: '"Compacting conversation…": no clock and no shimmer, as the retry line reads.',
+      description: '"Compacting conversation…": no clock, under the live spot\'s one shimmer.',
     },
   },
   defaultArm: "own",

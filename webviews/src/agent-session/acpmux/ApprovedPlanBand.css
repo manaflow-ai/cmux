@@ -1,0 +1,106 @@
+/* The approved plan stands in the composer's column like the goal row (TaskGoalStrip.css): on the
+   card's two edges, less the stack's outset, never the pane's width. Open, its body scrolls inside a
+   bounded height so the composer stays in reach while the agent builds. */
+.acpmux-approved-plan {
+  position: relative;
+  box-sizing: border-box;
+  min-width: 0;
+  margin: 0 calc(var(--cv-inset-end, var(--cv-inset, var(--ds-space-4))) - var(--acpmux-stack-outset, 0px)) 0
+    calc(var(--cv-inset, var(--ds-space-4)) - var(--acpmux-stack-outset, 0px));
+  padding: var(--ds-space-1) var(--ds-space-2);
+  color: var(--agent-soft);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+
+.acpmux-approved-plan-head {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  min-height: var(--ds-control-row);
+}
+
+.acpmux-approved-plan-toggle {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.acpmux-approved-plan-toggle:focus-visible,
+.acpmux-approved-plan-close:focus-visible {
+  outline: var(--cmux-focus-ring-width) solid var(--cmux-focus-ring-color);
+}
+
+.acpmux-approved-plan-label {
+  flex: none;
+  color: var(--agent-text);
+  font-weight: 600;
+}
+
+.acpmux-approved-plan-tag {
+  flex: none;
+  padding: 0 var(--ds-space-1);
+  border-radius: var(--ds-radius-control);
+  background: var(--acpmux-row-hover);
+  color: var(--agent-muted);
+}
+
+.acpmux-approved-plan-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.acpmux-approved-plan-toggle > svg {
+  flex: none;
+  color: var(--agent-muted);
+  transition: transform var(--cmux-motion-micro) var(--cmux-ease-out);
+}
+
+.acpmux-approved-plan[data-open] .acpmux-approved-plan-toggle > svg {
+  transform: rotate(180deg);
+}
+
+.acpmux-approved-plan-close {
+  display: inline-grid;
+  flex: none;
+  width: var(--ds-control-row);
+  height: var(--ds-control-row);
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  background: none;
+  color: var(--agent-muted);
+  cursor: pointer;
+}
+
+.acpmux-approved-plan-close:hover {
+  background: var(--acpmux-row-hover);
+  color: var(--agent-text);
+}
+
+.acpmux-approved-plan-body {
+  max-height: min(40vh, 320px);
+  overflow: auto;
+  margin-top: var(--ds-space-1);
+  color: var(--agent-text);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .acpmux-approved-plan-toggle > svg {
+    transition: none;
+  }
+}
