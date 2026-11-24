@@ -291,8 +291,13 @@ impl Connection {
                 if self.timed.is_none() {
                     self.timed = Some((end, now));
                 }
-                let flight = self.wire_flight();
-                self.delay.departed(end, flight, now);
+                // Not a SYN: a repeated SYN restarts the connection here,
+                // so the next SYN-ACK copy would look fresh and the first
+                // copy's ACK would time it at zero, a base no queue exceeds.
+                if !segment.syn {
+                    let flight = self.wire_flight();
+                    self.delay.departed(end, flight, now);
+                }
             } else if self.timed.is_some_and(|(timed, _)| !after(end, timed)) {
                 // A retransmission: its ACK cannot be timed (Karn).
                 self.timed = None;
