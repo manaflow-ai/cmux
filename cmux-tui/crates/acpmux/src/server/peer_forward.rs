@@ -110,6 +110,8 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     // Every live chat on this daemon (`host_notice.rs`).
     "_acpmux/host_notice",
     "_acpmux/host_health",
+    // This machine's own load and swap, for its app's warning (`host_overload.rs`).
+    "_acpmux/host_overload",
     "_acpmux/place",
     method::MUX_PLACE_CHAT,
     "_acpmux/move_targets",
