@@ -211,9 +211,14 @@ await requireBrowserLane("chat-row-first-frame.test.ts", async () => {
         width,
       );
       const startLine = report.shifts.filter((shift) => shift.row.startsWith(SUBAGENT_STARTED));
-      console.log(`first-frame three-agents-${width} start line: ${JSON.stringify(shiftTotals({ ...report, shifts: startLine }))}`);
+      console.log(
+        `first-frame three-agents-${width} start line: ${JSON.stringify(shiftTotals({ ...report, shifts: startLine }))}`,
+      );
       lines.push(
-        ...outsideLiveLine({ ...report, shifts: report.shifts.filter((shift) => !shift.row.startsWith(SUBAGENT_STARTED)) }),
+        ...outsideLiveLine({
+          ...report,
+          shifts: report.shifts.filter((shift) => !shift.row.startsWith(SUBAGENT_STARTED)),
+        }),
       );
     }
     expect(lines).toEqual([]);
