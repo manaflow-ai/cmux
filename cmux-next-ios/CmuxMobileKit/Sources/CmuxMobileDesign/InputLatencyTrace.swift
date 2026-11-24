@@ -51,7 +51,8 @@ public final class InputLatencyTrace {
     static let windowTail = 0.3
 
     private let watch: MainThreadWatch
-    private let writer = DispatchQueue(label: "dev.cmux.mobile.input-latency", qos: .utility)
+    private let writer = DispatchQueue(label: "dev.cmux.mobile.input-latency",
+                                       qos: InputLatencyTrace.samplesTouches ? .userInitiated : .utility)
     nonisolated private let handle: FileHandle?
     private var observer: CFRunLoopObserver?
     private var observers: [NSObjectProtocol] = []
