@@ -97,6 +97,8 @@ extension WindowManager {
     func isIncognito(window windowID: String) -> Bool {
         registry.value.isIncognito(windowID)
     }
+    /// The windows stage 0's launch images keep: open, not incognito (`WindowLaunchImages`).
+    var launchImageWindows: [(id: String, window: NSWindow)] { controllers.compactMap { c in c.window.flatMap { isIncognito(window: c.state.id) ? nil : (c.state.id, $0) } } }
 
     /// The browser profile a page of `workspaceID` uses: the incognito
     /// session's for an incognito window, else nil (the caller's default).
