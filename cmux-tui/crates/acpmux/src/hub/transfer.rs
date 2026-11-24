@@ -70,9 +70,11 @@ impl Hub {
         let mut out = std::io::BufWriter::new(file);
         let mut event_count = 0usize;
         let mut failed: Option<anyhow::Error> = None;
+        let mut images = std::collections::BTreeSet::new();
         self.scan_off(&meta.id, after.unwrap_or(0), &mut |mut e: EventRecord| {
             // An ask carries the display line acpmux works out now, never a logged one.
             self.display_logged(Some(&**session), &mut e);
+            images.extend(super::prompt_images::ids_named_by(&e.kind, &e.msg));
             let written = serde_json::to_string(&e).map_err(anyhow::Error::from).and_then(|line| {
                 out.write_all(line.as_bytes())?;
                 out.write_all(b"\n")?;
@@ -93,15 +95,11 @@ impl Hub {
             return Err(e);
         }
         out.flush()?;
-        // The images its prompts sent (`prompt_images.rs`), which the log names but does not hold.
-        // Read from the whole chat, by kind: a bundle that holds only the records past a staged
-        // prefix still brings the images the prefix names, and the read costs its prompts, not
-        // its history.
-        let mut images = std::collections::BTreeSet::new();
-        self.store.scan_kinds(&meta.id, &super::prompt_images::NAMING_KINDS, &mut |e| {
-            images.extend(super::prompt_images::ids_named_by(&e.kind, &e.msg));
-            true
-        })?;
+        // The images its prompts sent (`prompt_images.rs`), which the log names but does not hold,
+        // the pre-copied prefix's prompts' too.
+        if let Some(after) = after {
+            super::prompt_images::prefix_ids(&*self.store, &meta.id, after, &mut images)?;
+        }
         super::prompt_images::bundle_images(&images, &dir)?;
         // Each surface's unsent text and who sent the queued prompts (`composers.rs`), which
         // live in memory, not the log.

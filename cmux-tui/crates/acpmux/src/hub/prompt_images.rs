@@ -126,6 +126,24 @@ pub(super) fn ids_named_by(kind: &str, msg: &Value) -> Vec<String> {
     named_ids(msg).filter(|id| valid_id(id)).map(str::to_owned).collect()
 }
 
+/// The images a pre-copied prefix's prompts name (records through seq `through`), read through
+/// the log's kind index: a move with a prefix bundles only the records past it, and the images
+/// its earlier prompts sent go along all the same.
+pub(super) fn prefix_ids(
+    store: &dyn crate::store::Store,
+    chat: &str,
+    through: u64,
+    into: &mut std::collections::BTreeSet<String>,
+) -> anyhow::Result<()> {
+    store.scan_kinds(chat, &NAMING_KINDS, &mut |e| {
+        if e.seq > through {
+            return false;
+        }
+        into.extend(ids_named_by(&e.kind, &e.msg));
+        true
+    })
+}
+
 /// A moved chat takes its images along (Leo, 2026-11-22: "moving sessions back and forth, the
 /// histories the pausing the images"): each kept image `ids` names goes into the bundle's
 /// `attachments/`, so the target shows the chat's images, not a hole. An id this machine no

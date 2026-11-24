@@ -74,7 +74,7 @@ impl Daemon {
         policy: &str,
     ) -> Self {
         let peer = target.map(|target| (target.home.clone(), target.socket.clone()));
-        Self::spawn_inner(tag, peer, harness_env, vars, policy, false).await
+        Self::spawn_full(tag, peer, harness_env, false, vars, policy).await
     }
 
     /// Where the daemon tagged `tag` lives, known before it starts (two daemons that are each
@@ -89,7 +89,7 @@ impl Daemon {
     /// A daemon whose peer `target` is the daemon at `peer` (home, socket), its agent started
     /// with `agent_env`.
     async fn spawn(tag: &str, peer: Option<(PathBuf, PathBuf)>, agent_env: Value) -> Self {
-        Self::spawn_inner(tag, peer, agent_env, &[], "approve-all", false).await
+        Self::spawn_full(tag, peer, agent_env, false, &[], "approve-all").await
     }
 
     /// [`Self::spawn`]; `linked`: it serves its WebSocket port too, so the daemon whose peer
@@ -100,18 +100,17 @@ impl Daemon {
         agent_env: Value,
         linked: bool,
     ) -> Self {
-        Self::spawn_inner(tag, peer, agent_env, &[], "approve-all", linked).await
+        Self::spawn_full(tag, peer, agent_env, linked, &[], "approve-all").await
     }
 
-    /// `spawn`, with `vars` in the daemon's env, `policy` its permission policy, and `linked`
-    /// as [`Self::spawn_with`] has it.
-    async fn spawn_inner(
+    /// [`Self::spawn_with`], with `vars` in the daemon's env and `policy` its permission policy.
+    async fn spawn_full(
         tag: &str,
         peer: Option<(PathBuf, PathBuf)>,
         agent_env: Value,
+        linked: bool,
         vars: &[(&str, &str)],
         policy: &str,
-        linked: bool,
     ) -> Self {
         let (home, socket) = Self::place(tag);
         let _ = std::fs::remove_dir_all(&home);
