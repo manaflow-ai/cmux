@@ -12,6 +12,13 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### vt-1.0.1 and the cell background keys in one pin (ghostty-next, cmux #50150)
+
+- Release branch `release/cmux-vt-1.0.1-cell-bg` at `5c01c7171`: a `--no-ff` merge of `release/cmux-gi-land-1-cell-guard`
+  (`a84a1c7e4`, fork PR #93) into `release/cmux-vt-1.0.1` (`2bd5d2503`, fork PR #92). Clean merge, no conflicts. The
+  pin is `5c01c7171`. GhosttyNextKit `xcframework-5c01c7171dc2c00d486f231adda7fb5bf6e55c97-apple-v6` (zip sha256 `ead90aeb...99c686c`, run 45296449754).
+- Both entries below still describe what each side brings.
+
 ### Upstream libghostty-vt vt-1.0.1 merged into the pin (ghostty-next)
 
 - Release branch `release/cmux-vt-1.0.1` at `2bd5d2503`: a merge of upstream tag `vt-1.0.1` (`108cacb17`, on
@@ -33,6 +40,17 @@ When we change the fork, update this document and the parent submodule SHA.
   (`prompt_redraw_waits_for_shell`) keeps its cursor-up in `Screen.clearPromptAtCursor`.
 - Conflict notes: the merge commit's message lists each conflict and its resolution. The next sync merges the next
   `vt-*` tag the same way.
+
+### Explicit cell backgrounds can show the window background (ghostty-next, cmux #50576)
+
+- Release branch `release/cmux-gi-land-1-cell-guard` at `a84a1c7e4`: fork PR manaflow-ai/ghostty-next#93 on
+  `b37a94dfe`. The pin is `a84a1c7e4`. GhosttyNextKit `xcframework-a84a1c7e4f95edf682920a0782ee914531fd2a15-apple-v6`
+  (zip sha256 `12d5f79c...be46b`, run 45038230807).
+- What: `background-cells-opacity` (an alpha for every explicit cell background) and
+  `background-cells-neutral-fade` (an explicit background whose Oklab chroma differs from the theme background's by
+  under 0.03 fades to clear by its lightness distance; 0 = off). Both unset keep the old rule. The alpha is
+  `src/renderer/cell_bg_alpha.zig`, read in `generic.zig`'s `bg_alpha`. No C API change.
+- Why: Leo, 2026-11-22: the Claude Code sent-message band "doesn't show my background! it's not transparent".
 
 ### A frame with no built cells draws the background only (ghostty-next, cmux f14)
 

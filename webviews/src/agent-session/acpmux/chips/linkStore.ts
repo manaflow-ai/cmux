@@ -1,7 +1,13 @@
 // What the host says about a reply's paths and links (`link.inspect`, decision D4): where each
 // path is (inside the session's folders, outside, on the deny list, missing) and the favicon and
 // title cmux already has for each URL. Requests from one render are batched into one call; the
-// answers are kept for the page's life. The host never fetches anything for this.
+// answers are kept for the page's life, except a site the host had nothing (or no icon) for: cmux
+// learns a site's icon and title when a tab opens it, so such a link is asked again on its hover or
+// focus (``askSiteAgain``) and on a render past ``SITE_RETRY_MS``, and a newer answer never takes away
+// what an older one gave. Before, the first miss stayed for the page's life: a link written before
+// its tab loaded kept the globe and no title, and the card said nothing (Leo, 2026-11-22: "if the
+// previews dont show up, what's the point? likewise, why do the favicons keep turning into globes
+// after stuff?"). The host never fetches anything for this.
 import { useMemo, useSyncExternalStore } from "react";
 import { callChipHost } from "./host";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
@@ -38,6 +44,13 @@ const sendable = (value: string, limit: number) =>
 
 const paths = new Map<string, PathInfo | null>();
 const sites = new Map<string, SiteInfo | null>();
+/// When each site was last sent to the host (page clock, ms).
+const siteAskedAt = new Map<string, number>();
+/// A site with no icon is asked again on a render at most this often; a hover or focus asks sooner.
+export const SITE_RETRY_MS = 30_000;
+/// The least gap between two asks for one site, whatever asks.
+const SITE_HOVER_RETRY_MS = 2_000;
+const clock = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 /// Paths sent to the host and not answered yet.
 const asking = new Set<string>();
 let policy: ReplyPolicy = { outsideRoots: "confirm", remoteImages: "click", clickFreeImageHosts: [] };
@@ -81,7 +94,12 @@ function flush() {
         paths.set(path, value.paths?.[path] ?? null);
         asking.delete(path);
       }
-      for (const url of batchUrls) sites.set(url, value.sites?.[url] ?? null);
+      for (const url of batchUrls) {
+        const answer = value.sites?.[url];
+        const kept = sites.get(url);
+        // A newer answer never takes away an icon or title an older one gave.
+        sites.set(url, answer || kept ? { ...kept, ...answer } : null);
+      }
       if (value.policy) policy = { ...policy, ...value.policy };
     })
     .finally(() => {
@@ -110,11 +128,35 @@ function ask(path?: string, url?: string) {
   }
   if (url !== undefined && !sites.has(url)) {
     sites.set(url, null);
-    if (sendable(url, MAX_URL_BYTES)) queuedUrls.push(url);
+    queueSite(url);
+  } else if (url !== undefined) {
+    retrySite(url, SITE_RETRY_MS);
   }
   if (!scheduled && (!policyAsked || queuedPaths.length || queuedUrls.length)) {
     scheduleFlush();
   }
+}
+
+function queueSite(url: string) {
+  if (!sendable(url, MAX_URL_BYTES) || queuedUrls.includes(url)) return;
+  siteAskedAt.set(url, clock());
+  queuedUrls.push(url);
+}
+
+/// Queues `url` again when the host had no icon for it and its last ask is older than `after`.
+function retrySite(url: string, after: number) {
+  if (sites.get(url)?.icon) return;
+  const asked = siteAskedAt.get(url);
+  if (asked !== undefined && clock() - asked < after) return;
+  queueSite(url);
+}
+
+/// A link's hover or focus: a site the host had no icon for is asked again (a tab may have opened
+/// it since), at most every ``SITE_HOVER_RETRY_MS``.
+export function askSiteAgain(url: string | undefined): void {
+  if (!url || !sites.has(url)) return;
+  retrySite(url, SITE_HOVER_RETRY_MS);
+  if (!scheduled && queuedUrls.length) scheduleFlush();
 }
 
 function subscribe(listener: () => void) {
@@ -166,6 +208,7 @@ export function resetLinkStore(): void {
   paths.clear();
   asking.clear();
   sites.clear();
+  siteAskedAt.clear();
   queuedPaths = [];
   queuedUrls = [];
   scheduled = false;

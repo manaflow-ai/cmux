@@ -1,3 +1,4 @@
+import { revokeServerPairing } from "./pair-invite-routes.ts"
 import { BASE_SPACE, envForObject, envInSpace, parseBuildSpace } from "./build-space.ts"
 import type { EventFrame, OpFrame, OwnerFrame, Principal } from "@cmux/ownership"
 import type { ServerNetworkReservation } from "@cmux/protocol"
@@ -7,19 +8,7 @@ import type { Env, RawEnv } from "./env.ts"
 import { OwnerDO, type ReadResult, type SubmitResult, type Attachment } from "./owner-do.ts";
 import { cloudMachineReader, publishOwnershipRefusal, type CloudMachineRead } from "./team-cloud-session-machine.ts"
 import { teamRead, teamVmAccountsFence, withAiSpend } from "./team-reads.ts"
-import {
-  can,
-  firstOwner,
-  homeCoMembersOf,
-  hostOf,
-  memberOf,
-  roleOf,
-  TABLE_MEMBER,
-  TEAM_PRIVATE_TABLES,
-  hostInSpace,
-  hostSpaceOf,
-  TABLE_HOST_BY_INSTALL,
-} from "./domains/team-members.ts";
+import { can, firstOwner, homeCoMembersOf, hostByInstall, hostInSpace, hostOf, hostSpaceOf, memberOf, TABLE_HOST_BY_INSTALL, roleOf, TABLE_MEMBER, TEAM_PRIVATE_TABLES } from "./domains/team-members.ts"
 import { integrationSyncPending, releasePending, sliceHash, type IntegrationFields } from "./domains/team-integration-sync.ts"
 import { runSyncPending, runSyncPush } from "./domains/team-run-sync.ts"
 import { cloudPolicyOf, currentPolicy, integrationSlice } from "./domains/team-policy.ts"
@@ -130,6 +119,7 @@ export class TeamDO extends OwnerDO<TeamState> {
     if (!state.team) return stackAt
     if (Object.keys(state.member_cleanup ?? {}).length > 0) return Math.max(now, this.cleanupRetryAt ?? now)
     if (Object.keys(state.server_revocations ?? {}).length > 0) return Math.max(now, this.revokeRetryAt ?? now)
+    if (Object.keys(state.pairing_spends ?? {}).length > 0) return Math.max(now, this.spendRetryAt ?? now)
     const times = [
       this.personalTenantWakeAt(),
       nextRecheckAt(state),
@@ -183,6 +173,7 @@ export class TeamDO extends OwnerDO<TeamState> {
     if (this.boundEngine) await this.stackSync.wake(now)
     if (this.cleanupRetryAt === null || now >= this.cleanupRetryAt) this.cleanupMembers()
     if (this.revokeRetryAt === null || now >= this.revokeRetryAt) await this.flushServerRevocations(this.boundEngine?.currentState.team?.id ?? "")
+    if (this.spendRetryAt === null || now >= this.spendRetryAt) await this.flushPairingSpends()
     await this.recheckDomains(now)
     try {
       await this.syncIntegration(now)
@@ -418,6 +409,11 @@ export class TeamDO extends OwnerDO<TeamState> {
       this.ctx.waitUntil(this.replicaDrops.flush(Date.now()).finally(() => this.scheduleAlarm()))
     }
     if (op === "team.member.remove") this.cleanupMembers()
+    // A removed server's pairing is spent after whichever path committed the removal (HTTP or a socket); the alarm retries.
+    if (op !== "server.pairing.spent" && Object.keys(this.boundEngine?.currentState.pairing_spends ?? {}).length > 0) {
+      this.scheduleAlarm()
+      this.ctx.waitUntil(this.flushPairingSpends().finally(() => this.scheduleAlarm()))
+    }
     // A member who left (or a team Stack deleted) loses its sockets here now; CloudDO closes its own from the outbox (review P1-2).
     const v = (frames.find((f) => f.t === "result") as { value?: { user?: string; removed?: boolean; deleted?: boolean } } | undefined)?.value
     if (op === "team.member.remove" && v?.removed && v.user) this.closeSockets((p) => p.user === v.user, "left the team")
@@ -603,7 +599,15 @@ export class TeamDO extends OwnerDO<TeamState> {
   async revokeInstallCerts(entity: string, user: string, install: string): Promise<{ ok: boolean; revoked: Array<number> }> {
     // A team that never existed here issued nothing; never create its storage for a notice (cx-44j.50).
     if (!this.isBound(entity)) return { ok: true, revoked: [] }
-    return revokeInstallCerts(this.sshDeps(entity), user, install)
+    const certs = await revokeInstallCerts(this.sshDeps(entity), user, install)
+    // UserDO revoked this install, by any path (a server's own `install.sign_out` from `cmux server unpair`
+    // included), and retries this notice until it is confirmed: a server host it enrolled leaves too.
+    const engine = this.bind(entity)
+    if (hostByInstall(engine.currentState, engine.rows, install)?.kind === "server") {
+      const res = this.submitSystem("server.signed_out", { install }, `server-signed-out:${install}`)
+      if (!res.frames.some((f) => f.t === "result")) return { ok: false, revoked: certs.revoked }
+    }
+    return certs
   }
 
   /**
@@ -668,13 +672,14 @@ export class TeamDO extends OwnerDO<TeamState> {
   async enrollServer(
     entity: string,
     principal: Principal,
-    params: { install: string; name: string; platform: string; wg_public_key: string; network?: typeof ServerNetworkReservation.Type; machine_join_token?: string },
+    params: { install: string; name: string; platform: string; wg_public_key: string; network?: typeof ServerNetworkReservation.Type; machine_join_token?: string; pairing?: { pairing_object: string; invite_object: string | null } },
     idempotencyKey: string
   ): Promise<{ ok: true; host: string } | { ok: false; code: string; message: string; refused?: true }> {
     this.bind(entity)
     if (principal.kind !== "session" || principal.agent || !principal.user) return { ok: false, code: "auth.forbidden", message: "only a signed-in user may approve a server" }
+    const { pairing, ...enrolled } = params
     // The approver's build space: the server's install sits in that space's UserDO (build-space.ts).
-    const res = this.submitSystem("server.enrolled", { ...params, owner_user: principal.user, approved_by: principal.user, ...(principal.build_space ? { space: principal.build_space } : {}) }, idempotencyKey)
+    const res = this.submitSystem("server.enrolled", { ...enrolled, owner_user: principal.user, approved_by: principal.user, ...(principal.build_space ? { space: principal.build_space } : {}) }, idempotencyKey)
     const reply = res.frames.find((f) => f.t === "result" || f.t === "reject")
     if (!reply || reply.t !== "result") return { ok: false, code: reply && reply.t === "reject" ? reply.code : "owner.unreachable", message: reply && reply.t === "reject" ? reply.message : "no reply" }
     const value = reply.value as { id: string } | ServerEnrollRefused
@@ -683,7 +688,56 @@ export class TeamDO extends OwnerDO<TeamState> {
       if (this.revokeRetryAt === null || Date.now() >= this.revokeRetryAt) await this.flushServerRevocations(entity, value.install)
       return { ok: false, code: "auth.forbidden", message: value.message, refused: true }
     }
+    // Keep the pairing that made it, so a revoke can spend its code and invite. Best effort: a lost
+    // record only means a later revoke leaves those to expire on their own (minutes).
+    if (pairing) {
+      try {
+        this.submitSystem("server.pairing.recorded", { host: value.id, install: params.install, pairing_object: pairing.pairing_object, invite_object: pairing.invite_object }, `${idempotencyKey}:pairing`)
+      } catch (e) {
+        console.error(JSON.stringify({ msg: "server pairing record failed", host: value.id, error: String(e) }))
+      }
+    }
     return { ok: true, host: value.id }
+  }
+
+  /** Backoff after a failed pairing spend (in memory: a restart retries at once). */
+  private spendRetryAt: number | null = null
+  private spendAttempts = 0
+
+  /**
+   * Spends every queued pairing of a removed server (its PairingDO record is refused `revoked`, its
+   * invite voided `revoked`; both idempotent), then records it. Run after the removal's commit and by
+   * the alarm until it succeeds, whichever path (HTTP or a socket) committed the removal.
+   */
+  async flushPairingSpends(entity?: string): Promise<void> {
+    if (entity) this.bind(entity)
+    // One pass at a time, each after the one before: a caller always gets a pass that saw its own removal.
+    const pass = this.spendChain.then(() => this.spendQueued())
+    this.spendChain = pass.catch(() => {})
+    return pass
+  }
+
+  private spendChain: Promise<void> = Promise.resolve()
+
+  private async spendQueued(): Promise<void> {
+    const spends = Object.entries(this.boundEngine?.currentState.pairing_spends ?? {})
+    let failed = false
+    for (const [host, ref] of spends) {
+      try {
+        await revokeServerPairing(this.env, ref)
+        this.requireCommitted(this.submitSystem("server.pairing.spent", { host }, `server-pairing-spent:${host}`))
+      } catch (e) {
+        failed = true
+        console.error(JSON.stringify({ msg: "server pairing spend failed", host, error: String(e) }))
+      }
+    }
+    if (failed) {
+      this.spendAttempts += 1
+      this.spendRetryAt = Date.now() + Math.min(5 * 60_000, 1000 * 2 ** this.spendAttempts)
+    } else {
+      this.spendAttempts = 0
+      this.spendRetryAt = null
+    }
   }
 
   /** The owner's UserDO for revocation pushes; tests replace it to fail the RPC. */
@@ -835,7 +889,14 @@ export class TeamDO extends OwnerDO<TeamState> {
     return { ok: true }
   }
   async cloudVmPlan(entity: string, stackUser?: string) { return (await import("./cloud-vm-plan.ts")).cloudVmPlanOf(this.ctx.storage.sql, this.isBound(entity) ? this.bind(entity).currentState : null, entity, this.stack ?? stackServer(this.env), stackUser, Date.now()) } // RPC from CloudDO: the operator Cloud grant (cloud-entitlements.ts)
-  async inferencePlan(entity: string, user: string, stackUser?: string) { return (await import("./inference/plan.ts")).inferencePlanOf(this.ctx.storage.sql, this.isBound(entity) ? this.bind(entity).currentState : null, entity, this.stack ?? stackServer(this.env), stackUser, user) } // RPC from the model router: the paid-plan gate (inference/plan.ts)
+  async inferencePlan(entity: string, user: string, stackUser?: string) { return (await import("./inference/plan.ts")).inferencePlanOf(this.ctx.storage.sql, this.isBound(entity) ? this.bind(entity).currentState : null, entity, this.stack ?? stackServer(this.env), stackUser, user, Date.now(), this.env.ENVIRONMENT !== "production") } // RPC from the model router: the paid-plan gate (inference/plan.ts)
+  /** RPC from plan-checkout.ts: a paid test-mode plan checkout of this team (never on production). */
+  async grantTestPlan(plan: string, session: string, subscription: string): Promise<{ added: boolean; revoked: boolean } | { refused: "production" }> {
+    if (this.env.ENVIRONMENT === "production") return { refused: "production" }
+    return (await import("./inference/plan.ts")).grantTestPlan(this.ctx.storage.sql, plan, session, subscription, Date.now())
+  }
+  /** RPC from plan-checkout.ts: the test plan's subscription was cancelled. */
+  async revokeTestPlan(subscription: string): Promise<boolean> { return (await import("./inference/plan.ts")).revokeTestPlan(this.ctx.storage.sql, subscription, Date.now()) }
   /** RPC from the Stack webhook route (stack-webhook.ts): one delivery reconciled with Stack, one at a time per team. */
   async stackWebhook(entity: string, event: StackEvent): Promise<StackSyncReply> {
     this.bind(entity)

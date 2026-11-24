@@ -26,6 +26,7 @@ import { ThoughtRow } from "./ThoughtRow";
 import { groupId, runStretches, stretchStart, toolGroups, type ToolGroup } from "./toolGroups";
 import type { RetryNote } from "../subagents/retryState";
 import { RowReplyButton } from "./SelectionReply";
+import { SavePromptButton } from "./SavePromptButton";
 import { TurnActionsContext } from "./turnActions";
 import { FailedSendsContext } from "./promptDeliveryModel";
 import { errorRecovery, signInRetry, type ErrorRecovery } from "./errorRecovery";
@@ -39,6 +40,7 @@ import {
   turnTimeKey,
 } from "./turns";
 import { stoppedTurnLook } from "./stoppedTurn.experiment";
+import { failedTurnMark } from "./failedTurnMark.experiment";
 import { turnCopyText } from "./turnCopy";
 import { TimedLabel } from "./TurnTokens";
 import { AlertCircle, ChevronRight, Retry, Close } from "./icons";
@@ -342,7 +344,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   // The turn's Timeline (TurnWaterfall.tsx): a clock button, closed until the reader opens it.
   const timeline = useTurnWaterfall(row);
   // Copy copies the whole turn, its replies and tool lines (turnCopy.ts), as Claude Code desktop's;
-  // a turn of tool calls alone draws no Copy and no Read aloud.
+  // a turn of tool calls alone copies their lines and the last call's output, and draws no Read aloud.
   const turnCopy = row.turnCopy;
   const copy = useMemo(() => (turnCopy ? turnCopyText(t, turnCopy) : text), [t, turnCopy, text]);
   const prompt = row.prompt;
@@ -365,6 +367,27 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
         </span>
       )}
     </WithFacts>
+  );
+  // A failed turn's row says the turn failed (G04): the failed mark after its buttons
+  // (failedTurnMark.experiment.ts), so a failed turn with nothing to copy still ends on a row that
+  // reads as its end, never a bare line of hover controls. No tooltip: the row carries no time or
+  // Worked for (Lawrence and Lucas, 2026-11-11 standup).
+  const failedLook = failed ? experimentArm(failedTurnMark) : undefined;
+  const endMark = failedLook && (
+    <span
+      className={`cv-turn-end-mark cv-turn-end-mark--failed cv-turn-end-mark--${failedLook}`}
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- an icon glyph with a spoken name, not an image file.
+      role="img"
+      aria-label={t("turn.failedMark")}
+    >
+      {failedLook === "word" ? (
+        t("turn.failedMark")
+      ) : failedLook === "cross" ? (
+        <Close size={ROW_ICON} />
+      ) : (
+        <AlertCircle size={ROW_ICON} />
+      )}
+    </span>
   );
   // A failed turn's Retry (card and footer) asks acpmux's turn retry where the chat has one
   // (turnRetry.ts): one at a time, and a refusal leaves its note on the card.
@@ -526,10 +549,12 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             {!messages && timeline.toggle}
             {!messages && text && <ReadAloudButton id={row.id} text={text} />}
             {!messages && text && <RowReplyButton text={text} />}
+            {!messages && text && <SavePromptButton text={text} />}
             {!messages && ((text && row.answerId) || menuRetry) && <MessageMore rowId={row.answerId ?? row.id} />}
           </span>
           {stoppedLook === "word" && stoppedWord}
           {stoppedLook === "trailing" && stoppedWord}
+          {!messages && endMark}
         </MessageFooterRow>
       </div>
       {!messages && timeline.panel}

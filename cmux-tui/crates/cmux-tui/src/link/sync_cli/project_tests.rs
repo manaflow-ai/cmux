@@ -1,4 +1,5 @@
 use super::*;
+use std::io::{BufRead as _, Write as _};
 
 #[test]
 fn the_manifest_holds_what_a_copy_sends_and_never_a_secret() {
@@ -72,4 +73,97 @@ fn what_a_server_serves_reads_back_as_written() {
     // A machine that answers no id is recorded as none, and matches only itself.
     let unnamed = ServerRecord { machine: String::new(), ..served };
     assert_eq!(ServerRecord::decode(&unnamed.encode()), Some(unnamed));
+}
+
+/// A stand-in machine socket at `path`: each dial's ask is counted, then answered `ok`.
+fn answering(path: &Path) -> std::sync::Arc<std::sync::atomic::AtomicUsize> {
+    use std::sync::atomic::Ordering;
+    let listener = std::os::unix::net::UnixListener::bind(path).unwrap();
+    let dials = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = dials.clone();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(stream) = stream else { return };
+            let mut reader = BufReader::new(stream);
+            let mut line = String::new();
+            if reader.read_line(&mut line).unwrap_or(0) == 0 {
+                continue;
+            }
+            counted.fetch_add(1, Ordering::SeqCst);
+            let _ = reader.get_mut().write_all(b"{\"ok\":true,\"data\":{}}\n");
+        }
+    });
+    dials
+}
+
+#[test]
+fn a_redial_prefers_the_quiet_socket_and_falls_back_when_there_is_none() {
+    use std::sync::atomic::Ordering;
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("carrier.sock");
+    let main = answering(&socket);
+
+    // No quiet socket (an older carrier serve, or a daemon's own socket): the main one.
+    assert_eq!(quiet_socket(&socket), None);
+    let (dialed, quiet) = redial(&socket, "p1", "/w", &[], None);
+    assert!(ok(&dialed.unwrap().1));
+    assert!(!quiet, "no quiet socket: the main one, as before");
+    assert_eq!(main.load(Ordering::SeqCst), 1);
+
+    // A file at the quiet path that is not a socket is no quiet socket.
+    let quiet_path = dir.path().join("carrier.sock.quiet");
+    std::fs::write(&quiet_path, "").unwrap();
+    assert_eq!(quiet_socket(&socket), None);
+    let (dialed, quiet) = redial(&socket, "p1", "/w", &[], None);
+    assert!(ok(&dialed.unwrap().1) && !quiet);
+    assert_eq!(main.load(Ordering::SeqCst), 2);
+    std::fs::remove_file(&quiet_path).unwrap();
+
+    // A stale quiet socket (nothing accepts on it): the main one.
+    drop(std::os::unix::net::UnixListener::bind(&quiet_path).unwrap());
+    assert_eq!(quiet_socket(&socket), Some(quiet_path.clone()));
+    let (dialed, quiet) = redial(&socket, "p1", "/w", &[], None);
+    assert!(ok(&dialed.unwrap().1) && !quiet);
+    assert_eq!(main.load(Ordering::SeqCst), 3);
+    std::fs::remove_file(&quiet_path).unwrap();
+
+    // A live quiet socket: every redial goes there and none to the main one.
+    let hushed = answering(&quiet_path);
+    for n in 1..=2 {
+        let (dialed, quiet) = redial(&socket, "p1", "/w", &[], None);
+        assert!(ok(&dialed.unwrap().1));
+        assert!(quiet, "the quiet socket is preferred");
+        assert_eq!(hushed.load(Ordering::SeqCst), n);
+    }
+    assert_eq!(main.load(Ordering::SeqCst), 3, "no redial reached the main socket");
+}
+
+#[test]
+fn a_quiet_refusal_is_a_failed_dial_and_the_redial_waits_half_a_second_flat() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("carrier.sock");
+    let quiet_path = dir.path().join("carrier.sock.quiet");
+    let quiet = std::os::unix::net::UnixListener::bind(&quiet_path).unwrap();
+    // The quiet socket closes the dial unanswered, as carrier serve does while the machine sleeps.
+    std::thread::spawn(move || {
+        for stream in quiet.incoming() {
+            drop(stream);
+        }
+    });
+    let (dialed, went_quiet) = redial(&socket, "p1", "/w", &[], None);
+    assert!(went_quiet);
+    let error = format!("{:#}", dialed.err().expect("an unanswered dial fails"));
+    assert!(error.contains("without answering"), "{error}");
+
+    let mut backoff = Duration::from_millis(200);
+    for _ in 0..10 {
+        assert_eq!(retry_wait(true, &mut backoff), QUIET_RETRY);
+    }
+    assert_eq!(QUIET_RETRY, Duration::from_millis(500));
+    let waits: Vec<_> = (0..8).map(|_| retry_wait(false, &mut backoff).as_millis()).collect();
+    assert_eq!(
+        waits,
+        [200, 400, 800, 1600, 3200, 6400, 10_000, 10_000],
+        "the main socket backs off"
+    );
 }
