@@ -42,7 +42,7 @@ final class GestureConflictUITests: XCTestCase {
         let app = launch(demo: "ws-terminal-composer", env: ["CMUX_MOBILE_DEMO_COMPOSER": "long"])
         let field = app.textViews["terminal.composer.field"]
         XCTAssertTrue(field.waitForExistence(timeout: 30), "the terminal composer\n\(app.debugDescription)")
-        if !app.keyboards.firstMatch.exists { field.tap() }
+        field.tap() // the field, not the terminal behind it, takes the keyboard: it is being edited
         expect(app.keyboards.firstMatch, "exists == true", "the keyboard comes up")
         assertDragScrollsText(app, field)
     }
@@ -73,7 +73,7 @@ final class GestureConflictUITests: XCTestCase {
         for _ in 0..<4 where app.keyboards.firstMatch.exists {
             top.press(forDuration: 0.05, thenDragTo: bottom, withVelocity: .slow, thenHoldForDuration: 0.1)
         }
-        XCTAssertTrue(app.keyboards.firstMatch.exists, "scrolling the draft to its top keeps the keyboard up")
+        XCTAssertTrue(app.keyboards.firstMatch.exists, "scrolling the draft to its top keeps the keyboard up; \(state(app, field))")
         attach(app, "long-at-top")
         let start = field.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2))
         start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 160)), withVelocity: .fast,
@@ -91,7 +91,7 @@ final class GestureConflictUITests: XCTestCase {
         let app = launch(demo: "ws-terminal-composer", env: ["CMUX_MOBILE_DEMO_COMPOSER": "short"])
         let field = app.textViews["terminal.composer.field"]
         XCTAssertTrue(field.waitForExistence(timeout: 30), "the terminal composer\n\(app.debugDescription)")
-        if !app.keyboards.firstMatch.exists { field.tap() }
+        field.tap() // the field, not the terminal behind it, takes the keyboard: it is being edited
         expect(app.keyboards.firstMatch, "exists == true", "the keyboard comes up")
         assertSwipeRightStays(app, field)
     }
@@ -113,10 +113,20 @@ final class GestureConflictUITests: XCTestCase {
         // A pop would have animated the workspace away by now.
         Thread.sleep(forTimeInterval: 1.0)
         attach(app, "after-swipe-right")
-        XCTAssertTrue(field.exists && field.isHittable, "still in the workspace with the composer open", file: file, line: line)
+        XCTAssertTrue(field.exists && field.isHittable, "still in the workspace with the composer open; \(state(app, field))", file: file, line: line)
     }
 
     // MARK: Helpers
+
+    /// What the screen holds, for a failure message: the log shows it when the run's
+    /// attachments cannot be read.
+    @MainActor
+    private func state(_ app: XCUIApplication, _ field: XCUIElement) -> String {
+        let fields = app.textViews.allElementsBoundByIndex.prefix(6).map { "\($0.identifier)@\(Int($0.frame.minY))" }
+        let buttons = app.buttons.allElementsBoundByIndex.prefix(10).map(\.label).filter { !$0.isEmpty }
+        return "field exists=\(field.exists) hittable=\(field.exists && field.isHittable) frame=\(field.exists ? NSCoder.string(for: field.frame) : "-") "
+            + "keyboard=\(app.keyboards.firstMatch.exists) textViews=\(fields) buttons=\(buttons)"
+    }
 
     /// About ten wrapped lines at the 17 pt body on a phone: taller than the field's six.
     static let longDraft = (1...14).map { "Line \($0) of a long draft" }.joined(separator: " ")
@@ -132,10 +142,10 @@ final class GestureConflictUITests: XCTestCase {
         let bottom = field.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95))
         top.press(forDuration: 0.05, thenDragTo: bottom, withVelocity: .slow, thenHoldForDuration: 0.1)
         attach(app, "2-after-drag")
-        XCTAssertTrue(app.keyboards.firstMatch.exists, "the keyboard stays up: the drag was the draft's scroll", file: file, line: line)
-        XCTAssertTrue(field.exists, "the composer stays open", file: file, line: line)
-        XCTAssertEqual(field.frame.minY, frameBefore.minY, accuracy: 2, "the composer did not move", file: file, line: line)
-        XCTAssertNotEqual(field.screenshot().pngRepresentation, textBefore, "the draft's text scrolled", file: file, line: line)
+        XCTAssertTrue(app.keyboards.firstMatch.exists, "the keyboard stays up: the drag was the draft's scroll; \(state(app, field))", file: file, line: line)
+        XCTAssertTrue(field.exists, "the composer stays open; \(state(app, field))", file: file, line: line)
+        XCTAssertEqual(field.frame.minY, frameBefore.minY, accuracy: 2, "the composer did not move; \(state(app, field))", file: file, line: line)
+        XCTAssertNotEqual(field.screenshot().pngRepresentation, textBefore, "the draft's text scrolled; \(state(app, field))", file: file, line: line)
     }
 
     @MainActor
@@ -143,7 +153,7 @@ final class GestureConflictUITests: XCTestCase {
         let field = app.textViews["chat.composer.field"]
         if !field.waitForExistence(timeout: 30) { app.buttons["Reply to Claude"].firstMatch.tap() }
         XCTAssertTrue(field.waitForExistence(timeout: 10), "the composer field\n\(app.debugDescription)")
-        if !app.keyboards.firstMatch.exists { field.tap() }
+        field.tap() // the field, not the terminal behind it, takes the keyboard: it is being edited
         expect(app.keyboards.firstMatch, "exists == true", "the keyboard comes up")
         return field
     }

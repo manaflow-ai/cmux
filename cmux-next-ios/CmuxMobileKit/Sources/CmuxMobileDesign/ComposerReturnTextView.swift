@@ -49,6 +49,7 @@ open class ComposerReturnTextView: UITextView {
         placeholderLabel.isAccessibilityElement = false
         addSubview(placeholderLabel)
         panGestureRecognizer.addTarget(self, action: #selector(textPanned(_:)))
+        addGestureRecognizer(touchDown)
     }
 
     @available(*, unavailable)
@@ -191,20 +192,17 @@ open class ComposerReturnTextView: UITextView {
                                            offsetFromTop: contentOffset.y + adjustedContentInset.top)
     }
 
-    override open func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        ComposerTextDragHold.touchBegan(textOwnsDrag: textOwnsDrag)
-        super.touchesBegan(touches, with: event)
-    }
+    /// Sees every touch on the text the moment it lands. A view's own `touchesBegan` is not
+    /// enough: the touch lands on the text's content view, which `delaysContentTouches` holds
+    /// back for ~150 ms, and a quick drag starts the text's scroll first, so the view never
+    /// hears of it. Recognizers get the touch at once, before any host's pan has moved.
+    private lazy var touchDown = ComposerTouchDownObserver(owner: self)
 
-    override open func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        ComposerTextDragHold.touchEnded()
-        super.touchesEnded(touches, with: event)
-    }
+    fileprivate func touchLanded() { ComposerTextDragHold.touchBegan(textOwnsDrag: textOwnsDrag) }
 
-    override open func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
-        // The text's own scroll beginning cancels the touch: the hold lasts until it ends.
+    fileprivate func touchLifted() {
+        // The text's own scroll outlives the touch's other recognizers: the hold lasts until it ends.
         if !textScrolling { ComposerTextDragHold.touchEnded() }
-        super.touchesCancelled(touches, with: event)
     }
 
     private var textScrolling: Bool {
@@ -299,5 +297,39 @@ open class ComposerReturnTextView: UITextView {
         }
         builder.insertChild(UIMenu(options: .displayInline, children: [newLine]), atStartOfMenu: .standardEdit)
     }
+}
+
+/// Watches touches on a `ComposerReturnTextView` without ever recognizing, preventing or delaying
+/// anything: it only tells the view a touch began or ended.
+private final class ComposerTouchDownObserver: UIGestureRecognizer, UIGestureRecognizerDelegate {
+    private weak var owner: ComposerReturnTextView?
+
+    init(owner: ComposerReturnTextView) {
+        self.owner = owner
+        super.init(target: nil, action: nil)
+        cancelsTouchesInView = false
+        delaysTouchesBegan = false
+        delaysTouchesEnded = false
+        delegate = self
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        owner?.touchLanded()
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+        owner?.touchLifted()
+        state = .failed
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+        owner?.touchLifted()
+        state = .failed
+    }
+
+    override func canPrevent(_ preventedGestureRecognizer: UIGestureRecognizer) -> Bool { false }
+    override func canBePrevented(by preventingGestureRecognizer: UIGestureRecognizer) -> Bool { false }
+
+    func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
 }
 #endif
