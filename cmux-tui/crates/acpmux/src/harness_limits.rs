@@ -187,7 +187,7 @@ fn hoist_subcommand_config(args: Vec<String>) -> Vec<String> {
     };
     let mut hoisted = Vec::new();
     let mut rest = Vec::new();
-    let mut after = args[sub + 1..].iter().cloned();
+    let mut after = args.iter().skip(sub + 1).cloned();
     while let Some(a) = after.next() {
         if a == "-c" || a == "--config" {
             // A flag with no value stays where it was: codex refuses it there, rather than
@@ -204,7 +204,7 @@ fn hoist_subcommand_config(args: Vec<String>) -> Vec<String> {
             rest.push(a);
         }
     }
-    let mut out: Vec<String> = args[..sub].to_vec();
+    let mut out: Vec<String> = args.iter().take(sub).cloned().collect();
     out.extend(hoisted);
     out.push("app-server".into());
     out.extend(rest);

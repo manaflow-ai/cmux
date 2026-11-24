@@ -31,6 +31,8 @@ struct AcpmuxPaneInitializeParamsContractTests {
         #expect(AcpmuxPaneMethods.paramsRuleViolation(Self.frame(params), modeFields: nil) == nil)
     }
 
+    /// The rule itself still refuses a key it does not list; the relay strips an initialize's
+    /// unknown opt-ins before it, never a mode field (``AcpmuxPaneInitializeFailSafeTests``).
     @Test func anAcpmuxKeyThePageDoesNotSendIsStillRefused() throws {
         var params = try Self.contract()
         params["_meta"] = ["acpmux": ["peerRowBatches": true, "permissionMode": "bypassPermissions"]]

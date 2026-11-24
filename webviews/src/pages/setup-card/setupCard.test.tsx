@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
-import type { SetupState } from "../home-messages/cards/setup/setupModel";
+import type { SetupState } from "./setupModel";
 import type { PageClient } from "../shared/pageClient";
 import { SetupCardPage } from "./SetupCardPage";
 import { SETUP_OPS } from "./ops";

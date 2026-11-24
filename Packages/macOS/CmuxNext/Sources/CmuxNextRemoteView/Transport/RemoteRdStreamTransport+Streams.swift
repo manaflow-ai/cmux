@@ -36,4 +36,16 @@ extension RemoteRdStreamTransport {
         if let current { continuation.yield(current) }
         return stream
     }
+
+    /// The host's once-a-second counters (`stats`: rate, loss, encode time), newest only; the viewer draws them
+    /// (D10: an ultra session shows the link it spends).
+    public func hostStatsUpdates() -> AsyncStream<RemoteRdHostStats> {
+        let (stream, continuation) = AsyncStream.makeStream(of: RemoteRdHostStats.self, bufferingPolicy: .bufferingNewest(1))
+        let previous = state.withLock { state in
+            defer { state.hostStats = continuation }
+            return state.hostStats
+        }
+        previous?.finish()
+        return stream
+    }
 }

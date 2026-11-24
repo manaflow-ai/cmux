@@ -225,13 +225,13 @@ class AppSceneNodeNSView: NSView {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        guard let items = node.props["menu"]?.arrayValue, !items.isEmpty else { return super.menu(for: event) }
+        guard let items = node.props["menu"]?.arrayValue, !items.isEmpty else { return NSMenu.withoutSystemItems(super.menu(for: event)) }
         // The view keeps the menu's target alive while it shows (a menu item holds its target weakly).
         let owner = AppSceneContextMenu(items: items) { [weak self] path in
             self?.send("menu", ["path": .array(path.map { .number(Double($0)) })])
         }
         contextMenuOwner = owner
-        return owner.menu
+        return NSMenu.withoutSystemItems(owner.menu)
     }
 
     /// The target of the last context menu this view showed.

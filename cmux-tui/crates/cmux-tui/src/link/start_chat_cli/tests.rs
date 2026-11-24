@@ -1460,6 +1460,13 @@ fn ensure_asks_for_the_workspaces_machine_under_the_plans_create_key() {
         with_ref.body(),
         json!({"clientKey": Keys::of(&key).create, "repo": "a/b", "ref": "main"})
     );
+    // `cloud new-machine --environment`: no folder, so no repository; the environment alone names the machine's setup.
+    let in_environment =
+        Ensure::of(&flags(&["--workspace", &key, "--key", &key, "--environment", ENV])).unwrap();
+    assert_eq!(
+        in_environment.body(),
+        json!({"clientKey": Keys::of(&key).create, "environment": ENV})
+    );
     for bad in [
         vec!["--key", key.as_str(), "--repo", "a/b"],
         vec!["--workspace", "ws-1", "--repo", "a/b"],

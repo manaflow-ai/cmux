@@ -9,17 +9,17 @@ import { LINK_CLOSED, subscribePageStreams } from "../shared/pageStreams";
 import { fromDetail, listCatalog, listInstalled, listUpdates, type WireDetail } from "./wire";
 import {
   categories,
-  featuredApps,
   filterApps,
   listedInStore,
   parseRoute,
-  type BrowseStyle,
   type CardStyle,
+  type StoreLayout,
+  type StoreTab,
+  featuredApps,
+  type BrowseStyle,
   type DiscoverShelf,
   type ExamplesStyle,
   type ListingStyle,
-  type StoreLayout,
-  type StoreTab,
 } from "./model";
 import {
   AppsOps,
@@ -34,6 +34,7 @@ import {
   type LogLine,
   type WireAsset,
   type WireLogs,
+  CUSTOMIZE_ACTION,
 } from "./types";
 
 export type Connection = "connecting" | "connected" | "disconnected";
@@ -124,6 +125,9 @@ export class AppsStore {
    * timeout never installs or toggles twice. Success, a refusal or a declined sheet ends it.
    */
   private readonly pendingKeys = new Map<string, string>();
+  // A mutation already waiting on its native confirmation: a second click on Install (or on any
+  // other mutation) while the first sheet loads joins that call instead of asking again.
+  private readonly inFlight = new Map<string, Promise<void>>();
 
   constructor(
     private readonly client: PageClient | null,
@@ -641,8 +645,9 @@ export class AppsStore {
     if (generation === this.generation) this.showIcons();
   }
 
-  // Mutations. Install, uninstall, update and grant changes show a native confirmation in the
-  // host; the page waits for the owner's answer and re-reads.
+  // Mutations. The Install click is the consent (its required scopes only; the listing shows
+  // them before the click), so an install shows no card; uninstall, update and grant changes show
+  // a native confirmation in the host. The page waits for the owner's answer and re-reads.
 
   install(app: string): Promise<void> {
     return this.intent(AppsOps.install, { app, grant_optional: false });
@@ -686,7 +691,32 @@ export class AppsStore {
     );
   }
 
-  private async intent(
+  /** Opens Settings > Customize, every customization one click each (the Customize cmux… card). */
+  openCustomize(): Promise<void> {
+    return this.intent(
+      CUSTOMIZE_ACTION.op,
+      { action: CUSTOMIZE_ACTION.action, args: CUSTOMIZE_ACTION.args },
+      { reread: false, mutation: false },
+    );
+  }
+
+  private intent(
+    op: string,
+    params: Record<string, unknown>,
+    options: { reread?: boolean; mutation?: boolean } = {},
+  ): Promise<void> {
+    if (options.mutation === false) return this.run(op, params, options);
+    const action = `${op}\u0000${JSON.stringify(params)}`;
+    const pending = this.inFlight.get(action);
+    if (pending) return pending;
+    const call = this.run(op, params, options).finally(() => {
+      if (this.inFlight.get(action) === call) this.inFlight.delete(action);
+    });
+    this.inFlight.set(action, call);
+    return call;
+  }
+
+  private async run(
     op: string,
     params: Record<string, unknown>,
     { reread = true, mutation = true }: { reread?: boolean; mutation?: boolean } = {},
