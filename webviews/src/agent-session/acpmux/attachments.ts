@@ -2,8 +2,16 @@
 /// Images get a metadata-free preview as an ACP image block plus their original session path.
 /// Existing document/text chips remain readable for persisted drafts from older versions.
 import { base64 } from "./composer/imageWork";
+import type { localDraftShape, LocalDraftShape } from "./composer/draftMediaShape";
 import type { DictationRecording } from "./dictationText";
-import { decoded, keepThumb, prepareImageOffThread, thumbnailOffThread } from "./composer/imagePool";
+import {
+  decoded,
+  keepThumb,
+  localImagePreview,
+  prepareImageOffThread,
+  thumbnailOffThread,
+  type previewForFile,
+} from "./composer/imagePool";
 import { liftInlineImages } from "./inlineImages";
 import { PASTE_FILE_CHARS, pastedTextBlocks } from "./pastedText";
 
@@ -13,6 +21,8 @@ import { videoFrameBlocks } from "./composer/videoPrompt";
 import type { VideoTranscript } from "./composer/videoTranscript";
 
 export type ComposerAttachment = {
+  [localDraftShape]?: LocalDraftShape;
+  [localImagePreview]?: ReturnType<typeof previewForFile>;
   id: string;
   /** `pasted`: a large paste kept as a chip (pastedText.ts), its `text` sent as a text block of its own. */
   kind: "image" | "text" | "document" | "link" | "audio" | "pasted";

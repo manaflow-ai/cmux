@@ -29,8 +29,13 @@ const grep = (status: Tool["status"]): Tool => ({
 });
 
 test("a finished MCP call reads Used <server>: <tool>", () => {
+  // The earlier words are tool-row-words' `now` arm; `plain` (the default) says what the call did.
+  globalThis.cmuxExperiments = { "tool-row-words": "now" };
   expect(toolLabel(grep("completed"), "", ran)).toBe("Used repo: repo grep");
   expect(mcpLabel(t, [mcpCall(grep("completed"))!], new Map())).toBe("Used repo: repo grep");
+  globalThis.cmuxExperiments = undefined;
+  expect(toolLabel(grep("completed"), "", ran)).toBe("Searched repo");
+  expect(mcpLabel(t, [mcpCall(grep("completed"))!], new Map())).toBe("Searched repo");
 });
 
 test("a running MCP call reads Using <server>: <tool>", () => {
@@ -72,12 +77,6 @@ test("the live line names the MCP call in flight the way Claude Code does", () =
 
 const START = Date.UTC(2026, 10, 3, 6, 0, 0);
 const counts: WorkingCounts = {
-  agents: 0,
-  commands: 0,
-  sessions: 0,
-  openAgents: () => {},
-  openCommands: () => {},
-  openSessions: () => {},
   tokens: 47_400,
   split: { output: 47_400, input: 9_000, cacheRead: 2_650_000, cacheWrite: 41_000 },
 };

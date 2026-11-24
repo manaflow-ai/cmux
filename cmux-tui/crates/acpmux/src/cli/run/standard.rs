@@ -43,6 +43,7 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::Process(..)
             | Command::Gc { .. }
             | Command::Worktree(..)
+            | Command::Fetch(..)
             | Command::Group(..)
             | Command::Account(..)
             | Command::ShareHost(..)
@@ -279,9 +280,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // A promptless `new` opens the full-screen TUI. In a pipe (the
             // common agent/scripting case), refuse before connecting so the
             // caller gets an immediate, stable usage error.
+            let promptless =
+                args.prompt.join(" ").trim().is_empty() && launch.file_prompt.is_none();
             if new_requires_tty(
                 json_out,
-                args.prompt.join(" ").trim().is_empty() && launch.file_prompt.is_none(),
+                promptless,
                 args.detach,
                 std::io::stdin().is_terminal(),
                 std::io::stdout().is_terminal(),
@@ -419,6 +422,20 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 Some(h) => format!("{h}/{n}"),
                 None => n.clone(),
             });
+            // A lane host with no room starts it on the peer its placement picks
+            // (`hub/admission_redirect.rs`): asked only of a daemon that lists it, so an
+            // older daemon gets the create it always did.
+            if asks_place_redirect(
+                host.as_deref(),
+                placed,
+                interactive,
+                folder_named,
+                ephemeral || probe,
+                launch.reuse,
+            ) && client.daemon_lists(crate::hub::admission_redirect::CAPABILITY)
+            {
+                meta.set(crate::hub::admission_redirect::FIELD, json!(1));
+            }
             // This create's key (`hub/create_key.rs`): sent again with it after a restart, it
             // gets the session the first one made, or makes it, never a second one.
             meta.set(crate::hub::create_key::FIELD, json!(uuid::Uuid::now_v7().to_string()));
@@ -475,8 +492,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     }
                     // A machine this daemon has no peer for may still be reached by the
                     // configured new relay (`new_relay.rs`).
-                    Err(error) => match crate::cli::new_relay::for_refusal(host.as_deref(), &error)
-                    {
+                    Err(error) => match crate::cli::new_relay::for_refusal(
+                        host.as_deref(),
+                        &error,
+                        promptless,
+                    ) {
                         Some((relay, machine, words)) => {
                             return crate::cli::new_relay::start(
                                 relay, &machine, words, json_out, deadline,
@@ -501,6 +521,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             if reused.is_none() {
                 launch::print_new_warnings(&v);
             }
+            // Placed on a peer by the daemon: it runs there, as if `--host` had named it.
+            let host = host.or_else(|| placed_on(&v));
             let name = v
                 .pointer("/_meta/acpmux/name")
                 .or_else(|| v.get("name"))
@@ -1195,6 +1217,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         #[cfg(not(unix))]
         Command::Gc { .. } => Err(anyhow::anyhow!("acpmux gc: not supported on this platform")),
         Command::Worktree(cmd) => crate::cli::worktree::run(cmd, json_out),
+        Command::Fetch(args) => crate::cli::fetch::run(args, json_out).await,
         Command::Group(cmd) => crate::cli::group::run(cmd, json_out).await,
         Command::Account(cmd) => crate::cli::account::run(cmd, json_out).await,
         Command::ShareHost(cmd) => crate::share_host::cli::run(cmd, json_out).await,
@@ -1279,6 +1302,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 g("eventCount"),
                 g("lastSeq")
             );
+            if let Some(line) = super::transfer::move_progress_line(&v) {
+                println!("{line}");
+            }
             if let Some(modes) = v.pointer("/modes/availableModes").and_then(Value::as_array) {
                 let names: Vec<String> = modes
                     .iter()
@@ -1332,6 +1358,28 @@ fn keyed_resend(host: Option<&str>, client: &Client) -> bool {
 /// is `--reuse`, which finds the running session by that name instead.
 fn keeps_name_suffixed(placed: bool, host: Option<&str>, reuse: bool) -> bool {
     !reuse && (placed || host.is_some())
+}
+
+/// Whether `new` asks a lane host with no room to start it on a peer
+/// (`_meta.acpmux.placeRedirect`, `hub/admission_redirect.rs`): a start here with no
+/// machine, folder or worktree named, no `--reuse` (which finds the session by name here),
+/// no throwaway run, and never one a person types at a terminal.
+fn asks_place_redirect(
+    host: Option<&str>,
+    placed: bool,
+    interactive: bool,
+    folder_named: bool,
+    throwaway: bool,
+    reuse: bool,
+) -> bool {
+    host.is_none() && !placed && !interactive && !folder_named && !throwaway && !reuse
+}
+
+/// The peer the daemon placed a create on (`_meta.acpmux.placedOn`): the `peer` its
+/// answer routes to. None for an answer of a daemon that placed nothing (any older one).
+fn placed_on(created: &Value) -> Option<String> {
+    created.pointer("/_meta/acpmux/placedOn")?.as_str()?;
+    created.get("peer").and_then(Value::as_str).map(str::to_owned)
 }
 
 /// How many times a named `new --reuse` reconnects after the daemon closed its
@@ -1768,6 +1816,34 @@ mod tests {
         // `--reuse` finds the running session by that name; a start here is refused as before.
         assert!(!super::keeps_name_suffixed(true, Some("far-host"), true));
         assert!(!super::keeps_name_suffixed(false, None, false));
+    }
+
+    /// Only an agent's plain start here asks a full lane host to place it on a peer.
+    #[test]
+    fn only_a_plain_agent_start_here_asks_to_be_placed() {
+        use super::asks_place_redirect as asks;
+        assert!(asks(None, false, false, false, false, false));
+        assert!(!asks(Some("far"), false, false, false, false, false), "a machine named");
+        assert!(!asks(None, true, false, false, false, false), "already placed (--machine auto)");
+        assert!(!asks(None, false, true, false, false, false), "a person at a terminal");
+        assert!(!asks(None, false, false, true, false, false), "a folder or worktree named");
+        assert!(!asks(None, false, false, false, true, false), "an ephemeral run or probe");
+        assert!(!asks(None, false, false, false, false, true), "--reuse finds it here");
+    }
+
+    /// An old daemon's answer (no `placedOn`) runs here; a new one's runs on its `peer`.
+    #[test]
+    fn an_answer_runs_where_it_says_and_an_old_one_here() {
+        use serde_json::json;
+        let old = json!({"sessionId": "s1", "_meta": {"acpmux": {"admission": {
+            "warning": "at its cap", "suggestedHost": "far"}}}});
+        assert_eq!(super::placed_on(&old), None);
+        let peer = json!({"sessionId": "s1", "peer": "far"});
+        assert_eq!(super::placed_on(&peer), None, "a --host start says so itself");
+        let placed = json!({"sessionId": "s1", "peer": "far", "_meta": {"acpmux": {
+            "placedOn": "far", "placement": {"version": 1, "reason": "over-cap"}}}});
+        assert_eq!(super::placed_on(&placed).as_deref(), Some("far"));
+        assert_eq!(crate::cli::resolve::routed_id(&placed).unwrap(), "far/s1");
     }
 
     #[test]

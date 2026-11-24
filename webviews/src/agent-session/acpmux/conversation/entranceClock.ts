@@ -21,7 +21,17 @@
 // the frame or posted task.
 
 /// The entrance keyframes a generic row's own animation plays (conversation.css).
-const ENTRANCES = new Set(["cv-enter", "cv-enter-fade", "cv-recap-rise", "cv-recap-unfurl", "cv-recap-bead"]);
+/// A sent prompt's pop (conversation.css SEND-POP) plays on its presentation wrapper, inside the row.
+const ENTRANCES = new Set([
+  "cv-enter",
+  "cv-enter-fade",
+  "cv-send-pop",
+  "cv-send-pop-fade",
+  "cv-send-pop-spring",
+  "cv-recap-rise",
+  "cv-recap-unfurl",
+  "cv-recap-bead",
+]);
 
 type Frames = {
   request: (run: () => void) => number;
@@ -64,9 +74,16 @@ function isEntrance(animation: Animation): boolean {
 
 /// Holds `row`'s entrance at its start through the next frame, then plays it from there. Called in
 /// the layout effect of the commit that mounts the row, before it paints. Returns the cancel.
-export function holdEntranceForFirstFrame(row: Element, frames: Frames | undefined = windowFrames()): () => void {
+/// `subtree`: also the row's descendants' entrances (a sent prompt's pop is on its presentation wrapper).
+export function holdEntranceForFirstFrame(
+  row: Element,
+  frames: Frames | undefined = windowFrames(),
+  subtree = false,
+): () => void {
   if (!frames || typeof row.getAnimations !== "function") return () => {};
-  const held = row.getAnimations().filter((animation) => animation.playState === "running" && isEntrance(animation));
+  const held = row
+    .getAnimations(subtree ? { subtree: true } : undefined)
+    .filter((animation) => animation.playState === "running" && isEntrance(animation));
   if (held.length === 0) return () => {};
   for (const animation of held) {
     animation.pause();

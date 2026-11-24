@@ -884,6 +884,14 @@ pub(crate) const ORPHAN_WAIT: std::time::Duration = std::time::Duration::from_se
 /// Runs after every turn with its key (persist and back up, section 10).
 pub type TurnHook = Arc<dyn Fn(&str) + Send + Sync>;
 
+/// The machine's helper limit (machine_limits.rs).
+pub(crate) struct MachineLimit {
+    /// Most local helpers at work at once.
+    pub(crate) ceiling: usize,
+    /// Why the machine is over budget now, or None when it has room.
+    pub(crate) load: Box<dyn Fn() -> Option<String> + Send + Sync>,
+}
+
 pub struct Brain {
     chat: Arc<OptChat>,
     agents: Arc<dyn AgentPort>,
@@ -1043,6 +1051,11 @@ pub struct Brain {
     agent_key_grace: std::time::Duration,
     /// Most subagents at work at once (`subagents::live_limit`); None: no cap.
     max_live: Option<usize>,
+    /// The machine's helper limit (machine_limits.rs): its ceiling and how
+    /// it reads the machine's load; None (tests, `OPTCHAT_MACHINE_HELPERS=0`): none.
+    machine_limit: Option<MachineLimit>,
+    /// Why the machine is over budget at the last read (machine_limits::over_budget).
+    machine_over: Option<String>,
     /// The wall clock (ms since the epoch) the subagent watch reads; tests
     /// set their own (`set_clock`).
     clock: Arc<dyn Fn() -> u64 + Send + Sync>,
@@ -1339,6 +1352,8 @@ impl Brain {
             cloud_ticked_at: None,
             agent_key_grace: crate::agent_keys::REVOKE_AFTER_DONE,
             max_live: None,
+            machine_limit: None,
+            machine_over: None,
             clock: Arc::new(now_ms),
             born_ms: now_ms(),
             watches: HashMap::new(),
@@ -1613,6 +1628,18 @@ impl Brain {
     /// Caps the subagents at work at once (None: no cap, the default).
     pub fn set_max_live(&mut self, limit: Option<usize>) {
         self.max_live = limit;
+    }
+
+    /// Limits local helpers to `ceiling` at once, holding new starts while
+    /// `load` says the machine is over budget (machine_limits.rs). Read once
+    /// now and on every subagent tick.
+    pub fn set_machine_limit(
+        &mut self,
+        ceiling: usize,
+        load: Box<dyn Fn() -> Option<String> + Send + Sync>,
+    ) {
+        self.machine_over = load();
+        self.machine_limit = Some(MachineLimit { ceiling, load });
     }
 
     /// Renames subagents' workspaces when they finish (workspaces.rs).
@@ -1975,6 +2002,7 @@ impl Brain {
             Input::CloudVmDeleteFailed { peer } => self.cloud_vm_delete_failed(&peer),
             Input::SubagentPlacedHere { id, why } => self.sub_placed_here(&id, &why),
             Input::SubTick => {
+                self.read_machine_load();
                 self.sub_tick();
             }
             Input::Setting { key, value, reply } => {
