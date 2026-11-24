@@ -1,7 +1,7 @@
 // l10n-allow-file: benchmark output, not shipped UI.
 // The shared web UI perf harness: runs the web UI benches with short, CI-sized arguments, collects
 // their PERF_ROW lines (bench/perfRow.ts), prints them slowest first relative to their target, and
-// prints one JSON report as its last line: {"rows": [...], "benches": {...}, "failed": [...]}.
+// prints one JSON report as its last line: {"rows": [...], "benches": {...}, "failed": [...]}, each row with its `bench`.
 // The perf cron (scripts/cmux-next/perf-cron.py, part "web-ui") runs it on a Linux runner and judges
 // the rows; it is advisory, on the cron only, never on a push or pull request path.
 // A bench that exits non-zero, times out or prints no row is listed in `failed` (never a silent pass);
@@ -484,8 +484,9 @@ async function main() {
       console.log(`web-ui-suite: ${bench.name} FAILED (${why})`);
       for (const line of tail) console.log(`  ${bench.name}! ${line}`);
     }
-    // A failed bench's rows still count: a timeout after the first arm keeps that arm's numbers.
-    rows.push(...got);
+    // A failed bench's rows still count: a timeout after the first arm keeps that arm's numbers. Each row names its
+    // bench, so perf-cron.py can store the rows of the benches that passed when another one failed (partial_report).
+    rows.push(...got.map((row) => ({ ...row, bench: bench.name })));
   }
   const sorted = slowestFirst(rows);
   console.log("web-ui-suite: slowest first (p95 / target)");

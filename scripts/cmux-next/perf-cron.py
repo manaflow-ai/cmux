@@ -4539,22 +4539,49 @@ def part_rows_named(cur, name, p, report, mod, budgets, worker):
     return host_rows(part_rows, worker), r
 
 
+def partial_report(part, report):
+    """An incomplete web-ui-suite.ts report cut to the benches that passed, and the names of those that failed (pure):
+    (report, failed) or None. A bench passed when it exited 0 and is not in `failed`; a row is kept only when it names
+    such a bench (its `bench`, web-ui-suite.ts), so a failed bench's rows, and the rows of a suite that names no bench,
+    are never kept. None for any other part or report (no `benches`), or when no bench passed. One flaky bench
+    (thread-rail-jump, 2026-11) otherwise blanked every row of the web-ui part on NOW's board for days."""
+    if part.get("kind") != "webui" or not isinstance(report, dict) or not isinstance(report.get("benches"), dict):
+        return None
+    failed = {str(f.get("bench")) for f in report.get("failed") or [] if isinstance(f, dict)}
+    failed |= {n for n, b in report["benches"].items() if not (isinstance(b, dict) and b.get("exit") == 0)}
+    passed = set(report["benches"]) - failed
+    rows = [r for r in report.get("rows") or [] if isinstance(r, dict) and r.get("bench") in passed]
+    if not rows:
+        return None
+    return {**report, "rows": rows}, sorted(failed)
+
+
 def store_part_rows(state, cur, name, p, report, mod, budgets, run_url, t):
     """Store a finished tip part's rows now, tagged with the tip's SHA (state['part_rows'], state['part_stored']),
     instead of only when the whole measurement ends: a part that finishes keeps its rows when another part fails, the
     host goes quiet or the tip is replaced (rows and comparison at the end of the measurement are unchanged: this
-    store feeds neither row_history nor any regression). A complete part only (an incomplete one is judged at the
-    finish); a bisect step measures an old commit, not the tip. Returns the number of rows stored."""
-    if cur.get("kind") != "tip" or report_is_incomplete(PART_BY_NAME[name], report):
+    store feeds neither row_history nor any regression). A complete part, or of an incomplete web-ui part the rows of
+    the benches that passed (partial_report), each marked partial, with the failed benches in part_stored; any other
+    incomplete part is judged at the finish only. A bisect step measures an old commit, not the tip. Returns the
+    number of rows stored."""
+    failed = None
+    if cur.get("kind") != "tip":
         return 0
+    if report_is_incomplete(PART_BY_NAME[name], report):
+        partial = partial_report(PART_BY_NAME[name], report)
+        if partial is None:
+            return 0
+        report, failed = partial
     named, _ = part_rows_named(cur, name, p, report, mod, budgets, p.get("worker"))
     store = state.setdefault("part_rows", {})
     keep = ("p50", "p95", "unit", "refresh_ms", "macos", "measure_version", "part_config")
+    mark = {"partial": True} if failed is not None else {}
     for row_name, row in named.items():
         if isinstance(row, dict) and isinstance(row.get("p95"), (int, float)):
             store[row_name] = {**{k: v for k, v in row.items() if k in keep},
-                               "sha": cur["sha"], "at": iso(t), "run_url": run_url, "part": name}
-    state.setdefault("part_stored", {})[name] = {"sha": cur["sha"], "at": iso(t), "run_url": run_url, "rows": len(named)}
+                               "sha": cur["sha"], "at": iso(t), "run_url": run_url, "part": name, **mark}
+    state.setdefault("part_stored", {})[name] = {"sha": cur["sha"], "at": iso(t), "run_url": run_url, "rows": len(named),
+                                                 **({"partial": True, "failed": failed} if failed is not None else {})}
     return len(named)
 
 

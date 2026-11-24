@@ -4256,6 +4256,62 @@ class PartRowsStoredAtOnceTests(unittest.TestCase):
             self.assertEqual(cron.stale_parts(state, at(2)), [])
             self.assertEqual(cron.stale_parts(state, at(2 + cron.STALE_HOURS)), ["stress"])
 
+    # web-ui-suite.ts's report after cmd_run_linux_part: thread-rail-jump exited 1, its row still printed.
+    WEBUI = {"rows": [{"name": "transcript_replay.long.tool_call_ms", "p95": 40.0, "bench": "transcript-replay"},
+                      {"name": "chat_switch.unread.latest", "p95": 60.0, "target": 100, "bench": "chat-switch"},
+                      {"name": "thread_rail.jump.latest", "p95": 900.0, "bench": "thread-rail-jump"}],
+             "benches": {"transcript-replay": {"exit": 0, "rows": 1}, "chat-switch": {"exit": 0, "rows": 1},
+                         "thread-rail-jump": {"exit": 1, "rows": 1}},
+             "failed": [{"bench": "thread-rail-jump", "why": "exit 1"}],
+             "incomplete": ["thread-rail-jump: exit 1"]}
+
+    def test_an_incomplete_webui_part_stores_the_rows_of_the_benches_that_passed(self):
+        with tempfile.TemporaryDirectory() as d:
+            state = self.state_with(["web-ui", "motion"])  # still in flight: the store alone, not the finish
+            state["part_rows"] = {"webui.thread_rail.jump.latest@linux": {"p95": 100.0, "sha": "0" * 40}}
+            state = self.report(d, state, [self.part_dir(d, "web-ui", {"state": "done", "worker": "linux"}, self.WEBUI)])
+            rows = state["part_rows"]
+            for name in ("webui.transcript_replay.long.tool_call_ms@linux", "webui.chat_switch.unread.latest@linux"):
+                self.assertEqual((rows[name]["sha"], rows[name]["partial"]), ("a" * 40, True), name)
+            self.assertEqual(rows["webui.thread_rail.jump.latest@linux"], {"p95": 100.0, "sha": "0" * 40},
+                             "a failed bench's row is never stored: its older row stays as it was")
+            self.assertEqual(state["part_stored"]["web-ui"]["failed"], ["thread-rail-jump"])
+            self.assertTrue(state["part_stored"]["web-ui"]["partial"])
+            self.assertEqual(state["part_stored"]["web-ui"]["rows"], 2)
+            self.assertFalse(state.get("row_history"), "no row history, baseline or regression from the store")
+            self.assertEqual(state["last_good"]["sha"], "0" * 40)
+            self.assertEqual(state["last"]["sha"], "0" * 40)
+
+    def test_a_complete_webui_part_clears_the_partial_mark(self):
+        with tempfile.TemporaryDirectory() as d:
+            state = self.state_with(["web-ui", "motion"])
+            state = self.report(d, state, [self.part_dir(d, "web-ui", {"state": "done", "worker": "linux"}, self.WEBUI)])
+            complete = {**self.WEBUI, "failed": [], "benches": {**self.WEBUI["benches"],
+                                                                "thread-rail-jump": {"exit": 0, "rows": 1}}}
+            complete.pop("incomplete")
+            state["current"] = cron.new_measurement("b" * 40, "tip", ["web-ui", "motion"], at(1))
+            state = self.report(d, state, [self.part_dir(d, "web-ui", {"state": "done", "worker": "linux"}, complete)],
+                                now=at(2))
+            self.assertNotIn("partial", state["part_stored"]["web-ui"])
+            self.assertNotIn("partial", state["part_rows"]["webui.chat_switch.unread.latest@linux"])
+            self.assertEqual(state["part_rows"]["webui.thread_rail.jump.latest@linux"]["sha"], "b" * 40)
+
+    def test_which_incomplete_reports_store_a_partial_part(self):
+        part = cron.PART_BY_NAME["web-ui"]
+        report, failed = cron.partial_report(part, self.WEBUI)
+        self.assertEqual([r["bench"] for r in report["rows"]], ["transcript-replay", "chat-switch"])
+        self.assertEqual(failed, ["thread-rail-jump"])
+        timed_out = {**self.WEBUI, "benches": {**self.WEBUI["benches"], "chat-switch": {"exit": None, "rows": 1}}}
+        self.assertEqual(cron.partial_report(part, timed_out)[1], ["chat-switch", "thread-rail-jump"],
+                         "a bench that timed out (no exit code) failed too")
+        no_row = {**self.WEBUI, "failed": self.WEBUI["failed"] + [{"bench": "chat-switch", "why": "printed no PERF_ROW"}]}
+        self.assertEqual(cron.partial_report(part, no_row)[1], ["chat-switch", "thread-rail-jump"],
+                         "a bench in `failed` that exited 0 failed")
+        unnamed = {**self.WEBUI, "rows": [{k: v for k, v in r.items() if k != "bench"} for r in self.WEBUI["rows"]]}
+        self.assertIsNone(cron.partial_report(part, unnamed), "a suite whose rows name no bench stores nothing")
+        self.assertIsNone(cron.partial_report(part, {k: v for k, v in self.WEBUI.items() if k != "benches"}))
+        self.assertIsNone(cron.partial_report({"kind": "budgets"}, self.WEBUI), "a web-ui part only")
+
 
 class ReplayControllerResultsTests(unittest.TestCase):
     """A reader's copy of the state (synthetic-probes.yml perf-tabs, after fetch-state) stores the controller's done
