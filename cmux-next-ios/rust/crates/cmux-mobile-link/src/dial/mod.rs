@@ -35,7 +35,7 @@ impl TransportKind {
         match payload {
             SignalPayload::WebrtcOffer { media_for: Some(_), .. } => None,
             SignalPayload::WebrtcOffer { .. } => Some(Self::WebRtc),
-            SignalPayload::WgInit { .. } => Some(Self::WireGuard),
+            SignalPayload::WgInit { .. } | SignalPayload::WgResumed { .. } => Some(Self::WireGuard),
             _ => None,
         }
     }
@@ -375,6 +375,9 @@ pub struct Dialed {
     /// Pings and pongs as datagrams, when both sides listed
     /// [`crate::link::LIVENESS_LANE`] (WireGuard).
     pub liveness: Option<crate::link::LivenessDatagrams>,
+    /// Runs once the link exists (a WireGuard tunnel's lease learns how its
+    /// link closes, [`wireguard::dormant`]).
+    pub on_link: Option<Box<dyn FnOnce(&Link) + Send>>,
 }
 
 /// A negotiated media carrier; the link starts its core once it runs (the
@@ -633,6 +636,9 @@ async fn connect_on(
         }
     };
     let link = Link::new(dialed.stream, Role::Phone, link_config, Some(dialed.guard));
+    if let Some(on_link) = dialed.on_link {
+        on_link(&link);
+    }
     if let Some(hold) = dialed.hold {
         link.set_hold_hook(hold);
     }
@@ -683,6 +689,9 @@ pub async fn answer(
         }
     };
     let link = Link::new(dialed.stream, Role::Mac, link_config, Some(dialed.guard));
+    if let Some(on_link) = dialed.on_link {
+        on_link(&link);
+    }
     if let Some(hold) = dialed.hold {
         link.set_hold_hook(hold);
     }

@@ -50,6 +50,8 @@ pub use super::turn::missing_turn;
 #[path = "wireguard_roam.rs"]
 mod roam;
 use roam::{Control, Session};
+#[path = "wireguard_dormant.rs"]
+pub mod dormant;
 #[path = "wireguard_paths.rs"]
 mod paths;
 pub use paths::{app_backgrounded, set_app_backgrounded};
@@ -2007,17 +2009,6 @@ impl Underlay for HybridUnderlay {
     }
 }
 
-/// Holds the tunnel; dropping it ends the session.
-struct Guard {
-    session: Arc<Session>,
-}
-
-impl Drop for Guard {
-    fn drop(&mut self) {
-        self.session.close();
-    }
-}
-
 /// A parked link holds this tunnel ([`crate::link::HoldHook`]). Weak: the
 /// link's guard owns the session, and the hook must not keep it open.
 fn hold_hook(session: &Arc<Session>) -> crate::link::HoldHook {
@@ -2293,7 +2284,17 @@ pub(super) fn dial_wireguard<'a>(
         };
         let tunnel = start_tunnel(signaling, spec, options)?;
         tunnel.session.follow(events.session);
-        let guard = Guard { session: Arc::clone(&tunnel.session) };
+        let keeper = dormant::Keeper::new(dormant::KeeperSpec {
+            session: Arc::clone(&tunnel.session),
+            dialer: true,
+            peer_device: mac.to_owned(),
+            from_user_id: None,
+            peer_ip,
+            input_lane: agreed,
+            path: tunnel.path.clone(),
+            peer: tunnel.peer.clone(),
+        });
+        let guard = dormant::Lease::new(&keeper);
         let net = tunnel.session.net()?;
         tunnel.session.start_control(&net).await;
         if turn_missed {
@@ -2348,9 +2349,11 @@ pub(super) fn dial_wireguard<'a>(
         });
         // A media session needs the tunnel's lane as its floor.
         let webrtc_media = webrtc_media_agreed && media.is_some();
+        dormant::superseded(true, mac);
         Ok(Dialed {
             stream: Box::new(stream),
             hold: Some(hold_hook(&tunnel.session)),
+            on_link: Some(guard.on_link()),
             path: tunnel.path,
             peer: tunnel.peer,
             guard: Box::new(guard),
@@ -2386,6 +2389,11 @@ impl Dialer for WireGuardDialer {
         options: &'a DialOptions,
     ) -> DialFuture<'a> {
         Box::pin(async move {
+            if let SignalPayload::WgResumed { ticket } = first.payload {
+                options.timeline.mark("dormant_resumed");
+                return dormant::resumed(ticket);
+            }
+            let from_user_id = first.from_user_id.clone();
             let SignalPayload::WgInit {
                 public_key,
                 endpoints: peer_endpoints,
@@ -2450,7 +2458,17 @@ impl Dialer for WireGuardDialer {
             };
             let tunnel = start_tunnel(signaling, spec, options)?;
             tunnel.session.follow(events.session);
-            let guard = Guard { session: Arc::clone(&tunnel.session) };
+            let keeper = dormant::Keeper::new(dormant::KeeperSpec {
+                session: Arc::clone(&tunnel.session),
+                dialer: false,
+                peer_device: first.from.clone(),
+                from_user_id,
+                peer_ip,
+                input_lane: agreed,
+                path: tunnel.path.clone(),
+                peer: tunnel.peer.clone(),
+            });
+            let guard = dormant::Lease::new(&keeper);
             let net = tunnel.session.net()?;
             tunnel.session.start_control(&net).await;
             if turn_missed {
@@ -2520,8 +2538,10 @@ impl Dialer for WireGuardDialer {
             }
             let stream =
                 listener.accept().await.ok_or_else(|| DialError::Transport("tunnel closed".into()))?;
-            // The phone's second connection is the input lane.
-            let lane = agreed.then(|| {
+            // The phone's second connection is the input lane. Then the
+            // listener serves resumed links on this tunnel (dormant).
+            let resumes = Arc::downgrade(&keeper);
+            let lane = if agreed {
                 let (tx, rx) = oneshot::channel();
                 tokio::spawn(async move {
                     if let Ok(Some(stream)) = tokio::time::timeout(LANE_TIMEOUT, listener.accept()).await {
@@ -2529,13 +2549,22 @@ impl Dialer for WireGuardDialer {
                     } else {
                         tracing::info!("input lane was not opened in time");
                     }
+                    if let Some(keeper) = resumes.upgrade() {
+                        keeper.serve_resumes(listener);
+                    }
                 });
-                rx
-            });
+                Some(rx)
+            } else {
+                keeper.serve_resumes(listener);
+                None
+            };
+            drop(keeper);
             let webrtc_media = webrtc_media_wanted && media.is_some();
+            dormant::superseded(false, &first.from);
             Ok(Dialed {
                 stream: Box::new(stream),
                 hold: Some(hold_hook(&tunnel.session)),
+                on_link: Some(guard.on_link()),
                 path: tunnel.path,
                 peer: tunnel.peer,
                 guard: Box::new(guard),
