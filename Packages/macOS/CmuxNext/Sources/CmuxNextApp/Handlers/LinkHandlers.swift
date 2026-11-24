@@ -18,7 +18,7 @@ enum LinkHandlers {
             // start (a script, an agent) still navigates, as it asked, but
             // never takes the key window.
             let background = invocation["background"]?.boolValue == true || !ActionRunScope.viewChangeAllowed()
-            // `<scheme>://stashed` (from another app, Open Link…) is Stashed Tabs; cmux.com's Open in cmux (`<scheme>://apps/install?…`) asks, then installs.
+            // `<scheme>://stashed` (from another app, Open Link…) is Stashed Tabs; cmux.com's Open in cmux (`<scheme>://apps|setups/install?…`) asks, then installs.
             if let url = URL(string: trimmed), url.scheme?.caseInsensitiveCompare(services.linkScheme) == .orderedSame, url.host()?.lowercased() == "stashed" {
                 _ = try StashHandlers.show(services, focus: !background); return
             }
