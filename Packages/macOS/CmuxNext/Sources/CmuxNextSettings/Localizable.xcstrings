@@ -245858,6 +245858,60 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "工具提示和懸停卡片的玻璃更清晰，邊緣更銳利，陰影更柔和。"}}
       }
     },
+    "settings.experiments.seeThroughDock": {
+      "comment": "Settings > Experiments: the See-Through Dock taste prototype row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "See-Through Dock"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "شريط سفلي شفاف"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Providni dok"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Gennemsigtig dok"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Durchsichtiges Dock"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Dock transparente"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Dock transparent"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Dock trasparente"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "透けるドック"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ដុកថ្លា"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "투명한 도크"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Gjennomsiktig dokk"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Przezroczysty dok"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Dock transparente"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Прозрачная панель"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ด็อกแบบโปร่งใส"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Saydam bölme"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Прозора панель"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Thanh dock trong suốt"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "透明停靠栏"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "透明停靠列"}}
+      }
+    },
+    "settings.experiments.seeThroughDock.help": {
+      "comment": "Settings > Experiments: the See-Through Dock taste prototype row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The conversation stays visible behind the notices and the Needs your input row above the composer."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تبقى المحادثة مرئية خلف الإشعارات وصف «يحتاج إلى إدخالك» فوق مربع الكتابة."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Razgovor ostaje vidljiv iza obavještenja i reda „Potreban je vaš unos“ iznad polja za pisanje."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Samtalen forbliver synlig bag meddelelserne og rækken “Kræver dit input” over skrivefeltet."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Die Unterhaltung bleibt hinter den Hinweisen und der Zeile „Deine Eingabe ist nötig“ über dem Eingabefeld sichtbar."}},
+        "es": {"stringUnit": {"state": "translated", "value": "La conversación sigue visible detrás de los avisos y de la fila «Necesita tu respuesta» sobre el editor."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "La conversation reste visible derrière les avis et la ligne « Votre réponse est requise » au-dessus de la zone de saisie."}},
+        "it": {"stringUnit": {"state": "translated", "value": "La conversazione resta visibile dietro gli avvisi e la riga «Serve il tuo input» sopra il compositore."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "入力欄の上にある通知と「入力が必要です」の行の後ろでも会話が見えたままになります。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ការសន្ទនានៅតែមើលឃើញនៅពីក្រោយសេចក្តីជូនដំណឹង និងជួរ «ត្រូវការការបញ្ចូលរបស់អ្នក» ខាងលើប្រអប់សរសេរ។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "입력창 위의 알림과 “입력이 필요합니다” 행 뒤에서도 대화가 계속 보입니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Samtalen forblir synlig bak varslene og raden «Trenger dine innspill» over skrivefeltet."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Rozmowa pozostaje widoczna za powiadomieniami i wierszem „Potrzebna Twoja odpowiedź” nad polem pisania."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "A conversa continua visível atrás dos avisos e da linha “Precisa da sua resposta” acima do editor."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Разговор остаётся виден за уведомлениями и строкой «Нужен ваш ответ» над полем ввода."}},
+        "th": {"stringUnit": {"state": "translated", "value": "บทสนทนายังมองเห็นได้อยู่หลังการแจ้งเตือนและแถว “ต้องการข้อมูลจากคุณ” เหนือช่องเขียนข้อความ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Konuşma, yazma alanının üstündeki bildirimlerin ve “Girdiniz gerekiyor” satırının arkasında görünür kalır."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Розмова залишається видимою за сповіщеннями та рядком «Потрібна ваша відповідь» над полем введення."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Cuộc trò chuyện vẫn hiển thị phía sau các thông báo và hàng “Cần bạn nhập” phía trên ô soạn thảo."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "在输入框上方的通知和“需要你的输入”行后面，对话依然可见。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "在輸入框上方的通知和「需要你的輸入」列後面，對話依然可見。"}}
+      }
+    },
     "settings.experiments.attachmentTypeIcons": {
       "comment": "Settings > Experiments: the Attachment Type Icons taste prototype row",
       "extractionState": "manual",
