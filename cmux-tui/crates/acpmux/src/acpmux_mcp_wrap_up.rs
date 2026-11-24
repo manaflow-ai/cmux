@@ -38,7 +38,7 @@ pub(crate) const MAX_FACT: usize = 200;
 pub(super) fn tool() -> Value {
     json!({
         "name": NAME,
-        "description": "End a turn with the next-step box the person sees under your answer: a short recap of what changed and where things stand and, when the turn leaves them a decision, one question with one or two answer buttons. A button's click is sent as their next message, or, for a {label, run} answer, runs "cmux customize try", keep or revert so a customization can be tried on from the box. Call it once, as the turn's last step.",
+        "description": "End a turn with the next-step box the person sees under your answer: a short recap of what changed and where things stand and, when the turn leaves them a decision, one question with one or two answer buttons. A button's click is sent as their next message, or, for a {label, run} answer, runs a cmux customize try, keep or revert so a customization can be tried on from the box. Call it once, as the turn's last step.",
         "inputSchema": {
             "type": "object",
             "properties": {

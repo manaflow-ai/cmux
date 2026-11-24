@@ -264,6 +264,10 @@ nonisolated enum AcpmuxPaneMethods {
         // small-model call that rewrites a chat in the pane's scope's own prompt into a `coach`
         // record. It sends the chat nothing and runs no turn, so no gesture.
         "_acpmux/prompt_coach",
+        // The wrap-up card's Try it on, Keep and Revert (direct.ts customizeRun; acpmux customize_run.rs):
+        // one of three typed `cmux customize` requests, checked against an allowlist and run without a
+        // shell. The person's click in the card sends it.
+        "_acpmux/customize_run",
     ]
 
     /// Notifications (no `id`).

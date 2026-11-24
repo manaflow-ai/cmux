@@ -1,8 +1,9 @@
-import React, { memo, useEffect, useRef, useState, useSyncExternalStore, useLayoutEffect } from "react";
+import React, { memo, useEffect, useReducer, useRef, useState, useSyncExternalStore, useLayoutEffect } from "react";
 import { Keycap } from "../Keycap";
 import { useT } from "../i18n";
 import { inlineText } from "../question/inlineText";
-import { answerPrompt, type NextStepAsk } from "./nextStepAsk";
+import { hasCustomizeRunner, idleRun, runCustomize, runReducer, type CustomizeRun } from "./customizeRun";
+import { answerPrompt, type NextStepAsk, type NextStepOption } from "./nextStepAsk";
 import {
   answerState,
   claimAnswer,
@@ -74,6 +75,9 @@ export const NextStepCard = memo(function NextStepCard({
   const { sending, failed = false } = state;
   const update = (state: AnswerState) => (answerKey ? setAnswerState(answerKey, state) : setOwn(state));
   const primary = useRef<HTMLButtonElement>(null);
+  // A typed answer (`{label, run}`, customizeRun.ts) runs `cmux customize`: Try it on, then Keep
+  // or Revert. The card's own state: the run is the person's click here, not a reply.
+  const [run, dispatchRun] = useReducer(runReducer, idleRun);
   // A recap alone has no answer to send, so it leaves ⌘↩ to the composer.
   const shown = answer ?? givenAnswer(state);
   const settled = shown !== undefined || superseded;
@@ -127,6 +131,24 @@ export const NextStepCard = memo(function NextStepCard({
       () => update({ failed: true }),
     );
   };
+  const customize = (action: CustomizeRun) => {
+    if (run.phase === "running") return;
+    dispatchRun({ type: "start" });
+    void runCustomize(action).then((result) => dispatchRun({ type: "done", run: action, ok: result.ok }));
+  };
+  // After a try-on the card offers Keep and Revert; once either ran, the typed answers are done.
+  const tried = run.phase === "tried";
+  const done = run.phase === "kept" || run.phase === "reverted";
+  const shownOptions: NextStepOption[] = tried
+    ? [
+        { label: t("liveCustomize.keep"), run: { customize: "keep" } },
+        { label: t("liveCustomize.revert"), run: { customize: "revert" } },
+      ]
+    : done
+      ? ask.options.filter((option) => !option.run)
+      : ask.options;
+  const click = (option: NextStepOption) =>
+    option.run && hasCustomizeRunner() ? customize(option.run) : send(option.label);
   return (
     <fieldset className={`acpmux-next-step${className ? ` ${className}` : ""}`} aria-label={ask.question}>
       {recap}
@@ -144,17 +166,26 @@ export const NextStepCard = memo(function NextStepCard({
           {t(whole ? "message.less" : "message.more")}
         </button>
       )}
-      {onAnswer && (
+      {(done || run.phase === "running" || run.failed) && (
+        <output className="acpmux-next-step__detail">
+          {run.phase === "running"
+            ? t("liveCustomize.running")
+            : run.failed
+              ? t("liveCustomize.failed")
+              : t(run.phase === "kept" ? "liveCustomize.kept" : "liveCustomize.reverted")}
+        </output>
+      )}
+      {onAnswer && shownOptions.length > 0 && (
         <div className="acpmux-next-step__answers">
-          {ask.options.map((option, index) => (
+          {shownOptions.map((option, index) => (
             <button
               key={option.label}
               ref={index === 0 ? primary : undefined}
               type="button"
               className={index === 0 ? "acpmux-next-step__answer is-primary" : "acpmux-next-step__answer"}
               aria-keyshortcuts={index === 0 && registerKey ? "Meta+Enter" : undefined}
-              disabled={sending !== undefined}
-              onClick={() => send(option.label)}
+              disabled={sending !== undefined || run.phase === "running"}
+              onClick={() => click(option)}
             >
               {option.key ? t(option.key) : inlineText(option.label)}
               {index === 0 && registerKey && <Keycap>⌘↩</Keycap>}

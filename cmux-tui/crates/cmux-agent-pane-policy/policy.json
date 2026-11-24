@@ -25,7 +25,7 @@
     "_acpmux/agent_login/start", "_acpmux/agent_login/finish", "_acpmux/agent_login/api_key", "_acpmux/agent_login/cancel",
     "_acpmux/account/sign_in", "_acpmux/account/sign_in.finish", "_acpmux/account/sign_in.cancel",
     "_acpmux/presets", "_acpmux/run_elsewhere/plan", "_acpmux/run_elsewhere/start", "_acpmux/bg/output", "_acpmux/bg/stop",
-    "_acpmux/cold_archive", "_acpmux/prompt_coach"
+    "_acpmux/cold_archive", "_acpmux/prompt_coach", "_acpmux/customize_run"
   ],
   "notifications": ["session/cancel"],
   "maximum_frame_bytes": 33554432,
@@ -200,6 +200,7 @@
     "_acpmux/presets": {"params": ["name", "approveMode", "approveDigest", "sessionId"], "acpmux": []},
     "_acpmux/cold_archive": {"params": ["sessionId", "archived"], "acpmux": []},
     "_acpmux/prompt_coach": {"params": ["sessionId", "coachId"], "acpmux": []},
+    "_acpmux/customize_run": {"params": ["run"], "acpmux": []},
     "_acpmux/run_elsewhere/plan": {"params": ["sessionId", "command"], "acpmux": []},
     "_acpmux/run_elsewhere/start": {"params": ["sessionId", "command", "peer", "digest", "sendSecrets"], "acpmux": []},
     "_acpmux/bg/output": {"params": ["sessionId", "id", "fromByte", "maxBytes"], "acpmux": []},
