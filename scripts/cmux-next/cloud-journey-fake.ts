@@ -19,8 +19,10 @@ export type JourneyFixture = {
   /**
    * The GitHub cells: what GET /v1/integrations/github/status and /repos answer, CMUX_JOURNEY_GITHUB_REPO, and whether
    * the guest takes cloud-github-e2e.sh (each run answers the `e2e:` lines given, exit 1 when one says FAIL).
+   * `lookup` answers /repos?query= by its `cursor` ("" for the first), else `repos` filtered by the query;
+   * `agentTurn: "fail"` makes the agent's GitHub turn fail at its send.
    */
-  github?: { status?: unknown; repos?: unknown; sandbox?: string; script?: { live: string[]; agent: string[] } };
+  github?: { status?: unknown; repos?: unknown; lookup?: Record<string, unknown>; sandbox?: string; script?: { live: string[]; agent: string[] }; agentTurn?: "fail" };
   /**
    * The cold create cell: the size line its own machine's guest answers (`cpu=4 mem_mib=7900 disk_mib=32000`).
    * Without one the run passes `--skip cold`.
@@ -89,6 +91,8 @@ const exec = (command: string) => {
     const lines = agent ? script.agent : script.live;
     return answer(lines.map((l) => "e2e: " + l).join("\\n") + "\\n", lines.some((l) => l.includes("FAIL")) ? 1 : 0);
   }
+  if (fixture.github?.agentTurn === "fail" && command.includes("acp send") && command.includes("In the GitHub repository")) { log("agent turn fails"); return answer("@@exit 1\\n"); }
+  if (command.includes("acp cancel")) { log("acp cancel"); return answer("@@cancel 0\\n@@wait 0\\n"); }
   if (command.includes("acp ensure") || command.includes("acp send")) return answer("@@exit 0\\n");
   if (command.includes("acp wait")) return answer("@@wait 0\\nHello from the fixture.\\n@@lastexit 0\\n");
   if (command.includes("echo journey-ok")) return answer("journey-ok\\nx86_64\\n");
@@ -130,7 +134,15 @@ globalThis.fetch = (async (input: string, init: RequestInit = {}) => {
     log("github status " + url.search);
     return fixture.github?.status === undefined ? json({ error: "not found" }, 404) : json(fixture.github.status);
   }
-  if (route === "/v1/integrations/github/repos") { log("github repos"); return json(fixture.github?.repos ?? { repos: [] }); }
+  if (route === "/v1/integrations/github/repos") {
+    log("github repos " + url.search);
+    const query = url.searchParams.get("query");
+    if (query === null) return json(fixture.github?.repos ?? { repos: [] });
+    const lookup = fixture.github?.lookup;
+    if (lookup) return json(lookup[url.searchParams.get("cursor") ?? ""] ?? { repos: [], cursor: null });
+    const all = ((fixture.github?.repos as any)?.repos ?? []) as Array<{ full_name: string }>;
+    return json({ repos: all.filter((r) => r.full_name.toLowerCase().includes(query.toLowerCase())), truncated: false, cursor: null });
+  }
   const op = body.op;
   if (op === "user.teams.list") return json({ ok: true, value: { teams: [{ id: "team_personal", kind: "personal" }] } });
   if (op === "user.ensure") return json({ ok: true, value: { id: "fixture-user" } });
