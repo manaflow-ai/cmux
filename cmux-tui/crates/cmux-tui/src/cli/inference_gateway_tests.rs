@@ -493,3 +493,19 @@ fn formats_utc_times() {
     assert_eq!(rfc3339(0), "1970-01-01T00:00:00Z");
     assert_eq!(rfc3339(951_782_400), "2000-02-29T00:00:00Z");
 }
+
+#[test]
+fn interactive_calls_pass_when_background_used_the_unreserved_share() {
+    let interactive = vec![(PRIORITY_HEADER.to_owned(), "interactive".to_owned())];
+    let background = vec![(PRIORITY_HEADER.to_owned(), "background".to_owned())];
+    let unreserved = MAX_CALLS - INTERACTIVE_RESERVE;
+    // Background traffic fills every slot it may take; the next background call is refused.
+    assert!(admits(unreserved - 1, &background));
+    assert!(!admits(unreserved, &background));
+    assert!(!admits(unreserved, &[]), "a call naming no priority counts as background");
+    // An interactive call still passes, up to the whole limit.
+    assert!(admits(unreserved, &interactive));
+    assert!(admits(MAX_CALLS - 1, &interactive));
+    assert!(!admits(MAX_CALLS, &interactive));
+    assert!(PASS_HEADERS.contains(&PRIORITY_HEADER), "the priority goes upstream too");
+}

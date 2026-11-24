@@ -23,6 +23,7 @@ extension UpdaterService {
             services?.quit.onQuitRefused = { behind.quitRefused() }
             behind.start(willQuit: willQuit, declined: declined, inFront: inFront)
         }
+        onNextQuitRefused = { [weak services] action in services?.quit.onQuitRefused = action }
         let activity = UpdateAgentActivity(environment: QuitAgents.environment(services))
         relaunchBlockers = { [weak self, weak services, activity] in services.map { activity.applying(to: $0.machines.local.currentRelaunchBlockers(quietInput: self?.idleInstallQuiet)) } ?? .daemonUnavailable }
         // Before the settings apply (`apply(_:)`): Update When Idle installs nothing without its gate (UpdateIdleGate).
@@ -30,7 +31,7 @@ extension UpdaterService {
         useIdleGate { idle.hold(idleMinutes: $0, lastInput: $1)?.rawValue }
         // A relaunch's windows stay pictured on screen until the new process drew them; a failed install brings them back (`UpdateWindowHandoff`).
         let handoff = UpdateWindowHandoff(unsaved: services.quitUnsaved, stateDirectory: services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
-        willRelaunch = { [weak services] in services?.quit.origins.record(.explicit(.keep)); handoff.relaunchDecided() }
+        willRelaunch = { [weak services] in services?.quit.origins.record(.explicit(.keep)); services?.windows.recordSaver.layoutCache.flushNow(); handoff.relaunchDecided() } // layout first (LayoutCacheWriter)
         handoff.attach(to: self)
         isSheetPresented = { sheet.isPresented }
         sheet.onDismiss = { [weak self] in self?.updateSheetClosed() }
