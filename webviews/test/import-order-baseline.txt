@@ -182,7 +182,6 @@ test/markdown-html-anchor-name.test.ts
 test/markdown-remote-images.test.ts
 test/menu-press-guard.test.ts
 test/message-times.test.tsx
-test/mobile-pairing-page.test.tsx
 test/model-button-default-effort.test.tsx
 test/model-menu-compact.test.tsx
 test/model-menu-short-list.test.tsx
