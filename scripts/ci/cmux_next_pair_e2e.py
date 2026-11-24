@@ -1658,6 +1658,16 @@ def offline_leg(app, exe, env, a, simctl, phone_env, phone_log, streams, status,
             status_word = "PASS" if ok else "FAIL"
         results[(size_name, key)] = (ok, why)
         note(f"- offline[{size_name}] step {key}: {status_word} {why}")
+        if status_word != "PASS":
+            # What the phone showed instead, and what its link did: the screen's words (the UI only) and
+            # the phone's public link log lines from the last 5 minutes (path, suspect, dropped, dial).
+            note(f"  - screen: {sorted(set(texts))[:40]}")
+            cutoff = time.monotonic() - 300
+            with phone_log.cond:
+                recent = [l for at, l in zip(phone_log.times, phone_log.lines) if at >= cutoff]
+            link = [l.strip()[-220:] for l in recent
+                    if re.search(r"link (dropped|suspect|path)|dial|redial|probe|stall|Not responding|offline", l)]
+            note(f"  - phone link log ({len(link)} lines, last 12): {link[-12:]}")
 
     def scope_phone_to_mac():
         """The phone's Mac filter on the target Mac (UserDefaults cmuxMobile.workspaces.macFilter.<team>), the
@@ -1715,7 +1725,8 @@ def offline_leg(app, exe, env, a, simctl, phone_env, phone_log, streams, status,
         texts = snap()[1]
         rows = sig(texts)
         verdict(size_name, key, back and not has(texts, "No workspaces") and base_rows <= rows,
-                f"back after {t_back:.0f} s; rows before {len(base_rows)}, after {len(rows)}", texts, base_ok)
+                f"back after {t_back:.0f} s; rows before {len(base_rows)}, after {len(rows)}; "
+                f"missing {sorted(base_rows - rows)[:8]}", texts, base_ok)
 
     sizes_done = []
     cut = NetCut(lambda: tree_pids(app.pid, a.mac_app), log)
