@@ -50,6 +50,9 @@ pub enum Off {
     Flag,
     /// The plan is not Pro.
     Plan,
+    /// This machine's acpmux cannot start the chat's agent (no Claude Code or Codex here, or not
+    /// the one the start names), or could not be asked: the chat could not run here meanwhile.
+    NoLocalHarness,
 }
 
 /// What the caller knows of the account.

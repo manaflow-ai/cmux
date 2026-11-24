@@ -1392,6 +1392,158 @@ async fn a_fire_notice_wakes_an_idle_chat_outside_a_surge_and_an_ordinary_fyi_do
     }
 }
 
+/// The one-pass [`trim`] lets go of what the loop of `position` and `Vec::remove` it replaced
+/// let go of, in the same order, over inboxes of every mix of kept and trimmable messages.
+#[test]
+fn the_one_pass_trim_lets_go_of_what_the_removing_loop_did() {
+    fn reference(inbox: &mut Inbox) {
+        let carried: std::collections::HashSet<String> = inbox
+            .in_flight
+            .iter()
+            .map(|(_, ids)| ids)
+            .chain(inbox.carrying.iter().map(|c| &c.ids))
+            .flat_map(|ids| ids.iter().cloned())
+            .collect();
+        while inbox.items.len() > KEEP {
+            let gone = |i: &Item| {
+                i.surge_held
+                    || (i.read
+                        && i.noticed
+                        && i.answered.is_some()
+                        && !carried.contains(&i.prompt_id))
+            };
+            match inbox.items.iter().position(gone) {
+                Some(i) => {
+                    let item = inbox.items.remove(i);
+                    if item.surge_held {
+                        inbox.held_evicted.insert(item.thread);
+                    } else {
+                        inbox.trimmed.insert(item.prompt_id);
+                    }
+                }
+                None => break,
+            }
+        }
+    }
+    for (len, stride) in [(KEEP, 1), (KEEP + 1, 1), (KEEP + 40, 3), (3 * KEEP, 2), (3 * KEEP, 7)] {
+        let make = || {
+            let mut inbox = Inbox {
+                in_flight: Some(("notice".into(), vec!["m-5".into(), "m-6".into()])),
+                ..Inbox::default()
+            };
+            for n in 0..len {
+                let thread = format!("t-{}", n % 5);
+                let mut i = item(&format!("m-{n}"), &thread, "a", PromptClass::Fyi, n as u64, "x");
+                match n % stride {
+                    0 => {
+                        (i.noticed, i.read) = (true, true);
+                        i.answered = Some(Ok(Value::Null));
+                    }
+                    1 => i.surge_held = n % 2 == 0,
+                    _ => i.read = true,
+                }
+                inbox.items.push(i);
+            }
+            inbox
+        };
+        let (mut want, mut got) = (make(), make());
+        reference(&mut want);
+        trim(&mut got);
+        let ids =
+            |inbox: &Inbox| inbox.items.iter().map(|i| i.prompt_id.clone()).collect::<Vec<_>>();
+        assert_eq!(ids(&got), ids(&want), "{len} messages, stride {stride}");
+        assert_eq!(got.trimmed, want.trimmed, "{len} messages, stride {stride}");
+        assert_eq!(got.held_evicted, want.held_evicted, "{len} messages, stride {stride}");
+    }
+}
+
+/// A restore that drops each withdrawn message as it reads the withdrawal restores what one
+/// that held every message to the end did: the messages never withdrawn, in log order, and
+/// every withdrawn id marked removed (one sent again after its withdrawal too).
+#[tokio::test]
+async fn a_restore_drops_withdrawn_messages_as_it_reads_and_restores_the_rest_in_order() {
+    let (hub, session) = hub_with_chat("long-inbox");
+    let message = |n: usize| {
+        json!({"promptId": format!("m-{n}"), "threadId": format!("th-{}", n % 3),
+               "from": "other agent", "text": format!("message {n}")})
+    };
+    let mut want = Vec::new();
+    for n in 0..2 * KEEP {
+        hub.append(&session, "mux", "inbox", message(n));
+        // Most are withdrawn soon after they come; every seventh stays.
+        if n % 7 != 0 {
+            hub.append(&session, "mux", "inbox_removed", json!({"promptId": format!("m-{n}")}));
+        } else {
+            want.push(format!("m-{n}"));
+        }
+    }
+    // One withdrawn and sent again stays out.
+    hub.append(&session, "mux", "inbox", message(1));
+    *session.inbox() = Default::default();
+    hub.restore_inbox(&session);
+    let inbox = session.inbox();
+    let got: Vec<String> = inbox.items.iter().map(|i| i.prompt_id.clone()).collect();
+    assert_eq!(got, want);
+    for n in (0..2 * KEEP).filter(|n| n % 7 != 0) {
+        assert!(inbox.removed.contains(&format!("m-{n}")), "m-{n} is marked removed");
+    }
+    assert!(!inbox.removed.contains("m-0"));
+}
+
+/// Leo, 2026-11-24: "not just batching, but intervals to assist in batching". 50 messages to an
+/// idle chat at 200K of context whose prompt cache lapsed 40 minutes ago start no turn inside its
+/// cold batch (`cold_wake.rs`), and go in as one notice at the batch's deadline; a warm chat and
+/// a question still wake after the burst window.
+#[tokio::test]
+async fn fifty_messages_to_a_cold_large_idle_chat_go_in_as_one_notice_at_its_batch() {
+    let now = now_ms();
+    let cold = |session: &Session, expires: u64| {
+        let mut m = session.meta.lock().unwrap();
+        m.usage = Some(json!({"sessionUpdate": "usage_update", "used": 200_000, "size": 1_000_000,
+            "_meta": {"acpmux": {"cacheExpiresAt": expires}}}));
+        m.last_turn = Some(json!({"turnId": "t0", "endedAt": expires.saturating_sub(300_000)}));
+    };
+    // Past the burst window: today each review would wake the chat.
+    let at = now.saturating_sub(WAKE_DEBOUNCE_MS + 1);
+    let (hub, session) = hub_with_chat("cold-50");
+    cold(&session, now - 40 * 60_000);
+    for n in 0..50 {
+        let mut it =
+            item(&format!("m{n}"), &format!("t{n}"), "lane", PromptClass::Result, at, "done");
+        it.report = true;
+        session.inbox().items.push(it);
+        hub.inbox_review(&session);
+        assert!(!tried(&session), "message {n} started a turn inside the cold batch");
+    }
+    let due = session.cold_batch.lock().unwrap().expect("a cold batch is open").due;
+    assert!(
+        due >= now + super::cold_wake::MAX_WINDOW_MS,
+        "200K and 40 min cold: the longest window"
+    );
+    assert!(session.inbox().timer.is_some(), "it looks again at the deadline");
+    // The deadline passes (event-ordered: the batch's own deadline moves, no sleep).
+    session.cold_batch.lock().unwrap().as_mut().unwrap().due = now_ms().saturating_sub(1);
+    hub.inbox_review(&session);
+    assert_eq!(carried(&session).map(|ids| ids.len()), Some(50), "one notice carries all 50");
+
+    // Warm: the burst window, as before.
+    let (hub, session) = hub_with_chat("warm-1");
+    cold(&session, now + 60_000);
+    let mut it = item("w1", "t", "lane", PromptClass::Result, at, "done");
+    it.report = true;
+    session.inbox().items.push(it);
+    hub.inbox_review(&session);
+    assert!(tried(&session), "a warm chat wakes after the burst window");
+    assert!(session.cold_batch.lock().unwrap().is_none());
+
+    // A question to a cold chat: at once.
+    let (hub, session) = hub_with_chat("cold-q");
+    cold(&session, now - 40 * 60_000);
+    session.inbox().items.push(item("q1", "t", "lane", PromptClass::Question, at, "which?"));
+    hub.inbox_review(&session);
+    assert!(tried(&session), "a question wakes a cold chat at once");
+}
+
 // The page rule (`inbox_page_rule.rs`, RFD 0041 slice 1): in a chat on the coordinator list only
 // a page starts a turn.
 

@@ -4,27 +4,26 @@
 //! started the daemon as a launchd job outside the Chief, and where that job never ran every
 //! session/new failed with storage_unavailable (cmux-ci steps be2ad7da45a6, eb3f6122e288).
 
-use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::CommandExt as _;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
 use optchat_chief::brain_gateway;
 
+mod exe;
+
 /// A fake `hermes`: `gateway run` writes its env and argv, starts a grandchild that holds
 /// `gateway.lock` (flock, as Hermes' gateway does), and waits for it
 /// (its command line stays `... hermes gateway run --quiet`, as the real one's does).
 fn fake_hermes(dir: &Path) -> std::path::PathBuf {
     let path = dir.join("hermes");
-    std::fs::write(
+    exe::write_executable(
         &path,
         "#!/bin/sh\nenv > \"$HERMES_HOME/seen-env\"\necho \"$@\" > \"$HERMES_HOME/seen-args\"\n\
          python3 -c 'import fcntl,os,time; f=open(os.environ[\"HERMES_HOME\"]+\"/gateway.lock\",\"a\"); \
          fcntl.flock(f, fcntl.LOCK_EX); time.sleep(600)' &\n\
          echo $! > \"$HERMES_HOME/grandchild\"\nwait\n",
-    )
-    .unwrap();
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    );
     path
 }
 
@@ -117,8 +116,7 @@ fn the_hermes_gateway_runs_in_the_chiefs_home_and_ends_with_the_host() {
 /// A fake `hermes` that exits at once, or runs without ever holding the lock.
 fn fake_broken(dir: &Path, body: &str) -> std::path::PathBuf {
     let path = dir.join("hermes");
-    std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    exe::write_executable(&path, &format!("#!/bin/sh\n{body}\n"));
     path
 }
 

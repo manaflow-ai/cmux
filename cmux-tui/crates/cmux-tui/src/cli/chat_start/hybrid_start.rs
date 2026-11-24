@@ -6,21 +6,31 @@
 //! it there with the app's own Move to Cloud. Every decision is cmux-cloud-start-core's
 //! [`hybrid::step`]; this file only runs its effects.
 //!
-//! Off (no Pro plan, `CMUX_HYBRID_START=0`, `hybrid-chat-start` disabled, signed out), or a start
-//! the chat here cannot take ([`takes`]), the Cloud start runs exactly as before.
+//! On for a Pro plan, `CMUX_HYBRID_START=1`, or cmux-next.json `cloud.autoCloud: true` with no env.
+//! Off (no Pro plan, `CMUX_HYBRID_START=0`, `hybrid-chat-start` disabled, signed out, or no agent
+//! here the chat could start with: [`local_harness`]), or a start the chat here cannot take
+//! ([`takes`]), the Cloud start runs exactly as before.
 //!
 //! What the driver feeds [`hybrid::step`]: `TurnStarted` and `TurnEnded` from acpmux's own
-//! `_acpmux/wait` (`running`, then `ready`), never tool events, so a move is due only between
-//! turns. The machine: `cmux vm new --wait`'s create and wait ([`vm_ready::new_and_wait`]), or for
+//! `_acpmux/wait` (`running`, then `ready`), and `ToolStarted`/`ToolEnded` from the chat's updates
+//! ([`tool_event`]), so a move is due between turns or between tool calls. The machine: `cmux vm new --wait`'s create and wait ([`vm_ready::new_and_wait`]), or for
 //! an existing machine a resume and the same wait ([`vm_ready::wait_until_ready`]).
+//!
+//! Each Show also sets the chat's acpmux tags to the stage and machine
+//! ([`hybrid_tools::STAGE_TAG`], [`hybrid_tools::MACHINE_TAG`]): acpmux holds the chat's tool calls
+//! while the machine boots and runs them there once it is ready (acpmux `hub/hybrid_hold.rs`),
+//! each one the same call, longer (Leo, 2026-11-23: "It's like an extended tool call"). The
+//! drive's end sets the stage to its last (`none` when the chat stays here), so no call waits on
+//! a driver that is gone.
 
 use std::collections::VecDeque;
+use std::io::Write as _;
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use cmux_cloud_start_core::hybrid::{self, Account, Cloud, Effect, Event, State};
-use cmux_cloud_start_core::hybrid_show;
+use cmux_cloud_start_core::hybrid::{self, Account, Cloud, Effect, Event, Off, State};
+use cmux_cloud_start_core::{hybrid_show, hybrid_tools};
 use serde_json::{Value, json};
 
 use super::super::agents::chat;
@@ -111,6 +121,7 @@ fn flag() -> Option<bool> {
     crate::feature_flags::hybrid_chat_start_flag(
         &|name| std::env::var(name).ok(),
         &crate::feature_flags::disables,
+        &cmux_tui_core::user_settings::auto_cloud,
     )
 }
 
@@ -172,6 +183,11 @@ fn refresh_plan() -> Option<String> {
     Some(plan)
 }
 
+/// The account as a start reads it now: the flag, else the plan (cached when fresh).
+pub(super) fn account_now(global: &GlobalArgs) -> Account {
+    account_for_start(global, flag())
+}
+
 /// [`account_of`] for a start: the cached plan when it grants it, else the plan read beside the
 /// machine list (both bounded as before), never one after the other.
 fn account_for_start(global: &GlobalArgs, flag: Option<bool>) -> Account {
@@ -186,8 +202,63 @@ fn account_for_start(global: &GlobalArgs, flag: Option<bool>) -> Account {
     })
 }
 
+/// Whether this machine's acpmux can start the chat's agent, from its `_acpmux/harnesses`
+/// answer (`catalog`; None: it could not be asked): the harness the start names (`--harness`),
+/// else its `defaultHarness`, resolved as acpmux's `session/new` resolves it (a profile, else a
+/// family's `prefer`, its only profile or the profile named like it), and not `unavailable`.
+/// `Err(NoLocalHarness)`: the chat could not run here (no Claude Code or Codex on this machine:
+/// acpmux answers "no harnesses configured"), so the Cloud start runs as before.
+pub(super) fn local_harness(catalog: Option<&Value>, named: Option<&str>) -> Result<(), Off> {
+    let catalog = catalog.ok_or(Off::NoLocalHarness)?;
+    let head = named
+        .or_else(|| catalog.get("defaultHarness").and_then(Value::as_str))
+        .ok_or(Off::NoLocalHarness)?;
+    let harnesses = catalog.get("harnesses").and_then(Value::as_object);
+    let usable = |name: &str| {
+        harnesses
+            .and_then(|rows| rows.get(name))
+            .is_some_and(|row| row.get("unavailable").is_none_or(Value::is_null))
+    };
+    let names = |value: Option<&Value>| -> Vec<String> {
+        value
+            .and_then(Value::as_array)
+            .map(|list| list.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+            .unwrap_or_default()
+    };
+    let members = names(catalog.pointer(&format!("/families/{}", escape(head))));
+    let resolved = if members.is_empty() {
+        usable(head)
+    } else {
+        let prefer = names(catalog.pointer(&format!("/defaults/{}/prefer", escape(head))));
+        prefer.iter().any(|name| members.contains(name) && usable(name))
+            || (members.len() == 1 && members.first().is_some_and(|only| usable(only)))
+            || (members.iter().any(|name| name == head) && usable(head))
+    };
+    if resolved { Ok(()) } else { Err(Off::NoLocalHarness) }
+}
+
+/// `name` as one JSON pointer token.
+fn escape(name: &str) -> String {
+    name.replace('~', "~0").replace('/', "~1")
+}
+
+/// How long the start waits for the local acpmux's harness catalog: it answers from memory
+/// (milliseconds); only a daemon still reading its login shell takes longer.
+const HARNESS_TIMEOUT: Duration = Duration::from_secs(3);
+
+/// [`local_harness`] for `named`, asked of the acpmux the chat here would start in (the app's own,
+/// else the one `cmux acp` reaches), and what asking cost in ms.
+fn local_harness_of(global: &GlobalArgs, named: Option<&str>) -> (Result<(), Off>, u64) {
+    let asked = Instant::now();
+    let socket = chat::app_acpmux(global);
+    let catalog = chat::acp::harnesses(socket.as_deref(), HARNESS_TIMEOUT).ok();
+    let decided = local_harness(catalog.as_ref(), named);
+    (decided, u64::try_from(asked.elapsed().as_millis()).unwrap_or(u64::MAX))
+}
+
 /// The hybrid start of a Cloud route, when it is on and takes this start: its exit code. None: the
-/// Cloud start runs as before. A flag that says off reads nothing.
+/// Cloud start runs as before. A flag that says off reads nothing. The local harness is asked
+/// beside the account, never after it.
 pub(super) fn start(global: &GlobalArgs, start: &Start, machine: &Machine) -> Option<i32> {
     let target = takes(start, machine)?;
     let flag = flag();
@@ -195,14 +266,21 @@ pub(super) fn start(global: &GlobalArgs, start: &Start, machine: &Machine) -> Op
         return None;
     }
     let gate = Instant::now();
-    hybrid::enabled(&account_for_start(global, flag)).ok()?;
+    let (account, (local, harness_ms)) = std::thread::scope(|scope| {
+        let local = scope.spawn(|| local_harness_of(global, start.agent.as_deref()));
+        let account = account_for_start(global, flag);
+        (account, local.join().unwrap_or((Err(Off::NoLocalHarness), 0)))
+    });
     let gate_ms = u64::try_from(gate.elapsed().as_millis()).unwrap_or(u64::MAX);
-    Some(begin(global, start, &target, gate_ms))
+    // Off for want of a local harness: the Cloud start, as before, says nothing new
+    // (`cmux cloud hybrid-status` says why and what asking cost).
+    hybrid::enabled(&account).and(local).ok()?;
+    Some(begin(global, start, &target, gate_ms, harness_ms))
 }
 
 /// The chat here, in a fresh empty folder (a Cloud chat with no folder starts in one), then the
 /// driver beside it.
-fn begin(global: &GlobalArgs, start: &Start, target: &str, gate_ms: u64) -> i32 {
+fn begin(global: &GlobalArgs, start: &Start, target: &str, gate_ms: u64, harness_ms: u64) -> i32 {
     let here = match fresh_folder() {
         Ok(folder) => here_of(start, &folder.display().to_string()),
         Err(error) => {
@@ -220,7 +298,7 @@ fn begin(global: &GlobalArgs, start: &Start, target: &str, gate_ms: u64) -> i32 
         return code;
     }
     let Some(started) = chat::last_started() else { return code };
-    let said = match spawn(global, &started.id, target, gate_ms) {
+    let said = match spawn(global, &started.id, target, gate_ms, harness_ms) {
         Ok(log) => format!(
             "cmux: the chat runs here while its Cloud machine starts; it moves there between \
              turns (log: {})",
@@ -289,16 +367,20 @@ fn spawn(
     session: &str,
     target: &str,
     gate_ms: u64,
+    harness_ms: u64,
 ) -> Result<PathBuf, String> {
     let path = log_path(session)?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
-    let log = std::fs::OpenOptions::new()
+    let mut log = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(&path)
         .map_err(|error| error.to_string())?;
+    // What asking the local acpmux for its harnesses cost, inside the gate (side by side with the
+    // account read), first in the driver's log.
+    let _ = writeln!(log, "{}", json!({"harness_ms": harness_ms}));
     let err = log.try_clone().map_err(|error| error.to_string())?;
     let exe = std::env::current_exe().map_err(|error| error.to_string())?;
     let mut child = cmux_process::Command::new(exe)
@@ -419,6 +501,8 @@ struct Live {
     machine: Option<String>,
     began: Instant,
     deadline: Instant,
+    /// The app's acpmux, where the chat runs and its tags live.
+    socket: Option<PathBuf>,
     send: mpsc::Sender<Msg>,
     events: mpsc::Receiver<Msg>,
     /// The turn watcher and the machine's start: this driver owns them, and they end with its
@@ -561,9 +645,10 @@ impl Live {
         let watched = session.to_owned();
         let (tools, tooled, tool_socket) = (send.clone(), session.to_owned(), socket.clone());
         let deadline = began + DRIVE_DEADLINE;
+        let turn_socket = socket.clone();
         let spawned = std::thread::Builder::new()
             .name("hybrid-start-turns".into())
-            .spawn(move || watch_turns(watched, socket, watcher));
+            .spawn(move || watch_turns(watched, turn_socket, watcher));
         let mut threads = match spawned {
             Ok(thread) => vec![thread],
             // No turn events: the chat is taken as closed, so nothing moves it.
@@ -583,10 +668,46 @@ impl Live {
             machine: (target != "new").then(|| target.to_owned()),
             began,
             deadline,
+            socket,
             send,
             events,
             threads,
             pending: false,
+        }
+    }
+}
+
+/// The chat's tags for `cloud` on `machine` (module docs): the machine only once it is known.
+pub(super) fn boot_tags(cloud: Cloud, machine: Option<&str>) -> Value {
+    let mut tags = json!({hybrid_tools::STAGE_TAG: hybrid_tools::stage_tag(cloud)});
+    if let Some(machine) = machine.filter(|machine| !machine.is_empty()) {
+        tags[hybrid_tools::MACHINE_TAG] = json!(machine);
+    }
+    tags
+}
+
+/// The stage tag the drive leaves behind: its last stage, or `none` when the chat stays here
+/// (stopped before the machine was ready, or the drive ran out), so no tool call waits on it.
+pub(super) fn end_stage(state: &State) -> Cloud {
+    match state.cloud {
+        Cloud::Live | Cloud::Failed => state.cloud,
+        _ => Cloud::None,
+    }
+}
+
+impl Live {
+    /// Sets the chat's stage tags (module docs); they live until the drive could still run.
+    fn tag(&self, cloud: Cloud) {
+        let left = (self.deadline + MACHINE_GRACE).saturating_duration_since(Instant::now());
+        let tags = boot_tags(cloud, self.machine.as_deref());
+        let set = chat::acp::set_tags(
+            &self.session,
+            &tags,
+            left.as_secs().max(1),
+            self.socket.as_deref(),
+        );
+        if let Err(error) = set {
+            println!("{}", json!({"log": format!("no stage tag: {error}")}));
         }
     }
 }
@@ -676,6 +797,7 @@ impl Drive for Live {
         if let Err(error) = signal_show(&self.session, &show) {
             println!("{}", json!({"log": format!("no show signal: {error}")}));
         }
+        self.tag(cloud);
     }
 
     fn log(&mut self, line: &str) {
@@ -723,21 +845,25 @@ fn run_drive(global: &GlobalArgs, rest: &[String]) -> i32 {
     println!("{}", json!({"plan": plan}));
     let mut live = Live::new(global, &session, &target);
     let state = drive(&mut live);
+    live.tag(end_stage(&state));
     // A thread still waiting (a turn watch's slice) ends with this process.
     let left = live.threads.iter().filter(|thread| !thread.is_finished()).count();
     println!("{}", json!({"done": state, "threads_left": left}));
     0
 }
 
-/// `{enabled, off, plan, flag, signed_in, cloud_disabled}`: what the hybrid start decides for
-/// this account now, read as the start reads it (the plan too, for the read-back).
+/// `{enabled, off, plan, flag, signed_in, cloud_disabled, local_harness, harness_ms}`: what the
+/// hybrid start decides for this account and machine now, read as the start reads it (the plan
+/// too, for the read-back), for a start that names no harness. `off` is the account's reason
+/// first, then `no-local-harness`.
 fn status(global: &GlobalArgs) -> i32 {
     let flag = flag();
     let mut account = account_of(global, flag);
     if account.plan.is_none() {
         account.plan = read_plan();
     }
-    let decided = hybrid::enabled(&account);
+    let (local, harness_ms) = local_harness_of(global, None);
+    let decided = hybrid::enabled(&account).and(local);
     let answer = json!({
         "enabled": decided.is_ok(),
         "off": decided.err(),
@@ -745,6 +871,8 @@ fn status(global: &GlobalArgs) -> i32 {
         "flag": account.flag,
         "signed_in": account.signed_in,
         "cloud_disabled": account.cloud_disabled,
+        "local_harness": local.is_ok(),
+        "harness_ms": harness_ms,
     });
     super::super::wire::print_local_success(&answer, global.output)
 }
