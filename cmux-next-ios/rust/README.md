@@ -264,7 +264,9 @@ Services (default deny, `unknown_service` otherwise):
   required to stay inside a `CMUX_MOBILE_FILE_ROOTS` root; streams the regular file
   of any size in bounded chunks, then closes with `eof`.
 - `upload` `{name, size, cwd?}`: writes the next `size` bytes to a new file
-  and answers `{"path","size"}`. The file goes into
+  and answers `{"path","size"}`. Adding `upload_id` and optional decimal
+  `offset` resumes a partial upload with newline-delimited `have` and `ack`
+  replies. The file goes into
   `<cwd>/.cmux/attachments/phone-<session>/` when `cwd` is a folder of one of
   the daemon's tabs or inside a root, else into `CMUX_MOBILE_UPLOADS_DIR/<session>/`.
   It never overwrites. The name is made safe. A refusal is answered

@@ -17,6 +17,7 @@ use cmux_mobile_link::{
     Channel, ChannelEvent, Connected, DialError, DialOptions, LinkConfig, SignalingClient, TransportKind,
 };
 use futures_util::{SinkExt, StreamExt};
+use sha2::{Digest, Sha256};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 #[path = "support/fake_rb_host.rs"]
@@ -1014,6 +1015,201 @@ async fn an_upload_past_the_old_100_mib_cap_is_saved_whole() {
     let path = std::path::PathBuf::from(reply["path"].as_str().unwrap());
     assert!(path.starts_with(&fixture.uploads), "{path:?}");
     assert_eq!(std::fs::metadata(&path).unwrap().len(), size);
+}
+
+fn sha256(bytes: &[u8]) -> Vec<u8> {
+    Sha256::digest(bytes).to_vec()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn resumable_upload_reports_have_acks_and_path() {
+    const MIB: usize = 1 << 20;
+    let fixture = fixture(FakeOptions::default()).await;
+    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
+    let upload_id = "11111111-1111-1111-1111-111111111111";
+    let mut upload = connected
+        .link
+        .open("upload", serde_json::json!({"name": "whole.bin", "size": MIB + 3, "upload_id": upload_id}))
+        .await
+        .unwrap();
+    let mut buffer = Vec::new();
+    assert_eq!(next_line(&mut upload, &mut buffer).await, serde_json::json!({"have": 0}));
+    upload.send(Bytes::from(vec![0x5a; MIB])).await.unwrap();
+    assert_eq!(next_line(&mut upload, &mut buffer).await, serde_json::json!({"ack": MIB}));
+    upload.send(Bytes::from_static(b"end")).await.unwrap();
+    let (reply, code) = drain(&mut upload).await;
+    assert_eq!(code, "eof");
+    let lines: Vec<serde_json::Value> = reply
+        .split(|byte| *byte == b'\n')
+        .filter(|line| !line.is_empty())
+        .map(|line| serde_json::from_slice(line).unwrap())
+        .collect();
+    assert_eq!(lines[0], serde_json::json!({"ack": MIB + 3}));
+    let path = std::path::PathBuf::from(lines[1]["path"].as_str().unwrap());
+    assert_eq!(lines[1]["size"], MIB + 3);
+    assert_eq!(std::fs::metadata(path).unwrap().len(), (MIB + 3) as u64);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn resumable_upload_reopens_from_the_last_ack() {
+    const HALF: usize = 1 << 20;
+    let fixture = fixture(FakeOptions::default()).await;
+    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
+    let upload_id = "22222222-2222-2222-2222-222222222222";
+    let mut first = connected
+        .link
+        .open("upload", serde_json::json!({"name": "resume.bin", "size": HALF * 2, "upload_id": upload_id}))
+        .await
+        .unwrap();
+    let mut buffer = Vec::new();
+    assert_eq!(next_line(&mut first, &mut buffer).await, serde_json::json!({"have": 0}));
+    let first_bytes = vec![0x31; HALF];
+    first.send(Bytes::from(first_bytes.clone())).await.unwrap();
+    assert_eq!(next_line(&mut first, &mut buffer).await, serde_json::json!({"ack": HALF}));
+    first.close("cancelled", "retry").await;
+    let (_reply, code) = drain(&mut first).await;
+    assert!(code == "bad_request" || code == "link_closed", "unexpected close code {code}");
+    let last_ack = HALF as u64;
+
+    let mut second = connected
+        .link
+        .open(
+            "upload",
+            serde_json::json!({"name": "resume.bin", "size": HALF * 2, "upload_id": upload_id, "offset": last_ack}),
+        )
+        .await
+        .unwrap();
+    let mut buffer = Vec::new();
+    assert_eq!(next_line(&mut second, &mut buffer).await, serde_json::json!({"have": HALF}));
+    let second_bytes = vec![0x32; HALF];
+    second.send(Bytes::from(second_bytes.clone())).await.unwrap();
+    let (reply, code) = drain(&mut second).await;
+    assert_eq!(code, "eof", "reply: {}", String::from_utf8_lossy(&reply));
+    let path = reply
+        .split(|byte| *byte == b'\n')
+        .filter(|line| !line.is_empty())
+        .map(|line| serde_json::from_slice::<serde_json::Value>(line).unwrap())
+        .find_map(|line| line.get("path").and_then(serde_json::Value::as_str).map(std::path::PathBuf::from))
+        .expect("path");
+    let mut expected = first_bytes;
+    expected.extend(second_bytes);
+    assert_eq!(sha256(&std::fs::read(path).unwrap()), sha256(&expected));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn resumable_upload_reports_a_resume_gap() {
+    let fixture = fixture(FakeOptions::default()).await;
+    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
+    let upload_id = "33333333-3333-3333-3333-333333333333";
+    let mut first = connected
+        .link
+        .open("upload", serde_json::json!({"name": "gap.bin", "size": 4, "upload_id": upload_id}))
+        .await
+        .unwrap();
+    let mut buffer = Vec::new();
+    assert_eq!(next_line(&mut first, &mut buffer).await, serde_json::json!({"have": 0}));
+    first.send(Bytes::from_static(b"abc")).await.unwrap();
+    first.close("cancelled", "retry").await;
+    let _ = drain(&mut first).await;
+
+    let mut retry = connected
+        .link
+        .open(
+            "upload",
+            serde_json::json!({"name": "gap.bin", "size": 4, "upload_id": upload_id, "offset": 4}),
+        )
+        .await
+        .unwrap();
+    let mut buffer = Vec::new();
+    assert_eq!(
+        next_line(&mut retry, &mut buffer).await,
+        serde_json::json!({"error": "resume_gap", "have": 3})
+    );
+    let (reply, code) = drain(&mut retry).await;
+    assert_eq!(reply, b"");
+    assert_eq!(code, "resume_gap");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn old_phone_upload_reply_has_legacy_framing() {
+    let fixture = fixture(FakeOptions::default()).await;
+    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
+    let mut upload =
+        connected.link.open("upload", serde_json::json!({"name": "old.bin", "size": 3})).await.unwrap();
+    upload.send(Bytes::from_static(b"old")).await.unwrap();
+    let (reply, code) = drain(&mut upload).await;
+    assert_eq!(code, "eof");
+    assert!(!reply.ends_with(b"\n"));
+    assert_eq!(serde_json::from_slice::<serde_json::Value>(&reply).unwrap()["size"], 3);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn resumable_upload_offset_truncates_existing_part() {
+    let fixture = fixture(FakeOptions::default()).await;
+    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
+    let upload_id = "44444444-4444-4444-4444-444444444444";
+    let mut first = connected
+        .link
+        .open("upload", serde_json::json!({"name": "truncate.bin", "size": 10, "upload_id": upload_id}))
+        .await
+        .unwrap();
+    let mut buffer = Vec::new();
+    assert_eq!(next_line(&mut first, &mut buffer).await, serde_json::json!({"have": 0}));
+    first.send(Bytes::from_static(b"abcdefgh")).await.unwrap();
+    first.close("cancelled", "retry").await;
+    let _ = drain(&mut first).await;
+
+    let mut retry = connected
+        .link
+        .open(
+            "upload",
+            serde_json::json!({"name": "truncate.bin", "size": 6, "upload_id": upload_id, "offset": 3}),
+        )
+        .await
+        .unwrap();
+    let mut buffer = Vec::new();
+    assert_eq!(next_line(&mut retry, &mut buffer).await, serde_json::json!({"have": 3}));
+    retry.send(Bytes::from_static(b"XYZ")).await.unwrap();
+    let (reply, code) = drain(&mut retry).await;
+    assert_eq!(code, "eof", "reply: {}", String::from_utf8_lossy(&reply));
+    let path = reply
+        .split(|byte| *byte == b'\n')
+        .filter(|line| !line.is_empty())
+        .map(|line| serde_json::from_slice::<serde_json::Value>(line).unwrap())
+        .find_map(|line| line.get("path").and_then(serde_json::Value::as_str).map(std::path::PathBuf::from))
+        .expect("path");
+    assert_eq!(std::fs::read(path).unwrap(), b"abcXYZ");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn resumable_upload_stall_keeps_part_and_refuses() {
+    let fixture = fixture(FakeOptions::default()).await;
+    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
+    let upload_id = "55555555-5555-5555-5555-555555555555";
+    let mut upload = connected
+        .link
+        .open(
+            "upload",
+            serde_json::json!({"name": "stall.bin", "size": 1, "upload_id": upload_id, "_stall_timeout_ms": 1}),
+        )
+        .await
+        .unwrap();
+    let mut buffer = Vec::new();
+    assert_eq!(next_line(&mut upload, &mut buffer).await, serde_json::json!({"have": 0}));
+    let (reply, code) = drain(&mut upload).await;
+    assert_eq!(code, "stalled");
+    let lines: Vec<serde_json::Value> = reply
+        .split(|byte| *byte == b'\n')
+        .filter(|line| !line.is_empty())
+        .map(|line| serde_json::from_slice(line).unwrap())
+        .collect();
+    assert_eq!(
+        lines,
+        vec![
+            serde_json::json!({"ack": 0}),
+            serde_json::json!({"error": "stalled", "message": "no upload data for 120 seconds"})
+        ]
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

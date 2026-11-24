@@ -10,7 +10,7 @@ use cmux_mobile_link::link::{ChannelReceiver, ChannelSender};
 use cmux_mobile_link::{ChannelEvent, IncomingChannel, names};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncSeekExt, AsyncWriteExt, BufReader, SeekFrom};
 use tokio::net::UnixStream;
 use tokio::sync::mpsc;
 use tokio::time::{Duration, timeout};
@@ -253,6 +253,10 @@ pub const LINK_PROTOCOL: u32 = 2;
 /// The largest message the daemon's acpmux WebSocket sends or takes (acpmux `server/mod.rs`
 /// `WS_MAX_MESSAGE_BYTES`).
 const ACPMUX_MAX_MESSAGE_BYTES: usize = 64 << 20;
+
+const UPLOAD_STALL_TIMEOUT: Duration = Duration::from_secs(120);
+const UPLOAD_ACK_BYTES: u64 = 1 << 20;
+const UPLOAD_PART_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
 
 /// The `version` service's `capabilities` (PROTOCOL.md "Services").
 /// `localhost-forward-v1`: the `localhost` service (a phone's native browser tab
@@ -2132,11 +2136,11 @@ fn publish_upload(folder: &Path, name: &str, part: &Path) -> Result<PathBuf, Ref
 /// data frames; hostd writes them to a new file of the upload folder
 /// ([`upload_folder`]) and answers one data frame `{"path","size"}`, then
 /// closes with `eof`. A refusal is answered `{"error","message"}` before the
-/// channel closes with that code. Nothing is overwritten, nothing is
-/// executed, and a short or long upload leaves no file. Any `size` is
-/// accepted: the bytes stream to disk as they arrive (attachments have no
-/// size cap). `size` may be a JSON number or a decimal string (the app's
-/// channel arguments are strings).
+/// channel closes with that code. Legacy uploads remove an incomplete part.
+/// Resumable uploads retain it for a later attempt. Nothing is overwritten,
+/// nothing is executed, and any `size` is accepted: the bytes stream to disk
+/// as they arrive (attachments have no size cap). `size` may be a JSON number
+/// or a decimal string (the app's channel arguments are strings).
 async fn upload(
     config: &ServiceConfig,
     peer: &Peer,
@@ -2144,15 +2148,25 @@ async fn upload(
     sender: &ChannelSender,
     receiver: ChannelReceiver,
 ) -> Result<(), Refusal> {
-    match receive_upload(config, peer, args, receiver).await {
+    let resumable = args.get("upload_id").is_some();
+    match receive_upload(config, peer, args, sender, receiver).await {
         Ok((path, size)) => {
             tracing::info!(size, phone = peer.device_id, "upload saved");
-            let reply = serde_json::json!({"path": path.to_string_lossy(), "size": size}).to_string();
+            let mut reply = serde_json::json!({"path": path.to_string_lossy(), "size": size}).to_string();
+            if resumable {
+                reply.push('\n');
+            }
             let _ = sender.send(Bytes::from(reply)).await;
             Ok(())
         }
         Err(refusal) => {
-            let reply = serde_json::json!({"error": refusal.code, "message": refusal.reason}).to_string();
+            if resumable && refusal.code == "resume_gap" {
+                return Err(refusal);
+            }
+            let mut reply = serde_json::json!({"error": refusal.code, "message": refusal.reason}).to_string();
+            if resumable {
+                reply.push('\n');
+            }
             let _ = sender.send(Bytes::from(reply)).await;
             Err(refusal)
         }
@@ -2163,6 +2177,7 @@ async fn receive_upload(
     config: &ServiceConfig,
     peer: &Peer,
     args: &Value,
+    sender: &ChannelSender,
     mut receiver: ChannelReceiver,
 ) -> Result<(PathBuf, u64), Refusal> {
     let name = args
@@ -2178,25 +2193,145 @@ async fn receive_upload(
     let name = safe_file_name(name);
     let cwd = args.get("cwd").and_then(Value::as_str).filter(|cwd| !cwd.is_empty());
     let folder = upload_folder(config, peer, cwd).await?;
-    let part = folder.join(format!(".{}.part", uuid::Uuid::new_v4()));
+    let Some(upload_id) = args.get("upload_id") else {
+        let part = folder.join(format!(".{}.part", uuid::Uuid::new_v4()));
+        let mut file = tokio::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&part)
+            .await
+            .map_err(|e| Refusal::new("io", format!("cannot create the upload: {e}")))?;
+        let received = receive_upload_bytes(&mut file, &mut receiver, size, None, None, None).await;
+        drop(file);
+        if let Err(refusal) = received {
+            let _ = std::fs::remove_file(&part);
+            return Err(refusal);
+        }
+        let path = publish_upload(&folder, &name, &part).inspect_err(|_| {
+            let _ = std::fs::remove_file(&part);
+        })?;
+        return Ok((path, size));
+    };
+
+    let upload_id = upload_id
+        .as_str()
+        .filter(|id| {
+            id.len() == 36
+                && id
+                    .bytes()
+                    .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase() || byte == b'-')
+        })
+        .ok_or_else(|| {
+            Refusal::new("bad_request", "upload_id must be 36 lowercase hexadecimal or '-' characters")
+        })?;
+    let offset = match args.get("offset") {
+        None => 0,
+        Some(Value::Number(number)) => {
+            number.as_u64().ok_or_else(|| Refusal::new("bad_request", "invalid offset"))?
+        }
+        Some(Value::String(text)) => {
+            text.parse().map_err(|_| Refusal::new("bad_request", "invalid offset"))?
+        }
+        Some(_) => return Err(Refusal::new("bad_request", "invalid offset")),
+    };
+    if offset > size {
+        return Err(Refusal::new("bad_request", "offset exceeds the declared size"));
+    }
+    cleanup_stale_upload_parts(&folder);
+    let part = folder.join(format!(".{upload_id}.part"));
     let mut file = tokio::fs::OpenOptions::new()
         .write(true)
-        .create_new(true)
+        .create(true)
         .open(&part)
         .await
         .map_err(|e| Refusal::new("io", format!("cannot create the upload: {e}")))?;
+    let length = file
+        .metadata()
+        .await
+        .map_err(|e| Refusal::new("io", format!("cannot inspect the upload: {e}")))?
+        .len();
+    if offset > length {
+        let _ = sender.send(Bytes::from(format!("{{\"error\":\"resume_gap\",\"have\":{length}}}\n"))).await;
+        return Err(Refusal::new("resume_gap", format!("the upload has {length} bytes")));
+    }
+    file.set_len(offset).await.map_err(|e| Refusal::new("io", format!("cannot seek the upload: {e}")))?;
+    file.seek(SeekFrom::Start(offset))
+        .await
+        .map_err(|e| Refusal::new("io", format!("cannot seek the upload: {e}")))?;
+    let _ = sender.send(Bytes::from(format!("{{\"have\":{offset}}}\n"))).await;
+    let received = receive_upload_bytes(
+        &mut file,
+        &mut receiver,
+        size,
+        Some(offset),
+        Some(sender),
+        Some(upload_stall_timeout(args)),
+    )
+    .await;
+    drop(file);
+    if let Err(refusal) = received {
+        if refusal.code == "bad_request" && refusal.reason == "more bytes than the declared size" {
+            let _ = std::fs::remove_file(&part);
+        }
+        return Err(refusal);
+    }
+    let path = publish_upload(&folder, &name, &part)?;
+    Ok((path, size))
+}
+
+async fn receive_upload_bytes(
+    file: &mut tokio::fs::File,
+    receiver: &mut ChannelReceiver,
+    size: u64,
+    initial: Option<u64>,
+    sender: Option<&ChannelSender>,
+    stall_timeout: Option<Duration>,
+) -> Result<(), Refusal> {
+    let resumable = initial.is_some();
+    let mut received = initial.unwrap_or(0);
+    let mut acknowledged = received;
     let received = async {
-        let mut received: u64 = 0;
         while received < size {
-            match receiver.recv().await {
+            let event = if resumable {
+                match timeout(stall_timeout.expect("resumable uploads have a stall timeout"), receiver.recv())
+                    .await
+                {
+                    Ok(event) => event,
+                    Err(_) => {
+                        if let Some(sender) = sender {
+                            let _ = send_upload_ack(sender, received).await;
+                        }
+                        return Err(Refusal::new("stalled", "no upload data for 120 seconds"));
+                    }
+                }
+            } else {
+                receiver.recv().await
+            };
+            match event {
                 Some(ChannelEvent::Data(bytes)) => {
                     received += bytes.len() as u64;
                     if received > size {
                         return Err(Refusal::new("bad_request", "more bytes than the declared size"));
                     }
                     file.write_all(&bytes).await.map_err(|e| Refusal::new("io", e.to_string()))?;
+                    if let Some(sender) = sender {
+                        while received - acknowledged >= UPLOAD_ACK_BYTES {
+                            acknowledged += UPLOAD_ACK_BYTES;
+                            send_upload_ack(sender, acknowledged).await;
+                        }
+                    }
                 }
-                _ => return Err(Refusal::new("bad_request", "the upload ended early")),
+                _ => {
+                    if let Some(sender) = sender {
+                        send_upload_ack(sender, received).await;
+                    }
+                    return Err(Refusal::new("bad_request", "the upload ended early"));
+                }
+            }
+        }
+        if let Some(sender) = sender {
+            if acknowledged != received {
+                send_upload_ack(sender, received).await;
             }
         }
         file.flush().await.map_err(|e| Refusal::new("io", e.to_string()))?;
@@ -2204,15 +2339,35 @@ async fn receive_upload(
         Ok(())
     }
     .await;
-    drop(file);
-    if let Err(refusal) = received {
-        let _ = std::fs::remove_file(&part);
-        return Err(refusal);
+    received
+}
+
+fn upload_stall_timeout(args: &Value) -> Duration {
+    #[cfg(debug_assertions)]
+    if let Some(milliseconds) = args.get("_stall_timeout_ms").and_then(Value::as_u64) {
+        return Duration::from_millis(milliseconds);
     }
-    let path = publish_upload(&folder, &name, &part).inspect_err(|_| {
-        let _ = std::fs::remove_file(&part);
-    })?;
-    Ok((path, size))
+    UPLOAD_STALL_TIMEOUT
+}
+
+async fn send_upload_ack(sender: &ChannelSender, received: u64) {
+    let _ = sender.send(Bytes::from(format!("{{\"ack\":{received}}}\n"))).await;
+}
+
+fn cleanup_stale_upload_parts(folder: &Path) {
+    let Ok(entries) = std::fs::read_dir(folder) else { return };
+    let now = std::time::SystemTime::now();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else { continue };
+        if !name.starts_with('.') || !name.ends_with(".part") {
+            continue;
+        }
+        let Ok(modified) = entry.metadata().and_then(|metadata| metadata.modified()) else { continue };
+        if now.duration_since(modified).is_ok_and(|age| age > UPLOAD_PART_MAX_AGE) {
+            let _ = std::fs::remove_file(path);
+        }
+    }
 }
 
 #[cfg(test)]
