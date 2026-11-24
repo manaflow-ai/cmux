@@ -19,7 +19,8 @@ mod auto_chats;
 mod browser;
 mod catch_up;
 mod chat_prompt_outbox;
-mod bundle;
+#[doc(hidden)]
+pub mod bundle;
 mod classic_leftovers;
 mod composer_outbox;
 mod follow_camera;

@@ -60,6 +60,8 @@ uuid.workspace = true
 [dev-dependencies]
 cmux-mobile-link = { workspace = true, features = ["testing"] }
 cmux-mobile-host = { path = "../cmux-mobile-host" }
+# The shaped bundle bench (tests/bundle_lte.rs).
+cmux-fault.workspace = true
 cmux-rd-core.workspace = true
 cmux-rd-engine.workspace = true
 sha2 = "0.10"
