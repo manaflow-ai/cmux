@@ -810,6 +810,14 @@ pub enum Command {
         #[arg(long)]
         refresh: bool,
     },
+    /// A Cloud machine: make the reserved folder of its first home chat and warm an agent in it
+    /// (`hub/pool/reserved.rs`). The Cloud app runs it right after keying a spare machine.
+    #[command(name = "warm-home", hide = true)]
+    WarmHome {
+        /// Answer once the agent is ready, not when it starts.
+        #[arg(long)]
+        wait: bool,
+    },
     #[command(hide = true)]
     Info {
         session: String,
