@@ -145,6 +145,20 @@ import Testing
         #expect(source.applied.last?.old == FirstRunChoices(workStyle: .gui, density: "comfortable", background: "hokusai-great-wave"))
     }
 
+    @Test func showingAgainRefreshesPicksButKeepsTheFirstSkipBaseline() async {
+        let opening = FirstRunChoices(workStyle: .gui, density: "cozy", background: nil)
+        let source = Source(opening)
+        let step = MakeItYoursStepModel(source: source)
+        step.start()
+        await Self.until { step.loaded }
+
+        source.current = FirstRunChoices(workStyle: .terminal, density: "spacious", background: "daily")
+        step.start()
+        #expect(step.choices == source.current)
+        step.revert()
+        #expect(source.current == opening)
+    }
+
     @Test func skippingTheStepPutsBackTheOpeningChoices() async {
         let opening = FirstRunChoices(workStyle: .terminal, density: "compact", background: nil)
         let source = Source(opening)
