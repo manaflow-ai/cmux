@@ -2,7 +2,9 @@ import React, { useRef, useState, type CSSProperties } from "react";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import { pressToOpen } from "../../../ui/pressToOpen";
 import { useT } from "../i18n";
-import { AgentMark } from "../NewTabPage";
+import { ShortcutKeycaps } from "../ButtonKeycaps";
+import { SHORTCUT_ACTIONS, useShortcut } from "../shortcuts";
+import { AgentMark } from "../tabMarks";
 import { homeCardGlowArm, homeCardTint, type HomeCardGlowArm } from "./homeCardGlow.experiment";
 import { useListMotion } from "./listMotion";
 import type { ChatCard } from "./screenModel";
@@ -43,6 +45,7 @@ export function ChatCards({
 }) {
   const nt = useNt();
   const t = useT();
+  const allChatsKey = useShortcut(SHORTCUT_ACTIONS.searchChats);
   // The tinted glow draws on the card grid only; the one-line list keeps its plain rows.
   const glowArm = variant === "cards" ? (glow ?? homeCardGlowArm()) : "off";
   const glowing = glowArm !== "off";
@@ -97,6 +100,7 @@ export function ChatCards({
         {onShowAll && (
           <button type="button" className="nt-chats-all" onClick={() => onShowAll()}>
             {nt("allChats")}
+            <ShortcutKeycaps shortcut={allChatsKey} />
             <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
               <path
                 d="m6 3.5 4.5 4.5L6 12.5"
