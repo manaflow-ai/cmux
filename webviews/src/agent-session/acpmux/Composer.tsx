@@ -182,6 +182,7 @@ import "./composerClimbs.css";
 import { emojiShortcodeLook } from "./emojiShortcodeLook.experiment";
 import { EmojiMenu } from "./EmojiMenu";
 import { keepSendOrigins, noteSendOrigins } from "./conversation/sendMorph";
+import { playUnpop } from "./conversation/unpopMorph";
 import { sendTucks, tuckContent, tuckSent } from "./conversation/sendTuck";
 import { shouldScrollToBottomAfterSend } from "./sendScrollSetting";
 import { MachineLinkStatus } from "./MachineLinkStatus";
@@ -1301,6 +1302,8 @@ function ComposerFrame({
     if (!field.current?.type(next)) {
       writeText(next, next.length);
     }
+    // A queued prompt taken back moves into the field it is in now (unpopMorph.ts).
+    playUnpop(composerBox.current);
     if (restoredAttachments.length)
       setAttachments((current) => {
         const others = current.filter((attachment) => !restoredAttachments.some((back) => back.id === attachment.id));
