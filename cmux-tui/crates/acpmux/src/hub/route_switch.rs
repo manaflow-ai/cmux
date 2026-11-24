@@ -121,9 +121,11 @@ impl Hub {
         routes::apply(env, &route_env);
         if moved.file.kind == routes::RouteKind::ChatgptPlan {
             let (_, home) = routes::places(&*self.config.read().await);
-            let (token, expires_at) = self.chatgpt.token(&home, &id).await.map_err(|error| {
-                connection_error(&error.code, "ChatGPT")
-            })?;
+            let (token, expires_at) = self
+                .chatgpt
+                .token(&home, &id)
+                .await
+                .map_err(|error| connection_error(&error.code, "ChatGPT"))?;
             env.insert(crate::agent_credentials::CHATGPT_TOKEN.into(), token);
             env.insert(crate::chatgpt::LOCAL_EXPIRY_ENV.into(), expires_at.to_string());
         }
@@ -785,7 +787,9 @@ fn connection_error(reason: &str, provider: &str) -> RpcError {
     let message = match reason {
         "reauth_required" | "signed_out" => format!("Reconnect {provider} in Settings > Models."),
         "keychain_locked" => format!("Unlock your Mac's keychain to use {provider}."),
-        "keychain_other_build" => crate::subscription_store::Error::KeychainOtherBuild.message().into(),
+        "keychain_other_build" => {
+            crate::subscription_store::Error::KeychainOtherBuild.message().into()
+        }
         "network" => format!("{provider} is offline. Try again when you are connected."),
         _ => format!("{provider} is temporarily unavailable."),
     };

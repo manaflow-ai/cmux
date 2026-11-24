@@ -321,7 +321,8 @@ fn handshake(mux: &Arc<Mux>, client: u64, command: &str, fields: Value) -> anyho
         identity["capabilities"] = json!(
             identify_capabilities(mux)
                 .into_iter()
-                .filter(|cap| CAPABILITIES.contains(cap) || mux.endpoint_start_harnesses().contains(cap))
+                .filter(|cap| CAPABILITIES.contains(cap)
+                    || mux.endpoint_start_harnesses().contains(cap))
                 .collect::<Vec<_>>()
         );
         return Ok(identity);

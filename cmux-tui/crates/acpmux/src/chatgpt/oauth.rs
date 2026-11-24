@@ -109,7 +109,11 @@ pub(crate) struct Pending {
 }
 
 impl Pending {
-    pub fn new(port: u16, reauth: Option<String>, prior: Option<&store::Metadata>) -> Result<Self, Failure> {
+    pub fn new(
+        port: u16,
+        reauth: Option<String>,
+        prior: Option<&store::Metadata>,
+    ) -> Result<Self, Failure> {
         Ok(Self {
             state: random_token(24)?,
             nonce: random_token(24)?,

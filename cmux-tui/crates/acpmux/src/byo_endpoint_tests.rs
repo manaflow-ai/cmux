@@ -1961,12 +1961,22 @@ fn byo_endpoint_every_keychain_read_reads_only_its_own_item_by_exact_account() {
 
 #[test]
 fn byo_endpoint_private_http_stays_local() {
-    for url in ["http://10.0.0.3/v1", "http://172.27.0.2/v1", "http://192.168.1.50/v1",
-        "http://100.64.8.9/v1", "http://computer.local/v1"] {
+    for url in [
+        "http://10.0.0.3/v1",
+        "http://172.27.0.2/v1",
+        "http://192.168.1.50/v1",
+        "http://100.64.8.9/v1",
+        "http://computer.local/v1",
+    ] {
         assert!(check_base_url(url).is_ok(), "{url}");
         assert!(check_cloud_base_url(url).is_err(), "{url}");
     }
-    for url in ["http://8.8.8.8/v1", "http://172.32.0.2/v1", "http://100.128.0.1/v1", "http://computer.local.example/v1"] {
+    for url in [
+        "http://8.8.8.8/v1",
+        "http://172.32.0.2/v1",
+        "http://100.128.0.1/v1",
+        "http://computer.local.example/v1",
+    ] {
         assert!(check_base_url(url).is_err(), "{url}");
     }
 }
@@ -1992,13 +2002,25 @@ async fn byo_endpoint_preflight_checks_typed_models_before_the_profile_is_saved(
     let sources = sources(&root);
     let mut draft = params("openai-endpoint", "typed", &base, "served-b", None);
     let error = admin::prepare_endpoint_models(
-        &mut draft, Some("fixture-refused"), &sources, |_, _| panic!("no lookup"), true,
-    ).await.unwrap_err();
+        &mut draft,
+        Some("fixture-refused"),
+        &sources,
+        |_, _| panic!("no lookup"),
+        true,
+    )
+    .await
+    .unwrap_err();
     assert!(matches!(error, AdminError::EndpointCheck(_)));
     assert_eq!(headers.lock().unwrap().len(), 1);
     admin::prepare_endpoint_models(
-        &mut draft, Some(GOOD_KEY), &sources, |_, _| panic!("no lookup"), true,
-    ).await.unwrap();
+        &mut draft,
+        Some(GOOD_KEY),
+        &sources,
+        |_, _| panic!("no lookup"),
+        true,
+    )
+    .await
+    .unwrap();
     assert_eq!(headers.lock().unwrap().len(), 2);
     assert_eq!(draft.models, ["served-b"]);
 }

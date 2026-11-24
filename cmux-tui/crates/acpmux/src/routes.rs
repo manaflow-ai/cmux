@@ -323,7 +323,8 @@ pub struct RouteFile {
 }
 
 /// The providers an API-key connection may name (`_acpmux/connections/key.add`).
-pub const PROVIDERS: &[&str] = &["anthropic", "openai", "openrouter", "google", "vertex-express", "xai"];
+pub const PROVIDERS: &[&str] =
+    &["anthropic", "openai", "openrouter", "google", "vertex-express", "xai"];
 
 impl RouteFile {
     /// The provider this route pays: its own `provider`, a ChatGPT plan's OpenAI, else its
@@ -666,15 +667,20 @@ fn is_legacy_claude_token(id: &str, file: &RouteFile) -> bool {
     // after Claude Code sign-in. env_for_on never resolves their secret.
     file.kind == RouteKind::ClaudeToken
         && (id == "claude-token"
-            || id.strip_prefix("claude-token-")
+            || id
+                .strip_prefix("claude-token-")
                 .and_then(|suffix| suffix.parse::<u16>().ok())
-                .is_some_and(|suffix| (2..1000).contains(&suffix) && id == format!("claude-token-{suffix}")))
+                .is_some_and(|suffix| {
+                    (2..1000).contains(&suffix) && id == format!("claude-token-{suffix}")
+                }))
         && file.provider.as_deref() == Some("anthropic")
         && file.families.as_slice() == ["claude"]
-        && file.notes.as_deref() == Some("claude setup-token: served to Cloud machines' Claude agents")
+        && file.notes.as_deref()
+            == Some("claude setup-token: served to Cloud machines' Claude agents")
         && file.secret.as_deref().is_some_and(|secret| {
-            secret.strip_prefix("keychain:cmux-model-key/claude-token-")
-                .is_some_and(|account| account.len() == 8 && account.bytes().all(|byte| byte.is_ascii_hexdigit()))
+            secret.strip_prefix("keychain:cmux-model-key/claude-token-").is_some_and(|account| {
+                account.len() == 8 && account.bytes().all(|byte| byte.is_ascii_hexdigit())
+            })
         })
         && file.auth.is_none()
         && file.headers.is_empty()
@@ -1284,11 +1290,18 @@ pub fn env_for_on(
         out.unset.extend(provider.direct_env().map(str::to_owned));
         if let Some(reference) = &route.file.secret {
             let vertex = route.file.provider() == "vertex-express";
-            let key = if vertex { crate::agent_credentials::VERTEX_EXPRESS_KEY } else { provider.api_key() };
+            let key = if vertex {
+                crate::agent_credentials::VERTEX_EXPRESS_KEY
+            } else {
+                provider.api_key()
+            };
             out.set.insert(key.into(), reference_value(reference));
             if provider == crate::provider_cloud_auth::Provider::Gemini {
-                out.set.extend(crate::provider_cloud_auth::gemini_key_env(vertex)
-                    .into_iter().map(|(key, value)| (key.to_owned(), value.to_owned())));
+                out.set.extend(
+                    crate::provider_cloud_auth::gemini_key_env(vertex)
+                        .into_iter()
+                        .map(|(key, value)| (key.to_owned(), value.to_owned())),
+                );
             }
         }
         return Ok(out);
@@ -1356,12 +1369,14 @@ pub fn env_for_on(
         out.set.insert("ANTHROPIC_CUSTOM_HEADERS".into(), lines.join("\n"));
     }
     if !anthropic {
-        for (header, variable) in [
-            ("OpenAI-Organization", "OPENAI_ORGANIZATION"),
-            ("OpenAI-Project", "OPENAI_PROJECT"),
-        ] {
-            if let Some((_, value)) = route.file.headers.iter().find(|(name, _)| name.eq_ignore_ascii_case(header)) {
-                let value = if is_reference(value) { reference_value(value) } else { value.clone() };
+        for (header, variable) in
+            [("OpenAI-Organization", "OPENAI_ORGANIZATION"), ("OpenAI-Project", "OPENAI_PROJECT")]
+        {
+            if let Some((_, value)) =
+                route.file.headers.iter().find(|(name, _)| name.eq_ignore_ascii_case(header))
+            {
+                let value =
+                    if is_reference(value) { reference_value(value) } else { value.clone() };
                 out.set.insert(variable.into(), value);
             }
         }

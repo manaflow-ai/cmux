@@ -1225,9 +1225,11 @@ fn endpoint_prompt_verdict(
     let problem = crate::byo_endpoint::classify(&format!("{detail}\n{stderr}"));
     let fix = r.mask(&crate::byo_endpoint::fix(problem, kind, id));
     // No prompt step: the handshake stopped before it, and that step has the fix.
-    if let Some(i) = at.or_else(|| (problem == crate::byo_endpoint::Problem::UpdateOpenCode)
-        .then(|| r.steps.iter().rposition(|step| step.status == StepStatus::Fail)).flatten())
-    {
+    if let Some(i) = at.or_else(|| {
+        (problem == crate::byo_endpoint::Problem::UpdateOpenCode)
+            .then(|| r.steps.iter().rposition(|step| step.status == StepStatus::Fail))
+            .flatten()
+    }) {
         r.steps[i].status = StepStatus::Fail;
         r.steps[i].fix = Some(fix);
     }

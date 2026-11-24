@@ -70,7 +70,8 @@ impl Keychain for MemoryKeychain {
         if self.reject_write.load(std::sync::atomic::Ordering::Relaxed) {
             return Err(Error::KeychainLocked);
         }
-        Ok(self.items
+        Ok(self
+            .items
             .lock()
             .unwrap()
             .get_or_insert_with(HashMap::new)
@@ -132,10 +133,9 @@ fn subscription_read_distinguishes_another_build_from_a_locked_keychain() {
     let keychain = MemoryKeychain::new();
     let store = Store { home: home.path(), provider: "grok", keychain: Some(&keychain) };
     let record = json!({"access_token": "fixture", "expires_at": 100});
-    for (id, error) in [
-        ("other-build", Error::KeychainOtherBuild),
-        ("locked", Error::KeychainLocked),
-    ] {
+    for (id, error) in
+        [("other-build", Error::KeychainOtherBuild), ("locked", Error::KeychainLocked)]
+    {
         store.write(id, &record).unwrap();
         keychain.refuse(&store.service(), id, error, false);
         assert_eq!(store.available::<Value>(id), Err(error));
@@ -160,7 +160,10 @@ fn subscription_write_moves_a_refused_item_to_a_new_account() {
         let index: Value = decode(&std::fs::read(store.path(id).unwrap()).unwrap()).unwrap();
         let generation = generation(&index).unwrap().unwrap();
         let account = account(id, Some(generation));
-        assert_eq!(index["keychain"], format!("keychain:cmux-vault/.subscription/{service}/{account}"));
+        assert_eq!(
+            index["keychain"],
+            format!("keychain:cmux-vault/.subscription/{service}/{account}")
+        );
         assert!(index.get("access_token").is_none());
         assert!(store.read::<Value>(id).is_ok_and(|record| record.as_ref() == Some(&fresh)));
         assert!(keychain.read(&service, &account).unwrap().is_some());
@@ -176,7 +179,8 @@ fn subscription_migration_prefers_the_grant_with_the_later_expiry() {
     let home = tempfile::tempdir().unwrap();
     let keychain = MemoryKeychain::new();
     let store = Store { home: home.path(), provider: "kimi", keychain: Some(&keychain) };
-    for (id, legacy_expiry, keychain_expiry) in [("newer-file", 200, 100), ("newer-item", 100, 200)] {
+    for (id, legacy_expiry, keychain_expiry) in [("newer-file", 200, 100), ("newer-item", 100, 200)]
+    {
         let legacy = json!({"access_token": "fixture-legacy", "expires_at": legacy_expiry, "region": "global"});
         let stored = json!({"access_token": "fixture-item", "expires_at": keychain_expiry, "region": "global"});
         let path = store.path(id).unwrap();
@@ -251,7 +255,8 @@ fn subscription_migration_ignores_a_different_providers_item_left_after_removal(
     let removed = Store { home: home.path(), provider: "grok", keychain: Some(&keychain) };
     let legacy = Store { home: home.path(), provider: "kimi", keychain: Some(&keychain) };
     let id = "shared-id";
-    let grok = json!({"access_token": "fixture-grok", "refresh_token": "refresh-grok", "expires_at": 200});
+    let grok =
+        json!({"access_token": "fixture-grok", "refresh_token": "refresh-grok", "expires_at": 200});
     let kimi = json!({"access_token": "fixture-kimi", "refresh_token": "refresh-kimi", "expires_at": 100, "region": "global"});
     removed.write(id, &grok).unwrap();
     keychain.refuse(&removed.service(), id, Error::KeychainOtherBuild, false);
@@ -260,7 +265,8 @@ fn subscription_migration_ignores_a_different_providers_item_left_after_removal(
     crate::chatgpt::store::write_atomic(
         &legacy.path(id).unwrap(),
         &serde_json::to_vec(&kimi).unwrap(),
-    ).unwrap();
+    )
+    .unwrap();
 
     assert!(legacy.read::<Value>(id).is_ok_and(|record| record.as_ref() == Some(&kimi)));
     let original = keychain.read(&removed.service(), id).unwrap().unwrap();

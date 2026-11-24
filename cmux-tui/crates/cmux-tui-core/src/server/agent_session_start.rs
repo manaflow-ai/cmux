@@ -139,7 +139,8 @@ pub const AGENT_SESSION_START_ENDPOINT_CREDENTIALS_CAPABILITY: &str =
 pub const AGENT_SESSION_START_SUBSCRIPTION_CREDENTIALS_CAPABILITY: &str =
     "agent-session-start-subscription-credentials-v1";
 
-pub(in crate::server) const CREDENTIAL_REATTACH_CAPABILITY: &str = "agent-session-credential-reattach-v1";
+pub(in crate::server) const CREDENTIAL_REATTACH_CAPABILITY: &str =
+    "agent-session-credential-reattach-v1";
 
 /// The names a credential may set (acpmux `agent_credentials::NAMES`).
 const CREDENTIAL_NAMES: &[&str] = &[
@@ -181,13 +182,18 @@ impl StartCredentials {
         self.connection.as_deref().is_none_or(|id| {
             (1..=64).contains(&id.len())
                 && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
-                && !self.env.values().any(|value| id == value.as_str() || (value.len() >= 6 && id.contains(value.as_str())))
+                && !self.env.values().any(|value| {
+                    id == value.as_str() || (value.len() >= 6 && id.contains(value.as_str()))
+                })
         }) && self.env.len() == 1
             && self.env.iter().all(|(name, value)| {
                 let known = match &self.endpoint {
                     None => {
                         CREDENTIAL_NAMES.contains(&name.as_str())
-                            || matches!(name.as_str(), "GEMINI_API_KEY" | "GOOGLE_API_KEY" | "XAI_API_KEY")
+                            || matches!(
+                                name.as_str(),
+                                "GEMINI_API_KEY" | "GOOGLE_API_KEY" | "XAI_API_KEY"
+                            )
                     }
                     Some(endpoint) => {
                         let expected = match endpoint.kind {
@@ -209,8 +215,12 @@ impl StartCredentials {
 
     pub(super) fn wire(&self) -> Value {
         let mut wire = json!({"env": self.env});
-        if let Some(endpoint) = &self.endpoint { wire["endpoint"] = json!(endpoint); }
-        if let Some(connection) = &self.connection { wire["connection"] = json!(connection); }
+        if let Some(endpoint) = &self.endpoint {
+            wire["endpoint"] = json!(endpoint);
+        }
+        if let Some(connection) = &self.connection {
+            wire["connection"] = json!(connection);
+        }
         wire
     }
 }
@@ -543,10 +553,11 @@ impl StartParams {
         });
         let permission_mode_ok =
             self.permission_mode.as_deref().is_none_or(|mode| PERMISSION_MODES.contains(&mode));
-        let mode_ok = permission_mode_ok && self.mode.as_deref().is_none_or(|mode| {
-            (1..=64).contains(&mode.len())
-                && mode.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
-        });
+        let mode_ok = permission_mode_ok
+            && self.mode.as_deref().is_none_or(|mode| {
+                (1..=64).contains(&mode.len())
+                    && mode.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
+            });
         let credentials_ok = self.credentials.as_ref().is_none_or(StartCredentials::valid);
         [
             ("harness", harness_ok),
@@ -929,10 +940,17 @@ impl StartRefused {
         }
         if let LinkError::Rpc(_, data) = &error
             && data.get("reason").and_then(Value::as_str) == Some("credentials.key_refused")
-            && let Some(provider) = data.get("provider").and_then(Value::as_str)
-                .filter(|name| matches!(*name, "Anthropic" | "OpenAI" | "Gemini" | "Vertex AI" | "xAI" | "OpenAI-compatible"))
+            && let Some(provider) = data.get("provider").and_then(Value::as_str).filter(|name| {
+                matches!(
+                    *name,
+                    "Anthropic" | "OpenAI" | "Gemini" | "Vertex AI" | "xAI" | "OpenAI-compatible"
+                )
+            })
         {
-            return Self(Refusal::ConnectionKeyRefused, Some(json!({"reason": "credentials.key_refused", "provider": provider})));
+            return Self(
+                Refusal::ConnectionKeyRefused,
+                Some(json!({"reason": "credentials.key_refused", "provider": provider})),
+            );
         }
         // A route the agent's profile binds that cannot serve it here (acpmux `route.*` from
         // `apply_route`): the cmux router harness on a Cloud machine, which runs no signed-in

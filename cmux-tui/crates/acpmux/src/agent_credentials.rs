@@ -265,11 +265,22 @@ impl AgentCredential {
             }
             None
         };
-        let connection = object.get("connection").map(|value| {
-            value.as_str().filter(|id| crate::routes::is_route_id(id)
-                && !out.values().any(|secret| *id == secret.as_str() || (secret.len() >= 6 && id.contains(secret.as_str()))))
-                .map(str::to_owned).ok_or_else(|| refused("invalid connection id"))
-        }).transpose()?;
+        let connection = object
+            .get("connection")
+            .map(|value| {
+                value
+                    .as_str()
+                    .filter(|id| {
+                        crate::routes::is_route_id(id)
+                            && !out.values().any(|secret| {
+                                *id == secret.as_str()
+                                    || (secret.len() >= 6 && id.contains(secret.as_str()))
+                            })
+                    })
+                    .map(str::to_owned)
+                    .ok_or_else(|| refused("invalid connection id"))
+            })
+            .transpose()?;
         Ok(Self { env: out, endpoint, connection })
     }
 
@@ -455,8 +466,13 @@ pub fn apply(
         }
     }
     if harness == Family::Gemini {
-        env.extend(crate::provider_cloud_auth::gemini_key_env(credential.env.contains_key(VERTEX_EXPRESS_KEY))
-            .into_iter().map(|(key, value)| (key.to_owned(), value.to_owned())));
+        env.extend(
+            crate::provider_cloud_auth::gemini_key_env(
+                credential.env.contains_key(VERTEX_EXPRESS_KEY),
+            )
+            .into_iter()
+            .map(|(key, value)| (key.to_owned(), value.to_owned())),
+        );
     }
     if harness == Family::Codex {
         if credential.is_chatgpt_plan() {
@@ -607,7 +623,9 @@ pub fn codex_provider_args(provider: &CodexProvider<'_>) -> Vec<String> {
     if *account {
         args.push(format!("{table}.env_http_headers.{ACCOUNT_HEADER}=\"{CHATGPT_ACCOUNT}\""));
     } else if *name == OPENAI_KEY_PROVIDER {
-        for (header, variable) in [("OpenAI-Organization", "OPENAI_ORGANIZATION"), ("OpenAI-Project", "OPENAI_PROJECT")] {
+        for (header, variable) in
+            [("OpenAI-Organization", "OPENAI_ORGANIZATION"), ("OpenAI-Project", "OPENAI_PROJECT")]
+        {
             args.push(format!("{table}.env_http_headers.{header}=\"{variable}\""));
         }
     }
@@ -1034,10 +1052,14 @@ fn delivered_claude_api_key_isolated_in_settings_and_absent_from_argv() {
     let credential = AgentCredential::parse(&serde_json::json!({
         "env": {ANTHROPIC_KEY: "fixture-secret"},
         "connection": "anthropic-personal",
-    })).unwrap();
+    }))
+    .unwrap();
     let mut argv = ["claude", "--settings", "project.json", "--setting-sources=project,user"]
-        .into_iter().map(ToOwned::to_owned).collect();
-    let mut env = BTreeMap::from([("ANTHROPIC_BASE_URL".to_owned(), "https://wrong.example".to_owned())]);
+        .into_iter()
+        .map(ToOwned::to_owned)
+        .collect();
+    let mut env =
+        BTreeMap::from([("ANTHROPIC_BASE_URL".to_owned(), "https://wrong.example".to_owned())]);
     assert!(apply(&credential, "claude", &mut argv, &mut env));
     assert_eq!(env["ANTHROPIC_BASE_URL"], "https://api.anthropic.com");
     assert!(env[ANTHROPIC_KEY] == "fixture-secret");
@@ -1052,7 +1074,9 @@ fn delivered_claude_api_key_isolated_in_settings_and_absent_from_argv() {
 #[cfg(test)]
 #[test]
 fn delivered_vertex_express_key_uses_the_gemini_cli_without_project_auth() {
-    let cred = AgentCredential::parse(&serde_json::json!({"env": {VERTEX_EXPRESS_KEY: "AQ.fixture"}})).unwrap();
+    let cred =
+        AgentCredential::parse(&serde_json::json!({"env": {VERTEX_EXPRESS_KEY: "AQ.fixture"}}))
+            .unwrap();
     let mut env = BTreeMap::from([("GOOGLE_CLOUD_PROJECT".into(), "prior-project".into())]);
     let mut argv = vec!["gemini".into(), "--acp".into()];
     assert_eq!(cred.family(), Family::Gemini);

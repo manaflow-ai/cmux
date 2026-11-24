@@ -107,7 +107,8 @@ impl Hub {
         let (session, _) = self.credential_session(id).await?;
         let meta = session.meta();
         let held = session.credential.lock().unwrap_or_else(|e| e.into_inner()).is_some();
-        let model = meta.credential_model.clone().or_else(|| super::model_options::current_model(&meta));
+        let model =
+            meta.credential_model.clone().or_else(|| super::model_options::current_model(&meta));
         Ok(json!({"connection": meta.credential_connection, "held": held,
             "model": model, "harness": meta.harness}))
     }
@@ -331,10 +332,16 @@ mod tests {
         let hub = hub();
         let credential = AgentCredential::parse(&json!({
             "env": {CLAUDE_OAUTH: FIRST}, "connection": "personal-models"
-        })).unwrap();
-        let session = hub.new_session(NewRequest {
-            cwd: Some(std::env::temp_dir()), credential: Some(credential.clone()), ..NewRequest::default()
-        }).await.unwrap();
+        }))
+        .unwrap();
+        let session = hub
+            .new_session(NewRequest {
+                cwd: Some(std::env::temp_dir()),
+                credential: Some(credential.clone()),
+                ..NewRequest::default()
+            })
+            .await
+            .unwrap();
         hub.child_for(&session).await.unwrap();
         let status = hub.credential_status(&session.id).await.unwrap();
         assert_eq!(status["connection"], "personal-models");

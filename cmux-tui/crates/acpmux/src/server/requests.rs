@@ -4699,8 +4699,13 @@ async fn agent_credentials_update(
         .and_then(Value::as_str)
         .filter(|id| !id.is_empty())
         .ok_or_else(|| RpcError::invalid_params("sessionId is required"))?;
-    if params.as_object().is_some_and(|o| o.keys().any(|k| !matches!(k.as_str(), "sessionId" | "env" | "endpoint"))) {
-        return Err(RpcError::invalid_params("agent/credentials.update takes sessionId, env, and endpoint"));
+    if params
+        .as_object()
+        .is_some_and(|o| o.keys().any(|k| !matches!(k.as_str(), "sessionId" | "env" | "endpoint")))
+    {
+        return Err(RpcError::invalid_params(
+            "agent/credentials.update takes sessionId, env, and endpoint",
+        ));
     }
     let Some(env) = params.get("env") else {
         return hub.credential_status(id).await;

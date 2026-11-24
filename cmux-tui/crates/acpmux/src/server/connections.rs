@@ -312,7 +312,10 @@ struct Facts {
 pub(super) fn serves_cloud(kind: &str, provider: &str) -> bool {
     match kind {
         "chatgpt-plan" | "grok-plan" | "copilot-plan" | "kimi-plan" => true,
-        "api-key" => matches!(provider, "anthropic" | "openai" | "openrouter" | "google" | "vertex-express" | "xai"),
+        "api-key" => matches!(
+            provider,
+            "anthropic" | "openai" | "openrouter" | "google" | "vertex-express" | "xai"
+        ),
         _ => false,
     }
 }
@@ -346,8 +349,8 @@ fn connection(route: &Route, facts: Facts, b: &Bindings) -> Connection {
     if openrouter && can_check_access && !families.iter().any(|family| family == "openrouter") {
         families.push("openrouter".into());
     }
-    let can_serve_cloud = serves_cloud(facts.kind, &facts.provider)
-        && (facts.kind != "api-key" || standard_endpoint);
+    let can_serve_cloud =
+        serves_cloud(facts.kind, &facts.provider) && (facts.kind != "api-key" || standard_endpoint);
     Connection {
         id: route.id.clone(),
         kind: facts.kind,
@@ -979,16 +982,32 @@ fn endpoint_plan_with_catalog(
                         &bundled
                     }
                 };
-                let claude = catalog.harnesses.iter().find(|harness| harness.id == "claude")
+                let claude = catalog
+                    .harnesses
+                    .iter()
+                    .find(|harness| harness.id == "claude")
                     .ok_or_else(|| not_cloud(id))?;
                 let model = if alias == "default" {
-                    claude.default_model.as_deref().and_then(|id| claude.models.iter().find(|model| model.id == id))
+                    claude
+                        .default_model
+                        .as_deref()
+                        .and_then(|id| claude.models.iter().find(|model| model.id == id))
                 } else {
-                    claude.models.iter().find(|model| model.family.as_deref().is_some_and(|family| family.eq_ignore_ascii_case(alias)))
+                    claude.models.iter().find(|model| {
+                        model
+                            .family
+                            .as_deref()
+                            .is_some_and(|family| family.eq_ignore_ascii_case(alias))
+                    })
                 };
-                let model = model.and_then(|model| model.reference.as_deref().or(Some(model.id.as_str())))
+                let model = model
+                    .and_then(|model| model.reference.as_deref().or(Some(model.id.as_str())))
                     .ok_or_else(|| not_cloud(id))?;
-                if model.starts_with("anthropic/") { model.to_owned() } else { format!("anthropic/{model}") }
+                if model.starts_with("anthropic/") {
+                    model.to_owned()
+                } else {
+                    format!("anthropic/{model}")
+                }
             }
             id if id.contains('/') => id.to_owned(),
             id if id.starts_with("claude-") => {
@@ -1038,8 +1057,12 @@ fn endpoint_launch_model(
             .find(|model| id == model.as_str() || id.strip_prefix(prefix) == Some(model.as_str())),
         None => endpoint.models.first(),
     }
-    .ok_or_else(|| RpcError::invalid_params("This connection cannot use this model. Choose another model or connection.")
-        .with_data(json!({"reason": "connections.model_unavailable"})))?;
+    .ok_or_else(|| {
+        RpcError::invalid_params(
+            "This connection cannot use this model. Choose another model or connection.",
+        )
+        .with_data(json!({"reason": "connections.model_unavailable"}))
+    })?;
     Ok(format!("{prefix}{model}"))
 }
 
@@ -1402,7 +1425,8 @@ pub(super) async fn handle(
                         .ok_or_else(|| RpcError::invalid_params("invalid Kimi Code region"))
                 })
                 .transpose()?;
-            let challenge = hub.subscriptions
+            let challenge = hub
+                .subscriptions
                 .begin(
                     provider,
                     chatgpt::Places { routes: dir, home },
@@ -1412,47 +1436,47 @@ pub(super) async fn handle(
                 )
                 .await
                 .map_err(subscription_failure)?;
-        Ok(json!({"attempt": challenge.attempt, "verification_url": challenge.url,
+            Ok(json!({"attempt": challenge.attempt, "verification_url": challenge.url,
             "user_code": challenge.user_code, "expires_at": challenge.expires_at, "interval": challenge.interval}))
-    }
-    method::MUX_CONNECTIONS_SUBSCRIPTION_WAIT | method::MUX_CONNECTIONS_SUBSCRIPTION_CANCEL => {
-        use crate::subscriptions::Status;
-        let attempt = need("attempt")?;
-        let status = if m == method::MUX_CONNECTIONS_SUBSCRIPTION_WAIT {
-            hub.subscriptions.wait(&attempt, WAIT_LIMIT).await
-        } else {
-            hub.subscriptions.cancel(&attempt).await
         }
-        .map_err(subscription_failure)?;
-        Ok(match status {
-            Status::Pending => json!({"status": "pending"}),
-            Status::Done(id) => json!({"status": "done", "connection_id": id}),
-            Status::Cancelled => json!({"status": "cancelled"}),
-            Status::Failed(code) => json!({"status": "failed", "error": code}),
-        })
-    }
-    method::MUX_CONNECTIONS_CHATGPT_BEGIN | method::MUX_CONNECTIONS_CHATGPT_DEVICE_BEGIN => {
-        let reauth = text("id").map(str::to_owned);
-        if let Some(id) = reauth.clone() {
-            let lookup_dir = dir.clone();
-            blocking(move || {
-                let route =
-                    routes::find(lookup_dir.as_deref(), &id).map_err(|e| route_error(&e))?;
-                if route.file.kind != RouteKind::ChatgptPlan {
-                    return Err(RpcError::invalid_params("id is not a ChatGPT sign-in"));
-                }
-                Ok(())
-            })
-            .await??;
-        }
-        let places = chatgpt::Places { routes: dir, home };
-        let announcer = hub.clone();
-        let finished = move |status: &chatgpt::Status| {
-            if matches!(status, chatgpt::Status::Done(_)) {
-                announce_later(&announcer);
+        method::MUX_CONNECTIONS_SUBSCRIPTION_WAIT | method::MUX_CONNECTIONS_SUBSCRIPTION_CANCEL => {
+            use crate::subscriptions::Status;
+            let attempt = need("attempt")?;
+            let status = if m == method::MUX_CONNECTIONS_SUBSCRIPTION_WAIT {
+                hub.subscriptions.wait(&attempt, WAIT_LIMIT).await
+            } else {
+                hub.subscriptions.cancel(&attempt).await
             }
-        };
-        if m == method::MUX_CONNECTIONS_CHATGPT_DEVICE_BEGIN {
+            .map_err(subscription_failure)?;
+            Ok(match status {
+                Status::Pending => json!({"status": "pending"}),
+                Status::Done(id) => json!({"status": "done", "connection_id": id}),
+                Status::Cancelled => json!({"status": "cancelled"}),
+                Status::Failed(code) => json!({"status": "failed", "error": code}),
+            })
+        }
+        method::MUX_CONNECTIONS_CHATGPT_BEGIN | method::MUX_CONNECTIONS_CHATGPT_DEVICE_BEGIN => {
+            let reauth = text("id").map(str::to_owned);
+            if let Some(id) = reauth.clone() {
+                let lookup_dir = dir.clone();
+                blocking(move || {
+                    let route =
+                        routes::find(lookup_dir.as_deref(), &id).map_err(|e| route_error(&e))?;
+                    if route.file.kind != RouteKind::ChatgptPlan {
+                        return Err(RpcError::invalid_params("id is not a ChatGPT sign-in"));
+                    }
+                    Ok(())
+                })
+                .await??;
+            }
+            let places = chatgpt::Places { routes: dir, home };
+            let announcer = hub.clone();
+            let finished = move |status: &chatgpt::Status| {
+                if matches!(status, chatgpt::Status::Done(_)) {
+                    announce_later(&announcer);
+                }
+            };
+            if m == method::MUX_CONNECTIONS_CHATGPT_DEVICE_BEGIN {
                 let begun =
                     hub.chatgpt.begin_device(places, reauth, finished).await.map_err(failure)?;
                 Ok(json!({
@@ -1536,7 +1560,9 @@ pub(super) async fn handle(
                     )
                     .await
                     .map_err(|code| {
-                        if matches!(code, "reauth_required" | "signed_out") { announce_later(hub); }
+                        if matches!(code, "reauth_required" | "signed_out") {
+                            announce_later(hub);
+                        }
                         subscription_failure(code)
                     })?;
                 let region = region.ok_or_else(|| subscription_failure("reauth_required"))?;
@@ -1548,20 +1574,33 @@ pub(super) async fn handle(
             if text("model") == Some("openrouter/default") {
                 let (folder, route_id) = (dir.clone(), id.clone());
                 let (base, kind, value) = blocking(move || {
-                    let route = routes::find(folder.as_deref(), &route_id).map_err(|error| route_error(&error))?;
-                    if !route.is_openrouter() || route.file.disabled || route.file.cloud_enabled == Some(false) {
+                    let route = routes::find(folder.as_deref(), &route_id)
+                        .map_err(|error| route_error(&error))?;
+                    if !route.is_openrouter()
+                        || route.file.disabled
+                        || route.file.cloud_enabled == Some(false)
+                    {
                         return Err(not_cloud(&route_id));
                     }
-                    let (base, kind) = standard_key_endpoint(&route.file).ok_or_else(|| not_cloud(&route_id))?;
-                    let reference = route.file.secret.as_deref().ok_or_else(|| not_cloud(&route_id))?;
+                    let (base, kind) =
+                        standard_key_endpoint(&route.file).ok_or_else(|| not_cloud(&route_id))?;
+                    let reference =
+                        route.file.secret.as_deref().ok_or_else(|| not_cloud(&route_id))?;
                     let value = resolve(&route_id, reference)?;
                     Ok((base, kind, zeroize::Zeroizing::new(value)))
-                }).await??;
+                })
+                .await??;
                 let models = crate::byo_endpoint::fetch_model_list(
-                    kind, "https://openrouter.ai/api/v1/models/user", Some(value.as_str()), crate::byo_endpoint::FETCH_TIMEOUT,
+                    kind,
+                    "https://openrouter.ai/api/v1/models/user",
+                    Some(value.as_str()),
+                    crate::byo_endpoint::FETCH_TIMEOUT,
                 )
-                    .await.map_err(|_| RpcError::invalid_params("OpenRouter did not list an available model.")
-                        .with_data(json!({"reason": "connections.model_unavailable"})))?;
+                .await
+                .map_err(|_| {
+                    RpcError::invalid_params("OpenRouter did not list an available model.")
+                        .with_data(json!({"reason": "connections.model_unavailable"}))
+                })?;
                 let endpoint = LaunchEndpoint::checked(kind, base, &models[..models.len().min(1)])
                     .ok_or_else(|| not_cloud(&id))?;
                 let model = endpoint_launch_model(&endpoint, None)?;
@@ -1604,7 +1643,9 @@ pub(super) async fn handle(
                         .token(provider, &home, &id, chatgpt::CREDENTIAL_MARGIN_SECS)
                         .await
                         .map_err(|code| {
-                            if matches!(code, "reauth_required" | "signed_out") { announce_later(hub); }
+                            if matches!(code, "reauth_required" | "signed_out") {
+                                announce_later(hub);
+                            }
                             subscription_failure(code)
                         })?;
                     if provider == crate::subscriptions::Provider::Copilot
@@ -1614,7 +1655,8 @@ pub(super) async fn handle(
                         #[cfg(unix)]
                         if code == "reauth_required" {
                             crate::subscriptions::Provider::forget_lapsed_copilot(home, id, token)
-                                .await.map_err(subscription_failure)?;
+                                .await
+                                .map_err(subscription_failure)?;
                             announce_later(hub);
                         }
                         return Err(subscription_failure(code));
@@ -1899,7 +1941,8 @@ mod tests {
         let dir = Some(d.routes.as_path());
         let file = routes::file_from_json(&json!({
             "kind": "chatgpt-plan", "provider": "openai", "families": ["codex"],
-        })).unwrap();
+        }))
+        .unwrap();
         let id = "chatgpt";
         routes::add(dir, id, &file, false).unwrap();
         let store = crate::subscription_store::Store::new(&d.home, "chatgpt");
@@ -1924,18 +1967,25 @@ mod tests {
         let dir = Some(d.routes.as_path());
         let id = "claude-token";
         let path = d.routes.join("claude-token.toml");
-        std::fs::write(&path, concat!(
-            "kind = \"claude-token\"\n",
-            "families = [\"claude\"]\n",
-            "provider = \"anthropic\"\n",
-            "secret = \"keychain:cmux-model-key/claude-token-1234abcd\"\n",
-            "notes = \"claude setup-token: served to Cloud machines' Claude agents\"\n",
-        )).unwrap();
+        std::fs::write(
+            &path,
+            concat!(
+                "kind = \"claude-token\"\n",
+                "families = [\"claude\"]\n",
+                "provider = \"anthropic\"\n",
+                "secret = \"keychain:cmux-model-key/claude-token-1234abcd\"\n",
+                "notes = \"claude setup-token: served to Cloud machines' Claude agents\"\n",
+            ),
+        )
+        .unwrap();
 
         let settings = state(dir, &d.home, &ProfileSources::none());
         assert_eq!(find(&settings, id)["can_serve_cloud"], false);
         let route = routes::find(dir, id).unwrap();
-        assert_eq!(routes::env_for(&route, "claude", &d.home).unwrap(), routes::RouteEnv::default());
+        assert_eq!(
+            routes::env_for(&route, "claude", &d.home).unwrap(),
+            routes::RouteEnv::default()
+        );
         let error = credential_plan(dir, &d.home, id).unwrap_err();
         assert_eq!(error.data.unwrap()["reason"], "connections.not_cloud");
         accounts::set_for_test(dir, &d.home, id, Some(false)).unwrap();

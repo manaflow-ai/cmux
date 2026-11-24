@@ -962,8 +962,12 @@ impl Refusal {
             Self::NotAsking => "this agent has no mode that asks before each action",
             Self::UntrustedFolder => "the folder is not trusted on this machine",
             Self::TeamVmBlocked => "agent chats cannot be started remotely on a team VM",
-            Self::PersonalConnectionOnTeamVm => "Personal connections run only on your own Cloud machine.",
-            Self::ConnectionKeyRefused => "The connection key was refused. Replace it in Settings > Models.",
+            Self::PersonalConnectionOnTeamVm => {
+                "Personal connections run only on your own Cloud machine."
+            }
+            Self::ConnectionKeyRefused => {
+                "The connection key was refused. Replace it in Settings > Models."
+            }
             Self::HostUnverified => {
                 "this machine cannot tell whether it is a team VM, so it starts no remote chat"
             }
@@ -1297,7 +1301,8 @@ fn credentials(
         Ok(params) => params,
         Err(field) => return bad_field::refuse_field(writer, id, field.as_deref()),
     };
-    let credential = env.map(|env| agent_session_start::StartCredentials { env, endpoint, connection: None });
+    let credential =
+        env.map(|env| agent_session_start::StartCredentials { env, endpoint, connection: None });
     // An empty environment is the owner withdrawing a credential from this tab.
     if credential.as_ref().is_some_and(|c| !c.env.is_empty() && !c.valid()) {
         return bad_field::refuse_field(writer, id, Some("env"));

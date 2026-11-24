@@ -303,10 +303,14 @@ pub(crate) fn isolate_api_key_settings(argv: &mut Vec<String>) {
 }
 
 pub(crate) fn api_key_settings(settings: Option<&Map<String, Value>>) -> String {
-    team_settings(settings, &[
-        ("ANTHROPIC_BASE_URL".to_owned(), "https://api.anthropic.com".to_owned()),
-        ("CLAUDE_CODE_USE_BEDROCK".to_owned(), String::new()),
-    ], "")
+    team_settings(
+        settings,
+        &[
+            ("ANTHROPIC_BASE_URL".to_owned(), "https://api.anthropic.com".to_owned()),
+            ("CLAUDE_CODE_USE_BEDROCK".to_owned(), String::new()),
+        ],
+        "",
+    )
 }
 
 /// The credentials and provider switches team mode must not keep, as the image's launcher clears

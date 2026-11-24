@@ -22,16 +22,16 @@ pub(crate) mod foreign_login;
 pub(crate) mod leader_exit;
 #[cfg(unix)]
 pub(crate) mod session_tmp;
+#[cfg(unix)]
+pub(crate) use command::CopilotKeychainLocked;
 /// Tests read a built command without starting it; every spawn builds through
 /// `harness_command_ready`.
 #[cfg(test)]
 pub(crate) use command::harness_command;
-#[cfg(unix)]
-pub(crate) use command::CopilotKeychainLocked;
 pub(crate) use command::{
-    CopilotReconnect, REMOTE_ENV_POLICY_ID, REMOTE_ENV_POLICY_KEY, command_env, command_env_cleared, explicit_env,
-    harness_command_ready, host_environment, pinned_preview_format, preview_format,
-    resolved_profile_env,
+    CopilotReconnect, REMOTE_ENV_POLICY_ID, REMOTE_ENV_POLICY_KEY, command_env,
+    command_env_cleared, explicit_env, harness_command_ready, host_environment,
+    pinned_preview_format, preview_format, resolved_profile_env,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

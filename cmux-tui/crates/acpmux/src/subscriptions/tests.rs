@@ -79,13 +79,19 @@ async fn token(State(fake): State<Fake>, body: Bytes) -> Response {
         std::fs::rename(&path, path.with_extension("stale.json")).unwrap();
         std::fs::create_dir(path).unwrap();
     }
-    let reply = fake.tokens.lock().unwrap().pop_front()
+    let reply = fake
+        .tokens
+        .lock()
+        .unwrap()
+        .pop_front()
         .unwrap_or_else(|| json!({"error": "authorization_pending"}));
     match reply.as_str() {
         Some("rate-limited") => StatusCode::TOO_MANY_REQUESTS.into_response(),
         Some("malformed") => "not JSON".into_response(),
         Some("unauthorized") => StatusCode::UNAUTHORIZED.into_response(),
-        Some("forbidden") => (StatusCode::FORBIDDEN, Json(json!({"error": "invalid_token"}))).into_response(),
+        Some("forbidden") => {
+            (StatusCode::FORBIDDEN, Json(json!({"error": "invalid_token"}))).into_response()
+        }
         _ => Json(reply).into_response(),
     }
 }
@@ -353,14 +359,18 @@ async fn kimi_device_sign_in_cancels_without_saving() {
 #[tokio::test]
 async fn copilot_joins_and_labels_the_account_and_refuses_a_duplicate() {
     let provider = Provider::Copilot;
-    let (service, _fake, _root, places) = fixture(provider, 40, vec![
-        json!({"access_token": "fixture-access"}),
-        json!({"access_token": "fixture-access"}),
-    ], true).await;
+    let (service, _fake, _root, places) = fixture(
+        provider,
+        40,
+        vec![json!({"access_token": "fixture-access"}), json!({"access_token": "fixture-access"})],
+        true,
+    )
+    .await;
     let begun = service.begin(provider, places.clone(), None, None, || {}).await.unwrap();
     let joined = service.begin(provider, places.clone(), None, None, || {}).await.unwrap();
     assert_eq!(begun.attempt, joined.attempt);
-    let Status::Done(id) = service.wait(&joined.attempt, Duration::from_secs(10)).await.unwrap() else {
+    let Status::Done(id) = service.wait(&joined.attempt, Duration::from_secs(10)).await.unwrap()
+    else {
         panic!("the expected approval did not complete");
     };
     let route = routes::find(places.routes.as_deref(), &id).unwrap();
@@ -378,17 +388,38 @@ async fn copilot_joins_and_labels_the_account_and_refuses_a_duplicate() {
 async fn copilot_refusal_does_not_erase_a_newer_sign_in() {
     let home = tempfile::tempdir().unwrap();
     let mut record = super::Record {
-        access_token: "fixture-new".into(), refresh_token: String::new(), expires_at: 0,
-        region: None, device_id: None, sub: None, login: None, email: None,
+        access_token: "fixture-new".into(),
+        refresh_token: String::new(),
+        expires_at: 0,
+        region: None,
+        device_id: None,
+        sub: None,
+        login: None,
+        email: None,
     };
     let id = "copilot-fixture";
     Provider::Copilot.write(home.path(), id, &record).unwrap();
-    assert!(!Provider::forget_lapsed_copilot(home.path().to_owned(), id.into(), "fixture-old".into()).await.unwrap());
+    assert!(
+        !Provider::forget_lapsed_copilot(home.path().to_owned(), id.into(), "fixture-old".into())
+            .await
+            .unwrap()
+    );
     assert!(Provider::Copilot.signed_in(home.path(), id));
 
-    assert!(Provider::forget_lapsed_copilot(home.path().to_owned(), id.into(), std::mem::take(&mut record.access_token)).await.unwrap());
+    assert!(
+        Provider::forget_lapsed_copilot(
+            home.path().to_owned(),
+            id.into(),
+            std::mem::take(&mut record.access_token)
+        )
+        .await
+        .unwrap()
+    );
     assert!(!Provider::Copilot.signed_in(home.path(), id));
-    assert!(matches!(Service::default().token(Provider::Copilot, home.path(), id, 0).await, Err("signed_out")));
+    assert!(matches!(
+        Service::default().token(Provider::Copilot, home.path(), id, 0).await,
+        Err("signed_out")
+    ));
 }
 
 #[tokio::test]
@@ -424,7 +455,8 @@ async fn kimi_refresh_only_discards_grant_on_unauthorized_or_invalid_grant() {
         30,
         vec![json!("forbidden"), json!("unauthorized"), json!({"error": "invalid_grant"})],
         true,
-    ).await;
+    )
+    .await;
     let id = "kimi-fixture";
     let record = super::Record {
         access_token: "fixture-access".into(),
@@ -441,7 +473,10 @@ async fn kimi_refresh_only_discards_grant_on_unauthorized_or_invalid_grant() {
     assert!(provider.read(&places.home, id).unwrap().is_some());
 
     for _ in 0..2 {
-        assert!(matches!(service.grant(provider, &places.home, id, 0).await, Err("reauth_required")));
+        assert!(matches!(
+            service.grant(provider, &places.home, id, 0).await,
+            Err("reauth_required")
+        ));
         assert!(provider.read(&places.home, id).unwrap().is_none());
         provider.write(&places.home, id, &record).unwrap();
     }

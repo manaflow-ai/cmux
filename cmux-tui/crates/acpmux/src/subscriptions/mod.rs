@@ -118,21 +118,33 @@ impl Provider {
     }
 
     #[cfg(unix)]
-    pub(crate) fn copilot_access_matches(home: &Path, id: &str, token: &str) -> Result<bool, Failure> {
-        Ok(Self::Copilot.read(home, id)?
+    pub(crate) fn copilot_access_matches(
+        home: &Path,
+        id: &str,
+        token: &str,
+    ) -> Result<bool, Failure> {
+        Ok(Self::Copilot
+            .read(home, id)?
             .is_some_and(|record| !record.access_token.is_empty() && record.access_token == token))
     }
 
     #[cfg(unix)]
-    pub(crate) async fn forget_lapsed_copilot(home: PathBuf, id: String, token: String) -> Result<bool, Failure> {
+    pub(crate) async fn forget_lapsed_copilot(
+        home: PathBuf,
+        id: String,
+        token: String,
+    ) -> Result<bool, Failure> {
         blocking(move || {
-            let deleted = Self::Copilot.store(&home).delete_if(&id, |record: Record| record.access_token == token)
+            let deleted = Self::Copilot
+                .store(&home)
+                .delete_if(&id, |record: Record| record.access_token == token)
                 .map_err(|error| error.code())?;
             if deleted {
                 crate::agent::copilot_auth::remove_route(&id);
             }
             Ok(deleted)
-        }).await
+        })
+        .await
     }
 
     pub(crate) fn available(
@@ -327,13 +339,20 @@ impl Service {
             None
         };
         let sign_in = SignIn::Device(provider);
-        let joined = self.attempts.lock().unwrap_or_else(|p| p.into_inner()).values().find_map(|attempt| {
-            let request = attempt.request.as_ref()?;
-            (attempt.sign_in == sign_in && matches!(*attempt.state.borrow(), Status::Pending)
-                && request.home == places.home && request.replace == replace && request.region == region
-                && request.begun.expires_at > now()).then(|| request.begun.clone())
-        });
-        if let Some(begun) = joined { return Ok(begun); }
+        let joined =
+            self.attempts.lock().unwrap_or_else(|p| p.into_inner()).values().find_map(|attempt| {
+                let request = attempt.request.as_ref()?;
+                (attempt.sign_in == sign_in
+                    && matches!(*attempt.state.borrow(), Status::Pending)
+                    && request.home == places.home
+                    && request.replace == replace
+                    && request.region == region
+                    && request.begun.expires_at > now())
+                .then(|| request.begun.clone())
+            });
+        if let Some(begun) = joined {
+            return Ok(begun);
+        }
         let challenge = self.oauth.begin(provider, region).await?;
         let begun = Begun {
             attempt: uuid::Uuid::new_v4().to_string(),
@@ -346,10 +365,17 @@ impl Service {
         let (state, receiver) = watch::channel(Status::Pending);
         let expires_at = begun.expires_at;
         let request = DeviceRequest {
-            home: places.home.clone(), replace: replace.clone(), region, begun: begun.clone(),
+            home: places.home.clone(),
+            replace: replace.clone(),
+            region,
+            begun: begun.clone(),
         };
         let attempt = Arc::new(Attempt {
-            sign_in, request: Some(request), started: Instant::now(), cancel, state: receiver,
+            sign_in,
+            request: Some(request),
+            started: Instant::now(),
+            cancel,
+            state: receiver,
         });
         self.attempts
             .lock()
@@ -619,9 +645,11 @@ fn save(
             if route.id == id && replace && prior.is_some_and(|prior| prior != sub) {
                 return Err("different_account");
             }
-            if route.id != id && metadata["signed_in"] == true
+            if route.id != id
+                && metadata["signed_in"] == true
                 && prior == Some(sub.as_str())
-                && (provider != Provider::Kimi || metadata["region"] == serde_json::json!(record.region))
+                && (provider != Provider::Kimi
+                    || metadata["region"] == serde_json::json!(record.region))
             {
                 return Err("already_signed_in");
             }
@@ -644,7 +672,10 @@ fn save(
         return Ok(());
     }
     let file = RouteFile {
-        name: Some(login.map_or_else(|| provider.label().to_owned(), |login| format!("{} ({login})", provider.label()))),
+        name: Some(login.map_or_else(
+            || provider.label().to_owned(),
+            |login| format!("{} ({login})", provider.label()),
+        )),
         kind: provider.kind(),
         families: vec![provider.family().into()],
         provider: Some(provider.name().into()),

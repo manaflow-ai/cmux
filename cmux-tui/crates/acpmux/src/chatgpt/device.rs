@@ -54,15 +54,13 @@ impl Service {
     ) -> Result<DeviceBegun, Failure> {
         let _begin = self.device_begin.lock().await;
         self.prune();
-        let previous = self
-            .attempts
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .values()
-            .find_map(|a| {
+        let previous =
+            self.attempts.lock().unwrap_or_else(|p| p.into_inner()).values().find_map(|a| {
                 let (home, target, begun) = a.device_request.as_ref()?;
-                (home == &places.home && target == &reauth
-                    && begun.expires_at > now_unix() && *a.status.borrow() == Status::Pending)
+                (home == &places.home
+                    && target == &reauth
+                    && begun.expires_at > now_unix()
+                    && *a.status.borrow() == Status::Pending)
                     .then(|| begun.clone())
             });
         if let Some(previous) = previous {
@@ -201,12 +199,16 @@ impl Service {
                     if auth.authorization_code.is_empty() || auth.code_verifier.is_empty() {
                         return Err(Failure::new("bad_reply", "invalid ChatGPT device poll reply"));
                     }
-                    match self.oauth.exchange(
+                    match self
+                        .oauth
+                        .exchange(
                             &auth.authorization_code,
                             &auth.code_verifier,
                             &format!("{issuer}/deviceauth/callback"),
                             None,
-                        ).await {
+                        )
+                        .await
+                    {
                         Err(error) if error.code == "network" => {
                             interval = interval.saturating_mul(2).min(60);
                         }

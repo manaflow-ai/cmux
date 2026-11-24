@@ -40,10 +40,11 @@ pub const ANTHROPIC_KEY_ENV: &str = "ANTHROPIC_AUTH_TOKEN";
 /// The OpenCode provider id the endpoint gets.
 pub const OPENCODE_PROVIDER: &str = "byo";
 pub(crate) fn anthropic_compatible(base: &str) -> bool {
-    minimax_plan(base) || reqwest::Url::parse(base).is_ok_and(|url| {
-        url.path().trim_end_matches('/').ends_with("/anthropic")
-            || url.path().trim_end_matches('/').ends_with("/anthropic/v1")
-    })
+    minimax_plan(base)
+        || reqwest::Url::parse(base).is_ok_and(|url| {
+            url.path().trim_end_matches('/').ends_with("/anthropic")
+                || url.path().trim_end_matches('/').ends_with("/anthropic/v1")
+        })
 }
 
 fn minimax_plan(base: &str) -> bool {
@@ -221,7 +222,9 @@ pub fn check_base_url(url: &str) -> Result<String, UrlError> {
     match parsed.scheme() {
         "https" => {}
         "http" if local => {}
-        "http" => return bad("baseUrl must use https (plain http only to a private local address)"),
+        "http" => {
+            return bad("baseUrl must use https (plain http only to a private local address)");
+        }
         _ => return bad("baseUrl must be an https URL"),
     }
     if parsed.fragment().is_some() {
@@ -502,12 +505,19 @@ pub(crate) fn opencode_env(
 
 fn configure_reasoning(config: &mut serde_json::Value) -> bool {
     let Some(provider) = config.pointer_mut("/provider/byo") else { return false };
-    let host = provider["options"]["baseURL"].as_str().and_then(|base| {
-        reqwest::Url::parse(base).ok()?.host_str().map(str::to_owned)
-    });
-    if !matches!(host.as_deref(), Some(
-        "api.deepseek.com" | "api.moonshot.ai" | "api.moonshot.cn" | "api.kimi.ai" | "api.kimi.com"
-    )) {
+    let host = provider["options"]["baseURL"]
+        .as_str()
+        .and_then(|base| reqwest::Url::parse(base).ok()?.host_str().map(str::to_owned));
+    if !matches!(
+        host.as_deref(),
+        Some(
+            "api.deepseek.com"
+                | "api.moonshot.ai"
+                | "api.moonshot.cn"
+                | "api.kimi.ai"
+                | "api.kimi.com"
+        )
+    ) {
         return false;
     }
     let Some(models) = provider.get_mut("models").and_then(serde_json::Value::as_object_mut) else {
@@ -539,33 +549,6 @@ pub(crate) fn configure_opencode_session(config: &mut String, session: &str) {
     } else if configure_reasoning(&mut value) {
         *config = value.to_string();
     }
-}
-
-#[cfg(test)]
-#[test]
-fn opencode_go_uses_the_console_model_list_and_stable_session_header() {
-    let base = GO_BASE;
-    assert_eq!(models_url(Kind::OpenAi, base), "https://opencode.ai/inference/go/v1/models");
-    let mut env = opencode_env("OpenCode Go", base, &["kimi-k3".into()], true);
-    let content = env.get_mut("OPENCODE_CONFIG_CONTENT").unwrap();
-    configure_opencode_session(content, "test-chat");
-    let first = content.clone();
-    configure_opencode_session(content, "test-chat");
-    assert_eq!(*content, first);
-    let config: serde_json::Value = serde_json::from_str(content).unwrap();
-    assert_eq!(
-        config["provider"]["byo"]["options"]["headers"]["x-opencode-session"],
-        "ses_test-chat"
-    );
-    configure_opencode_session(content, "another-chat");
-    let config: serde_json::Value = serde_json::from_str(content).unwrap();
-    assert_eq!(
-        config["provider"]["byo"]["options"]["headers"]["x-opencode-session"],
-        "ses_another-chat"
-    );
-    let mut other = "{\"provider\": []}".to_owned();
-    configure_opencode_session(&mut other, "test-chat");
-    assert_eq!(other, "{\"provider\": []}");
 }
 
 /// The profile file text.
@@ -702,10 +685,23 @@ fn parse_model_list(
             && !key.is_some_and(|key| id.contains(key))
             && seen.insert(id.clone())
         {
-            let tools = row.get("tool_call").or_else(|| row.get("toolCall")).and_then(serde_json::Value::as_bool)
-                .or_else(|| row.get("supported_parameters").and_then(serde_json::Value::as_array)
-                    .map(|parameters| parameters.iter().any(|parameter| parameter == "tools")));
-            out.push((id, match tools { Some(true) => 0, None => 1, Some(false) => 2 }));
+            let tools = row
+                .get("tool_call")
+                .or_else(|| row.get("toolCall"))
+                .and_then(serde_json::Value::as_bool)
+                .or_else(|| {
+                    row.get("supported_parameters")
+                        .and_then(serde_json::Value::as_array)
+                        .map(|parameters| parameters.iter().any(|parameter| parameter == "tools"))
+                });
+            out.push((
+                id,
+                match tools {
+                    Some(true) => 0,
+                    None => 1,
+                    Some(false) => 2,
+                },
+            ));
         }
     }
     out.sort_by_key(|(_, rank)| *rank);
@@ -820,7 +816,8 @@ pub(crate) async fn fetch_model_list(
             return Err("The endpoint account is out of credit.".into());
         }
         let google_body = (host == Some("generativelanguage.googleapis.com"))
-            .then_some(body.as_deref()).flatten();
+            .then_some(body.as_deref())
+            .flatten();
         return Err(model_list_status_error(status, google_body));
     }
     let bytes = read_capped(response, MAX_LIST_BYTES).await?;
@@ -835,7 +832,10 @@ fn certificate_error(error: &reqwest::Error) -> bool {
     use std::error::Error as _;
     let mut source = error.source();
     while let Some(cause) = source {
-        if matches!(cause.downcast_ref::<rustls::Error>(), Some(rustls::Error::InvalidCertificate(_))) {
+        if matches!(
+            cause.downcast_ref::<rustls::Error>(),
+            Some(rustls::Error::InvalidCertificate(_))
+        ) {
             return true;
         }
         source = cause.source();
@@ -850,12 +850,16 @@ pub(crate) async fn check_cloudflare(base: &str, model: &str, key: &str) -> Resu
     let client = reqwest::Client::builder()
         .timeout(FETCH_TIMEOUT)
         .redirect(reqwest::redirect::Policy::none())
-        .build().map_err(|_| "cannot prepare the Cloudflare connection check".to_owned())?;
-    let reply = client.post(format!("{}/chat/completions", base.trim_end_matches('/')))
+        .build()
+        .map_err(|_| "cannot prepare the Cloudflare connection check".to_owned())?;
+    let reply = client
+        .post(format!("{}/chat/completions", base.trim_end_matches('/')))
         .header("cf-aig-authorization", format!("Bearer {key}"))
         .json(&serde_json::json!({"model": model, "max_tokens": 1,
             "messages": [{"role": "user", "content": "hello"}]}))
-        .send().await.map_err(|error| {
+        .send()
+        .await
+        .map_err(|error| {
             if certificate_error(&error) {
                 "Cloudflare's TLS certificate could not be verified".to_owned()
             } else {
@@ -938,7 +942,8 @@ pub fn classify(text: &str) -> Problem {
         "insufficient balance",
         "no resource package",
         "payment required",
-    ]) || has_code(&t, "1113") {
+    ]) || has_code(&t, "1113")
+    {
         return Problem::Credit;
     }
     if has_code(&t, "401")
@@ -1115,28 +1120,60 @@ pub(crate) fn clears(name: &str, profile_env: &BTreeMap<String, String>) -> bool
 #[path = "byo_endpoint_tests.rs"]
 mod tests;
 
-#[test]
-fn cloudflare_gateway_uses_the_gateway_header_without_bearer_auth() {
-    let env = opencode_env(
-        "Cloudflare AI Gateway",
-        "https://gateway.ai.cloudflare.com/v1/1234567890abcdef1234567890abcdef/default/compat",
-        &["workers-ai/@cf/meta/model".into()],
-        true,
-    );
-    let config: serde_json::Value = serde_json::from_str(&env["OPENCODE_CONFIG_CONTENT"]).unwrap();
-    let options = &config["provider"]["byo"]["options"];
-    assert_eq!(options["headers"]["cf-aig-authorization"], "Bearer {env:CMUX_BYO_API_KEY}");
-    assert!(options.get("apiKey").is_none());
-}
+#[cfg(test)]
+mod opencode_config_tests {
+    use super::*;
 
-#[test]
-fn minimax_regional_plans_use_the_anthropic_adapter() {
-    for base in ["https://api.minimax.io/anthropic", "https://api.minimaxi.com/anthropic"] {
-        let env = opencode_env("MiniMax", base, &["MiniMax-M3.1-Flash".into()], true);
+    #[test]
+    fn opencode_go_uses_the_console_model_list_and_stable_session_header() {
+        let base = GO_BASE;
+        assert_eq!(models_url(Kind::OpenAi, base), "https://opencode.ai/inference/go/v1/models");
+        let mut env = opencode_env("OpenCode Go", base, &["kimi-k3".into()], true);
+        let content = env.get_mut("OPENCODE_CONFIG_CONTENT").unwrap();
+        configure_opencode_session(content, "test-chat");
+        let first = content.clone();
+        configure_opencode_session(content, "test-chat");
+        assert_eq!(*content, first);
+        let config: serde_json::Value = serde_json::from_str(content).unwrap();
+        assert_eq!(
+            config["provider"]["byo"]["options"]["headers"]["x-opencode-session"],
+            "ses_test-chat"
+        );
+        configure_opencode_session(content, "another-chat");
+        let config: serde_json::Value = serde_json::from_str(content).unwrap();
+        assert_eq!(
+            config["provider"]["byo"]["options"]["headers"]["x-opencode-session"],
+            "ses_another-chat"
+        );
+        let mut other = "{\"provider\": []}".to_owned();
+        configure_opencode_session(&mut other, "test-chat");
+        assert_eq!(other, "{\"provider\": []}");
+    }
+
+    #[test]
+    fn cloudflare_gateway_uses_the_gateway_header_without_bearer_auth() {
+        let env = opencode_env(
+            "Cloudflare AI Gateway",
+            "https://gateway.ai.cloudflare.com/v1/1234567890abcdef1234567890abcdef/default/compat",
+            &["workers-ai/@cf/meta/model".into()],
+            true,
+        );
         let config: serde_json::Value =
             serde_json::from_str(&env["OPENCODE_CONFIG_CONTENT"]).unwrap();
-        let provider = &config["provider"]["byo"];
-        assert_eq!(provider["npm"], "@ai-sdk/anthropic");
-        assert_eq!(provider["options"]["baseURL"], format!("{base}/v1"));
+        let options = &config["provider"]["byo"]["options"];
+        assert_eq!(options["headers"]["cf-aig-authorization"], "Bearer {env:CMUX_BYO_API_KEY}");
+        assert!(options.get("apiKey").is_none());
+    }
+
+    #[test]
+    fn minimax_regional_plans_use_the_anthropic_adapter() {
+        for base in ["https://api.minimax.io/anthropic", "https://api.minimaxi.com/anthropic"] {
+            let env = opencode_env("MiniMax", base, &["MiniMax-M3.1-Flash".into()], true);
+            let config: serde_json::Value =
+                serde_json::from_str(&env["OPENCODE_CONFIG_CONTENT"]).unwrap();
+            let provider = &config["provider"]["byo"];
+            assert_eq!(provider["npm"], "@ai-sdk/anthropic");
+            assert_eq!(provider["options"]["baseURL"], format!("{base}/v1"));
+        }
     }
 }

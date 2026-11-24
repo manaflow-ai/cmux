@@ -108,7 +108,8 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY);
         // The owner's model credential with the start and its refresh (agent_session_start.rs).
         capabilities.push(AGENT_SESSION_START_CREDENTIALS_CAPABILITY);
-        capabilities.push(agent_session_attach::agent_session_start::CREDENTIAL_REATTACH_CAPABILITY);
+        capabilities
+            .push(agent_session_attach::agent_session_start::CREDENTIAL_REATTACH_CAPABILITY);
         // A Codex credential's provider reaches app-server (acpmux agent_credentials.rs, cmux#45774).
         capabilities.push(AGENT_SESSION_START_CODEX_CREDENTIALS_CAPABILITY);
         capabilities.push(AGENT_SESSION_START_ENDPOINT_CREDENTIALS_CAPABILITY);

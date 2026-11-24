@@ -507,8 +507,10 @@ pub const ACP_AUTH_REQUIRED: i64 = -32000;
 /// name comes from the credential type, and raw provider details are dropped.
 pub(crate) fn start_connection_key(e: &mut RpcError, provider: &str) -> bool {
     let detail = e.message.to_ascii_lowercase();
-    if crate::turn_errors::says_unreachable(&detail) || crate::turn_errors::model_not_available(&detail)
-        || !(says_api_key(&detail) || ["401", "403"].iter().any(|status| crate::turn_errors::has_status(&detail, status)))
+    if crate::turn_errors::says_unreachable(&detail)
+        || crate::turn_errors::model_not_available(&detail)
+        || !(says_api_key(&detail)
+            || ["401", "403"].iter().any(|status| crate::turn_errors::has_status(&detail, status)))
     {
         return false;
     }

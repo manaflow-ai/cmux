@@ -17,8 +17,8 @@
 //! Cloud Settings starts a device code through `begin_device` and uses the same account store.
 //! Every OAuth URL comes from [`Endpoints`], so tests run the whole flow against a local server.
 
-mod import;
 mod device;
+mod import;
 mod jwt;
 pub(crate) mod oauth;
 pub(crate) mod store;
@@ -34,11 +34,11 @@ use tokio::sync::watch;
 
 use crate::routes::{self, RouteKind};
 
+pub use device::DeviceBegun;
 pub(crate) use import::codex_auth as import_codex_auth;
 #[cfg(test)]
 pub(crate) use import::test_auth_json as import_test_auth;
 pub use import::{ENV as CI_IMPORT_ENV, enabled as ci_import_enabled};
-pub use device::DeviceBegun;
 pub use oauth::Endpoints;
 
 /// Codex's OAuth client (the one `codex login` signs in with).
@@ -87,8 +87,11 @@ impl Failure {
     }
 
     fn wrong_account(actual: String, expected: String) -> Self {
-        Self { code: "different_account".into(), message: "ChatGPT approved a different account".into(),
-            accounts: Some((actual, expected)) }
+        Self {
+            code: "different_account".into(),
+            message: "ChatGPT approved a different account".into(),
+            accounts: Some((actual, expected)),
+        }
     }
 }
 
@@ -112,7 +115,10 @@ pub enum Status {
     /// Signed in: the connection's route id.
     Done(String),
     Failed(String),
-    WrongAccount { actual: String, expected: String },
+    WrongAccount {
+        actual: String,
+        expected: String,
+    },
     Cancelled,
 }
 
@@ -394,7 +400,8 @@ impl Service {
         };
         let mut observed = read().await;
         loop {
-            let pending = self.pending_writes.lock().unwrap_or_else(|p| p.into_inner()).get(&key).cloned();
+            let pending =
+                self.pending_writes.lock().unwrap_or_else(|p| p.into_inner()).get(&key).cloned();
             if let Some(pending) = pending {
                 let _save = self.oauth.save_slot().await;
                 observed = read().await;
@@ -420,7 +427,9 @@ impl Service {
             if !record.signed_in() {
                 return Err(Failure::new("signed_out", "sign in with ChatGPT again"));
             }
-            if !record.access_token.is_empty() && record.expires_at.saturating_sub(now_unix()) > margin {
+            if !record.access_token.is_empty()
+                && record.expires_at.saturating_sub(now_unix()) > margin
+            {
                 return Ok((record.access_token, record.expires_at));
             }
             match self.oauth.refresh(&record).await {
@@ -429,9 +438,10 @@ impl Service {
                     fresh.apply(&mut current, now_unix());
                     // Save the rotated grant before the next await. A cancelled caller
                     // cannot remove it before a later request retries the pending write.
-                    self.pending_writes.lock().unwrap_or_else(|p| p.into_inner()).insert(
-                        key.clone(), PendingWrite { previous: record.clone(), current },
-                    );
+                    self.pending_writes
+                        .lock()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .insert(key.clone(), PendingWrite { previous: record.clone(), current });
                     observed = Ok(record);
                 }
                 Err(failure) => {
@@ -455,7 +465,9 @@ impl Service {
     }
 
     async fn persist(
-        &self, key: &(PathBuf, String), record: &store::Record,
+        &self,
+        key: &(PathBuf, String),
+        record: &store::Record,
         save: tokio::sync::OwnedMutexGuard<()>,
     ) -> Result<(), Failure> {
         let (home, id) = key.clone();
@@ -463,7 +475,8 @@ impl Service {
         store_work(move || {
             let _save = save;
             store::write(&home, &id, &record)
-        }).await
+        })
+        .await
     }
 
     /// Signs account `id` out: revokes its refresh token (best effort: a revocation that fails
@@ -477,7 +490,10 @@ impl Service {
         let (path, route) = key.clone();
         let stored = store_work(move || store::read(&path, &route)).await.ok().flatten();
         let record = stored.map(|stored| {
-            self.pending_writes.lock().unwrap_or_else(|p| p.into_inner()).get(&key)
+            self.pending_writes
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .get(&key)
                 .filter(|pending| pending.previous == stored || pending.current == stored)
                 .map_or(stored, |pending| pending.current.clone())
         });
@@ -485,7 +501,8 @@ impl Service {
         store_work(move || {
             let _save = _save;
             store::delete(&path, &route)
-        }).await?;
+        })
+        .await?;
         self.pending_writes.lock().unwrap_or_else(|p| p.into_inner()).remove(&key);
         let revoked = if let Some(record) = record.filter(store::Record::signed_in) {
             match self.oauth.revoke(&record).await {

@@ -766,11 +766,16 @@ fn edit_endpoint_profile(
                 let revised = models
                     .iter()
                     .map(|(id, model)| {
-                        let mut saved = previous.and_then(|models| models.get(id)).unwrap_or(model).clone();
+                        let mut saved =
+                            previous.and_then(|models| models.get(id)).unwrap_or(model).clone();
                         if base_url_changed && let Some(object) = saved.as_object_mut() {
                             match model.get("interleaved") {
-                                Some(interleaved) => { object.insert("interleaved".into(), interleaved.clone()); }
-                                None => { object.remove("interleaved"); }
+                                Some(interleaved) => {
+                                    object.insert("interleaved".into(), interleaved.clone());
+                                }
+                                None => {
+                                    object.remove("interleaved");
+                                }
                             }
                         }
                         (id.clone(), saved)
@@ -1119,20 +1124,27 @@ pub(crate) async fn prepare_endpoint_models(
     };
     let key = key.as_ref().map(|key| key.as_str());
     if byo_endpoint::cloudflare_gateway(&base_url) {
-        let model = wanted.first().filter(|model| model.as_str() != byo_endpoint::ALL_MODELS)
-            .ok_or_else(|| AdminError::Invalid("Cloudflare needs a model ID for the connection check.".into()))?;
-        let key = key.ok_or_else(|| AdminError::Invalid("Cloudflare needs a gateway token.".into()))?;
-        return byo_endpoint::check_cloudflare(&base_url, model, key).await.map_err(AdminError::EndpointCheck);
+        let model = wanted
+            .first()
+            .filter(|model| model.as_str() != byo_endpoint::ALL_MODELS)
+            .ok_or_else(|| {
+                AdminError::Invalid("Cloudflare needs a model ID for the connection check.".into())
+            })?;
+        let key =
+            key.ok_or_else(|| AdminError::Invalid("Cloudflare needs a gateway token.".into()))?;
+        return byo_endpoint::check_cloudflare(&base_url, model, key)
+            .await
+            .map_err(AdminError::EndpointCheck);
     }
-    let list_kind = if byo_endpoint::anthropic_compatible(&base_url) { byo_endpoint::Kind::Anthropic } else { kind };
-    let fetched = byo_endpoint::fetch_models(
-        list_kind,
-        &base_url,
-        key,
-        byo_endpoint::FETCH_TIMEOUT,
-    )
-    .await
-    .map_err(AdminError::EndpointCheck)?;
+    let list_kind = if byo_endpoint::anthropic_compatible(&base_url) {
+        byo_endpoint::Kind::Anthropic
+    } else {
+        kind
+    };
+    let fetched =
+        byo_endpoint::fetch_models(list_kind, &base_url, key, byo_endpoint::FETCH_TIMEOUT)
+            .await
+            .map_err(AdminError::EndpointCheck)?;
     if !expand {
         return Ok(());
     }

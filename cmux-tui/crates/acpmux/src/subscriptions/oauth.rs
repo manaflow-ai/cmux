@@ -128,9 +128,13 @@ impl TokenReply {
             expires_at,
             region: prior.and_then(|record| record.region),
             device_id: prior.and_then(|record| record.device_id.clone()),
-            sub: prior.and_then(|record| record.sub.clone()).or_else(|| identity(claims.as_ref()?.get("sub")?)),
+            sub: prior
+                .and_then(|record| record.sub.clone())
+                .or_else(|| identity(claims.as_ref()?.get("sub")?)),
             login: prior.and_then(|record| record.login.clone()),
-            email: prior.and_then(|record| record.email.clone()).or_else(|| identity(claims.as_ref()?.get("email")?)),
+            email: prior
+                .and_then(|record| record.email.clone())
+                .or_else(|| identity(claims.as_ref()?.get("email")?)),
         })
     }
 }
@@ -229,9 +233,11 @@ impl OAuth {
             ),
         };
         let device: Device = reply(request).await?;
-        if provider == Provider::Copilot && Url::parse(&device.verification_uri).ok()
-            .and_then(|url| url.host_str().map(str::to_owned))
-            .is_some_and(|host| host.ends_with(".ghe.com"))
+        if provider == Provider::Copilot
+            && Url::parse(&device.verification_uri)
+                .ok()
+                .and_then(|url| url.host_str().map(str::to_owned))
+                .is_some_and(|host| host.ends_with(".ghe.com"))
         {
             return Err("enterprise_server");
         }
@@ -283,7 +289,9 @@ impl OAuth {
                 return Err("expired_token");
             }
             tokio::time::sleep_until(next).await;
-            if now() >= challenge.expires_at { return Err("expired_token"); }
+            if now() >= challenge.expires_at {
+                return Err("expired_token");
+            }
             let request = match provider {
                 Provider::Grok => form(
                     http.post(&token_url),
@@ -340,8 +348,11 @@ impl OAuth {
                         .max(Duration::from_secs(token.interval.unwrap_or(0).min(900)));
                 }
                 Some("access_denied") => return Err("access_denied"),
-                Some("enterprise_server" | "github_enterprise_server") if provider == Provider::Copilot =>
-                    return Err("enterprise_server"),
+                Some("enterprise_server" | "github_enterprise_server")
+                    if provider == Provider::Copilot =>
+                {
+                    return Err("enterprise_server");
+                }
                 Some("expired_token") => return Err("expired_token"),
                 Some(_) => return Err("provider_error"),
                 None if ok => {
@@ -350,17 +361,25 @@ impl OAuth {
                     record.device_id = challenge.device_id;
                     if provider == Provider::Copilot {
                         self.copilot_endpoint(&record.access_token).await?;
-                        let user: serde_json::Value = reply(http.get(format!("{}/user", self.endpoints.github_api))
-                            .header("User-Agent", "cmux").bearer_auth(&record.access_token)).await?;
+                        let user: serde_json::Value = reply(
+                            http.get(format!("{}/user", self.endpoints.github_api))
+                                .header("User-Agent", "cmux")
+                                .bearer_auth(&record.access_token),
+                        )
+                        .await?;
                         record.sub = user["id"].as_u64().map(|id| id.to_string());
                         record.login = identity(&user["login"]);
-                        if record.sub.is_none() || record.login.is_none() { return Err("bad_reply"); }
+                        if record.sub.is_none() || record.login.is_none() {
+                            return Err("bad_reply");
+                        }
                     }
-                    if provider == Provider::Kimi && record.sub.is_none()
+                    if provider == Provider::Kimi
+                        && record.sub.is_none()
                         && let Some(region) = record.region
                         && let Some(user) = self.kimi_identity(http, region, &record).await
                     {
-                        record.sub = identity(&user["sub"]).or_else(|| user["id"].as_u64().map(|id| id.to_string()));
+                        record.sub = identity(&user["sub"])
+                            .or_else(|| user["id"].as_u64().map(|id| id.to_string()));
                         record.login = identity(&user["name"]);
                         record.email = identity(&user["email"]);
                     }
@@ -371,21 +390,36 @@ impl OAuth {
         }
     }
 
-    async fn kimi_identity(&self, http: &Client, region: KimiRegion, record: &Record) -> Option<serde_json::Value> {
+    async fn kimi_identity(
+        &self,
+        http: &Client,
+        region: KimiRegion,
+        record: &Record,
+    ) -> Option<serde_json::Value> {
         let issuer = match region {
             KimiRegion::Global => &self.endpoints.kimi_global,
             KimiRegion::China => &self.endpoints.kimi_china,
         };
-        let discovery: serde_json::Value = reply(http.get(format!("{issuer}/.well-known/openid-configuration"))
-            .timeout(Duration::from_secs(3))).await.ok()?;
+        let discovery: serde_json::Value = reply(
+            http.get(format!("{issuer}/.well-known/openid-configuration"))
+                .timeout(Duration::from_secs(3)),
+        )
+        .await
+        .ok()?;
         let endpoint = Url::parse(discovery["userinfo_endpoint"].as_str()?).ok()?;
-        if endpoint.origin() != Url::parse(issuer).ok()?.origin() || !endpoint.username().is_empty()
+        if endpoint.origin() != Url::parse(issuer).ok()?.origin()
+            || !endpoint.username().is_empty()
             || endpoint.password().is_some()
         {
             return None;
         }
-        reply(self.kimi_headers(http.get(endpoint), record.device_id.as_deref())
-            .timeout(Duration::from_secs(3)).bearer_auth(&record.access_token)).await.ok()
+        reply(
+            self.kimi_headers(http.get(endpoint), record.device_id.as_deref())
+                .timeout(Duration::from_secs(3))
+                .bearer_auth(&record.access_token),
+        )
+        .await
+        .ok()
     }
 
     pub async fn copilot_endpoint(&self, token: &str) -> Result<Option<String>, Failure> {
@@ -396,7 +430,8 @@ impl OAuth {
             .header("User-Agent", "cmux")
             .timeout(Duration::from_secs(5))
             .bearer_auth(token);
-        let response = response.header("Accept", "application/json").send().await.map_err(|_| "network")?;
+        let response =
+            response.header("Accept", "application/json").send().await.map_err(|_| "network")?;
         match response.status().as_u16() {
             401 => return Err("reauth_required"),
             403 | 404 => return Err("no_copilot_access"),
@@ -467,7 +502,9 @@ impl OAuth {
 // token response. It never grants access or participates in authorization.
 fn identity_claims(id_token: &str) -> Option<serde_json::Value> {
     let payload = id_token.split('.').nth(1)?;
-    if payload.len() > 16_384 { return None; }
+    if payload.len() > 16_384 {
+        return None;
+    }
     let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(payload).ok()?;
     serde_json::from_slice(&bytes).ok()
 }

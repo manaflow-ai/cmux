@@ -2180,9 +2180,19 @@ impl Hub {
                             o.insert("errorCode".into(), json!("claude_cloud_token_rejected"));
                         } else if crate::turn_errors::model_not_available(&e.message) {
                             o.insert("errorCode".into(), json!("model_not_found"));
-                        } else if turn == 1 && crate::turn_errors::has_status(&e.message.to_ascii_lowercase(), "403")
-                            && session.launch_env.lock().unwrap_or_else(|p| p.into_inner()).as_ref()
-                                .is_some_and(|env| env.contains_key(crate::subscriptions::grok_hook::COMMAND))
+                        } else if turn == 1
+                            && crate::turn_errors::has_status(
+                                &e.message.to_ascii_lowercase(),
+                                "403",
+                            )
+                            && session
+                                .launch_env
+                                .lock()
+                                .unwrap_or_else(|p| p.into_inner())
+                                .as_ref()
+                                .is_some_and(|env| {
+                                    env.contains_key(crate::subscriptions::grok_hook::COMMAND)
+                                })
                         {
                             o.insert("errorCode".into(), json!("subscription.no_supergrok_access"));
                         }

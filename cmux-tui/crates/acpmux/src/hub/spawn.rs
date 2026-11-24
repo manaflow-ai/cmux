@@ -256,8 +256,10 @@ impl Hub {
         credential: Option<&crate::agent_credentials::AgentCredential>,
     ) -> Result<(HarnessProfile, Option<String>, Option<std::path::PathBuf>), RpcError> {
         if meta.credential_connection.is_some() && credential.is_none() {
-            return Err(RpcError::invalid_params("This chat needs its model connection from your Mac.")
-                .with_data(serde_json::json!({"reason": "credentials.needed"})));
+            return Err(RpcError::invalid_params(
+                "This chat needs its model connection from your Mac.",
+            )
+            .with_data(serde_json::json!({"reason": "credentials.needed"})));
         }
         let mut p = profile.clone();
         let mut digest = None;
@@ -423,8 +425,10 @@ impl Hub {
             if applied {
                 tracing::info!(session = %meta.id, ?names, "agent launches on the owner's credential");
             } else if meta.credential_connection.is_some() {
-                return Err(RpcError::invalid_params("This model connection does not serve the chat's agent.")
-                    .with_data(serde_json::json!({"reason": "credentials.family"})));
+                return Err(RpcError::invalid_params(
+                    "This model connection does not serve the chat's agent.",
+                )
+                .with_data(serde_json::json!({"reason": "credentials.family"})));
             } else {
                 tracing::warn!(session = %meta.id, %family, ?names, "a credential of another family: the agent keeps this machine's route");
             }

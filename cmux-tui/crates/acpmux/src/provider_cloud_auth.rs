@@ -106,9 +106,14 @@ impl Provider {
     fn endpoint_vars(self) -> &'static [&'static str] {
         match self {
             Provider::Gemini => &[
-                "GOOGLE_GEMINI_BASE_URL", "GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_GENAI_USE_GCA",
-                "GEMINI_CLI_AUTH_OVERRIDE", "GOOGLE_VERTEX_BASE_URL",
-                "GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_PROJECT_ID", "GOOGLE_CLOUD_LOCATION",
+                "GOOGLE_GEMINI_BASE_URL",
+                "GOOGLE_GENAI_USE_VERTEXAI",
+                "GOOGLE_GENAI_USE_GCA",
+                "GEMINI_CLI_AUTH_OVERRIDE",
+                "GOOGLE_VERTEX_BASE_URL",
+                "GOOGLE_CLOUD_PROJECT",
+                "GOOGLE_CLOUD_PROJECT_ID",
+                "GOOGLE_CLOUD_LOCATION",
                 "GEMINI_CLI_TRUST_WORKSPACE",
             ],
             Provider::Grok => {

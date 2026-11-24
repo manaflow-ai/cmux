@@ -1119,22 +1119,6 @@ fn redact_launch_key(entry: &mut Entry, key: &str) {
     }
 }
 
-#[cfg(test)]
-#[test]
-fn endpoint_launch_credentials_are_redacted_from_host_entries() {
-    let token = "fixture-provider-key";
-    let mut line = Entry::Err { line: format!("provider refused {token}") };
-    let mut event = Entry::In {
-        msg: serde_json::json!({"params": {"text": token, token: "provider metadata"}}),
-    };
-    for entry in [&mut line, &mut event] {
-        redact_launch_key(entry, token);
-        let json = serde_json::to_string(entry).unwrap();
-        assert!(!json.contains(token));
-        assert!(json.contains("[redacted]"));
-    }
-}
-
 impl State {
     /// Note the processes under this host before its harness group is
     /// ended, while the harness still parents what it moved out of it.
@@ -1942,6 +1926,26 @@ mod tests {
         ] {
             let Entry::Err { line } = over_frame_limit(4, &entry) else { panic!("not a note") };
             assert_eq!(line, "[entry 4 over the frame limit dropped]");
+        }
+    }
+}
+
+#[cfg(test)]
+mod launch_key_redaction_tests {
+    use super::*;
+
+    #[test]
+    fn endpoint_launch_credentials_are_redacted_from_host_entries() {
+        let token = "fixture-provider-key";
+        let mut line = Entry::Err { line: format!("provider refused {token}") };
+        let mut event = Entry::In {
+            msg: serde_json::json!({"params": {"text": token, token: "provider metadata"}}),
+        };
+        for entry in [&mut line, &mut event] {
+            redact_launch_key(entry, token);
+            let json = serde_json::to_string(entry).unwrap();
+            assert!(!json.contains(token));
+            assert!(json.contains("[redacted]"));
         }
     }
 }

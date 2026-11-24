@@ -722,7 +722,12 @@ async fn a_dead_refresh_token_signs_the_account_out() {
     sign_in(&s, &[("code", "c1")]).await;
     expire(&s);
     s.fake.state.lock().unwrap().refresh_error = Some((503, json!({"error": "unavailable"})));
-    assert!(s.service.token(&s.places.home, "chatgpt").await.is_ok_and(|(token, _)| token == "access-0"));
+    assert!(
+        s.service
+            .token(&s.places.home, "chatgpt")
+            .await
+            .is_ok_and(|(token, _)| token == "access-0")
+    );
     assert!(store::read(&s.places.home, "chatgpt").unwrap().unwrap().signed_in());
 }
 
@@ -941,9 +946,13 @@ async fn chatgpt_reconnect_rejects_another_account_and_add_another_accepts_it() 
         store::write(&s.places.home, "chatgpt", &account).unwrap();
     }
     let (status, _) = sign_in_again(&s, Some("chatgpt"), &[("code", "reconnect")]).await;
-    assert_eq!(status, Status::WrongAccount {
-        actual: "alex@example.com".into(), expected: "prior@example.com".into(),
-    });
+    assert_eq!(
+        status,
+        Status::WrongAccount {
+            actual: "alex@example.com".into(),
+            expected: "prior@example.com".into(),
+        }
+    );
     assert_eq!(store::all(&s.places.home).len(), 1);
     let (status, _) = sign_in(&s, &[("code", "add")]).await;
     assert_eq!(status, Status::Done("chatgpt-2".into()));

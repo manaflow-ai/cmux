@@ -120,7 +120,12 @@ impl<'a> Store<'a> {
         let filename = format!("{id}.json");
         for provider in ["chatgpt", "grok", "copilot", "kimi"] {
             if provider != self.provider
-                && self.home.join(provider).join(&filename).try_exists().map_err(|_| Error::Storage)?
+                && self
+                    .home
+                    .join(provider)
+                    .join(&filename)
+                    .try_exists()
+                    .map_err(|_| Error::Storage)?
             {
                 return Ok(true);
             }
@@ -365,7 +370,8 @@ fn metadata(provider: &str, id: &str, record: &Value) -> Value {
 }
 
 fn generation(index: &Value) -> Result<Option<Uuid>, Error> {
-    index.get("keychain_generation")
+    index
+        .get("keychain_generation")
         .map(|value| {
             value.as_str().and_then(|value| Uuid::parse_str(value).ok()).ok_or(Error::Storage)
         })
