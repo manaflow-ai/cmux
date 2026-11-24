@@ -4,7 +4,7 @@
 Covers scripts/cmux-next/gen-instrument-tokens.py and schemas/instrument/ (instrument.json,
 pending-baseline.json, CHANGELOG.md), and the sources it reads today's values from:
 schemas/design-scale/design-scale.json, schemas/type-scale/type-scale.json,
-schemas/layout-grid/layout-grid.json, schemas/surface-roles/surface-roles.json,
+schemas/layout-grid/layout-grid.json, schemas/surface-roles/surface-roles.json, schemas/transcript-look/transcript-look.json,
 schemas/settings/source/appearance.json, schemas/settings/source/agent-pane-display.json, and the CSS files offToken entries name.
 """
 import copy
