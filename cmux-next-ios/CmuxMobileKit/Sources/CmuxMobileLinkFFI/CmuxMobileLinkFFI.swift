@@ -1336,7 +1336,7 @@ public protocol ChatPromptOutboxProtocol: AnyObject, Sendable {
     func answered(promptId: String)  -> ChatPromptDone?
     
     /**
-     * Its attachments and their uploads (for a progress ring), or none.
+     * Its attachments and their uploads' ends, or none.
      */
     func attachments(promptId: String)  -> [ChatAttachment]?
     
@@ -1358,7 +1358,7 @@ public protocol ChatPromptOutboxProtocol: AnyObject, Sendable {
     /**
      * The person edits it: in place, or (it may be on the Mac) as `new_prompt_id` in its place.
      */
-    func edit(promptId: String, newPromptId: String, text: String, attachmentIds: [String], nowMs: UInt64)  -> ChatEditStep?
+    func edit(promptId: String, newPromptId: String, text: String, uploadIds: [String], nowMs: UInt64)  -> ChatEditStep?
     
     /**
      * Unwritten prompts given up at `now_ms` (all of them once one is past the hold), in order.
@@ -1396,11 +1396,6 @@ public protocol ChatPromptOutboxProtocol: AnyObject, Sendable {
     func nextRequest(nowMs: UInt64)  -> ChatPromptRequest?
     
     /**
-     * The next upload to start, if one may start now.
-     */
-    func nextUpload(nowMs: UInt64)  -> ChatUploadRequest?
-    
-    /**
      * Milliseconds after `now_ms` until something is due (a hold or a retry), or none.
      */
     func nextWakeMs(nowMs: UInt64)  -> UInt64?
@@ -1411,10 +1406,10 @@ public protocol ChatPromptOutboxProtocol: AnyObject, Sendable {
     func pending()  -> UInt32
     
     /**
-     * A tap on Send with its attachments' ids (each to upload). Never waits. False when this
-     * `promptId` is already here.
+     * A tap on Send with its attachments' upload ids (started at pick time). Never waits. False
+     * when this `promptId` is already here.
      */
-    func push(promptId: String, text: String, attachmentIds: [String], resend: Bool, tappedMs: UInt64, nowMs: UInt64)  -> Bool
+    func push(promptId: String, text: String, uploadIds: [String], resend: Bool, tappedMs: UInt64, nowMs: UInt64)  -> Bool
     
     /**
      * The Mac refused it.
@@ -1434,7 +1429,7 @@ public protocol ChatPromptOutboxProtocol: AnyObject, Sendable {
     func setHoldMs(holdMs: UInt64) 
     
     /**
-     * The link's state at `now_ms`; coming back, queued prompts and uploads go at once, in order.
+     * The link's state at `now_ms`; coming back, queued prompts go at once, in order.
      */
     func setLink(up: Bool, nowMs: UInt64) 
     
@@ -1444,13 +1439,15 @@ public protocol ChatPromptOutboxProtocol: AnyObject, Sendable {
     func unwritten()  -> [String]
     
     /**
-     * An upload failed; the prompt when it gave up (`UploadFailed`).
+     * The uploader gave up on `upload_id`: the prompt holding it, given up (`UploadFailed`),
+     * with its other uploads to cancel.
      */
-    func uploadFailed(promptId: String, attachmentId: String, reason: String, nowMs: UInt64)  -> ChatPromptDone?
+    func uploadFailed(uploadId: String, reason: String)  -> ChatPromptDone?
     
-    func uploadProgress(promptId: String, attachmentId: String, sent: UInt64, total: UInt64) 
-    
-    func uploaded(promptId: String, attachmentId: String, macPath: String, nowMs: UInt64) 
+    /**
+     * The upload `upload_id` ended on the Mac at `mac_path`. Unknown ids are ignored.
+     */
+    func uploaded(uploadId: String, macPath: String, nowMs: UInt64) 
     
     /**
      * Its write failed: it goes again after a backoff.
@@ -1542,7 +1539,7 @@ open func answered(promptId: String) -> ChatPromptDone?  {
 }
     
     /**
-     * Its attachments and their uploads (for a progress ring), or none.
+     * Its attachments and their uploads' ends, or none.
      */
 open func attachments(promptId: String) -> [ChatAttachment]?  {
     return try!  FfiConverterOptionSequenceTypeChatAttachment.lift(try! rustCall() {
@@ -1591,14 +1588,14 @@ open func drainUnwritten() -> [ChatPromptTaken]  {
     /**
      * The person edits it: in place, or (it may be on the Mac) as `new_prompt_id` in its place.
      */
-open func edit(promptId: String, newPromptId: String, text: String, attachmentIds: [String], nowMs: UInt64) -> ChatEditStep?  {
+open func edit(promptId: String, newPromptId: String, text: String, uploadIds: [String], nowMs: UInt64) -> ChatEditStep?  {
     return try!  FfiConverterOptionTypeChatEditStep.lift(try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_method_chatpromptoutbox_edit(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(promptId),
         FfiConverterString.lower(newPromptId),
         FfiConverterString.lower(text),
-        FfiConverterSequenceString.lower(attachmentIds),
+        FfiConverterSequenceString.lower(uploadIds),
         FfiConverterUInt64.lower(nowMs),$0
     )
 })
@@ -1689,18 +1686,6 @@ open func nextRequest(nowMs: UInt64) -> ChatPromptRequest?  {
 }
     
     /**
-     * The next upload to start, if one may start now.
-     */
-open func nextUpload(nowMs: UInt64) -> ChatUploadRequest?  {
-    return try!  FfiConverterOptionTypeChatUploadRequest.lift(try! rustCall() {
-    uniffi_cmux_mobile_link_ffi_fn_method_chatpromptoutbox_next_upload(
-            self.uniffiCloneHandle(),
-        FfiConverterUInt64.lower(nowMs),$0
-    )
-})
-}
-    
-    /**
      * Milliseconds after `now_ms` until something is due (a hold or a retry), or none.
      */
 open func nextWakeMs(nowMs: UInt64) -> UInt64?  {
@@ -1724,16 +1709,16 @@ open func pending() -> UInt32  {
 }
     
     /**
-     * A tap on Send with its attachments' ids (each to upload). Never waits. False when this
-     * `promptId` is already here.
+     * A tap on Send with its attachments' upload ids (started at pick time). Never waits. False
+     * when this `promptId` is already here.
      */
-open func push(promptId: String, text: String, attachmentIds: [String], resend: Bool, tappedMs: UInt64, nowMs: UInt64) -> Bool  {
+open func push(promptId: String, text: String, uploadIds: [String], resend: Bool, tappedMs: UInt64, nowMs: UInt64) -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_method_chatpromptoutbox_push(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(promptId),
         FfiConverterString.lower(text),
-        FfiConverterSequenceString.lower(attachmentIds),
+        FfiConverterSequenceString.lower(uploadIds),
         FfiConverterBool.lower(resend),
         FfiConverterUInt64.lower(tappedMs),
         FfiConverterUInt64.lower(nowMs),$0
@@ -1788,7 +1773,7 @@ open func setHoldMs(holdMs: UInt64)  {try! rustCall() {
 }
     
     /**
-     * The link's state at `now_ms`; coming back, queued prompts and uploads go at once, in order.
+     * The link's state at `now_ms`; coming back, queued prompts go at once, in order.
      */
 open func setLink(up: Bool, nowMs: UInt64)  {try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_method_chatpromptoutbox_set_link(
@@ -1811,36 +1796,26 @@ open func unwritten() -> [String]  {
 }
     
     /**
-     * An upload failed; the prompt when it gave up (`UploadFailed`).
+     * The uploader gave up on `upload_id`: the prompt holding it, given up (`UploadFailed`),
+     * with its other uploads to cancel.
      */
-open func uploadFailed(promptId: String, attachmentId: String, reason: String, nowMs: UInt64) -> ChatPromptDone?  {
+open func uploadFailed(uploadId: String, reason: String) -> ChatPromptDone?  {
     return try!  FfiConverterOptionTypeChatPromptDone.lift(try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_method_chatpromptoutbox_upload_failed(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(promptId),
-        FfiConverterString.lower(attachmentId),
-        FfiConverterString.lower(reason),
-        FfiConverterUInt64.lower(nowMs),$0
+        FfiConverterString.lower(uploadId),
+        FfiConverterString.lower(reason),$0
     )
 })
 }
     
-open func uploadProgress(promptId: String, attachmentId: String, sent: UInt64, total: UInt64)  {try! rustCall() {
-    uniffi_cmux_mobile_link_ffi_fn_method_chatpromptoutbox_upload_progress(
-            self.uniffiCloneHandle(),
-        FfiConverterString.lower(promptId),
-        FfiConverterString.lower(attachmentId),
-        FfiConverterUInt64.lower(sent),
-        FfiConverterUInt64.lower(total),$0
-    )
-}
-}
-    
-open func uploaded(promptId: String, attachmentId: String, macPath: String, nowMs: UInt64)  {try! rustCall() {
+    /**
+     * The upload `upload_id` ended on the Mac at `mac_path`. Unknown ids are ignored.
+     */
+open func uploaded(uploadId: String, macPath: String, nowMs: UInt64)  {try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_method_chatpromptoutbox_uploaded(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(promptId),
-        FfiConverterString.lower(attachmentId),
+        FfiConverterString.lower(uploadId),
         FfiConverterString.lower(macPath),
         FfiConverterUInt64.lower(nowMs),$0
     )
@@ -4090,6 +4065,261 @@ public func FfiConverterTypeMacScreenRd_lower(_ value: MacScreenRd) -> UInt64 {
 
 
 /**
+ * The phone's copy of the Mac's tab list for one link. Make one per Mac; it lives across
+ * reconnects so a reconnect resumes from its rev instead of reading the manifest again.
+ */
+public protocol TabsMirrorProtocol: AnyObject, Sendable {
+    
+    /**
+     * The frames to write when the `tabs` channel opens, in order: `have`, `resume` (after
+     * a first manifest), then `viewport`.
+     */
+    func linkUp(viewport: TabsViewport)  -> [Data]
+    
+    /**
+     * Bytes read from the channel, cut wherever the link cut them. One event per frame
+     * they complete, in order; none when a frame is still arriving.
+     */
+    func receive(chunk: Data)  -> [TabsEvent]
+    
+    /**
+     * The rev of the last manifest or delta applied, if any.
+     */
+    func rev()  -> UInt64?
+    
+    /**
+     * The rows as last applied, in tab order.
+     */
+    func rows()  -> [TabsRow]
+    
+    /**
+     * The overview's cards nearest the open tab, nearest first (the cards on screen). The
+     * frames to write: a reordered `want`, or nothing when the order of what is missing did
+     * not change.
+     */
+    func setNear(tabIds: [String])  -> [Data]
+    
+    /**
+     * Of `on_disk`, the blob names no row shows any more: the ones the phone may delete.
+     * Before a first manifest nothing is known to be unused, so nothing is returned.
+     */
+    func unreferenced(onDisk: [String])  -> [String]
+    
+    /**
+     * A `want` for one tab's page-size frame, written when the person opens the tab.
+     * Nothing when the row has none or the phone holds it.
+     */
+    func wantFrame(tabId: String)  -> [Data]
+    
+}
+/**
+ * The phone's copy of the Mac's tab list for one link. Make one per Mac; it lives across
+ * reconnects so a reconnect resumes from its rev instead of reading the manifest again.
+ */
+open class TabsMirror: TabsMirrorProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_tabsmirror(self.handle, $0) }
+    }
+    /**
+     * `held` are the hashes of the blobs on disk from earlier launches (a name that is not
+     * a sha256 hex is skipped).
+     */
+public convenience init(held: [String]) {
+    let handle =
+        try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_constructor_tabsmirror_new(
+        FfiConverterSequenceString.lower(held),$0
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_tabsmirror(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * The frames to write when the `tabs` channel opens, in order: `have`, `resume` (after
+     * a first manifest), then `viewport`.
+     */
+open func linkUp(viewport: TabsViewport) -> [Data]  {
+    return try!  FfiConverterSequenceData.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_tabsmirror_link_up(
+            self.uniffiCloneHandle(),
+        FfiConverterTypeTabsViewport_lower(viewport),$0
+    )
+})
+}
+    
+    /**
+     * Bytes read from the channel, cut wherever the link cut them. One event per frame
+     * they complete, in order; none when a frame is still arriving.
+     */
+open func receive(chunk: Data) -> [TabsEvent]  {
+    return try!  FfiConverterSequenceTypeTabsEvent.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_tabsmirror_receive(
+            self.uniffiCloneHandle(),
+        FfiConverterData.lower(chunk),$0
+    )
+})
+}
+    
+    /**
+     * The rev of the last manifest or delta applied, if any.
+     */
+open func rev() -> UInt64?  {
+    return try!  FfiConverterOptionUInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_tabsmirror_rev(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * The rows as last applied, in tab order.
+     */
+open func rows() -> [TabsRow]  {
+    return try!  FfiConverterSequenceTypeTabsRow.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_tabsmirror_rows(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * The overview's cards nearest the open tab, nearest first (the cards on screen). The
+     * frames to write: a reordered `want`, or nothing when the order of what is missing did
+     * not change.
+     */
+open func setNear(tabIds: [String]) -> [Data]  {
+    return try!  FfiConverterSequenceData.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_tabsmirror_set_near(
+            self.uniffiCloneHandle(),
+        FfiConverterSequenceString.lower(tabIds),$0
+    )
+})
+}
+    
+    /**
+     * Of `on_disk`, the blob names no row shows any more: the ones the phone may delete.
+     * Before a first manifest nothing is known to be unused, so nothing is returned.
+     */
+open func unreferenced(onDisk: [String]) -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_tabsmirror_unreferenced(
+            self.uniffiCloneHandle(),
+        FfiConverterSequenceString.lower(onDisk),$0
+    )
+})
+}
+    
+    /**
+     * A `want` for one tab's page-size frame, written when the person opens the tab.
+     * Nothing when the row has none or the phone holds it.
+     */
+open func wantFrame(tabId: String) -> [Data]  {
+    return try!  FfiConverterSequenceData.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_tabsmirror_want_frame(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(tabId),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTabsMirror: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = TabsMirror
+
+    public static func lift(_ handle: UInt64) throws -> TabsMirror {
+        return TabsMirror(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: TabsMirror) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TabsMirror {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: TabsMirror, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTabsMirror_lift(_ handle: UInt64) throws -> TabsMirror {
+    return try FfiConverterTypeTabsMirror.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTabsMirror_lower(_ value: TabsMirror) -> UInt64 {
+    return FfiConverterTypeTabsMirror.lower(value)
+}
+
+
+
+
+
+
+/**
  * One terminal's prediction.
  */
 public protocol TerminalPredictionProtocol: AnyObject, Sendable {
@@ -4998,13 +5228,13 @@ public func FfiConverterTypeBrowserStats_lower(_ value: BrowserStats) -> RustBuf
 
 
 public struct ChatAttachment: Equatable, Hashable {
-    public var attachmentId: String
+    public var uploadId: String
     public var state: ChatUploadState
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(attachmentId: String, state: ChatUploadState) {
-        self.attachmentId = attachmentId
+    public init(uploadId: String, state: ChatUploadState) {
+        self.uploadId = uploadId
         self.state = state
     }
 
@@ -5024,13 +5254,13 @@ public struct FfiConverterTypeChatAttachment: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ChatAttachment {
         return
             try ChatAttachment(
-                attachmentId: FfiConverterString.read(from: &buf), 
+                uploadId: FfiConverterString.read(from: &buf), 
                 state: FfiConverterTypeChatUploadState.read(from: &buf)
         )
     }
 
     public static func write(_ value: ChatAttachment, into buf: inout [UInt8]) {
-        FfiConverterString.write(value.attachmentId, into: &buf)
+        FfiConverterString.write(value.uploadId, into: &buf)
         FfiConverterTypeChatUploadState.write(value.state, into: &buf)
     }
 }
@@ -5059,14 +5289,22 @@ public struct ChatPromptDone: Equatable, Hashable {
     public var outcome: ChatPromptOutcome
     public var text: String
     public var attachments: [ChatAttachment]
+    /**
+     * Its uploads not on the Mac yet: the source cancels them (empty for one that went).
+     */
+    public var cancelUploadIds: [String]
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(promptId: String, outcome: ChatPromptOutcome, text: String, attachments: [ChatAttachment]) {
+    public init(promptId: String, outcome: ChatPromptOutcome, text: String, attachments: [ChatAttachment], 
+        /**
+         * Its uploads not on the Mac yet: the source cancels them (empty for one that went).
+         */cancelUploadIds: [String]) {
         self.promptId = promptId
         self.outcome = outcome
         self.text = text
         self.attachments = attachments
+        self.cancelUploadIds = cancelUploadIds
     }
 
     
@@ -5088,7 +5326,8 @@ public struct FfiConverterTypeChatPromptDone: FfiConverterRustBuffer {
                 promptId: FfiConverterString.read(from: &buf), 
                 outcome: FfiConverterTypeChatPromptOutcome.read(from: &buf), 
                 text: FfiConverterString.read(from: &buf), 
-                attachments: FfiConverterSequenceTypeChatAttachment.read(from: &buf)
+                attachments: FfiConverterSequenceTypeChatAttachment.read(from: &buf), 
+                cancelUploadIds: FfiConverterSequenceString.read(from: &buf)
         )
     }
 
@@ -5097,6 +5336,7 @@ public struct FfiConverterTypeChatPromptDone: FfiConverterRustBuffer {
         FfiConverterTypeChatPromptOutcome.write(value.outcome, into: &buf)
         FfiConverterString.write(value.text, into: &buf)
         FfiConverterSequenceTypeChatAttachment.write(value.attachments, into: &buf)
+        FfiConverterSequenceString.write(value.cancelUploadIds, into: &buf)
     }
 }
 
@@ -5240,73 +5480,16 @@ public func FfiConverterTypeChatPromptTaken_lower(_ value: ChatPromptTaken) -> R
 
 
 /**
- * One upload to start.
- */
-public struct ChatUploadRequest: Equatable, Hashable {
-    public var promptId: String
-    public var attachmentId: String
-
-    // Default memberwise initializers are never public by default, so we
-    // declare one manually.
-    public init(promptId: String, attachmentId: String) {
-        self.promptId = promptId
-        self.attachmentId = attachmentId
-    }
-
-    
-
-    
-}
-
-#if compiler(>=6)
-extension ChatUploadRequest: Sendable {}
-#endif
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeChatUploadRequest: FfiConverterRustBuffer {
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ChatUploadRequest {
-        return
-            try ChatUploadRequest(
-                promptId: FfiConverterString.read(from: &buf), 
-                attachmentId: FfiConverterString.read(from: &buf)
-        )
-    }
-
-    public static func write(_ value: ChatUploadRequest, into buf: inout [UInt8]) {
-        FfiConverterString.write(value.promptId, into: &buf)
-        FfiConverterString.write(value.attachmentId, into: &buf)
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeChatUploadRequest_lift(_ buf: RustBuffer) throws -> ChatUploadRequest {
-    return try FfiConverterTypeChatUploadRequest.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeChatUploadRequest_lower(_ value: ChatUploadRequest) -> RustBuffer {
-    return FfiConverterTypeChatUploadRequest.lower(value)
-}
-
-
-/**
  * An uploaded attachment a prompt goes with.
  */
 public struct ChatUploadedAttachment: Equatable, Hashable {
-    public var attachmentId: String
+    public var uploadId: String
     public var macPath: String
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(attachmentId: String, macPath: String) {
-        self.attachmentId = attachmentId
+    public init(uploadId: String, macPath: String) {
+        self.uploadId = uploadId
         self.macPath = macPath
     }
 
@@ -5326,13 +5509,13 @@ public struct FfiConverterTypeChatUploadedAttachment: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ChatUploadedAttachment {
         return
             try ChatUploadedAttachment(
-                attachmentId: FfiConverterString.read(from: &buf), 
+                uploadId: FfiConverterString.read(from: &buf), 
                 macPath: FfiConverterString.read(from: &buf)
         )
     }
 
     public static func write(_ value: ChatUploadedAttachment, into buf: inout [UInt8]) {
-        FfiConverterString.write(value.attachmentId, into: &buf)
+        FfiConverterString.write(value.uploadId, into: &buf)
         FfiConverterString.write(value.macPath, into: &buf)
     }
 }
@@ -6409,6 +6592,210 @@ public func FfiConverterTypeShareAsk_lower(_ value: ShareAsk) -> RustBuffer {
 
 
 /**
+ * One card. Hashes are lowercase sha256 hex, the name a blob is saved under.
+ */
+public struct TabsRow: Equatable, Hashable {
+    public var tabId: String
+    public var title: String
+    /**
+     * `browser`, `terminal`, `agent`, or a kind a newer Mac names.
+     */
+    public var kind: String
+    public var faviconHash: String?
+    public var thumbHash: String?
+    public var thumbW: UInt32
+    public var thumbH: UInt32
+    /**
+     * The thumbnail's mime type (`image/jpeg`, `image/png`).
+     */
+    public var thumbMime: String
+    /**
+     * A terminal's screen as text (`text/x-cmux-screen`), `screen_cols` by `screen_rows`.
+     */
+    public var screenHash: String?
+    public var screenCols: UInt32
+    public var screenRows: UInt32
+    /**
+     * The page-size picture, asked for only when a tab opens.
+     */
+    public var frameHash: String?
+    public var capturedAtMs: Int64
+    /**
+     * Every blob the card shows is on the phone.
+     */
+    public var filled: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(tabId: String, title: String, 
+        /**
+         * `browser`, `terminal`, `agent`, or a kind a newer Mac names.
+         */kind: String, faviconHash: String?, thumbHash: String?, thumbW: UInt32, thumbH: UInt32, 
+        /**
+         * The thumbnail's mime type (`image/jpeg`, `image/png`).
+         */thumbMime: String, 
+        /**
+         * A terminal's screen as text (`text/x-cmux-screen`), `screen_cols` by `screen_rows`.
+         */screenHash: String?, screenCols: UInt32, screenRows: UInt32, 
+        /**
+         * The page-size picture, asked for only when a tab opens.
+         */frameHash: String?, capturedAtMs: Int64, 
+        /**
+         * Every blob the card shows is on the phone.
+         */filled: Bool) {
+        self.tabId = tabId
+        self.title = title
+        self.kind = kind
+        self.faviconHash = faviconHash
+        self.thumbHash = thumbHash
+        self.thumbW = thumbW
+        self.thumbH = thumbH
+        self.thumbMime = thumbMime
+        self.screenHash = screenHash
+        self.screenCols = screenCols
+        self.screenRows = screenRows
+        self.frameHash = frameHash
+        self.capturedAtMs = capturedAtMs
+        self.filled = filled
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension TabsRow: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTabsRow: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TabsRow {
+        return
+            try TabsRow(
+                tabId: FfiConverterString.read(from: &buf), 
+                title: FfiConverterString.read(from: &buf), 
+                kind: FfiConverterString.read(from: &buf), 
+                faviconHash: FfiConverterOptionString.read(from: &buf), 
+                thumbHash: FfiConverterOptionString.read(from: &buf), 
+                thumbW: FfiConverterUInt32.read(from: &buf), 
+                thumbH: FfiConverterUInt32.read(from: &buf), 
+                thumbMime: FfiConverterString.read(from: &buf), 
+                screenHash: FfiConverterOptionString.read(from: &buf), 
+                screenCols: FfiConverterUInt32.read(from: &buf), 
+                screenRows: FfiConverterUInt32.read(from: &buf), 
+                frameHash: FfiConverterOptionString.read(from: &buf), 
+                capturedAtMs: FfiConverterInt64.read(from: &buf), 
+                filled: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: TabsRow, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.tabId, into: &buf)
+        FfiConverterString.write(value.title, into: &buf)
+        FfiConverterString.write(value.kind, into: &buf)
+        FfiConverterOptionString.write(value.faviconHash, into: &buf)
+        FfiConverterOptionString.write(value.thumbHash, into: &buf)
+        FfiConverterUInt32.write(value.thumbW, into: &buf)
+        FfiConverterUInt32.write(value.thumbH, into: &buf)
+        FfiConverterString.write(value.thumbMime, into: &buf)
+        FfiConverterOptionString.write(value.screenHash, into: &buf)
+        FfiConverterUInt32.write(value.screenCols, into: &buf)
+        FfiConverterUInt32.write(value.screenRows, into: &buf)
+        FfiConverterOptionString.write(value.frameHash, into: &buf)
+        FfiConverterInt64.write(value.capturedAtMs, into: &buf)
+        FfiConverterBool.write(value.filled, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTabsRow_lift(_ buf: RustBuffer) throws -> TabsRow {
+    return try FfiConverterTypeTabsRow.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTabsRow_lower(_ value: TabsRow) -> RustBuffer {
+    return FfiConverterTypeTabsRow.lower(value)
+}
+
+
+/**
+ * The phone's card geometry, so the Mac cuts thumbnails at the card's pixel size.
+ */
+public struct TabsViewport: Equatable, Hashable {
+    public var cardPixelWidth: UInt32
+    public var cardAspect: Double
+    public var displayScale: Double
+    public var screenPixelW: UInt32
+    public var screenPixelH: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(cardPixelWidth: UInt32, cardAspect: Double, displayScale: Double, screenPixelW: UInt32, screenPixelH: UInt32) {
+        self.cardPixelWidth = cardPixelWidth
+        self.cardAspect = cardAspect
+        self.displayScale = displayScale
+        self.screenPixelW = screenPixelW
+        self.screenPixelH = screenPixelH
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension TabsViewport: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTabsViewport: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TabsViewport {
+        return
+            try TabsViewport(
+                cardPixelWidth: FfiConverterUInt32.read(from: &buf), 
+                cardAspect: FfiConverterDouble.read(from: &buf), 
+                displayScale: FfiConverterDouble.read(from: &buf), 
+                screenPixelW: FfiConverterUInt32.read(from: &buf), 
+                screenPixelH: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: TabsViewport, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.cardPixelWidth, into: &buf)
+        FfiConverterDouble.write(value.cardAspect, into: &buf)
+        FfiConverterDouble.write(value.displayScale, into: &buf)
+        FfiConverterUInt32.write(value.screenPixelW, into: &buf)
+        FfiConverterUInt32.write(value.screenPixelH, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTabsViewport_lift(_ buf: RustBuffer) throws -> TabsViewport {
+    return try FfiConverterTypeTabsViewport.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTabsViewport_lower(_ value: TabsViewport) -> RustBuffer {
+    return FfiConverterTypeTabsViewport.lower(value)
+}
+
+
+/**
  * One of the Mac's acpmux chats (`_acpmux/sessions`), as far as the pairing needs it.
  */
 public struct TerminalChatCandidate: Equatable, Hashable {
@@ -7053,7 +7440,7 @@ public func FfiConverterTypeChannelMessage_lower(_ value: ChannelMessage) -> Rus
 public enum ChatCancelStep: Equatable, Hashable {
     
     /**
-     * It never left: back at once.
+     * It never left: back at once (cancel `done.cancel_upload_ids`).
      */
     case returned(done: ChatPromptDone
     )
@@ -7135,14 +7522,15 @@ public func FfiConverterTypeChatCancelStep_lower(_ value: ChatCancelStep) -> Rus
 public enum ChatEditStep: Equatable, Hashable {
     
     /**
-     * Edited in place: same id, same place.
+     * Edited in place: same id, same place. Cancel the uploads the edit dropped.
      */
-    case edited
+    case edited(cancelUploadIds: [String]
+    )
     /**
      * It may be on the Mac: the edit goes as the new id in its place; remove the old one with
-     * `_acpmux/queue_remove`, then `remove_answered`.
+     * `_acpmux/queue_remove`, then `remove_answered`. Cancel the uploads the edit dropped.
      */
-    case replaced(removePromptId: String
+    case replaced(removePromptId: String, cancelUploadIds: [String]
     )
 
 
@@ -7165,9 +7553,10 @@ public struct FfiConverterTypeChatEditStep: FfiConverterRustBuffer {
         let variant: Int32 = try readInt(&buf)
         switch variant {
         
-        case 1: return .edited
+        case 1: return .edited(cancelUploadIds: try FfiConverterSequenceString.read(from: &buf)
+        )
         
-        case 2: return .replaced(removePromptId: try FfiConverterString.read(from: &buf)
+        case 2: return .replaced(removePromptId: try FfiConverterString.read(from: &buf), cancelUploadIds: try FfiConverterSequenceString.read(from: &buf)
         )
         
         default: throw UniffiInternalError.unexpectedEnumCase
@@ -7178,13 +7567,15 @@ public struct FfiConverterTypeChatEditStep: FfiConverterRustBuffer {
         switch value {
         
         
-        case .edited:
+        case let .edited(cancelUploadIds):
             writeInt(&buf, Int32(1))
+            FfiConverterSequenceString.write(cancelUploadIds, into: &buf)
+            
         
-        
-        case let .replaced(removePromptId):
+        case let .replaced(removePromptId,cancelUploadIds):
             writeInt(&buf, Int32(2))
             FfiConverterString.write(removePromptId, into: &buf)
+            FfiConverterSequenceString.write(cancelUploadIds, into: &buf)
             
         }
     }
@@ -7219,7 +7610,7 @@ public enum ChatPromptLook: Equatable, Hashable {
      */
     case sent
     /**
-     * Unwritten past the quiet threshold, or an upload retrying: still trying.
+     * Unwritten past the quiet threshold after its uploads: still trying.
      */
     case retrying
     /**
@@ -7318,7 +7709,7 @@ public enum ChatPromptOutcome: Equatable, Hashable {
      */
     case maybeSent
     /**
-     * An attachment failed to upload too many times: nothing was written.
+     * An attachment's upload failed (the uploader gave up): nothing was written.
      */
     case uploadFailed(reason: String
     )
@@ -7415,14 +7806,12 @@ public func FfiConverterTypeChatPromptOutcome_lower(_ value: ChatPromptOutcome) 
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
- * Where one attachment's upload is.
+ * Where one attachment's upload is, as reported (its progress is `AttachmentUploads`').
  */
 
 public enum ChatUploadState: Equatable, Hashable {
     
     case pending
-    case uploading(sent: UInt64, total: UInt64
-    )
     case uploaded(macPath: String
     )
     case failed(reason: String
@@ -7450,13 +7839,10 @@ public struct FfiConverterTypeChatUploadState: FfiConverterRustBuffer {
         
         case 1: return .pending
         
-        case 2: return .uploading(sent: try FfiConverterUInt64.read(from: &buf), total: try FfiConverterUInt64.read(from: &buf)
+        case 2: return .uploaded(macPath: try FfiConverterString.read(from: &buf)
         )
         
-        case 3: return .uploaded(macPath: try FfiConverterString.read(from: &buf)
-        )
-        
-        case 4: return .failed(reason: try FfiConverterString.read(from: &buf)
+        case 3: return .failed(reason: try FfiConverterString.read(from: &buf)
         )
         
         default: throw UniffiInternalError.unexpectedEnumCase
@@ -7471,19 +7857,13 @@ public struct FfiConverterTypeChatUploadState: FfiConverterRustBuffer {
             writeInt(&buf, Int32(1))
         
         
-        case let .uploading(sent,total):
-            writeInt(&buf, Int32(2))
-            FfiConverterUInt64.write(sent, into: &buf)
-            FfiConverterUInt64.write(total, into: &buf)
-            
-        
         case let .uploaded(macPath):
-            writeInt(&buf, Int32(3))
+            writeInt(&buf, Int32(2))
             FfiConverterString.write(macPath, into: &buf)
             
         
         case let .failed(reason):
-            writeInt(&buf, Int32(4))
+            writeInt(&buf, Int32(3))
             FfiConverterString.write(reason, into: &buf)
             
         }
@@ -8491,6 +8871,141 @@ public func FfiConverterTypeTabFace_lower(_ value: TabFace) -> RustBuffer {
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
+ * What one frame from the Mac did. `send` is what to write back, in order, each already
+ * behind its length.
+ */
+
+public enum TabsEvent: Equatable, Hashable {
+    
+    /**
+     * The rows changed (a manifest or a delta): show them. `send` asks for what is missing.
+     * `epoch` names the Mac's run that handed out the tab ids: under another epoch the same
+     * id is another tab, so what was kept by id under the old one is void.
+     */
+    case rows(epoch: String, rev: UInt64, rows: [TabsRow], send: [Data]
+    )
+    /**
+     * A blob whose bytes match its hash: save `bytes` under `hash`. `tab_ids` are the cards
+     * it completes a part of. `fresh` is false when the phone held it already.
+     */
+    case blob(hash: String, mime: String, bytes: Data, fresh: Bool, tabIds: [String]
+    )
+    /**
+     * A delta that does not start at the phone's rev: nothing changed; `send` asks the Mac
+     * to resume from the phone's rev.
+     */
+    case gap(send: [Data]
+    )
+    /**
+     * A frame that does not decode, a blob whose bytes do not hash to its name, or a kind a
+     * newer Mac sends: dropped, and the link stays up.
+     */
+    case dropped(reason: String
+    )
+    /**
+     * The stream cannot be read further (a frame announced longer than the cap): close the
+     * channel. The next link-up resumes from the phone's rev.
+     */
+    case broken(reason: String
+    )
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension TabsEvent: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTabsEvent: FfiConverterRustBuffer {
+    typealias SwiftType = TabsEvent
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TabsEvent {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .rows(epoch: try FfiConverterString.read(from: &buf), rev: try FfiConverterUInt64.read(from: &buf), rows: try FfiConverterSequenceTypeTabsRow.read(from: &buf), send: try FfiConverterSequenceData.read(from: &buf)
+        )
+        
+        case 2: return .blob(hash: try FfiConverterString.read(from: &buf), mime: try FfiConverterString.read(from: &buf), bytes: try FfiConverterData.read(from: &buf), fresh: try FfiConverterBool.read(from: &buf), tabIds: try FfiConverterSequenceString.read(from: &buf)
+        )
+        
+        case 3: return .gap(send: try FfiConverterSequenceData.read(from: &buf)
+        )
+        
+        case 4: return .dropped(reason: try FfiConverterString.read(from: &buf)
+        )
+        
+        case 5: return .broken(reason: try FfiConverterString.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: TabsEvent, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case let .rows(epoch,rev,rows,send):
+            writeInt(&buf, Int32(1))
+            FfiConverterString.write(epoch, into: &buf)
+            FfiConverterUInt64.write(rev, into: &buf)
+            FfiConverterSequenceTypeTabsRow.write(rows, into: &buf)
+            FfiConverterSequenceData.write(send, into: &buf)
+            
+        
+        case let .blob(hash,mime,bytes,fresh,tabIds):
+            writeInt(&buf, Int32(2))
+            FfiConverterString.write(hash, into: &buf)
+            FfiConverterString.write(mime, into: &buf)
+            FfiConverterData.write(bytes, into: &buf)
+            FfiConverterBool.write(fresh, into: &buf)
+            FfiConverterSequenceString.write(tabIds, into: &buf)
+            
+        
+        case let .gap(send):
+            writeInt(&buf, Int32(3))
+            FfiConverterSequenceData.write(send, into: &buf)
+            
+        
+        case let .dropped(reason):
+            writeInt(&buf, Int32(4))
+            FfiConverterString.write(reason, into: &buf)
+            
+        
+        case let .broken(reason):
+            writeInt(&buf, Int32(5))
+            FfiConverterString.write(reason, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTabsEvent_lift(_ buf: RustBuffer) throws -> TabsEvent {
+    return try FfiConverterTypeTabsEvent.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTabsEvent_lower(_ value: TabsEvent) -> RustBuffer {
+    return FfiConverterTypeTabsEvent.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
  * What a tap on face `to` does.
  */
 
@@ -8847,30 +9362,6 @@ fileprivate struct FfiConverterOptionTypeChatPromptRequest: FfiConverterRustBuff
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-fileprivate struct FfiConverterOptionTypeChatUploadRequest: FfiConverterRustBuffer {
-    typealias SwiftType = ChatUploadRequest?
-
-    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
-        guard let value = value else {
-            writeInt(&buf, Int8(0))
-            return
-        }
-        writeInt(&buf, Int8(1))
-        FfiConverterTypeChatUploadRequest.write(value, into: &buf)
-    }
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
-        switch try readInt(&buf) as Int8 {
-        case 0: return nil
-        case 1: return try FfiConverterTypeChatUploadRequest.read(from: &buf)
-        default: throw UniffiInternalError.unexpectedOptionalTag
-        }
-    }
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
 fileprivate struct FfiConverterOptionTypeComposerSendDone: FfiConverterRustBuffer {
     typealias SwiftType = ComposerSendDone?
 
@@ -9164,6 +9655,31 @@ fileprivate struct FfiConverterSequenceTypeChatUploadedAttachment: FfiConverterR
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceData: FfiConverterRustBuffer {
+    typealias SwiftType = [Data]
+
+    public static func write(_ value: [Data], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterData.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [Data] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [Data]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterData.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeComposerSendDone: FfiConverterRustBuffer {
     typealias SwiftType = [ComposerSendDone]
 
@@ -9314,6 +9830,31 @@ fileprivate struct FfiConverterSequenceTypePredictedGlyph: FfiConverterRustBuffe
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeTabsRow: FfiConverterRustBuffer {
+    typealias SwiftType = [TabsRow]
+
+    public static func write(_ value: [TabsRow], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeTabsRow.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [TabsRow] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [TabsRow]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeTabsRow.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeTerminalChatCandidate: FfiConverterRustBuffer {
     typealias SwiftType = [TerminalChatCandidate]
 
@@ -9381,6 +9922,31 @@ fileprivate struct FfiConverterSequenceTypeProjectionSegment: FfiConverterRustBu
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeProjectionSegment.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeTabsEvent: FfiConverterRustBuffer {
+    typealias SwiftType = [TabsEvent]
+
+    public static func write(_ value: [TabsEvent], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeTabsEvent.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [TabsEvent] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [TabsEvent]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeTabsEvent.read(from: &buf))
         }
         return seq
     }
@@ -9978,7 +10544,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_answered() != 15608) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_attachments() != 39039) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_attachments() != 10995) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_cancel() != 31638) {
@@ -9990,7 +10556,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_drain_unwritten() != 55174) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_edit() != 10571) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_edit() != 17600) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_expire() != 17320) {
@@ -10014,16 +10580,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_next_request() != 47804) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_next_upload() != 13640) {
-        return InitializationResult.apiChecksumMismatch
-    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_next_wake_ms() != 11240) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_pending() != 54210) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_push() != 46849) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_push() != 17318) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_refused() != 29414) {
@@ -10038,19 +10601,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_set_hold_ms() != 33638) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_set_link() != 224) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_set_link() != 5462) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_unwritten() != 3873) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_upload_failed() != 8438) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_upload_failed() != 33281) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_upload_progress() != 4432) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_uploaded() != 23452) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_uploaded() != 45828) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_write_failed() != 45736) {
@@ -10173,6 +10733,27 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_macscreenrd_text() != 9335) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_tabsmirror_link_up() != 53128) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_tabsmirror_receive() != 24002) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_tabsmirror_rev() != 23077) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_tabsmirror_rows() != 44270) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_tabsmirror_set_near() != 32850) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_tabsmirror_unreferenced() != 34539) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_tabsmirror_want_frame() != 2782) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprediction_echo_latency_us() != 57421) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -10258,6 +10839,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_macscreenrd_new() != 49279) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_constructor_tabsmirror_new() != 62444) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_terminalprediction_new() != 21303) {

@@ -14,14 +14,16 @@
 //!   too), so a prompt whose answer was lost is never run twice.
 //! - **In tap order.** One prompt is written at a time, and only the first unwritten one: a later
 //!   prompt never goes before an earlier one that has not gone yet, across any number of drops.
-//! - **Uploads first, never in the way.** A prompt's attachments upload (the owner's upload driver
-//!   reports into [`PromptOutbox::uploaded`] and friends) before it is written. A push never
-//!   waits for anything, so the composer is free at the tap; a prompt behind one still uploading
-//!   is queued at once and goes after it.
+//! - **Uploads first, never in the way.** A prompt carries its attachments as upload ids (opaque:
+//!   the phone's `AttachmentUploads` starts each at pick time, retries it itself and owns its
+//!   progress). The owner reports each upload's end ([`PromptOutbox::uploaded`],
+//!   [`PromptOutbox::upload_failed`]); the prompt is written only once all of its are on the Mac.
+//!   A push never waits for anything, so the composer is free at the tap; a prompt behind one
+//!   still uploading is queued at once and goes after it. Whatever takes a prompt back (cancel,
+//!   delete, an edit that drops an attachment, giving up) names the uploads to cancel.
 //! - **Offline, it waits.** While the link is down prompts queue; the link coming back sends them
 //!   at once, in order.
-//! - **Retries back off.** A write that fails, an answer that is lost, or an upload that fails
-//!   goes again after a jittered, capped backoff ([`RETRY_FIRST`] doubling up to [`RETRY_CAP`]);
+//! - **Retries back off.** A write that fails or an answer that is lost goes again after a jittered, capped backoff ([`RETRY_FIRST`] doubling up to [`RETRY_CAP`]);
 //!   a link that comes back skips the wait.
 //! - **Gives up honestly.** A prompt that waited for the link longer than the hold comes back with
 //!   its text and attachments: [`PromptOutcome::NotSent`] when no attempt was written, else
@@ -36,8 +38,8 @@
 //! - **A look per prompt** ([`PromptLook`]) for the chat to draw: sent from the tap on,
 //!   retrying only after [`RETRYING_AFTER`] without getting out, failed once it gave up.
 //!
-//! The outbox does no I/O. Its owner (the phone's chat source) asks for the next upload and the
-//! next prompt to write, does them and reports what happened.
+//! The outbox does no I/O and no uploading. Its owner (the phone's chat source) reports uploads'
+//! ends, asks for the next prompt to write, writes it and reports what happened.
 
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
@@ -46,7 +48,7 @@ use std::time::{Duration, Instant};
 /// `heldPromptWindow` (the terminal's key hold), measured from when it began to wait.
 pub const DEFAULT_HOLD: Duration = Duration::from_secs(10);
 
-/// The first retry's wait after a failed write, a lost answer or a failed upload (the chat's old
+/// The first retry's wait after a failed write or a lost answer (the chat's old
 /// single 500 ms re-flush). Each further failure doubles it.
 pub const RETRY_FIRST: Duration = Duration::from_millis(500);
 
@@ -59,12 +61,6 @@ pub const RETRYING_AFTER: Duration = Duration::from_secs(2);
 
 /// Prompts that gave up whose [`PromptLook::Failed`] is remembered (oldest forgotten first).
 pub const FAILED_MEMORY: usize = 64;
-
-/// Failed uploads of one attachment before its prompt gives up ([`PromptOutcome::UploadFailed`]).
-pub const UPLOAD_ATTEMPTS: u32 = 3;
-
-/// Attachments uploading at once, across the chat's prompts, in tap order.
-pub const MAX_UPLOADS: usize = 2;
 
 /// The wait before retry number `attempt` (1 = the first retry), jittered by `unit` in `[0, 1]`:
 /// uniform in `[d/2, d]` where `d = RETRY_FIRST * 2^(attempt-1)`, capped at [`RETRY_CAP`]. The
@@ -81,28 +77,24 @@ pub fn retry_delay(attempt: u32, unit: f64) -> Duration {
 pub enum PromptLook {
     /// From the tap on, while it goes, uploads, or waits less than [`RETRYING_AFTER`].
     Sent,
-    /// Unwritten for [`RETRYING_AFTER`] or more after its uploads, or an upload failed and goes
-    /// again: the outbox keeps trying.
+    /// Unwritten for [`RETRYING_AFTER`] or more after its uploads: the outbox keeps trying.
     Retrying,
     /// The outbox gave up on it (past the hold, the Mac refused it, its upload failed).
     Failed,
 }
 
-/// Where one attachment's upload is.
+/// Where one attachment's upload is, as its owner reported it (its progress is the uploader's).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UploadState {
-    /// Not started (or going again after a failure or a drop).
+    /// Not reported done yet.
     Pending,
-    /// Under way: `sent` of `total` bytes (`total` 0 when not known yet).
-    Uploading { sent: u64, total: u64 },
     /// On the Mac at `mac_path`.
     Uploaded { mac_path: String },
-    /// The last attempt failed with `reason`; it goes again after a backoff, up to
-    /// [`UPLOAD_ATTEMPTS`].
+    /// The uploader gave up on it with `reason` (after its own retries).
     Failed { reason: String },
 }
 
-/// One attachment of a prompt: the owner's id for it and its upload.
+/// One attachment of a prompt: its upload id (the uploader's) and its upload's end.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Attachment {
     pub id: String,
@@ -121,7 +113,7 @@ pub enum PromptOutcome {
     /// An attempt was written and its answer never came, or it could not be taken off the Mac's
     /// queue: it may have run.
     MaybeSent,
-    /// An attachment failed to upload [`UPLOAD_ATTEMPTS`] times: nothing was written.
+    /// An attachment's upload failed: nothing was written.
     UploadFailed { reason: String },
     /// The person cancelled it before it reached the Mac, or the Mac took it off its queue.
     Cancelled,
@@ -134,6 +126,8 @@ pub struct PromptDone {
     pub outcome: PromptOutcome,
     pub text: String,
     pub attachments: Vec<Attachment>,
+    /// Its uploads not on the Mac yet, for the owner to cancel (empty for one that went).
+    pub cancel_uploads: Vec<String>,
 }
 
 /// One attempt to make: write `session/prompt` with this `promptId` and `resend`, its
@@ -149,18 +143,11 @@ pub struct PromptRequest {
     pub attachments: Vec<(String, String)>,
 }
 
-/// One upload to start: attachment `attachment` of prompt `prompt`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct UploadRequest {
-    pub prompt: String,
-    pub attachment: String,
-}
-
 /// What a cancel (or delete, or the old half of an edit) asks of the owner.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CancelStep {
-    /// It never left: here it is back ([`PromptOutcome::Cancelled`]). Any upload of it under way
-    /// is moot.
+    /// It never left: here it is back ([`PromptOutcome::Cancelled`]), with the uploads to cancel
+    /// in [`PromptDone::cancel_uploads`].
     Returned(PromptDone),
     /// It may be on the Mac: send `_acpmux/queue_remove` for this `promptId` and report with
     /// [`PromptOutbox::remove_answered`]. It is never sent again.
@@ -171,10 +158,11 @@ pub enum CancelStep {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EditStep {
     /// It never left: its text and attachments are replaced in place, same id, same place.
-    Edited,
+    /// `cancel_uploads`: uploads it had that the edit dropped and that are not on the Mac yet.
+    Edited { cancel_uploads: Vec<String> },
     /// It may be on the Mac: the edit goes as a new prompt (`new_id`) in its place, and the old
-    /// one is to be taken off the Mac's queue (`RemoveOnMac`).
-    Replaced { remove: String },
+    /// one is to be taken off the Mac's queue (`RemoveOnMac`). `cancel_uploads` as for `Edited`.
+    Replaced { remove: String, cancel_uploads: Vec<String> },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -191,17 +179,10 @@ enum State {
 }
 
 #[derive(Debug, Clone)]
-struct Slot {
-    attachment: Attachment,
-    failures: u32,
-    not_before: Option<Instant>,
-}
-
-#[derive(Debug, Clone)]
 struct Entry {
     id: String,
     text: String,
-    slots: Vec<Slot>,
+    slots: Vec<Attachment>,
     tapped: Instant,
     /// When it began to wait for the link (its tap, a hold, its uploads ending, the drop that
     /// lost it): its age against the hold.
@@ -219,33 +200,44 @@ struct Entry {
 
 impl Entry {
     fn uploaded(&self) -> bool {
-        self.slots.iter().all(|s| matches!(s.attachment.state, UploadState::Uploaded { .. }))
+        self.slots.iter().all(|s| matches!(s.state, UploadState::Uploaded { .. }))
     }
 
     fn may_be_on_mac(&self) -> bool {
         self.written_once || self.state == State::Writing || self.state == State::Written
     }
 
-    fn attachments(&self) -> Vec<Attachment> {
-        self.slots.iter().map(|s| s.attachment.clone()).collect()
-    }
-
     fn done(self, outcome: PromptOutcome) -> PromptDone {
-        let attachments = self.attachments();
-        PromptDone { id: self.id, outcome, text: self.text, attachments }
+        let cancel_uploads =
+            if outcome == PromptOutcome::Sent { Vec::new() } else { unfinished(&self.slots, &[]) };
+        PromptDone {
+            id: self.id,
+            outcome,
+            text: self.text,
+            attachments: self.slots,
+            cancel_uploads,
+        }
     }
 
-    fn slots_for(ids: Vec<String>, keep: &[Slot]) -> Vec<Slot> {
-        ids.into_iter()
+    fn slots_for(ids: &[String], keep: &[Attachment]) -> Vec<Attachment> {
+        ids.iter()
             .map(|id| {
-                keep.iter().find(|s| s.attachment.id == id).cloned().unwrap_or(Slot {
-                    attachment: Attachment { id, state: UploadState::Pending },
-                    failures: 0,
-                    not_before: None,
-                })
+                keep.iter()
+                    .find(|s| s.id == *id)
+                    .cloned()
+                    .unwrap_or(Attachment { id: id.clone(), state: UploadState::Pending })
             })
             .collect()
     }
+}
+
+/// The uploads in `slots` not on the Mac (pending) and not in `kept`: the ones to cancel.
+fn unfinished(slots: &[Attachment], kept: &[String]) -> Vec<String> {
+    slots
+        .iter()
+        .filter(|s| s.state == UploadState::Pending && !kept.contains(&s.id))
+        .map(|s| s.id.clone())
+        .collect()
 }
 
 /// The chat's prompts the Mac has not answered yet, in tap order.
@@ -282,27 +274,18 @@ impl PromptOutbox {
         self.link_up
     }
 
-    /// The link's state at `now`. Coming back, every queued prompt and upload may go at once, in
-    /// order (no backoff wait for a link that is new). Going down, uploads under way start over
-    /// on the next link, and a prompt still uploading (and every one behind it) begins to wait
-    /// for the link now.
+    /// The link's state at `now`. Coming back, every queued prompt may go at once, in order (no
+    /// backoff wait for a link that is new). Going down, a prompt still uploading (and every one
+    /// behind it) begins to wait for the link now.
     pub fn set_link(&mut self, up: bool, now: Instant) {
         if up && !self.link_up {
             for entry in &mut self.entries {
                 entry.not_before = None;
-                for slot in &mut entry.slots {
-                    slot.not_before = None;
-                }
             }
         }
         if !up && self.link_up {
             let mut behind_upload = false;
             for entry in &mut self.entries {
-                for slot in &mut entry.slots {
-                    if matches!(slot.attachment.state, UploadState::Uploading { .. }) {
-                        slot.attachment.state = UploadState::Pending;
-                    }
-                }
                 if entry.state == State::Queued {
                     behind_upload |= !entry.uploaded();
                     if behind_upload && entry.waiting_since < now {
@@ -314,8 +297,8 @@ impl PromptOutbox {
         self.link_up = up;
     }
 
-    /// A tap on Send: `id` is its `promptId`, `attachments` the owner's ids for its attachments
-    /// (each to upload), `resend` the intent's own flag. `tapped` places it among the others; it
+    /// A tap on Send: `id` is its `promptId`, `attachments` its upload ids (each started by the
+    /// uploader, reported here when it ends), `resend` the intent's own flag. `tapped` places it among the others; it
     /// waits from `tapped` when it can go at once, else from `now`. Never waits for anything.
     /// False when a prompt with this id is already here (a second push is never a second send).
     pub fn push(
@@ -332,7 +315,7 @@ impl PromptOutbox {
             return false;
         }
         self.failed.retain(|f| *f != id);
-        let slots = Entry::slots_for(attachments, &[]);
+        let slots = Entry::slots_for(&attachments, &[]);
         let waits = !self.link_up
             || !slots.is_empty()
             || self.entries.iter().any(|e| matches!(e.state, State::Queued | State::Writing));
@@ -355,65 +338,23 @@ impl PromptOutbox {
         true
     }
 
-    /// The next upload to start, in tap order, while fewer than [`MAX_UPLOADS`] are under way and
-    /// the link is up.
-    pub fn next_upload(&mut self, now: Instant) -> Option<UploadRequest> {
-        if !self.link_up {
-            return None;
-        }
-        let uploading = self
-            .entries
-            .iter()
-            .flat_map(|e| &e.slots)
-            .filter(|s| matches!(s.attachment.state, UploadState::Uploading { .. }))
-            .count();
-        if uploading >= MAX_UPLOADS {
-            return None;
-        }
-        for entry in self.entries.iter_mut().filter(|e| e.state == State::Queued) {
-            for slot in &mut entry.slots {
-                let ready = matches!(
-                    slot.attachment.state,
-                    UploadState::Pending | UploadState::Failed { .. }
-                ) && slot.not_before.is_none_or(|at| now >= at);
-                if ready {
-                    slot.attachment.state = UploadState::Uploading { sent: 0, total: 0 };
-                    slot.not_before = None;
-                    return Some(UploadRequest {
-                        prompt: entry.id.clone(),
-                        attachment: slot.attachment.id.clone(),
-                    });
-                }
+    /// The upload `upload` ended on the Mac at `mac_path`. When it was a prompt's last, that
+    /// prompt (and every one queued behind it) begins to wait for the link now. An id no prompt
+    /// holds (cancelled, or reported twice) is ignored.
+    pub fn uploaded(&mut self, upload: &str, mac_path: impl Into<String>, now: Instant) {
+        let mac_path = mac_path.into();
+        let mut finished = None;
+        for (index, entry) in self.entries.iter_mut().enumerate() {
+            let mut hit = false;
+            for slot in entry.slots.iter_mut().filter(|s| s.id == upload) {
+                slot.state = UploadState::Uploaded { mac_path: mac_path.clone() };
+                hit = true;
+            }
+            if hit && entry.uploaded() && entry.state == State::Queued && finished.is_none() {
+                finished = Some(index);
             }
         }
-        None
-    }
-
-    /// An upload's progress.
-    pub fn upload_progress(&mut self, prompt: &str, attachment: &str, sent: u64, total: u64) {
-        if let Some(slot) = self.slot_mut(prompt, attachment)
-            && matches!(slot.attachment.state, UploadState::Uploading { .. } | UploadState::Pending)
-        {
-            slot.attachment.state = UploadState::Uploading { sent, total };
-        }
-    }
-
-    /// An upload finished: the attachment is at `mac_path` on the Mac. When it was the prompt's
-    /// last, the prompt (and every one queued behind it) begins to wait for the link now.
-    pub fn uploaded(
-        &mut self,
-        prompt: &str,
-        attachment: &str,
-        mac_path: impl Into<String>,
-        now: Instant,
-    ) {
-        let Some(slot) = self.slot_mut(prompt, attachment) else { return };
-        slot.attachment.state = UploadState::Uploaded { mac_path: mac_path.into() };
-        slot.failures = 0;
-        let Some(index) = self.entries.iter().position(|e| e.id == prompt) else { return };
-        if !self.entries[index].uploaded() {
-            return;
-        }
+        let Some(index) = finished else { return };
         for entry in self.entries.iter_mut().skip(index).filter(|e| e.state == State::Queued) {
             if entry.waiting_since < now {
                 entry.waiting_since = now;
@@ -421,44 +362,37 @@ impl PromptOutbox {
         }
     }
 
-    /// An upload failed with `reason`. It goes again after a backoff; the [`UPLOAD_ATTEMPTS`]th
-    /// failure gives the prompt up ([`PromptOutcome::UploadFailed`], nothing written).
-    pub fn upload_failed(
-        &mut self,
-        prompt: &str,
-        attachment: &str,
-        reason: impl Into<String>,
-        now: Instant,
-    ) -> Option<PromptDone> {
+    /// The uploader gave up on `upload` (after its own retries) with `reason`: the unwritten
+    /// prompt holding it gives up ([`PromptOutcome::UploadFailed`], nothing written), naming its
+    /// other uploads to cancel. `None` when no unwritten prompt holds it.
+    pub fn upload_failed(&mut self, upload: &str, reason: impl Into<String>) -> Option<PromptDone> {
         let reason = reason.into();
-        let unit = self.next_unit();
-        let slot = self.slot_mut(prompt, attachment)?;
-        if matches!(slot.attachment.state, UploadState::Uploaded { .. }) {
-            return None;
+        let index = self.entries.iter().position(|e| {
+            e.state == State::Queued
+                && e.slots.iter().any(|s| s.id == upload && s.state == UploadState::Pending)
+        })?;
+        let mut entry = self.entries.remove(index)?;
+        for slot in entry.slots.iter_mut().filter(|s| s.id == upload) {
+            slot.state = UploadState::Failed { reason: reason.clone() };
         }
-        slot.failures = slot.failures.saturating_add(1);
-        slot.attachment.state = UploadState::Failed { reason: reason.clone() };
-        if slot.failures < UPLOAD_ATTEMPTS {
-            slot.not_before = Some(now + retry_delay(slot.failures, unit));
-            return None;
-        }
-        let index = self.entries.iter().position(|e| e.id == prompt)?;
-        let entry = self.entries.remove(index)?;
         self.remember_failed(entry.id.clone());
         Some(entry.done(PromptOutcome::UploadFailed { reason }))
     }
 
-    /// The next prompt to write: the first unwritten one, when the link is up, nothing else is
-    /// being written, its uploads are done, its retry wait is over and it is within the hold (one
+    /// The next prompt to write: the first unwritten one whose uploads are done (one still
+    /// uploading never holds back those behind it), when the link is up, nothing else is
+    /// being written, its retry wait is over and it is within the hold (one
     /// past it is for [`expire`](Self::expire), never sent behind the person's back).
     pub fn next_request(&mut self, now: Instant) -> Option<PromptRequest> {
         if !self.link_up || self.entries.iter().any(|e| e.state == State::Writing) {
             return None;
         }
         let hold = self.hold;
-        let entry = self.entries.iter_mut().find(|e| e.state == State::Queued)?;
-        if !entry.uploaded()
-            || entry.not_before.is_some_and(|at| now < at)
+        // A prompt still waiting on its uploads does not hold back the ones behind it: text
+        // sent after a picked video goes now, and the video's prompt follows once its uploads
+        // are on the Mac (Leo, 2026-11-24: a send must never sit blocked behind a load).
+        let entry = self.entries.iter_mut().find(|e| e.state == State::Queued && e.uploaded())?;
+        if entry.not_before.is_some_and(|at| now < at)
             || now.saturating_duration_since(entry.waiting_since) >= hold
         {
             return None;
@@ -469,10 +403,8 @@ impl PromptOutbox {
         let attachments = entry
             .slots
             .iter()
-            .filter_map(|s| match &s.attachment.state {
-                UploadState::Uploaded { mac_path } => {
-                    Some((s.attachment.id.clone(), mac_path.clone()))
-                }
+            .filter_map(|s| match &s.state {
+                UploadState::Uploaded { mac_path } => Some((s.id.clone(), mac_path.clone())),
                 _ => None,
             })
             .collect();
@@ -543,12 +475,12 @@ impl PromptOutbox {
     }
 
     /// The person cancels the prompt `id`, at any point. One that never left comes back at once
-    /// ([`CancelStep::Returned`]), its uploads moot; one that may be on the Mac is never sent
+    /// ([`CancelStep::Returned`]) with its uploads to cancel; one that may be on the Mac is never sent
     /// again and is to be taken off the Mac's queue ([`CancelStep::RemoveOnMac`]).
     pub fn cancel(&mut self, id: &str) -> Option<CancelStep> {
         let index = self.entries.iter().position(|e| e.id == id)?;
-        if self.entries[index].may_be_on_mac() {
-            let entry = &mut self.entries[index];
+        let entry = self.entries.get_mut(index)?;
+        if entry.may_be_on_mac() {
             entry.state = State::Cancelling;
             return Some(CancelStep::RemoveOnMac { id: entry.id.clone() });
         }
@@ -572,8 +504,8 @@ impl PromptOutbox {
         self.cancel(id)
     }
 
-    /// The person edits the prompt `id`: new `text` and `attachments` (ids; ones it had keep
-    /// their uploads, new ones upload). One that never left is edited in place
+    /// The person edits the prompt `id`: new `text` and `attachments` (upload ids; ones it had
+    /// keep their uploads, the step names dropped ones to cancel). One that never left is edited in place
     /// ([`EditStep::Edited`]); one that may be on the Mac is cancelled there and the edit goes as
     /// the new prompt `new_id` in its place ([`EditStep::Replaced`]). `None` when `id` is not
     /// here.
@@ -587,25 +519,27 @@ impl PromptOutbox {
     ) -> Option<EditStep> {
         let index = self.entries.iter().position(|e| e.id == id)?;
         let text = text.into();
-        if !self.entries[index].may_be_on_mac() {
-            let entry = &mut self.entries[index];
-            entry.slots = Entry::slots_for(attachments, &entry.slots);
+        let entry = self.entries.get_mut(index)?;
+        if !entry.may_be_on_mac() {
+            let cancel_uploads = unfinished(&entry.slots, &attachments);
+            entry.slots = Entry::slots_for(&attachments, &entry.slots);
             entry.text = text;
             entry.waiting_since = now;
             entry.not_before = None;
             entry.failures = 0;
-            return Some(EditStep::Edited);
+            return Some(EditStep::Edited { cancel_uploads });
         }
         let new_id = new_id.into();
         if new_id == id || self.entries.iter().any(|e| e.id == new_id) {
             return None;
         }
-        let old = &mut self.entries[index];
+        let old = self.entries.get_mut(index)?;
         old.state = State::Cancelling;
+        let cancel_uploads = unfinished(&old.slots, &attachments);
         let replacement = Entry {
             id: new_id,
             text,
-            slots: Entry::slots_for(attachments, &old.slots),
+            slots: Entry::slots_for(&attachments, &old.slots),
             tapped: old.tapped,
             waiting_since: now,
             state: State::Queued,
@@ -616,11 +550,10 @@ impl PromptOutbox {
             not_before: None,
         };
         self.entries.insert(index + 1, replacement);
-        Some(EditStep::Replaced { remove: id.to_owned() })
+        Some(EditStep::Replaced { remove: id.to_owned(), cancel_uploads })
     }
 
-    /// The person asks it to go now: its retry wait ends, its hold starts over, a failed upload
-    /// goes again. False when `id` is not an unwritten prompt here.
+    /// The person asks it to go now: its retry wait ends and its hold starts over. False when `id` is not an unwritten prompt here.
     pub fn retry_now(&mut self, id: &str, now: Instant) -> bool {
         let Some(entry) = self.entry_mut(id) else { return false };
         if entry.state != State::Queued {
@@ -629,13 +562,6 @@ impl PromptOutbox {
         entry.not_before = None;
         entry.failures = 0;
         entry.waiting_since = now;
-        for slot in &mut entry.slots {
-            slot.not_before = None;
-            if matches!(slot.attachment.state, UploadState::Failed { .. }) {
-                slot.attachment.state = UploadState::Pending;
-                slot.failures = 0;
-            }
-        }
         true
     }
 
@@ -714,22 +640,17 @@ impl PromptOutbox {
     /// never here) looks sent.
     pub fn look(&self, id: &str, now: Instant) -> PromptLook {
         if let Some(entry) = self.entries.iter().find(|e| e.id == id) {
-            let upload_retrying = entry.slots.iter().any(|s| s.failures > 0);
             let waiting = matches!(entry.state, State::Queued | State::Writing)
                 && entry.uploaded()
                 && now.saturating_duration_since(entry.waiting_since) >= RETRYING_AFTER;
-            return if upload_retrying || waiting {
-                PromptLook::Retrying
-            } else {
-                PromptLook::Sent
-            };
+            return if waiting { PromptLook::Retrying } else { PromptLook::Sent };
         }
         if self.failed.iter().any(|f| f == id) { PromptLook::Failed } else { PromptLook::Sent }
     }
 
-    /// The prompt's attachments and their uploads (for a progress ring), or `None`.
+    /// The prompt's attachments and their uploads' ends, or `None`.
     pub fn attachments(&self, id: &str) -> Option<Vec<Attachment>> {
-        self.entries.iter().find(|e| e.id == id).map(Entry::attachments)
+        self.entries.iter().find(|e| e.id == id).map(|e| e.slots.clone())
     }
 
     /// Forgets a failed prompt's look (the person dismissed it or sent it again).
@@ -737,23 +658,22 @@ impl PromptOutbox {
         self.failed.retain(|f| f != id);
     }
 
-    /// When something is next due: an unwritten prompt's hold, or (link up) the first one's retry
-    /// or an upload's retry. `None` when nothing waits.
+    /// When something is next due: an unwritten prompt's hold, or (link up) the first one's retry. `None` when nothing waits.
     pub fn next_wake(&self, now: Instant) -> Option<Duration> {
         let mut wake: Option<Instant> = None;
         let mut first_queued = true;
         let mut earlier = |at: Instant| wake = Some(wake.map_or(at, |w: Instant| w.min(at)));
         for entry in self.entries.iter().filter(|e| e.state == State::Queued) {
-            if !self.link_up || entry.uploaded() {
-                earlier(entry.waiting_since + self.hold);
+            if self.link_up && !entry.uploaded() {
+                // As in `expire`: it and every one behind it wait for its upload, not the link.
+                break;
             }
-            if self.link_up {
-                if first_queued && let Some(retry) = entry.not_before {
-                    earlier(retry);
-                }
-                for retry in entry.slots.iter().filter_map(|s| s.not_before) {
-                    earlier(retry);
-                }
+            earlier(entry.waiting_since + self.hold);
+            if self.link_up
+                && first_queued
+                && let Some(retry) = entry.not_before
+            {
+                earlier(retry);
             }
             first_queued = false;
         }
@@ -787,10 +707,6 @@ impl PromptOutbox {
 
     fn entry_mut(&mut self, id: &str) -> Option<&mut Entry> {
         self.entries.iter_mut().find(|e| e.id == id)
-    }
-
-    fn slot_mut(&mut self, prompt: &str, attachment: &str) -> Option<&mut Slot> {
-        self.entry_mut(prompt)?.slots.iter_mut().find(|s| s.attachment.id == attachment)
     }
 
     fn remember_failed(&mut self, id: String) {

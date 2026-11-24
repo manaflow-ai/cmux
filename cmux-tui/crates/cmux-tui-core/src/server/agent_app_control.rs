@@ -59,7 +59,7 @@ const REPORT_OPERATIONS: [ResourceOperation; 9] = [
 /// Not `detach-client` (it detaches another viewer) or
 /// `set-terminal-command-history` (it writes a setting). Sorted (binary
 /// search).
-pub(super) const LEGACY_ALLOWED: [&str; 76] = [
+pub(super) const LEGACY_ALLOWED: [&str; 77] = [
     "cloud-attachment-read",
     "cloud-conversation-history",
     "cloud-conversation-run",
@@ -128,6 +128,7 @@ pub(super) const LEGACY_ALLOWED: [&str; 76] = [
     "subscribe-activity",
     "terminal-command-context",
     "terminal-events",
+    "terminal-find",
     "terminal-history",
     "terminal-last-command",
     "terminal-ports",

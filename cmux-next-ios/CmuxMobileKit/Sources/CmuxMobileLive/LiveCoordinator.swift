@@ -101,6 +101,9 @@ public final class LiveCoordinator {
     public internal(set) var relayAvailable: Bool?
     /// The focused Mac's theme and wallpaper for the chrome (ask-87d30da8e5).
     @ObservationIgnored let appearance = MacAppearanceFeed()
+    /// Every linked Mac's tabs as its `tabs` service pushes them: what the grid's cards show
+    /// of tabs this phone never opened. The shell sets its sink (the phone's card store).
+    @ObservationIgnored public let tabs = MacTabsFeed()
     /// The focused Mac's Feed source.
     public var feed: LiveFeed { focused.feed }
     /// The focused Mac's terminal agents' events in the Feed.
@@ -1264,7 +1267,12 @@ final class PendingAgentSource: AgentSessionSource {
 
     /// Prompts sent before the chat loaded, oldest first, with when each was sent.
     var held: [(intent: AgentClientIntent, at: ContinuousClock.Instant)] {
-        outbox.unwritten().compactMap { id in intents[id].map { ($0, tapped[id] ?? ContinuousClock.now) } }
+        var held: [(intent: AgentClientIntent, at: ContinuousClock.Instant)] = []
+        for id in outbox.unwritten() {
+            guard let intent = intents[id] else { continue }
+            held.append((intent: intent, at: tapped[id] ?? ContinuousClock.now))
+        }
+        return held
     }
     private var tapped: [String: ContinuousClock.Instant] = [:]
     #else
@@ -1286,7 +1294,7 @@ final class PendingAgentSource: AgentSessionSource {
             return
         }
         #if canImport(CmuxMobileLinkFFI)
-        guard outbox.push(promptId: promptID, text: text, attachmentIds: [], resend: resend,
+        guard outbox.push(promptId: promptID, text: text, uploadIds: [], resend: resend,
                           tappedMs: ChatPromptClock.milliseconds(at),
                           nowMs: ChatPromptClock.milliseconds(at)) else { return }
         intents[promptID] = intent
@@ -1302,8 +1310,10 @@ final class PendingAgentSource: AgentSessionSource {
     /// it builds it). They are no longer this source's to return.
     func takeHeld() -> [(intent: AgentClientIntent, at: ContinuousClock.Instant)] {
         #if canImport(CmuxMobileLinkFFI)
-        let taken = outbox.drainUnwritten().compactMap { taken in
-            intents.removeValue(forKey: taken.promptId).map { ($0, tapped.removeValue(forKey: taken.promptId) ?? ChatPromptClock.instant(taken.tappedMs)) }
+        var taken: [(intent: AgentClientIntent, at: ContinuousClock.Instant)] = []
+        for prompt in outbox.drainUnwritten() {
+            guard let intent = intents[prompt.promptId] else { continue }
+            taken.append((intent: intent, at: tapped[prompt.promptId] ?? ChatPromptClock.instant(prompt.tappedMs)))
         }
         intents = [:]
         tapped = [:]
@@ -1320,7 +1330,7 @@ final class PendingAgentSource: AgentSessionSource {
     func expire(sentAt: ContinuousClock.Instant) {
         #if canImport(CmuxMobileLinkFFI)
         guard let id = outbox.unwritten().first(where: { tapped[$0] == sentAt }) else { return }
-        gaveBack(outbox.giveUpFrom(promptId: id).map(\.promptId))
+        gaveBack(ids: outbox.giveUpFrom(promptId: id).map(\.promptId))
         #else
         guard let index = held.firstIndex(where: { $0.at == sentAt }) else { return }
         let dropped = held[index...]
@@ -1333,7 +1343,7 @@ final class PendingAgentSource: AgentSessionSource {
     /// Gives back what is past the hold now, and wakes for the next hold.
     private func expireDue() {
         let nowMs = ChatPromptClock.milliseconds(ContinuousClock.now)
-        gaveBack(outbox.expire(nowMs: nowMs).map(\.promptId))
+        gaveBack(ids: outbox.expire(nowMs: nowMs).map(\.promptId))
         wake?.cancel()
         guard let wait = outbox.nextWakeMs(nowMs: nowMs) else { wake = nil; return }
         wake = Task { [weak self] in
@@ -1343,11 +1353,13 @@ final class PendingAgentSource: AgentSessionSource {
         }
     }
 
-    private func gaveBack(_ ids: [String]) {
-        gaveBack(ids.compactMap { id in
+    private func gaveBack(ids: [String]) {
+        var dropped: [AgentClientIntent] = []
+        for id in ids {
             tapped[id] = nil
-            return intents.removeValue(forKey: id)
-        })
+            if let intent = intents.removeValue(forKey: id) { dropped.append(intent) }
+        }
+        gaveBack(dropped)
     }
     #endif
 

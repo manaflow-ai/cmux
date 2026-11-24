@@ -6,7 +6,13 @@ fn ms(n: u64) -> Duration {
 }
 
 fn done(id: &str, outcome: PromptOutcome, text: &str) -> PromptDone {
-    PromptDone { id: id.into(), outcome, text: text.into(), attachments: vec![] }
+    PromptDone {
+        id: id.into(),
+        outcome,
+        text: text.into(),
+        attachments: vec![],
+        cancel_uploads: vec![],
+    }
 }
 
 fn outbox() -> PromptOutbox {
@@ -452,8 +458,8 @@ fn lossy_run_with(seed: u64, sends: usize, hold: Duration, mix: Mix) -> Run {
     let mut mac = FakeMac::default();
     // Written prompts whose answer is on its way: (id, steps left).
     let mut answers: Vec<(String, u32)> = Vec::new();
-    // Uploads under way: (prompt, attachment, steps left).
-    let mut uploads: Vec<(String, String, u32)> = Vec::new();
+    // Uploads under way in the uploader (started at pick time, retried by it): (id, steps left).
+    let mut uploads: Vec<(String, u32)> = Vec::new();
     // `_acpmux/queue_remove` calls on their way: (id, steps left).
     let mut removes: Vec<(String, u32)> = Vec::new();
     let mut cancelled: HashSet<String> = HashSet::new();
@@ -461,7 +467,13 @@ fn lossy_run_with(seed: u64, sends: usize, hold: Duration, mix: Mix) -> Run {
     let mut attempts: HashMap<String, Vec<PromptRequest>> = HashMap::new();
     let mut tapped = 0usize;
     let mut down_steps = 0u32;
-    let end = |ended: &mut HashMap<String, PromptDone>, done: PromptDone| {
+    // Every end names its unfinished uploads; the driver cancels them.
+    let end = |ended: &mut HashMap<String, PromptDone>,
+               uploads: &mut Vec<(String, u32)>,
+               done: PromptDone| {
+        for id in &done.cancel_uploads {
+            uploads.retain(|(u, _)| u != id);
+        }
         assert!(ended.insert(done.id.clone(), done).is_none(), "ended twice");
     };
     for _step in 0..400_000 {
@@ -473,11 +485,10 @@ fn lossy_run_with(seed: u64, sends: usize, hold: Duration, mix: Mix) -> Run {
         if down_steps == 0 && rng.chance(3) {
             down_steps = 1 + (rng.next() % 60) as u32;
             outbox.set_link(false, now);
-            // Every answer in flight is lost with the channel; uploads start over.
+            // Every answer in flight is lost with the channel.
             for (id, _) in answers.drain(..) {
                 outbox.lost(&id, now);
             }
-            uploads.clear();
         } else if down_steps > 0 {
             down_steps -= 1;
             if down_steps == 0 {
@@ -487,6 +498,9 @@ fn lossy_run_with(seed: u64, sends: usize, hold: Duration, mix: Mix) -> Run {
         if tapped < sends && rng.chance(35) {
             let id = format!("p{tapped}");
             let files = if rng.chance(mix.attach) { vec![format!("f{tapped}")] } else { vec![] };
+            for file in &files {
+                uploads.push((file.clone(), (rng.next() % 40) as u32));
+            }
             assert!(outbox.push(id.clone(), format!("text {tapped}"), files, false, now, now));
             tapped += 1;
         }
@@ -500,35 +514,40 @@ fn lossy_run_with(seed: u64, sends: usize, hold: Duration, mix: Mix) -> Run {
                             !mac.deliveries.contains_key(&id),
                             "{id} came back but was written"
                         );
-                        end(&mut ended, done);
+                        end(&mut ended, &mut uploads, done);
                     }
                     Some(CancelStep::RemoveOnMac { id }) => {
-                        removes.push((id, (rng.next() % 10) as u32))
+                        removes.push((id, (rng.next() % 10) as u32));
                     }
                     None => {}
                 }
             }
         }
         for done in outbox.expire(now) {
-            end(&mut ended, done);
+            end(&mut ended, &mut uploads, done);
         }
-        while let Some(upload) = outbox.next_upload(now) {
-            uploads.push((upload.prompt, upload.attachment, (rng.next() % 20) as u32));
-        }
+        // The uploader moves while the link is up; it gives up on one now and then.
+        let mut finished = Vec::new();
         let mut still = Vec::new();
-        for (prompt, file, left) in uploads.drain(..) {
-            if left > 0 {
-                still.push((prompt, file, left - 1));
-            } else if rng.chance(10) {
-                if let Some(done) = outbox.upload_failed(&prompt, &file, "io", now) {
-                    end(&mut ended, done);
-                }
+        for (file, left) in uploads.drain(..) {
+            if down_steps > 0 {
+                still.push((file, left));
+            } else if left > 0 {
+                still.push((file, left - 1));
             } else {
-                outbox.upload_progress(&prompt, &file, 1, 1);
-                outbox.uploaded(&prompt, &file, format!("/mac/{file}"), now);
+                finished.push(file);
             }
         }
         uploads = still;
+        for file in finished {
+            if rng.chance(5) {
+                if let Some(done) = outbox.upload_failed(&file, "io") {
+                    end(&mut ended, &mut uploads, done);
+                }
+            } else {
+                outbox.uploaded(&file, format!("/mac/{file}"), now);
+            }
+        }
         while let Some(request) = outbox.next_request(now) {
             assert!(!cancelled.contains(&request.id), "{} sent after its cancel", request.id);
             let index: usize = request.id[1..].parse().unwrap();
@@ -555,7 +574,7 @@ fn lossy_run_with(seed: u64, sends: usize, hold: Duration, mix: Mix) -> Run {
                 if rng.chance(8) {
                     outbox.lost(&id, now);
                 } else if let Some(done) = outbox.answered(&id) {
-                    end(&mut ended, done);
+                    end(&mut ended, &mut uploads, done);
                 }
             } else {
                 still.push((id, left - 1));
@@ -570,12 +589,13 @@ fn lossy_run_with(seed: u64, sends: usize, hold: Duration, mix: Mix) -> Run {
             } else if let Some(done) =
                 outbox.remove_answered(&id, !mac.deliveries.contains_key(&id))
             {
-                end(&mut ended, done);
+                end(&mut ended, &mut uploads, done);
             }
         }
         removes = still;
     }
     assert_eq!(tapped, sends, "the run tapped every send");
+    assert!(uploads.is_empty(), "no upload left running for a send that ended: {uploads:?}");
     assert!(outbox.is_empty(), "every send ended");
     let mut run = Run {
         sent: vec![],
@@ -625,13 +645,22 @@ fn check(run: &Run, sends: usize) {
     for id in &run.maybe_sent {
         assert!(run.mac.deliveries.contains_key(id), "{id} said maybe sent but was never written");
     }
-    // Order kept across drops: the Mac first ran them in tap order.
+    // Order kept across drops: the Mac first ran them in tap order, except that a prompt still
+    // uploading never holds back the ones behind it (Leo, 2026-11-24: text must not queue behind
+    // an upload). So a later prompt ran first only past one that carried attachments.
     let index = |id: &String| id[1..].parse::<usize>().unwrap();
-    assert!(
-        run.mac.ran.windows(2).all(|w| index(&w[0]) < index(&w[1])),
-        "the Mac ran them out of tap order: {:?}",
-        run.mac.ran
-    );
+    let carried = |id: &String| {
+        run.attempts.get(id).is_some_and(|tries| tries.iter().any(|r| !r.attachments.is_empty()))
+    };
+    for (at, first) in run.mac.ran.iter().enumerate() {
+        for later in run.mac.ran.iter().skip(at + 1) {
+            assert!(
+                index(first) < index(later) || carried(later),
+                "the Mac ran {first} before {later}, which was ready: {:?}",
+                run.mac.ran
+            );
+        }
+    }
 }
 
 #[test]
@@ -684,19 +713,14 @@ fn a_prompt_goes_only_once_its_uploads_are_done_with_their_mac_paths() {
     let mut outbox = outbox();
     outbox.push("a", "look", atts(&["img1", "img2"]), false, t0, t0);
     assert_eq!(outbox.next_request(t0), None, "uploads first");
-    let u1 = outbox.next_upload(t0).unwrap();
-    assert_eq!(u1, UploadRequest { prompt: "a".into(), attachment: "img1".into() });
-    let u2 = outbox.next_upload(t0).unwrap();
-    assert_eq!(u2.attachment, "img2");
-    assert_eq!(outbox.next_upload(t0), None, "both under way");
-    outbox.upload_progress("a", "img1", 50, 100);
+    outbox.uploaded("img1", "/tmp/m/img1.png", t0 + ms(10));
     assert_eq!(
         outbox.attachments("a").unwrap()[0].state,
-        UploadState::Uploading { sent: 50, total: 100 }
+        UploadState::Uploaded { mac_path: "/tmp/m/img1.png".into() }
     );
-    outbox.uploaded("a", "img1", "/tmp/m/img1.png", t0 + ms(10));
     assert_eq!(outbox.next_request(t0 + ms(10)), None, "img2 still uploading");
-    outbox.uploaded("a", "img2", "/tmp/m/img2.png", t0 + ms(20));
+    outbox.uploaded("unknown", "/x", t0 + ms(15));
+    outbox.uploaded("img2", "/tmp/m/img2.png", t0 + ms(20));
     let request = outbox.next_request(t0 + ms(20)).unwrap();
     assert_eq!(
         request.attachments,
@@ -705,66 +729,73 @@ fn a_prompt_goes_only_once_its_uploads_are_done_with_their_mac_paths() {
             ("img2".to_string(), "/tmp/m/img2.png".to_string())
         ]
     );
+    outbox.wrote("a");
+    let done = outbox.answered("a").unwrap();
+    assert!(done.cancel_uploads.is_empty(), "nothing to cancel for one that went");
 }
 
 #[test]
-fn a_later_text_send_queues_at_once_behind_an_upload_and_goes_after_it() {
+fn a_later_text_send_never_waits_behind_an_upload() {
+    // Leo's blocked send (2026-11-24): text sent while a picked video uploads goes at once; the
+    // video's prompt follows once its upload is on the Mac. Base held b behind a's upload.
     let t0 = Instant::now();
     let mut outbox = outbox();
     outbox.push("a", "photo", atts(&["big"]), false, t0, t0);
     assert!(outbox.push("b", "and this", vec![], false, t0 + ms(1), t0 + ms(1)), "never blocked");
-    outbox.next_upload(t0).unwrap();
-    assert_eq!(outbox.next_request(t0 + ms(2)), None, "b never goes before a");
-    assert_eq!(outbox.unwritten(), vec!["a", "b"]);
+    assert_eq!(outbox.next_request(t0 + ms(2)).unwrap().id, "b", "b does not wait for a's upload");
+    outbox.wrote("b");
+    assert_eq!(outbox.answered("b").unwrap().outcome, PromptOutcome::Sent);
+    assert_eq!(outbox.unwritten(), vec!["a"]);
     // A long upload is not a wait for the link: nothing gives up while it runs.
     assert!(outbox.expire(t0 + Duration::from_secs(60)).is_empty());
     assert_eq!(outbox.look("a", t0 + Duration::from_secs(60)), PromptLook::Sent);
-    outbox.uploaded("a", "big", "/m/big", t0 + Duration::from_secs(60));
+    assert_eq!(outbox.next_wake(t0 + Duration::from_secs(60)), None, "the upload's end wakes it");
     let now = t0 + Duration::from_secs(60);
+    assert_eq!(outbox.next_request(now), None, "a still uploading");
+    outbox.uploaded("big", "/m/big", now);
     assert_eq!(outbox.next_request(now).unwrap().id, "a");
-    outbox.wrote("a");
-    assert_eq!(outbox.next_request(now).unwrap().id, "b");
 }
 
 #[test]
-fn a_failed_upload_goes_again_after_a_backoff_and_gives_up_after_its_attempts() {
+fn ready_prompts_still_go_in_tap_order_behind_an_upload() {
     let t0 = Instant::now();
     let mut outbox = outbox();
-    outbox.set_hold(Duration::from_secs(3600));
-    outbox.push("a", "pic", atts(&["x"]), false, t0, t0);
-    outbox.push("b", "after", vec![], false, t0 + ms(1), t0 + ms(1));
-    let mut now = t0;
-    for n in 1..UPLOAD_ATTEMPTS {
-        outbox.next_upload(now).unwrap();
-        assert_eq!(outbox.upload_failed("a", "x", "disk full", now), None);
-        assert_eq!(outbox.look("a", now), PromptLook::Retrying, "an upload retrying shows");
-        assert_eq!(outbox.next_upload(now), None, "backing off");
-        let wait = outbox.next_wake(now).unwrap();
-        assert!(wait <= retry_delay(n, 1.0) && wait >= retry_delay(n, 0.0));
-        now += wait;
-    }
-    outbox.next_upload(now).unwrap();
-    let done = outbox.upload_failed("a", "x", "disk full", now).unwrap();
-    assert_eq!(done.outcome, PromptOutcome::UploadFailed { reason: "disk full".into() });
-    assert_eq!(done.text, "pic");
-    assert_eq!(done.attachments[0].state, UploadState::Failed { reason: "disk full".into() });
-    assert_eq!(outbox.look("a", now), PromptLook::Failed);
-    assert_eq!(outbox.next_request(now).unwrap().id, "b", "the next send goes on");
+    outbox.push("a", "video", atts(&["v"]), false, t0, t0);
+    outbox.push("b", "one", vec![], false, t0 + ms(1), t0 + ms(1));
+    outbox.push("c", "two", vec![], false, t0 + ms(2), t0 + ms(2));
+    assert_eq!(outbox.next_request(t0 + ms(3)).unwrap().id, "b");
+    outbox.wrote("b");
+    assert_eq!(outbox.next_request(t0 + ms(3)).unwrap().id, "c");
 }
 
 #[test]
-fn a_drop_mid_upload_starts_the_upload_over_and_the_hold_from_the_drop() {
+fn a_failed_upload_gives_its_prompt_up_naming_the_other_uploads_to_cancel() {
+    let t0 = Instant::now();
+    let mut outbox = outbox();
+    outbox.push("a", "pics", atts(&["x", "y", "z"]), false, t0, t0);
+    outbox.push("b", "after", vec![], false, t0 + ms(1), t0 + ms(1));
+    outbox.uploaded("z", "/m/z", t0);
+    let done = outbox.upload_failed("x", "disk full").unwrap();
+    assert_eq!(done.outcome, PromptOutcome::UploadFailed { reason: "disk full".into() });
+    assert_eq!(done.text, "pics");
+    assert_eq!(done.attachments[0].state, UploadState::Failed { reason: "disk full".into() });
+    assert_eq!(done.cancel_uploads, atts(&["y"]), "y still runs: cancel it; z is done");
+    assert_eq!(outbox.look("a", t0), PromptLook::Failed);
+    assert_eq!(outbox.upload_failed("y", "late"), None, "a late report is ignored");
+    assert_eq!(outbox.next_request(t0 + ms(2)).unwrap().id, "b", "the next send goes on");
+}
+
+#[test]
+fn a_drop_mid_upload_starts_the_hold_from_the_drop() {
     let t0 = Instant::now();
     let mut outbox = outbox();
     outbox.push("a", "pic", atts(&["x"]), false, t0, t0);
     outbox.push("b", "b", vec![], false, t0, t0);
-    outbox.next_upload(t0).unwrap();
-    outbox.upload_progress("a", "x", 10, 100);
     outbox.set_link(false, t0 + ms(30_000));
-    assert_eq!(outbox.attachments("a").unwrap()[0].state, UploadState::Pending);
-    assert_eq!(outbox.next_upload(t0 + ms(30_000)), None, "offline");
     assert!(outbox.expire(t0 + ms(39_999)).is_empty());
-    assert_eq!(outbox.expire(t0 + ms(40_000)).len(), 2, "both waited the hold for the link");
+    let back = outbox.expire(t0 + ms(40_000));
+    assert_eq!(back.len(), 2, "both waited the hold for the link");
+    assert_eq!(back[0].cancel_uploads, atts(&["x"]), "its upload is cancelled with it");
 }
 
 // ---- Cancel, edit, retry now, delete ---------------------------------------------------------
@@ -774,16 +805,16 @@ fn cancel_mid_upload_frees_the_composer_immediately() {
     let t0 = Instant::now();
     let mut outbox = outbox();
     outbox.push("a", "with pic", atts(&["x"]), false, t0, t0);
-    outbox.next_upload(t0).unwrap();
-    outbox.upload_progress("a", "x", 1, 1_000_000);
     let step = outbox.cancel("a").unwrap();
     let CancelStep::Returned(done) = step else { panic!("never left: back at once, got {step:?}") };
     assert_eq!(done.outcome, PromptOutcome::Cancelled);
     assert_eq!(done.text, "with pic");
     assert_eq!(done.attachments.len(), 1, "its attachments come back too");
+    assert_eq!(done.cancel_uploads, atts(&["x"]), "the driver cancels the upload");
     assert!(outbox.is_empty());
     // The upload's late reports are moot.
-    outbox.uploaded("a", "x", "/m/x", t0);
+    outbox.uploaded("x", "/m/x", t0);
+    assert_eq!(outbox.upload_failed("x", "cancelled"), None);
     assert_eq!(outbox.next_request(t0), None);
     assert_eq!(outbox.look("a", t0), PromptLook::Sent, "not failed: the person took it back");
 }
@@ -861,18 +892,22 @@ fn edit_of_an_unsent_prompt_replaces_text_and_attachments_in_its_place() {
     let mut outbox = outbox();
     outbox.push("a", "old", atts(&["x", "y"]), false, t0, t0);
     outbox.push("b", "b", vec![], false, t0 + ms(1), t0 + ms(1));
-    outbox.next_upload(t0).unwrap();
-    outbox.uploaded("a", "x", "/m/x", t0);
+    outbox.uploaded("x", "/m/x", t0);
     assert_eq!(
         outbox.edit("a", "a2", "new", atts(&["x", "z"]), t0 + ms(5)),
-        Some(EditStep::Edited)
+        Some(EditStep::Edited { cancel_uploads: atts(&["y"]) }),
+        "y was dropped mid-upload: cancel it"
     );
     assert_eq!(outbox.unwritten(), vec!["a", "b"], "same id, same place");
     let a = outbox.attachments("a").unwrap();
     assert_eq!(a[0].state, UploadState::Uploaded { mac_path: "/m/x".into() }, "x kept its upload");
     assert_eq!(a[1], Attachment { id: "z".into(), state: UploadState::Pending });
-    assert_eq!(outbox.next_upload(t0 + ms(5)).unwrap().attachment, "z");
-    outbox.uploaded("a", "z", "/m/z", t0 + ms(6));
+    let r = outbox.next_request(t0 + ms(5)).unwrap();
+    assert_eq!(r.id, "b", "b is ready: it does not wait while z uploads");
+    outbox.wrote("b");
+    outbox.uploaded("y", "/m/y", t0 + ms(5));
+    assert_eq!(outbox.attachments("a").unwrap().len(), 2, "a dropped upload's end is ignored");
+    outbox.uploaded("z", "/m/z", t0 + ms(6));
     let r = outbox.next_request(t0 + ms(6)).unwrap();
     assert_eq!((r.id.as_str(), r.attachments.len()), ("a", 2));
     outbox.wrote("a");
@@ -889,14 +924,17 @@ fn edit_of_a_send_that_may_be_written_is_a_new_prompt_in_its_place_and_says_so()
     outbox.wrote("a");
     assert_eq!(
         outbox.edit("a", "a2", "new", vec![], t0 + ms(2)),
-        Some(EditStep::Replaced { remove: "a".into() })
+        Some(EditStep::Replaced { remove: "a".into(), cancel_uploads: vec![] })
     );
     assert_eq!(outbox.unwritten(), vec!["a2", "b"], "the edit keeps a's place, before b");
     let r = outbox.next_request(t0 + ms(2)).unwrap();
     assert_eq!((r.id.as_str(), r.resend), ("a2", false), "a new prompt, not a resend");
     assert_eq!(outbox.remove_answered("a", true).unwrap().outcome, PromptOutcome::Cancelled);
     assert_eq!(outbox.edit("zzz", "q", "x", vec![], t0), None);
-    assert_eq!(outbox.edit("b", "b", "x", vec![], t0), Some(EditStep::Edited));
+    assert_eq!(
+        outbox.edit("b", "b", "x", vec![], t0),
+        Some(EditStep::Edited { cancel_uploads: vec![] })
+    );
     outbox.wrote("a2");
     outbox.next_request(t0 + ms(3)).unwrap();
     outbox.wrote("b");
@@ -904,7 +942,7 @@ fn edit_of_a_send_that_may_be_written_is_a_new_prompt_in_its_place_and_says_so()
 }
 
 #[test]
-fn retry_now_skips_the_backoff_restarts_the_hold_and_reuploads_a_failed_attachment() {
+fn retry_now_skips_the_backoff_and_restarts_the_hold() {
     let t0 = Instant::now();
     let mut outbox = outbox();
     outbox.push("a", "a", vec![], false, t0, t0);
@@ -914,13 +952,6 @@ fn retry_now_skips_the_backoff_restarts_the_hold_and_reuploads_a_failed_attachme
     assert!(outbox.retry_now("a", t0 + ms(9_000)));
     assert_eq!(outbox.next_request(t0 + ms(12_000)).unwrap().id, "a", "its hold restarted");
     assert!(!outbox.retry_now("a", t0), "being written: nothing to hurry");
-
-    outbox.push("b", "b", atts(&["x"]), false, t0, t0);
-    outbox.next_upload(t0).unwrap();
-    outbox.upload_failed("b", "x", "net", t0);
-    assert_eq!(outbox.next_upload(t0), None);
-    assert!(outbox.retry_now("b", t0));
-    assert_eq!(outbox.next_upload(t0).unwrap().attachment, "x");
     assert!(!outbox.retry_now("zzz", t0));
 }
 
@@ -934,7 +965,8 @@ fn delete_cancels_and_leaves_no_failed_mark() {
     assert_eq!(outbox.delete("a"), None, "already given up: only its mark goes");
     assert_eq!(outbox.look("a", t0), PromptLook::Sent);
     outbox.push("b", "b", atts(&["x"]), false, t0, t0);
-    assert!(matches!(outbox.delete("b"), Some(CancelStep::Returned(_))));
+    let Some(CancelStep::Returned(done)) = outbox.delete("b") else { panic!() };
+    assert_eq!(done.cancel_uploads, atts(&["x"]));
     assert!(outbox.is_empty());
 }
 

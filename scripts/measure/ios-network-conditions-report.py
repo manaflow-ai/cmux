@@ -36,7 +36,7 @@ READ_FIRST_LEGEND = (
 )
 # settled_*: link up to the settled Workspaces list, the setup in 4 serial round trips or 1.
 DURESS_PHASES = ("home", "settled_serial", "settled_batched", "reattach")
-PHASE_ORDER = ["cold", "warm", "reconnect", "fixture", "home", "settled_serial", "settled_batched", "reattach"]
+PHASE_ORDER = ["cold", "warm", "reconnect", "send", "attach", "fixture", "home", "settled_serial", "settled_batched", "reattach"]
 # mode=duress: the idle fixture and the loaded daemon (mobile_link_conditions.rs open_path_under_duress).
 DURESS_SCALES = {"idle": 0, "duress": 1}
 DURESS_METRICS = ["round_trips", "bytes_down", "first_content_ms", "setup_ms", "interactive_ms", "workspaces_shown"]
@@ -127,6 +127,43 @@ def duress_table(rows: list[dict], before: str | None) -> list[str]:
     return out
 
 
+SEND_ROWS = ["idle", "lte", "lossy-3", "link-down", "duress"]
+
+
+def send_table(values: dict, surface: str, label: str) -> list[str]:
+    """mode=send: one line per row: tap to visible as sent (p50 / p95, n sends, misses) and, from
+    what the host applied, double and lost sends per 100 sends (phase `send`, scale = the row)."""
+    rows = {}
+    for (surf, profile, phase, scale, metric), by_label in values.items():
+        if surf == surface and phase == "send" and label in by_label:
+            rows.setdefault(scale, {"profile": profile})[metric] = by_label[label]
+    if not rows:
+        return []
+    out = [
+        "| row | link | sends | visible as sent p50 / p95 | not visible (miss) | double / 100 | lost / 100 | retries |",
+        "|---|---|---|---|---|---|---|---|",
+    ]
+    for scale in sorted(rows, key=lambda r: SEND_ROWS.index(r) if r in SEND_ROWS else 99):
+        row = rows[scale]
+        visible = summarize(row.get("send_visible_ms", []))
+        sends = int(sum(v for v in row.get("sends", []) if v is not None))
+
+        def per100(metric: str) -> str:
+            if not sends or metric not in row:
+                return "-"
+            count = sum(v for v in row[metric] if v is not None)
+            return f"{count / sends * 100:.1f} ({count:g}/{sends})"
+
+        retries = sum(v for v in row.get("retries", []) if v is not None)
+        total = visible["n"] + visible["miss"]
+        out.append(
+            f"| {scale} | {row['profile']} | {sends or total} | {fmt(visible, 'send_visible_ms').split(' (')[0]} "
+            f"| {visible['miss']} | {per100('double_sends')} | {per100('lost_sends')} | {retries:g} |"
+        )
+    out.append("")
+    return out
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("lines")
@@ -194,7 +231,7 @@ def main() -> int:
             out.append("| profile | phase | scale | metric | value |")
             out.append("|---|---|---|---|---|")
         for row in rows:
-            if row["surface"] != surface:
+            if row["surface"] != surface or row["phase"] == "send":
                 continue
             cells = [row["profile"], row["phase"], row["scale"], row["metric"]]
             if args.before:
@@ -203,6 +240,9 @@ def main() -> int:
                 cells += [fmt(row["after"], row["metric"])]
             out.append("| " + " | ".join(cells) + " |")
         out.append("")
+        sends = send_table(values, surface, "after")
+        if sends:
+            out += [f"### {surface} send: tap to visible as sent, double and lost sends per 100", ""] + sends
     out += duress_table(rows, args.before)
     with open(args.markdown, "w") as handle:
         handle.write("\n".join(out))

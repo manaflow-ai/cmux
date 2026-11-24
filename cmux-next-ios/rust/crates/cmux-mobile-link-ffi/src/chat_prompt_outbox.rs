@@ -1,10 +1,12 @@
 //! The agent chat's prompts on their way to the Mac (`cmux_composer_send::chat`): the one send
-//! queue for a prompt's text and its attachments. Keyed by `promptId`, uploads first, written one
-//! at a time in tap order, a resend once a written one's answer was lost, retried with a
-//! jittered, capped backoff, queued while offline and given up past the hold; any pending send
-//! can be cancelled, edited, retried now or deleted. The Swift chat source asks for the next
-//! upload and the next prompt to write, does them and reports what happened; the outbox decides
-//! what goes, as what, and how each prompt looks.
+//! queue for a prompt's text and its attachments. Keyed by `promptId`, written one at a time in
+//! tap order once its uploads are on the Mac, a resend once a written one's answer was lost,
+//! retried with a jittered, capped backoff, queued while offline and given up past the hold; any
+//! pending send can be cancelled, edited, retried now or deleted. Attachments are upload ids
+//! (opaque: `AttachmentUploads` starts, retries and tracks each); the Swift chat source reports
+//! each upload's end, asks for the next prompt to write, writes it and reports what happened, and
+//! cancels the uploads a step names. The outbox decides what goes, as what, and how each prompt
+//! looks.
 //!
 //! One object per chat source, called from the main actor; a mutex keeps it `Sync` for uniffi
 //! and is held only for the call. Time is the source's own monotonic clock in milliseconds
@@ -29,24 +31,23 @@ pub enum ChatPromptOutcome {
     /// It was written and its answer never came (or it could not be taken off the Mac's queue):
     /// it may have run.
     MaybeSent,
-    /// An attachment failed to upload too many times: nothing was written.
+    /// An attachment's upload failed (the uploader gave up): nothing was written.
     UploadFailed { reason: String },
     /// The person cancelled it before it reached the Mac, or the Mac took it off its queue.
     Cancelled,
 }
 
-/// Where one attachment's upload is.
+/// Where one attachment's upload is, as reported (its progress is `AttachmentUploads`').
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
 pub enum ChatUploadState {
     Pending,
-    Uploading { sent: u64, total: u64 },
     Uploaded { mac_path: String },
     Failed { reason: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct ChatAttachment {
-    pub attachment_id: String,
+    pub upload_id: String,
     pub state: ChatUploadState,
 }
 
@@ -57,12 +58,14 @@ pub struct ChatPromptDone {
     pub outcome: ChatPromptOutcome,
     pub text: String,
     pub attachments: Vec<ChatAttachment>,
+    /// Its uploads not on the Mac yet: the source cancels them (empty for one that went).
+    pub cancel_upload_ids: Vec<String>,
 }
 
 /// An uploaded attachment a prompt goes with.
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct ChatUploadedAttachment {
-    pub attachment_id: String,
+    pub upload_id: String,
     pub mac_path: String,
 }
 
@@ -76,17 +79,10 @@ pub struct ChatPromptRequest {
     pub attachments: Vec<ChatUploadedAttachment>,
 }
 
-/// One upload to start.
-#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
-pub struct ChatUploadRequest {
-    pub prompt_id: String,
-    pub attachment_id: String,
-}
-
 /// What a cancel or delete asks of the source.
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
 pub enum ChatCancelStep {
-    /// It never left: back at once.
+    /// It never left: back at once (cancel `done.cancel_upload_ids`).
     Returned { done: ChatPromptDone },
     /// It may be on the Mac: call `_acpmux/queue_remove` for it, then `remove_answered`.
     RemoveOnMac { prompt_id: String },
@@ -95,11 +91,11 @@ pub enum ChatCancelStep {
 /// What an edit did.
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
 pub enum ChatEditStep {
-    /// Edited in place: same id, same place.
-    Edited,
+    /// Edited in place: same id, same place. Cancel the uploads the edit dropped.
+    Edited { cancel_upload_ids: Vec<String> },
     /// It may be on the Mac: the edit goes as the new id in its place; remove the old one with
-    /// `_acpmux/queue_remove`, then `remove_answered`.
-    Replaced { remove_prompt_id: String },
+    /// `_acpmux/queue_remove`, then `remove_answered`. Cancel the uploads the edit dropped.
+    Replaced { remove_prompt_id: String, cancel_upload_ids: Vec<String> },
 }
 
 /// How a prompt looks on screen.
@@ -107,7 +103,7 @@ pub enum ChatEditStep {
 pub enum ChatPromptLook {
     /// From the tap on.
     Sent,
-    /// Unwritten past the quiet threshold, or an upload retrying: still trying.
+    /// Unwritten past the quiet threshold after its uploads: still trying.
     Retrying,
     /// Given up.
     Failed,
@@ -150,11 +146,10 @@ impl ChatPromptOutbox {
 fn attachment(a: Attachment) -> ChatAttachment {
     let state = match a.state {
         UploadState::Pending => ChatUploadState::Pending,
-        UploadState::Uploading { sent, total } => ChatUploadState::Uploading { sent, total },
         UploadState::Uploaded { mac_path } => ChatUploadState::Uploaded { mac_path },
         UploadState::Failed { reason } => ChatUploadState::Failed { reason },
     };
-    ChatAttachment { attachment_id: a.id, state }
+    ChatAttachment { upload_id: a.id, state }
 }
 
 fn done(done: PromptDone) -> ChatPromptDone {
@@ -171,6 +166,7 @@ fn done(done: PromptDone) -> ChatPromptDone {
         outcome,
         text: done.text,
         attachments: done.attachments.into_iter().map(attachment).collect(),
+        cancel_upload_ids: done.cancel_uploads,
     }
 }
 
@@ -203,58 +199,40 @@ impl ChatPromptOutbox {
         self.inner().outbox.set_hold(Duration::from_millis(hold_ms));
     }
 
-    /// The link's state at `now_ms`; coming back, queued prompts and uploads go at once, in order.
+    /// The link's state at `now_ms`; coming back, queued prompts go at once, in order.
     pub fn set_link(&self, up: bool, now_ms: u64) {
         let mut inner = self.inner();
         let now = inner.at(now_ms);
         inner.outbox.set_link(up, now);
     }
 
-    /// A tap on Send with its attachments' ids (each to upload). Never waits. False when this
-    /// `promptId` is already here.
+    /// A tap on Send with its attachments' upload ids (started at pick time). Never waits. False
+    /// when this `promptId` is already here.
     pub fn push(
         &self,
         prompt_id: String,
         text: String,
-        attachment_ids: Vec<String>,
+        upload_ids: Vec<String>,
         resend: bool,
         tapped_ms: u64,
         now_ms: u64,
     ) -> bool {
         let mut inner = self.inner();
         let (tapped, now) = (inner.at(tapped_ms), inner.at(now_ms));
-        inner.outbox.push(prompt_id, text, attachment_ids, resend, tapped, now)
+        inner.outbox.push(prompt_id, text, upload_ids, resend, tapped, now)
     }
 
-    /// The next upload to start, if one may start now.
-    pub fn next_upload(&self, now_ms: u64) -> Option<ChatUploadRequest> {
+    /// The upload `upload_id` ended on the Mac at `mac_path`. Unknown ids are ignored.
+    pub fn uploaded(&self, upload_id: String, mac_path: String, now_ms: u64) {
         let mut inner = self.inner();
         let now = inner.at(now_ms);
-        let u = inner.outbox.next_upload(now)?;
-        Some(ChatUploadRequest { prompt_id: u.prompt, attachment_id: u.attachment })
+        inner.outbox.uploaded(&upload_id, mac_path, now);
     }
 
-    pub fn upload_progress(&self, prompt_id: String, attachment_id: String, sent: u64, total: u64) {
-        self.inner().outbox.upload_progress(&prompt_id, &attachment_id, sent, total);
-    }
-
-    pub fn uploaded(&self, prompt_id: String, attachment_id: String, mac_path: String, now_ms: u64) {
-        let mut inner = self.inner();
-        let now = inner.at(now_ms);
-        inner.outbox.uploaded(&prompt_id, &attachment_id, mac_path, now);
-    }
-
-    /// An upload failed; the prompt when it gave up (`UploadFailed`).
-    pub fn upload_failed(
-        &self,
-        prompt_id: String,
-        attachment_id: String,
-        reason: String,
-        now_ms: u64,
-    ) -> Option<ChatPromptDone> {
-        let mut inner = self.inner();
-        let now = inner.at(now_ms);
-        inner.outbox.upload_failed(&prompt_id, &attachment_id, reason, now).map(done)
+    /// The uploader gave up on `upload_id`: the prompt holding it, given up (`UploadFailed`),
+    /// with its other uploads to cancel.
+    pub fn upload_failed(&self, upload_id: String, reason: String) -> Option<ChatPromptDone> {
+        self.inner().outbox.upload_failed(&upload_id, reason).map(done)
     }
 
     /// The next prompt to write, if one may go now.
@@ -269,7 +247,7 @@ impl ChatPromptOutbox {
             attachments: request
                 .attachments
                 .into_iter()
-                .map(|(attachment_id, mac_path)| ChatUploadedAttachment { attachment_id, mac_path })
+                .map(|(upload_id, mac_path)| ChatUploadedAttachment { upload_id, mac_path })
                 .collect(),
         })
     }
@@ -324,14 +302,16 @@ impl ChatPromptOutbox {
         prompt_id: String,
         new_prompt_id: String,
         text: String,
-        attachment_ids: Vec<String>,
+        upload_ids: Vec<String>,
         now_ms: u64,
     ) -> Option<ChatEditStep> {
         let mut inner = self.inner();
         let now = inner.at(now_ms);
-        Some(match inner.outbox.edit(&prompt_id, new_prompt_id, text, attachment_ids, now)? {
-            EditStep::Edited => ChatEditStep::Edited,
-            EditStep::Replaced { remove } => ChatEditStep::Replaced { remove_prompt_id: remove },
+        Some(match inner.outbox.edit(&prompt_id, new_prompt_id, text, upload_ids, now)? {
+            EditStep::Edited { cancel_uploads } => ChatEditStep::Edited { cancel_upload_ids: cancel_uploads },
+            EditStep::Replaced { remove, cancel_uploads } => {
+                ChatEditStep::Replaced { remove_prompt_id: remove, cancel_upload_ids: cancel_uploads }
+            }
         })
     }
 
@@ -374,7 +354,7 @@ impl ChatPromptOutbox {
         }
     }
 
-    /// Its attachments and their uploads (for a progress ring), or none.
+    /// Its attachments and their uploads' ends, or none.
     pub fn attachments(&self, prompt_id: String) -> Option<Vec<ChatAttachment>> {
         Some(self.inner().outbox.attachments(&prompt_id)?.into_iter().map(attachment).collect())
     }
@@ -441,7 +421,8 @@ mod tests {
                 prompt_id: "a".into(),
                 outcome: ChatPromptOutcome::Sent,
                 text: "first".into(),
-                attachments: vec![]
+                attachments: vec![],
+                cancel_upload_ids: vec![]
             })
         );
     }
@@ -461,7 +442,8 @@ mod tests {
                 prompt_id: "a".into(),
                 outcome: ChatPromptOutcome::NotSent,
                 text: "hi".into(),
-                attachments: vec![]
+                attachments: vec![],
+                cancel_upload_ids: vec![]
             }]
         );
         assert_eq!(outbox.look("a".into(), 15_000), ChatPromptLook::Failed);
@@ -483,13 +465,10 @@ mod tests {
     }
 
     #[test]
-    fn cancel_mid_upload_hands_text_and_attachments_back_at_once() {
+    fn cancel_mid_upload_hands_text_and_attachments_back_at_once_with_the_upload_to_cancel() {
         let outbox = ChatPromptOutbox::new(10_000, 1);
         outbox.set_link(true, 0);
         assert!(outbox.push("a".into(), "pic".into(), vec!["x".into()], false, 0, 0));
-        let up = outbox.next_upload(0).unwrap();
-        assert_eq!(up, ChatUploadRequest { prompt_id: "a".into(), attachment_id: "x".into() });
-        outbox.upload_progress("a".into(), "x".into(), 5, 10);
         assert_eq!(
             outbox.cancel("a".into()),
             Some(ChatCancelStep::Returned {
@@ -498,9 +477,10 @@ mod tests {
                     outcome: ChatPromptOutcome::Cancelled,
                     text: "pic".into(),
                     attachments: vec![ChatAttachment {
-                        attachment_id: "x".into(),
-                        state: ChatUploadState::Uploading { sent: 5, total: 10 }
+                        upload_id: "x".into(),
+                        state: ChatUploadState::Pending
                     }],
+                    cancel_upload_ids: vec!["x".into()],
                 }
             })
         );
@@ -512,17 +492,16 @@ mod tests {
         let outbox = ChatPromptOutbox::new(10_000, 1);
         outbox.set_link(true, 0);
         outbox.push("a".into(), "old".into(), vec!["x".into()], false, 0, 0);
-        outbox.next_upload(0).unwrap();
-        outbox.uploaded("a".into(), "x".into(), "/m/x".into(), 1);
+        outbox.uploaded("x".into(), "/m/x".into(), 1);
         let r = outbox.next_request(1).unwrap();
         assert_eq!(
             r.attachments,
-            vec![ChatUploadedAttachment { attachment_id: "x".into(), mac_path: "/m/x".into() }]
+            vec![ChatUploadedAttachment { upload_id: "x".into(), mac_path: "/m/x".into() }]
         );
         outbox.wrote("a".into());
         assert_eq!(
             outbox.edit("a".into(), "a2".into(), "new".into(), vec!["x".into()], 2),
-            Some(ChatEditStep::Replaced { remove_prompt_id: "a".into() })
+            Some(ChatEditStep::Replaced { remove_prompt_id: "a".into(), cancel_upload_ids: vec![] })
         );
         assert_eq!(outbox.next_request(2).unwrap().attachments.len(), 1, "x kept its upload");
         assert_eq!(outbox.remove_answered("a".into(), false).unwrap().outcome, ChatPromptOutcome::MaybeSent);
