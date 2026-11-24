@@ -262,6 +262,8 @@
     "cmux-tui-sdks": {
       "workflow": "cmux-tui-sdks.yml",
       "paths": [
+        ".github/workflows/base-coalesce.yml",
+        "scripts/ci/cmux_tui_tree_key.py",
         "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings",
         "schemas/agent-pane/stylesheet-guard.json",
         "schemas/settings/source/general.json",
@@ -425,7 +427,9 @@
         "workers/cmux-vm/cli/crates/cmux-vm-client/Cargo.toml",
         "workers/cmux-vm/cli/crates/cmux-vm-client/src/**",
         "workers/cmux-vm/cli/crates/cmux-vm/Cargo.toml",
-        "workers/cmux-vm/cli/crates/cmux-vm/src/**"
+        "workers/cmux-vm/cli/crates/cmux-vm/src/**",
+        "scripts/ci/cmux_tui_tree_key.py",
+        ".github/workflows/base-coalesce.yml"
       ],
       "jobs": {"conformance": "seven-language live conformance", "packages": "${{ matrix.language }} package", "consumers": "${{ matrix.language }} consumer", "rust-msrv": "Rust SDK MSRV (1.88)", "code-mode": "code-mode MCP cancellation"}
     },
