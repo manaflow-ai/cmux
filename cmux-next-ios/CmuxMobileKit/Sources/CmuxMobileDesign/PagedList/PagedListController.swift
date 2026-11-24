@@ -405,6 +405,9 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     private var pushMoves: [PagedListPush.Frame] = []
     /// The person asked for the jump the next committed frame shows (``jumpToNewest`` with no motion).
     private var deliberateJump = false
+    /// The committed frames' lengths (s), the latest last: the push detail's dt diagnostic (DEBUG).
+    private var pushFrameTimes: [CFTimeInterval] = []
+    private var lastPushSample: CFTimeInterval = 0
     private var drawnReading: CellID?
     /// What the scroll explains since the last sample, and the corrections UIKit still owes.
     private var ledger = PagedListShiftLedger()
@@ -494,6 +497,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         spring.current = { [weak self] in self?.collectionView.contentOffset.y ?? 0 }
         spring.holds = { [weak self] in self?.collectionView.isTracking ?? false }
         spring.apply = { [weak self] y in self?.moveOffset(to: y) }
+        spring.willJump = { [weak self] in self?.deliberateJump = true }
         spring.finished = { [weak self] frames in
             guard let self else { return }
             // The slide ends at the newest end: the list follows it from here.
@@ -672,6 +676,8 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
                 if animates {
                     spring.run(from: collectionView.contentOffset.y)
                 } else {
+                    // No motion: the slide becomes a jump (HOME-15), not a push.
+                    deliberateJump = true
                     scrollToNewest()
                 }
             } else if followsNewest, collectionView.isTracking, !collectionView.isDragging {
@@ -1184,14 +1190,21 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
             pushMoves.append(.init(move: followed.now - followed.was, tracking: collectionView.isTracking, deliberate: deliberateJump))
             deliberateJump = false
             if pushMoves.count > 3 { pushMoves.removeFirst() }
+            let sampled = CACurrentMediaTime()
+            pushFrameTimes.append(lastPushSample > 0 ? sampled - lastPushSample : 0)
+            lastPushSample = sampled
+            if pushFrameTimes.count > 3 { pushFrameTimes.removeFirst() }
             if pushMoves.count == 3 {
                 switch PagedListPush.verdict(before: pushMoves[0], middle: pushMoves[1], after: pushMoves[2]) {
                 case .none:
                     push(0, nil)
                 case .push(let size):
                     push(size, probe?.shiftDetail != nil
-                        ? String(format: "push moves=%.1f,%.1f,%.1f explained=%.1f row=%@ follows=%d spring=%d",
-                                 pushMoves[0].move, pushMoves[1].move, pushMoves[2].move, explained,
+                        ? String(format: "push moves=%.1f,%.1f,%.1f dt_ms=%.1f,%.1f,%.1f springDt_ms=%.1f explained=%.1f row=%@ follows=%d spring=%d",
+                                 pushMoves[0].move, pushMoves[1].move, pushMoves[2].move,
+                                 (pushFrameTimes.count == 3 ? pushFrameTimes[0] : 0) * 1000,
+                                 (pushFrameTimes.count == 3 ? pushFrameTimes[1] : 0) * 1000,
+                                 (pushFrameTimes.last ?? 0) * 1000, spring.lastDt * 1000, explained,
                                  String(describing: followed.id), followsNewest ? 1 : 0, spring.isRunning ? 1 : 0)
                         : nil)
                 case .drag(let size):
@@ -1467,6 +1480,8 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         if animatesNewest, !UIAccessibility.isReduceMotionEnabled {
             spring.run(from: collectionView.contentOffset.y)
         } else {
+            // No motion: the slide becomes a jump (HOME-15), not a push.
+            deliberateJump = true
             scrollToNewest()
         }
     }

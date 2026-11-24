@@ -22,6 +22,11 @@ final class PagedListScrollSpring {
     var apply: (CGFloat) -> Void = { _ in }
     /// The slide reached its target, after this many display frames.
     var finished: (_ frames: Int) -> Void = { _ in }
+    /// The spring is about to jump straight to its goal (no motion: Reduce Motion, or the list's motion
+    /// off), which HOME-15 asks for ("slide becomes jump"): the probe does not count that frame as a push.
+    var willJump: () -> Void = {}
+    /// The last step's frame length (s), for the probe's push detail.
+    private(set) var lastDt: Double = 0
 
     /// The motion token's duration: the spring settles in about this long.
     private let response: Double
@@ -77,6 +82,7 @@ final class PagedListScrollSpring {
         let now = link.targetTimestamp
         let dt = min(max(now - lastTime, 0), 1.0 / 20)
         lastTime = now
+        lastDt = dt
         if let current, let applied { position += current() - applied }
         if holds() {
             // A resting finger: wait where the rows are, and start again from rest when it lifts
@@ -96,6 +102,7 @@ final class PagedListScrollSpring {
         frames += 1
         let goal = target()
         if jumps {
+            willJump()
             finish(at: goal)
             return
         }
@@ -110,9 +117,16 @@ final class PagedListScrollSpring {
         applied = current?()
     }
 
-    /// One step of the critically damped spring toward `goal`, `dt` seconds on: the next position and
-    /// velocity, and whether it has settled (within a quarter point, nearly still). Plain data, so the
-    /// step can be tested without a display link.
+    /// The slide's top speed (pt/s): no frame moves it further than this times the frame's length, so
+    /// whatever moves its goal (a batch of arrivals adding 100-300 pt above a `.down` list's reader) it
+    /// never draws a jump; under a sustained flood it keeps sliding at this speed and its lag grows
+    /// smoothly. 3000 pt/s: above the steady follow slide's p99 (2667 pt/s, max 2850, video 8c0c85fb's
+    /// smooth phases), under its smallest push (86 pt in one frame, 4691 pt/s).
+    static let maxSpeed: CGFloat = 3000
+
+    /// One step of the critically damped spring toward `goal`, `dt` seconds on, capped at
+    /// ``maxSpeed``: the next position and velocity, and whether it has settled (within a quarter
+    /// point, nearly still). Plain data, so the step can be tested without a display link.
     static func step(position: CGFloat, velocity: CGFloat, goal: CGFloat, dt: Double, response: Double)
         -> (position: CGFloat, velocity: CGFloat, settled: Bool) {
         let omega = 2 * Double.pi / response
@@ -120,9 +134,15 @@ final class PagedListScrollSpring {
         let v = Double(velocity)
         let decay = exp(-omega * dt)
         let nextX = (x + (v + omega * x) * dt) * decay
-        let nextV = (v - omega * (v + omega * x) * dt) * decay
+        var nextV = (v - omega * (v + omega * x) * dt) * decay
         if abs(nextX) < 0.25, abs(nextV) < 4 { return (goal, 0, true) }
-        return (goal + CGFloat(nextX), CGFloat(nextV), false)
+        var next = goal + CGFloat(nextX)
+        let limit = maxSpeed * CGFloat(dt)
+        if abs(next - position) > limit {
+            next = position + (next > position ? limit : -limit)
+            nextV = Double(next > position ? maxSpeed : -maxSpeed)
+        }
+        return (next, CGFloat(nextV), false)
     }
 
     private func finish(at goal: CGFloat) {
