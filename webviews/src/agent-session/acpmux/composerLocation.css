@@ -1174,11 +1174,8 @@
   padding-inline: calc(var(--acpmux-top-strip-edge) - var(--acpmux-tray-inset));
 }
 
-/* The folder popover (FolderPopover.tsx): the search field, the scrolling folders (and a Cloud chat's
-   GitHub repositories), then the fixed actions under a rule. A row is its check, its project's badge
-   and its name, with a short suffix only when another project shares the name; the full path is its
-   tooltip. The empty line and the repositories' load error sit in the list's place over the actions;
-   only the chat's extra folders (ExtraFolderList) are listed under them. */
+/* The folder popover (FolderPopover.tsx) has a search field, a scrolling project list and a
+   pinned action. The check marks the current project. The full path is available in the tooltip. */
 /* The environment picker (EnvironmentPicker.tsx) carries this class too and keeps its own sizes
    (its rules near the end of the file). */
 .acpmux-menu.acpmux-location-menu.acpmux-folder-popover {
@@ -1195,17 +1192,34 @@
      UI's --available-height), so it never covers its control, and a short pane. */
   max-height: min(560px, calc(100dvh - 36px), var(--available-height, 560px));
 }
+/* A short folder menu fits its content. The shared grips can override its height ceiling. */
+.acpmux-menu.acpmux-location-menu.acpmux-folder-popover:not(.acpmux-env-popover) {
+  width: max-content;
+  height: var(--acpmux-folder-held-height, auto);
+  max-height: min(calc(340 * var(--ui-px, 1px)), var(--available-height, calc(100dvh - 10px)));
+}
+.acpmux-folder-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+.acpmux-folder-body .ui-combobox-list-end { order: -1; }
+.acpmux-folder-popover > .acpmux-extra-folders { min-height: 0; overflow: auto; }
 /* The fullest listed rows' words (FolderPopover `widestLines`), unseen and no height: the list
    mounts only the rows in view and places them itself, so they give the popup no width. ::before
    draws the words (no second copy of a name is in the page) and ::after is the room the row draws
-   beside them: its insets, badge, gaps and check (about 65 px), more for a worktree count, a
+   beside them: its insets, icon column, gaps and check, more for a worktree count, a
    worktree's indent or a private repository's lock glyph, and a few px to spare. That room is
    fixed px in the rows, so it is here too; the words follow Text Size on their own. */
-.acpmux-folder-fit { display: block; flex: none; height: 0; overflow: hidden; visibility: hidden; }
+.acpmux-folder-fit-clip { flex: none; height: 0; overflow: hidden; visibility: hidden; }
+.acpmux-folder-fit { width: max-content; }
 .acpmux-folder-fit > span { display: flex; white-space: nowrap; }
 .acpmux-folder-fit > span::before { content: attr(data-text); }
 .acpmux-folder-fit > span::after { content: ""; flex: none; width: 84px; }
-.acpmux-folder-fit > span[data-kind="count"]::after { width: 112px; }
+.acpmux-folder-fit > span[data-kind="count"]::after { width: calc(98px + 2 * var(--cmux-menu-icon-size) + var(--cmux-menu-icon-gap)); }
 .acpmux-folder-fit > span[data-kind="worktree"]::after { width: 104px; }
 .acpmux-folder-fit > span[data-kind="lock"]::after { width: 102px; }
 .acpmux-folder-popover .ui-combobox-pinned-list { flex: 1; min-height: 0; }
@@ -1229,8 +1243,11 @@
   .acpmux-folder-popover .ui-combobox-pinned { flex: none; max-height: calc(var(--ui-row-height) + 3 * var(--ui-popup-padding)); overflow: auto; }
   .acpmux-folder-popover .ui-combobox-scroll { max-height: none; }
 }
-.acpmux-folder-popover .ui-combobox-scroll { display: flex; flex: 1 1000 0%; flex-direction: column; min-height: 0; overflow: hidden; }
-.acpmux-folder-popover .ui-combobox-scroll > .ui-combobox-viewport { flex: 1; height: 0; min-height: 0; max-height: 100%; overflow: auto; }
+.acpmux-folder-popover .ui-combobox-scroll { display: flex; flex: 1 1000 auto; flex-direction: column; min-height: 0; overflow: hidden; }
+.acpmux-folder-popover .ui-combobox-scroll > .ui-combobox-viewport { flex: 1 1 auto; min-height: 0; max-height: 100%; overflow: auto; }
+/* A list that starts to scroll (worktrees opened past the ceiling) keeps its rows where they were: with classic
+   scrollbars the bar's room is held from the start, so the counts and checks never jump left. */
+.acpmux-folder-popover .acpmux-location-folders .ui-combobox-viewport { scrollbar-gutter: stable; }
 
 .acpmux-folder-popover .acpmux-location-search {
   display: block;
@@ -1260,10 +1277,22 @@
 .acpmux-location-row,
 .acpmux-location-action { display: flex; align-items: center; gap: var(--cmux-menu-icon-gap); width: 100%; min-width: 0; }
 .acpmux-folder-popover .ui-combobox-pinned[data-placement="top"]::after { content: ""; display: block; height: 1px; margin: 4px 6px 0; background: color-mix(in srgb, currentColor 12%, transparent); }
-/* Actions under the folders (Leo, 2026-11-06: "it's just folder"): the rule
-   sits over them, and each carries its glyph in the folders' icon column. */
+/* The rule separates the pinned action from the folder choices. */
 .acpmux-folder-popover .ui-combobox-pinned[data-placement="bottom"]::before { content: ""; display: block; height: 0; margin: 0 var(--cmux-menu-highlight-inset) var(--ds-space-1); border-top: var(--cmux-hairline) solid color-mix(in srgb, currentColor 12%, transparent); }
-.acpmux-location-action-icon { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 20px; color: var(--agent-muted); }
+.acpmux-location-action-icon,
+.acpmux-location-branch-icon { display: inline-flex; flex: none; align-items: center; justify-content: center; width: var(--cmux-menu-icon-size); color: var(--agent-muted); }
+/* Reserve the same icon column in rows with text alone. */
+.acpmux-folder-choices
+  .acpmux-location-row:not(
+    :has(> .acpmux-location-action-icon, > .acpmux-location-branch-icon, > .acpmux-project-badge)
+  )::after {
+  content: "";
+  order: -1;
+  flex: 0 0 var(--cmux-menu-icon-size);
+}
+.acpmux-folder-choices .acpmux-location-row[data-no-folder] { color: var(--agent-muted); }
+/* A project's badge takes the icon column the actions use, so badges, icons and labels share one left edge. */
+.acpmux-folder-choices .acpmux-project-badge { --acpmux-project-badge-size: var(--cmux-menu-icon-size); }
 /* Match the environment picker (#33137): hover/search/arrow navigation is neutral; the check
    alone marks selection. Preserve automatic keyboard focus without painting it on open. */
 .acpmux-folder-popover .acpmux-menu-item[data-highlighted] { background: var(--acpmux-menu-hover); box-shadow: none; }
@@ -1273,14 +1302,24 @@
 .acpmux-menu-text.acpmux-location-name { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acpmux-location-suffix,
 .acpmux-location-suffix-dot { color: var(--agent-muted); }
-.acpmux-location-empty { padding: 6px 8px; color: var(--agent-muted); }
-/* A repository's other worktrees (projectRepos.ts) sit under its row, their branch glyph where the
-   row's badge is, so the names line up with the repository's. The count at the end of the row opens
-   them: "⑂ 4 ›", quiet until the row is hovered or highlighted; its chevron turns down while open. */
-.acpmux-location-row[data-worktree] { padding-inline-start: 28px; }
-.acpmux-location-branch-icon { display: inline-flex; flex: none; justify-content: center; width: 20px; color: var(--agent-muted); }
-/* One column for every name (Leo 2026-10-21, "aligned columns"): an action's glyph sits in the
-   20 px badge column (.acpmux-location-action-icon), so its label starts where a folder's name does. */
+.acpmux-location-empty {
+  /* One menu row tall, its text centred in it and on the rows' text edge. */
+  display: flex;
+  align-items: center;
+  min-height: var(--ui-row-height);
+  padding: 0 var(--ui-row-padding-inline);
+  color: var(--agent-muted);
+}
+/* Between the field and the actions: the actions' group sits 4 px under its rule and the rule is a hairline,
+   so the line takes the same space above it and sits midway. */
+.acpmux-folder-popover .acpmux-location-empty { margin-block-start: calc(var(--ds-space-1) - var(--cmux-hairline)); }
+/* Worktrees sit below their repository. The chevron at the end of the repository row expands them. */
+/* A worktree's branch glyph starts on its repository's name: the badge and the gap in, less 1 px because the glyph's
+   ink sits about 1.6 px inside its box and a name's first letter about 0.6 px inside its own. */
+.acpmux-location-row[data-worktree] { padding-inline-start: calc(var(--acpmux-project-badge-size, 20px) + var(--cmux-menu-icon-gap) - 1px); }
+.acpmux-folder-choices .acpmux-location-row[data-worktree] {
+  padding-inline-start: calc(var(--cmux-menu-icon-size) + var(--cmux-menu-icon-gap) - 1px);
+}
 .acpmux-location-worktrees {
   display: inline-flex;
   flex: none;
@@ -1288,14 +1327,25 @@
   gap: 3px;
   margin-left: auto;
   padding: 1px 4px;
+  border: 0;
   border-radius: 4px;
+  background-color: transparent;
   color: var(--agent-muted);
+  font: inherit;
   font-size: var(--text-caption);
   font-variant-numeric: tabular-nums;
   letter-spacing: var(--text-caption--letter-spacing);
 }
-.acpmux-location-worktrees:hover { background: var(--ds-surface-hover); color: var(--agent-text); }
-.acpmux-location-worktrees[data-open] > .acpmux-icon:last-child { transform: rotate(90deg); }
+.acpmux-location-worktrees:hover { background-color: var(--ds-surface-hover); }
+.acpmux-location-worktrees:active { background-color: var(--ds-color-pressed); }
+.acpmux-location-worktrees > .acpmux-icon {
+  width: var(--cmux-menu-icon-size);
+  height: var(--cmux-menu-icon-size);
+}
+:root:not([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-location-worktrees-chevron {
+  transition: transform var(--cmux-motion-micro) var(--cmux-ease-out);
+}
+.acpmux-location-worktrees[aria-expanded="true"] > .acpmux-location-worktrees-chevron { transform: rotate(90deg); }
 .acpmux-location-worktrees + .acpmux-location-check { margin-left: 0; }
 
 /* A new Cloud chat's GitHub part (FolderPopover `github`, githubRepos.ts): its repositories under the
@@ -1648,12 +1698,11 @@
   align-items: center;
   height: var(--acpmux-composer-control);
 }
-/* Claude Code's +: a rounded-square chip with a hairline edge at rest, its glyph a step over the other icons
-   (ask-bfa9b41590, Leo 2026-11-23: "our + symbol is too small"). The chip's corner is the box's minus the
-   inset (--acpmux-plus-chip-radius), so the two stay concentric. The round look (codex) draws its own +. */
+/* Claude Code's +: a bare glyph at rest, a step over the other icons (ask-bfa9b41590, Leo 2026-11-23: "our +
+   symbol is too small"), with no edge (Lucas 2026-11-23). Its hover chip's corner is the box's minus the inset
+   (--acpmux-plus-chip-radius), so the two stay concentric. The round look (codex) draws its own +. */
 :is(.acpmux-composer:not([data-composer-look="codex"]), .nt-composer) .acpmux-composer-plus .acpmux-picker-button {
   border-radius: var(--acpmux-plus-chip-radius); /* radius-allow: concentric with the composer's corner */
-  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge);
 }
 :is(.acpmux-composer:not([data-composer-look="codex"]), .nt-composer) .acpmux-composer-plus .acpmux-picker-button .acpmux-icon {
   width: var(--acpmux-shield-box);
@@ -2025,7 +2074,7 @@
 }
 .acpmux-location-menu[data-resized-height]:not(.ui-menu, .acpmux-folder-popover) > * { flex-shrink: 0; }
 /* The list, a plain one (no pinned rows) or the scroll area of one with pinned rows. */
-.acpmux-menu.acpmux-location-menu[data-resized-height]:not(.ui-menu) .acpmux-location-folders.acpmux-location-folders {
+.acpmux-menu.acpmux-location-menu[data-resized-height]:not(.ui-menu, .acpmux-folder-popover) .acpmux-location-folders.acpmux-location-folders {
   flex: 1 1 0%;
   min-height: 0;
   max-height: none;
@@ -2086,4 +2135,17 @@
 /* The trailing look: at the row's end, before the actions (gallery only). */
 .acpmux-composer-bar .acpmux-chips:has(> .acpmux-terminal-pickers[data-look="trailing"]) {
   margin-inline-start: auto;
+}
+
+.acpmux-folder-popover .acpmux-source-status {
+  max-inline-size: 54%;
+  text-align: end;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+}
+
+.acpmux-source-cloning {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1);
 }

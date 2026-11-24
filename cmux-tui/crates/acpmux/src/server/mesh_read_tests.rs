@@ -55,6 +55,8 @@ struct Loopback {
     unknown: bool,
     /// The reads sent: each is one round trip through the hub and the receiver's inbox.
     asks: std::sync::atomic::AtomicUsize,
+    /// Optional event gate used by the concurrent-read regression test.
+    send_release: Option<tokio::sync::Notify>,
 }
 
 impl Loopback {
@@ -71,6 +73,7 @@ impl Loopback {
             receipts: Mutex::default(),
             unknown: false,
             asks: Default::default(),
+            send_release: None,
         }
     }
 }
@@ -95,6 +98,9 @@ impl MeshHub for Loopback {
         Box::pin(async move {
             m.validate().map_err(HubError::refused)?;
             self.asks.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if let Some(release) = &self.send_release {
+                release.notified().await;
+            }
             if self.unknown {
                 let mut e = HubError::refused("no such recipient");
                 e.code = Some("mesh.unknown_recipient".into());
@@ -254,6 +260,46 @@ async fn the_same_persons_machine_reads_a_reply_through_the_hub_and_no_one_else_
     let unknown =
         read(&unknown, "machine-c", "own-e2e", method::MUX_INFO, &json!({})).await.unwrap_err();
     assert_eq!(unknown.code, RpcError::not_found("").code, "{unknown:?}");
+}
+
+/// Concurrent callers of one hub-routed read share the single network round trip while it is
+/// held in flight. The gate is event-driven, so a caller that arrives after release would make a
+/// second send and fail the count below.
+#[tokio::test]
+async fn single_flight_concurrent_hub_reads_share_one_send() {
+    const CALLERS: usize = 8;
+    let b = machine_b();
+    let meta = json!({"acpmux": {"harness": "fake", "name": "shared-read"}});
+    let _made = call(
+        &b,
+        "session/new",
+        json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": meta}),
+    )
+    .await;
+    let dir = tempfile::tempdir().unwrap();
+    let mut loopback = Loopback::new(&b, dir.path(), "person-1");
+    loopback.send_release = Some(tokio::sync::Notify::new());
+    let loopback = Arc::new(loopback);
+    let params = json!({});
+    let mut callers = Vec::new();
+    for _ in 0..CALLERS {
+        let mut caller = Box::pin(read_shared(
+            &b,
+            loopback.clone(),
+            "machine-b",
+            "shared-read",
+            method::MUX_INFO,
+            &params,
+        ));
+        assert!(futures::poll!(&mut caller).is_pending());
+        callers.push(caller);
+    }
+    assert_eq!(loopback.asks.load(std::sync::atomic::Ordering::SeqCst), 1);
+    loopback.send_release.as_ref().unwrap().notify_waiters();
+    for caller in callers {
+        assert_eq!(caller.await.unwrap()["peer"], "machine-b");
+    }
+    assert_eq!(loopback.asks.load(std::sync::atomic::Ordering::SeqCst), 1);
 }
 
 /// A chat with one record over the hub's 64 KiB opens through the hub, and its older pages read
