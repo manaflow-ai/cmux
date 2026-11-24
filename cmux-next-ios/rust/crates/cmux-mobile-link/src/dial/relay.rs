@@ -149,9 +149,12 @@ pub enum RelayFailure {
     NoToken,
     /// The service answered and refused (`401` a token, `403`
     /// `not_in_session`, `404` an older service without the relay, `503`
-    /// `relay_off`), or something between answered with this status (a
-    /// proxy's `403`).
+    /// `relay_off`), or the system's proxy needs a sign-in (`407`).
     Refused { status: u16, code: String },
+    /// The system's proxy would not carry the join (its policy, or the
+    /// network needs a proxy and none is set). Not final: the proxy
+    /// settings can change with the network.
+    ProxyRefused { detail: String },
     /// The TLS handshake failed: a certificate this side does not trust,
     /// as a TLS-inspecting proxy presents.
     TlsRejected { detail: String },
@@ -168,6 +171,7 @@ impl RelayFailure {
             Self::NoToken => "no access token".into(),
             Self::Refused { status, code } if code.is_empty() => format!("refused ({status})"),
             Self::Refused { status, code } => format!("refused ({status} {code})"),
+            Self::ProxyRefused { detail } => format!("proxy refused: {detail}"),
             Self::TlsRejected { detail } => format!("TLS rejected: {detail}"),
             Self::Unreachable { detail } => format!("unreachable: {detail}"),
             Self::Timeout => format!("no answer in {} s", JOIN_WAIT.as_secs()),
@@ -181,8 +185,8 @@ impl RelayFailure {
     }
 }
 
-/// A failed join as a [`RelayFailure`]: a proxy that refused (sign-in,
-/// policy) answers like the service would have, with its status.
+/// A failed join as a [`RelayFailure`]: a proxy that wants a sign-in is a
+/// `407`; one that refused by policy is [`RelayFailure::ProxyRefused`].
 fn classify_websocket(error: crate::egress::WebSocketError) -> RelayFailure {
     use crate::egress::{EgressError, WebSocketError};
     match error {
@@ -197,7 +201,7 @@ fn classify_websocket(error: crate::egress::WebSocketError) -> RelayFailure {
             | EgressError::ProxyAuthRefused { .. }
             | EgressError::ProxyAuthUnsupported { .. }),
         ) => RelayFailure::Refused { status: 407, code: error.to_string() },
-        WebSocketError::Egress(error) => RelayFailure::Refused { status: 403, code: error.to_string() },
+        WebSocketError::Egress(error) => RelayFailure::ProxyRefused { detail: error.to_string() },
     }
 }
 
@@ -502,6 +506,8 @@ mod tests {
         assert!(!refused(401, "unauthorized").is_final());
         assert!(!refused(502, "").is_final());
         assert!(!RelayFailure::Timeout.is_final());
+        // A proxy's policy can change with the network: the join is tried again.
+        assert!(!RelayFailure::ProxyRefused { detail: "proxy said 403".into() }.is_final());
         assert_eq!(refused(503, "relay_off").describe(), "refused (503 relay_off)");
     }
 

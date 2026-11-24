@@ -573,7 +573,8 @@ relay was retired: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux-next/
 A WireGuard dial records what each way did: plain UDP (`blocked`: no STUN
 answer; `off`: a debug mode), TURN (`none_offered`, `no_allocation`, with
 the TURN host) and the relay (`unavailable`, `peer_cannot`, `refused` with
-the HTTP status, `off`, `tls_rejected` with the TLS error, `unreachable`,
+the HTTP status, `off`, `proxy_refused` with the proxy's reason,
+`tls_rejected` with the TLS error, `unreachable`,
 `timeout`, `no_token`, `peer_absent`). When nothing from the Mac ever
 authenticated and the relay failed too (or the Mac's build has none), the
 dial ends with that record instead of waiting out its timeout: at once when

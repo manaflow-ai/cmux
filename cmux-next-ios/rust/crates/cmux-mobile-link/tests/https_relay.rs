@@ -552,3 +552,31 @@ async fn a_proxy_the_relay_cannot_sign_in_to_is_a_refusal() {
     assert!(started.elapsed() < Duration::from_secs(2));
     assert_eq!(server.relay_joins(), 0);
 }
+
+/// A network that needs a proxy with none set for the relay: the join fails
+/// at once as the proxy's refusal, not a service `403`, and is tried again
+/// (the proxy settings can change with the network).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_relay_join_the_proxy_policy_refuses_is_tried_again() {
+    use cmux_mobile_link::dial::relay::{RelayCarrier, RelayFailure};
+    use cmux_mobile_link::egress::Egress;
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let mut endpoint = RelayEndpoint::with_token(
+        server.base_url.clone(),
+        None,
+        uuid::Uuid::new_v4().to_string(),
+        "user:alice",
+    );
+    endpoint.egress = Egress { require_proxy: true, ..Egress::default() };
+    let failure = RelayCarrier::join(
+        &endpoint,
+        &uuid::Uuid::new_v4().to_string(),
+        &uuid::Uuid::new_v4().to_string(),
+        None,
+    )
+    .await
+    .expect_err("no proxy to carry it");
+    assert!(matches!(failure, RelayFailure::ProxyRefused { .. }), "{failure:?}");
+    assert!(!failure.is_final());
+    assert_eq!(server.relay_joins(), 0);
+}
