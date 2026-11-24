@@ -301,8 +301,7 @@ jobs:
     # no full-ci label: as a Tier B skip, iOS PRs merged untested and were fixed forward over days (Leo, 2026-11-22:
     # "if 80% of code doesn't have a way of having a proper pr in the hour, then our fucking codebase is not good enough").
     # Also skipped before it takes a Mac when it already passed on this tree (the runner job's same-tree decision).
-    if: >-
-      ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (!fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].reuse) }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (!fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].reuse) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}
     timeout-minutes: 60
     env:

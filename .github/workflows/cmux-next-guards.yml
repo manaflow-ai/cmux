@@ -110,8 +110,7 @@ jobs:
   # a fix-forward on base, and a push or a dispatch skips this job.
   fast-check-route:
     name: fast check route
-    if: >-
-      ${{ (github.event.action != 'ready_for_review') && (github.event_name == 'pull_request') }}
+    if: ${{ (github.event.action != 'ready_for_review') && (github.event_name == 'pull_request') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
@@ -151,8 +150,7 @@ jobs:
   # full-ci or over 300 files). Nothing requires this job, so no rollup counts its skip.
   security-holes:
     name: workflow security holes and secrets this change adds
-    if: >-
-      ${{ (github.event.action != 'ready_for_review') && (github.event_name == 'pull_request' && (github.base_ref != 'feat-cmux-next' || github.workflow == 'docs-only fallback')) }}
+    if: ${{ (github.event.action != 'ready_for_review') && (github.event_name == 'pull_request' && (github.base_ref != 'feat-cmux-next' || github.workflow == 'docs-only fallback')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     # Two 5-minute checkout attempts plus about a minute of guards.
     timeout-minutes: 16
@@ -277,8 +275,7 @@ jobs:
     name: pinned assets exist in store
     # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
     # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
-    if: >-
-      ${{ (github.event.action != 'ready_for_review') && ((!cancelled() && needs.coalesce.outputs.run != 'false' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci'))) }}
+    if: ${{ (github.event.action != 'ready_for_review') && ((!cancelled() && needs.coalesce.outputs.run != 'false' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci'))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
@@ -346,8 +343,7 @@ jobs:
 
   nightly-guards:
     needs: coalesce
-    if: >-
-      ${{ (github.event.action != 'ready_for_review') && (!cancelled() && needs.coalesce.outputs.run != 'false') }}
+    if: ${{ (github.event.action != 'ready_for_review') && (!cancelled() && needs.coalesce.outputs.run != 'false') }}
     permissions:
       contents: read
       checks: read
@@ -374,8 +370,7 @@ jobs:
   release-notary:
     name: release-notary guards at the tip
     needs: coalesce
-    if: >-
-      ${{ (github.event.action != 'ready_for_review') && (!cancelled() && needs.coalesce.outputs.run != 'false' && (github.event_name != 'pull_request')) }}
+    if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' && (github.event_name != 'pull_request') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     permissions:
@@ -441,8 +436,7 @@ jobs:
     needs: [coalesce, fast-check-route]
     # Tier B of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
     # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it, and its few misses are fixed forward.
-    if: >-
-      ${{ (github.event.action != 'ready_for_review') && (!cancelled() && needs.coalesce.outputs.run != 'false' && needs.fast-check-route.outputs.ci_guard_group != 'false' && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci'))) }}
+    if: ${{ (github.event.action != 'ready_for_review') && (!cancelled() && needs.coalesce.outputs.run != 'false' && needs.fast-check-route.outputs.ci_guard_group != 'false' && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci'))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     # Temporary 35 (was 25) until the head pass is short again: green p50 rose from about 15 min to 20-23 min on
     # 11-20 12Z, and a third of runs were cancelled at 25 with no verdict, then re-run (hq docs/ci/ci-cut-ledger.md).
@@ -702,8 +696,7 @@ jobs:
     name: cmux-next static checks (vt-link-graph, nightly static capabilities, defaults snapshot, page strings)
     # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
     # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
-    if: >-
-      ${{ (github.event.action != 'ready_for_review') && ((!cancelled() && needs.coalesce.outputs.run != 'false') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci'))) }}
+    if: ${{ (github.event.action != 'ready_for_review') && ((!cancelled() && needs.coalesce.outputs.run != 'false') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci'))) }}
     # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     # Each former job's 5-minute cap is split among its steps (vt-link-graph 2+1+2, nightly static capabilities 5,
@@ -915,8 +908,7 @@ jobs:
     name: cmux-next Rust notices generate
     # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
     # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
-    if: >-
-      ${{ (github.event.action != 'ready_for_review') && ((!cancelled() && needs.coalesce.outputs.run != 'false') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci'))) }}
+    if: ${{ (github.event.action != 'ready_for_review') && ((!cancelled() && needs.coalesce.outputs.run != 'false') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci'))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 25
     steps:
@@ -1011,8 +1003,7 @@ jobs:
     needs: [coalesce, fast-check-route]
     # Tier B of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
     # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it, and its few misses are fixed forward.
-    if: >-
-      ${{ (github.event.action != 'ready_for_review') && (!cancelled() && needs.coalesce.outputs.run != 'false' && needs.fast-check-route.outputs.own_change_checks != 'false' && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci'))) }}
+    if: ${{ (github.event.action != 'ready_for_review') && (!cancelled() && needs.coalesce.outputs.run != 'false' && needs.fast-check-route.outputs.own_change_checks != 'false' && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci'))) }}
     # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     # Each former job's cap goes to its steps (size cap 5, crash ratchet 10, localization 5, generated files 2+3+8), so
@@ -1176,8 +1167,7 @@ jobs:
   # this workflow after `web`; both callers update one comment, recomputed from all check runs of the head commit.
   pr-red-checks:
     needs: [own-change-checks, static-checks]
-    if: >-
-      ${{ (github.event.action != 'ready_for_review') && (always() && !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next') }}
+    if: ${{ (github.event.action != 'ready_for_review') && (always() && !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next') }}
     permissions:
       actions: read
       checks: read
@@ -1224,8 +1214,7 @@ jobs:
     needs: [coalesce, tooling-tests-base-red]
     # Runs on pull requests into feat-cmux-next too (it was Tier A, skipped; scripts/ci/affected-jobs.json says why it
     # is not now): setup-tooling-route below limits a pull request to the steps its diff can fail.
-    if: >-
-      ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((!cancelled() && needs.coalesce.outputs.run != 'false') && needs.tooling-tests-base-red.outputs.base_red != 'true') }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((!cancelled() && needs.coalesce.outputs.run != 'false') && needs.tooling-tests-base-red.outputs.base_red != 'true') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 15
     steps:
