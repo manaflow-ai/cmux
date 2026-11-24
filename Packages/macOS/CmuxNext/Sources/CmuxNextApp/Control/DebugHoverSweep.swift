@@ -21,7 +21,7 @@ import CmuxNextControl
 enum DebugHoverSweep {
     private static let frames = BenchFrames()
     /// The rest on each tab after a retarget (`rest_ms`): by default the hover-load dwell plus a frame budget for its hop.
-    static func restMilliseconds(_ params: [String: JSONValue]) -> Double { BenchRest.milliseconds(params, fallback: .milliseconds(50)) }
+    static func restMilliseconds(_ params: [String: JSONValue]) -> Double { BenchRest.milliseconds(params, fallback: HoverWakeIntent.dwell + .milliseconds(50)) }
 
     static func run(_ params: [String: JSONValue], services: AppServices) async -> JSONValue {
         if let point = params["point"]?.arrayValue?.compactMap(\.doubleValue), point.count == 2 {
