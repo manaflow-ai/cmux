@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers"
 import { describe, expect, it } from "vitest"
 import vectors from "../../../cmux-tui/crates/cmux-transport/tests/vectors/relay-frames.json"
 import taggedVectors from "../../../cmux-tui/crates/cmux-transport/tests/vectors/relay-tagged-frames.json"
+import hopVectors from "../../../cmux-tui/crates/cmux-transport/tests/vectors/hop-frames.json"
 import { seqNewer, TaggedQueue } from "../src/relay-coalesce.ts"
 import { checkFrame, splitTagged } from "../src/relay-frame.ts"
 import { linkStatLine, uuidToBytes } from "../src/team-hub.ts"
@@ -288,6 +289,24 @@ describe("tagged-datagrams frame (shared golden vectors with cmux-transport)", (
       })
       expect(got.join(","), c.name).toBe(c.records)
     }
+  })
+
+  it("agrees with hop's own vectors: every DATA body (hex after the 6-byte header) is accepted or refused as hop does", () => {
+    let valid = 0
+    let invalid = 0
+    for (const c of hopVectors.cases as { name: string; valid: string; hex: string }[]) {
+      if (!c.hex.startsWith("c101")) continue
+      const got = splitTagged(hex(c.hex.slice(12)))
+      if (c.valid === "yes") {
+        valid++
+        expect(got, c.name).toBeDefined()
+      } else {
+        invalid++
+        expect(got, c.name).toBeUndefined()
+      }
+    }
+    expect(valid).toBeGreaterThanOrEqual(4)
+    expect(invalid).toBeGreaterThanOrEqual(10)
   })
 })
 

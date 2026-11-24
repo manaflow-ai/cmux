@@ -218,42 +218,20 @@ impl TaggedRecord<'_> {
 }
 
 fn split_tagged(payload: &[u8]) -> Result<Vec<TaggedRecord<'_>>, RelayFrameError> {
-    let mut records = Vec::new();
+    // hop's decoder is the one parser of the record layout; this only borrows the bytes it accepted.
+    let decoded = crate::decode_records(payload).map_err(|_| RelayFrameError::BadBatch)?;
+    let mut records = Vec::with_capacity(decoded.len());
     let mut rest = payload;
-    while !rest.is_empty() {
-        let Some((head, tail)) = rest.split_first_chunk::<2>() else {
-            return Err(RelayFrameError::BadBatch);
-        };
-        let [class, flags] = *head;
-        // The checks of hop's record decoder (`hop::decode_record`), in its order: class, flags, tag class.
-        if class > 4 || flags & !1 != 0 || (flags & 1 == 1 && class != 1) {
-            return Err(RelayFrameError::BadBatch);
-        }
-        let (tag, tail) = if flags & 1 == 1 {
-            let Some((tag_bytes, tail)) = tail.split_first_chunk::<8>() else {
-                return Err(RelayFrameError::BadBatch);
-            };
-            let key = u32::from_be_bytes([tag_bytes[0], tag_bytes[1], tag_bytes[2], tag_bytes[3]]);
-            let seq = u32::from_be_bytes([tag_bytes[4], tag_bytes[5], tag_bytes[6], tag_bytes[7]]);
-            (Some((key, seq)), tail)
-        } else {
-            (None, tail)
-        };
-        let Some((len_bytes, tail)) = tail.split_first_chunk::<2>() else {
-            return Err(RelayFrameError::BadBatch);
-        };
-        let len = usize::from(u16::from_be_bytes(*len_bytes));
-        if len == 0 {
-            return Err(RelayFrameError::BadBatch);
-        }
-        let Some((data, next)) = tail.split_at_checked(len) else {
-            return Err(RelayFrameError::BadBatch);
-        };
-        records.push(TaggedRecord { class, tag, data });
+    for record in decoded {
+        let head = if record.tag.is_some() { 2 + 8 + 2 } else { 2 + 2 };
+        let (consumed, next) =
+            rest.split_at_checked(head + record.bytes.len()).ok_or(RelayFrameError::BadBatch)?;
+        records.push(TaggedRecord {
+            class: record.class as u8,
+            tag: record.tag.map(|t| (t.key, t.seq)),
+            data: &consumed[head..],
+        });
         rest = next;
-    }
-    if records.is_empty() {
-        return Err(RelayFrameError::BadBatch);
     }
     Ok(records)
 }
