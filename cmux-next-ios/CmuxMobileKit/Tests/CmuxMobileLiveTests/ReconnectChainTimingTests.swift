@@ -750,7 +750,7 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
         let session: MacSession
         let stop: @MainActor () -> Void
 
-        var link: ChainLink? { session.link.link as? ChainLink }
+        @MainActor var link: ChainLink? { session.link.link as? ChainLink }
     }
 
     private func rig() async throws -> Rig {

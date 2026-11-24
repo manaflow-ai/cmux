@@ -305,7 +305,8 @@ export async function mountDiffPage(state: DiffPageVariant, context: StageContex
       "cmux.diff.comments": (params: { method: string; params: Record<string, unknown> }) => {
         if (params.method === "viewedFiles.list") return { files: [] };
         if (params.method === "viewerPrefs.get") return { preferences: prefs };
-        if (params.method === "comments.list") return { comments };
+        if (params.method === "comments.list")
+          return state.commentsReview ? { comments, review: state.commentsReview } : { comments };
         if (params.method === "comments.save") {
           const input = params.params.comment as DiffCommentRecord;
           const now = new Date(0).toISOString();
@@ -317,6 +318,13 @@ export async function mountDiffPage(state: DiffPageVariant, context: StageContex
         if (params.method === "comments.send") {
           const ids = new Set(params.params.ids as string[]);
           comments = comments.filter((entry) => !ids.has(entry.id));
+        }
+        // Post to GitHub, answered as the host passes the daemon's answer on (`in_body`).
+        if (params.method === "comments.post") {
+          const ids = params.params.ids as string[];
+          comments = comments.filter((entry) => !ids.includes(entry.id));
+          const url = `${state.commentsReview?.url ?? "https://github.com/acme/net/pull/1"}#pullrequestreview-1`;
+          return { url, posted: ids.length, in_body: 0, cleared: ids };
         }
         return {};
       },
@@ -408,6 +416,8 @@ export async function mountCloudPage(state: CloudPageVariant, _context: StageCon
   if (state.retentionForbidden) provider.retentionForbidden = true;
   if (state.spendCap) provider.spendCap = { ...state.spendCap };
   if (state.memberBudget) provider.memberBudget = { ...state.memberBudget };
+  if (state.paymentPastDue !== undefined) provider.paymentPastDue = state.paymentPastDue;
+  if (state.planId) provider.account.plan.plan_id = state.planId;
   const operations = pageOps(provider, [...Object.values(CloudOps), CLOUD_ACTION_RUN, CLOUD_PAGE_COMMAND], {
     mode: state.mode === "normal" ? undefined : state.mode,
     firstOperation: CloudOps.authStatus,
