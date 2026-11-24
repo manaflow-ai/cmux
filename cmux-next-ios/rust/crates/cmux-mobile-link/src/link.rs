@@ -2550,6 +2550,7 @@ pub struct Channel {
 }
 
 impl Channel {
+    #[allow(clippy::too_many_arguments)] // one call site per side: the open and the accept
     fn new(
         id: u32,
         stream: usize,

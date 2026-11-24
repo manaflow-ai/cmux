@@ -45,11 +45,7 @@ fn ms(d: Duration) -> f64 {
     (d.as_secs_f64() * 10_000.0).round() / 10.0
 }
 
-fn percentile(sorted: &[f64], fraction: f64) -> f64 {
-    let index = ((sorted.len() as f64 - 1.0) * fraction).round() as usize;
-    sorted[index]
-}
-
+#[allow(clippy::too_many_arguments)] // one SCOREROW line's columns
 fn row(
     condition: &str,
     pair: &str,
@@ -311,10 +307,10 @@ async fn link_up_satellite_and_airplane() {
                     phone.connected.link.open_on("echo", json!({}), Lane::Input).await.expect("open keys");
                 let mut samples = Vec::new();
                 for i in 0..11u8 {
-                    if let Some(sample) = echo_once(&mut keys, i).await {
-                        if i > 0 {
-                            samples.push(sample); // the first key warms the lane
-                        }
+                    if let Some(sample) = echo_once(&mut keys, i).await
+                        && i > 0
+                    {
+                        samples.push(sample); // the first key warms the lane
                     }
                 }
                 for sample in samples {
@@ -392,10 +388,10 @@ async fn keystroke_run(profile: &str, seed: u64, flood: bool) -> Result<Vec<f64>
         if flood && !running.load(Ordering::Relaxed) {
             break;
         }
-        if let Some(sample) = echo_via(&mut keys, screen_channel.as_mut(), i as u8).await {
-            if !flood || running.load(Ordering::Relaxed) {
-                samples.push(sample);
-            }
+        if let Some(sample) = echo_via(&mut keys, screen_channel.as_mut(), i as u8).await
+            && (!flood || running.load(Ordering::Relaxed))
+        {
+            samples.push(sample);
         }
         tokio::time::sleep(Duration::from_millis(100).saturating_sub(tick.elapsed())).await;
     }
