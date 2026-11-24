@@ -1,7 +1,7 @@
 //! The wait between connect attempts (`Peer::run`), and how a client that waits on the peer
 //! shortens it. A client's request refused because the link is down (`server/peer_forward.rs`),
-//! or a ready link that ended (chats are open on it), marks the peer wanted for `WANTED_FOR`: each
-//! wait in that window is bounded by `Backoff::WANTED_CAP`, and a refusal cuts the running wait
+//! or a ready link that ended (chats are open on it), marks the peer wanted for the outage window:
+//! each wait in that window is bounded by `Backoff::WANTED_CAP`, and a refusal cuts the running wait
 //! to that bound at once. Nothing new runs in the background: the bound is read by the wait
 //! that is already there, and it lapses by itself `WANTED_FOR` after the last ask.
 //!
@@ -207,7 +207,7 @@ impl Peer {
     pub(super) fn link_ending(&self, restarting: bool) {
         let ready_for = self.link().ready_for(crate::store::now_ms());
         if ready_for.is_some_and(|up| restarting || up >= READY_FOR) {
-            self.want_for(if restarting { RESTART_WANTED_FOR } else { WANTED_FOR });
+            self.want_for(if restarting { RESTART_WANTED_FOR } else { WANTED_OUTAGE_FOR });
         }
     }
 
@@ -569,6 +569,17 @@ mod tests {
             peer.is_wanted()
         };
         assert!(ended(Some(20_000), false), "a link up 20 s drops: its chats wait on it");
+        let outage = peer();
+        outage.with_link(|l| {
+            l.opened(now - 20_000);
+            l.ready(now - 20_000);
+        });
+        outage.link_ending(false);
+        let until = *outage.wanted.until.lock().unwrap();
+        assert!(
+            until > Instant::now() + WANTED_FOR,
+            "a stable outage keeps fast reconnects longer than one ask"
+        );
         let restarted = peer();
         restarted.with_link(|l| {
             l.opened(now);
