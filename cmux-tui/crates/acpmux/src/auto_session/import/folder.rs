@@ -7,10 +7,12 @@
 //! - New here: an empty repository of `remote`, `base` fetched from it, the bundle fetched on
 //!   top, `branch` checked out at the bundle's head, the patch applied. A plain folder is its
 //!   tar, unpacked.
-//! - Already here (a handback into the laptop's own folder): the folder becomes the snapshot's.
-//!   What it held before is not lost: its commit and its uncommitted tracked changes are kept
-//!   under `refs/cmux/auto/before/<label>` first, and files git does not track stay unless the
-//!   snapshot has a file of the same path. A patch that does not apply puts the folder back.
+//! - Already here (a handback into the laptop's own folder): the folder becomes the snapshot's,
+//!   at the repository's top. What it held before is not lost: its commit and its uncommitted
+//!   tracked changes are kept under `refs/cmux/auto/before/<label>` first, and an untracked
+//!   file where the snapshot has a file is set aside (`reconcile.rs`): dropped when it is the
+//!   same file, kept when it differs. A patch that does not apply changes nothing. A folder
+//!   that is no repository is not handed back over (`PLAIN_BLOCKED`).
 //!
 //! A new folder that cannot be finished is removed.
 
@@ -18,6 +20,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use cmux_auto_session::wire::Cwd;
+
+use super::reconcile;
 
 use crate::home_fs;
 
@@ -38,6 +42,7 @@ pub(super) fn place(
         return Err(format!("the chat's folder {} is gone", dir.display()));
     }
     let placed = match cwd {
+        Cwd::Folder { .. } if !fresh => Err(PLAIN_BLOCKED.to_owned()),
         Cwd::Folder { .. } => unpack(dir, first),
         Cwd::Git { remote, branch, base, .. } => {
             Git { remote, branch, base, bundle: first, patch }.lay_out(dir, fresh, label)
@@ -48,6 +53,15 @@ pub(super) fn place(
     }
     placed
 }
+
+/// A tar holds the files the Cloud has, not which ones it deleted, so laid over a folder that is
+/// here it would bring back what the Cloud removed, and a delete-what-is-absent rule would
+/// remove what the laptop made after the copy. Neither is safe, so a folder that is no
+/// repository is not handed back over an existing one: it stays as it is (the first release is
+/// git folders only).
+const PLAIN_BLOCKED: &str = "the chat's folder is not a git repository, so the Cloud's copy \
+    cannot be laid over it without bringing back files the Cloud deleted; the folder is left \
+    as it is";
 
 /// Removes a folder this import made, when what came after it failed. Best effort.
 pub(super) async fn discard(dir: PathBuf) {
@@ -75,8 +89,18 @@ pub(super) fn clone(dir: &Path, remote: &str, branch: &str) -> Result<(), String
 /// Git in `dir` for a snapshot's folder. It reaches the remote with the machine's own git
 /// credentials, never asks at a terminal, gives up on a stalled transfer, and runs no hook of
 /// the repository.
-fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
+pub(super) fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
+    git_with(dir, &[], args)
+}
+
+/// [`git`] with more environment variables.
+pub(super) fn git_with(
+    dir: &Path,
+    env: &[(&str, String)],
+    args: &[&str],
+) -> Result<String, String> {
     let out = Command::new("git")
+        .envs(env.iter().map(|(k, v)| (*k, v.as_str())))
         .arg("-C")
         .arg(dir)
         .args(["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false"])
@@ -140,36 +164,76 @@ impl Git<'_> {
             plain(self.branch, "the branch")?;
         }
         let scratch = tempfile::tempdir().map_err(|e| format!("a temp folder: {e}"))?;
-        let before = if fresh {
+        let file = scratch.path().join("patch");
+        std::fs::write(&file, self.patch).map_err(|e| format!("write the patch: {e}"))?;
+        let patch = if self.patch.is_empty() { PathBuf::new() } else { file.clone() };
+        // The patch is cut from the repository's top, so it goes on there: a chat that started
+        // in a subfolder keeps its own folder as the chat's `cwd`, and git there would skip
+        // the files outside it.
+        let (root, before) = if fresh {
             git(dir, &["init", "-q"])?;
             git(dir, &["remote", "add", "origin", self.remote])?;
-            None
+            (dir.to_owned(), None)
         } else {
-            Some(Before::keep(dir, label)?)
+            let top = git(dir, &["rev-parse", "--show-toplevel"])
+                .map_err(|e| format!("the chat's folder is not in a git folder: {e}"))?;
+            let root = PathBuf::from(top);
+            let before = Before::keep(&root, label)?;
+            (root, Some(before))
         };
-        let head = self.fetch_commits(dir, scratch.path())?;
+        let head = self.fetch_commits(&root, scratch.path())?;
+        // The patch is tried on a scratch index first: one that does not apply changes nothing.
+        let tree = reconcile::tree_with(&root, scratch.path(), &head, &patch)?;
+        let mut aside = match &before {
+            Some(_) => {
+                let git_dir = git(&root, &["rev-parse", "--absolute-git-dir"])?;
+                Some(reconcile::Aside::make(&root, Path::new(&git_dir), &tree, &safe(label))?)
+            }
+            None => None,
+        };
+        let laid = self.check_out(&root, &head, &file);
+        match (laid, &mut aside) {
+            (Ok(()), Some(_)) => {
+                let kept = aside.take().map(reconcile::Aside::done).unwrap_or_default();
+                if !kept.is_empty() {
+                    tracing::warn!(files = ?kept, "a handback set local files aside that differ from the Cloud's");
+                }
+                Ok(())
+            }
+            (Ok(()), None) => Ok(()),
+            (Err(error), _) => {
+                if let Some(aside) = &mut aside {
+                    aside.put_back();
+                }
+                if let Some(before) = &before {
+                    before.as_it_was(&root);
+                }
+                Err(error)
+            }
+        }
+    }
+
+    /// The commits checked out and the patch applied, at the repository's top.
+    fn check_out(&self, root: &Path, head: &str, patch: &Path) -> Result<(), String> {
         let mut checkout = vec!["checkout", "-q"];
-        if !fresh {
+        if root.join(".git").exists() && git(root, &["rev-parse", "-q", "--verify", "HEAD"]).is_ok()
+        {
             checkout.push("-f");
         }
         match self.branch {
             // A detached checkout: the copy's side names it `HEAD` (`export/folder.rs`).
-            "" | "HEAD" => checkout.extend(["--detach", head.as_str()]),
-            branch => checkout.extend(["-B", branch, head.as_str()]),
+            "" | "HEAD" => checkout.extend(["--detach", head]),
+            branch => checkout.extend(["-B", branch, head]),
         }
-        git(dir, &checkout)?;
-        self.keep_base(dir);
+        git(root, &checkout)?;
+        self.keep_base(root);
         if self.patch.is_empty() {
             return Ok(());
         }
-        let file = scratch.path().join("patch");
-        std::fs::write(&file, self.patch).map_err(|e| format!("write the patch: {e}"))?;
-        let file = file.to_string_lossy();
-        let applied = git(dir, &["apply", "--binary", "--whitespace=nowarn", &file]);
-        if let (Err(_), Some(before)) = (&applied, &before) {
-            before.as_it_was(dir);
-        }
-        applied.map(|_| ()).map_err(|e| format!("the snapshot's patch does not apply: {e}"))
+        let file = patch.to_string_lossy();
+        git(root, &["apply", "--binary", "--whitespace=nowarn", &file])
+            .map(|_| ())
+            .map_err(|e| format!("the snapshot's patch does not apply: {e}"))
     }
 
     /// Keeps the base under [`BASE_REF`]: a commit the remote has. A new folder fetched it by
@@ -218,6 +282,11 @@ impl Git<'_> {
     }
 }
 
+/// A label as one path and ref component.
+fn safe(label: &str) -> String {
+    label.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect()
+}
+
 /// What a folder that was here held before the snapshot went in.
 struct Before {
     /// Its `HEAD`: a branch's short name, or a commit when detached.
@@ -237,9 +306,7 @@ impl Before {
         let me = ["-c", "user.name=cmux", "-c", "user.email=auto@cmux.invalid"];
         let stash = git(dir, &[&me[..], &["stash", "create", "before the Cloud's copy"]].concat())?;
         let changes = Some(stash).filter(|id| !id.is_empty());
-        let label: String =
-            label.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect();
-        let kept = format!("refs/cmux/auto/before/{label}");
+        let kept = format!("refs/cmux/auto/before/{}", safe(label));
         git(dir, &["update-ref", &kept, changes.as_deref().unwrap_or(&commit)])?;
         Ok(Before { head, changes })
     }

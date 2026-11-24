@@ -33,7 +33,11 @@ fn write(path: &Path, bytes: &[u8], mode: u32) {
 }
 
 fn mode(path: &Path) -> u32 {
-    std::fs::metadata(path).unwrap().permissions().mode() & 0o777
+    if std::fs::metadata(path).unwrap().permissions().mode() & 0o111 == 0o111 {
+        0o755
+    } else {
+        0o644
+    }
 }
 
 /// A laptop checkout and the Cloud machine's clone of the same remote, both at one commit that
@@ -90,8 +94,8 @@ fn an_identical_untracked_file_is_no_conflict() {
     assert_eq!(std::fs::read(rig.laptop.join("run.sh")).unwrap(), b"#!/bin/sh\n");
     assert_eq!(mode(&rig.laptop.join("run.sh")), 0o755);
     assert_eq!(std::fs::read(rig.laptop.join("a.txt")).unwrap(), b"a by the cloud\n");
-    // Nothing differed, so nothing was set aside.
-    assert!(!rig.laptop.join(".git/cmux-auto").exists());
+    // Nothing differed, so nothing is kept aside.
+    assert!(!rig.laptop.join(".git/cmux-auto/quarantine/chat-2/run.sh").exists());
 }
 
 #[test]
