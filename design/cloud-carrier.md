@@ -4,7 +4,7 @@ Leo, 2026-11-06:
 
 > Wait, but isn't this kind of stupid? Like, still? How do you PROPERLY do this?
 
-> Like there's obviously one clear and obvious design. [...] just, yeah, just throw away the bullshit.
+> Like there's obviously one clear and obvious design. [...] just, yeah, just throw away the stuff we don't want.
 > [...] Like be willing to rewrite, rework, remove, cut, cut, cut.
 
 NEXT reaches a Cloud machine one way: an end-to-end Noise session between the device (a Mac or a phone)
