@@ -75,6 +75,9 @@ public final class ChiefBrainKeeper {
         return starting
     }
 
+    /// The watch stopped restarting a host that kept dying (``ChiefBrainWatch/hasGivenUp``), until the next ask.
+    public var hasGivenUp: Bool { watch?.hasGivenUp == true }
+
     /// Whether this home's brain host runs or is starting: one this app watches, or one
     /// another process started (it holds the home's lock).
     public var isRunning: Bool {
