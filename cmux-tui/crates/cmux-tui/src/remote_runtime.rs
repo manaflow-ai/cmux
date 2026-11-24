@@ -970,6 +970,7 @@ async fn dial_first_connection(
             match select_initial_route_from(
                 &options.routes,
                 order,
+                first,
                 options.session,
                 options.lane_policy,
                 client_auth_kind(&options.auth),
@@ -1185,6 +1186,26 @@ impl InitialRouteAttempt<(Arc<ClientConnection>, String)> for RuntimeInitialRout
         if let Some(memory) = self.last_good {
             match &result {
                 Ok(_) => memory.connected_in(&endpoint, started.elapsed()),
+                Err(InitialRouteAttemptError::Route { .. }) => memory.failed(&endpoint),
+                // A refusal or a cancel says nothing about the route.
+                Err(InitialRouteAttemptError::Fatal(_)) => {}
+            }
+        }
+        result
+    }
+}
+
+impl RuntimeInitialRouteAttempt<'_> {
+    async fn connect_route(
+        &self,
+        index: usize,
+        request: ConnectRequest,
+    ) -> Result<(Arc<ClientConnection>, String), InitialRouteAttemptError> {
+        let endpoint = request.endpoint.clone();
+        let result = self.connect_route(index, request).await;
+        if let Some(memory) = self.last_good {
+            match &result {
+                Ok(_) => memory.connected(&endpoint),
                 Err(InitialRouteAttemptError::Route { .. }) => memory.failed(&endpoint),
                 // A refusal or a cancel says nothing about the route.
                 Err(InitialRouteAttemptError::Fatal(_)) => {}
