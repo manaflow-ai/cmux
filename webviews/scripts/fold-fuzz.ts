@@ -65,11 +65,24 @@ export function motionVerdict(record: MotionRecord | undefined) {
     const id = `${flag.kind}:${flag.key}`;
     if ((worst.get(id)?.px ?? -1) < flag.px) worst.set(id, flag);
   }
+  // The stray starts by what started (docs/design/transcript-animation-rules.md), with one stack each.
+  const strays: Record<string, { n: number; stack?: string }> = {};
+  for (const flag of flags) {
+    if (flag.kind !== "offscreen-start" && flag.kind !== "scroll-start") continue;
+    const [what = "", stack] = (flag.detail ?? "").split(" @ ");
+    const id = `${flag.kind} ${what.replace(/ at -?[\d.]+\.\.-?[\d.]+ of [\d.]+/, "")}`;
+    strays[id] = { n: (strays[id]?.n ?? 0) + 1, stack: strays[id]?.stack ?? stack };
+  }
   return {
     ...countFlags(flags),
     frames: record.frames.length,
+    starts: record.starts?.length ?? 0,
+    strays,
     byStep,
-    first: [...worst.values()].sort((a, b) => b.px - a.px).slice(0, 6),
+    first: [...worst.values()]
+      .filter((flag) => flag.kind !== "offscreen-start" && flag.kind !== "scroll-start")
+      .sort((a, b) => b.px - a.px)
+      .slice(0, 6),
   };
 }
 export type MotionVerdict = NonNullable<ReturnType<typeof motionVerdict>>;
@@ -280,8 +293,6 @@ export function flagsOf(n: Ok, driftPx: number, control?: number) {
     drift: Math.abs(n.anchorDriftPx - (control ?? 0)) > driftPx,
     /** The detector: an untouched element moved or resized more than 1 px in a frame. */
     jump: !!n.motion && n.motion.move + n.motion.resize > 0,
-    /** The detector: the view snapped (scrolled with no input) in one frame. */
-    scrollStep: !!n.motion && n.motion["scroll-step"] > 0,
     /** The detector: an animated move off the house easing or past its ceiling. */
     offCurve: !!n.motion && n.motion["off-curve"] > 0,
   };
@@ -334,6 +345,10 @@ async function openPage(browser: Browser, port: number) {
   return page;
 }
 
+/** `--sweep`: play each seed's stray-motion chat (fold-fuzz.scenario.ts `strayScenario`): its end reached
+ *  scrolled up on odd seeds, then the reader's sweep down and up through the top. */
+export const fuzzMode = { sweep: false };
+
 /** Plays one seed with one look on `page` at the seed's split size, and returns its frames. */
 async function playSeed(page: Page, look: string, seed: number): Promise<FuzzRun> {
   const spec = fuzzSpec(seed);
@@ -348,7 +363,7 @@ async function playSeed(page: Page, look: string, seed: number): Promise<FuzzRun
       fold.size(width, height);
       return fold.run(look, name);
     },
-    [look, `fuzz:${seed}`, width, height] as const,
+    [look, `${fuzzMode.sweep ? "stray" : "fuzz"}:${seed}`, width, height] as const,
   )) as FuzzRun;
 }
 
@@ -460,10 +475,10 @@ export function detectorTable(results: Result[], looks: string[]) {
   const lines = [
     "### The motion detector (test/support/transcriptMotion.ts): every element, every frame",
     "",
-    "A `move` or `resize` is an element no step touched and no animation moves, drawn more than 1 px from its last frame; `off-curve` is a geometry animation off the house easing or past 240 ms. A `scroll-step` is a frame where the page, not the reader, moved the scroller more than 1 px at once and the rows rode it (the follow snapping instead of gliding).",
+    "A `move` or `resize` is an element no step touched and no animation moves, drawn more than 1 px from its last frame; `off-curve` is a geometry animation off the house easing or past 240 ms.",
     "",
-    `| look | seeds | seeds with a jump (move or resize) | seeds with a scroll step | seeds off-curve | move flags | scroll-step frames | resize flags | off-curve animations | ${STEP_CLASSES.map((name) => `after ${name}`).join(" | ")} |`,
-    `|---|---|---|---|---|---|---|---|---|${STEP_CLASSES.map(() => "---").join("|")}|`,
+    `| look | seeds | seeds with a jump (move or resize) | seeds off-curve | move flags | resize flags | off-curve animations | ${STEP_CLASSES.map((name) => `after ${name}`).join(" | ")} |`,
+    `|---|---|---|---|---|---|---|${STEP_CLASSES.map(() => "---").join("|")}|`,
   ];
   for (const look of looks) {
     const verdicts = results
@@ -473,23 +488,72 @@ export function detectorTable(results: Result[], looks: string[]) {
     const sum = (pick: (v: MotionVerdict) => number) => verdicts.reduce((total, v) => total + pick(v), 0);
     lines.push(
       `| ${look} | ${verdicts.length} | ${verdicts.filter((v) => v.move + v.resize > 0).length} | ${
-        verdicts.filter((v) => v["scroll-step"] > 0).length
-      } | ${verdicts.filter((v) => v["off-curve"] > 0).length} | ${sum((v) => v.move)} | ${sum((v) => v["scroll-step"])} | ${sum((v) => v.resize)} | ${sum((v) => v["off-curve"])} | ${STEP_CLASSES.map(
-        (name) => sum((v) => v.byStep[name] ?? 0),
+        verdicts.filter((v) => v["off-curve"] > 0).length
+      } | ${sum((v) => v.move)} | ${sum((v) => v.resize)} | ${sum((v) => v["off-curve"])} | ${STEP_CLASSES.map((name) =>
+        sum((v) => v.byStep[name] ?? 0),
       ).join(" | ")} |`,
     );
+  }
+  lines.push("", ...strayTable(results, looks));
+  return lines;
+}
+
+/** The stray-motion table: per look, every animation start that broke the rule, grouped by what started. */
+export function strayTable(results: Result[], looks: string[]) {
+  const lines = [
+    "### Stray animation starts (docs/design/transcript-animation-rules.md)",
+    "",
+    "`offscreen-start`: an animation started on a row outside the view. `scroll-start`: one started while the reader scrolled, on a row he gave no input to and whose data was not new.",
+    "",
+    "| look | seeds | starts seen | seeds with a stray | offscreen-start | scroll-start |",
+    "|---|---|---|---|---|---|",
+  ];
+  const groups = new Map<string, { n: number; seeds: Set<number>; stack?: string }>();
+  for (const look of looks) {
+    const runs = results.filter((r) => r.look === look && ok(r.numbers) && (r.numbers as Ok).motion);
+    const verdicts = runs.map((r) => (r.numbers as Ok).motion!);
+    const sum = (pick: (v: MotionVerdict) => number) => verdicts.reduce((total, v) => total + pick(v), 0);
+    lines.push(
+      `| ${look} | ${verdicts.length} | ${sum((v) => v.starts)} | ${
+        verdicts.filter((v) => v["offscreen-start"] + v["scroll-start"] > 0).length
+      } | ${sum((v) => v["offscreen-start"])} | ${sum((v) => v["scroll-start"])} |`,
+    );
+    for (const r of runs)
+      for (const [id, { n, stack }] of Object.entries((r.numbers as Ok).motion!.strays ?? {})) {
+        const group = groups.get(`${look} ${id}`) ?? { n: 0, seeds: new Set<number>(), stack };
+        group.n += n;
+        group.seeds.add(r.seed);
+        groups.set(`${look} ${id}`, group);
+      }
+  }
+  if (groups.size) {
+    lines.push(
+      "",
+      "| look, rule and what started | starts | seeds | e.g. seeds | where (stack) |",
+      "|---|---|---|---|---|",
+    );
+    for (const [id, group] of [...groups].sort((a, b) => b[1].n - a[1].n).slice(0, 30))
+      lines.push(
+        `| ${id.replace(/\|/g, "/")} | ${group.n} | ${group.seeds.size} | ${[...group.seeds].slice(0, 5).join(", ")} | ${(group.stack ?? "").replace(/\|/g, "/").slice(0, 220)} |`,
+      );
   }
   return lines;
 }
 
+/** The kinds the CI ratchet holds: the three motion faults and the two stray starts
+ *  (docs/design/transcript-animation-rules.md, "The detector"). All five come from `countFlags`, so a
+ *  kind left out here is a kind the gate cannot see at all, whatever the baseline lists. */
+export const RATCHET_KINDS = ["move", "resize", "off-curve", "offscreen-start", "scroll-start"] as const;
+export type RatchetCounts = Record<(typeof RATCHET_KINDS)[number], number>;
+
 /** Each seed's detector counts for one look: what the CI ratchet (transcript-motion-baseline.json) holds. */
 export function seedFlags(results: Result[], look: string) {
-  const flags: Record<string, ReturnType<typeof countFlags>> = {};
+  const flags: Record<string, RatchetCounts> = {};
   for (const r of results) {
     if (r.look !== look || !ok(r.numbers) || !(r.numbers as Ok).motion) continue;
     const v = (r.numbers as Ok).motion!;
-    if (v.move + v["scroll-step"] + v.resize + v["off-curve"] > 0)
-      flags[r.seed] = { move: v.move, "scroll-step": v["scroll-step"], resize: v.resize, "off-curve": v["off-curve"] };
+    const counts = Object.fromEntries(RATCHET_KINDS.map((kind) => [kind, v[kind] ?? 0])) as RatchetCounts;
+    if (RATCHET_KINDS.some((kind) => counts[kind] > 0)) flags[r.seed] = counts;
   }
   return flags;
 }
@@ -608,6 +672,7 @@ if (import.meta.main) {
     const at = args.indexOf(name);
     return at >= 0 ? args[at + 1] : undefined;
   };
+  fuzzMode.sweep = args.includes("--sweep");
   const count = Number(value("--seeds") ?? 500);
   const first = Number(value("--from") ?? 1);
   const seeds = value("--only")?.split(",").map(Number) ?? Array.from({ length: count }, (_, i) => first + i);
@@ -647,7 +712,6 @@ if (import.meta.main) {
           phases: flags.filter((f) => f.phases).length,
           drift: flags.filter((f) => f.drift).length,
           jump: flags.filter((f) => f.jump).length,
-          scrollStep: flags.filter((f) => f.scrollStep).length,
           offCurve: flags.filter((f) => f.offCurve).length,
         },
       ];

@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use super::super::fresh::{RELEASE_WAIT, START_BOUND, STUCK_CODE};
+use super::super::fresh::{LOOK_BOUND, RELEASE_WAIT, START_BOUND, STUCK_CODE};
 use super::*;
 
 /// A new machine with a folder on it: the start answers once start-session does (no read of where it runs).
@@ -377,4 +377,54 @@ fn a_lost_start_reply_never_deletes_a_machine_that_may_have_a_running_agent() {
     ]);
     assert!(matches!(run(&mut fake, &request(&[])), Outcome::Failed { .. }));
     assert_eq!(fake.ran.len(), 2);
+}
+
+/// 2026-11-23 (cmux-platform#1719): a stuck machine is asked why before its delete, over the exec route, and what
+/// it said rides on its `fresh_retry` row and in the run's progress; the look is bounded and the start goes on.
+#[test]
+fn a_stuck_machine_is_looked_at_before_its_delete() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        not_connected("chat-fresh", "vm-stuck"),
+        listed_stuck("vm-stuck"),
+        ok(json!({"deleted": true})),
+        signed_in(),
+        started(),
+    ]);
+    let said = "resolv: nameserver 10.0.0.2 \nhost api.example dns=fail http=000\ncmux-host: activating\n\
+                2026-11-23T22:08:01 cmux-host: relay connect failed: dns error\n";
+    fake.look = Some(ok(json!({"exit_code": 0, "stdout": said, "stderr": ""})));
+    let Outcome::Done(answer) = run(&mut fake, &request(CWD)) else { panic!("{:?}", fake.ran) };
+    assert_eq!(fake.looked.len(), 1, "one look, at the stuck machine");
+    let look = &fake.looked[0];
+    assert_eq!(look[..4], strings(&["cloud", "exec", "--target", "machine:vm-stuck"]));
+    let script = &look[5];
+    assert!(script.starts_with("timeout -k 1 "), "bounded on the machine: {script}");
+    let seconds: u64 = script.split_whitespace().nth(3).unwrap().parse().unwrap();
+    assert!(seconds < LOOK_BOUND.as_secs(), "{script}");
+    assert_eq!(fake.ran[3], kill("vm-stuck"), "deleted after the look");
+    let guest = &answer["fresh_retry"][0]["guest"];
+    assert_eq!(guest["stdout"], said);
+    assert!(
+        fake.said[0].contains("host api.example dns=fail http=000; cmux-host: activating"),
+        "{:?}",
+        fake.said
+    );
+}
+
+/// A look the exec route refuses keeps its error as evidence and changes nothing else.
+#[test]
+fn a_refused_look_is_kept_and_the_delete_goes_on() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        not_connected("chat-fresh", "vm-stuck"),
+        listed_stuck("vm-stuck"),
+        ok(json!({"deleted": true})),
+        signed_in(),
+        started(),
+    ]);
+    let Outcome::Done(answer) = run(&mut fake, &request(CWD)) else { panic!("{:?}", fake.ran) };
+    let guest = &answer["fresh_retry"][0]["guest"];
+    assert_eq!(guest["error"]["message"], "no exec here", "{guest}");
+    assert_eq!(fake.said.len(), 1, "only the retry is said: {:?}", fake.said);
 }
