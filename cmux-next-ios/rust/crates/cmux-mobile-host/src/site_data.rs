@@ -170,15 +170,19 @@ pub struct Package {
     pub local_storage: Vec<StorageArea>,
 }
 
-/// Checks the channel's args: `{"surface", "url", "trigger":"open_on_iphone"}`.
+/// Checks the channel's args: `{"surface", "url", "trigger":"open_on_iphone"}`;
+/// `surface` is a number, its decimal string or the tab key `s<surface>`.
 pub fn parse_ask(args: &Value) -> Result<Ask, Refusal> {
     if args.get("trigger").and_then(Value::as_str) != Some(TRIGGER) {
         return Err(Refusal::new("no_person_action", "site data goes only on the person's Open on iPhone"));
     }
-    let surface = args
-        .get("surface")
-        .and_then(Value::as_u64)
-        .ok_or_else(|| Refusal::new("bad_request", "site-data needs the tab's surface"))?;
+    // A number, or the phone's tab key `s<surface>` / its digits (link args are strings).
+    let surface = match args.get("surface") {
+        Some(Value::Number(n)) => n.as_u64(),
+        Some(Value::String(s)) => s.strip_prefix('s').unwrap_or(s).parse().ok(),
+        _ => None,
+    }
+    .ok_or_else(|| Refusal::new("bad_request", "site-data needs the tab's surface"))?;
     let url = args
         .get("url")
         .and_then(Value::as_str)

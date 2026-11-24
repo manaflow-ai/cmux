@@ -1181,7 +1181,7 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   names a host.
 - `site-data` (2026-11-24, `site-data-handoff-v1`; hq RFD 0089 "Shared
   sessions", RFD 0125 D7 and D8): `{"surface", "url", "trigger":
-  "open_on_iphone"}` hands the phone the Mac browser tab's cookies and local
+  "open_on_iphone"}` (`surface`: the tab key `s<surface>`, or the number) hands the phone the Mac browser tab's cookies and local
   storage for the tab's own site (registrable domain) only, so Open on iPhone
   loads signed in. The phone opens it only from the person's Open on iPhone,
   only when `version` lists `site-data-handoff-v1` (the Mac's switch is on;
