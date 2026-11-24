@@ -2500,6 +2500,13 @@ async fn move_over_relay(precopy: bool) -> MoveRun {
     // Every page crossed the relay: what it carried is at least the bundle.
     assert!(carried >= bundle, "the relay carried {carried} B of a {bundle} B bundle");
     let moved_timings = moved["timings"].clone();
+    // The target reports each phase so a caller can judge the transfer independently of the
+    // relay's wall clock. Every value is an integer number of milliseconds.
+    for name in ["dialMs", "pagesMs", "finishMs"] {
+        assert!(moved_timings[name].is_u64(), "target timing {name}: {moved_timings}");
+    }
+    assert!(moved_timings["pages"].is_u64(), "target page count: {moved_timings}");
+    assert!(moved_timings["pageBytes"].is_u64(), "target page bytes: {moved_timings}");
 
     let commit_started = tokio::time::Instant::now();
     let to = json!({"host": "machine-b", "via": "hub", "sessionId": id, "cwd": moved["cwd"]});

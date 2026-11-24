@@ -416,6 +416,10 @@ impl Hub {
     /// `_acpmux/transfer_hub` (the local socket only, as every `transfer_*`):
     /// - `{resolve: NAME}`: the person's other machine NAME (its host, or its hub `daemonId`) as
     ///   the hub book lists it: `{daemonId, host}`;
+    /// - `{moveOut: DAEMON, sessionId, to, afterTurn?, interrupt?, timeoutSecs?}`: asks the
+    ///   remote source daemon to run its own hub move, and waits for its move JSON row. `DAEMON`
+    ///   is the source's hub-stamped id, so this local request never trusts a host or session
+    ///   field as authority;
     /// - `{sessionId, transferId, epoch, manifest, folder, branch?, commit?}`: sends op `move` for
     ///   that move, begun with `to.hub`, to the daemon it names, and waits for its answer:
     ///   `{moved: {sessionId, cwd, ...}}`. A refusal is an error with `data.refused`; no answer in
@@ -428,46 +432,103 @@ impl Hub {
         if params.get("stage").is_some() || params.get("prepare").is_some() {
             return self.transfer_hub_stage(params).await;
         }
-        let transfer_id = text("transferId");
-        let session = self.resolve(text("sessionId"))?;
-        let dir = inside(&transfers_dir(), transfer_id)?;
-        let Ok(daemon) = std::fs::read_to_string(dir.join(TO_HUB)) else {
-            return Err(pull_error("unknown", "the move was not begun with `to.hub`"));
-        };
-        let daemon = daemon.trim().to_owned();
-        if session.moving().as_deref() != Some(transfer_id) {
-            return Err(pull_error("unknown", "the chat is not in this move"));
-        }
-        let mut body = json!({
-            "version": 1,
-            "transferId": transfer_id,
-            "sessionId": session.id,
-            "manifest": params.get("manifest").cloned().unwrap_or(Value::Null),
-            "folder": params.get("folder").cloned().unwrap_or(Value::Null),
-        });
-        for key in ["branch", "commit", "stageId"] {
-            if let Some(v) = params.get(key).and_then(Value::as_str) {
-                body.set(key, json!(v));
+        if let Some(source) = params.get("moveOut").and_then(Value::as_str) {
+            if !plain_daemon(source) {
+                return Err(pull_error("source", "a move_out names no hub daemon"));
             }
-        }
-        if body.to_string().len() > 64 * 1024 {
-            return Err(pull_error(
-                "size",
-                "the move's manifest does not fit one hub message (64 KiB)",
-            ));
-        }
-        super::transfer_watch::note_activity(&dir, None);
-        let op = crate::mesh_relay_config::MOVE_OP;
-        let key = format!("move-{transfer_id}");
-        match self.hub_control(&daemon, op, body, key, MOVE_WAIT).await? {
-            Ok(result) => {
-                let moved = result
-                    .and_then(|r| serde_json::from_str::<Value>(&r).ok())
-                    .unwrap_or(Value::Null);
-                Ok(json!({"moved": moved, "daemonId": daemon}))
+            let session_id = params.get("sessionId").and_then(Value::as_str).unwrap_or("");
+            if session_id.trim().is_empty() || session_id.chars().any(char::is_control) {
+                return Err(RpcError::invalid_params("move_out: no session id or name"));
             }
-            Err(why) => Err(pull_error("refused", format!("the target refused the move: {why}"))
-                .with_data(json!({"refused": true, "detail": why}))),
+            let to = params.get("to").and_then(Value::as_str).unwrap_or("");
+            if to.trim().is_empty() || to.chars().any(char::is_control) {
+                return Err(RpcError::invalid_params("move_out: no target machine"));
+            }
+            let mut move_params = json!({"sessionId": session_id, "to": to});
+            for key in ["afterTurn", "interrupt"] {
+                if let Some(value) = params.get(key).and_then(Value::as_bool) {
+                    move_params.set(key, json!(value));
+                }
+            }
+            let timeout_secs = params.get("timeoutSecs").and_then(Value::as_u64).unwrap_or(600);
+            move_params.set("timeoutSecs", json!(timeout_secs));
+            let body = json!({"version": 1, "params": move_params});
+            if body.to_string().len() > 64 * 1024 {
+                return Err(pull_error("size", "the move_out control body is too large"));
+            }
+            // The source's session id may contain a slash when a caller used a qualified name.
+            // Keep the hub idempotency key in the control wire's restricted alphabet.
+            let clean = |value: &str| {
+                value
+                    .chars()
+                    .map(|c| {
+                        if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+                            c
+                        } else {
+                            '_'
+                        }
+                    })
+                    .take(80)
+                    .collect::<String>()
+            };
+            let key = format!("move-out-{}-{}", clean(session_id), clean(to));
+            match self
+                .hub_control(source, crate::mesh_relay_config::MOVE_OUT_OP, body, key, MOVE_WAIT)
+                .await?
+            {
+                Ok(Some(result)) => serde_json::from_str(&result).map_err(|e| {
+                    pull_error("answer", format!("move_out returned invalid JSON: {e}"))
+                }),
+                Ok(None) => Err(pull_error("unknown", "the source did not answer the move_out")),
+                Err(why) => {
+                    Err(pull_error("refused", format!("the source refused move_out: {why}"))
+                        .with_data(json!({"refused": true, "detail": why})))
+                }
+            }
+        } else {
+            let transfer_id = text("transferId");
+            let session = self.resolve(text("sessionId"))?;
+            let dir = inside(&transfers_dir(), transfer_id)?;
+            let Ok(daemon) = std::fs::read_to_string(dir.join(TO_HUB)) else {
+                return Err(pull_error("unknown", "the move was not begun with `to.hub`"));
+            };
+            let daemon = daemon.trim().to_owned();
+            if session.moving().as_deref() != Some(transfer_id) {
+                return Err(pull_error("unknown", "the chat is not in this move"));
+            }
+            let mut body = json!({
+                "version": 1,
+                "transferId": transfer_id,
+                "sessionId": session.id,
+                "manifest": params.get("manifest").cloned().unwrap_or(Value::Null),
+                "folder": params.get("folder").cloned().unwrap_or(Value::Null),
+            });
+            for key in ["branch", "commit", "stageId"] {
+                if let Some(v) = params.get(key).and_then(Value::as_str) {
+                    body.set(key, json!(v));
+                }
+            }
+            if body.to_string().len() > 64 * 1024 {
+                return Err(pull_error(
+                    "size",
+                    "the move's manifest does not fit one hub message (64 KiB)",
+                ));
+            }
+            super::transfer_watch::note_activity(&dir, None);
+            let op = crate::mesh_relay_config::MOVE_OP;
+            let key = format!("move-{transfer_id}");
+            match self.hub_control(&daemon, op, body, key, MOVE_WAIT).await? {
+                Ok(result) => {
+                    let moved = result
+                        .and_then(|r| serde_json::from_str::<Value>(&r).ok())
+                        .unwrap_or(Value::Null);
+                    Ok(json!({"moved": moved, "daemonId": daemon}))
+                }
+                Err(why) => {
+                    Err(pull_error("refused", format!("the target refused the move: {why}"))
+                        .with_data(json!({"refused": true, "detail": why})))
+                }
+            }
         }
     }
 

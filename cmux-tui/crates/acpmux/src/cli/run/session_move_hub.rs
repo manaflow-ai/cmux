@@ -14,64 +14,155 @@
 use super::super::transfer::{Staged, refused_as};
 use super::*;
 
-pub(super) async fn run(
+pub(super) async fn resolve(src: &Client, name: &str) -> Result<Value> {
+    src.request("_acpmux/transfer_hub", json!({"resolve": name})).await
+}
+
+/// A qualified source may also name a local sub-session (PARENT/CHILD). Only a hub
+/// machine in this person's address book takes the remote route.
+pub(super) async fn holder(
     src: &Client,
-    ids: &[String],
-    args: &MoveArgs,
-    home: &Path,
-    json_out: bool,
-) -> Result<()> {
-    if args.carry_changes {
-        bail!("--carry-changes does not go through the team hub yet: commit, or --leave-dirty");
+    key: &str,
+    here: &str,
+    peers: &Value,
+) -> Result<Option<(String, String)>> {
+    let Some((host, session)) = key.split_once('/') else { return Ok(None) };
+    if session.is_empty() || names_here(host, here) || peer_ssh(peers, host).is_some() {
+        return Ok(None);
     }
-    let machine =
-        src.request("_acpmux/transfer_hub", json!({"resolve": args.host})).await.map_err(|e| {
-            anyhow!(
-                "{} is neither an ssh peer of this daemon nor a machine the team hub lists: {e:#}",
-                args.host
-            )
-        })?;
-    let daemon = field(&machine, "daemonId").as_str().unwrap_or_default().to_owned();
-    let host = field(&machine, "host").as_str().unwrap_or(&args.host).to_owned();
-    let mut outcomes = Vec::new();
-    for key in ids {
-        let mut o = Outcome {
-            session: key.clone(),
-            name: key.clone(),
-            host: Some(host.clone()),
+    match resolve(src, host).await {
+        Ok(machine) => Ok(Some((machine_id(&machine)?.to_owned(), session.to_owned()))),
+        Err(e)
+            if e.downcast_ref::<crate::client::DaemonError>().is_some_and(|err| {
+                err.0.code == crate::rpc::RpcError::not_found("").code
+                    || err.0.code == crate::rpc::RpcError::method_not_found("").code
+            }) =>
+        {
+            Ok(None)
+        }
+        Err(e) => Err(e),
+    }
+}
+
+fn machine_id(machine: &Value) -> Result<&str> {
+    machine
+        .get("daemonId")
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())
+        .context("the hub returned a machine without a daemon id")
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct Row {
+    session_id: String,
+    name: String,
+    host: String,
+    cwd: Option<String>,
+    pub(super) moved: bool,
+    dry_run: bool,
+    via: String,
+    there: Option<String>,
+    pub(super) error: Option<String>,
+    timings: Option<Value>,
+}
+
+impl Row {
+    fn new(key: &str, host: &str, dry_run: bool) -> Self {
+        Self {
+            session_id: key.to_owned(),
+            name: key.to_owned(),
+            host: host.to_owned(),
             cwd: None,
             moved: false,
+            dry_run,
+            via: "hub".into(),
             there: None,
-            resumed: Ok(false),
-            carried: None,
             error: None,
-            error_code: None,
-            preflight: preflight::Preflight::default(),
-        };
-        if let Err(e) = steps(src, key, args, home, &daemon, &host, &mut o).await {
-            o.error = Some(format!("{e:#}"));
+            timings: None,
         }
-        if !json_out {
-            print_outcome(&o, args.dry_run);
-        }
-        outcomes.push(o);
     }
-    let failed = outcomes.iter().filter(|o| o.error.is_some()).count();
-    if json_out {
-        let rows: Vec<Value> = outcomes
-            .iter()
-            .map(|o| {
-                json!({"sessionId": o.session, "name": o.name, "host": o.host, "cwd": o.cwd,
-                       "moved": o.moved, "dryRun": args.dry_run, "via": "hub",
-                       "there": o.there, "error": o.error})
-            })
-            .collect();
-        print_json(&json!({"moves": rows, "failed": failed}));
+
+    pub(super) fn print(&self) {
+        let mut outcome = Outcome::new(&self.session_id);
+        outcome.name.clone_from(&self.name);
+        outcome.host = Some(self.host.clone());
+        outcome.cwd.clone_from(&self.cwd);
+        outcome.error.clone_from(&self.error);
+        print_outcome(&outcome, self.dry_run);
     }
-    if failed > 0 {
-        bail!("{failed} of {} chats did not move", outcomes.len());
+}
+
+/// Both a locally driven move and an authorized move_out use this transaction on the holder.
+pub(super) async fn one(
+    src: &Client,
+    key: &str,
+    args: &MoveArgs,
+    home: &Path,
+    machine: &Value,
+) -> Row {
+    let host = machine.get("host").and_then(Value::as_str).unwrap_or(&args.host);
+    let mut row = Row::new(key, host, args.dry_run);
+    let result = async {
+        let daemon = machine_id(machine)?;
+        steps(src, key, args, home, daemon, host, &mut row).await
     }
-    Ok(())
+    .await;
+    if let Err(e) = result {
+        row.error = Some(format!("{e:#}"));
+    }
+    row
+}
+
+pub(crate) async fn move_out(
+    hub: &std::sync::Arc<crate::hub::Hub>,
+    session_id: &str,
+    to: &str,
+    after_turn: bool,
+    interrupt: bool,
+    timeout_secs: u64,
+) -> Result<Value> {
+    let src = Client::in_process(hub.clone()).await?;
+    let home = dirs::home_dir().context("this machine has no home folder")?;
+    let args = MoveArgs {
+        sessions: vec![],
+        host: to.to_owned(),
+        all_idle: false,
+        interrupt,
+        after_turn,
+        turn_timeout: std::time::Duration::from_secs(timeout_secs),
+        leave_dirty: false,
+        carry_changes: false,
+        cwd: None,
+        dry_run: false,
+        resume_there: false,
+        from: None,
+        from_snapshot: false,
+    };
+    let machine = resolve(&src, to).await?;
+    Ok(serde_json::to_value(one(&src, session_id, &args, &home, &machine).await)?)
+}
+
+pub(super) async fn ask_holder(
+    src: &Client,
+    holder: &str,
+    session: &str,
+    args: &MoveArgs,
+    here: &str,
+) -> Row {
+    let to = if names_here(&args.host, here) { "local" } else { &args.host };
+    let params = json!({"moveOut": holder, "sessionId": session, "to": to, "afterTurn": args.after_turn,
+                        "interrupt": args.interrupt, "timeoutSecs": args.turn_timeout.as_secs()});
+    let result = async {
+        let reply = src.request("_acpmux/transfer_hub", params).await?;
+        Ok::<Row, anyhow::Error>(serde_json::from_value(reply)?)
+    }
+    .await;
+    result.unwrap_or_else(|e| {
+        let mut row = Row::new(session, to, args.dry_run);
+        row.error = Some(format!("{e:#}"));
+        row
+    })
 }
 
 /// The folder op `move` names: `{cwd}` for `--cwd`, `{home}` for a plain folder under the home
@@ -108,10 +199,10 @@ async fn steps(
     home: &Path,
     daemon: &str,
     host: &str,
-    o: &mut Outcome,
+    o: &mut Row,
 ) -> Result<()> {
     let id = resolve_id(src, key).await?;
-    o.session = id.clone();
+    o.session_id = id.clone();
     let info = src.request(method::MUX_INFO, json!({"sessionId": id})).await?;
     o.name = info.get("name").and_then(Value::as_str).unwrap_or(&id).to_owned();
     if info.get("peer").is_some_and(|p| !p.is_null()) {
@@ -161,7 +252,7 @@ async fn steps(
     // log's tail. A target that lost the stage refuses the move as unstaged: made again in full.
     let staged = precopy(src, &id, daemon).await;
     let moving = Moving { src, id: &id, args, home: &home, home_text: &home_text, cwd: &cwd };
-    let (sent, answer) = match moving.run(daemon, host, staged.as_ref()).await {
+    let (sent, answer, mut timing) = match moving.run(daemon, host, staged.as_ref()).await {
         Err(e) if staged.is_some() && refused_as(&e, "transfer.unstaged") => {
             moving.run(daemon, host, None).await?
         }
@@ -182,6 +273,10 @@ async fn steps(
                "epoch": field(&sent, "epoch")}),
     )
     .await?;
+    let commit_ms = elapsed_ms(timing.started);
+    timing.commit_ms = commit_ms;
+    timing.freeze_ms = commit_ms.saturating_sub(timing.begin_ms);
+    o.timings = Some(timing.value());
     o.moved = true;
     o.cwd = moved["cwd"].as_str().map(str::to_owned);
     o.there = moved["sessionId"].as_str().map(str::to_owned);
@@ -196,6 +291,48 @@ struct Moving<'a> {
     home: &'a Path,
     home_text: &'a str,
     cwd: &'a Path,
+}
+
+/// The source-side timing split for one hub move. Values are milliseconds elapsed from the
+/// beginning of this client's move request. The target's transfer timings are copied into the
+/// same object by `Moving::run`.
+fn elapsed_ms(start: std::time::Instant) -> u64 {
+    start.elapsed().as_millis().try_into().unwrap_or(u64::MAX)
+}
+
+fn unix_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis().try_into().unwrap_or(u64::MAX))
+        .unwrap_or(0)
+}
+
+struct Timing {
+    started: std::time::Instant,
+    begin_ms: u64,
+    answer_ms: u64,
+    commit_ms: u64,
+    freeze_ms: u64,
+    target: Value,
+}
+
+impl Timing {
+    fn value(&self) -> Value {
+        let mut value = json!({
+            "beginMs": self.begin_ms,
+            "answerMs": self.answer_ms,
+            "commitMs": self.commit_ms,
+            "freezeMs": self.freeze_ms,
+        });
+        if let (Some(out), Some(target)) = (value.as_object_mut(), self.target.as_object()) {
+            for key in ["dialMs", "pagesMs", "finishMs"] {
+                if let Some(value) = target.get(key) {
+                    out.insert(key.to_owned(), value.clone());
+                }
+            }
+        }
+        value
+    }
 }
 
 /// The chat's history staged on the hub target `daemon` before the freeze, when it can be; None
@@ -223,19 +360,23 @@ impl Moving<'_> {
         daemon: &str,
         host: &str,
         staged: Option<&Staged>,
-    ) -> Result<(Value, Value)> {
+    ) -> Result<(Value, Value, Timing)> {
         let Moving { src, id, args, home, home_text, cwd } = *self;
         let (id, leave_dirty) = (id.to_owned(), args.leave_dirty);
+        let started = std::time::Instant::now();
+        let started_at = unix_ms();
         let to = json!({"hub": daemon, "host": host});
         let running = (args.interrupt, args.after_turn);
         use super::super::transfer as t;
-        let begun = match t::begin_move(src, &id, Some(to.clone()), running, None, staged).await {
-            // The target's copy diverged from what was staged: send the whole chat.
-            Err(e) if staged.is_some() && t::refused_diverged(&e) => {
-                t::begin_move(src, &id, Some(to), running, None, None).await?
-            }
-            begun => begun?,
-        };
+        let turn_bound = args.after_turn.then_some(args.turn_timeout);
+        let begun =
+            match t::begin_move(src, &id, Some(to.clone()), running, turn_bound, staged).await {
+                // The target's copy diverged from what was staged: send the whole chat.
+                Err(e) if staged.is_some() && t::refused_diverged(&e) => {
+                    t::begin_move(src, &id, Some(to), running, turn_bound, None).await?
+                }
+                begun => begun?,
+            };
         let made = async {
             // Read again now that the chat is frozen: it may have changed before the freeze.
             let checkout = checkout_unless_named(cwd, args, &Source::Here).await?;
@@ -277,7 +418,29 @@ impl Moving<'_> {
             }
         };
         match src.request("_acpmux/transfer_hub", sent.clone()).await {
-            Ok(answer) => Ok((sent, answer)),
+            Ok(answer) => {
+                let answer_ms = elapsed_ms(started);
+                let moved = field(&answer, "moved");
+                let target_timings = moved.get("timings").cloned().unwrap_or_else(|| json!({}));
+                let begin_ms = begun
+                    .begin
+                    .get("freezeStartedAtMs")
+                    .and_then(Value::as_u64)
+                    .map(|at| at.saturating_sub(started_at))
+                    .unwrap_or(answer_ms);
+                Ok((
+                    sent,
+                    answer,
+                    Timing {
+                        started,
+                        begin_ms,
+                        answer_ms,
+                        commit_ms: answer_ms,
+                        freeze_ms: answer_ms.saturating_sub(begin_ms),
+                        target: target_timings,
+                    },
+                ))
+            }
             Err(e) => {
                 let data =
                     e.downcast_ref::<crate::client::DaemonError>().and_then(|d| d.0.data.clone());

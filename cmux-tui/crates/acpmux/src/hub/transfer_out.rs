@@ -590,6 +590,14 @@ impl Hub {
                 guard
             }
         };
+        // The client reports move timings against its own monotonic clock. This wall-clock
+        // marker lets it locate the source daemon's freeze boundary without counting an
+        // `--after-turn` wait as frozen time. The marker is only emitted after the turn lock is
+        // held and before the ownership export begins.
+        let freeze_started_at_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_millis().try_into().unwrap_or(u64::MAX))
+            .unwrap_or(0);
         // A turn recovered from an agent host runs before its task takes the lock (`hosts.rs`).
         if session.turn().is_some() {
             drop(guard);
@@ -714,6 +722,7 @@ impl Hub {
             "files": files,
             "session": self.session_summary(session),
             "epoch": epoch,
+            "freezeStartedAtMs": freeze_started_at_ms,
         });
         if let Some(id) = carried {
             answer.set("continues", json!(id));

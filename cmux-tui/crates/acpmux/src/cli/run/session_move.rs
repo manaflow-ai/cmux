@@ -61,6 +61,7 @@ use std::process::Command as StdCommand;
 
 #[path = "session_move_hub.rs"]
 mod hub;
+pub(crate) use hub::move_out;
 
 #[path = "session_move_preflight.rs"]
 mod preflight;
@@ -358,9 +359,6 @@ pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
     // `--from`: the chats' daemon is the peer's, reached through a forward of its local socket.
     let (src, source, home, _src_forward) = match &args.from {
         None => {
-            if names_here(&args.host, &here) {
-                bail!("the chats are on this machine already: name another machine");
-            }
             let home =
                 dirs::home_dir().ok_or_else(|| anyhow!("this machine has no home folder"))?;
             (local.clone(), Source::Here, home, None)
@@ -387,46 +385,104 @@ pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
     if ids.is_empty() {
         bail!("no chat to move: name one or more, or pass --all-idle");
     }
-    // A machine no ssh peer names, that the team hub lists as one of the person's: the move goes
-    // through the hub, the target pulling it (`session_move_hub.rs`).
-    if matches!(source, Source::Here)
+    let mut holders = Vec::with_capacity(ids.len());
+    for key in &ids {
+        holders.push(if matches!(source, Source::Here) && !args.all_idle {
+            hub::holder(&local, key, &here, &peers).await?
+        } else {
+            None
+        });
+    }
+    if holders.iter().any(Option::is_some)
+        && (args.cwd.is_some()
+            || args.dry_run
+            || args.carry_changes
+            || args.leave_dirty
+            || args.host == "auto")
+    {
+        bail!(
+            "a move from a hub machine needs a named target or local and supports --after-turn, --interrupt and --timeout"
+        );
+    }
+    let have_source = holders.iter().any(Option::is_none);
+    if have_source && matches!(source, Source::Here) && names_here(&args.host, &here) {
+        bail!("the chats are on this machine already: name another machine");
+    }
+    let hub_target = if have_source
+        && matches!(source, Source::Here)
         && args.host != "auto"
         && peer_ssh(&peers, &args.host).is_none()
     {
-        return hub::run(&src, &ids, &args, &home, json_out).await;
-    }
-    let here_target = match &source {
-        Source::Peer { .. } if names_here(&args.host, &here) => {
-            Some(Target { name: here.clone(), ssh: String::new(), probed: Some(local_daemon()?) })
+        if args.carry_changes {
+            bail!("--carry-changes does not go through the team hub yet: commit, or --leave-dirty");
         }
-        _ => None,
+        Some(hub::resolve(&src, &args.host).await.with_context(|| {
+            format!(
+                "{} is neither an ssh peer of this daemon nor a machine the team hub lists",
+                args.host
+            )
+        })?)
+    } else {
+        None
     };
-    let mut targets = Targets::with_here(&args.host, &peers, here_target)?;
-    targets.observer = Some(local);
-    targets.exclude_source(&source, crate::placement::load_registry().as_ref())?;
+    let mut targets = if have_source && hub_target.is_none() {
+        let here_target = match &source {
+            Source::Peer { .. } if names_here(&args.host, &here) => Some(Target {
+                name: here.clone(),
+                ssh: String::new(),
+                probed: Some(local_daemon()?),
+            }),
+            _ => None,
+        };
+        let mut targets = Targets::with_here(&args.host, &peers, here_target)?;
+        targets.observer = Some(local.clone());
+        targets.exclude_source(&source, crate::placement::load_registry().as_ref())?;
+        Some(targets)
+    } else {
+        None
+    };
     let mut outcomes = Vec::new();
-    for key in &ids {
-        let outcome = move_one_from(&src, &source, key, &args, &home, &mut targets).await;
-        if !json_out {
-            print_outcome(&outcome, args.dry_run);
+    let mut rows = Vec::new();
+    let mut hub_errors = Vec::new();
+    for (key, holder) in ids.iter().zip(holders) {
+        let row = if let Some((holder, session)) = holder {
+            hub::ask_holder(&local, &holder, &session, &args, &here).await
+        } else if let Some(target) = &hub_target {
+            hub::one(&src, key, &args, &home, target).await
+        } else {
+            let targets = targets.as_mut().context("missing move target")?;
+            let o = move_one_from(&src, &source, key, &args, &home, targets).await;
+            if json_out {
+                rows.push(
+                    json!({"sessionId": o.session, "name": o.name, "host": o.host, "cwd": o.cwd,
+                       "moved": o.moved, "dryRun": args.dry_run, "carried": o.carried,
+                       "error": o.error, "errorCode": o.error_code,
+                       "preflight": o.preflight, "targetSessionId": o.there}),
+                );
+            } else {
+                print_outcome(&o, args.dry_run);
+            }
+            outcomes.push(o);
+            continue;
+        };
+        if let Some(error) = &row.error {
+            hub_errors.push(format!("{key}: {error}"));
         }
-        outcomes.push(outcome);
+        if json_out {
+            rows.push(serde_json::to_value(row)?);
+        } else {
+            row.print();
+        }
     }
     if !args.dry_run {
         settle_arrivals(&src, &outcomes).await;
     }
-    let failed = outcomes.iter().filter(|o| o.error.is_some()).count();
+    let failed = outcomes.iter().filter(|o| o.error.is_some()).count() + hub_errors.len();
     if json_out {
-        let rows: Vec<Value> = outcomes
-            .iter()
-            .map(|o| {
-                json!({"sessionId": o.session, "name": o.name, "host": o.host, "cwd": o.cwd,
-                       "moved": o.moved, "dryRun": args.dry_run, "carried": o.carried,
-                       "error": o.error, "errorCode": o.error_code,
-                       "preflight": o.preflight, "targetSessionId": o.there})
-            })
-            .collect();
         print_json(&json!({"moves": rows, "failed": failed}));
+    }
+    if !hub_errors.is_empty() {
+        bail!("{failed} of {} chats did not move: {}", ids.len(), hub_errors.join("; "));
     }
     match not_moved(&outcomes) {
         Some(e) => Err(e.into()),
