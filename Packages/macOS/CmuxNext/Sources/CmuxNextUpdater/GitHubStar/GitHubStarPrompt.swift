@@ -26,11 +26,6 @@ public nonisolated struct GitHubStarPromptRule: Sendable {
     public static func dismiss(in defaults: UserDefaults) { defaults.set(true, forKey: dismissedKey) }
 }
 
-public extension Notification.Name {
-    /// Posted when the person sends a prompt in a chat (AgentPaneUserGestures); the star ask counts it.
-    static let cmuxPromptSent = Notification.Name("cmux.next.prompt-sent")
-}
-
 /// "Enjoying cmux? Give us a star on GitHub to let us know!", bottom-left, until closed. Star on GitHub
 /// stars in place through the person's `gh` sign-in and thanks them; without one it opens the repo.
 /// Every close (both buttons, the X) saves the dismissal.
@@ -44,7 +39,7 @@ public final class GitHubStarPrompt {
     private let github: GitHubStarCLI
     private let idleTimer = DemandTimer(owner: "GitHubStarPrompt.idle")
     private var shownThisSession = false
-    private var observer: (any NSObjectProtocol)?
+    private var listening = false
     private var activity: Any?
 
     public init(defaults: UserDefaults = .standard, activeWindow: @escaping @MainActor () -> NSWindow? = { NSApp.keyWindow ?? NSApp.mainWindow }) {
@@ -55,10 +50,9 @@ public final class GitHubStarPrompt {
 
     /// Listens for sent prompts (the app's own run; UpdaterService.start).
     public func start() {
-        guard observer == nil else { return }
-        observer = NotificationCenter.default.addObserver(forName: .cmuxPromptSent, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.recordPromptSent() }
-        }
+        guard !listening else { return }
+        listening = true
+        PromptSentSignal.subscriber = { [weak self] in self?.recordPromptSent() }
     }
 
     public func recordPromptSent() {
