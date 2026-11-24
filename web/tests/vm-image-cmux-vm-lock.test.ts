@@ -63,9 +63,9 @@ function problemsOf(raw: unknown): string[] {
 describe("images/cmux-vm/inputs.lock.json", () => {
   test("the checked-in lock is valid and lists every known program once", () => {
     const lock = readInputsLock();
-    expect(lock.programs.map((p) => p.name).sort()).toEqual([...KNOWN_PROGRAMS, "cmux-cua", "chrome-for-testing", "cmux-browser-host", "agent-desktop", "cmux-rd"].sort());
+    expect(lock.programs.map((p) => p.name).sort()).toEqual([...KNOWN_PROGRAMS, "cmux-cua", "chrome-for-testing", "cmux-browser-host", "agent-desktop", "cmux-rd", "optchat-chief"].sort());
     expect(lock.apt.ubuntu.uri).toContain(lock.apt.ubuntu.snapshot);
-    expect(lock.apt.ubuntu.snapshot).toBe("20261104T000000Z");
+    expect(lock.apt.ubuntu.snapshot).toBe("20261122T000000Z");
     expect(profileLinks(lock).map((l) => l.command)).toContain("cr");
   });
 
@@ -557,9 +557,9 @@ describe("cmux-rd (the cmux.rd/1 Linux host, role desktop; release cmux-rd-v<V> 
     }
   });
 
-  test("0.2.8 is pinned from release cmux-rd-v0.2.8 (#49894, run 45005880299) by URL, sha256, size and checksums.txt, baked in role desktop", () => {
+  test("0.2.9 is pinned from release cmux-rd-v0.2.9 (#50463, run 45160613949) by URL, sha256, size and checksums.txt, baked in role desktop", () => {
     const pinned = readInputsLock().programs.find((p) => p.name === "cmux-rd")!;
-    expect(pinned).toMatchObject({ ...cmuxRdReleaseShape("0.2.8"), sha256: "cb62708f01683dc5b18da85f98c2dc8dc5e847598ab957c1d4f3b49cff5d230b", size: 9785324 });
+    expect(pinned).toMatchObject({ ...cmuxRdReleaseShape("0.2.9"), sha256: "09e4120d8428b2e7ce626e14dbbbb74e29f0a36c2ce5b4080c958fca4496305e", size: 10234313 });
     expect(pinned.pendingRelease).toBeUndefined();
     expect(pinned.firstUse).toBeUndefined();
     expect(bakedPrograms(readInputsLock()).map((p) => p.name)).toContain("cmux-rd");

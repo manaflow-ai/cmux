@@ -200,14 +200,14 @@ impl Drop for Flock {
     }
 }
 
-fn is_automation_id(name: &str) -> bool {
+pub(crate) fn is_automation_id(name: &str) -> bool {
     name.len() == 25
         && name
             .strip_prefix("auto_")
             .is_some_and(|id| id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit()))
 }
 
-fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let dir = path.parent().unwrap_or(Path::new("."));
     let tmp = dir.join(format!(
         ".{}.tmp-{}",
@@ -259,6 +259,11 @@ impl Store {
 
     fn dir(&self, id: &str) -> PathBuf {
         self.root.join(id)
+    }
+
+    /// An automation's folder (its definition, runs, logs and secrets).
+    pub(crate) fn dir_of(&self, id: &str) -> PathBuf {
+        self.dir(id)
     }
 
     /// The stderr of an automation's watch command.

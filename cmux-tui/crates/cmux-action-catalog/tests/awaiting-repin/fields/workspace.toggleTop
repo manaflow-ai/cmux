@@ -1,3 +1,4 @@
-# NEXT menus cut to one way each (lane/next-menu-decide, Leo 2026-11-22); the re-pin carries it
-/surfacePlan/contextMenus
+# workspace.toggleTop context-menu exemption dragGesture (#50440: drag replaces Remove from Top); the re-pin carries it
 /surfacePlan/contextMenuExemption
+/surfacePlan/contextMenus
+/surfaces
