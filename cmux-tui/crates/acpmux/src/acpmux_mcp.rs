@@ -12,7 +12,9 @@
 //! box the person sees under the answer (`wrap_up`, `acpmux_mcp_wrap_up.rs`), and keeps the chat's
 //! goal and its done-when on any harness (`goal_set`, `goal_update`, `goal_get`,
 //! `acpmux_mcp_goal.rs`), and wakes it when other sessions are done or blocked (`watch_add`,
-//! `watch_ls`, `watch_rm`, `acpmux_mcp_watch.rs`). `github_status` names the GitHub account cmux can see, never a token (`github_status.rs`). With a cmux sign-in it also saves,
+//! `watch_ls`, `watch_rm`, `acpmux_mcp_watch.rs`), and waits on or stops another session's turn,
+//! any session, not only its own sub-sessions (`wait`, `cancel`, `acpmux_mcp_control.rs`).
+//! `github_status` names the GitHub account cmux can see, never a token (`github_status.rs`). With a cmux sign-in it also saves,
 //! searches, lists and reads the person's cmux artifacts (`artifact_*`, `acpmux_mcp_artifacts.rs`).
 //!
 //! Each tool is the request the agent's own `acpmux` CLI makes, over a connection that carries
@@ -81,6 +83,8 @@ mod guest;
 pub(crate) mod pr;
 /// `pr_state`'s parse of a pull request, which the daemon's poller reads too (`pr_poller.rs`).
 pub(crate) use pr::pr_state;
+#[path = "acpmux_mcp_control.rs"]
+mod control;
 #[path = "acpmux_mcp_machine.rs"]
 mod machine;
 #[path = "acpmux_mcp_race.rs"]
@@ -110,6 +114,7 @@ pub(crate) fn tools() -> Value {
         list.extend(watch::tools());
         list.extend(race::tools());
         list.push(send_status::tool());
+        list.extend(control::tools());
         list.extend(machine::tools());
         for tool in list.iter_mut() {
             let named = tool.get("name").and_then(Value::as_str);
@@ -422,6 +427,9 @@ fn served_with(
                 }
                 if name == "machine_info" {
                     return machine_info(&daemon, &session).await;
+                }
+                if control::TOOLS.contains(&name) {
+                    return control::call(&daemon, &session, name, &args).await;
                 }
                 call_as(&daemon, &params, sub.as_ref()).await
             }
