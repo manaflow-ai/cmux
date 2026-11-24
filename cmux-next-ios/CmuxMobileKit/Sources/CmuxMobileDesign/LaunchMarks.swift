@@ -15,6 +15,9 @@ import SwiftUI
 ///
 /// The marks (cmux-next-ios/design/launch-tti.md):
 /// - `app_init`: the App's `init` began (dyld, static initializers and UIKit's start before it)
+/// - `app_init_done`: the App's `init` returned (its migrations, Keychain and auth setup)
+/// - `did_finish_launching`: the app delegate's `didFinishLaunching` began
+/// - `root_init`: the first `RootView` was built (the scene's first body, its store)
 /// - `first_frame`: the first SwiftUI frame (the launch mark) was presented
 /// - `shell_frame`: the signed-in shell's first frame was presented
 /// - `workspaces_list_frame`: the Workspaces list's first frame with rows was presented (the list rig's seeded rows)

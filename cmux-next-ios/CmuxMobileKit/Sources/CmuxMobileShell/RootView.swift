@@ -108,6 +108,7 @@ public struct RootView: View {
     private let options: ShellLaunchOptions
 
     public init(auth: CmuxMobileAuthModel, store: AppStore, options: ShellLaunchOptions = ShellLaunchOptions()) {
+        LaunchMarks.shared.mark("root_init")
         _auth = State(initialValue: auth)
         // Live auth: teams, Macs and workspaces come only from Stack and the
         // Mac (the sample data stays only for mock mode).

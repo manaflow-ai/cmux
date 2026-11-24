@@ -1661,7 +1661,7 @@ def p90(values):
 if warm:
     lists = sorted(row["list_ms"] for row in warm)
     stages = []
-    for key in ["app_init", "first_frame", "shell_frame", "list_ms"]:
+    for key in ["app_init", "app_init_done", "did_finish_launching", "root_init", "first_frame", "shell_frame", "list_ms"]:
         values = [row[key] for row in warm if key in row]
         if values:
             stages.append("%s %.0f" % (key, p90(values)))

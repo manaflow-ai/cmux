@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileAgentChat
 import CmuxMobileChief
+import CmuxMobileDesign
 import CmuxMobileLive
 import CmuxMobileModel
 import CmuxMobileNotifications
@@ -194,6 +195,7 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
     private var apnsObserver: APNsActivationObserver?
 
     public func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        LaunchMarks.shared.mark("did_finish_launching")
         UNUserNotificationCenter.current().delegate = self
         // A terminal page turns with the phone.
         TerminalPageOrientation.shared.onChange = { ScreenSharingOrientation.shared.terminalShown($0) }
