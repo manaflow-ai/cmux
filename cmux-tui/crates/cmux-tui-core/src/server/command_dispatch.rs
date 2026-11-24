@@ -255,12 +255,13 @@ fn dispatch_command(
         Command::ReloadConfig => cmd_server::reload_config(mux),
         Command::SetWindowTitle { title } => cmd_server::set_window_title(mux, title),
         Command::ClearWindowTitle => cmd_server::clear_window_title(mux),
-        Command::ListWorkspaces { known, limit } => cmd_workspaces::list_workspaces(
+        Command::ListWorkspaces { known, limit, after } => cmd_workspaces::list_workspaces(
             mux,
             client,
             writer.lines_written(),
             known.as_ref(),
             limit,
+            after,
         ),
         Command::GetFrontendProjection { frontend, scope, subject_key } => {
             cmd_frontend::get_frontend_projection(mux, frontend, scope, subject_key)
@@ -302,6 +303,28 @@ fn dispatch_command(
         Command::ReadScrollback { surface, start, count } => {
             cmd_terminal_io::read_scrollback(mux, surface, start, count)
         }
+        Command::TerminalFind {
+            surface,
+            query,
+            case_sensitive,
+            whole_word,
+            regex,
+            before,
+            epoch,
+            page_rows,
+            max_matches,
+        } => cmd_terminal_find::terminal_find(
+            mux,
+            surface,
+            cmd_terminal_find::FindRequest {
+                query,
+                options: cmux_terminal_find::FindOptions { case_sensitive, whole_word, regex },
+                before,
+                epoch,
+                page_rows,
+                max_matches,
+            },
+        ),
         Command::SidebarPlugin { cols, rows, relaunch } => {
             cmd_frontend::sidebar_plugin(mux, cols, rows, relaunch)
         }
@@ -964,6 +987,7 @@ fn dispatch_command(
         Command::RenameWorkspace { request, mutation } => {
             cmd_workspaces::rename_workspace(mux, client, request, mutation)
         }
+        Command::ReleaseWorkspaceNames {} => cmd_workspaces::release_workspace_names(mux, actor),
         Command::RenameProviderManagedWorkspace { workspace, key, name, authority } => {
             cmd_workspaces::rename_provider_managed_workspace(
                 mux, actor, workspace, key, name, authority,

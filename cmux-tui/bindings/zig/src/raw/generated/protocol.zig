@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "c6d0f3dea2025c443f5317cfa375e1281441bd59736ab8850502510b7728b2d9";
+pub const ir_sha256 = "9dae40e9a91d9653a152d869db666939b2c8725ede52f1d9338cb1d888180110";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -3549,6 +3549,7 @@ pub const TerminalResumeCommandResult = struct {
 
 pub const Tree = struct {
     generation: ?[]const u8 = null,
+    next: ?u64 = null,
     pane_revision: ?u64 = null,
     registry_id: ?[]const u8 = null,
     terminal_revision: ?u64 = null,
@@ -3560,6 +3561,7 @@ pub const Tree = struct {
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "generation",
+        "next",
         "pane_revision",
         "registry_id",
         "terminal_revision",
@@ -7333,6 +7335,7 @@ pub fn listWorkspaceGroups(client: anytype, request: ListWorkspaceGroupsRequest)
 }
 
 pub const ListWorkspacesRequest = struct {
+    after: wire.Field(u64) = .absent,
     known: wire.Field(ListWorkspacesKnown) = .absent,
     limit: wire.Field(u64) = .absent,
 };
@@ -7348,6 +7351,7 @@ pub fn listWorkspaces(client: anytype, request: ListWorkspacesRequest) !wire.Dec
             .since = 5,
             .capability = null,
             .fields = &.{
+                .{ .name = "after", .since = 12, .capability = "list-workspaces-page-v1" },
                 .{ .name = "known", .since = 12, .capability = "list-workspaces-known-v1" },
                 .{ .name = "limit", .since = 12, .capability = "list-workspaces-limit-v1" },
             },
@@ -10476,6 +10480,43 @@ pub fn terminalEvents(client: anytype, request: TerminalEventsRequest) !wire.Dec
     );
 }
 
+pub const TerminalFindRequest = struct {
+    /// Marker the page ends above (exclusive): the previous page's next_before.
+    before: wire.Field(u64) = .absent,
+    case_sensitive: ?bool = null,
+    /// The previous page's epoch; a different one restarts at the bottom.
+    epoch: wire.Field(u64) = .absent,
+    max_matches: wire.Field(u64) = .absent,
+    page_rows: wire.Field(u64) = .absent,
+    /// Empty matches nothing.
+    query: []const u8,
+    /// query is a Rust regex pattern, not a literal.
+    regex: ?bool = null,
+    surface: Id,
+    whole_word: ?bool = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "case_sensitive",
+        "regex",
+        "whole_word",
+    };
+};
+
+pub const TerminalFindResult = JsonValue;
+
+pub fn terminalFind(client: anytype, request: TerminalFindRequest) !wire.Decoded(TerminalFindResult) {
+    return client.callTyped(
+        TerminalFindResult,
+        .{
+            .name = "terminal-find",
+            .authority = "control",
+            .since = 7,
+            .capability = null,
+        },
+        request,
+    );
+}
+
 pub const TerminalHistoryRequest = struct {
     before: wire.Field(u64) = .absent,
     marker_epoch: u64,
@@ -12898,7 +12939,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 311;
+pub const command_count: usize = 312;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -13181,6 +13222,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "terminal-clipboard-subscribe", .authority = "frontend", .since = 12, .capability = "terminal-clipboard-read-v1", .stream = "subscribe" },
     .{ .name = "terminal-command-context", .authority = "control", .since = 12, .capability = "terminal-command-context-v1", .stream = null },
     .{ .name = "terminal-events", .authority = "control", .since = 9, .capability = null, .stream = null },
+    .{ .name = "terminal-find", .authority = "control", .since = 7, .capability = null, .stream = null },
     .{ .name = "terminal-history", .authority = "control", .since = 12, .capability = "terminal-snapshot-v1", .stream = null },
     .{ .name = "terminal-last-command", .authority = "control", .since = 12, .capability = "terminal-last-command-v1", .stream = null },
     .{ .name = "terminal-ports", .authority = "control", .since = 12, .capability = "terminal-ports-v1", .stream = null },

@@ -285,6 +285,7 @@
         "CmuxNextAgentUpdates",
         "CmuxNextAppCore",
         "CmuxNextAppHealth",
+        "CmuxNextAppInstallLink",
         "CmuxNextAppTry",
         "CmuxNextApps",
         "CmuxNextBookmarks",
@@ -428,6 +429,16 @@
         "CmuxNextServer",
         "CmuxNextSettings",
         "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
+    "CmuxNextAppInstallLink": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAppInstallLink",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextDaemon",
+        "CmuxNextDesign"
       ],
       "packages": []
     },
@@ -583,6 +594,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApps",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextActions",
         "CmuxNextBrowserCore",
         "CmuxNextCompat",
@@ -591,6 +603,7 @@
         "CmuxNextIcons",
         "CmuxNextPages",
         "CmuxNextSettings",
+        "CmuxNextSidebar",
         "CmuxNextWakeups"
       ],
       "packages": [
@@ -610,6 +623,7 @@
         "CmuxNextPages",
         "CmuxNextPagesTestSupport",
         "CmuxNextSettings",
+        "CmuxNextSidebar",
         "CmuxNextWakeups"
       ],
       "packages": [
@@ -939,7 +953,9 @@
         "CMUXAuthCore"
       ],
       "reads": [
-        "cmux-tui/spec/"
+        "cmux-tui/crates/cmux-cloud-machine/src/power.rs",
+        "cmux-tui/spec/",
+        "schemas/cloud-machine-power/table.json"
       ]
     },
     "CmuxNextCloudUI": {
@@ -2174,7 +2190,6 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings",
       "targets": [
-        "CCmuxAppFFI",
         "CmuxNextActions",
         "CmuxNextCompat",
         "CmuxNextDesign",

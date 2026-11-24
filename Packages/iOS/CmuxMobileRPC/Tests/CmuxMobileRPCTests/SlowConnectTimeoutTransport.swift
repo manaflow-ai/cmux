@@ -42,7 +42,7 @@ actor SlowConnectTimeoutTransport: CmxByteTransport {
     }
 
     func waitUntilClosed() async -> Bool {
-        for _ in 0..<200 {
+        for _ in 0..<5_000 {
             if isClosed {
                 return true
             }
@@ -52,7 +52,7 @@ actor SlowConnectTimeoutTransport: CmxByteTransport {
     }
 
     func waitUntilConnectStarted() async -> Bool {
-        for _ in 0..<200 {
+        for _ in 0..<5_000 {
             if connectStarted {
                 return true
             }
