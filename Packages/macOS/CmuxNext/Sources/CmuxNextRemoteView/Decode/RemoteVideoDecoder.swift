@@ -14,12 +14,20 @@ public nonisolated struct RemoteDecodedFrame: @unchecked Sendable {
     public let tCaptureMicros: UInt64
     /// `DispatchTime.now().uptimeNanoseconds` when decode finished.
     public let decodedAtNanos: UInt64
+    /// When the transport released the access unit (`RemoteAccessUnit.releasedAtNanos`), 0 when unknown.
+    public let releasedAtNanos: UInt64
+    /// Told the picture's on-glass time (`DispatchTime` uptime, µs) by a presenter that
+    /// knows it (Metal: the drawable's presented time): the viewer's Present stage.
+    public let onPresented: (@Sendable (UInt64) -> Void)?
 
-    public init(pixelBuffer: CVPixelBuffer, frame: UInt32, tCaptureMicros: UInt64, decodedAtNanos: UInt64) {
+    public init(pixelBuffer: CVPixelBuffer, frame: UInt32, tCaptureMicros: UInt64, decodedAtNanos: UInt64,
+                releasedAtNanos: UInt64 = 0, onPresented: (@Sendable (UInt64) -> Void)? = nil) {
         self.pixelBuffer = pixelBuffer
         self.frame = frame
         self.tCaptureMicros = tCaptureMicros
         self.decodedAtNanos = decodedAtNanos
+        self.releasedAtNanos = releasedAtNanos
+        self.onPresented = onPresented
     }
 
     public var pixelSize: CGSize {
@@ -73,7 +81,24 @@ nonisolated final class RemoteVideoDecoder {
         let result = output.take()
         guard result.status == noErr else { throw .decode(result.status) }
         guard let image = result.image else { throw .noImage }
+        Self.tagColor(image, from: format)
         return image
+    }
+
+    /// Gives `image` the stream's colour (YCbCr matrix, primaries, transfer from the SPS, as the
+    /// format description reads them) where the decoder left an attachment out, so the renderer
+    /// draws it in the stream's own colour. An untagged stream stays untagged.
+    static func tagColor(_ image: CVPixelBuffer, from format: CMVideoFormatDescription) {
+        let keys: [(CFString, CFString)] = [
+            (kCMFormatDescriptionExtension_YCbCrMatrix, kCVImageBufferYCbCrMatrixKey),
+            (kCMFormatDescriptionExtension_ColorPrimaries, kCVImageBufferColorPrimariesKey),
+            (kCMFormatDescriptionExtension_TransferFunction, kCVImageBufferTransferFunctionKey),
+        ]
+        for (formatKey, bufferKey) in keys where CVBufferCopyAttachment(image, bufferKey, nil) == nil {
+            if let value = CMFormatDescriptionGetExtension(format, extensionKey: formatKey) {
+                CVBufferSetAttachment(image, bufferKey, value, .shouldPropagate)
+            }
+        }
     }
 
     /// Keeps the session when it accepts the new format, else rebuilds it.

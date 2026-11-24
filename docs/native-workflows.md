@@ -49,12 +49,16 @@ discoverable through `cmux.docs('cmux_workflow')` and callable through `cmux.cal
 - `machine(command, options)` runs a daemon-owned background command and returns its
   recorded output and exit status. A nonzero exit rejects the call. An interrupted launch
   whose outcome cannot be proved fails as uncertain instead of executing twice.
-  Commands run locally by default. `on: "ci"` requires the installed authenticated
-  `cmux-ci` placement adapter. It pins the repository, full source commit and relative
-  working directory before submission, accepts an optional `targetWorker`, and reuses
-  one keyed receipt when reconciling retries. Without that adapter, CI placement fails;
-  it never falls back to running the command locally. See
-  [#33778](https://github.com/manaflow-ai/cmux/issues/33778).
+  Commands run locally by default. `on: "ci"` places the command on the fleet's Linux pool
+  through the installed authenticated `cmux-ci` client, the same route `cmux-ci test`
+  takes. It pins the repository, full source commit and relative working directory before
+  submission, accepts an optional `targetWorker` and `timeoutMs` (default one hour, at most
+  three), and reuses one keyed receipt when reconciling retries. The daemon makes one wait
+  per job, bounded by that deadline counted from the job's creation; a resume reattaches
+  to the same job and keeps its deadline. A failure carries `data.reason`:
+  `ci.unavailable` (no client; nothing ran), `ci.refused`, `ci.unacknowledged`,
+  `ci.unreachable`, `ci.deadline` (the job is cancelled), `ci.binding`, `ci.incomplete`
+  or `ci.failed`. CI placement never falls back to running the command locally.
 - `phase(title, fn)` runs a named phase. `parallel(tasks)` starts its callbacks together;
   each ready branch can continue independently. `pipeline(items, fn)` maps sequentially.
 - `cmux.call`, `cmux.docs` and `console` retain the code-mode contract. Scripts have no

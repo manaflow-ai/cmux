@@ -10,6 +10,9 @@ import Observation
 /// the daemon owns the column. While the list shows avatars only, its compose
 /// button shows at the chat's top-left instead (`HomeChatColumnView`). An avatar-only list that
 /// holds one conversation takes no column at all (`foldsLoneConversation`).
+///
+/// The list is folded until the person shows it with the chat's Chats button (``showsList``): the Chief replaces
+/// Home (the person, 2026-11-20), so the Chief's chat fills the page and the other chats are one click away.
 @MainActor
 public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
     /// The window's key for its saved width (resolved on use: the window's
@@ -32,12 +35,6 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
         didSet { if composing != oldValue { updateChatCompose() } }
     }
     private let list: HomeSidebarView
-    /// The accent band on the divider while it is dragged (`DividerGlowBand`).
-    let glow = DividerGlowBand()
-    /// The divider's grab area for hover (NSSplitView keeps no hover of its own); moved with it.
-    private var hoverArea: NSTrackingArea?
-    private var isDividerHovered = false
-    private var isDividerDragging = false
     /// Debug Settings (`HomeTunables.loneConversationRail`); tests give their own store.
     var tunables = TunableStore.shared {
         didSet { followLoneConversationTunable() }
@@ -48,8 +45,11 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
         list = sidebar
         minimum = sidebar.minimumWidth
         standard = sidebar.preferredWidth
-        chatColumn = HomeChatColumnView(content: content, compose: sidebar.chatCompose)
+        chatColumn = HomeChatColumnView(content: content, compose: sidebar.chatCompose, chats: HomeChatListButton())
         super.init(frame: .zero)
+        chatColumn.chats.target = self
+        chatColumn.chats.action = #selector(toggleList)
+        chatColumn.chats.isOn = widths.listShown
         isVertical = true
         dividerStyle = .thin
         addArrangedSubview(sidebar)
@@ -57,9 +57,6 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
         setHoldingPriority(.defaultHigh, forSubviewAt: 0)
         delegate = self
         wantsLayer = true
-        // Above both columns' layers, so the band shows over the list's and the chat's edges.
-        glow.layer.zPosition = 1
-        layer?.addSublayer(glow.layer)
         setAccessibilityIdentifier("cmux.home.split")
         sidebar.onContentChange = { [weak self] in self?.needsLayout = true }
         followLoneConversationTunable()
@@ -67,6 +64,22 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
 
     @available(*, unavailable)
     public required init?(coder: NSCoder) { nil }
+
+    /// Whether the conversation list shows beside the chat (the Chats button): kept on this Mac
+    /// (``HomeSidebarWidth/listShown``); off by default, so the Chief's chat fills the page.
+    public var showsList: Bool {
+        get { widths.listShown }
+        set {
+            guard newValue != widths.listShown else { return }
+            widths.listShown = newValue
+            chatColumn.chats.isOn = newValue
+            needsLayout = true
+            layoutSubtreeIfNeeded()
+        }
+    }
+
+    /// The Chats button: shows or folds the conversation list.
+    @objc private func toggleList() { showsList.toggle() }
 
     /// Zero while the list is folded (a hidden subview keeps its last frame).
     public var sidebarWidth: CGFloat { list.isHidden ? 0 : list.frame.width }
@@ -96,6 +109,11 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
     /// The transcript's width now (tests and `debug.home page`).
     public var transcriptWidth: CGFloat { arrangedSubviews.last?.frame.width ?? 0 }
 
+    /// No divider line and no hover or drag band (the user, 2026-11-23: a straight band crossed the
+    /// panel's rounded corners; "maybe we just don't show the hovered line"): the list's panel rim
+    /// is the edge, as in Messages (macOS 26). The grab area and the resize cursor stay.
+    override public var dividerColor: NSColor { .clear }
+
     override public func layout() {
         super.layout()
         guard bounds.width > 0 else { return }
@@ -115,66 +133,6 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
             // see-through chat (live-qa 2026-10-21: at 320 pt after a clamp to 164).
             super.layout()
         }
-        placeGlow()
-    }
-
-    private func placeGlow() {
-        glow.place(along: dividerRect, vertical: true)
-        updateHoverArea()
-    }
-
-    private var grabRect: NSRect { dividerRect.insetBy(dx: -Self.grab, dy: 0) }
-
-    private func updateHoverArea() {
-        let rect = list.isHidden ? .zero : grabRect
-        if let hoverArea {
-            if hoverArea.rect == rect { return }
-            removeTrackingArea(hoverArea)
-        }
-        let area = NSTrackingArea(rect: rect, options: [.mouseEnteredAndExited, .activeInKeyWindow], owner: self)
-        addTrackingArea(area)
-        hoverArea = area
-        // A replaced area sends no exit: the divider moved (a double-click reset, a clamp) or the list
-        // folded under a still pointer, so the hover is read again from where the pointer is now.
-        reconcileHover()
-    }
-
-    private func reconcileHover() {
-        guard !isDividerDragging else { return }
-        let hovered = !list.isHidden && window.map { grabRect.contains(convert($0.mouseLocationOutsideOfEventStream, from: nil)) } == true
-        guard hovered != isDividerHovered else { return }
-        isDividerHovered = hovered
-        updateGlow()
-    }
-
-    override public func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        // AppKit rebuilds areas here; ours is re-added at the divider's current place.
-        if let hoverArea { removeTrackingArea(hoverArea) }
-        hoverArea = nil
-        updateHoverArea()
-    }
-
-    override public func mouseEntered(with event: NSEvent) {
-        guard event.trackingArea === hoverArea else { return super.mouseEntered(with: event) }
-        isDividerHovered = true
-        updateGlow()
-    }
-
-    override public func mouseExited(with event: NSEvent) {
-        guard event.trackingArea === hoverArea else { return super.mouseExited(with: event) }
-        isDividerHovered = false
-        updateGlow()
-    }
-
-    private func updateGlow() {
-        glow.applyTheme(self)
-        glow.set(isDividerDragging ? .dragging : isDividerHovered && !list.isHidden ? .hovered : .rest)
-    }
-
-    override public func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        glow.applyTheme(self)
     }
 
     override public func mouseDown(with event: NSEvent) {
@@ -182,21 +140,6 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
         if event.clickCount == 2, !list.isHidden, dividerRect.insetBy(dx: -Self.grab, dy: 0).contains(point) {
             resetWidth()
             return
-        }
-        // NSSplitView tracks the drag inside `mouseDown` and returns on the release: the band is
-        // lit for exactly that span, so nothing is left to turn it off.
-        let onDivider = !list.isHidden && grabRect.contains(point)
-        if onDivider {
-            isDividerDragging = true
-            updateGlow()
-        }
-        defer {
-            if onDivider {
-                isDividerDragging = false
-                // Where the release left the pointer: still over the divider keeps the hover band.
-                isDividerHovered = !list.isHidden && window.map { grabRect.contains(convert($0.mouseLocationOutsideOfEventStream, from: nil)) } == true
-                updateGlow()
-            }
         }
         super.mouseDown(with: event)
     }
@@ -228,13 +171,17 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
     /// list back at their width. Debug Settings can keep the column.
     private var foldsLoneConversation: Bool {
         let own = widths.width(window: windowKey()) ?? standard
-        return list.holdsOneConversation && HomeSidebarHeaderLayout.isCompact(width: clamp(own))
-            && !HomeSidebarHeaderLayout.isCompact(width: own) && !HomeTunables.loneConversationRail.value(in: tunables)
+        // The list is the column less the panel's inset (`HomeSidebarView.panelInset`).
+        let inset = HomeSidebarView.panelInset
+        return list.holdsOneConversation && HomeSidebarHeaderLayout.isCompact(width: clamp(own) - inset)
+            && !HomeSidebarHeaderLayout.isCompact(width: own - inset) && !HomeTunables.loneConversationRail.value(in: tunables)
     }
 
-    /// Hides or shows the list for ``foldsLoneConversation``; true while it is folded.
+    /// Hides or shows the list for ``showsList`` and ``foldsLoneConversation``; true while it is folded.
     private func foldLoneConversation() -> Bool {
-        let fold = foldsLoneConversation
+        // Another window may have shown or folded the list (one choice on this Mac): the button follows.
+        if chatColumn.chats.isOn != widths.listShown { chatColumn.chats.isOn = widths.listShown }
+        let fold = !widths.listShown || foldsLoneConversation
         if list.isHidden != fold {
             list.isHidden = fold
             // Shown again, the list goes back to its width below.
@@ -245,8 +192,6 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
             // `layout()` calls this).
             super.layout()
             updateChatCompose()
-            // A folded list has no divider to hover; shown again, its area comes back.
-            updateHoverArea()
         }
         return fold
     }
@@ -301,7 +246,6 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
     public func splitViewDidResizeSubviews(_ notification: Notification) {
         // Every width change (a drag too, which runs no layout pass) moves compose to or from the chat.
         updateChatCompose()
-        placeGlow()
         // Only the user's drag is kept (AppKit names the divider it moved).
         guard placed, !placing, notification.userInfo?["NSSplitViewDividerIndex"] != nil else { return }
         widths.save(sidebarWidth, window: windowKey())
