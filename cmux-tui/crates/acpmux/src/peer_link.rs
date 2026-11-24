@@ -573,7 +573,12 @@ pub fn masked_text_frame(payload: &[u8]) -> Vec<u8> {
         }
     }
     frame.extend_from_slice(&mask);
-    frame.extend(payload.iter().enumerate().map(|(i, b)| b ^ mask[i % 4]));
+    frame.extend(
+        payload
+            .iter()
+            .enumerate()
+            .map(|(i, b)| b ^ mask.get(i % mask.len()).copied().unwrap_or_default()),
+    );
     frame
 }
 
