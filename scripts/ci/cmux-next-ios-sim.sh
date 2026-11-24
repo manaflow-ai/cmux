@@ -2051,6 +2051,9 @@ if [[ "$mode" == pair-e2e ]]; then
   mac_app="$mac_dd/Build/Products/Debug/cmux DEV $mac_tag.app"
   [[ $status -eq 0 && -d "$mac_app" ]] || { tail -60 "$work/mac-build.log"; echo "error: tagged cmux NEXT Mac app build failed" >&2; exit 1; }
   note "- Mac app: $((SECONDS - t0)) s (reload.sh --tag $mac_tag, Debug)"
+  # cmux#52200 offline walk-through (this lane's branch only): the Mac asleep, cmux quit, Retry, Dynamic Type.
+  export CMUX_PAIR_E2E_OFFLINE=1
+  PATH="$(scripts/install-axe-ci.sh 2>>"$work/axe-install.log"):$PATH"; export PATH
   set +e
   python3 -I scripts/ci/cmux_next_pair_e2e.py --mac-app "$mac_app" --ios-app "$app" --sims "$sims" \
     --udid "$udid" --bundle-id "$bundle_id" --work "$work" --out "$out" --summary "$summary"

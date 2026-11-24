@@ -427,7 +427,9 @@ def main():
     # The discovery leg: the phone's Allow request reaches the running Mac in seconds, and a Mac
     # restart with a second identity key beside its Keychain key heals with no action on the phone.
     # CMUX_PAIR_E2E_DISCOVERY=0 leaves it out (a ref before it).
-    discovery = os.environ.get("CMUX_PAIR_E2E_DISCOVERY") != "0"
+    offline = os.environ.get("CMUX_PAIR_E2E_OFFLINE") == "1"
+    offline_ok = True
+    discovery = os.environ.get("CMUX_PAIR_E2E_DISCOVERY") != "0" and not offline
     ask_ok = restart_ok = not discovery
     keychain = RigKeychain(a.mac_app)
     try:
@@ -578,19 +580,22 @@ def main():
             phone_log.wait(re.compile(r"live data on"), 60)
             phone_settled()  # the Devices list loads from the service after live data starts
             note(f"- phone Settings > Devices after pairing: {phone_shot('phone-devices-paired')}")
-            if paired:
+            if paired and offline:
+                app, offline_ok = offline_leg(app, exe, env, a, simctl, phone_env, phone_log, streams, status, rpc,
+                                              phone_shot, note)
+            if paired and not offline:
                 try:
                     theme_ok = theme_file_leg(simctl, a.udid, a.bundle_id, phone_env, phone_log, mac_log, phone_shot,
                                               rpc, screens, themes_dir, support, a.out, note)
                 except Exception as error:  # noqa: BLE001  the leg fails; the legs after it still run
                     theme_ok = False
                     note(f"- theme-file repaint: FAIL ({type(error).__name__}: {redact(str(error))[:300]})")
-            if paired and probe:
+            if paired and probe and not offline:
                 # The phone lists this Mac by the rig's device name (CMUX_NEXT_MOBILE_DEVICE_NAME), not the
                 # page's MacName: the probe waits for a link to that name (since 2026-10-29 it never matched).
                 uploaded, line = upload_leg(simctl, a.udid, a.bundle_id, phone_env, upload_root, RIG_MAC_NAME)
                 note(f"- upload: {line}")
-            if discovery and paired:  # last: it quits and restarts the Mac
+            if discovery and paired and not offline:  # last: it quits and restarts the Mac
                 app, restart_ok = discovery_restart(app, exe, env, a.out, support, status, phone_log, streams,
                                                     phone_shot, note)
         note(f"- scanner sheet: {scanner(a.udid, phone_shot)}")
@@ -633,7 +638,7 @@ def main():
     if discovery:
         note(f"- discovery: Allow request {'PASS' if ask_ok else 'FAIL'}, restart with a split identity "
              f"{'PASS' if restart_ok else 'FAIL'}")
-    return 0 if paired and uploaded and theme_ok and cloud_ok and ask_ok and restart_ok else 1
+    return 0 if paired and uploaded and theme_ok and cloud_ok and ask_ok and restart_ok and offline_ok else 1
 
 
 ASKS = re.compile(r"phone (\w+) asks to pair: (\w+)")
@@ -1266,6 +1271,202 @@ def no_answer_evidence(app, ls_env, tag, sock, out):
             tail = tail.partition("\n")[2]
         files.append(save("mac-debug-log-tail.txt", tail, 200))
     return f"{facts}; {', '.join(files)}"
+
+
+
+# ---- the offline walk-through (cmux#52200): one screen recording, five steps ----------------------
+def ax_nodes(udid):
+    """The phone's accessibility tree through AXe, flattened: (id, label, value, frame) per node."""
+    try:
+        tree = json.loads(subprocess.run(["axe", "describe-ui", "--udid", udid], capture_output=True, text=True,
+                                         timeout=60).stdout or "[]")
+    except (ValueError, subprocess.TimeoutExpired, OSError):
+        return []
+    found, nodes = [], tree if isinstance(tree, list) else [tree]
+    while nodes:
+        n = nodes.pop()
+        found.append((n.get("AXUniqueId") or "", n.get("AXLabel") or "", str(n.get("AXValue") or ""), n.get("frame") or {}))
+        nodes.extend(n.get("children") or [])
+    return found
+
+
+def ax_text(nodes):
+    return sorted({t for _, l, v, _ in nodes for t in (l, v) if t})
+
+
+def ax_tap(udid, ident):
+    for i, _, _, f in ax_nodes(udid):
+        if i == ident and f:
+            x, y = f.get("x", 0) + f.get("width", 0) / 2, f.get("y", 0) + f.get("height", 0) / 2
+            subprocess.run(["axe", "tap", "--udid", udid, "-x", f"{x:.1f}", "-y", f"{y:.1f}", "--tap-style", "simulator"],
+                           capture_output=True, timeout=25)
+            return True
+    return False
+
+
+def tree_pids(root_pid, mac_app):
+    """The Mac app's process tree plus any process running out of its bundle: what a sleeping Mac freezes."""
+    out = subprocess.run(["ps", "-axo", "pid=,ppid=,comm="], capture_output=True, text=True).stdout
+    rows = [(int(p), int(pp), c.strip()) for p, pp, c in (l.split(None, 2) for l in out.splitlines() if l.strip())]
+    pids, grew = {root_pid}, True
+    while grew:
+        grew = False
+        for p, pp, c in rows:
+            if (pp in pids or c.startswith(mac_app)) and p not in pids:
+                pids.add(p)
+                grew = True
+    pids.discard(os.getpid())
+    return sorted(pids)
+
+
+def offline_leg(app, exe, env, a, simctl, phone_env, phone_log, streams, status, rpc, phone_shot, note):
+    """cmux#52200, on one recording: (1) the Mac asleep (its whole process tree stopped: sockets stay open
+    until the service times them out) shows "<Mac> is offline" with a last-seen time; (2) cmux quit on it
+    shows "isn't responding" or "cmux on <Mac> isn't answering"; (3) Retry walks its steps in view;
+    (4) the Mac's rows are the same when it is back; (5) all of it again at the largest Dynamic Type."""
+    mac_name = RIG_MAC_NAME
+    results = {}
+    video = os.path.join(a.out, "offline-walkthrough.mp4")
+    rec = subprocess.Popen(simctl + ["io", a.udid, "recordVideo", "--codec", "h264", "--force", video],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+    ax_log = open(os.path.join(a.out, "offline-ax.jsonl"), "w")
+    t_start = time.monotonic()
+    sizes = [("default", "large"), ("max", "accessibility-extra-extra-extra-large")]
+
+    def log(event, **kw):
+        ax_log.write(json.dumps(dict(t=round(time.monotonic() - t_start, 1), event=event, **kw)) + "\n")
+        ax_log.flush()
+
+    def snap():
+        nodes = ax_nodes(a.udid)
+        return nodes, ax_text(nodes), {i for i, _, _, _ in nodes if i}
+
+    def show(label, pred, timeout, every=3.0, shot_name=None):
+        """Poll the phone until pred(texts, ids) holds; screenshot the first hit. (hit?, seconds, texts)"""
+        t0, last = time.monotonic(), []
+        while True:
+            _, texts, ids = snap()
+            last = texts
+            log("poll", label=label, texts=texts[:60], ids=sorted(ids)[:60])
+            if pred(texts, ids):
+                if shot_name:
+                    phone_shot(shot_name)
+                return True, time.monotonic() - t0, texts
+            if time.monotonic() - t0 > timeout:
+                if shot_name:
+                    phone_shot(shot_name + "-timeout")
+                return False, time.monotonic() - t0, last
+            time.sleep(every)
+
+    def has(texts, *needles):
+        return any(all(n in t for n in needles) for t in texts)
+
+    def rowids(ids):
+        return {i for i in ids if i.startswith("workspaces.row") or i.startswith("workspace.row")}
+
+    def launch_workspaces():
+        subprocess.run(simctl + ["terminate", a.udid, a.bundle_id], capture_output=True)
+        subprocess.run(simctl + ["launch", a.udid, a.bundle_id, "-cmux-mobile-tab", "workspaces"],
+                       env=phone_env, check=True, capture_output=True)
+        phone_log.wait(re.compile(r"live data on"), 60)
+        time.sleep(8)
+
+    def signal_all(pids, sig):
+        for p in pids:
+            try:
+                os.kill(p, sig)
+            except OSError:
+                pass
+
+    sizes_done = []
+    try:
+        for size_name, size in sizes:
+            subprocess.run(simctl + ["ui", a.udid, "content_size", size], capture_output=True)
+            tag = f"{size_name}-"
+            log("size", size=size)
+            launch_workspaces()
+            _, base_texts, base_ids = snap()
+            phone_shot(tag + "0-connected")
+            log("baseline", texts=base_texts, ids=sorted(base_ids))
+            base_rows = rowids(base_ids)
+            # 1. the Mac asleep: its tree frozen; the service keeps the socket until its own timeout.
+            frozen = tree_pids(app.pid, a.mac_app)
+            log("sleep", pids=len(frozen))
+            signal_all(frozen, 19)  # SIGSTOP
+            slow, t_slow, tx_slow = show(tag + "slow", lambda t, i: has(t, "isn't responding") or has(t, "is offline"), 120,
+                                         shot_name=tag + "1a-asleep-first-state")
+            ok1, t_off, tx_off = show(tag + "offline", lambda t, i: has(t, "is offline"), 300, shot_name=tag + "1b-asleep-offline")
+            seen = has(tx_off, "ago") or has(tx_off, "ast seen")
+            results[(size_name, "1")] = (ok1 and seen, f"first state after {t_slow:.0f} s; offline after {t_off:.0f} s; last-seen {'shown' if seen else 'NOT shown'}; texts {[t for t in tx_off if 'offline' in t or 'ago' in t or 'seen' in t][:4]}")
+            note(f"- offline[{size_name}] step 1: {'PASS' if results[(size_name, '1')][0] else 'FAIL'} {results[(size_name, '1')][1]}")
+            # 4a. the Mac wakes: its rows come back as they were.
+            signal_all(frozen, 18)  # SIGCONT
+            back, t_back, _ = show(tag + "woke", lambda t, i: "mac.recovery" not in i and not has(t, "is offline")
+                                   and not has(t, "isn't responding") and not has(t, "isn't answering") and not has(t, "didn't answer"),
+                                   180, shot_name=tag + "4a-woke")
+            rows_back = rowids(snap()[2])
+            results[(size_name, "4a")] = (back and base_rows <= rows_back, f"back after {t_back:.0f} s; rows before {len(base_rows)}, after {len(rows_back)}")
+            # 2. cmux quit on the Mac.
+            rpc("action.run", {"action": "quitEndSessions"})
+            try:
+                app.wait(40)
+            except subprocess.TimeoutExpired:
+                app.terminate()
+                try:
+                    app.wait(20)
+                except subprocess.TimeoutExpired:
+                    app.kill()
+            log("quit", exit=app.poll())
+            ok2, t2, tx2 = show(tag + "quit", lambda t, i: has(t, "isn't responding") or has(t, "isn't answering") or has(t, "is offline")
+                                or has(t, "didn't answer"), 300, shot_name=tag + "2-quit")
+            exact = has(tx2, "isn't responding") or has(tx2, "isn't answering")
+            seen2 = has(tx2, "ago") or has(tx2, "ast seen") or has(tx2, "heard")
+            results[(size_name, "2")] = (ok2 and exact and seen2, f"first named state after {t2:.0f} s; wording {[t for t in tx2 if 'respond' in t or 'answer' in t or 'offline' in t][:3]}; last-seen {'shown' if seen2 else 'NOT shown'}")
+            # 3. Retry, with its steps in view.
+            seen_states, tapped = [], False
+            t3 = time.monotonic()
+            while time.monotonic() - t3 < 60:
+                nodes, texts, ids = snap()
+                if not tapped and "mac.recovery.retry" in ids:
+                    tapped = ax_tap(a.udid, "mac.recovery.retry")
+                    log("retry-tap", tapped=tapped)
+                    phone_shot(tag + "3a-retry-tapped")
+                step_texts = tuple(sorted(l for _, l, _, _ in nodes if l and ("in progress" in l or l.endswith(", done") or l.endswith(", failed") or "not started" in l)))
+                outcome = tuple(sorted(v or l for i, l, v, _ in nodes if i == "mac.recovery.outcome"))
+                state = (step_texts, outcome)
+                if tapped and (not seen_states or seen_states[-1] != state):
+                    seen_states.append(state)
+                    phone_shot(f"{tag}3b-retry-{len(seen_states)}")
+                    log("retry-state", n=len(seen_states), steps=step_texts, outcome=outcome)
+                if tapped and outcome:
+                    break
+                time.sleep(0.6)
+            results[(size_name, "3")] = (tapped and len(seen_states) >= 2, f"Retry {'tapped' if tapped else 'NOT found'}; {len(seen_states)} distinct step states shown; last {seen_states[-1] if seen_states else None}")
+            # 4b. cmux starts again on the Mac.
+            restarted = Stream([exe], os.path.join(a.out, f"mac-app-{size_name}-restart.log"), env=env)
+            streams.append(restarted)
+            app = restarted.proc
+            wait_for(lambda: status().get("connectedPhones", 0) >= 1, 150, every=2)
+            if "mac.recovery.retry" in snap()[2]:
+                ax_tap(a.udid, "mac.recovery.retry")
+            back2, t_b2, _ = show(tag + "restart", lambda t, i: "mac.recovery" not in i and not has(t, "isn't answering")
+                                  and not has(t, "isn't responding") and not has(t, "is offline"), 180, shot_name=tag + "4b-restarted")
+            rows2 = rowids(snap()[2])
+            results[(size_name, "4b")] = (back2 and base_rows <= rows2, f"back after {t_b2:.0f} s; rows before {len(base_rows)}, after {len(rows2)}")
+            for k in ("4a", "2", "3", "4b"):
+                ok, why = results[(size_name, k)]
+                note(f"- offline[{size_name}] step {k}: {'PASS' if ok else 'FAIL'} {why}")
+            sizes_done.append(size_name)
+    finally:
+        subprocess.run(simctl + ["ui", a.udid, "content_size", "large"], capture_output=True)
+        rec.send_signal(2)
+        try:
+            rec.wait(30)
+        except subprocess.TimeoutExpired:
+            rec.kill()
+        ax_log.close()
+        note(f"- offline recording: offline-walkthrough.mp4 ({os.path.getsize(video) if os.path.exists(video) else 0} bytes)")
+    return app, len(sizes_done) == len(sizes) and all(ok for ok, _ in results.values())
 
 
 def scanner(udid, shot):
