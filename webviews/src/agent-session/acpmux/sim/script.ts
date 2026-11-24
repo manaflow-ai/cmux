@@ -7,7 +7,7 @@
 //
 // Leo, 2026-11-21: "we can do this without any real agent sessions, just simulated ones. ... we can
 // just have simulations of things that go monstrously long".
-import type { EventRecord } from "../direct";
+import type { EventRecord } from "../eventRecord";
 
 /** What the reader does between two records: the simulator's only steps that are not acpmux's. */
 export type ReaderAction = { scroll: "top" | "bottom" } | { scrollBy: number } | { open: string };
