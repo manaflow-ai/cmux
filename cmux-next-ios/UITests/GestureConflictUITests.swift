@@ -162,12 +162,14 @@ final class GestureConflictUITests: XCTestCase {
     @MainActor
     private func openChatComposer(_ app: XCUIApplication) -> XCUIElement {
         let field = app.textViews["chat.composer.field"]
-        if !field.waitForExistence(timeout: 15) {
-            // At rest the workspace tab's composer is its collapsed capsule; a tap opens the field.
-            let capsule = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Reply to'")).firstMatch
-            if capsule.waitForExistence(timeout: 30) { capsule.tap() }
+        // At rest the workspace tab's composer is its collapsed capsule; a tap opens the field. A tap
+        // while the tab is still settling can land before the capsule takes taps, so it is retried.
+        let capsule = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Reply to'")).firstMatch
+        for _ in 0..<3 where !field.waitForExistence(timeout: 10) {
+            if capsule.waitForExistence(timeout: 20), capsule.isHittable { capsule.tap() }
         }
-        XCTAssertTrue(field.waitForExistence(timeout: 30), "the composer field\n\(app.debugDescription)")
+        XCTAssertTrue(field.waitForExistence(timeout: 10),
+                      "the composer field; capsule exists=\(capsule.exists); \(state(app, field))")
         field.tap() // the field, not the terminal behind it, takes the keyboard: it is being edited
         expect(app.keyboards.firstMatch, "exists == true", "the keyboard comes up")
         return field
