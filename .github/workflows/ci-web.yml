@@ -590,7 +590,10 @@ jobs:
   # CMUX_REAL_ACPMUX=1, which fails a file that cannot run instead of skipping it.
   agent-pane-real-acpmux:
     needs: web-subarea-scope
-    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.agent_pane == 'true' && (inputs.only == '' || inputs.only == 'agent-pane-real-acpmux') }}
+    # A feat-cmux-next pull request runs this job's commands as the ci/steps.toml step `agent-pane-real-acpmux` (pr-pipeline.yml's
+    # web-browser job); a push, dispatch, the post-merge batch and a pull request into any other base still run them
+    # here. Web status counts the skip as fine only on such a pull request.
+    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.agent_pane == 'true' && (inputs.only == '' || inputs.only == 'agent-pane-real-acpmux') && (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') }}
     name: Agent pane on real acpmux
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 30
@@ -687,7 +690,10 @@ jobs:
 
   web-instant-navigation:
     needs: web-subarea-scope
-    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.instant == 'true' && (inputs.only == '' || inputs.only == 'web-instant-navigation') }}
+    # A feat-cmux-next pull request runs this job's commands as the ci/steps.toml step `web-instant-navigation` (pr-pipeline.yml's
+    # web-browser job); a push, dispatch, the post-merge batch and a pull request into any other base still run them
+    # here. Web status counts the skip as fine only on such a pull request.
+    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.instant == 'true' && (inputs.only == '' || inputs.only == 'web-instant-navigation') && (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
     defaults:
@@ -2617,9 +2623,9 @@ jobs:
           }
           results.update({job: needs[job]["result"] for job in sorted(required)})
           may_skip = {job for job, is_required in required.items() if not is_required}
-          # A feat-cmux-next pull request runs it as the ci/steps.toml step (pr-pipeline.yml): the job skips.
+          # A feat-cmux-next pull request runs these as ci/steps.toml steps (pr-pipeline.yml): the jobs skip.
           if os.environ.get("WEB_EVENT") == "pull_request" and os.environ.get("WEB_BASE_REF") == "feat-cmux-next":
-              may_skip.add("web-typecheck")
+              may_skip.update({"web-typecheck", "web-instant-navigation", "agent-pane-real-acpmux"})
           exit_with_verdict(results, "Web status", may_skip)
           for job, is_required in sorted(required.items()):
               print(f"{job}: required={str(is_required).lower()} result={needs[job]['result']}")
