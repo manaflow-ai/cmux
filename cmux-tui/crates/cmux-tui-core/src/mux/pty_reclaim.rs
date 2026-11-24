@@ -216,6 +216,7 @@ impl Mux {
     }
 
     /// One reclaim pass (module docs). Returns the tab surfaces parked.
+    #[cfg(test)]
     pub(crate) fn reclaim_ptys_if_low(&self, clock: &mut ReclaimClock) -> Vec<SurfaceId> {
         self.reclaim_ptys_if_low_leaving(clock, &HashSet::new())
     }
