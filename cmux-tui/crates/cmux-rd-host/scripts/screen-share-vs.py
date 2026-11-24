@@ -2071,7 +2071,12 @@ class Orchestrator:
         self.a = args
         self.ff_rows = []
         self.motion_rows = []  # cmux fps trials: received Mbps and loss under motion
-        make = (lambda name: SpoolRemote(name)) if args.via == "spool" else (lambda name: Remote(name, args.via))
+        def make(name):
+            # --local-mac: the orchestrator runs on that Mac (a fleet job, scripts/measure/screen-share-vs-pair.sh),
+            # and only the other one is reached over --via.
+            if name == getattr(args, "local_mac", None):
+                return Remote(name, "local")
+            return SpoolRemote(name) if args.via == "spool" else Remote(name, args.via)
         self.host = make(args.host)
         self.viewer = make(args.viewer)
         self.root = args.root
@@ -3208,6 +3213,8 @@ def build_parser():
     r.add_argument("--via", choices=["reach", "ssh", "spool", "local"], default="reach",
                    help="spool: reach with no stdin (a lane VM's broker relay; SpoolRemote); "
                    "local: both Macs are this one (run the orchestrator on the shared Mac)")
+    r.add_argument("--local-mac", help="the --host or --viewer name that is this Mac: it runs its commands here and "
+                   "reaches only the other Mac over --via (a job on one Mac of the pair)")
     r.add_argument("--root", default="cmux-rd-test", help="relative to the remote home")
     r.add_argument("--python", default="/usr/bin/python3")
     r.add_argument("--bin", help="local cmux-rd (macOS arm64, features bench,link) to install")
