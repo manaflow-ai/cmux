@@ -21,7 +21,7 @@ async fn capacity_retries_separated_by_model_progress_do_not_end_a_healthy_turn(
 }
 
 #[tokio::test]
-async fn capacity_retries_inside_codex_end_and_use_the_backed_off_budget() {
+async fn capacity_retries_inside_codex_end_and_keep_backing_off_past_the_budget() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
     hub.config.write().await.auto_resume_delays_ms = Some(vec![50, 100]);
     let id = new_session(&mut c, "capacity-inner-loop").await;
@@ -30,18 +30,18 @@ async fn capacity_retries_inside_codex_end_and_use_the_backed_off_budget() {
         json!({"sessionId": id, "prompt": [{"type": "text", "text": "capacity-inner-loop"}], "_meta": {"acpmux": {"promptId": "p-cap-inner"}}}),
     )).await.expect("capacity retries must end without waiting for the harness to give up");
     assert!(result.unwrap_err().contains("Selected model is at capacity"));
-    until(&hub, &id, |k| k.iter().any(|k| k == "auto_resume_exhausted")).await;
+    // A capacity outage never uses its attempts up (`auto_resume::capacity_wait`): past the two
+    // configured waits it keeps retrying, and the row keeps showing the retry.
+    until(&hub, &id, |k| k.iter().filter(|k| *k == "auto_resume_scheduled").count() >= 3).await;
     let scheduled = records(&hub, &id, "auto_resume_scheduled");
-    assert_eq!(scheduled.len(), 2);
+    assert!(scheduled.len() >= 3, "{scheduled:?}");
     assert!(scheduled[1]["delayMs"].as_u64().unwrap() > scheduled[0]["delayMs"].as_u64().unwrap());
-    assert_eq!(records(&hub, &id, "auto_resume_exhausted").len(), 1);
-    assert_eq!(records(&hub, &id, "user_message").len(), 3);
-    assert_eq!(row(&hub, &id)["lastTurn"]["status"], "failed");
-    assert_eq!(row(&hub, &id)["retry"], Value::Null);
+    assert!(records(&hub, &id, "auto_resume_exhausted").is_empty());
+    assert_eq!(row(&hub, &id)["retry"]["reason"], "capacity");
 }
 
 #[tokio::test]
-async fn repeated_capacity_errors_exhaust_one_backed_off_retry_chain() {
+async fn repeated_capacity_errors_outlast_the_configured_waits_and_complete() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
     hub.config.write().await.auto_resume_delays_ms = Some(vec![50, 100]);
     let id = new_session(&mut c, "capacity-bounded").await;
@@ -51,17 +51,16 @@ async fn repeated_capacity_errors_exhaust_one_backed_off_retry_chain() {
     )
     .await
     .unwrap_err();
-    until(&hub, &id, |k| k.iter().any(|k| k == "auto_resume_exhausted")).await;
+    // Three capacity failures outlast the two configured waits; the chain does not run out, and
+    // the fourth prompt, once capacity is back, completes the turn.
+    until(&hub, &id, |_| row(&hub, &id)["lastTurn"]["status"] == "completed").await;
     let scheduled = records(&hub, &id, "auto_resume_scheduled");
-    assert_eq!(scheduled.len(), 2);
+    assert_eq!(scheduled.len(), 3);
     assert!(scheduled[1]["delayMs"].as_u64().unwrap() > scheduled[0]["delayMs"].as_u64().unwrap());
-    let exhausted = records(&hub, &id, "auto_resume_exhausted");
-    assert_eq!(exhausted.len(), 1);
-    assert_eq!(exhausted[0]["reason"], "capacity");
-    assert_eq!(exhausted[0]["attempts"], 2);
-    assert_eq!(records(&hub, &id, "user_message").len(), 3);
+    assert!(records(&hub, &id, "auto_resume_exhausted").is_empty());
+    assert_eq!(records(&hub, &id, "user_message").len(), 4);
     assert_eq!(row(&hub, &id)["retry"], Value::Null);
-    assert_eq!(row(&hub, &id)["lastTurn"]["status"], "failed");
+    assert_eq!(row(&hub, &id)["lastTurn"]["status"], "completed");
 }
 
 /// The records of one kind in a session, oldest first.
