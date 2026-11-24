@@ -21,6 +21,7 @@ presented_observer=0 presented_pid="" presented_window="" presented_marker_origi
 ocr_host_crop="" ocr_viewer_crop="" ocr_calibration=""
 video_path="" video_sha=""
 netem_rtt_ms="" netem_loss_pct=0 netem_seed=1
+stage_table=""
 for arg in "$@"; do
   case "$arg" in
     targets=*) targets="${arg#targets=}" ;;
@@ -31,6 +32,9 @@ for arg in "$@"; do
     lan=*) lan="${arg#lan=}" ;;
     viewer-of=*) viewer_of="${arg#viewer-of=}" ;;
     peer-token=*) peer_token="${arg#peer-token=}" ;;
+    # stage-table=LEGS (two Macs): the stage ledger, screen-share-vs.py run --legs LEGS, in place of the targets
+    # (README.md, "Stage table on two Macs"): lan= on the shared Mac, viewer-of= on the viewing Mac.
+    stage-table=*) stage_table="${arg#stage-table=}" ;;
     # input-frame-now=1: the rd host lifts its frame-rate cap after each input (--input-frame-now 1),
     # for a before/after against the default.
     input-frame-now=*) input_frame_now="${arg#input-frame-now=}" ;;
@@ -142,6 +146,10 @@ done
 if [[ -n "$lan$viewer_of" ]]; then
   [[ "$peer_token" =~ ^[0-9a-f]{64}$ ]] || { echo "screen-stream-eval.sh: two Macs need peer-token= (64 hex)" >&2; exit 2; }
   [[ -z "$lan" || -z "$viewer_of" ]] || { echo "screen-stream-eval.sh: lan= (the host Mac) or viewer-of= (the viewer Mac), not both" >&2; exit 2; }
+fi
+if [[ -n "$stage_table" ]]; then
+  [[ -n "$lan$viewer_of" ]] || { echo "screen-stream-eval.sh: stage-table= runs on two Macs: lan= or viewer-of=, with peer-token=" >&2; exit 2; }
+  [[ "$stage_table" =~ ^[a-z0-9=-]+(,[a-z0-9=-]+)*$ ]] || { echo "screen-stream-eval.sh: stage-table= is LINK or LINK=PROFILE, comma-separated" >&2; exit 2; }
 fi
 peer_port=4180
 # From the script's place, not the cwd: inside the launcher app (below) the cwd is /.
@@ -304,7 +312,7 @@ IFS=',' read -r -a names <<<"$targets"
 for name in "${names[@]}"; do
   bash "$here/targets/$name.sh" caps 2>/dev/null | grep -qx viewer-grants && viewer_grants=1
 done
-[[ -n "$viewer_of" && "$viewer_grants" == 0 ]] && serve_viewer
+[[ -n "$viewer_of" && "$viewer_grants" == 0 && -z "$stage_table" ]] && serve_viewer
 
 echo "SCREEN-STREAM-EVAL-STAGE tools"
 if [[ -n "$prebuilt" ]]; then
@@ -403,6 +411,19 @@ fi
 if ! granted "$grants"; then
   finish "the step's processes lack Screen Recording or Accessibility on this worker ($grants)"
   exit 3
+fi
+# stage-table=: the stage ledger in place of the targets, both halves inside this process's grants.
+if [[ -n "$stage_table" ]]; then
+  printf '%s\n' "$peer_token" >"$work/peer-token"
+  chmod 600 "$work/peer-token"
+  status=0
+  if [[ -n "$lan" ]]; then
+    bash "$here/stage-table.sh" host "$lan" "$work/peer-token" "$out/stage-table" || status=$?
+  else
+    bash "$here/stage-table.sh" viewer "$viewer_of" "$work/peer-token" "$out/stage-table" "$stage_table" || status=$?
+  fi
+  finish "stage-table=$stage_table: the ledger is in stage-table/ (ledger.jsonl, table.txt)"
+  exit "$status"
 fi
 [[ -n "$viewer_of" ]] && serve_viewer
 

@@ -20,6 +20,7 @@ mod composer_outbox;
 mod follow_camera;
 mod link_side;
 mod mac_screen;
+mod pair_requests;
 mod share_approval;
 mod tabs;
 mod terminal_chat;
@@ -296,6 +297,8 @@ pub struct LinkHandle {
     watcher: Mutex<Option<tokio::task::JoinHandle<()>>>,
     timeline: Timeline,
     session_id: String,
+    /// The WireGuard keys this link's tunnel handshook with (`None` on WebRTC).
+    tunnel_keys: Option<cmux_mobile_link::dial::TunnelKeys>,
     /// The WebRTC media session beside a WireGuard link, when both sides
     /// support one (cmux_mobile_link::hybrid).
     media: Option<cmux_mobile_link::hybrid::MediaManager>,
@@ -553,6 +556,16 @@ impl LinkHandle {
         self.link.is_closed()
     }
 
+    /// The WireGuard static public keys this link's tunnel handshook with, as `[dialer,
+    /// answerer]` (base64), or empty on a link that is not a tunnel. The phone's `auth` signs
+    /// them and checks the Mac's identity proof over them (cmux-mobile-host `pairing.rs`, v2).
+    pub fn tunnel_keys(&self) -> Vec<String> {
+        self.tunnel_keys
+            .as_ref()
+            .map(|keys| vec![keys.dialer.clone(), keys.answerer.clone()])
+            .unwrap_or_default()
+    }
+
     /// Milliseconds since the link last received any frame from the Mac.
     /// Any frame proves the link alive as a probe's pong would, so the app's
     /// heartbeat probes only a link quiet for a whole beat.
@@ -795,6 +808,13 @@ pub fn cmux_mobile_version() -> String {
     env!("CARGO_PKG_VERSION").to_owned()
 }
 
+/// What the phone's terminal declares in `set-client-info` for the lean stream
+/// (`cmux_mobile_link::names::TERMINAL_LEAN_STREAM`).
+#[uniffi::export]
+pub fn terminal_lean_stream_capabilities() -> Vec<String> {
+    cmux_mobile_link::names::TERMINAL_LEAN_STREAM.iter().map(|name| (*name).to_owned()).collect()
+}
+
 #[doc(hidden)]
 pub struct ConnectRequest {
     pub base_url: String,
@@ -927,6 +947,7 @@ async fn connect_on(
         watcher: Mutex::new(Some(watcher)),
         timeline,
         session_id: connected.session_id,
+        tunnel_keys: connected.tunnel_keys,
         media,
     }))
 }
@@ -1424,6 +1445,20 @@ pub async fn prewarm(base_url: String, token: String, team_id: String, device_id
 #[uniffi::export]
 pub fn set_cellular_path(cellular: bool) {
     cmux_mobile_link::dial::wireguard::set_cellular_path(cellular);
+}
+
+/// The Mac answered a typed batch's `send` `ack_ms` after its first key's tap
+/// (`DaemonTerminalSession`). The next `link_stat` carries it (PROTOCOL.md "Link stats").
+#[uniffi::export]
+pub fn record_key_ack(ack_ms: u32) {
+    cmux_mobile_link::key_echo::record_ack(ack_ms);
+}
+
+/// The first terminal output after a typed batch came `echo_ms` after its first
+/// key's tap; `ack_ms` when the Mac's answer to that batch had already come.
+#[uniffi::export]
+pub fn record_key_echo(echo_ms: u32, ack_ms: Option<u32>) {
+    cmux_mobile_link::key_echo::record_echo(echo_ms, ack_ms);
 }
 
 /// This process's build space (`set_build_space`); nil: none (no header).
