@@ -51,8 +51,8 @@
       },
       "cmux-next-react-doctor.yml": {
         "workflow": "cmux-next React Doctor",
-        "after_merge": "push to feat-cmux-next",
-        "why": "runs again on the push to feat-cmux-next; done p90 52 min after the push for a one-minute job, over 30 min on 38 of 236 pull requests (cmuxterm-hq docs/rfd/0045-landing-tail.md)"
+        "after_merge": "the post-merge batch (.github/post-merge-batch.json suite react-doctor)",
+        "why": "a suite of .github/post-merge-batch.json, a full scan of the base once a batch; done p90 52 min after the push for a one-minute job, over 30 min on 38 of 236 pull requests (cmuxterm-hq docs/rfd/0045-landing-tail.md)"
       },
       "cmux-next-tab-switch.yml": {
         "workflow": "cmux-next tab switch (advisory)",

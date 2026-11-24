@@ -267,8 +267,21 @@ jobs:
     permissions:
       contents: read
 
+  # React Doctor's full scan of the base: once a batch, not once a push (it reports, exit 0 on findings).
+  # id-token: the callee asks the controller for a signed receipt by its OIDC token.
+  react-doctor:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' react-doctor ')
+    uses: ./.github/workflows/cmux-next-react-doctor.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+    permissions:
+      contents: read
+      id-token: write
+
   judge:
-    needs: [plan, drill, cmux-tui-windows-check, acpmux-sim-sweep, swift-acpmux-protocol, rust-workspaces, web, tip-test-compile, gallery-health, cmux-tui-sdks, cmux-tui-spec]
+    needs: [plan, drill, cmux-tui-windows-check, acpmux-sim-sweep, swift-acpmux-protocol, rust-workspaces, web, tip-test-compile, gallery-health, cmux-tui-sdks, cmux-tui-spec, react-doctor]
     # A probe's judge also runs when its plan job died (a lost runner: drill-8 probe run 44980687386): it then
     # sees no verdict and dispatches the same probe again, so the bisect goes on instead of stopping.
     if: ${{ !cancelled() && (needs.plan.result == 'success' || inputs.mode == 'probe') }}
