@@ -38,7 +38,11 @@ import Testing
     @Test(.enabled(if: Self.appleUserDefaults)) func launchArgumentSeedsSetupCompleteInsteadOfPinningIt() throws {
         let suite = "cmuxMobile.tests.developer-options.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
-        let key = "cmuxMobile.setupComplete"
+        // The argument domain is process-wide: seeding the real
+        // `cmuxMobile.setupComplete` here showed NO to AccountPreferencesTests
+        // running in parallel. A key of this test's own exercises the same path.
+        #expect(DeveloperOptions.launchSeededKeys.contains("cmuxMobile.setupComplete"))
+        let key = "cmuxMobile.tests.seeded.\(UUID().uuidString)"
         let original = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
         defer {
             defaults.setVolatileDomain(original, forName: UserDefaults.argumentDomain)
@@ -52,7 +56,7 @@ import Testing
         defaults.set(true, forKey: key)
         #expect(!defaults.bool(forKey: key))
 
-        DeveloperOptions.seedLaunchArguments(into: defaults)
+        DeveloperOptions.seedLaunchArguments(into: defaults, seededKeys: [key])
 
         #expect(!defaults.bool(forKey: key), "the launch value is the starting value")
         defaults.set(true, forKey: key)

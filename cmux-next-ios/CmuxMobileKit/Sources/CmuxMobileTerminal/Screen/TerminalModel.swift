@@ -68,9 +68,21 @@ public final class TerminalModel {
             guard composerText != oldValue else { return }
             let hasText = !composerText.isEmpty
             if composerHasText != hasText { composerHasText = hasText }
-            composerEdited()
+            // Only the person's edit retires a notice: the model's own write (a draft
+            // brought back with "not sent", the clear after a send) keeps it.
+            if !composerTextOwnWrite { composerEdited() }
             onDraftChange?()
         }
+    }
+    /// Set while the model itself writes `composerText` (``setComposerTextKeepingNotice(_:)``).
+    @ObservationIgnored private var composerTextOwnWrite = false
+
+    /// The model's own write to the draft: unlike the person's edit, it leaves
+    /// `composerNotice` as it is (the notice that brought the text back stays).
+    func setComposerTextKeepingNotice(_ text: String) {
+        composerTextOwnWrite = true
+        defer { composerTextOwnWrite = false }
+        composerText = text
     }
     /// Whether the draft has any text: changes on the first key and on clearing, not per key.
     public private(set) var composerHasText = false
@@ -349,7 +361,7 @@ public final class TerminalModel {
                 composerSendRefused = true
             } else if let held = heldComposerSend, composerText.isEmpty,
                ProcessInfo.processInfo.systemUptime - held.at <= Self.heldComposerSendWindow {
-                composerText = held.text
+                setComposerTextKeepingNotice(held.text)
             }
             heldComposerSend = nil
         case .hostGrid, .hostGridOwner, .paintMark:
@@ -652,7 +664,7 @@ public final class TerminalModel {
         if composerSending {
             composerSendRefused = true
         } else if composerText.isEmpty {
-            composerText = text
+            setComposerTextKeepingNotice(text)
         }
     }
 
@@ -666,7 +678,7 @@ public final class TerminalModel {
         if composerSending {
             composerSendRefused = false
         } else if composerText == text {
-            composerText = ""
+            setComposerTextKeepingNotice("")
         }
     }
 
@@ -688,7 +700,7 @@ public final class TerminalModel {
         if composerSendRefused {
             composerSendRefused = false
         } else {
-            composerText = ""
+            setComposerTextKeepingNotice("")
         }
     }
 
@@ -765,7 +777,7 @@ public final class TerminalModel {
             let submit = ComposerSubmit(attachmentPaths: paths, text: self.composerText, pressReturn: pressReturn)
             if pressReturn { self.controller?.noteSent(self.composerText) }
             self.controller?.surface.perform(submit)
-            self.composerText = ""
+            self.setComposerTextKeepingNotice("")
             self.attachments.removeAll { attachment in pending.contains { $0.id == attachment.id } }
         }
     }
