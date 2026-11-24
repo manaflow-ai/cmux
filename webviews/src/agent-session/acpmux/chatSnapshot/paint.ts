@@ -22,6 +22,9 @@ import {
   shadowSelector,
   type ChatSnapshot,
   type SnapshotAttributes,
+  CHROME_ONLY_RULE,
+  fitsChromeOnly,
+  SNAPSHOT_CHROME_ONLY_ATTRIBUTE,
 } from "./shared";
 import { agentThemeColors } from "../../shared/themeVariables";
 import type { AgentSessionTheme } from "../../shared/types";
@@ -174,7 +177,8 @@ export type PaintEvents = {
 };
 
 /// Draws `snapshot` over `doc`'s live root; true when it will. Nothing when there is none, when it was
-/// written for another viewport, look or theme, or when the engine lacks what the copy needs.
+/// written in another look or theme, or when the engine lacks what the copy needs; written for another
+/// viewport, its chrome only (shared.ts `fitsChromeOnly`).
 ///
 /// The copy links the page's own sheet in its shadow root, and beside it the page's root rules
 /// rewritten for the shadow tree (its link's `data-copy`): each chat page of the renderer used to parse
@@ -191,11 +195,15 @@ export function paintSnapshot(
   const view = doc.defaultView;
   const live = doc.getElementById("root");
   const pageSheet = doc.getElementById(PAGE_STYLE_ID);
-  if (!view || !live || !doc.body || !snapshot || !fitsDocument(snapshot, doc)) return false;
+  if (!view || !live || !doc.body || !snapshot) return false;
+  // Written at another size in the same theme: the pane's chrome draws (the composer with its hat and
+  // pills, the header), laid out at this size; the transcript's rows do not (shared.ts `fitsChromeOnly`).
+  const chromeOnly = !fitsDocument(snapshot, doc) && fitsChromeOnly(snapshot, doc);
+  if (!chromeOnly && !fitsDocument(snapshot, doc)) return false;
   const copySheet = pageSheet instanceof view.HTMLLinkElement && pageSheet.href ? pageSheet.dataset.copy : undefined;
   if (!copySheet) return false;
   const styles = snapshot.styles.map((text) => sheetOf(view, text));
-  const still = sheetOf(view, BASE + STILL);
+  const still = sheetOf(view, BASE + STILL + (chromeOnly ? CHROME_ONLY_RULE : ""));
   if (!still || styles.some((sheet) => !sheet)) return false;
   try {
     for (const sheet of styles) rewrite(sheet!.cssRules);
@@ -235,6 +243,7 @@ export function paintSnapshot(
   html.classList.add(SNAPSHOT_ROOT_CLASS);
   const body = doc.createElement(SNAPSHOT_BODY_TAG);
   setAttributes(body, snapshot.body);
+  if (chromeOnly) body.setAttribute(SNAPSHOT_CHROME_ONLY_ATTRIBUTE, "");
   // Declarative shadow roots in the markup become shadow roots (setHTMLUnsafe); without it, plain markup.
   const parse = (body as Element & { setHTMLUnsafe?: (html: string) => void }).setHTMLUnsafe;
   if (parse) parse.call(body, snapshot.html);
@@ -263,7 +272,7 @@ export function paintSnapshot(
     host.style.removeProperty("opacity");
     live.style.opacity = "0";
     restoreScroll(body);
-    globals[SNAPSHOT_SHOWN_GLOBAL] = { at: view.performance.now() };
+    globals[SNAPSHOT_SHOWN_GLOBAL] = { at: view.performance.now(), ...(chromeOnly ? { chromeOnly: true } : {}) };
     view.performance.mark?.("cmux-chat:snapshot-paint");
     events.shown?.();
   };

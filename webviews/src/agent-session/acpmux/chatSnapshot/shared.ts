@@ -145,6 +145,27 @@ export function sameAppearance(snapshot: ChatSnapshot, doc: Document): boolean {
   return now !== "" && now === schemeOf(doc, snapshot.root.style);
 }
 
+/// Whether `snapshot` was written in the theme the page gets now but at another size: the copy then
+/// draws the pane's chrome only (``SNAPSHOT_CHROME_ONLY_ATTRIBUTE``). The chrome is the page's own markup
+/// under its own rules, so it lays out at the new size as the live page will: the composer, its hat
+/// (the running tray, held messages, questions), its context ring and its mode, model and effort pills
+/// sit where the live composer will draw them. Only the transcript's rows, absolutely placed for the
+/// width they were written at, are left out. A restart that brought the window or the sidebar back a
+/// few points off drew no copy at all before, and the composer came up bare, then grew its chrome
+/// (Leo, 2026-11-22: "agent chat skeleton for composer area not good enough. doesnt include hat,
+/// context, permissions, etc still. nor cached view of those things").
+export function fitsChromeOnly(snapshot: ChatSnapshot, doc: Document): boolean {
+  const view = doc.defaultView;
+  if (!view || fitsDocument(snapshot, doc)) return false;
+  return (view as unknown as Record<string, unknown>)[SNAPSHOT_THEME_GLOBAL] === snapshot.theme;
+}
+
+/// Set on the copy's `<body>` stand-in when it draws the chrome only (``fitsChromeOnly``).
+export const SNAPSHOT_CHROME_ONLY_ATTRIBUTE = "data-cmux-snapshot-chrome-only";
+/// The rule a chrome-only copy adds: the transcript's rows, placed for another width, draw nothing; the
+/// transcript's own box, the header and the bottom stack draw as written.
+export const CHROME_ONLY_RULE = `[${SNAPSHOT_CHROME_ONLY_ATTRIBUTE}] .acpmux-row{visibility:hidden!important}`;
+
 /// Whether `snapshot` was drawn for the document as it is now: the same width and a height within
 /// ``SNAPSHOT_HEIGHT_SLACK``, and the theme the host gives the page now (its key, which the host's
 /// `__snapshot/chat.js` set) or another theme of the same appearance. The key digests every value of
