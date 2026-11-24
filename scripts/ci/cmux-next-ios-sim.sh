@@ -586,7 +586,7 @@ export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin:$HOME/.cargo/bin"
 # The host-side cargo builds (cmux-duress, coord-sim) run from the checkout's root
 # with --manifest-path, and rustup looks for rust-toolchain.toml from the working
 # directory, not the manifest's: the pin in cmux-tui/ was never read, so a worker
-# with no default toolchain failed them (cmux14, 2026-11-24: "rustup could not
+# with no default toolchain failed them (2026-11-24: "rustup could not
 # choose a version of cargo to run"). Name the pinned channel for every cargo here.
 if [[ -z "${RUSTUP_TOOLCHAIN:-}" && -f cmux-tui/rust-toolchain.toml ]]; then
   rust_pin=$(sed -n 's/^channel *= *"\(.*\)".*/\1/p' cmux-tui/rust-toolchain.toml | head -1)
