@@ -49,7 +49,10 @@ pub const BUILTIN: [(&str, &str); 12] = [
     ("cmux-views", include_str!("../skills/cmux-views/SKILL.md")),
     ("landing", include_str!("../skills/landing/SKILL.md")),
     ("paid-plans", include_str!("../skills/paid-plans/SKILL.md")),
-    ("send-agents", include_str!("../skills/send-agents/SKILL.md")),
+    (
+        "send-agents",
+        include_str!("../skills/send-agents/SKILL.md"),
+    ),
     ("whats-new", include_str!("../skills/whats-new/SKILL.md")),
 ];
 

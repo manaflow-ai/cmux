@@ -296,8 +296,18 @@ fn every_local_chief_knows_how_to_send_agents_and_drive_workspaces() {
             .nth(1)
             .and_then(|rest| rest.split("- Processes:").next())
             .expect("the agent chat rule");
-        for word in ["sr2", "claude-opus", "gpt-", "Opus 5", "--dangerously", "cmuxterm-hq"] {
-            assert!(!rule.contains(word), "{tools}: the agent chat rule names {word:?}");
+        for word in [
+            "sr2",
+            "claude-opus",
+            "gpt-",
+            "Opus 5",
+            "--dangerously",
+            "cmuxterm-hq",
+        ] {
+            assert!(
+                !rule.contains(word),
+                "{tools}: the agent chat rule names {word:?}"
+            );
         }
     }
 }

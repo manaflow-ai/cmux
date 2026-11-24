@@ -16,7 +16,11 @@ fn shipped() -> String {
         .iter()
         .find(|s| s.name == "send-agents")
         .expect("send-agents loads");
-    assert!(skill.description.contains("send Claude"), "{}", skill.description);
+    assert!(
+        skill.description.contains("send Claude"),
+        "{}",
+        skill.description
+    );
     // Words, not line breaks: rewrapping the skill keeps the tests green.
     let text = std::fs::read_to_string(&skill.path).unwrap();
     text.split_whitespace().collect::<Vec<_>>().join(" ")
