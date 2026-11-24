@@ -286,7 +286,7 @@ impl Client {
         let mut bell = self.bell.subscribe();
         let mut i = from;
         loop {
-            bell.borrow_and_update();
+            let _ = bell.borrow_and_update();
             {
                 let log = self.log.lock().unwrap();
                 while i < log.len() {
