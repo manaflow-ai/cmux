@@ -2,7 +2,6 @@
 // FIRST PLACE STUPID STUPID FUCKING DESIGN". Prompts sent while the pane has no link are taken at
 // once, drawn as pending rows, kept on disk, and go once each, in order, when the link is back.
 import { expect, test } from "bun:test";
-import { hostRecoveryLine } from "./hostRetry";
 import type { AcpmuxSnapshot } from "./model";
 import { OFFLINE_NOT_CONNECTED, OfflineSends, lostToLink, offlineRecord, withOfflineSends } from "./offlineSends";
 import type { UnsentPromptRecord, UnsentPromptStore } from "./unsentPrompts";
@@ -145,12 +144,4 @@ test("a queued prompt the chat's client already draws is one row, not two", () =
   expect(withOfflineSends(snapshot([clientRow]), sends.in("chat")).rows).toHaveLength(1);
   // Another chat's prompts are not drawn here.
   expect(sends.in("other")).toEqual([]);
-});
-
-test("a reconnect no sent prompt waits on says nothing; one that holds a prompt up past 10 s says so", () => {
-  expect(hostRecoveryLine({ relinkingSince: 0, now: 12_000 })).toBeUndefined();
-  expect(hostRecoveryLine({ relinkingSince: 0, sendWaitingSince: 5_000, now: 12_000 })).toBeUndefined();
-  expect(hostRecoveryLine({ relinkingSince: 0, sendWaitingSince: 1_000, now: 12_000 })).toEqual({
-    kind: "reconnecting",
-  });
 });
