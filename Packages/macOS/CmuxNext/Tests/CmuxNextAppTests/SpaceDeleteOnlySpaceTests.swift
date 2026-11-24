@@ -3,6 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 import CmuxNextDaemonService
+import CmuxNextPalette
 import Foundation
 import Testing
 
@@ -65,6 +66,11 @@ import Testing
         #expect(row.keyEquivalent.isEmpty, "a disabled reason must replace the Delete Space… shortcut")
         #expect((row.target as? any NSMenuItemValidation)?.validateMenuItem(row) == false,
                 "Delete Space… is enabled on the only space")
+
+        let paletteRow = try #require(RegistryPaletteProvider(registry: registry).makeItems().first { $0.actionID == "space.delete" },
+                                      "the palette has no Delete Space… row")
+        #expect(!paletteRow.isEnabled, "Delete Space… is enabled without a target on the only space")
+        #expect(paletteRow.subtitle == RefusalStrings.onlySpaceCannotBeDeleted)
     }
 
     @Test func otherSpacesStayDeletableAndDefaultSaysWhy() throws {
@@ -90,5 +96,10 @@ import Testing
         #expect(workRow.toolTip == nil, "a deletable space has a stale refusal reason")
         #expect((workRow.target as? any NSMenuItemValidation)?.validateMenuItem(workRow) == true,
                 "Delete Space… is disabled on a deletable non-Default space")
+
+        let paletteRow = try #require(RegistryPaletteProvider(registry: registry).makeItems().first { $0.actionID == "space.delete" },
+                                      "the palette has no Delete Space… row")
+        #expect(!paletteRow.isEnabled, "Delete Space… is enabled for the active Default space")
+        #expect(paletteRow.subtitle == RefusalStrings.defaultSpaceCannotBeDeleted)
     }
 }
