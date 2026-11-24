@@ -125,7 +125,7 @@ extension IPhoneHostService {
         // The person's own `mobile.autoApprovePhones` (off by default): a phone of the signed-in
         // user pairs as Allow would. hostd served this phone only because the service stamped its
         // dial with the signed-in user, and the list is that user's. Machines still ask.
-        if !removed, Self.autoApproves(request, on: dependencies?.autoApprovePhones() ?? false,
+        if !removed, Self.autoApproves(request, on: dependencies?.autoApprovePhones() ?? false, macDevTag: dependencies?.macDevTag,
                                        pairedUserID: list.userID, accountUserID: account?.userID) {
             Self.logger.info("phone \(request.phoneDeviceID.prefix(8), privacy: .public) paired by Approve Phone Requests Automatically")
             savePaired { $0.approve(request, at: Date()) }
@@ -270,7 +270,8 @@ extension IPhoneHostService {
     /// Whether `mobile.autoApprovePhones` (`on`) pairs `request` without the prompt: a phone, never
     /// a machine, on the paired list of the signed-in user. Never true with the setting off, no
     /// account or another user's list.
-    static func autoApproves(_ request: MobileHostPairRequest, on: Bool, pairedUserID: String, accountUserID: String?) -> Bool {
+    static func autoApproves(_ request: MobileHostPairRequest, on: Bool, macDevTag: String?, pairedUserID: String,
+                             accountUserID: String?) -> Bool {
         guard on, !request.isMachine, let accountUserID, !accountUserID.isEmpty else { return false }
         return pairedUserID == accountUserID
     }
