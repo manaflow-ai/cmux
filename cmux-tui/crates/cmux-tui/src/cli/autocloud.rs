@@ -1011,7 +1011,7 @@ pub(super) fn api_error(status: u16, body: &Value) -> Value {
         .or_else(|| field("/message"))
         .unwrap_or_else(|| format!("the cmux platform answered HTTP {status}"));
     let mut error = error_json(&code, &message);
-    error["status"] = json!(status);
+    error["error"]["status"] = json!(status);
     if status == 404 && !code.starts_with("automation.") {
         error["available"] = json!(false);
     }
