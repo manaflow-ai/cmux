@@ -24,16 +24,19 @@ enum SSHControlSocketDirectory {
     /// - Returns: The directory, or `nil` when it is shared, can't be created,
     ///   or can't go into a `ControlPath` verbatim.
     ///
-    /// - Parameter namespace: The cmux build these sockets belong to, from ``appNamespace()``.
-    ///   `nil` is the release app, which keeps `<home>/.cmux/ssh` itself; any other build gets
-    ///   a subdirectory of its own.
-    static func prepare(home: String, userID: Int, namespace: String? = nil) -> String? {
+    /// - Parameter build: The cmux build these sockets belong to. The release app keeps
+    ///   `<home>/.cmux/ssh` itself; any other build gets a subdirectory of its own.
+    static func prepare(
+        home: String,
+        userID: Int,
+        build: SSHControlSocketBuildIdentity = SSHControlSocketBuildIdentity(bundleIdentifier: nil)
+    ) -> String? {
         guard home.hasPrefix("/") else { return nil }
         let cmuxDirectory = (home as NSString).appendingPathComponent(".cmux")
         let sharedDirectory = (cmuxDirectory as NSString).appendingPathComponent("ssh")
         var directories = [cmuxDirectory, sharedDirectory]
-        if let namespace {
-            directories.append((sharedDirectory as NSString).appendingPathComponent(SSHControlSocketBuildIdentity.directoryName(for: namespace)))
+        if let directoryName = build.directoryName {
+            directories.append((sharedDirectory as NSString).appendingPathComponent(directoryName))
         }
         let socketDirectory = directories[directories.count - 1]
         for directory in directories {
@@ -44,39 +47,6 @@ enum SSHControlSocketDirectory {
         free(resolvedPointer)
         guard isUsable(resolved), isPrivate(resolved, userID: userID) else { return nil }
         return resolved
-    }
-
-    /// Which cmux build this process belongs to, or `nil` for the release app.
-    ///
-    /// The release app, a nightly and tagged development builds can run side by side, and each
-    /// opens `cmux ssh` connections to the same hosts. With one directory, `%C` gave them the same
-    /// master. On a host that allows one session per connection (`MaxSessions 1`), whichever build
-    /// opened it holds its only session, and the other builds' connections are refused
-    /// ("Session open refused by peer"). Measured: a second build's `cmux ssh` failed outright
-    /// while the first build's workspace was open.
-    ///
-    /// The app knows its bundle. The bundled CLI does not, since `Bundle.main` has no identifier
-    /// for a command-line tool, so it reads the identifier of the app its executable sits in. The
-    /// two then agree on the directory.
-    static func appNamespace(
-        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
-        executableURL: URL? = Bundle.main.executableURL
-    ) -> String? {
-        SSHControlSocketBuildIdentity.namespace(
-            bundleIdentifier: bundleIdentifier ?? executableURL.flatMap(enclosingAppBundleIdentifier))
-    }
-
-    /// The bundle identifier of the `.app` that contains `executableURL`, following symlinks so a
-    /// linked `cmux` on PATH resolves to the app it came from.
-    static func enclosingAppBundleIdentifier(_ executableURL: URL) -> String? {
-        var url = executableURL.resolvingSymlinksInPath()
-        while url.pathComponents.count > 1 {
-            url.deleteLastPathComponent()
-            if url.pathExtension == "app" {
-                return Bundle(url: url)?.bundleIdentifier
-            }
-        }
-        return nil
     }
 
     /// Whether `path` can go into a `ControlPath` and a shell pattern

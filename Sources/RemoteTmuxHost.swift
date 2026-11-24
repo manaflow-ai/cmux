@@ -208,34 +208,22 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     /// connection lets only one of them use a master at a time: the first app's `tmux -CC`
     /// takes the session, and every other app's command on that master is refused
     /// ("Session open refused by peer"), falls back to a new connection, and asks for a sign-in
-    /// that cannot help. See ``controlSocketNamespace``.
+    /// that cannot help. See ``SSHControlSocketBuildIdentity``.
     var controlSocketPath: String {
-        controlSocketPath(namespace: Self.controlSocketNamespace)
+        controlSocketPath(build: SSHControlSocketBuildIdentity(bundleIdentifier: Bundle.main.bundleIdentifier))
     }
 
-    /// The control socket path for the app named by `namespace`, or the shared default path
-    /// when it is `nil`. Split out so tests can name an app other than the test host.
-    func controlSocketPath(namespace: String?) -> String {
+    /// The control socket path `build` uses for this host. Split out so tests can name a build
+    /// other than the test host.
+    func controlSocketPath(build: SSHControlSocketBuildIdentity) -> String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         // Fixed parts that can never be trimmed: directory, the `tmux-` prefix,
         // the `-<hash>.sock` tail, and the transient suffix OpenSSH binds first.
         let prefix = "\(home)/.cmux/ssh/tmux-"
-        let suffix = "-\(controlSocketKey(namespace: namespace)).sock"
+        let suffix = "-\(build.socketKey(connectionHash: connectionHash)).sock"
         let fixedBytes = prefix.utf8.count + suffix.utf8.count + Self.opensshTransientSuffixLength
         let slugBudget = max(0, Self.maxUnixSocketPathLength - fixedBytes)
         return "\(prefix)\(Self.trimmedToUTF8ByteBudget(slug, slugBudget))\(suffix)"
-    }
-
-    /// The app this process's control sockets belong to: `nil` for the release app, the bundle
-    /// identifier for any other cmux build.
-    static var controlSocketNamespace: String? {
-        SSHControlSocketBuildIdentity.namespace(bundleIdentifier: Bundle.main.bundleIdentifier)
-    }
-
-    /// The digest in the socket filename: the endpoint's ``connectionHash``, mixed with the app
-    /// when there is one.
-    func controlSocketKey(namespace: String?) -> String {
-        SSHControlSocketBuildIdentity.socketKey(connectionHash: connectionHash, namespace: namespace)
     }
 
     /// macOS caps an AF_UNIX `sun_path` at 104 bytes (including the NUL

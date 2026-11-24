@@ -1,6 +1,6 @@
 internal import Darwin
 internal import CryptoKit
-internal import Foundation
+public import Foundation
 
 /// Merges cmux's native-SSH connection-sharing defaults without replacing
 /// caller-provided OpenSSH control options.
@@ -69,14 +69,22 @@ public struct SSHConnectionSharingOptions: Sendable {
     /// Creates an option merger for the current local user, creating
     /// `~/.cmux/ssh` if needed. A cmux build other than the release app gets
     /// its own subdirectory, so builds running side by side never share a
-    /// master (see ``SSHControlSocketDirectory/appNamespace(bundleIdentifier:executableURL:)``).
-    public init() {
+    /// master.
+    ///
+    /// - Parameter build: The cmux build this process is, read from the
+    ///   caller's own bundle by default.
+    public init(
+        build: SSHControlSocketBuildIdentity = SSHControlSocketBuildIdentity(
+            bundleIdentifier: Bundle.main.bundleIdentifier,
+            executableURL: Bundle.main.executableURL
+        )
+    ) {
         let userID = Int(getuid())
         self.userID = userID
         self.controlSocketDirectoryPath = SSHControlSocketDirectory.prepare(
             home: NSHomeDirectory(),
             userID: userID,
-            namespace: SSHControlSocketDirectory.appNamespace()
+            build: build
         )
         self.authenticationLockDirectory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
     }
@@ -138,10 +146,19 @@ public struct SSHConnectionSharingOptions: Sendable {
         let url = URL(fileURLWithPath: directory, isDirectory: true)
         let name = url.lastPathComponent
         guard url.deletingLastPathComponent().lastPathComponent == "ssh",
-              SSHControlSocketBuildIdentity.isNamespaceDirectoryName(name) else {
+              Self.isBuildDirectoryName(name) else {
             return "cmux-ssh-\(userID)"
         }
         return "cmux-ssh-\(userID)-\(name)"
+    }
+
+    /// Whether `name` has the shape of ``SSHControlSocketBuildIdentity/directoryName``: eight
+    /// lowercase hex characters.
+    private static func isBuildDirectoryName(_ name: String) -> Bool {
+        name.utf8.count == 8 && name.utf8.allSatisfy { byte in
+            (UInt8(ascii: "0")...UInt8(ascii: "9")).contains(byte)
+                || (UInt8(ascii: "a")...UInt8(ascii: "f")).contains(byte)
+        }
     }
 
     /// Adds missing sharing defaults while preserving every supplied value.

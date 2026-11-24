@@ -124,23 +124,16 @@ import Testing
     /// upgrade does not strand a live master.
     @Test func eachCmuxBuildGetsItsOwnSocketAndTheReleaseAppKeepsItsName() {
         let host = RemoteTmuxHost(destination: "user@host")
-        let release = host.controlSocketPath(
-            namespace: SSHControlSocketBuildIdentity.namespace(bundleIdentifier: "com.cmuxterm.app"))
-        let nightly = host.controlSocketPath(
-            namespace: SSHControlSocketBuildIdentity.namespace(bundleIdentifier: "com.cmuxterm.app.nightly"))
-        let tagged = host.controlSocketPath(
-            namespace: SSHControlSocketBuildIdentity.namespace(bundleIdentifier: "com.cmuxterm.app.debug.feature"))
+        let release = host.controlSocketPath(build: SSHControlSocketBuildIdentity(bundleIdentifier: "com.cmuxterm.app"))
+        let nightly = host.controlSocketPath(build: SSHControlSocketBuildIdentity(bundleIdentifier: "com.cmuxterm.app.nightly"))
+        let tagged = host.controlSocketPath(build: SSHControlSocketBuildIdentity(bundleIdentifier: "com.cmuxterm.app.debug.feature"))
         #expect(release.hasSuffix("-\(host.connectionHash).sock"))
         #expect(Set([release, nightly, tagged]).count == 3)
-        #expect(nightly == host.controlSocketPath(
-            namespace: SSHControlSocketBuildIdentity.namespace(bundleIdentifier: "com.cmuxterm.app.nightly")))
-        // The mirror socket takes its digest from the shared build identity, the same place the
-        // `cmux ssh` directory and lock names read the build from.
-        #expect(host.controlSocketKey(namespace: "com.cmuxterm.app.nightly")
-            == SSHControlSocketBuildIdentity.socketKey(
-                connectionHash: host.connectionHash, namespace: "com.cmuxterm.app.nightly"))
-        #expect(SSHControlSocketBuildIdentity.namespace(bundleIdentifier: nil) == nil)
-        #expect(SSHControlSocketBuildIdentity.namespace(bundleIdentifier: "") == nil)
+        #expect(nightly == host.controlSocketPath(build: SSHControlSocketBuildIdentity(bundleIdentifier: "com.cmuxterm.app.nightly")))
+        // The mirror socket takes its digest from the build identity, the same value the
+        // `cmux ssh` directory reads the build from.
+        let nightlyBuild = SSHControlSocketBuildIdentity(bundleIdentifier: "com.cmuxterm.app.nightly")
+        #expect(nightly.hasSuffix("-\(nightlyBuild.socketKey(connectionHash: host.connectionHash)).sock"))
     }
 
     @Test func tmuxSocketPermissionErrorIsNotAnAuthPrompt() {
@@ -394,7 +387,8 @@ import Testing
         let host = RemoteTmuxHost(destination: String(repeating: "very-long-host.example.com.", count: 20))
         #expect(RemoteTmuxHost.controlSocketPathFitsUnixLimit(host.controlSocketPath))
         // The collision-resistant hash is never trimmed away.
-        let key = host.controlSocketKey(namespace: RemoteTmuxHost.controlSocketNamespace)
+        let key = SSHControlSocketBuildIdentity(bundleIdentifier: Bundle.main.bundleIdentifier)
+            .socketKey(connectionHash: host.connectionHash)
         #expect(host.controlSocketPath.hasSuffix("-\(key).sock"))
     }
 
