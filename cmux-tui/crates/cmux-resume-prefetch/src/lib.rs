@@ -258,7 +258,9 @@ pub fn record(max_pages: u64) -> Plan {
     let page = page_size();
     let mut procs: Vec<ProcPlan> = processes()
         .into_iter()
-        .filter_map(|(pid, unit)| Some(ProcPlan { pid, ident: ident(pid)?, unit, ranges: Vec::new() }))
+        .filter_map(|(pid, unit)| {
+            Some(ProcPlan { pid, ident: ident(pid)?, unit, ranges: Vec::new() })
+        })
         .collect();
     let mut left = max_pages;
     for p in &mut procs {
@@ -351,7 +353,8 @@ fn touch(_pid: i32, _pages: &[u64], _scratch: &mut [u8]) -> u64 {
 pub fn prefetch(plan: &Plan, threads: usize, deadline: Duration) -> Outcome {
     use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
     let began = Instant::now();
-    let live: Vec<bool> = plan.procs.iter().map(|p| ident(p.pid).as_deref() == Some(p.ident.as_str())).collect();
+    let live: Vec<bool> =
+        plan.procs.iter().map(|p| ident(p.pid).as_deref() == Some(p.ident.as_str())).collect();
     let work = batches(plan, &live);
     let next = AtomicUsize::new(0);
     let touched = AtomicU64::new(0);
