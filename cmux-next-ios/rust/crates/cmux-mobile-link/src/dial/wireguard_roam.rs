@@ -587,9 +587,19 @@ impl Session {
         self.path_epoch.send_modify(|epoch| *epoch += 1);
         let mut endpoints = host_endpoints(port, &self.options);
         self.announce(offered(endpoints.iter().copied(), &self.options), Vec::new(), Vec::new());
-        // On the transport the new network allows: UDP, else TLS.
+        // On the transport the new network allows: UDP, else TLS. The
+        // allocation is installed and announced the moment it comes back,
+        // not after the STUN wait below: on a network whose STUN is silent
+        // (its one request lost) that wait is 1.5 s with no path at all.
         let mut keeps_turn = self.keeps_turn.load(Ordering::Relaxed);
-        let turn = async { if keeps_turn { TurnCarrier::allocate(&self.options).await } else { None } };
+        let host = endpoints.clone();
+        let turn = async {
+            let turn = if keeps_turn { TurnCarrier::allocate(&self.options).await } else { None };
+            match turn {
+                Some(turn) => Some(self.take_roam_turn(turn, &net, &host, &timeline).await),
+                None => None,
+            }
+        };
         let reflexive = async {
             let mut deadline = Instant::now() + STUN_WAIT;
             let mut found = Vec::new();
@@ -606,32 +616,32 @@ impl Session {
             }
             found
         };
-        let (mut turn, reflexive) = tokio::join!(turn, reflexive);
-        if turn.is_none() && !keeps_turn && asked > 0 && reflexive.is_empty() {
+        let (mut taken, reflexive) = tokio::join!(turn, reflexive);
+        if taken.is_none() && !keeps_turn && asked > 0 && reflexive.is_empty() {
             // A Mac roamed onto a network that answers no STUN (it drops
             // UDP): from now on it keeps a TURN allocation, and keeps asking
             // below when this one misses.
             keeps_turn = true;
             self.keeps_turn.store(true, Ordering::Relaxed);
-            turn = TurnCarrier::allocate(&self.options).await;
+            if let Some(turn) = TurnCarrier::allocate(&self.options).await {
+                taken = Some(self.take_roam_turn(turn, &net, &host, &timeline).await);
+            }
         }
-        let known = endpoints.len();
+        let mut known = endpoints.len();
         for address in reflexive {
             if !endpoints.contains(&address) {
                 endpoints.push(address);
             }
         }
         let (mut relayed, mut relayed_tls) = (Vec::new(), Vec::new());
-        if let Some(turn) = turn {
-            timeline.mark(if turn.transport.is_stream() {
-                "roam_turn_tls_allocated"
-            } else {
-                "roam_turn_allocated"
-            });
-            endpoints.push(turn.relayed);
-            (relayed, relayed_tls) = relayed_of(Some(&turn));
-            self.install_turn(turn, (relayed.clone(), relayed_tls.clone()));
-            let _ = net.refresh().await;
+        if let Some((address, taken_relayed, taken_relayed_tls)) = taken {
+            // The host endpoints and this went out already: announce again
+            // only when STUN added reflexive ones.
+            if endpoints.len() == known {
+                known += 1;
+            }
+            endpoints.push(address);
+            (relayed, relayed_tls) = (taken_relayed, taken_relayed_tls);
         } else {
             // The old network's relayed address is dead: stop offering it
             // (a relay-only roam above announced nothing in its place).
@@ -649,6 +659,31 @@ impl Session {
         timeline.mark("roam_gathered");
         tracing::info!(session = self.session_id, timings = %timeline.summary(), "WireGuard roamed");
         timeline
+    }
+
+    /// Install a roam's TURN allocation and announce its relayed address
+    /// beside `host` (the roam's host endpoints) at once. Returns the
+    /// relayed address and which announced addresses are relayed.
+    async fn take_roam_turn(
+        self: &Arc<Self>,
+        turn: TurnCarrier,
+        net: &WgNet,
+        host: &[SocketAddr],
+        timeline: &Timeline,
+    ) -> (SocketAddr, Vec<String>, Vec<String>) {
+        timeline.mark(if turn.transport.is_stream() {
+            "roam_turn_tls_allocated"
+        } else {
+            "roam_turn_allocated"
+        });
+        let address = turn.relayed;
+        let (relayed, relayed_tls) = relayed_of(Some(&turn));
+        self.install_turn(turn, (relayed.clone(), relayed_tls.clone()));
+        let _ = net.refresh().await;
+        let mut endpoints = host.to_vec();
+        endpoints.push(address);
+        self.announce(offered(endpoints, &self.options), relayed.clone(), relayed_tls.clone());
+        (address, relayed, relayed_tls)
     }
 
     fn rehome_onto(&self, client: &SignalingClient) {
