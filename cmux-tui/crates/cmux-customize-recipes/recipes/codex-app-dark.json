@@ -1,0 +1,32 @@
+{
+  "cmuxProfile": 1,
+  "name": "codex-app-dark",
+  "description": "Looks like the Codex app in dark: a near-black page, a quiet sidebar of chats by project, white ink and grays with no color accent, a rounded composer, and the Codex app's keys: Shift-Command-O for a new Codex chat, a review button for the diff, a ring on a chat whose turn ended.",
+  "settings": {
+    "appearance.themeFile": "codex-app-dark",
+    "sidebar.groupBy": "folder",
+    "sidebar.groupHeader.background": "sections",
+    "sidebar.groupHeader.memberCount": false,
+    "sidebar.workspaceRow.icon": false,
+    "sidebar.showColors": false,
+    "sidebar.showTimestamps": false,
+    "sidebar.detailedStatusIcons": false,
+    "tabs.hideLoneChatTab": true,
+    "agentPane.display.font.ui": "system-ui",
+    "agentPane.display.font.size": 14,
+    "agentPane.display.width": 760,
+    "agentPane.display.minimap": "off",
+    "agentPane.display.harnessPlacement": "compact",
+    "tabs.toolbarButtons": [
+      "openDiffViewer",
+      "agentPane.searchChats"
+    ],
+    "agentPane.editedFiles.show": "collapsed",
+    "agentPane.attachmentView": "strip",
+    "diff.layout": "unified",
+    "notifications.attention.agentChats": "ring"
+  },
+  "files": {
+    "keybindings.json": "// The Codex app's keys (the codex-app-dark recipe). Shift-Command-O was Restore Previous App Launch;\n// it stays in the Command Palette.\n[\n  { \"key\": \"cmd+shift+o\", \"command\": \"palette.newAgentChat\", \"args\": { \"harness\": \"codex\" } },\n  { \"key\": \"cmd+shift+e\", \"command\": \"agentPane.toggleFiles\" },\n  { \"key\": \"ctrl+shift+g\", \"command\": \"openDiffViewer\" },\n  { \"key\": \"ctrl+shift+m\", \"command\": \"agentPane.switchModel\" },\n  { \"key\": \"cmd+shift+leftbracket\", \"command\": \"prevSidebarTab\" },\n  { \"key\": \"cmd+shift+rightbracket\", \"command\": \"nextSidebarTab\" },\n  { \"key\": \"cmd+slash\", \"command\": \"palette.searchShortcuts\" }\n]\n"
+  }
+}

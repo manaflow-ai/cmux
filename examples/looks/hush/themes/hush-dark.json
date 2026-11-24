@@ -1,0 +1,152 @@
+// Hush Dark: the calm assistant-browser look in Dark. A cool graphite everywhere (the dark
+// source's #1E2020), the work in one large
+// rounded card that floats on a soft shadow rather than a line, a sidebar a breath darker than
+// the card, a quiet periwinkle accent used sparingly, and slow, even motion with
+// nothing that bounces. Its twin is Hush (Light).
+{
+  "name": "Hush Dark",
+  "description": "Dark: cool graphite, a large rounded content card a step lighter than the sidebar, a quiet periwinkle accent.",
+
+  "appearance.theme": "Builtin Dark",
+  "appearance.appTheme": "followTerminal",
+  // background: the card, a step over the source's #1E2020 chrome. foreground: the source's soft
+  // white #E3E2E2. selection: its selected-row gray, lifted. accent: a muted periwinkle, for Send,
+  // focus and links only.
+  "colors": { "background": "#222424", "foreground": "#e3e2e2", "selection": "#727575", "accent": "#6682c2" },
+  "appearance.accent": "theme",
+  // The terminal: the page and ink above, the cursor in the accent, the selection, and all sixteen
+  // ANSI colors at a hushed chroma, each solved in OKLCH over the page (5.5:1, the bright ones
+  // 8.5:1; 0 the raised black 2:1; 8, the dim gray, 3.4:1).
+  "ghostty": [
+    "background = #222424",
+    "foreground = #e3e2e2",
+    "cursor-color = #6682c2",
+    "cursor-text = #222424",
+    "selection-background = #727575",
+    "selection-foreground = #e3e2e2",
+    "palette = 0=#4e5359",
+    "palette = 1=#ca8983",
+    "palette = 2=#74a57b",
+    "palette = 3=#af975f",
+    "palette = 4=#7b9ccb",
+    "palette = 5=#b88bb6",
+    "palette = 6=#54a6aa",
+    "palette = 7=#e3e2e2",
+    "palette = 8=#71767c",
+    "palette = 9=#f8ad9e",
+    "palette = 10=#8ccea1",
+    "palette = 11=#d8bd79",
+    "palette = 12=#a2c0fc",
+    "palette = 13=#e8addc",
+    "palette = 14=#6eced9",
+    "palette = 15=#f9fbfd"
+  ],
+  // The terminal face: SF Mono at 13 pt, the system's monospaced face, nothing louder.
+  "terminal.fontFamily": "SF Mono",
+  "terminal.fontSize": 13,
+  // A little less color in the tint, so the accent never shouts.
+  "appearance.saturation": 0.85,
+
+  // Material: no wallpaper and no glass; the calm comes from flat graphite.
+  "appearance.background": "none",
+  "appearance.backgroundBlur": "none",
+  "appearance.wallpaperTint": false,
+  "appearance.fontSmoothing": "antialiased",
+
+  // Layout: one large rounded card inset into the sidebar's color, no hairlines anywhere (the card
+  // separates by tone and shadow), title, tab strip and sidebar shaded apart from the card.
+  "appearance.chromeStyle": "card",
+  "appearance.borders": "none",
+  "appearance.titleAreaTone": "subtleTone",
+  "appearance.focusIndicator": "tabs",
+  "appearance.density": "comfortable",
+  // Pending cmux#46780: tabs are soft rounded chips; the selected one is the card's tone.
+  // "appearance.tabShape": "rounded",
+  // Pending cmux#46516: the selected row is a lighter gray lift (#353636 in the source), not an accent fill.
+  // "appearance.selection": "neutral",
+
+  // Proportions, measured from the source captures: a 44 pt top band (window buttons and the
+  // toolbar's square buttons), a 200 pt sidebar (the source's 18% of its window) with 32 pt rows,
+  // 13 pt chrome text, a 36 pt tab strip with 13 pt titles, a 6 pt inset around the card and no
+  // divider.
+  "appearance.metrics.titlebarHeight": 44,
+  "appearance.metrics.sidebarWidth": 200,
+  "appearance.metrics.sidebarRowHeight": 32,
+  "appearance.metrics.chromeFontSize": 13,
+  "appearance.metrics.tabStripHeight": 36,
+  "appearance.metrics.tabFontSize": 13,
+  "appearance.metrics.tabMaxWidth": 220,
+  "appearance.metrics.tabMinActiveWidth": 140,
+  "appearance.metrics.tabMinInactiveWidth": 96,
+  "appearance.metrics.columnGap": 6,
+  "appearance.metrics.dividerThickness": 0,
+
+  // The sidebar: the source's opaque graphite, no edge line, sections under quiet headings.
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#1b1d1d",
+  "appearance.surfaces.sidebar.opacity": 1,
+  "sidebar.style": "standard",
+  "sidebar.border": false,
+  "sidebar.sectionLook": "quiet",
+
+  // The card: a step lighter than the chrome; the tab strip and toolbar the sidebar's graphite so
+  // the card is the one lifted thing; docks and the browser's bar a half step over the card.
+  "appearance.surfaces.agentPane.color": "#222424",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "appearance.surfaces.tabBar.color": "#1b1d1d",
+  "appearance.surfaces.tabBar.opacity": 1,
+  "appearance.surfaces.browserChrome.color": "#272929",
+  "appearance.surfaces.browserChrome.opacity": 1,
+  "appearance.surfaces.docks.color": "#272929",
+  "appearance.surfaces.docks.opacity": 1,
+  "appearance.surfaces.editor.color": "#222424",
+  "appearance.surfaces.editor.opacity": 1,
+  "appearance.surfaces.diff.color": "#222424",
+  "appearance.surfaces.diff.opacity": 1,
+  "appearance.surfaces.markdown.color": "#222424",
+  "appearance.surfaces.markdown.opacity": 1,
+  "appearance.surfaces.splitDivider.color": "#323535",
+  "appearance.surfaces.splitDivider.opacity": 1,
+
+  // Settings and pages: the card's graphite, so a page is one calm sheet
+  // with a centered field.
+  "appearance.surfaces.settings.color": "#202222",
+  "appearance.surfaces.settings.opacity": 1,
+  "appearance.surfaces.internalPage.color": "#202222",
+  "appearance.surfaces.internalPage.opacity": 1,
+  "appearance.surfaces.newTabPage.color": "#202222",
+  "appearance.surfaces.newTabPage.opacity": 1,
+  "appearance.surfaces.home.color": "#202222",
+  "appearance.surfaces.home.opacity": 1,
+
+  // Status: a small dot that breathes, never a spinner; not repeated on the tabs.
+  "appearance.statusIndicator.style": "dot",
+  "appearance.statusIndicator.animation": "animated",
+  "appearance.statusIndicator.size": 0.85,
+  "appearance.statusIndicator.showAgentWorkingOnTabs": false,
+
+  // The address field: plain, no glass.
+  "browser.omnibar.glass": "off",
+
+  // Motion: slow and even. A gentle ease-in-out over 450 ms for color changes, no spring.
+  "ui.animationSpeed": "normal",
+  "appearance.colorTransition.enabled": true,
+  "appearance.colorTransition.curve": "easeInOut",
+  "appearance.colorTransition.duration": 450,
+  "appearance.colorTransition.colorSpace": "oklab",
+  "appearance.colorTransition.reduceMotion": "crossfade"
+
+  // Pending cmux#46861 (layout and proportions): a calm browser: rows inset 6 pt with 10 pt corners, 28 pt square toolbar buttons with an 8 pt fill and even gaps, no toolbar hairline, a roomy 56 pt card composer. Uncomment once your build has it.
+  // "appearance.metrics.sidebarRowHeightWithSubtitle": 48,
+  // "appearance.metrics.sidebarRowInset": 6,
+  // "appearance.metrics.sidebarRowPadding": 10,
+  // "appearance.metrics.sidebarRowGap": 2,
+  // "appearance.metrics.toolbarButtonSize": 28,
+  // "appearance.metrics.toolbarButtonGap": 6,
+  // "appearance.metrics.toolbarButtonCornerRadius": 8,
+  // "appearance.metrics.toolbarButtonActiveFill": 0.08,
+  // "appearance.metrics.headerDivider": 0,
+  // "appearance.metrics.composerPadding": 14,
+  // "appearance.metrics.composerMinHeight": 56,
+  // "appearance.metrics.spacingScale": 1.1,
+}

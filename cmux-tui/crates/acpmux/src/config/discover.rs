@@ -357,6 +357,10 @@ pub fn discover_harnesses_from(
         // `hermes acp`. Its provider and model come from ~/.hermes
         // (`hermes model`).
         ("hermes", "hermes"),
+        // OpenClaw (openclaw/openclaw): `openclaw acp`, a bridge to its own Gateway. Its bridge
+        // refuses per-session MCP servers (`agent_tools::NO_SESSION_MCP_FAMILIES`); a Chief turn
+        // reaches it through the Chief's own OpenClaw home (optchat-chief `brain_home.rs`).
+        ("openclaw", "openclaw"),
         // Google Antigravity's CLI speaks ACP itself since 1.5: `agy acp`
         // (antigravity.google/docs/ide/extensions/acp). Without `agy`, the
         // ACP Registry's `agy_acp_server.par` still takes `antigravity`.
@@ -383,7 +387,9 @@ pub fn discover_harnesses_from(
                 "omp" => (HarnessKind::Acp, vec![path, "acp".into()]),
                 "prime-agent" => (HarnessKind::Acp, vec![path, "--mode".into(), "acp".into()]),
                 "grok" => (HarnessKind::Acp, vec![path, "agent".into(), "stdio".into()]),
-                "cursor-agent" | "hermes" | "agy" => (HarnessKind::Acp, vec![path, "acp".into()]),
+                "cursor-agent" | "hermes" | "agy" | "openclaw" => {
+                    (HarnessKind::Acp, vec![path, "acp".into()])
+                }
                 "gemini" => (HarnessKind::Acp, vec![path, "--experimental-acp".into()]),
                 "opencode" | "opencode2" => (HarnessKind::Acp, vec![path, "acp".into()]),
                 "dsh" => (HarnessKind::Acp, vec![path, "--profile".into(), "acp".into()]),
@@ -401,7 +407,7 @@ pub fn discover_harnesses_from(
                         "found on PATH".into()
                     }),
                     fallback: None,
-                    family: if matches!(bin, "dsh" | "opencode2") {
+                    family: if matches!(bin, "dsh" | "opencode2" | "openclaw") {
                         Some(name.into())
                     } else {
                         None

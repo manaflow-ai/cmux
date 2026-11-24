@@ -8,10 +8,13 @@ const newTab = readFileSync(resolve(src, "newtab/screen.css"), "utf8").replace(/
 const chatGallery = readFileSync(resolve(src, "composerHeight.gallery.ts"), "utf8");
 const newTabGallery = readFileSync(resolve(src, "newtab/ComposerHeight.gallery.ts"), "utf8");
 
-test("all composer fields share the Goldilocks twelve-line, forty-percent cap", () => {
-  expect(chat).toContain("*var(--acpmux-composer-max-lines,12)+var(--cmux-control-height,23px)");
+// Leo 2026-11-22: "look at how big claude code can grow" (Claude Code desktop's composer, his reference).
+test("all composer fields share the thirty-line, sixty-percent cap", () => {
+  expect(chat).toContain("*var(--acpmux-composer-max-lines,30)+var(--cmux-control-height,23px)");
+  expect(chat).toContain("60vh");
+  expect(newTab).toContain("60vh");
   expect(chat).toContain("min(calc(");
-  expect(newTab).toContain("var(--acpmux-composer-max-lines,12)*1lh+2*var(--nt-input-pad-block)");
+  expect(newTab).toContain("var(--acpmux-composer-max-lines,30)*1lh+2*var(--nt-input-pad-block)");
   expect(newTab).toContain("min(calc(");
 });
 

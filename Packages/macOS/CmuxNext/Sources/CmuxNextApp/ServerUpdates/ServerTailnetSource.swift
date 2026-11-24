@@ -10,8 +10,7 @@ struct ServerTailnetSource: Sendable {
 
     /// The bundled CLI's run, as the Add Device list makes it.
     static func app() -> ServerTailnetSource {
-        let cli = (try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment))
-            .map { HostCLI(binary: $0, environment: SSHService.environment) }
+        let cli = SSHService.bundledCLI
         return ServerTailnetSource(hostStatus: { await cli?.json(["host", "status", "--json"], deadline: .seconds(10), label: "host status") })
     }
 

@@ -57,6 +57,18 @@ fn bwrap_args(
     home_view: BwrapPlan,
     cmd_prefix: &[String],
 ) -> Result<BwrapPlan, String> {
+    bwrap_args_at(paths, home_view, &[], cmd_prefix)
+}
+
+/// `views` are the second views of the HOME the plan rebuilt. Memory is
+/// sealed read-only after the writable binds at its image in the HOME and in
+/// every view, so a writable root named at any view can never cover it.
+fn bwrap_args_at(
+    paths: &Paths,
+    home_view: BwrapPlan,
+    views: &[aliases::HomeView],
+    cmd_prefix: &[String],
+) -> Result<BwrapPlan, String> {
     let (home_args, mut fds) = home_view;
     let mut out: Vec<String> = "--new-session --die-with-parent --unshare-user --unshare-pid --unshare-ipc --unshare-net --unshare-uts --unshare-cgroup-try --disable-userns --ro-bind / / --dev /dev --proc /proc"
         .split_whitespace().map(str::to_owned).collect();
@@ -68,10 +80,24 @@ fn bwrap_args(
         fds.push(fd);
     }
     let memory_path = paths.claude_project.join("memory");
-    let memory = path_arg(&memory_path)?;
-    let fd = open_bind_source(&memory_path)?;
-    out.extend(["--ro-bind-fd".into(), fd.as_raw_fd().to_string(), memory]);
-    fds.push(fd);
+    let image = home_image(&memory_path, &paths.home, views);
+    let mut sealed = vec![memory_path.clone()];
+    if let Ok(rest) = image.strip_prefix(&paths.home) {
+        let all =
+            std::iter::once(paths.home.as_path()).chain(views.iter().map(|(_, v)| v.as_path()));
+        for view in all {
+            let at = join_rest(view, rest);
+            if !sealed.contains(&at) {
+                sealed.push(at);
+            }
+        }
+    }
+    // The loop ends after the HOME and the finite view list.
+    for at in &sealed {
+        let fd = open_bind_source(&memory_path)?;
+        out.extend(["--ro-bind-fd".into(), fd.as_raw_fd().to_string(), path_arg(at)?]);
+        fds.push(fd);
+    }
     out.extend([
         "--chdir".into(),
         path_arg(&paths.cwd)?,
@@ -242,6 +268,18 @@ fn outside_view(paths: &[PathBuf], home: &Path) -> Result<Vec<String>, String> {
 /// single rebuild stays under its own 512 (`home::rebuild_at`).
 const MAX_REBUILD_FDS: usize = 1024;
 
+/// Refuse, with the count, rebuilds that would together hold more than
+/// `MAX_REBUILD_FDS` descriptors (`per_view` each, at `views` views).
+fn rebuild_fd_budget(per_view: usize, views: usize) -> Result<(), String> {
+    let needed = per_view.saturating_mul(views);
+    if needed > MAX_REBUILD_FDS {
+        return Err(format!(
+            "rebuilding the HOME at {views} views needs {needed} descriptors (limit {MAX_REBUILD_FDS})"
+        ));
+    }
+    Ok(())
+}
+
 /// The HOME path that `path` shows when it lies below a second view of the
 /// HOME; any other path is its own image.
 fn home_image(path: &Path, home: &Path, views: &[aliases::HomeView]) -> PathBuf {
@@ -287,10 +325,14 @@ fn alias_probe_for(
         return Ok(probe);
     }
     let home = &paths.home;
-    let names: BTreeSet<PathBuf> = read_denies
+    // Each denial and its resolved target, as the plan protects both.
+    let mut denied: Vec<PathBuf> =
+        read_denies.iter().cloned().chain(LINUX_READ_DENIES.iter().map(|p| home.join(p))).collect();
+    let resolved: Vec<PathBuf> =
+        denied.iter().map(|d| home::resolve_missing(d)).collect::<Result<_, _>>()?;
+    denied.extend(resolved);
+    let names: BTreeSet<PathBuf> = denied
         .iter()
-        .cloned()
-        .chain(LINUX_READ_DENIES.iter().map(|p| home.join(p)))
         .filter_map(|d| d.strip_prefix(home).ok().map(Path::to_path_buf))
         .filter(|rest| !rest.as_os_str().is_empty())
         .collect();
@@ -396,13 +438,7 @@ fn plan_with_mount_id(
     let mut home = home_view_pinned(&paths.home, denied, Some(&snapshot))?;
     // Each view holds the same descriptors again. Refuse with the count
     // before opening them, rather than meet the open-file limit mid-plan.
-    let needed = home.1.len() * (views.len() + 1);
-    if needed > MAX_REBUILD_FDS {
-        return Err(format!(
-            "rebuilding the HOME at {} views needs {needed} descriptors (limit {MAX_REBUILD_FDS})",
-            views.len() + 1
-        ));
-    }
+    rebuild_fd_budget(home.1.len(), views.len() + 1)?;
     for (_, view) in &views {
         let (args, fds) = home_view_pinned_at(&paths.home, view, denied, Some(&snapshot))?;
         home.0.extend(args);
@@ -410,7 +446,7 @@ fn plan_with_mount_id(
     }
     let outside = outside_view(outside, &paths.home)?;
     home.0.splice(0..0, outside);
-    bwrap_args(paths, home, cmd_prefix)
+    bwrap_args_at(paths, home, &views, cmd_prefix)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -446,9 +482,13 @@ fn classify(status: Option<i32>, stderr: &str) -> Result<(), Unavailable> {
     {
         return Err(Unavailable::TooOld);
     }
+    // Ubuntu's apparmor_restrict_unprivileged_userns lets bwrap make the namespace but grants no
+    // capability inside it, so the first privileged step, the loopback address, is refused.
     if lower.contains("no permissions to create new namespace")
         || ((lower.contains("setting up uid map") || lower.contains("creating new namespace"))
             && (lower.contains("permission denied") || lower.contains("operation not permitted")))
+        || ((lower.contains("loopback") || lower.contains("rtm_newaddr"))
+            && lower.contains("operation not permitted"))
     {
         return Err(Unavailable::UserNamespacesRestricted);
     }
@@ -674,6 +714,33 @@ mod tests {
         assert!(writable.iter().all(|w| !w.starts_with(&alias)), "{args:?}");
     }
 
+    /// A daemon run as a systemd PrivateTmp service, with its HOME and
+    /// session below that /tmp (the CI runners' tests do): the mountinfo
+    /// shows the root filesystem's systemd-private directory mounted over
+    /// the session's parent. The plan must neither refuse that as an alias
+    /// nor rebuild the HOME at the covered underlying path, which bwrap
+    /// failed on with "Can't mkdir parents ... Read-only file system".
+    #[test]
+    fn regression_plan_under_private_tmp_binds_only_paths_the_process_sees() {
+        let fixture = Fixture::new();
+        let p = fixture.create_paths();
+        // As under PrivateTmp, the mounted directory lies below the very
+        // directory it is mounted over (here the fixture stands in for /tmp).
+        let private = fixture.0.join("systemd-private-de6d27af-runner.service-KDIqWd/tmp");
+        let info = format!(
+            "1 0 8:1 / / rw - ext4 root rw\n2 1 8:1 {} {} rw - ext4 root rw\n",
+            private.display(),
+            fixture.0.display()
+        );
+        let (args, _fds) = plan_with_mount_id(&p, &[], &info, &strings(&["true"]), |path| {
+            Ok(if path.starts_with(&fixture.0) { 2 } else { 1 })
+        })
+        .unwrap();
+        assert!(!args.iter().any(|a| Path::new(a).starts_with(&private)), "{args:?}");
+        let home = p.home.to_str().unwrap();
+        assert!(args.windows(2).any(|w| w == ["--tmpfs", home]), "{args:?}");
+    }
+
     /// Masking covers only an alias of the whole HOME. An alias of a guarded
     /// subtree, or of the HOME at a point inside it, still refuses.
     #[test]
@@ -716,7 +783,7 @@ mod tests {
         (alias, info)
     }
 
-    /// Ruling 1: a session folder named at the second view is writable there
+    /// A session folder named at the second view is writable there
     /// and read-only at the HOME, with the supervisor's path rules on it.
     #[test]
     fn a_cwd_under_the_second_view_is_writable_there_and_read_only_at_home() {
@@ -738,6 +805,34 @@ mod tests {
         let rebuilt = args.iter().rposition(|s| s == "--remount-ro").unwrap();
         let bound = args.iter().position(|s| s == cwd).unwrap();
         assert!(rebuilt < bound, "the writable bind must follow the view rebuild: {args:?}");
+    }
+
+    /// A cwd at the second view that holds Claude's project folders would
+    /// carry memory writable through its bind: memory is sealed read-only at
+    /// its image in every view, after every writable bind.
+    #[test]
+    fn regression_memory_stays_read_only_under_a_cwd_at_the_second_view() {
+        let f = Fixture::new();
+        let mut p = f.create_paths();
+        let (alias, info) = second_home(&f);
+        let projects = p.home.join(".claude/projects");
+        p.cwd = alias.join(".claude/projects");
+        fs::create_dir_all(&p.cwd).unwrap();
+        let id = |path: &Path| Ok(if path.starts_with(&alias) { 57 } else { 1 });
+        let (args, _fds) = plan_with_mount_id(&p, &[], &info, &strings(&["true"]), id).unwrap();
+        let cwd_bind = args
+            .windows(3)
+            .position(|w| w[0] == "--bind-fd" && Path::new(&w[2]) == p.cwd)
+            .expect("cwd bound writable at the view");
+        let memory = p.claude_project.join("memory");
+        for at in [memory.clone(), alias.join(memory.strip_prefix(&p.home).unwrap())] {
+            let sealed = args
+                .windows(3)
+                .rposition(|w| w[0] == "--ro-bind-fd" && Path::new(&w[2]) == at)
+                .unwrap_or_else(|| panic!("memory not sealed at {}: {args:?}", at.display()));
+            assert!(sealed > cwd_bind, "memory at {} sealed before the cwd bind", at.display());
+        }
+        assert!(projects.starts_with(&p.home));
     }
 
     #[test]
@@ -789,7 +884,7 @@ mod tests {
         assert_eq!(none, AliasProbe::default());
     }
 
-    /// Ruling 4: a real second mount of a made-up HOME, made in a user and
+    /// A real second mount of a made-up HOME, made in a user and
     /// mount namespace (`unshare -rm`), and the real plan and bwrap. A denied
     /// name read through the second path must fail; work folders stay
     /// readable and read-only there. The test re-runs itself inside the
@@ -812,15 +907,40 @@ mod tests {
             .output()
             .unwrap();
         let stderr = String::from_utf8_lossy(&out.stderr);
-        if !out.status.success()
-            && (stderr.contains("uid_map") || stderr.contains("unshare failed"))
-        {
+        if userns_refused(out.status.success(), &stderr) {
             eprintln!("skipped: this runner refuses user namespaces for unshare: {stderr}");
             return;
         }
         let stdout = String::from_utf8_lossy(&out.stdout);
         assert!(out.status.success(), "{stdout}\n{stderr}");
         assert!(stdout.contains("second home mount held"), "{stdout}\n{stderr}");
+    }
+
+    /// The real-mount test skips only when `unshare` itself could not make
+    /// the user namespace; a failure inside it is a test failure.
+    fn userns_refused(success: bool, stderr: &str) -> bool {
+        !success && (stderr.contains("uid_map") || stderr.contains("unshare failed"))
+    }
+
+    #[test]
+    fn real_mount_test_skips_only_when_unshare_is_refused() {
+        assert!(userns_refused(
+            false,
+            "unshare: write failed /proc/self/uid_map: Operation not permitted"
+        ));
+        assert!(userns_refused(false, "unshare failed: Operation not permitted"));
+        assert!(!userns_refused(true, "unshare failed"), "a passing run never skips");
+        assert!(!userns_refused(false, "denied dir visible at the second mount"));
+        assert!(!userns_refused(false, ""));
+    }
+
+    #[test]
+    fn rebuild_fd_budget_refuses_with_the_count() {
+        assert!(rebuild_fd_budget(489, 2).is_ok());
+        assert!(rebuild_fd_budget(512, 2).is_ok());
+        let error = rebuild_fd_budget(513, 2).unwrap_err();
+        assert!(error.contains("needs 1026 descriptors (limit 1024)"), "{error}");
+        assert!(rebuild_fd_budget(usize::MAX, 2).is_err());
     }
 
     async fn second_home_child() {
@@ -1191,6 +1311,7 @@ mod tests {
             "bwrap: setting up uid map: Permission denied",
             "bwrap: No permissions to create new namespace",
             "bwrap: Creating new namespace failed: Operation not permitted",
+            "bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted",
         ] {
             assert_eq!(classify(Some(1), stderr), Err(Unavailable::UserNamespacesRestricted));
         }
@@ -1202,9 +1323,12 @@ mod tests {
         ] {
             assert_eq!(classify(Some(1), stderr), Err(Unavailable::TooOld));
         }
-        for stderr in
-            ["bwrap: Unknown option --unrelated", "bwrap: Can't mount /: Permission denied\n"]
-        {
+        for stderr in [
+            "bwrap: Unknown option --unrelated",
+            "bwrap: Can't mount /: Permission denied\n",
+            "bwrap: Operation not permitted",
+            "bwrap: loopback: Failed RTM_NEWADDR: File exists",
+        ] {
             assert_eq!(classify(Some(1), stderr), Err(Unavailable::Other(stderr.trim().into())));
         }
         assert!(matches!(classify(Some(1), ""), Err(Unavailable::Other(_))));

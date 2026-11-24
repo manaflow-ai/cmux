@@ -7,7 +7,7 @@ import CmuxNextWindowRules
 import Foundation
 
 /// History actions (plans/cmux-next/history.md): Go Back / Forward / Last
-/// on the location trail, the history page and palette pages, reopen,
+/// on the location trail, Go Back One Session on the agent chats' own trail, the history page and palette pages, reopen,
 /// resume, clear, and Undo Layout Change.
 enum HistoryHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
@@ -18,6 +18,7 @@ enum HistoryHandlers {
             let (direction, nowhere): (LocationTrailService.Direction, @MainActor () -> String) = switch walk.direction {
             case "forward": (.forward, { HistoryAppStrings.nothingForward })
             case "last": (.last, { HistoryAppStrings.nothingLast })
+            case "backSession": (.backSession, { HistoryAppStrings.nothingSession })
             default: (.back, { HistoryAppStrings.nothingBack })
             }
             registry.bind(ActionID(rawValue: walk.action), run: { _ in

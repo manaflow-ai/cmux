@@ -67,9 +67,7 @@ pub fn serve(pool: Arc<Pool>, socket: &Path) -> Result<()> {
     if UnixStream::connect(socket).is_ok() {
         return Err(anyhow!("a pool already answers on {}", socket.display()));
     }
-    let _ = std::fs::remove_file(socket);
-    let listener =
-        UnixListener::bind(socket).with_context(|| format!("bind {}", socket.display()))?;
+    let listener = bind_private(socket)?;
     let stop = Arc::new(AtomicBool::new(false));
     eprintln!("desktop-lease: serving on {}", socket.display());
     for conn in listener.incoming() {
@@ -90,6 +88,30 @@ pub fn serve(pool: Arc<Pool>, socket: &Path) -> Result<()> {
     pool.close(std::time::Duration::from_secs(5));
     let _ = std::fs::remove_file(socket);
     Ok(())
+}
+
+/// Binds `socket` readable and writable by its owner only (0600), whatever the umask: under the
+/// `/tmp` fallback another user who could connect could read `stats` for owners and act as them.
+/// The socket is bound under a staging name, made private, then renamed into place, so it is never
+/// reachable at `socket` with wider access.
+fn bind_private(socket: &Path) -> Result<UnixListener> {
+    use std::os::unix::fs::PermissionsExt;
+    // A short name, so a socket path that fits the address limit fits staged too.
+    let staging = socket.with_file_name(format!(".dl{}", std::process::id()));
+    let _ = std::fs::remove_file(&staging);
+    let listener =
+        UnixListener::bind(&staging).with_context(|| format!("bind {}", staging.display()))?;
+    let placed = std::fs::set_permissions(&staging, std::fs::Permissions::from_mode(0o600))
+        .with_context(|| format!("chmod 600 {}", staging.display()))
+        .and_then(|()| {
+            std::fs::rename(&staging, socket)
+                .with_context(|| format!("move {} to {}", staging.display(), socket.display()))
+        });
+    if let Err(e) = placed {
+        let _ = std::fs::remove_file(&staging);
+        return Err(e);
+    }
+    Ok(listener)
 }
 
 fn handle(pool: &Arc<Pool>, conn: UnixStream, stop: &AtomicBool) -> Result<()> {
@@ -167,5 +189,25 @@ impl Client {
             return Err(anyhow!("{}", at(&v, "/error").as_str().unwrap_or("pool error")));
         }
         Ok(v)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The pool's socket is the owner's only, whatever the umask (review F1 on #41974).
+    #[test]
+    fn the_socket_is_private_to_its_owner() {
+        use std::os::unix::fs::PermissionsExt;
+        // Under /tmp itself: a long TMPDIR passes the socket address limit.
+        let dir = std::path::PathBuf::from(format!("/tmp/dl-bind-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let socket = dir.join("desktop-lease.sock");
+        let _listener = bind_private(&socket).unwrap();
+        let mode = std::fs::metadata(&socket).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "socket mode {mode:o}");
+        assert!(UnixStream::connect(&socket).is_ok());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

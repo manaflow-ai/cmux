@@ -111,6 +111,28 @@ function checkHarnessModel(input: unknown, path: string): HarnessModel {
   return model as unknown as HarnessModel;
 }
 
+/** A harness's feed rules (types.ts `HarnessFeed`): data a client matches feed ids against. */
+function checkFeed(input: unknown, path: string): void {
+  const feed = record(input, path);
+  if (!Array.isArray(feed.sources) || feed.sources.length === 0 || feed.sources.length > 16) {
+    fail(`${path}.sources`, "must be an array of 1 to 16 sources");
+  }
+  feed.sources.forEach((raw, index) => {
+    const source = record(raw, `${path}.sources[${index}]`);
+    matching(source.provider, SLUG, `${path}.sources[${index}].provider`);
+    for (const key of ["include", "exclude"]) optional(source, key, `${path}.sources[${index}]`, list(text));
+    optional(source, "minReleaseDate", `${path}.sources[${index}]`, text);
+  });
+  optional(feed, "shortNamePrefix", path, text);
+  optional(feed, "familyNames", path, (v, p) => {
+    for (const [key, name] of Object.entries(record(v, p))) text(name, `${p}.${key}`);
+  });
+  optional(feed, "dropEfforts", path, list(oneOf(EFFORTS)));
+  optional(feed, "defaultEffort", path, oneOf(EFFORTS));
+  optional(feed, "groupByProvider", path, bool);
+  optional(feed, "hidden", path, list(text));
+}
+
 function checkHarness(input: unknown, path: string): CatalogHarness {
   const harness = record(input, path);
   matching(harness.id, SLUG, `${path}.id`);
@@ -127,6 +149,8 @@ function checkHarness(input: unknown, path: string): CatalogHarness {
   optional(harness, "defaultModel", path, (v, p) => {
     if (!models.some((model) => model.id === v)) fail(p, "must name one of its models");
   });
+  optional(harness, "runsAnyModel", path, bool);
+  optional(harness, "feed", path, checkFeed);
   return harness as unknown as CatalogHarness;
 }
 

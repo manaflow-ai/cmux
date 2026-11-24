@@ -41,7 +41,9 @@ public enum CloudLinkError: Error, Equatable, Sendable, CustomStringConvertible,
         case .unsafeSocket(let detail), .invalidAnswer(let detail):
             "cmux didn't connect: the Cloud app's answer for this machine failed a safety check (\(detail)). Click Connect to try again."
         case .notUp(let state): "The machine's connection isn't ready yet (\(state)). Click Connect to try again."
-        case .failed(let code, let message), .helperRefused(let code, let message): "Could not connect to the Cloud machine (\(message.isEmpty ? code : message)). Click Connect to try again."
+        // An empty message leaves only the server's code (`cmux.cloud.x`), which says nothing to a person: the log keeps it.
+        case .failed(_, let message), .helperRefused(_, let message):
+            "Could not connect to the Cloud machine\(Self.because(message)). Click Connect to try again."
         case .unsupported: "This version of cmux can't connect to the Cloud machine this way. Update cmux, then click Connect."
         }
     }
@@ -60,10 +62,11 @@ public enum CloudLinkError: Error, Equatable, Sendable, CustomStringConvertible,
     public static func failureReason(_ error: any Error) -> String? {
         let reason: String
         switch error as? CloudLinkError {
-        case .failed(let code, let message)?: reason = message.isEmpty ? code : message
+        // A bare code (`cmux.cloud.x`) says nothing to a person: no reason, and the sentence stands alone.
+        case .failed(_, let message)?: reason = message
         // The helper's own words without its step's name (`handshake: ...`), which says nothing to a person.
         case .helperRefused(let code, let message)?:
-            reason = message.isEmpty ? code : message.hasPrefix(code + ": ") ? String(message.dropFirst(code.count + 2)) : message
+            reason = message.hasPrefix(code + ": ") ? String(message.dropFirst(code.count + 2)) : message
         case .helperNotRunning(let why)?: reason = why
         case .notUp(let state)?: reason = state
         case .disconnected?, nil: return droppedReason(error)

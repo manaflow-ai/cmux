@@ -24,6 +24,8 @@
 pub(crate) mod cli;
 
 #[cfg(unix)]
+pub(crate) mod approval;
+#[cfg(unix)]
 mod channel;
 #[cfg(unix)]
 mod helper;
@@ -39,6 +41,8 @@ mod route;
 mod session;
 #[cfg(unix)]
 mod state;
+#[cfg(unix)]
+mod verbs;
 
 #[cfg(all(test, unix))]
 mod tests;
@@ -64,20 +68,12 @@ pub(crate) fn dir(home: &Path) -> PathBuf {
 
 /// The device hub of the cmux-platform deployment a machine credential was joined at
 /// (`MachineCredential::hub_origin` is the platform's origin, not the device hub's): each
-/// deployment's own, from `cmux-cloud-environment`. None for an origin no deployment has.
+/// deployment's own, from the table cmux-rd reads too (`cmux_hub_host::deployment`), so the
+/// daemon and the host it sets up pick the same hub for a credential. None for an origin no
+/// deployment has.
 #[cfg(unix)]
 pub(crate) fn device_hub_origin(platform_origin: &str) -> Option<String> {
-    use cmux_cloud_environment as env;
-    let origin = platform_origin.trim().trim_end_matches('/');
-    [
-        env::PRODUCTION_DEPLOYMENT,
-        env::STAGING_DEPLOYMENT,
-        env::DEVELOPMENT_DEPLOYMENT,
-        env::LOCAL_DEPLOYMENT,
-    ]
-    .into_iter()
-    .find(|deployment| deployment.platform_origin == origin)
-    .map(|deployment| deployment.device_hub_origin.to_owned())
+    cmux_hub_host::deployment::device_hub_of(platform_origin).map(str::to_owned)
 }
 
 /// This machine's join as the share host reads it.
@@ -256,6 +252,21 @@ pub(crate) fn start(scope: &cmux_scope::Scope) {
             Err(e) => tracing::warn!("{LOG}: the hub link did not start: {e}"),
         }
     });
+}
+
+/// What the device hub says of machine `host`'s screen (`peers`' `deviceHub` on a row only the
+/// mesh hub reaches): read from the running share host's device list; None when no share host
+/// runs here or it has not read the list yet.
+pub(crate) fn device_hub_of(host: &str) -> Option<serde_json::Value> {
+    #[cfg(unix)]
+    {
+        state::device_hub_of(host)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = host;
+        None
+    }
 }
 
 /// `_acpmux/share_host_status`: what `acpmux share-host status` prints.

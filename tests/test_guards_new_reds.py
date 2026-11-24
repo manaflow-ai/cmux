@@ -193,21 +193,42 @@ class NewReds(unittest.TestCase):
 
     def test_no_first_base_pass_means_no_flake_verdict_from_a_later_replay(self):
         # #41414 review F2: a later base replay that fails a test proves the base flaps on it only when the first
-        # replay passed it. A missing or unreadable first result, or a first replay whose file timed out (it names no
-        # test), followed by a replay that names the test red, turned "no base result is the change's" into a pass.
+        # replay passed it. A missing or unreadable first result stays unknown, never a flake. A first replay whose
+        # file timed out (it names no test) followed by replays that name the test red is no flake either: the base
+        # failed it by name, so it is red on the base too (cmux#50088), never excused as flaky.
         red = "test/agent-pane-stream-row-overlap.test.ts > webkit: followed, no lag"
         file = red.split(" > ")[0]
         for first in ("unreadable", {file: False}, {f"{file} > other": False, file: False}):
             done = self.run_again({red: False}, first, {red: False})
+            self.assertNotIn(f"webview test red step (flaky): {red}", done.stdout)
             if first == "unreadable":
                 self.assertEqual(done.returncode, 1, f"{first}: {done.stdout}{done.stderr}")
                 self.assertIn(f"webview test red step (unknown): {red}", done.stdout)
             else:
-                self.assertEqual(done.returncode, 1, f"{first}: {done.stdout}{done.stderr}")
-                self.assertIn(f"::error title=Webview test red on this change::{red}", done.stdout)
-                self.assertIn(f"webview test red step (new): {red}", done.stdout)
+                self.assertEqual(done.returncode, 0, f"{first}: {done.stdout}{done.stderr}")
+                self.assertIn(f"webview test red step (base): {red}", done.stdout)
             listed = self.run_again({red: False}, first, {red: False}, new_files=True)
-            self.assertEqual(listed.stdout.splitlines(), [] if first == "unreadable" else [file], first)
+            self.assertEqual(listed.stdout.splitlines(), [], first)
+
+    def test_a_red_the_first_replay_timed_out_on_is_the_bases_when_every_later_replay_fails_it(self):
+        # cmux#50088 (job 137410904472): feel-plan-tray.test.ts timed out on the first base replay, naming the tests
+        # it finished; both later base replays failed "five drags in a row" by name with the head's own numbers, and
+        # the compare called it the change's.
+        file = "test/feel-plan-tray.test.ts"
+        red = f"{file} > feel: plan tray rim drag > five drags in a row, up and down: each follows the hand, none jumps"
+        other = f"{file} > feel: plan tray rim drag > a click on the rim (no drag) moves and changes nothing"
+        head = {red: False, other: False, file: False}
+        first = {other: False, file: False}
+        done = self.run_again(head, first, {red: False, other: False, file: False}, {red: False, file: False})
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertNotIn("::error", done.stdout)
+        self.assertIn(f"::warning title=Webview test red on the base too::{red}", done.stdout)
+        self.assertIn(f"webview test red step (base): {red}", done.stdout)
+        # One later replay that passes it, or none that names it: still the change's.
+        for again in (({red: False}, {red: True}), ({file: False},), ({file: False}, {file: False})):
+            done = self.run_again(head, first, *again)
+            self.assertEqual(done.returncode, 1, f"{again}: {done.stdout}{done.stderr}")
+            self.assertIn(f"webview test red step (new): {red}", done.stdout)
         # A first replay whose file passed whole (it names no passing test) did pass it.
         done = self.run_again({red: False}, {file: True}, {red: False})
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
@@ -267,6 +288,38 @@ class NewReds(unittest.TestCase):
         self.assertIn("guard red step (new): finished green", done.stdout)
         self.assertIn("guard red step (unknown): cut step", done.stdout)
         self.assertNotIn("guard red step (new): cut step", done.stdout)
+
+    def test_a_file_the_cut_base_replay_never_reached_is_unknown_not_the_changes(self):
+        # react-apps-base-check's first base replay stops at the job's budget (CMUX_WEB_TEST_STOP_AT). Job
+        # 137225088381 replayed 152 files one at a time and was cancelled at the 55 minutes with no verdict; cut
+        # instead, the files it never reached have no base result, and their reds must not read as the change's.
+        reached, cut = "test/reached.test.ts", "test/cut.test.ts"
+        head = {f"{reached} > a": False, f"{cut} > b": False, cut: False}
+        with tempfile.TemporaryDirectory() as tmp:
+            files, base, head_path = Path(tmp) / "files", Path(tmp) / "base.json", Path(tmp) / "head.json"
+            files.write_text(f"{reached}\n{cut}\n")
+            base.write_text(json.dumps({f"{reached} > a": True}))
+            head_path.write_text(json.dumps(head))
+            marked = subprocess.run([sys.executable, str(ROOT / "scripts/ci/webviews_test_results.py"), "--mark-unreached",
+                                     str(files), str(base)], capture_output=True, text=True)
+            self.assertEqual(marked.returncode, 0, marked.stdout + marked.stderr)
+            self.assertIn(f"  {cut}", marked.stdout)
+            self.assertEqual(json.loads(base.read_text())["_cmux_unreached"], [cut])
+            done = subprocess.run([sys.executable, str(SCRIPT), "--label", "Webview test", str(head_path), str(base)],
+                                  capture_output=True, text=True)
+            self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+            self.assertIn(f"webview test red step (new): {reached} > a", done.stdout)
+            self.assertIn(f"webview test red step (unknown): {cut} > b", done.stdout)
+            self.assertIn(f"webview test red step (unknown): {cut}", done.stdout)
+            self.assertNotIn(f"(new): {cut}", done.stdout)
+            listed = subprocess.run([sys.executable, str(SCRIPT), "--new-files", str(head_path), str(base)],
+                                    capture_output=True, text=True)
+            self.assertEqual(listed.stdout.splitlines(), [reached])
+            # A replay that reached every file is left as it was.
+            base.write_text(json.dumps({f"{reached} > a": True, cut: True}))
+            subprocess.run([sys.executable, str(ROOT / "scripts/ci/webviews_test_results.py"), "--mark-unreached",
+                            str(files), str(base)], check=True, capture_output=True)
+            self.assertNotIn("_cmux_unreached", json.loads(base.read_text()))
 
     def test_a_step_the_change_fixes_is_said(self):
         done = self.run_it({"lint": True}, {"lint": False})

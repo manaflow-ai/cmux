@@ -13,13 +13,21 @@ let renders = 0;
 let cleanups = 0;
 let poolWorks = true;
 const pool = { isWorkingPool: () => poolWorks };
-await mock.module("../src/agent-session/acpmux/conversation/highlightPool", () => ({
+// mock.module replaces a module for every later file in the process, and mock.restore() does not undo
+// it: afterAll mocks both back to their real exports (else the next file's edit diff gets this fake pool
+// and @pierre/diffs throws "workerManager?.subscribeToThemeChanges is not a function").
+const HIGHLIGHT_POOL = "../src/agent-session/acpmux/conversation/highlightPool";
+const realHighlightPool = { ...(await import(HIGHLIGHT_POOL)) };
+const realDiffs = { ...(await import("@pierre/diffs")) };
+await mock.module(HIGHLIGHT_POOL, () => ({
   paneHighlightPool: () => pool,
   onHighlightTimeout: () => () => {},
 }));
 await mock.module("@pierre/diffs", () => ({
   DIFFS_TAG_NAME: "diffs-container",
-  registerCustomTheme: () => {},
+  // The real one: a theme the app registers while this mock is in place (diffTheme.ts registers once per
+  // process) must reach Pierre's real registry, or a later file's diff finds no cmux-agent-dark loader.
+  registerCustomTheme: realDiffs.registerCustomTheme,
   File: class {
     options: Record<string, unknown>;
     constructor(options: Record<string, unknown>) {
@@ -85,6 +93,8 @@ afterEach(async () => {
 });
 afterAll(async () => {
   mock.restore();
+  await mock.module(HIGHLIGHT_POOL, () => realHighlightPool);
+  await mock.module("@pierre/diffs", () => realDiffs);
   await teardownDom(saved, { window: dom.window, scope });
 });
 async function draw(node: React.ReactNode) {

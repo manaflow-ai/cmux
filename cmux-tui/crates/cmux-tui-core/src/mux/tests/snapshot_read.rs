@@ -718,6 +718,7 @@ fn unread_cached_rows_are_let_go_and_the_next_read_shows_the_same_snapshot() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+mod compact;
 mod route_wait;
 #[cfg(unix)]
 mod window;

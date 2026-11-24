@@ -73,4 +73,97 @@ struct AcpmuxRequestIdsTests {
         #expect(forwarded.contains(#""id":7"#))
         #expect(relay == 1)
     }
+
+    /// An `_acpmux/events` page of transcript records, with escapes inside its values only.
+    static func eventsPage(id: Int, kind: String = "transcript") -> String {
+        #"{"jsonrpc":"2.0","id":\#(id),"result":{"events":[{"sessionId":"s","seq":4,"dir":"mux","kind":"\#(kind)","msg":{"text":"a \"quoted\" line\nand a slash \/ é"}}],"more":true}}"#
+    }
+
+    @Test func historyPageWithoutPermissionRecordsPassesThroughUnparsed() throws {
+        let ids = AcpmuxRequestIds()
+        let relay = try #require(ids.begin(pageID: #""page-9""#, method: "_acpmux/events"))
+        let text = Self.eventsPage(id: relay)
+        guard case .reply(let forwarded, let method) = ids.toPage(text) else {
+            Issue.record("a history page no observer reads was parsed")
+            return
+        }
+        #expect(method == "_acpmux/events")
+        // The daemon's own text, its escapes as they were, with only the id swapped.
+        #expect(forwarded == text.replacingOccurrences(of: #""id":\#(relay),"#, with: #""id":"page-9","#))
+        let object = try #require(try JSONSerialization.jsonObject(with: Data(forwarded.utf8)) as? [String: Any])
+        #expect(object["id"] as? String == "page-9")
+        // The page id is free again.
+        #expect(ids.begin(pageID: #""page-9""#, method: "_acpmux/events") != nil)
+    }
+
+    @Test func historyPageWithAPermissionRecordFeedsObservers() throws {
+        let ids = AcpmuxRequestIds()
+        let relay = try #require(ids.begin(pageID: "12", method: "_acpmux/events"))
+        let text = Self.eventsPage(id: relay, kind: "permission_request")
+        guard case .page(let forwarded, let object, let method) = ids.toPage(text) else {
+            Issue.record("a history page with a permission record was not parsed")
+            return
+        }
+        #expect(method == "_acpmux/events")
+        #expect(object?["id"] as? Int == 12)
+        #expect(forwarded == text.replacingOccurrences(of: #""id":\#(relay),"#, with: #""id":12,"#))
+    }
+
+    @Test func parsedReplyKeepsTheDaemonTextWithThePageId() throws {
+        let ids = AcpmuxRequestIds()
+        let relay = try #require(ids.begin(pageID: "5", method: "_acpmux/attach"))
+        let text = #"{"jsonrpc":"2.0","result":{"session":{"sessionId":"s","cwd":"/tmp"},"events":[{"msg":{"text":"x\ny"}}]},"id":\#(relay)}"#
+        guard case .page(let forwarded, let object, let method) = ids.toPage(text) else {
+            Issue.record("attach reply not forwarded")
+            return
+        }
+        #expect(method == "_acpmux/attach")
+        #expect(object?["id"] as? Int == 5)
+        #expect(forwarded == text.replacingOccurrences(of: #""id":\#(relay)}"#, with: #""id":5}"#))
+    }
+
+    @Test func escapedIdKeyStillRewritesThroughTheParse() throws {
+        let ids = AcpmuxRequestIds()
+        let relay = try #require(ids.begin(pageID: "8", method: "_acpmux/events"))
+        let text = #"{"jsonrpc":"2.0","\u0069d":\#(relay),"result":{"events":[]}}"#
+        guard case .page(let forwarded, let object, _) = ids.toPage(text) else {
+            Issue.record("escaped id key reply not forwarded through the parse")
+            return
+        }
+        #expect(object?["id"] as? Int == 8)
+        let reparsed = try #require(try JSONSerialization.jsonObject(with: Data(forwarded.utf8)) as? [String: Any])
+        #expect(reparsed["id"] as? Int == 8)
+    }
+
+    @Test func nestedIdIsNotTheRelayId() throws {
+        let ids = AcpmuxRequestIds()
+        let relay = try #require(ids.begin(pageID: "3", method: "_acpmux/events"))
+        let text = #"{"jsonrpc":"2.0","result":{"events":[{"id":999,"kind":"transcript"}]},"id":\#(relay)}"#
+        guard case .reply(let forwarded, _) = ids.toPage(text) else {
+            Issue.record("history page not passed through")
+            return
+        }
+        #expect(forwarded.contains(#"{"id":999,"#))
+        #expect(forwarded.hasSuffix(#""id":3}"#))
+    }
+
+    @MainActor @Test func passedThroughReplyWakesAHiddenPage() async throws {
+        let (woken, wake) = AsyncStream<Void>.makeStream()
+        let transport = AgentPaneTransport()
+        let ids = AcpmuxRequestIds()
+        let socket = AcpmuxPaneSocket(
+            request: URLRequest(url: URL(string: "ws://127.0.0.1")!),
+            limits: transport.limits,
+            options: transport.permissionOptions,
+            sessions: transport.sessions,
+            ids: ids,
+            signal: { wake.yield() })
+        let relay = try #require(ids.begin(pageID: "4", method: "_acpmux/events"))
+        socket.receiveLocalReply(Self.eventsPage(id: relay))
+        for await _ in woken { break }
+        #expect(socket.pageWaits)
+        #expect(socket.answersWaiting)
+        let batch = socket.take(maximumFrames: 10, maximumBytes: 1 << 20)
+        #expect(batch.frames.count == 1)
+    }
 }
