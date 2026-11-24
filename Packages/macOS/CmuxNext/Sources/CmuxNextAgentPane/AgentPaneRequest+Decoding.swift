@@ -38,6 +38,16 @@ extension AgentPaneRequest {
         }
     }
 
+    /// A GitHub repository's full name (webviews githubConnect.ts `isGitHubRepo`): an owner of 1 to 39
+    /// letters, digits and inner dashes, a name of 1 to 100 letters, digits, `.`, `_` and `-`, never
+    /// `.` or `..`. Connect GitHub passes only such a one on.
+    static func isGitHubRepo(_ value: String) -> Bool {
+        guard value.utf8.count <= 140,
+              value.range(of: #"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9._-]{1,100}$"#, options: .regularExpression) != nil else { return false }
+        let name = value.split(separator: "/").last
+        return name != "." && name != ".."
+    }
+
     private static func uploadStage(_ method: String, _ params: [String: Any]?) -> AgentPaneRequest {
         guard let params else { return .unsupported(method) }
         switch method {
@@ -693,8 +703,15 @@ extension AgentPaneRequest {
                queued.map({ $0.map { ["chatPlace.set", "chatMove.retry"].contains(id) && (0...100_000).contains($0) } ?? false }) ?? true,
                hasDraft.map({ $0 != nil && ["chatPlace.set", "chatMove.retry"].contains(id) }) ?? true,
                sessions.map({ $0.map { AgentPaneRequest.areSessionTargets($0, id: id, alongside: session ?? nil) } ?? false }) ?? true {
+                // Connect GitHub's card names the failed call's repository and the chat's link: a
+                // malformed one is dropped (Connect still runs, as from the palette); the link is
+                // checked against this build's links where it runs (AgentPaneModel+Actions.swift).
+                let github = id == "accounts.githubConnect"
+                let repo = (params?["repo"] as? String).flatMap { github && AgentPaneRequest.isGitHubRepo($0) ? $0 : nil }
+                let returnTo = (params?["returnTo"] as? String).flatMap { github && $0.utf8.count <= 512 ? $0 : nil }
                 self = .runAction(id, session: session ?? nil, environment: environment ?? nil, handoff: handoff ?? nil, app: app ?? nil,
-                                  mode: mode ?? nil, queued: queued ?? nil, hasDraft: hasDraft ?? nil, sessions: sessions ?? nil)
+                                  mode: mode ?? nil, queued: queued ?? nil, hasDraft: hasDraft ?? nil, sessions: sessions ?? nil,
+                                  repo: repo, returnTo: returnTo)
             } else {
                 self = .unsupported(method)
             }

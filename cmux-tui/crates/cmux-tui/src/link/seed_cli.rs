@@ -495,6 +495,9 @@ struct Machine<'a> {
     seeds: bool,
     /// It serves `git-seed-hold-v2` ([`held`]).
     holds: bool,
+    /// It serves `git-seed-carry-v1`: a fresh folder takes this Mac's pack of the base instead
+    /// of a clone ([`plan_carry`]).
+    carries: bool,
 }
 
 impl<'a> Machine<'a> {
@@ -512,8 +515,9 @@ impl<'a> Machine<'a> {
         }
         let seeds = lacks(cmux_tui_core::git_seed::GIT_SEED_CAPABILITY).is_none();
         let holds = lacks(cmux_tui_core::git_seed::GIT_SEED_HOLD_CAPABILITY).is_none();
+        let carries = lacks(cmux_tui_core::git_seed::GIT_SEED_CARRY_CAPABILITY).is_none();
         let id = identity.get("session_id").and_then(Value::as_str).map(str::to_owned);
-        Ok(Self { socket, id, seeds, holds })
+        Ok(Self { socket, id, seeds, holds, carries })
     }
 
     fn outdated() -> SeedError {
@@ -800,9 +804,10 @@ fn seed_full(
     if !machine.seeds {
         return Err(Attempt::Fallback(Machine::outdated()));
     }
-    let bundle = LocalBundle::new().map_err(Attempt::Failed)?;
+    let mut bundle = LocalBundle::new().map_err(Attempt::Failed)?;
     let mut planned =
         super::spans::time("seed.plan", || plan::plan(local, &bundle.file)).map_err(from_plan)?;
+    plan_carry(machine, local, &planned, &mut bundle);
     let existed = sync_cli::remote_kind(machine.socket, remote)
         .map_err(|error| Attempt::Failed(SeedError::of(&error)))?
         .is_some();
@@ -814,6 +819,7 @@ fn seed_full(
         && let Some(tip) = planned.bases.last().filter(|tip| **tip != planned.params.base).cloned()
     {
         planned = plan::plan_with_base(local, &bundle.file, &tip).map_err(from_plan)?;
+        plan_carry(machine, local, &planned, &mut bundle);
         result = run_seed(machine.socket, remote, &planned, &bundle, head_first);
     }
     match result {
@@ -829,6 +835,23 @@ fn seed_full(
             Err(Attempt::Fallback(error))
         }
         Err(error) => Err(Attempt::Failed(error)),
+    }
+}
+
+/// The base's pack beside the bundle when the machine serves `git-seed-carry-v1` and this Mac
+/// may carry it (`seed::carry`); else none, and the machine clones. A failure here is never the
+/// seed's: it only costs the clone it would have saved.
+fn plan_carry(machine: &Machine<'_>, local: &Path, planned: &Planned, bundle: &mut LocalBundle) {
+    bundle.carry = None;
+    if !machine.carries || !super::seed::carry::enabled() || planned.params.since.is_some() {
+        return;
+    }
+    let out = bundle.folder.join("carry.pack");
+    let packed = super::spans::time("seed.carry_pack", || {
+        super::seed::carry::pack(local, &planned.params.base, &out)
+    });
+    if let Ok(bytes) = packed {
+        bundle.carry = Some((out, bytes));
     }
 }
 
@@ -933,6 +956,8 @@ fn seeded(mode: &'static str, planned: &Planned, ended: &Ended) -> Pushed {
         .map(|item| {
             let kind = if item.why.starts_with("a separate git repository") {
                 "repository"
+            } else if item.why.starts_with("a big file") {
+                "big"
             } else {
                 "secret"
             };
@@ -973,11 +998,25 @@ fn run_seed(
     // A big upload goes through this part file first (sync_cli remote.rs);
     // a failed one leaves it.
     let part = format!("{parent}/.{file}.cmux-sync-part");
-    let total = planned.bundle_bytes;
+    let carry_bytes = bundle.carry.as_ref().map_or(0, |(_, bytes)| *bytes);
+    let total = planned.bundle_bytes + carry_bytes;
     let mut report = throttled();
     report(json!({"phase": "upload", "bytes_done": 0, "bytes_total": total}), true);
     let mut laps = super::spans::Laps::new("seed");
+    // The carry pack first, beside the bundle; its progress counts toward the same total.
+    let carry_target = bundle.carry.as_ref().map(|_| format!("{parent}/{file}.carry"));
+    let carry_part =
+        carry_target.as_ref().map(|_| format!("{parent}/.{file}.carry.cmux-sync-part"));
+    let mut carried = None;
+    if let (Some((path, _)), Some(target)) = (&bundle.carry, &carry_target) {
+        let uploaded = sync_cli::upload(socket, path, target, &mut |done| {
+            report(json!({"phase": "upload", "bytes_done": done, "bytes_total": total}), false);
+        });
+        // A pack that did not go up only costs the clone it would have saved.
+        carried = uploaded.is_ok().then(|| target.clone());
+    }
     let uploaded = sync_cli::upload(socket, &bundle.file, &target, &mut |done| {
+        let done = done + carry_bytes;
         report(json!({"phase": "upload", "bytes_done": done, "bytes_total": total}), done >= total);
     });
     laps.mark("upload");
@@ -986,6 +1025,9 @@ fn run_seed(
             .map_err(|error| SeedError::new("seed.bad_request", error.to_string()))?;
         start.set("folder", json!(remote));
         start.set("bundle", json!(target));
+        if let Some(carry) = &carried {
+            start.set("carry", json!(carry));
+        }
         let head_first = head_first.filter(|subpath| asks_head_first(planned, subpath));
         if let Some(subpath) = head_first {
             start.set("head_first", json!(true));
@@ -999,6 +1041,9 @@ fn run_seed(
     // The machine copied it when the job started; gone already after a seed.
     let _ = sync_cli::delete_remote(socket, &target);
     let _ = sync_cli::delete_remote(socket, &part);
+    for path in carry_target.iter().chain(carry_part.iter()) {
+        let _ = sync_cli::delete_remote(socket, path);
+    }
     laps.mark("cleanup");
     result
 }
@@ -1290,6 +1335,8 @@ fn unique() -> String {
 struct LocalBundle {
     folder: PathBuf,
     file: PathBuf,
+    /// The `git-seed-carry-v1` pack beside it and its bytes ([`plan_carry`]).
+    carry: Option<(PathBuf, u64)>,
 }
 
 impl LocalBundle {
@@ -1301,7 +1348,7 @@ impl LocalBundle {
             SeedError::new("sync_failed", format!("cannot make a folder for the bundle: {error}"))
         })?;
         let file = folder.join("seed.bundle");
-        Ok(Self { folder, file })
+        Ok(Self { folder, file, carry: None })
     }
 }
 
