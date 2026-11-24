@@ -1,6 +1,7 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextBrowser
 import CmuxNextDesignTokens
 import CmuxNextSettings
 import Testing

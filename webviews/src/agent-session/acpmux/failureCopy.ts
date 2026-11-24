@@ -1,5 +1,6 @@
 import { agentKey } from "../shared/agentKey";
-import type { Translate } from "./i18n";
+import { currentLanguage, type Translate } from "./i18n";
+import { resetTime } from "./usageLimits";
 
 /// Why a turn failed, as the user can act on it (ROUTES R0, cx-w10a). Errors from harnesses are user-facing
 /// text, but a 401 from a proxy, a bad API key, a rate limit that mentions authentication and the CLI's own
@@ -38,6 +39,10 @@ export type FailureRoute = {
   /// The AWS profile the chat's agent signs in with (its `AWS_PROFILE`), when the host knows it: an
   /// expired SSO sign-in names it in `aws sso login --profile`.
   awsProfile?: string;
+  /// A Cloud chat whose machine's acpmux runs no in-card sign-in (an older machine, no
+  /// `agent-login-v1`): the card's Sign in again runs the agent's own login in a terminal on that
+  /// machine instead (``terminalSignIn`` in cloudAgentLogin.ts), and its sentence says why.
+  terminalSignIn?: boolean;
 };
 
 /// CodeRouter's refusal on a team Cloud machine whose team has no account for the agent: a 403
@@ -176,6 +181,27 @@ const TYPED: readonly [RegExp, FailureKind][] = [
 const CODEX_CONFIG = /failed to (?:re)?load workspace requirements/i;
 /// The path may hold spaces; it ends at the first `:LINE:COLUMN` that ends a word.
 const CODEX_CONFIG_AT = /invalid configuration at (.+?):\d+:\d+(?!\S)/i;
+/// When a used-up limit resets, where the refusal says so as a time: Claude Code's subscription limit
+/// ("Claude AI usage limit reached|1764000000", epoch seconds) and a JSON `resets_at` / `resetsAt`
+/// (ISO or epoch seconds). A wait that only says "in 3h" names no time to show.
+const RESET_EPOCH = /limit reached\|(\d{10})\b/i;
+const RESET_FIELD = /"resets?_?[aA]t"\s*:\s*(?:"([^"]+)"|(\d{10}))/;
+
+/// The reset time (epoch seconds) a rate-limited `message` names, or undefined.
+export function limitResetsAt(message: string | undefined): number | undefined {
+  if (!message) return undefined;
+  const epoch = RESET_EPOCH.exec(message)?.[1];
+  const field = RESET_FIELD.exec(message);
+  const seconds = epoch
+    ? Number(epoch)
+    : field?.[2]
+      ? Number(field[2])
+      : field?.[1]
+        ? Date.parse(field[1]) / 1000
+        : Number.NaN;
+  return Number.isFinite(seconds) && seconds > 0 ? Math.floor(seconds) : undefined;
+}
+
 const URL_HOST = /https?:\/\/([^\s/'")\]]+)/i;
 const STATUS = /\b([45]\d\d)\b/;
 /// Harness profiles that reach their provider through a proxy acpmux knows by name.
@@ -337,9 +363,13 @@ export function failureCopy(t: Translate, message: string | undefined, route?: F
   const status = message ? STATUS.exec(message)?.[1] : undefined;
   if (isTeamMachineSignIn(kind, route)) return t("turn.failure.cloudTeamMachineNoLogin", { harness });
   if (route?.hostKind === "cloud" && (kind === "auth" || kind === "subscription-login")) {
-    if (MISSING_CREDENTIAL.test(message ?? "")) return t("turn.failure.cloudAuthMissing", { harness });
-    if (EXPIRED_CREDENTIAL.test(message ?? "")) return t("turn.failure.cloudAuthExpired", { harness });
-    return t("turn.failure.cloudAuthRejected", { harness, status: status ? ` (HTTP ${status})` : "" });
+    const cause = MISSING_CREDENTIAL.test(message ?? "")
+      ? t("turn.failure.cloudAuthMissing", { harness })
+      : EXPIRED_CREDENTIAL.test(message ?? "")
+        ? t("turn.failure.cloudAuthExpired", { harness })
+        : t("turn.failure.cloudAuthRejected", { harness, status: status ? ` (HTTP ${status})` : "" });
+    // An older machine signs in through Sign in again's terminal there, not in the card: say why.
+    return route.terminalSignIn ? `${cause} ${t("turn.failure.cloudSignInInTerminal", { harness })}` : cause;
   }
   switch (kind) {
     case "trust-pending":
@@ -361,8 +391,13 @@ export function failureCopy(t: Translate, message: string | undefined, route?: F
         ? t("turn.failure.cloudSsoExpired", { harness })
         : t("turn.failure.cloudCredentialsExpired", { harness });
     }
-    case "rate-limited":
-      return t("turn.failure.rateLimited", { harness });
+    case "rate-limited": {
+      // A used-up limit that names its reset says when, not "in a moment" (it can be hours or days).
+      const resets = limitResetsAt(message);
+      return resets === undefined
+        ? t("turn.failure.rateLimited", { harness })
+        : t("turn.failure.usageLimitResets", { harness, time: resetTime(resets, currentLanguage()) });
+    }
     case "unreachable":
       return via ? t("turn.failure.unreachableVia", { harness, via }) : t("turn.failure.unreachable", { harness });
     case "invalid-key":
