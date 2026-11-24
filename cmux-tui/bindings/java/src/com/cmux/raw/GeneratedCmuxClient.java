@@ -1221,9 +1221,9 @@ public abstract class GeneratedCmuxClient {
         return SetCellPixelsResult.fromWire(result);
     }
 
-    public final EmptyResult setClientInfo(SetClientInfoRequest request) throws CmuxException {
+    public final SetClientInfoResult setClientInfo(SetClientInfoRequest request) throws CmuxException {
         Object result = execute(Commands.SET_CLIENT_INFO, request.toWire());
-        return EmptyResult.fromWire(result);
+        return SetClientInfoResult.fromWire(result);
     }
 
     public final EmptyResult setClientSizing(SetClientSizingRequest request) throws CmuxException {
