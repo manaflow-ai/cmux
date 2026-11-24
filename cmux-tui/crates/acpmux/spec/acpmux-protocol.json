@@ -655,6 +655,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/github_rest",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/bookmark_get",
       "params": {
         "$ref": "#/types/BookmarkGetParams"
@@ -1119,6 +1125,12 @@
     {
       "kind": "request",
       "name": "_acpmux/machine_info",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/scorecard",
       "params": true,
       "result": true
     },
@@ -2931,6 +2943,7 @@
         "personKey": true,
         "personStop": true,
         "personVerified": true,
+        "placeRedirect": true,
         "policy": true,
         "pr": true,
         "preset": true,

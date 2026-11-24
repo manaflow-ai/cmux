@@ -158,6 +158,11 @@ pub const CAPABILITIES: &[Capability] = &[
         id: crate::hub::row_log::CAPABILITY,
         wire: &[method::MUX_WATCH, method::MUX_SESSION_CHANGED],
     },
+    // `session/new` with `_meta.acpmux.placeRedirect: 1`: a create this lane host has no room
+    // for starts on the peer the placement engine picks, answered with that peer's session and
+    // `_meta.acpmux.placedOn` (`hub/admission_redirect.rs`). Older daemons ignore the opt-in and
+    // start it here, warned; a client that sends none gets that from this one too.
+    Capability { id: crate::hub::admission_redirect::CAPABILITY, wire: &[method::SESSION_NEW] },
     Capability {
         id: PEER_ROW_BATCHES,
         wire: &[method::INITIALIZE, method::MUX_WATCH, method::MUX_PEER_ROWS_CHANGED],
