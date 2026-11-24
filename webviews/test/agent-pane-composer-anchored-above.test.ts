@@ -152,7 +152,8 @@ await requireBrowserLane("agent-pane-composer-anchored-above.test.ts", async () 
   const inPage =
     <T>(fn: (arg: T) => unknown, arg: T): Step =>
     (page) =>
-      page.evaluate(fn as (arg: T) => unknown, arg);
+      // A generic T is not Unboxed<T> to playwright's types; the step functions take plain JSON.
+      page.evaluate(fn as never, arg as never);
   const headerTo = (delta: number | null) =>
     inPage((delta) => {
       const header = document.querySelector<HTMLElement>(".acpmux-header")!;
