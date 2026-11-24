@@ -58,4 +58,11 @@ import Testing
         #expect(MacReachability.resolve(mac: mac, connection: .connecting, failure: .tailscale(.macOff), live: true) == .connecting)
         #expect(MacReachability.resolve(mac: mac, connection: .connected, failure: .tailscale(.macOff), live: true) == .connected)
     }
+
+    @Test func aTailscaleFailureStopsARecoveryAttemptAtTheMacStep() {
+        let attempt = MacRecoveryAttempt(step: .mac)
+        let next = attempt.advanced(by: .failed(.tailscale(.phoneOff)))
+        #expect(next.result == .failed(.mac))
+        #expect(next.action == .retry)
+    }
 }

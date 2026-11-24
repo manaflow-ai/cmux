@@ -280,7 +280,8 @@ public struct MacRecoveryAttempt: Equatable, Sendable {
         case .live:
             next.step = .session
             next.result = .connected
-        case .offline, .failed(.hostUnreachable): next.result = .failed(.mac)
+        // A Tailscale-only dial that the tailnet could not carry never reached the Mac.
+        case .offline, .failed(.hostUnreachable), .failed(.tailscale): next.result = .failed(.mac)
         case .failed(.serviceDown): next.result = .failed(.session)
         case .failed(.authRequired), .failed(.notAllowed): next.result = .failed(step)
         }
