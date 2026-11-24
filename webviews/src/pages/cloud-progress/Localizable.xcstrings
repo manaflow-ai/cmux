@@ -2101,6 +2101,138 @@
         }
       }
     },
+    "cloudProgress.slow" : {
+      "comment" : "The Cloud progress page's line under a machine still on its way after three minutes. Retry and Dismiss are the page's buttons.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This is taking longer than usual. Retry starts it again; Dismiss stops waiting."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يستغرق هذا وقتًا أطول من المعتاد. إعادة المحاولة تبدأ من جديد؛ تجاهل يوقف الانتظار."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ovo traje duže nego obično. Pokušaj ponovo kreće iznova; Odbaci prestaje čekati."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Det tager længere tid end normalt. Prøv igen starter forfra; Afvis holder op med at vente."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das dauert länger als üblich. Wiederholen startet neu; Verwerfen beendet das Warten."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esto está tardando más de lo habitual. Reintentar vuelve a empezar; Descartar deja de esperar."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cela prend plus de temps que d’habitude. Réessayer recommence ; Ignorer arrête d’attendre."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ci sta mettendo più del solito. Riprova ricomincia; Ignora smette di attendere."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "通常より時間がかかっています。再試行でやり直し、閉じるで待機をやめます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "វាចំណាយពេលយូរជាងធម្មតា។ ព្យាយាមម្ដងទៀត ចាប់ផ្ដើមឡើងវិញ; បោះបង់ ឈប់រង់ចាំ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "평소보다 오래 걸리고 있습니다. 다시 시도하면 처음부터 시작하고, 닫기를 누르면 기다리지 않습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dette tar lengre tid enn vanlig. Prøv igjen starter på nytt; Avvis slutter å vente."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trwa to dłużej niż zwykle. Ponów zaczyna od nowa; Odrzuć przestaje czekać."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Isso está demorando mais que o normal. Tentar novamente recomeça; Dispensar para de esperar."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Это занимает больше времени, чем обычно. «Повторить» начинает заново; «Закрыть» прекращает ожидание."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ใช้เวลานานกว่าปกติ ลองอีกครั้งจะเริ่มใหม่ ปิดจะหยุดรอ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu her zamankinden uzun sürüyor. Yeniden Dene baştan başlatır; Kapat beklemeyi bırakır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Це триває довше, ніж зазвичай. «Повторити» починає знову; «Закрити» припиняє очікування."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Việc này lâu hơn bình thường. Thử lại sẽ bắt đầu lại; Bỏ qua sẽ ngừng chờ."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这比平时花的时间更长。重试会重新开始；关闭会停止等待。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "這比平常花的時間更長。重試會重新開始；關閉會停止等待。"
+          }
+        }
+      }
+    },
     "cloudProgress.stage.booting" : {
       "extractionState" : "manual",
       "localizations" : {

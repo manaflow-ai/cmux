@@ -518,6 +518,14 @@
   display: block;
   max-width: 100%;
 }
+/* A sent tile paints inside its own rounded box: a player's loading state, its name or a fallback's
+   words never spill or show clipped beside the tile (Leo, 2026-11-22: "WHAT THE FUCK IS THIS
+   SITUATION MAN WITH THESE ATTACHMENTS!?", a row of spinning squares with cut-off words behind them). */
+.cv-user__video,
+.cv-user__video-player {
+  overflow: hidden;
+  border-radius: var(--cv-user-attachment-radius, var(--cv-media-radius));
+}
 .cv-user__images .cv-user__video-player button,
 .cv-user__inline-image .cv-user__video-player button {
   cursor: default;
@@ -3423,18 +3431,25 @@ body {
 .cv-tool.is-live > :is(.cv-tool__text, .cv-command__text):has(> .cv-row-shimmer) {
   position: relative;
 }
-/* A running background turn's line ("Scheduled check", BackgroundTurnLine.tsx) shimmers its words
-   the same way: the copy lies over the sentence, centred on the line as its words are. */
-.cv-tool.cv-background-turn.is-live:not(:focus-within) > .cv-agent-activity__sentence:has(> .cv-row-shimmer) {
+/* A running background turn's line ("Scheduled check", BackgroundTurnLine.tsx) and the activity line's
+   message going out ("Sending message to tests", ActivityLine.tsx) shimmer their words the same way:
+   the copy lies over the sentence, centred on the line as its words are. */
+.cv-tool:is(.cv-background-turn, .cv-activity-row).is-live:not(:focus-within)
+  > .cv-agent-activity__sentence:has(> .cv-row-shimmer) {
   color: var(--cv-text-dim);
 }
-.cv-tool.cv-background-turn.is-live > .cv-agent-activity__sentence:has(> .cv-row-shimmer) {
+.cv-tool:is(.cv-background-turn, .cv-activity-row).is-live > .cv-agent-activity__sentence:has(> .cv-row-shimmer) {
   position: relative;
 }
-.cv-tool.cv-background-turn.is-live .cv-row-shimmer__lit {
+.cv-tool.cv-activity-row .cv-row-shimmer .cv-agent-tag {
+  background: none;
+}
+.cv-tool:is(.cv-background-turn, .cv-activity-row).is-live .cv-row-shimmer__lit {
   display: flex;
   height: 100%;
   align-items: center;
+  /* The sentence's own gap (TranscriptActivityRow.css), so the lit name lies on the chip's name. */
+  gap: var(--cv-tool-gap);
 }
 /* What a background turn's line cites after its words (BackgroundTurnLine.tsx `BackgroundSource`):
    the helper in the rows' muted tone, a link as the background task row's owner is, then the task's
@@ -7806,8 +7821,11 @@ a.cv-sha:focus-visible {
   syntax: "*";
   inherits: false;
 }
+/* The top band eases (smoothstep at 9 stops) and is 24px: a linear 18px band ended in a line under the
+   header (Leo, 2026-11-22: "there's simultaneously a fade AND a hard break ideally lessen the hard
+   break"). */
 .acpmux-scroll[data-fade-top] {
-  --acpmux-fade-top: 18px;
+  --acpmux-fade-top: 24px;
 }
 /* No soft edge above the composer: rows keep full ink down to the stack's top and stop there, as
    the Codex app's do under its composer (Lucas, 2026-11-17: "remove the fade and just make it white
@@ -7845,7 +7863,14 @@ a.cv-sha:focus-visible {
   --acpmux-view-mask: linear-gradient(
     to bottom,
     transparent var(--acpmux-view-top, 0px),
-    #000 calc(var(--acpmux-view-top, 0px) + var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach)),
+    rgb(0 0 0 / 0.043) calc(var(--acpmux-view-top, 0px) + var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach) * 0.125),
+    rgb(0 0 0 / 0.156) calc(var(--acpmux-view-top, 0px) + var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach) * 0.25),
+    rgb(0 0 0 / 0.316) calc(var(--acpmux-view-top, 0px) + var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach) * 0.375),
+    rgb(0 0 0 / 0.5) calc(var(--acpmux-view-top, 0px) + var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach) * 0.5),
+    rgb(0 0 0 / 0.684) calc(var(--acpmux-view-top, 0px) + var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach) * 0.625),
+    rgb(0 0 0 / 0.844) calc(var(--acpmux-view-top, 0px) + var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach) * 0.75),
+    rgb(0 0 0 / 0.957) calc(var(--acpmux-view-top, 0px) + var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach) * 0.875),
+    #000 calc(var(--acpmux-view-top, 0px) + var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach) * 1),
     #000 calc(var(--acpmux-view-foot) - var(--acpmux-fade-bottom, 0px) * var(--acpmux-fade-bottom-reach)),
     transparent var(--acpmux-view-foot) var(--acpmux-dock-holes,)
   );
@@ -8595,22 +8620,18 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   white-space: nowrap;
   letter-spacing: var(--text-caption--letter-spacing);
 }
-/* The running turn's line while the chat waits on the person (waitingOn.ts): full text color, so it
-   reads as a call to act, not the muted "Thinking" it replaces. It holds still: no mark, no clock.
-   The activity and Worked-for lines (ActivityLine.tsx, WorkingFor.tsx) keep this look. */
-.cv-waiting {
-  color: var(--cv-text);
-}
-/* The Thinking line's form of it (Thinking.tsx), as Claude desktop's "Needs your input" (Leo,
-   2026-11-05): a ringed dot in the attention mark's colour, then the words in it on a pill tinted
-   with it. The mark is the one needs-input colour (styles.css --acpmux-needs-you-mark). */
+/* The running turn's line while the chat waits on the person (waitingOn.ts) has no colour of its
+   own: no white, the line's own tone and the live spot's one shimmer, as "Thinking" (Leo,
+   2026-11-22: "this is still white. stop having white things"). It holds still: no clock.
+   The Thinking line's form of it (Thinking.tsx), as Claude desktop's "Needs your input" (Leo,
+   2026-11-05): a ringed dot in the attention mark's colour, then the words on a pill tinted with it,
+   under the live spot's one shimmer like every status there (Leo, 2026-11-22). The mark is the one needs-input colour (styles.css --acpmux-needs-you-mark). */
 .cv-thinking.cv-waiting {
   display: inline-flex;
   flex: 0 1 auto;
   align-items: center;
   gap: 8px;
   min-width: 0;
-  color: var(--acpmux-needs-you-mark);
 }
 .cv-waiting__pill {
   min-width: 0;
@@ -8695,11 +8716,11 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   animation: none;
 }
 
-/* The live line while the harness retries a failed model request (Thinking.tsx `retryParts`):
-   the cause in the line's text color, the count and error muted, the error the part that gives way. */
+/* The live line while the harness retries a failed model request (Thinking.tsx `retryParts`): the
+   cause under the live spot's one shimmer, as "Thinking" (Leo, 2026-11-22: "all in the "thinking"
+   spot should glimmer like that"), the count and error muted, the error the part that gives way. */
 .cv-retrying {
   flex: 0 0 auto;
-  color: var(--cv-text);
 }
 .cv-retrying__error {
   flex: 0 1 auto;
