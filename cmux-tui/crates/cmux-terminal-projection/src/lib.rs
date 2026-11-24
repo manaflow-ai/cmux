@@ -27,6 +27,7 @@
 pub mod project;
 pub mod style;
 pub mod terminal;
+pub mod transcript;
 pub mod unicode;
 
 pub use project::{Paint, View};
@@ -59,6 +60,9 @@ pub struct Projection {
     /// Right-anchored rows are laid out at the phone's width
     /// ([`project::View::compact`]).
     compact: bool,
+    /// The alternate screen's rows the app scrolled away, kept for the
+    /// phone to scroll natively ([`transcript::Transcript`]).
+    transcript: transcript::Transcript,
 }
 
 impl Projection {
@@ -70,6 +74,7 @@ impl Projection {
             view: None,
             reader_rows_from_end: 0,
             compact: true,
+            transcript: transcript::Transcript::new(transcript::DEFAULT_LIMIT),
         }
     }
 
@@ -213,6 +218,8 @@ impl Projection {
             if was == now {
                 continue;
             }
+            // Each screen of a full-screen app has its own transcript.
+            self.transcript.clear();
             if now {
                 // Entering: what the primary screen drew so far, then the switch.
                 if let Some(paint) = self.paint() {
@@ -238,6 +245,10 @@ impl Projection {
                 segments.push(Segment::Raw(bytes.get(start..).unwrap_or_default().to_vec()));
             }
             self.term.passthrough.clear();
+            // A frame is whole outside a synchronized update (mode 2026).
+            if self.term.is_alternate() && !self.term.synchronized {
+                self.transcript.observe(&self.term);
+            }
         } else if paint && let Some(paint) = self.paint() {
             segments.push(paint);
         }
@@ -272,6 +283,23 @@ impl Projection {
     /// Bytes painted and resets since creation.
     pub fn stats(&self) -> (u64, u64) {
         self.view.as_ref().map_or((0, 0), |v| (v.bytes_out, v.resets))
+    }
+
+    /// The full-screen app's transcript (rows it scrolled away and the
+    /// phone keeps).
+    pub fn transcript(&self) -> &transcript::Transcript {
+        &self.transcript
+    }
+
+    /// On the alternate screen with rows kept above the app's screen: VT
+    /// bytes for a fresh terminal of the host's grid whose scrollback is
+    /// the transcript and whose screen is the app's ([`transcript::Transcript::paint`]),
+    /// its rows and the row the app's screen begins at. None otherwise.
+    pub fn transcript_paint(&self) -> Option<(Vec<u8>, usize, usize)> {
+        if !self.term.is_alternate() || self.transcript.rows_above() == 0 {
+            return None;
+        }
+        Some(self.transcript.paint(&self.term))
     }
 
     pub fn terminal(&self) -> &Terminal {

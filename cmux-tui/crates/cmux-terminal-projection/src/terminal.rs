@@ -127,6 +127,8 @@ pub struct Terminal {
     insert: bool,
     newline_mode: bool,
     pub cursor_visible: bool,
+    /// Inside a synchronized update (DEC mode 2026): the frame is not whole yet.
+    pub synchronized: bool,
     /// G0 and G1 are DEC special graphics.
     charsets: [bool; 2],
     shift_out: bool,
@@ -191,6 +193,7 @@ impl Terminal {
             insert: false,
             newline_mode: false,
             cursor_visible: true,
+            synchronized: false,
             charsets: [false; 2],
             shift_out: false,
             last_printed: None,
@@ -761,6 +764,7 @@ impl Terminal {
             }
             7 => self.autowrap = on,
             25 => self.cursor_visible = on,
+            2026 => self.synchronized = on,
             47 | 1047 | 1049 => {
                 if on && !self.alt_active {
                     self.alt_mode = mode;
