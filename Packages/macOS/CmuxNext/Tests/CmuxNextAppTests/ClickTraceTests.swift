@@ -93,6 +93,23 @@ import Testing
         #expect(trace.entries().last?.seq == UInt64(total))
     }
 
+    /// A synthesized press at a NaN point trapped the app 3 s after its first window on every Nightly onboarding walk
+    /// from 2026-11-23 05:51Z (`Int(_:)` on NaN). The press is still recorded, with no point.
+    @Test func aPressAtANaNPointIsRecordedWithoutAPoint() throws {
+        _ = NSApplication.shared
+        let trace = ClickTrace()
+        trace.press(try Self.press(at: NSPoint(x: CGFloat.nan, y: CGFloat.nan), timestamp: 1), window: nil)
+        trace.press(try Self.press(at: NSPoint(x: CGFloat.infinity, y: 7.6), timestamp: 2), window: nil)
+        let entries = trace.entries()
+        try #require(entries.count == 2, "\(entries)")
+        #expect(entries[0].x == nil)
+        #expect(entries[0].y == nil)
+        #expect(entries[1].x == nil)
+        #expect(entries[1].y == 8)
+        #expect(ClickTrace.point(-40.4) == -40)
+        #expect(ClickTrace.point(CGFloat(Double.greatestFiniteMagnitude)) == nil)
+    }
+
     /// The method `cmux app clicks` sends is the one the app registers in every build.
     @Test func theCLIReadsTheReleaseMethod() throws {
         var root = URL(fileURLWithPath: #filePath)
