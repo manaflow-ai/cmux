@@ -26,7 +26,6 @@ pub enum MachineStatus {
 
 /// Non-secret owner platform metadata; missing fields remain unknown.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct MachinePlatform {
     pub os: Option<String>,
     pub arch: Option<String>,
