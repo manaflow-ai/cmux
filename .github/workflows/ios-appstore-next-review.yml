@@ -46,7 +46,7 @@ jobs:
       - name: Checkout the app source
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: 2feeac93e3c2127d7ffda33213ddf76d80ea9c78
+          ref: 10abad813fc0f9ca79444d0b438c29ab2e687fea
           persist-credentials: false
           # testflight-build.sh archives the commit with `git archive`, and
           # check-tabskit-sync.sh compares packages with their upstream branches.
