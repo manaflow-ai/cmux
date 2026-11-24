@@ -35,6 +35,9 @@ public enum CmuxMobilePreferences {
         public static let followUp = "cmuxMobile.settings.followUp"
         /// Workspaces → one line per workspace (the Mac's Compact Workspace List).
         public static let compactWorkspaceList = "cmuxMobile.settings.compactWorkspaceList"
+        /// Settings → Needs You Look (the Mac's `notifications.attention.mark`, the same values):
+        /// `badge` (default) or `glow`, a waiting workspace row that glows until it is opened.
+        public static let attentionMark = "cmuxMobile.settings.attentionMark"
         /// Long-press menu items the person hid (Settings → Long-Press Menus), by item id.
         public static let hiddenMenuItems = "cmuxMobile.settings.hiddenMenuItems"
     }

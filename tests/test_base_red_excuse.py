@@ -3,6 +3,7 @@ import ast
 import contextlib
 import copy
 import hashlib
+import inspect
 import io
 import importlib.util
 import json
@@ -1815,7 +1816,7 @@ class Excusing(unittest.TestCase):
                                         steps=[])
         self.gh.base_runs = sorted(runs, key=lambda run: run["created_at"], reverse=True)
 
-        def run(args):
+        def run(args, *, repo=None):
             # The check suites of the listed runs: every check run of the asked name in each, as GraphQL answers.
             query = next(arg for arg in args if arg.startswith("query="))
             asked = next(arg for arg in args if arg.startswith("name="))[len("name="):]
@@ -3075,6 +3076,108 @@ class LinuxCrossNotice(unittest.TestCase):
         self.head["target_url"] = "https://example.invalid/somewhere"
         with self.assertRaisesRegex(excuse.Refused, "names no run of"):
             self.judge()
+
+
+class WorkflowRedStatusesHaveAReader(unittest.TestCase):
+    """docs/handbook/status-text-the-reader-has-no-rule-for (hq): a workflow posts a commit status as failure or error,
+    and status_job here reads it only by a rule it has for that context; any other red status falls to the job
+    lookup, and a context no job carries is refused on every try. cmux#52253 and cmux#52648 sat unlandable ~17 h
+    (2026-11-23) on `cmux-tui/linux-cross`, a notice no rule read, and only a person reading the refusal found it.
+    This scans every workflow step that POSTs to `/statuses/` and can post a red, and checks each context against
+    READERS: a new red status fails here, on the PR that adds it, until it names the rule that reads it."""
+
+    # context -> the base_red_excuse constant status_job reads it by (its value is the context), SAME_TREE (the
+    # suffix is stripped to the job of that name in the run the status links), or FAIL_CLOSED with why a refusal is
+    # the right answer for every red it posts.
+    SAME_TREE = "SAME_TREE"
+    READERS = {
+        "cmux-next/compile": "COMPILE_PASS_STATUS",
+        "cmux-next/fast-gates": "FAST_GATES_STATUS",
+        "cmux-tui/linux-cross": "LINUX_CROSS_STATUS",
+        "cmux-next daemon tests (same-tree)": SAME_TREE,
+        "cmux NEXT DEV Release compile (same-tree)": SAME_TREE,
+        "cmux app scheme compile (Debug) (same-tree)": SAME_TREE,
+        # A compile on the build fleet dispatched at one sha: failure is a real compile verdict (the PR's own) and
+        # error is no verdict (re-run it); neither is ever a base red, so the plain refusal is right for both.
+        "fleet/compile-check": "FAIL_CLOSED: a compile verdict or no verdict, never a base red",
+    }
+    POST = re.compile(r"/statuses/")
+    CONTEXTS = (re.compile(r"-f context=([^\s\"'$]+)"), re.compile(r"\bcontext: \"([^\"$]+)\""),
+                re.compile(r"\bcontext=\"([^\"$]+)\""))
+    RED_STATE = re.compile(r"state=(?:failure|error)\b|\"state\": ?\"(?:failure|error)\"|state=\"?\$|--arg s \"\$1\""
+                           r"|\"state\":\"%s\"")
+
+    @classmethod
+    def scan(cls) -> tuple[dict[str, list[str]], list[str], set[str]]:
+        """{context: [where]} for each step that can post a red status, the steps whose context the scan could not
+        read, and every job name (each quoted alternative of a computed one)."""
+        yaml = excuse.yaml_module()
+        red, unread, jobs = {}, [], set()
+        for path in sorted((ROOT / ".github/workflows").glob("*.y*ml")):
+            workflow = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+            for job_id, job in (workflow.get("jobs") or {}).items():
+                if not isinstance(job, dict):
+                    continue
+                name = str(job.get("name") or job_id)
+                jobs.update(re.findall(r"'([^']+)'", name) if "${{" in name else [name])
+                for index, step in enumerate(job.get("steps") or []):
+                    text = str((step or {}).get("run") or "")
+                    if not cls.POST.search(text) or not cls.RED_STATE.search(text):
+                        continue
+                    where = f"{path.name} {job_id} step {index} ({step.get('name') or 'unnamed'})"
+                    found = {m for pattern in cls.CONTEXTS for m in pattern.findall(text)}
+                    env = (step.get("env") or {}).get("CONTEXT")
+                    if env and "${{" not in str(env):
+                        found.add(str(env))
+                    if not found:
+                        unread.append(where)
+                    for context in found:
+                        red.setdefault(context, []).append(where)
+        return red, unread, jobs
+
+    def test_every_red_status_a_workflow_posts_has_a_reader_rule(self):
+        red, unread, _ = self.scan()
+        self.assertEqual(unread, [], "a step posts a red status whose context this scan cannot read: name it in a "
+                                     "literal (context=..., CONTEXT env) or teach CONTEXTS the new form")
+        missing = {context: where for context, where in red.items() if context not in self.READERS}
+        self.assertEqual(missing, {}, "a workflow posts these as failure/error and status_job has no rule for them: "
+                                      "every red will be refused as 'no job ... to compare with the base'. Add a rule "
+                                      "to status_job (or say FAIL_CLOSED, and why) in READERS")
+
+    def test_the_scan_still_sees_every_known_poster(self):
+        red, _, _ = self.scan()
+        self.assertEqual(sorted(set(self.READERS) - set(red)), [],
+                         "READERS names a context no workflow posts red any more: drop it, or the scan went blind")
+
+    def test_each_reader_rule_is_one_status_job_reads(self):
+        _, _, jobs = self.scan()
+        source = inspect.getsource(excuse.status_job)
+        for context, rule in self.READERS.items():
+            with self.subTest(context=context):
+                if rule == self.SAME_TREE:
+                    self.assertTrue(context.endswith(excuse.SAME_TREE_SUFFIX))
+                    self.assertIn("removesuffix(SAME_TREE_SUFFIX)", source)
+                    self.assertIn(context.removesuffix(excuse.SAME_TREE_SUFFIX), jobs,
+                                  "a same-tree status is read as the job of its name: no workflow job has it")
+                elif rule.startswith("FAIL_CLOSED: "):
+                    self.assertGreater(len(rule), len("FAIL_CLOSED: ") + 10, "say why a refusal is right")
+                else:
+                    self.assertEqual(getattr(excuse, rule), context)
+                    self.assertRegex(source, rf"\b{rule}\b", f"status_job does not read {rule}")
+
+    def test_the_same_tree_script_posts_only_contexts_with_a_reader(self):
+        import cmux_next_same_tree_failed as failed  # noqa: PLC0415 - scripts/ci, on sys.path above
+        for dev_daily in (False, True):
+            for context in failed.contexts(["daemon", "scheme"], dev_daily):
+                self.assertIn(context, self.READERS)
+
+    def test_a_new_red_status_with_no_rule_is_caught(self):
+        step = 'gh api --method POST "repos/$R/statuses/$SHA" -f state=failure -f context=new/notice -f d=x'
+        self.assertTrue(self.POST.search(step) and self.RED_STATE.search(step))
+        self.assertEqual({m for p in self.CONTEXTS for m in p.findall(step)}, {"new/notice"})
+        self.assertNotIn("new/notice", self.READERS)
+        success_only = 'gh api --method POST "repos/$R/statuses/$SHA" -f state=success -f context=x'
+        self.assertIsNone(self.RED_STATE.search(success_only))
 
 
 class BaseRedWindow(unittest.TestCase):
@@ -9307,7 +9410,7 @@ class SweepGitHub(FakeGitHub):
             return copy.deepcopy(self.runs[int(route.rsplit("/", 1)[1])])
         return super().json(route, paginate=paginate)
 
-    def run(self, args):
+    def run(self, args, *, repo=None):
         assert args[:2] == ["api", "graphql"], args
         self.graphql += 1
         query = next(arg for arg in args if arg.startswith("query="))
@@ -9373,7 +9476,7 @@ class TreeReuseGitHub(FakeGitHub):
             {"conclusion": job["conclusion"].upper()} for job in self.jobs.values()
             if job["run_id"] == run and job["name"] == name]}
 
-    def run(self, args):
+    def run(self, args, *, repo=None):
         assert args[:2] == ["api", "graphql"], args
         query = next(arg for arg in args if arg.startswith("query="))
         self.graphql.append(query)
@@ -9423,9 +9526,50 @@ class BaseRunsThatNeverBuildTheJob(unittest.TestCase):
                                                             "feat-cmux-next run 20"):
                     self.judge(TreeReuseGitHub(nodes=nodes, base_conclusion="success"))
 
+    def test_cancelled_flood_uses_repository_scoped_suite_verdicts(self):
+        # The private run's suite IDs are invisible in the judge's checkout. Thirteen cancelled pushes have
+        # no jobs. The fourteenth has a verdict even though its workflow too was superseded (HQ#22832).
+        for conclusion in ("failure", "success"):
+            with self.subTest(conclusion=conclusion):
+                fixture = TreeReuseGitHub(nodes=True, base_conclusion=conclusion)
+                fixture.base_runs = fixture.base_runs[:13] + fixture.base_runs[-1:] + fixture.base_runs[13:24]
+                fixture.base_runs[13]["created_at"] = "2026-11-12T23:46:30Z"
+                for run in fixture.base_runs:
+                    run["conclusion"] = "cancelled"
+                fixture.jobs = {job_id: fixture.jobs[job_id] for job_id in (1, 2)}
+                # Let main pass --repo through the real GraphQL subprocess transport. Other evidence comes from
+                # the fixture. A repo-less query gets an unknown suite, which forces a bounded REST read.
+                suites, fixture.run = fixture.run, excuse.GitHub().run
+                scopes = []
+
+                def gh(argv, *, stdout, stderr, env=None):
+                    self.assertEqual(argv[:3], ["gh", "api", "graphql"])
+                    scope = (env or os.environ).get("GH_REPO")
+                    scopes.append(scope)
+                    reply = suites(argv[1:]) if scope == REPO else json.dumps({"data": {"nodes": [None] * 25}})
+                    stdout.write(reply.encode())
+                    return unittest.mock.Mock(returncode=0)
+
+                stdout, stderr = io.StringIO(), io.StringIO()
+                with unittest.mock.patch.dict(os.environ, {"GH_REPO": "teamleaderleo/leo-workspace",
+                                                           "TAP_TESTS_STATE": "off"}), \
+                        unittest.mock.patch.object(excuse, "GitHub", return_value=fixture), \
+                        unittest.mock.patch.object(subprocess, "Popen", gh), \
+                        contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                    code = excuse.main(["--repo", REPO, "--base", "feat-cmux-next", "--sha", HEAD, "--run", "10"])
+                if conclusion == "failure":
+                    self.assertEqual(code, 0, stderr.getvalue())
+                    self.assertIn("run 20", stdout.getvalue())
+                else:
+                    self.assertEqual(code, 1)
+                    self.assertIn("not red on feat-cmux-next run 20", stderr.getvalue())
+                self.assertEqual([run for run in fixture.job_reads() if run != 10], [20])
+                self.assertTrue(scopes)
+                self.assertEqual(set(scopes), {REPO})
+
     def test_runs_whose_suites_cannot_be_read_are_still_bounded(self):
         gh = TreeReuseGitHub(nodes=True)
-        gh.run = lambda args: json.dumps({"errors": [{"message": "Something went wrong"}]})
+        gh.run = lambda args, **kwargs: json.dumps({"errors": [{"message": "Something went wrong"}]})
         with self.assertRaisesRegex(excuse.Refused, f"{excuse.INCOMPLETE} {excuse.CALL_JOB_READS} job lists"):
             self.judge(gh)
         self.assertEqual(len([run for run in gh.job_reads() if run != 10]), excuse.CALL_JOB_READS)
@@ -9463,7 +9607,7 @@ class SweepLimit(unittest.TestCase):
 
     def test_a_suite_read_that_fails_reads_every_run_as_before(self):
         gh = SweepGitHub(1)
-        gh.run = lambda args: json.dumps({"errors": [{"message": "Something went wrong"}]})
+        gh.run = lambda args, **kwargs: json.dumps({"errors": [{"message": "Something went wrong"}]})
         self.assertEqual(gh.judge(1), SweepGitHub(1, suites=False).judge(1))
         self.assertGreater(len(gh.targets), 30)
 
@@ -10989,6 +11133,20 @@ class FailingStepLogOnly(unittest.TestCase):
         for name in ("lines_of", "step_owners", "failed_steps_log", "STEP_NAMES_UNKNOWN", "STAMP", "ALIGN_MAX_STARTS",
                      "_one_to_one_starts", "_aligned_starts", "_live_red", "_line_time"):
             self.assertIs(getattr(excuse, name), getattr(excuse.steps_log, name), name)
+
+    def test_a_job_of_only_set_up_and_complete_job_is_unplaced_not_a_crash(self):
+        # Land refused cmux#52785 ("base_red_excuse.py exit 1"): a job with just "Set up job" and "Complete job" and a
+        # log with no step header made _one_to_one_starts return [] (0 headers for 0 printing steps), and step_owners
+        # took starts[0] of it: IndexError. An unplaceable log is AMBIGUOUS on every line.
+        steps = [{"number": 1, "name": "Set up job", "status": "completed", "conclusion": "failure",
+                  "started_at": "2026-11-10T12:00:00Z", "completed_at": "2026-11-10T12:00:02Z"},
+                 {"number": 2, "name": "Complete job", "status": "completed", "conclusion": "success",
+                  "started_at": "2026-11-10T12:00:02Z", "completed_at": "2026-11-10T12:00:02Z"}]
+        log = "\n".join(f"job\tUNKNOWN STEP\t2026-11-10T12:00:01.0000000Z {text}"
+                        for text in ("Current runner version: '2.338.2'", "##[error]The runner lost contact"))
+        owned = excuse.step_owners({"steps": steps}, log, **UNKNOWN)
+        self.assertEqual([status for _, _, status in owned], [excuse.AMBIGUOUS] * 2)
+        self.assertIn("lost contact", excuse.failed_steps_log({"steps": steps}, log, **UNKNOWN))
 
     def adjacent_steps(self):
         # The strings step starts in the second the license step ends: GitHub rounds both to 12:00:12, so a line
@@ -14461,7 +14619,7 @@ class StepFixture:
                     found["workflow_runs"] = [run for run in found["workflow_runs"] if run["id"] != 19]
                 return found
 
-            def run(self, args):
+            def run(self, args, *, repo=None):
                 # SuiteChecks' GraphQL read: each suite's check runs of the name, from this fixture's jobs.
                 assert args[:2] == ["api", "graphql"], args
                 query = next(arg for arg in args if arg.startswith("query="))
@@ -16661,7 +16819,7 @@ class SpawnOwnerGitHub:
     def log(self, repo, job):
         return self.logs[job["id"]]
 
-    def run(self, args):
+    def run(self, args, *, repo=None):
         # SuiteChecks' GraphQL read: each suite's check runs of the name, from these jobs.
         assert args[:2] == ["api", "graphql"], args
         query = next(arg for arg in args if arg.startswith("query="))
@@ -16736,7 +16894,7 @@ class SpawnOwnerFixedOnBase(unittest.TestCase):
 
     def test_a_diff_that_reaches_the_check_is_refused(self):
         for path in ("scripts/cmux-next/check-spawn-owner.py", "scripts/cmux-next/spawn-owner-baseline.tsv",
-                     "cmux-tui/crates/acpmux/src/hub/mod.rs", "cmux-tui/crates/acpmux/src/hub/remote_table_bench.rs"):
+                     "scripts/cmux-next/baseline_renames.py", "cmux-tui/crates/acpmux/src/hub/mod.rs", "cmux-tui/crates/acpmux/src/hub/remote_table_bench.rs"):
             with self.subTest(path=path), self.assertRaisesRegex(excuse.Refused, "reads paths the PR changes"):
                 self.judge(SpawnOwnerGitHub(changed=(path,)))
         with self.assertRaisesRegex(excuse.Refused, "reads paths the PR changes: tests/test_spawn_owner_ratchet.py"):
