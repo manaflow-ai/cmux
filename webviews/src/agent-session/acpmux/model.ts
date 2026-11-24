@@ -3,7 +3,7 @@ import type { ApprovedPlan } from "./approvedPlan";
 import type { ChatTaskList } from "./chatTaskList";
 import { experimentArm } from "../../experiments/experiment";
 import type { PromptHeads } from "./promptHeads";
-import { permissionCardHeight } from "./permissions/cardHeight";
+import { nextStepCardHeight, permissionCardHeight } from "./permissions/cardHeight";
 import { freshMeasureContext } from "./measureContext";
 import type { SentFrom } from "./conversation/sentFromHarness";
 import type { PeerLinkDetail } from "./linkState";
@@ -2843,26 +2843,15 @@ function fallbackRowHeight(
   if (row.kind === ACTIVITY_LINE) return finish(row.below ? footerRow() : metaRow());
   // The 20px date line with 8px above it.
   if (row.kind === DATE) return finish(20);
-  // A tagged ask's card (conversation/NextStepCard.tsx): waiting, the question card's 8px inset, its
-  // 28px "Needs your input" line, the question and its muted line, a 36px row per answer (2px apart),
-  // then the 36px typed-answer row under its 8px gap; answered or superseded, the question over the
+  // A tagged ask's card (conversation/NextStepCard.tsx): waiting, the question card
+  // (permissions/cardHeight.ts `nextStepCardHeight`); answered or superseded, the question over the
   // answer in 8px.
   if (row.kind === NEXT_STEP && row.nextStep) {
     const { ask, answer, superseded } = row.nextStep;
+    if (answer === undefined && !superseded) return finish(nextStepCardHeight(ask, width));
     const perLine = Math.max(120, width - 32) / 7.5;
     const lines = (text: string | undefined) => (text ? Math.max(1, Math.ceil(text.length / perLine)) : 0);
-    return finish(
-      answer === undefined && !superseded
-        ? 16 +
-            28 +
-            2 +
-            (lines(ask.question) + lines(ask.detail)) * 20 +
-            8 +
-            ask.options.length * 38 -
-            (ask.options.length ? 2 : 0) +
-            (ask.options.length ? 8 + 36 : 0)
-        : 16 + 2 + (lines(ask.question) + lines(answer)) * 20 + 4,
-    );
+    return finish(16 + 2 + (lines(ask.question) + lines(answer)) * 20 + 4);
   }
   // A walkthrough strip (conversation/Walkthrough.tsx): its 28px head and, open, the 96px row of
   // shots over two 16px caption lines, with 8px above and below.

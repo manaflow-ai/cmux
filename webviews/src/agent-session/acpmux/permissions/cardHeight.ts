@@ -9,6 +9,11 @@ import type { AcpmuxPermission } from "../model";
 import { currentLanguage, translate } from "../i18n";
 import { plainText } from "../question/inlineText";
 import { consentChoice, hasPreviews, itemAnswerText, type AgentQuestion } from "../question/model";
+import { HTML_PREVIEW_MIN_HEIGHT } from "../question/htmlPreviewModel";
+import { questionPreviewLayout } from "../question/previewLayout.experiment";
+import { previewText, shownPreview } from "../question/questionCardModel";
+import { experimentArm } from "../../../experiments/experiment";
+import type { NextStepAsk } from "../conversation/nextStepAsk";
 import { gridLength } from "../transcriptGrid";
 import {
   alwaysAllowScope,
@@ -232,10 +237,19 @@ function questionHeight(question: AgentQuestion, width: number, bubbleScale = 1)
     return height + 28;
   }
   let height = 16 + 28 + 2 + text(item.prompt, inner, titleLine, contentSize) + 8;
-  // A row's label: the row's 8 px padding each side, the 20 px mark and its 10 px gap. Previews take
-  // part of the width beside the rows, until the card is narrow enough that they wrap under them.
-  const rowRoom = Math.max(1, (hasPreviews(item) && inner >= 492 ? inner * 0.44 : inner) - 30);
-  height += item.options.reduce(
+  // The rows and the preview share the body, inside the card's 8 px padding (questionCard.css). The
+  // preview the card opens with is the first row's, else the first one (QuestionCard `shownPreview`).
+  const box = width - 16;
+  const preview = hasPreviews(item) ? shownPreview(item.options, [0]) : undefined;
+  const layout = preview ? experimentArm(questionPreviewLayout) : undefined;
+  // Split and even put the preview beside the rows, by their flex basis and grow (styles.css), 8 px
+  // apart, until the body is too narrow for both bases and the preview wraps under the rows.
+  const flex = layout === "split" ? [220, 2, 280, 3] : layout === "even" ? [260, 1, 280, 1] : undefined;
+  const beside = flex !== undefined && box >= flex[0]! + 8 + flex[2]!;
+  const rowsWidth = beside ? flex[0]! + ((box - flex[0]! - 8 - flex[2]!) * flex[1]!) / (flex[1]! + flex[3]!) : box;
+  // A row's label: the row's 8 px padding each side, the 20 px mark and its 10 px gap.
+  const rowRoom = Math.max(1, rowsWidth - 46);
+  let rows = item.options.reduce(
     (sum, option, index) =>
       sum +
       (index ? 2 : 0) +
@@ -247,8 +261,57 @@ function questionHeight(question: AgentQuestion, width: number, bubbleScale = 1)
       ),
     0,
   );
+  if (preview) {
+    // Inline opens under its row, 2 px below it, past the mark; beside, the taller column sets the
+    // height; under the rows, 8 px below them, the body's width.
+    if (layout === "inline") rows += 2 + previewHeight(preview, rowsWidth - 38);
+    else if (beside) rows = Math.max(rows, previewHeight(preview, box - rowsWidth - 8));
+    else rows += 8 + previewHeight(preview, box);
+  }
+  height += rows;
   // The last row (8 px gap with its hairline, unless it is the only row); a narrow card wraps Skip
   // and Send under the typed answer.
   height += (item.options.length ? 8 : 0) + 36 + (item.allowsOther && inner < 320 ? 28 : 0);
   return height;
+}
+
+type QuestionOption = AgentQuestion["items"][number]["options"][number];
+
+// An option's preview box (QuestionCard `OptionPreview`, questionCard.css): 8 px above, 12 px beside
+// and below, its label 2 px down, then 8 px to the picture: a monospace block that keeps its lines
+// (it scrolls sideways, never wraps), or an HTML frame at its least height until it reports one.
+function previewHeight(option: QuestionOption, width: number): number {
+  const label = translate("question.preview", { option: plainText(option.label) });
+  const picture =
+    option.preview?.format === "html"
+      ? HTML_PREVIEW_MIN_HEIGHT
+      : previewText(option.preview?.text ?? "").split("\n").length * detail.size * 1.45;
+  return 8 + 2 + textHeight(label, width - 24, caption.size, caption.lineHeight) + 8 + picture + 12;
+}
+
+/// A waiting tagged ask's card (conversation/NextStepCard.tsx, NextStepCard.css): the 8 px inset, the
+/// 28 px "Needs your input" line, the question as a 14/20 title (8 lines at most) and its muted line
+/// (4 at most) in 8 px of side padding, then each answer's row, 2 px apart: 36 px, or its label's
+/// lines when it wraps beside the number and the arrow; then the typed answer's 36 px row under its
+/// 8 px gap.
+export function nextStepCardHeight(ask: NextStepAsk, width: number): number {
+  const contentSize = drawnFontSize(chatDisplay());
+  const titleLine = contentSize * (20 / 14);
+  const room = Math.max(1, width - 32);
+  const lines = (value: string | undefined, line: number, size: number, cap: number) =>
+    value ? Math.min(cap * line, textHeight(plainText(value), room, size, line)) : 0;
+  let height =
+    16 +
+    28 +
+    2 +
+    lines(ask.question, titleLine, contentSize, 8) +
+    (ask.detail ? 2 + lines(ask.detail, body.lineHeight, body.size, 4) : 0) +
+    8;
+  // A row's label: the row's 8 px padding each side, the 20 px number, the 12 px arrow, 10 px apart.
+  const labelRoom = Math.max(1, width - 16 - 16 - 20 - 12 - 2 * 10);
+  ask.options.forEach((option, index) => {
+    const label = option.key ? translate(option.key) : plainText(option.label);
+    height += (index ? 2 : 0) + Math.max(36, 16 + textHeight(label, labelRoom, body.size, body.lineHeight));
+  });
+  return height + (ask.options.length ? 8 + 36 : 0);
 }

@@ -772,6 +772,45 @@ test("question estimates follow description wrapping at the actual column width"
   expect(heightsOf([questionAsk(3)])[0]!).toBeLessThan(wide.heights[0]!);
 });
 
+// Previews sit beside the rows (the split layout) until the pane is too narrow for both, then wrap
+// under them: the first layout reserves the preview's box either way (questionCard.css).
+test("a question's preview is reserved beside its rows, and under them in a narrow pane", () => {
+  const withPreview = (lines: number): AcpmuxRow => {
+    const row = questionAsk(2) as AcpmuxRow & { permission: { question: { items: { options: object[] }[] } } };
+    const options = row.permission.question.items[0]!.options as { preview?: object }[];
+    options[0]!.preview = { format: "markdown", text: Array.from({ length: lines }, (_, i) => `line ${i}`).join("\n") };
+    return row;
+  };
+  const plain = (width: number) => layoutConversation([questionAsk(2)], width).heights[0]!;
+  const preview = (width: number, lines: number) => layoutConversation([withPreview(lines)], width).heights[0]!;
+  // Narrow: under the rows, 8 px below them; each picture line is 12 px at 1.45.
+  expect(preview(300, 6) - plain(300)).toBeGreaterThan(8 + 6 * 12 * 1.45);
+  expect(preview(300, 9) - preview(300, 6)).toBeCloseTo(3 * 12 * 1.45);
+  // Wide: beside the rows, so a short preview adds nothing and a tall one sets the height.
+  expect(preview(720, 1)).toBe(plain(720));
+  expect(preview(720, 20)).toBeGreaterThan(plain(720) + 20 * 12);
+});
+
+// A next-step answer is one 36 px row until its label wraps beside the number and the arrow.
+test("a next-step answer whose label wraps reserves its lines", () => {
+  const ask = (label: string) => ({
+    id: "next",
+    version: 1,
+    at: 0,
+    kind: "nextStep",
+    nextStep: { ask: { tag: "taste", question: "Which look should ship?", options: [{ label: "Box" }, { label }] } },
+  });
+  const short = layoutConversation([ask("Inline")] as AcpmuxRow[], 320).heights[0]!;
+  const long = layoutConversation(
+    [ask("Inline, with the reply quoted under it and the answer in a row of its own")] as AcpmuxRow[],
+    320,
+  ).heights[0]!;
+  expect(long).toBeGreaterThan(short);
+  expect(layoutConversation([ask("Inline, with the reply quoted under it")] as AcpmuxRow[], 720).heights[0]!).toBe(
+    layoutConversation([ask("Inline")] as AcpmuxRow[], 720).heights[0]!,
+  );
+});
+
 test("narrow permission action rows and two-line commands reserve their extra height", () => {
   const row = permissionAsk({
     command: "printf '%s' ".repeat(12),
