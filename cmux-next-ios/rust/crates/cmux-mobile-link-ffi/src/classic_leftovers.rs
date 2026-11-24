@@ -88,7 +88,12 @@ pub fn classic_cleanup_plan(
     defaults_keys: Vec<String>,
 ) -> ClassicCleanupPlan {
     let Some(keychain) = keychain else {
-        return ClassicCleanupPlan { keychain_deletes: Vec::new(), defaults_deletes: Vec::new(), kept: 0, mark_done: false };
+        return ClassicCleanupPlan {
+            keychain_deletes: Vec::new(),
+            defaults_deletes: Vec::new(),
+            kept: 0,
+            mark_done: false,
+        };
     };
     let mut kept: u32 = 0;
     let mut keychain_deletes: Vec<KeychainDelete> = Vec::new();
@@ -127,11 +132,14 @@ fn classic_keychain_delete(bundle_id: &str, item: &KeychainLeftover) -> Option<K
         // empty-service delete, which would match every item without a service.
         None | Some("") => {
             let account = account?;
-            let stack_token = account.starts_with("stack-auth-access-") || account.starts_with("stack-auth-refresh-");
+            let stack_token =
+                account.starts_with("stack-auth-access-") || account.starts_with("stack-auth-refresh-");
             stack_token.then(|| KeychainDelete { service: String::new(), account: Some(account) })
         }
         Some(service) => {
-            if is_next_keychain_service(bundle_id, service) || !is_classic_keychain_service(bundle_id, service) {
+            if is_next_keychain_service(bundle_id, service)
+                || !is_classic_keychain_service(bundle_id, service)
+            {
                 return None;
             }
             Some(KeychainDelete { service: service.to_owned(), account })
@@ -142,7 +150,9 @@ fn classic_keychain_delete(bundle_id: &str, item: &KeychainLeftover) -> Option<K
 /// Services cmux-next-ios writes (CmuxMobileKit, CmuxAuthRuntime as NEXT builds it).
 fn is_next_keychain_service(bundle_id: &str, service: &str) -> bool {
     let own = [format!("{bundle_id}.auth"), format!("{bundle_id}.phone-keys")];
-    own.iter().any(|s| s == service) || service.starts_with("dev.cmux.mobile") || service.starts_with("dev.cmux.cnx.")
+    own.iter().any(|s| s == service)
+        || service.starts_with("dev.cmux.mobile")
+        || service.starts_with("dev.cmux.cnx.")
 }
 
 /// Services the classic app writes (ios/, Packages/iOS, Packages/Shared on main).
@@ -315,16 +325,25 @@ mod tests {
         let mut keychain = classic_keychain();
         keychain.extend(next_keychain());
         let mut defaults = classic_defaults();
-        defaults.extend(["cmuxMobile.setupComplete", "cnx.lastTeamID", "AppleLanguages", "WebKitShowsURLsInToolTips"].map(str::to_owned));
+        defaults.extend(
+            ["cmuxMobile.setupComplete", "cnx.lastTeamID", "AppleLanguages", "WebKitShowsURLsInToolTips"]
+                .map(str::to_owned),
+        );
 
         let plan = classic_cleanup_plan(B.to_owned(), Some(keychain), defaults);
 
         let deleted: Vec<&str> = plan.keychain_deletes.iter().map(|d| d.service.as_str()).collect();
         assert_eq!(plan.keychain_deletes.len(), classic_keychain().len());
         for next in next_keychain() {
-            assert!(!deleted.contains(&next.service.as_deref().unwrap_or_default()), "deleted NEXT's {next:?}");
+            assert!(
+                !deleted.contains(&next.service.as_deref().unwrap_or_default()),
+                "deleted NEXT's {next:?}"
+            );
         }
-        assert!(plan.keychain_deletes.contains(&delete("com.cmuxterm.app.auth.com.cmux.app", Some("cmux-auth-access-token"))));
+        assert!(
+            plan.keychain_deletes
+                .contains(&delete("com.cmuxterm.app.auth.com.cmux.app", Some("cmux-auth-access-token")))
+        );
         assert!(plan.keychain_deletes.contains(&delete("", Some("stack-auth-access-9790718f"))));
         let mut want = classic_defaults();
         want.sort();
@@ -344,7 +363,8 @@ mod tests {
             item(Some("com.example.sdk"), Some("token")),
             item(Some("com.cmux.app"), Some("x")),
         ];
-        let plan = classic_cleanup_plan(B.to_owned(), Some(keychain), vec![String::new(), "unknown".to_owned()]);
+        let plan =
+            classic_cleanup_plan(B.to_owned(), Some(keychain), vec![String::new(), "unknown".to_owned()]);
         assert!(plan.keychain_deletes.is_empty());
         assert!(plan.defaults_deletes.is_empty());
         assert_eq!(plan.kept, 8);
@@ -372,7 +392,11 @@ mod tests {
 
     #[test]
     fn a_second_launch_finds_nothing_to_delete() {
-        let plan = classic_cleanup_plan(B.to_owned(), Some(next_keychain()), vec!["cmuxMobile.setupComplete".to_owned()]);
+        let plan = classic_cleanup_plan(
+            B.to_owned(),
+            Some(next_keychain()),
+            vec!["cmuxMobile.setupComplete".to_owned()],
+        );
         assert!(plan.keychain_deletes.is_empty());
         assert!(plan.defaults_deletes.is_empty());
     }

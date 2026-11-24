@@ -5,7 +5,7 @@
 // Cloud section and opens the host's create flow. It defaults to this computer. The machines come
 // from acpmux (`_acpmux/status` peers, by URL scheme, and the hosts its chats ran on); with
 // previews off the row keeps its plain Computer menu.
-import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
@@ -13,6 +13,7 @@ import { translate as t } from "../src/agent-session/acpmux/i18n";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 import { teardownDom } from "./support/domTeardown";
+import { labelExposure } from "./support/labelExposure";
 import { factsCardText } from "./support/factsCard";
 
 const scope = globalThis as Record<string, unknown>;
@@ -832,15 +833,18 @@ const worktreeButton = () =>
   [...host.querySelectorAll<HTMLButtonElement>(".acpmux-location-button")].find(
     (button) => button.textContent?.trim() === t("worktree.new"),
   );
-// New Worktree from the folder menu.
+// New worktree from the current project's worktree list.
 const newWorktreeFromMenu = async () => {
   const folder = host.querySelector<HTMLButtonElement>(
     `.acpmux-composer-context button[aria-label="${t("composer.folder")}"]`,
   );
   expect(folder, "no folder control").toBeTruthy();
   await act(async () => folder!.click());
-  const action = [...doc().querySelectorAll<HTMLElement>(".acpmux-location-action")].find(
-    (item) => item.textContent?.trim() === t("worktree.new"),
+  const expand = doc().querySelector<HTMLElement>("[data-current] .acpmux-location-worktrees");
+  expect(expand, "no worktree list for the selected project").toBeTruthy();
+  await act(async () => expand!.click());
+  const action = [...doc().querySelectorAll<HTMLElement>("[data-worktree]")].find(
+    (item) => item.textContent?.trim() === t("project.newWorktree"),
   );
   expect(action, "no New Worktree in the folder menu").toBeTruthy();
   await act(async () => action!.click());
@@ -1686,9 +1690,11 @@ test("Leo's menu: Where shows where it runs, the machine chip which machine, eac
 test("three chips: nothing is required to start, and the machine chip shows only for another machine", async () => {
   const calls = await mount(true, { ...shipped, ...alone });
   const strip = host.querySelector(".acpmux-location-leading")!;
-  // Project, then Where; no machine chip on This Mac.
+  // Project, then Where; no machine chip on This Mac (the Environment chip's slot is closed, inert).
   expect(
-    [...strip.querySelectorAll(".acpmux-location-button")].map((button) => button.getAttribute("aria-label")),
+    [...strip.querySelectorAll(".acpmux-location-button")]
+      .filter((button) => !button.closest("[inert]"))
+      .map((button) => button.getAttribute("aria-label")),
   ).toEqual([t("composer.folder"), `${t("composer.environment")}: ${t("composer.thisMac")}`]);
   expect(machineButton()).toBeUndefined();
   // Empty, the folder chip reads No folder as a settled choice, never a dimmed prompt, and a chat
@@ -1735,8 +1741,15 @@ test("three chips: Cloud picked shows no machine chip and no New machine anywher
   expect(computerButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: ${t("composer.cloud")}`);
   const strip = host.querySelector(".acpmux-location-leading")!;
   expect(
-    [...strip.querySelectorAll(".acpmux-location-button")].map((button) => button.getAttribute("aria-label")),
-  ).toEqual([t("composer.folder"), `${t("composer.environment")}: ${t("composer.cloud")}`]);
+    [...strip.querySelectorAll(".acpmux-location-button")]
+      .filter((button) => !button.closest("[inert]"))
+      .map((button) => button.getAttribute("aria-label")),
+  ).toEqual([
+    t("composer.folder"),
+    `${t("composer.environment")}: ${t("composer.cloud")}`,
+    // The Environment chip (on by default, CLOUD_ENVIRONMENTS_ENABLED), on Auto: never a machine.
+    `${t("composer.envCloudLabel")}: ${t("composer.envAuto")}`,
+  ]);
   expect(machineButton()).toBeUndefined();
   expect(host.textContent ?? "").not.toContain(t("composer.newMachine"));
   // Where, opened again: Cloud checked, one line, and still no New machine or setup row.
@@ -2106,5 +2119,47 @@ test("a machine that crosses the unavailable time while the list is closed is gr
     expect(doc().querySelector(".acpmux-env-popover [data-row-motion]")).toBeNull();
   } finally {
     Date.now = realNow;
+  }
+});
+
+// The machine chip's live dot while the picked machine's link dips and comes back on its own (Leo,
+// 2026-11-14: "i also want all our connectivity stuff to shut up and load faster"): a link that comes
+// up in 0.8 s or heals in 6 s never draws "Not connected"; one down for 15 s says so once it has lasted
+// the shared bound (ui/lasting.ts CONNECTION_QUIET_MS), and a refused sign-in says so at once.
+test("three chips: the machine chip's dot stays quiet through a link that comes back inside the bound", async () => {
+  const { CONNECTION_QUIET_MS } = await import("../src/ui/lasting");
+  await mount(true, shipped);
+  const prompt = host.querySelector("textarea")!;
+  prompt.focus();
+  await press(prompt, { key: "™", code: "Digit2", altKey: true, metaKey: true });
+  expect(machineButton()?.getAttribute("aria-label")).toBe(`${t("composer.machine")}: gpu-box`);
+  const dot = () => machineButton()?.querySelector(".acpmux-env-live");
+  const notConnected = () => dot()?.getAttribute("data-connected") === "false";
+  const link = (state: string) => () =>
+    updateProps({ peerConnected: { "gpu-box": state === "connected" }, peerStates: { "gpu-box": state } });
+  jest.useFakeTimers();
+  try {
+    const timeline = (down: string, healsAt: number) => [
+      { at: 0, apply: link(down) },
+      { at: healsAt, apply: link("connected") },
+    ];
+    // Measured in full before any assertion, so a regression prints every number the PR table quotes.
+    const shown = [
+      await labelExposure("machine-chip.connect-800ms", timeline("connecting", 800), 2_000, notConnected),
+      await labelExposure("machine-chip.reconnect-6s", timeline("reconnecting", 6_000), 8_000, notConnected),
+      await labelExposure("machine-chip.lasting-15s", timeline("reconnecting", 15_000), 17_000, notConnected),
+    ];
+    expect(shown).toEqual([0, 0, 15_000 - CONNECTION_QUIET_MS]);
+    expect(dot()?.getAttribute("data-connected")).toBe("true");
+    // A refused sign-in needs the person: it is said at once. The daemon sends it as the whole link
+    // word with the older state word folded to "offline" (peer_state.rs MachineLink::folded).
+    await updateProps({
+      peerConnected: { "gpu-box": false },
+      peerStates: { "gpu-box": "offline" },
+      peerLinks: { "gpu-box": { link: "authFailed", since: Date.now() } },
+    });
+    expect(notConnected()).toBe(true);
+  } finally {
+    jest.useRealTimers();
   }
 });

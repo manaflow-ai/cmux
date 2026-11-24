@@ -39,6 +39,11 @@ SWIFT_RESULT = re.compile(
     r"Test (?:[Cc]ase )?['\"]?(?:-\[[\w.]+ (?P<objc>\w+)\]|(?:[\w.]+[/.])?(?P<name>\w+)\((?:[^)]*)\))['\"]? "
     r"(?P<result>passed|failed)"
 )
+# A pass whose verdict word the test process's own log cut (stdout and stderr share the pipe):
+# `✔ Test name() p2026-11-22 ... [link] link connected(...)`, then `assed after 0.068 seconds.`
+# on the next line. Swift Testing's `✔` prints only for a test that passed; a cut `✘` line
+# leaves the test started, which reads failed (or crashed), so only the pass needs this.
+SWIFT_PASS_MARK = re.compile(r"✔ Test (?P<name>\w+)\((?:[^)]*)\) ")
 SWIFT_STARTED = re.compile(
     r"Test (?:[Cc]ase )?['\"]?(?:-\[[\w.]+ (?P<objc>\w+)\]|(?:[\w.]+[/.])?(?P<name>\w+)\((?:[^)]*)\))['\"]? started"
 )
@@ -197,6 +202,11 @@ def parse_swift(log: str) -> dict[str, str]:
         match = SWIFT_RESULT.search(line)
         if match:
             _record(results, match["name"] or match["objc"], "pass" if match["result"] == "passed" else "fail")
+            summary = False
+            continue
+        match = SWIFT_PASS_MARK.search(line)
+        if match:
+            _record(results, match["name"], "pass")
             summary = False
             continue
         match = SWIFT_RESTARTED.search(line)

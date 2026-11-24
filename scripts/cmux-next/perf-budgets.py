@@ -20,6 +20,8 @@ bench launches and quits the app itself), and maps their reports to budget rows 
   bench_idle.py                  idle CPU of the app with terminals open
   tab-churn-bench.py             terminal_burst: 30 Ctrl-` terminals in a row (first and last ten, growth), closing them,
                                  and Cmd-T / Cmd-W in a pane of 1 tab and of 31 (ask-8a0837950b)
+  bench_power.py many-chats      many_chats (opt-in): Leo's ~200 agent chat tabs, 4 streaming, 13 Chromium tabs, the New
+                                 Tab page shown: the app's main-thread busy % (CPU) and its stalls over 100 / 250 ms
 
   Tabs and terminals as they grow (Leo 2026-11-10: "opening up a lot of terminals isn't super fast? opening/closing
   tabs was p important to lawrence ... we defo need to encode and warn sometimes if those get slow"); each row's cost
@@ -47,6 +49,8 @@ Local, on a built app (never on a laptop that is in use):
 import argparse, importlib.util, json, os, platform, re, statistics, subprocess, sys, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+from state_wait import wait_until  # noqa: E402
 BUDGETS_FILE = os.path.join(HERE, "perf-budgets.json")
 BASELINE_DIR = os.path.join(HERE, "perf-budgets-baseline")
 REGRESSION = 0.10
@@ -55,7 +59,7 @@ BENCHES = ["new_surfaces", "panes", "tab_switch", "palette", "sidebar", "home", 
 # Benches that run only when --only names them: the default (all of BENCHES) is what stable-next's --gate step runs, and
 # a bench added here is a perf cron row that warns, never a new gate row (the 2026-10-23 no-new-CI rule, since lifted).
 # tab_scale, tab_close and surfaces_scale: the tabs-and-terminals-at-scale groups the perf cron's `tabs` part names.
-OPT_IN_BENCHES = ["terminal_burst", "tab_scale", "tab_close", "surfaces_scale"]
+OPT_IN_BENCHES = ["terminal_burst", "tab_scale", "tab_close", "surfaces_scale", "many_chats"]
 PERF_BENCH = os.path.join(HERE, "..", "perf-bench")
 # Stage rows: where a judged row's time goes (the chat composer's typing: key to page, key to edit and render done).
 # Stored and shown, never gated, budgeted or written to a baseline: measurement only (the 2026-10-23 no-new-CI rule, since lifted).
@@ -151,7 +155,7 @@ LOAD_TIERS = {"default": [], "agent": ["taskpolicy", "-c", "utility", "-d", "uti
 
 
 def start_load(tier, scratch):
-    """The load workers for `tier`, started and given 5 s to ramp; stop_load ends them."""
+    """The load workers for `tier`, started and running (CPU spent, the disk writer writing); stop_load ends them."""
     os.makedirs(os.path.join(scratch, "tree"), exist_ok=True)
     tree = os.path.join(scratch, "tree")
     if not os.path.exists(os.path.join(tree, "done")):
@@ -168,7 +172,19 @@ def start_load(tier, scratch):
     argvs += [sh('while :; do cat "$1"/f* | shasum >/dev/null; done', tree) for _ in range(2)]
     procs = [subprocess.Popen(a, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
              for a in argvs]
-    time.sleep(5)  # test harness: let the load ramp
+    # The load ramped: every worker is alive, each `yes` has been scheduled (CPU time spent), and a dd writer's
+    # file exists in scratch.
+    spinners = [p.pid for p, a in zip(procs, argvs) if a[-1] == "yes"]
+
+    def ramped():
+        dead = [a for p, a in zip(procs, argvs) if p.poll() is not None]
+        if dead:
+            raise SystemExit(f"a load worker exited at start: {dead[0]}")
+        times = subprocess.run(["ps", "-o", "time=", "-p", ",".join(map(str, spinners))],
+                               capture_output=True, text=True).stdout.split()
+        busy = len(times) == len(spinners) and all(any(c in t.replace("0", "") for c in "123456789") for t in times)
+        return busy and any(name.startswith("w") for name in os.listdir(scratch))
+    wait_until(ramped, f"the {tier} load to ramp", timeout=30, interval=0.2)
     return procs
 
 
@@ -336,6 +352,21 @@ def rows_terminal_burst(rep):
         else:
             action, _, count = step.partition("@")
             out[f"terminal_burst.{action}.{count}.key_to_visible"] = p50_p95(s.get("visible_ms"))
+    return out
+
+
+def rows_many_chats(rep):
+    """bench_power.py many-chats: the app's main-thread busy % and the window's stalls (one value each: p50 = p95)."""
+    out = {}
+    for result in (rep or {}).get("results") or []:
+        if result.get("label") != "many-chats":
+            continue
+        rows = result.get("many_chats") or {}
+        for key, name in (("main_thread_pct", "main_thread_pct"), ("hangs_over_100ms", "hangs_over_100ms"),
+                          ("hangs_over_250ms", "hangs_over_250ms"), ("hang_max_ms", "hang_max_ms"),
+                          ("hidden_push_bytes_per_s", "hidden_push_bytes_per_s")):
+            if isinstance(rows.get(key), (int, float)):
+                out[f"many_chats.{name}"] = (rows[key], rows[key])
     return out
 
 
@@ -551,6 +582,8 @@ def main():
         "terminal_burst": ([py, S("tab-churn-bench.py"), *common, "--cycles", "12", "--terminals", "30",
                   "--out", o("terminal_burst"), "--json", o("terminal_burst.json")], "terminal_burst.json",
                            rows_terminal_burst),
+        "many_chats": ([py, S("bench_power.py"), "--app", opts.app, "--scenarios", "many-chats",
+                        "--out", o("many_chats.json"), "--md", o("many_chats.md")], "many_chats.json", rows_many_chats),
         "idle": ([py, S("bench_idle.py"), *common, "--scenarios", "terminals,chromium-static", "--settle", "15",
                   "--measure", "30", "--no-fail", "--label", "budgets", "--out", o("idle")], None, rows_idle),
     }

@@ -182,13 +182,13 @@ final class KeyRouter: BrowserKeyRouting, ParkedTypingRouter {
         // A key-down the dispatcher already decided (sent again: a view's doCommand re-sending a chord, a replayed
         // dispatch) is not decided twice: it goes on to AppKit's dispatch, so its action never runs a second time.
         if decided.contains(event) { return false }
-        if !heldBefore, menuPickKeys.capture(event) { return true } // `heldBefore`: a hold runs the key again; it was typed before the menu, and the hold's rule gets it
-        if answersBlockingDialog(event, in: window) { return true }  // never the view's under the dialog
-        if newTabInputCoordinator.capture(event, in: window) { return true }
-        if creationInputCoordinator.capture(event, in: window) { return true }
+        if !heldBefore, menuPickKeys.capture(event) { trace?("hold: menu pick"); return true } // `heldBefore`: a hold runs the key again; it was typed before the menu, and the hold's rule gets it
+        if answersBlockingDialog(event, in: window) { trace?("dialog: blocking"); return true }  // never the view's under the dialog
+        if newTabInputCoordinator.capture(event, in: window) { trace?("hold: new tab"); return true }
+        if creationInputCoordinator.capture(event, in: window) { trace?("hold: creation"); return true }
         // Set again only when this key runs an action (debug.key reports it).
         lastInterception = nil
-        if cancelsMissedModal(event, in: window) { return true }
+        if cancelsMissedModal(event, in: window) { trace?("dialog: cancel missed modal"); return true }
         if runsUndoToast(event, in: window) {
             trace?("undo toast: Cmd-Z ran the toast")
             return true
@@ -200,34 +200,39 @@ final class KeyRouter: BrowserKeyRouting, ParkedTypingRouter {
             return true
         }
         if routesPopupKey(event, in: window) {
+            trace?("popup: key")
             cancelChord()
             return true
         }
         // Link hints are showing: their letters, Backspace and Escape.
         if let hints = services?.linkHints, hints.isActive, hints.interceptKeyDown(event, in: window) {
+            trace?("hints: link")
             cancelChord()
             return true
         }
         // Window hints are showing (Click by Hint): the same keys.
         if let hints = services?.windowHints, hints.isActive, hints.interceptKeyDown(event, in: window) {
+            trace?("hints: window")
             cancelChord()
             return true
         }
         // Cmd-P / Cmd-Shift-P (as bound) in a web view outside a main window: the native palette.
         if routesNativePaletteKey(event, in: window) {
+            trace?("palette: native")
             cancelChord()
             return true
         }
         // Browser focus mode: Esc Esc leaves it (the first Escape still reaches the page).
-        if routesFocusModeEscape(event, in: window) { return true }
+        if routesFocusModeEscape(event, in: window) { trace?("browser: leave focus mode"); return true }
         let isChord = Self.isChord(event.modifierFlags)
         if isChord {
             parkedTyping.keyEndsQueue(event, text: typeAhead.text, for: typeAhead.surface) // before the drop: a New Tab key parks this text
             dropTypeAhead()
         }
         guard chords.isPending || isChord else {
-            if routesBareKey(event, in: window) { return true }
-            if typesAhead(event, in: window) || typesIntoPrimaryInput(event, in: window) { return true }
+            if routesBareKey(event, in: window) { trace?("binding: bare key"); return true }
+            if typesAhead(event, in: window) { trace?("hold: page type-ahead"); return true }
+            if typesIntoPrimaryInput(event, in: window) { trace?("redirect: primary input"); return true }
             onTyping?(window)
             return false
         }
@@ -376,6 +381,7 @@ final class KeyRouter: BrowserKeyRouting, ParkedTypingRouter {
     // MARK: Chords
 
     var chords = ChordTracker()
+    private(set) lazy var keyModes = KeyModeLayer(registry: registry)  // a user key mode (design/key-modes.md)
 
     /// The key-down a page has first, with the action to run if it reports the key unhandled.
     var pageFirstOffer = PageFirstKeyOffer()

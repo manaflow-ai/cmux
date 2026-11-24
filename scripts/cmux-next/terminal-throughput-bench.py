@@ -19,10 +19,25 @@ the row is the median.
 
 Rows (report.json `rows`, perf-cron.py kind budgets; reporting only, perf-cron.py judges no terminal.throughput row):
   terminal.throughput.next_mb_s, terminal.throughput.ghostty_mb_s (MB/s), terminal.throughput.ratio (x, NEXT/Ghostty).
+  With --payload sgr the same three rows are named terminal.throughput_sgr.*.
 Prints TERMINAL-THROUGHPUT lines. Exits 1 when a terminal gave no timed burst (the report says why in `missing`).
 
-  terminal-throughput-bench.py --app "<cmux DEV tag.app>" --out DIR [--json FILE] [--mb 200] [--runs 3]
+  terminal-throughput-bench.py (--app "<cmux DEV tag.app>" | --installed APP) --out DIR [--json FILE] [--mb 200] [--runs 3]
       [--warmup-mb 16] [--timeout 240] [--ghostty-app PATH] [--no-ghostty] [--breakdown] [--trace]
+      [--payload mixed|sgr]
+
+--payload sgr: every printable character carries its own 256-color SGR change (ESC[38;5;Nm), the escape-heavy output
+that per-run renderers fall over on (termbench's color arm). The default mixed payload has SGR runs per word, so a
+style change per cell is never measured there. Escape bytes count as payload bytes, so read the ratio, not the MB/s,
+against the mixed arm: a lower sgr ratio says NEXT's extra parses (host, daemon, app) or the attach hop handle
+escape-dense bytes worse than Ghostty does.
+
+--installed APP (scripts/measure/terminal-throughput-quick.sh): NEXT is a side instance of an installed app (the
+NIGHTLY), not a tagged DEV build: side-instance.sh makes a copy of APP with its own bundle id, socket, daemon and state
+(remade only when APP's CFBundleVersion changes), launches it in front, and stops only the copy's processes after. The
+installed app and the person's running cmux are never touched. No build, no measurement slot, no lock; the bursts,
+the Ghostty side and the rows are the ones below. In front because a Release build stops drawing an occluded window
+(WindowDrawPolicy), and Ghostty opens in front too. Not with --next-arm (a copy's launch takes no added variables).
 
 --trace (terminal_throughput_trace.py): the first timed burst of each terminal runs under one Instruments recording of
 every process (System Trace and Time Profiler). Per thread of the terminal's processes, over the burst window: running,
@@ -34,11 +49,25 @@ burst runs slower than the others (the recording costs CPU); it is still a timed
 another launch of the same app with those launch variables (a daemon knob through DaemonDiagnosticKnobs set to its
 old value), so a change behind a knob gets its before and after on one Mac in one step. Prints
 TERMINAL-THROUGHPUT-ARM per arm; the report keeps them under next_arms; the rows stay NEXT's own.
+
+--interrupt-runs N (default 3; 0 skips): ^C under a flood, NEXT only, after its timed bursts. MB/s says little about how
+soon ^C stops the scroll (Dan Luu, "Terminal latency", 2017: terminals with high MB/s ignored ^C for minutes on a
+flood). Per run a new tab runs FLOODER: it writes the payload in a loop with no end, and the script sends ^C
+(terminal.sendText, the 0x03 byte) after --interrupt-flood-s s of it. The PTY's line discipline turns that byte into SIGINT;
+the flooder stops writing at once and waits with tcdrain() until the terminal has read what it wrote. Per run:
+  key_to_signal_ms     the script's send to the flooder's SIGINT: the input path (app, daemon, host, PTY) while output
+                       floods the other way
+  signal_to_drained_ms SIGINT to the PTY empty: output already written that the terminal still had to read
+Both clocks are time.time() on one Mac. Bytes the daemon or app still hold past the PTY (and their drawing) are not
+in either number. Rows: terminal.interrupt.key_to_signal_ms, terminal.interrupt.signal_to_drained_ms (median as p50,
+worst as p95; reporting only). TERMINAL-THROUGHPUT-INTERRUPT per run.
 """
-import argparse, hashlib, json, os, platform, random, shlex, shutil, statistics, subprocess, sys, tempfile, time
+import argparse, hashlib, json, os, platform, random, re, shlex, shutil, statistics, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+from state_wait import StateWaitTimeout, wait_stable, wait_until  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 GHOSTTY_VERSION = "1.4.0"
 GHOSTTY_DMG_SHA256 = "3a02075dbd24318d778426af41dee5507d53ecc4578ede96912ec9ce6d18d3e8"
@@ -65,6 +94,33 @@ tmp = result + ".tmp"
 with open(tmp, "w") as f:
     json.dump({"bytes": n, "seconds": t1 - t0, "cols": cols, "rows": rows}, f)
 os.rename(tmp, result)
+'''
+# --interrupt-runs: the flood, run as the terminal's command. argv: payload, result file. It writes `started` once the
+# flood is under way and the result once ^C stopped it and the PTY drained.
+FLOODER = r'''
+import json, os, signal, sys, termios, time
+src, result = sys.argv[1], sys.argv[2]
+with open(src, "rb") as f:
+    data = f.read(4 << 20)
+got = {}
+def on_int(signum, frame):
+    got.setdefault("signal_at", time.time())
+signal.signal(signal.SIGINT, on_int)
+view, n, off, chunk, written, started = memoryview(data), len(data), 0, 65536, 0, False
+while "signal_at" not in got:
+    w = os.write(1, view[off:off + chunk])
+    written += w
+    off = (off + w) % n
+    if not started and written >= 1 << 20:
+        started = True
+        open(result + ".started", "w").close()
+termios.tcdrain(1)
+got["drained_at"] = time.time()
+os.write(1, b"\x1b[0m\r\nterminal-throughput: interrupted\r\n")
+got["bytes"] = written
+with open(result + ".tmp", "w") as f:
+    json.dump(got, f)
+os.rename(result + ".tmp", result)
 '''
 # --breakdown: where each burst's time goes. For every process of the terminal (the app, its daemon and terminal
 # hosts, or Ghostty), over one window in the middle of the burst: its CPU and each of its threads' CPU (two `ps` reads,
@@ -167,14 +223,17 @@ def sample_summary(text, top=20):
 class Breakdown:
     """One burst's per-process and per-thread CPU over a window mid-burst, and a sample of each process."""
 
-    def __init__(self, match, out_dir, label, delay=0.5, seconds=1):
-        self.match, self.out_dir, self.label, self.delay, self.seconds = match, out_dir, label, delay, seconds
+    def __init__(self, match, out_dir, label, writer, seconds=1):
+        self.match, self.out_dir, self.label, self.writer, self.seconds = match, out_dir, label, writer, seconds
         self.window = None
         self.timer = __import__("threading").Thread(target=self._measure, daemon=True)
         self.timer.start()
 
     def _measure(self):
-        time.sleep(self.delay)  # test harness: the window starts once the burst is under way
+        # The window starts once the burst is under way: the writer process runs.
+        if not wait_until(lambda: terminal_processes(lambda c: self.writer in c), f"{self.label}'s writer to start",
+                          timeout=30, interval=0.05, raise_on_timeout=False):
+            safe_print(f"{self.label}: the writer never showed in ps within 30 s; measuring anyway", flush=True)
         before = terminal_processes(self.match)
         threads_before = {pid: threads_of(pid) for pid in before}
         started = time.monotonic()
@@ -217,6 +276,104 @@ class Breakdown:
         return result
 
 
+
+
+SIDE_INSTANCE = os.path.join(HERE, "side-instance.sh")
+
+
+class _Pid:
+    """A process this script did not start (`open` launched it), with Popen's poll(): None while it runs."""
+
+    def __init__(self, pid):
+        self.pid = pid
+
+    def poll(self):
+        try:
+            os.kill(self.pid, 0)
+            return None
+        except ProcessLookupError:
+            return 0
+        except PermissionError:
+            return None
+
+
+def side_marker(name):
+    """{key: value} of side-instance.sh's marker for `name`, {} when it has none (pure but for the read)."""
+    root = os.environ.get("CMUX_SIDE_ROOT") or os.path.expanduser("~/Library/Application Support/cmux-side")
+    try:
+        with open(os.path.join(root, name, ".side-instance")) as f:
+            return dict(line.rstrip("\n").split("=", 1) for line in f if "=" in line)
+    except OSError:
+        return {}
+
+
+def bundle_version(app):
+    try:
+        with open(os.path.join(app, "Contents", "Info.plist"), "rb") as f:
+            info = __import__("plistlib").load(f)
+    except Exception:  # noqa: BLE001  an unreadable plist: no version, so the copy is remade
+        return None
+    return info.get("CFBundleVersion") if isinstance(info, dict) else None
+
+
+def side_copy_current(marker, installed, version):
+    """Whether side-instance.sh's copy (its `marker`) is a copy of `installed` at `version` and still there (pure but
+    for the bundle check)."""
+    return bool(marker.get("app") and os.path.isdir(marker["app"]) and marker.get("from") == installed
+                and version and marker.get("version") == version and marker.get("socket"))
+
+
+class SideApp:
+    """--installed: NEXT as a side instance of an installed app (side-instance.sh), with BenchApp's launch, rpc,
+    process and stop. Only the copy's processes are ever stopped."""
+
+    def __init__(self, installed, name="tt-bench"):
+        self.installed, self.name = os.path.realpath(installed.rstrip("/")), name
+        self.process, self.socket = None, None
+        marker = side_marker(name)
+        if not side_copy_current(marker, self.installed, bundle_version(self.installed)):
+            self.side("stop", timeout=90)  # make refuses while an earlier run's copy still runs
+            self.side("make", "--from", self.installed, "--neutral-shell", timeout=900)
+            marker = side_marker(name)
+        self.app, self.socket = marker["app"], marker["socket"]
+
+    def side(self, *args, timeout=120):
+        got = subprocess.run([SIDE_INSTANCE, args[0], self.name, *args[1:]], capture_output=True, text=True,
+                             timeout=timeout)
+        if got.returncode != 0:
+            raise RuntimeError(f"side-instance.sh {args[0]} {self.name}: {(got.stderr or got.stdout).strip()[-300:]}")
+        return got.stdout
+
+    def rpc(self, method, params=None, timeout=60):
+        from bench_launch import rpc_at
+        return rpc_at(self.socket, method, params, timeout)
+
+    def launch(self, timeout=60):
+        # side-instance.sh launch first waits for room in the Mac's memory budget (SIDE_INSTANCE_BUDGET_WAIT_S,
+        # default 1800 s); a bound under that wait killed the launcher mid-wait (as hot-verify.py launch_seconds).
+        wait = float(os.environ.get("SIDE_INSTANCE_BUDGET_WAIT_S", "1800") or 0)
+        said = self.side("launch", "--front", timeout=wait + timeout + 30)
+        m = re.search(r"pid (\d+)", said)
+        if not m:
+            raise RuntimeError(f"side-instance.sh launch {self.name} named no pid: {said.strip()[-200:]}")
+        self.process = _Pid(int(m.group(1)))
+        cli = os.path.join(self.app, "Contents", "Resources", "bin", "cmux")
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline and self.process.poll() is None:
+            ping = subprocess.run([cli, "--app-socket", self.socket, "app", "ping"], capture_output=True, text=True,
+                                  timeout=30)
+            if ping.returncode == 0:
+                return
+            time.sleep(0.5)  # test harness: the copy's socket answers once it runs
+        raise RuntimeError(f"the side copy {self.app} answered no ping on {self.socket} within {timeout} s")
+
+    def stop(self):
+        if self.process is None:
+            return
+        try:
+            self.side("stop", timeout=90)
+        except (RuntimeError, subprocess.TimeoutExpired) as e:  # the bursts' numbers stand; say what still runs
+            print(f"terminal-throughput: WARNING: {e}", file=sys.stderr, flush=True)
 
 
 def parse_arm(text):
@@ -281,8 +438,29 @@ def payload_block(seed=571, size=1 << 20):
     return b"".join(out)
 
 
-def write_payload(path, mb):
-    block, want = payload_block(), mb * MB
+def sgr_payload_block(seed=571, size=1 << 20):
+    """About `size` bytes of text where every printable character has its own SGR color change (pure)."""
+    rng = random.Random(seed)
+    text = re.sub(r"\x1b\[[0-9;]*m", "", payload_block(seed, size // 8).decode())  # its own SGR runs out
+    out, total = [], 0
+    while total < size:
+        for ch in text:
+            b = (ch if ch == "\n" else f"\x1b[38;5;{rng.randrange(256)}m{ch}").encode()
+            if ch == "\n":
+                b = b"\x1b[0m\n"
+            out.append(b)
+            total += len(b)
+            if total >= size:
+                break
+    return b"".join(out)
+
+
+PAYLOADS = {"mixed": payload_block, "sgr": sgr_payload_block}
+ROW_PREFIX = {"mixed": "terminal.throughput", "sgr": "terminal.throughput_sgr"}
+
+
+def write_payload(path, mb, kind="mixed"):
+    block, want = PAYLOADS[kind](), mb * MB
     with open(path, "wb") as f:
         left = want
         while left > 0:
@@ -322,22 +500,70 @@ def run_record(label, i, res):
     return rec
 
 
+def interrupt_record(i, sent_at, res):
+    """One ^C run's record (pure): the two spans in ms, or why there are none."""
+    if sent_at is None or not res or "signal_at" not in res or "drained_at" not in res:
+        return {"run": i, "error": "no result" if sent_at is not None else "no flood"}
+    return {"run": i, "key_to_signal_ms": round(1000 * (res["signal_at"] - sent_at), 1),
+            "signal_to_drained_ms": round(1000 * (res["drained_at"] - res["signal_at"]), 1),
+            "flood_bytes": res.get("bytes")}
+
+
+def measure_interrupts(opts, app, flooder, payload, scratch):
+    """--interrupt-runs ^C runs in NEXT's running app, each in a new focused tab (FLOODER)."""
+    runs = []
+    for i in range(1, opts.interrupt_runs + 1):
+        result = os.path.join(scratch, f"interrupt-{i}.json")
+        cmd = " ".join(shlex.quote(a) for a in ["/usr/bin/python3", "-I", flooder, payload, result])
+        app.rpc("action.run", {"action": "newTab", "args": {"name": f"interrupt-{i}", "focus": True, "command": cmd}})
+        sent_at = None
+        if wait_result_file(result + ".started", 30, alive=lambda: app.process.poll() is None):
+            time.sleep(opts.interrupt_flood_s)  # test harness: the flood runs this long before the key
+            sent_at = time.time()
+            app.rpc("action.run", {"action": "terminal.sendText", "args": {"text": "\x03"}, "focus": True,
+                                   "origin": "script"})
+        res = wait_result(result, 60, alive=lambda: app.process.poll() is None) if sent_at else None
+        rec = interrupt_record(i, sent_at, res)
+        print("TERMINAL-THROUGHPUT-INTERRUPT " + json.dumps(rec), flush=True)
+        runs.append(rec)
+    return runs
+
+
+def wait_result_file(path, timeout, alive=lambda: True):
+    """True once `path` exists, False after `timeout` s or once `alive()` is False."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline and alive():
+        if os.path.exists(path):
+            return True
+        time.sleep(0.05)  # test harness: the flooder's marker file is its only signal
+    return os.path.exists(path)
+
+
 def measure_next(opts, writer, payload, scratch, label="next", env=None):
     """NEXT's bursts in one launch of the app; `env` adds to its launch environment (an --next-arm), `label` names
     the rows."""
     from bench_launch import BenchApp
     out = {"runs": []}
-    app = BenchApp(opts.app, out=os.path.join(opts.out, label), env=env)
+    app = opts.side or BenchApp(opts.app, out=os.path.join(opts.out, label), env=env)
     try:
         app.launch()
-        time.sleep(3)  # test harness: let the first window settle before the first burst
+        # The first window settles before the first burst: its panes and frames hold still.
+        def first_window():
+            surfaces = app.rpc("debug.surfaces") or {}
+            return json.dumps([(w.get("frame"), [(p.get("pane"), p.get("kind"), p.get("focused"), p.get("frame"))
+                                                 for p in w.get("panes") or []])
+                               for w in surfaces.get("windows") or [] if isinstance(w, dict)], sort_keys=True)
+        try:
+            wait_stable(first_window, "the first window", timeout=15, interval=0.1, reads=5)
+        except StateWaitTimeout as error:
+            print(f"{label}: {error}", flush=True)
         plan = [("warmup", opts.warmup_mb * MB)] + [(i, 0) for i in range(1, opts.runs + 1)]
         for i, limit in plan:
             result = os.path.join(scratch, f"{label}-{i}.json")
             cmd = " ".join(shlex.quote(a) for a in ["/usr/bin/python3", "-I", writer, payload, result, str(limit)])
             tracer = start_trace(opts, i, "next") if label == "next" else None
             probe = (Breakdown(lambda c: opts.app in c or "cmux-tui" in c or "acpmux" in c or writer in c, opts.out,
-                               f"{label}-{i}") if opts.breakdown and i != "warmup" and not tracer else None)
+                               f"{label}-{i}", writer) if opts.breakdown and i != "warmup" and not tracer else None)
             tab = f"throughput-{i}" if label == "next" else f"throughput-{label}-{i}"
             reply = app.rpc("action.run", {"action": "newTab", "args": {"name": tab, "focus": True, "command": cmd}})
             if isinstance(reply, dict) and reply.get("error"):
@@ -352,6 +578,11 @@ def measure_next(opts, writer, payload, scratch, label="next", env=None):
                 out["warmup"] = run_record(f"{label}-warmup", 0, res)
                 continue
             out["runs"].append(run_record(label, i, res))
+        if label == "next" and opts.interrupt_runs > 0 and "error" not in out:
+            flooder = os.path.join(scratch, "flooder.py")
+            with open(flooder, "w") as f:
+                f.write(FLOODER)
+            out["interrupts"] = measure_interrupts(opts, app, flooder, payload, scratch)
     except Exception as e:  # a failed launch (LaunchError printed its report) or a dead socket
         out["error"] = f"{type(e).__name__}: {e}"[:400]
     finally:
@@ -362,7 +593,14 @@ def measure_next(opts, writer, payload, scratch, label="next", env=None):
 def ghostty_app(opts, scratch):
     """(path to Ghostty.app, version) or (None, why)."""
     if opts.ghostty_app:
-        return (opts.ghostty_app, "given") if os.path.isdir(opts.ghostty_app) else (None, f"no app at {opts.ghostty_app}")
+        if not os.path.isdir(opts.ghostty_app):
+            return None, f"no app at {opts.ghostty_app}"
+        try:
+            with open(os.path.join(opts.ghostty_app, "Contents", "Info.plist"), "rb") as f:
+                version = __import__("plistlib").load(f).get("CFBundleShortVersionString")
+        except Exception:  # noqa: BLE001  an unreadable plist: the version is unknown, the app still runs
+            version = None
+        return opts.ghostty_app, f"given {version or '?'}"
     cache_root = os.environ.get("CI_SHARED_CACHE_DIR")
     home = os.path.join(cache_root, "ghostty-standalone", GHOSTTY_VERSION) if cache_root else os.path.join(scratch, "ghostty")
     app = os.path.join(home, "Ghostty.app")
@@ -416,7 +654,7 @@ def measure_ghostty(opts, writer, payload, scratch, grid):
                 "--auto-update=off", f"--window-width={cols}", f"--window-height={rows}"]
         log = open(os.path.join(opts.out, f"ghostty-{i}.log"), "w")
         tracer = start_trace(opts, i, "ghostty")
-        probe = (Breakdown(lambda c: app in c or writer in c, opts.out, f"ghostty-{i}", delay=0.8)
+        probe = (Breakdown(lambda c: app in c or writer in c, opts.out, f"ghostty-{i}", writer)
                  if opts.breakdown and i != "warmup" and not tracer else None)
         proc = subprocess.Popen(argv, env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
         try:
@@ -442,23 +680,37 @@ def measure_ghostty(opts, writer, payload, scratch, grid):
     return out
 
 
-def report_rows(next_mb_s, ghostty_mb_s):
-    """The report's rows (pure): each MB/s median and their ratio, when both are known."""
+def interrupt_rows(runs):
+    """The ^C rows (pure): per span, the median of the runs as p50 and the worst as p95; none without a good run."""
     rows = []
-    for name, v, unit in (("terminal.throughput.next_mb_s", next_mb_s, "MB/s"),
-                          ("terminal.throughput.ghostty_mb_s", ghostty_mb_s, "MB/s")):
+    for key in ("key_to_signal_ms", "signal_to_drained_ms"):
+        vals = [r[key] for r in runs or [] if isinstance(r.get(key), (int, float))]
+        if vals:
+            rows.append({"name": f"terminal.interrupt.{key}", "p50": round(statistics.median(vals), 1),
+                         "p95": max(vals), "unit": "ms", "budget": None, "floor": 1.0, "n": len(vals)})
+    return rows
+
+
+def report_rows(next_mb_s, ghostty_mb_s, interrupts=None, prefix="terminal.throughput"):
+    """The report's rows (pure): each MB/s median and their ratio, when both are known, and the ^C rows."""
+    rows = interrupt_rows(interrupts)
+    for name, v, unit in ((f"{prefix}.next_mb_s", next_mb_s, "MB/s"),
+                          (f"{prefix}.ghostty_mb_s", ghostty_mb_s, "MB/s")):
         if v is not None:
             rows.append({"name": name, "p50": v, "p95": v, "unit": unit, "budget": None, "floor": round(0.1 * v, 1)})
     if next_mb_s and ghostty_mb_s:
         ratio = round(next_mb_s / ghostty_mb_s, 3)
-        rows.append({"name": "terminal.throughput.ratio", "p50": ratio, "p95": ratio, "unit": "x", "budget": None,
+        rows.append({"name": f"{prefix}.ratio", "p50": ratio, "p95": ratio, "unit": "x", "budget": None,
                      "floor": 0.1})
     return rows
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("--app", required=True)
+    which = parser.add_mutually_exclusive_group(required=True)
+    which.add_argument("--app", help="a tagged `cmux DEV <tag>.app` build (split-spring.sh, the perf cron)")
+    which.add_argument("--installed", metavar="APP",
+                       help="an installed app (the NIGHTLY): NEXT is its side-instance copy (terminal-throughput-quick.sh)")
     parser.add_argument("--out", required=True)
     parser.add_argument("--json")
     parser.add_argument("--tag")  # split-spring-terminal.py passes it; the app path names the tag
@@ -473,20 +725,35 @@ def main(argv=None):
     parser.add_argument("--trace", action="store_true",
                         help="the first timed burst of each terminal under Instruments (System Trace and Time Profiler): "
                              "per thread, its states, system calls and bytes over the burst (TERMINAL-THROUGHPUT-TRACE)")
+    parser.add_argument("--payload", choices=sorted(PAYLOADS), default="mixed",
+                        help="mixed (default): lines, wraps, SGR runs per word, UTF-8; sgr: an SGR color change on "
+                             "every character (rows terminal.throughput_sgr.*)")
+    parser.add_argument("--interrupt-runs", type=int, default=3,
+                        help="after NEXT's bursts, this many ^C-under-a-flood runs (TERMINAL-THROUGHPUT-INTERRUPT); 0 skips")
+    parser.add_argument("--interrupt-flood-s", type=float, default=2.0, help="seconds of flood before each ^C")
     parser.add_argument("--next-arm", action="append", default=[], metavar="LABEL:NAME=VALUE[,NAME=VALUE]",
                         help="before NEXT's own bursts, the same bursts in another launch of the same app with these "
                              "launch variables (a daemon knob's off value): a same-Mac A/B in one step "
                              "(TERMINAL-THROUGHPUT-ARM, report next_arms)")
     opts = parser.parse_args(argv)
+    if opts.installed and opts.next_arm:
+        parser.error("--next-arm needs --app: a side copy's launch takes no added variables")
+    if opts.installed and not os.path.isfile(os.path.join(opts.installed, "Contents", "Info.plist")):
+        parser.error(f"--installed: no app at {opts.installed}")
     os.makedirs(opts.out, exist_ok=True)
+    opts.side = None
+    if opts.installed:
+        opts.side = SideApp(opts.installed)
+        opts.app = opts.side.app  # --breakdown matches the copy's processes by its path
     scratch = tempfile.mkdtemp(prefix="tput.", dir="/private/tmp" if os.path.isdir("/private/tmp") else None)
     try:
         writer = os.path.join(scratch, "writer.py")
         with open(writer, "w") as f:
             f.write(WRITER)
         payload = os.path.join(scratch, "payload.txt")
-        size = write_payload(payload, opts.mb)
-        report = {"suite": "terminal-throughput", "payload_bytes": size, "runs_per_terminal": opts.runs,
+        size = write_payload(payload, opts.mb, opts.payload)
+        prefix = ROW_PREFIX[opts.payload]
+        report = {"suite": "terminal-throughput", "next_app": opts.installed or opts.app, "payload": opts.payload, "payload_bytes": size, "runs_per_terminal": opts.runs,
                   "host": platform.node(), "missing": []}
         arms = [parse_arm(a) for a in opts.next_arm]
         for arm, env in arms:
@@ -512,9 +779,12 @@ def main(argv=None):
         report["next"]["median_mb_s"], report["ghostty"]["median_mb_s"] = next_mb_s, ghostty_mb_s
         for label, v in (("next", next_mb_s), ("ghostty", ghostty_mb_s)):
             if v is None:
-                report["missing"].append({"name": f"terminal.throughput.{label}_mb_s",
+                report["missing"].append({"name": f"{prefix}.{label}_mb_s",
                                              "reason": report[label].get("error") or "no timed burst"})
-        report["rows"] = report_rows(next_mb_s, ghostty_mb_s)
+        report["rows"] = report_rows(next_mb_s, ghostty_mb_s, report["next"].get("interrupts"), prefix)
+        if opts.interrupt_runs > 0 and not any(r["name"].startswith("terminal.interrupt.") for r in report["rows"]):
+            report["missing"].append({"name": "terminal.interrupt.key_to_signal_ms",
+                                      "reason": report["next"].get("error") or "no ^C run gave a result"})
         if not report["missing"]:
             # Not `incomplete`: perf-cron.py reads that key as the whole measurement's coverage, and a Ghostty download
             # that failed must not keep the other parts' rows from a last good run.
@@ -522,7 +792,8 @@ def main(argv=None):
         print("TERMINAL-THROUGHPUT-SUMMARY " + json.dumps({"next_mb_s": next_mb_s, "ghostty_mb_s": ghostty_mb_s,
                                                            "ratio": next((r["p50"] for r in report["rows"]
                                                                           if r["name"].endswith(".ratio")), None),
-                                                           "host": report["host"], "payload_mb": opts.mb}), flush=True)
+                                                           "host": report["host"], "payload_mb": opts.mb,
+                                                           "payload": opts.payload}), flush=True)
         if opts.json:
             with open(opts.json, "w") as f:
                 json.dump(report, f, indent=1)
