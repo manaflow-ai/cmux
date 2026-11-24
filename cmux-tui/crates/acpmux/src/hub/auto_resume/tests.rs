@@ -300,3 +300,65 @@ fn a_cut_compact_is_sent_again_as_itself() {
     assert_eq!(super::resent_command("/compaction notes"), None);
     assert_eq!(super::resent_command("build it"), None);
 }
+
+/// The SR2 pool's 503 as gcp-agent-lane-11 logged it on 2026-11-24.
+const POOL_503: &str = "API Error: 503 no non-exhausted claude accounts available; next account frees up in 4m (retry after 203s). This is a server-side issue, usually temporary \u{2014} try again in a moment. If it persists, check your inference gateway (sr2-gateway.tail137216.ts.net:4016).";
+
+/// The gateway's `retry after Ss` is waited out, never less, and chats told the same deadline
+/// spread over up to a fifth more instead of all coming back the moment one account frees
+/// (2026-11-24: a continuation scheduled at exactly `delayMs: 203000`).
+#[test]
+fn a_pool_503_waits_out_its_retry_after_jittered_per_chat() {
+    let now = 1_000_000;
+    let reset = super::reset_hint::reset_at(POOL_503, None, now);
+    assert_eq!(reset, Some(now + 203_000));
+    let mut seen = std::collections::HashSet::new();
+    for chat in 0..40 {
+        let at =
+            super::jittered_reset(RetryReason::Capacity, reset, now, &format!("chat-{chat}#1"))
+                .unwrap();
+        assert!((now + 203_000..=now + 203_000 + 203_000 / 5).contains(&at), "chat {chat}: {at}");
+        seen.insert(at);
+    }
+    assert!(seen.len() > 30, "40 chats spread out: {}", seen.len());
+    // Another reason's deadline (a usage limit's reset) is kept as it is.
+    assert_eq!(super::jittered_reset(RetryReason::RateLimit, reset, now, "s#1"), reset);
+    assert_eq!(super::jittered_reset(RetryReason::Capacity, None, now, "s#1"), None);
+}
+
+/// A turn the pool's 503 cut reads `capacity` on the session row while acpmux waits it out or
+/// runs its continuation, so NOW's failed-turn census does not count it (Leo, 2026-11-24: "21
+/// turns just died on '503 no non-exhausted claude accounts available'"); with no
+/// continuation coming, and for any other error, it reads `failed` as before.
+#[test]
+fn a_pool_503_turn_reads_capacity_while_acpmux_holds_it() {
+    let last = json!({"turnId": "t1", "promptId": "p", "status": "failed", "errorText": POOL_503, "endedAt": 5});
+    let retry = RetrySummary {
+        attempt: 2,
+        of: 4,
+        reason: RetryReason::Capacity,
+        next_at: 250_000,
+        prompt_id: "p".into(),
+        turn_id: "t1".into(),
+    };
+    let row = super::row_last_turn(Some(&last), Some(&retry), false).unwrap();
+    assert_eq!(row["status"], "capacity");
+    assert_eq!(row["heldUntil"], 250_000);
+    assert_eq!(row["errorText"], POOL_503);
+    // Deciding or running its continuation: still held.
+    let row = super::row_last_turn(Some(&last), None, true).unwrap();
+    assert_eq!(row["status"], "capacity");
+    assert!(row.get("heldUntil").is_none());
+    // No continuation (auto-resume off, Stop): failed.
+    assert_eq!(super::row_last_turn(Some(&last), None, false).unwrap()["status"], "failed");
+    // Another error waits under its own name.
+    let transport = json!({"turnId": "t1", "status": "failed", "errorText": "stream disconnected"});
+    assert_eq!(super::row_last_turn(Some(&transport), None, true).unwrap()["status"], "failed");
+    // The row's lane says acpmux is working on it, not failed.
+    let summary = json!({"status": "ready", "turn": null, "turnCount": 3,
+        "lastTurn": super::row_last_turn(Some(&last), Some(&retry), false)});
+    assert_eq!(crate::hub::views::status_indicator(&summary), Some("working"));
+    assert_eq!(crate::hub::views::lane(&summary)["state"], "working");
+    assert_eq!(crate::hub::views::lane(&summary)["since"], 5);
+    assert!(super::row_last_turn(None, Some(&retry), true).is_none());
+}
