@@ -8,7 +8,7 @@ use std::process::Command;
 
 use cmux_auto_session::wire::Cwd;
 
-use super::place;
+use super::folder::place;
 use crate::auto_session::export::folder::{self, Folder};
 
 const BIN: &[u8] = &[0, 159, 146, 150, 255, 0, 10, 13, 1];
