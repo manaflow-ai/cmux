@@ -204,6 +204,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_PERF, Request),
         // Each caller's requests over a recent window (caller_stats.rs).
         untyped(method::MUX_CALLERS, Request),
+        // The felt-latency histograms (cmux-felt).
+        untyped(method::MUX_FELT_SNAPSHOT, Request),
         untyped(method::MUX_CONTEXT, Request),
         untyped(method::MUX_CONTEXT_OVERRIDE, Request),
         // Cloud whole-machine turn fencing. These methods are served by the

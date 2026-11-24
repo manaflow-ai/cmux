@@ -121,6 +121,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(agent_transfer::AGENT_TRANSFER_CAPABILITY);
         capabilities.push(agent_transfer::AGENT_TRANSFER_VM_KIND_CAPABILITY);
         capabilities.push(agent_transfer::AGENT_TRANSFER_CONTINUES_CAPABILITY);
+        capabilities.push(agent_transfer::AGENT_TRANSFER_HISTORY_LATER_CAPABILITY);
     }
     #[cfg(unix)]
     if mux.on_cloud_host() {
@@ -316,6 +317,7 @@ pub(super) fn advertised_capabilities(
         AGENT_CLI_HYBRID_CAPABILITY,
         AGENT_CLI_HYBRID_LEAN_CAPABILITY,
         TERMINAL_SHELL_LINES_CAPABILITY,
+        TERMINAL_FULL_SCREEN_FRAMES_CAPABILITY,
         ATTACH_REPLAY_HISTORY_WINDOW_CAPABILITY,
         terminal_snapshot::TERMINAL_SNAPSHOT_CAPABILITY,
         terminal_snapshot::ATTACH_VISIBILITY_CAPABILITY,
@@ -505,6 +507,7 @@ pub(super) fn advertised_capabilities(
         crate::git_ops::DIFF_COMMENTS_CAPABILITY,
         crate::git_ops::REVIEW_CAPABILITY,
         crate::git_ops::DIFF_COMMENTS_SEND_CAPABILITY,
+        crate::git_ops::DIFF_COMMENTS_THREADS_CAPABILITY,
         crate::git_ops::WORKTREE_SETUP_CAPABILITY,
         crate::git_ops::WORKTREE_SETUP_RUN_CAPABILITY,
         crate::request_origin::ORIGIN_CLAIM_CAPABILITY,

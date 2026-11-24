@@ -35,7 +35,7 @@ concurrency:
 jobs:
   find:
     if: ${{ vars.FIXIT_HANDOFF != '0' && github.ref_name == 'feat-cmux-next' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_16 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     # About 15 type checks at most (a bisect over up to 64 commits, the tip, the revert), each an install and a check.
     timeout-minutes: 45
     permissions:

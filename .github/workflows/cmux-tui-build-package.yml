@@ -69,6 +69,14 @@ on:
         required: false
         default: true
         type: boolean
+      # The nightly tree's caller (cmux-tui-artifacts.yml) sets it: plan-build and package take the nightly's
+      # reserved cmux-gcp-nightly-x64 on attempt 1, so no pull request job queues ahead of them (RFD 0021,
+      # route by need). Every other caller leaves it false and keeps cmux-linux.
+      nightly_runner:
+        description: "Run plan-build and package on the nightly's reserved Linux label (attempt 1)"
+        required: false
+        default: false
+        type: boolean
       macos_runner:
         description: "Optional macOS runner label override"
         required: false
@@ -165,7 +173,7 @@ env:
 jobs:
   plan-build:
     name: select binary targets
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || inputs.nightly_runner && github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 15
     outputs:
       matrix: ${{ steps.targets.outputs.matrix }}
@@ -1479,7 +1487,7 @@ jobs:
         needs.build.result == 'success' &&
         (!inputs.include_windows || needs.build-windows.result == 'success')
       }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || inputs.nightly_runner && github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 30
     permissions:
       contents: read

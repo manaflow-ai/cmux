@@ -83,6 +83,8 @@ pub(crate) mod pr;
 pub(crate) use pr::pr_state;
 #[path = "acpmux_mcp_machine.rs"]
 mod machine;
+#[path = "acpmux_mcp_race.rs"]
+mod race;
 #[path = "acpmux_mcp_send.rs"]
 mod send;
 #[path = "acpmux_mcp_send_status.rs"]
@@ -106,6 +108,7 @@ pub(crate) fn tools() -> Value {
         list.push(who_else::tool());
         list.extend(goal::tools());
         list.extend(watch::tools());
+        list.extend(race::tools());
         list.push(send_status::tool());
         list.extend(machine::tools());
         for tool in list.iter_mut() {
@@ -466,6 +469,7 @@ async fn call_as(daemon: &Arc<Client>, params: &Value, sub: Option<&Value>) -> V
         "team_ack" => team_ack(daemon, &args).await,
         "ls" => ls(daemon, &args).await,
         name if watch::TOOLS.contains(&name) => watch::call(daemon, name, &args).await,
+        name if race::TOOLS.contains(&name) => race::call(daemon, name, &args).await,
         name if machine::TOOLS.contains(&name) => machine::call(daemon, name, &args).await,
         "last" => {
             let Some(name) = arg(&args, "name") else {

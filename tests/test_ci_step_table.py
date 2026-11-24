@@ -535,8 +535,11 @@ class PipelineTest(unittest.TestCase):
         steps = ci_steps.load().steps
         for name, step in moved.items():
             with self.subTest(workflow=name):
-                wf = yaml.safe_load((ROOT / ".github/workflows" / name).read_text())
-                self.assertNotIn("pull_request", wf.get("on", wf.get(True)), "the step table runs it")
+                path = ROOT / ".github/workflows" / name
+                # ci-artifact-transport.yml ran only on pushes to main, so feat-cmux-next has no copy.
+                if path.exists():
+                    wf = yaml.safe_load(path.read_text())
+                    self.assertNotIn("pull_request", wf.get("on", wf.get(True)), "the step table runs it")
                 self.assertEqual(steps[step].job, "linux")
         self.assertNotIn("validate", yaml.safe_load((ROOT / ".github/workflows/labels-sync.yml").read_text())["jobs"])
         # coderouter-ci.yml also ran for pull requests into main, which the table does not serve: it keeps those.
@@ -707,7 +710,7 @@ class RepositoryAdvisoryStepsTest(unittest.TestCase):
         step = next(s for s in body["steps"] if s.get("name") == "Run the advisory steps")
         self.assertIs(step.get("continue-on-error"), True)
         self.assertIn('ci_steps.py run --job advisory --label "$LABEL" "${only[@]}"', step["run"])
-        self.assertIn('only=(--only "design-spec perf-section cloud-backend")', step["run"])
+        self.assertIn('only=(--only "capture design-spec perf-section cloud-backend")', step["run"])
         names = [s.get("name", "") for s in body["steps"]]
         for gone in ("Check the description cites each changed surface's spec",
                      "Check the description for a Performance table",

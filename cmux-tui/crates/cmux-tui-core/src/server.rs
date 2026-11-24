@@ -326,7 +326,8 @@ mod terminal_history;
 mod terminal_ports;
 mod terminal_resources;
 pub use agent_cli_hybrid::{
-    AGENT_CLI_HYBRID_CAPABILITY, AGENT_CLI_HYBRID_LEAN_CAPABILITY, TERMINAL_SHELL_LINES_CAPABILITY,
+    AGENT_CLI_HYBRID_CAPABILITY, AGENT_CLI_HYBRID_LEAN_CAPABILITY,
+    TERMINAL_FULL_SCREEN_FRAMES_CAPABILITY, TERMINAL_SHELL_LINES_CAPABILITY,
 };
 pub use attach_output_coalesce::ATTACH_OUTPUT_COALESCE_CAPABILITY;
 mod terminal_snapshot;
@@ -1970,6 +1971,10 @@ enum Command {
     ListNotifications {
         #[serde(default)]
         limit: Option<usize>,
+        /// true: the reply also carries `agent_notice_stats`, how often agent
+        /// notices were read and how fast (`mux/agent_notice_stats.rs`).
+        #[serde(default)]
+        stats: bool,
     },
     /// Pin or unpin a tab placement; pinned tabs sort first in their pane.
     SetTabPinned {

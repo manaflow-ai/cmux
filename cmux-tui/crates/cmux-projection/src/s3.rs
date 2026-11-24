@@ -485,8 +485,9 @@ pub struct Store {
 
 impl Store {
     pub fn new(config: Config) -> anyhow::Result<Self> {
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        let client = reqwest::blocking::Client::builder()
+        // The person configured this endpoint (CMUX_PROJECTION_S3_*), so the egress gate lets it through.
+        cmux_egress::allow_named(&config.base);
+        let client = cmux_egress::blocking_client_builder("cmux_projection::s3")
             .connect_timeout(Duration::from_millis(500))
             .timeout(Duration::from_secs(20))
             .build()?;

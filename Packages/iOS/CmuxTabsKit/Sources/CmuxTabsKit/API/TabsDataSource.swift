@@ -58,6 +58,10 @@ public protocol TabsDataSource: AnyObject, Observable {
     func cardContentOffset(for id: TabsKitTab.ID, visibleHeight: CGFloat) -> CGFloat
     /// A snapshot of the tab's page at full screen size for the default card.
     func thumbnail(for id: TabsKitTab.ID) -> UIImage?
+    /// The tab's own icon (a page's favicon) for its title row, drawn in place of
+    /// `systemImage`. nil: the symbol. Read in the card's body, so an observed source
+    /// swaps it in when it arrives.
+    func icon(for id: TabsKitTab.ID) -> UIImage?
     /// The tab grid is about to appear: refresh thumbnails now (once per
     /// opening; cards are not expected to update while the grid shows).
     func overviewWillAppear()
@@ -156,6 +160,7 @@ extension TabsDataSource where EditingBackground == TabsKitAddressSuggestions {
 
 extension TabsDataSource {
     public func thumbnail(for id: TabsKitTab.ID) -> UIImage? { nil }
+    public func icon(for id: TabsKitTab.ID) -> UIImage? { nil }
     public func cardContentOffset(for id: TabsKitTab.ID, visibleHeight: CGFloat) -> CGFloat { 0 }
     public func overviewWillAppear() {}
     public func overviewVisibilityChanged(_ visible: Bool) {}

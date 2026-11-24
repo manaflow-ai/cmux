@@ -74,7 +74,9 @@ class SupersededGateTest(unittest.TestCase):
         # The one Linux label (scripts/ci/one_linux_label.py), never GitHub-hosted for an own-branch push (its
         # queue waited hours on 2026-11-18).
         self.assertEqual(gate["runs-on"],
-                         "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == "
+                         "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && "
+                         "(github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || "
+                         "github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || github.event_name == "
                          "'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && "
                          "(vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}")
         self.assertNotIn("environment", gate, "the gate must hold no secret")

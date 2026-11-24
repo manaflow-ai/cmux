@@ -1,14 +1,21 @@
-import { lazy, Suspense, useMemo, useState } from "react";
+import { memo, useMemo, useState, lazy, Suspense } from "react";
 import { shownCategories, sidebarSections } from "../categories";
-import { useSettingsRouter, useSettingsState, useStore } from "../context";
+import { shallowEqual, useSettingsSelector, useStore, useSettingsRouter } from "../context";
+import type { SettingsState } from "../store";
 import { Icon } from "../icons";
 import { sectionHref } from "../router";
-import { filterPages, filterRows } from "../search";
-import { valueOf } from "../store";
+import { filterRows, filterPages } from "../search";
+import { rowsByKey } from "../schema";
 import { t, text } from "../strings";
 import { CHIEF_PET_ROWS } from "../cardRows";
 import { AskCmuxRow } from "./AskCmuxRow";
 import { GroupList } from "./GroupList";
+
+const searchInputs = (state: SettingsState) => ({
+  rows: state.rows,
+  revision: state.revision,
+  devBuild: state.host?.dev_build === true,
+});
 
 // The Chief Pet card (and its characters' art) loads when a search first shows its rows, not with the page.
 const ChiefPetCard = lazy(() => import("./ChiefPetCard").then(({ ChiefPetCard }) => ({ default: ChiefPetCard })));
@@ -18,21 +25,29 @@ const ChiefPetCard = lazy(() => import("./ChiefPetCard").then(({ ChiefPetCard })
  * row stays mounted while the filter is on: a row that stops matching collapses (height and
  * opacity) and one that starts matching opens, so the list never jumps between keystrokes.
  */
-export function SearchResults({ query }: { query: string }) {
-  const state = useSettingsState();
+// A memo component: the page draws again on any change to its state (the host's lists among them),
+// and the results take only the query.
+export const SearchResults = memo(function SearchResults({ query }: { query: string }) {
+  // Only what the filter reads: the values (a search finds a row by its value), the owner's
+  // revision and whether the host is a DEV build. The host's lists, connectivity and every other
+  // part of the page's state change without filtering again or drawing the results.
+  const { rows, revision, devBuild } = useSettingsSelector(searchInputs, shallowEqual);
   const store = useStore();
-  const devBuild = state.host?.dev_build === true;
   const categories = useMemo(() => shownCategories(devBuild), [devBuild]);
   const matches = useMemo(
     () =>
       filterRows({
         query,
-        valueOf: (key) => valueOf(state, key),
+        // valueOf (store.ts) as it reads `state.rows`: the owner's value, else the schema's default.
+        valueOf: (key) => {
+          const row = rows.get(key);
+          return row ? row.value : rowsByKey.get(key)?.default;
+        },
         devBuild,
         scope: "user",
-        revision: state.revision,
+        revision,
       }),
-    [devBuild, query, state],
+    [devBuild, query, rows, revision],
   );
   const shown = useMemo(() => new Set(matches.flatMap((match) => match.rows.map((row) => row.key))), [matches]);
   // Pages the words name (their title, or the words of cards that draw no schema rows, such as
@@ -114,4 +129,4 @@ export function SearchResults({ query }: { query: string }) {
       })}
     </div>
   );
-}
+});

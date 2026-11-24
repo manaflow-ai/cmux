@@ -6706,13 +6706,24 @@ Result: `object{}` or `object{refused:"unknown_run"}`.
 
 Returns the retained notification ledger (at most 256), newest first.
 
-Params: `limit` (usize, default 256).
+Params: `limit` (usize, default 256); `stats` (bool, default false).
 
 Result:
 
 ```text
-object{notifications:[object{id:string, title:string, subtitle:string|null, body:string, level:"info"|"warning"|"error", terminal_id:string|null, surface:Id|null, created_at_ms:uint64, acknowledged:bool}]}
+object{notifications:[object{id:string, title:string, subtitle:string|null, body:string, level:"info"|"warning"|"error", terminal_id:string|null, surface:Id|null, created_at_ms:uint64, acknowledged:bool}], agent_notice_stats?:object}
 ```
+
+With `stats: true` the reply also carries `agent_notice_stats`: how often agent
+notices (source `agent`) were read, and how fast, per kind (`finished`,
+`failed`, `needs_input`, `other`) and over `all`. Each kind has `posted`,
+`read_within_60s`, `read_within_10m`, `read_later`, `never_read` (unread
+10 min after its post), `unread_recent` (unread, younger than 10 min),
+`acted_rate` (read within 10 min over posted minus unread_recent; null when
+none) and `read_ms_p50`/`read_ms_p95` (null when none was read). A read is the
+first console ack or client read the store records. The window is the retained
+ledger (`window.since_ms`, the oldest agent notice in it), so a restart keeps
+the numbers and the cost stays constant.
 
 ### set-tab-pinned
 
@@ -9756,6 +9767,15 @@ as `output` bytes: the ones the screen has set right after the first frame,
 then each set and reset as it is written, so the viewer's keys and pastes
 encode the way the program expects. A terminal that is full-screen when it attaches starts with `vt-state`,
 and a `resized` while full-screen (or leaving it) passes as `resized`.
+A connection that declared all three and `terminal-full-screen-frames-v1`
+gets a full-screen program as `agent-cli-lean` frames too, as an agent CLI on
+the alternate screen goes: the alternate screen and the input modes (mouse
+tracking 1000, 1002, 1003 among them) as `output` bytes, a switch of screens
+followed by a keyframe of the screen switched to, frames at most one per
+16.7 ms (one display frame) instead of one per 100 ms, and no `vt-state` or
+PTY bytes, also for a terminal that is full-screen when it attaches. A program
+that repaints its whole screen for each change then sends the cells that
+changed. Agent CLI terminals keep their 100 ms pace.
 
 Browser attach requires `browser-pointer-frame-guard-v1` in both the server's `identify` response and the client's earlier `set-client-info` request. This prevents an older client from rendering browser frames that it cannot address with an authoritative sequence. PTY attach does not require this capability.
 

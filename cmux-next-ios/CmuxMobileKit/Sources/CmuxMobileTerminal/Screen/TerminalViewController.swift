@@ -2380,6 +2380,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             if output.isEmpty { stopOutputLink() }
             return
         }
+        if model.isTUI {
+            // The app drew its screen again: its highlights go where their text went.
+            tuiSelection.followRows()
+            finder.screenRedrawn()
+        }
         if replayDone {
             // The Mac's grid is parsed: the area takes the page's rows now,
             // behind the held frame, which the next present lets go (or the
@@ -2794,6 +2799,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// a frame or more (the last rows under the composer after a zoom in,
     /// a gap above it after a zoom out), then jumped.
     private func cellSizeChanged(from previous: CGSize) {
+        // The cells changed size: every highlight is laid over them again.
+        defer {
+            selection.redraw()
+            tuiSelection.redraw()
+            finder.redraw()
+        }
         guard !model.isTUI, previous.height != cell.height else { return }
         scroll.rowHeightChanged(from: previous.height, to: cell.height, topInset: scrollView.contentInset.top)
         if let document { setContentHeight(document.contentHeight(cellHeight: cell.height)) }
@@ -4258,6 +4269,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             guard let self else { return false }
             return model.isTUI && cell.height > 0 && surface.superview === tuiHost
         }
+        // The app redraws its screen: the selection follows its text (`followRows`).
+        tuiSelection.followsRows = true
         tuiSelection.columns = { [weak self] in max(1, self?.surface.grid.columns ?? 1) }
         tuiSelection.documentRows = { [weak self] in 0..<max(0, self?.surface.grid.rows ?? 0) }
         tuiSelection.cellAt = { geometry().cell(at: $0) }
@@ -4741,6 +4754,9 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
         tuiHeaderRows = placement.headerRows
         applyTUIHeader()
         positionHostGridNote()
+        // The surface moved (a sideways pan, the rows shifted to keep the cursor): the
+        // highlights move with its cells.
+        tuiSelection.redraw()
         if finder.isActive { finder.redraw() }
     }
 
