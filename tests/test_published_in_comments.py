@@ -88,10 +88,10 @@ class PublishedInTests(unittest.TestCase):
         self.assertIn("cannot read", result.stderr)
 
     def test_pause_only_after_a_comment_is_written(self):
-        # Already-noted PRs make no write, so they must not sleep (#49899).
+        # Already-noted PRs make no write, so they must not sleep; the one write still does (#49899).
         line = module.build_line("v1", "https://x", "h")  # the --head the test passes
         body = module.updated_body(None, line)
-        existing = {n: {"id": 100 + n, "body": body} for n in (1, 2, 3)}
+        existing = {n: {"id": 100 + n, "body": body} for n in (1, 2)}  # #3 has no comment yet
         sleeps = []
         argv = ["x", "--repo", "o/r", "--since", "s", "--head", "h", "--name", "v1", "--url", "https://x", "--pause", "2"]
         with unittest.mock.patch.object(module, "git_subjects", return_value=["a (#1)", "b (#2)", "c (#3)"]), \
@@ -101,7 +101,7 @@ class PublishedInTests(unittest.TestCase):
              unittest.mock.patch.object(sys, "argv", argv), \
              unittest.mock.patch("builtins.print"):
             self.assertEqual(module.main(), 0)
-        self.assertEqual(sleeps, [], "no write means no pause")
+        self.assertEqual(sleeps, [2.0], "only the write to #3 pauses")
 
 
 if __name__ == "__main__":
