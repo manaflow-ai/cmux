@@ -394,6 +394,9 @@ impl HostConfig {
             .with_spent_replies(std::sync::Arc::new(crate::mailbox::SpentReplies::load(
                 default_state_dir().join("mailbox-spent.json"),
             )))
+            .with_mailbox_cursor(std::sync::Arc::new(crate::mailbox::MailboxCursor::load(
+                default_state_dir().join("mailbox-cursor.json"),
+            )))
             .with_activity(std::sync::Arc::new(crate::activity::Activity::file(
                 default_state_dir().join("machine-activity.jsonl"),
             )))
