@@ -3,7 +3,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { coversPublicIpv6, ipv6RouteProblems, ipv6RouteSmokeCommand, PUBLIC_IPV6_PROBE } from "../scripts/cmux-vm-image/ipv6-route";
 
-// What a Freestyle clone prints: ULA address, router-advertised default route (RFD 0067, fs-agent-lane-10).
+// What a Freestyle clone prints: ULA address, router-advertised default route (RFD 0067).
 const FREESTYLE = [
   "== default",
   "default via fe80::1 dev eth0 proto ra metric 1024 expires 1799sec hoplimit 64 pref medium",
@@ -16,7 +16,7 @@ const FREESTYLE = [
   "== end",
 ].join("\n");
 
-// huge-blue after its fix (hq docs/handbook/fetch-shape-stalls-before-the-first-byte.md).
+// A host with dead IPv6 after its fix (hq docs/handbook/fetch-shape-stalls-before-the-first-byte.md).
 const HUGE_BLUE_FIX = [
   "== default",
   "default via fe80::1 dev eth0 proto ra metric 1024 pref medium",
@@ -34,7 +34,7 @@ describe("ipv6RouteProblems", () => {
     expect(ipv6RouteProblems(0, FREESTYLE)).toEqual([]);
   });
 
-  test("huge-blue's unreachable 2000::/3 fails, and so does the lookup it breaks", () => {
+  test("a dead-IPv6 host's unreachable 2000::/3 fails, and so does the lookup it breaks", () => {
     const problems = ipv6RouteProblems(0, HUGE_BLUE_FIX);
     expect(problems.some((p) => p.includes("unreachable 2000::/3"))).toBe(true);
     expect(problems.some((p) => p.includes("names no device"))).toBe(true);

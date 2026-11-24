@@ -24,7 +24,7 @@
  * DNS (dns.ts): cmux-dns-check --restart restarts systemd-resolved (and tailscaled when
  * installed), then needs the resolv.conf stub link and a public name resolving (a tailnet name too
  * when logged in to one).
- * IPv6 routes (ipv6-route.ts): no block route over public IPv6 (huge-blue's `unreachable 2000::/3`), an IPv6
+ * IPv6 routes (ipv6-route.ts): no block route over public IPv6 (a dead-IPv6 host's `unreachable 2000::/3`), an IPv6
  * default route, and a route lookup for a public IPv6 address that names a device (RFD 0067 item 5).
  * The daemon handshake (identify.ts) must serve REQUIRED_IMAGE_CAPABILITIES and, with
  * --expect-capabilities, every listed capability; --team-vm also checks /srv/team.
@@ -539,7 +539,7 @@ async function resolverChecks(vm: Vm, report: Report): Promise<void> {
   check(report, "dns-resolved-restart", problems.length === 0, problems.join("\n") || dns.stdout.trim());
 }
 
-/** Public IPv6 stays routed: no block route over 2000::/3 (huge-blue's fix) and an IPv6 default route (ipv6-route.ts, RFD 0067 item 5). */
+/** Public IPv6 stays routed: no block route over 2000::/3 (a dead-IPv6 host's fix) and an IPv6 default route (ipv6-route.ts, RFD 0067 item 5). */
 async function ipv6RouteChecks(vm: Vm, report: Report): Promise<void> {
   const out = await run(vm, ipv6RouteSmokeCommand(), 90_000);
   const problems = ipv6RouteProblems(out.code, out.stdout);

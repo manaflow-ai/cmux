@@ -1,7 +1,7 @@
 /**
  * The image keeps public IPv6 routable (RFD 0067 item 5, hq docs/rfd/0067-freestyle-ipv4-path.md).
  *
- * huge-blue's fix for a host whose IPv6 was dead, an `unreachable 2000::/3` route at metric 1
+ * A fix made for one host whose IPv6 was dead, an `unreachable 2000::/3` route at metric 1
  * (hq docs/handbook/fetch-shape-stalls-before-the-first-byte.md), must never reach the Cloud VM image: on a
  * Freestyle VM IPv6 is the fast family (582 against 96 Mbit/s from the edge, RFD 0056) and IPv4 the lossy
  * one, so the route would put every fetch on the slow path. The smoke reads a clone's routes and fails when
@@ -65,7 +65,7 @@ export function ipv6RouteProblems(code: number, stdout: string): string[] {
   const problems: string[] = [];
   for (const line of s.main ?? []) {
     const [type, prefix] = line.split(/\s+/);
-    if (BLOCK_TYPES.has(type) && prefix && coversPublicIpv6(prefix)) problems.push(`block route on public IPv6: ${line} (huge-blue's fix must not be in the image, RFD 0067)`);
+    if (BLOCK_TYPES.has(type) && prefix && coversPublicIpv6(prefix)) problems.push(`block route on public IPv6: ${line} (a dead-IPv6 host fix must not be in the image, RFD 0067)`);
   }
   if (!(s.default ?? []).some((l) => l.startsWith("default "))) problems.push(`no IPv6 default route after ${DEFAULT_ROUTE_WAIT_SECONDS} s: ${(s.default ?? []).join(" ; ") || "none"}`);
   const get = (s.get ?? []).join(" ; ");
