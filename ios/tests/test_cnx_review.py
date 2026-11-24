@@ -795,8 +795,12 @@ fleet_start_sim; fleet_finish_sim; fleet_submit_mac; echo "JOB=$MAC_JOB"; echo "
         # controller no longer lists this run as the step's (409 Conflict)": the same lost delivery, other words.
         timeout_line = "sign-in: no session was delivered within 10m0s; the submitter\\'s cmux-ci must follow the step to deliver it"
         conflict_line = "sign-in: the controller no longer lists this run as the step\\'s (409 Conflict)"
+        # Step c50f2a91d132270d466e64d8 (2026-11-24): its worker stopped mid-step ("lease lost"), another loss
+        # that says nothing about the build.
+        lease_line = "cmux-ci: step x failed on cmux23: lease lost: cmux23 stopped renewing the step\\'s lease (worker unreachable or down)"
         for second_ok, status_ok, line in ((True, True, timeout_line), (False, True, timeout_line), (True, False, timeout_line),
-                                           (True, True, conflict_line), (False, False, conflict_line)):
+                                           (True, True, conflict_line), (False, False, conflict_line),
+                                           (True, True, lease_line), (False, True, lease_line)):
             with self.subTest(second_ok=second_ok, status_ok=status_ok, line=line[:30]), tempfile.TemporaryDirectory() as temp:
                 ci = Path(temp) / 'cmux-ci'
                 status = 'echo \'{"id": "x", "state": "failed"}\'; exit 0' if status_ok else 'echo "cmux-ci: cannot reach the build controller" >&2; exit 69'
@@ -814,9 +818,12 @@ fleet_start_sim; if fleet_finish_sim; then echo "OK STEP=$SIM_STEP"; else echo "
                 keys = [line.split('--key ')[1].split()[0] for line in (Path(temp) / 'args').read_text().splitlines()]
                 base = f'cnx-ios-handoff-{TAG}-{SHA[:12]}'
                 self.assertEqual(keys, [base, base + '-r1'], r.stdout + r.stderr)
-                self.assertIn('no sign-in session reached it', r.stdout)
+                lease = line is lease_line
+                self.assertIn('its fleet worker stopped mid-step' if lease else 'no sign-in session reached it', r.stdout)
                 if second_ok:
                     self.assertIn('OK STEP=000000000000000000000002', r.stdout)
+                elif lease:
+                    self.assertIn('SIM=BLOCKED: the fleet iPhone build lost its worker mid-step twice', r.stdout)
                 else:
                     self.assertIn('SIM=BLOCKED: the fleet iPhone build got no sign-in session from this Mac twice', r.stdout)
 
