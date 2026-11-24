@@ -12,7 +12,11 @@ export function ToolBadge({ tool }: { tool: ToolMentionId }) {
   const info = toolOfHref(TOOL_HREF_PREFIX + tool)!;
   return (
     <span className="cv-cmux-link acpmux-started-chip cv-tool-badge" data-tool={tool} title={t(info.hint)}>
-      <Icon name={info.icon} size={14} className="cv-cmux-link__icon" />
+      {info.image ? (
+        <img className="cv-cmux-link__icon" src={info.image} width={14} height={14} alt="" draggable={false} />
+      ) : (
+        <Icon name={info.icon} size={14} className="cv-cmux-link__icon" />
+      )}
       <span className="cv-cmux-link__title">{t(info.label)}</span>
     </span>
   );
