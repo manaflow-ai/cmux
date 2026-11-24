@@ -108,7 +108,16 @@ impl Hub {
             })?;
         let file = inside(&bundle, text("path"))?;
         let length = params.get("length").and_then(Value::as_u64).unwrap_or(0);
-        let sha = prefix_digest(&file, length).map_err(|e| transfer_error("read", e))?;
+        // A history-later move's bundle file grew from the prepare's copy of these bytes, whose
+        // digest the prepare took (`transfer.rs` `export_grown`): no read under the freeze.
+        let known = read_json(&dir.join(super::super::transfer::NATIVE_DIGESTS))
+            .and_then(|all| all.get(text("path")).cloned())
+            .filter(|d| d.get("length").and_then(Value::as_u64) == Some(length))
+            .and_then(|d| d.get("sha256").and_then(Value::as_str).map(str::to_owned));
+        let sha = match known {
+            Some(sha) => Some(sha),
+            None => prefix_digest(&file, length).map_err(|e| transfer_error("read", e))?,
+        };
         super::super::transfer_watch::note_activity(&dir, None);
         Ok(json!({"transferId": transfer_id, "length": length, "sha256": sha}))
     }

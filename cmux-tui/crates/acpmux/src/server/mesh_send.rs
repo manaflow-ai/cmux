@@ -184,6 +184,7 @@ pub(super) fn waiting_reason(e: &HubError) -> String {
 }
 
 /// What `_acpmux/send_queue` does with a target only the hub routes.
+#[allow(clippy::large_enum_variant)] // built once per send and matched at once; boxing buys nothing
 pub(super) enum Posted {
     /// The hub took it, or refused it: the answer as it is.
     Answered(Result<Value, RpcError>),

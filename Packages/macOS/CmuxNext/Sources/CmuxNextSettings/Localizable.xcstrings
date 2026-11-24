@@ -53873,6 +53873,268 @@
         }
       }
     },
+    "settings.labs.appStore": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار متجر التطبيقات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži App Store"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis App Store"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App Store anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show App Store"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar App Store"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher l’App Store"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra App Store"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App Store を表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញ App Store"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App Store 보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis App Store"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż App Store"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar App Store"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать App Store"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดง App Store"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App Store’u Göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати App Store"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện App Store"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示 App Store"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示 App Store"
+          }
+        }
+      }
+    },
+    "settings.labs.appStore.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تصفّح تطبيقات cmux وثبّتها وحدّثها. لا يزال قيد التطوير."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pregledajte, instalirajte i ažurirajte aplikacije za cmux. Još se oblikuje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gennemse, installer og opdater apps til cmux. Stadig under udformning."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apps für cmux durchsuchen, installieren und aktualisieren. Noch in Arbeit."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browse, install and update apps for cmux. Still being shaped."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Explora, instala y actualiza apps para cmux. Aún en desarrollo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parcourez, installez et mettez à jour des apps pour cmux. Encore en cours de conception."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sfoglia, installa e aggiorna le app per cmux. Ancora in lavorazione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 用のアプリを探して、インストール・アップデートします。まだ開発中です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រុករក ដំឡើង និងធ្វើបច្ចុប្បន្នភាពកម្មវិធីសម្រាប់ cmux។ នៅកំពុងរៀបចំ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux용 앱을 둘러보고 설치하고 업데이트합니다. 아직 다듬는 중입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bla gjennom, installer og oppdater apper for cmux. Fortsatt under utforming."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przeglądaj, instaluj i aktualizuj aplikacje dla cmux. Wciąż w przygotowaniu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Explore, instale e atualize apps para o cmux. Ainda em desenvolvimento."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Просмотр, установка и обновление приложений для cmux. Ещё в разработке."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เรียกดู ติดตั้ง และอัปเดตแอปสำหรับ cmux ยังอยู่ระหว่างพัฒนา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux için uygulamalara göz atın, yükleyin ve güncelleyin. Hâlâ geliştiriliyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перегляд, встановлення та оновлення застосунків для cmux. Ще в розробці."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duyệt, cài đặt và cập nhật ứng dụng cho cmux. Vẫn đang hoàn thiện."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浏览、安装和更新 cmux 的应用。仍在完善中。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "瀏覽、安裝和更新 cmux 的 App。仍在完善中。"
+          }
+        }
+      }
+    },
     "settings.labs.previewFeatures": {
       "extractionState": "manual",
       "localizations": {
@@ -54010,127 +54272,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unfinished surfaces, such as the App Store and the agent session's coverage label and Pull requests view."
+            "value": "Unfinished surfaces, such as the agent session's coverage label and Pull requests view."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "واجهات غير مكتملة، مثل App Store وتسمية تغطية جلسة الوكيل وعرض طلبات السحب."
+            "value": "واجهات غير مكتملة، مثل تسمية تغطية جلسة الوكيل وعرض طلبات السحب."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nedovršeni dijelovi, poput App Storea, oznake pokrivenosti sesije agenta i prikaza zahtjeva za povlačenje."
+            "value": "Nedovršeni dijelovi, poput oznake pokrivenosti sesije agenta i prikaza zahtjeva za povlačenje."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ufærdige flader, f.eks. App Store, agentsessionens dækningsetiket og visningen af pull requests."
+            "value": "Ufærdige flader, f.eks. agentsessionens dækningsetiket og visningen af pull requests."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Unfertige Oberflächen, etwa der App Store, die Abdeckungsangabe der Agent-Sitzung und die Pull-Request-Ansicht."
+            "value": "Unfertige Oberflächen, etwa die Abdeckungsangabe der Agent-Sitzung und die Pull-Request-Ansicht."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Superficies sin terminar, como la App Store, la etiqueta de cobertura de la sesión del agente y la vista de solicitudes de incorporación."
+            "value": "Superficies sin terminar, como la etiqueta de cobertura de la sesión del agente y la vista de solicitudes de incorporación."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Surfaces inachevées, comme l'App Store, l'étiquette de couverture de la session de l'agent et la vue des pull requests."
+            "value": "Surfaces inachevées, comme l'étiquette de couverture de la session de l'agent et la vue des pull requests."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Superfici non finite, come l'App Store, l'etichetta di copertura della sessione dell'agente e la vista delle pull request."
+            "value": "Superfici non finite, come l'etichetta di copertura della sessione dell'agente e la vista delle pull request."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "App Store、エージェントセッションのカバレッジ表示、プルリクエスト表示など、未完成の画面。"
+            "value": "エージェントセッションのカバレッジ表示やプルリクエスト表示など、未完成の画面。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ផ្ទៃដែលមិនទាន់បញ្ចប់ ដូចជា App Store ស្លាកវិសាលភាពនៃវគ្គភ្នាក់ងារ និងទិដ្ឋភាពសំណើទាញ។"
+            "value": "ផ្ទៃដែលមិនទាន់បញ្ចប់ ដូចជាស្លាកវិសាលភាពនៃវគ្គភ្នាក់ងារ និងទិដ្ឋភាពសំណើទាញ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "App Store, 에이전트 세션의 적용 범위 레이블, 풀 리퀘스트 보기처럼 아직 완성되지 않은 화면입니다."
+            "value": "에이전트 세션의 적용 범위 레이블과 풀 리퀘스트 보기처럼 아직 완성되지 않은 화면입니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Uferdige flater, for eksempel App Store, agentøktens dekningsetikett og visningen av pull-forespørsler."
+            "value": "Uferdige flater, for eksempel agentøktens dekningsetikett og visningen av pull-forespørsler."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Niedokończone elementy, takie jak App Store, etykieta pokrycia sesji agenta i widok pull requestów."
+            "value": "Niedokończone elementy, takie jak etykieta pokrycia sesji agenta i widok pull requestów."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Superfícies inacabadas, como a App Store, o rótulo de cobertura da sessão do agente e a visualização de pull requests."
+            "value": "Superfícies inacabadas, como o rótulo de cobertura da sessão do agente e a visualização de pull requests."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Незавершённые элементы, например App Store, метка покрытия сеанса агента и представление запросов на слияние."
+            "value": "Незавершённые элементы, например метка покрытия сеанса агента и представление запросов на слияние."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ส่วนที่ยังไม่เสร็จ เช่น App Store ป้ายความครอบคลุมของเซสชันเอเจนต์ และมุมมองคำขอดึง"
+            "value": "ส่วนที่ยังไม่เสร็จ เช่น ป้ายความครอบคลุมของเซสชันเอเจนต์และมุมมองคำขอดึง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "App Store, ajan oturumunun kapsam etiketi ve çekme istekleri görünümü gibi bitmemiş yüzeyler."
+            "value": "Ajan oturumunun kapsam etiketi ve çekme istekleri görünümü gibi bitmemiş yüzeyler."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Незавершені елементи, як-от App Store, позначка покриття сеансу агента та подання запитів на злиття."
+            "value": "Незавершені елементи, як-от позначка покриття сеансу агента та подання запитів на злиття."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Các phần chưa hoàn thiện, như App Store, nhãn phạm vi của phiên tác tử và chế độ xem yêu cầu kéo."
+            "value": "Các phần chưa hoàn thiện, như nhãn phạm vi của phiên tác tử và chế độ xem yêu cầu kéo."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "尚未完成的界面，例如 App Store、智能体会话的覆盖范围标签和拉取请求视图。"
+            "value": "尚未完成的界面，例如智能体会话的覆盖范围标签和拉取请求视图。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "尚未完成的介面，例如 App Store、代理程式工作階段的涵蓋範圍標籤與提取要求檢視。"
+            "value": "尚未完成的介面，例如代理程式工作階段的涵蓋範圍標籤與提取要求檢視。"
           }
         }
       }
@@ -157738,6 +158000,534 @@
         }
       }
     },
+    "settings.agentPane.display.environmentCard": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Environment Card"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "بطاقة البيئة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kartica okruženja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Miljøkort"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Umgebungskarte"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tarjeta de entorno"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Carte d’environnement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scheda ambiente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "環境カード"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កាតបរិស្ថាន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "환경 카드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Miljøkort"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Karta środowiska"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cartão de ambiente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Карточка окружения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การ์ดสภาพแวดล้อม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ortam Kartı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Картка середовища"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thẻ môi trường"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "环境卡片"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "環境卡片"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.environmentCard.help": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A card at the chat's top right with its changes, branch, commit and pull request."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "بطاقة أعلى يمين الدردشة تعرض تغييراتها وفرعها والإيداع وطلب السحب."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kartica gore desno u razgovoru s njegovim izmjenama, granom, commitom i pull requestom."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et kort øverst til højre i chatten med dens ændringer, gren, commit og pull request."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eine Karte oben rechts im Chat mit seinen Änderungen, dem Branch, Commit und Pull Request."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una tarjeta arriba a la derecha del chat con sus cambios, rama, commit y pull request."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Une carte en haut à droite de la discussion avec ses modifications, sa branche, le commit et la pull request."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una scheda in alto a destra nella chat con modifiche, branch, commit e pull request."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャットの右上に、変更・ブランチ・コミット・プルリクエストを示すカードを表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កាតនៅខាងស្តាំខាងលើនៃការជជែក ដែលមានការផ្លាស់ប្តូរ មែក ការ commit និង pull request។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅 오른쪽 위에 변경 사항, 브랜치, 커밋, 풀 리퀘스트를 보여 주는 카드입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et kort øverst til høyre i chatten med endringer, gren, commit og pull request."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Karta w prawym górnym rogu czatu z jego zmianami, gałęzią, commitem i pull requestem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um cartão no canto superior direito do chat com suas alterações, branch, commit e pull request."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Карточка в правом верхнем углу чата с его изменениями, веткой, коммитом и пул-реквестом."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การ์ดที่มุมขวาบนของแชต แสดงการเปลี่ยนแปลง สาขา การคอมมิต และพูลรีเควสต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbetin sağ üstünde değişiklikleri, dalı, commit ve pull request’i gösteren bir kart."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Картка у правому верхньому куті чату з його змінами, гілкою, комітом і пул-реквестом."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một thẻ ở góc trên bên phải cuộc trò chuyện với các thay đổi, nhánh, commit và pull request."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在聊天右上角显示一张卡片，包含更改、分支、提交和拉取请求。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在聊天右上角顯示一張卡片，包含變更、分支、提交和提取要求。"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.changesPill": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Changes Pill"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "شارة التغييرات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oznaka izmjena"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ændringsmærke"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Änderungs-Pille"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Píldora de cambios"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pastille des modifications"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pillola delle modifiche"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "変更ピル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្លាកការផ្លាស់ប្តូរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "변경 사항 알약"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Endringsmerke"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pigułka zmian"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pílula de alterações"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Плашка изменений"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ป้ายการเปลี่ยนแปลง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Değişiklik Hapı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Плашка змін"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhãn thay đổi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "更改胶囊"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "變更膠囊"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.changesPill.help": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A pill over the composer with how many files the chat changed."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "شارة فوق مربع الكتابة تعرض عدد الملفات التي غيّرتها الدردشة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oznaka iznad polja za pisanje s brojem datoteka koje je razgovor izmijenio."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et mærke over skrivefeltet med, hvor mange filer chatten har ændret."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eine Pille über dem Eingabefeld mit der Zahl der Dateien, die der Chat geändert hat."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una píldora sobre el editor con cuántos archivos cambió el chat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Une pastille au-dessus de la zone de saisie indiquant combien de fichiers la discussion a modifiés."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una pillola sopra il compositore con quanti file ha modificato la chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "入力欄の上に、チャットが変更したファイル数を示すピルを表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្លាកនៅលើប្រអប់សរសេរ ដែលបង្ហាញចំនួនឯកសារដែលការជជែកបានផ្លាស់ប្តូរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "입력창 위에 채팅이 변경한 파일 수를 보여 주는 알약입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et merke over skrivefeltet med hvor mange filer chatten har endret."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pigułka nad polem wpisywania z liczbą plików zmienionych przez czat."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uma pílula acima do editor com quantos arquivos o chat alterou."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Плашка над полем ввода с числом файлов, изменённых чатом."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ป้ายเหนือช่องพิมพ์ แสดงจำนวนไฟล์ที่แชตเปลี่ยน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yazma alanının üstünde sohbetin kaç dosyayı değiştirdiğini gösteren bir hap."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Плашка над полем введення з кількістю файлів, які змінив чат."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một nhãn phía trên ô soạn thảo cho biết cuộc trò chuyện đã thay đổi bao nhiêu tệp."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在输入框上方显示一个胶囊，说明聊天更改了多少个文件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在輸入框上方顯示一個膠囊，說明聊天變更了多少個檔案。"
+          }
+        }
+      }
+    },
     "settings.agentPane.display.pinnedPlan": {
       "comment": "Settings: the agent chat's and Markdown viewer's display rows",
       "extractionState": "manual",
@@ -182188,6 +182978,270 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "按類型分組檔案"
+          }
+        }
+      }
+    },
+    "settings.sidebar.drawnMenus": {
+      "comment": "Setting title: sidebar.drawnMenus, an opt-in that opens the sidebar's menus drawn by cmux so a look can style them.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Styled Sidebar Menus"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "قوائم الشريط الجانبي المنسّقة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stilizovani meniji bočne trake"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stylede sidebjælkemenuer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gestaltete Seitenleistenmenüs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Menús de la barra lateral con estilo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Menus de la barre latérale stylisés"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Menu della barra laterale con stile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "スタイル付きサイドバーメニュー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ឺនុយរបារចំហៀងតាមរចនាប័ទ្ម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "스타일이 적용된 사이드바 메뉴"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stiliserte sidepanelmenyer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stylizowane menu paska bocznego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Menus da barra lateral com estilo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оформленные меню боковой панели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เมนูแถบด้านข้างแบบมีสไตล์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Biçimlendirilmiş Kenar Çubuğu Menüleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оформлені меню бічної панелі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Menu thanh bên có kiểu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "带样式的边栏菜单"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "套用樣式的側邊欄選單"
+          }
+        }
+      }
+    },
+    "settings.sidebar.drawnMenus.help": {
+      "comment": "Setting help: what sidebar.drawnMenus does; off keeps the system menu.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Right-click and more-button menus in the sidebar follow the menu look instead of the system menu."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تتبع قوائم النقر بزر الماوس الأيمن وزر المزيد في الشريط الجانبي مظهر القوائم بدلًا من قائمة النظام."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Meniji desnog klika i dugmeta za više u bočnoj traci prate izgled menija umjesto sistemskog menija."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Højreklik- og flere-knap-menuer i sidebjælken følger menuudseendet i stedet for systemmenuen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rechtsklick- und Mehr-Menüs in der Seitenleiste folgen der Menüdarstellung statt dem Systemmenü."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Los menús de clic derecho y del botón Más de la barra lateral siguen el aspecto de menús en lugar del menú del sistema."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les menus du clic droit et du bouton Plus de la barre latérale suivent l’apparence des menus au lieu du menu système."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I menu del clic destro e del pulsante Altro nella barra laterale seguono l’aspetto dei menu invece del menu di sistema."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サイドバーの右クリックメニューとその他ボタンのメニューが、システムメニューではなくメニューの外観に従います。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ឺនុយចុចស្តាំ និងប៊ូតុងច្រើនទៀតក្នុងរបារចំហៀង ធ្វើតាមរូបរាងម៉ឺនុយ ជំនួសឱ្យម៉ឺនុយប្រព័ន្ធ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사이드바의 오른쪽 클릭 메뉴와 더보기 버튼 메뉴가 시스템 메뉴 대신 메뉴 모양을 따릅니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Høyreklikk- og flere-knapp-menyer i sidepanelet følger menyutseendet i stedet for systemmenyen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Menu prawego przycisku i przycisku Więcej na pasku bocznym używają wyglądu menu zamiast menu systemowego."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Os menus de clique direito e do botão Mais na barra lateral seguem a aparência dos menus em vez do menu do sistema."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Меню правого щелчка и кнопки «Ещё» в боковой панели следуют виду меню, а не системному меню."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เมนูคลิกขวาและปุ่มเพิ่มเติมในแถบด้านข้างจะใช้รูปลักษณ์เมนูแทนเมนูของระบบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kenar çubuğundaki sağ tık ve diğer düğmesi menüleri sistem menüsü yerine menü görünümünü izler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Меню правого клацання та кнопки «Ще» на бічній панелі відповідають вигляду меню, а не системному меню."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Menu nhấp chuột phải và nút thêm trong thanh bên theo giao diện menu thay vì menu hệ thống."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "边栏中的右键菜单和更多按钮菜单遵循菜单外观，而不是系统菜单。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "側邊欄中的右鍵選單與更多按鈕選單會依循選單外觀，而非系統選單。"
           }
         }
       }
@@ -244434,6 +245488,60 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "帶載入指示的提示條會在原處變成結果；關閉分頁或工作區、封存聊天後會出現「還原」。"}}
       }
     },
+    "settings.experiments.composerButtonsVisible": {
+      "comment": "Settings > Advanced > Experiments: the Always Show Composer Buttons taste prototype row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Always Show Composer Buttons"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "إظهار أزرار مُنشئ الرسائل دائمًا"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Uvijek prikaži dugmad sastavljača poruka"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Vis altid skrivefeltsknapper"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Composer-Schaltflächen immer anzeigen"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Mostrar siempre los botones del compositor"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Toujours afficher les boutons du compositeur"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Mostra sempre i pulsanti del compositore"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "コンポーザーのボタンを常に表示"}},
+        "km": {"stringUnit": {"state": "translated", "value": "បង្ហាញប៊ូតុងអ្នកសរសេរសារជានិច្ច"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "작성기 버튼 항상 표시"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Vis alltid knapper i skrivefeltet"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Zawsze pokazuj przyciski kompozytora"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Sempre mostrar os botões do compositor"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Всегда показывать кнопки редактора"}},
+        "th": {"stringUnit": {"state": "translated", "value": "แสดงปุ่มตัวเขียนข้อความเสมอ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Oluşturucu düğmelerini her zaman göster"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Завжди показувати кнопки редактора"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Luôn hiển thị các nút trình soạn thảo"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "始终显示编辑器按钮"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "永遠顯示編輯器按鈕"}}
+      }
+    },
+    "settings.experiments.composerButtonsVisible.help": {
+      "comment": "Settings > Advanced > Experiments: the Always Show Composer Buttons taste prototype row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Keep Send, attachment removal, and queued message actions visible in agent chats."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "أبقِ الإرسال وإزالة المرفقات وإجراءات الرسائل في قائمة الانتظار ظاهرة في محادثات الوكلاء."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Zadrži slanje, uklanjanje priloga i radnje za poruke u redu vidljivima u razgovorima s agentima."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Hold Send, fjernelse af vedhæftede filer og handlinger for køede beskeder synlige i agentchats."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Senden, das Entfernen von Anhängen und Aktionen für wartende Nachrichten in Agent-Chats sichtbar halten."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Mantén visibles Enviar, quitar adjuntos y las acciones de mensajes en cola en los chats de agentes."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Gardez visibles l’envoi, la suppression des pièces jointes et les actions des messages en file dans les chats d’agents."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Mantieni visibili l’invio, la rimozione degli allegati e le azioni dei messaggi in coda nelle chat degli agenti."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "エージェントチャットで、送信、添付ファイルの削除、キュー内メッセージの操作を常に表示します。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "រក្សាការផ្ញើ ការលុបឯកសារភ្ជាប់ និងសកម្មភាពសារដែលនៅក្នុងជួររង់ចាំឱ្យមើលឃើញក្នុងការជជែកជាមួយភ្នាក់ងារ។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "에이전트 채팅에서 보내기, 첨부 파일 제거 및 대기 중인 메시지 작업을 항상 표시합니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Hold Send, fjerning av vedlegg og handlinger for meldinger i kø synlige i agentchatter."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Zachowaj widoczność wysyłania, usuwania załączników i działań dotyczących wiadomości w kolejce na czatach agentów."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Mantenha visíveis o envio, a remoção de anexos e as ações de mensagens na fila nos chats de agentes."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Показывать отправку, удаление вложений и действия с сообщениями в очереди в чатах агентов."}},
+        "th": {"stringUnit": {"state": "translated", "value": "แสดงการส่ง การลบไฟล์แนบ และการดำเนินการกับข้อความในคิวในแชตของเอเจนต์เสมอ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Ajan sohbetlerinde Gönder, ek kaldırma ve sıradaki mesaj işlemlerini görünür tut."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Залишайте видимими надсилання, видалення вкладень і дії з повідомленнями в черзі в чатах агентів."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Giữ hiển thị nút Gửi, xóa tệp đính kèm và thao tác với tin nhắn đang chờ trong các cuộc trò chuyện với tác nhân."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "在代理聊天中始终显示发送、移除附件和队列消息操作。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "在代理聊天中永遠顯示傳送、移除附件和佇列訊息操作。"}}
+      }
+    },
     "settings.experiments.hoverLook": {
       "comment": "Settings > Experiments: the Tooltip Refresh taste prototype row",
       "extractionState": "manual",
@@ -244486,6 +245594,114 @@
         "vi": {"stringUnit": {"state": "translated", "value": "Chú giải công cụ và thẻ khi di chuột có kính rõ hơn, viền sắc hơn và bóng mềm hơn."}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "工具提示和悬停卡片的玻璃更清晰，边缘更锐利，阴影更柔和。"}},
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "工具提示和懸停卡片的玻璃更清晰，邊緣更銳利，陰影更柔和。"}}
+      }
+    },
+    "settings.experiments.seeThroughDock": {
+      "comment": "Settings > Experiments: the See-Through Dock taste prototype row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "See-Through Dock"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "شريط سفلي شفاف"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Providni dok"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Gennemsigtig dok"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Durchsichtiges Dock"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Dock transparente"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Dock transparent"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Dock trasparente"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "透けるドック"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ដុកថ្លា"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "투명한 도크"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Gjennomsiktig dokk"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Przezroczysty dok"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Dock transparente"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Прозрачная панель"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ด็อกแบบโปร่งใส"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Saydam bölme"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Прозора панель"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Thanh dock trong suốt"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "透明停靠栏"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "透明停靠列"}}
+      }
+    },
+    "settings.experiments.seeThroughDock.help": {
+      "comment": "Settings > Experiments: the See-Through Dock taste prototype row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The conversation stays visible behind the notices and the Needs your input row above the composer."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تبقى المحادثة مرئية خلف الإشعارات وصف «يحتاج إلى إدخالك» فوق مربع الكتابة."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Razgovor ostaje vidljiv iza obavještenja i reda „Potreban je vaš unos“ iznad polja za pisanje."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Samtalen forbliver synlig bag meddelelserne og rækken “Kræver dit input” over skrivefeltet."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Die Unterhaltung bleibt hinter den Hinweisen und der Zeile „Deine Eingabe ist nötig“ über dem Eingabefeld sichtbar."}},
+        "es": {"stringUnit": {"state": "translated", "value": "La conversación sigue visible detrás de los avisos y de la fila «Necesita tu respuesta» sobre el editor."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "La conversation reste visible derrière les avis et la ligne « Votre réponse est requise » au-dessus de la zone de saisie."}},
+        "it": {"stringUnit": {"state": "translated", "value": "La conversazione resta visibile dietro gli avvisi e la riga «Serve il tuo input» sopra il compositore."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "入力欄の上にある通知と「入力が必要です」の行の後ろでも会話が見えたままになります。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ការសន្ទនានៅតែមើលឃើញនៅពីក្រោយសេចក្តីជូនដំណឹង និងជួរ «ត្រូវការការបញ្ចូលរបស់អ្នក» ខាងលើប្រអប់សរសេរ។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "입력창 위의 알림과 “입력이 필요합니다” 행 뒤에서도 대화가 계속 보입니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Samtalen forblir synlig bak varslene og raden «Trenger dine innspill» over skrivefeltet."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Rozmowa pozostaje widoczna za powiadomieniami i wierszem „Potrzebna Twoja odpowiedź” nad polem pisania."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "A conversa continua visível atrás dos avisos e da linha “Precisa da sua resposta” acima do editor."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Разговор остаётся виден за уведомлениями и строкой «Нужен ваш ответ» над полем ввода."}},
+        "th": {"stringUnit": {"state": "translated", "value": "บทสนทนายังมองเห็นได้อยู่หลังการแจ้งเตือนและแถว “ต้องการข้อมูลจากคุณ” เหนือช่องเขียนข้อความ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Konuşma, yazma alanının üstündeki bildirimlerin ve “Girdiniz gerekiyor” satırının arkasında görünür kalır."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Розмова залишається видимою за сповіщеннями та рядком «Потрібна ваша відповідь» над полем введення."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Cuộc trò chuyện vẫn hiển thị phía sau các thông báo và hàng “Cần bạn nhập” phía trên ô soạn thảo."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "在输入框上方的通知和“需要你的输入”行后面，对话依然可见。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "在輸入框上方的通知和「需要你的輸入」列後面，對話依然可見。"}}
+      }
+    },
+    "settings.experiments.attachmentTypeIcons": {
+      "comment": "Settings > Experiments: the Attachment Type Icons taste prototype row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Attachment Type Icons"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "أيقونات نوع المرفق"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Ikone vrste priloga"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Ikoner for vedhæftningstype"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Symbole für Anhangstyp"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Iconos de tipo de adjunto"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Icônes de type de pièce jointe"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Icone del tipo di allegato"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "添付ファイルの種類アイコン"}},
+        "km": {"stringUnit": {"state": "translated", "value": "រូបតំណាងប្រភេទឯកសារភ្ជាប់"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "첨부 파일 유형 아이콘"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Ikoner for vedleggstype"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Ikony typu załącznika"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Ícones de tipo de anexo"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Значки типа вложения"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ไอคอนประเภทไฟล์แนบ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Ek türü simgeleri"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Значки типу вкладення"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Biểu tượng loại tệp đính kèm"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "附件类型图标"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "附件類型圖示"}}
+      }
+    },
+    "settings.experiments.attachmentTypeIcons.help": {
+      "comment": "Settings > Experiments: the Attachment Type Icons taste prototype row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "While an attachment loads, its chip shows a file or image icon instead of the loading mark."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "أثناء تحميل مرفق، تعرض شريحته أيقونة ملف أو صورة بدلاً من علامة التحميل."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Dok se prilog učitava, njegov čip prikazuje ikonu datoteke ili slike umjesto oznake učitavanja."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Mens en vedhæftning indlæses, viser dens chip et fil- eller billedikon i stedet for indlæsningsmærket."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Während ein Anhang lädt, zeigt sein Chip ein Datei- oder Bildsymbol statt der Ladeanzeige."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Mientras se carga un adjunto, su chip muestra un icono de archivo o de imagen en lugar del indicador de carga."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Pendant le chargement d'une pièce jointe, sa puce affiche une icône de fichier ou d'image au lieu de l'indicateur de chargement."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Durante il caricamento di un allegato, il suo chip mostra un'icona di file o di immagine al posto dell'indicatore di caricamento."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "添付ファイルの読み込み中、チップに読み込みマークの代わりにファイルまたは画像のアイコンを表示します。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ពេលឯកសារភ្ជាប់កំពុងផ្ទុក បន្ទះរបស់វាបង្ហាញរូបតំណាងឯកសារ ឬរូបភាព ជំនួសឱ្យសញ្ញាកំពុងផ្ទុក។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "첨부 파일을 불러오는 동안 칩에 로딩 표시 대신 파일 또는 이미지 아이콘이 표시됩니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Mens et vedlegg lastes inn, viser brikken et fil- eller bildeikon i stedet for lastemerket."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Podczas wczytywania załącznika jego kafelek pokazuje ikonę pliku lub obrazu zamiast wskaźnika wczytywania."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Enquanto um anexo carrega, o chip mostra um ícone de arquivo ou de imagem em vez do indicador de carregamento."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Пока вложение загружается, на его плашке показан значок файла или изображения вместо индикатора загрузки."}},
+        "th": {"stringUnit": {"state": "translated", "value": "ขณะที่ไฟล์แนบกำลังโหลด ชิปจะแสดงไอคอนไฟล์หรือรูปภาพแทนเครื่องหมายกำลังโหลด"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Bir ek yüklenirken, çipi yükleme işareti yerine bir dosya veya görsel simgesi gösterir."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Поки вкладення завантажується, на його плашці показано значок файлу або зображення замість індикатора завантаження."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Trong khi tệp đính kèm đang tải, chip của nó hiển thị biểu tượng tệp hoặc hình ảnh thay cho dấu đang tải."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "附件加载时，其标签显示文件或图片图标，而不是加载标记。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "附件載入時，其標籤顯示檔案或圖片圖示，而不是載入標記。"}}
       }
     },
     "settings.experiments.agentBadges": {
@@ -255276,6 +256492,266 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "當代理程式狀態變為被阻擋且沒有其自身的核准或提問提醒時（由螢幕偵測與外掛程式回報）。"}}
       }
     },
+    "settings.remoteDesktop.auto": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Auto"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تلقائي"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Automatski"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Auto"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Automatisch"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Automático"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Automatique"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Automatico"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "自動"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ស្វ័យប្រវត្តិ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "자동"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Automatisk"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Automatyczny"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Automático"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Автоматический"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "อัตโนมัติ"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Otomatik"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Автоматичний"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Tự động"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "自动"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "自動"}}
+      }
+    },
+    "settings.remoteDesktop.maxBitrateMbps": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Screen Sharing Bitrate Limit"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "حد معدل البت لمشاركة الشاشة"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Ograničenje protoka za dijeljenje ekrana"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Bithastighedsgrænse for skærmdeling"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Bitratenlimit der Bildschirmfreigabe"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Límite de tasa de bits de pantalla compartida"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Limite de débit du partage d’écran"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Limite bitrate condivisione schermo"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "画面共有のビットレート上限"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ដែនកំណត់អត្រាប៊ីតចែករំលែកអេក្រង់"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "화면 공유 비트레이트 제한"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Bithastighetsgrense for skjermdeling"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Limit przepływności udostępniania ekranu"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Limite de taxa de bits do compartilhamento de tela"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Ограничение битрейта демонстрации экрана"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ขีดจำกัดบิตเรตการแชร์หน้าจอ"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Ekran paylaşımı bit hızı sınırı"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Обмеження бітрейту демонстрації екрана"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Giới hạn tốc độ bit chia sẻ màn hình"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "屏幕共享码率上限"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "螢幕共享位元率上限"}}
+      }
+    },
+    "settings.remoteDesktop.maxBitrateMbps.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The most megabits per second a new Screen Sharing session may use. Auto lets the host decide."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "أقصى عدد من الميغابت في الثانية يمكن أن تستخدمه جلسة مشاركة شاشة جديدة. يترك الوضع التلقائي القرار للمضيف."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Najviše megabita u sekundi koje nova sesija dijeljenja ekrana smije koristiti. Automatski prepušta odluku domaćinu."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Det højeste antal megabit pr. sekund, en ny skærmdelingssession må bruge. Auto lader værten bestemme."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Die meisten Megabit pro Sekunde, die eine neue Bildschirmfreigabe nutzen darf. Automatisch überlässt es dem Host."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "El máximo de megabits por segundo que puede usar una nueva sesión de pantalla compartida. Automático deja que decida el host."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Le nombre maximal de mégabits par seconde qu’une nouvelle session de partage d’écran peut utiliser. Auto laisse l’hôte décider."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Il numero massimo di megabit al secondo che una nuova sessione di condivisione schermo può usare. Automatico lascia decidere all’host."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "新しい画面共有セッションが使える1秒あたりの最大メガビット数です。自動はホストに任せます。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ចំនួនមេហ្គាប៊ីតច្រើនបំផុតក្នុងមួយវិនាទីដែលវគ្គចែករំលែកអេក្រង់ថ្មីអាចប្រើ។ ស្វ័យប្រវត្តិឱ្យម៉ាស៊ីនសម្រេច។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "새 화면 공유 세션이 사용할 수 있는 초당 최대 메가비트입니다. 자동은 호스트가 결정합니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Det høyeste antallet megabit per sekund en ny skjermdelingsøkt kan bruke. Auto lar verten bestemme."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Największa liczba megabitów na sekundę, jakiej może użyć nowa sesja udostępniania ekranu. Automatycznie decyduje host."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "O máximo de megabits por segundo que uma nova sessão de compartilhamento de tela pode usar. Automático deixa o host decidir."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Наибольшее число мегабит в секунду, которое может использовать новый сеанс демонстрации экрана. «Авто» оставляет решение хосту."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "จำนวนเมกะบิตต่อวินาทีสูงสุดที่เซสชันการแชร์หน้าจอใหม่ใช้ได้ อัตโนมัติให้โฮสต์เป็นผู้ตัดสิน"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Yeni bir ekran paylaşımı oturumunun kullanabileceği en fazla saniyedeki megabit. Otomatik kararı ana makineye bırakır."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Найбільша кількість мегабіт за секунду, яку може використати новий сеанс демонстрації екрана. «Авто» залишає рішення хосту."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Số megabit mỗi giây tối đa mà một phiên chia sẻ màn hình mới được dùng. Tự động để máy chủ quyết định."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "新的屏幕共享会话最多可用的每秒兆比特数。自动由主机决定。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "新的螢幕共享工作階段最多可用的每秒百萬位元數。自動由主機決定。"}}
+      }
+    },
+    "settings.remoteDesktop.maxFps": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Screen Sharing Frame Rate Limit"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "حد معدل الإطارات لمشاركة الشاشة"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Ograničenje broja sličica za dijeljenje ekrana"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Billedhastighedsgrænse for skærmdeling"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Bildratenlimit der Bildschirmfreigabe"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Límite de fotogramas de pantalla compartida"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Limite d’images par seconde du partage d’écran"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Limite frame rate condivisione schermo"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "画面共有のフレームレート上限"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ដែនកំណត់អត្រាស៊ុមចែករំលែកអេក្រង់"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "화면 공유 프레임 속도 제한"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Bildefrekvensgrense for skjermdeling"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Limit klatek udostępniania ekranu"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Limite de quadros do compartilhamento de tela"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Ограничение частоты кадров демонстрации экрана"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ขีดจำกัดอัตราเฟรมการแชร์หน้าจอ"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Ekran paylaşımı kare hızı sınırı"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Обмеження частоти кадрів демонстрації екрана"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Giới hạn tốc độ khung hình chia sẻ màn hình"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "屏幕共享帧率上限"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "螢幕共享影格速率上限"}}
+      }
+    },
+    "settings.remoteDesktop.maxFps.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The most frames per second a Screen Sharing session asks for. Auto follows this display's refresh rate."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "أقصى عدد من الإطارات في الثانية تطلبه جلسة مشاركة الشاشة. يتبع الوضع التلقائي معدل تحديث هذه الشاشة."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Najveći broj sličica u sekundi koji sesija dijeljenja ekrana traži. Automatski prati brzinu osvježavanja ovog ekrana."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Det højeste antal billeder pr. sekund, en skærmdelingssession beder om. Auto følger denne skærms opdateringshastighed."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Die meisten Bilder pro Sekunde, die eine Bildschirmfreigabe anfordert. Automatisch folgt der Bildwiederholrate dieses Displays."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "El máximo de fotogramas por segundo que pide una sesión de pantalla compartida. Automático sigue la frecuencia de actualización de esta pantalla."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Le nombre maximal d’images par seconde demandé par une session de partage d’écran. Auto suit la fréquence de rafraîchissement de cet écran."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Il numero massimo di fotogrammi al secondo che una sessione di condivisione schermo richiede. Automatico segue la frequenza di aggiornamento di questo schermo."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "画面共有セッションが要求する1秒あたりの最大フレーム数です。自動はこのディスプレイのリフレッシュレートに従います。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ចំនួនស៊ុមច្រើនបំផុតក្នុងមួយវិនាទីដែលវគ្គចែករំលែកអេក្រង់ស្នើ។ ស្វ័យប្រវត្តិធ្វើតាមអត្រាផ្ទុកឡើងវិញរបស់អេក្រង់នេះ។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "화면 공유 세션이 요청하는 초당 최대 프레임 수입니다. 자동은 이 디스플레이의 재생률을 따릅니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Det høyeste antallet bilder per sekund en skjermdelingsøkt ber om. Auto følger denne skjermens oppdateringsfrekvens."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Największa liczba klatek na sekundę, o jaką prosi sesja udostępniania ekranu. Automatycznie oznacza częstotliwość odświeżania tego ekranu."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "O máximo de quadros por segundo que uma sessão de compartilhamento de tela pede. Automático segue a taxa de atualização desta tela."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Наибольшее число кадров в секунду, которое запрашивает сеанс демонстрации экрана. «Авто» следует частоте обновления этого дисплея."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "จำนวนเฟรมต่อวินาทีสูงสุดที่เซสชันการแชร์หน้าจอขอ อัตโนมัติจะตามอัตรารีเฟรชของจอนี้"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Bir ekran paylaşımı oturumunun istediği en fazla saniyedeki kare sayısı. Otomatik bu ekranın yenileme hızını izler."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Найбільша кількість кадрів за секунду, яку запитує сеанс демонстрації екрана. «Авто» відповідає частоті оновлення цього дисплея."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Số khung hình mỗi giây tối đa mà một phiên chia sẻ màn hình yêu cầu. Tự động theo tần số quét của màn hình này."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "屏幕共享会话请求的最高每秒帧数。自动跟随此显示器的刷新率。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "螢幕共享工作階段要求的最高每秒影格數。自動會跟隨此顯示器的更新頻率。"}}
+      }
+    },
+    "settings.remoteDesktop.quality": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Screen Sharing Quality"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "جودة مشاركة الشاشة"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Kvalitet dijeljenja ekrana"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Skærmdelingskvalitet"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Bildschirmfreigabe-Qualität"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Calidad de pantalla compartida"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Qualité du partage d’écran"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Qualità condivisione schermo"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "画面共有の画質"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "គុណភាពចែករំលែកអេក្រង់"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "화면 공유 품질"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Skjermdelingskvalitet"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Jakość udostępniania ekranu"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Qualidade do compartilhamento de tela"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Качество демонстрации экрана"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "คุณภาพการแชร์หน้าจอ"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Ekran paylaşımı kalitesi"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Якість демонстрації екрана"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Chất lượng chia sẻ màn hình"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "屏幕共享画质"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "螢幕共享畫質"}}
+      }
+    },
+    "settings.remoteDesktop.quality.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The quality a new Screen Sharing session starts at. The session's toolbar can still change it."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "الجودة التي تبدأ بها جلسة مشاركة الشاشة الجديدة. يمكن لشريط أدوات الجلسة تغييرها."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Kvalitet s kojim počinje nova sesija dijeljenja ekrana. Traka s alatima sesije ga i dalje može promijeniti."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Den kvalitet, en ny skærmdelingssession starter med. Sessionens værktøjslinje kan stadig ændre den."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Die Qualität, mit der eine neue Bildschirmfreigabe beginnt. Die Symbolleiste der Sitzung kann sie weiterhin ändern."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "La calidad con la que empieza una nueva sesión de pantalla compartida. La barra de herramientas de la sesión aún puede cambiarla."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "La qualité de départ d’une nouvelle session de partage d’écran. La barre d’outils de la session peut toujours la modifier."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "La qualità con cui inizia una nuova sessione di condivisione schermo. La barra degli strumenti della sessione può ancora cambiarla."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "新しい画面共有セッションの開始時の画質です。セッションのツールバーで変更することもできます。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "គុណភាពដែលវគ្គចែករំលែកអេក្រង់ថ្មីចាប់ផ្តើម។ របារឧបករណ៍របស់វគ្គនៅតែអាចប្តូរវាបាន។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "새 화면 공유 세션이 시작될 때의 품질입니다. 세션 도구 막대에서 계속 변경할 수 있습니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Kvaliteten en ny skjermdelingsøkt starter med. Øktens verktøylinje kan fortsatt endre den."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Jakość, z jaką zaczyna się nowa sesja udostępniania ekranu. Pasek narzędzi sesji nadal może ją zmienić."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "A qualidade com que uma nova sessão de compartilhamento de tela começa. A barra de ferramentas da sessão ainda pode alterá-la."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Качество, с которым начинается новый сеанс демонстрации экрана. Панель инструментов сеанса всё равно может его изменить."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "คุณภาพที่เซสชันการแชร์หน้าจอใหม่เริ่มต้น แถบเครื่องมือของเซสชันยังเปลี่ยนได้"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Yeni bir ekran paylaşımı oturumunun başladığı kalite. Oturumun araç çubuğu bunu yine de değiştirebilir."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Якість, з якою починається новий сеанс демонстрації екрана. Панель інструментів сеансу все одно може її змінити."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Chất lượng khi một phiên chia sẻ màn hình mới bắt đầu. Thanh công cụ của phiên vẫn có thể thay đổi nó."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "新的屏幕共享会话开始时的画质。会话的工具栏仍可更改。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "新的螢幕共享工作階段開始時的畫質。工作階段的工具列仍可更改。"}}
+      }
+    },
+    "settings.remoteDesktop.quality.lowBandwidth": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Low Bandwidth"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "نطاق ترددي منخفض"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Mala propusnost"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Lav båndbredde"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Geringe Bandbreite"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Bajo ancho de banda"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Faible bande passante"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Banda ridotta"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "低帯域"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "កម្រិតបញ្ជូនទាប"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "저대역폭"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Lav båndbredde"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Niska przepustowość"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Baixa largura de banda"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Низкая пропускная способность"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "แบนด์วิดท์ต่ำ"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Düşük bant genişliği"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Низька пропускна здатність"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Băng thông thấp"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "低带宽"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "低頻寬"}}
+      }
+    },
+    "settings.remoteDesktop.quality.sharpText": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Sharp Text"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "نص واضح"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Oštar tekst"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Skarp tekst"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Scharfer Text"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Texto nítido"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Texte net"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Testo nitido"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "くっきりした文字"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "អក្សរច្បាស់"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "선명한 텍스트"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Skarp tekst"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Ostry tekst"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Texto nítido"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Чёткий текст"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ข้อความคมชัด"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Keskin metin"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Чіткий текст"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Chữ sắc nét"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "清晰文字"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "清晰文字"}}
+      }
+    },
+    "settings.remoteDesktop.quality.smoothMotion": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Smooth Motion"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "حركة سلسة"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Glatko kretanje"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Jævn bevægelse"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Flüssige Bewegung"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Movimiento fluido"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Mouvement fluide"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Movimento fluido"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "なめらかな動き"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ចលនារលូន"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "부드러운 움직임"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Jevn bevegelse"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Płynny ruch"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Movimento suave"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Плавное движение"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "การเคลื่อนไหวลื่นไหล"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Akıcı hareket"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Плавний рух"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Chuyển động mượt"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "流畅动画"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "流暢動態"}}
+      }
+    },
     "settings.appearance.tabShape": {
       "comment": "Title of the Appearance choice of how blocky the tabs and sidebar rows are: block or rounded.",
       "extractionState": "manual",
@@ -256412,26 +257888,2642 @@
         "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "為每種工作區（終端機、代理、瀏覽器或混合）設定的列版面配置。優先於列版面配置。" } }
       }
     },
-    "settings.cloud.agentMemory.follow": {
-      "comment": "Settings > Machines: toggle that carries the person's agent memory files to their Cloud machines.",
+    "settings.agentPane.display.layout.messages": {
+      "comment": "Settings > Agent Chat > Chat Layout > Message Layout: title",
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تخطيط الرسائل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Raspored poruka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Beskedlayout"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nachrichtenlayout"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Carry Your Agent Memory to Cloud Machines"
+            "value": "Message Layout"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Disposición de los mensajes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Disposition des messages"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Layout dei messaggi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "メッセージのレイアウト"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្លង់សារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "메시지 레이아웃"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Meldingsoppsett"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Układ wiadomości"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Layout das mensagens"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Расположение сообщений"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เลย์เอาต์ข้อความ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mesaj düzeni"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Розташування повідомлень"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bố cục tin nhắn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "消息布局"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "訊息版面"
           }
         }
       }
     },
-    "settings.cloud.agentMemory.follow.help": {
-      "comment": "Help for the agent memory toggle: names what travels and who controls it.",
+    "settings.agentPane.display.layout.messages.help": {
+      "comment": "Settings > Agent Chat > Chat Layout > Message Layout: help",
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "كيف تظهر رسائلك في المحادثة: فقاعة على اليمين، أو صف مسطح على اليسار مع خط تمييز، أو بطاقة على اليسار."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kako se vaše poruke prikazuju u razgovoru: oblačić desno, ravan red lijevo s naglašenom linijom ili kartica lijevo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvordan dine beskeder vises i chatten: en boble til højre, en flad række til venstre med en accentlinje eller et kort til venstre."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wie deine Nachrichten im Chat stehen: als Blase rechts, als flache Zeile links mit einem Akzentstrich oder als Karte links."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your CLAUDE.md, AGENTS.md, agents, commands, skills and Claude's memory notes follow you to Cloud machines. Never credentials or settings files. Agents' changes wait for you in Session Info; only you can change this. Off deletes your copy in the cloud and stops every push."
+            "value": "How your messages sit in the chat: a bubble on the right, a flat row on the left with an accent rule, or a card on the left."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cómo se muestran tus mensajes en el chat: una burbuja a la derecha, una fila plana a la izquierda con una línea de acento o una tarjeta a la izquierda."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Comment vos messages s'affichent dans la discussion : une bulle à droite, une ligne simple à gauche avec un filet d'accent, ou une carte à gauche."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Come appaiono i tuoi messaggi nella chat: una bolla a destra, una riga semplice a sinistra con una linea d'accento o una scheda a sinistra."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャットでのメッセージの表示方法：右側の吹き出し、左側のアクセント線付きのフラットな行、または左側のカード。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "របៀបដែលសាររបស់អ្នកបង្ហាញក្នុងការជជែក៖ ពពុះនៅខាងស្ដាំ ជួរសំប៉ែតនៅខាងឆ្វេងមានបន្ទាត់សង្កត់ ឬកាតនៅខាងឆ្វេង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅에서 내 메시지가 놓이는 방식: 오른쪽 말풍선, 강조선이 있는 왼쪽의 평평한 행, 또는 왼쪽 카드."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvordan meldingene dine vises i chatten: en boble til høyre, en flat rad til venstre med en aksentlinje eller et kort til venstre."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jak Twoje wiadomości wyglądają w czacie: dymek po prawej, płaski wiersz po lewej z linią akcentu lub karta po lewej."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Como suas mensagens aparecem no chat: um balão à direita, uma linha simples à esquerda com um traço de destaque ou um cartão à esquerda."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Как ваши сообщения выглядят в чате: пузырь справа, простая строка слева с акцентной линией или карточка слева."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ข้อความของคุณแสดงในแชตอย่างไร: ฟองข้อความทางขวา แถวเรียบทางซ้ายพร้อมเส้นเน้น หรือการ์ดทางซ้าย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mesajlarınızın sohbette nasıl durduğu: sağda bir balon, solda vurgu çizgili düz bir satır veya solda bir kart."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Як ваші повідомлення виглядають у чаті: бульбашка праворуч, простий рядок ліворуч з акцентною лінією або картка ліворуч."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cách tin nhắn của bạn hiển thị trong cuộc trò chuyện: bong bóng bên phải, hàng phẳng bên trái có vạch nhấn, hoặc thẻ bên trái."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你的消息在聊天中的样式：右侧气泡、左侧带强调线的平铺行，或左侧卡片。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你的訊息在聊天中的樣式：右側氣泡、左側帶強調線的平鋪列，或左側卡片。"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.layout.composer": {
+      "comment": "Settings > Agent Chat > Chat Layout > Message Box Shape: title (the chat's composer)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "شكل مربع الرسالة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oblik polja za poruku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Beskedfeltets form"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Form des Nachrichtenfelds"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Message Box Shape"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forma del cuadro de mensaje"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forme de la zone de message"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forma della casella del messaggio"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "メッセージ欄の形"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រាងប្រអប់សារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "메시지 상자 모양"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Meldingsfeltets form"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kształt pola wiadomości"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Formato da caixa de mensagem"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Форма поля сообщения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "รูปทรงช่องข้อความ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mesaj kutusu şekli"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Форма поля повідомлення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hình dạng ô tin nhắn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "消息框形状"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "訊息框形狀"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.layout.composer.help": {
+      "comment": "Settings > Agent Chat > Chat Layout > Message Box Shape: help",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حدود مربع الرسالة: مستديرة، أو على شكل كبسولة، أو مربعة ومثبتة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Obris polja za poruku: zaobljen, u obliku pilule ili četvrtast i usidren."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Beskedfeltets omrids: afrundet, som en pille eller firkantet og fastgjort."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Umriss des Nachrichtenfelds: abgerundet, als Pille oder eckig und angedockt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The message box's outline: rounded, a pill, or square and docked."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El contorno del cuadro de mensaje: redondeado, en píldora, o cuadrado y acoplado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le contour de la zone de message : arrondi, en pilule, ou carré et ancré."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il contorno della casella del messaggio: arrotondato, a pillola, oppure squadrato e agganciato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "メッセージ欄の輪郭：角丸、ピル型、または角型でドッキング。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គែមនៃប្រអប់សារ៖ មូល រាងគ្រាប់ថ្នាំ ឬការ៉េ និងភ្ជាប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "메시지 상자의 윤곽: 둥근 모양, 알약 모양, 또는 각지고 고정된 모양."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Omrisset av meldingsfeltet: avrundet, som en pille eller firkantet og festet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Obrys pola wiadomości: zaokrąglony, w kształcie pigułki albo kwadratowy i zadokowany."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O contorno da caixa de mensagem: arredondado, em pílula, ou quadrado e encaixado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Контур поля сообщения: скруглённый, в виде таблетки или квадратный и закреплённый."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เส้นขอบของช่องข้อความ: มุมมน ทรงแคปซูล หรือเหลี่ยมและยึดติด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mesaj kutusunun dış çizgisi: yuvarlak, hap biçiminde ya da köşeli ve sabitlenmiş."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Контур поля повідомлення: заокруглений, у формі пігулки або квадратний і закріплений."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đường viền của ô tin nhắn: bo tròn, hình viên thuốc, hoặc vuông và cố định."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "消息框的轮廓：圆角、胶囊形，或方形并停靠。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "訊息框的輪廓：圓角、膠囊形，或方形並停靠。"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.layout.header": {
+      "comment": "Settings > Agent Chat > Chat Layout > Chat Header: title",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ترويسة المحادثة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zaglavlje razgovora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chathoved"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chat-Kopfzeile"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat Header"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Encabezado del chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En-tête de la discussion"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Intestazione della chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャットのヘッダー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ក្បាលការជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅 헤더"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chattens topplinje"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nagłówek czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cabeçalho do chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Заголовок чата"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ส่วนหัวแชต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbet başlığı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Заголовок чату"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tiêu đề trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天标题栏"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天標題列"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.layout.header.help": {
+      "comment": "Settings > Agent Chat > Chat Layout > Chat Header: help; Full and Quiet are this row's choice names",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الكامل يعرض أدوات الترويسة دائمًا؛ الهادئ يعرضها فقط عندما يكون المؤشر فوق الترويسة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Puno uvijek prikazuje alate zaglavlja; Tiho ih prikazuje samo dok je pokazivač iznad zaglavlja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fuld viser altid værktøjerne i chathovedet; Stille viser dem kun, mens markøren er over hovedet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vollständig zeigt die Werkzeuge der Kopfzeile immer; Ruhig zeigt sie nur, solange der Zeiger über der Kopfzeile ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full shows the chat's header tools at all times; Quiet shows them only while the pointer is over the header."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Completo muestra siempre las herramientas del encabezado; Discreto solo las muestra mientras el puntero está sobre el encabezado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Complet affiche toujours les outils de l'en-tête ; Discret ne les affiche que lorsque le pointeur survole l'en-tête."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Completa mostra sempre gli strumenti dell'intestazione; Discreta li mostra solo quando il puntatore è sull'intestazione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「フル」はヘッダーのツールを常に表示し、「控えめ」はポインタがヘッダー上にあるときだけ表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពេញ បង្ហាញឧបករណ៍ក្បាលជានិច្ច ស្ងាត់ បង្ហាញវាតែពេលព្រួញនៅលើក្បាល។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "전체는 헤더 도구를 항상 표시하고, 조용히는 포인터가 헤더 위에 있을 때만 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Full viser alltid verktøyene i topplinjen; Stille viser dem bare mens pekeren er over topplinjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pełny zawsze pokazuje narzędzia nagłówka; Cichy pokazuje je tylko, gdy wskaźnik jest nad nagłówkiem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Completo mostra sempre as ferramentas do cabeçalho; Discreto as mostra só enquanto o ponteiro está sobre o cabeçalho."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Полный» всегда показывает инструменты заголовка; «Тихий» показывает их только при наведении указателя на заголовок."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แบบเต็มแสดงเครื่องมือส่วนหัวตลอดเวลา แบบเงียบแสดงเฉพาะเมื่อตัวชี้อยู่เหนือส่วนหัว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tam, başlık araçlarını her zaman gösterir; Sessiz, onları yalnızca işaretçi başlığın üzerindeyken gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Повний» завжди показує інструменти заголовка; «Тихий» показує їх лише коли вказівник над заголовком."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đầy đủ luôn hiện các công cụ tiêu đề; Yên lặng chỉ hiện chúng khi con trỏ ở trên tiêu đề."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“完整”始终显示标题栏工具；“安静”仅在指针位于标题栏上方时显示。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「完整」一律顯示標題列工具；「安靜」僅在指標位於標題列上方時顯示。"
+          }
+        }
+      }
+    },
+    "settings.choice.chatLayout.bubbles": {
+      "comment": "Message Layout choice: each prompt in a bubble on the right",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فقاعات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oblačići"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bobler"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Blasen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bubbles"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Burbujas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bulles"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bolle"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "吹き出し"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពពុះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "말풍선"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bobler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dymki"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Balões"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пузыри"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ฟองข้อความ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Balonlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Бульбашки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bong bóng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "气泡"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "氣泡"
+          }
+        }
+      }
+    },
+    "settings.choice.chatLayout.flat": {
+      "comment": "Message Layout choice: flat rows on the left with an accent rule",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "صفوف مسطحة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ravni redovi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flade rækker"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flache Zeilen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flat Rows"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Filas planas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lignes simples"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Righe semplici"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "フラットな行"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ជួរសំប៉ែត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "평평한 행"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flate rader"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Płaskie wiersze"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Linhas simples"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Простые строки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แถวเรียบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Düz satırlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Прості рядки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hàng phẳng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "平铺行"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "平鋪列"
+          }
+        }
+      }
+    },
+    "settings.choice.chatLayout.card": {
+      "comment": "Message Layout choice: each prompt as an outlined card on the left",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "بطاقات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kartice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kort"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Karten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cards"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tarjetas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cartes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Schede"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "カード"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កាត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "카드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kort"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Karty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cartões"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Карточки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การ์ด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kartlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Картки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thẻ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "卡片"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "卡片"
+          }
+        }
+      }
+    },
+    "settings.choice.chatLayout.rounded": {
+      "comment": "Message Box Shape choice: rounded corners",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مستدير"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zaobljeno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afrundet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abgerundet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rounded"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Redondeado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arrondi"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arrotondata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "角丸"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មូល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "둥글게"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avrundet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zaokrąglony"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arredondado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Скруглённая"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "มุมมน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yuvarlak"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Заокруглена"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bo tròn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "圆角"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "圓角"
+          }
+        }
+      }
+    },
+    "settings.choice.chatLayout.pill": {
+      "comment": "Message Box Shape choice: a pill (fully round ends)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "كبسولة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pilula"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pille"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pille"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pill"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Píldora"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pilule"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pillola"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ピル型"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្រាប់ថ្នាំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "알약"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pille"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pigułka"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pílula"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Таблетка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แคปซูล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hap"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пігулка"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Viên thuốc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "胶囊"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "膠囊"
+          }
+        }
+      }
+    },
+    "settings.choice.chatLayout.square": {
+      "comment": "Message Box Shape choice: square corners, docked",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مربع"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Četvrtasto"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Firkantet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eckig"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Square"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuadrado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Carré"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Squadrata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "角型"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការ៉េ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "각지게"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Firkantet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kwadratowy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quadrado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Квадратная"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เหลี่ยม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Köşeli"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Квадратна"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vuông"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "方形"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "方形"
+          }
+        }
+      }
+    },
+    "settings.choice.chatLayout.full": {
+      "comment": "Chat Header choice: header tools always shown",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "كامل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Puno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fuld"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vollständig"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Completo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Complet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Completa"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "フル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពេញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "전체"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Full"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pełny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Completo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Полный"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เต็ม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tam"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Повний"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đầy đủ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "完整"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "完整"
+          }
+        }
+      }
+    },
+    "settings.choice.chatLayout.quiet": {
+      "comment": "Chat Header choice: header tools shown only on hover",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هادئ"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tiho"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stille"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ruhig"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quiet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Discreto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Discret"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Discreta"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "控えめ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្ងាត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "조용히"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stille"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cichy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Discreto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Тихий"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เงียบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sessiz"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Тихий"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yên lặng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "安静"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "安靜"
+          }
+        }
+      }
+    },
+    "settings.chats.deleteHistoryAfterDays": {
+      "comment": "Settings row title: delete closed chats after a number of days (0 never)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حذف سجل المحادثات بعد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Obriši historiju chata nakon"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slet chathistorik efter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chatverlauf löschen nach"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Chat History After"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eliminar el historial de chats después de"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Supprimer l’historique des chats après"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Elimina la cronologia delle chat dopo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャット履歴を削除するまでの期間"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លុបប្រវត្តិជជែកបន្ទាប់ពី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅 기록 삭제 기간"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slett chatthistorikk etter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usuń historię czatów po"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Excluir histórico de chats após"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Удалять историю чатов через"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลบประวัติแชทหลังจาก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbet geçmişini şu süreden sonra sil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Видаляти історію чатів через"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Xóa lịch sử trò chuyện sau"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在此之后删除聊天记录"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在此之後刪除聊天記錄"
+          }
+        }
+      }
+    },
+    "settings.chats.deleteHistoryAfterDays.help": {
+      "comment": "Settings row help for Delete Chat History After; 0 is the number zero",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يحذف نهائيًا المحادثات المغلقة غير المستخدمة طوال هذا العدد من الأيام. القيمة 0 لا تحذف أبدًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trajno briše zatvorene chatove nekorištene ovoliko dana. 0 nikad ne briše."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sletter permanent lukkede chats, der ikke er brugt i så mange dage. 0 sletter aldrig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Löscht geschlossene Chats, die so viele Tage nicht verwendet wurden, endgültig. 0 löscht nie."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permanently deletes closed chats unused for this many days. 0 never deletes."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Elimina de forma permanente los chats cerrados sin usar durante este número de días. 0 nunca elimina."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Supprime définitivement les chats fermés inutilisés depuis ce nombre de jours. 0 ne supprime jamais."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Elimina definitivamente le chat chiuse non usate per questo numero di giorni. 0 non elimina mai."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "この日数のあいだ使われていない閉じたチャットを完全に削除します。0 の場合は削除しません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លុបជាអចិន្ត្រៃយ៍នូវការជជែកដែលបានបិទ ហើយមិនបានប្រើក្នុងរយៈពេលប៉ុន្មានថ្ងៃនេះ។ 0 មិនលុបទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 일수 동안 사용하지 않은 닫힌 채팅을 영구 삭제합니다. 0이면 삭제하지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sletter lukkede chatter som ikke er brukt på så mange dager, permanent. 0 sletter aldri."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trwale usuwa zamknięte czaty nieużywane przez tyle dni. 0 nigdy nie usuwa."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Exclui permanentemente chats fechados sem uso por este número de dias. 0 nunca exclui."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Безвозвратно удаляет закрытые чаты, не использовавшиеся столько дней. 0 — никогда не удалять."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลบแชทที่ปิดแล้วและไม่ได้ใช้ตามจำนวนวันนี้อย่างถาวร 0 คือไม่ลบเลย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu kadar gün kullanılmayan kapalı sohbetleri kalıcı olarak siler. 0 hiç silmez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Остаточно видаляє закриті чати, якими не користувалися стільки днів. 0 — ніколи не видаляти."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Xóa vĩnh viễn các cuộc trò chuyện đã đóng không dùng trong số ngày này. 0 là không bao giờ xóa."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "永久删除这么多天未使用的已关闭聊天。0 表示从不删除。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "永久刪除這麼多天未使用的已關閉聊天。0 表示永不刪除。"
+          }
+        }
+      }
+    },
+    "settings.labs.bundledCodexAppServer": {
+      "comment": "Settings row title (Labs): run Codex chats on the app server bundled with cmux; Codex is a product name",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "استخدام خادم تطبيق Codex المضمَّن"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koristi ugrađeni Codex server aplikacije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brug medfølgende Codex-appserver"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mitgelieferten Codex-App-Server verwenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Bundled Codex App Server"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usar el servidor de app de Codex incluido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utiliser le serveur d’app Codex intégré"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usa il server app Codex incluso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "同梱の Codex アプリサーバーを使う"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្រើម៉ាស៊ីនមេកម្មវិធី Codex ដែលភ្ជាប់មកជាមួយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "번들 Codex 앱 서버 사용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bruk medfølgende Codex-appserver"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Używaj dołączonego serwera aplikacji Codex"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usar o servidor de app do Codex incluído"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Использовать встроенный сервер приложения Codex"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ใช้เซิร์ฟเวอร์แอป Codex ที่มาพร้อมกัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paketlenmiş Codex uygulama sunucusunu kullan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Використовувати вбудований сервер застосунку Codex"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dùng máy chủ ứng dụng Codex đi kèm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "使用内置的 Codex 应用服务器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "使用內建的 Codex App 伺服器"
+          }
+        }
+      }
+    },
+    "settings.labs.bundledCodexAppServer.help": {
+      "comment": "Settings row help for Use Bundled Codex App Server; cmux and Codex are product names",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تستخدم محادثات Codex الجديدة خادم التطبيق المضمَّن مع cmux عند اجتيازه التحقق، وإلا فتستخدم Codex المثبَّت لديك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Novi Codex chatovi koriste server aplikacije ugrađen u cmux kada prođe provjeru, inače vaš instalirani Codex."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nye Codex-chats bruger den appserver, der følger med cmux, når den består kontrollen, ellers din installerede Codex."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neue Codex-Chats verwenden den mit cmux gelieferten App-Server, wenn er die Prüfung besteht, sonst dein installiertes Codex."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Codex chats use the app server bundled with cmux when it checks out, else your installed Codex."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Los chats nuevos de Codex usan el servidor de app incluido con cmux si supera la comprobación; si no, tu Codex instalado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les nouveaux chats Codex utilisent le serveur d’app fourni avec cmux s’il est vérifié, sinon votre Codex installé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le nuove chat Codex usano il server app incluso in cmux se supera la verifica, altrimenti il Codex installato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新しい Codex チャットは、確認に通れば cmux に同梱のアプリサーバーを使い、通らなければインストール済みの Codex を使います。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការជជែក Codex ថ្មីប្រើម៉ាស៊ីនមេកម្មវិធីដែលភ្ជាប់មកជាមួយ cmux នៅពេលវាឆ្លងការពិនិត្យ បើមិនដូច្នោះទេ ប្រើ Codex ដែលអ្នកបានដំឡើង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "새 Codex 채팅은 확인을 통과하면 cmux에 번들된 앱 서버를, 아니면 설치된 Codex를 사용합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nye Codex-chatter bruker appserveren som følger med cmux når den består kontrollen, ellers din installerte Codex."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nowe czaty Codex używają serwera aplikacji dołączonego do cmux, gdy przejdzie weryfikację, a w przeciwnym razie zainstalowanego Codex."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Novos chats do Codex usam o servidor de app incluído no cmux quando ele passa na verificação; caso contrário, o seu Codex instalado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Новые чаты Codex используют сервер приложения, встроенный в cmux, если он проходит проверку, иначе установленный Codex."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แชท Codex ใหม่จะใช้เซิร์ฟเวอร์แอปที่มาพร้อม cmux เมื่อผ่านการตรวจสอบ ไม่เช่นนั้นจะใช้ Codex ที่คุณติดตั้งไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeni Codex sohbetleri, doğrulamayı geçerse cmux ile gelen uygulama sunucusunu, geçmezse yüklü Codex'inizi kullanır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нові чати Codex використовують сервер застосунку, вбудований у cmux, якщо він проходить перевірку, інакше встановлений Codex."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các cuộc trò chuyện Codex mới dùng máy chủ ứng dụng đi kèm cmux khi nó vượt qua kiểm tra, nếu không thì dùng Codex bạn đã cài."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新的 Codex 聊天在校验通过时使用 cmux 内置的应用服务器，否则使用你已安装的 Codex。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新的 Codex 聊天在驗證通過時使用 cmux 內建的 App 伺服器，否則使用你已安裝的 Codex。"
+          }
+        }
+      }
+    },
+    "settings.machines.hosts": {
+      "comment": "Settings row title: the computers declared in cmux-next.json, reached over ssh",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "المضيفون"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hostovi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Værter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hosts"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hosts"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hosts"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hôtes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Host"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ホスト"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "호스트"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Verter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hosty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hosts"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Хосты"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โฮสต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ana bilgisayarlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Хости"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy chủ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "主机"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "主機"
+          }
+        }
+      }
+    },
+    "settings.machines.hosts.help": {
+      "comment": "Settings row help for Hosts; ssh and `cmux hosts check` stay untranslated",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أجهزة الكمبيوتر التي تصل إليها عبر ssh، لكلٍّ منها تسمية وعناوين تُجرَّب بالترتيب. يوضح cmux hosts check أيها يستجيب."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Računari do kojih stižete preko ssh, svaki s oznakom i adresama koje se isprobavaju redom. cmux hosts check kaže koji odgovaraju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computere, du når over ssh, hver med en etiket og adresser, der prøves i rækkefølge. cmux hosts check viser, hvilke der svarer."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer, die du über ssh erreichst, jeweils mit einem Namen und Adressen, die der Reihe nach versucht werden. cmux hosts check zeigt, welche antworten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computers you reach over ssh, each a label and the addresses tried in order. cmux hosts check says which ones answer."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Equipos a los que accedes por ssh, cada uno con una etiqueta y las direcciones que se prueban en orden. cmux hosts check indica cuáles responden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les ordinateurs que vous joignez par ssh, chacun avec un libellé et des adresses essayées dans l’ordre. cmux hosts check indique lesquels répondent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I computer che raggiungi via ssh, ciascuno con un’etichetta e gli indirizzi provati in ordine. cmux hosts check indica quali rispondono."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ssh で接続するコンピュータ。それぞれラベルと、順に試すアドレスを持ちます。cmux hosts check で応答するものがわかります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កុំព្យូទ័រដែលអ្នកភ្ជាប់តាម ssh នីមួយៗមានស្លាក និងអាសយដ្ឋានដែលសាកល្បងតាមលំដាប់។ cmux hosts check ប្រាប់ថាមួយណាឆ្លើយតប។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ssh로 접속하는 컴퓨터로, 각각 레이블과 순서대로 시도하는 주소가 있습니다. cmux hosts check로 응답하는 컴퓨터를 확인할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Datamaskiner du når over ssh, hver med en etikett og adresser som prøves i rekkefølge. cmux hosts check viser hvilke som svarer."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Komputery, z którymi łączysz się przez ssh, każdy z etykietą i adresami próbowanymi po kolei. cmux hosts check pokazuje, które odpowiadają."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computadores que você acessa por ssh, cada um com um rótulo e os endereços tentados em ordem. cmux hosts check mostra quais respondem."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Компьютеры, к которым вы подключаетесь по ssh: у каждого метка и адреса, которые пробуются по порядку. cmux hosts check показывает, какие отвечают."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คอมพิวเตอร์ที่คุณเข้าถึงผ่าน ssh แต่ละเครื่องมีป้ายชื่อและที่อยู่ที่ลองตามลำดับ cmux hosts check บอกว่าเครื่องใดตอบสนอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ssh ile eriştiğiniz bilgisayarlar; her birinin bir etiketi ve sırayla denenen adresleri vardır. cmux hosts check hangilerinin yanıt verdiğini söyler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Комп’ютери, до яких ви підключаєтеся через ssh: кожен має мітку й адреси, які пробуються по черзі. cmux hosts check показує, які відповідають."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các máy tính bạn truy cập qua ssh, mỗi máy có một nhãn và các địa chỉ được thử theo thứ tự. cmux hosts check cho biết máy nào phản hồi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你通过 ssh 访问的计算机，每台都有一个标签和按顺序尝试的地址。cmux hosts check 会显示哪些有响应。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你透過 ssh 連線的電腦，每台都有一個標籤和依序嘗試的位址。cmux hosts check 會顯示哪些有回應。"
           }
         }
       }

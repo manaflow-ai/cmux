@@ -1320,6 +1320,16 @@ pub struct SessionResourceConfig {
     /// kernel's `threads-max`, between 16384 and 262144.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sessions_tasks_max: Option<u64>,
+    /// `lanes`: the host's lane cap each session's default memory ceiling is sized from
+    /// (RAM / lanes x 2, `session_budget.rs`). Unset: `ACPMUX_HOST_LANES`, else this host's
+    /// fleet-registry.json `lanes.max_lanes`, else none (half the RAM). 0 is unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lanes: Option<u64>,
+    /// `diskMb`: each session's disk budget in MiB, which the daemon's watcher measures
+    /// (`hub/session_budget_watch.rs`); 0 is off. Unset: `ACPMUX_SESSION_DISK_MB`, else the
+    /// registry's `lanes.disk_per_lane_gb`, else a tenth of the home filesystem (2 to 64 GiB).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disk_mb: Option<u64>,
     /// `cpuClass`: the CPU class a macOS session's harness runs at once its
     /// start is over (it starts at normal), `background` or `normal` (`cpu_class.rs`). Env `ACPMUX_SESSION_CPU_CLASS`
     /// overrides it, a profile's env overrides both. Unset: `background`, or `normal` for a
@@ -1537,6 +1547,19 @@ pub struct PersonHoldConfig {
     pub ms: Option<u64>,
 }
 
+/// `pageRule` (`hub/inbox_page_rule.rs`): the coordinator list. Another agent's message to one of
+/// these chats starts a turn only when it is a page (a block or question from a session, a
+/// first-seen FIRE or program block, a message from or tagged for the person); the rest waits
+/// for the next notice, at most `inbox.rs` `FLUSH_MS`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PageRuleConfig {
+    /// The chats, by name (`NAME`, or `HOST/NAME` as fleet-registry.json `coordinators` writes
+    /// them), that only a page wakes.
+    #[serde(default)]
+    pub sessions: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
@@ -1639,6 +1662,10 @@ pub struct Config {
     /// small model reads one as urgent (`hub/person_hold.rs`). Unset: none wait.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub person_hold: Option<PersonHoldConfig>,
+    /// `pageRule`: the coordinator chats only a page wakes (`hub/inbox_page_rule.rs`). Unset:
+    /// none, every chat wakes as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_rule: Option<PageRuleConfig>,
     /// `mcpStore`: the machine's one store of MCP connections, shared with every Chief
     /// (cmux-mcp-connect `shared`). Unset: `$CMUX_MCP_HOME`, else `$ACPMUX_HOME/mcp`.
     #[serde(rename = "mcpStore", default, skip_serializing_if = "Option::is_none")]

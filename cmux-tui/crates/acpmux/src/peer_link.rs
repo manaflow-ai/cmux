@@ -137,6 +137,10 @@ pub struct SilenceBudget {
     /// gone, so requests to it wait out the budget rather than drop the link. Until the budget
     /// is back at the start.
     slow_proven: bool,
+    /// The smoothed time a stamped ping waited for its pong, and its mean deviation (RFC 6298),
+    /// on this peer's links (`answered_in`): how late this peer answers now, as measured.
+    srtt: Option<Duration>,
+    rttvar: Duration,
 }
 
 impl SilenceBudget {
@@ -158,6 +162,8 @@ impl SilenceBudget {
             struggled: false,
             probe_dropped: false,
             slow_proven: false,
+            srtt: None,
+            rttvar: Duration::ZERO,
         }
     }
 
@@ -180,6 +186,43 @@ impl SilenceBudget {
         if gap * 2 > self.current {
             self.raise(gap * 2, now);
         }
+    }
+
+    /// A stamped ping was answered after `rtt`. A host at load 80 answers its pings seconds
+    /// late, and so does a link from a loaded Mac whose ssh tunnel waits for a CPU: the round
+    /// trip, smoothed (RFC 6298: 7/8 of the last estimate, its deviation 3/4), sets how long a
+    /// request's probe waits ([`Self::probe_wait`]), and the budget is kept at twice its
+    /// retransmit timeout. cosmic-gray, 2026-11-22, load 80 to 100: 788 links dropped in 3 h,
+    /// 295 by a probe after 2 s on a link silent 2 to 5 s, 493 for 6 to 19 s of silence.
+    pub fn answered_in(&mut self, rtt: Duration, now: tokio::time::Instant) {
+        match self.srtt {
+            None => {
+                self.srtt = Some(rtt);
+                self.rttvar = rtt / 2;
+            }
+            Some(srtt) => {
+                let deviation = if srtt > rtt { srtt - rtt } else { rtt - srtt };
+                self.rttvar = (self.rttvar * 3 + deviation) / 4;
+                self.srtt = Some((srtt * 7 + rtt) / 8);
+            }
+        }
+        self.raise(self.rto() * 2, now);
+    }
+
+    /// The retransmit timeout of the measured round trip: its smoothed value and four times its
+    /// deviation. Zero before any pong.
+    pub fn rto(&self) -> Duration {
+        self.srtt.map_or(Duration::ZERO, |srtt| srtt + self.rttvar * 4)
+    }
+
+    /// How long a request's probe on a silent link waits for an answer: `floor`
+    /// (`NETWORK_PROBE`, a dead network found in 2 s), or this peer's measured retransmit
+    /// timeout when it answers later than that, never past the silence budget.
+    pub fn probe_wait(&self, floor: Duration) -> Duration {
+        if self.fixed {
+            return floor;
+        }
+        floor.max(self.rto()).min(self.current.max(floor))
     }
 
     /// The link is dropped for silence.
@@ -216,6 +259,9 @@ impl SilenceBudget {
             self.moved_at = None;
             self.longest = Duration::ZERO;
             self.slow_proven = false;
+            // A new route: its round trip is measured again.
+            self.srtt = None;
+            self.rttvar = Duration::ZERO;
             return;
         }
         if probed {
@@ -233,7 +279,13 @@ impl SilenceBudget {
         if now.saturating_duration_since(at) < self.stable_after {
             return;
         }
-        self.current = (self.current / 2).max(self.longest * 2).max(self.floor);
+        // Nor under twice the measured round trip's timeout: a peer that still answers late
+        // keeps the room it needs (`answered_in`).
+        self.current = (self.current / 2)
+            .max(self.longest * 2)
+            .max(self.rto() * 2)
+            .max(self.floor)
+            .min(self.cap);
         self.moved_at = (self.current > self.floor).then_some(now);
         self.longest = Duration::ZERO;
         if self.moved_at.is_none() {
@@ -1133,6 +1185,57 @@ mod tests {
         budget.answered_after(secs(8), at);
         budget.settle(at + t.stable_after);
         assert_eq!(budget.current(), secs(16));
+    }
+
+    /// cosmic-gray at load 80 to 100: its pongs came 2 to 5 s late, and a request's probe gave up
+    /// after a fixed 2 s. The measured round trip sets the probe's wait and keeps the budget up
+    /// while the peer stays late; a fast peer keeps the 2 s probe and the 6 s budget.
+    #[tokio::test(start_paused = true)]
+    async fn a_measured_slow_round_trip_widens_the_probe_and_keeps_the_budget() {
+        let t = LinkTimings::default();
+        let probe = Duration::from_secs(2);
+        let ms = Duration::from_millis;
+        let secs = Duration::from_secs;
+        let start = tokio::time::Instant::now();
+        let mut fast = SilenceBudget::new(&t);
+        for _ in 0..20 {
+            fast.answered_in(ms(40), start);
+        }
+        assert_eq!(fast.probe_wait(probe), probe, "a fast peer: a dead network still found in 2 s");
+        assert_eq!(fast.current(), secs(6));
+
+        let mut slow = SilenceBudget::new(&t);
+        assert_eq!(slow.probe_wait(probe), probe, "nothing measured yet");
+        for late in [3_000, 4_500, 2_500, 5_000, 3_500, 4_000] {
+            slow.answered_in(ms(late), start);
+        }
+        let wait = slow.probe_wait(probe);
+        assert!(wait >= secs(6), "a probe waits past the peer's late answers: {wait:?}");
+        assert!(wait <= slow.current(), "never past the budget: {wait:?}");
+        assert!(slow.current() >= secs(12), "{:?}", slow.current());
+        // Calm for a while, still late: the budget does not fall back under what it needs.
+        let mut at = start;
+        for _ in 0..5 {
+            at += t.stable_after;
+            slow.answered_in(ms(4_000), at);
+            slow.settle(at);
+        }
+        assert!(slow.current() >= slow.rto() * 2, "{:?} < 2 x {:?}", slow.current(), slow.rto());
+        // The load goes: answers fast again, and it comes back down to the start.
+        for _ in 0..60 {
+            slow.answered_in(ms(40), at);
+        }
+        for _ in 0..6 {
+            at += t.stable_after;
+            slow.settle(at);
+        }
+        assert_eq!(slow.current(), secs(6));
+        assert_eq!(slow.probe_wait(probe), probe);
+        // A fixed `ACPMUX_PEER_PING_SECS` keeps both.
+        let fixed = LinkTimings { fixed_silence: true, ..t };
+        let mut fixed = SilenceBudget::new(&fixed);
+        fixed.answered_in(secs(5), start);
+        assert_eq!((fixed.current(), fixed.probe_wait(probe)), (secs(6), probe));
     }
 
     /// Run 43783279032: 10 s network drops grew the budget 6 -> 12 -> 20 s, and each later drop
