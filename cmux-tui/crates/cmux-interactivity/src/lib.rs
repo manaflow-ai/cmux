@@ -89,6 +89,14 @@ impl InteractionState {
         Self { epoch, last: [const { AtomicU64::new(0) }; KINDS] }
     }
 
+    #[allow(
+        clippy::indexing_slicing,
+        reason = "InteractionKind has exactly KINDS variants, so its discriminant is always in range"
+    )]
+    fn slot(&self, kind: InteractionKind) -> &AtomicU64 {
+        &self.last[kind as usize]
+    }
+
     fn stamp(&self, now: Instant) -> u64 {
         u64::try_from(now.saturating_duration_since(self.epoch).as_millis()).unwrap_or(u64::MAX - 1)
             + 1
@@ -96,12 +104,12 @@ impl InteractionState {
 
     /// The person did `kind` at `now`. Never moves a kind's time backwards.
     pub fn note(&self, kind: InteractionKind, now: Instant) {
-        self.last[kind as usize].fetch_max(self.stamp(now), Ordering::AcqRel);
+        self.slot(kind).fetch_max(self.stamp(now), Ordering::AcqRel);
     }
 
     /// Whether `kind` is active at `now`: noted within its decay.
     pub fn is_kind_active(&self, kind: InteractionKind, now: Instant) -> bool {
-        let last = self.last[kind as usize].load(Ordering::Acquire);
+        let last = self.slot(kind).load(Ordering::Acquire);
         if last == 0 {
             return false;
         }
