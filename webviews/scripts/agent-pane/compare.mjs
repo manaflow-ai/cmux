@@ -3,6 +3,7 @@
 //
 //   node scripts/agent-pane/compare.mjs [scenario ...] [--reference DIR] [--out DIR]
 //     [--theme NAME] [--anchor TEXT] [--open]
+//   node scripts/agent-pane/compare.mjs --gallery ENTRY VARIANT... --out DIR
 //
 // The pane runs from the dev server config (vite.config.acpmux-pane.mjs) with the
 // host bridge stubbed: `ready` answers mock, so the production client, reducer and
@@ -89,12 +90,55 @@ const option = (name) => {
   args.splice(index, 2);
   return value;
 };
+const outRoot = path.resolve(option("out") ?? path.join(os.tmpdir(), "cmux-agent-pane-compare"));
+const gallery = option("gallery");
+if (gallery) {
+  if (!args.length) throw new Error("Pass at least one gallery variant");
+  const server = await startDevServer("vite.config.gallery-dev.ts");
+  try {
+    const browser = await launchBrowser();
+    try {
+      fs.mkdirSync(outRoot, { recursive: true });
+      for (const variant of args) {
+        const page = await browser.newPage({ viewport: { width: 900, height: 560 }, colorScheme: "dark" });
+        const query = new URLSearchParams({
+          entry: gallery,
+          variant,
+          width: "wide",
+          colorScheme: "dark",
+          frame: "component",
+        });
+        await page.goto(new URL(`frame.html?${query}`, server.url).href, { waitUntil: "commit" });
+        await page.waitForFunction(
+          () => ["1", "error"].includes(document.documentElement.dataset.galleryReady),
+          undefined,
+          {
+            timeout: 180_000,
+          },
+        );
+        const failure = await page.evaluate(() => {
+          if (document.documentElement.dataset.galleryReady === "error") return document.body.innerText;
+          if (window.cmuxGalleryPlayReport?.status === "fail") return JSON.stringify(window.cmuxGalleryPlayReport);
+        });
+        if (failure) throw new Error(`${gallery}/${variant}: ${failure}`);
+        const file = path.join(outRoot, `${variant}.png`);
+        await page.screenshot({ path: file });
+        console.log(file);
+        await page.close();
+      }
+    } finally {
+      await browser.close();
+    }
+  } finally {
+    await server.close();
+  }
+  process.exit(0);
+}
 const referenceOption = option("reference") ?? process.env.CMUX_AGENT_PANE_REFERENCE;
 if (!referenceOption) {
   throw new Error("set --reference or CMUX_AGENT_PANE_REFERENCE to the reference prototype checkout");
 }
 const referenceRoot = path.resolve(referenceOption);
-const outRoot = path.resolve(option("out") ?? path.join(os.tmpdir(), "cmux-agent-pane-compare"));
 const themeName = option("theme");
 const themeFile = themeName && path.resolve(webviews, "../Resources/ghostty/themes", themeName);
 if (themeFile && !fs.existsSync(themeFile)) throw new Error(`no Ghostty theme ${themeFile}`);

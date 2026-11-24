@@ -350,6 +350,7 @@ export type PaneBodyDeps = NewTabShown &
     readOnlySubagent: boolean;
     /// The dock draws the composer and its quiet row (App.tsx `dockFoot`; bottomStack.css `data-foot`).
     dockFoot: boolean;
+    refusedChat: boolean;
     localCwd: string | undefined;
     remoteChat: boolean;
     runSplitAction: (id: string, cwd: string | undefined, mode: QuickActionMode) => void;
@@ -619,6 +620,7 @@ export function drawPaneBody({
   sessionInfo,
   readOnlySubagent,
   dockFoot,
+  refusedChat,
   localCwd,
   remoteChat,
   runSplitAction,
@@ -1550,7 +1552,7 @@ export function drawPaneBody({
                       cloudRecovery.refresh();
                       void directClient.current?.recheckMissing();
                     }}
-                    onResume={showAllChats}
+                    onResume={snapshot.openRefusal && snapshot.openRefusal !== "no_session" ? undefined : showAllChats}
                     onClose={() => runHeaderAction(HEADER_ACTIONS.close)}
                   />
                 ) : freshView && pastTurns && (!pastWaitsForTrust || trustAsk.ask) ? (
@@ -1612,28 +1614,30 @@ export function drawPaneBody({
                   />
                 )}
               </div>
-              <div
-                ref={setDock}
-                className="acpmux-dock"
-                style={parkStyle}
-                inert={parkedVisible || undefined}
-                // The stack holds the composer, whose card always draws its quiet row (ComposerFoot):
-                // bottomStack.css gives the transcript up first for it, from this, not from a
-                // `.acpmux-dock:has(.acpmux-composer-foot)` checked again for every inserted node.
-                data-foot={dockFoot ? "" : undefined}
-              >
-                {/* The pane's toasts stand on the stack's top edge, over the transcript (ToastLayer.tsx). */}
-                <ToastLayer queue={paneToasts} topHost={toastTop} />
-                {asks}
-                {hostLine}
-                {forkPendingLine}
-                <LiveTypingLine
-                  sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
-                  fallback={snapshot.presence}
-                />
-                {/* A draft a refusal put back stays in reach even once the tab's run shows. */}
-                {dockFoot && composer}
-              </div>
+              {!refusedChat && (
+                <div
+                  ref={setDock}
+                  className="acpmux-dock"
+                  style={parkStyle}
+                  inert={parkedVisible || undefined}
+                  // The stack holds the composer, whose card always draws its quiet row (ComposerFoot):
+                  // bottomStack.css gives the transcript up first for it, from this, not from a
+                  // `.acpmux-dock:has(.acpmux-composer-foot)` checked again for every inserted node.
+                  data-foot={dockFoot ? "" : undefined}
+                >
+                  {/* The pane's toasts stand on the stack's top edge, over the transcript (ToastLayer.tsx). */}
+                  <ToastLayer queue={paneToasts} topHost={toastTop} />
+                  {asks}
+                  {hostLine}
+                  {forkPendingLine}
+                  <LiveTypingLine
+                    sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
+                    fallback={snapshot.presence}
+                  />
+                  {/* A draft a refusal put back stays in reach even once the tab's run shows. */}
+                  {dockFoot && composer}
+                </div>
+              )}
             </Activity>
           )}
         </div>
