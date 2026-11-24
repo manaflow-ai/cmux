@@ -161,6 +161,17 @@ fn a_short_read_stops_without_panicking() {
     });
     assert!(page.interrupted);
     assert_eq!(page.matches.len(), 10);
+    // Nothing above the evicted rows: no cursor that would read nothing forever.
+    assert_eq!(page.next_before, None);
+}
+
+#[test]
+fn a_cursor_above_every_retained_row_ends_the_find() {
+    let m = matcher("needle", FindOptions::default());
+    // Every row above 15 was evicted since the last page.
+    let page = scan_page(&m, 15, u64::MAX, usize::MAX, 8, |_, _| Vec::new());
+    assert!(page.matches.is_empty());
+    assert_eq!(page.next_before, None);
 }
 
 #[test]
