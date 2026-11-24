@@ -5,7 +5,12 @@
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 // This process starts no agent.
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+// Only the opt-in browser acceptance test uses these build outputs and executable paths.
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny().keep(&[
+    "CMUX_HISTORY_BROWSER_BUN",
+    "CMUX_HISTORY_PACKED_PAGES",
+    "CMUX_CHROME_HEADLESS_SHELL",
+]);
 
 use acpmux::chats::ChatSources;
 use acpmux::config::{Config, StoreMode};
@@ -711,4 +716,44 @@ async fn terminal_agent_history_600mib_socket_benchmark() {
         p95.as_secs_f64() * 1000.
     );
     server.abort();
+}
+
+/// The production page and real socket stay in one Linux fleet job. Synthetic data only.
+#[cfg(target_os = "linux")]
+#[ignore = "requires the built page, headless Chrome and 600 MiB: webviews/scripts/terminal-history-acceptance.sh"]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn packed_history_visible_600mib() {
+    let bin = std::env::var_os("CMUX_HISTORY_BROWSER_BUN").expect("run the acceptance script");
+    let pages = std::env::var_os("CMUX_HISTORY_PACKED_PAGES").expect("packed page resources");
+    let home = daemon_env::Scratch::under(Path::new("/tmp"), "acpmux-history-browser", false);
+    let root = home.path().canonicalize().unwrap();
+    let cwd = Path::new("/work/api");
+    let directory = root.join(".claude/projects/-work-api");
+    std::fs::create_dir_all(&directory).unwrap();
+    let hub = hub_on(&root).await;
+    let stage = root.join("fixture.jsonl");
+    let newest = terminal_history_fixture::write_600mib(&stage, CLAUDE_ID, cwd);
+    assert_eq!(stage.metadata().unwrap().len(), terminal_history_fixture::BYTES);
+    std::fs::rename(stage, directory.join(format!("{CLAUDE_ID}.jsonl"))).unwrap();
+    let socket = root.join("history.sock");
+    let server = tokio::spawn(acpmux::server::serve_unix(
+        hub,
+        tokio::net::UnixListener::bind(&socket).unwrap(),
+    ));
+    let webviews = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../webviews");
+    let mut command = tokio::process::Command::new(bin);
+    command
+        .current_dir(webviews)
+        .arg("scripts/terminal-history-acceptance.mjs")
+        .arg(pages)
+        .arg(socket)
+        .arg(format!("claude-code:{CLAUDE_ID}"))
+        .arg(newest.to_string())
+        .kill_on_drop(true);
+    let status = tokio::time::timeout(Duration::from_secs(900), command.status())
+        .await
+        .expect("browser acceptance exceeded 15 minutes")
+        .expect("launch browser acceptance");
+    server.abort();
+    assert!(status.success(), "packed transcript browser acceptance exited {status}");
 }

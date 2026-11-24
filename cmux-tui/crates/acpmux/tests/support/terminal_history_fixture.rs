@@ -7,7 +7,8 @@ use std::path::Path;
 
 pub const BYTES: u64 = 600 * 1024 * 1024;
 
-pub fn write_600mib(path: &Path, session: &str, cwd: &Path) {
+/// Returns the number in the newest prompt so a browser can assert that exact text is visible.
+pub fn write_600mib(path: &Path, session: &str, cwd: &Path) -> usize {
     let mut out = BufWriter::new(std::fs::File::create(path).unwrap());
     let mut size = 0;
     let tool = json!({"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t","name":"Read","input":{"file_path":"fixture.log"}}]}}).to_string();
@@ -36,4 +37,5 @@ pub fn write_600mib(path: &Path, session: &str, cwd: &Path) {
         n += 1;
     }
     out.flush().unwrap();
+    n - 1
 }
