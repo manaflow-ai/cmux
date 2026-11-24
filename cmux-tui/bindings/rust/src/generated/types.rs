@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR edd365380654689985f3f1c18f1a98fa386f9d427f7cbc03b0b8a08a3aea0d6a.
+// cmux-tui mux protocol 12, IR 2125d4818d7baff2ad07081a0d24f9f08c6e3ac1b85d431671279a113df8e21a.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -1538,6 +1538,15 @@ pub struct ReadScrollbackResult {
 pub struct ReattachViewResult {
     pub participant: String,
     pub state: SizeState,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReleaseWorkspaceNamesResult {
+    /// Workspace names this call handed back to the automatic namer.
+    pub released: u64,
+    /// User-owned names left pinned: a row renamed between the read and its release.
+    pub still_pinned: u64,
 }
 
 #[rustfmt::skip]

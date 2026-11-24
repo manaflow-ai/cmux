@@ -509,6 +509,7 @@
       "read-scrollback",
       "reattach-view",
       "release-surface-size",
+      "release-workspace-names",
       "reload-config",
       "remote-terminal-snapshot",
       "remove-screens-from-screen-group",

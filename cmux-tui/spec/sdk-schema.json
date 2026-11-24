@@ -4249,6 +4249,30 @@
    },
    "additional_properties": false
   },
+  "ReleaseWorkspaceNamesResult": {
+   "kind": "object",
+   "fields": {
+    "released": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "Workspace names this call handed back to the automatic namer."
+    },
+    "still_pinned": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "User-owned names left pinned: a row renamed between the read and its release."
+    }
+   },
+   "additional_properties": false
+  },
   "TerminalPlacement": {
    "kind": "object",
    "fields": {
@@ -17326,6 +17350,24 @@
     "Provider-managed workspaces reject this ordinary mutation."
    ]
   },
+  "release-workspace-names": {
+   "authority": "control",
+   "since": 12,
+   "capability": null,
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "ReleaseWorkspaceNamesResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Idempotent: a second call releases nothing."
+   ]
+  },
   "resize-surface": {
    "authority": "control",
    "since": 5,
@@ -21768,6 +21810,16 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "stats": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "description": "true: the reply also carries agent_notice_stats."
      }
     },
     "additional_properties": false
