@@ -52,11 +52,6 @@ jobs:
       # per pool. 6 vCPU, not 12: same image, Xcode pin and workspace path, and the
       # cascade fills 12 vCPU first (a seed queued there held the old workflow group 85+
       # minutes, run 39351410275).
-      # blacksmith-root2 builds the same seed at the owned minis' second seed root
-      # (owned_spm_scratch.SECOND_SEED_WORKSPACE): SwiftPM's build records absolute paths, so a seed
-      # restores warm only at the path it was built at. Its job mirrors the checkout there
-      # ("Mirror the checkout to the pool's workspace"). vars.CI_FAST_TIER_SECOND_SEED_ROOT "0"
-      # drops it, as it drops the root on the minis.
       # No GitHub-hosted pool: the cascade no longer overflows to hosted macos-26, so
       # nothing restores a hosted seed (Leo, 2026-10-27: "THE GITHUB HOSTED MACS / ARE
       # THE SLOWEST THINGS"; tests/test_ci_no_github_hosted_macos.py). That pool's seeds
