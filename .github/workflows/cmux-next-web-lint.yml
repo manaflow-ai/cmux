@@ -73,7 +73,15 @@ jobs:
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       - name: Cache Bun package cache
+        if: ${{ (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-web-lint-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock', 'web/bun.lock', 'cmux-tui/frontends/web/bun.lock') }}
+
+      - name: Cache Bun package cache (restore only off base branches)
+        if: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
           key: bun-web-lint-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock', 'web/bun.lock', 'cmux-tui/frontends/web/bun.lock') }}
@@ -84,15 +92,20 @@ jobs:
         with:
           node-version: "24.22.1"
 
-      # The pinned lint tools cmux-next-fast-gates.yml restores on every pull request: saved once per lock here, in
-      # feat-cmux-next's scope, which every pull request reads. Pull requests only restore them, so without this save
-      # nothing would (fast gates never runs on a push). A hit skips the download and the save; a miss is a 25 s
-      # download of every Linux row of the lock (sha256 checked by prepush-gate.py's own ensure_tool).
-      - name: Cache the pinned lint tools
+      # The pinned lint tools cmux-next-fast-gates.yml restores on every pull request, from R2 only: saved once per
+      # lock here, on the feat-cmux-next push (fast gates never runs on a push). Not in the GitHub store: a copy there
+      # is 65 MB of its 10 GB cap, and Freestyle reads it at about 0.9 MB/s. A hit skips the download; a miss is a
+      # 25 s download of every Linux row of the lock (sha256 checked by prepush-gate.py's own ensure_tool).
+      - name: Restore the pinned lint tools from R2
         id: lint-tools
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        timeout-minutes: 2
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
         with:
+          backend: r2
           path: ~/.cache/cmux-lint-tools
           key: cmux-lint-tools-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/cmux-next/lint-tools.lock') }}
 
@@ -114,8 +127,7 @@ jobs:
               print(tool, gate.ensure_tool(lock, tool))
           PY
 
-      # cmux-next-fast-gates.yml restores the lint tools and the Bun cache from R2 first (GitHub's store answers
-      # Freestyle and some pool hosts at about 0.9 MB/s): saved here, on the feat-cmux-next push that already saves the GitHub copies.
+      # cache-save's r2 backend skips a key the bucket already holds, so a lock that did not change costs one HEAD.
       - name: Save the pinned lint tools to R2
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
         timeout-minutes: 2
