@@ -2439,7 +2439,9 @@ impl ChannelSender {
                     self.inner
                         .send_datagram_copies(crate::classes::screen_datagrams(self.id, seq, &data), copies);
                 }
-                None => self.inner.send_class_datagrams(crate::classes::datagrams(self.id, seq, &data, delivery)),
+                None => {
+                    self.inner.send_class_datagrams(crate::classes::datagrams(self.id, seq, &data, delivery))
+                }
             }
         }
         let mut rest = data;
