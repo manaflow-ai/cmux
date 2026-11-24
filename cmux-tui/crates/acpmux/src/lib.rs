@@ -112,6 +112,7 @@ pub mod github_broker;
 #[cfg(unix)]
 pub mod github_mcp;
 pub mod god_fixture;
+pub mod hypervisor;
 pub mod install_share;
 /// GitHub's MCP server needs the Cloud agent's unix socket (`github_mcp.rs`): elsewhere it is
 /// never offered, and the command says so.
