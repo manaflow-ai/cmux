@@ -7,9 +7,10 @@
 //! as the sender's own session when the sender proved one (its caller token, minted again), and
 //! sends the prompt there, so every rule of a direct send applies, and a peer's session is
 //! forwarded as usual (`peer_forward.rs`). An attempt ends on the target's acceptance (or its
-//! answer), on a refusal, or after [`ATTEMPT_WAIT`]. A connection error, a peer that is down
-//! and a slow target are tried again after [`RETRY_DELAYS_SECS`], with the same prompt id and
-//! `resend`, so a target that took the first attempt answers with it and never runs it twice. A
+//! answer), on a refusal, or after [`ATTEMPT_WAIT`] with nothing heard. A connection error, a
+//! peer that is down and a slow target are tried again after [`RETRY_DELAYS_SECS`], with the same
+//! prompt id and `resend`, so a target that took the first attempt answers with it and never runs
+//! it twice. A
 //! refusal (no such session, the folder's trust, a bad prompt, a full agent pair) fails the
 //! delivery at once, and a paused agent pair (`agent_pairs.rs`) leaves it `held` there: the
 //! person's resume runs it, so it is never sent again from here.
@@ -85,7 +86,10 @@ const MOVING_FAST_FOR: Duration = Duration::from_secs(120);
 /// (`movedTo` chains that point back) must not keep a message bouncing for its whole day.
 const MAX_MOVES_FOLLOWED: u32 = 16;
 
-/// How long one attempt waits for the target's acceptance.
+/// How long one attempt waits for the target's acceptance with nothing heard from it: each line
+/// the connection answers (a forward's progress, an update) starts it again, so an attempt that is
+/// moving is never cut off. Leo, 2026-11-24: "if it's making good progress, it shiukd be allowed
+/// to keep going?"
 const ATTEMPT_WAIT: Duration = Duration::from_secs(120);
 /// How often a delivery held behind another (`Delivery::waits_behind`) looks again when no
 /// outbox change woke it.
@@ -981,8 +985,8 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
 /// answers with its first outcome; one that lost it with its disk runs it now, once; a refused
 /// one fails it, saying why). All of them go on this link, in batches of [`REDELIVER_BATCH`],
 /// while it is up; the next link goes on after the last one reached, so none waits behind the
-/// others for good. One task per call; each resend waits at most [`ATTEMPT_WAIT`]. `since`: where
-/// each kept copy's open deliveries' proofs begin, as the link's restore read it (`Store::ahead`);
+/// others for good. One task per call; each resend waits [`ATTEMPT_WAIT`] of silence at most.
+/// `since`: where each kept copy's open deliveries' proofs begin, as the link's restore read it (`Store::ahead`);
 /// a proven delivery whose copy is not kept is sent again (`od::unproven`).
 pub(crate) fn redeliver_open(
     hub: &Arc<Hub>,
@@ -1352,18 +1356,18 @@ pub(super) async fn attempt_once(
             return Err(("this daemon's connection closed".into(), Next::Retry));
         }
     }
-    let deadline = tokio::time::sleep(ATTEMPT_WAIT);
-    tokio::pin!(deadline);
+    let mut quiet = cmux_deadline::IdleDeadline::<tokio::time::Instant>::new(ATTEMPT_WAIT, None);
     loop {
         let line = tokio::select! {
             line = out_rx.recv() => line,
-            () = &mut deadline => {
+            () = tokio::time::sleep_until(quiet.end()) => {
                 return Err((
-                    format!("no answer within {} s", ATTEMPT_WAIT.as_secs()),
+                    format!("nothing heard for {} s", ATTEMPT_WAIT.as_secs()),
                     Next::Retry,
                 ));
             }
         };
+        quiet.progressed();
         let Some(line) = line else {
             return Err(("this daemon's connection closed".into(), Next::Retry));
         };

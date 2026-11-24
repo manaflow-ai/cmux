@@ -177,6 +177,9 @@ thiserror = "2"
 tokio = { version = "1.52", features = ["rt-multi-thread", "macros", "process", "io-util", "io-std", "net", "sync", "time", "fs", "signal"] }
 tokio-tungstenite.workspace = true
 cmux-process.workspace = true
+# Progress-based deadlines: an attempt or a wait ends on silence since its last progress, never on
+# a wall clock while it is moving (`server/outbox.rs`, `hub/file_uploads/window.rs`).
+cmux-deadline = { workspace = true, features = ["tokio"] }
 cmux-scope.workspace = true
 # Compressed frames for large messages on a WebSocket (src/frame_compress.rs).
 flate2.workspace = true
