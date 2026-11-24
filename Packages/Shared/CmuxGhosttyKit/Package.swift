@@ -210,6 +210,15 @@ import PackageDescription
 // libghostty-vt C API takes upstream's 1.0 ABI (cmux-tui's ghostty-vt
 // binding moves with it in the same pin change).
 //
+// Since b37a94dfe..a84a1c7e4 (release/cmux-gi-land-1-cell-guard, fork PR
+// #93): two config keys, background-cells-opacity (an alpha for every
+// explicit cell background) and background-cells-neutral-fade (a near-grey
+// explicit background fades to clear by its Oklab lightness distance from the
+// theme background). Both unset = the old rule. No C API change.
+//
+// Since 2bd5d2503 and a84a1c7e4..5c01c7171 (release/cmux-vt-1.0.1-cell-bg): a
+// --no-ff merge of the two lines above, both changes in one pin.
+//
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
 // a7c40619a or 3e9dfca98 (apple-v6 without the lib prefix on the macOS
@@ -233,8 +242,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-2bd5d2503393243a2cf64b1cb21987f09d583477-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "b64cc7724131cfbd67f7678d4bde6b07d13cf9ddc3ef930cb3da0cd819efa546"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-5c01c7171dc2c00d486f231adda7fb5bf6e55c97-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "ead90aeb4d72cc0ac19226ff8ebaf6b0c70862b274d063d4f263ab10f99c686c"
         ),
     ]
 )

@@ -706,14 +706,24 @@ fn fill_cell(cells: sys::GhosttyRenderStateRowCells, cell: &mut Cell, grapheme_b
     if grapheme_len > 0 {
         grapheme_buf.clear();
         grapheme_buf.resize(grapheme_len as usize, 0);
+        // The 1.0 ABI takes a GhosttyCodepointBuffer {ptr, cap, len} for this
+        // kind, not a bare uint32_t array: handing it the array made the
+        // library read codepoints as the destination pointer (SIGSEGV, or
+        // blank cells when the write landed somewhere harmless).
+        let mut out = sys::GhosttyCodepointBuffer {
+            ptr: grapheme_buf.as_mut_ptr(),
+            cap: grapheme_buf.len(),
+            len: 0,
+        };
         let result = unsafe {
             sys::ghostty_render_state_row_cells_get(
                 cells,
                 sys::GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_BUF,
-                grapheme_buf.as_mut_ptr() as *mut c_void,
+                &mut out as *mut _ as *mut c_void,
             )
         };
         if result == sys::GHOSTTY_SUCCESS {
+            grapheme_buf.truncate(out.len.min(grapheme_buf.len()));
             for &cp in grapheme_buf.iter() {
                 cell.text.push(char::from_u32(cp).unwrap_or('\u{FFFD}'));
             }
