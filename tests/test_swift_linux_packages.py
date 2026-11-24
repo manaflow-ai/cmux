@@ -77,7 +77,7 @@ def check_rows(failures: list[str]) -> None:
 def check_workflow(failures: list[str]) -> None:
     wf = WORKFLOW.read_text()
     for needed in ("shell: bash", "scripts/ci/swift-linux-packages.txt", "bash scripts/ci/package-test-lane.sh suite \"$dir\" \"$targets\"",
-                   "container: public.ecr.aws/docker/library/swift:6.2-noble@sha256:", "'cmux-linux'"):
+                   "image: public.ecr.aws/docker/library/swift:6.2-noble@sha256:", "/var/lib/cmux-git:/var/lib/cmux-git:ro", "'cmux-linux'"):
         if needed not in wf:
             failures.append(f"{WORKFLOW.name} lacks {needed!r}: it must run every listed package through the lane on Linux")
     # Pushes start it from its own trigger; feat-cmux-next pull requests through pr-router.yml, whose
