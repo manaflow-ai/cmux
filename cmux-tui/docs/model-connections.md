@@ -320,9 +320,12 @@ Connections (all held on the Mac: acpmux routes + Keychain references):
   when the CLI provides only the manual link. Claude Code manages its login
   and runs `claude auth logout` when the person signs out. An API key in Claude
   Code's settings takes precedence over the Claude plan.
-- **Legacy Claude rows**: an existing `claude-token` appears with “Sign in
-  again with Claude.” New chats use the machine's own sign-in or a configured
-  API route. A chat already running on a legacy token can finish its turn.
+- **Claude setup tokens**: `cmux cloud connect claude` captures the output of
+  `claude setup-token` into the Mac's Keychain and registers a `claude-token`
+  connection with acpmux. The add request takes `secret` as a `keychain:`, `env:`,
+  or absolute `file:` reference and an optional `label`. Models shows these rows
+  with “Sign in again with Claude” and starts new chats using the machine's sign-in
+  or a configured API route.
   After successful Claude Code sign-in, cmux removes the migrated route and
   its Keychain item and restarts affected harnesses between turns. Cancelled
   and expired attempts leave the legacy connection in place.
@@ -332,6 +335,7 @@ Connections (all held on the Mac: acpmux routes + Keychain references):
 
 Delivery (`_acpmux/connections/credential {id}` -> `{ "family", "kind", "env": {NAME: value},
 "expires_at": unix|null }`, local unix socket only, never logged):
+- Claude setup token -> `ANTHROPIC_AUTH_TOKEN` (for the owner's Cloud machine).
 - Anthropic key -> `ANTHROPIC_API_KEY`;
   openai key -> `OPENAI_API_KEY`; chatgpt-plan -> `CMUX_CHATGPT_ACCESS_TOKEN` (fresh, >= 10 min left).
 - At Cloud chat start the app picks the connection (picker's account if it serves Cloud, else the

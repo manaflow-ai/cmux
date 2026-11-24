@@ -410,7 +410,7 @@ impl Hub {
         // (`agent_credentials.rs`). Its names only are logged, never a value.
         let direct = if let Some(c) = credential {
             let family = crate::config::derive_family(&meta.harness, &p);
-            if (c.has_anthropic_endpoint() || c.uses_anthropic_key())
+            if (c.has_anthropic_endpoint() || c.uses_direct_anthropic_credential())
                 && family == "claude"
                 && crate::claude_cloud_auth::managed_provider_override(&self.vm_marker_root())
             {

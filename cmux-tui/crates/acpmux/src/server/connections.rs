@@ -53,6 +53,7 @@ pub(super) const METHODS: &[&str] = &[
     method::MUX_CONNECTIONS_SUBSCRIPTION_CANCEL,
     method::MUX_CONNECTIONS_CHATGPT_TOKEN,
     method::MUX_CONNECTIONS_CHATGPT_IMPORT,
+    method::MUX_CONNECTIONS_CLAUDE_TOKEN_ADD,
     method::MUX_CONNECTIONS_CREDENTIAL,
 ];
 
@@ -307,11 +308,10 @@ struct Facts {
 }
 
 /// Whether a connection can serve a Cloud chat (Revision 2: its credential goes to the
-/// machine's agent): a ChatGPT plan, an Anthropic or OpenAI key. The Mac's
-/// CLI logins and added subscription accounts serve local chats only.
+/// machine's agent). CLI logins and added local accounts serve local chats only.
 pub(super) fn serves_cloud(kind: &str, provider: &str) -> bool {
     match kind {
-        "chatgpt-plan" | "grok-plan" | "copilot-plan" | "kimi-plan" => true,
+        "chatgpt-plan" | "claude-token" | "grok-plan" | "copilot-plan" | "kimi-plan" => true,
         "api-key" => matches!(
             provider,
             "anthropic" | "openai" | "openrouter" | "google" | "vertex-express" | "xai"
@@ -893,6 +893,7 @@ pub(super) fn credential_plan(
         .cloned()
         .unwrap_or_default();
     let var = match (found.kind, found.provider.as_str()) {
+        ("claude-token", _) => byo_endpoint::ANTHROPIC_KEY_ENV,
         ("api-key", "google") => "GEMINI_API_KEY",
         ("api-key", "vertex-express") => "GOOGLE_API_KEY",
         ("api-key", "xai") => "XAI_API_KEY",
@@ -1535,6 +1536,18 @@ pub(super) async fn handle(
             let status = hub.chatgpt.cancel(&attempt).await.map_err(failure)?;
             Ok(json!({"attempt": attempt, "status": status.as_str()}))
         }
+        method::MUX_CONNECTIONS_CLAUDE_TOKEN_ADD => {
+            let secret = need("secret")?;
+            let label = text("label").map(str::to_owned);
+            let state = blocking(move || {
+                routes::add_claude_token(dir.as_deref(), &secret, label.as_deref())
+                    .map_err(|e| route_error(&e))?;
+                Ok::<_, RpcError>(state(dir.as_deref(), &home, &sources))
+            })
+            .await??;
+            announce_later(hub);
+            Ok(state)
+        }
         method::MUX_CONNECTIONS_CREDENTIAL => {
             let id = need("id")?;
             let (d, i) = (dir.clone(), id.clone());
@@ -1962,7 +1975,7 @@ mod tests {
     }
 
     #[test]
-    fn saved_claude_token_route_is_listed_only_for_migration() {
+    fn saved_claude_token_route_can_serve_cloud_and_can_be_removed() {
         let d = dirs();
         let dir = Some(d.routes.as_path());
         let id = "claude-token";
@@ -1980,16 +1993,22 @@ mod tests {
         .unwrap();
 
         let settings = state(dir, &d.home, &ProfileSources::none());
-        assert_eq!(find(&settings, id)["can_serve_cloud"], false);
+        assert_eq!(find(&settings, id)["can_serve_cloud"], true);
         let route = routes::find(dir, id).unwrap();
         assert_eq!(
             routes::env_for(&route, "claude", &d.home).unwrap(),
             routes::RouteEnv::default()
         );
-        let error = credential_plan(dir, &d.home, id).unwrap_err();
-        assert_eq!(error.data.unwrap()["reason"], "connections.not_cloud");
+        let (family, kind, var, reference) = credential_plan(dir, &d.home, id).unwrap();
+        assert_eq!(
+            (family.as_str(), kind, var),
+            ("claude", "claude-token", "ANTHROPIC_AUTH_TOKEN")
+        );
+        assert_eq!(reference.as_deref(), route.file.secret.as_deref());
         accounts::set_for_test(dir, &d.home, id, Some(false)).unwrap();
         assert!(routes::find(dir, id).unwrap().file.disabled);
+        let error = credential_plan(dir, &d.home, id).unwrap_err();
+        assert_eq!(error.data.unwrap()["reason"], "connections.disabled");
         routes::remove(dir, &d.home, id).unwrap();
         assert!(!path.exists());
     }
@@ -2191,7 +2210,7 @@ mod tests {
     fn which_connections_serve_cloud() {
         for (kind, provider, cloud) in [
             ("chatgpt-plan", "openai", true),
-            ("claude-token", "anthropic", false),
+            ("claude-token", "anthropic", true),
             ("api-key", "anthropic", true),
             ("api-key", "openai", true),
             ("api-key", "openrouter", true),
@@ -2207,6 +2226,44 @@ mod tests {
         let s = state(Some(&d.routes), &d.home, &ProfileSources::none());
         assert_eq!(find(&s, "codex-login")["serves_cloud"], false);
         assert_eq!(find(&s, "claude-login")["serves_cloud"], false);
+    }
+
+    #[test]
+    fn a_claude_token_is_added_as_a_reference_and_delivered_as_anthropic_auth() {
+        let d = dirs();
+        let dir = Some(d.routes.as_path());
+        let token = "sk-ant-oat01-fixture";
+        let inline = routes::add_claude_token(dir, token, None).unwrap_err();
+        assert_eq!(route_error(&inline).data.unwrap()["reason"], "route.secret_inline");
+        let reference = secret_file(&d, "claude-token", token);
+        let route = routes::add_claude_token(dir, &reference, None).unwrap();
+        assert_eq!(route.id, "claude-token");
+        let saved = std::fs::read_to_string(&route.path).unwrap();
+        assert!(saved.contains(&reference));
+        assert!(!saved.contains(token));
+        let settings = state(dir, &d.home, &ProfileSources::none());
+        let connection = find(&settings, &route.id);
+        assert_eq!(connection["kind"], "claude-token");
+        assert_eq!(connection["provider"], "anthropic");
+        assert_eq!(connection["families"], json!(["claude"]));
+        assert_eq!(connection["label"], "Claude Code token");
+        assert_eq!(connection["signed_in"], true);
+        assert_eq!(connection["serves_cloud"], true);
+        assert!(!settings.to_string().contains(token));
+
+        let (family, kind, var, secret) = credential_plan(dir, &d.home, &route.id).unwrap();
+        assert_eq!(
+            (family.as_str(), kind, var),
+            ("claude", "claude-token", "ANTHROPIC_AUTH_TOKEN")
+        );
+        assert_eq!(secret.as_deref(), Some(reference.as_str()));
+        assert_eq!(resolve(&route.id, &secret.unwrap()).unwrap(), token);
+
+        let second =
+            routes::add_claude_token(dir, "env:CMUX_TEST_CLAUDE_TOKEN", Some(" Work ")).unwrap();
+        assert_eq!(second.id, "claude-token-2");
+        let settings = state(dir, &d.home, &ProfileSources::none());
+        assert_eq!(find(&settings, &second.id)["label"], "Work");
     }
 
     #[test]

@@ -150,6 +150,19 @@ fn the_owners_start_and_reattach_use_the_named_connection() {
 }
 
 #[test]
+fn the_owners_start_relays_a_claude_setup_token_to_acpmux() {
+    let mut chat = connect("cred-claude-token", AgentStartHost::OwnerCloud, false);
+    let token = "sk-ant-oat01-fixture";
+    let credential = json!({"env": {"ANTHROPIC_AUTH_TOKEN": token}, "connection": "claude-token"});
+    let started = chat.start(credential.clone(), json!("owner"));
+    assert_eq!(started["ok"], true);
+    assert!(!started.to_string().contains(token));
+    let sent = chat.sent("session/new");
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0]["params"]["_meta"]["acpmux"]["credentials"], credential);
+}
+
+#[test]
 fn a_legacy_claude_token_cannot_be_delivered_to_a_new_chat() {
     let mut chat = connect("cred-legacy-claude", AgentStartHost::OwnerCloud, false);
     let legacy = json!({"env": {"CLAUDE_CODE_OAUTH_TOKEN": "fixture"}});
@@ -161,6 +174,7 @@ fn a_legacy_claude_token_cannot_be_delivered_to_a_new_chat() {
 fn a_malformed_credential_is_a_bad_request() {
     for credentials in [
         json!({"env": {"PATH": "/evil"}}),
+        json!({"env": {"ANTHROPIC_AUTH_TOKEN": "endpoint-only"}}),
         json!({"env": {"CMUX_BYO_API_KEY": "fixture"}}),
         json!({"env": {"CMUX_BYO_API_KEY": "fixture"}, "endpoint": {
             "kind": "anthropic", "baseUrl": "https://provider.example/v1", "models": ["m"]

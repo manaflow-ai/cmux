@@ -259,7 +259,9 @@ impl AgentCredential {
             Some(endpoint)
         } else {
             if out.contains_key(byo_endpoint::OPENAI_KEY_ENV)
-                || out.contains_key(byo_endpoint::ANTHROPIC_KEY_ENV)
+                || out
+                    .get(byo_endpoint::ANTHROPIC_KEY_ENV)
+                    .is_some_and(|token| !token.starts_with("sk-ant-oat"))
             {
                 return Err(refused("endpoint metadata is required for this name"));
             }
@@ -297,7 +299,7 @@ impl AgentCredential {
     /// only be recovered from an existing process during migration.
     pub(crate) fn parse_delivery(value: &Value) -> Result<Self, RpcError> {
         let credential = Self::parse(value)?;
-        if credential.has_legacy_claude_token() {
+        if credential.env.contains_key(CLAUDE_OAUTH) {
             return Err(RpcError::invalid_params(
                 "credentials: sign in with Claude Code on this machine",
             )
@@ -326,8 +328,12 @@ impl AgentCredential {
         }
     }
 
-    pub(crate) fn has_legacy_claude_token(&self) -> bool {
-        self.env.contains_key(CLAUDE_OAUTH)
+    pub(crate) fn uses_claude_subscription_token(&self) -> bool {
+        self.env.contains_key(CLAUDE_OAUTH) || self.uses_claude_setup_token()
+    }
+
+    fn uses_claude_setup_token(&self) -> bool {
+        self.endpoint.is_none() && self.env.contains_key(byo_endpoint::ANTHROPIC_KEY_ENV)
     }
 
     pub(crate) fn key_provider(&self) -> Option<&'static str> {
@@ -343,8 +349,8 @@ impl AgentCredential {
         })
     }
 
-    pub(crate) fn uses_anthropic_key(&self) -> bool {
-        self.env.contains_key(ANTHROPIC_KEY)
+    pub(crate) fn uses_direct_anthropic_credential(&self) -> bool {
+        self.env.contains_key(ANTHROPIC_KEY) || self.uses_claude_setup_token()
     }
 
     pub(crate) fn has_anthropic_endpoint(&self) -> bool {
@@ -464,6 +470,11 @@ pub fn apply(
         if env.get(crate::agent::REMOTE_ENV_POLICY_KEY).map(String::as_str) != Some("1") {
             crate::claude_cloud_auth::isolate_api_key_settings(argv);
         }
+    }
+    if credential.uses_claude_setup_token() {
+        env.insert("ANTHROPIC_BASE_URL".into(), "https://api.anthropic.com".into());
+        env.insert(ANTHROPIC_KEY.to_owned(), String::new());
+        crate::claude_cloud_auth::isolate_endpoint_settings(argv);
     }
     if harness == Family::Gemini {
         env.extend(
@@ -873,6 +884,26 @@ mod tests {
             assert!(unset.contains(&key), "{key} is removed from what the agent inherits");
         }
         assert_eq!(argv, ["claude"], "Claude needs only its env");
+    }
+
+    #[test]
+    fn a_delivered_setup_token_uses_anthropic_and_drops_competing_settings() {
+        let name = byo_endpoint::ANTHROPIC_KEY_ENV;
+        assert!(AgentCredential::parse_delivery(&json!({"env": {name: "endpoint-only"}})).is_err());
+        let token = "sk-ant-oat01-fixture";
+        let credential = AgentCredential::parse_delivery(&json!({"env": {name: token}})).unwrap();
+        let mut argv = vec![
+            "claude".to_owned(),
+            "--settings".to_owned(),
+            "untrusted-settings.json".to_owned(),
+        ];
+        let mut env = env(&[("ANTHROPIC_BASE_URL", "https://coderouter.example")]);
+        assert!(apply(&credential, "claude", &mut argv, &mut env));
+        assert_eq!(argv, ["claude", "--setting-sources", ""]);
+        assert_eq!(env["ANTHROPIC_BASE_URL"], "https://api.anthropic.com");
+        assert_eq!(env[name], token);
+        assert_eq!(env[ANTHROPIC_KEY], "");
+        assert_eq!(env[MARKER], name);
     }
 
     #[test]

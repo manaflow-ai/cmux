@@ -57,7 +57,7 @@ impl Hub {
     pub(crate) async fn retire_claude_credential(&self, session: &Session) {
         let _spawn = session.spawn_lock.lock().await;
         let mut held = session.credential.lock().unwrap_or_else(|e| e.into_inner());
-        if held.as_ref().is_some_and(AgentCredential::has_legacy_claude_token) {
+        if held.as_ref().is_some_and(AgentCredential::uses_claude_subscription_token) {
             *held = None;
         }
     }

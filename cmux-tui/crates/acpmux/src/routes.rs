@@ -159,7 +159,7 @@ pub enum RouteKind {
     /// and refreshes in `<acpmux home>/chatgpt/<id>.json`.
     ChatgptPlan,
     /// Claude Code's long-lived token from `claude setup-token`, as a secret reference
-    /// Legacy route kept until the person signs in with Claude Code.
+    /// Added by `_acpmux/connections/claude_token.add` for Cloud credential delivery.
     ClaudeToken,
     /// xAI device sign-in managed by acpmux.
     GrokPlan,
@@ -565,8 +565,7 @@ fn valid_url(url: &str) -> bool {
 pub fn validate(file: &RouteFile) -> Result<(), RouteError> {
     if file.kind == RouteKind::ClaudeToken {
         return Err(RouteError::BadParams(
-            "claude-token routes are no longer supported. Sign in with Claude Code in Settings > Models."
-                .into(),
+            "add Claude token connections with `cmux cloud connect claude`".into(),
         ));
     }
     validate_contents(file)
@@ -662,9 +661,9 @@ fn validate_contents(file: &RouteFile) -> Result<(), RouteError> {
     crate::route_account::validate(file)
 }
 
-fn is_legacy_claude_token(id: &str, file: &RouteFile) -> bool {
-    // Older releases wrote this shape. Keep these rows visible for removal
-    // after Claude Code sign-in. env_for_on never resolves their secret.
+const CLAUDE_TOKEN_NOTES: &str = "claude setup-token: served to Cloud machines' Claude agents";
+
+fn is_managed_claude_token(id: &str, file: &RouteFile) -> bool {
     file.kind == RouteKind::ClaudeToken
         && (id == "claude-token"
             || id
@@ -675,13 +674,8 @@ fn is_legacy_claude_token(id: &str, file: &RouteFile) -> bool {
                 }))
         && file.provider.as_deref() == Some("anthropic")
         && file.families.as_slice() == ["claude"]
-        && file.notes.as_deref()
-            == Some("claude setup-token: served to Cloud machines' Claude agents")
-        && file.secret.as_deref().is_some_and(|secret| {
-            secret.strip_prefix("keychain:cmux-model-key/claude-token-").is_some_and(|account| {
-                account.len() == 8 && account.bytes().all(|byte| byte.is_ascii_hexdigit())
-            })
-        })
+        && file.notes.as_deref() == Some(CLAUDE_TOKEN_NOTES)
+        && file.secret.is_some()
         && file.auth.is_none()
         && file.headers.is_empty()
         && file.anthropic_base_url.is_none()
@@ -712,7 +706,7 @@ pub fn load(dir: Option<&Path>) -> (Vec<Route>, Vec<String>) {
             .map_err(|e| e.to_string())
             .and_then(|t| toml::from_str::<RouteFile>(&t).map_err(|e| e.to_string()))
             .and_then(|f| {
-                let result = if is_legacy_claude_token(&id, &f) {
+                let result = if is_managed_claude_token(&id, &f) {
                     validate_contents(&f)
                 } else {
                     validate(&f)
@@ -841,13 +835,49 @@ pub(crate) fn edit<R>(
 ) -> Result<(Route, R), RouteError> {
     let _guard = lock_route_files(dir)?;
     let mut file = find(dir, id)?.file;
-    let legacy_secret = file.secret.clone().filter(|_| is_legacy_claude_token(id, &file));
+    let token_ref = file.secret.clone().filter(|_| is_managed_claude_token(id, &file));
     let result = change(&mut file)?;
-    let keep_legacy = legacy_secret.is_some()
-        && legacy_secret == file.secret
-        && is_legacy_claude_token(id, &file);
-    let route = write_route(dir, id, &file, true, keep_legacy)?;
+    let keep_token =
+        token_ref.is_some() && token_ref == file.secret && is_managed_claude_token(id, &file);
+    let route = write_route(dir, id, &file, true, keep_token)?;
     Ok((route, result))
+}
+
+/// Allocate and write the next Claude token route under the same lock.
+pub(crate) fn add_claude_token(
+    dir: Option<&Path>,
+    secret: &str,
+    label: Option<&str>,
+) -> Result<Route, RouteError> {
+    let _guard = lock_route_files(dir)?;
+    let dir = dir.ok_or_else(|| RouteError::Failed("no cmux config folder".into()))?;
+    let file = RouteFile {
+        name: Some(
+            label.map(str::trim).filter(|l| !l.is_empty()).unwrap_or("Claude Code token").into(),
+        ),
+        kind: RouteKind::ClaudeToken,
+        families: vec!["claude".into()],
+        anthropic_base_url: None,
+        openai_base_url: None,
+        auth: None,
+        secret: Some(secret.into()),
+        claude_token_expires_at: None,
+        cloud_enabled: None,
+        headers: Default::default(),
+        health_url: None,
+        fallback: vec![],
+        auto_fallback: false,
+        notes: Some(CLAUDE_TOKEN_NOTES.into()),
+        account_home: None,
+        shadow_of: None,
+        disabled: false,
+        provider: Some("anthropic".into()),
+    };
+    let id = std::iter::once("claude-token".to_owned())
+        .chain((2..1000).map(|n| format!("claude-token-{n}")))
+        .find(|id| !dir.join(format!("{id}.toml")).exists())
+        .ok_or_else(|| RouteError::BadParams("too many Claude tokens".into()))?;
+    write_route(Some(dir), &id, &file, false, true)
 }
 
 /// Write a new route (`replace`: over an existing one).
@@ -876,14 +906,14 @@ fn write_route(
     id: &str,
     file: &RouteFile,
     replace: bool,
-    keep_legacy: bool,
+    managed_claude_token: bool,
 ) -> Result<Route, RouteError> {
     if !valid_id(id) {
         return Err(RouteError::BadParams(format!(
             "{id:?} is not a route id (lowercase letters, digits and -)"
         )));
     }
-    if keep_legacy {
+    if managed_claude_token {
         validate_contents(file)?;
     } else {
         validate(file)?;
@@ -1268,7 +1298,7 @@ pub fn env_for_on(
         unset: SCRUBBED.iter().map(|k| (*k).to_owned()).collect(),
     };
     if route.file.kind == RouteKind::ClaudeToken {
-        // Existing bindings can use the machine's own login during migration.
+        // Local bindings use the machine's own login. Cloud resolves the reference separately.
         return Ok(RouteEnv::default());
     }
     if matches!(
@@ -1428,7 +1458,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn retired_claude_token_routes_are_refused() {
+    fn generic_route_creation_refuses_unmanaged_claude_tokens() {
         let dir = tempfile::tempdir().unwrap();
         let error = file_from_json(&json!({
             "kind": "claude-token",
@@ -1436,7 +1466,7 @@ mod tests {
             "secret": "keychain:fixture",
         }))
         .unwrap_err();
-        assert!(error.to_string().contains("Sign in with Claude Code in Settings > Models."));
+        assert!(error.to_string().contains("cmux cloud connect claude"));
 
         std::fs::write(
             dir.path().join("claude-token.toml"),
@@ -1446,7 +1476,7 @@ mod tests {
         let (routes, problems) = load(Some(dir.path()));
         assert!(routes.is_empty());
         assert_eq!(problems.len(), 1);
-        assert!(problems[0].contains("Sign in with Claude Code in Settings > Models."));
+        assert!(problems[0].contains("cmux cloud connect claude"));
     }
 
     #[test]

@@ -190,6 +190,7 @@ impl StartCredentials {
                 let known = match &self.endpoint {
                     None => {
                         CREDENTIAL_NAMES.contains(&name.as_str())
+                            || (name == "ANTHROPIC_AUTH_TOKEN" && value.starts_with("sk-ant-oat"))
                             || matches!(
                                 name.as_str(),
                                 "GEMINI_API_KEY" | "GOOGLE_API_KEY" | "XAI_API_KEY"

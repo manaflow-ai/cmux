@@ -1985,11 +1985,7 @@ impl Hub {
                         .lock()
                         .unwrap_or_else(|error| error.into_inner())
                         .as_ref()
-                        .is_some_and(|credential| {
-                            credential
-                                .names()
-                                .any(|name| name == crate::agent_credentials::CLAUDE_OAUTH)
-                        })
+                        .is_some_and(crate::agent_credentials::AgentCredential::uses_claude_subscription_token)
             });
         // On a Cloud machine, the card's third way in: cmux's gateway, when the image says the
         // machine's team has an account for Claude there (`agent_login::Machine::gateway_access`).

@@ -11,7 +11,10 @@ const KEY: &str = "5e1f0c2a9b8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3
 const SESSION: &str = "token-reader";
 
 fn hub() -> Arc<Hub> {
-    let mut config = Config::default();
+    hub_with_config(Config::default())
+}
+
+fn hub_with_config(mut config: Config) -> Arc<Hub> {
     config.store.mode = StoreMode::Memory;
     let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
     let meta = serde_json::from_value(json!({
@@ -110,6 +113,49 @@ async fn only_the_person_reads_a_connection_token() {
             "{m}: {reply}"
         );
     }
+}
+
+#[tokio::test]
+async fn claude_token_add_registers_a_reference_whose_value_only_the_person_reads() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("setup-token");
+    let token = "sk-ant-oat01-fixture";
+    std::fs::write(&path, token).unwrap();
+    crate::router_socket::owner_only(&path);
+    let mut config = Config::default();
+    config.path = Some(dir.path().join("config.json"));
+    config.profile_sources = crate::config::ProfileSources::none();
+    config.profile_sources.cmux_json = Some(dir.path().join("cmux.json"));
+    let hub = hub_with_config(config);
+    let mut cli = Rpc::connect(&hub, &Who::Bare).await;
+    let rejected =
+        cli.call(method::MUX_CONNECTIONS_CLAUDE_TOKEN_ADD, json!({"secret": token})).await;
+    assert_eq!(rejected["error"]["data"]["reason"], "route.secret_inline");
+    let added = cli
+        .call(
+            method::MUX_CONNECTIONS_CLAUDE_TOKEN_ADD,
+            json!({
+                "secret": format!("file:{}", path.display()), "label": "Work",
+            }),
+        )
+        .await;
+    let row = added["result"]["connections"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["id"] == "claude-token")
+        .unwrap();
+    assert_eq!(row["label"], "Work");
+    assert_eq!(row["serves_cloud"], true);
+    assert!(!added.to_string().contains(token));
+
+    let request = json!({"id": "claude-token"});
+    let rejected = cli.call(method::MUX_CONNECTIONS_CREDENTIAL, request.clone()).await;
+    assert_eq!(rejected["error"]["data"]["reason"], crate::hub::person::REASON);
+    let mut person = Rpc::connect(&hub, &Who::Person).await;
+    let credential = person.call(method::MUX_CONNECTIONS_CREDENTIAL, request).await;
+    assert_eq!(credential["result"]["kind"], "claude-token");
+    assert_eq!(credential["result"]["env"], json!({"ANTHROPIC_AUTH_TOKEN": token}));
 }
 
 #[tokio::test]

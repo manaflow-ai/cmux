@@ -2405,6 +2405,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/connections/claude_token.add",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/connections/subscription.begin",
       "params": true,
       "result": true

@@ -1,11 +1,12 @@
-//! `cmux cloud connect api-key|chatgpt` and `cmux cloud connections`: add the model
+//! `cmux cloud connect claude|api-key|chatgpt` and `cmux cloud connections`: add the model
 //! connection a Cloud session runs on, from a terminal or an agent, the way Settings > Models does.
 //!
 //! A secret goes into the login Keychain first (service `cmux-model-key`, account
-//! `<provider>-<8 hex>`, the items the app's own flow writes), and
+//! `claude-token-<8 hex>` or `<provider>-<8 hex>`, the items the app's own flow writes), and
 //! acpmux's `_acpmux/connections/*.add` gets only its reference, `keychain:cmux-model-key/ACCOUNT`.
 //! A refused add takes the item back out. The secret is never in argv, never printed and never
-//! logged. `api-key` reads the key from a no-echo prompt or stdin. ChatGPT
+//! logged: `claude` captures the `sk-ant-oat` token `claude setup-token` prints straight out of its
+//! terminal (a pty, [`capture`]), `api-key` reads the key from a no-echo prompt or stdin. ChatGPT
 //! signs in in the browser (`chatgpt.begin`, then `chatgpt.wait` until done, `chatgpt.cancel` on
 //! Ctrl-C or the timeout). Contract: `docs/model-connections.md`.
 
@@ -20,8 +21,13 @@ use zeroize::Zeroizing;
 
 use super::{OutputMode, UsageError};
 
+#[path = "cloud_connect/capture.rs"]
+pub(super) mod capture;
+
 /// The Keychain service of every model key and token (`SettingsModelsLive.service` in the app).
 pub(super) const SERVICE: &str = "cmux-model-key";
+/// What `claude setup-token` prints (`claudeTokenPrefix` in the app).
+pub(super) const TOKEN_PREFIX: &str = "sk-ant-oat";
 /// The longest key or token (`keyLimit` in the app).
 const KEY_LIMIT: usize = 16_384;
 /// The providers `api-key` adds.
@@ -29,9 +35,13 @@ pub(super) const KEY_PROVIDERS: &[&str] = &["anthropic", "openai"];
 /// How long `chatgpt` waits for the browser sign-in by default.
 const CHATGPT_TIMEOUT: Duration = Duration::from_secs(600);
 
-const USAGE: &str = "usage: cmux cloud connect api-key --provider anthropic|openai [--label L] | cmux cloud connect chatgpt [--id ID] [--no-wait] [--timeout SECONDS] | cmux cloud connect chatgpt --wait ATTEMPT [--timeout SECONDS] | cmux cloud connect chatgpt --cancel ATTEMPT | cmux cloud connections";
+const USAGE: &str = "usage: cmux cloud connect claude [--label L] | cmux cloud connect api-key --provider anthropic|openai [--label L] | cmux cloud connect chatgpt [--id ID] [--no-wait] [--timeout SECONDS] | cmux cloud connect chatgpt --wait ATTEMPT [--timeout SECONDS] | cmux cloud connect chatgpt --cancel ATTEMPT | cmux cloud connections";
 
 const HELP: &str = "\
+cmux cloud connect claude [--label L]
+    Runs `claude setup-token` here: open the link it shows, sign in, paste the code back. The
+    sk-ant-oat token it prints is captured straight into the Keychain (cmux-model-key /
+    claude-token-XXXXXXXX), never shown, and added as a Claude subscription connection.
 cmux cloud connect api-key --provider anthropic|openai [--label L]
     Reads the key from a hidden prompt (or stdin), stores it in the Keychain (cmux-model-key /
     PROVIDER-XXXXXXXX) and adds it as an API key connection.
@@ -80,6 +90,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let io = Io {
         daemon: &daemon,
         keychain: &LiveKeychain,
+        claude_token: &|| capture::claude_setup_token(),
         api_key: &|provider: &str| {
             acpmux::cli::harness_secret::read_value(&format!("the {provider} API key"))
                 .map_err(|error| error.to_string())
@@ -98,6 +109,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
 pub(super) enum Command {
     Help,
     Connections,
+    Claude { label: Option<String> },
     ApiKey { provider: String, label: Option<String> },
     Chatgpt(Chatgpt),
 }
@@ -134,6 +146,10 @@ pub(super) fn parse(verb: &str, args: &[String]) -> Result<Command, UsageError> 
     let Some((kind, rest)) = args.split_first() else { return Ok(Command::Help) };
     let options = Flags::parse(rest)?;
     match kind.as_str() {
+        "claude" => {
+            options.only(&["label"])?;
+            Ok(Command::Claude { label: options.label()? })
+        }
         "api-key" | "key" => {
             options.only(&["provider", "label"])?;
             let provider = options.value("provider").ok_or_else(|| UsageError::new(USAGE))?;
@@ -251,6 +267,7 @@ pub(super) trait Keychain {
 pub(super) struct Io<'a> {
     pub daemon: &'a dyn Daemon,
     pub keychain: &'a dyn Keychain,
+    pub claude_token: &'a dyn Fn() -> Result<Zeroizing<String>, String>,
     pub api_key: &'a dyn Fn(&str) -> Result<Zeroizing<String>, String>,
 }
 
@@ -263,6 +280,21 @@ pub(super) fn run(
     match command {
         Command::Help => Ok(json!({ "usage": HELP })),
         Command::Connections => io.daemon.call(method::MUX_CONNECTIONS, json!({})),
+        Command::Claude { label } => {
+            let token = (io.claude_token)()?;
+            check_secret(&token)?;
+            if !token.starts_with(TOKEN_PREFIX) {
+                return Err(format!("claude setup-token printed no {TOKEN_PREFIX} token"));
+            }
+            add(
+                io,
+                "claude-token",
+                &token,
+                method::MUX_CONNECTIONS_CLAUDE_TOKEN_ADD,
+                json!({}),
+                label,
+            )
+        }
         Command::ApiKey { provider, label } => {
             let key = (io.api_key)(provider)?;
             let trimmed = key.trim();
@@ -438,7 +470,7 @@ pub(super) fn human(command: &Command, value: &Value) -> String {
     let id = |v: &Value| v.get("id").and_then(Value::as_str).unwrap_or("?").to_owned();
     match command {
         Command::Connections => table(value),
-        Command::ApiKey { .. } => {
+        Command::Claude { .. } | Command::ApiKey { .. } => {
             let account = value.pointer("/keychain/account").and_then(Value::as_str).unwrap_or("?");
             let connection = value.get("connection").filter(|c| !c.is_null());
             let cloud = connection
@@ -501,7 +533,7 @@ fn table(state: &Value) -> String {
         })
         .collect();
     if rows.is_empty() {
-        return "No model connections. Use `cmux://settings/cloud/claude` for Claude Code, or run `cmux cloud connect chatgpt` or `cmux cloud connect api-key --provider anthropic|openai`.".to_owned();
+        return "No model connections. Add one with `cmux cloud connect claude`, `cmux cloud connect chatgpt` or `cmux cloud connect api-key --provider anthropic|openai`.".to_owned();
     }
     let head = ["ID", "KIND", "LABEL", "SIGNED IN", "CLOUD"].map(str::to_owned);
     let mut widths = [0usize; 5];
