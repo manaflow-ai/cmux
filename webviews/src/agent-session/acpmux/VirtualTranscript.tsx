@@ -3779,7 +3779,7 @@ function TranscriptView({
   // screen stays as it is (shrinking it drew every row down by the queue card that left, and up
   // again as its prompt came), and growth meanwhile never adds to it. A card shorter than it was
   // draws the rows down within the room it left. The lift is the card's growth exactly, not rounded:
-  // a composer line is fractional (22.75px at the chat font, #26523), and a rounded lift changed the
+  // a composer line can be fractional (22.75px at the chat font before lines were whole pixels, #26523), and a rounded lift changed the
   // room under the rows by a fraction each line, which moved the content's rounded height and the
   // followed offset a pixel. The cap is whole pixels, as the offset.
   // Back at the latest row by the reader's own scroll, the room held while scrolled up stays under the

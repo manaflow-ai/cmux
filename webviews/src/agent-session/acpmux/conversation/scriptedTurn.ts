@@ -85,7 +85,7 @@ export const SCRIPTED_PROMPT_ID = "live-user";
 /// The reply's rows' ids start with this (`live-answer`, `live-answer-2`).
 export const SCRIPTED_ANSWER_ID = "live-answer";
 /// The composer card's height with a three-line draft, and with one line once it is sent.
-export const CARD_DRAFT = 88 + 2 * 22.75;
+export const CARD_DRAFT = 88 + 2 * 23;
 export const CARD_EMPTY = 88;
 
 export type ScriptedView = { rows?: AcpmuxRow[]; working?: boolean; sends?: number; card?: number };
@@ -254,7 +254,7 @@ export async function playScriptedTurn(
       // the prompt under the reply's text so far, and the reply goes on under it.
       step("steer");
       put({ id: ANSWER_ID, at: 100_001, kind: "assistant", text: first, streaming: false });
-      show({ sends: 1, card: CARD_EMPTY + 2 * 22.75 });
+      show({ sends: 1, card: CARD_EMPTY + 2 * 23 });
       show({ sends: 2, card: CARD_EMPTY });
       await wait(30);
       put({ id: "live-steer", at: 100_005, kind: "user", text: "Also check the queue that replays requests." });
@@ -490,7 +490,7 @@ async function playTransition(
     await wait(200);
     // The reader sends while the call runs: the composer clears and the steer waits for the step.
     step("steer");
-    show({ sends: 1, card: CARD_EMPTY + 2 * 22.75 });
+    show({ sends: 1, card: CARD_EMPTY + 2 * 23 });
     show({ sends: 2, card: CARD_EMPTY });
     await wait(30);
     put({

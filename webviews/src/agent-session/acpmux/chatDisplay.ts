@@ -414,6 +414,9 @@ export interface ChatMetrics {
 }
 
 const round = (value: number) => Math.round(value * 100) / 100;
+/// A text line in whole pixels (RFD 0116 strict fix 1): 14 px at 1.625 is 22.75 px, which puts
+/// every other baseline on a half pixel; it draws on 23.
+const wholeLine = (size: number, factor: number) => Math.round(size * factor);
 
 /// The chat's text scale (the host's `--cmux-chat-text-scale`, Typography+PageDensity.swift): Default's at and below
 /// Default, so Compact draws the chat as Default does (user 2026-11-16: "make it so compact and default density have
@@ -457,12 +460,12 @@ export function chatMetrics(display: ChatDisplay, density: number = densityTextS
   return {
     measureFont: `${fontSize}px ${stack}`,
     replyMeasureFont,
-    reply: { measureFont: replyMeasureFont, lineHeight: round(replySize * display.lineHeight) },
+    reply: { measureFont: replyMeasureFont, lineHeight: wholeLine(replySize, display.lineHeight) },
     prompt: {
       measureFont: `${promptSize}px ${faceStack(display.promptFont)}`,
-      lineHeight: round(promptSize * display.lineHeight),
+      lineHeight: wholeLine(promptSize, display.lineHeight),
     },
-    lineHeight: round(fontSize * display.lineHeight),
+    lineHeight: wholeLine(fontSize, display.lineHeight),
     inlineCodeSize: round(inline),
     blockCodeSize: round(block),
     codeLineHeight: round((block * 20) / 12),
@@ -509,7 +512,7 @@ export function chatDisplayVariables(
     "--cv-base-line-height":
       display.fontSize === DEFAULT_CHAT_DISPLAY.fontSize && isDefault("lineHeight")
         ? null
-        : `${round(display.fontSize * display.lineHeight)}px`,
+        : `${wholeLine(display.fontSize, display.lineHeight)}px`,
     "--cv-line-height": isDefault("fontSize") && isDefault("lineHeight") ? null : `${metrics.lineHeight}px`,
     "--cv-code-size": isDefault("fontSize") && isDefault("codeScale") ? null : `${metrics.inlineCodeSize}px`,
     "--cv-codeblock-size": isDefault("fontSize") && isDefault("codeScale") ? null : `${metrics.blockCodeSize}px`,

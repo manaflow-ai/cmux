@@ -45,13 +45,14 @@
   --cv-check-fill: var(--ds-surface-inset); /* #3a3b34 */
   --cv-check-ring: color-mix(in srgb, var(--cv-fg) 23%, transparent); /* #575852 */
   --cv-link: color-mix(in srgb, var(--cv-fg) 79%, transparent); /* #cccabe */
-  /* Type and column: system-ui at 14px on 22.75px lines, 13px code (reference
+  /* Type and column: system-ui at 14px on 23px lines (1.625 rounded to a whole pixel, so every
+     baseline sits on a pixel), 13px code (reference
      shell/tokens.css and conversation.css). The transcript, the composer and everything between
      them share one column: Chat Text Width (800px by default; chatDisplay.ts sets another width or
      Full Width), capped only by the pane, centered, never nearer the pane's sides than the page edge
      (--page-edge, #20121). model.ts transcriptColumn mirrors it. */
   --cv-font-size: 14px;
-  --cv-line-height: 22.75px;
+  --cv-line-height: 23px;
   /* CSS px grow with the page zoom. Divide the caps by the effective zoom so the column's
      on-screen measure remains the same when Interface Scale or Agent Chat Zoom changes. */
   --cv-ui-scale: var(--cmux-ui-scale, 1);

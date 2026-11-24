@@ -260,7 +260,7 @@
 :root:root:root .acpmux-composer.acpmux-composer[data-empty-height="large"] {
   --climb-rest-lines: 2;
   --text-content: calc(var(--cv-font-size, 14px) * 1.2 * max(1, var(--acpmux-density-text)));
-  --text-content--line-height: calc(var(--cv-line-height, 22.75px) * 1.2 * max(1, var(--acpmux-density-text)));
+  --text-content--line-height: calc(var(--cv-line-height, 23px) * 1.2 * max(1, var(--acpmux-density-text)));
 }
 :root:root:root .acpmux-composer.acpmux-composer[data-empty-height] {
   --acpmux-codex-editor-min: calc(var(--climb-rest-lines) * var(--text-content--line-height));
