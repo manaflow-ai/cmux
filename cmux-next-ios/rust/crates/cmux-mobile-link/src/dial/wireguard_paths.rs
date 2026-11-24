@@ -220,14 +220,27 @@ impl Paths {
         self.entries.iter().find(|entry| entry.id == id).map(|entry| entry.route)
     }
 
+    // Keep a proven direct path first. Among relays a live hop leg repairs
+    // losses locally. Use the same choice for traffic and its silence watch.
+    fn current_id(&self) -> Option<PathId> {
+        let current = self.selector.current();
+        if current.and_then(|id| self.selector.path(id)).is_some_and(|p| p.kind.class().is_direct()) {
+            return current;
+        }
+        self.entries.iter().find(|entry| {
+            entry.route.carrier == Carrier::Hop
+                && self.selector.path(entry.id).is_some_and(|p| p.state == PathState::Alive)
+        }).map(|entry| entry.id).or(current)
+    }
+
     /// The route the selector sends on: an alive path.
     pub fn current(&self) -> Option<Route> {
-        self.route_of_id(self.selector.current())
+        self.route_of_id(self.current_id())
     }
 
     /// The chosen path went quiet: datagrams go on every route.
     pub fn suspect(&self) -> bool {
-        self.selector.chosen().is_some() && self.selector.current().is_none()
+        self.selector.chosen().is_some() && self.current_id().is_none()
     }
 
     /// The selector holds a path, alive or suspect: it decides the route,
@@ -330,8 +343,8 @@ impl Paths {
     /// The probes due at `now`, after applying lost probes and silences.
     pub fn poll(&mut self, now: Instant) -> DueProbes {
         let upgrade_next = self.upgrade_probes(now);
-        let current = self.selector.current();
-        let chosen = self.selector.chosen();
+        let current = self.current_id();
+        let chosen = current.or(self.selector.chosen());
         let mut due = DueProbes::default();
         let mut lost = Vec::new();
         let mut silent = Vec::new();
@@ -367,7 +380,7 @@ impl Paths {
         // comes before the silence deadline (four round trips and an
         // unanswered probe), so a lost probe is how such a path turns
         // suspect, and the fallback needs the same fresh answers.
-        let left_current = current.is_some() && self.selector.current() != current;
+        let left_current = current.is_some() && self.current_id() != current;
         if chosen_quiet || left_current {
             // The other paths were last heard up to a 30 s probe ago, and the
             // cut that silenced the chosen one may have taken them too (one

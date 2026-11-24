@@ -65,6 +65,7 @@ pub(super) enum Control {
     Gather { stun: Vec<SocketAddr>, reflexive: mpsc::UnboundedSender<SocketAddr> },
     /// A TURN allocation on the new network (or replacing a dead one).
     Turn(TurnCarrier),
+    Hop(HopCarrier),
     /// The peer announced new endpoints.
     PeerEndpoints {
         endpoints: Vec<String>,
@@ -72,6 +73,7 @@ pub(super) enum Control {
         relayed: Vec<String>,
         /// Which of `relayed` ride TCP or TLS to their server.
         relayed_tls: Vec<String>,
+        hop: Option<String>,
     },
     /// The peer receives what this side sends (its `reach` message): from
     /// this address of ours, on its TURN allocation when `via_turn`.
@@ -93,7 +95,7 @@ const MAX_RELAYED: usize = 2;
 
 /// This side's endpoints to announce, which of them are its TURN relayed
 /// addresses, and which of those ride TCP or TLS.
-type Announcement = (Vec<String>, Vec<String>, Vec<String>);
+type Announcement = (Vec<String>, Vec<String>, Vec<String>, Option<String>);
 
 /// Waits before each new try to replace a dead TURN allocation.
 const TURN_RETRIES: [Duration; 5] = [
@@ -120,6 +122,8 @@ enum RoamMessage {
         /// Which of `relayed` ride TCP or TLS to their server.
         #[serde(rename = "relayedTls", default, skip_serializing_if = "Vec::is_empty")]
         relayed_tls: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        hop: Option<String>,
     },
     Ack {
         generation: u64,
@@ -152,6 +156,8 @@ pub(super) struct SessionParts {
     /// This side's TURN relayed addresses among `endpoints`, and those over
     /// TCP or TLS.
     pub relayed: (Vec<String>, Vec<String>),
+    pub own_hop: Option<SocketAddr>,
+    pub hop_sender: Arc<Mutex<Option<HopSender>>>,
     pub keeps_turn: bool,
     /// Fires when the current TURN allocation's stream dies.
     pub turn_dead: Option<watch::Receiver<bool>>,
@@ -178,6 +184,8 @@ pub(super) struct Session {
     relayed: Mutex<(Vec<String>, Vec<String>)>,
     /// Takes a new TURN allocation after a roam or a dead stream (the phone;
     /// a Mac once its network blocked UDP).
+    own_hop: Mutex<Option<SocketAddr>>,
+    hop_sender: Arc<Mutex<Option<HopSender>>>,
     keeps_turn: AtomicBool,
     turn_monitor: Mutex<Option<JoinHandle<()>>>,
     /// Announcements the peer sent through signaling, for the control task.
@@ -240,6 +248,8 @@ impl Session {
             stun: Mutex::new(parts.stun),
             endpoints: Mutex::new(parts.endpoints),
             relayed: Mutex::new(parts.relayed),
+            own_hop: Mutex::new(parts.own_hop),
+            hop_sender: parts.hop_sender,
             keeps_turn: AtomicBool::new(parts.keeps_turn),
             turn_monitor: Mutex::new(None),
             inject,
@@ -441,7 +451,7 @@ impl Session {
             loop {
                 match events.recv().await {
                     Some(SessionEvent::Signal(SignalEnvelope {
-                        payload: SignalPayload::WgEndpoints { generation, endpoints, relayed, relayed_tls },
+                        payload: SignalPayload::WgEndpoints { generation, endpoints, relayed, relayed_tls, hop },
                         ..
                     })) => {
                         let _ = inject.send(RoamMessage::Endpoints {
@@ -449,6 +459,7 @@ impl Session {
                             endpoints,
                             relayed,
                             relayed_tls,
+                            hop,
                         });
                     }
                     Some(SessionEvent::Signal(envelope)) => {
@@ -536,12 +547,21 @@ impl Session {
     /// the network changed, so the peer resends what it sent lately).
     /// `relayed`: which of `endpoints` are this side's TURN relayed
     /// addresses; `relayed_tls`: which of those ride TCP or TLS.
-    fn announce(&self, endpoints: Vec<String>, relayed: Vec<String>, relayed_tls: Vec<String>) {
+    fn announce(&self, mut endpoints: Vec<String>, mut relayed: Vec<String>, relayed_tls: Vec<String>) {
+        let hop = lock(&self.own_hop).map(|addr| addr.to_string());
+        if let Some(addr) = &hop {
+            if !endpoints.contains(addr) {
+                endpoints.push(addr.clone());
+            }
+            if !relayed.contains(addr) {
+                relayed.push(addr.clone());
+            }
+        }
         if !endpoints.is_empty() {
             lock(&self.endpoints).clone_from(&endpoints);
         }
         if let Some(tx) = lock(&self.announce).as_ref() {
-            let _ = tx.send((endpoints, relayed, relayed_tls));
+            let _ = tx.send((endpoints, relayed, relayed_tls, hop));
         }
     }
 
@@ -688,11 +708,11 @@ struct SignalTarget {
 
 impl SignalTarget {
     fn send(&self, message: &RoamMessage) {
-        let RoamMessage::Endpoints { generation, endpoints, relayed, relayed_tls } = message.clone() else {
+        let RoamMessage::Endpoints { generation, endpoints, relayed, relayed_tls, hop } = message.clone() else {
             return;
         };
         let client = lock(&self.signaling).clone();
-        let payload = SignalPayload::WgEndpoints { generation, endpoints, relayed, relayed_tls };
+        let payload = SignalPayload::WgEndpoints { generation, endpoints, relayed, relayed_tls, hop };
         if let Err(error) = client.send_signal(&self.peer, &self.session_id, payload) {
             tracing::debug!(%error, "endpoint announcement not sent through signaling");
         }
@@ -743,12 +763,12 @@ async fn run_control(
         };
         tokio::select! {
             Some((from, carrier)) = reach.recv() => {
-                let via = if carrier == Carrier::Turn { "turn" } else { "udp" };
+                let via = match carrier { Carrier::Turn => "turn", Carrier::Udp => "udp", Carrier::Hop => "hop" };
                 let message = RoamMessage::Reach { from: Some(from.to_string()), via: Some(via.to_owned()) };
                 send_message(&socket, peer, &message).await;
             }
             endpoints = announce.recv() => {
-                let Some((mut endpoints, relayed, relayed_tls)) = endpoints else { return };
+                let Some((mut endpoints, relayed, relayed_tls, hop)) = endpoints else { return };
                 // Past the limit, drop plain endpoints from the end first: a long
                 // list never loses the relayed ones, and the order (the first
                 // endpoint tells the peer the network changed) stays.
@@ -764,7 +784,7 @@ async fn run_control(
                 let relayed: Vec<String> =
                     relayed.into_iter().filter(|text| endpoints.contains(text)).take(MAX_RELAYED).collect();
                 let relayed_tls = relayed_tls.into_iter().filter(|text| relayed.contains(text)).collect();
-                let message = RoamMessage::Endpoints { generation, endpoints, relayed, relayed_tls };
+                let message = RoamMessage::Endpoints { generation, endpoints, relayed, relayed_tls, hop };
                 send_message(&socket, peer, &message).await;
                 // Also through signaling: the peer may not receive anything
                 // from this side's new address yet.
@@ -809,12 +829,17 @@ async fn run_control(
                 match received {
                     Ok(RoamMessage::Reach { from, via }) => {
                         let from = from.and_then(|text| text.parse().ok());
+                        if via.as_deref() == Some("hop") {
+                            // Hop has one peer per allocation. Its encrypted probe already
+                            // confirms the entire route in both directions.
+                            continue;
+                        }
                         let via_turn = via.as_deref() == Some("turn");
                         if control.send(Control::Reached { from, via_turn }).is_err() {
                             return;
                         }
                     }
-                    Ok(RoamMessage::Endpoints { generation: theirs, endpoints, relayed, relayed_tls }) => {
+                    Ok(RoamMessage::Endpoints { generation: theirs, endpoints, relayed, relayed_tls, hop }) => {
                         send_message(&socket, peer, &RoamMessage::Ack { generation: theirs }).await;
                         if theirs <= applied {
                             continue;
@@ -831,7 +856,7 @@ async fn run_control(
                         }
                         let relayed: Vec<String> = relayed.into_iter().filter(|text| endpoints.contains(text)).take(MAX_RELAYED).collect();
                         let relayed_tls = relayed_tls.into_iter().filter(|text| relayed.contains(text)).collect();
-                        if control.send(Control::PeerEndpoints { endpoints, relayed, relayed_tls }).is_err() {
+                        if control.send(Control::PeerEndpoints { endpoints, relayed, relayed_tls, hop }).is_err() {
                             return;
                         }
                         if moved {
@@ -980,6 +1005,7 @@ mod tests {
     fn roam_messages_are_small_json() {
         let message = RoamMessage::Endpoints {
             generation: 3,
+            hop: None,
             endpoints: vec!["203.0.113.7:40000".into()],
             relayed: Vec::new(),
             relayed_tls: Vec::new(),
@@ -989,6 +1015,7 @@ mod tests {
         assert_eq!(serde_json::from_str::<RoamMessage>(&text).unwrap(), message);
         let many = RoamMessage::Endpoints {
             generation: u64::MAX,
+            hop: Some("[2001:db8::1234:5678:9abc:def0]:65535".into()),
             endpoints: vec!["[2001:db8::1234:5678:9abc:def0]:65535".into(); MAX_ENDPOINTS],
             relayed: vec!["[2001:db8::1234:5678:9abc:def0]:65535".into(); MAX_RELAYED],
             relayed_tls: vec!["[2001:db8::1234:5678:9abc:def0]:65535".into(); MAX_RELAYED],
@@ -1009,4 +1036,16 @@ mod tests {
             RoamMessage::Reach { from: None, via: None }
         );
     }
+}
+
+
+/// The active hop/1 leg for this tunnel. P4 uses the sender for tagged, already
+/// encrypted state updates. Replacement carriers publish a new sender on roam.
+pub fn hop_sender(session_id: &str, dialer: bool) -> Option<HopSender> {
+    let session = find(session_id, dialer)?;
+    lock(&session.hop_sender).clone()
+}
+
+pub fn hop_stats(session_id: &str, dialer: bool) -> Option<crate::link_stat::HopStats> {
+    Some(hop_sender(session_id, dialer)?.stats())
 }

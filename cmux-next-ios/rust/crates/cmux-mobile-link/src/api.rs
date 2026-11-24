@@ -13,10 +13,33 @@ pub struct IceServer {
     pub credential: Option<String>,
 }
 
+impl IceServer {
+    /// A PoP hop/1 server. It lives outside the backend's `iceServers` array
+    /// until this client normalizes the additive `hopServers` response field.
+    pub fn hop(url: impl Into<String>, ticket: impl Into<String>) -> Self {
+        Self { urls: vec![url.into()], username: None, credential: Some(ticket.into()) }
+    }
+
+    /// Returns the hop endpoint and its scoped BIND ticket.
+    pub fn hop_config(&self) -> Option<(&str, &str)> {
+        let url = self.urls.first().filter(|url| url.starts_with("hop://"))?;
+        let ticket = self.credential.as_deref().filter(|ticket| !ticket.is_empty())?;
+        Some((url.as_str(), ticket))
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct HopServer {
+    pub url: String,
+    pub ticket: String,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IceConfig {
     pub ice_servers: Vec<IceServer>,
+    #[serde(default, rename = "hopServers")]
+    pub hop_servers: Vec<HopServer>,
     #[serde(default)]
     pub ttl: Option<u64>,
 }
@@ -209,7 +232,11 @@ impl ApiClient {
             .send()
             .await
             .map_err(|e| ApiError::Http(e.to_string()))?;
-        Self::check(response).await?.json().await.map_err(|e| ApiError::Http(e.to_string()))
+        let mut config: IceConfig = Self::check(response).await?.json().await.map_err(|e| ApiError::Http(e.to_string()))?;
+        // `hopServers` is additive so an old client ignores it. New clients
+        // normalize it into the common list after legacy ICE has parsed.
+        config.ice_servers.extend(config.hop_servers.iter().map(|hop| IceServer::hop(hop.url.clone(), hop.ticket.clone())));
+        Ok(config)
     }
 
     /// `POST /v1/devices` (upsert). Returns the backend's `device` object.
@@ -433,6 +460,7 @@ mod tests {
                 username: None,
                 credential: None,
             }],
+            hop_servers: Vec::new(),
             ttl,
         }
     }
@@ -472,5 +500,15 @@ mod tests {
             credential: None,
         }];
         assert_eq!(stun_servers(&servers), vec!["stun.cloudflare.com:3478", "a.b:3478"]);
+    }
+
+    #[test]
+    fn hop_servers_are_additive_and_are_not_stun_servers() {
+        let hop = IceServer::hop("hop://127.0.0.1:7422", "hop1.session.999.sig");
+        assert_eq!(hop.hop_config(), Some(("hop://127.0.0.1:7422", "hop1.session.999.sig")));
+        assert!(stun_servers(std::slice::from_ref(&hop)).is_empty());
+        let old: IceConfig = serde_json::from_str(r#"{"iceServers":[{"urls":["stun:s:3478"]}],"hopServers":[{"url":"hop://h:1","ticket":"t"}],"ttl":60}"#).unwrap();
+        assert_eq!(old.ice_servers.len(), 1, "raw decode preserves old ICE list");
+        assert_eq!(old.hop_servers[0].url, "hop://h:1");
     }
 }
