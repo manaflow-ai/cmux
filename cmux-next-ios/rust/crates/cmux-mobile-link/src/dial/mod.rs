@@ -210,6 +210,10 @@ pub struct DialOptions {
     /// dialed with [`crate::LinkConfig::aligned`] pings on every 10 s beat
     /// instead ([`crate::keepalive`]).
     pub aligned_keepalives: bool,
+    /// WireGuard: the idle air gap for the tunnel's routine path probes
+    /// (`cmux_wg::WgNet::set_idle_air_gap`). `None` (the default) probes on
+    /// schedule.
+    pub idle_air_gap: Option<Duration>,
     /// Bound on the whole dial or answer.
     pub timeout: Duration,
     /// Dial side, WebRTC: how long an offer waits for the Mac's answer. An
@@ -270,6 +274,7 @@ impl Default for DialOptions {
             stock_ice_waits: false,
             ultra: UltraSetting::Auto,
             aligned_keepalives: false,
+            idle_air_gap: None,
             timeout: Duration::from_secs(25),
             answer_timeout: Duration::from_secs(8),
             timeline: crate::Timeline::new(),
