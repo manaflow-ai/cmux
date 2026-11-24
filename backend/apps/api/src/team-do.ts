@@ -895,6 +895,17 @@ export class TeamDO extends OwnerDO<TeamState> {
     if (this.env.ENVIRONMENT === "production") return { refused: "production" }
     return (await import("./inference/plan.ts")).grantTestPlan(this.ctx.storage.sql, plan, session, subscription, Date.now())
   }
+  /**
+   * RPC from cmux-platform (Cloud's cloud.billing.checkout, which checked the caller may buy for this team): a signed
+   * test-mode checkout link for a cmux NEXT plan on this team (plan-checkout.ts), or null where none can be made
+   * (production, not a NEXT plan, another team's object, no test key or webhook).
+   */
+  async nextPlanLink(entity: string, plan: string): Promise<string | null> {
+    if (this.env.ENVIRONMENT === "production" || !this.env.CLOUD_API_ORIGIN) return null
+    if (this.boundEntity() !== null && this.boundEntity() !== entity) return null
+    const m = await import("./plan-checkout.ts")
+    return m.isNextPlan(plan) ? m.planLink(this.env, this.env.CLOUD_API_ORIGIN, entity, plan) : null
+  }
   /** RPC from plan-checkout.ts: the test plan's subscription was cancelled. */
   async revokeTestPlan(subscription: string): Promise<boolean> { return (await import("./inference/plan.ts")).revokeTestPlan(this.ctx.storage.sql, subscription, Date.now()) }
   /** RPC from the Stack webhook route (stack-webhook.ts): one delivery reconciled with Stack, one at a time per team. */
