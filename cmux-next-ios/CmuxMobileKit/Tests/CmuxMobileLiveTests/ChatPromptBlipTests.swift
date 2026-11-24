@@ -213,7 +213,6 @@ import Testing
 }
 
 /// A clock the held-prompt tests move by hand.
-@MainActor
 final class TestClock {
     private(set) var instant = ContinuousClock.now
     func advance(_ by: Duration) { instant += by }

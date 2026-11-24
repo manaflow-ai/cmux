@@ -949,7 +949,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// sendsble is a shame. if it's making good progress, it shiukd be allowed to keep going?").
     private var lastProgress: ContinuousClock.Instant?
     /// When an attachment upload's acked bytes last advanced (tests inject one).
-    var uploadAdvancedAt: () -> ContinuousClock.Instant? = { AttachmentUploadClient.lastAdvance }
+    var uploadAdvancedAt: @MainActor () -> ContinuousClock.Instant? = { UploadActivity.lastAdvance }
     /// The timer that hands held prompts back once ``heldPromptWindow`` passes with no progress.
     private var expiryTask: Task<Void, Never>?
 
