@@ -131,11 +131,19 @@ The patch adds a BBR-style controller, `CongestionControl::Bbr`, behind the
 product: the highest delivery rate of the last 10 rounds that were not
 app-limited, times the minimum RTT of the last 10 s. Startup grows the window
 by every acknowledged byte until the rate grows under 25 % for 3 rounds. Loss
-does not shrink the window; only two RTOs in a row, with nothing acknowledged
-between them, drop it to 4 segments and restart the model. cmux-wg paces its
+does not shrink the window. An RTO saves the window and resends one segment
+(packet conservation); the next ACK of new data brings the window back. Two RTOs
+in a row, with nothing acknowledged between them, restart the model. cmux-wg paces its
 datagrams itself, so the controller has no pacing gain cycle and no PROBE_RTT.
 `RttEstimator` keeps its latest raw sample for the controller's minimum. Its
 tests are in `congestion/bbr.rs`.
+
+A SACK resend of the head that is lost too goes again once the peer SACKed three
+segments of data sent after it (Linux's `tcp_mark_lost_retrans`). Before, it
+waited for the RTO, which Karn's backoff stretched past the user timeout under
+heavy loss; with a window that loss does not shrink, that failed 2 of the first 48
+seeds of cmux-wg's tunnel TCP model at 12% loss. The detector is
+`test_sack_lost_resend_of_the_head_goes_again_once_later_data_is_sacked`.
 
 The changes are in `src/socket/tcp/congestion/cubic.rs`,
 `src/socket/tcp/congestion/bbr.rs` and `src/socket/tcp.rs`, each marked

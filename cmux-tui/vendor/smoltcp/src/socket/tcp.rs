@@ -360,12 +360,6 @@ const SACK_SCOREBOARD_LEN: usize = 16;
 /// worth of data, or this many separate ranges, were SACKed above it.
 const SACK_DUP_THRESH: usize = 3;
 
-/// cmux patch: the least time after resending the head before an ACK that
-/// still does not cover it says the resend was lost.
-const SACK_RESEND_LOST_MIN_MS: u64 = 10;
-const USE_TIME: bool = true;
-const USE_RXACK: bool = false;
-
 /// cmux patch: what the peer's SACK blocks (RFC 2018) say it holds above the
 /// cumulative ACK: sorted, disjoint, non-adjacent `[start, end)` ranges.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -742,13 +736,12 @@ pub struct Socket<'a> {
     /// cmux patch: this recovery episode already cut the congestion window.
     sack_window_cut: bool,
     /// cmux patch: the head hole's last SACK resend, as (the head, the
-    /// highest sequence sent when it went out, when). The head still
-    /// unacknowledged once data sent after it was SACKed (Linux's
-    /// `tcp_mark_lost_retrans`), or once ACKs still arrive two smoothed RTTs
-    /// after it (RACK's time rule, RFC 8985), means the resend was lost too:
-    /// it goes again at once, instead of after an RTO that Karn's backoff can
+    /// highest sequence sent when it went out). The head still
+    /// unacknowledged once three segments of data sent after it were SACKed
+    /// (Linux's `tcp_mark_lost_retrans`) means the resend was lost too: it
+    /// goes again at once, instead of after an RTO that Karn's backoff can
     /// stretch past the user timeout.
-    sack_head_rxt: Option<(TcpSeqNumber, TcpSeqNumber, Instant)>,
+    sack_head_rxt: Option<(TcpSeqNumber, TcpSeqNumber)>,
     /// cmux patch: the largest segment our own path takes (the interface MTU
     /// less headers), learned at the handshake. SACK recovery counts and
     /// admits repairs in min(this, remote MSS), the segments actually sent.
@@ -1581,19 +1574,11 @@ impl<'a> Socket<'a> {
         // The head's resend is lost once the peer SACKed three segments of
         // data sent after it: mark the head lost again (resending what was
         // resent below `sack_high_rxt` along with it).
-        if let Some((head, sent_high, resent_at)) = self.sack_head_rxt {
+        if let Some((head, sent_high)) = self.sack_head_rxt {
             let threshold = SACK_DUP_THRESH * self.sack_segment();
-            let rtt_passed = self.rtte.have_measurement
-                && cx.now()
-                    >= resent_at
-                        + Duration::from_millis(
-                            (2 * self.rtte.srtt as u64).max(SACK_RESEND_LOST_MIN_MS),
-                        );
             if self.sack_recovery_point.is_none() || head != self.local_seq_no {
                 self.sack_head_rxt = None;
-            } else if sent_high - self.local_seq_no + threshold <= sacked_high
-                || (USE_TIME && rtt_passed)
-            {
+            } else if sent_high - self.local_seq_no + threshold <= sacked_high {
                 net_debug!("SACK resend of {} lost, resending", head);
                 self.sack_head_rxt = None;
                 self.sack_high_rxt = self.local_seq_no;
@@ -3148,13 +3133,6 @@ impl<'a> Socket<'a> {
                 payload_len,
                 payload_offset
             );
-            // cmux patch: still ACK it, as every out-of-order segment is
-            // (RFC 5681 4.2): with no ACK the sender learns nothing until its
-            // RTO, which at high loss can back off past the user timeout. The
-            // reply's SACK blocks name only data the assembler holds.
-            if USE_RXACK {
-                return Some(self.ack_reply(ip_repr, repr));
-            }
             return None;
         };
 
@@ -3855,7 +3833,7 @@ impl<'a> Socket<'a> {
         if is_sack_retransmit {
             self.sack_high_rxt = self.sack_high_rxt.max(repr.seq_number + repr.payload.len());
             if repr.seq_number == self.local_seq_no {
-                self.sack_head_rxt = Some((self.local_seq_no, self.remote_last_seq, cx.now()));
+                self.sack_head_rxt = Some((self.local_seq_no, self.remote_last_seq));
             }
             // Karn: no RTT sample from a retransmitted segment.
             self.rtte.on_retransmit();
