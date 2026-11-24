@@ -474,7 +474,19 @@ is forwarded, and the service never answers it.
   `set_cellular_path`). `upS`: seconds up. `lib`: the link library version.
   `egress` (optional): `proxy` or `inspected` when this network's link
   connections left through a proxy, or one that inspects TLS ("Corporate
-  networks"); absent when direct.
+  networks"); absent when direct. It is the path of the latest link
+  connection to each host on this network (a later direct or clean handshake
+  to that host clears it; a network change clears them all), the strongest
+  of them when hosts differ.
+- Compatibility (old and new peers, both ways): fields added to v 1 are
+  optional and keep `v` at 1, because a service drops a frame whose `v` is
+  not 1. A phone older than a field sends no key; a service older than a
+  field never copies it (the log line is built from the words it knows); a
+  service drops an `egress` word or a field it does not know and keeps the
+  rest of the line. Only `v`, `transport`, `path`, `reason`, `pings` and
+  `lost` are required. Tests: `link_stat.rs`
+  `egress_is_optional_both_ways_and_keeps_version_one` and
+  `backend/test/link-stat.test.ts` "reads old and new phones alike".
 - Bounded: every stat is under 768 bytes; ms values are clamped to 600000.
   It names no user, device, session or address.
 
@@ -586,6 +598,10 @@ retries on its own; it never shows "connecting" without a bound for it
 (`scripts/cmux-next/check-connection-notices.py`). What IT must allow:
 [network requirements](../web/data/next-docs/pages.ts) (cmux.com
 `/docs/nightly/next/network-requirements`).
+
+The record never crosses a wire to another peer or the service: it goes from
+the link library to the app on the same device, in one build, so a new
+outcome word (`proxy_refused`, `tls_rejected`) needs no version.
 
 ## Link (inside either transport)
 
