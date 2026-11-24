@@ -420,10 +420,11 @@ async fn another_peers_ready_leaves_a_down_targets_retry_waiting() {
 #[tokio::test(start_paused = true)]
 async fn a_peer_ready_during_an_attempt_ends_the_retry_wait() {
     let (hub, _fake, peer) = setup_peer(FakeHub { unknown: true.into(), ..FakeHub::default() });
-    // The moment attempt 1 starts, another peer's link comes back first (`peer_ready` fires with
-    // this target still down: the wait goes on), then this target's, as a reconnect would
-    // (`peer_runtime_io` marks the link connected before it sends `PeerNotice::Connected`).
-    let fired = {
+    // The moment attempt 1 starts, a `peer_ready` fires with this target still down (another
+    // peer's link): it alone does not end the wait. Once attempt 1 settles, this target's link
+    // comes back as a reconnect does (`peer_runtime_io` marks the link connected, then sends
+    // `PeerNotice::Connected`), and that ends it.
+    let mid = {
         let hub = hub.clone();
         tokio::spawn(async move {
             loop {
@@ -431,19 +432,19 @@ async fn a_peer_ready_during_an_attempt_ends_the_retry_wait() {
                 let running = hub.outbox.list(None, 10).0;
                 if running.iter().any(|d| d.attempts == 1 && d.state == State::Delivering) {
                     hub.outbox.peer_ready.notify_waiters();
-                    tokio::task::yield_now().await;
-                    peer.connected.store(true, std::sync::atomic::Ordering::SeqCst);
-                    hub.outbox.peer_ready.notify_waiters();
-                    return tokio::time::Instant::now();
+                    return;
                 }
                 changed.await;
             }
         })
     };
     let id = queue(&hub, request("huge-blue/lane", "prompt-ready-mid-attempt")).await;
-    let fired = fired.await.unwrap();
+    mid.await.unwrap();
     let d = after_attempt(&hub, &id, 1).await;
     assert_eq!(d.state, State::Queued, "{d:?}");
+    let fired = tokio::time::Instant::now();
+    peer.connected.store(true, std::sync::atomic::Ordering::SeqCst);
+    hub.outbox.peer_ready.notify_waiters();
     let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
     loop {
         let changed = hub.outbox.changed.notified();
