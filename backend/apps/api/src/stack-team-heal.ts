@@ -107,15 +107,17 @@ const syncing = new Map<string, { readonly at: number; readonly run: Promise<str
  * A full sync of one Stack team in its TeamDO (team-stack-sync.ts), as a team.updated delivery would run it; one
  * per person per window. Answers the delivery's outcome (`queued`: not synced yet), undefined when it failed.
  */
-export const syncTeam = (env: Env, team: string, stackTeam: string, user: string, now: number): Promise<string | undefined> => {
-  const key = `${team}\u0000${user}`
+export const syncTeam = (env: Env, team: string, stackTeam: string, user: string, now: number, delivery = `user-teams:${user}:${Math.floor(now / HEAL_WINDOW_MS)}`): Promise<string | undefined> => {
+  if (teamSyncedAt.size >= HEALED_MAX) teamSyncedAt.clear()
+  teamSyncedAt.set(team, now)
+  const key = `${team}\u0000${user}\u0000${delivery}`
   const running = syncing.get(key)
   if (running && Date.now() - running.at < IN_FLIGHT_STALE_MS) return running.run
   // Started on the next microtask, so `run` is assigned before its `finally` compares it.
   const run: Promise<string | undefined> = Promise.resolve().then(async () => {
     try {
       const stub = env.TEAM_DO.get(env.TEAM_DO.idFromName(team))
-      const reply = await stub.stackWebhook(team, { svix_id: `user-teams:${user}:${Math.floor(now / HEAL_WINDOW_MS)}`, type: "team.updated", stack_team: stackTeam, urgent: true })
+      const reply = await stub.stackWebhook(team, { svix_id: delivery, type: "team.updated", stack_team: stackTeam, urgent: true })
       const outcome = reply.ok ? reply.outcome : reply.reason
       console.log(JSON.stringify({ msg: "synced a stack team", team, outcome }))
       return reply.ok ? reply.outcome : undefined
@@ -128,6 +130,29 @@ export const syncTeam = (env: Env, team: string, stackTeam: string, user: string
   })
   if (syncing.size >= HEALED_MAX) syncing.clear()
   syncing.set(key, { at: Date.now(), run })
+  return run
+}
+
+/** When each team was last synced from Stack, per isolate (any member's sync counts): refreshTeam's window. */
+const teamSyncedAt = new Map<string, number>()
+
+/**
+ * A full sync of a team the person is already confirmed in, at most once per team per HEAL_WINDOW_MS; undefined when
+ * the team was synced inside the window. A teammate who joined in Stack (an accepted invite writes Stack only) and
+ * whose webhook never reached TeamDO is otherwise never mirrored: the heal above runs only for the caller missing,
+ * so Home never listed the new teammate and `dm.open` refused them as sharing no team (#48467, 2026-11-23: a member
+ * shown in Settings > Accounts could not be messaged from Home).
+ */
+export const refreshTeam = (env: Env, team: string, stackTeam: string, user: string, now: number): Promise<string | undefined> | undefined => {
+  const last = teamSyncedAt.get(team)
+  if (last !== undefined && now - last < HEAL_WINDOW_MS && now >= last) return undefined
+  // One delivery per team per window across isolates and people: TeamDO answers a repeat `duplicate` before it takes a
+  // Stack pace token, and the per-person heal above keeps its own delivery for the window.
+  const run = syncTeam(env, team, stackTeam, user, now, `team-refresh:${Math.floor(now / HEAL_WINDOW_MS)}`)
+  // A sync that failed is tried again by the next list, not after the window.
+  void run.then((outcome) => {
+    if (outcome === undefined && teamSyncedAt.get(team) === now) teamSyncedAt.delete(team)
+  })
   return run
 }
 

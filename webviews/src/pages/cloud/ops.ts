@@ -45,6 +45,12 @@ export const CloudOps = {
   snapshotDelete: "cmux.cloud.snapshot.delete",
   planGet: "cmux.cloud.plan.get",
   billingCheckout: "cmux.cloud.billing.checkout",
+  /**
+   * The host's read of the account's billing (`billing.status`, cmux.com's `GET /api/billing/plan`):
+   * `{payment_past_due}`, true when the latest renewal failed. Served by the app, not the Cloud app
+   * server; a host that does not serve it, a signed-out account or a failed read shows no notice.
+   */
+  billingStatus: "cmux.cloud.billing.status",
   migrationStatus: "cmux.cloud.migration.status",
   migrationStart: "cmux.cloud.migration.start",
   fsList: "cmux.cloud.fs.list",
@@ -68,7 +74,14 @@ export const CloudOps = {
 export const CloudActions = {
   previewShare: "cloudPreviewShare",
   previewRevoke: "cloudPreviewRevoke",
+  /** Manage Billing: the app's `billing.openPortal`, the page `cmux billing portal` opens. */
+  manageBilling: "billing.openPortal",
 } as const;
+
+/** `cmux.cloud.billing.status`: only a JSON `true` means the latest payment failed. */
+export interface BillingStatus {
+  payment_past_due?: boolean;
+}
 
 export interface PreviewShareResult {
   confirmed?: boolean;
@@ -318,12 +331,28 @@ export type MachineStatus = Wire.CloudMachineStatus | "unknown";
 /** A machine size. Create and resize send at least one field; the plan decides which are allowed. */
 export type MachineSize = Wire.CloudMachineSize;
 
+/** A VM's latest guest disk report. Values are MiB and `observed_at` is epoch milliseconds. */
+export interface CloudDiskHealth {
+  /** Computed by the Cloud API after validating capacity fields. */
+  readonly state?: "healthy" | "warning" | "unknown";
+  readonly free_mb: number;
+  readonly used_mb: number;
+  readonly total_mb: number;
+  readonly floor_mb: number;
+  readonly top_users: ReadonlyArray<{ readonly path: string; readonly used_mb: number }>;
+  readonly observed_at: number;
+}
+
 /**
  * `CloudMachine` as the catalog declares it (the generated wire is the only machine type), with the
  * status widened to the page's `unknown`. Owner: the team's CloudDO. The page still reads optional
  * parts defensively (`?.`, `??`), since an older server relays records with fields left out.
  */
-export type CloudMachine = Omit<Wire.CloudMachine, "status"> & { readonly status: MachineStatus };
+export type CloudMachine = Omit<Wire.CloudMachine, "status"> & {
+  readonly status: MachineStatus;
+  /** Optional until the Cloud projection receives a VM health report. */
+  readonly disk_health?: CloudDiskHealth | null;
+};
 
 export interface MachineListResult {
   machines: CloudMachine[];

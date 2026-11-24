@@ -273,6 +273,18 @@ extension WebKitTab: WKUIDelegate {
         decidePermission(kind, origin: Self.displayOrigin(origin)) { decisionHandler($0 ? .grant : .deny) }
     }
 
+    /// getDisplayMedia() has only a private WKUIDelegate method; without it WebKit never answers the
+    /// page (a Meet screen share stayed pending). `screenPrompt` (1) lets WebKit show the system's
+    /// own screen picker, which is the person's consent; `deny` (0) rejects with NotAllowedError.
+    @objc(_webView:requestDisplayCapturePermissionForOrigin:initiatedByFrame:withSystemAudio:decisionHandler:)
+    func requestDisplayCapture(_ webView: WKWebView, origin: WKSecurityOrigin, frame: WKFrameInfo, withSystemAudio: Bool,
+                               decisionHandler: @escaping @MainActor (Int) -> Void) {
+        decisionHandler(Self.displayCaptureDecision)
+    }
+
+    /// `_WKDisplayCapturePermissionDecisionScreenPrompt`.
+    static let displayCaptureDecision = 1
+
     // Location, notifications and the page's window.print() have only private
     // WKUIDelegate methods (WKUIDelegatePrivate); without them WebKit refuses
     // the first two unasked and prints nothing.

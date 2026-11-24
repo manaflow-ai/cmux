@@ -4,7 +4,10 @@
  *
  * Usage (from web/):
  *   bun ../images/cmux-vm/bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>]
- *       [--update-lock] [--keep-builder] [--promotion] [--prod-copy] [--agent-tools] [--team-vm] [--dev-tree] [--layered]
+ *       [--update-lock] [--keep-builder] [--promotion] [--prod-copy] [--agent-tools] [--team-vm] [--dev-tree] [--layered] [--large]
+ *
+ * - --large: a second snapshot of the same builder, grown to the default Cloud chat start size (large-image.ts),
+ *   named <name>-large and recorded as `large` in the result. The image's own snapshot, id and fields do not change.
  *
  * - --layered: the image as cached layers, system -> agents -> app (layers.ts); only a layer whose inputs
  *   changed rebuilds. Dev snapshots only; the full bake stays the weekly and manual source of truth.
@@ -72,9 +75,11 @@ import {
 } from "../../services/vms/drivers/cmuxTuiDaemon";
 import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER, devboxWorkUserSetupCommand } from "../../services/vms/images/workUser";
 import { npmCachePrefillCommand, npmCacheSizeCommand } from "./dep-cache";
+import { graduatedInstallCommand, readGraduated } from "./graduate";
 import {
   cmuxTuiWebsocketSmokeCommand,
   DEVBOX_INSTANCE_ID_COMMAND,
+  devboxClaudeSettingsDefaultsCommand,
   devboxFileBytes,
   devboxGhosttyVersion,
   devboxIdentityCheckCommand,
@@ -111,6 +116,8 @@ import {
 import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
 import { DNS_CHECK_PATH, dnsCheckScript, resolverBakeCommand } from "./dns";
 import { MACHINE_HEALTH_ARM_COMMAND, machineHealthBakeCommand, machineHealthFiles } from "./machine-health";
+import { chiefBinary, chiefHostFiles, chiefHostInstallCommand } from "./chief-host";
+import { growToShape, LARGE_IMAGE_SHAPE, type LargeImageRecord, largeImageName, MEMORY_GUARD_REFRESH_COMMAND, memoryGuardProblems, ROOT_DEVICE_COMMAND } from "./large-image";
 import {
   argValue,
   createVm,
@@ -269,6 +276,12 @@ export type BakeOptions = {
    * smoke): they were 73 s of a warm per-commit bake. --layered only.
    */
   deferInventory?: boolean;
+  /**
+   * Also snapshot the builder grown to LARGE_IMAGE_SHAPE (large-image.ts), after the image's own snapshot: the
+   * same tree at the size a default Cloud chat start asks for. Dev snapshots only. A failure here never fails
+   * the bake: the image's own snapshot is already taken, and nothing boots the large one yet.
+   */
+  large?: boolean;
 };
 
 /**
@@ -710,6 +723,42 @@ export function aptDownloadBatches(
   return batches;
 }
 
+/** Runs of one download batch before the bake fails. */
+export const APT_FETCH_ATTEMPTS = 3;
+
+/**
+ * One download batch, run again when it fails: a slow mirror can push a batch past the guest's 5-minute exec cap
+ * (image roll 44263286356, status 124), and aptDebFetchCommand keeps every .deb it verified, so each run only fetches
+ * what is still missing. A .deb no mirror serves fails every run and still fails the bake.
+ */
+export async function fetchAptBatch(L: Pick<StepLog, "step" | "log">, vm: Vm, label: string, command: string, attempts = APT_FETCH_ATTEMPTS): Promise<void> {
+  await stepAgain(L, vm, label, command, attempts, "the .debs it verified");
+}
+
+/**
+ * Runs of one store program's install before the bake fails. GitHub release downloads into the bake machine ran at
+ * about 100 KB/s a connection on 2026-11-23 (image rolls 45109809346 and 45113664312: store-codex, 109 MB, status
+ * 124 at 300 s twice), so codex needs about four 5-minute runs; programInstallCommand resumes the download.
+ */
+export const STORE_FETCH_ATTEMPTS = 6;
+
+/** One store program's install, run again when it fails, continuing its partial download (programInstallCommand). */
+export async function installStoreProgram(L: Pick<StepLog, "step" | "log">, vm: Vm, label: string, command: string, attempts = STORE_FETCH_ATTEMPTS): Promise<void> {
+  await stepAgain(L, vm, label, command, attempts, "the part it downloaded");
+}
+
+async function stepAgain(L: Pick<StepLog, "step" | "log">, vm: Vm, label: string, command: string, attempts: number, kept: string): Promise<void> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await L.step(vm, attempt === 1 ? label : `${label}-try-${attempt}`, command);
+      return;
+    } catch (error) {
+      if (attempt >= attempts) throw error;
+      L.log(`${label} failed (try ${attempt} of ${attempts}); running it again, keeping ${kept}`);
+    }
+  }
+}
+
 /**
  * Fetch and install a locked Ubuntu closure by content (aptDebFetchCommand, aptLocalInstallCommand): no apt index is
  * read, so a pin the public archive has superseded comes from the dated snapshot instead of failing the bake (run
@@ -723,7 +772,7 @@ async function installUbuntuDebs(ctx: Ctx, prefix: string, packages: Readonly<Re
   const batches = aptDownloadBatches(packages, ubuntu.debs);
   L.log(`${prefix} fetch: ${Object.keys(packages).length} packages, ${batches.length} batches: ${batches.map((b) => `${b.pins.length} pkgs ${(b.bytes / 1e6).toFixed(1)} MB`).join(", ")}`);
   for (const [i, batch] of batches.entries()) {
-    await L.step(vm, `${prefix}-download-${i + 1}-of-${batches.length}`, aptDebFetchCommand(ubuntu.debs, batch.pins, ubuntu.uri, APT_DEB_DIR));
+    await fetchAptBatch(L, vm, `${prefix}-download-${i + 1}-of-${batches.length}`, aptDebFetchCommand(ubuntu.debs, batch.pins, ubuntu.uri, APT_DEB_DIR));
   }
   await L.step(vm, `${prefix}-install`, `${aptLocalInstallCommand(ubuntu.debs, aptPins(packages), APT_DEB_DIR, log)}; grep -c '^Setting up' ${log}`);
 }
@@ -757,7 +806,7 @@ async function installApt(ctx: Ctx): Promise<void> {
 
 async function installStore(ctx: Ctx): Promise<void> {
   const { vm, L, lock } = ctx;
-  await parallelSteps(bakedPrograms(lock).map((p) => () => L.step(vm, `store-${p.name}`, programInstallCommand(p))));
+  await parallelSteps(bakedPrograms(lock).map((p) => () => installStoreProgram(L, vm, `store-${p.name}`, programInstallCommand(p))));
   await L.step(vm, "store-profile", `${profileCommand(lock)} && chown -R root:root /opt/cmux`);
   await writeGuestFile(vm, "/etc/profile.d/00-cmux-store.sh", storeProfileScript(), 0o644);
   await writeGuestFile(vm, "/etc/profile.d/cmux-coderouter.sh", coderouterProfileScript(), 0o644);
@@ -935,6 +984,16 @@ async function installMachineHealth(ctx: Ctx): Promise<void> {
   ctx.result.machineHealth = JSON.parse(out.slice(out.lastIndexOf('{"schema"')));
 }
 
+/**
+ * The Cloud Chief host units (chief-host.ts), disabled: after the store and the work user. Rerun by the app
+ * layer, whose store swap may bring a new optchat-chief.
+ */
+async function installChiefHost(ctx: Ctx): Promise<void> {
+  const { vm, L, lock } = ctx;
+  for (const file of chiefHostFiles()) await writeGuestFile(vm, file.path, file.text, file.mode);
+  ctx.result.chiefHost = (await L.step(vm, "chief-host", chiefHostInstallCommand(chiefBinary(lock)))).trim().split("\n").at(-1);
+}
+
 /** Agent tools (agent-tools.ts): after configureRoles, whose check refuses any installed first-use package. */
 async function installAgentTools(ctx: Ctx): Promise<void> {
   const { vm, L, lock } = ctx;
@@ -944,6 +1003,16 @@ async function installAgentTools(ctx: Ctx): Promise<void> {
   for (const file of files) await writeGuestFile(vm, file.path, file.text, file.mode);
   ctx.result.agentTools = (await L.step(vm, "agent-tools-link", `sh -n ${AGENT_TOOLS_PROFILE} && ${agentToolsLinkCommand()}`)).trim().split("\n").at(-2);
   await L.step(vm, "agent-tools-desktop", rdSetupCommand());
+}
+
+/**
+ * The names many people added on their own machines (graduate.ts), installed in the agents layer so one shared
+ * copy replaces the many personal ones. Both bakes run it before the finalize records the image's packages.
+ */
+async function installGraduated(ctx: Ctx): Promise<void> {
+  const g = readGraduated();
+  if (g.apt.length + g.npm.length === 0) return;
+  ctx.result.graduated = (await ctx.L.step(ctx.vm, "graduated", graduatedInstallCommand(g, APT_UPDATE_COMMAND), 290_000)).trim().split("\n").at(-1);
 }
 
 /** The npm cache a first `npm install` finds (dep-cache.ts); the image record's size is read after clean. */
@@ -1004,6 +1073,8 @@ async function writeModelPlane(ctx: Ctx): Promise<void> {
   await writeGuestFile(vm, VM_GUEST_MODEL_PLANE_ENV_PATH, renderVmGuestModelPlaneEnvFile(vmGuestModelPlaneEnv()), 0o644);
   for (const file of AGENT_SIGN_IN_FILES) await writeGuestFile(vm, file.path, devboxFileBytes(file.name), 0o644);
   await L.step(vm, "agent-sign-in", agentSignInCheckCommand());
+  // After wireCmuxTui, whose hook install wrote the work user's ~/.claude/settings.json; this only adds keys it lacks.
+  await L.step(vm, "claude-settings-defaults", devboxClaudeSettingsDefaultsCommand());
   await L.step(vm, "agent-model-route-dirs", `install -d -m 755 /etc/claude-code /etc/codex ${AGENT_MODEL_ROUTE_DIR}`);
   for (const file of agentModelRouteFiles()) await writeGuestFile(vm, file.path, file.text, file.mode);
   await writeGuestFile(vm, AGENT_MODEL_ROUTE_SYNC_PATH, agentModelRouteSyncScript(), 0o755);
@@ -1094,6 +1165,22 @@ export function inventoryFailure(settled: ReadonlyArray<PromiseSettledResult<unk
   return failed.find((reason) => /\bstep \S+ failed\b/.test(String(reason))) ?? failed[0];
 }
 
+/**
+ * Fetch and unpack syft into `dir`, resuming a download a capped run left there: a whole file is kept, a partial one
+ * continues (`curl -C -`), a whole file with the wrong sha256 is removed so the next run starts over.
+ */
+export function syftFetchCommand(syft: { url: string; sha256: string; size: number }, dir: string): string {
+  const tgz = `${dir}/syft.tgz`;
+  return [
+    `mkdir -p ${dir}`,
+    `{ test "$(stat -c %s ${tgz} 2>/dev/null)" = ${syft.size} || curl -fsSL --retry 3 -C - -o ${tgz} ${sq(syft.url)}; }`,
+    `{ printf '%s  %s\\n' ${syft.sha256} ${tgz} | sha256sum -c --quiet - || { rm -f ${tgz}; false; }; }`,
+    `test "$(stat -c %s ${tgz})" = ${syft.size}`,
+    `tar -xzf ${tgz} -C ${dir} syft`,
+    `test -x ${dir}/syft`,
+  ].join(" && ");
+}
+
 export async function collectInventory(vm: Vm, L: StepLog, options: Pick<BakeOptions, "devTree" | "outDir">, lock: InputsLock, result: Record<string, unknown>, name: string, out = "/tmp/cmux-out"): Promise<void> {
   const syft = lock.tools.syft;
   await L.step(vm, "out-dir", `mkdir -p ${out}`);
@@ -1103,16 +1190,19 @@ export async function collectInventory(vm: Vm, L: StepLog, options: Pick<BakeOpt
   // Both read the final tree and write only under /tmp (which both exclude), so they run at once. A retry (inventory.ts)
   // passes its own OUT, so a cut-off try still running on the guest never shares its files.
   // allSettled: neither step is left running here when this throws.
-  const settled = await Promise.allSettled([L.step(vm, "file-manifest", `python3 ${out}/manifest.py ${out}/manifest.tsv ${skip.map(sq).join(" ")} && gzip -9f ${out}/manifest.tsv`), L.step(vm, "sbom", [
-    `mkdir -p ${out}-syft && curl -fsSL --retry 3 -o ${out}-syft/syft.tgz ${sq(syft.url)}`,
-    `printf '%s  %s\\n' ${syft.sha256} ${out}-syft/syft.tgz | sha256sum -c --quiet -`,
-    `test "$(stat -c %s ${out}-syft/syft.tgz)" = ${syft.size}`,
-    `tar -xzf ${out}-syft/syft.tgz -C ${out}-syft syft`,
+  // syft comes from GitHub releases, which ran at about 100 KB/s into the builder on 2026-11-23: its 29 MB took about
+  // 230 s of the sbom step's 285 s in roll 45119294989 and pushed it past the guest's 5-minute exec cap in roll
+  // 45126299464 (status 124). The download is its own resumed, retried step (installStoreProgram); the scan follows.
+  const scanSbom = async (): Promise<string> => {
+    await installStoreProgram(L, vm, "sbom-syft", syftFetchCommand(syft, `${out}-syft`));
+    return L.step(vm, "sbom", [
     "t=$(date +%s)",
     `cd / && SYFT_CHECK_FOR_APP_UPDATE=false HOME=${out}-syft timeout 280 ${out}-syft/syft scan dir:/ --select-catalogers +javascript-package-cataloger --exclude './proc/**' --exclude './sys/**' --exclude './dev/**' --exclude './run/**' --exclude './tmp/**' ${skip.map((p) => `--exclude ${sq(`.${p}/**`)}`).join(" ")} -o cyclonedx-json=${out}/sbom.cdx.json -q`,
     "echo syft-secs $(( $(date +%s) - t ))",
     `gzip -9f ${out}/sbom.cdx.json`,
-  ].join(" && "))]);
+  ].join(" && "));
+  };
+  const settled = await Promise.allSettled([L.step(vm, "file-manifest", `python3 ${out}/manifest.py ${out}/manifest.tsv ${skip.map(sq).join(" ")} && gzip -9f ${out}/manifest.tsv`), scanSbom()]);
   const failed = inventoryFailure(settled);
   if (failed !== undefined) throw failed;
   const [manifest, sbomOut] = settled.map((s) => (s as PromiseFulfilledResult<string>).value);
@@ -1147,9 +1237,11 @@ async function baseSteps(ctx: Ctx): Promise<void> {
   await configureRoles(ctx);
   if (options.agentTools) await installAgentTools(ctx);
   // A layered bake fills it in the agents layer (overlaySteps), not twice.
+  if (!options.layered) await installGraduated(ctx);
   if (!options.layered) await prefillDepCaches(ctx);
   if (options.devTree) await installDevTree(ctx);
   await installMachineHealth(ctx);
+  await installChiefHost(ctx);
   await installHostConfig(ctx);
   await startDaemon(ctx);
   await writeModelPlane(ctx);
@@ -1166,17 +1258,19 @@ async function overlaySteps(ctx: Ctx, layer: "agents" | "app"): Promise<void> {
   const { vm, L, lock } = ctx;
   const programs = bakedPrograms(lock).filter((p) => isAppProgram(p.name) === (layer === "app"));
   await L.step(vm, `${layer}-prepare`, overlayPrepareCommand(programs.flatMap((p) => Object.keys(p.bin))));
-  await parallelSteps(programs.map((p) => () => L.step(vm, `store-${p.name}`, cachedInstallCommand(storeEntry(p.sha256), programInstallCommand(p), p.name))));
+  await parallelSteps(programs.map((p) => () => installStoreProgram(L, vm, `store-${p.name}`, cachedInstallCommand(storeEntry(p.sha256), programInstallCommand(p), p.name))));
   await L.step(vm, "store-profile", `${profileCommand(lock)} && chown -R root:root /opt/cmux`);
   await L.step(vm, `${layer}-prune`, overlayPruneCommand());
   if (layer === "agents") {
     await configureRoles(ctx);
     if (ctx.options.agentTools) await installAgentTools(ctx);
+    await installGraduated(ctx);
     await prefillDepCaches(ctx);
     await L.step(vm, "agents-done", "rm -rf /tmp/cmux-dl && echo agents-layer-ok");
     return;
   }
   await wireCmuxTui(ctx);
+  await installChiefHost(ctx);
   await installHostConfig(ctx);
   await startDaemon(ctx);
   await writeModelPlane(ctx);
@@ -1226,7 +1320,38 @@ async function allSnapshots(fs: ReturnType<typeof freestyleClient>): Promise<Arr
 }
 const SNAPSHOT_PAGE = 100;
 
-/** One builder from `from`, `steps` on it, its snapshot slugged `name`; the builder is deleted unless kept. */
+/**
+ * The large image (large-image.ts): the builder, already snapshotted as the image, grown to LARGE_IMAGE_SHAPE and
+ * snapshotted again as `<name>-large`. Only the resize and checks run in between, so both snapshots hold one tree;
+ * the checks that guard the image's snapshot (nothing writing under /tmp, no per-machine file, the health timer
+ * armed with no pass recorded) run again right before this one.
+ */
+async function snapshotLarge(vm: Vm, name: string, options: BakeOptions, ledger: Ledger, L: StepLog, parentSlug?: string): Promise<LargeImageRecord> {
+  const t0 = Date.now();
+  const largeName = largeImageName(name);
+  const grow = await growToShape(vm);
+  L.log(`LARGE grow ${JSON.stringify(grow)}`);
+  // The memory guards are percentages systemd resolved at the small size: reload them, and refuse a stale one.
+  const guards = memoryGuardProblems(await L.step(vm, "large-memory-guards", MEMORY_GUARD_REFRESH_COMMAND));
+  if (guards.length > 0) throw new Error(`the memory guards did not follow the new size: ${guards.join("; ")}`);
+  const rootDevice = (await L.step(vm, "large-root-device", ROOT_DEVICE_COMMAND)).trim();
+  await L.step(vm, "large-tmp-no-writer", tmpWritersCommand());
+  await L.step(vm, "large-snapshot-ready", snapshotReadyCommand());
+  await L.step(vm, "large-machine-health-arm", MACHINE_HEALTH_ARM_COMMAND);
+  const tSnap = Date.now();
+  // The same parent label as the image's own snapshot, so gc-layers.ts keeps the layers this one was built on.
+  const snap = await vm.snapshot({ displayName: options.layered ? layerLabel(largeName, parentSlug) : largeName, slug: largeName });
+  if (!snap?.snapshotId) throw new Error("large snapshot response carried no id");
+  ledger.record(snap.snapshotId, "snapshot", largeName);
+  const snapshotMs = Date.now() - tSnap;
+  L.log(`SNAPSHOT ${largeName} ${snap.snapshotId} (${snapshotMs} ms)`);
+  return { name: largeName, snapshotId: snap.snapshotId, size: { ...LARGE_IMAGE_SHAPE }, grow, rootDevice, snapshotMs, ms: Date.now() - t0 };
+}
+
+/**
+ * One builder from `from`, `steps` on it, its snapshot slugged `name`; the builder is deleted unless kept. With
+ * `large`, the builder is then grown and snapshotted again (snapshotLarge) and the outcome goes into `large.into`.
+ */
 async function bakeOn(
   fs: ReturnType<typeof freestyleClient>,
   ledger: Ledger,
@@ -1238,6 +1363,7 @@ async function bakeOn(
   L: StepLog,
   keepForInventory = false,
   parentSlug?: string,
+  large?: { ledger: Ledger; into: Record<string, unknown> },
 ): Promise<string> {
   let builder: Awaited<ReturnType<typeof createVm>> | null = null;
   let kept = false;
@@ -1255,6 +1381,16 @@ async function bakeOn(
     ledger.record(snap.snapshotId, "snapshot", name);
     result.snapshotMs = Date.now() - tSnap;
     L.log(`SNAPSHOT ${name} ${snap.snapshotId} (${result.snapshotMs} ms)`);
+    // After the image's own snapshot, which it cannot change. The builder may be left grown: the inventory reads
+    // files, and no file differs.
+    if (large) {
+      try {
+        large.into.large = await snapshotLarge(builder.vm, name, options, large.ledger, L, parentSlug);
+      } catch (error) {
+        large.into.largeError = String(error);
+        L.log(`LARGE IMAGE FAILED (the image ${name} is unaffected): ${large.into.largeError}`);
+      }
+    }
     // inventory.ts reads this builder next and deletes it; the run's cleanup deletes it from the ledger if not.
     kept = keepForInventory;
     if (kept) result.inventoryVmId = builder.vmId;
@@ -1278,6 +1414,8 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
   const fs = freestyleClient();
   const t0 = Date.now();
   const ctxFor = (vm: Vm, as: string): Ctx => ({ vm, L, lock, lockText, options, result, name: as });
+  // A ledger of its own (as the cached layers have): the run keeps or deletes the large snapshot by its own smoke.
+  const large = options.large ? { ledger: new Ledger(path.join(options.outDir, "large", "resources.tsv")), into: result } : undefined;
   try {
     // --agent-tools needs the cmux-rd release pinned: fail before any builder exists.
     if (options.agentTools) {
@@ -1321,12 +1459,12 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
       const app: Record<string, unknown> = { layer: "app", hit: false, parent };
       layers.push(app);
       const t = Date.now();
-      result.snapshotId = await bakeOn(fs, ledger, parent, name, options, (vm) => overlaySteps(ctxFor(vm, name), "app"), app, L, Boolean(options.deferInventory), parentSlug);
+      result.snapshotId = await bakeOn(fs, ledger, parent, name, options, (vm) => overlaySteps(ctxFor(vm, name), "app"), app, L, Boolean(options.deferInventory), parentSlug, large);
       if (app.inventoryVmId) result.inventoryVmId = app.inventoryVmId;
       app.ms = Date.now() - t;
       app.snapshotId = result.snapshotId;
     } else {
-      result.snapshotId = await bakeOn(fs, ledger, lock.base.snapshot, name, options, (vm) => baseSteps(ctxFor(vm, name)), result, L);
+      result.snapshotId = await bakeOn(fs, ledger, lock.base.snapshot, name, options, (vm) => baseSteps(ctxFor(vm, name)), result, L, false, undefined, large);
     }
   } catch (error) {
     result.error = String(error);
@@ -1339,9 +1477,20 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
   return result;
 }
 
+/**
+ * --large, refused with the flags it has no image for: the large image is a personal Cloud machine's default size;
+ * a team image, a dev tree, a production copy and a promotion have none yet.
+ */
+function largeFlag(argv: string[]): boolean {
+  if (!hasFlag("--large", argv)) return false;
+  const other = ["--promotion", "--prod-copy", "--team-vm", "--dev-tree"].find((flag) => hasFlag(flag, argv));
+  if (other) throw new Error(`--large is for dev snapshots of the personal Cloud image; it cannot be combined with ${other}`);
+  return true;
+}
+
 export function bakeOptionsFromArgv(argv = process.argv): BakeOptions {
   const tag = argValue("--tag", argv);
-  if (!tag) throw new Error("usage: bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>] [--update-lock] [--keep-builder] [--promotion] [--prod-copy] [--agent-tools] [--team-vm] [--dev-tree] [--layered [--defer-inventory]]");
+  if (!tag) throw new Error("usage: bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>] [--update-lock] [--keep-builder] [--promotion] [--prod-copy] [--agent-tools] [--team-vm] [--dev-tree] [--layered [--defer-inventory]] [--large]");
   if (hasFlag("--prod-copy", argv) && hasFlag("--promotion", argv)) throw new Error("--prod-copy cannot be combined with --promotion");
   if (hasFlag("--layered", argv) && (hasFlag("--prod-copy", argv) || hasFlag("--promotion", argv) || hasFlag("--update-lock", argv))) throw new Error("--layered is for dev snapshots from a fixed lock; the full bake makes production copies and promotions");
   if (hasFlag("--defer-inventory", argv) && !hasFlag("--layered", argv)) throw new Error("--defer-inventory needs --layered; the full bake records its SBOM and manifest before the snapshot");
@@ -1351,6 +1500,7 @@ export function bakeOptionsFromArgv(argv = process.argv): BakeOptions {
   if (hasFlag("--prod-copy", argv) && hasFlag("--update-lock", argv)) throw new Error("--prod-copy bakes the dev image's lock unchanged; it cannot be combined with --update-lock");
   if (hasFlag("--agent-tools", argv) && hasFlag("--promotion", argv)) throw new Error("--agent-tools is for dev snapshots only; it cannot be combined with --promotion");
   if (hasFlag("--dev-tree", argv) && hasFlag("--promotion", argv)) throw new Error("--dev-tree is for dev snapshots only; it cannot be combined with --promotion");
+  const large = largeFlag(argv);
   const promotion = hasFlag("--promotion", argv);
   return {
     tag,
@@ -1367,6 +1517,7 @@ export function bakeOptionsFromArgv(argv = process.argv): BakeOptions {
     prodCopy: hasFlag("--prod-copy", argv),
     layered: hasFlag("--layered", argv),
     deferInventory: hasFlag("--defer-inventory", argv),
+    large,
   };
 }
 
@@ -1375,5 +1526,8 @@ export async function main(argv = process.argv): Promise<number> {
   const result = await bake(bakeOptionsFromArgv(argv));
   if (result.error || !result.snapshotId) return 1;
   console.log(`IMAGE_ID ${result.snapshotId}`);
+  // Its own line and prefix: a reader of IMAGE_ID never sees the large image's id.
+  const large = result.large as LargeImageRecord | undefined;
+  if (large) console.log(`LARGE_IMAGE_ID ${large.snapshotId}`);
   return 0;
 }

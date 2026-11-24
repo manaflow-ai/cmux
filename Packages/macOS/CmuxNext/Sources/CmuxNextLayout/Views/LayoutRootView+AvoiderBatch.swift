@@ -10,8 +10,8 @@ extension LayoutRootView {
         WindowControlsAvoiders.batching(in: window) { advanceFrameBatched(dt) }
     }
 
-    /// A model change (``syncBatched(_:)``), its avoider re-checks batched as in a frame.
+    /// A model change (``syncBatched(_:)``), its avoider re-checks batched as in a frame. A probe reads its time.
     func sync(_ snapshot: Snapshot) {
-        WindowControlsAvoiders.batching(in: window) { syncBatched(snapshot) }
+        WindowControlsAvoiders.batching(in: window) { MotionTrace.measure("layout.sync") { syncBatched(snapshot) } }
     }
 }

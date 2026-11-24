@@ -1,5 +1,10 @@
 # ios/ agent instructions
 
+> **Retired.** `ios/` is the classic cmux iPhone app and is no longer developed or installed. The
+> iPhone app is `cmux-next-ios/` ([cmux-next-iOS notes](../cmux-next-ios/CLAUDE.md)); its hand-off
+> is `cmux-next-ios/scripts/review.sh` ([finishing a task](../skills/cmux-dev-workflow/references/finishing-a-task.md)). Don't
+> change code here, build it, or install it on a phone. The text below is kept only as history.
+
 iOS app-target work in this directory follows `Packages/iOS/AGENTS.md`,
 including its Apple Human Interface Guidelines rule. Read it before changing
 UI.
@@ -12,6 +17,10 @@ or explain the remaining verification gap in the PR.
 Script paths are relative to the repository root. Team members: shared build fleet rules for iOS are in cmuxterm-hq.
 
 ## Finishing a task
+
+This section is for the classic iPhone app in `ios/`. The cmux-next iPhone app (`cmux-next-ios/`)
+has its own hand-off command, new and still under end-to-end verification:
+[cmux-next-ios/AGENTS.md](../cmux-next-ios/AGENTS.md#hand-off-command-under-verification).
 
 Every agent report for an app change ends with a hand-off the person can review on their
 iPhone, with simulator evidence from the fleet, from one command run at the pushed head:
@@ -71,7 +80,7 @@ A phone is always connected. No connected phone, a locked phone, a queued instal
 gate is a blocker: report its `FAIL:` line and the retry command. Do not skip the phone, fall back
 to `--simulator-only` or pass `--no-sign-in`/`--no-attach`/`--no-setup`. Rerunning the same command
 resumes the saved fleet jobs without resubmitting. Copy the `Review ready` block into the report
-(format in the root [AGENTS.md](../AGENTS.md#finishing-a-task)).
+(format in [finishing a task](../skills/cmux-dev-workflow/references/finishing-a-task.md)).
 
 ## Keep cheap iOS-only regressions in `ios/tests/`
 

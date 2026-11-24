@@ -331,7 +331,7 @@ TabView(selection: $tab) {
 
 ### 3.3 Team sidebar (push-aside drawer)
 
-Scope: team switching only (Stack Auth teams) plus "Invite to team". No navigation destinations,
+Scope: team switching only (Stack Auth teams) plus Invite. No navigation destinations,
 no recents (that is the tab bar's job).
 
 Geometry (measured ChatGPT 330, Claude 320 on a 440 pt screen):
@@ -384,10 +384,12 @@ Swipe rules (app-wide, user decision 2026-10-13, `verify/swipes.md`):
 
 Content (top to bottom):
 
-1. Header row, 20 pt side margin, centered at the toolbar line: "cmux" wordmark text
-   (`sidebarTitle`) leading; trailing 44 pt glass circle `plus` → menu: "Create team",
-   "Join with invite link". (Header layout is `chatgpt-03-sidebar`.)
-2. Section label "Teams" (`meta`, `label2`), 20 pt margin, 24 pt above the first row.
+1. Header row, 20 pt side margin, centered at the toolbar line: the title "Teams"
+   (`sidebarTitle`, one line) leading, no brand wordmark (Aziz 2026-11-18: the app icon
+   already says cmux). Trailing: the 44 pt glass circle `plus` → menu: "Create team",
+   "Join with invite link".
+   (Header layout is `chatgpt-03-sidebar`.)
+2. No section label: the header names the list; 16 pt above the first row.
 3. Team rows (`List` style plain, no separators), each 60 pt:
    - Leading avatar 36 x 36, rounded square radius 10 continuous: team color fill with the
      emoji (22 pt) centered, or the team initial (`headline`, `onAccent`-style white) if no emoji.
@@ -403,14 +405,16 @@ Content (top to bottom):
    - Context menu (long press): "Change color and emoji" (`paintpalette`), "Invite to team"
      (`person.badge.plus`), "Copy team name", divider, "Leave team" (destructive, confirmation
      alert). Pattern: `grok-15-row-context-menu`.
-4. Row "Invite to team" (`person.badge.plus`, `body`), 48 pt, after the team list. Opens the
-   share sheet with the Stack invitation URL from `POST /v1/teams/:teamId/invites` (show a
-   `ProgressView` in the row while fetching).
-5. Bottom bar (pinned, 20 pt margins, 8 pt above the bottom safe area):
-   - Leading: primary capsule "Invite" with `person.badge.plus` (48 h, `accent` fill,
-     `onAccent` text, `cta` font). Measured `claude-01-sidebar` "New session".
-   - Trailing: 48 pt circle avatar of the signed-in user (initials on `surfaceRaised`, like
-     Claude's "AA"), opens Settings > Account and closes the drawer.
+4. No "Invite to team" row under the list (it read as another team and did not say which
+   team it invited to). Instead, a bottom toolbar item at the trailing edge (Aziz
+   2026-11-19): "Invite" (`person.badge.plus` + "Invite" in a 44 pt glass capsule, 20 pt
+   margin, 8 pt above the bottom safe area, for the selected team; VoiceOver "Invite to
+   <team>"; spinner while the link is made; glyph only, in a 44 pt circle, at accessibility
+   text sizes; absent for the personal space). It opens the share sheet with the Stack invitation
+   URL from `POST /v1/teams/:teamId/invites`; another team is invited from its row's
+   context menu.
+5. Bottom bar (pinned, 20 pt margins, 8 pt above the bottom safe area): only Invite, at the
+   trailing edge (item 4). The account lives in Settings, not here.
 
 Team switch: tap row → `.selection` haptic, row highlight moves (`snap`), drawer closes
 (`drawer`), then the shell crossfades (`gentle`) to the new team's data; lists show skeletons
@@ -762,6 +766,11 @@ pill (Chief model is configured on the Mac). Everything below applies to both un
   bottom content inset = composer height + 16.
 - Empty (new session): centered glyph (agent avatar 48) + `title3` "What should <agent> do?"
   + `rowSubtitle` "<workspace> on <Mac>". Composer focused only if the user tapped "new".
+  The first time a new chat shows, the mark, title, subtitle and composer rise in
+  (`NewChatEntrance.rise`: 10-14 pt + fade, mark from 90%, 50 ms apart, spring response 0.5 /
+  damping 0.84, settled by ~450 ms). Render only: the composer takes typing from frame 0; the
+  start pose holds through the first drawn frame; Reduce Motion draws it at rest. At launch the
+  shell arrives from 104% on a 0.55 / 0.86 spring as the launch mark leaves.
   (`claude-05-composer-focused`, Grok "Ask Anything" home `grok-01`.)
 - History loads newest-first in pages of 50 turns; older pages prepend while keeping the scroll
   offset (anchor on the first visible turn id). Top-of-history: `meta` "Session started
@@ -939,13 +948,16 @@ in the available area (above the composer when one exists): symbol 28 pt `label`
 
 ### 7.4 Offline and reconnecting
 
-- Connection banner (global overlay under the toolbar, centered, 8 pt below the toolbar line):
-  glass capsule 36 h, padding 14, `footnote` semibold:
-  - Reconnecting: small `ProgressView` + "Reconnecting to <Mac>…". Shown only after 1.5 s of
-    disconnection (most blips heal silently).
-  - Offline (no network): `wifi.slash` + "You're offline".
-  - Mac offline: `moon.zzz` + "<Mac> is offline". Tap → sheet with last seen time and "Wake
-    with Wake-on-LAN" (when supported, future) / "Retry".
+- Connection chip (`ConnectionChip`, a global overlay under the toolbar, centered, 8 pt below
+  the toolbar line): glass capsule 26 h, padding 10, `meta` semibold, one or two words, never a
+  sentence; the sentence is its VoiceOver label. It floats over the content and takes no room:
+  showing or hiding it moves nothing (Leo, 2026-11-21: "stop layout shifting"). Shown only after
+  the 10 s quiet gate (`QuietStatusGate`; most blips heal silently).
+  - Reconnecting: spinner + "Reconnecting".
+  - Offline (no network): `wifi.slash` + "Offline"; the chip is a Retry button.
+  - Mac offline: `moon.zzz` + "Mac offline"; the chip is a Retry button.
+- A state with a sentence to read or an action (signed out, pairing, a failed refresh) is the
+  wider banner (glass, 36 h, `footnote` semibold), also an overlay that moves nothing.
   - Recovered: `checkmark` + "Connected" for 1.5 s then hides.
   Enter/exit: move from y - 12 + opacity, `snappy`. Never more than one banner.
 - Stale data: lists keep the last snapshot visible with rows at full opacity; a `meta` "Updated

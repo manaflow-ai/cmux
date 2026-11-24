@@ -132,15 +132,15 @@ fn pid_exists(_pid: u32) -> bool {
 
 /// When `pid` started, in milliseconds since the epoch (macOS).
 #[cfg(target_os = "macos")]
-fn pid_start_ms(pid: u32) -> Option<u64> {
-    let (sec, usec) = crate::cua_v2::start_time(libc::pid_t::try_from(pid).ok()?)?;
+pub(crate) fn pid_start_ms(pid: u32) -> Option<u64> {
+    let (sec, usec) = crate::proc_start::start_time(libc::pid_t::try_from(pid).ok()?)?;
     Some(sec.saturating_mul(1000).saturating_add(usec / 1000))
 }
 
 /// When `pid` started, in milliseconds since the epoch (Linux): `/proc/<pid>/stat`'s `starttime`
 /// (clock ticks since boot) after `/proc/stat`'s `btime` (the boot, seconds since the epoch).
 #[cfg(any(target_os = "linux", target_os = "android"))]
-fn pid_start_ms(pid: u32) -> Option<u64> {
+pub(crate) fn pid_start_ms(pid: u32) -> Option<u64> {
     let ticks = crate::owner_exit::process_start(pid)?;
     let stat = std::fs::read_to_string("/proc/stat").ok()?;
     let boot: u64 =
@@ -153,7 +153,7 @@ fn pid_start_ms(pid: u32) -> Option<u64> {
 
 /// Elsewhere the registry's pid decides alone.
 #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "android")))]
-fn pid_start_ms(_pid: u32) -> Option<u64> {
+pub(crate) fn pid_start_ms(_pid: u32) -> Option<u64> {
     None
 }
 

@@ -136,19 +136,53 @@ test("the line opens on click to the rows exactly as they drew before", () => {
   expect(open[at]!.version).not.toBe(line.version);
 });
 
-test("the line counts what the run did, messages first", async () => {
+test("the line counts what the run did, each kind in the order it first came", async () => {
   const { messageRunSummary } = await import("../src/agent-session/acpmux/conversation/messageRuns");
   const line = turnView(turn(), new Set(), claude).find((row) => row.kind === MESSAGE_RUN)!;
   expect(messageRunSummary(translate, line.messageRun!)).toBe(
-    "Sent 6 messages, read 3 files, ran a command, received a message",
+    "Sent 6 messages, read 3 files, received a message, ran a command",
   );
 });
 
-test("a running turn folds its run of messages the same way, under the live line", () => {
+// Leo, 2026-11-21: "the messages and whatever collapsing and stuff, sometimes it does so too soon in
+// the midst of a turn". The run the agent is still in (no paragraph after it yet) stays open while the
+// turn runs; a paragraph ends it and it folds then, as a run of calls folds (messageRuns.ts
+// `messageRunFoldLook`). Before, it folded on its second line, the run the agent was in included.
+test("a running turn folds its run of messages once the agent's paragraph ends it, not before", () => {
   const rows = turn().filter((row) => row.kind !== "assistant" && row.kind !== "turnSummary");
   const view = turnView(rows, new Set(), { ...claude, working: true });
-  expect(view.filter((row) => row.kind === MESSAGE_RUN)).toHaveLength(1);
-  expect(ids(view)).not.toContain("report");
+  expect(view.filter((row) => row.kind === MESSAGE_RUN)).toHaveLength(0);
+  expect(ids(view)).toEqual(expect.arrayContaining(["run-1", "report", "compacted", "run-2"]));
+  // The agent writes: its paragraph ends the run, which folds under its line, the paragraph after it.
+  const said = turn().filter((row) => row.kind !== "turnSummary");
+  const ended = turnView(said, new Set(), { ...claude, working: true });
+  expect(ended.filter((row) => row.kind === MESSAGE_RUN)).toHaveLength(1);
+  expect(ids(ended)).not.toContain("report");
+  // The next run, after that paragraph, stays open again until its own paragraph.
+  const next = [...said, activity([send("lane-2/acpmux-owner", "one more"), read("/tmp/x.md")], "run-3")];
+  const going = turnView(next, new Set(), { ...claude, working: true });
+  expect(going.filter((row) => row.kind === MESSAGE_RUN)).toHaveLength(1);
+  expect(ids(going)).toContain("run-3");
+});
+
+test("the gallery's other arms: fold at the turn's end only, or as soon as a run has two lines", () => {
+  const rows = turn().filter((row) => row.kind !== "turnSummary");
+  const open = turn().filter((row) => row.kind !== "assistant" && row.kind !== "turnSummary");
+  const runs = (view: AcpmuxRow[]) => view.filter((row) => row.kind === MESSAGE_RUN).length;
+  const scope = globalThis as { document?: unknown };
+  const had = scope.document;
+  // The gallery's `<html data-message-run-fold>`, without a DOM.
+  const look = (fold: string) => (scope.document = { documentElement: { dataset: { messageRunFold: fold } } });
+  try {
+    look("turn-end");
+    expect(runs(turnView(rows, new Set(), { ...claude, working: true }))).toBe(0);
+    look("now");
+    expect(runs(turnView(open, new Set(), { ...claude, working: true }))).toBe(1);
+  } finally {
+    scope.document = had;
+  }
+  // A finished turn folds the same under every arm.
+  expect(turnView(turn(), new Set(), claude).filter((row) => row.kind === MESSAGE_RUN)).toHaveLength(1);
 });
 
 test("a Codex turn's open Worked for folds its run of messages too", () => {

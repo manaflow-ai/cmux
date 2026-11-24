@@ -18,9 +18,11 @@ extension WindowManager {
     /// Shows `profile` in `state`'s window: the workspaces the window holds
     /// in it (the last one shown there is selected), else the profile's
     /// workspaces no open window showing that profile holds, else a new
-    /// workspace created in it.
-    func switchProfile(_ profile: ProfileID, in state: WindowState, keepingHomes: Bool = false) {
+    /// workspace created in it: a person's a chat (the New Tab page, David Beyer 2026-11-20), automation's a terminal.
+    func switchProfile(_ profile: ProfileID, in state: WindowState, keepingHomes: Bool = false, opensNewTabPage: Bool = ActionRunScope.isPersonsAction()) {
         guard profile != state.profileID else { return }
+        // Spaces off (#48355): the window keeps the space it shows, so its sidebar (rows, groups, pins) never swaps out.
+        guard spacesOn else { return services.registry.refuse(RoomStrings.spacesOff, quiet: true) }
         // An incognito space lives in its incognito window (spaces-overhaul-DESIGN.md rule 2): switching another
         // window to it shows that window instead, and an incognito space's window never shows a normal space.
         if incognitoSpaces[state.id] != nil { return services.registry.refuse(RefusalStrings.incognitoMismatch) }
@@ -49,13 +51,39 @@ extension WindowManager {
             // and the switch shows it as soon as the daemon mirrors it.
             state.enterProfile(profile)
             recordSaver.stateDidChange(state)
-            let create = startWorkspace(WorkspaceSpawn(), into: state.id)
+            let create = startWorkspace(WorkspaceSpawn(newTabPage: opensNewTabPage), into: state.id)
             Task { _ = try? await create() } // a failure releases the claim (`createFailed`)
             return
         }
         let remembered = state.profileWorkspaces[profile].flatMap { visible.contains($0) ? $0 : nil }
         state.enterProfile(profile)
         select(remembered ?? visible.first, in: state)
+    }
+
+    /// `sidebar.showSpaces` (https://github.com/manaflow-ai/cmux/issues/48355, off by default): no space is made or
+    /// switched to by the person. No settings layer (a headless host) keeps the daemon's spaces reachable.
+    var spacesOn: Bool { services.settings.map { $0.snapshot.sidebarSections.showSpaces } ?? true }
+    /// Pins the workspaces `room` does not show there, as Move to Space does (Spaces off, #48355). One membership read for
+    /// the batch. `window` selects the first once its pin lands (`landedPins`), when the move asked to select it.
+    func pin(_ ids: [String], to room: ProfileID, selectIn window: String? = nil) {
+        let machines = services.machines
+        guard let membership = WindowProfiles.membership(machines) else { return }
+        let moving = ids.compactMap { id in WindowProfiles.qualified(id, machines: machines).map { (id, $0) } }.filter { !membership.contains($0.1, in: room) }
+        if let window, let first = moving.first, first.0 == ids.first { pinSelections[first.0] = (window, states[window]?.workspaceID) }
+        for (_, workspace) in moving {
+            machines.local.send("pin-workspace") { try await $0.pinWorkspace(session: workspace.session, key: WorkspaceKey(rawValue: workspace.key), to: room) }
+        }
+    }
+    /// The moved workspaces whose pin now shows them in their window's space, by window; each is taken once.
+    func landedPins() -> [String: [String]] {
+        var landed: [String: [String]] = [:]
+        for (id, (window, since)) in pinSelections {
+            guard !spacesOn, let state = states[window], registry.value.owner(of: id) == window, state.workspaceID == since || state.workspaceID == id else {
+                pinSelections[id] = nil; continue
+            }
+            if WindowProfiles.visible([id], profile: state.profileID, machines: services.machines) == [id] { landed[window, default: []].append(id); pinSelections[id] = nil }
+        }
+        return landed
     }
 
     /// Next (+1) or previous (-1) profile of the local daemon, clamped at
@@ -85,7 +113,9 @@ extension WindowManager {
 
     /// Selecting a workspace of another room (palette, CLI, a
     /// notification) shows that room in the window first.
+    /// Spaces off (#48355): the window keeps its view, and the workspace joins it (a pin, selected once it lands).
     func enterProfile(of workspaceID: String, in state: WindowState) {
+        guard spacesOn else { return pin([workspaceID], to: state.profileID, selectIn: state.id) }
         guard let room = WindowProfiles.room(of: workspaceID, current: state.profileID, machines: services.machines) else { return }
         state.enterProfile(room)
     }
@@ -150,6 +180,8 @@ extension WindowManager {
         guard !sources.isEmpty else { return }
         try refuseClosingCreating(sources.map(\.id))
         try refuseLocalTabs((moving.isEmpty ? [] : [state.id]) + sources.map(\.id))
+        // Spaces off (#48355): this window keeps its view, and the merged workspaces join it (a pin, as Move to Space).
+        if !spacesOn { pin(moving, to: state.profileID) }
         let order = Dictionary(value.recency.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
         for source in sources.sorted(by: { order[$0.id, default: .max] < order[$1.id, default: .max] }) {
             guard let other = states[source.id] else { continue }
@@ -225,17 +257,17 @@ extension WindowManager: SpaceWindowSource {
 enum WindowOwnSpace {
     /// Window `id` (normal, no Home, spaces on the home daemon) shows a space another open window shows.
     static func shares(_ id: String, in windows: WindowManager) -> Bool {
-        let value = windows.registry.value, local = windows.services.machines.local, members = windows.registry.members(of: id)
+        let value = windows.registry.value, local = windows.services.machines.local, members = value.window(id)?.ownedIDs ?? []
         guard let state = windows.states[id], value.window(id)?.isOpen == true, !value.isIncognito(id), windows.incognitoSpaces[id] == nil,
               local.supports(DaemonCapability.profiles.rawValue), local.store.personal.isLoaded, !members.isEmpty,
               !members.contains(where: { windows.services.workspace(id: $0)?.isAnyHome == true }) else { return false }
         return value.openWindows.contains { $0.id != id && windows.states[$0.id]?.profileID == state.profileID }
     }
-    /// When it shares one, window `id` gets a new space (as New Space) with its workspaces pinned there once reported.
+    /// When it shares one, window `id` gets a new space (as New Space) with its own workspaces, never its guests, pinned there once reported.
     static func give(_ id: String, in windows: WindowManager) {
         guard shares(id, in: windows), let state = windows.states[id], let connection = windows.services.machines.local.connection else { return }
-        let machines = windows.services.machines, store = machines.local.store, logger = windows.services.daemon.logger, connected = store.connectionState
-        let ids = WindowProfiles.visible(windows.registry.members(of: id), profile: state.profileID, machines: machines)
+        let machines = windows.services.machines, store = machines.local.store, logger = windows.services.daemon.logger, connected = store.connectionState, ids = WindowProfiles.visible(windows.registry.value.window(id)?.ownedIDs ?? [], profile: state.profileID, machines: machines)
+        windows.registry.holdOwnSpace(id); windows.spaceDidChange() // it lists only what moved, and falls back to its space once pinned (#45984)
         let space = ProfileID.generate(), name = RoomStrings.defaultName(store.profileIDs.count + 1), browser = store.profile(state.profileID)?.browserProfileID, color = GroupColor.automatic(after: store.profiles.compactMap(\.color))
         Task { do {
                 _ = try await connection.createProfile(name: name, id: space, color: color.rawValue, browserProfileID: browser)
@@ -243,6 +275,6 @@ enum WindowOwnSpace {
                 let waiting = Task { await store.mirrored(profile: space); for await done in ObservationStream({ reported().count == ids.count || store.connectionState != connected }) where done { break } }
                 let bound = DemandTimer(owner: "WindowOwnSpace.give"); bound.schedule(after: .seconds(10)) { waiting.cancel() }; await waiting.value; bound.cancel() // a reconnect or 10 s
                 for workspace in reported() { try await connection.pinWorkspace(session: workspace.session, key: WorkspaceKey(rawValue: workspace.key), to: space) }
-            } catch { logger.error("own space for a new window failed: \(String(describing: error), privacy: .public)") } }
+            } catch { logger.error("own space for a new window failed: \(String(describing: error), privacy: .public)"); windows.registry.spaceEntered(id); windows.spaceDidChange() } } // a view of its space again
     }
 }

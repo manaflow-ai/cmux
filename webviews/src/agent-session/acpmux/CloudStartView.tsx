@@ -1,7 +1,7 @@
 import { useEffect, useId, useState } from "react";
 import { experimentArm } from "../../experiments/experiment";
 import { usePageNow } from "../../ui/pageClock";
-import { cloudStartLook } from "./cloudStart.experiment";
+import { cloudStartLook, cloudStartQuietLook } from "./cloudStart.experiment";
 import { CloudStartAsk } from "./CloudStartAsk";
 import {
   CLOUD_START_STALL_MS,
@@ -13,7 +13,9 @@ import {
 } from "./cloudStartProgress";
 import { AlertCircle, Check, ChevronDown, ChevronRight, Folder, Spinner } from "./conversation/icons";
 
+import { ShimmerText } from "./conversation/ShimmerText";
 import { Thinking } from "./conversation/Thinking";
+import { formatDuration } from "./conversation/turns";
 import { CloudSetupCard } from "./conversation/CloudSetupCard";
 import type { CloudSetupAction } from "./cloudSetup";
 import { usePaneLanguage, useT, type Translate } from "./i18n";
@@ -22,7 +24,7 @@ import type { CloudPlanTeam, CloudPlanTeamRefusal } from "./cloudPlanTeams";
 import {
   CLOUD_PLAN_IDS,
   CLOUD_PLANS,
-  cloudSizeWords,
+  cloudPlanMachineWords,
   sizeFits,
   type CloudPlanId,
   type CloudPlanView,
@@ -31,7 +33,50 @@ import {
 import { useCloudPlanSubscribe, type CloudPlanSubscribeStore } from "./cloudPlanSubscribe";
 import { useGitHubPicker, type GitHubPickerStore } from "./githubRepos";
 import "./cloudStart.css";
-import { type ChecklistStep, startupChecklist } from "./cloudStartViewModel";
+import { type ChecklistStep, type QuietStage, quietStage, startupChecklist } from "./cloudStartViewModel";
+import { WithFacts } from "./chips/FactsHoverCard";
+
+type QuietLook = "inline" | "stacked" | "hint" | "thinking";
+
+/// The quiet view's one line while a start is on its way: the stage's words in the live line's look
+/// (the local Thinking line's shimmer, so the start still reads as a local first turn), its clock,
+/// then why the chat waits and for about how long (Leo, 2026-11-09: "the ergonomic part is super big
+/// for us."). Never the step list: that stays behind a failure (cloudStartQuietLook's arms).
+function StageLine({ stage, look, now }: { stage: QuietStage; look: Exclude<QuietLook, "thinking">; now: number }) {
+  const clock = stage.since === undefined ? undefined : formatDuration(Math.max(0, now - stage.since));
+  const eta = (
+    <span className="cv-worked__count acpmux-cloud-start__eta">
+      <span className="cv-worked__sep" aria-hidden="true">
+        ·
+      </span>
+      <span>{stage.eta}</span>
+    </span>
+  );
+  return (
+    <div className="acpmux-cloud-start__stage" data-look={look} data-stage={stage.id}>
+      <div className="cv-worked cv-worked--live" data-find-skip>
+        <span className="cv-shimmer__row">
+          <output className="cv-thinking is-shimmer">
+            <ShimmerText text={stage.label} />
+          </output>
+          {clock && <span className="cv-worked__time">{clock}</span>}
+        </span>
+        {look !== "stacked" && eta}
+      </div>
+      {look === "stacked" && <div className="acpmux-cloud-start__eta-line">{stage.eta}</div>}
+      {look === "hint" && (
+        <div className="acpmux-cloud-start__hint" aria-hidden="true">
+          {Array.from({ length: stage.steps }, (_, index) => (
+            <span
+              key={index}
+              data-step={index + 1 < stage.step ? "done" : index + 1 === stage.step ? "current" : "next"}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 function mark(step: ChecklistStep, t: Translate) {
   if (step.status === "done")
     return (
@@ -140,7 +185,7 @@ function PlanOffer({
       </span>
       <span className="acpmux-cloud-plans__price">{t("cloudStart.plans.perMonth", { price: offer.price })}</span>
       <span className="acpmux-cloud-ask__line">
-        {t("cloudStart.plans.includes", { size: cloudSizeWords(offer.maxSize, t) })}
+        {t("cloudStart.plans.includes", { size: cloudPlanMachineWords(plan, t) })}
       </span>
       <button
         type="button"
@@ -160,7 +205,7 @@ function PlanOffer({
 }
 
 /// The pricing card: a Cloud send the account has no plan for (the platform's `cloud_plan_required`, or the page's
-/// own hold when `cloudMachine.list` says `plan.state` `none`). A final state, no retry and no wait: cmux NEXT Pro and
+/// own hold when `cloudMachine.list` says `plan.state` `none`). A final state, no retry and no wait: cmux NEXT Plus, Pro and
 /// Max side by side (or the plans the refusal named, `plans`), each with Subscribe (`cloud.plan.subscribe`, the start
 /// goes again by itself once the plan is on, cloudPlanSubscribe.ts), then Run on This Mac and Not now. A refusal in a team (`refusal`) names the team the send
 /// was in (the one picked in the team menu, which is easy to miss) and offers the person's own team first, which
@@ -369,16 +414,19 @@ function TooBigActions({
             aria-label={t("cloudStart.pickRepo")}
           >
             {repos.map((repo) => (
-              <button
-                key={repo.path}
-                type="button"
-                className="acpmux-cloud-ask__button acpmux-cloud-too-big__repo"
-                data-repo={repo.path}
-                title={repo.path}
-                onClick={() => onPickRepo(repo.path)}
-              >
-                {repo.name}
-              </button>
+              <WithFacts key={repo.path} facts={[{ value: repo.path, code: true }]}>
+                {(facts) => (
+                  <button
+                    {...facts}
+                    type="button"
+                    className="acpmux-cloud-ask__button acpmux-cloud-too-big__repo"
+                    data-repo={repo.path}
+                    onClick={() => onPickRepo(repo.path)}
+                  >
+                    {repo.name}
+                  </button>
+                )}
+              </WithFacts>
             ))}
           </fieldset>
         </>
@@ -500,6 +548,7 @@ export function CloudStartView({
   start,
   bubble = true,
   showSteps = false,
+  quietLook,
   onOpenEnvironment,
   onAnswer,
   onRetry,
@@ -522,6 +571,8 @@ export function CloudStartView({
   /// The startup steps while the start is on its way (galleries and tests); off, the start reads as a
   /// local first turn and only a failure shows them.
   showSteps?: boolean;
+  /// The quiet line's look (galleries and tests); otherwise the `cloud-start-quiet-look` arm.
+  quietLook?: QuietLook;
   onOpenEnvironment?: (options: { environmentId?: string; repository?: string; section: "script" }) => void;
   /// The person's click on the start's question: its id and the button's (`cloud.answerStart`).
   onAnswer?: (id: string, button: string) => Promise<boolean> | void;
@@ -578,6 +629,8 @@ export function CloudStartView({
   const planLabels = cloudPlanRecoveryLabels(language);
   const rows = startupChecklist(start, t, now, language);
   const known = facts(start, t);
+  const look = quietLook ?? experimentArm(cloudStartQuietLook);
+  const stage = look === "thinking" ? undefined : quietStage(start, rows, t);
   const openEnvironment = () => {
     const options = {
       ...(start.environmentId ? { environmentId: start.environmentId } : {}),
@@ -596,6 +649,8 @@ export function CloudStartView({
   // Thinking line, with no Cloud machine, clone or setup rows (Leo, 2026-11-04: "You actually see
   // nothing. Like the ideal is, of course, you literally have parity with local, and you don't even
   // realize that you entered the cloud"). Only a failure shows the steps, with what to do.
+  // The line names the stage the start is on, why it waits and about how long (cloudStartViewModel
+  // `quietStage`), in the Thinking line's look; once the agent has started it is Thinking again.
   // A start that waits on the person's browser sign-in says that instead: nothing runs until they finish.
   const waitingForSignIn = !failed && start.signingIn === true;
   const signInStatus = (
@@ -664,7 +719,13 @@ export function CloudStartView({
             <div className="ui-glass cv-user__bubble selectable">{start.task}</div>
           </div>
         )}
-        {waitingForSignIn ? signInStatus : <Thinking />}
+        {waitingForSignIn ? (
+          signInStatus
+        ) : stage && look !== "thinking" ? (
+          <StageLine stage={stage} look={look} now={now} />
+        ) : (
+          <Thinking />
+        )}
         <AskRow {...(start.ask ? { ask: start.ask } : {})} {...(onAnswer ? { onAnswer } : {})} />
       </section>
     );

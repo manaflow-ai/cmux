@@ -110,6 +110,12 @@ async function pick(label: string) {
     "Show All Messages",
     "Show Only My Messages",
     "Show Only Agent Messages",
+    "Show Agent Replies",
+    "Show Messages and Replies",
+    "Show Turns with Errors",
+    "Show Turns with Edits",
+    "Show Turns with Tool Calls",
+    "Show Turns with Subagents",
   ]);
   await act(async () => items.find((item) => item.textContent?.endsWith(label))!.click());
 }
@@ -138,7 +144,12 @@ test("right-clicking the rail filters its ticks to my prompts or to other agents
     await act(async () => {
       ticks()[0]!.dispatchEvent(new dom.window.MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
     });
-    expect(filterItems().map((item) => item.getAttribute("aria-checked"))).toEqual(["false", "false", "true"]);
+    expect(filterItems().map((item) => item.getAttribute("aria-checked"))).toEqual([
+      "false",
+      "false",
+      "true",
+      ...Array(6).fill("false"),
+    ]);
     await act(async () => document.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape" })));
     await pick("Show All Messages");
     expect(ticks()).toHaveLength(12);
@@ -171,13 +182,20 @@ test("Next Turn from above every kept prompt lands on the first one the filter k
     await act(async () => {
       scroller.scrollTop = 0;
       await scrolled();
+      // The transcript re-windows to the new top over the next frames; its rows at the top mount then.
+      for (let frame = 0; frame < 5; frame += 1)
+        await new Promise<void>((resolve) => dom.window.requestAnimationFrame(() => resolve()));
     });
     const prompts = turns.filter((entry) => entry.kind === "user");
-    /// The prompt being read: the last whose bubble is at or above 35 px under the view's top.
+    /// The prompt being read: the last whose turn's first row is at or above 35 px under the view's top.
+    /// A received message's turn opens on its "Worked for" line (#49052), which holds the message under
+    /// it, so the line, not the bubble, is where the rail lands the turn.
     const reading = () => {
       let read = 0;
       prompts.forEach((entry, index) => {
-        const node = document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${entry.id}"]`);
+        const node =
+          document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="worked-${entry.id}"]`) ??
+          document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${entry.id}"]`);
         const top =
           Number.parseFloat(node?.style.top ?? "") + (Number.parseFloat(node?.style.marginTop ?? "") || 0) - 16;
         if (Math.max(0, 16 + top - 35) <= scroller.scrollTop + 1) read = index;
@@ -314,6 +332,52 @@ test("the rail draws no background or shadow while the view is scrolled up", asy
     expect([...shell.style].filter((name) => name.includes("shadow"))).toEqual([]);
     expect([...rail.style].filter((name) => name.includes("shadow"))).toEqual([]);
     expect(rail.hasAttribute("data-shadow-variant")).toBe(false);
+  } finally {
+    await act(async () => root.unmount());
+    setChatDisplay({});
+  }
+});
+
+test("the rail shows the agent's replies, prompts and replies together, and only the turns of a kind", async () => {
+  // Leo, 2026-11-21: "why cant you see an agents'? why cant you filter it? customize it immediately?"
+  setChatDisplay({ "agentPane.display.minimap": "compact" });
+  const failedAt = 5;
+  const rows = turns.map((entry) =>
+    entry.id === `t${failedAt}-end` ? { ...entry, status: "failed" } : entry,
+  ) as AcpmuxRow[];
+  const root = createRoot(document.getElementById("root")!);
+  try {
+    await act(async () =>
+      root.render(
+        <VirtualTranscript
+          rows={turnView(rows, new Set())}
+          sessionId="rail-show"
+          onToggleActivity={() => {}}
+          expanded={new Set()}
+        />,
+      ),
+    );
+    expect(ticks()).toHaveLength(12);
+    await pick("Show Agent Replies");
+    expect(ticks()).toHaveLength(12);
+    expect(ticks().every((tick) => tick.dataset.reply !== undefined)).toBe(true);
+    expect(ticks()[0]!.getAttribute("aria-label")).toStartWith("Reply 1 of 12");
+    await pick("Show Messages and Replies");
+    expect(ticks()).toHaveLength(24);
+    expect(ticks().map((tick) => tick.dataset.reply !== undefined)).toEqual(
+      Array.from({ length: 24 }, (_, at) => at % 2 === 1),
+    );
+    await pick("Show Turns with Errors");
+    expect(ticks()).toHaveLength(1);
+    // No turn here edits a file: that choice is offered disabled.
+    await act(async () => {
+      ticks()[0]!.dispatchEvent(new dom.window.MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    });
+    const edits = filterItems().find((item) => item.textContent?.endsWith("Show Turns with Edits"))!;
+    expect(edits.hasAttribute("disabled") || edits.getAttribute("aria-disabled") === "true").toBe(true);
+    await act(async () => document.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape" })));
+    await pick("Show All Messages");
+    expect(ticks()).toHaveLength(12);
   } finally {
     await act(async () => root.unmount());
     setChatDisplay({});

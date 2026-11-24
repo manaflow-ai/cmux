@@ -8,10 +8,25 @@ use anyhow::{Context, Result};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::{Arc, Mutex as StdMutex};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{Mutex, mpsc, oneshot};
+
+type PendingReplies = StdMutex<HashMap<String, oneshot::Sender<Result<Value, RpcError>>>>;
+
+/// The caller owns its reply slot. Dropping a timed-out or cancelled request forgets the
+/// waiter even when the daemon never replies. This does not cancel work already sent.
+struct PendingRequest<'a> {
+    replies: &'a PendingReplies,
+    key: String,
+}
+
+impl Drop for PendingRequest<'_> {
+    fn drop(&mut self) {
+        self.replies.lock_or_recover().remove(&self.key);
+    }
+}
 
 pub struct Client {
     /// Build id the daemon reported at initialize, for mismatch hints.
@@ -35,7 +50,9 @@ pub struct Client {
     person_challenge: std::sync::Mutex<Option<(String, String)>>,
     out: mpsc::Sender<String>,
     next_id: AtomicI64,
-    pending: Arc<Mutex<HashMap<String, oneshot::Sender<Result<Value, RpcError>>>>>,
+    // Only map operations hold this lock; no I/O or await. A synchronous lock lets the
+    // request's drop release its slot without spawning another task to clean up.
+    pending: Arc<PendingReplies>,
     notifications: Mutex<Option<mpsc::Receiver<Message>>>,
     notif_tx: Arc<Mutex<mpsc::Sender<Message>>>,
     closed: Arc<std::sync::atomic::AtomicBool>,
@@ -61,8 +78,7 @@ impl Client {
         let (notif_tx, notif_rx) = mpsc::channel::<Message>(4096);
         let notif_tx = Arc::new(Mutex::new(notif_tx));
         let closed = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let pending: Arc<Mutex<HashMap<String, oneshot::Sender<Result<Value, RpcError>>>>> =
-            Arc::new(Mutex::new(HashMap::new()));
+        let pending = Arc::new(PendingReplies::default());
         tokio::spawn(async move {
             while let Some(line) = out_rx.recv().await {
                 if wr.write_all(line.as_bytes()).await.is_err() {
@@ -80,7 +96,8 @@ impl Client {
                     let Ok(msg) = Message::parse(&line) else { continue };
                     match msg {
                         Message::Response { id, result, error } => {
-                            if let Some(tx) = pending.lock().await.remove(&id.to_string()) {
+                            let tx = pending.lock_or_recover().remove(&id.to_string());
+                            if let Some(tx) = tx {
                                 let _ = tx.send(match error {
                                     Some(e) => Err(e),
                                     None => Ok(result.unwrap_or(Value::Null)),
@@ -100,11 +117,9 @@ impl Client {
                     }
                 }
                 closed.store(true, Ordering::SeqCst);
-                let mut p = pending.lock().await;
                 // Dropping the senders identifies transport EOF independently
                 // of any message or error code supplied by the daemon.
-                p.clear();
-                drop(p);
+                pending.lock_or_recover().clear();
                 // The stream never ends on its own (the client keeps a
                 // sender), so say goodbye explicitly.
                 let tx = notif_tx.lock().await.clone();
@@ -131,7 +146,7 @@ impl Client {
         // daemon put in that session's env (`hub/person.rs` (a)), only to
         // the socket of the daemon that issued it (never to another daemon,
         // or whatever listens on a path the agent pointed the CLI at).
-        let caller = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
+        let caller = |k: &str| crate::tool_env::var(k).filter(|v| !v.is_empty());
         let issuer = caller(crate::hub::person::CALLER_SOCKET_ENV);
         let mut meta = serde_json::Map::new();
         if include_caller
@@ -229,6 +244,14 @@ impl Client {
     /// The error for a connection that ended: says why, as far as the pid
     /// file and socket tell, and what to do.
     pub fn closed(&self, context: &str) -> anyhow::Error {
+        // The pid file and panic log say only how this machine's own daemon is. A connection to
+        // another socket (a move's `ssh -L` forward of another machine's daemon, a sibling
+        // build's) ended for reasons they cannot tell: on a laptop a move's dropped forwards
+        // read "the daemon (pid N) is still running but dropped this connection", naming the
+        // local daemon, which was never on that path (2026-11-23).
+        if !same_socket(&self.socket, &crate::config::socket_path()) {
+            return other_socket_closed(&self.socket, context);
+        }
         closed_error(context, self.daemon_build().as_deref())
     }
 
@@ -253,7 +276,7 @@ impl Client {
         if m != method::SESSION_NEW {
             return self.send_request(m, params).await;
         }
-        let tool_call = std::env::var(crate::meta_fields::TOOL_CALL_ENV).ok();
+        let tool_call = crate::tool_env::var(crate::meta_fields::TOOL_CALL_ENV);
         let reply = self.send_request(m, with_spawn_tool_call(params, tool_call)).await?;
         self.tag_spawned_by(&reply).await;
         Ok(reply)
@@ -327,7 +350,7 @@ impl Client {
     /// not prove) is never tagged from this env var. The session exists either way; a failed
     /// tag only lists it on its own.
     async fn tag_spawned_by(&self, reply: &Value) {
-        let Some(parent) = std::env::var("ACPMUX_SESSION_ID").ok().filter(|id| !id.is_empty())
+        let Some(parent) = crate::tool_env::var("ACPMUX_SESSION_ID").filter(|id| !id.is_empty())
         else {
             return;
         };
@@ -356,14 +379,15 @@ impl Client {
         {
             // Check and register under the lock the reader drains with after
             // it marks the connection closed, so no request slips between.
-            let mut pending = self.pending.lock().await;
+            let mut pending = self.pending.lock_or_recover();
             if self.closed.load(Ordering::SeqCst) {
+                drop(pending);
                 return Err(self.closed(&context));
             }
             pending.insert(key.clone(), tx);
         }
+        let _pending = PendingRequest { replies: &self.pending, key };
         if self.out.send(Message::request(id, m, params).to_line()).await.is_err() {
-            self.pending.lock().await.remove(&key);
             return Err(self.closed(&context));
         }
         match rx.await {
@@ -524,6 +548,27 @@ pub(crate) fn closed_cause(
     (cause, why + &panicked.unwrap_or_default())
 }
 
+/// Whether `a` and `b` name one socket (as written, or once resolved).
+fn same_socket(a: &std::path::Path, b: &std::path::Path) -> bool {
+    a == b || matches!((a.canonicalize(), b.canonicalize()), (Ok(a), Ok(b)) if a == b)
+}
+
+/// "daemon connection closed" for a connection to a socket that is not this machine's own
+/// daemon's: cause `other_socket`, and no claim about the local daemon.
+pub(crate) fn other_socket_closed(socket: &std::path::Path, context: &str) -> anyhow::Error {
+    TransportClosed {
+        message: format!(
+            "daemon connection closed while {context}: the connection to the daemon at {} ended \
+             (an ssh forward of another machine's daemon, or another build's socket; this \
+             machine's own daemon is not on that path)",
+            socket.display()
+        ),
+        cause: "other_socket",
+        panic: None,
+    }
+    .into()
+}
+
 /// "daemon connection closed" with a cause: the pid file and socket say
 /// whether the daemon is still running (it dropped us: a restart or an
 /// internal error), died without cleanup (a crash), or was shut down; the
@@ -550,8 +595,15 @@ pub fn closed_error(context: &str, daemon_build: Option<&str>) -> anyhow::Error 
                 })
                 .ok()
                 .and_then(|s| s.trim().parse::<i32>().ok());
+            // Alive only while that pid still holds this home's daemon lock: a bare
+            // `kill(pid, 0)` reads a pid a reboot handed to another process as the daemon
+            // "still running but dropped this connection".
             #[cfg(unix)]
-            let alive = pid.map(|p| unsafe { libc::kill(p, 0) } == 0).unwrap_or(false);
+            let alive = pid.is_some_and(|p| {
+                u32::try_from(p).is_ok_and(|p| {
+                    crate::daemon::live_holder_pid(&home.join("daemon.lock")) == Some(p)
+                })
+            });
             #[cfg(not(unix))]
             let alive = pid.is_some();
             (pid, alive)
@@ -583,6 +635,10 @@ pub fn closed_error(context: &str, daemon_build: Option<&str>) -> anyhow::Error 
 #[cfg(test)]
 #[path = "client_closed_tests.rs"]
 mod closed_tests;
+
+#[cfg(all(test, unix))]
+#[path = "client_cancel_tests.rs"]
+mod cancel_tests;
 
 #[cfg(test)]
 mod lineage_tests {

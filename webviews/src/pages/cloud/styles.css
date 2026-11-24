@@ -346,6 +346,36 @@ select {
   color: var(--cloud-text-2);
 }
 
+.cloud-machine-disk {
+  display: block;
+  margin-top: var(--grid-half-step);
+}
+
+.cloud-disk-health {
+  color: var(--cloud-text-2);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+.cloud-disk-health-warning {
+  color: var(--cloud-bad);
+}
+
+.cloud-disk-health-stale,
+.cloud-disk-health-unknown {
+  color: var(--cloud-warn);
+}
+
+.cloud-disk-health-users-label,
+.cloud-disk-health-floor {
+  color: var(--cloud-text-2);
+}
+
+.cloud-disk-health-user code {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: var(--text-caption);
+}
+
 .cloud-machine-size {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
@@ -442,6 +472,21 @@ select {
   margin: 0;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+/* A failed renewal: one warning line under the plan, Manage Billing beside it. */
+.cloud-past-due {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin-top: 4px;
+}
+
+.cloud-past-due-text {
+  flex: 1 1 14em;
+  min-width: 0;
+  color: var(--cloud-warn);
 }
 
 .cloud-mono {

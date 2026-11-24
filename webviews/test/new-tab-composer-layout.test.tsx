@@ -157,13 +157,12 @@ test("the New Tab card keeps Send in the box and model in the footer", async () 
   expect(composer.querySelector(".acpmux-composer-foot .acpmux-chips")).not.toBeNull();
 });
 
-test("New Tab keeps Claude and its controls when the saved chat look is Codex", async () => {
-  const { savedComposerLook, setComposerLook, useComposerLook } =
-    await import("../src/agent-session/acpmux/composerLook");
+test("New Tab keeps Claude and its controls with a Codex gallery preview", async () => {
+  const { setPreviewComposerLook, useComposerLook } = await import("../src/agent-session/acpmux/composerLook");
   function ControlLook() {
     return <span data-control-look={useComposerLook()} />;
   }
-  act(() => setComposerLook("codex"));
+  act(() => setPreviewComposerLook("codex"));
   for (const template of [undefined, "cards"] as const) {
     await mount({ template, accessory: <ControlLook /> });
     const composer = host.querySelector<HTMLElement>(".nt-composer")!;
@@ -172,9 +171,8 @@ test("New Tab keeps Claude and its controls when the saved chat look is Codex", 
     expect(composer.querySelector(".nt-foot .acpmux-composer-foot .acpmux-chips")).not.toBeNull();
     expect(composer.querySelector(".nt-above .acpmux-composer-context")?.textContent).toContain("app");
     expect(composer.querySelectorAll(".acpmux-composer-context")).toHaveLength(1);
-    expect(savedComposerLook()).toBe("codex");
   }
-  act(() => setComposerLook("claude"));
+  act(() => setPreviewComposerLook());
 });
 
 test("suggestions mirror the box-to-chip text gap at every density and zoom", async () => {

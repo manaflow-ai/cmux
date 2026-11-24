@@ -11,21 +11,25 @@ use crate::daemon::connect;
 use crate::rpc::method;
 use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
+mod board;
 mod permission;
-pub(crate) use permission::{answer_permission, answer_question};
+pub(crate) use permission::{Answer, answer_permission, answer_question};
 pub(crate) use send_async::{list_lines as sent_list_lines, status_line as sent_status_line};
 
 mod extra;
 pub(crate) mod fanout;
 pub(crate) mod launch;
 pub(crate) mod ls;
+mod ls_archived;
 mod ls_leads;
 mod ls_pages;
 mod ls_tools;
 pub use ls::LsArgs;
+mod move_end;
 mod parent;
 mod send_async;
-mod session_move;
+pub(crate) mod session_move;
+pub(crate) use session_move::move_auto;
 mod standard;
 pub(crate) mod transfer;
 

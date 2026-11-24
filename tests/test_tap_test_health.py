@@ -187,13 +187,37 @@ class QuarantineEvidence(unittest.TestCase):
         self.assertFalse(reds.classify(new + "\n" + SUMMARY, SUMMARY, JOB,
                                        flake_state=snapshot, workflow=WORKFLOW).own)
 
+    def test_timing_flake_quarantine_under_the_rate_bar_waives_only_a_numbers_only_change(self):
+        # The reconciler's timing-flake rows (hq#14483): streaming-text-frames failed 3 of 32 base commits with
+        # 3 flips (0.097), each time by a different frame time.
+        timed = "✘ Test frames() recorded an issue at A.swift:1:2: Expectation failed: (gap → {}) < 16.7"
+        seen = [timed.format(value) for value in ("23.26", "24.77", "27.9")]
+        snapshot = state(seen[0] + "\n" + SUMMARY)
+        row = snapshot["tests"][0]
+        row.update(observations=32, passes=29, failures=3, flips=3, flip_rate=3 / 31, failure_signatures=seen)
+        row["quarantine"]["signatures"] = list(seen)
+        for value in ("23.26", "31.4"):
+            head = timed.format(value) + "\n" + SUMMARY
+            with self.subTest(value=value):
+                result = reds.classify(head, SUMMARY, JOB, flake_state=snapshot, workflow=WORKFLOW)
+                self.assertFalse(result.own, result.reasons)
+        # Other words are a new diagnostic, and a row the reconciler never quarantined stays a red of the PR.
+        self.assertTrue(reds.classify(timed.format("31.4").replace("gap", "lag") + "\n" + SUMMARY, SUMMARY, JOB,
+                                      flake_state=snapshot, workflow=WORKFLOW).own)
+        row["quarantine"]["signatures"] = [seen[0]]
+        self.assertTrue(reds.classify(timed.format("31.4") + "\n" + SUMMARY, SUMMARY, JOB,
+                                      flake_state=snapshot, workflow=WORKFLOW).own)
+        row.update(observations=40, passes=37, flips=2)
+        self.assertTrue(reds.classify(seen[0] + "\n" + SUMMARY, SUMMARY, JOB,
+                                      flake_state=snapshot, workflow=WORKFLOW).own)
+
     def test_insufficient_stale_expired_malformed_or_ambiguous_evidence_is_ignored(self):
         changes = [lambda s: s.update(generated_at=(NOW - timedelta(days=3)).isoformat()),
                    lambda s: s.update(generated_at=(NOW + timedelta(days=1)).isoformat()),
                    lambda s: s.update(schema="other"), lambda s: s.update(tests={}),
                    lambda s: s["tests"].append(copy.deepcopy(s["tests"][0]))]
         row_changes = [{"observations": 4, "passes": 2, "failures": 2}, {"flips": 1},
-                       {"flips": 2, "observations": 20, "passes": 16}, {"observations": True},
+                       {"flips": 2, "observations": 40, "passes": 36}, {"observations": True},
                        {"passes": 0}, {"failures": 0}, {"failure_signatures": FAIL},
                        {"failures": 1, "passes": 9}, {"last_observed_at": None},
                        {"last_observed_at": (NOW - timedelta(days=3)).isoformat()},
