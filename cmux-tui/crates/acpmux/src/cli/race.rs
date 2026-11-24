@@ -99,7 +99,11 @@ pub(crate) fn target(spec: &str, effort: Option<&str>) -> Result<Value> {
 }
 
 /// Each model's target `attempts` times, models in the order given (`-m a -m b -n 2`: a, a, b, b).
-pub(crate) fn attempts(models: &[String], attempts: u32, effort: Option<&str>) -> Result<Vec<Value>> {
+pub(crate) fn attempts(
+    models: &[String],
+    attempts: u32,
+    effort: Option<&str>,
+) -> Result<Vec<Value>> {
     let mut out = Vec::with_capacity(models.len() * attempts as usize);
     for model in models {
         let one = target(model, effort)?;
@@ -120,7 +124,7 @@ fn scoped(scope: Parent) -> Result<Value> {
 fn request(cmd: RaceCmd) -> Result<(&'static str, Value)> {
     match cmd {
         RaceCmd::New(args) => {
-            if args.models.len() * args.attempts as usize < 2 {
+            if args.models.len() * (args.attempts as usize) < 2 {
                 return Err(AppError::usage(
                     "a race needs at least two candidates: two -m, or -n 2 or more attempts",
                 )
@@ -212,7 +216,8 @@ pub(crate) fn race_text(race: &Value) -> String {
         } else {
             ""
         };
-        let _ = writeln!(out, "  {} {name}  {}{mark}", text(candidate, "id"), text(candidate, "state"));
+        let _ =
+            writeln!(out, "  {} {name}  {}{mark}", text(candidate, "id"), text(candidate, "state"));
         for key in ["cwd", "reply", "error"] {
             if let Some(value) = candidate.get(key).and_then(Value::as_str) {
                 let _ = writeln!(out, "    {value}");
@@ -303,15 +308,37 @@ mod tests {
 
     #[test]
     fn race_cli_attempts_repeat_each_model_in_order() {
-        let (_, value) =
-            parse(&["acpmux", "race", "new", "-n", "4", "-m", "claude/haiku", "--reviewer", "claude", "t"])
-                .unwrap();
+        let (_, value) = parse(&[
+            "acpmux",
+            "race",
+            "new",
+            "-n",
+            "4",
+            "-m",
+            "claude/haiku",
+            "--reviewer",
+            "claude",
+            "t",
+        ])
+        .unwrap();
         let candidates = value["candidates"].as_array().unwrap();
         assert_eq!(candidates.len(), 4);
         assert!(candidates.iter().all(|c| c == &json!({"harness": "claude", "model": "haiku"})));
         let (_, value) = parse(&[
-            "acpmux", "race", "new", "--attempts", "2", "-m", "a", "-m", "b", "--reviewer", "c", "-e",
-            "low", "t",
+            "acpmux",
+            "race",
+            "new",
+            "--attempts",
+            "2",
+            "-m",
+            "a",
+            "-m",
+            "b",
+            "--reviewer",
+            "c",
+            "-e",
+            "low",
+            "t",
         ])
         .unwrap();
         let names: Vec<_> =
@@ -322,9 +349,17 @@ mod tests {
 
     #[test]
     fn race_cli_one_model_needs_two_attempts_and_caps_them() {
-        assert!(parse(&["acpmux", "race", "new", "-n", "1", "-m", "a", "--reviewer", "c", "t"]).is_err());
-        assert!(parse(&["acpmux", "race", "new", "-n", "17", "-m", "a", "--reviewer", "c", "t"]).is_err());
-        assert!(parse(&["acpmux", "race", "new", "-n", "2", "-m", "a", "--reviewer", "c", "t"]).is_ok());
+        assert!(
+            parse(&["acpmux", "race", "new", "-n", "1", "-m", "a", "--reviewer", "c", "t"])
+                .is_err()
+        );
+        assert!(
+            parse(&["acpmux", "race", "new", "-n", "17", "-m", "a", "--reviewer", "c", "t"])
+                .is_err()
+        );
+        assert!(
+            parse(&["acpmux", "race", "new", "-n", "2", "-m", "a", "--reviewer", "c", "t"]).is_ok()
+        );
     }
 
     #[test]

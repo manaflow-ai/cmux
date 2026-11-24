@@ -69,9 +69,10 @@ pub(super) fn request(name: &str, args: &Value) -> Result<(&'static str, Value),
             .filter(|n| (1..=u64::from(MAX_ATTEMPTS)).contains(n))
             .ok_or(format!("attempts must be 1 to {MAX_ATTEMPTS}"))? as u32,
     };
-    if models.len() * n as usize < 2 {
-        return Err("a race needs at least two candidates: two models, or attempts of 2 or more"
-            .to_owned());
+    if models.len() * (n as usize) < 2 {
+        return Err(
+            "a race needs at least two candidates: two models, or attempts of 2 or more".to_owned()
+        );
     }
     let candidates = attempts(&models, n, arg(args, "effort")).map_err(|e| e.to_string())?;
     let mut params = json!({"prompt": prompt, "candidates": candidates});
