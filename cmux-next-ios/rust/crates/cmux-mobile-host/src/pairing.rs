@@ -1275,4 +1275,26 @@ mod tests {
         // A new identity key (the phone signed out and in) asks again.
         assert_eq!(trust.standing("q", "j", "a"), Standing::Unknown);
     }
+
+    /// `cargo test --release -p cmux-mobile-host --lib -- --ignored --nocapture
+    /// proof_cost`: the cost of v1 against v2 (tunnel keys) `auth` proofs.
+    #[test]
+    #[ignore]
+    fn proof_cost() {
+        let id = MacIdentity::generate().unwrap();
+        let hex = "ab".repeat(32);
+        let keys = TunnelKeys { dialer: "A".repeat(43) + "=", answerer: "B".repeat(43) + "=" };
+        let v1 = challenge_message("mac-0123", "phone-0123", &hex, id.public_key(), id.public_key(), "pair");
+        let v2 = challenge_message_v2("mac-0123", "phone-0123", &hex, id.public_key(), id.public_key(), "pair", &keys);
+        let n = 20_000u32;
+        for (name, message) in [("v1", &v1), ("v2", &v2)] {
+            let started = Instant::now();
+            let signature = (0..n).map(|_| id.sign(message).unwrap()).last().unwrap();
+            let sign = started.elapsed() / n;
+            let started = Instant::now();
+            assert!((0..n).all(|_| verify(id.public_key(), message, &signature)));
+            let check = started.elapsed() / n;
+            println!("{name}: {} bytes, sign {sign:?}, verify {check:?} (n={n})", message.len());
+        }
+    }
 }
