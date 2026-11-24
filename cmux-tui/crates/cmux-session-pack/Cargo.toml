@@ -1,0 +1,24 @@
+[package]
+name = "cmux-session-pack"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "A session's event log as content-addressed zstd segments: 13x smaller, any range or tool result read back in milliseconds, a move ships only the chunks the other side lacks"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "session-pack"
+path = "src/main.rs"
+
+[dependencies]
+base64.workspace = true
+blake3 = "1"
+memchr.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tempfile = "3"
+zstd.workspace = true

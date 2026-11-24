@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextSettings
+import CmuxNextSettingsWindow
 import CmuxNextTabs
 
 /// `debug.object_menu {menu, folders?, choose?, window?}` (DEBUG builds, captures of the workspace, tab and pane
@@ -13,7 +14,11 @@ import CmuxNextTabs
 /// - `menu: "tab"`: the focused pane's selected tab's menu (`PaneController.contextMenu(for: .tab)`), opened
 ///   over the middle of the pane's tab strip.
 /// - `menu: "pane"`: the pane's menu, the one the tab strip's empty space opens (`.emptyStrip`).
-/// - `menu: "paneMore"`: the pane's ⋮ at its tab bar's trailing end (``PaneToolbar``), as its click opens it.
+/// - `menu: "browserMore"`: the page's More menu on glass; `folders` open in place, `dismiss` closes it (no posted keys).
+/// - `menu: "customizations"`: the app menu's cmux > Customizations (``CustomizationsMenu``), a fresh copy of the item
+///   AppDelegate puts there with the same closures, popped over the window's top left: the menu bar is outside the
+///   window a clip records (What's New `customizations-menu`). `choose: "Agent Badges"` then flips that switch
+///   through its row, as a person's click does; opening it again shows the checkmark.
 /// - `folders: ["More", "Copy"]`: with a menu open, opens each folder in turn with keys posted to the app's event
 ///   queue, which the open menu reads. A tab or pane menu (which this holds) gets Down to the folder's row, then
 ///   Right. The workspace menu gets a Down arrow (out of its name field), then each title typed (type-select)
@@ -60,13 +65,10 @@ enum DebugObjectMenu {
                 DelayedPopUp(menu: shown, at: at, in: strip).schedule()
                 services.debugFixtures.objectMenu = shown // its folders are walked by their rows
                 answer["menu"] = .string(menu)
-            case "paneMore":
-                // The focused pane's ⋮ at its tab bar's trailing end (tour:terminal-chat-switch-menu), under the ⋮.
-                guard let bar = controller.focusedPane?.view.toolbar?.view, let shown = bar.moreMenu?() else {
-                    return failure("the focused pane shows no ⋮")
-                }
-                DelayedPopUp(menu: shown, at: NSPoint(x: bar.bounds.maxX - 32, y: bar.isFlipped ? bar.bounds.maxY : 0), in: bar).schedule()
-                services.debugFixtures.objectMenu = shown
+            case "browserMore":
+                guard let entry = page(controller) else { return failure("the focused pane shows no browser page") }
+                entry.chrome?.toolbarButtons.presentGlass(BrowserToolbarHandlers.overflowMenu(
+                    for: entry, registry: services.registry, settings: services.settings), from: .overflow)
                 answer["menu"] = .string(menu)
             case "browserProfile":
                 // The browser toolbar's profile button menu of the focused pane's page (tour:browser-profile-menu).
@@ -79,17 +81,31 @@ enum DebugObjectMenu {
                 DelayedPopUp(menu: shown, at: at, in: anchor).schedule()
                 services.debugFixtures.objectMenu = shown
                 answer["menu"] = .string(menu)
+            case "customizations":
+                let item = CustomizationsMenu.item(settings: { [weak services] in services?.settings },
+                                                   openAll: { [weak services] in try? services?.settingsWindow.show(section: nil, route: SettingsDeepLink.customizeRoute) })
+                guard let shown = item.submenu, let content = window.contentView else { return failure("no customizations menu") }
+                shown.delegate?.menuNeedsUpdate?(shown) // its rows now, so a later `choose` counts them
+                // The item owns the menu's delegate (NSMenu.delegate is weak), and objectMenu is weak too.
+                services.debugFixtures.customizationsItem = item
+                DelayedPopUp(menu: shown, at: NSPoint(x: 96, y: content.isFlipped ? 64 : content.bounds.maxY - 64), in: content).schedule()
+                services.debugFixtures.objectMenu = shown
+                answer["menu"] = .string(menu)
             default:
-                return failure("menu is workspace, tab, pane, paneMore or browserProfile")
+                return failure("menu is workspace, tab, pane, browserProfile, browserMore or customizations")
             }
         }
         let folders = params["folders"]?.arrayValue?.compactMap(\.stringValue) ?? []
         let choice = params["choose"]?.stringValue
+        if let glass = page(controller)?.chrome?.toolbarButtons.shownGlassMenu {
+            if params["dismiss"]?.boolValue == true { glass.close() } else if !glass.openSubmenus(folders) { return failure("no \(folders) in More") }
+            return .object(answer)
+        }
         if !folders.isEmpty || choice != nil {
             let events: [NSEvent]
             if let menu = services.debugFixtures.objectMenu {
                 // A menu this holds: Down to each folder's row, then Right, as a person's arrow keys would.
-                guard let keys = arrowKeys(folders, choose: choice, in: menu, window: window) else {
+                guard let keys = MenuArrowKeys.codes(folders, choose: choice, in: menu)?.flatMap({ arrow($0, window: window) }) else {
                     return failure("no enabled \((folders + [choice].compactMap { $0 }).joined(separator: " > ")) in the open menu")
                 }
                 events = keys
@@ -118,26 +134,6 @@ enum DebugObjectMenu {
         return .object(answer)
     }
 
-    /// The arrow keys that open `folders` in turn from `top`. Arrow keys move over enabled, shown rows (an
-    /// alternate row shares its primary's place). Nothing is highlighted in a menu that just opened, so the first
-    /// Down lands on its first row; a submenu opened with Right starts on its first row.
-    /// `choose`, when set, then gets Down to its row of the last menu reached and Return.
-    private static func arrowKeys(_ folders: [String], choose: String? = nil, in top: NSMenu, window: NSWindow) -> [NSEvent]? {
-        var menu = top
-        var codes: [UInt16] = []
-        let rows = { (menu: NSMenu) in menu.items.filter { !$0.isSeparatorItem && !$0.isHidden && !$0.isAlternate && $0.isEnabled } }
-        for (depth, title) in folders.enumerated() {
-            guard let index = rows(menu).firstIndex(where: { $0.title == title }), let submenu = rows(menu)[index].submenu else { return nil }
-            codes += Array(repeating: 125, count: depth == 0 ? index + 1 : index) + [124]
-            menu = submenu
-        }
-        if let choose {
-            guard let index = rows(menu).firstIndex(where: { $0.title == choose && $0.submenu == nil }) else { return nil }
-            codes += Array(repeating: 125, count: folders.isEmpty ? index + 1 : index) + [36]
-        }
-        return codes.flatMap { arrow($0, window: window) }
-    }
-
     /// Down (125), Right (124) or Return (36), pressed and released.
     private static func arrow(_ code: UInt16, window: NSWindow) -> [NSEvent] {
         let character = code == 36 ? "\r" : FunctionKeyCharacter.string(code == 125 ? NSDownArrowFunctionKey : NSRightArrowFunctionKey)
@@ -149,30 +145,11 @@ enum DebugObjectMenu {
         }
     }
 
+    private static func page(_ controller: WindowController) -> BrowserEntry? {
+        guard case .browser(let entry) = controller.focusedPane?.currentContent else { return nil }
+        return entry
+    }
+
     private static func failure(_ message: String) -> JSONValue { .object(["error": .string(message)]) }
-}
-
-/// Pops a menu up from the main run loop (`perform(_:with:afterDelay:inModes:)`), not from a main-queue block.
-/// The run loop keeps it until the perform fires, once; nothing else holds it.
-@MainActor
-private final class DelayedPopUp: NSObject {
-    private let menu: NSMenu
-    private let at: NSPoint
-    private weak var view: NSView?
-
-    init(menu: NSMenu, at: NSPoint, in view: NSView) {
-        self.menu = menu
-        self.at = at
-        self.view = view
-    }
-
-    func schedule() {
-        perform(#selector(popUp), with: nil, afterDelay: 0, inModes: [.default])
-    }
-
-    @objc private func popUp() {
-        guard let view, view.window != nil else { return }
-        _ = menu.popUp(positioning: nil, at: at, in: view)
-    }
 }
 #endif

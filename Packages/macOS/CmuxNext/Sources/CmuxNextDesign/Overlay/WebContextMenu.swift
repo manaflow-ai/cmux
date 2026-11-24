@@ -70,7 +70,7 @@ public struct WebContextMenu {
                 // A view in no window cannot anchor a menu (AppKit raises): dismissed.
                 guard let webView, webView.window != nil else { return done(nil) }
                 let at = webView.isFlipped ? local : CGPoint(x: local.x, y: webView.bounds.height - local.y)
-                shown.popUp(positioning: nil, at: at, in: webView)
+                shown.popUpAtPointer(at, in: webView)
                 done(picked.id)
             }
         }
@@ -90,4 +90,39 @@ final class WebContextMenuChoice: NSObject {
 /// The row chosen while the menu tracked.
 @MainActor final class WebContextMenuPick {
     var id: String?
+}
+
+extension NSMenu {
+    /// Opens a page menu at a view-local pointer, with AppKit tracking inside the clicked window.
+    @MainActor
+    public func popUpAtPointer(_ point: CGPoint, in view: NSView) {
+        guard let window = view.window else { return }
+        let pointer = window.convertPoint(toScreen: view.convert(point, to: nil))
+        let anchor = CGRect(origin: pointer, size: .zero)
+        let screen = PopupPlacement.screen(for: anchor, fallback: window)?.visibleFrame ?? window.frame
+        let rtl = view.userInterfaceLayoutDirection == .rightToLeft
+        let viewport = PopupPlacement.pointerViewport(in: window, screen: screen)
+        let size = drawnSize
+        let frame = PopupPlacement.frame(anchor: anchor, size: size, preferred: .below,
+                                         trailing: rtl, screen: viewport, gap: 0, margin: 0).frame
+        if size.height > viewport.height || size.width > viewport.width {
+            confineTracking(to: viewport)
+        }
+        defer { restoreTrackingDelegate() }
+        // With no positioning item AppKit puts the menu's top-leading corner at the point.
+        let corner = CGPoint(x: rtl ? frame.maxX : frame.minX, y: frame.maxY)
+        popUp(positioning: nil, at: view.convert(window.convertPoint(fromScreen: corner), from: nil), in: view)
+    }
+
+    /// Option alternates share their primary row. Keep the full width but count that row once.
+    @MainActor
+    public var drawnSize: CGSize {
+        let full = size
+        let alternates = items.enumerated().filter { $0.element.isAlternate }
+        guard !alternates.isEmpty else { return full }
+        for (index, _) in alternates.reversed() { removeItem(at: index) }
+        let height = size.height
+        for (index, item) in alternates { insertItem(item, at: index) }
+        return CGSize(width: full.width, height: height)
+    }
 }

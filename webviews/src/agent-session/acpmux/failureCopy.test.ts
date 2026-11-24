@@ -6,30 +6,12 @@ import {
   failureKind,
   failureRecovery,
   isAuthenticationFailure,
-  isCloudRejectedCredential,
   isTeamMachineSignIn,
+  limitResetsAt,
   offersOwnRoute,
 } from "./failureCopy";
-import { type Translate, translatorFor } from "./i18n";
-
-test("only the Cloud provider rejection is eligible for cached-login recovery", () => {
-  const route = { hostKind: "cloud" as const, harness: "claude" };
-  expect(
-    isCloudRejectedCredential(
-      "The provider rejected Claude Code's credentials on this Cloud machine (HTTP 403).",
-      route,
-    ),
-  ).toBe(true);
-  expect(
-    isCloudRejectedCredential("The provider rejected Claude Code's credentials on this Cloud machine (HTTP 403).", {
-      hostKind: "local",
-    }),
-  ).toBe(false);
-  expect(isCloudRejectedCredential("Claude Code login required", route)).toBe(false);
-  expect(
-    isCloudRejectedCredential("The provider rejected Codex's credentials on this Cloud machine (HTTP 403).", route),
-  ).toBe(false);
-});
+import { currentLanguage, STRING_TABLES, type Translate, translatorFor } from "./i18n";
+import { resetTime } from "./usageLimits";
 
 // The connection drops acpmux retries by itself (hub/turn_errors.rs `says_connection_dropped`) read
 // as "could not reach its server", not the generic "ran into a problem" (cmuxterm-hq#4879, finding 10).
@@ -89,6 +71,29 @@ test("a Claude sign-in failure on a team Cloud machine says it takes no personal
   expect(failureCopy(t, "429 Too Many Requests", team)).toBe("turn.failure.rateLimited");
 });
 
+// An expired sign-in on an older Cloud machine (its acpmux has no `agent-login-v1`, so no in-card
+// sign-in): Sign in again runs the agent's own login in a terminal there, and the card's sentence says
+// why after the cause. Every other card, a current machine's among them, reads as it did.
+test("an expired sign-in on an older Cloud machine says Sign in again opens a terminal there", () => {
+  const expired = "OAuth token expired (HTTP 401)";
+  const older = { hostKind: "cloud" as const, harness: "Claude Code", terminalSignIn: true };
+  for (const lang of Object.keys(STRING_TABLES)) {
+    const t = translatorFor(lang);
+    const cause = t("turn.failure.cloudAuthExpired", { harness: "Claude Code" });
+    const why = t("turn.failure.cloudSignInInTerminal", { harness: "Claude Code" });
+    expect(STRING_TABLES[lang]!["turn.failure.cloudSignInInTerminal"], lang).toBeTruthy();
+    expect(why, lang).toContain("Claude Code");
+    expect(why, lang).not.toContain("{harness}");
+    expect(failureCopy(t, expired, older), lang).toBe(`${cause} ${why}`);
+    expect(failureCopy(t, expired, { ...older, terminalSignIn: undefined }), lang).toBe(cause);
+  }
+  const t = ((key: string) => key) as Translate;
+  expect(failureCopy(t, "Not logged in · Please run /login", older)).toBe(
+    "turn.failure.cloudAuthRejected turn.failure.cloudSignInInTerminal",
+  );
+  expect(failureCopy(t, "429 Too Many Requests", older)).toBe("turn.failure.rateLimited");
+});
+
 // Lucas's fresh Codex chat failed with only "failed to load workspace requirements: invalid input
 // parameter" under "ran into a problem and stopped". The card says which settings to check, and the
 // file Codex names when it names one; a cloud bundle that timed out or refused a sign-in keeps its kind.
@@ -115,6 +120,34 @@ test("Codex's own settings that fail to load name what to fix", () => {
 // An own API key whose account ran out of credit read as "rate limited ... try again in a moment"
 // (OpenAI sends it as a 429 naming a quota) or as an unknown failure (Anthropic's 400). Waiting does
 // not help: the card says to add credit to the account the key belongs to, with Switch model first.
+// A used-up usage limit read "Try again in a moment" though it resets hours or days later (new-user
+// journeys, F3): where the refusal names the reset time, the sentence says it.
+test("a usage limit that names its reset says when it resets", () => {
+  const t = translatorFor("en");
+  const claude = { name: "Claude Code", harness: "claude" };
+  const at = (seconds: number) =>
+    t("turn.failure.usageLimitResets", { harness: "Claude Code", time: resetTime(seconds, currentLanguage()) });
+  const subscription = "Claude AI usage limit reached|1764003600";
+  expect(failureKind(subscription, claude)).toBe("rate-limited");
+  expect(limitResetsAt(subscription)).toBe(1764003600);
+  expect(failureCopy(t, subscription, claude)).toBe(at(1764003600));
+  expect(failureCopy(t, subscription, claude)).not.toContain("in a moment");
+  const included =
+    'API Error: 402 Payment Required {"error":{"code":"usage.included_reached","message":"You used the AI amount included in your plan for this month.","type":"insufficient_quota","details":{"resets_at":"2026-12-01T00:00:00.000Z"}}}';
+  expect(limitResetsAt(included)).toBe(Date.parse("2026-12-01T00:00:00.000Z") / 1000);
+  expect(failureCopy(t, included, claude)).toBe(at(Date.parse("2026-12-01T00:00:00.000Z") / 1000));
+  expect(limitResetsAt('{"error":{"message":"limit","resetsAt":1764003600}}')).toBe(1764003600);
+  // No time named, or one that is not a time: the rate-limit sentence as before.
+  for (const message of [
+    "usage limit reached, resets in 3h",
+    "API Error: 529 overloaded_error",
+    '{"error":{"message":"usage limit reached","resets_at":"soon"}}',
+  ]) {
+    expect(limitResetsAt(message), message).toBeUndefined();
+    expect(failureCopy(t, message, claude), message).toBe(t("turn.failure.rateLimited", { harness: "Claude Code" }));
+  }
+});
+
 test("an own key's account out of credit reads as no-credit, not a rate limit", () => {
   const t = translatorFor("en");
   const claude = { name: "Claude Code", harness: "claude" };
@@ -133,7 +166,7 @@ test("an own key's account out of credit reads as no-credit, not a rate limit", 
   expect(failureKind(undefined, claude, "insufficient_quota")).toBe("no-credit");
   expect(failureRecovery("no-credit")).toBe("switch-model");
   expect(offersOwnRoute("no-credit", claude)).toBe(true);
-  expect(t("turn.failure.noCredit", { harness: "Claude Code" })).toContain("Add credit to that account");
+  expect(t("turn.failure.noCredit", { harness: "Claude Code" })).toContain("Add credit and retry");
   // The cmux model router's free-tier and daily limits are 429s typed `insufficient_quota`
   // (backend inference/free.ts, Router.ts): they are rate limits, waiting helps.
   for (const message of [
@@ -338,7 +371,7 @@ test("the team's spending cap on a model call reads as its own kind, never the c
   expect(offersOwnRoute("team-cap")).toBe(false);
   const copy = failureCopy(translatorFor("en"), body, { name: "Claude Code" });
   expect(copy).toContain("spending cap");
-  expect(copy).toContain("team admin");
+  expect(copy).toContain("Ask an admin to raise it");
 });
 
 // The user's OpenCode Go chat (Nov 19): the provider expired its API key and said a sign-in would not

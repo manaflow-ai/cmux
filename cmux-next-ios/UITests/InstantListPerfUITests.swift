@@ -92,7 +92,7 @@ final class InstantListPerfUITests: XCTestCase {
         let metric = cold ? "first_row_cold" : "first_row_warm"
         let options = XCTMeasureOptions()
         options.iterationCount = Self.iterations
-        options.invocationOptions = [.manuallyStart]
+        options.invocationOptions = [.manuallyStart, .manuallyStop]
         var samples: [Double] = []
         measure(metrics: [XCTClockMetric()], options: options) {
             if cold { app.terminate() }
