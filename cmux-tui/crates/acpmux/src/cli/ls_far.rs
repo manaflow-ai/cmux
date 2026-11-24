@@ -172,6 +172,19 @@ static RELAY_READS: OnceLock<crate::single_flight::SingleFlight<String, Result<O
 static PEER_READS: OnceLock<crate::single_flight::SingleFlight<String, Result<Vec<Value>, String>>> =
     OnceLock::new();
 
+fn claim_refresh(cache: &Path) -> bool {
+    let mark = cache.with_file_name("relay-ls-cache.refreshing");
+    let now = crate::store::now_ms();
+    if refreshing(cache, now) {
+        return false;
+    }
+    let _ = crate::home_fs::remove_file(&mark);
+    let Ok(mut file) = std::fs::OpenOptions::new().write(true).create_new(true).open(&mark) else {
+        return false;
+    };
+    std::io::Write::write_all(&mut file, now.to_string().as_bytes()).is_ok()
+}
+
 fn relay_task(relay: SendRelay, deadline: Instant) -> RelayTask {
     let key = serde_json::to_string(&relay.ls_argv).unwrap_or_default();
     tokio::spawn(async move {
@@ -255,6 +268,10 @@ pub(crate) fn start_with(
                 refresh_detached(&cache);
                 return RelayPart::Kept(kept);
             }
+            if !claim_refresh(&cache) {
+                refresh_detached(&cache);
+                return RelayPart::Kept(kept);
+            }
             let read_by = deadline.min(Instant::now() + KEPT_WAIT);
             let task =
                 relay_task(relay, read_by);
@@ -265,6 +282,14 @@ pub(crate) fn start_with(
         // detached refresh keeps an answer.
         if missed_mark_live(&cache, crate::store::now_ms()) {
             refresh_detached(&cache);
+            return RelayPart::Kept(RelayRead {
+                rows: Vec::new(),
+                state: RemoteState::Missing,
+                source,
+                missed: Some(NO_ANSWER_YET.to_owned()),
+            });
+        }
+        if !claim_refresh(&cache) {
             return RelayPart::Kept(RelayRead {
                 rows: Vec::new(),
                 state: RemoteState::Missing,
@@ -300,6 +325,7 @@ impl FarRead {
                     if let Ok(Ok(Ok(Some(rows)))) = tokio::time::timeout_at(until, &mut task).await
                     {
                         write_cache(&cache, &kept.source, &rows, crate::store::now_ms());
+                        let _ = crate::home_fs::remove_file(cache.with_file_name(REFRESH_MARK));
                         return Some(RelayRead {
                             rows,
                             state: RemoteState::Fresh,
@@ -317,6 +343,7 @@ impl FarRead {
             let missed = match read {
                 Ok(Ok(Ok(Some(rows)))) => {
                     write_cache(&cache, &source, &rows, crate::store::now_ms());
+                    let _ = crate::home_fs::remove_file(cache.with_file_name(REFRESH_MARK));
                     return Some(RelayRead {
                         rows,
                         state: RemoteState::Fresh,
@@ -444,7 +471,7 @@ fn refresh_detached(cache: &Path) {
     }
     // Not marked: start none, or two could race.
     #[cfg_attr(test, allow(unused_variables))]
-    let marked = crate::home_fs::write(&mark, now.to_string()).is_ok();
+    let marked = claim_refresh(cache);
     #[cfg(not(test))]
     if marked {
         let Ok(exe) = std::env::current_exe() else { return };
