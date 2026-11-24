@@ -86,7 +86,6 @@ let package = Package(
 // the same API from swift-crypto (`import Crypto`), so an Apple build resolves no remote package and
 // this package keeps no Package.resolved (scripts/check-package-resolved-policy.py skips this block).
 if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
-    package.dependencies.append(.package(url: "https://github.com/apple/swift-crypto.git", exact: "3.15.1"))
     package.targets.append(
         .systemLibrary(
             name: "SQLite3",
@@ -94,6 +93,16 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
             providers: [.apt(["libsqlite3-dev"])]
         )
     )
+    // The chat UI (UIKit, AppKit, SwiftUI) and the Translation framework are Apple only: the Linux build
+    // keeps Core, Geometry and their tests, and needs neither local package (both feed only the UI).
+    let appleOnly: Set<String> = [
+        "CmuxConversationUI", "CmuxConversationMacUI", "CmuxConversationLabMac", "CmuxConversationTranslation",
+        "CmuxConversationMacUITests",
+    ]
+    package.targets.removeAll { appleOnly.contains($0.name) }
+    package.products.removeAll { appleOnly.contains($0.name) }
+    package.dependencies.removeAll()
+    package.dependencies.append(.package(url: "https://github.com/apple/swift-crypto.git", exact: "3.15.1"))
     package.targets.first { $0.name == "CmuxConversationCore" }?.dependencies.append(contentsOf: [
         "SQLite3", .product(name: "Crypto", package: "swift-crypto"),
     ])

@@ -1,5 +1,7 @@
 #if canImport(CoreGraphics)
 import CoreGraphics
+#else
+import Foundation
 #endif
 import Foundation
 
@@ -160,7 +162,15 @@ public struct ConversationLinkSplit: Sendable, Hashable {
 
     private static func urlRange(in text: String, matching url: URL) -> Range<String.Index>? {
         #if !canImport(Darwin)
-        // NSDataDetector is Apple only (the Linux CI package build finds no link).
+        // NSDataDetector is Apple only: the Linux CI package build matches whitespace-separated
+        // tokens without trailing punctuation instead.
+        for token in text.split(whereSeparator: \.isWhitespace) {
+            var candidate = token
+            while let last = candidate.last, ".,;:!?)\"'".contains(last) { candidate.removeLast() }
+            guard !candidate.isEmpty, let tokenURL = URL(string: String(candidate)),
+                  tokenURL.scheme != nil || candidate.contains(".") else { continue }
+            if normalized(tokenURL) == normalized(url) { return candidate.startIndex..<candidate.endIndex }
+        }
         return nil
         #else
         var found: Range<String.Index>?

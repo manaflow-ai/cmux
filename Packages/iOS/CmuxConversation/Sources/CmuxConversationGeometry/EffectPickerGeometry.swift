@@ -1,5 +1,7 @@
 #if canImport(CoreGraphics)
 import CoreGraphics
+#else
+import Foundation
 #endif
 
 /// "Send with effect" as Messages lays it out (CKEffectPickerStandardView,

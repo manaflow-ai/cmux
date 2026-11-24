@@ -1,5 +1,7 @@
 #if canImport(CoreGraphics)
 import CoreGraphics
+#else
+import Foundation
 #endif
 
 /// The tapback badge Messages hangs on a bubble, read from ChatKit's

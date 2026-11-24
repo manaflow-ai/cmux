@@ -90,6 +90,7 @@ public struct ConversationReplyThread: Equatable, Sendable {
         return min(Self.bracketRadius, span)
     }
 
+    #if canImport(CoreGraphics)  // CGPath: Apple only (the Linux CI package build skips it)
     public var path: CGPath {
         let x = columnX
         let end = x + Self.armLength
@@ -113,4 +114,5 @@ public struct ConversationReplyThread: Equatable, Sendable {
         }
         return path
     }
+    #endif
 }

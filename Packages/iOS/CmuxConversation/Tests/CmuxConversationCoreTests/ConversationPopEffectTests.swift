@@ -1,3 +1,4 @@
+#if canImport(QuartzCore)  // ConversationPopEffect is Core Animation: Apple only
 import CmuxConversationGeometry
 #if canImport(CoreGraphics)
 import CoreGraphics
@@ -32,3 +33,4 @@ import Testing
         #expect(ConversationPopEffect.pieces(for: .zero, seed: 1).isEmpty)
     }
 }
+#endif

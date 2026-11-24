@@ -2,6 +2,8 @@ import Foundation
 #if canImport(CoreGraphics)
 #if canImport(CoreGraphics)
 import CoreGraphics
+#else
+import Foundation
 #endif
 #endif
 
