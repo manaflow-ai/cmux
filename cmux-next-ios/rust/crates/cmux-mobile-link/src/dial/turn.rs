@@ -459,7 +459,7 @@ impl TurnCarrier {
                 let proxied = hops.first().is_some_and(|hop| *hop != crate::egress::Hop::Direct);
                 let limit = if proxied { PROXIED_STREAM_WAIT } else { STREAM_WAIT };
                 match bounded(limit, Self::allocate_on(server, options)).await {
-                    Ok(carrier) => Some(carrier),
+                    Ok(carrier) => Some((carrier, proxied)),
                     Err(AllocFailure::Proxy(error)) => {
                         tracing::warn!(%error, "the proxy refused TURN over TLS");
                         *refusal.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(error);
@@ -470,7 +470,7 @@ impl TurnCarrier {
             }
         };
         if !tried_udp {
-            return stream_attempt(Duration::ZERO).await;
+            return stream_attempt(Duration::ZERO).await.map(|(carrier, _)| carrier);
         }
         tokio::pin!(udp);
         let started = tokio::time::Instant::now();
@@ -485,14 +485,22 @@ impl TurnCarrier {
                 // UDP failed: the stream need not wait out its stagger, and
                 // one already under way (its stagger over, or cut short
                 // because UDP looked blocked) goes on.
-                None if started.elapsed() >= STREAM_STAGGER || silent_now() => staggered.await,
-                None => stream_attempt(Duration::ZERO).await,
+                None if started.elapsed() >= STREAM_STAGGER || silent_now() => {
+                    staggered.await.map(|(carrier, _)| carrier)
+                }
+                None => stream_attempt(Duration::ZERO).await.map(|(carrier, _)| carrier),
             },
             stream = &mut staggered => match stream {
                 // UDP looks blocked: its allocation would only run out its wait.
-                Some(carrier) if silent_now() => Some(carrier),
+                Some((carrier, _)) if silent_now() => Some(carrier),
+                // The stream left through the system's proxy: a network whose
+                // TCP must go through a proxy almost never lets UDP out, and
+                // waiting out STUN's silence there held every proxied dial
+                // 250 ms (netlab proxy rows). Taken now; a direct path that
+                // works later still takes the link over (the upgrade probe).
+                Some((carrier, true)) => Some(carrier),
                 // UDP gets its grace, cut short once STUN has been silent.
-                Some(carrier) => tokio::select! {
+                Some((carrier, false)) => tokio::select! {
                     udp = tokio::time::timeout(UDP_GRACE, &mut udp) => match udp {
                         Ok(Some(udp)) => Some(udp),
                         _ => Some(carrier),
