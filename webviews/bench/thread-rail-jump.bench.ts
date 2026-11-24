@@ -368,6 +368,8 @@ export async function measureUnloadedTickJumps(
             let stable = 0;
             let frames = 0;
             let settledAt: number | undefined;
+            // Each frame the prompt's top changed in (ms, px; null off screen), to read how it moved.
+            const path: [number, number | null, number][] = [];
             window.cmuxAfterPaint(() => {
               frames++;
               const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
@@ -386,6 +388,11 @@ export async function measureUnloadedTickJumps(
                 stable = top !== undefined && lastTop !== undefined && Math.abs(top - lastTop) < 0.5 ? stable + 1 : 0;
                 if (stable === 0) settledAt = elapsed;
               }
+              if (firstPaint !== undefined) {
+                const top = visible ? Math.round(box!.top) : null;
+                if (path.length < 40 && (path.at(-1)?.[1] !== top))
+                  path.push([Math.round(elapsed), top, Math.round(scroller.scrollTop)]);
+              }
               if (firstPaint !== undefined) lastTop = visible ? box!.top : undefined;
               if (stable >= 10 || elapsed > 10_000) {
                 probe.railJump = {
@@ -395,6 +402,7 @@ export async function measureUnloadedTickJumps(
                   movedPx: moved,
                   frames,
                   timeout: stable < 10,
+                  path,
                 };
                 return false;
               }
@@ -404,8 +412,17 @@ export async function measureUnloadedTickJumps(
         };
         document.addEventListener("click", onClick, true);
       }, index);
+      const wsLog: string[] = [];
+      const t0 = Date.now();
+      if (process.env.RAIL_BENCH_DEBUG)
+        page.on("websocket", (ws) => {
+          ws.on("framesent", (f) => wsLog.push(`${Date.now() - t0} > ${String(f.payload).slice(0, 220)}`));
+          ws.on("framereceived", (f) => wsLog.push(`${Date.now() - t0} < ${String(f.payload).slice(0, 120)} (${String(f.payload).length})`));
+        });
+      if (process.env.RAIL_BENCH_DEBUG) console.log(`CLICK ${Date.now()}`);
       await tick.click();
       await page.waitForFunction(() => (window as unknown as { railJump: unknown }).railJump, {}, { timeout: 15_000 });
+      if (process.env.RAIL_BENCH_DEBUG) console.log("WSLOG\n" + wsLog.join("\n"));
       const result = await page.evaluate(
         () =>
           (
@@ -414,8 +431,18 @@ export async function measureUnloadedTickJumps(
             }
           ).railJump,
       );
-      if (result.timeout || result.firstPaintMs === undefined)
+      if (result.timeout || result.firstPaintMs === undefined) {
+        if (process.env.RAIL_BENCH_DEBUG) {
+          await page.screenshot({ path: "/tmp/railjump/unloaded-fail.png" });
+          console.log("DEBUG", await page.evaluate(() => {
+            const sc = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+            const v = sc.getBoundingClientRect();
+            const rows = [...sc.querySelectorAll<HTMLElement>(".cv-user__bubble")].map((n) => [n.textContent?.trim(), Math.round(n.getBoundingClientRect().top - v.top)]);
+            return JSON.stringify({ scrollTop: sc.scrollTop, scrollHeight: sc.scrollHeight, rows: rows.slice(0, 12), n: rows.length });
+          }));
+        }
         throw new Error(`Unloaded jump failed: ${JSON.stringify(result)}`);
+      }
       all.push({ pendingCount, ...result });
     } finally {
       await page.close();
@@ -698,6 +725,7 @@ async function main() {
     websocket: {
       message(ws, raw) {
         const msg = JSON.parse(String(raw));
+        if (process.env.RAIL_BENCH_DEBUG) console.log(`WS ${Date.now()} ${msg.method} ${JSON.stringify(msg.params ?? {}).slice(0, 200)}`);
         const { paged: connectionPaged, indexDelayMs } = ws.data as unknown as { paged: boolean; indexDelayMs: number };
         if (msg.id === undefined) return;
         const reply = () =>
