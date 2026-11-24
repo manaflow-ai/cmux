@@ -1089,7 +1089,10 @@ fn source_names_the_session_a_tab_is_bound_to_without_reaching_acpmux() {
     let surface = agent_tab(&mux, Some(SESSION));
     let mut client = Client::connect(&mux, "xsource");
     let read = client.request(json!({"cmd":"agent-transfer-source","surface":surface}));
-    assert_eq!(ok_data(&read), &json!({"session": SESSION}));
+    let read = ok_data(&read);
+    assert_eq!(read["session"], json!(SESSION));
+    // The tab's public id, which a daemon restart keeps, so a pump can name the tab by it.
+    assert!(read["tab"].as_str().is_some_and(|t| t.starts_with("tab_")), "{read}");
     // Begin answers the same session it froze, so a pump can pin it.
     let begun = client.request(json!({"cmd":"agent-transfer-begin","surface":surface}));
     assert_eq!(ok_data(&begun)["source_session"], json!(SESSION));
