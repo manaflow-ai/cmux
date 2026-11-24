@@ -40,6 +40,59 @@ pub const CLAUDE_ENV: &[(&str, &str)] = &[
 /// reads against 400k too.
 pub const CLAUDE_AUTOCOMPACT_WINDOW: (&str, &str) = ("CLAUDE_CODE_AUTO_COMPACT_WINDOW", "400000");
 
+/// What a `claude` started in a cmux terminal gets on top of [`CLAUDE_ENV`] (Leo 2026-11-24:
+/// "in terminals and guis alike perhaps terminal simply needs to also have the fixes and
+/// enhancements"). An agent chat survives a capacity outage in acpmux: a turn that Claude
+/// Code ends with "Repeated 529 Overloaded errors" is continued after a wait, with no limit
+/// on attempts (`hub::auto_resume::capacity_wait`, cmux#52824). A terminal has no acpmux
+/// behind it, so the same outage left the person at an "API Error: Repeated 529" prompt.
+/// Claude Code waits a 529 out in place when `CLAUDE_CODE_OVERLOADED_RETRY_MAX_WAIT_MS` is
+/// set: on its main thread it stops counting 529s toward its give-up after 3 and backs off
+/// (to 5 min a wait) until that much time is spent (Claude Code 2.1.331's `mze`/`Os`; an older
+/// one ignores the knob). It has no effect when the person set `CLAUDE_CODE_MAX_RETRIES` or
+/// `CLAUDE_CODE_RETRY_WATCHDOG`, which then decide. Esc still stops the wait.
+///
+/// 6 h is Claude Code's own ceiling for one wait, and longer than the SR2 pool drains we
+/// have seen (38 min, cmux#52824). A chat keeps acpmux's continuation instead, which shows
+/// its retry on the row and resends a cut `/compact`.
+pub const CLAUDE_TERMINAL_ENV: &[(&str, &str)] =
+    &[("CLAUDE_CODE_OVERLOADED_RETRY_MAX_WAIT_MS", "21600000")];
+
+/// The environment a terminal's `claude` starts with beyond its own (the cmux-tui Claude
+/// wrapper): every [`CLAUDE_ENV`] and [`CLAUDE_TERMINAL_ENV`] knob `getenv` leaves unset, and
+/// the chats' autocompact window ([`CLAUDE_AUTOCOMPACT_WINDOW`]) when neither the launch
+/// (`args`), its env nor Claude's settings choose one, exactly as [`lift_claude`] does for an
+/// agent chat.
+pub fn terminal_claude_env(
+    args: &[String],
+    cwd: &std::path::Path,
+    getenv: impl Fn(&str) -> Option<String>,
+) -> Vec<(&'static str, &'static str)> {
+    let mut lifted: Vec<(&'static str, &'static str)> = CLAUDE_ENV
+        .iter()
+        .chain(CLAUDE_TERMINAL_ENV)
+        .copied()
+        .filter(|(key, _)| getenv(key).is_none())
+        .collect();
+    let (key, value) = CLAUDE_AUTOCOMPACT_WINDOW;
+    let env =
+        ["CLAUDE_CONFIG_DIR", "CLAUDE_CODE_AUTO_COMPACT_WINDOW", "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"]
+            .into_iter()
+            .filter_map(|name| getenv(name).map(|value| (name.to_string(), value)))
+            .collect();
+    let source = crate::usage_stats::Source {
+        family: "claude".into(),
+        argv: Some(std::iter::once("claude".to_string()).chain(args.iter().cloned()).collect()),
+        cwd: cwd.to_path_buf(),
+        env,
+        ..Default::default()
+    };
+    if crate::usage_stats::claude_autocompact_unset(&source) {
+        lifted.push((key, value));
+    }
+    lifted
+}
+
 /// Codex's config keys (`-c key=value`) and their values (defaults are
 /// codex 0.162.1's).
 pub const CODEX_CONFIG: &[(&str, &str)] = &[
