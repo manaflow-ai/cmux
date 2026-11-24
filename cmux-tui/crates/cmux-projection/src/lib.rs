@@ -27,6 +27,8 @@ pub mod reap;
 pub mod repo_archive;
 pub mod revision;
 pub mod s3;
+#[cfg(any(target_os = "linux", test))]
+pub mod sparse;
 #[cfg(unix)]
 pub mod state;
 pub mod store_fetch;
