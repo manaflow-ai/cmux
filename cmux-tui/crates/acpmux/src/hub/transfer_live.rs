@@ -108,7 +108,16 @@ impl Hub {
             })?;
         let file = inside(&bundle, text("path"))?;
         let length = params.get("length").and_then(Value::as_u64).unwrap_or(0);
-        let sha = prefix_digest(&file, length).map_err(|e| transfer_error("read", e))?;
+        // A history-later move's bundle file grew from the prepare's copy of these bytes, whose
+        // digest the prepare took (`transfer.rs` `export_grown`): no read under the freeze.
+        let known = read_json(&dir.join(super::super::transfer::NATIVE_DIGESTS))
+            .and_then(|all| all.get(text("path")).cloned())
+            .filter(|d| d.get("length").and_then(Value::as_u64) == Some(length))
+            .and_then(|d| d.get("sha256").and_then(Value::as_str).map(str::to_owned));
+        let sha = match known {
+            Some(sha) => Some(sha),
+            None => prefix_digest(&file, length).map_err(|e| transfer_error("read", e))?,
+        };
         super::super::transfer_watch::note_activity(&dir, None);
         Ok(json!({"transferId": transfer_id, "length": length, "sha256": sha}))
     }
@@ -139,6 +148,10 @@ impl Hub {
     /// that was is committed when its target took the chat and given back when it did not. A
     /// target that cannot say keeps it frozen: two copies of one chat would both run. A move whose
     /// client was heard from in the last [`LIVE_CLIENT`] is refused: it is not stale.
+    ///
+    /// `takeBack: true` (`--take-back`): the person's answer to a move whose target stayed
+    /// undecided past the bound (`transfer_undecided`, `transfer_watch.rs`): the target is asked
+    /// once more, and if it still cannot say, the chat is given back here all the same.
     pub(in crate::hub) async fn transfer_end_stale(
         self: &Arc<Self>,
         params: &Value,
@@ -166,7 +179,13 @@ impl Hub {
                 ),
             ));
         }
+        let take_back = params.get("takeBack").and_then(Value::as_bool) == Some(true);
         if !self.end_stalled_move(&session, &transfer_id, &dir).await {
+            if take_back {
+                self.take_back_undecided(&session, &transfer_id, &dir)?;
+                return Ok(json!({"sessionId": session.id, "transferId": transfer_id,
+                                 "ended": "taken back", "movedTo": null}));
+            }
             return Err(transfer_error(
                 "undecided",
                 format!(
@@ -179,6 +198,22 @@ impl Hub {
         Ok(json!({"sessionId": session.id, "transferId": transfer_id,
                   "ended": if moved_to.is_some() { "committed" } else { "given back" },
                   "movedTo": moved_to}))
+    }
+
+    /// A move of chat `id` whose target cannot say whether it took the chat, for `session info`
+    /// (`moveUndecided`): `{transferId, since, offeredAt}` (Unix ms; `offeredAt` once the chat
+    /// was offered back, when `--take-back` ends it). Null while no move is undecided.
+    pub(crate) fn move_undecided(&self, session: &Session) -> Value {
+        let Some(transfer_id) = session.moving().filter(|m| super::names_a_move(m)) else {
+            return Value::Null;
+        };
+        let dir = transfers_dir().join(&transfer_id);
+        match super::super::transfer_watch::undecided(&dir) {
+            Some((since, offered)) => {
+                json!({"transferId": transfer_id, "since": since, "offeredAt": offered})
+            }
+            None => Value::Null,
+        }
     }
 
     /// The chat's fresh move progress report, for `session info` (`moveProgress`).

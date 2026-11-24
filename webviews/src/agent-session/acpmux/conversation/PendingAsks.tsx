@@ -1,3 +1,4 @@
+import type { AnswerBlock } from "../subagents/restart";
 import { memo, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import { useT } from "../i18n";
 import * as watch from "../layoutWatch";
@@ -15,19 +16,22 @@ const expectMove = (reason: string, rows: string[]) =>
     ms: 0,
   });
 
-/// The question still waiting on the person (turns.ts `waitingAsks`: at most one per chat, its
-/// newest), pinned in the bottom stack above the composer: the transcript's own card (NextStepCard.tsx)
-/// with "Needs your input" and its Dismiss as the card's first row. The card in the transcript stays
-/// where it was asked; this copy is the one in reach. An answer goes as the person's next message,
-/// which settles both. It takes the composer's ⌘↩.
+/// The question still waiting on the person (turns.ts `waitingAsks`: at most one per chat, its newest),
+/// pinned in the bottom stack above the composer: the transcript's own card (NextStepCard.tsx), whose
+/// "Needs your input" line carries the close that dismisses it. The card in the transcript stays where it
+/// was asked; this copy is the one in reach. An answer goes as the person's next message, which settles
+/// both. It takes the composer's ⌘↩.
 export const PendingAsks = memo(function PendingAsks({
   asks,
   onAnswer,
   registerKey,
   onDismiss,
   asker,
+  blocked,
 }: {
   asks: readonly AcpmuxRow[];
+  /// Why this pane cannot send, where `onAnswer` is absent (NextStepCard.tsx `blocked`).
+  blocked?: AnswerBlock;
   /// Sends an answer; absent where this pane cannot send.
   onAnswer?: (text: string) => Promise<unknown>;
   registerKey?: (fire: () => void) => () => void;
@@ -56,19 +60,11 @@ export const PendingAsks = memo(function PendingAsks({
         return (
           <section key={row.id} className="acpmux-pending-ask" aria-label={t("question.needsInput")}>
             <NextStepCard
-              // The header row is the card's own first row, on its fill: a row of its own over the
-              // transcript drew its words on top of the chat's (https://github.com/manaflow-ai/cmux/issues/52766).
-              head={
-                <div className="acpmux-pending-ask__head">
-                  <span className="acpmux-pending-ask__label">{t("question.needsInput")}</span>
-                  <button type="button" className="acpmux-pending-ask__dismiss" onClick={() => onDismiss(askKey(row))}>
-                    {t("message.dismiss")}
-                  </button>
-                </div>
-              }
+              onDismiss={() => onDismiss(askKey(row))}
               className="ui-glass ui-glass-floats acpmux-stack-material"
               ask={pinnedAsk(step.ask)}
               onAnswer={onAnswer}
+              blocked={blocked}
               registerKey={index === shown.length - 1 ? registerKey : undefined}
               answerKey={askKey(row)}
               asker={asker}

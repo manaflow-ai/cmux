@@ -38,14 +38,14 @@ pub(crate) const MAX_FACT: usize = 200;
 pub(super) fn tool() -> Value {
     json!({
         "name": NAME,
-        "description": "End a turn with the next-step box the person sees under your answer: a short recap of what changed and where things stand and, when the turn leaves them a decision, one question with one or two answer buttons. A button's click is sent as their next message. Call it once, as the turn's last step.",
+        "description": "Finish with a recap below your answer. When a decision is needed, clicking an answer button sends the person's next message.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "recap": {"type": "string", "description": format!("Two or three short sentences, at most {MAX_RECAP} characters: what is now true or changed, then where it stands, including what is not done or not verified. One past {RECAP_CEILING} is cut at a sentence end, and the result says so.")},
-                "ask": {"type": "string", "description": format!("One short question of at most {MAX_ASK} characters, only when the next move is the person's call. Leave it out when nothing waits on them. Never ask them to click, open or switch to a tab or window so you can see or capture it: focus or capture it yourself. A question you asked before that they have not answered still waits on them, so do not ask it again. A longer one is cut, and the result says so.")},
-                "actions": {"type": "array", "items": {"type": "string"}, "description": format!("With ask: one or two answers, a few words each and at most {MAX_ACTION} characters, your pick first (\"Yes, open PR\", \"Not now\"). Each is sent as the person's reply when clicked. Without it a question gets Yes and Not now. Longer ones, or more than {MAX_ACTIONS}, are cut, and the result says so.")},
-                "learned": {"type": "array", "items": {"type": "string"}, "description": format!("Only when the person corrected you this turn, or a command failed and a later one worked: up to three one-line facts about this project for its instructions file (\"Use pnpm, not npm.\"), each at most {MAX_FACT} characters. Each is shown to the person to accept or dismiss. Longer ones, extra lines or more than {MAX_LEARNED} facts are cut, and the result says so.")}
+                "recap": {"type": "string", "description": format!("Two or three sentences on changes, verification and unfinished work, at most {MAX_RECAP} characters. Trimmed above {RECAP_CEILING}.")},
+                "ask": {"type": "string", "description": format!("Ask only for a decision the person needs to make, at most {MAX_ASK} characters. Never ask them to click or switch tabs: focus or capture it yourself. An unanswered question still waits, so do not ask it again.")},
+                "actions": {"type": "array", "items": {"type": "string"}, "description": format!("With ask, up to {MAX_ACTIONS} answer buttons of at most {MAX_ACTION} characters each, preferred first. Defaults to Yes and Not now.")},
+                "learned": {"type": "array", "items": {"type": "string"}, "description": format!("After a correction or a failed then successful command, offer up to {MAX_LEARNED} one-line project facts for the person to accept (at most {MAX_FACT} characters each).")}
             },
             "required": ["recap"]
         }

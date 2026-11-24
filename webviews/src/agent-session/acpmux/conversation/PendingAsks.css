@@ -1,21 +1,21 @@
 /* A question still waiting on the person, pinned in the asks stack above the composer
-   (PendingAsks.tsx): the transcript's own next-step card with a quiet "Needs your input" line and
-   Dismiss as its first row, on the card's fill. A line of its own over the transcript drew on top of
-   the chat's words (https://github.com/manaflow-ai/cmux/issues/52766). It enters as every part of the stack does (bottomStack.css, the shared entry tokens), so its
-   space opens in one frame and only the drawing travels. */
+   (PendingAsks.tsx): the transcript's own next-step card, whose header carries its close. It enters as
+   every part of the stack does (bottomStack.css, the shared entry tokens), so its space opens in one
+   frame and only the drawing travels. */
 .acpmux-pending-ask {
   display: flex;
   flex-direction: column;
   gap: var(--ds-space-1, 4px);
   min-width: 0;
 }
+/* A sub-session's ask (subagents/ChildAsk.tsx) keeps a line above its card: who asked, and Open. */
 .acpmux-pending-ask__head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--ds-space-2, 8px);
   min-height: var(--ui-row-height, var(--ds-control-row, 28px));
-  padding: 0;
+  padding: 0 var(--ds-space-1, 4px);
   color: var(--agent-muted);
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
@@ -48,13 +48,6 @@
 
 /* The pinned copy belongs to the composer stack; the historical card keeps its transcript fill. */
 .acpmux-pending-ask .acpmux-next-step:not(.acpmux-next-step--answered) {
-  border: 0;
   background: var(--acpmux-stack-tint);
   box-shadow: var(--acpmux-stack-shadow);
-}
-
-/* The head row sits in the card's top padding: Dismiss reaches toward the card's corner, the label
-   lines up with the question under it. */
-.acpmux-pending-ask .acpmux-next-step > .acpmux-pending-ask__head {
-  margin: calc(var(--ds-space-1, 4px) * -1) calc(var(--ds-space-2, 8px) * -1) calc(var(--ds-space-1, 4px) * -1) 0;
 }
