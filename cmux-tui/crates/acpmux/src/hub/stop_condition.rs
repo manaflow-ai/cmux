@@ -11,7 +11,9 @@
 //! one prompt?"). Now its first prompt is its work, under the same check.
 //!
 //! The same `--settings` caps the blocks at one with no tool call between ([`BLOCK_CAP`]), so a
-//! chat that only repeats its report to the check ends its turn after one re-prompt.
+//! chat that only repeats its report to the check ends its turn after one re-prompt. And a direct
+//! acpmux Stop hook beside the check ends the turn at any later stop of a turn the check already
+//! sent back (Claude Code's `stop_hook_active`), work or no work between.
 //!
 //! Only text: acpmux writes the hook itself, so a caller can add no command hook through it (a
 //! preset's `args` refuse `--settings` for that reason).
@@ -118,12 +120,31 @@ pub(crate) const BLOCK_CAP_ENV: &str = "CLAUDE_CODE_STOP_HOOK_BLOCK_CAP";
 /// tool, which resets the count, so the goal still keeps it going.
 pub(crate) const BLOCK_CAP: &str = "1";
 
-/// The settings document that holds the condition as a prompt Stop hook, with the block cap
-/// ([`BLOCK_CAP`]) in its `env`.
+/// The response for the native Stop callback after the condition has already sent the turn back.
+/// Claude Code's hook input says `stop_hook_active:true` from the first block of a turn on, tool
+/// calls or not. The first stop (`false`) gets an empty successful response, so the prompt check
+/// decides. A later stop gets `continue:false`, which Claude Code applies before another block.
+pub(crate) fn repeat_stop(input: &Value) -> Value {
+    if input.get("stop_hook_active").and_then(Value::as_bool) == Some(true) {
+        json!({
+            "continue": false,
+            "suppressOutput": true,
+            "stopReason": "The stop condition was checked once this turn"
+        })
+    } else {
+        json!({})
+    }
+}
+
+/// The settings document that holds the condition as a prompt Stop hook and the block cap
+/// ([`BLOCK_CAP`]) in its `env`. The repeat check is registered as Claude's native callback,
+/// avoiding a command hook, shell, interpreter, and process spawn on every stop.
 pub(crate) fn settings(condition: &str) -> Value {
     json!({
         "env": {BLOCK_CAP_ENV: BLOCK_CAP},
-        "hooks": {"Stop": [{"hooks": [{"type": "prompt", "prompt": condition}]}]},
+        "hooks": {"Stop": [{"hooks": [
+            {"type": "prompt", "prompt": condition},
+        ]}]},
     })
 }
 
@@ -157,13 +178,9 @@ mod tests {
     #[test]
     fn settings_hold_one_prompt_stop_hook_and_the_block_cap() {
         let got = settings("The task is landed.");
-        assert_eq!(
-            got,
-            json!({
-                "env": {"CLAUDE_CODE_STOP_HOOK_BLOCK_CAP": "1"},
-                "hooks": {"Stop": [{"hooks": [{"type": "prompt", "prompt": "The task is landed."}]}]},
-            })
-        );
+        assert_eq!(got["env"][BLOCK_CAP_ENV], BLOCK_CAP);
+        let hook = &got["hooks"]["Stop"][0]["hooks"][0];
+        assert_eq!(hook, &json!({"type": "prompt", "prompt": "The task is landed."}));
         // A condition that looks like JSON or a command stays one prompt string.
         let tricky = r#""}]}],"PreToolUse":[{"hooks":[{"type":"command","command":"rm -rf /"}]}]"#;
         let parsed: Value = serde_json::from_str(&settings(tricky).to_string()).unwrap();
@@ -188,5 +205,34 @@ mod tests {
         let doc: Value = serde_json::from_str(&args[1]).unwrap();
         assert_eq!(doc["env"][BLOCK_CAP_ENV], "1");
         assert_eq!(doc["hooks"]["Stop"][0]["hooks"][0]["type"], "prompt");
+    }
+
+    /// Lucas's Chief subagents were sent back by the goal check 51 times in two sessions, up to
+    /// Claude Code's cap of 9 in a row ("A hook blocked the turn from ending 9 consecutive
+    /// times"). A stop with `stop_hook_active: true` now ends the turn; the first stop of a turn
+    /// is the check's to decide, so an unfinished task is still sent back once.
+    #[test]
+    fn a_stop_the_check_already_sent_back_ends_the_turn() {
+        let stop = |active: bool| {
+            json!({"session_id": "s", "transcript_path": "/tmp/t.jsonl", "cwd": "/tmp",
+                "hook_event_name": "Stop", "stop_hook_active": active,
+                "last_assistant_message": "still holding for the person's OK"})
+        };
+        let out = repeat_stop(&stop(true));
+        assert_eq!(out["continue"], false, "stop_hook_active true: the stop goes through: {out}");
+        assert_eq!(out["suppressOutput"], true);
+
+        // The first stop prints nothing: Claude Code goes by the prompt check, which blocks an
+        // unfinished task (its hook is still in the settings, after this one).
+        assert_eq!(repeat_stop(&stop(false)), json!({}), "the first stop is the check's");
+        let doc = settings("The task is landed.");
+        assert_eq!(doc["hooks"]["Stop"][0]["hooks"][0]["prompt"], "The task is landed.");
+
+        // Spaced JSON counts too; a message that only quotes the words does not.
+        let spaced = r#"{"hook_event_name": "Stop", "stop_hook_active": true}"#;
+        assert!(repeat_stop(&serde_json::from_str(spaced).unwrap()).get("continue").is_some());
+        let mut quoted = stop(false);
+        quoted["last_assistant_message"] = json!("stop_hook_active: true");
+        assert_eq!(repeat_stop(&quoted), json!({}));
     }
 }

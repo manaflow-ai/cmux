@@ -71,10 +71,14 @@ IDENTITY = ("-c", "user.name=cmux fast gates", "-c", "user.email=fast-gates@user
 RATCHET_PATHS = ("Packages", "cmux-tui/crates", "scripts/cmux-next")
 FETCH_DEPTH = 50
 # A pull request a few dozen commits from the tip needs only the first step. Each deepen brings commits and trees but
-# no blobs (--filter=blob:none; git fetches a blob a gate reads on demand): on 2026-11-13 a --deepen=200 with blobs
+# no blobs (git fetches a blob a gate reads on demand): on 2026-11-13 a --deepen=200 with blobs
 # took 87 to 108 s of a 160 to 233 s job (runs 43473169308, 43474564309) for heads 9 and 32 commits from their base.
 DEEPEN_STEPS = (32, 200, 1000, 5000)
-DEEPEN_FILTER = "--filter=blob:none"
+# The walk to the merge base reads commits only, so a deepen asks for commits alone (--filter=tree:0): the trees of
+# the commits it passes are fetched on demand, for the few a gate diffs. On 2026-11-23 a PR forked 200+ commits behind
+# the tip spent 835 s in one --deepen=1000 with blob:none (every commit's trees came along) and the job then sat to
+# its cancel (8 such jobs at 25 min, 74% of the Merge step's 7,237 runner minutes a day; run 45236775245).
+DEEPEN_FILTER = "--filter=tree:0"
 
 
 def log(message: str) -> None:

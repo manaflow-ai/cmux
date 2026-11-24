@@ -64,6 +64,7 @@ use std::process::Command as StdCommand;
 
 #[path = "session_move_hub.rs"]
 mod hub;
+pub(crate) use hub::move_out;
 #[path = "session_move_link.rs"]
 mod link;
 
@@ -72,6 +73,8 @@ mod preflight;
 use link::SLOW_COPY;
 #[path = "session_move_snapshot.rs"]
 pub(crate) mod snapshot;
+#[path = "session_move_target_ask.rs"]
+mod target_ask;
 
 /// `--timeout`'s default: the longest an `--after-turn` move waits for the running turn.
 pub(crate) const DEFAULT_TURN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
@@ -158,9 +161,21 @@ fn after_turn_failed(name: &str, bound: std::time::Duration) -> String {
 }
 
 /// How long a move waits, after its commit, for this machine to list the chat reachable on the
-/// target (`await_arrival`), and how often it asks.
-const ARRIVAL_WAIT: std::time::Duration = std::time::Duration::from_secs(20);
-const ARRIVAL_POLL: std::time::Duration = std::time::Duration::from_millis(250);
+/// target (`await_arrival`), and how often it asks. The row is there within a poll or two of
+/// the commit while the link is up; the bound is for a link on its way back (connecting,
+/// reconnecting, degraded). A link that is offline (never reached and its attempts failed,
+/// removed, or its token refused) ends the wait at once (`link_gone`): no row comes from it
+/// within the bound, and waiting it out cost every such move the whole 5 s.
+const ARRIVAL_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+const ARRIVAL_POLL: std::time::Duration = std::time::Duration::from_millis(50);
+
+/// The key this machine lists the moved chat `there` under once it runs on `target`
+/// (`Hub::rows_by_key`): `TARGET/ID`, the peer's mirrored row, or the bare id when the target
+/// is this machine (`--from` a peer to here). Never the bare id for a peer: a move keeps the
+/// chat's id, so that names the closed row the source keeps, which no wait turns into a peer's.
+fn arrival_key(target: &Target, there: &str) -> String {
+    if target.ssh.is_empty() { there.to_owned() } else { format!("{}/{there}", target.name) }
+}
 
 /// Whether `reply` (`_acpmux/info` with `sessionIds`, `row: true`) lists the moved chat `id` as
 /// a reachable row of a peer: a peer's row, not a last-known copy (`stale`), its link up
@@ -169,11 +184,16 @@ fn arrived(reply: &Value, id: &str) -> Result<(), String> {
     let rows = reply.get("rows").and_then(Value::as_array).into_iter().flatten();
     let mut why = "not listed here yet".to_owned();
     for row in rows
+        .filter(|r| r.is_object())
         .filter(|r| r.get("sessionId").and_then(Value::as_str).is_none_or(|s| s == id))
-        .filter(|r| r.get("peer").and_then(Value::as_str).is_some_and(|p| !p.is_empty()))
     {
         let state = row.get("peerState").and_then(Value::as_str);
-        if row.get("stale").and_then(Value::as_bool) == Some(true) {
+        if row.get("peer").and_then(Value::as_str).is_none_or(str::is_empty) {
+            if row.get("status").and_then(Value::as_str) != Some("closed") {
+                return Ok(());
+            }
+            why = "listed here as closed".to_owned();
+        } else if row.get("stale").and_then(Value::as_bool) == Some(true) {
             why = format!("listed as its last-known copy (peer {})", state.unwrap_or("down"));
         } else if let Some(s) = state.filter(|s| !matches!(*s, "connected" | "degraded")) {
             why = format!("peer {s}");
@@ -184,36 +204,83 @@ fn arrived(reply: &Value, id: &str) -> Result<(), String> {
     Err(why)
 }
 
+/// Why the peer `name` in a `_acpmux/peers` answer will not list a moved chat within the
+/// arrival bound: its link is offline (never reached and its attempts failed, or removed), or
+/// a person must act (its token refused, the peer too old). None while it is up or on its way.
+fn link_gone(peers: &Value, name: &str) -> Option<String> {
+    let peer = peers
+        .get("peers")
+        .and_then(Value::as_array)?
+        .iter()
+        .find(|p| p.get("name").and_then(Value::as_str) == Some(name))?;
+    let link = peer.get("link").or_else(|| peer.get("state")).and_then(Value::as_str)?;
+    if !matches!(link, "offline" | "authFailed" | "updateRequired") {
+        return None;
+    }
+    Some(match peer.get("error").and_then(Value::as_str) {
+        Some(error) => format!("peer {link}: {error}"),
+        None => format!("peer {link}"),
+    })
+}
+
 /// Waits, at most `bound`, asking every `poll` (one request for all still waited on), until
-/// `src` lists every moved chat in `there` as reachable on its new machine (`arrived`): a move
+/// `observer` lists every moved chat in `there` as reachable on its new machine (`arrived`): a move
 /// that ends before then leaves `ls` showing it unknown, its peer reconnecting, though it runs
 /// there. One wait for all the chats of a move, not one per chat. Returns the ids not listed by
 /// the bound, each with why.
 async fn await_arrival(
-    src: &Client,
-    there: &[String],
+    observer: &Client,
+    entries: &[(String, String)],
     bound: std::time::Duration,
     poll: std::time::Duration,
 ) -> Vec<(String, String)> {
     let deadline = tokio::time::Instant::now() + bound;
-    let mut left: Vec<String> = there.to_vec();
+    let mut left = entries.to_vec();
+    // Chats already named late because their peer link is offline.
+    let mut done: Vec<(String, String)> = Vec::new();
     loop {
-        let params = json!({"sessionIds": left, "row": true});
-        let reply = src.request(method::MUX_INFO, params).await.map_err(|e| format!("{e:#}"));
-        let mut why = Vec::new();
-        for id in &left {
-            let w = match &reply {
+        let keys: Vec<&str> = left.iter().map(|(key, _)| key.as_str()).collect();
+        let reply = observer
+            .request(method::MUX_INFO, json!({"sessionIds": keys, "row": true}))
+            .await
+            .map_err(|e| format!("{e:#}"));
+        let mut late = Vec::new();
+        for (key, id) in &left {
+            let why = match &reply {
                 Ok(r) => arrived(r, id).err(),
                 Err(e) => Some(e.clone()),
             };
-            if let Some(w) = w {
-                why.push((id.clone(), w));
+            if let Some(why) = why {
+                late.push((key.clone(), id.clone(), why));
             }
         }
-        if why.is_empty() || tokio::time::Instant::now() + poll > deadline {
-            return why;
+        if late.is_empty() || tokio::time::Instant::now() + poll > deadline {
+            return done
+                .into_iter()
+                .chain(late.into_iter().map(|(_, id, why)| (id, why)))
+                .collect();
         }
-        left = why.into_iter().map(|(id, _)| id).collect();
+        // A chat whose peer link is offline is not coming within the bound: name it now.
+        let mut gone = Vec::new();
+        if late.iter().any(|(key, _, _)| key.contains('/')) {
+            if let Ok(peers) = observer.request("_acpmux/peers", json!({})).await {
+                late.retain(|(key, id, _)| {
+                    let peer = key.split_once('/').map(|(peer, _)| peer);
+                    match peer.and_then(|peer| link_gone(&peers, peer)) {
+                        Some(why) => {
+                            gone.push((id.clone(), why));
+                            false
+                        }
+                        None => true,
+                    }
+                });
+            }
+        }
+        done.extend(gone);
+        if late.is_empty() {
+            return done;
+        }
+        left = late.into_iter().map(|(key, id, _)| (key, id)).collect();
         tokio::time::sleep(poll).await;
     }
 }
@@ -221,29 +288,34 @@ async fn await_arrival(
 /// After the moves: done only once this machine lists each moved chat where it went,
 /// reachable, else `ls` right after shows it unknown, its peer reconnecting (item D). One wait
 /// for them all; a chat still not listed at the bound is named, and still moved.
-async fn settle_arrivals(src: &Client, outcomes: &[Outcome]) {
-    let moved: Vec<&Outcome> = outcomes.iter().filter(|o| o.moved && o.there.is_some()).collect();
-    if moved.is_empty() {
-        return;
-    }
-    let there: Vec<String> = moved.iter().filter_map(|o| o.there.clone()).collect();
-    let who = match moved.as_slice() {
-        [one] => one.name.clone(),
+async fn settle_arrivals(observer: &Client, outcomes: &mut [Outcome]) {
+    let there: Vec<(String, String)> = outcomes
+        .iter()
+        .filter(|o| o.moved)
+        .filter_map(|o| Some((o.arrival_key.clone()?, o.there.clone()?)))
+        .collect();
+    let who = match there.as_slice() {
+        [] => return,
+        [(_, id)] => outcomes
+            .iter()
+            .find(|o| o.there.as_deref() == Some(id.as_str()))
+            .map_or_else(|| id.clone(), |o| o.name.clone()),
         many => format!("{} chats", many.len()),
     };
     let step = "waiting until this machine lists it reachable where it went";
-    let late = waiting(&who, step, await_arrival(src, &there, ARRIVAL_WAIT, ARRIVAL_POLL)).await;
-    for (id, why) in late {
-        let Some(o) = moved.iter().find(|o| o.there.as_deref() == Some(id.as_str())) else {
-            continue;
-        };
-        eprintln!(
-            "move: {}: moved to {}, but this machine does not list it reachable there after {}s \
-             ({why}); it runs there, and `acpmux ls` shows it once the link is up",
-            o.name,
-            o.host.as_deref().unwrap_or("?"),
-            ARRIVAL_WAIT.as_secs()
-        );
+    let late =
+        waiting(&who, step, await_arrival(observer, &there, ARRIVAL_WAIT, ARRIVAL_POLL)).await;
+    for o in outcomes.iter_mut().filter(|o| o.moved && o.arrival_key.is_some()) {
+        let why = late.iter().find(|(id, _)| o.there.as_deref() == Some(id.as_str()));
+        o.reachable = Some(why.is_none());
+        if let Some((_, why)) = why {
+            eprintln!(
+                "move: {}: moved to {}, but this machine does not list it reachable there \
+                 ({why}); it runs there, and `acpmux ls` shows it once the link is up",
+                o.name,
+                o.host.as_deref().unwrap_or("?"),
+            );
+        }
     }
 }
 
@@ -327,6 +399,11 @@ struct Outcome {
     moved: bool,
     /// The chat's id on the target, once moved.
     there: Option<String>,
+    /// The key this machine uses to list the moved chat on its target.
+    arrival_key: Option<String>,
+    /// Once moved: whether this machine listed the chat reachable on the target when the move
+    /// ended (`await_arrival`); a send to it then goes through at once.
+    reachable: Option<bool>,
     /// With `resume_there`: whether a held queue ran there, or why it did not (the chat moved).
     resumed: Result<bool, String>,
     /// With `--carry-changes`: what was carried (`Carry::record`).
@@ -346,6 +423,8 @@ impl Outcome {
             cwd: None,
             moved: false,
             there: None,
+            arrival_key: None,
+            reachable: None,
             resumed: Ok(false),
             carried: None,
             error: None,
@@ -367,9 +446,6 @@ pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
     // `--from`: the chats' daemon is the peer's, reached through a forward of its local socket.
     let (src, source, home, _src_forward) = match &args.from {
         None => {
-            if names_here(&args.host, &here) {
-                bail!("the chats are on this machine already: name another machine");
-            }
             let home =
                 dirs::home_dir().ok_or_else(|| anyhow!("this machine has no home folder"))?;
             (local.clone(), Source::Here, home, None)
@@ -396,45 +472,107 @@ pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
     if ids.is_empty() {
         bail!("no chat to move: name one or more, or pass --all-idle");
     }
-    // A machine no ssh peer names, that the team hub lists as one of the person's: the move goes
-    // through the hub, the target pulling it (`session_move_hub.rs`).
-    if matches!(source, Source::Here)
+    let mut holders = Vec::with_capacity(ids.len());
+    for key in &ids {
+        holders.push(if matches!(source, Source::Here) && !args.all_idle {
+            hub::holder(&local, key, &here, &peers).await?
+        } else {
+            None
+        });
+    }
+    if holders.iter().any(Option::is_some)
+        && (args.cwd.is_some()
+            || args.dry_run
+            || args.carry_changes
+            || args.leave_dirty
+            || args.host == "auto")
+    {
+        bail!(
+            "a move from a hub machine needs a named target or local and supports --after-turn, --interrupt and --timeout"
+        );
+    }
+    let drive_here = holders.iter().any(Option::is_none);
+    if drive_here && matches!(source, Source::Here) && names_here(&args.host, &here) {
+        bail!("the chats are on this machine already: name another machine");
+    }
+    let hub_target = if drive_here
+        && matches!(source, Source::Here)
         && args.host != "auto"
         && peer_ssh(&peers, &args.host).is_none()
     {
-        return hub::run(&src, &ids, &args, &home, json_out).await;
-    }
-    let here_target = match &source {
-        Source::Peer { .. } if names_here(&args.host, &here) => {
-            Some(Target { name: here.clone(), ssh: String::new(), probed: Some(local_daemon()?) })
+        if args.carry_changes {
+            bail!("--carry-changes does not go through the team hub yet: commit, or --leave-dirty");
         }
-        _ => None,
+        Some(hub::resolve(&src, &args.host).await.with_context(|| {
+            format!(
+                "{} is neither an ssh peer of this daemon nor a machine the team hub lists",
+                args.host
+            )
+        })?)
+    } else {
+        None
     };
-    let mut targets = Targets::with_here(&args.host, &peers, here_target)?;
-    targets.observer = Some(local);
-    targets.exclude_source(&source, crate::placement::load_registry().as_ref())?;
+    let mut targets = if drive_here && hub_target.is_none() {
+        let here_target = match &source {
+            Source::Peer { .. } if names_here(&args.host, &here) => Some(Target {
+                name: here.clone(),
+                ssh: String::new(),
+                probed: Some(local_daemon()?),
+            }),
+            _ => None,
+        };
+        let mut targets = Targets::with_here(&args.host, &peers, here_target)?;
+        targets.observer = Some(local.clone());
+        targets.exclude_source(&source, crate::placement::load_registry().as_ref())?;
+        Some(targets)
+    } else {
+        None
+    };
     let mut outcomes = Vec::new();
-    for key in &ids {
-        let outcome = move_one_from(&src, &source, key, &args, &home, &mut targets).await;
+    let mut rows = Vec::new();
+    let mut hub_outcomes = Vec::new();
+    for (key, holder) in ids.iter().zip(holders) {
+        let row = if let Some((holder, session)) = holder {
+            hub::ask_holder(&local, &holder, &session, &args, &here).await
+        } else if let Some(target) = &hub_target {
+            hub::one(&src, key, &args, &home, target).await
+        } else {
+            let targets = targets.as_mut().context("missing move target")?;
+            let o = move_one_from(&src, &source, key, &args, &home, targets).await;
+            if !json_out {
+                print_outcome(&o, args.dry_run);
+            }
+            outcomes.push(o);
+            continue;
+        };
+        if json_out {
+            rows.push(serde_json::to_value(&row)?);
+        }
+        let outcome = row.into_outcome();
         if !json_out {
             print_outcome(&outcome, args.dry_run);
         }
-        outcomes.push(outcome);
+        hub_outcomes.push(outcome);
     }
     if !args.dry_run {
-        settle_arrivals(&src, &outcomes).await;
+        let observer = targets.as_ref().and_then(|t| t.observer.as_deref()).unwrap_or(&src);
+        settle_arrivals(observer, &mut outcomes).await;
     }
-    let failed = outcomes.iter().filter(|o| o.error.is_some()).count();
     if json_out {
-        let rows: Vec<Value> = outcomes
+        let local_rows: Vec<Value> = outcomes
             .iter()
             .map(|o| {
                 json!({"sessionId": o.session, "name": o.name, "host": o.host, "cwd": o.cwd,
                        "moved": o.moved, "dryRun": args.dry_run, "carried": o.carried,
                        "error": o.error, "errorCode": o.error_code,
-                       "preflight": o.preflight, "targetSessionId": o.there})
+                       "preflight": o.preflight, "targetSessionId": o.there, "reachable": o.reachable})
             })
             .collect();
+        rows.splice(0..0, local_rows);
+    }
+    outcomes.extend(hub_outcomes);
+    if json_out {
+        let failed = outcomes.iter().filter(|o| o.error.is_some()).count();
         print_json(&json!({"moves": rows, "failed": failed}));
     }
     match not_moved(&outcomes) {
@@ -506,6 +644,7 @@ fn carried_text(o: &Outcome) -> String {
 pub(super) async fn end_stale(
     sessions: &[String],
     from: Option<&str>,
+    take_back: bool,
     json_out: bool,
 ) -> Result<()> {
     if sessions.is_empty() {
@@ -532,7 +671,14 @@ pub(super) async fn end_stale(
     let mut failed = 0;
     for key in sessions {
         let ended = match resolve_id(&src, key).await {
-            Ok(id) => src.request("_acpmux/transfer_end_stale", json!({"sessionId": id})).await,
+            Ok(id) => {
+                let ask = if take_back {
+                    json!({"sessionId": id, "takeBack": true})
+                } else {
+                    json!({"sessionId": id})
+                };
+                src.request("_acpmux/transfer_end_stale", ask).await
+            }
             Err(e) => Err(e),
         };
         match ended {
@@ -603,8 +749,8 @@ pub(crate) async fn move_auto(src: &Client, id: &str, resume_there: bool) -> Res
     let peers = src.request("_acpmux/peers", json!({})).await?;
     let mut targets = Targets::new(&args.host, &peers)?;
     let home = dirs::home_dir().ok_or_else(|| anyhow!("this machine has no home folder"))?;
-    let o = move_one(src, id, &args, &home, &mut targets).await;
-    settle_arrivals(src, std::slice::from_ref(&o)).await;
+    let mut o = move_one(src, id, &args, &home, &mut targets).await;
+    settle_arrivals(src, std::slice::from_mut(&mut o)).await;
     if let Some(e) = o.error {
         bail!("{e}");
     }
@@ -785,7 +931,33 @@ async fn move_steps(
         }
         anyhow!(e)
     })?;
+    // The target is asked what `transfer_receive` will ask, before anything is frozen or copied:
+    // a refusal it can give without the bytes ends the move (and the dry run) here, in its words.
+    let opened =
+        waiting(&o.name, "opening the target's daemon", target_ask::open(&target, &remote)).await?;
+    let asked =
+        waiting(&o.name, "asking the target to take it", target_ask::ask(&opened.dst, &id, &info))
+            .await;
+    let answer = match asked {
+        Ok(answer) => answer,
+        Err(e) => {
+            o.error_code = target_ask::refusal_code(&e);
+            opened.close().await;
+            return Err(e);
+        }
+    };
     if args.dry_run {
+        opened.close().await;
+        if answer == target_ask::Answer::Unasked {
+            // An older acpmux there: nothing says the move would land, so the dry run does not.
+            o.error_code = Some("target_unasked");
+            bail!(
+                "{} could not be asked whether it takes this chat: its acpmux is older than \
+                 this check (update acpmux there; a move without --dry-run still asks it at \
+                 the copy)",
+                target.name
+            );
+        }
         o.cwd = Some(match &planned {
             Folder::Plain { cwd } => cwd.clone(),
             Folder::Worktree { repo, branch, subdir, snapshot: false, .. } => {
@@ -814,12 +986,11 @@ async fn move_steps(
         }
         Source::Peer { .. } => None,
     };
-    // The target's daemon first: the chat's history is staged there before the freeze when both
+    // The target's daemon: the chat's history is staged there before the freeze when both
     // daemons can (`transfer::precopy`), so the freeze moves only what follows.
     let name = o.name.clone();
-    let connecting = super::transfer::connect_target(&target.ssh, &remote.socket);
-    let (forward, dst_client, dst_init) =
-        waiting(&name, "connecting to the target's daemon", connecting).await?;
+    // Its client is the one the target was asked on above, before anything froze.
+    let target_ask::Opened { forward, dst: dst_client, init: dst_init } = opened;
     // Both ends come back after a dropped forward or a daemon swap mid-move (`move_end.rs`).
     let dst_reach = if target.ssh.is_empty() {
         Reach::Socket { path: PathBuf::from(&remote.socket) }
@@ -848,7 +1019,7 @@ async fn move_steps(
     )
     .await;
     let record = match prepared {
-        Ok(p) => p,
+        Ok(record) => record,
         Err(e) => {
             super::transfer::abort_move(&mut src_end, &id, &begun).await;
             return Err(e);
@@ -881,6 +1052,9 @@ async fn move_steps(
     targets.placed(&target.name);
     o.moved = true;
     o.there = moved.get("sessionId").and_then(Value::as_str).map(str::to_owned);
+    if let Some(there) = o.there.clone() {
+        o.arrival_key = Some(arrival_key(&target, &there));
+    }
     if args.resume_there
         && let Some(there) = o.there.clone()
     {
@@ -904,7 +1078,7 @@ async fn move_steps(
 
 /// The frozen chat's folder made on the target: the checkout read again (it may have changed
 /// before the freeze), its branch pushed, the folder made there. Returns the move's record
-/// (`movedTo`).
+/// (`movedTo`). The client of the target's daemon is `target_ask::open`'s, from before the freeze.
 async fn prepare(
     cwd: &Path,
     home: &Path,

@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextCompat
+public import CmuxNextRemoteView
 public import CmuxNextDevices
 public import CmuxNextWakeups
 import CmuxScreenKit
@@ -133,6 +134,20 @@ public final class MacScreenPages {
         didSet {
             guard encodeProfile != oldValue else { return }
             for tab in tabs.values { tab.pane?.session?.encodeProfile = encodeProfile }
+        }
+    }
+    /// Settings > cmux Remote > Screen Sharing Quality and Bitrate Limit (`remoteDesktop.quality`,
+    /// `remoteDesktop.maxBitrateMbps`): the toolbar picks a new tab's session starts at, so its offer asks for them.
+    /// An open tab keeps the picks it has.
+    var defaultPreferences = ScreenPreferences()
+    /// `remoteDesktop.clipboard`: whether a session syncs clipboard text (default: own devices only).
+    public var clipboardSetting: RemoteDesktopSettings.Clipboard = .ownDevicesOnly
+    /// Settings > cmux Remote > Screen Sharing Frame Rate Limit (`remoteDesktop.maxFps`): the most the next
+    /// offer's `a=cmux-rd-max-fps` asks for; nil (Auto) leaves the quality's rate.
+    public var maxFpsCap: Int? {
+        didSet {
+            guard maxFpsCap != oldValue else { return }
+            for tab in tabs.values { tab.pane?.session?.maxFpsCap = maxFpsCap }
         }
     }
     /// Tab key -> the record a person opened in it.
@@ -310,7 +325,7 @@ public final class MacScreenPages {
 
     /// The name of device `id`: the hub's, else the last one seen, else "Mac".
     func deviceName(_ id: String) -> String {
-        hub?.devices.first { $0.id == id }?.name ?? store.deviceNames[id] ?? L.t("macScreen.hub.unknownDevice", "Mac")
+        hub?.deviceNames[id] ?? store.deviceNames[id] ?? L.t("macScreen.hub.unknownDevice", "Mac")
     }
 
     /// Device tabs whose view is not made yet (restored, not selected) take their device's name.
@@ -575,7 +590,7 @@ public final class MacScreenPages {
         viewer.makeSignaling = makeSignaling
         viewer.onStreaming = { [weak self] in self?.viewerStarted() }
         let pane = MacScreenPane(hubDevice: viewer, name: deviceName(deviceID), platform: hub?.devices.first { $0.id == deviceID }?.platform,
-                                 preferences: ScreenPreferences())
+                                 preferences: defaultPreferences)
         if confirmed[key] == record, let scope = tabScopes.removeValue(forKey: key) ?? pendingScopes.removeValue(forKey: deviceID) {
             viewer.resumeScope = scope
         }
@@ -589,6 +604,8 @@ public final class MacScreenPages {
         if relayOnly { pane.setRelayOnly(true) }
         #endif
         pane.session?.encodeProfile = encodeProfile
+        pane.session?.offersClipboard = RemoteClipboardPolicy.allows(clipboardSetting, ownDevice: isOwnDevice(deviceID, among: viewableDevices))
+        pane.session?.maxFpsCap = maxFpsCap
         pane.handlers.closeTab = { [weak self] in self?.events.closeTab(key) }
         pane.handlers.openHome = { [weak self] in self?.replace(key, with: MacScreenRecord(macID: nil)) }
         pane.handlers.signIn = { [weak self] in self?.events.signIn() }

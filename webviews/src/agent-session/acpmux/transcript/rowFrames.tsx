@@ -31,6 +31,7 @@ import { rowKind } from "../virtualTranscriptModel";
 import { type QueueDrawn } from "./drawnHeight";
 import { OlderRowFade } from "./OlderRowFade";
 import { rowDomId, RowFrame, RowContent } from "./RowFrame";
+import { mountsOffscreen, skipsOffscreenRows } from "../conversation/offscreenRows";
 
 /// A row drawn as tool rows: tool calls and thoughts, a background task's or a subagent's end, a
 /// compaction, a failover, a policy the harness cannot keep, and the one-line
@@ -84,7 +85,11 @@ export type RowFrameSources = {
 type RowFramesView = {
   rows: readonly AcpmuxRow[];
   mountedRanges: readonly { first: number; last: number }[];
-  geometry: { topAt(index: number): number; gapAt(index: number): number };
+  geometry: { topAt(index: number): number; gapAt(index: number): number; heightAt(index: number): number };
+  /// The content in view, in the geometry's offsets: rows mounted far from it skip their contents
+  /// (conversation/offscreenRows.ts). `viewHeight` 0 skips none.
+  viewTop: number;
+  viewHeight: number;
   frameKey: string;
   registry: NativeRegistry;
   setSizeRef: React.MutableRefObject<string>;
@@ -152,6 +157,9 @@ export function drawRowFrames(
   const entering = view.enters ? sources.entering.current : undefined;
   const loadFade = view.loadFades ? sources.loadFade : undefined;
   const older = sources.older;
+  const skips = view.viewHeight > 0 && skipsOffscreenRows();
+  // The screen's height bounds the window's, and reading it forces no layout (innerHeight may).
+  const windowHeight = skips ? (window.screen?.height ?? 0) : 0;
   cache.begin([
     view.frameKey,
     view.registry,
@@ -248,6 +256,13 @@ export function drawRowFrames(
           onOpenDiff={view.onOpenDiff}
           githubRepository={inputs.repository}
           referenceScope={inputs.scope as ReferenceScope | undefined}
+          // Read by the frame's first mount only, and not compared (sameRowFrame): no frame draws again
+          // for them, and a kept frame's values are the ones it mounted with.
+          offscreen={
+            skips &&
+            mountsOffscreen(inputs.top, geometry.heightAt(absoluteIndex), view.viewTop, view.viewHeight, windowHeight)
+          }
+          placedHeight={geometry.heightAt(absoluteIndex)}
         >
           <RowContent
             Component={Component}

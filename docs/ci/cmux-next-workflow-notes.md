@@ -5005,6 +5005,39 @@ spill off; unset or any other value leaves it on.
 
 ## note-556
 
+Above `generated-files-base-red:` in `.github/workflows/cmux-next.yml`.
+
+Leo, 2026-11-24: "de facto, im asking for 99% fewer minutes of ci time, period." In the 24 h to 2026-11-24 11Z,
+`cmux-next generated files` ran 581 times for 17,010 runner-min and passed 0 times: base push runs went 41 red,
+0 green, and every PR run was red for the base's reasons. There were two shapes. The first was SwiftPM exiting 1 with
+`error: cannot find 'PaneMoreShotsTests' in scope` buried in about 43k warning lines; base fixed it at e627e833 but
+long-queued PR merge refs predated the fix. The second was the action and settings export judges failing because the
+CCmuxAppFFI pin (app-ffi-pin.json) lags the Rust catalog, so the Swift tests read the old catalog; it waits on the
+re-pin PR. A PR run of a job red on the base tells nobody anything gh-merge-green does not already excuse, so a pull
+request skips it while the newest base push verdict is red (scripts/ci/base_red_skip.py: fails open, 10% audit, the
+full-ci label runs it, push and dispatch always run it). `vars.CI_SKIP_WHILE_BASE_RED` set to `0` turns it off.
+
+## note-557
+
+Above `runs-on` in app-compile-fleet and swift-canary-fleet in `.github/workflows/cmux-next.yml`.
+
+Both jobs used to take a gateway runner and hold it while the build fleet compiled the head: the client
+submitted the Debug `--app` compile and waited up to 25 minutes for it. 2026-11-23..24, app-compile-fleet held
+gateway runners for about 22,900 runner-min a day (1,791 jobs) doing nothing but wait.
+
+Now the compile check posts its result back instead of holding a runner. The controller (cmuxterm-hq
+cmux_next_app_debug_check.go) submits the Debug `--app` compile of a same-repository pull request head when
+it sees either job queued, or when the job's read names the pull request, and serves the record at
+`compile-checks/v1/<sha>?phase=app-debug` (configuration `debug`, recipe 2). That record never stands for the
+land Release. The job runs on cmux-linux and reads only that record with the trusted base copy of
+scripts/ci/fleet_compile_result.py (`--phase app-debug`). The check name, its `if`, its placement and its
+verdicts are unchanged: pass is green, fail is red, and no result in 40 minutes (no record after 5 minutes,
+the service down, or a base reader without the phase) is `unavailable` and fails closed, as a cmux-ci exit
+other than 0, 1 or 75 did. A check the fleet still holds queued (`pending`) is a warning, as exit 75 was. swift-canary-fleet does the same for a pull request; any non-pass still lets the Mac
+canary run, and a push keeps its tip-check read and gateway compile.
+
+## note-558
+
 Above `fast-tier: Build on the base's current tip` in `.github/workflows/cmux-next.yml`.
 
 A pull_request run checks out the merge commit GitHub made when the run was queued, and the fast tier waits 1 to
@@ -5016,7 +5049,7 @@ scratch index and checks out a merge commit with parents (tip, PR head). On any 
 fails or times out), the run's own merge stays checked out. `vars.CI_FAST_TIER_CURRENT_BASE` set to `0` turns it
 off.
 
-## note-557
+## note-559
 
 Above `push-head-preflight` in `.github/workflows/cmux-next.yml` (moved here to keep the workflow under its size limit).
 
