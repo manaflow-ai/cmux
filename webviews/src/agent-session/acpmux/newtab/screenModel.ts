@@ -462,16 +462,6 @@ export function returnRow(
   return { row, takes };
 }
 
-/// Whether the top row is the prompt for the composer's own agent (Ask, for the agent the model
-/// chip names). That row is what Return does with plain text, which the chip and Send already say,
-/// so the list draws it as no row (David Beyer 2026-11-20: "the Ask Claude code thing is confusing
-/// 'cause it's not clear that I'm ... already set on Claude Code"). It stays the list's first stop:
-/// Down leaves it for the first drawn row and Up comes back to it, Return's highlight on nothing.
-export function promptLeads(rows: readonly ScreenRow[], harness: string | undefined): boolean {
-  const top = rows[0];
-  return top?.type === "ask" && top.harness === harness;
-}
-
 /// The inline address completion accepted by Right or End. Only a top row that is an address and
 /// extends the typed prefix qualifies: an open result (the typed address or a top site) or a visited
 /// page (history, as Chrome's omnibox completes it). Prompt, search, tab and workspace rows stay

@@ -57,6 +57,15 @@ fn it_fires_the_lead_before_the_expiry_only_over_the_threshold() {
 }
 
 #[test]
+fn a_one_hour_cache_compacts_three_minutes_before_its_expiry() {
+    let now = 1_000_000;
+    let hour = now + 3_600_000;
+    assert_eq!(lead_ms(3_600_000), LONG_LEAD_MS);
+    assert_eq!(lead_ms(300_000), LEAD_MS, "a 5-minute cache keeps its 30 s");
+    assert_eq!(wait_ms(&usage(150_000, 200_000, Some(hour)), 0.5, now), Some(3_600_000 - 180_000));
+}
+
+#[test]
 fn its_prompt_is_acpmuxs_own_not_the_persons() {
     let ours = json!({"kind": KIND});
     assert!(!super::super::inbox::persons_prompt(None, Some(&ours)));
