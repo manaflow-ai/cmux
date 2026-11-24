@@ -462,8 +462,8 @@ class GeneratedClientMixin:
     def list_workspace_groups(self) -> JsonValue:
         return self._invoke_command('list-workspace-groups', ListWorkspaceGroupsRequest())
 
-    def list_workspaces(self, *, known: Union[ListWorkspacesKnown, None, MissingType] = MISSING, limit: Union[int, None, MissingType] = MISSING) -> Tree:
-        return self._invoke_command('list-workspaces', ListWorkspacesRequest(known=known, limit=limit))
+    def list_workspaces(self, *, after: Union[int, None, MissingType] = MISSING, known: Union[ListWorkspacesKnown, None, MissingType] = MISSING, limit: Union[int, None, MissingType] = MISSING) -> Tree:
+        return self._invoke_command('list-workspaces', ListWorkspacesRequest(after=after, known=known, limit=limit))
 
     def machine_listening_tcp(self) -> MachineListeningTcpResult:
         return self._invoke_command('machine-listening-tcp', MachineListeningTcpRequest())
@@ -732,8 +732,8 @@ class GeneratedClientMixin:
     def set_cell_pixels(self, width_px: int, height_px: int) -> SetCellPixelsResult:
         return self._invoke_command('set-cell-pixels', SetCellPixelsRequest(width_px=width_px, height_px=height_px))
 
-    def set_client_info(self, *, name: Union[str, None, MissingType] = MISSING, kind: Union[str, None, MissingType] = MISSING, api_revision: Union[int, None, MissingType] = MISSING, capabilities: Union[List[str], None, MissingType] = MISSING, device_id: Union[str, None, MissingType] = MISSING, device_kind: Union[str, None, MissingType] = MISSING, device_name: Union[str, None, MissingType] = MISSING, display_name: Union[str, None, MissingType] = MISSING, install: Union[str, None, MissingType] = MISSING, remote: Union[bool, None, MissingType] = MISSING, user_id: Union[str, None, MissingType] = MISSING, version: Union[str, None, MissingType] = MISSING) -> EmptyResult:
-        return self._invoke_command('set-client-info', SetClientInfoRequest(name=name, kind=kind, api_revision=api_revision, capabilities=capabilities, device_id=device_id, device_kind=device_kind, device_name=device_name, display_name=display_name, install=install, remote=remote, user_id=user_id, version=version))
+    def set_client_info(self, *, name: Union[str, None, MissingType] = MISSING, kind: Union[str, None, MissingType] = MISSING, api_revision: Union[int, None, MissingType] = MISSING, api_version: Union[str, None, MissingType] = MISSING, capabilities: Union[List[str], None, MissingType] = MISSING, device_id: Union[str, None, MissingType] = MISSING, device_kind: Union[str, None, MissingType] = MISSING, device_name: Union[str, None, MissingType] = MISSING, display_name: Union[str, None, MissingType] = MISSING, install: Union[str, None, MissingType] = MISSING, remote: Union[bool, None, MissingType] = MISSING, user_id: Union[str, None, MissingType] = MISSING, version: Union[str, None, MissingType] = MISSING) -> SetClientInfoResult:
+        return self._invoke_command('set-client-info', SetClientInfoRequest(name=name, kind=kind, api_revision=api_revision, api_version=api_version, capabilities=capabilities, device_id=device_id, device_kind=device_kind, device_name=device_name, display_name=display_name, install=install, remote=remote, user_id=user_id, version=version))
 
     def set_client_sizing(self, surface: Id, enabled: bool, *, client: Union[int, None, MissingType] = MISSING, exclusive: Union[bool, MissingType] = MISSING) -> EmptyResult:
         return self._invoke_command('set-client-sizing', SetClientSizingRequest(surface=surface, enabled=enabled, client=client, exclusive=exclusive))
@@ -854,6 +854,9 @@ class GeneratedClientMixin:
 
     def terminal_events(self, *, after_revision: Union[int, MissingType] = MISSING) -> TerminalEventsResult:
         return self._invoke_command('terminal-events', TerminalEventsRequest(after_revision=after_revision))
+
+    def terminal_find(self, surface: Id, query: str, *, before: Union[int, None, MissingType] = MISSING, case_sensitive: Union[bool, MissingType] = MISSING, epoch: Union[int, None, MissingType] = MISSING, max_matches: Union[int, None, MissingType] = MISSING, page_rows: Union[int, None, MissingType] = MISSING, regex: Union[bool, MissingType] = MISSING, whole_word: Union[bool, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('terminal-find', TerminalFindRequest(surface=surface, query=query, before=before, case_sensitive=case_sensitive, epoch=epoch, max_matches=max_matches, page_rows=page_rows, regex=regex, whole_word=whole_word))
 
     def terminal_history(self, surface: Id, marker_epoch: int, *, before: Union[int, None, MissingType] = MISSING, max_bytes: Union[int, None, MissingType] = MISSING) -> TerminalHistoryPagesResult:
         return self._invoke_command('terminal-history', TerminalHistoryRequest(surface=surface, marker_epoch=marker_epoch, before=before, max_bytes=max_bytes))
@@ -1227,6 +1230,7 @@ GeneratedClientMixin.terminal_clipboard_reply.__cmux_command__ = COMMANDS['termi
 GeneratedClientMixin.terminal_clipboard_subscribe.__cmux_command__ = COMMANDS['terminal-clipboard-subscribe']
 GeneratedClientMixin.terminal_command_context.__cmux_command__ = COMMANDS['terminal-command-context']
 GeneratedClientMixin.terminal_events.__cmux_command__ = COMMANDS['terminal-events']
+GeneratedClientMixin.terminal_find.__cmux_command__ = COMMANDS['terminal-find']
 GeneratedClientMixin.terminal_history.__cmux_command__ = COMMANDS['terminal-history']
 GeneratedClientMixin.terminal_last_command.__cmux_command__ = COMMANDS['terminal-last-command']
 GeneratedClientMixin.terminal_ports.__cmux_command__ = COMMANDS['terminal-ports']

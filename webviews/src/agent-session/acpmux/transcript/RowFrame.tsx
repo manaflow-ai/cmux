@@ -1,7 +1,9 @@
 import React, { useLayoutEffect, useRef, useState, useEffectEvent, useCallback } from "react";
 import { LOAD_FADE_CLASS } from "../../shared/loadFade";
+import { sendPopEnabled } from "../chatDisplay";
 import { holdEntranceForFirstFrame } from "../conversation/entranceClock";
 import { markRecapEntrance } from "../conversation/turnEndFold";
+import { NEXT_STEP } from "../conversation/turns";
 import { type AcpmuxRow, type StatusEdge, rowFrameKey, isLineRow, SINCE_DIVIDER } from "../model";
 import { acpmuxPerf } from "../perf";
 import { useLiveToolRow } from "../liveToolOutput";
@@ -223,10 +225,16 @@ export const RowFrame = React.memo(function RowFrame({
   useLayoutEffect(() => enterOnMount(), []);
   // A generic row's entrance starts on the frame that first draws it, not at this commit: WebKit
   // starts its clock here, and a busy main thread drew the row only after its fade had ended, whole
-  // at once (conversation/entranceClock.ts). Messages keep their own send clock.
+  // at once (conversation/entranceClock.ts). A sent prompt's pop (conversation.css SEND-POP, when
+  // Pop In Sent Prompts is on) waits for its first frame the same way; other messages keep their own send clock.
   const holdEntranceOnMount = useEffectEvent(() => {
-    if (!entering || messageEntering || !ref.current) return undefined;
-    markRecapEntrance(ref.current);
+    if (!entering || !ref.current) return undefined;
+    if (messageEntering)
+      return row.kind === "user" && sendPopEnabled()
+        ? holdEntranceForFirstFrame(ref.current, undefined, true)
+        : undefined;
+    // Only the recap card has an entrance to mark: no other entering row reads the DOM for it.
+    if (row.kind === NEXT_STEP) markRecapEntrance(ref.current);
     return holdEntranceForFirstFrame(ref.current);
   });
   useLayoutEffect(() => holdEntranceOnMount(), []);

@@ -8,9 +8,9 @@ installs without your click on that card.
 
 ## 1. Open the App Store
 
-The App Store is hidden until it is ready: it is a preview feature, off by default. Turn it on
-first: Settings > Experimental > Labs > Show Preview Features (search Settings for "App Store"),
-or `cmux settings set labs.previewFeatures true`.
+The App Store is hidden until it is ready: it has its own switch, off by default (Show Preview
+Features does not turn it on). Turn it on first: Settings > Experimental > Labs > Show App Store
+(search Settings for "App Store"), or `cmux settings set labs.appStore true`.
 
 Then use one of these:
 

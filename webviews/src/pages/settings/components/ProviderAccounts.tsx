@@ -15,7 +15,9 @@
 // row, on a host that signs in in place; logins done right, Leo 2026-11-22: "this is simply logins,
 // done righr."): the code and the provider's page instead of a terminal tab. Without it, or with a
 // daemon that has no `_acpmux/account/sign_in`, the same gestures open the terminal tab as before.
-import { useId, useState } from "react";
+import { type ComponentProps, createContext, memo, useContext, useId, useMemo, useState } from "react";
+import { useStableHandlers } from "../../../agent-session/acpmux/stableHandlers";
+import { useKeptItems } from "../keptItems";
 import { PlanUsageCardBody } from "../../../agent-session/acpmux/PlanUsageCard";
 import "../paneStrings";
 import { Button } from "../../../ui/Button";
@@ -24,7 +26,7 @@ import { useStore } from "../context";
 import { Select } from "../editors/Select";
 import { Switch } from "../editors/ToggleEditor";
 import { planName } from "../harnesses";
-import { SETTINGS_SENTENCES, type AccountCacheMiss, type HarnessesRun, type ProviderAccount } from "../ops";
+import { SETTINGS_SENTENCES, type HarnessesRun, type ProviderAccount, type AccountCacheMiss } from "../ops";
 import { userMessage } from "../../shared/userMessage";
 import { t } from "../strings";
 import type { SettingsSignIn } from "./useSettingsSignIn";
@@ -64,39 +66,46 @@ export function accountAuthText(account: ProviderAccount): string {
   return plan ? t("settingsWindow.harnesses.authenticatedPlan", plan) : t("settingsWindow.harnesses.authenticated");
 }
 
+/** The folder a shadow home shares: `shadowOf` is a folder, or the id of the account whose folder it
+ * shares (found in `byId`, built once per list). Null when it shares none. */
+export function sharedFolder(account: ProviderAccount, byId: ReadonlyMap<string, ProviderAccount>): string | null {
+  if (account.key || !account.shadowOf) return null;
+  if (/^[~/]/.test(account.shadowOf)) return account.shadowOf;
+  const other = byId.get(account.shadowOf);
+  return other?.home ?? other?.defaultHome ?? account.defaultHome ?? account.shadowOf;
+}
+
 /** Where it signs in: its own folder (a shadow home says whose settings and chats it shares). */
-export function accountFolderText(account: ProviderAccount, all: ProviderAccount[]): string | null {
+export function accountFolderText(account: ProviderAccount, shared: string | null): string | null {
   if (account.key) return null;
   const folder = account.home ?? account.defaultHome ?? "";
-  if (!account.shadowOf) return t("settingsWindow.harnesses.accounts.folder", folder);
-  // `shadowOf` is a folder, or the id of the account whose folder it shares.
-  const shared = /^[~/]/.test(account.shadowOf)
-    ? account.shadowOf
-    : (all.find((other) => other.id === account.shadowOf)?.home ??
-      all.find((other) => other.id === account.shadowOf)?.defaultHome ??
-      account.defaultHome ??
-      account.shadowOf);
+  if (shared === null) return t("settingsWindow.harnesses.accounts.folder", folder);
   return `${folder} · ${t("settingsWindow.harnesses.accounts.shares", shared)}`;
 }
 
-function AccountRow({
+/** A gesture in flight: every account's controls are disabled until it ends. The controls read it,
+ * not the rows, so a gesture draws the controls again and leaves each row's own lines be. */
+const AccountsBusy = createContext(false);
+
+/** One account, a memo row: its own account (a read that left it alone keeps the object), the folder
+ * it shares (not every account) and one stable `run`, so a gesture or a new read draws only the rows
+ * it changed. */
+const AccountRow = memo(function AccountRow({
   account,
-  all,
+  shared,
   run,
-  busy,
   signIn,
 }: {
   account: ProviderAccount;
-  all: ProviderAccount[];
+  shared: string | null;
   run(gesture: HarnessesRun): void;
-  busy: boolean;
   /** The row's in-place sign-in (the card under the harness row); none: the terminal tab. */
   signIn?: SettingsSignIn;
 }) {
   const nameId = useId();
   const switchId = useId();
   const [renaming, setRenaming] = useState<string | null>(null);
-  const folder = accountFolderText(account, all);
+  const folder = accountFolderText(account, shared);
   // acpmux keeps no file for the Claude Code login, so it has no name of its own to change.
   const renamable = account.id !== "claude-login";
   const rename = () => {
@@ -142,9 +151,9 @@ function AccountRow({
               onChange={(event) => setRenaming(event.target.value)}
             />
             <div className="accounts-buttons">
-              <Button type="submit" className="button" disabled={busy || !renaming.trim()}>
+              <BusyButton type="submit" className="button" disabled={!renaming.trim()}>
                 {t("settingsWindow.density.save")}
-              </Button>
+              </BusyButton>
               <Button type="button" className="button" onClick={() => setRenaming(null)}>
                 {t("settingsWindow.cancel")}
               </Button>
@@ -154,36 +163,33 @@ function AccountRow({
         <div className="accounts-buttons">
           {/* A disabled account is no default: new chats would keep running on an account turned off. */}
           {!account.default && account.enabled && (
-            <Button
+            <BusyButton
               type="button"
               className="button"
               data-account-action="default"
               aria-describedby={nameId}
-              disabled={busy}
               onClick={() => run({ action: "accountDefault", account: account.id })}
             >
               {t("settingsWindow.harnesses.accounts.makeDefault")}
-            </Button>
+            </BusyButton>
           )}
           {renamable && renaming === null && (
-            <Button
+            <BusyButton
               type="button"
               className="button"
               data-account-action="rename"
               aria-describedby={nameId}
-              disabled={busy}
               onClick={() => setRenaming(account.name)}
             >
               {t("settingsWindow.menus.rename")}
-            </Button>
+            </BusyButton>
           )}
           {!account.key && !account.signedIn && (
-            <Button
+            <BusyButton
               type="button"
               className="button"
               data-account-action="signIn"
               aria-describedby={nameId}
-              disabled={busy}
               onClick={() => {
                 const inTerminal = () => run({ action: "accountSignIn", account: account.id });
                 if (signIn && cardFamily(account.family)) signIn.begin(account.family, account.id, inTerminal);
@@ -191,32 +197,30 @@ function AccountRow({
               }}
             >
               {t("settingsWindow.harnesses.signIn")}
-            </Button>
+            </BusyButton>
           )}
           {!account.key && account.signedIn && (
-            <Button
+            <BusyButton
               type="button"
               className="button"
               data-account-action="signOut"
               aria-describedby={nameId}
-              disabled={busy}
               onClick={() => run({ action: "accountSignOut", account: account.id })}
             >
               {t("settingsWindow.harnesses.accounts.signOut")}
-            </Button>
+            </BusyButton>
           )}
           {!account.builtin && (
-            <Button
+            <BusyButton
               danger
               type="button"
               className="button danger"
               data-account-action="remove"
               aria-describedby={nameId}
-              disabled={busy}
               onClick={() => run({ action: "accountRemove", account: account.id })}
             >
               {t("settingsWindow.remove")}
-            </Button>
+            </BusyButton>
           )}
         </div>
         {account.usage && account.signedIn && (
@@ -237,15 +241,24 @@ function AccountRow({
         <span className="row-help" id={switchId}>
           {t("settingsWindow.harnesses.accounts.useForRouting")}
         </span>
-        <Switch
+        <BusySwitch
           checked={account.enabled}
-          disabled={busy}
           labelId={`${switchId} ${nameId}`}
           onToggle={(on) => run({ action: "accountEnable", account: account.id, on })}
         />
       </div>
     </div>
   );
+});
+
+/** A row's button, disabled while a gesture is in flight (or for its own reason). */
+function BusyButton({ disabled, ...props }: ComponentProps<typeof Button>) {
+  return <Button {...props} disabled={useContext(AccountsBusy) || disabled} />;
+}
+
+/** A row's routing switch, disabled while a gesture is in flight. */
+function BusySwitch(props: Omit<ComponentProps<typeof Switch>, "disabled">) {
+  return <Switch {...props} disabled={useContext(AccountsBusy)} />;
 }
 
 /** Add account: a new login in a folder of its own (its sign-in shows in the card, else a terminal tab), or an API key
@@ -378,20 +391,24 @@ export function ProviderAccounts({
       )
       .finally(() => setBusy(false));
   };
-  const run = (gesture: HarnessesRun) => void send(gesture);
+  const { onRun } = useStableHandlers({ onRun: (gesture: HarnessesRun) => void send(gesture) });
+  // A read answers every account: one that did not change keeps its object, so its memo row skips it.
+  const kept = useKeptItems(accounts, (account) => account.id);
+  const byId = useMemo(() => new Map(kept.map((account) => [account.id, account])), [kept]);
   return (
     <div className="accounts-body harness-accounts" data-harness-accounts={family}>
       <div className="row-help">{t("settingsWindow.harnesses.accounts.help")}</div>
-      {accounts.map((account) => (
-        <AccountRow
-          key={account.id}
-          account={account}
-          all={accounts}
-          run={run}
-          busy={busy}
-          {...(signIn ? { signIn } : {})}
-        />
-      ))}
+      <AccountsBusy.Provider value={busy}>
+        {kept.map((account) => (
+          <AccountRow
+            key={account.id}
+            account={account}
+            shared={sharedFolder(account, byId)}
+            run={onRun}
+            {...(signIn ? { signIn } : {})}
+          />
+        ))}
+      </AccountsBusy.Provider>
       {family in ADDABLE && !adding && (
         <div className="accounts-buttons">
           <Button

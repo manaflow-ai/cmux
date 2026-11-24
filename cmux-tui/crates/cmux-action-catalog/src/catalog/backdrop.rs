@@ -71,7 +71,7 @@ pub static ACTIONS: &[Action] = &[
         category: "settings",
         symbol: "arrow.up.and.down.and.arrow.left.and.right",
         surfaces: PALETTE | CONTEXT_MENU,
-        surface_plan: SurfacePlan { context_menus: &[Placement::at("windowBackground", "identity", 1)], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("windowBackground", "identity", 1)], ..SurfacePlan::DEFAULT },
         cli_name: "settings adjust-background",
         ..Action::DEFAULT
     },
@@ -83,7 +83,8 @@ pub static ACTIONS: &[Action] = &[
         category: "settings",
         symbol: "arrow.up.left.and.arrow.down.right",
         surfaces: PALETTE,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), ..SurfacePlan::DEFAULT },
+        // Adjust Background… (on the window background's menu) offers Fill and Fit.
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("familyMember"), ..SurfacePlan::DEFAULT },
         cli_name: "settings background-fill",
         ..Action::DEFAULT
     },
@@ -95,7 +96,8 @@ pub static ACTIONS: &[Action] = &[
         category: "settings",
         symbol: "arrow.down.right.and.arrow.up.left",
         surfaces: PALETTE,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), ..SurfacePlan::DEFAULT },
+        // Adjust Background… (on the window background's menu) offers Fill and Fit.
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("familyMember"), ..SurfacePlan::DEFAULT },
         cli_name: "settings background-fit",
         ..Action::DEFAULT
     },

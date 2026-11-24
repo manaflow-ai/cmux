@@ -29,7 +29,7 @@ use super::transfer_pull::{plain_daemon, pull_error};
 use super::*;
 
 /// How long the source waits for the target to stage a prefix.
-const STAGE_WAIT: std::time::Duration = std::time::Duration::from_secs(120);
+pub(super) const STAGE_WAIT: std::time::Duration = std::time::Duration::from_secs(120);
 
 /// The file in a stage's folder naming the control its records were rewritten for.
 pub(super) const CONTROL_FILE: &str = "control";
@@ -48,7 +48,7 @@ impl Hub {
         }
         let session =
             self.resolve(params.get("sessionId").and_then(Value::as_str).unwrap_or(""))?;
-        let prepared = self.transfer_prepare(&session, None)?;
+        let prepared = self.transfer_prepare(&session, None, None)?;
         let prepare_id = field(&prepared, "prepareId").as_str().unwrap_or_default().to_owned();
         let root = inside(&transfers_dir(), &prepare_id)?;
         let noted = crate::home_fs::write(root.join(super::transfer_pull::TO_HUB), daemon);

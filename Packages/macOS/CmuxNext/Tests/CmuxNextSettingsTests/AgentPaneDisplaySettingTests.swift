@@ -28,6 +28,8 @@ struct AgentPaneDisplaySettingTests {
         Row(key: "agentPane.display.pinnedPlan", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
         // The prompt coach card after a chat that took several corrections (webviews PromptCoachCard.tsx).
         Row(key: "agentPane.display.promptCoach", fallback: .bool(true), accepted: [.bool(false)], refused: [.string("off")]),
+        // A sent prompt pops in and settles (webviews conversation.css SEND-POP): off unless switched on.
+        Row(key: "agentPane.display.sendPop", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
         // The hat over the composer tucked away to its pull tab: off, it shows.
         Row(key: "agentPane.display.trayTucked", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
         // Where the hat's tuck handle sits along the composer's top edge: the middle unless set.
@@ -62,6 +64,11 @@ struct AgentPaneDisplaySettingTests {
             refused: [.string("left"), .bool(true)]),
         Row(key: "agentPane.display.environment.placement", fallback: .string("left"),
             accepted: [.string("right"), .string("off")], refused: [.string("overlay"), .bool(true)]),
+        // The Environment card and the changes pill (webviews session-info/EnvironmentCard.tsx): off by default.
+        Row(key: "agentPane.display.environmentCard", fallback: .bool(false), accepted: [.bool(true)],
+            refused: [.string("on")]),
+        Row(key: "agentPane.display.changesPill", fallback: .bool(false), accepted: [.bool(true)],
+            refused: [.string("on")]),
         Row(key: "agentPane.display.minimap", fallback: .string("compact"), accepted: [.string("off"), .string("full")],
             refused: [.bool(true), .string("left")]),
         // The transcript's view (Normal, Thinking, Verbose) of a chat without its own.
