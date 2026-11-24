@@ -32,25 +32,29 @@ export function useListedSubagents(
     let last = "";
     let shown: ListedSubagents | undefined;
     setState((was) => (was.sessionId === sessionId ? was : { sessionId, listed: { loading: true } }));
-    const once = async () => {
-      try {
-        const listing = await read();
-        if (!live) return;
-        // An unchanged list keeps its array, so the panel's groups are not derived again.
-        const key = listing ? JSON.stringify(listing) : "";
-        if (key !== last || shown === undefined) {
-          last = key;
-          shown = { list: listing ? [...listing.running, ...listing.ended] : undefined, loading: false };
-          setState({ sessionId, listed: shown });
-        }
-      } catch {
-        // A failed read keeps the last list; the first one stops saying it loads.
-        if (live)
-          setState((was) => (was.listed.loading ? { sessionId, listed: { ...was.listed, loading: false } } : was));
+    const settle = (listing: SubagentListing | undefined) => {
+      if (!live) return;
+      // An unchanged list keeps its array, so the panel's groups are not derived again.
+      const key = listing ? JSON.stringify(listing) : "";
+      if (key !== last || shown === undefined) {
+        last = key;
+        shown = { list: listing ? [...listing.running, ...listing.ended] : undefined, loading: false };
+        setState({ sessionId, listed: shown });
       }
-      if (live) timer = setTimeout(once, LISTED_REFRESH_MS);
     };
-    void once();
+    // A failed read keeps the last list; the first one stops saying it loads.
+    const failed = () => {
+      if (live)
+        setState((was) => (was.listed.loading ? { sessionId, listed: { ...was.listed, loading: false } } : was));
+    };
+    const once = () => {
+      read()
+        .then(settle, failed)
+        .finally(() => {
+          if (live) timer = setTimeout(once, LISTED_REFRESH_MS);
+        });
+    };
+    once();
     return () => {
       live = false;
       if (timer !== undefined) clearTimeout(timer);
