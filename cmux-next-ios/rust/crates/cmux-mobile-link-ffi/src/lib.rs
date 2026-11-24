@@ -15,7 +15,8 @@ use cmux_mobile_link::{
 use tokio::runtime::Runtime;
 
 mod browser;
-mod bundle;
+#[doc(hidden)]
+pub mod bundle;
 mod classic_leftovers;
 mod composer_outbox;
 mod follow_camera;
