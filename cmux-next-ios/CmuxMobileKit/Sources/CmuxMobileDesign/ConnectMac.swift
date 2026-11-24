@@ -34,6 +34,7 @@ public struct ConnectMacSteps: View {
 
     /// One line of status. The two steps (what to do on the Mac) sit behind an info circle that opens a small popover
     /// (Leo, 2026-11-23: "NEVER THIS F***ING TMI ... THERE ARE HOVERS AND QUESTION MARK CIRCLES AND INFO CIRCLES").
+    /// With no Mac on this account, the way to its settings stays out, styled as a link (iOS release bar read-back, 2026-11-22).
     public var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
@@ -41,10 +42,18 @@ public struct ConnectMacSteps: View {
                 helpButton
             }
             if onlineMac == nil, noMacsForAccount, let openAccount {
-                Button("Account Settings", action: openAccount)
-                    .font(theme.type.rowSubtitle.weight(.semibold))
-                    .foregroundStyle(theme.colors.label)
-                    .accessibilityIdentifier("connect-mac.account")
+                Button(action: openAccount) {
+                    HStack(spacing: 3) {
+                        Text("Account Settings")
+                        Image(systemName: "chevron.forward")
+                            .font(.caption2.weight(.semibold))
+                            .accessibilityHidden(true)
+                    }
+                }
+                .buttonStyle(.borderless)
+                .font(theme.type.rowSubtitle.weight(.semibold))
+                .foregroundStyle(theme.colors.accent.color)
+                .accessibilityIdentifier("connect-mac.account")
             }
         }
         .frame(maxWidth: 340, alignment: .leading)
@@ -87,6 +96,12 @@ public struct ConnectMacSteps: View {
     }
 
     private func step(_ number: Int, _ text: Text) -> some View {
+        step(number, text) { EmptyView() }
+    }
+
+    /// A numbered step; `accessory` (a link) goes under its words, in their column.
+    private func step<Accessory: View>(_ number: Int, _ text: Text,
+                                       @ViewBuilder accessory: () -> Accessory) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             Text("\(number)")
                 .font(.footnote.weight(.semibold).monospacedDigit())
@@ -94,10 +109,13 @@ public struct ConnectMacSteps: View {
                 .frame(width: 22, height: 22)
                 .background(theme.colors.fill.color, in: .circle)
                 .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 6 }
-            text
-                .font(theme.type.body)
-                .foregroundStyle(theme.colors.label)
-                .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 6) {
+                text
+                    .font(theme.type.body)
+                    .foregroundStyle(theme.colors.label)
+                    .fixedSize(horizontal: false, vertical: true)
+                accessory()
+            }
         }
     }
 
