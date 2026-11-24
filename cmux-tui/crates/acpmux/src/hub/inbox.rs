@@ -2695,9 +2695,9 @@ fn trim(inbox: &mut Inbox) {
         .chain(inbox.carrying.iter().map(|c| &c.ids))
         .flat_map(|ids| ids.iter().cloned())
         .collect();
-    // A held message still waiting for triage goes after the decided ones, since the listing
-    // shows it until triage (or its fail-open) decides it. Memory stays at KEEP even in a surge
-    // larger than that: an evicted one is still read from the archive (`held_evicted`).
+    // A held message still waiting for triage stays, since the listing shows it until triage (or
+    // its fail-open) decides it, unless more than KEEP are held: then the oldest goes, so a
+    // surge stays bounded. An evicted one is still read from the archive (`held_evicted`).
     let counts = inbox.surge_counts.clone();
     let counts = counts.lock().unwrap_or_else(|e| e.into_inner());
     while inbox.items.len() > KEEP {
@@ -2705,8 +2705,11 @@ fn trim(inbox: &mut Inbox) {
             (i.surge_held && !counts.pending(&i.prompt_id))
                 || (i.read && i.noticed && i.answered.is_some() && !carried.contains(&i.prompt_id))
         };
-        let at = inbox.items.iter().position(gone);
-        match at.or_else(|| inbox.items.iter().position(|i| i.surge_held)) {
+        let at = inbox.items.iter().position(gone).or_else(|| {
+            let held = inbox.items.iter().filter(|i| i.surge_held).count();
+            (held > KEEP).then(|| inbox.items.iter().position(|i| i.surge_held)).flatten()
+        });
+        match at {
             Some(i) => {
                 let item = inbox.items.remove(i);
                 // The archive reader and resend ledger still resolve an evicted held post.
