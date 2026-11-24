@@ -212,6 +212,16 @@ fn registry() -> &'static Mutex<Vec<Weak<Session>>> {
 }
 
 /// Every live session of this process.
+/// Give every live session the second socket [`super::multipath`] wants
+/// now, or take it away (WIP: the underlay side lands next).
+pub(super) fn apply_multipath_to_live_sessions() {
+    let _wanted = super::multipath::secondary_interface(
+        &super::multipath::interfaces(),
+        super::multipath::cellular_assist(),
+        super::app_backgrounded(),
+    );
+}
+
 fn live() -> Vec<Arc<Session>> {
     let mut sessions = lock(registry());
     sessions.retain(|weak| weak.strong_count() > 0);
