@@ -208,10 +208,23 @@ impl Acpmux {
         list.into_iter().find(|s| s["sessionId"] == json!(session))
     }
 
+    /// Every record of the chat, page by page: one page stops at its limit (5000 records, or
+    /// fewer at the byte cap), and a long task writes more (a 30 min lid-close task, 2 a tick).
     pub fn events(&mut self, session: &str) -> Vec<Value> {
-        let page = self
-            .call("_acpmux/events", json!({"sessionId": session, "afterSeq": 0, "limit": 5000}));
-        page["events"].as_array().cloned().unwrap_or_default()
+        let mut all = Vec::new();
+        let mut after = 0;
+        loop {
+            let page = self.call(
+                "_acpmux/events",
+                json!({"sessionId": session, "afterSeq": after, "limit": 5000}),
+            );
+            all.extend(page["events"].as_array().cloned().unwrap_or_default());
+            let through = page["pageThrough"].as_u64().unwrap_or(after);
+            if page["hasMore"] != json!(true) || through <= after {
+                return all;
+            }
+            after = through;
+        }
     }
 }
 
