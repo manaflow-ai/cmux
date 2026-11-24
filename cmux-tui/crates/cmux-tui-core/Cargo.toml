@@ -16,6 +16,7 @@ workspace = true
 hotpatch = ["dep:subsecond"]
 
 [dependencies]
+cmux-egress.workspace = true
 cmux-build-space.workspace = true
 cmux-browser-grants.workspace = true
 cmux-json.workspace = true
