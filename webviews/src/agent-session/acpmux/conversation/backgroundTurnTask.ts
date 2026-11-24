@@ -5,12 +5,16 @@
 // (backgroundTurnLook.experiment.ts), so the line had no rows to fold. It now opens as a command row
 // opens, to the task itself: its command, how it ended and the last lines it printed.
 //
-// From what the line already has (the turn's cause and source, direct.ts `backgroundSource`) and what
-// it can read: an acpmux task named by its `bg-…` id (`_acpmux/bg/output`, its record and the end of
+// A Claude Code shell's end comes whole with the turn: acpmux builds its command, exit and the end
+// of its output when the turn starts (`cause.command`, hub/command_end.rs), so the line opens to it
+// with no read, and keeps it after the output file is gone (Leo, 2026-11-24, on a card that showed
+// only "Finished": "but i couldnt... do anything?"). Otherwise, from what the line already has (the
+// turn's cause and source, direct.ts `backgroundSource`) and what it can read: an acpmux task named by its `bg-…` id (`_acpmux/bg/output`, its record and the end of
 // its output), else the process the turn's starting call ran (`_acpmux/process/list` and `tail`,
 // backgroundTaskOutput.ts). One read per task, kept, so an open, a remount and a scroll back read once.
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
-import type { AcpmuxBackgroundTurn } from "../model";
+import type { AcpmuxBackgroundTurn, AcpmuxCommandEnd } from "../model";
+import { commandEndShows } from "./commandEnd";
 import {
   BACKGROUND_TAIL_BYTES,
   BackgroundTaskOutputContext,
@@ -46,16 +50,32 @@ export type BackgroundTurnTask = {
   cut?: boolean;
   /// Milliseconds it ran, when its record has both ends.
   tookMs?: number;
+  /// Whether its output is there (acpmux's `outputState`, hub/command_end.rs), when acpmux said.
+  outputState?: AcpmuxCommandEnd["outputState"];
 };
 
 /// Whether a line has something to open to: a task it can name or read.
 export function backgroundTurnOpensTask(turn: AcpmuxBackgroundTurn, label?: string): boolean {
   if (turn.running) return false;
+  // acpmux said what it ran: it opens when that has anything to show.
+  const end = turn.cause?.command;
+  if (end) return commandEndShows(end);
   return Boolean(backgroundTurnTaskId(turn, label) || turn.cause?.origin || turn.source?.command);
 }
 
-/// What the line knows without a read: its source's command and its notice's status.
+/// What the line knows without a read: acpmux's own account of the command (`cause.command`), else
+/// its source's command and its notice's status.
 export function backgroundTurnTaskKnown(turn: AcpmuxBackgroundTurn): BackgroundTurnTask {
+  const end = turn.cause?.command;
+  if (end)
+    return {
+      ...((end.command || turn.source?.command) && { command: end.command || turn.source?.command }),
+      ...(end.description && { description: end.description }),
+      state: end.state || turn.cause!.status,
+      ...(end.exitCode !== undefined && { exitCode: end.exitCode }),
+      ...(end.output && { output: end.output, cut: end.cut === true }),
+      outputState: end.outputState,
+    };
   return {
     ...(turn.source?.command && { command: turn.source.command }),
     ...(turn.cause?.status && { state: turn.cause.status }),
@@ -70,6 +90,9 @@ export function taskFromBgOutput(reply: unknown): BackgroundTurnTask {
   const text =
     tailText(reply) ??
     (plain ? { output: plain, cut: typeof raw.fromByte === "number" && raw.fromByte > 0 } : undefined);
+  const said = STATES.find((known) => known === raw.outputState);
+  // acpmux's word on its output, else what the reply shows: bytes or text read (none: it printed nothing).
+  const outputState = said ?? (text?.output ? "printed" : "data" in raw || plain !== undefined ? "empty" : undefined);
   const started = typeof raw.startedAt === "number" ? raw.startedAt : undefined;
   const ended = typeof raw.endedAt === "number" ? raw.endedAt : undefined;
   return {
@@ -78,9 +101,12 @@ export function taskFromBgOutput(reply: unknown): BackgroundTurnTask {
     ...(typeof raw.state === "string" && { state: raw.state }),
     ...(Number.isInteger(raw.exitCode) && { exitCode: raw.exitCode as number }),
     ...(text?.output && { output: text.output, cut: text.cut }),
+    ...(outputState && { outputState }),
     ...(started !== undefined && ended !== undefined && ended >= started && { tookMs: ended - started }),
   };
 }
+
+const STATES = ["printed", "empty", "gone"] as const;
 
 const READS_KEPT = 128;
 const reads = new WeakMap<BackgroundTaskOutputSource, Map<string, Promise<BackgroundTurnTask>>>();
@@ -92,7 +118,8 @@ export function readBackgroundTurnTask(
   label?: string,
 ): Promise<BackgroundTurnTask> | undefined {
   const id = backgroundTurnTaskId(turn, label);
-  const origin = turn.cause?.origin;
+  // acpmux sent the command's end with the turn: there is nothing more to read.
+  const origin = turn.cause?.command ? undefined : turn.cause?.origin;
   const key = `${reader.sessionId}\u0000${id ?? origin ?? ""}`;
   if (!id && !origin) return undefined;
   let kept = reads.get(reader.source);
@@ -106,12 +133,18 @@ export function readBackgroundTurnTask(
       ? tailTask(id, BACKGROUND_TAIL_BYTES).then((reply) => ({ ...known, ...taskFromBgOutput(reply) }))
       : prefetchBackgroundTaskOutput(reader, origin!).then((output) => ({
           ...known,
+          ...(output.end?.command && { command: output.end.command }),
+          ...(output.end?.description && { description: output.end.description }),
+          ...(output.end?.state && { state: output.end.state }),
+          ...(output.end?.outputState && { outputState: output.end.outputState }),
           ...(output.exitCode !== undefined && { exitCode: output.exitCode }),
           ...(output.output && { output: output.output, cut: output.cut }),
         }));
+  // No answer: acpmux no longer has the task (a restart, another machine's chat), so its output is
+  // not to be had; the card says so rather than drawing an empty box.
   const settled = read.catch(() => {
     kept.delete(key);
-    return known;
+    return { ...known, outputState: known.outputState ?? ("gone" as const) };
   });
   kept.set(key, settled);
   if (kept.size > READS_KEPT) kept.delete(kept.keys().next().value!);
@@ -145,7 +178,11 @@ export function useBackgroundTurnTask(
   useEffect(() => {
     if (wanted && read === undefined) void request();
   }, [wanted, read, request]);
-  return { task: read ?? backgroundTurnTaskKnown(turn), settled: read !== undefined || !reader, request };
+  return {
+    task: read ?? backgroundTurnTaskKnown(turn),
+    settled: read !== undefined || !reader || Boolean(turn.cause?.command && !backgroundTurnTaskId(turn, label)),
+    request,
+  };
 }
 
 /// How many printed lines an opened line shows: the end of the output, all of it in sight. The card
@@ -157,10 +194,13 @@ export const BACKGROUND_TURN_TAIL_LINES = 7;
 /// (ShellBlock draws a non-zero one) and, otherwise, how it ended in a word (`ended`, a state key).
 export function backgroundTurnTaskCard(task: BackgroundTurnTask): {
   command?: string;
+  description?: string;
   output?: string;
   cut: boolean;
   exitCode?: number;
   ended?: "completed" | "failed" | "stopped";
+  /// The command's end as the shared card draws it (CommandEndCard.tsx).
+  end: Partial<AcpmuxCommandEnd>;
 } {
   const whole = task.output?.replace(/\n$/, "");
   const output = tailLines(whole, BACKGROUND_TURN_TAIL_LINES);
@@ -173,11 +213,25 @@ export function backgroundTurnTaskCard(task: BackgroundTurnTask): {
         : task.state === "stopped" || task.state === "killed"
           ? "stopped"
           : undefined;
+  const cut = Boolean(task.cut || (output !== undefined && output !== whole));
+  // How it stands, in acpmux's words for a command's end (hub/command_end.rs `state_word`).
+  const state = task.state === "running" ? "running" : task.state === "lost" ? "lost" : ended;
+  const end: Partial<AcpmuxCommandEnd> = {
+    ...(task.command && { command: task.command }),
+    ...(state && { state }),
+    ...(task.exitCode !== undefined && { exitCode: task.exitCode }),
+    ...(output && { output, cut }),
+    ...((task.outputState ?? (output ? "printed" : undefined)) && {
+      outputState: task.outputState ?? "printed",
+    }),
+  };
   return {
     ...(task.command && { command: task.command }),
+    ...(task.description && { description: task.description }),
     ...(output && { output }),
-    cut: Boolean(task.cut || (output !== undefined && output !== whole)),
+    cut,
     ...(task.exitCode !== undefined && { exitCode: task.exitCode }),
     ...(ended && !failed && { ended }),
+    end,
   };
 }

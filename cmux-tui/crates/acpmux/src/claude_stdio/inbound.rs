@@ -1318,7 +1318,7 @@ fn launch_output_file(text: &str) -> Option<String> {
 /// The exit code a Claude Code task summary ends with: the number after its
 /// last "exit code " ("… completed (exit code 0)", "… failed with exit code 1").
 /// The last, so a command's description that says those words is not read.
-pub(super) fn summary_exit_code(summary: &str) -> Option<i64> {
+pub(crate) fn summary_exit_code(summary: &str) -> Option<i64> {
     let (_, rest) = summary.rsplit_once("exit code ")?;
     let end = rest
         .char_indices()

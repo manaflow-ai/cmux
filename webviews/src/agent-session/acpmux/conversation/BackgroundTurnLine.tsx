@@ -26,10 +26,13 @@ import { backgroundTurnLook, backgroundTurnsInline } from "./backgroundTurnLook.
 import { backgroundTurnLabel, foldsBackground } from "./backgroundTurns";
 import { Clock, Spinner } from "./icons";
 import { RowShimmer } from "./ShimmerText";
-import { ShellBlock } from "./ShellBlock";
+import { CommandEndCard } from "./CommandEndCard";
+import { commandEndShows } from "./commandEnd";
 import {
   backgroundTurnOpensTask,
   backgroundTurnTaskCard,
+  backgroundTurnTaskId,
+  backgroundTurnTaskKnown,
   useBackgroundTurnTask,
   type BackgroundTurnTask,
 } from "./backgroundTurnTask";
@@ -151,12 +154,21 @@ function BackgroundSource({ source }: { source: AcpmuxBackgroundSource }) {
 }
 
 /// A finished background turn's line that opens to its task: the command, how it ended and the last
-/// lines it printed, in the command card a command row opens to (ShellBlock.tsx). Its open state is
-/// the transcript's fold set, so it survives virtualization as every other row's does.
+/// lines it printed, in the command card every surface draws for a background command
+/// (CommandEndCard.tsx). Its open state is the transcript's fold set, so it survives virtualization
+/// as every other row's does. A line whose task has nothing to show (no command, no exit, no output)
+/// does not open at all: no chevron, no button (Leo, 2026-11-24, on a card that showed only
+/// "Finished": "but i couldnt... do anything?"). One that knows nothing yet reads its task once
+/// drawn and opens only when the read finds something.
 function BackgroundTurnTaskLine({ turn, label, cited }: { turn: AcpmuxBackgroundTurn; label: string; cited: string }) {
   const [open, setOpen] = useTranscriptDisclosure(`bgturn:${turn.id}`);
   const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
-  const { task, request } = useBackgroundTurnTask(turn, label, open);
+  // An acpmux background task (`bg-…`) always has a record with its command to read.
+  const named = backgroundTurnTaskId(turn, label) !== undefined;
+  const knows = named || commandEndShows(backgroundTurnTaskCard(backgroundTurnTaskKnown(turn)).end);
+  const { task, request } = useBackgroundTurnTask(turn, label, open || !knows);
+  // Until a read finds something, a line that knows nothing of its task opens nothing.
+  const opens = named || commandEndShows(backgroundTurnTaskCard(task).end);
   const source = turn.source;
   return (
     <div className="cv-tools cv-background-turn__task">
@@ -165,24 +177,28 @@ function BackgroundTurnTaskLine({ turn, label, cited }: { turn: AcpmuxBackground
         before={<span className="cv-background-turn__label">{label}</span>}
         className="cv-background-turn"
         ariaLabel={cited}
-        expanded={open}
-        chevron
+        expanded={opens && open}
+        chevron={opens}
         headerRef={fold.headerRef}
         attributes={{
-          "aria-expanded": String(open),
+          ...(opens && { "aria-expanded": String(open) }),
           "data-find-skip": "",
           "data-background-turn": turn.quiet ? "quiet" : "failed",
           // It opens to its task, never to rows: those draw where they ran.
-          "data-opens": "task",
+          ...(opens && { "data-opens": "task" }),
         }}
-        onClick={() => {
-          void request();
-          fold.toggle();
-        }}
+        onClick={
+          opens
+            ? () => {
+                void request();
+                fold.toggle();
+              }
+            : undefined
+        }
       >
         {source && <BackgroundSource source={source} />}
       </TranscriptActivityRow>
-      {fold.present && (
+      {opens && fold.present && (
         <div {...fold.bodyProps}>
           <BackgroundTurnTaskBody task={task} />
         </div>
@@ -197,30 +213,10 @@ function BackgroundTurnTaskBody({ task }: { task: BackgroundTurnTask }) {
   const id = useId();
   const card = backgroundTurnTaskCard(task);
   const took = task.tookMs !== undefined ? spanDuration(t, task.tookMs) : undefined;
-  const ended =
-    card.ended === "completed"
-      ? t("bgTask.state.completed")
-      : card.ended === "failed"
-        ? t("bgTask.state.failed")
-        : card.ended === "stopped"
-          ? t("bgTask.state.stopped")
-          : undefined;
-  const footer =
-    task.description || ended ? (
-      <div className="cv-bgtask__foot">
-        {ended && <span className="cv-bgtask__state">{ended}</span>}
-        {task.description && <span className="cv-bgtask__detail">{task.description}</span>}
-      </div>
-    ) : undefined;
-  return (
-    <ShellBlock
-      id={id}
-      command={card.command}
-      output={card.output}
-      cut={card.cut}
-      exitCode={card.exitCode}
-      took={took}
-      footer={footer}
-    />
-  );
+  const footer = task.description ? (
+    <div className="cv-bgtask__foot">
+      <span className="cv-bgtask__detail">{task.description}</span>
+    </div>
+  ) : undefined;
+  return <CommandEndCard id={id} end={card.end} took={took} footer={footer} />;
 }

@@ -7,8 +7,12 @@
 //
 // A click opens it in place, as a command row opens (CommandRow.tsx): the turn's fold motion and
 // rotating chevron, the clicked line held where it is (foldAnchor.ts), and under it the Shell card
-// with the whole command, the end of what it printed and its exit code when acpmux knows them
-// (backgroundTaskOutput.ts), then the harness's own words on its end and Open in terminal. A click
+// every surface draws for a background command (CommandEndCard.tsx): the whole command, its exit
+// status, and the end of what it printed, else "No output" or "Output no longer available", as
+// acpmux words it (backgroundTaskOutput.ts, hub/command_end.rs); then who ran it, how long, the
+// harness's own words on its end and Open in terminal. A note with nothing to show (no command and
+// nothing read) does not open (Leo, 2026-11-24, on a card that showed only "Finished": "but i
+// couldnt... do anything?"). A click
 // never opens anything else (Leo 2026-10-21: it replaced the window with an empty terminal); only
 // Open in terminal opens the task's terminal beside the chat (background-task-terminal-DESIGN.md).
 //
@@ -24,7 +28,8 @@ import { openProcessTerminal } from "../processTerminal";
 import { useBackgroundTaskOutput } from "./backgroundTaskOutput";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { ChevronRight, TerminalSquare } from "./icons";
-import { ShellBlock } from "./ShellBlock";
+import { CommandEndCard } from "./CommandEndCard";
+import { commandEndShows } from "./commandEnd";
 import { shortCommand } from "./shortCommand";
 import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { useTranscriptReadOnly } from "./readOnly";
@@ -53,6 +58,8 @@ export function BackgroundTaskNote({ task }: { task: AcpmuxBackgroundTask }) {
   const onToggle = (event: MouseEvent) => {
     // A drag or a selection on the line is not a click (deliberateClick), held or not.
     if (!fold.deliberate(event)) return;
+    // Nothing to show, nothing to open (a read under way may still find something).
+    if (!open && settled && !shows) return;
     if (holding.current) {
       holding.current();
       return;
@@ -121,7 +128,30 @@ export function BackgroundTaskNote({ task }: { task: AcpmuxBackgroundTask }) {
         },
       }
     : {};
-  const hasOutput = Boolean(read.output?.trim());
+  // What the card shows, acpmux's account of the command (`read.end`) over the note's own event.
+  const end = {
+    command: task.command || read.end?.command || "",
+    state: read.end?.state && read.end.state !== "running" ? read.end.state : state,
+    ...(exitCode !== undefined && { exitCode }),
+    ...(read.output && { output: read.output, cut: read.cut }),
+    ...((read.end?.outputState ?? (read.output ? "printed" : undefined)) && {
+      outputState: read.end?.outputState ?? ("printed" as const),
+    }),
+  };
+  const shows = commandEndShows(end);
+  const footer = (
+    <div className="cv-bgtask__foot">
+      {owner && <span className="cv-bgtask__detail">{ownerLink ? <span {...ownerProps}>{owner}</span> : owner}</span>}
+      {duration && <span className="cv-bgtask__detail">{duration}</span>}
+      {detail && <span className="cv-bgtask__detail">{detail}</span>}
+      {task.toolCallId && !readOnly && (
+        <button type="button" className="cv-bgtask__open" onClick={() => void openProcessTerminal(task.toolCallId)}>
+          <TerminalSquare />
+          {t("shell.openInTerminal")}
+        </button>
+      )}
+    </div>
+  );
   return (
     <div className="cv-tools">
       <button
@@ -164,58 +194,13 @@ export function BackgroundTaskNote({ task }: { task: AcpmuxBackgroundTask }) {
             <code className="cv-bgtask__command">{task.command || command}</code>
           )}
         </span>
-        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
+        {(shows || !settled) && (
+          <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
+        )}
       </button>
       {fold.present && (
         <div {...fold.bodyProps}>
-          {hasOutput ? (
-            <ShellBlock
-              id={detailsId}
-              command={task.command}
-              output={read.output!.replace(/\n$/, "")}
-              cut={read.cut}
-              exitCode={exitCode}
-              footer={
-                <div className="cv-bgtask__foot">
-                  {detail && <span className="cv-bgtask__detail">{detail}</span>}
-                  {task.toolCallId && !readOnly && (
-                    <button
-                      type="button"
-                      className="cv-bgtask__open"
-                      onClick={() => void openProcessTerminal(task.toolCallId)}
-                    >
-                      <TerminalSquare />
-                      {t("shell.openInTerminal")}
-                    </button>
-                  )}
-                </div>
-              }
-            />
-          ) : (
-            <div id={detailsId} className="cv-bgtask__details">
-              <code className="cv-bgtask__raw-command">{task.command || command}</code>
-              {owner && (
-                <span className="cv-bgtask__detail">{ownerLink ? <span {...ownerProps}>{owner}</span> : owner}</span>
-              )}
-              {duration && <span className="cv-bgtask__detail">{duration}</span>}
-              {detail && <span className="cv-bgtask__detail">{detail}</span>}
-              {exitCode !== undefined && exitCode !== 0 && (
-                <span className="cv-bgtask__detail">{t("shell.exit", { code: exitCode })}</span>
-              )}
-              {task.toolCallId && !readOnly && (
-                <div className="cv-bgtask__foot">
-                  <button
-                    type="button"
-                    className="cv-bgtask__open"
-                    onClick={() => void openProcessTerminal(task.toolCallId)}
-                  >
-                    <TerminalSquare />
-                    {t("shell.openInTerminal")}
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
+          <CommandEndCard id={detailsId} end={end} footer={footer} />
         </div>
       )}
     </div>

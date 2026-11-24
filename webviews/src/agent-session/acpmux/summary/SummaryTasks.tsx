@@ -16,7 +16,7 @@ import { rowIconSize } from "../icons/iconSize";
 import { openProcessTerminal } from "../processTerminal";
 import { arrivalKey, type BackgroundCommand, sendLabel, splitCommands } from "../session-info/processes";
 import { StopButton } from "../session-info/TasksSection";
-import { COMMAND_STATE } from "../session-info/tasksSectionModel";
+import { commandEndWord } from "../session-info/tasksSectionModel";
 import { RunningElapsed, SummaryTaskClock } from "./SummaryTaskClock";
 
 const ROW_ICON = rowIconSize(12);
@@ -75,7 +75,7 @@ export function SummaryTasks({
             {live && command.startedAt !== undefined ? (
               <RunningElapsed startedAt={command.startedAt} />
             ) : (
-              t(COMMAND_STATE[command.state])
+              commandEndWord(t, command)
             )}
           </span>
         </button>

@@ -315,6 +315,8 @@ mod hook_callback;
 #[cfg(test)]
 mod hook_callback_tests;
 mod inbound;
+/// A Bash shell's exit code as Claude Code's notification summary says it (`hub/background_cause.rs`).
+pub(crate) use inbound::summary_exit_code;
 #[cfg(test)]
 mod initialize_tests;
 // What the log keeps of Claude's raw assistant and user lines (`logged_bodies.rs`).
