@@ -180,6 +180,14 @@ impl DialFail {
     }
 }
 
+/// `downReason` as this build reads it: a word it does not know is null, never a refused note.
+fn known_dial_fail<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<DialFail>, D::Error> {
+    let word = Option::<serde_json::Value>::deserialize(deserializer)?;
+    Ok(word.and_then(|word| serde_json::from_value(word).ok()))
+}
+
 /// What a dial writes first in its error when it could get no relay ticket (`hub_carrier.rs`):
 /// the platform's ticket mint refused or did not answer. `credential-unavailable`.
 pub const CREDENTIAL_UNAVAILABLE: &str = "credential-unavailable:";
@@ -284,8 +292,9 @@ pub struct PeerStateChanged {
     pub action: Option<OfflineAction>,
     /// Why the route last went down (a failed dial, or a path that died while another
     /// answered); null before any did, or when no failure so far had a type. Kept while the
-    /// link is up again, so a surface can say why it moved.
-    #[serde(default)]
+    /// link is up again, so a surface can say why it moved. A word this build does not know (a
+    /// newer daemon's) reads as null, so the rest of the note still lands.
+    #[serde(default, deserialize_with = "known_dial_fail")]
     pub down_reason: Option<DialFail>,
     /// The last frame from the peer, ms since the epoch.
     pub last_seen: Option<u64>,
@@ -326,6 +335,11 @@ mod tests {
         note.as_object_mut().unwrap().remove("downReason");
         let older: PeerStateChanged = serde_json::from_value(note).unwrap();
         assert_eq!(older.down_reason, None);
+        // A newer daemon's word this build does not know: the note still parses.
+        note["downReason"] = "proxyBlocked".into();
+        let newer: PeerStateChanged = serde_json::from_value(note).unwrap();
+        assert_eq!(newer.down_reason, None);
+        assert_eq!(newer.state, PeerLinkState::Reconnecting);
     }
 
     /// Every whole state folds to exactly one older word, and the wire word is serde's.
