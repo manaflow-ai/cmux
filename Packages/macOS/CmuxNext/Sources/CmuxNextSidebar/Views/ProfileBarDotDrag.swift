@@ -7,6 +7,8 @@ import AppKit
 final class ProfileBarDotDrag {
     /// The dragged space's index in the model's order.
     let from: Int
+    /// The order these layer indices belong to when the drag starts.
+    let profileIDs: [ProfileKey]
     /// Where the pointer grabbed the dot, from its slot's middle.
     let grab: CGFloat
     /// Holds the dots' layers, above the bar's marks.
@@ -22,8 +24,9 @@ final class ProfileBarDotDrag {
     /// Released: the dots are landing; the drag takes no more pointer moves.
     var landing = false
 
-    init(from: Int, grab: CGFloat, container: CALayer, dots: [Int: CALayer]) {
+    init(from: Int, profileIDs: [ProfileKey], grab: CGFloat, container: CALayer, dots: [Int: CALayer]) {
         self.from = from
+        self.profileIDs = profileIDs
         self.grab = grab
         self.container = container
         self.dots = dots

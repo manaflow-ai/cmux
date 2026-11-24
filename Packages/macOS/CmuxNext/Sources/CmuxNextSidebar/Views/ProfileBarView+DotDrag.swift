@@ -51,20 +51,26 @@ extension ProfileBarView {
     func dropDot() -> Bool {
         guard let drag = dotDrag, !drag.landing else { return dotDrag != nil }
         drag.landing = true
+        // A daemon update can remove or reorder Spaces while the pointer is down.
+        // The layer indices still refer to the order at the start of the drag.
+        guard model.profiles.lazy.map(\.id).elementsEqual(drag.profileIDs) else {
+            endDotDrag(drag)
+            return true
+        }
         if drag.outsideWindow {
             // The new window takes the space's workspaces that no window showing the space lists. The press
             // showed the space here, so this window goes back to its own space first: the workspaces move out
             // and this window stays where it was, as a tear-off left it before a press switched. A window that
             // shows another space by now (a key or an agent switched it during the drag) is not on the torn-off
             // space: that later switch is not the press's to take back.
-            let torn = model.profiles[drag.from].id
+            let torn = drag.profileIDs[drag.from]
             if let pressOrigin, model.activeProfileID == torn, model.profiles.contains(where: { $0.id == pressOrigin }) { model.send(.switchProfile(pressOrigin)) }
             model.send(.openProfileInNewWindow(torn))
         }
         if !drag.overBand || drag.outsideWindow { drag.target = drag.from }
         // The insertion index of `move-profile` (an index before removal), as Move Right/Left send it.
         if let insertion = ProfileBarLogic.moveInsertion(from: drag.from, to: drag.target, count: model.profiles.count) {
-            model.send(.reorderProfile(model.profiles[drag.from].id, index: insertion))
+            model.send(.reorderProfile(drag.profileIDs[drag.from], index: insertion))
         }
         CATransaction.begin()
         CATransaction.setCompletionBlock { [weak self] in self?.endDotDrag(drag) }
@@ -125,7 +131,7 @@ extension ProfileBarView {
         marks.isHidden = true
         indicator.isHidden = true
         CATransaction.commit()
-        let drag = ProfileBarDotDrag(from: index, grab: start.x - rects[index].midX, container: container, dots: dots)
+        let drag = ProfileBarDotDrag(from: index, profileIDs: model.profiles.map(\.id), grab: start.x - rects[index].midX, container: container, dots: dots)
         dotDrag = drag
         setHovered(nil)
         setPressed(nil)

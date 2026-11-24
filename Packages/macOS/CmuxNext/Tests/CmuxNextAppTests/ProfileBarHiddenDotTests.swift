@@ -101,6 +101,23 @@ import Testing
         view.mouseUp(with: event(.leftMouseUp, NSPoint(x: -200, y: start.y), in: view))
     }
 
+    @Test(arguments: [true, false]) func changingSpaceOrderDuringDragCancelsTheDrop(removing: Bool) throws {
+        let (view, window) = makeBar(count: 3, active: 2)
+        defer { window.close() }
+        let slot = view.slotRects()[2]
+        let start = NSPoint(x: slot.midX, y: slot.midY)
+        let outside = NSPoint(x: view.bounds.maxX + 20, y: start.y)
+        view.mouseDown(with: event(.leftMouseDown, start, in: view))
+        view.mouseDragged(with: event(.leftMouseDragged, outside, in: view))
+        try #require(view.dotDrag?.outsideWindow == true)
+        var intents: [SidebarIntent] = []
+        view.model.onIntent = { intents.append($0) }
+        if removing { view.model.profiles.removeLast() } else { view.model.profiles.swapAt(0, 2) }
+        view.mouseUp(with: event(.leftMouseUp, outside, in: view))
+        #expect(view.dotDrag == nil)
+        #expect(intents.isEmpty)
+    }
+
     /// Shortcut hints (Ctrl-1…9) go only on drawn dots, each with the digit that selects it (9: the last space).
     @Test func spaceShortcutHintsShowOnlyOnDrawnDots() throws {
         let design = DesignSettings.shared
