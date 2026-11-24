@@ -107,7 +107,7 @@ import Testing
     @Test func daemonSilenceFailsAtTheSessionStep() {
         let attempt = MacRecoveryAttempt(step: .mac).advanced(by: .linked).advanced(by: .failed(.serviceDown))
         #expect(attempt.result == .failed(.session))
-        #expect(attempt.outcome(macName: "Cosmic Gray")?.hasPrefix("Reached Cosmic Gray, but cmux on it didn't answer") == true)
+        #expect(attempt.outcome(macName: "Cosmic Gray")?.hasPrefix("Reached Cosmic Gray, but cmux on it didn't respond") == true)
     }
 
     @Test func theServiceStepIgnoresTheLinkAndAnEndedAttemptStays() {
