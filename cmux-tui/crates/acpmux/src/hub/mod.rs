@@ -6,7 +6,9 @@
 
 // A reply's checkable claims against the turn's runs (`claim_checks`).
 mod claim_check;
+// Files a prompt names, read into it as the turn starts (harness magic).
 mod control_asks;
+mod prefetch;
 
 mod account_usage;
 mod activity;
@@ -2350,6 +2352,7 @@ impl Hub {
             stops: AtomicU64::new(0),
             cancels: AtomicU64::new(0),
             claim_runs: StdMutex::new(Default::default()),
+            prefetch: StdMutex::new(None),
             start_retry_wake: Notify::new(),
             start_retry_waits: AtomicBool::new(false),
             start_retry_cancels: AtomicU64::new(start_retry::NO_RETRY),
