@@ -145,10 +145,10 @@ import {
   lostRetryDelay,
   nextRetryDelay,
   offersAcpmuxRestart,
-  hostPlannedRestart,
   quickRetry,
   readHostRestoring,
   troubleSinceAfterLoss,
+  hostPlannedRestart,
 } from "../hostRetry";
 import { heldStartStop, sendsHeldForHost, untilHostAnswers } from "../sendWhenReady";
 import { newChatFolder } from "../startFolderModel";
@@ -222,6 +222,7 @@ export type PaneSnapshotArgs = {
   setPastWaitsForTrust: React.Dispatch<React.SetStateAction<boolean>>;
   setMachineName: React.Dispatch<React.SetStateAction<string | undefined>>;
   setLocalMachineName: React.Dispatch<React.SetStateAction<string | undefined>>;
+  setAutoCloudStartKey: React.Dispatch<React.SetStateAction<string | undefined>>;
   setCloudMachineID: React.Dispatch<React.SetStateAction<string | undefined>>;
   cloudMachineIDRef: React.RefObject<string | undefined>;
   setCloudRepositoryAvailable: React.Dispatch<React.SetStateAction<boolean>>;
@@ -406,6 +407,7 @@ export function paneSnapshotEffect({
   setMachineName,
   setLocalMachineName,
   setCloudMachineID,
+  setAutoCloudStartKey,
   cloudMachineIDRef,
   setCloudRepositoryAvailable,
   setCloudChatIdentity,
@@ -971,6 +973,7 @@ export function paneSnapshotEffect({
         pickCloud?: unknown;
         /// Another chat's `/side --on cloud` or `/cd --on cloud` opened this tab (commandPlace.ts).
         cloudStartHandoff?: unknown;
+        autoCloudStartKey?: string;
         model?: unknown;
         sandboxState?: unknown;
         /// The tab this page is (AgentPaneHandshake `tab`); an older app sends none.
@@ -990,6 +993,7 @@ export function paneSnapshotEffect({
       }
       acpmuxPerf.markAgent("handshakeReady");
       acpmuxPerf.markLaunch("handshakeReady");
+      if (typeof host.autoCloudStartKey === "string") setAutoCloudStartKey(host.autoCloudStartKey);
       setCloudTeamMachine(host.cloudTeamMachine === true);
       const turnRewind =
         Array.isArray(host.cloudTurnRewind) && host.cloudTurnRewind.every((id) => typeof id === "string")
