@@ -124,6 +124,226 @@
           ]
         },
         {
+          "key": "tabs.newTabClock.show",
+          "name": "show",
+          "note": "The New Tab clock (webviews newtab/NewTabClock.tsx): a large stylized time over the composer, as the iOS 26 Lock Screen draws it, in the font, weight and color below (Leo 2026-11-16: an aesthetic time thing like the iOS home screen customizer). It never replaces or covers the composer. Off by default until Leo picks the default. Read by the web page only.",
+          "title": {
+            "key": "settings.tabs.newTabClock.show",
+            "text": "Clock on New Tab"
+          },
+          "help": {
+            "key": "settings.tabs.newTabClock.show.help",
+            "text": "A large clock over the New Tab composer."
+          },
+          "kind": "toggle",
+          "swift_owner": {
+            "type": "NewTabClockSetting",
+            "prefixed": true
+          },
+          "default": false,
+          "keywords": [
+            "new tab",
+            "clock",
+            "time",
+            "date",
+            "lock screen",
+            "widget"
+          ]
+        },
+        {
+          "key": "tabs.newTabClock.font",
+          "name": "font",
+          "note": "The New Tab clock's typeface: the system's own families (screen.css .nt-clock[data-font]).",
+          "title": {
+            "key": "settings.tabs.newTabClock.font",
+            "text": "Clock Font"
+          },
+          "kind": "choice",
+          "swift_enum": {
+            "name": "NewTabClockFont"
+          },
+          "swift_owner": {
+            "type": "NewTabClockSetting",
+            "prefixed": true
+          },
+          "choices": [
+            {
+              "value": "rounded",
+              "title": {
+                "key": "settings.choice.newTabClockFontRounded",
+                "text": "Rounded"
+              }
+            },
+            {
+              "value": "system",
+              "title": {
+                "key": "settings.choice.newTabClockFontSystem",
+                "text": "System"
+              }
+            },
+            {
+              "value": "serif",
+              "title": {
+                "key": "settings.choice.newTabClockFontSerif",
+                "text": "Serif"
+              }
+            },
+            {
+              "value": "mono",
+              "title": {
+                "key": "settings.choice.newTabClockFontMono",
+                "text": "Monospaced"
+              }
+            },
+            {
+              "value": "condensed",
+              "title": {
+                "key": "settings.choice.newTabClockFontCondensed",
+                "text": "Condensed"
+              }
+            }
+          ],
+          "default": "rounded",
+          "keywords": [
+            "new tab",
+            "clock",
+            "font",
+            "typeface"
+          ]
+        },
+        {
+          "key": "tabs.newTabClock.weight",
+          "name": "weight",
+          "note": "The New Tab clock's weight.",
+          "title": {
+            "key": "settings.tabs.newTabClock.weight",
+            "text": "Clock Weight"
+          },
+          "kind": "choice",
+          "swift_enum": {
+            "name": "NewTabClockWeight"
+          },
+          "swift_owner": {
+            "type": "NewTabClockSetting",
+            "prefixed": true
+          },
+          "choices": [
+            {
+              "value": "thin",
+              "title": {
+                "key": "settings.choice.newTabClockWeightThin",
+                "text": "Thin"
+              }
+            },
+            {
+              "value": "regular",
+              "title": {
+                "key": "settings.choice.newTabClockWeightRegular",
+                "text": "Regular"
+              }
+            },
+            {
+              "value": "bold",
+              "title": {
+                "key": "settings.choice.newTabClockWeightBold",
+                "text": "Bold"
+              }
+            },
+            {
+              "value": "heavy",
+              "title": {
+                "key": "settings.choice.newTabClockWeightHeavy",
+                "text": "Heavy"
+              }
+            }
+          ],
+          "default": "bold",
+          "keywords": [
+            "new tab",
+            "clock",
+            "weight",
+            "bold",
+            "thin"
+          ]
+        },
+        {
+          "key": "tabs.newTabClock.color",
+          "name": "color",
+          "note": "The New Tab clock's color, from the theme: its text, its accent, its muted text, or glass (the text at a translucent tint with a soft rim of light).",
+          "title": {
+            "key": "settings.tabs.newTabClock.color",
+            "text": "Clock Color"
+          },
+          "kind": "choice",
+          "swift_enum": {
+            "name": "NewTabClockColor"
+          },
+          "swift_owner": {
+            "type": "NewTabClockSetting",
+            "prefixed": true
+          },
+          "choices": [
+            {
+              "value": "text",
+              "title": {
+                "key": "settings.choice.newTabClockColorText",
+                "text": "Theme Text"
+              }
+            },
+            {
+              "value": "accent",
+              "title": {
+                "key": "settings.choice.newTabClockColorAccent",
+                "text": "Accent"
+              }
+            },
+            {
+              "value": "muted",
+              "title": {
+                "key": "settings.choice.newTabClockColorMuted",
+                "text": "Muted"
+              }
+            },
+            {
+              "value": "glass",
+              "title": {
+                "key": "settings.choice.newTabClockColorGlass",
+                "text": "Glass"
+              }
+            }
+          ],
+          "default": "text",
+          "keywords": [
+            "new tab",
+            "clock",
+            "color",
+            "colour",
+            "accent",
+            "glass"
+          ]
+        },
+        {
+          "key": "tabs.newTabClock.date",
+          "name": "date",
+          "note": "The date line over the New Tab clock's time (\"Monday, November 16\").",
+          "title": {
+            "key": "settings.tabs.newTabClock.date",
+            "text": "Date over Clock"
+          },
+          "kind": "toggle",
+          "swift_owner": {
+            "type": "NewTabClockSetting",
+            "prefixed": true
+          },
+          "default": true,
+          "keywords": [
+            "new tab",
+            "clock",
+            "date",
+            "day"
+          ]
+        },
+        {
           "key": "tabs.newTabPosition",
           "note": "Where Cmd-T (tabs.newTabPosition) and the strip's + (tabs.newTabButtonPosition) put a new tab (cx-d0d.58). Cmd-T: right after the current tab by default (Lawrence 2026-10-20); the +: at the end, after the last tab, by default (Lucas 2026-11-07). New Tab After Current Tab, New Tab at Start and New Tab at End (and the tab menu's New Tab to the Right) ignore both settings.",
           "title": {
@@ -494,7 +714,7 @@
             "pin",
             "more"
           ],
-          "page_hidden": "action ids; toggled from the tab bar's More menu (Show in Tab Bar)"
+          "page_hidden": "action ids; toggled from the command palette (Pin or Unpin Tab Bar Button…)"
         },
         {
           "key": "appearance.metrics.tabFontSize",

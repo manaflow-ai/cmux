@@ -52,6 +52,8 @@ final class FocusEffectApplier: FocusEffectApplying {
         controller.services.input.observeFocus(of: controller)
     }
 
+    func holdingPageGrants(_ send: () -> Void, until layout: () -> Void) { pageFocus.holdingGrants(send, until: layout) }
+
     func teardown() {
         observers.removeAll()
         overlayPanelObserver = nil
