@@ -42,6 +42,7 @@ import {
   groupByDay,
   isFiller,
   mergedView,
+  releaseTitle,
   rowKind,
   titleKey,
   type MediaRef,
@@ -75,9 +76,12 @@ export function SheetPage({
   return (
     <KeyboardScope className={`cls cls-${layout} cls-prs-${links}`} handleKeyDown={journalKeys}>
       <main aria-labelledby="cls-title" ref={main}>
-        <h1 className="cls-title" id="cls-title">
-          {strings.t("changelog.page.title")}
-        </h1>
+        <header className="cls-masthead">
+          <h1 className="cls-title" id="cls-title">
+            {strings.t("changelog.page.releaseNotes")}
+          </h1>
+          <p className="cls-lede">{strings.t("changelog.page.releaseNotesLede")}</p>
+        </header>
         {s.failed && <p className="cl-error">{s.failed}</p>}
         {s.builds.length === 0 && !s.failed && <p className="cl-muted">{strings.t("changelog.page.noHistory")}</p>}
         {groupByDay(s.builds).map((day) => (
@@ -114,7 +118,12 @@ function SheetDay({
 }) {
   const loaded = builds.map((b) => s.loaded[b.build]).filter((n): n is ReleaseNotes => !!n);
   const pending = builds.some((b) => !s.loaded[b.build] && !s.unavailable[b.build]);
-  const rows = sheetRows(mergedView(loaded, strings.language), strings);
+  const view = mergedView(loaded, strings.language);
+  const rows = sheetRows(view, strings);
+  // The day's own headline and picture lead it, as a release post does (Lawrence 2026-11-23, with
+  // Conductor's and Linear's changelogs: a dated rail, a big title, the picture, then the changes).
+  const headline = releaseTitle(loaded, strings.language) ?? view.hero?.title;
+  const heroMedia = view.hero?.media && !view.hero.media.before ? view.hero.media : undefined;
   const installed = builds.some((b) => b.build === s.current);
   const [versions, setVersions] = useState(false);
   return (
@@ -123,8 +132,11 @@ function SheetDay({
       ref={loadNear(builds, store, pending)}
       aria-label={dayLabel(day, strings.language)}
     >
-      <h2 className="cls-date">
-        <time dateTime={day}>{dayLabel(day, strings.language)}</time>
+      <div className="cls-rail">
+        <h2 className="cls-date">
+          <span className="cls-dot" aria-hidden="true" data-installed={installed ? "" : undefined} />
+          <time dateTime={day}>{dayLabel(day, strings.language)}</time>
+        </h2>
         {installed && <span className="cl-installed">{strings.t("changelog.page.current")}</span>}
         <Button
           size="sm"
@@ -136,26 +148,30 @@ function SheetDay({
           {strings.t("changelog.build.versions")}
           <span className="cl-count">{builds.length}</span>
         </Button>
-      </h2>
-      {versions && <SheetBuilds builds={builds} all={s.builds} s={s} store={store} strings={strings} />}
-      {pending && rows.length === 0 ? (
-        <div
-          className="clj-placeholder"
-          aria-busy="true"
-          style={
-            {
-              "--cls-rows": placeholderRows(builds),
-              "--cls-areas": placeholderAreas(builds),
-            } as CSSProperties
-          }
-        />
-      ) : rows.length === 0 ? (
-        <Maintenance strings={strings} />
-      ) : (
-        byArea(rows).map((group) => (
-          <SheetArea key={group.area ?? ""} area={group.area} rows={group.items} strings={strings} entry={entry} />
-        ))
-      )}
+      </div>
+      <div className="cls-body">
+        {headline && rows.length > 0 && <p className="cls-headline">{headline}</p>}
+        {heroMedia && rows.length > 0 && <Media media={heroMedia} className="cls-hero-media" strings={strings} />}
+        {versions && <SheetBuilds builds={builds} all={s.builds} s={s} store={store} strings={strings} />}
+        {pending && rows.length === 0 ? (
+          <div
+            className="clj-placeholder"
+            aria-busy="true"
+            style={
+              {
+                "--cls-rows": placeholderRows(builds),
+                "--cls-areas": placeholderAreas(builds),
+              } as CSSProperties
+            }
+          />
+        ) : rows.length === 0 ? (
+          <Maintenance strings={strings} />
+        ) : (
+          byArea(rows).map((group) => (
+            <SheetArea key={group.area ?? ""} area={group.area} rows={group.items} strings={strings} entry={entry} />
+          ))
+        )}
+      </div>
     </section>
   );
 }
@@ -305,7 +321,10 @@ export function focusReady(s: ChangelogSnapshot): boolean {
 function useFocusScroll(focus: ChangelogFocus | undefined, ready: boolean) {
   const main = useRef<HTMLElement>(null);
   const handled = useRef<string>(undefined);
-  const mark = useRef<{ el: HTMLElement; timer: ReturnType<typeof setTimeout> }>(undefined);
+  const mark = useRef<{
+    el: HTMLElement;
+    timer: ReturnType<typeof setTimeout>;
+  }>(undefined);
   const key = focus ? `${focus.area ?? ""}\n${focus.entry ?? ""}\n${focus.n ?? ""}` : undefined;
   useEffect(() => {
     const root = main.current;
@@ -320,7 +339,10 @@ function useFocusScroll(focus: ChangelogFocus | undefined, ready: boolean) {
       : [...root.querySelectorAll<HTMLElement>(".cls-area[data-area]")].find((el) => el.dataset.area === focus.area);
     const target = row ?? area;
     if (!target) return;
-    target.scrollIntoView?.({ block: row ? "center" : "start", behavior: lessMotion() ? "auto" : "smooth" });
+    target.scrollIntoView?.({
+      block: row ? "center" : "start",
+      behavior: lessMotion() ? "auto" : "smooth",
+    });
     if (mark.current) {
       clearTimeout(mark.current.timer);
       mark.current.el.removeAttribute("data-focus");

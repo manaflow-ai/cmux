@@ -58,7 +58,7 @@ import { parsePreviewMode, type UpdatedPreviewMode } from "./updatedPreviewMode"
 import { pressCard, SHIPPED_DRAG_FEEL, type CardDragFeel, type CardDragHost, type CardRow } from "./updatedCardDrag";
 import { PREVIEW_MAX_PX, UpdatedCardPreview, type PreviewLayout, type PreviewTarget } from "./UpdatedCardPreview";
 export type { PreviewLayout } from "./UpdatedCardPreview";
-import { summarizeHighlights, summarizeUpdate, type SummaryRow } from "./updateSummary";
+import { summarizeHighlights, summarizeUpdate, type SummaryRow, type UpdateSummary } from "./updateSummary";
 
 /** "1.0.0-nightly.3845050428001" reads "nightly 3845050", as the native Update Ready card
  * (UpdateChangelog.cardVersion): every nightly is 1.0.0. Any other version reads as itself. */
@@ -229,6 +229,7 @@ export function UpdatedCard({
   dragFeel = SHIPPED_DRAG_FEEL,
   notesLoading = false,
   loadingLook = SHIPPED_NOTE_LOADING,
+  titleLook = SHIPPED_TITLE_LOOK,
 }: {
   data: UpdateHighlights;
   /** The notes of every build after the previous version, newest first; absent until they load. */
@@ -277,6 +278,8 @@ export function UpdatedCard({
   notesLoading?: boolean;
   /** How the loading change line looks (gallery variants); `dots` ships. */
   loadingLook?: NoteLoadingLook;
+  /** What the card's title says (gallery variants); `version` ships until one is chosen. */
+  titleLook?: CardTitleLook;
 }) {
   const titleId = useId();
   const [copied, setCopied] = useState(false);
@@ -335,14 +338,33 @@ export function UpdatedCard({
       {strings.t("changelog.page.title")}
     </button>
   );
-  const title = (
-    <div className="wn-card-title" id={titleId}>
+  const updatedTo = (
+    <>
       {before}
       <CopyVersion version={data.version} strings={strings} onCopied={setCopied}>
         {name}
       </CopyVersion>
       {after}
       <span aria-live="polite">{copied && ` · ${strings.t("updates.card.copied")}`}</span>
+    </>
+  );
+  // What the update is about, not only that it happened (Lawrence 2026-11-23: "'updated to nightly'
+  // can likely be more descriptive about what the update is actually about"). With nothing readable
+  // in the notes (loading, maintenance only), every look falls back to "Updated to Nightly".
+  const described = !notesLoading && mode !== "quiet" && mode !== "version" && !!summary.lead;
+  const look: CardTitleLook = described ? titleLook : "version";
+  const areas = areaList(summary, strings);
+  const titleText =
+    look === "headline"
+      ? summary.lead
+      : look === "kind"
+        ? `${strings.format("updates.card.areaLabel", strings.t(`changelog.group.${top?.category ?? "improved"}`))} ${summary.lead}`
+        : look === "areas"
+          ? areas
+          : undefined;
+  const title = (
+    <div className="wn-card-title" id={titleId} data-look={look}>
+      {titleText ?? updatedTo}
     </div>
   );
   const close = closeButton && actions.dismiss && (
@@ -371,6 +393,13 @@ export function UpdatedCard({
       </p>
     ) : notesLoading ? (
       <NoteLoading look={loadingLook} label={strings.t("updates.card.loadingNotes")} />
+    ) : look === "headline" || look === "kind" ? (
+      <p className="wn-card-note wn-card-meta">
+        {updatedTo}
+        {areas && <span className="wn-card-areas-line"> · {areas}</span>}
+      </p>
+    ) : look === "areas" ? (
+      <p className="wn-card-note">{summary.lead}</p>
     ) : (
       <p className="wn-card-note">
         {top ? (
@@ -451,6 +480,22 @@ export function UpdatedCard({
   );
 }
 
+/** What the Updated card's title says (gallery variants; Lawrence 2026-11-23, more varieties of the
+    toast): the update's lead change, with "Updated to Nightly · Sidebar, Tabs +4 more" under it
+    (`headline`); the same lead after its kind, "New: …" (`kind`); the areas it touches, the
+    lead under them (`areas`); or "Updated to Nightly" with the top change under it, as before
+    (`version`). */
+export type CardTitleLook = "headline" | "kind" | "areas" | "version";
+export const CARD_TITLE_LOOKS: readonly CardTitleLook[] = ["headline", "kind", "areas", "version"];
+export const SHIPPED_TITLE_LOOK: CardTitleLook = "version";
+
+/** The areas an update touches, in the card's order, "+N more" for the changes past its rows. */
+function areaList(summary: UpdateSummary, strings: Strings): string {
+  const names = [...new Set(summary.rows.map((row) => rowLabel(row, strings)))];
+  const list = new Intl.ListFormat(strings.language, { style: "short", type: "unit" }).format(names);
+  return summary.more > 0 ? `${list} ${strings.format("updates.card.more", String(summary.more))}` : list;
+}
+
 /** The loading change line's looks (gallery variants, Leo 2026-11-09: "for the, you know, fixed or
     whatever subtitle text individually, we can have it be, like, should have a loading indicator, like
     an ellipsis-type thing"): three still dots (`dots`, shipped; no breathing loop, test/no-breathing-dots),
@@ -501,7 +546,10 @@ function useCardDrag(
 ): (element: HTMLElement | null) => void {
   const latest = useRef({ drag, feel, onStart });
   latest.current = { drag, feel, onStart };
-  const attached = useRef<{ element: HTMLElement; press: (event: PointerEvent) => void } | null>(null);
+  const attached = useRef<{
+    element: HTMLElement;
+    press: (event: PointerEvent) => void;
+  } | null>(null);
   useEffect(
     () => () => {
       attached.current?.element.removeEventListener("pointerdown", attached.current.press);

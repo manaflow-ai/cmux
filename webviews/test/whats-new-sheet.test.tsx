@@ -86,7 +86,7 @@ test("each day lists its changes under their app area, one line each, newest day
   await act(async () => void mountChangelogPage(root, new MockChangelogProvider(notes) as never));
   for (let tries = 0; tries < 200 && root.querySelectorAll(".cls-row").length < 3; tries += 1)
     await act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
-  expect(root.querySelector(".cls h1")?.textContent).toBe("What's New");
+  expect(root.querySelector(".cls h1")?.textContent).toBe("cmux Release Notes");
   const days = [...root.querySelectorAll(".cls-day time")].map((t) => t.getAttribute("dateTime"));
   expect(days).toEqual(["2026-10-31", "2026-10-26"]);
   // Each area: its glyph, its name and its count, then its changes.

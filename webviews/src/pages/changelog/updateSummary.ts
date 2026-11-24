@@ -22,6 +22,10 @@ export interface UpdateSummary {
   rows: SummaryRow[];
   /** User-visible changes not listed. */
   more: number;
+  /** The update's lead change, whole, as a person reads it: the card's descriptive title. */
+  lead?: string;
+  /** How many user-visible changes the update brings. */
+  total: number;
 }
 
 /** At most three lines on the card, two changes each, each change at most one clause long. */
@@ -89,7 +93,12 @@ function summarize(changes: Change[], language: string, unlisted = 0): UpdateSum
     rows.push({ ...bucket.row, phrases });
     listed += phrases.length;
   }
-  return { rows, more: changes.length + unlisted - listed };
+  return {
+    rows,
+    more: changes.length + unlisted - listed,
+    lead: plain[0]?.title,
+    total: changes.length + unlisted,
+  };
 }
 
 /** The entry a build with nothing reviewed publishes in place of a What's New
@@ -151,10 +160,19 @@ export function summarizeUpdate(notes: ReleaseNotes[], language: string): Update
       curated.forEach(add);
       continue;
     }
-    const items = changeItems(build).map((item) => ({ ...item, raw: item.title, label: changeArea(item.title) }));
+    const items = changeItems(build).map((item) => ({
+      ...item,
+      raw: item.title,
+      label: changeArea(item.title),
+    }));
     for (const item of readableChanges(items).changes) {
       const group = readableChange(item.raw).group;
-      add({ title: item.title, raw: item.raw, category: category(group), area: areaOf(item.title, item.label) });
+      add({
+        title: item.title,
+        raw: item.raw,
+        category: category(group),
+        area: areaOf(item.title, item.label),
+      });
     }
   }
   return summarize(changes, language);
@@ -164,6 +182,10 @@ export function summarizeUpdate(notes: ReleaseNotes[], language: string): Update
     load (an older host, offline): the same rows, from its already readable items. */
 export function summarizeHighlights(data: UpdateHighlights): UpdateSummary {
   const items = [...data.items, ...(data.rest ?? [])].filter((item) => !isGenericEntry(item.id, item.title));
-  const changes = items.map((item) => ({ title: item.title, category: item.category, area: areaOf(item.title) }));
+  const changes = items.map((item) => ({
+    title: item.title,
+    category: item.category,
+    area: areaOf(item.title),
+  }));
   return summarize(changes, data.language, Math.max(0, data.moreCount - (data.rest?.length ?? 0)));
 }

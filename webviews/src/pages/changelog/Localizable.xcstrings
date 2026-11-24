@@ -132,6 +132,30 @@
         }
       }
     },
+    "changelog.page.releaseNotes": {
+      "comment": "The release notes page's title: every cmux update, newest first.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Release Notes"
+          }
+        }
+      }
+    },
+    "changelog.page.releaseNotesLede": {
+      "comment": "Under the release notes page's title.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every update, newest first: what changed, where it is in the app, and what got fixed."
+          }
+        }
+      }
+    },
     "changelog.page.loading": {
       "extractionState": "manual",
       "localizations": {

@@ -1165,3 +1165,16 @@
   outline: 2px solid var(--cmux-accent, currentColor);
   outline-offset: 2px;
 }
+
+/* The descriptive title (CardTitleLook): the change's words take the strong line, so they may be
+   long; one line, cut with an ellipsis. The version line under it is quiet. */
+.wn-updated .wn-card-title[data-look="headline"],
+.wn-updated .wn-card-title[data-look="kind"],
+.wn-updated .wn-card-title[data-look="areas"] {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wn-card-meta {
+  color: var(--page-text-3);
+}
