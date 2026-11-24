@@ -217,11 +217,11 @@ impl ResumeTicket {
 }
 
 fn hex(bytes: &[u8]) -> String {
-    const DIGITS: &[u8; 16] = b"0123456789abcdef";
-    let mut out = String::with_capacity(bytes.len() * 2);
+    use std::fmt::Write as _;
+    let mut out = String::with_capacity(bytes.len().saturating_mul(2));
     for byte in bytes {
-        out.push(DIGITS[(byte >> 4) as usize] as char);
-        out.push(DIGITS[(byte & 0xf) as usize] as char);
+        // Writing to a String never fails.
+        let _ = write!(out, "{byte:02x}");
     }
     out
 }
@@ -231,10 +231,11 @@ fn unhex32(text: &str) -> Option<[u8; 32]> {
     if text.len() != 64 {
         return None;
     }
-    let digit = |c: u8| (c as char).to_digit(16).map(|d| d as u8);
+    let digit = |c: u8| (c as char).to_digit(16).and_then(|d| u8::try_from(d).ok());
     let mut out = [0_u8; 32];
-    for (i, pair) in text.chunks_exact(2).enumerate() {
-        out[i] = digit(pair[0])? << 4 | digit(pair[1])?;
+    for (slot, pair) in out.iter_mut().zip(text.chunks_exact(2)) {
+        let [hi, lo] = pair else { return None };
+        *slot = digit(*hi)? << 4 | digit(*lo)?;
     }
     Some(out)
 }
