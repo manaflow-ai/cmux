@@ -1488,6 +1488,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-bundle"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "chacha20poly1305",
+ "cmux-fault",
+ "flate2",
+ "tokio",
+ "zstd",
+]
+
+[[package]]
 name = "cmux-chat-index"
 version = "0.1.0"
 dependencies = [
@@ -1863,6 +1875,7 @@ dependencies = [
  "base64",
  "cmux-agent-cli-render",
  "cmux-fault",
+ "cmux-output-paint",
  "ghostty-vt",
  "hex",
  "serde",
@@ -2262,6 +2275,10 @@ dependencies = [
  "libc",
  "tokio",
 ]
+
+[[package]]
+name = "cmux-output-paint"
+version = "0.1.0"
 
 [[package]]
 name = "cmux-palette-eval"
