@@ -35,10 +35,32 @@ impl Channel for std::os::unix::net::UnixStream {
     }
 }
 
-/// Runs until the supervisor closes the channel, sends `shutdown`, or the VM dies.
-pub fn run<R: Channel, W: Write>(read: R, mut write: W, limits: Limits) -> i32 {
+/// Runs until the supervisor closes the channel, sends `shutdown`, or the VM dies, then drops
+/// the VM (an engine a limit stopped is leaked: [`AppVm::engine_poisoned`]).
+pub fn run<R: Channel, W: Write>(read: R, write: W, limits: Limits) -> i32 {
+    let mut vm = None;
+    serve(read, write, limits, &mut vm)
+}
+
+/// [`run`] for the host process: the VM is never freed, since the process exits next and the OS
+/// takes the memory back. Freeing it is where an engine bug aborted the exit (cmuxterm-hq#15405).
+pub fn run_then_exit<R: Channel, W: Write>(read: R, write: W, limits: Limits) -> i32 {
+    let mut vm = None;
+    let code = serve(read, write, limits, &mut vm);
+    if let Some(vm) = vm {
+        vm.leak();
+    }
+    code
+}
+
+/// The loop. The VM it creates stays in `vm` on every return, so the caller decides its end.
+fn serve<R: Channel, W: Write>(
+    read: R,
+    mut write: W,
+    limits: Limits,
+    vm: &mut Option<AppVm>,
+) -> i32 {
     let mut reader = BufReader::new(read);
-    let mut vm: Option<AppVm> = None;
     let mut line: Vec<u8> = Vec::new();
     loop {
         let timeout = vm
@@ -92,8 +114,8 @@ pub fn run<R: Channel, W: Write>(read: R, mut write: W, limits: Limits) -> i32 {
                     main_name,
                 },
             ) => {
-                let mut created = match AppVm::new(limits) {
-                    Ok(created) => created,
+                let created = match AppVm::new(limits) {
+                    Ok(created) => vm.insert(created),
                     Err(error) => {
                         let _ = send(&mut write, &FromHost::InitFailed { error });
                         return exit::FATAL;
@@ -111,15 +133,14 @@ pub fn run<R: Channel, W: Write>(read: R, mut write: W, limits: Limits) -> i32 {
                     main_name,
                 });
                 let ready = match &outcome {
-                    Ok(()) => Some(FromHost::Ready { runtime: runtime_version(&mut created) }),
+                    Ok(()) => Some(FromHost::Ready { runtime: runtime_version(created) }),
                     Err(VmError::Init(error)) => {
                         Some(FromHost::InitFailed { error: error.clone() })
                     }
                     Err(VmError::Fatal { .. }) => None,
                 };
                 let fatal = matches!(outcome, Err(VmError::Fatal { .. }));
-                if let Some(code) =
-                    flush(&mut created, &mut write, if fatal { outcome } else { Ok(()) })
+                if let Some(code) = flush(created, &mut write, if fatal { outcome } else { Ok(()) })
                 {
                     return code;
                 }
@@ -131,7 +152,6 @@ pub fn run<R: Channel, W: Write>(read: R, mut write: W, limits: Limits) -> i32 {
                         return exit::FATAL;
                     }
                 }
-                vm = Some(created);
             }
             (None, _) | (Some(_), ToHost::Init { .. }) => return exit::PROTOCOL,
             (Some(vm), message) => {

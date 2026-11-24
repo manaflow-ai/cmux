@@ -12,6 +12,7 @@
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
+use std::mem::ManuallyDrop;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
@@ -365,10 +366,12 @@ unsafe impl Allocator for CountingAllocator {
 }
 
 /// One app's VM.
+///
+/// The engine is freed on drop only while no limit ever stopped it: see [`AppVm::engine_poisoned`].
 pub struct AppVm {
-    // Field order matters: the context must drop before the runtime.
-    context: Context,
-    runtime: Runtime,
+    // Dropped by hand in `Drop`, the context before the runtime.
+    context: ManuallyDrop<Context>,
+    runtime: ManuallyDrop<Runtime>,
     shared: Rc<RefCell<Shared>>,
     /// The VM clock (`base`, plus `skipped`: nanoseconds it is ahead of `base.elapsed()`,
     /// [`AppVm::advance_clock`]), the entry deadline and the stop flags.
@@ -416,8 +419,8 @@ impl AppVm {
             ..Shared::default()
         }));
         let mut vm = Self {
-            context,
-            runtime,
+            context: ManuallyDrop::new(context),
+            runtime: ManuallyDrop::new(runtime),
             shared,
             gate,
             cpu: limits.cpu.map(CpuWindow::new),
@@ -620,6 +623,24 @@ impl AppVm {
         self.dead
     }
 
+    /// True once a limit (the deadline, memory, the outbox) stopped the engine, possibly in the
+    /// middle of a builtin. QuickJS's error paths there are not all sound: an interrupt inside
+    /// `Array.prototype.find` frees the element it already freed (fixed upstream in quickjs-ng
+    /// e22ce4de4, after the release rquickjs ships), so the heap can hold an object that
+    /// is referenced more times than it is counted. Freeing that runtime walks the heap and
+    /// aborts the process (`gc_decref_child: JS_REF_COUNT(p) > 0`, cmuxterm-hq#15405), or
+    /// reads freed memory with assertions off. Such an engine is never freed: [`Drop`]
+    /// leaks it, bounded by the VM's memory limit.
+    pub fn engine_poisoned(&self) -> bool {
+        self.gate.stopping.load(Ordering::Relaxed)
+    }
+
+    /// Ends the VM without freeing its engine, for a process about to exit: the OS takes the
+    /// memory back, and no engine bug can abort the exit (cmuxterm-hq#15405).
+    pub fn leak(self) {
+        std::mem::forget(self);
+    }
+
     /// Evaluates source in the VM (tests and diagnostics); returns its JSON.
     pub fn eval_json(&mut self, source: &str) -> Result<Result<Value, String>, VmError> {
         let source = format!("JSON.stringify(({source}))");
@@ -753,6 +774,21 @@ impl AppVm {
         self.dead = Some(reason);
         self.shared.borrow_mut().outbox.push(FromHost::Fatal { reason, entry: entry.to_string() });
         VmError::Fatal { reason, entry: entry.to_string() }
+    }
+}
+
+impl Drop for AppVm {
+    fn drop(&mut self) {
+        if self.engine_poisoned() {
+            // Leaked: see `engine_poisoned`.
+            return;
+        }
+        // SAFETY: each field is dropped once, here, and `self` is not used afterwards; the
+        // context goes before the runtime it belongs to.
+        unsafe {
+            ManuallyDrop::drop(&mut self.context);
+            ManuallyDrop::drop(&mut self.runtime);
+        }
     }
 }
 

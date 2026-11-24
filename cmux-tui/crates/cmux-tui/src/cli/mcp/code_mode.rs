@@ -15,6 +15,7 @@
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::mem::ManuallyDrop;
 use std::rc::Rc;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -945,6 +946,31 @@ fn block_end(text: &str, open: usize) -> Option<usize> {
     None
 }
 
+/// One script's engine. It is freed on drop unless its interrupt fired: QuickJS's error paths
+/// are not all sound when an interrupt lands inside a builtin (an interrupted
+/// `Array.prototype.find` frees an element twice, fixed upstream after the release rquickjs
+/// ships), and freeing such a runtime aborts the whole process in `JS_RunGC`
+/// (cmuxterm-hq#15405). A leaked engine costs at most its memory limit.
+struct Engine {
+    context: ManuallyDrop<Context>,
+    runtime: ManuallyDrop<Runtime>,
+    stopped: Arc<Mutex<bool>>,
+}
+
+impl Drop for Engine {
+    fn drop(&mut self) {
+        if self.stopped.lock().map(|stopped| *stopped).unwrap_or(true) {
+            return;
+        }
+        // SAFETY: each field is dropped once, here, the context before its runtime, and the
+        // engine is not used afterwards.
+        unsafe {
+            ManuallyDrop::drop(&mut self.context);
+            ManuallyDrop::drop(&mut self.runtime);
+        }
+    }
+}
+
 /// Runs one script on this (the engine) thread.
 fn run_script(
     script: &str,
@@ -985,6 +1011,12 @@ fn run_script(
         Ok(context) => context,
         Err(error) => return failed(format!("engine: {error}")),
     };
+    let engine = Engine {
+        context: ManuallyDrop::new(context),
+        runtime: ManuallyDrop::new(runtime),
+        stopped: stopped.clone(),
+    };
+    let (runtime, context) = (&*engine.runtime, &*engine.context);
     let calls = Rc::new(RefCell::new(0usize));
     let mut workflow_poll: Option<Persistent<Function<'static>>> = None;
     let evaluated = context.with(|ctx| -> Result<(), String> {

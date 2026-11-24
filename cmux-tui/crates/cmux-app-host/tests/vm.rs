@@ -377,6 +377,32 @@ mod apps {
         assert_eq!(other.texts("m"), ["still here"]);
     }
 
+    /// cmuxterm-hq#15405: QuickJS's `Array.prototype.find`, interrupted between elements, frees
+    /// the element it already freed, so the array is left pointing at an object counted once
+    /// short. Freeing that engine aborted the process in `JS_RunGC`
+    /// (`gc_decref_child: JS_REF_COUNT(p) > 0`). A VM a limit stopped is dropped without freeing
+    /// its engine; one that never was is still freed.
+    #[test]
+    fn a_vm_interrupted_inside_a_builtin_drops_without_freeing_its_engine() {
+        let mut spun =
+            Harness::new(&app(r#"const o = {}; globalThis.keep = [o]; globalThis.items = [];
+               for (let i = 0; i < 1e5; i++) items.push(o);
+               return { spin: () => { for (;;) items.find(Number.isNaN) } }"#));
+        assert!(!spun.vm.engine_poisoned());
+        let error = spun.vm.run_command(1, "spin", &json!({}), None).expect_err("interrupt");
+        assert!(
+            matches!(error, VmError::Fatal { reason: FatalReason::Interrupt, .. }),
+            "{error:?}"
+        );
+        assert!(spun.vm.engine_poisoned());
+        drop(spun);
+
+        let mut healthy = Harness::new(&app(r#"return { render: () => Text("freed") }"#));
+        assert_eq!(healthy.mount("m", "render", json!({})), None);
+        assert!(!healthy.vm.engine_poisoned());
+        drop(healthy);
+    }
+
     #[test]
     fn settings_and_strings_reach_the_app() {
         let mut h = Harness::with(
