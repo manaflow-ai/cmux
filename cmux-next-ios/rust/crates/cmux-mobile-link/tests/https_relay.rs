@@ -206,8 +206,7 @@ async fn a_join_without_its_ticket_is_refused() {
     for ticket in [None, Some("not-the-ticket")] {
         let failure = cmux_mobile_link::dial::relay::RelayCarrier::join(&endpoint, &session, &peer, ticket)
             .await
-            .err()
-            .expect("refused");
+            .expect_err("refused");
         assert!(
             matches!(failure, cmux_mobile_link::dial::relay::RelayFailure::Refused { status: 403, .. }),
             "{failure:?}"
@@ -373,5 +372,117 @@ async fn a_link_on_the_relay_moves_to_direct_udp_and_leaves_it() {
         tokio::time::sleep(Duration::from_millis(300)).await;
     }
     assert_eq!(rig.mac_path(), Some(LinkPath::Direct));
+    connected.link.close("done");
+}
+
+/// Plain UDP for the two tests below, each its own switch (tests run side by
+/// side in one process).
+static UDP_LOST_REJOIN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+fn udp_lost_rejoin(_: &std::net::SocketAddr) -> bool {
+    UDP_LOST_REJOIN.load(std::sync::atomic::Ordering::Relaxed)
+}
+static UDP_LOST_RESET: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+fn udp_lost_reset(_: &std::net::SocketAddr) -> bool {
+    UDP_LOST_RESET.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// The relay socket dies (a proxy resets it) just as the network starts
+/// passing UDP again: the session goes direct and does not keep opening and
+/// dropping relay joins. Each join here takes 1.5 s, so the peer answers on
+/// UDP while one runs (review of #53163: 10 joins in 12 s on a direct path).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_good_network_does_not_rejoin_the_relay_after_its_socket_dies() {
+    let fake = FakeOptions { relay_join_delay: Duration::from_millis(1500), ..FakeOptions::default() };
+    let leave = Some(Duration::from_secs(2));
+    let mac_options =
+        DialOptions { drop_udp_to: Some(udp_lost_rejoin), relay_leave_after: leave, ..options() };
+    let rig = rig(fake, mac_options, true).await;
+    let phone = DialOptions {
+        drop_udp_to: Some(udp_lost_rejoin),
+        relay: relay(&rig.server, &rig.phone_id),
+        relay_leave_after: leave,
+        timeout: Duration::from_secs(30),
+        ..options()
+    };
+    let connected =
+        dial::connect(&rig.phone, &rig.mac_id, TransportKind::WireGuard, &phone, LinkConfig::default())
+            .await
+            .expect("dial through the relay once nothing else answers");
+    echo(&connected.link, 1).await;
+    assert_eq!(*connected.path.borrow(), LinkPath::HttpsRelay);
+    let session = connected.session_id.clone();
+    // The phone's relay socket dies while it rides it, and UDP comes back.
+    rig.server.kick_relay(&rig.phone_id);
+    UDP_LOST_REJOIN.store(false, std::sync::atomic::Ordering::Relaxed);
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    while *connected.path.borrow() != LinkPath::Direct {
+        assert!(std::time::Instant::now() < deadline, "never went direct: {:?}", *connected.path.borrow());
+        echo(&connected.link, 1).await;
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    // On the direct path, keep the link busy for 8 s: at most the one join that
+    // raced the recovery, never a loop of them.
+    let joins = rig.server.relay_joins();
+    let until = std::time::Instant::now() + Duration::from_secs(8);
+    while std::time::Instant::now() < until {
+        echo(&connected.link, 1).await;
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    let rejoins = rig.server.relay_joins() - joins;
+    assert!(rejoins <= 1, "{rejoins} relay joins in 8 s on a direct path");
+    assert_eq!(*connected.path.borrow(), LinkPath::Direct);
+    assert_eq!(cmux_mobile_link::dial::wireguard::relay_held(&session, true), Some(false));
+    connected.link.close("done");
+}
+
+/// A relay socket that resets while the session needs it is joined again,
+/// and that rejoin does not pin the session to the relay: once UDP works,
+/// the phone leaves the relay on schedule (review of #53163: still held 10 s
+/// past a 2 s leave time).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_relay_reset_does_not_keep_the_session_on_the_relay() {
+    let leave = Some(Duration::from_secs(2));
+    let mac_options =
+        DialOptions { drop_udp_to: Some(udp_lost_reset), relay_leave_after: leave, ..options() };
+    let rig = rig(FakeOptions::default(), mac_options, true).await;
+    let phone = DialOptions {
+        drop_udp_to: Some(udp_lost_reset),
+        relay: relay(&rig.server, &rig.phone_id),
+        relay_leave_after: leave,
+        ..options()
+    };
+    let connected =
+        dial::connect(&rig.phone, &rig.mac_id, TransportKind::WireGuard, &phone, LinkConfig::default())
+            .await
+            .expect("dial through the relay once nothing else answers");
+    echo(&connected.link, 1).await;
+    let session = connected.session_id.clone();
+    // A reset while nothing else works: the phone joins again at once.
+    let joins = rig.server.relay_joins();
+    rig.server.kick_relay(&rig.phone_id);
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while rig.server.relay_joins() == joins {
+        assert!(std::time::Instant::now() < deadline, "the phone never joined again");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    echo(&connected.link, 1).await;
+    assert_eq!(*connected.path.borrow(), LinkPath::HttpsRelay);
+    // UDP works again: direct, and the relay let go within the leave time.
+    UDP_LOST_RESET.store(false, std::sync::atomic::Ordering::Relaxed);
+    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    loop {
+        echo(&connected.link, 1).await;
+        let direct = *connected.path.borrow() == LinkPath::Direct;
+        if direct && cmux_mobile_link::dial::wireguard::relay_held(&session, true) == Some(false) {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "path {:?}, phone holds the relay: {:?}",
+            *connected.path.borrow(),
+            cmux_mobile_link::dial::wireguard::relay_held(&session, true)
+        );
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
     connected.link.close("done");
 }

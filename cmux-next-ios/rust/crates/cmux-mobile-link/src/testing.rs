@@ -47,6 +47,9 @@ pub struct FakeOptions {
     pub ice_stun: Option<String>,
     /// Refuse every relay join with `503 relay_off` (the Worker's kill switch).
     pub relay_off: bool,
+    /// A relay join's upgrade is answered this much later (a slow network or
+    /// a far Worker), so a join can race a path that starts working.
+    pub relay_join_delay: std::time::Duration,
 }
 
 /// How often the backend answers an older peer's relay frames for one
@@ -423,6 +426,7 @@ async fn serve_relay(
     } else {
         None
     };
+    tokio::time::sleep(options.relay_join_delay).await;
     let callback = |_: &Request, mut response: Response| -> Result<Response, ErrorResponse> {
         if let Some((status, code)) = refusal {
             let body = json!({"error": {"code": code, "message": code}}).to_string();

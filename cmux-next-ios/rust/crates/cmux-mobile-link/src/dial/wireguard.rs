@@ -1264,15 +1264,18 @@ impl HybridUnderlay {
         self.relay.as_ref().is_some_and(|relay| !relay.is_dead())
     }
 
-    /// Let go of the relay socket (it died, or another route carries both
-    /// directions); the session joins again if nothing else works. A socket
-    /// that died while the session rode it (or had no other confirmed
-    /// route, or the relay is forced) is joined again at once.
-    fn drop_relay(&mut self, why: &str) {
+    /// Let go of the relay socket: `voluntary` when another route carries
+    /// the session, else because it died. The session joins again if
+    /// nothing else works. A socket that died while the session rode it (or
+    /// had no other confirmed route, or the relay is forced) is joined again
+    /// at once, unless the peer is heard on another path first.
+    fn drop_relay(&mut self, why: &str, voluntary: bool) {
         let Some(relay) = self.relay.take() else { return };
         tracing::info!(why, "WireGuard leaves cmux's relay");
         let rode = self.direct.is_none_or(|route| route.carrier == Carrier::Relay) || !self.confirmed;
-        if relay.is_dead() && (rode || self.options.force_relay) {
+        if voluntary {
+            self.relay_shared.left();
+        } else if relay.is_dead() && (rode || self.options.force_relay) {
             self.relay_shared.lost();
         } else {
             self.relay_shared.set_held(false);
@@ -1296,7 +1299,7 @@ impl HybridUnderlay {
     fn maybe_leave_relay(&mut self) {
         let Some(relay) = &self.relay else { return };
         if relay.is_dead() {
-            self.drop_relay("the relay socket died");
+            self.drop_relay("the relay socket died", false);
             return;
         }
         if self.options.force_relay || self.relay_shared.sticky() {
@@ -1310,7 +1313,7 @@ impl HybridUnderlay {
         }
         let since = *self.relay_elsewhere_since.get_or_insert(now);
         if now.duration_since(since) > self.options.relay_leave_after.unwrap_or(RELAY_LEAVE_AFTER) {
-            self.drop_relay("another route carries what this side sends");
+            self.drop_relay("another route carries what this side sends", true);
         }
     }
 
@@ -1726,6 +1729,9 @@ impl HybridUnderlay {
         }
         self.path.send_if_modified(|current| std::mem::replace(current, path) != path);
         self.relay_shared.set_on_relay(path == LinkPath::HttpsRelay || path == LinkPath::NoPath);
+        self.relay_shared.set_confirmed_elsewhere(
+            self.confirmed && self.direct.is_some_and(|route| route.carrier != Carrier::Relay),
+        );
         let peer = self.direct.filter(|_| path == LinkPath::Direct).map(|route| route.addr.ip());
         self.peer.send_if_modified(|current| std::mem::replace(current, peer) != peer);
     }
@@ -2051,7 +2057,7 @@ impl Underlay for HybridUnderlay {
                 }
                 // The socket is gone: its route with it.
                 Poll::Ready(None) => {
-                    self.drop_relay("the relay socket closed");
+                    self.drop_relay("the relay socket closed", false);
                     break;
                 }
                 Poll::Pending => break,
@@ -2451,7 +2457,7 @@ impl Dialer for WireGuardDialer {
             let webrtc_media_agreed;
             let liveness_agreed;
             // This side's relay ticket comes stamped on the Mac's answer (`relayTicket`).
-            let mut relay_ticket = None;
+            let relay_ticket;
             let (peer_key, peer_endpoints, peer_ip, peer_relayed, peer_relayed_tls, peer_version, peer_relay) = loop {
                 match events.next().await? {
                     SessionEvent::Signal(envelope) => match envelope.payload {
