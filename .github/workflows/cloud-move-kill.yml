@@ -38,7 +38,7 @@ jobs:
   build:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat-cmux-next' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
-    timeout-minutes: 40
+    timeout-minutes: 60  # a cold-cache runner took 40+ min in run 45449534340
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
