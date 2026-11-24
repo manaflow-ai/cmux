@@ -678,7 +678,9 @@ struct CmuxRemoteSharingSetupTests {
             let fixture = Fixture(permissions: (true, true), answers: [])
             var setup = fixture.setup()
             setup.forgetDecline = consent.forgetDecline
-            #expect(try await setup.proceed(after: "continue", remembersYes: false, present: fixture.present))
+            // Outside #expect: the macro inside this closure cannot see that the closure throws.
+            let shared = try await setup.proceed(after: "continue", remembersYes: false, present: fixture.present)
+            #expect(shared)
             #expect(defaults.object(forKey: CmuxRemoteShareConsent.declinedKey) == nil)
         }
     }
