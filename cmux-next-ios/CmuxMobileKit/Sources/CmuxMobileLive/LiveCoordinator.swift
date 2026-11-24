@@ -513,6 +513,9 @@ public final class LiveCoordinator {
             guard let saved = snapshot.workspaces[mac.id] else { continue }
             workspaces += saved.workspaces
             total += saved.total
+            // Rows already in the Feed at launch whose tab closed before the app last saw the Mac
+            // go before it answers (the Mac's own tree then judges every row).
+            feedStore.setOpenTabs(FeedOpenTabs(workspaces: saved.workspaces, complete: false), macID: mac.id)
             store.handleMacData(.restored(count: saved.total, savedAt: saved.savedAt), macID: mac.id)
         }
         store.workspaces = workspaces
@@ -554,6 +557,7 @@ public final class LiveCoordinator {
             snapshot?.workspaces[macID] = list
             guard store.macData[macID]?.source == .cache(savedAt: list.savedAt) else { continue }
             store.replaceWorkspaces(macID: macID, with: list.workspaces)
+            feedStore.setOpenTabs(FeedOpenTabs(workspaces: list.workspaces, complete: false), macID: macID)
             if list.total != current.total { store.handleMacData(.restored(count: list.total, savedAt: list.savedAt), macID: macID) }
             added += list.workspaces.count - current.workspaces.count
         }
@@ -764,6 +768,7 @@ public final class LiveCoordinator {
         parkedTerminals[id] = nil
         // Its tab cards go too: a Mac added again under this id starts from a whole manifest.
         tabs.forget(macID: id)
+        feedStore.forgetOpenTabs(macID: id)
         // Its banner, pairing prompt and Chief go with it (retarget may focus another Mac).
         if focusedMacID == id { setFocus(nil) }
         lastShown[id] = nil
