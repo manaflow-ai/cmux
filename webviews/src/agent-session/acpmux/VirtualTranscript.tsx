@@ -4129,6 +4129,23 @@ function TranscriptView({
     heldIndices.length === 0
       ? scrolledRanges
       : mergeRowRanges([...scrolledRanges, ...heldIndices.map((index) => ({ first: index, last: index + 1 }))]);
+  {
+    const n = mountedRanges.reduce((sum, r) => sum + r.last - r.first, 0);
+    if (n > 150)
+      ((globalThis as any).__frames ??= []).push(
+        `DBG mounted=${n} rows=${rows.length} h=${height} shownTop=${Math.round(shownTop)} total=${Math.round(layout.totalHeight)} view=${view.first}-${view.last} range=${range.first}-${range.last} ahead=${JSON.stringify(ahead)} warm=${warm.first}-${warm.last} warmTop=${Math.round(warmTop)} history=${history ? history.first + "-" + history.last : "-"} delta=${Math.round(renderScroll.delta)} follow=${renderFollowing} defer=${deferHistory} zero=${(() => {
+          let z = 0;
+          for (let i = view.first; i < view.last; i += 1) if (!(layoutGeometry(layout).heightAt(i) > 1)) z += 1;
+          return z;
+        })()} sample=${rows
+          .slice(view.first, view.first + 4)
+          .map((r, i) => `${(r as any).kind}:${(r as any).id}:${layoutGeometry(layout).heightAt(view.first + i).toFixed(1)}@${Math.round(layoutGeometry(layout).topAt(view.first + i))}`)
+          .join(",")} mid=${rows
+          .slice(view.first + 200, view.first + 203)
+          .map((r, i) => `${(r as any).kind}:${(r as any).id}:${layoutGeometry(layout).heightAt(view.first + 200 + i).toFixed(1)}@${Math.round(layoutGeometry(layout).topAt(view.first + 200 + i))}`)
+          .join(",")}`,
+      );
+  }
   // A viewport either side of the view is never bare spacer: a row there that is not mounted in full
   // is a stand-in at its placed box (conversation/standIns.ts). Not while a drag flows the rows (they
   // leave their placed tops) nor as another chat loads.
