@@ -137,6 +137,19 @@ const KEEP: &[&str] = &[
     "NETCOND_BW_TURNS",
     "NETCOND_BW_SECS",
     "NETCOND_BW_APPS",
+    "NETCOND_AWAY",
+    "NETCOND_LOADS",
+    "NETCOND_CHAT_MAX_TURNS",
+    "NETCOND_DEBUG",
+    // published_bench.
+    "PUBLISHED_BENCH_SAMPLES",
+    "PUBLISHED_BENCH_FORK_TURNS",
+    "PUBLISHED_BENCH_SOAK_SECS",
+    "PUBLISHED_BENCH_SOAK_LOAD",
+    "PUBLISHED_BENCH_SOAK_PROBE_SECS",
+    "PUBLISHED_BENCH_SOAK_WINDOW_SECS",
+    "PUBLISHED_BENCH_SOAK_TICKED",
+    "PUBLISHED_BENCH_SOAK_CALIBRATE_SECS",
     // peer_cold_connect_bench.
     "COLD_RTT_MS",
     "COLD_RUNS",
@@ -441,6 +454,8 @@ mod one_command;
 mod opencode_policy;
 #[path = "opencode_task_subagents.rs"]
 mod opencode_task_subagents;
+#[path = "published_bench.rs"]
+mod published_bench;
 #[path = "pairing.rs"]
 mod pairing;
 #[path = "pairing_join_stdin.rs"]
@@ -641,6 +656,8 @@ mod subsessions_live;
 mod suggestion_gate_per_person;
 #[path = "supervisor_faults.rs"]
 mod supervisor_faults;
+#[path = "surgery.rs"]
+mod surgery;
 #[path = "tailnet_embedded_logout.rs"]
 mod tailnet_embedded_logout;
 #[path = "tools_mcp.rs"]
