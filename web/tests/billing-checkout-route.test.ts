@@ -121,6 +121,9 @@ mock.module("../db/client", () => ({
       : realCloudDb(),
 }));
 
+const nextPlanSwitchPortalSession = mock(async (_input: unknown): Promise<{ url: string | null }> => ({ url: "https://billing.stripe.com/p/session/next_switch" }));
+mock.module("../services/billing/nextPlanSwitch", () => ({ nextPlanSwitchPortalSession }));
+
 mock.module("../services/billing/stripe", () => ({
   NextPlanUnavailableError,
   resolveNextPlanPrice,
@@ -788,6 +791,28 @@ describe("billing checkout route", () => {
     expect(same.headers.get("location")).toBe("https://cmux.test/dashboard/billing?welcome=active");
     const upgrade = await GET(new NextRequest("https://cmux.test/api/billing/checkout?plan=next_pro"));
     expect(new URL(upgrade.headers.get("location")!).pathname).toBe("/api/billing/portal");
+    expect(createStripeSession).not.toHaveBeenCalled();
+  });
+
+  test("a NEXT Plus subscriber upgrades on the same subscription in the portal's plan switch", async () => {
+    stripeConfigured = true;
+    process.env.STRIPE_PRICE_NEXT_PLUS_MONTHLY = "price_configured_plus";
+    process.env.STRIPE_PRICE_NEXT_PRO_MONTHLY = "price_configured_pro";
+    nextPlanSwitchPortalSession.mockClear();
+    nextPlanSwitchPortalSession.mockImplementation(async () => ({ url: "https://billing.stripe.com/p/session/next_switch" }));
+    stripeActiveSubscriptionRows = [{ plan: "next_plus", id: "sub_plus", customerId: "cus_plus" }];
+    userResponses = [{ ...signedInUser, clientReadOnlyMetadata: {} }];
+    const upgrade = await GET(new NextRequest("https://cmux.test/api/billing/checkout?plan=next_pro"));
+    expect(upgrade.headers.get("location")).toBe("https://billing.stripe.com/p/session/next_switch");
+    expect(nextPlanSwitchPortalSession).toHaveBeenCalledWith({ customerId: "cus_plus", subscriptionId: "sub_plus", origin: "https://cmux.test" });
+    expect(createStripeSession).not.toHaveBeenCalled();
+    // A switch the portal cannot open falls back to the plain portal, never a second subscription.
+    nextPlanSwitchPortalSession.mockImplementation(async () => {
+      throw new Error("portal unavailable");
+    });
+    userResponses = [{ ...signedInUser, clientReadOnlyMetadata: {} }];
+    const fallback = await GET(new NextRequest("https://cmux.test/api/billing/checkout?plan=next_pro"));
+    expect(new URL(fallback.headers.get("location")!).pathname).toBe("/api/billing/portal");
     expect(createStripeSession).not.toHaveBeenCalled();
   });
 
