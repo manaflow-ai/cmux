@@ -1602,14 +1602,16 @@ class Wiring(unittest.TestCase):
         fasts = (("skipped", ""), ("failure", ""), ("success", ""), ("success", "unavailable"),
                  ("failure", "unavailable"))
         placed = ({}, {"runner": ""}, {"large": " release-compile "}, {"small": " release-compile "}, {"retry": SMALL})
+        # Read once: runs_on_of and env_of re-resolve the job's expressions (20-100 ms), and the sweep below makes
+        # 7,500 cases; read per case it ran past 30 minutes.
+        runs_on, runner_env = runs_on_of(job), env_of(job)["CMUX_NEXT_RUNNER"]
         for event, config, ready, (attempt, actor), fast, outputs in itertools.product(
                 self.EVENTS, self.CONFIGS, ("true", ""), attempts, fasts, placed):
             context = self.nightly_push(ready, attempt, fast, event, actor, config, **outputs)
-            label = evaluate(runs_on_of(job), context)
+            label = evaluate(runs_on, context)
             if config == "owned" and attempt in ("1", "2"):
                 seen[event].add(tuple(label) if isinstance(label, list) else label)
-            for name, value in (("runs-on", label), ("CMUX_NEXT_RUNNER", evaluate(env_of(job)["CMUX_NEXT_RUNNER"],
-                                                                                   context))):
+            for name, value in (("runs-on", label), ("CMUX_NEXT_RUNNER", evaluate(runner_env, context))):
                 if not self.off_the_nightly_runner(value):
                     failures.append(f"{name}={value!r}: {event} {config} ready={ready!r} attempt={attempt} {actor} "
                                     f"fast={fast} outputs={outputs}")
