@@ -1,13 +1,14 @@
 /// <reference types="bun" />
-import { chromium } from "playwright";
+import { chromium, webkit } from "playwright";
 import { gotoBenchPage, serveBenchPage } from "./support/benchPage";
 const served = await serveBenchPage("/test/browser/transcript-fling.html");
-const browser = await chromium.launch({ headless: true });
+const browser = await (process.env.WK ? webkit : chromium).launch({ headless: true });
 try {
   const page = await browser.newPage({ viewport: { width: 900, height: 900 } });
   await gotoBenchPage(page, served);
   await page.waitForFunction(() => "__debug" in window);
   await page.evaluate(`window.__debug.seedRows(3000)`);
+  await page.evaluate("window.__QUICK = 1");
   const out = await page.evaluate(async () => {
     const sc = document.querySelector<HTMLElement>(".acpmux-scroll")!;
     sc.scrollTop = sc.scrollHeight / 2;
@@ -28,11 +29,37 @@ try {
     const sheets = [...document.styleSheets];
     // drop the duplicate copy of the big sheet
     const bigs = sheets.filter((s) => s.cssRules.length > 1000);
-    bigs[1].disabled = true;
+    if (bigs[1]) bigs[1].disabled = true;
     const big = bigs[0];
     const base = med(time);
     const texts = [...big.cssRules].map((r) => r.cssText);
-    const res: any = { base, rules: texts.length };
+    const res: any = { base, rules: texts.length, nodes: rows.reduce((a, r) => a + 1 + r.querySelectorAll('*').length, 0), rows: rows.length };
+    res.noBig = (() => { big.disabled = true; const t = med(time); big.disabled = false; return t; })();
+    res.noSheets = (() => { for (const s of sheets) s.disabled = true; const t = med(time); for (const s of sheets) s.disabled = false; if (bigs[1]) bigs[1].disabled = true; return t; })();
+    const walk = (rules: CSSRuleList, f: (r: CSSStyleRule) => void) => { for (const r of rules) { if (r instanceof CSSStyleRule) f(r); if ((r as any).cssRules) walk((r as any).cssRules, f); } };
+    let decl = 0, varUses = 0, rootDecl = 0;
+    for (const sh of sheets) if (!sh.disabled) walk(sh.cssRules, (r) => { for (let i = 0; i < r.style.length; i++) { const n = r.style[i]; if (n.startsWith("--")) { decl++; if (/:root|^html/.test(r.selectorText)) rootDecl++; } if (r.style.getPropertyValue(n).includes("var(")) varUses++; } });
+    Object.assign(res, { decl, rootDecl, varUses });
+    // strip non-root custom property declarations
+    const saved: [CSSStyleRule, string][] = [];
+    for (const sh of sheets) if (!sh.disabled) walk(sh.cssRules, (r) => { if (/:root|^html/.test(r.selectorText)) return; const names = [...Array(r.style.length).keys()].map((i) => r.style[i]).filter((n) => n.startsWith("--")); if (names.length) { saved.push([r, r.style.cssText]); for (const n of names) r.style.removeProperty(n); } });
+    res.noNonRootVars = med(time); res.strippedRules = saved.length;
+    for (const [r, t] of saved) r.style.cssText = t;
+    // replace var() uses on non-custom properties with 'initial'-ish: remove them
+    const saved2: [CSSStyleRule, string][] = [];
+    for (const sh of sheets) if (!sh.disabled) walk(sh.cssRules, (r) => { const names = [...Array(r.style.length).keys()].map((i) => r.style[i]).filter((n) => !n.startsWith("--") && r.style.getPropertyValue(n).includes("var(")); if (names.length) { saved2.push([r, r.style.cssText]); for (const n of names) r.style.removeProperty(n); } });
+    res.noVarUses = med(time);
+    for (const [r, t] of saved2) r.style.cssText = t;
+    res.base2 = med(time);
+    const drop = (re: RegExp) => { const gone: [CSSStyleSheet | CSSGroupingRule, number, string][] = []; const rec = (owner: any) => { for (let i = owner.cssRules.length - 1; i >= 0; i--) { const r = owner.cssRules[i]; if (r instanceof CSSStyleRule && re.test(r.selectorText)) { gone.push([owner, i, r.cssText]); owner.deleteRule(i); } else if (r.cssRules) rec(r); } }; for (const sh of sheets) if (!sh.disabled) rec(sh); const t = med(time); for (const [o, i, txt] of gone.reverse()) o.insertRule(txt, i); return [t, gone.length]; };
+    res.base3 = med(time);
+    res.noHighlightSel = drop(/::(highlight|selection)/);
+    res.noHas = drop(/:has\(/);
+    res.noIsWhereNot = drop(/:(is|where|not)\(/);
+    res.noRootPrefix = drop(/^:root|^html/);
+    res.noHover = drop(/:hover|:focus/);
+    res.base4 = med(time);
+    if ((window as any).__QUICK) return res;
     const N = 48;
     const size = Math.ceil(texts.length / N);
     const per: any[] = [];

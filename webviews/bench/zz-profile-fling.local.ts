@@ -11,6 +11,7 @@ try {
   await page.waitForFunction(() => "__debug" in window);
   await page.evaluate(`window.__debug.seedRows(${Number(process.argv[2] ?? 3000)})`);
   await page.locator(".acpmux-scroll").hover();
+  if (process.env.MINIMAP === "0") await page.evaluate(() => (window as any).__minimap(false));
   const fl = () => page.evaluate(async () => {
     const d = (window as any).__debug;
     await d.startFling(3, { wait: true, nominal_ms: 1000 / 120 });
@@ -19,7 +20,7 @@ try {
   });
   await fl();
   if (process.env.TRACE) {
-    await browser.startTracing(page, { path: "/tmp/tsprof/trace.json", categories: ["devtools.timeline", "disabled-by-default-devtools.timeline", "blink.user_timing", "disabled-by-default-blink.debug"] });
+    await browser.startTracing(page, { path: process.env.TRACE_OUT ?? "/tmp/tsprof/trace.json", categories: ["devtools.timeline", "disabled-by-default-devtools.timeline", "blink.user_timing", "disabled-by-default-devtools.timeline.invalidationTracking", ...(process.env.SELSTATS ? ["disabled-by-default-blink.debug"] : [])] });
     console.log(JSON.stringify(await fl()));
     await browser.stopTracing();
     process.exit(0);
