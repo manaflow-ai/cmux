@@ -1541,7 +1541,8 @@ pub enum SessionCmd {
         last: u64,
         #[arg(long, short)]
         follow: bool,
-        /// Start after this cursor (`<sessionId>:<seq>` or a seq). A cursor past the log is an error.
+        /// Start after a cursor (`<sessionId>:<seq>` or a seq), or use `seen` for the reader's cutover.
+        /// A chat the reader has never focused has no recap.
         #[arg(long)]
         since: Option<String>,
     },

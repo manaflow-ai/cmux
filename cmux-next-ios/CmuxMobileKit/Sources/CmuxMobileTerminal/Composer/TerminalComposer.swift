@@ -44,6 +44,20 @@ struct TerminalComposer: View {
                     .foregroundStyle(.orange)
                     .padding(.leading, TerminalDockMetrics.control + 8)
                     .accessibilityIdentifier("terminal.composer.notSent")
+            } else if model.heldKeyBytes > 0 {
+                // Keys typed before the attach go into whatever the terminal shows after it:
+                // the not-sent row's place says they are pending, with Discard. Gone at the
+                // attach, or when they are dropped (the not-sent notice then).
+                HStack(spacing: 8) {
+                    Label(TerminalConnectionState.inputHeldNotice, systemImage: "clock.arrow.circlepath")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Button("Discard") { model.discardHeldKeys() }
+                        .font(.footnote.weight(.semibold))
+                        .accessibilityIdentifier("terminal.composer.heldKeys.discard")
+                }
+                .padding(.leading, TerminalDockMetrics.control + 8)
+                .accessibilityIdentifier("terminal.composer.heldKeys")
             }
             // No connection line here: a reattach takes no row (Leo,
             // 2026-11-17: "The reconnect takes an extra line"). The state is
