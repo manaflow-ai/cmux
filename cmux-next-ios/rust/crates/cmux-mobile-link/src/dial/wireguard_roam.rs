@@ -58,6 +58,7 @@ pub(super) enum Control {
         stun: Vec<SocketAddr>,
         reflexive: mpsc::UnboundedSender<SocketAddr>,
         timeline: Timeline,
+        new_hop_port: oneshot::Sender<SocketAddr>,
     },
     /// Ask `stun` for the current socket's reflexive address and send what
     /// they answer to `reflexive` (an answer that went out with its host
@@ -69,6 +70,7 @@ pub(super) enum Control {
     /// A TURN allocation on the new network (or replacing a dead one).
     Turn(TurnCarrier),
     Hop(HopCarrier),
+    HopRebound(SocketAddr),
     /// The peer announced new endpoints.
     PeerEndpoints {
         endpoints: Vec<String>,
@@ -665,7 +667,14 @@ impl Session {
         let stun = self.stun_servers().await;
         let asked = stun.len();
         let (reflexive_tx, mut reflexive_rx) = mpsc::unbounded_channel();
-        let rebind = Control::Rebind { socket, stun, reflexive: reflexive_tx, timeline: timeline.clone() };
+        let (new_hop_port, hop_port) = oneshot::channel();
+        let rebind = Control::Rebind {
+            socket,
+            stun,
+            reflexive: reflexive_tx,
+            timeline: timeline.clone(),
+            new_hop_port,
+        };
         if self.control.send(rebind).is_err() {
             return timeline;
         }
@@ -696,7 +705,19 @@ impl Session {
             }
             found
         };
-        let (mut turn, reflexive) = tokio::join!(turn, reflexive);
+        let hop = async {
+            let Ok(addr) = hop_port.await else { return };
+            let old = lock(&self.own_hop).replace(addr);
+            let _ = self.control.send(Control::HopRebound(addr));
+            let mut endpoints = lock(&self.endpoints).clone();
+            if let Some(old) = old {
+                endpoints.retain(|s| s != &old.to_string());
+            }
+            let (relayed, tls) = lock(&self.relayed).clone();
+            self.announce(endpoints, relayed, tls);
+            let _ = net.refresh().await;
+        };
+        let (mut turn, reflexive, ()) = tokio::join!(turn, reflexive, hop);
         if turn.is_none() && !keeps_turn && asked > 0 && reflexive.is_empty() {
             // A Mac roamed onto a network that answers no STUN (it drops
             // UDP): from now on it keeps a TURN allocation, and keeps asking

@@ -8,7 +8,7 @@ use std::net::{SocketAddr, UdpSocket as StdUdp};
 use std::sync::{Arc, Mutex, PoisonError, Weak};
 use std::time::{Duration, Instant};
 use tokio::net::UdpSocket;
-use tokio::sync::{Notify, mpsc, watch};
+use tokio::sync::{Notify, mpsc, oneshot};
 
 const ALLOCATION_TIMEOUT: Duration = Duration::from_secs(3);
 const BIND_RETRY: Duration = Duration::from_millis(250);
@@ -58,7 +58,7 @@ impl HopSender {
         let shared = self.0.upgrade()?;
         let s = shared.leg.lock().unwrap_or_else(PoisonError::into_inner).stats();
         Some(HopStats {
-            srtt_ms: s.srtt.as_millis().min(u64::MAX as u128) as u64,
+            srtt_ms: u64::try_from(s.srtt.as_millis()).unwrap_or(u64::MAX),
             loss_permille: s.loss_permille,
             resent: s.resent,
             repaired: s.repaired_by_nack.saturating_add(s.repaired_by_fec),
@@ -70,7 +70,7 @@ pub(super) struct HopCarrier {
     pub(super) relayed: SocketAddr,
     pub(super) sender: HopSender,
     pub(super) inbound: mpsc::Receiver<Vec<u8>>,
-    roam: watch::Sender<()>,
+    roam: mpsc::UnboundedSender<oneshot::Sender<SocketAddr>>,
     driver: tokio::task::JoinHandle<()>,
 }
 
@@ -145,6 +145,12 @@ pub(super) async fn allocate(options: &DialOptions) -> Option<HopCarrier> {
     .flatten()
 }
 
+fn fresh_leg() -> Leg {
+    let mut seed = [0; 4];
+    getrandom::fill(&mut seed).expect("operating system randomness");
+    Leg::new(LegConfig::default(), u32::from_ne_bytes(seed), Instant::now())
+}
+
 impl HopCarrier {
     pub(super) fn peer(addr: SocketAddr) -> io::Result<Self> {
         Ok(Self::start(connected(addr)?, addr, addr, None))
@@ -156,17 +162,13 @@ impl HopCarrier {
         relayed: SocketAddr,
         bind_request: Option<Vec<u8>>,
     ) -> Self {
-        let mut seed = [0; 4];
-        getrandom::fill(&mut seed).expect("operating system randomness");
-        let shared = Arc::new(Shared {
-            leg: Mutex::new(Leg::new(LegConfig::default(), u32::from_ne_bytes(seed), Instant::now())),
-            wake: Notify::new(),
-        });
+        let shared = Arc::new(Shared { leg: Mutex::new(fresh_leg()), wake: Notify::new() });
         let sender = HopSender(Arc::downgrade(&shared));
         let (tx, inbound) = mpsc::channel(256);
-        let (roam, mut changed) = watch::channel(());
+        let (roam, mut changed) = mpsc::unbounded_channel::<oneshot::Sender<SocketAddr>>();
         let driver = tokio::spawn(async move {
             let mut socket = socket;
+            let mut allocation = relayed;
             let mut buf = vec![0; 65_536];
             loop {
                 // Bound work per turn so input and roam can also run on a busy leg.
@@ -186,12 +188,19 @@ impl HopCarrier {
                         if let Some(at) = deadline { tokio::time::sleep_until(at.into()).await }
                         else { std::future::pending().await }
                     } => {}
-                    change = changed.changed() => {
-                        if change.is_err() { break; }
+                    change = changed.recv() => {
+                        let Some(new_port) = change else { break };
                         let Ok(fresh) = connected(addr) else { continue };
                         if let Some(request) = &bind_request {
                             let reply = tokio::time::timeout(ALLOCATION_TIMEOUT, bind(&fresh, request)).await;
-                            if !matches!(reply, Ok(Ok(address)) if address == relayed) { continue }
+                            let Ok(Ok(address)) = reply else { continue };
+                            if address != allocation {
+                                // The old allocation aged out while the phone slept.
+                                // A fresh relay also has a fresh peer sequence space.
+                                *shared.leg.lock().unwrap_or_else(PoisonError::into_inner) = fresh_leg();
+                                allocation = address;
+                                let _ = new_port.send(address);
+                            }
                         }
                         socket = fresh;
                     }
@@ -208,8 +217,8 @@ impl HopCarrier {
         Self { relayed, sender, inbound, roam, driver }
     }
 
-    pub(super) fn rebind(&self) {
-        self.roam.send_replace(());
+    pub(super) fn rebind(&self, new_port: oneshot::Sender<SocketAddr>) {
+        let _ = self.roam.send(new_port);
     }
 }
 
@@ -259,7 +268,8 @@ mod tests {
         assert_eq!(source, first);
         let HopMsg::Data { seq, records } = before else { unreachable!() };
         assert_eq!(records, vec![Record::new(HopClass::Input, data.clone())]);
-        carrier.rebind();
+        let (changed, reply_port) = oneshot::channel();
+        carrier.rebind(changed);
         let (again, second) = next(&server, TYPE_BIND).await;
         assert_eq!(again, request);
         assert_ne!(first, second);
@@ -269,6 +279,7 @@ mod tests {
         let (after, source) = next(&server, TYPE_DATA).await;
         assert_eq!(source, second);
         let HopMsg::Data { seq: next_seq, records } = after else { unreachable!() };
+        assert!(reply_port.await.is_err(), "a live allocation keeps its port");
         assert_eq!(next_seq, seq.wrapping_add(1));
         assert_eq!(
             records,
@@ -278,5 +289,12 @@ mod tests {
                 bytes: data
             }]
         );
+        let (changed, reply_port) = oneshot::channel();
+        carrier.rebind(changed);
+        let (_, third) = next(&server, TYPE_BIND).await;
+        let replacement: SocketAddr = "127.0.0.1:52321".parse().unwrap();
+        let fresh = HopMsg::BindOk { addr: replacement, lifetime_s: 60 }.encode().unwrap();
+        server.send_to(&fresh, third).await.unwrap();
+        assert_eq!(reply_port.await.unwrap(), replacement);
     }
 }

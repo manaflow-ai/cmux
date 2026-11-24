@@ -1138,7 +1138,7 @@ impl HybridUnderlay {
     fn apply_one(&mut self, control: Control) {
         let now = Instant::now();
         match control {
-            Control::Rebind { socket, stun, reflexive, timeline } => {
+            Control::Rebind { socket, stun, reflexive, timeline, new_hop_port } => {
                 tracing::debug!(local = ?socket.local_addr().ok(), "WireGuard roams onto a new socket");
                 // The old route's address stays a candidate (a peer-reflexive
                 // one may be in no announcement).
@@ -1150,7 +1150,7 @@ impl HybridUnderlay {
                     self.candidates.push(route.addr);
                 }
                 if let Some(hop) = &self.hop {
-                    hop.rebind();
+                    hop.rebind(new_hop_port);
                 }
                 self.socket = socket;
                 self.blackhole = false;
@@ -1214,6 +1214,12 @@ impl HybridUnderlay {
                 }
             }
             Control::Hop(hop) => self.install_hop(Some(hop)),
+            Control::HopRebound(addr) => {
+                if let Some(mut hop) = self.hop.take() {
+                    hop.relayed = addr;
+                    self.install_hop(Some(hop));
+                }
+            }
             Control::PeerEndpoints { endpoints, relayed, relayed_tls, hop } => {
                 if !endpoints.is_empty() {
                     self.set_peer_hop(hop.as_deref(), &relayed, &endpoints);
