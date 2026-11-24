@@ -168,7 +168,7 @@ struct DogfoodReadiness {
     /// (their names); `focus` the coordinator's focused Mac.
     func body(nonce: String, apiBase: URL, email: String, userID: String, macs: [LiveAPI.Mac],
               focus: Focus?, phoneDeviceIDs: [String] = [], now: Date) -> Body {
-        let paired = focus.map { focus in
+        let paired = focus.map { focus -> [PairedMac] in
             let linked = focus.paired && focus.connected
             let route = linked ? focus.route : nil
             return [PairedMac(id: focus.id, name: macs.first { $0.deviceId == focus.id }?.name ?? "", linked: linked,
