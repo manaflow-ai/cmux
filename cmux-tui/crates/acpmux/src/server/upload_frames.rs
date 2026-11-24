@@ -216,19 +216,27 @@ async fn write(
     if !peer.supports_file_put_chunks() {
         return Err(file_uploads::peer_unsupported(&peer));
     }
+    // A window of the frame's chunks in flight to a peer that takes them (`window.rs`).
     use base64::Engine;
+    let mut base = json!({"sessionId": id, "uploadId": upload});
+    super::remote_guard::mark_forwarded(origin, auth, params, &mut base);
+    let mut pieces = data.chunks(CHUNK_BYTES);
     let mut at = offset;
-    for piece in data.chunks(CHUNK_BYTES) {
-        let mut p = json!({"sessionId": id, "uploadId": upload, "offset": at,
-            "data": base64::engine::general_purpose::STANDARD.encode(piece)});
-        super::remote_guard::mark_forwarded(origin, auth, params, &mut p);
-        let answer = peer.request(method::MUX_FILE_PUT_CHUNK, p).await?;
-        at = answer
-            .get("offset")
-            .and_then(Value::as_u64)
-            .ok_or_else(|| RpcError::internal(format!("peer {} gave no offset", peer.name)))?;
-    }
-    Ok(json!({"offset": at}))
+    let next = || {
+        Ok(pieces.next().map(|piece| {
+            let p = file_uploads::window::Piece {
+                offset: at,
+                len: piece.len(),
+                data: base64::engine::general_purpose::STANDARD.encode(piece),
+            };
+            at += piece.len() as u64;
+            p
+        }))
+    };
+    let send = |m: &'static str, p: Value| peer.request(m, p);
+    file_uploads::window::send(send, &base, file_uploads::window::for_peer(&peer), next, None)
+        .await?;
+    Ok(json!({"offset": offset + data.len() as u64}))
 }
 
 /// One frame as a sender makes it.
