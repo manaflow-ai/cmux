@@ -69,7 +69,9 @@ final class GlassMenuListView: NSView {
         layout.trailingGap = MenuMetrics.shortcutGap
         layout.minHeight = rowHeight
         layout.hoverFills = false
-        layout.highlightRadius = look.highlightRadius
+        // The pill is concentric with the panel (``GlassMenuMaterial/menuCornerRadius``) unless a
+        // theme file's menu look sets it (`appearance.menu.highlightRadius`).
+        layout.fillRadius = look.highlightRadius ?? GlassMenuMaterial.cornerRadius
         if let stepper = item as? GlassMenuStepperItem {
             let row = GlassMenuStepperRowView(stepper, leading: iconColumn ? icon(item.image) : nil, layout: layout)
             row.onNewValue = { [weak self, weak row] value in
@@ -95,7 +97,9 @@ final class GlassMenuListView: NSView {
         let view = ThemedImageView()
         view.image = image?.fittedToMenuIconBox()
         view.imageScaling = .scaleProportionallyDown
-        if image?.isTemplate ?? true { view.ink = .primary }
+        // A symbol in the secondary ink, as the Codex menu's light icons: the text leads the row. The glass's veil
+        // holds that ink at 3:1 or more in every theme (``GlassMenuMaterial/veil(for:)``). An avatar keeps its colors.
+        if image?.isTemplate ?? true { view.ink = .secondary }
         NSLayoutConstraint.activate([
             view.widthAnchor.constraint(equalToConstant: MenuMetrics.iconSize),
             view.heightAnchor.constraint(equalToConstant: MenuMetrics.iconSize),

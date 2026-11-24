@@ -22,7 +22,6 @@ extension BrowserToolbarButtonsView {
         guard parts.count == 3 else { return nil }
         let row = GlassMenuStepperItem(title: BrowserToolbarButton.zoomRowTitle, decrement: parts[0], increment: parts[1],
                                        reset: parts[2]) { [weak self] in "\(BrowserZoom.percent(self?.tab?.state.zoom ?? 1))%" }
-        row.image = NSImage.menuSymbol("magnifyingglass")
         row.identifier = NSUserInterfaceItemIdentifier("cmux.browser.more.zoom")
         return row
     }

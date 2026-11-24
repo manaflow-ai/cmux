@@ -25,13 +25,14 @@ open class PopupRowView: NSView {
         public var minHeight: CGFloat = PopupStyle.standard.rowHeight
         /// The highlight's inset from the row's bounds.
         public var fillInset = NSSize.zero
+        /// The highlight's corner radius; nil for the popup row radius (``PopupStyle/rowCornerRadius``).
+        /// A ``GlassMenu`` sets its own, concentric with its panel, or the theme file's
+        /// `appearance.menu.highlightRadius` (``MenuLook``).
+        public var fillRadius: CGFloat?
         /// The pointer over the row draws the highlight. Off when the owner drives the one
         /// highlight itself (a menu that the keyboard and the pointer share): ``onHover`` reports
         /// the pointer.
         public var hoverFills = true
-        /// The highlight's corner; nil: the popup row radius (``PopupStyle/rowCornerRadius``). A theme
-        /// file's menu look sets it (`appearance.menu.highlightRadius`, ``MenuLook``).
-        public var highlightRadius: CGFloat?
 
         public init() {}
     }
@@ -172,7 +173,7 @@ open class PopupRowView: NSView {
     open override func draw(_ dirtyRect: NSRect) {
         let pressed = isPressed && isEnabled && isInteractive
         guard pressed || drawsHighlight else { return }
-        let radius = rowLayout.highlightRadius ?? PopupStyle.standard.rowCornerRadius
+        let radius = rowLayout.fillRadius ?? PopupStyle.standard.rowCornerRadius
         let rect = bounds.insetBy(dx: rowLayout.fillInset.width, dy: rowLayout.fillInset.height)
         let path = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
         performWithTheme {
