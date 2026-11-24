@@ -295,8 +295,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return pane != nil
         }
         DebugTimings.markLaunch("dfl.home_history")
+        services.windows.layoutCache = launchReads.shell.layoutCache // the last run's layout, read before stage 0's commit
         services.windows.restoreWhenLoaded(); if services.windows.controllers.first?.window?.commitFirstFrameNow() == true { DebugTimings.markLaunch("first_window_flushed") } // CMUX-629: the frame now, not after the queued launch work
-        firstFrame.whenOpen { [weak services] in services?.windows.recordSaver.launchRecord.schedule() }
+        firstFrame.whenOpen { [weak services] in services?.windows.recordSaver.launchRecord.schedule(); services?.windows.recordSaver.layoutCache.note() }
         DebugTimings.markLaunch("dfl.windows")
         // After two quick unexpected ends in a row, Chromium starts only
         // when the user reloads a browser tab.
@@ -558,6 +559,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         cloudBootstrap?.cancel()
         cloudBootstrap = nil
         services?.crashRecovery.applicationWillTerminate()
+        services?.windows.recordSaver.layoutCache.flushNow() // what the quit's awaited flushes missed: one write, on this thread
         services?.crashReporting.reporter.stallSummary.close()  // the open hour's stall counts
         // The release push's socket closes and nothing reconnects (ReleasePushListener).
         services?.updater.stopReleasePush()
@@ -619,6 +621,7 @@ extension AppDelegate {
             async let files: Void = services.stateFilesDrained()
             await services.home.flushCacheForQuit()
             await services.windows.recordSaver.launchRecord.flush()
+            await services.windows.recordSaver.layoutCache.flush()
             await files
         }, armDeadline: armDeadline, deadlineEnd: services()?.quitDeadlineEnd(), end: end)
     }
