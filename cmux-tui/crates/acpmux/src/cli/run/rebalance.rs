@@ -47,9 +47,9 @@ fn append(line: &Value) {
 fn receipt_by_id(id: &str) -> Option<Value> {
     let text = std::fs::read_to_string(log_path()).ok()?;
     text.lines()
+        .rev()
         .filter_map(|l| serde_json::from_str::<Value>(l).ok())
-        .filter(|v| v.get("id").and_then(Value::as_str) == Some(id))
-        .last()
+        .find(|v| v.get("id").and_then(Value::as_str) == Some(id))
 }
 
 /// The local session list's rows, and whether the daemon lists `session-idle-facts-v1`.
