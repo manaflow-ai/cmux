@@ -662,6 +662,10 @@ impl Hub {
         if first_work.is_some() {
             let seam = self.first_work_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
             if let Some((arrived, release)) = seam {
+                // Queue admission is let go first: held, it alone would keep every other prompt
+                // out while this one waits, and `first_work_tests.rs` checks that the first
+                // work's own hold (`inbox.rs`) keeps notices and the delegator right without it.
+                admitted();
                 let _ = arrived.send(());
                 let _ = release.await;
             }

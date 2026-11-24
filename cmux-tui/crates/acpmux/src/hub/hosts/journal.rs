@@ -318,7 +318,7 @@ const TASK_STARTED: &str = "claude.system.task_started";
 /// the one before, and a turn start the foreground ones, as live.
 fn seed_step(tree: &mut SubagentTree, head: &RecordHead<'_>) {
     // Expiry ages each subagent from its logged stamp (`subagents::expiry`).
-    tree.set_clock(head.at);
+    tree.set_log_clock(head.at);
     if head.dir == "mux" {
         match head.kind {
             "host_started" | "stopped" | "exited" => tree.end_background(),
