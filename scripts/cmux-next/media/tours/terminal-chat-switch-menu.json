@@ -1,5 +1,5 @@
 {
-  "title": "Switch to Chat / Switch to Terminal in the ⋮ menus (user 2026-11-20): a terminal running a Claude Code session, its pane's ⋮, the chat it switches to, the chat's ⋮, and back; light then dark. Needs --whole-host for the menu shots",
+  "title": "Switch to Chat / Switch to Terminal in the tab's right-click and the chat's ⋮ (user 2026-11-20): a terminal running a Claude Code session, its tab's right-click, the chat it switches to, the chat's ⋮, and back; light then dark. Needs --whole-host for the menu shots",
   "harnessFixture": {
     "harnesses": {
       "claude": {
@@ -72,11 +72,11 @@
       "shot": false
     },
     {
-      "title": "Light: the terminal's ⋮ leads with Switch to Chat",
+      "title": "Light: the terminal tab's right-click leads with Switch to Chat",
       "rpc": {
         "method": "debug.object_menu",
         "params": {
-          "menu": "paneMore"
+          "menu": "tab"
         }
       },
       "wait": 2,
@@ -129,11 +129,11 @@
       "shot": false
     },
     {
-      "title": "Dark: the terminal's ⋮ leads with Switch to Chat",
+      "title": "Dark: the terminal tab's right-click leads with Switch to Chat",
       "rpc": {
         "method": "debug.object_menu",
         "params": {
-          "menu": "paneMore"
+          "menu": "tab"
         }
       },
       "wait": 2,
