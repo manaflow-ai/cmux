@@ -66,6 +66,7 @@ pub mod carrier_ticket;
 pub mod client;
 pub mod clone_mark;
 pub mod daemon_noise_key;
+pub mod gateway_paths;
 #[cfg(target_os = "linux")]
 pub mod gateway_token;
 pub mod github;
