@@ -52,28 +52,31 @@ pub fn ask(ask: &TokenAsk) -> Option<Result<Minted, Refused>> {
         return Some(Err(refused("github.invalid", e.message)));
     }
     let params = serde_json::to_value(&request).ok()?;
-    // Its own thread and runtime: the callers are sync, and one (GitHub MCP) runs on a blocking
-    // thread of a runtime, where another runtime cannot start.
-    let (tx, rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build();
-        let reply = match runtime {
-            Ok(runtime) => runtime.block_on(async move {
-                let client = crate::client::Client::connect(&socket).await?;
-                client.request(crate::rpc::method::MUX_GITHUB_ACTION, params).await
-            }),
-            Err(e) => Err(e.into()),
-        };
-        let _ = tx.send(reply);
+    // Its own (scoped) thread and runtime: the callers are sync, and one (GitHub MCP) runs on a
+    // blocking thread of a runtime, where another runtime cannot start. The timeout is inside, so
+    // the scope joins within WAIT.
+    let reply = std::thread::scope(|s| {
+        s.spawn(move || -> Option<anyhow::Result<Value>> {
+            let runtime = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+                Ok(runtime) => runtime,
+                Err(e) => return Some(Err(e.into())),
+            };
+            runtime.block_on(async move {
+                tokio::time::timeout(WAIT, async move {
+                    let client = crate::client::Client::connect(&socket).await?;
+                    client.request(crate::rpc::method::MUX_GITHUB_ACTION, params).await
+                })
+                .await
+                .ok()
+            })
+        })
+        .join()
     });
-    let reply = match rx.recv_timeout(WAIT) {
-        Ok(reply) => reply,
-        Err(_) => {
-            return Some(Err(refused(
-                "vm.agent_unreachable",
-                format!("this machine's acpmux did not answer within {}s", WAIT.as_secs()),
-            )));
-        }
+    let Ok(Some(reply)) = reply else {
+        return Some(Err(refused(
+            "vm.agent_unreachable",
+            format!("this machine's acpmux did not answer within {}s", WAIT.as_secs()),
+        )));
     };
     Some(match reply {
         Ok(v) => minted(&v),
