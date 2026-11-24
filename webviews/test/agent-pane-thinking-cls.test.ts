@@ -10,7 +10,7 @@
 // turn plays: the prompt, a thought streamed in deltas, the reply streamed after it, the turn's end.
 //
 //   CMUX_BROWSER_TESTS=1 bun test test/agent-pane-thinking-cls.test.ts
-// THINKING_CLS_TRACE=1 prints each shift's step, value and sources.
+// THINKING_CLS_TRACE=1 prints each shift's step, value and sources, and each step's painted moves.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { chromium, type Browser, type Page } from "playwright";
 import type { BoxShift } from "../src/gallery/shift";
@@ -55,35 +55,6 @@ await requireBrowserLane("agent-pane-thinking-cls.test.ts", async () => {
     return;
   }
   const TRACE = process.env.THINKING_CLS_TRACE === "1";
-  // THINKING_CLS_ROWS=thinking|answer: each frame's last rows (id, top, height, children) around the answer's start.
-  const ROWS = process.env.THINKING_CLS_ROWS;
-  const startRows = (page: Page) =>
-    page.evaluate(() => {
-      const w = window as any;
-      w.__rows = [];
-      let last = "";
-      const tick = () => {
-        const rows = [...document.querySelectorAll<HTMLElement>("[data-row-id]")].slice(-5);
-        const line = rows
-          .map((row) => {
-            const box = row.getBoundingClientRect();
-            const kids = [...row.querySelectorAll<HTMLElement>(":scope > *, :scope > * > *")]
-              .slice(0, 6)
-              .map((kid) => `${kid.className.toString().split(/\s+/).slice(0, 2).join(".")}:${Math.round(kid.getBoundingClientRect().top - box.top)}+${Math.round(kid.getBoundingClientRect().height)}`)
-              .join(",");
-            return `${row.dataset.rowId}@${box.top.toFixed(1)}+${box.height.toFixed(1)} [${row.className.toString().replace(/acpmux-row--?/g, "")}] {${kids}}`;
-          })
-          .join("\n    ");
-        if (line !== last) w.__rows.push(`${performance.now().toFixed(0)}\n    ${line}`);
-        else w.__rows.push(`${performance.now().toFixed(0)} same`);
-        last = line;
-        if (w.__rows.length < 400) requestAnimationFrame(tick);
-      };
-      requestAnimationFrame(tick);
-    });
-  const printRows = async (page: Page) => {
-    for (const line of (await page.evaluate(() => (window as any).__rows)) as string[]) console.log(`ROWS ${line}`);
-  };
   let browser: Browser;
   let pane: Awaited<ReturnType<typeof papercutPane>>;
   beforeAll(async () => {
@@ -145,7 +116,9 @@ await requireBrowserLane("agent-pane-thinking-cls.test.ts", async () => {
       step: tracking,
       score: shift.score,
       moves: shift.moves.map((move) => `${move.label} ${move.dx},${move.dy}@${move.frame}`),
-      stray: (shift.follow?.stray ?? []).map((move) => `${move.label} ${move.dy}px (follow ${move.follow})@${move.frame}`),
+      stray: (shift.follow?.stray ?? []).map(
+        (move) => `${move.label} ${move.dy}px (follow ${move.follow})@${move.frame}`,
+      ),
     });
     tracking = undefined;
   }
@@ -166,26 +139,45 @@ await requireBrowserLane("agent-pane-thinking-cls.test.ts", async () => {
       count,
     );
 
+  let liveUnderThought: number | null = null;
+  let replyUnderThought: number | null = null;
   async function playThinkingTurn(page: Page, turn: number) {
     await step(page, "send");
     pane.record("user_message", { text: `Think about ${turn}`, promptId: `p-think-${turn}` });
     pane.record("turn_started", {});
     await frames(page, 20);
-    if (ROWS === "thinking") await startRows(page);
     await step(page, "thinking");
     for (let n = 0; n < 24; n++) {
-      pane.record("agent_thought_chunk", thought(`Weighing the retry path, step ${n}, and what the jitter does. `), "in");
+      pane.record(
+        "agent_thought_chunk",
+        thought(`Weighing the retry path, step ${n}, and what the jitter does. `),
+        "in",
+      );
       await frames(page, 3);
     }
     await frames(page, 20);
-    if (ROWS === "thinking") await printRows(page);
-    if (ROWS === "answer") await startRows(page);
-    if (ROWS === "html") console.log("LIVE-BEFORE " + (await page.evaluate(() => { const row = document.querySelector('[data-row-id="thinking-live"]'); if (!row) return "none"; return [".cv-worked", ".cv-shimmer__row", "output", ".cv-shimmer__base", ".cv-shimmer__base > *", ".cv-shimmer__band", ".cv-shimmer__lit", ".cv-shimmer__lit > *"].map((sel) => { const el = row.querySelector(sel); if (!el) return sel + ":-"; const r = el.getBoundingClientRect(); const cs = getComputedStyle(el); return `${sel}:${r.y.toFixed(1)}+${r.height.toFixed(1)} pos=${cs.position} disp=${cs.display} lh=${cs.lineHeight} anim=${cs.animationName}`; }).join(" | "); })));
+    // Where the live line's words sit under the thought, then where the reply's first line lands.
+    const under = (id: string) =>
+      page.evaluate((id) => {
+        const rows = [...document.querySelectorAll<HTMLElement>("[data-row-id]")];
+        const thought = rows.filter((row) => row.querySelector(".cv-thought")).at(-1);
+        const target =
+          id === "reply"
+            ? rows.filter((row) => row.dataset.rowId?.startsWith("assistant")).at(-1)
+            : rows.find((row) => row.dataset.rowId === id);
+        if (!thought || !target) return null;
+        return target.getBoundingClientRect().top - thought.getBoundingClientRect().bottom;
+      }, id);
+    liveUnderThought = await under("thinking-live");
     await step(page, "answer starts");
     pane.record("agent_message_chunk", reply(`Answer ${turn}: `), "in");
+    await page.waitForFunction(
+      (text) =>
+        [...document.querySelectorAll<HTMLElement>('[data-row-id^="assistant"]')].at(-1)?.textContent?.includes(text),
+      `Answer ${turn}:`,
+    );
+    replyUnderThought = await under("reply");
     await frames(page, 20);
-    if (ROWS === "answer") await printRows(page);
-    if (ROWS === "html") console.log("LIVE-AFTER " + (await page.evaluate(() => { const row = document.querySelector('[data-row-id="thinking-live"]'); if (!row) return "none"; return [".cv-worked", ".cv-shimmer__row", "output", ".cv-shimmer__base", ".cv-shimmer__base > *", ".cv-shimmer__band", ".cv-shimmer__lit", ".cv-shimmer__lit > *"].map((sel) => { const el = row.querySelector(sel); if (!el) return sel + ":-"; const r = el.getBoundingClientRect(); const cs = getComputedStyle(el); return `${sel}:${r.y.toFixed(1)}+${r.height.toFixed(1)} pos=${cs.position} disp=${cs.display} lh=${cs.lineHeight} anim=${cs.animationName}`; }).join(" | "); })));
     await step(page, "answer streams");
     for (let n = 0; n < 24; n++) {
       pane.record("agent_message_chunk", reply(`the checks on the merged head are green, part ${n}. `), "in");
@@ -207,18 +199,20 @@ await requireBrowserLane("agent-pane-thinking-cls.test.ts", async () => {
     const shifts = (await page.evaluate(() => (window as any).__cls)) as Shift[];
     const cls = clsOf(shifts);
     const bySteps = new Map<string, number>();
-    for (const shift of shifts) if (!shift.recent) bySteps.set(shift.step, (bySteps.get(shift.step) ?? 0) + shift.value);
+    for (const shift of shifts)
+      if (!shift.recent) bySteps.set(shift.step, (bySteps.get(shift.step) ?? 0) + shift.value);
     console.log(
       `THINKING_CLS ${JSON.stringify({ cls: Number(cls.toFixed(5)), shifts: shifts.length, bySteps: Object.fromEntries(bySteps) })}`,
     );
     if (TRACE)
       for (const shift of shifts)
         console.log(
-          `  ${shift.at.toFixed(0)} ${shift.step} ${shift.value.toFixed(5)} ${shift.sources.map((source) => `${source.node} ${source.from} -> ${source.to}`).join(" | ")}`,
+          `  ${shift.at.toFixed(0)} ${shift.step} ${shift.value.toFixed(5)} ${shift.sources.map((source) => `${source.node} ${source.from.join(",")} -> ${source.to.join(",")}`).join(" | ")}`,
         );
-    const boxCls = painted.reduce((sum, entry) => sum + entry.score, 0);
+    const boxScore = painted.reduce((sum, entry) => sum + entry.score, 0);
+    const stray = painted.flatMap((entry) => entry.stray.map((move) => `${entry.step}: ${move}`));
     console.log(
-      `THINKING_BOX_CLS ${JSON.stringify({ cls: Number(boxCls.toFixed(5)), bySteps: Object.fromEntries(painted.map((entry) => [entry.step, Number(entry.score.toFixed(5))])) })}`,
+      `THINKING_BOX_CLS ${JSON.stringify({ score: Number(boxScore.toFixed(5)), bySteps: Object.fromEntries(painted.map((entry) => [entry.step, Number(entry.score.toFixed(5))])), stray: stray.length, liveUnderThought, replyUnderThought })}`,
     );
     if (TRACE)
       for (const entry of painted)
@@ -226,6 +220,12 @@ await requireBrowserLane("agent-pane-thinking-cls.test.ts", async () => {
           console.log(`  box ${entry.step}: moves ${entry.moves.join(" | ")} stray ${entry.stray.join(" | ")}`);
     await page.close();
     expect(cls).toBeLessThan(0.001);
-    expect(boxCls).toBeLessThan(0.001);
+    // The reply takes the live line's place under the thought: the gap after the thought is its final one from the
+    // thought's first frame, so the follow moves the rows over it by the reply's own line and no more.
+    expect(liveUnderThought).not.toBeNull();
+    expect(replyUnderThought).not.toBeNull();
+    expect(Math.abs(replyUnderThought! - liveUnderThought!)).toBeLessThan(1);
+    // Every painted move the follow does not explain.
+    expect(stray).toEqual([]);
   });
 });
