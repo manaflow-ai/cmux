@@ -12,6 +12,11 @@ pub(in crate::hub) enum Cut {
     Restart,
     /// The chat moved to another machine (`transfer_out.rs`).
     Move,
+    /// It moved at a tool boundary, with nothing of the turn left running: a [`Cut::Move`] whose
+    /// continuation says so (`"silent": true` in its provenance), so a harness that can go on
+    /// from its own transcript does, and the text is never written
+    /// (`claude_stdio/resume_cut.rs`). Any other harness gets the text as after `Cut::Move`.
+    MoveAtBoundary,
     /// Auto mode: the machine the turn ran on went away, and this one took the chat over from
     /// its Cloud copy (`auto_import.rs`).
     Takeover,
@@ -22,7 +27,7 @@ impl Cut {
     pub(in crate::hub) fn reason(self) -> &'static str {
         match self {
             Cut::Restart => "daemon_restart",
-            Cut::Move => "moved",
+            Cut::Move | Cut::MoveAtBoundary => "moved",
             Cut::Takeover => "machine_takeover",
         }
     }
@@ -46,7 +51,7 @@ impl Cut {
                 "acpmux restarted (an update or a crash) while your previous turn was running, \
                  and the turn was cut off."
             }
-            Cut::Move => {
+            Cut::Move | Cut::MoveAtBoundary => {
                 "This chat moved to another machine while your previous turn was running, and the \
                  turn was cut off. The files and git state came with it, but processes you \
                  started (dev servers, watchers, background shells) did not: start again any \

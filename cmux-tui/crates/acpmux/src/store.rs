@@ -32,7 +32,7 @@ mod sealed_segments;
 mod segment_starts;
 mod segment_table;
 pub use kind_heads::KindHead;
-pub use kind_index::{DIR as KIND_INDEX_DIR, INDEXED_KINDS};
+pub use kind_index::{DIR as KIND_INDEX_DIR, INDEXED_KINDS, carry_copy as carry_kind_index};
 use segment_table::SegmentList;
 mod fork_view;
 pub use fork_view::{

@@ -352,6 +352,18 @@ fn unfinished_tools(records: &[EventRecord]) -> (Vec<UnfinishedTool>, ToolOmissi
 mod cut;
 pub(in crate::hub) use cut::Cut;
 
+/// The provenance key of a continuation the harness may run from its own transcript, with no
+/// prompt written ([`Cut::MoveAtBoundary`]).
+const SILENT: &str = "silent";
+
+/// Whether `provenance` is such a continuation's.
+pub(in crate::hub) fn silent(provenance: Option<&Value>) -> bool {
+    provenance.is_some_and(|p| {
+        p.get("kind").and_then(Value::as_str) == Some("auto_resume")
+            && p.get(SILENT).and_then(Value::as_bool) == Some(true)
+    })
+}
+
 /// The text the agent gets: the cut turn's prompt, then what was steered into it.
 #[cfg(test)]
 fn continue_text(
@@ -510,10 +522,10 @@ impl Hub {
             let is_turn = e.msg.get("turnId").and_then(Value::as_str) == Some(turn_id);
             let field = |k: &str| e.msg.get(k).and_then(Value::as_str).map(str::to_owned);
             match e.kind.as_str() {
-                "auto_resume_scheduled" => {
-                    if e.msg.get("reason").and_then(Value::as_str) == Some(Cut::Move.reason()) {
-                        moved.extend(field("promptId"));
-                    }
+                "auto_resume_scheduled"
+                    if e.msg.get("reason").and_then(Value::as_str) == Some(Cut::Move.reason()) =>
+                {
+                    moved.extend(field("promptId"));
                 }
                 "turn_started" if is_turn => {
                     started = true;
@@ -680,7 +692,15 @@ impl Hub {
         if let Some((name, args)) = in_flight.filter(|_| unfinished.is_empty()) {
             cut::tell_in_flight(&mut text, cut.opening().len(), name, args);
         }
-        let provenance = json!({"kind": "auto_resume", "reason": cut.reason(), "promptId": root, "attempt": attempt, "turnId": turn_id});
+        let mut provenance = json!({"kind": "auto_resume", "reason": cut.reason(), "promptId": root, "attempt": attempt, "turnId": turn_id});
+        // Nothing of the turn was cut short: the harness may go on from its own transcript.
+        if cut == Cut::MoveAtBoundary
+            && unfinished.is_empty()
+            && omitted_tools == ToolOmission::None
+            && images.is_empty()
+        {
+            provenance.set(SILENT, json!(true));
+        }
         let control = if raised_to_web { "web" } else { control.as_deref().unwrap_or("web") };
         let mut blocks = vec![json!({"type": "text", "text": text})];
         // Each image's source goes with it as display metadata, so the continuation's record keeps
@@ -882,6 +902,31 @@ mod tests {
         assert_eq!(exhausted(&hub).len(), 1);
         hub.shutdown_all().await;
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A move at a tool boundary marks its continuation as one the harness may run from its own
+    /// transcript; a move that cut the turn anywhere (`--interrupt`) does not. Both keep the
+    /// text, the reason and the id, which every other harness and every record reader use.
+    #[tokio::test]
+    async fn only_a_boundary_moves_continuation_may_run_with_no_prompt() {
+        for (cut, want) in [(Cut::MoveAtBoundary, true), (Cut::Move, false), (Cut::Restart, false)]
+        {
+            let (root, hub, session) = cut_turn(Some(vec![10_000]), 0);
+            let id = hub.log_continuation(&session, "t1", cut);
+            assert_eq!(id, Some(format!("p1{SUFFIX}1")), "{cut:?}");
+            let events = hub.events("c1", 0, 10_000).unwrap();
+            let queued = events.iter().rfind(|e| e.kind == "queued").expect("queued").msg.clone();
+            let provenance = queued.pointer("/_meta/provenance");
+            assert_eq!(silent(provenance), want, "{cut:?}: {queued}");
+            let text = queued.pointer("/text").and_then(|v| v.as_str()).unwrap();
+            assert!(text.starts_with(cut.opening()), "{cut:?}: {text}");
+            assert_eq!(Cut::MoveAtBoundary.opening(), Cut::Move.opening());
+            assert_eq!(Cut::MoveAtBoundary.reason(), Cut::Move.reason());
+            hub.shutdown_all().await;
+            let _ = std::fs::remove_dir_all(&root);
+        }
+        assert!(!silent(None));
+        assert!(!silent(Some(&json!({"kind": "person", "silent": true}))));
     }
 
     /// The key unset keeps the default waits' attempts, and `[]` still turns it off.
