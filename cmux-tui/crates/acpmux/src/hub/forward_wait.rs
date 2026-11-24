@@ -1,5 +1,6 @@
 //! A session request the daemon forwards to a live agent (`Hub::forward_as`: `session/set_mode`,
-//! `session/set_config_option`, `session/set_model`) as a `cmux_bounded` machine. Its one waiting
+//! `session/set_config_option`, `session/set_model`, and a fork's `session/fork`) as a
+//! `cmux_bounded` machine. Its one waiting
 //! state declares its bound and what ends it, so an agent that stays alive and never answers ends
 //! the request with a named error instead of holding its caller, and the session's
 //! `harness_use` read lock (which a fork's cancel writes), forever.
@@ -42,9 +43,11 @@ impl BoundedMachine for ForwardWait {
 
     fn wait(state: &Phase) -> Wait<Event> {
         match state {
-            Phase::Asked { bound } => {
-                Wait::bounded(*bound, Event::GaveUp, "the agent answers a session settings request")
-            }
+            Phase::Asked { bound } => Wait::bounded(
+                *bound,
+                Event::GaveUp,
+                "the agent answers a forwarded session request",
+            ),
             Phase::Answered | Phase::GaveUp => Wait::Settled,
         }
     }
@@ -124,5 +127,29 @@ mod tests {
         assert!(err.message.contains("did not answer session/set_mode within 2 s"), "{err:?}");
         assert!(cmux_bounded::overrun_count(ForwardWait::NAME) > before);
         assert!(session.harness_use.try_write().is_ok(), "harness_use stayed held");
+    }
+
+    /// Before: an agent alive that never answers `session/fork` held the fork (and the parent's
+    /// `harness_use` read lock) forever. After: an idle chat's fork fails within the start budget
+    /// with a named error, and the lock is free again.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_fork_the_agent_never_answers_fails_within_its_bound() {
+        let hub = hub_on(&["FAKE_FORK_SILENT=1"], 2_000);
+        let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+        let parent = hub.new_session(req).await.unwrap();
+        hub.prompt(&parent, vec![json!({"type": "text", "text": "first"})], "test", false)
+            .await
+            .unwrap();
+        let before = cmux_bounded::overrun_count(ForwardWait::NAME);
+        let forked = tokio::time::timeout(
+            Duration::from_secs(20),
+            hub.fork(&parent, None, None, Default::default(), None, None, true),
+        )
+        .await
+        .expect("a fork the agent never answers held its caller past its bound");
+        let err = forked.expect_err("a fork with no answer succeeded");
+        assert!(err.message.contains("did not answer session/fork within 2 s"), "{err:?}");
+        assert!(cmux_bounded::overrun_count(ForwardWait::NAME) > before);
+        assert!(parent.harness_use.try_write().is_ok(), "harness_use stayed held");
     }
 }
