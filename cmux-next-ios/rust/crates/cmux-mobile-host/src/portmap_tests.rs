@@ -58,7 +58,10 @@ async fn fake_pmp(speaks: Speaks) -> (u16, mpsc::UnboundedReceiver<Asked>) {
                         Some(answer)
                     }
                 }
-                Some(0) if speaks.natpmp && len == 2 && request[1] == 0 => {
+                // UNSPECIFIED: a router that maps but never says its address.
+                Some(0)
+                    if speaks.natpmp && len == 2 && request[1] == 0 && !speaks.external.is_unspecified() =>
+                {
                     let _ = tx.send(Asked::NatPmpAddress);
                     let mut answer = vec![0, 128, 0, 0, 0, 0, 0, 9];
                     answer.extend_from_slice(&speaks.external.octets());
@@ -322,6 +325,18 @@ async fn a_router_that_maps_nothing_is_not_asked_again() {
 }
 
 #[tokio::test]
+async fn a_natpmp_grant_with_no_public_address_is_given_back() {
+    let _one_at_a_time = LIVE_SET.lock().await;
+    let (port, mut asked) =
+        fake_pmp(Speaks { pcp: false, natpmp: true, external: Ipv4Addr::UNSPECIFIED }).await;
+    let (_quiet, ssdp) = silent().await;
+    let mapper = HostMapper::with_router(move || Some(router(port, ssdp)));
+    assert!(mapper.map(46000).await.is_none());
+    let deleted = next_matching(&mut asked, |a| matches!(a, Asked::NatPmpMap { lifetime: 0, .. })).await;
+    assert_eq!(deleted, Asked::NatPmpMap { internal: 46000, external: 46000, lifetime: 0 });
+}
+
+#[tokio::test]
 async fn a_map_dropped_in_flight_still_deletes_what_the_router_granted() {
     let _one_at_a_time = LIVE_SET.lock().await;
     let (port, mut asked) = fake_pmp(Speaks { pcp: true, natpmp: false, external: PUBLIC }).await;
@@ -370,9 +385,9 @@ async fn release_all_deletes_live_mappings_at_exit() {
 
 #[test]
 fn kill_switch_reads_the_env() {
-    // Only the parse: the env is process-wide, so this does not set it.
-    let off = |value: &str| value.trim() != "0";
-    assert!(!off("0") && !off(" 0 ") && off("1") && off(""));
+    // The parse enabled() runs (the env is process-wide, so it is not set).
+    assert!(!enabled_by(Some("0")) && !enabled_by(Some(" 0 ")));
+    assert!(enabled_by(Some("1")) && enabled_by(Some("")) && enabled_by(None));
 }
 
 #[test]

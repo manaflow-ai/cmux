@@ -58,7 +58,12 @@ const RENEW_RETRIES: [Duration; 4] =
 
 /// Whether this process maps ports: unless `CMUX_MOBILE_PORTMAP=0`.
 pub fn enabled() -> bool {
-    std::env::var("CMUX_MOBILE_PORTMAP").map(|value| value.trim() != "0").unwrap_or(true)
+    enabled_by(std::env::var("CMUX_MOBILE_PORTMAP").ok().as_deref())
+}
+
+/// The kill switch's parse: on unless the value is `0`.
+fn enabled_by(value: Option<&str>) -> bool {
+    value.is_none_or(|value| value.trim() != "0")
 }
 
 /// Install the Mac's mapper into the link, unless turned off.
@@ -500,7 +505,13 @@ async fn natpmp_map(router: &Router, internal: u16, external: u16, lifetime: u32
         let external = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port);
         return Some(Mapped { external, lifetime: 0, spec: Spec::NatPmp { internal, external: port } });
     }
-    let ip = exchange(router, &[0, 0], natpmp_address_answer).await?;
+    let Some(ip) = exchange(router, &[0, 0], natpmp_address_answer).await else {
+        // Granted, but no address to offer: give the port back now rather
+        // than leave it open at the router for its whole lease.
+        let delete = natpmp_request(internal, port, 0);
+        let _ = exchange(router, &delete, |buf| natpmp_map_answer(buf, internal)).await;
+        return None;
+    };
     Some(Mapped {
         external: SocketAddr::new(IpAddr::V4(ip), port),
         lifetime: granted,
