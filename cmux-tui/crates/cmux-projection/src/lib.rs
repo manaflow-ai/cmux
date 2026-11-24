@@ -23,6 +23,8 @@ pub mod overlay;
 pub mod peers;
 #[cfg(unix)]
 pub mod reap;
+#[cfg(unix)]
+pub mod repo_archive;
 pub mod revision;
 pub mod s3;
 #[cfg(any(target_os = "linux", test))]

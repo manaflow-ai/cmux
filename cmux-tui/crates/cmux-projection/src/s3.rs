@@ -216,6 +216,16 @@ impl Config {
         Some(Self { tier, base, host, path, region: String::new(), keys: None, sse: None })
     }
 
+    /// Everything under `base` asked unsigned, as `<base>/<key>` (no `objects` folder added): a
+    /// public bucket or a public prefix of one.
+    #[must_use]
+    pub fn unsigned(tier: &'static str, base: &str) -> Option<Self> {
+        let base = http_base(base)?;
+        let (_, host, path) = split_url(&base)?;
+        plain_path(&path).ok()?;
+        Some(Self { tier, base, host, path, region: String::new(), keys: None })
+    }
+
     /// A bucket on an S3-compatible endpoint. `Err` says why it is unusable.
     pub fn bucket(tier: &'static str, spec: Bucket) -> Result<Self, String> {
         let Bucket { endpoint, bucket, region, path_style, prefix, keys, public, tenant, sse } =

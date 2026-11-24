@@ -46,11 +46,17 @@
 //! and `CMUX_PROJECTION_ZONE`.
 //! `s3-push` puts MIRROR's blobs into an S3-compatible bucket. It signs each HEAD and PUT with
 //! the configured store keys, skips blobs already held, and prints one JSON result line.
+//!
+//! `repo-archive-publish` puts a depth-1 `.git` archive (or the increment since it) of each
+//! `--branch` of SOURCE into the repo archive store, one JSON line per branch; the controller's
+//! timer runs it (`scripts/repo-archive/`). `repo-archive-fetch` takes one into a new folder: exit 3
+//! when the store has none (or none is configured), so the caller clones instead
+//! (`cmux_projection::repo_archive`, hq RFD 0065 pieces 1 and 2).
 
 #[cfg(target_os = "linux")]
 fn main() -> std::process::ExitCode {
     match linux::run(std::env::args().skip(1).collect()) {
-        Ok(()) => std::process::ExitCode::SUCCESS,
+        Ok(code) => std::process::ExitCode::from(code),
         Err(error) => {
             eprintln!("cmux-projection: {error:#}");
             std::process::ExitCode::FAILURE
@@ -85,7 +91,10 @@ mod linux {
                          cmux-projection seed --git-dir MIRROR --listen ADDR [--rate BYTES_PER_S] \
                          [--conns N] [--yield-lock FILE]... [--heartbeat URL --repo OWNER/NAME \
                          [--advertise URL] [--zone ZONE]]\n       \
-                         cmux-projection s3-push --git-dir MIRROR --to BASE [--commit REV]";
+                         cmux-projection s3-push --git-dir MIRROR --to BASE [--commit REV]\n       \
+                         cmux-projection repo-archive-publish --source SRC --url URL --branch B... \
+                         [--default B] [--store STORE] [--max-age-hours H] [--max-increment-mb M]\n       \
+                         cmux-projection repo-archive-fetch --url URL --at DIR [--branch B] [--store STORE]";
 
     #[derive(Default)]
     struct Args {
@@ -153,8 +162,16 @@ mod linux {
         Ok(parsed)
     }
 
-    pub fn run(args: Vec<String>) -> anyhow::Result<()> {
+    /// The process's exit code: 0, or 3 from `repo-archive-fetch` for a repo the store lacks.
+    pub fn run(args: Vec<String>) -> anyhow::Result<u8> {
         let (command, rest) = args.split_first().ok_or_else(|| anyhow::anyhow!(USAGE))?;
+        if command == "repo-archive-publish" || command == "repo-archive-fetch" {
+            return repo_archive(command, rest);
+        }
+        run_other(command, rest).map(|()| 0)
+    }
+
+    fn run_other(command: &str, rest: &[String]) -> anyhow::Result<()> {
         let args = parse(rest)?;
         if command == "seed" {
             return seed(&args);
@@ -163,7 +180,7 @@ mod linux {
             return s3_push(&args);
         }
         let at = args.at.clone().ok_or_else(|| anyhow::anyhow!("--at is required\n{USAGE}"))?;
-        match command.as_str() {
+        match command {
             "git-mount" => git_mount(&args, &at),
             "git-lower" => git_lower(&args, &at),
             "git-unmount" => {
@@ -238,6 +255,85 @@ mod linux {
             return Ok(());
         }
         peers::serve(&git_dir, &listen, limits)
+    }
+
+    /// `repo-archive-publish` and `repo-archive-fetch`.
+    fn repo_archive(command: &str, rest: &[String]) -> anyhow::Result<u8> {
+        use cmux_projection::repo_archive::{self as archive, Fetched, Publish};
+
+        let mut flags: Vec<(&str, &str)> = Vec::new();
+        for pair in rest.chunks(2) {
+            match pair {
+                [flag, value] => flags.push((flag.as_str(), value.as_str())),
+                _ => anyhow::bail!("every flag takes a value\n{USAGE}"),
+            }
+        }
+        let all = |name: &str| -> Vec<&str> {
+            flags.iter().filter(|(flag, _)| *flag == name).map(|(_, value)| *value).collect()
+        };
+        let one = |name: &str| all(name).last().copied();
+        let need =
+            |name: &str| one(name).ok_or_else(|| anyhow::anyhow!("{name} is required\n{USAGE}"));
+        let store = match one("--store") {
+            Some(spec) => Some(archive::open(spec, &|name: &str| std::env::var(name).ok())?),
+            None => archive::store_from_env()?,
+        };
+        let url = need("--url")?;
+        if command == "repo-archive-fetch" {
+            let at = PathBuf::from(need("--at")?);
+            let fetched = match &store {
+                Some(store) => {
+                    archive::fetch(store.as_ref(), url, one("--branch"), &at, archive::STREAMS)?
+                }
+                None => Fetched::Unknown { why: "no repo archive store is configured".to_owned() },
+            };
+            println!("{}", serde_json::to_string(&fetched)?);
+            return Ok(if matches!(fetched, Fetched::Unknown { .. }) { 3 } else { 0 });
+        }
+        let store = store.ok_or_else(|| {
+            anyhow::anyhow!("no store: --store, CMUX_REPO_ARCHIVE_STORE or {}", archive::CONFIG)
+        })?;
+        let source = need("--source")?;
+        let branches = all("--branch");
+        anyhow::ensure!(!branches.is_empty(), "--branch is required\n{USAGE}");
+        let hours: u64 = one("--max-age-hours").map_or(Ok(24), str::parse)?;
+        let megabytes: u64 = one("--max-increment-mb").map_or(Ok(64), str::parse)?;
+        let mut failed = 0;
+        for branch in branches {
+            let work = std::env::temp_dir().join(format!(
+                "cmux-repo-archive-{}-{}",
+                std::process::id(),
+                archive::branch_segment(branch)
+            ));
+            let _ = std::fs::remove_dir_all(&work);
+            std::fs::create_dir_all(&work)?;
+            let job = Publish {
+                source,
+                url,
+                branch,
+                default: one("--default") == Some(branch),
+                max_age: std::time::Duration::from_secs(hours * 3600),
+                max_increment: megabytes << 20,
+                now: SystemTime::now(),
+                work: &work,
+            };
+            let started = Instant::now();
+            match archive::publish(store.as_ref(), &job) {
+                Ok(published) => {
+                    let mut line = serde_json::to_value(&published)?;
+                    line["branch"] = branch.into();
+                    line["ms"] = u64::try_from(ms(started)).unwrap_or(u64::MAX).into();
+                    println!("{line}");
+                }
+                Err(error) => {
+                    failed += 1;
+                    eprintln!("cmux-projection: repo-archive-publish {url} {branch}: {error:#}");
+                }
+            }
+            let _ = std::fs::remove_dir_all(&work);
+        }
+        anyhow::ensure!(failed == 0, "{failed} branches were not published");
+        Ok(0)
     }
 
     /// How many blobs `s3-push` reads and sends at once.
