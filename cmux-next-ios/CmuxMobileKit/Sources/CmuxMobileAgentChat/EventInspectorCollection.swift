@@ -95,11 +95,9 @@ final class EventInspectorCollection: NSObject, UICollectionViewDelegate {
         var snapshot = NSDiffableDataSourceSnapshot<Int, Int>()
         snapshot.appendSections([0])
         snapshot.appendItems(ids)
-        // RED (this commit only): every kept row is redrawn and every row counts as changed, as
-        // SwiftUI's List re-diffed and re-sized every row on each update.
-        let kept = ids.filter(before.contains)
+        let kept = redraw.filter(before.contains)
         if !kept.isEmpty { snapshot.reconfigureItems(kept) }
-        lastChanged = before.union(after)
+        lastChanged = before.symmetricDifference(after).union(kept)
         shownIDs = ids
         applies += 1
         #if DEBUG
@@ -131,8 +129,7 @@ final class EventInspectorCollection: NSObject, UICollectionViewDelegate {
         cell.accessibilityLabel = "\(event.title), \(Self.meta(event))"
         cell.accessibilityTraits = .button
         cell.accessibilityIdentifier = "chat.inspector.row"
-        // RED (this commit only): no height cache, every configured cell is measured.
-        cell.known = nil
+        cell.known = knownHeight(id, width: collectionView.bounds.width)
         cell.measured = { [weak self] height, width in self?.record(id, height, width) }
     }
 
