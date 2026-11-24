@@ -33,6 +33,9 @@ struct ChatComposer: View {
     /// shown over the composer (the draft stays). Empty: none offered.
     var cmuxCommands: [CmuxSlashCommand] = []
     var runCmuxCommand: (@MainActor (CmuxSlashCommand, String) async -> String?)?
+    /// The composer-footer-facts experiment (RFD 0130), off by default: the status dot, its
+    /// counters and its card (`ComposerStatusDot`).
+    @AppStorage(ComposerFooterFactsArm.defaultsKey) private var footerFactsArm = ComposerFooterFactsArm.defaultArm.rawValue
     @State private var showPhotos = false
     private let voice = AgentVoiceLauncher.shared
     @State private var showFiles = false
@@ -264,6 +267,7 @@ struct ChatComposer: View {
                 }
                 HStack(spacing: 4) {
                     if !collapsed {
+                        ComposerStatusDot(status: store.composerStatus, arm: ComposerFooterFactsArm(stored: footerFactsArm))
                         if store.currentModelID != nil || !store.models.isEmpty || !store.modes.isEmpty
                             || store.effortOption?.options.isEmpty == false { pickerMenu }
                         if let usage = store.contextUsage { ContextUsageRing(usage: usage) }

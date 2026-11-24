@@ -253,6 +253,9 @@ public final class AgentChatStore {
     public private(set) var queuePaused = false
     /// The pause's reason as acpmux logged it (`stop`: a person's Stop held agent messages).
     public private(set) var queuePauseReason: String?
+    /// acpmux's composer footer (`composerStatus`): what the composer's status dot draws. Nil
+    /// until acpmux sends one (an older acpmux never does).
+    public private(set) var composerStatus: AgentComposerStatus?
 
     /// The chat's title: the agent's session title, else the session's name, else (a new
     /// session) the first prompt trimmed to 40 characters, as ChatGPT and Claude do.
@@ -1059,6 +1062,8 @@ public final class AgentChatStore {
         case .queuePaused(let paused, let reason):
             queuePaused = paused
             queuePauseReason = paused ? reason : nil
+        case .composerStatus(let status):
+            composerStatus = status
         case .turnResult(let turnId, let status, let errorText, let at):
             mutateTurn(turnId) { turn in
                 turn.retry = nil

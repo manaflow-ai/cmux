@@ -85,6 +85,9 @@ public enum AgentSessionEvent: Hashable, Sendable {
     /// acpmux held the waiting prompts (`queue_paused`: a failed turn, or a person's Stop of
     /// agent messages) or let them go (`queue_resumed`). `reason`: the record's (`stop`), if any.
     case queuePaused(Bool, reason: String?)
+    /// acpmux's composer footer for this chat (`summary.composerStatus`): the status dot's items
+    /// and the footer's facts, from the attach detail and each `session_changed` of it.
+    case composerStatus(AgentComposerStatus)
     /// The agent's request to its model failed and it is trying again (Claude Code's
     /// `system/api_retry`): the running turn says so instead of a bare "Working".
     case retrying(attempt: Int, maxAttempts: Int, status: Int?)

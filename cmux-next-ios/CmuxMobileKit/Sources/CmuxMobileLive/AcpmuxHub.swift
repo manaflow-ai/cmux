@@ -542,6 +542,11 @@ public final class AcpmuxHub {
             guard let value = params["session"], let session = AcpmuxSession(value) else { return }
             sessions[session.id] = session
             toldSinceWatch.insert(session.id)
+            // An attached chat's `session_changed` carries its whole composer status (acpmux
+            // `set_composer_status`); a census row's (no member when it has nothing) is not applied.
+            if let status = AgentComposerStatus(json: value["composerStatus"]) {
+                emitLocal(.composerStatus(status), sessionID: session.id)
+            }
             let kind = params["recordKind"]?.stringValue ?? params["kind"]?.stringValue ?? ""
             let seq = Int(params["seq"]?.numberValue ?? 0)
             onWatchEvent?(.sessionChanged(session, recordKind: kind, seq: seq))
@@ -2166,6 +2171,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         // Whether a failed turn holds the queue now (its `queue_paused` record may be older
         // than the history the chat opened on).
         if case .bool(let paused)? = detail["queuePaused"] { events.append(.queuePaused(paused, reason: nil)) }
+        if let status = AgentComposerStatus(json: detail["composerStatus"]) { events.append(.composerStatus(status)) }
         return events
     }
 

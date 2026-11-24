@@ -35,6 +35,10 @@ public enum CmuxMobilePreferences {
         public static let compactWorkspaceList = "cmuxMobile.settings.compactWorkspaceList"
         /// Long-press menu items the person hid (Settings → Long-Press Menus), by item id.
         public static let hiddenMenuItems = "cmuxMobile.settings.hiddenMenuItems"
+        /// The composer-footer-facts experiment's arm (RFD 0130; the web pane's
+        /// `composerFooterFacts.experiment.ts`): `off` (the default), `pulse` or `door`.
+        /// Settings → Developer sets it in DEBUG builds.
+        public static let composerFooterFacts = "cmuxMobile.experiments.composer-footer-facts"
     }
 
     /// The terminal's font size in points when the person never changed it.

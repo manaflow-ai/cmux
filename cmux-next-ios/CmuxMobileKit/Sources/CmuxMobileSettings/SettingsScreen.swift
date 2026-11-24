@@ -602,6 +602,8 @@ private struct DeveloperSection: View {
     @AppStorage(DeveloperOptions.mockDataKey) private var mockData = false
     @AppStorage(DeveloperOptions.launchDemoKey) private var launchDemo = ""
     @AppStorage(DeveloperOptions.slowApprovalKey) private var slowApproval = false
+    /// RFD 0130's composer-footer-facts arm (`ComposerFooterFactsArm`), off by default.
+    @AppStorage(CmuxMobilePreferences.Key.composerFooterFacts) private var composerFooterFacts = "off"
     @State private var launchedWithMock = DeveloperOptions.mockData
     /// The Cloud service this launch uses and where it came from (the tag's `CMUX_NEXT_CLOUD_BACKEND`,
     /// kept from an earlier launch, a rig's variable, or the build's own).
@@ -633,6 +635,13 @@ private struct DeveloperSection: View {
                 SettingsLabel("Demo at next launch", symbol: "play.rectangle")
             }
             .pickerStyle(.menu)
+            Picker(selection: $composerFooterFacts) {
+                ForEach(["off", "pulse", "door"], id: \.self) { arm in Text(verbatim: arm).tag(arm) }
+            } label: {
+                SettingsLabel("Composer footer facts", symbol: "circle.fill")
+            }
+            .pickerStyle(.menu)
+            .accessibilityIdentifier("settings.developer.composerFooterFacts")
             HStack {
                 SettingsLabel("Service", symbol: "server.rack")
                 Spacer()
