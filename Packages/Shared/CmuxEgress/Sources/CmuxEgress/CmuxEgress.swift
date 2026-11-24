@@ -21,7 +21,8 @@ import ObjectiveC
 /// Redirects: the system loads each redirect target through the session's protocol classes again, so the gate
 /// checks every hop of every gated session, with or without the caller's own delegate, and a refused hop fails the
 /// task with `cannotConnectToHost` like a refused first request.
-public enum CmuxEgress {
+public struct CmuxEgress {
+    public init() {}
     public enum Mode: String, Sendable {
         case enforce, log, off
 
