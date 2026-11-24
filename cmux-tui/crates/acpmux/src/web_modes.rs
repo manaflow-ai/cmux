@@ -52,6 +52,34 @@ pub(crate) const ASKING_MODES: &[(&str, &[&str])] = &[
     // Codex and opencode have no row: `REFUSED_FAMILIES`.
 ];
 
+/// Per harness family, the modes that ask before they act on this Mac but are
+/// not reviewed for the Web: a chat started here with a policy narrower than
+/// approve-all runs in the first one (`start_mode::asking_mode`), and the
+/// chat logs `policy_unenforced` with the family's gap
+/// ([`local_asking_gap`]), as an OpenCode chat does. A remote (Web)
+/// connection still gets no mode of these families (`remote_start`: no
+/// `ASKING_MODES` row).
+///
+/// Antigravity (agy 1.5.15, `agy acp`): `default` "Ask before edits and
+/// commands, per your permission settings". Its ACP server sends
+/// `session/request_permission` before each file write, shell command and MCP
+/// tool call (checked 2026-11-23 against the event log of a live chat:
+/// `write_file`, `run_command`, `mcp_cmux_cmux_exec`). `accept-edits` and
+/// `auto` act without asking (`NON_ASKING_MODES`); `plan` is not reviewed.
+pub(crate) const LOCAL_ASKING_MODES: &[(&str, &[&str])] = &[("antigravity", &["default"])];
+
+/// Why a family of [`LOCAL_ASKING_MODES`] does not hold a narrower policy
+/// every time, or `None` for any other family.
+pub(crate) fn local_asking_gap(family: &str) -> Option<&'static str> {
+    // agy reads `permission.allow` rules from its settings.json and from a
+    // project's `.agents/` folder (its changelog: "pre-approved file writes no
+    // longer prompt for review"; allowlisted commands run without a prompt),
+    // and acpmux cannot see or override them.
+    (family == "antigravity").then_some(
+        "Antigravity's own settings (its settings.json or a project's .agents folder) can let it run some tools without asking",
+    )
+}
+
 /// The Codex bridge's (`codex app-server` through cmux-codex-acp, profile
 /// `codex`) modes that ask before every change, the start mode first.
 /// cmux-codex-acp c30e6489 `config.rs` `MODES`: "ask" runs Codex with
@@ -134,6 +162,10 @@ pub(crate) const NON_ASKING_MODES: &[(&str, &[&str])] = &[
     // repeated call: packages/opencode/src/agent/agent.ts); "plan" (allows
     // bash) is not listed here because Claude's "plan" asks.
     ("opencode", &["build"]),
+    // Antigravity (agy 1.5.15 `agy acp` modes): "accept-edits" approves file
+    // edits in the workspace without asking; "auto" approves edits and the
+    // commands it judges safe.
+    ("antigravity", &["accept-edits", "auto"]),
 ];
 
 /// Fields a Web request may not carry: they could set a mode or a sandbox
