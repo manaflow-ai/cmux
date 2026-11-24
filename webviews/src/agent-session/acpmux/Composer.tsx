@@ -127,6 +127,7 @@ import {
   settlePendingDraftWrites,
   useDraftActionsVersion,
   writePersistedDraft,
+  restoredPrompt,
 } from "./composerDraft";
 import { RESTORED_CHAT_EVENT, replacedRestoredDraft, restoredDraft } from "./chatSnapshot/restoredDraft";
 import type { MarkdownFieldHandle, MarkdownFieldProps } from "./MarkdownField";
@@ -182,6 +183,7 @@ import "./composerClimbs.css";
 import { emojiShortcodeLook } from "./emojiShortcodeLook.experiment";
 import { EmojiMenu } from "./EmojiMenu";
 import { keepSendOrigins, noteSendOrigins } from "./conversation/sendMorph";
+import { playUnpop } from "./conversation/unpopMorph";
 import { sendTucks, tuckContent, tuckSent } from "./conversation/sendTuck";
 import { shouldScrollToBottomAfterSend } from "./sendScrollSetting";
 import { MachineLinkStatus } from "./MachineLinkStatus";
@@ -1302,12 +1304,14 @@ function ComposerFrame({
     // goes after what is there (prompts a folder's trust held, sent after one already given
     // back: trustHeld.ts).
     const typed = field.current?.value() ?? "";
-    const next = !typed.trim() ? restoredText : behind ? `${typed}\n\n${restoredText}` : `${restoredText}\n\n${typed}`;
+    const next = restoredPrompt(typed, restoredText, behind);
     // A field whose editor is still starting (the chat composer that mounts as a New Tab page
     // leaves) takes it as its value, which becomes the editor's first content.
     if (!field.current?.type(next)) {
       writeText(next, next.length);
     }
+    // A queued prompt taken back moves into the field it is in now (unpopMorph.ts).
+    playUnpop(composerBox.current);
     if (restoredAttachments.length)
       setAttachments((current) => {
         const others = current.filter((attachment) => !restoredAttachments.some((back) => back.id === attachment.id));
