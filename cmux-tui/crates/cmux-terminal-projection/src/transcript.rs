@@ -70,9 +70,12 @@ impl Move {
                 }
                 let (mut start, mut score) = (lower, 0);
                 for i in lower..=upper {
-                    let equal = i < upper && current[i] == previous[(i as isize - shift) as usize];
+                    let here = current.get(i);
+                    let equal = i < upper
+                        && here.is_some()
+                        && here == previous.get((i as isize - shift) as usize);
                     if equal {
-                        if current[i] != previous[i] {
+                        if here != previous.get(i) {
                             score += 1;
                         }
                         continue;
@@ -100,7 +103,7 @@ pub fn row_hash(row: &Row) -> u64 {
     let mut h = DefaultHasher::new();
     let keep =
         row.cells.iter().rposition(|c| !c.is_empty_or_space() || c.style != 0).map_or(0, |i| i + 1);
-    for cell in &row.cells[..keep] {
+    for cell in row.cells.iter().take(keep) {
         (cell.ch, cell.style, cell.kind).hash(&mut h);
     }
     h.finish()
@@ -239,7 +242,7 @@ impl Transcript {
     /// nothing moved) starts over.
     fn redrawn(&mut self, current: &[u64], screen: &[Row]) {
         let Some(band) = self.band.clone() else { return };
-        let changed = band.clone().filter(|&i| current[i] != self.previous[i]).count();
+        let changed = band.clone().filter(|&i| current.get(i) != self.previous.get(i)).count();
         if changed * 2 > band.len() && band.len() > MINIMUM_MOVED_ROWS * 2 {
             self.clear();
             return;
@@ -254,9 +257,10 @@ impl Transcript {
         }
         for (k, i) in band.clone().enumerate() {
             if let Some(row) = screen.get(i) {
-                let slot = &mut self.rows[self.at + k];
-                if slot != row {
-                    slot.clone_from(row);
+                if let Some(slot) = self.rows.get_mut(self.at + k) {
+                    if slot != row {
+                        slot.clone_from(row);
+                    }
                 }
             }
         }
@@ -282,9 +286,9 @@ impl Transcript {
         };
         let band = band.start.min(screen.len())..band.end.min(screen.len());
         let mut rows: Vec<&Row> = Vec::with_capacity(screen.len() + self.rows.len());
-        rows.extend(&screen[..band.start]);
+        rows.extend(screen.iter().take(band.start));
         rows.extend(self.rows.iter());
-        rows.extend(&screen[band.end..]);
+        rows.extend(screen.iter().skip(band.end));
         (rows, self.at)
     }
 
@@ -309,7 +313,7 @@ impl Transcript {
                 .iter()
                 .rposition(|c| !c.is_empty_or_space() || c.style != 0)
                 .map_or(0, |i| i + 1);
-            for cell in &row.cells[..keep] {
+            for cell in row.cells.iter().take(keep) {
                 if width >= term.cols {
                     break;
                 }
