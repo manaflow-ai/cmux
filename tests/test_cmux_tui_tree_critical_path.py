@@ -347,13 +347,15 @@ def main():
     # MUSL_BUILT_ONCE: the Linux targets build once, fat, in build-linux; `build` builds only macOS.
     # LINUX_CALL_FOR_CHANNEL: the early channel point needs build-linux, not the macOS legs.
     calls = [n for n, j in all_jobs.items() if j.get("uses", "").endswith("cmux-tui-build-package.yml")]
-    linux_calls = [n for n in calls if "linux" in str(all_jobs[n].get("with", {}).get("target_set", ""))]
-    _check(linux_calls == ["build-linux"], f"the musl targets build once, in build-linux ({linux_calls})")
+    linux_calls = [n for n in calls if "linux" in str(all_jobs[n].get("with", {}).get("target_set", ""))
+                   and "machine_channel" not in str(all_jobs[n].get("with", {}).get("target_set", ""))]
+    _check(linux_calls == ["build-linux"], f"the shipped musl targets build once, in build-linux ({linux_calls})")
     _check(all_jobs["build-linux"]["with"]["lto"] == all_jobs["build"]["with"]["lto"],
            "build-linux builds the shipped (fat) profile")
     early = all_jobs["point-machine-channel-early"]
-    _check(needs(early) == ["tree-preflight", "tree-owner-wait", "build-linux"],
-           f"point-machine-channel-early waits for the Linux legs only ({needs(early)})")
+    # MACHINE_CHANNEL_THIN: it waits for the channel's own thin Linux legs, not for build-linux's fat ones.
+    _check(needs(early) == ["tree-preflight", "tree-owner-wait", "build-machine-channel"],
+           f"point-machine-channel-early waits for the thin channel legs only ({needs(early)})")
     for build_linux, expected in (("success", True), ("failure", False), ("cancelled", False)):
         values = dict(base, **{"needs.build-linux.result": build_linux, "needs.build.result": "success"})
         _check(evaluate(publish["if"], values) == expected,
