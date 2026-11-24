@@ -186,8 +186,11 @@ public final class TerminalSession {
     let echo: TerminalEchoPredictor?
 
     /// - Parameter blankClock: The clock of the blank-pane check after a reveal; tests pass a manual clock.
-    public init(io: any TerminalIO, ownsGeometry: Bool = true, blankClock: any Clock<Duration> = ContinuousClock()) {
+    /// - Parameter historyFind: The daemon's whole-history search that Cmd-F uses; nil searches the screen only.
+    public init(io: any TerminalIO, ownsGeometry: Bool = true, blankClock: any Clock<Duration> = ContinuousClock(),
+                historyFind: (any TerminalFindHistory)? = nil) {
         self.io = io
+        self.historyFind = historyFind
         blankWatch = TerminalBlankWatch(clock: blankClock)
         self.ownsGeometry = ownsGeometry
         ioMode = io.answersTerminalQueries ? GHOSTTY_SURFACE_IO_MANUAL_MIRROR : GHOSTTY_SURFACE_IO_MANUAL
