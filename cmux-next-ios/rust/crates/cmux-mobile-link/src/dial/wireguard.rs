@@ -295,35 +295,63 @@ pub(crate) struct EarlyTurn {
 /// active WireGuard underlay. The carrier is never cloned. The underlay puts
 /// it back when its transport is dropped, which lets the next same-network
 /// redial take the allocation without another Allocate exchange.
+struct TurnLeaseState {
+    carrier: Mutex<Option<TurnCarrier>>,
+    valid: AtomicBool,
+    returned: watch::Sender<u64>,
+}
+
 #[derive(Clone)]
-pub struct TurnLease(Arc<Mutex<Option<TurnCarrier>>>);
+pub struct TurnLease(Arc<TurnLeaseState>);
 
 impl TurnLease {
     pub fn empty() -> Self {
-        Self(Arc::new(Mutex::new(None)))
-    }
-
-    pub(crate) fn from_carrier(carrier: TurnCarrier) -> Self {
-        Self(Arc::new(Mutex::new(Some(carrier))))
+        let (returned, _) = watch::channel(0);
+        Self(Arc::new(TurnLeaseState {
+            carrier: Mutex::new(None),
+            valid: AtomicBool::new(true),
+            returned,
+        }))
     }
 
     pub(crate) fn take(&self) -> Option<TurnCarrier> {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner).take()
+        if !self.0.valid.load(Ordering::Acquire) {
+            return None;
+        }
+        self.0.carrier.lock().unwrap_or_else(PoisonError::into_inner).take()
     }
 
     pub(crate) fn put(&self, carrier: TurnCarrier) {
-        let mut slot = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        if !self.0.valid.load(Ordering::Acquire) {
+            return;
+        }
+        let mut slot = self.0.carrier.lock().unwrap_or_else(PoisonError::into_inner);
         if slot.is_none() {
             *slot = Some(carrier);
+            self.0.returned.send_modify(|generation| *generation += 1);
         }
     }
 
-    pub(crate) fn invalidate(&self) {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner).take();
+    pub fn invalidate(&self) {
+        self.0.valid.store(false, Ordering::Release);
+        self.0.carrier.lock().unwrap_or_else(PoisonError::into_inner).take();
     }
 
-    pub(crate) fn has_carrier(&self) -> bool {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner).is_some()
+    pub fn has_carrier(&self) -> bool {
+        self.0.valid.load(Ordering::Acquire)
+            && self.0.carrier.lock().unwrap_or_else(PoisonError::into_inner).is_some()
+    }
+
+    pub fn is_valid(&self) -> bool {
+        self.0.valid.load(Ordering::Acquire)
+    }
+
+    pub fn returned(&self) -> watch::Receiver<u64> {
+        self.0.returned.subscribe()
+    }
+
+    pub fn same_storage(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
     }
 }
 
@@ -2596,6 +2624,7 @@ impl Dialer for WireGuardDialer {
                     options.timeline.mark("video_lane");
                     super::PendingMedia::Send(carrier)
                 }),
+                turn_lease: None,
             })
         })
     }
