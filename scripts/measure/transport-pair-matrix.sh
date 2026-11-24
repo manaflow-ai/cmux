@@ -73,9 +73,19 @@ bench() {
     CMUX_ZIG="$(MEDIA_ZIG_CACHE="$root/.build/transport-pair-matrix-zig" scripts/ci/media_pinned_zig.sh "$root")"
     export CMUX_ZIG PATH="$(dirname "$CMUX_ZIG"):$PATH"
   fi
+  # Build first, timed, so a run that hits its bound says whether the build or a cell took the time
+  # (run 45428699703: 49 min silent after the zig install, no cell).
+  local started=$SECONDS
+  (cd "$workspace" && CARGO_TARGET_DIR="$work/target-${workspace//\//-}" \
+    cargo test --release --locked -p "$crate" ${features:+--features "$features"} --test "$test" --no-run 2>&1 | tee "$work/$pair.build.log" |
+    { sed -un -e "s/^/PAIRMATRIX-BUILD $pair /p" | grep --line-buffered -E 'PAIRMATRIX-BUILD [^ ]+ +(Compiling (acpmux|cmux|ghostty|libghostty)|Finished|error)' || true; }) || code=$?
+  echo "PAIRMATRIX-BUILD-DONE $pair exit=$code seconds=$((SECONDS - started))"
+  (( code == 0 )) || { tail -n 40 "$work/$pair.build.log" | sed "s/^/PAIRMATRIX-LOG $pair /"; return 1; }
+  started=$SECONDS
   (cd "$workspace" && CARGO_TARGET_DIR="$work/target-${workspace//\//-}" PAIRMATRIX_PAIR="$pair" \
     cargo test --release --locked -p "$crate" ${features:+--features "$features"} --test "$test" -- --ignored --nocapture --test-threads 1 2>&1 | tee "$log" |
-    { sed -un -e "s/^PAIRCELL/PAIRMATRIX-LIVE PAIRCELL/p" || true; }) || code=$?
+    { sed -un -e "s/^PAIRCELL/PAIRMATRIX-LIVE PAIRCELL/p" -e "/^test .* \.\.\. /s/^/PAIRMATRIX-LIVE /p" || true; }) || code=$?
+  echo "PAIRMATRIX-TEST-DONE $pair exit=$code seconds=$((SECONDS - started))"
   grep -oE 'PAIRCELL(-NA)? \{.*' "$log" >>"$work/lines.txt" || true  # libtest can print a line after its "test ... " prefix
   echo "PAIRMATRIX-STATUS $pair exit=$code log=$log"
   if (( code != 0 )); then
@@ -85,6 +95,10 @@ bench() {
 }
 
 : >"$work/lines.txt"
+# Copy what there is even when the run's bound kills it mid-bench.
+copy_out() { [[ -z "${FAST_CHECKS_OUT:-}" ]] || { mkdir -p "$FAST_CHECKS_OUT"; cp "$work"/*.txt "$work"/*.log "$FAST_CHECKS_OUT/" 2>/dev/null || true; }; }
+trap copy_out EXIT
+trap 'copy_out; exit 124' TERM INT
 status=0
 IFS=, read -r -a pair_list <<<"$pairs"
 for pair in "${pair_list[@]}"; do
