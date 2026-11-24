@@ -9,6 +9,9 @@ import { TURN_RETRY } from "../model";
 import { turnErrorCard } from "./turnErrorCard.experiment";
 
 const prompt = "Run the sidebar tests and fix what fails";
+/// The machine's acpmux runs the agent's own login (`agent-login-v1`), as a current Cloud machine's
+/// does: the card leads with Sign in to Claude, which the gallery showed only Switch model without.
+const AGENT_LOGIN = ["agent-login-v1"];
 /// The 429 acpmux recorded on Leo's coordinator, as its `turn_result` carried it (`errorText`).
 const rateLimit =
   "API Error: Request rejected (429) \u00b7 This request would exceed your account's rate limit. Please try again later.";
@@ -88,17 +91,39 @@ export default agentPaneEntry({
     "cloud-missing": {
       note: "Owner VM without a Claude login: explains the missing credential and offers the sign-in on the machine. Compare the three existing surfaces; keep the glass card.",
       ready: { cloudMachineID: "gallery-vm" },
+      mockCapabilities: AGENT_LOGIN,
       snapshot: cloudFailed("Claude failed to authenticate: credential is missing"),
     },
     "cloud-expired": {
       note: "Expired login: the cause and the same sign-in, with no provider output in the sentence.",
       ready: { cloudMachineID: "gallery-vm" },
+      mockCapabilities: AGENT_LOGIN,
       snapshot: cloudFailed("OAuth token expired (HTTP 401)"),
     },
     "cloud-rejected": {
       note: "Rejected login: preserves the HTTP status and offers the sign-in on this Cloud machine.",
       ready: { cloudMachineID: "gallery-vm" },
+      mockCapabilities: AGENT_LOGIN,
       snapshot: cloudFailed("HTTP 403 Forbidden"),
+    },
+    "cloud-expired-no-agent-login": {
+      note: "The same expired login on a machine whose acpmux runs no agent login (an older one): Switch model is the card's way on.",
+      ready: { cloudMachineID: "gallery-vm" },
+      snapshot: cloudFailed("OAuth token expired (HTTP 401)"),
+    },
+    "usage-limit-resets": {
+      note: 'Claude Code\'s used-up subscription limit names its reset (`|epoch`): the card says when it resets, not "in a moment".',
+      snapshot: failed("Claude AI usage limit reached|1764003600"),
+    },
+    "usage-limit-included": {
+      note: "The plan's included amount, used up, with its `resets_at`: the same sentence with that date.",
+      snapshot: failed(
+        'API Error: 402 Payment Required {"error":{"code":"usage.included_reached","message":"You used the AI amount included in your plan for this month.","type":"insufficient_quota","details":{"resets_at":"2026-12-01T00:00:00.000Z"}}}',
+      ),
+    },
+    "usage-limit-no-time": {
+      note: "A limit whose refusal names no time keeps the rate-limit sentence.",
+      snapshot: failed("usage limit reached, resets in 3h"),
     },
     "cloud-no-team-account": {
       note: "A team Cloud machine whose team has no Codex account: the card names the team's way (cr add), and Use an API key goes on now where the machine signs agents in.",
