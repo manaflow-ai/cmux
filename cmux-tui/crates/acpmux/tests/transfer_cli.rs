@@ -199,7 +199,10 @@ mod move_matrix;
 mod session_move;
 #[path = "transfer_cli/session_move_as.rs"]
 mod session_move_as;
+
 #[path = "transfer_cli/session_move_follow.rs"]
 mod session_move_follow;
 #[path = "transfer_cli/session_move_live.rs"]
 mod session_move_live;
+#[path = "transfer_cli/session_move_reachable.rs"]
+mod session_move_reachable;
