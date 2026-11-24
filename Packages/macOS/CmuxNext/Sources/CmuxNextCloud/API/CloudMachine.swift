@@ -6,7 +6,7 @@ public import Foundation
 /// rule about it. The fields are its JSON (timestamps in epoch milliseconds); the app reads them
 /// and asks ``CloudMachineRules`` the rest.
 public struct CloudMachine: Sendable, Hashable, Identifiable, Codable {
-    public enum Status: String, Sendable, Hashable, Codable {
+    public enum Status: String, Sendable, Hashable, Codable, CaseIterable {
         case provisioning, running, failed, paused, destroyed, unknown
         /// A Pause Machine (or the idle auto-pause) the server accepted; not paused yet.
         case pausing

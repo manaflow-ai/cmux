@@ -565,7 +565,8 @@ async fn late_roam(slow: impl FnOnce(&TestTurn), within: Duration) -> LateRoam {
         if adopted.is_none() {
             let endpoints = wireguard::session_endpoints(&session_id, true).unwrap_or_default();
             dropped.extend(before.iter().filter(|old| !endpoints.contains(old)).cloned());
-            let fresh = turn.grants().into_iter().filter(|(at, _)| *at >= started).map(|(_, relayed)| relayed);
+            let fresh =
+                turn.grants().into_iter().filter(|(at, _)| *at >= started).map(|(_, relayed)| relayed);
             let fresh: Vec<_> = fresh.collect();
             if let Some(relayed) = endpoints
                 .iter()
@@ -622,7 +623,8 @@ async fn wireguard_roam_takes_a_turn_grant_that_lands_after_its_wait() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "measurement: run by hand for the PR's numbers"]
 async fn roam_late_turn_grant_timeline() {
-    let env = |name: &str, default: u64| std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default);
+    let env =
+        |name: &str, default: u64| std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default);
     let runs = env("ROAM_LATE_RUNS", 20);
     let spike = Duration::from_millis(env("ROAM_LATE_SPIKE_MS", 1600));
     let window = Duration::from_millis(env("ROAM_LATE_WINDOW_MS", 4000));
@@ -1288,7 +1290,7 @@ async fn detect(
     let noticed = |link: cmux_mobile_link::Link| async move {
         let mut suspect = link.suspect_state();
         let mut closed = link.closed_state();
-        let _ = tokio::time::timeout_at(began + window, async {
+        tokio::time::timeout_at(began + window, async {
             tokio::select! {
                 _ = suspect.wait_for(|suspect| *suspect) => {}
                 _ = closed.wait_for(Option::is_some) => {}
@@ -1634,9 +1636,8 @@ async fn foreground_probe_cost() {
             for _ in 0..std::env::var("COST_ROUNDS").ok().and_then(|n| n.parse().ok()).unwrap_or(3) {
                 runs.push(cost_minute(foreground).await);
             }
-            let pick = |f: fn(&((usize, usize, usize), (usize, usize, usize))) -> usize| {
-                median(runs.iter().map(f).collect())
-            };
+            type Run = ((usize, usize, usize), (usize, usize, usize));
+            let pick = |f: fn(&Run) -> usize| median(runs.iter().map(f).collect());
             let row = [
                 pick(|r| r.0.0),
                 pick(|r| r.1.0),
