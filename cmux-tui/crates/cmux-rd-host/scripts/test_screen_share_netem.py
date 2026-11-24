@@ -50,10 +50,66 @@ class ScreenShareNetemCliTests(unittest.TestCase):
         alive = types.SimpleNamespace(poll=lambda: None)
         self.assertIsNone(netem.started(alive, "testapp"))
 
+    def test_a_helper_that_died_at_start_stops_the_ones_before_it(self):
+        dead = types.SimpleNamespace(poll=lambda: 1, returncode=1,
+                                     stderr=types.SimpleNamespace(read=lambda: "exec failed"))
+        killed = []
+        xvfb = types.SimpleNamespace(poll=lambda: None, kill=lambda: killed.append("kill"),
+                                     wait=lambda: killed.append("wait"))
+        old = netem.teardown
+        netem.teardown = lambda: None
+        try:
+            with self.assertRaises(SystemExit):
+                netem.started(dead, "testapp", others=[xvfb])
+        finally:
+            netem.teardown = old
+        self.assertEqual(killed, ["kill", "wait"])
+
+    def test_lines_written_in_one_burst_are_all_read(self):
+        # The host prints displays, key and candidates in one write; each must come back
+        # without another select wake (a buffered readline() hid all but the first).
+        import os
+        r, w = os.pipe()
+        os.write(w, b'{"displays":[]}\n{"key":"ab"}\n{"candidate":"host 10.0.0.1:1"}\n')
+        lines = netem.Lines(types.SimpleNamespace(fileno=lambda: r))
+        got = [netem.readline(lines, netem.time.time() + 1) for _ in range(3)]
+        self.assertEqual([g.strip() for g in got],
+                         ['{"displays":[]}', '{"key":"ab"}', '{"candidate":"host 10.0.0.1:1"}'])
+        self.assertIsNone(netem.readline(lines, netem.time.time() + 0.05))
+        os.write(w, b'{"tail":1}')
+        os.close(w)
+        self.assertEqual(netem.readline(lines, netem.time.time() + 1), '{"tail":1}')
+        self.assertEqual(netem.readline(lines, netem.time.time() + 1), "")
+        os.close(r)
+
     def test_recovery_requires_restoration_and_a_live_host(self):
         self.assertFalse(netem.recovered_after_drop(10, False, [50], None))
         self.assertFalse(netem.recovered_after_drop(10, True, [50], "viewer silent for 3 s"))
         self.assertTrue(netem.recovered_after_drop(10, True, [50], None))
+
+    def test_recovery_is_the_stall_past_the_drop(self):
+        self.assertEqual(netem.recovery_ms(10, [400, 11_250]), 1250.0)
+        self.assertEqual(netem.recovery_ms(10, [9_000]), 0.0)
+        self.assertIsNone(netem.recovery_ms(None, [50]))
+        self.assertIsNone(netem.recovery_ms(10, []))
+
+    def test_drop_gate_names_each_attempt_that_failed(self):
+        records = [
+            {"attempt": 1, "row": "baseline", "ok": True, "connect_ms": 5},
+            {"attempt": 2, "row": "drop-10s", "drop_s": 10, "connect_ms": 5,
+             "recovered_after_drop": True, "recovery_ms": 900},
+            {"attempt": 3, "row": "drop-60s", "drop_s": 60, "connect_ms": 5,
+             "recovered_after_drop": False, "host_ended": "viewer silent for 90 s"},
+            {"attempt": 4, "row": "drop-60s", "drop_s": 60, "connect_ms": 5,
+             "recovered_after_drop": True, "recovery_ms": 7_000},
+            {"attempt": 5, "row": "drop-10s", "drop_s": 10, "error": "refused"},
+        ]
+        self.assertEqual(netem.drop_gate(records, 5_000), [
+            "attempt 3 (drop-60s): did not recover: viewer silent for 90 s",
+            "attempt 4 (drop-60s): recovered in 7000 ms, over 5000 ms",
+            "attempt 5 (drop-10s): never connected: refused",
+        ])
+        self.assertEqual(netem.drop_gate(records[:2], 5_000), [])
 
     def test_stage_join_splits_a_key_press_on_one_clock(self):
         # Viewer ns and host µs on one CLOCK_MONOTONIC: key sent at 1000 µs.

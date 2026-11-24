@@ -2,7 +2,8 @@
   "title": "Installed stays open while the CLI installs Standup: the row appears without a reload",
   "settings": {
     "labs": {
-      "previewFeatures": true
+      "previewFeatures": true,
+      "appStore": true
     }
   },
   "launch_args": [],
