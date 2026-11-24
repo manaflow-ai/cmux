@@ -167,6 +167,13 @@ pub(crate) fn write_later(path: &Path, bytes: Vec<u8>) {
 pub(crate) fn run_later(key: &str, job: impl FnOnce() + Send + 'static) {
     let writer = writer();
     let mut state = writer.lock();
+    if state.bytes == usize::MAX {
+        // No writer thread (`writer`): nothing would ever run it, so the caller does.
+        drop(state);
+        INLINE.fetch_add(1, Relaxed);
+        job();
+        return;
+    }
     if state.jobs.contains_key(key) {
         COALESCED.fetch_add(1, Relaxed);
         return;

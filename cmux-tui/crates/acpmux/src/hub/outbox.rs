@@ -346,8 +346,13 @@ impl Outbox {
         }
         self.0.save_wanted.fetch_max(change, std::sync::atomic::Ordering::Relaxed);
         let state = Arc::downgrade(&self.0);
-        let key = format!("outbox:{:p}", Arc::as_ptr(&self.0));
-        crate::disk_writer::run_later(&key, move || {
+        // Unique per outbox, never reused: a new outbox at a dropped one's address must not
+        // coalesce into that one's dead job still waiting.
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let key = self.0.save_key.get_or_init(|| {
+            format!("outbox:{}", NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
+        });
+        crate::disk_writer::run_later(key, move || {
             if let Some(state) = state.upgrade() {
                 let wanted = state.save_wanted.load(std::sync::atomic::Ordering::Relaxed);
                 state.save(wanted);
@@ -377,6 +382,8 @@ pub struct OutboxState {
     save_wanted: std::sync::atomic::AtomicU64,
     /// The newest change the disk writer's save tried to write.
     save_tried: std::sync::atomic::AtomicU64,
+    /// This outbox's job key on the disk writer (`save_later`).
+    save_key: std::sync::OnceLock<String>,
     deliveries: crate::worker_lock::Mutex<Book>,
     path: StdMutex<Option<PathBuf>>,
     /// What is on disk, held while a write runs.
