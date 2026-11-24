@@ -37,7 +37,7 @@ export class PaneBoundary extends Component<Props, State> {
       ...(error instanceof Error && error.stack ? { stack: error.stack } : {}),
       ...(info.componentStack ? { componentStack: info.componentStack } : {}),
     };
-    console.error(paneFailureLine(error), error, info.componentStack ?? "");
+    console.error(paneFailureLine(error, info.componentStack ?? undefined), error, info.componentStack ?? "");
   }
 
   render() {

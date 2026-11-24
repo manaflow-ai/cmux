@@ -24,7 +24,6 @@ import {
   selectionParts,
   sliceHoldsInline,
   wholeSelected,
-  withTextMarksEscaped,
 } from "./composer/inlineNode";
 import { inlineCaretPlugin } from "./composer/inlineCaret";
 import { followActionsWidth } from "./composerScrollLane";
