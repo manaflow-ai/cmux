@@ -521,10 +521,12 @@
         "experiments.glassToolbarGroups",
         "experiments.composerV2",
         "experiments.hoverLook",
+        "experiments.attachmentTypeIcons",
         "experiments.agentBadges",
         "experiments.agentBadgesBeam",
         "experiments.menuStyleV2",
         "experiments.menuRowStates",
+        "experiments.composerHatGroups",
         "experiments.toastsV2"
       ]
     },

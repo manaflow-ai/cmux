@@ -7,15 +7,26 @@
 // experimentArm reads the arms here after the host's own overrides (`cmuxExperiments`, the gallery)
 // and before the localStorage debug key, so a switch that is off changes nothing.
 //
-// A switch that picks an arm: its row in schemas/settings/source/experiments.json and one line in
+// A switch that picks an arm: its row in schemas/settings/source/experiments.json and one entry in
 // SETTING_ARMS.
 import { experimentSwitchOn, setExperimentSwitches } from "./switches";
 
-/** `experiments.<name>` switch name to the experiment id and the arm it runs while on. */
-export const SETTING_ARMS: Readonly<Record<string, { experiment: string; arm: string }>> = {
+type SettingArm = { experiment: string; arm: string };
+type SettingArmEntry = SettingArm | readonly SettingArm[];
+
+/** `experiments.<name>` switch name to the experiment arm(s) it runs while on. */
+export const SETTING_ARMS: Readonly<Record<string, SettingArmEntry>> = {
   menuStyleV2: { experiment: "menu-style-v2", arm: "v2" },
   menuRowStates: { experiment: "menu-row-states", arm: "on" },
+  composerHatGroups: [
+    { experiment: "subagent-tray-fold-head", arm: "groups" },
+    { experiment: "subagent-tray-column", arm: "glyph" },
+  ],
 };
+
+function armsFor(entry: SettingArmEntry): readonly SettingArm[] {
+  return Array.isArray(entry) ? entry : [entry];
+}
 
 /** The page event the theme bootstrap dispatches when the switches change. */
 export const EXPERIMENT_SETTINGS_EVENT = "cmux-experiment-settings";
@@ -28,13 +39,18 @@ declare global {
 /** Experiment id to arm, from the switches that are on now. */
 export function settingArms(on: (name: string) => boolean = experimentSwitchOn): Record<string, string> {
   const arms: Record<string, string> = {};
-  for (const [name, entry] of Object.entries(SETTING_ARMS)) if (on(name)) arms[entry.experiment] = entry.arm;
+  for (const [name, entry] of Object.entries(SETTING_ARMS)) {
+    if (!on(name)) continue;
+    for (const arm of armsFor(entry)) arms[arm.experiment] = arm.arm;
+  }
   return arms;
 }
 
 /** The switch that picks an arm of `experimentId` (one per experiment), if any. */
 export function switchFor(experimentId: string): string | undefined {
-  return Object.keys(SETTING_ARMS).find((name) => SETTING_ARMS[name].experiment === experimentId);
+  return Object.keys(SETTING_ARMS).find((name) =>
+    armsFor(SETTING_ARMS[name]!).some((arm) => arm.experiment === experimentId),
+  );
 }
 
 // The theme route: what the bootstrap set before this module ran, then each change. A page with no

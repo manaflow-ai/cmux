@@ -3705,6 +3705,12 @@
       "title" : "Composer Refresh",
       "type" : "boolean"
     },
+    "experiments.composerHatGroups" : {
+      "default" : false,
+      "description" : "Show subagents and background tasks as two groups, with the hat aligned to the composer's plus glyph.",
+      "title" : "Composer Hat: Two Groups",
+      "type" : "boolean"
+    },
     "experiments.glassToolbarGroups" : {
       "default" : false,
       "description" : "The chat header's buttons become round glass buttons, with related actions sharing one glass capsule, a search chip and shortcut keycaps.",
@@ -5279,14 +5285,17 @@
       "type" : "string"
     },
     "sidebar.groupHeader.background" : {
-      "default" : "folder",
+      "default" : "auto",
       "description" : "How a group draws. Folders shows plain folders; Sections shows plain headings.",
       "enum" : [
         "folder",
         "auto",
         "glass",
         "solid",
-        "sections"
+        "sections",
+        "chip",
+        "tree",
+        "card"
       ],
       "title" : "Group Background",
       "type" : "string"

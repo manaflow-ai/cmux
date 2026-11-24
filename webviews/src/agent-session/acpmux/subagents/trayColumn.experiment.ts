@@ -23,7 +23,7 @@ export const trayColumnLook = defineExperiment({
       description: "The composer's inset, as before: the marks start at the + chip's outer edge.",
     },
   },
-  defaultArm: "glyph",
+  defaultArm: "chip",
 });
 
 export type TrayColumn = keyof typeof trayColumnLook.arms;
