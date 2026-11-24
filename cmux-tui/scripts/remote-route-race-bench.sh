@@ -27,8 +27,10 @@
 # prints once the session is connected (`runtime.info()`, after the Noise handshake and every
 # lane is ready). A third arm, `floor`, makes route 0 healthy (shaped exactly like route 1, race on) so
 # connect cost alone shows. Per-phase split: the client logs none, so each trial is captured with
-# tcpdump in the client namespace: spawn -> first SYN (process start + route setup), first SYN ->
-# the winner's SYN-ACK (TCP up), SYN-ACK -> connected (WebSocket upgrade + Noise + lane setup).
+# tcpdump in the client namespace: spawn -> first visible SYN (process start + route setup; a netem-
+# dropped SYN is never seen by the tap, so on the black-holed arms this includes the wait on route 0:
+# the floor arm is the clean process-start-to-first-dial number), first SYN -> SYN-ACK (the return
+# leg only: the tap sits after the egress delay), SYN-ACK -> connected (upgrade + Noise + lanes).
 # ARMS="on off floor" selects arms.
 set -euo pipefail
 
@@ -160,7 +162,7 @@ env = dict(os.environ, HOME=os.environ["BENCH_CHOME"],
 env.pop("CMUX_REMOTE_ROUTE_RACE", None)
 if arm == "off":
     env["CMUX_REMOTE_ROUTE_RACE"] = "0"
-cap = subprocess.Popen(["tcpdump", "-i", "any", "-tt", "-n", "-l", "-Q", "inout", "tcp", "port", "47931"],
+cap = subprocess.Popen(["tcpdump", "-i", "any", "-tt", "-n", "-l", "-Q", "inout", "host", "10.77.0.2", "or", "arp", "or", "port", "47931"],
                        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
 time.sleep(0.4)
 w0 = time.time()
@@ -185,6 +187,8 @@ except subprocess.TimeoutExpired:
     p.wait()
 cap.terminate()
 out = cap.stdout.read()
+if os.environ.get("BENCH_DEBUG"):
+    sys.stderr.write(out)
 syn = synack = None
 for l in out.splitlines():
     f = l.split()
@@ -204,6 +208,7 @@ else:
 PY
 }
 
+load_start=$(cut -d" " -f1-3 /proc/loadavg)
 results="$work/results.tsv"
 : >"$results"
 for i in $(seq 1 "$runs"); do
@@ -212,11 +217,12 @@ for i in $(seq 1 "$runs"); do
   for ((k=0; k<${#order[@]}; k++)); do
     arm=${order[$(( (k + i) % ${#order[@]} ))]}
     ms=$(trial "$arm")
-    printf '%s\t%s\t%s\n' "$arm" "$i" "${ms// /\t}" >>"$results"
+    printf '%s\t%s\t%s\n' "$arm" "$i" "${ms// /$'\t'}" >>"$results"
     echo "run $i arm=$arm connect_ms,spawn>syn,syn>synack,synack>connected=$ms" >&2
   done
 done
 
+echo "load average at start: $load_start; at end: $(cut -d" " -f1-3 /proc/loadavg) (1/5/15 min)"
 python3 - "$results" "$rtt" "$loss" "$runs" <<'PY'
 import sys
 rows = [l.split("\t") for l in open(sys.argv[1]).read().splitlines()]
