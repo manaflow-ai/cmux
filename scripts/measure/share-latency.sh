@@ -16,7 +16,7 @@ trap 'rm -f "$log"' EXIT
 cd "$root/cmux-tui"
 status=0
 cargo test --locked -p cmux-tui-core --lib \
-  'server::agent_session_shares::room::tests::latency::' -- --nocapture 2>&1 | tee "$log" || status=$?
+  'shares::room::tests::latency::' -- --nocapture 2>&1 | tee "$log" || status=$?
 
 python3 - "$log" <<'PY'
 import json
