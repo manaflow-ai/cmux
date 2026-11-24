@@ -8,7 +8,8 @@
 //! JSON lines with the app, like `serve`:
 //! stdout first: {"key":"<this side's session key>"} (the app signs it: the offer)
 //! stdin setup: {"session":"..","peer_key":"<host session key, checked by the app>",
-//!   "stun":[..],"candidates":[..],"socket":"<path in a 0700 directory>"}
+//!   "stun":[..],"candidates":[..],"socket":"<path in a 0700 directory>",
+//!   "relay_note":"<the hub's ticket `relayNote`, when billing could not be read>"}
 //! stdout then: {"candidate":".."}, {"listening":true}, {"connected":true},
 //!   {"path":{..}}, {"ended":".."}
 //! An `ended` that starts `host: ` carries the host's own cmux.rd/1 `ended` reason (for example
@@ -46,6 +47,10 @@ struct Answer {
     /// The person's "relay only": this side reaches the host through TURN alone.
     #[serde(default)]
     relay_only: bool,
+    /// Why the hub sent no relay when billing gave no answer (its ticket's `relayNote`, "could
+    /// not read your plan"), so a failed link says that rather than reading as a free plan.
+    #[serde(default)]
+    relay_note: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -151,7 +156,8 @@ pub fn run() -> Res<()> {
             libc::fcntl(libc::STDIN_FILENO, libc::F_GETFL) | libc::O_NONBLOCK,
         );
     }
-    let reason = bridge(&net, &listener).unwrap_or_else(|e| format!("failed: {e}"));
+    let reason = bridge(&net, &listener, answer.relay_note.as_deref())
+        .unwrap_or_else(|e| format!("failed: {e}"));
     let _ = std::fs::remove_file(&answer.socket);
     say(AppLine { ended: Some(reason), ..AppLine::default() });
     drop(net);
@@ -179,7 +185,7 @@ fn app_lines(buf: &mut Vec<u8>) -> Result<Vec<Later>, String> {
     Ok(lines)
 }
 
-fn bridge(net: &Net, listener: &UnixListener) -> Res<String> {
+fn bridge(net: &Net, listener: &UnixListener, relay_note: Option<&str>) -> Res<String> {
     let mut pane: Option<UnixStream> = None;
     let mut reader = FrameReader::default();
     let mut app = Vec::new();
@@ -265,10 +271,10 @@ fn bridge(net: &Net, listener: &UnixListener) -> Res<String> {
                     }
                 }
                 NetEvent::Endpoint(EndpointEvent::Link(Event::Closed)) => {
-                    return Ok(ended_line(host_said.as_deref(), None));
+                    return Ok(ended_line(host_said.as_deref(), None, relay_note));
                 }
                 NetEvent::Failed(reason) => {
-                    return Ok(ended_line(host_said.as_deref(), Some(reason.as_str())));
+                    return Ok(ended_line(host_said.as_deref(), Some(reason.as_str()), relay_note));
                 }
                 _ => {}
             }
@@ -285,11 +291,19 @@ fn host_ended(record: &[u8]) -> Option<String> {
 }
 
 /// The `ended` line once the link closed (`link_failed`: it failed, and why): the host's own
-/// reason when it said one before (`host: <reason>`), else what this side saw.
-fn ended_line(host_said: Option<&str>, link_failed: Option<&str>) -> String {
+/// reason when it said one before (`host: <reason>`), else what this side saw. A failed link
+/// with no relay because billing could not be read says so (`relay_note`).
+fn ended_line(
+    host_said: Option<&str>,
+    link_failed: Option<&str>,
+    relay_note: Option<&str>,
+) -> String {
     match (host_said, link_failed) {
         (Some(reason), _) => format!("host: {reason}"),
-        (None, Some(why)) => format!("link failed: {why}"),
+        (None, Some(why)) => match relay_note {
+            Some(note) => format!("link failed: {why}; no relay: {note}"),
+            None => format!("link failed: {why}"),
+        },
         (None, None) => "the host ended the session".into(),
     }
 }
@@ -309,9 +323,29 @@ mod tests {
         let started = serde_json::to_vec(&crate::wire::Control::Started { session: 1 }).unwrap();
         assert_eq!(host_ended(&started), None);
         assert_eq!(host_ended(b"not json"), None);
-        assert_eq!(ended_line(said.as_deref(), None), "host: failed: capture: no frame");
-        assert_eq!(ended_line(said.as_deref(), Some("timeout")), "host: failed: capture: no frame");
-        assert_eq!(ended_line(None, Some("timeout")), "link failed: timeout");
-        assert_eq!(ended_line(None, None), "the host ended the session");
+        assert_eq!(ended_line(said.as_deref(), None, None), "host: failed: capture: no frame");
+        assert_eq!(
+            ended_line(said.as_deref(), Some("timeout"), None),
+            "host: failed: capture: no frame"
+        );
+        assert_eq!(ended_line(None, Some("timeout"), None), "link failed: timeout");
+        assert_eq!(ended_line(None, None, None), "the host ended the session");
+    }
+
+    #[test]
+    fn a_failed_link_with_no_relay_because_billing_was_unread_says_so() {
+        let note = Some("could not read your plan");
+        assert_eq!(
+            ended_line(None, Some("the secure handshake timed out"), note),
+            "link failed: the secure handshake timed out; no relay: could not read your plan"
+        );
+        // The host's own reason still wins, and a link that closed cleanly needs no note.
+        assert_eq!(ended_line(Some("stopped"), Some("timeout"), note), "host: stopped");
+        assert_eq!(ended_line(None, None, note), "the host ended the session");
+        let answer: Answer = serde_json::from_str(
+            r#"{"session":"s","peer_key":"00","socket":"/tmp/x","relay_note":"could not read your plan"}"#,
+        )
+        .unwrap();
+        assert_eq!(answer.relay_note.as_deref(), note);
     }
 }
