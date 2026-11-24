@@ -93,11 +93,21 @@ await requireBrowserLane("one-line-rows-browser.test.ts", async () => {
       const page = await browser.newPage({ viewport: { width, height: 900 } });
       try {
         const seen: Record<string, unknown> = {};
+        let previews = 0;
         for (const variant of ["short", "long", "lead-run", "between-calls", "one-line", "wrapping-line"]) {
           await open(page, THOUGHTS, variant, width);
+          // The settled turn's work is folded under "Worked for": open it, so its thoughts draw.
+          const worked = page.locator("button.cv-worked.is-toggle").last();
+          if ((await worked.count()) && (await worked.getAttribute("aria-expanded")) !== "true") {
+            await worked.click();
+            await page.waitForFunction((el) => el?.getAttribute("aria-expanded") === "true", await worked.elementHandle());
+            await page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== "running" || a.effect?.getComputedTiming().iterations === Infinity));
+          }
+          previews += await page.locator(".cv-thought__preview").count();
           const found = await secondLines(page);
           if (found.length) seen[variant] = found;
         }
+        expect(previews).toBeGreaterThan(0);
         expect(seen).toEqual({});
       } finally {
         await page.close();
