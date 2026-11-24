@@ -318,25 +318,20 @@
   .wn-card:not(.wn-updated) { background: var(--page-elevated); box-shadow: inset 0 0 0 1px var(--page-separator); }
 }
 
-/* The Updated card wears the composer's material (Leo 2026-11-07: "the border styles, the glass
-   intensity is different"): ui/glass/composerMaterial.css, its fill at the popover level's share
-   (the art share over a background picture or a see-through window, so the picture shows through
-   it as it does through the composer), its one-pixel edge and its top-lit rim. Its shape is its own
-   (Leo 2026-11-23, ask-33e37575cb: "the fuck is a pill with 2 lines supposed to be for anyways?"):
-   one line, "Updated to Nightly" then What's New at the trailing end (UpdatedCardShape `row`), in
-   the one-line composer's box (grid.md 5.1, 48: Leo 2026-11-07, "the exact same height as the
-   composer") as the composer holds its one line, at the card corner (--grid-card-radius, 16: a
-   third of the box, never a capsule). The composer's 22 is half its round controls plus the inset,
-   and this card has no round controls. Every change of the update is one hover away. Wider side
-   room than the button-row card (Leo: "a little more spacing regarding, like, the things in the
-   side"). */
+/* The Updated card as the composer's twin (Leo 2026-11-07: "the border styles, the glass intensity
+   is different. For two, it's like the heights never match up with anything"): the composer's
+   material (ui/glass/composerMaterial.css: its fill at the popover level's share, its one-pixel
+   edge and its top-lit rim), its one-line height (grid.md 5.1, 48) and its corner. The words sit on
+   two lines inside it: "Updated to Nightly · What's New ↗", then the update's top change, each cut
+   at the card's edge (the hover preview has every change in full). Wider side room than the
+   button-row card (Leo: "a little more spacing regarding, like, the things in the side"). */
 .wn-card.wn-updated {
   --wn-side: calc(var(--grid-base, 4px) * 3);
   display: flex;
   flex-direction: column;
   padding: 0;
   overflow: hidden;
-  border-radius: var(--grid-card-radius, 16px); /* concentric-allow: the card's own corner, a third of its box; its x derives from it */
+  border-radius: var(--composer-material-radius); /* concentric-allow: the composer's own corner, the card is its twin (Lawrence 2026-11-23: back to the original look) */
   background: var(--composer-material-tint);
   box-shadow: var(--composer-material-ring), var(--composer-material-rim), var(--composer-material-depth);
 }
@@ -349,7 +344,7 @@
 /* The card with the theme's doodle decoration wears the same material: the sidebar draws no glass
    under the card's page (review F3 of #37615). Its own box and padding stay the doodle's. */
 .wn-card[data-decoration="doodle"] {
-  border-radius: var(--grid-card-radius, 16px); /* concentric-allow: the card's own corner, a third of its box */
+  border-radius: var(--composer-material-radius); /* concentric-allow: the composer's own corner, as the plain card */
   background: var(--composer-material-tint);
   box-shadow: var(--composer-material-ring), var(--composer-material-rim), var(--composer-material-depth);
 }
@@ -389,14 +384,13 @@
   height: var(--composer-material-height);
   padding: 0 var(--wn-side);
 }
-/* One line: centred in the box, as the composer's one line. */
 /* The same room on all four sides of the words (Lawrence 2026-11-07, "feels like too much padding on
    top"): centred with their line boxes' leading, the title's capitals sat further from the top than
    the note's baseline from the bottom. Each line is trimmed to its capitals and its baseline, and the
    lines stand the side inset in from the top and the bottom, the space between them taking the rest
    of the composer's box. Lines clip only sideways, so a trimmed line's descenders still show. */
 @supports (text-box: trim-both cap alphabetic) {
-  .wn-updated[data-shape="two-line"]:not([data-placement="button"]) .wn-card-rest {
+  .wn-updated:not([data-placement="button"]) .wn-card-rest {
     justify-content: space-between;
     padding-block: var(--wn-side);
   }
@@ -444,11 +438,7 @@
   transition: color var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out);
 }
 .wn-card-link:hover { color: var(--page-text); }
-.wn-updated:is([data-placement="top-right"], [data-shape="row"]) .wn-card-link { margin-left: auto; }
-/* The top change on the title's line (`row-change`): after the title, in the quiet ink, cut at the
-   edge; the title keeps its words. */
-.wn-updated[data-shape="row-change"] .wn-card-title { flex: none; }
-.wn-updated[data-shape="row-change"] .wn-card-head > .wn-card-note { flex: 1; min-width: 0; color: var(--page-text-2); }
+.wn-updated[data-placement="top-right"] .wn-card-link { margin-left: auto; }
 .wn-updated .wn-card-note {
   display: block;
   margin: 0;
@@ -539,6 +529,12 @@
 .wn-updated {
   --wn-preview-motion: 180ms; /* motion-allow: Leo's card curve (2026-11-08), the native glass's fixed twin */
   --wn-preview-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  /* The card's quiet inks, raised on the card alone so they hold 4.5:1 over a bright photograph behind
+     the glass (gallery card-photo-*, measured in the PR body). The page tokens stay as they are. */
+  --page-text-2: color-mix(in srgb, var(--page-text) 88%, transparent);
+  --page-text-3: color-mix(in srgb, var(--page-text) 78%, transparent);
+  /* The glass behind the card a little more opaque, so a bright photo does not wash its ink out. */
+  --composer-material-tint: color-mix(in srgb, var(--composer-material-solid) 84%, transparent);
 }
 :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .wn-preview {
   transition: height var(--wn-preview-motion) var(--wn-preview-ease);
@@ -1054,3 +1050,118 @@
 .wn-card[data-mode="version"] .wn-card-version { margin: 0; }
 /* No faded last row (Lawrence 2026-11-07: a dimmed row read as disabled): the scrollbar marks more. */
 .wn-notes[data-cmux-card-scroll] { -webkit-mask: none !important; mask: none !important; }
+
+/* Going back to an earlier build (GoBack.tsx), at the foot of the Updated card's changes. The
+   footer stays in view while the list scrolls (sticky), on the popover's own surface, so the way
+   back is always one click away; the "N more" pill stands just above it. */
+.wn-goback {
+  position: sticky;
+  bottom: 0;
+  z-index: var(--layer-raised);
+  margin-top: var(--ds-space-2);
+  padding: var(--ds-space-2) var(--ds-space-2) 0;
+  border-top: 1px solid var(--page-separator);
+  background: var(--page-elevated);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.wn-notes:has(.wn-goback) .wn-notes-more { bottom: calc(var(--ds-space-2) * 4 + var(--ds-space-1)); }
+.wn-goback-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-1) var(--ds-space-2);
+  min-width: 0;
+}
+.wn-goback-entry {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  max-width: 100%;
+  flex: 0 1 auto;
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  padding: var(--ds-space-1) var(--ds-space-2);
+  background: var(--page-hover);
+  color: var(--page-text);
+  font: inherit;
+  text-align: start;
+  cursor: default;
+}
+.wn-goback-entry:hover:not(:disabled) { background: var(--page-selection); }
+.wn-goback-entry:disabled { color: var(--page-text-2); }
+.wn-goback-glyph { flex: none; color: var(--page-text-2); }
+.wn-goback-label { min-width: 0; overflow-wrap: anywhere; }
+.wn-goback-more {
+  margin-inline-start: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--ds-space-1) / 2);
+  flex: none;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--page-text-2);
+  font: inherit;
+  white-space: nowrap;
+  cursor: default;
+}
+.wn-goback-more:hover { color: var(--page-text); }
+.wn-goback-more svg[data-open] { transform: rotate(180deg); }
+.wn-goback-failure { margin: var(--ds-space-1) 0 0; color: var(--cmux-danger, var(--page-text-2)); }
+.wn-goback-builds {
+  list-style: none;
+  margin: var(--ds-space-1) 0 0;
+  padding: 0;
+  max-height: calc(var(--ds-space-2) * 24);
+  overflow-y: auto;
+}
+.wn-goback-build {
+  padding: var(--ds-space-1) 0;
+  border-top: 1px solid var(--page-separator);
+}
+.wn-goback-build:first-child { border-top: 0; }
+.wn-goback-build-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-2);
+  min-width: 0;
+}
+.wn-goback-build-name { color: var(--page-text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wn-goback-build-date { color: var(--page-text-3); white-space: nowrap; }
+.wn-goback-build-tag {
+  padding: 0 var(--ds-space-1);
+  border-radius: 999px;
+  background: var(--page-hover);
+  color: var(--page-text-2);
+  white-space: nowrap;
+}
+.wn-goback-build[data-previous] .wn-goback-build-tag { background: var(--page-selection); color: var(--page-text); }
+.wn-goback-build-go {
+  margin-inline-start: auto;
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  padding: 0 var(--ds-space-2);
+  background: var(--page-hover);
+  color: var(--page-text);
+  font: inherit;
+  white-space: nowrap;
+  cursor: default;
+}
+.wn-goback-build-go:hover:not(:disabled) { background: var(--page-selection); }
+.wn-goback-build-change,
+.wn-goback-loading {
+  color: var(--page-text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* `list`: the builds stand open, the previous one marked; no separate entry above them. */
+.wn-goback[data-look="list"] .wn-goback-builds { max-height: none; }
+.wn-notes-links { display: inline-flex; align-items: baseline; gap: var(--ds-space-2); }
+:is(.wn-goback-entry, .wn-goback-more, .wn-goback-build-go):focus-visible {
+  outline: 2px solid var(--cmux-accent, currentColor);
+  outline-offset: 2px;
+}

@@ -357,6 +357,9 @@ public final class AgentChatStore {
     /// Set by the composer when it took its place without motion (the chat opened on its
     /// history): the bottom stack's next height lands at once too (then cleared).
     @ObservationIgnored var placeBottomStackInstantly = false
+    /// Set by the composer when its draft gained or lost a line: the bottom stack's next
+    /// height change moves on `ComposerLineMotion` (then cleared).
+    @ObservationIgnored var lineMotionPending = false
     #if os(iOS)
     /// The new-chat entrance (`NewChatEntrance`) plays once per chat: which parts already did.
     @ObservationIgnored var newChatEntrance = NewChatEntrance.Played()

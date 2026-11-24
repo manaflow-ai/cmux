@@ -6,7 +6,7 @@ export type TakeBack = "back" | "refused" | "failed";
 
 /// The sent prompt row's Retry and Fork (UserBubble.tsx), each null where that row would not offer
 /// it, handed to a waiting steer's queue row so the two rows draw the same buttons (PendingSteer.tsx).
-export type QueuedActions = { retry?: ReactNode; fork?: ReactNode };
+export type QueuedActions = { retry?: ReactNode; fork?: ReactNode; save?: ReactNode };
 
 // Actions a turn's footer and edited-files card offer that reach past the transcript (to the
 // client). A context, so a change in what acpmux serves, or in what the reader decided about a
