@@ -2775,6 +2775,20 @@ Commits logged without a trailer (the card above):
   `SidebarSearchButtonTests`, `SidebarEvenRowInsetsTests`, `NowPlayingCardTests`.
   Sidebar-Look: every density is Default scaled by one factor.
 
+- 2026-11-17 (Lawrence, via Leo: "also for customization make it possible to turn out sidebar into [another app]'s
+  sidebar"): two opt-in settings and a theme file restyle the sidebar into a minimal session list, with no code
+  change. `sidebar.workspaceRow.statusPlacement` `leading` draws the row's status mark (badge, agent mark or spinner)
+  in the leading icon slot, which the row keeps while idle so the title's x never moves; `trailing` (the default) is
+  today's drawing. `appearance.statusIndicator.iconSet` makes the status icon set a setting (default `codex`, the
+  Debug override still wins). A theme file now also takes the rows' density, text size, status icons, grouping and
+  every `sidebar.workspaceRow.<name>`; `Resources/theme-files/minimal-sessions.json` ships the look. The default
+  sidebar does not change. Regression: `SidebarRowStatusPlacementTests`, `StatusIconSetSettingTests`,
+  `WorkspaceRowStatusPlacementSettingTests`, `ThemeFileTests.aThemeFileSetsHowTheSidebarRowsDraw`.
+  With the status leading, an agent mark standing in for the status (`sidebar.agentMark` `replacesStatus`) hides
+  while the row badge holds the slot, so one mark draws (review at 2371b98d824, F2;
+  `SidebarRowStatusPlacementTests.leadingDrawsOneMarkWhenTheAgentMarkStandsInForTheStatus`).
+  Sidebar-Look: also for customization make it possible to turn out sidebar into a minimal session list (Lawrence).
+
 - 2026-11-21 (pin lifecycle tour, Leo: "actually, the entire pin lifecycle is weird as shit"): a pinned workspace
   draws as a block item, not a list row, so `rowFrameOnScreen` (the icon picker's anchor and `debug.mouse`'s `row`)
   answered nil for every pinned workspace and the pin lifecycle tour could not hover, drag or click one. It now
