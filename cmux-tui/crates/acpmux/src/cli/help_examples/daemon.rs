@@ -41,6 +41,13 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "daemon felt",
+        &[
+            ("What a person feels: p50, p90 and p99 latencies", "acpmux daemon felt"),
+            ("The same as JSON", "acpmux --json daemon felt"),
+        ],
+    ),
+    (
         "daemon start",
         &[
             ("Start the daemon and wait until it accepts clients", "acpmux daemon start"),

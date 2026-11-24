@@ -93,7 +93,9 @@ impl SubagentTree {
     /// Follows every subagent through one update's events, live or replayed: its state, its kind
     /// and the call that started it; and, live, when it started and ended.
     pub(super) fn note_listed(&mut self, events: &[Value], live: bool) {
-        let now = live.then(crate::store::now_ms);
+        // The update's own time, not the read's: a log folded again (an adoption resumed from
+        // its checkpoint, or a whole read) gives each subagent the start it was logged with.
+        let now = live.then(|| self.update_time());
         for event in events {
             let (Some(id), Some(state)) =
                 (event.get("id").and_then(Value::as_str), listed_state(event))

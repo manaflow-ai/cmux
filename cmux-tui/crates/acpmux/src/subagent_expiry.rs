@@ -171,6 +171,11 @@ impl SubagentTree {
         self.expiry.clock = at;
     }
 
+    /// When the update being read happened: its logged stamp when a log is folded, else now.
+    pub(super) fn update_time(&self) -> u64 {
+        if self.expiry.clock > 0 { self.expiry.clock } else { crate::store::now_ms() }
+    }
+
     /// One event of `id`: running, it is seen now; ended, it leaves expiry's tables. Any event
     /// is its own record after a harness exit, so it is no orphan.
     pub(super) fn expiry_event(&mut self, id: &str, running: bool) {
