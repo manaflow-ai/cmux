@@ -1177,7 +1177,7 @@
         {
           "key": "transport.tailnetCarrier",
           "name": "tailnetCarrier",
-          "note": "Read by direct route races. When direct-only, a cached Tailscale LocalAPI view may add a peer's direct tailnet address as a candidate. DERP and peer-relay paths stay below cmux-owned direct and relay paths. Off is the default.",
+          "note": "Read by direct route races. When direct-only, a cached Tailscale LocalAPI view may add a peer's direct tailnet address as a candidate. DERP and peer-relay paths are excluded until their cost is measured. Off is the default.",
           "title": {
             "key": "settings.transport.tailnetCarrier",
             "text": "Tailscale Carrier"
@@ -1214,7 +1214,7 @@
                 "key": "settings.transport.tailnetCarrier.on",
                 "text": "On"
               },
-              "note": "Enable the carrier policy. Relayed paths remain last-resort policy."
+              "note": "Accept the carrier policy value. Relayed paths remain excluded until their cost is measured."
             }
           ],
           "default": "off",
