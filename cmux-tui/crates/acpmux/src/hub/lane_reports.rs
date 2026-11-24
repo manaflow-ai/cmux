@@ -549,8 +549,7 @@ impl Hub {
         if parent == child || self.lane_below(parent, child) {
             return;
         }
-        let Some(s) = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(child).cloned()
-        else {
+        let Some(s) = self.session_get(child) else {
             return;
         };
         // A close sets the status before `lane_retire` takes this lock: read under it, a parent
@@ -871,7 +870,7 @@ impl Hub {
 
     /// Whether session `id` is here and not closed.
     fn lane_open(&self, id: &str) -> bool {
-        let s = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
+        let s = self.session_get(id);
         s.is_some_and(|s| s.status() != SessionStatus::Closed)
     }
 
@@ -895,7 +894,7 @@ impl Hub {
         lane: &str,
         report: &Report,
     ) -> Result<(), RpcError> {
-        let local = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(parent).cloned();
+        let local = self.session_get(parent);
         let Some(p) = local else {
             // The parent is gone: nobody to report to.
             self.lane_links(|links| {
@@ -948,8 +947,7 @@ impl Hub {
             provenance.set(super::lane_report_subagents::FOR_SUBAGENT, sub.clone());
         }
         // The lane's id and harness, for the parent's queue list (`prompt_provenance.rs`).
-        let lane_session =
-            self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(lane).cloned();
+        let lane_session = self.session_get(lane);
         let sender = lane_session
             .map(|l| crate::prompt_provenance::BoundSender::of_session(&l.id, &l.meta()));
         crate::prompt_provenance::stamp_sender(provenance, sender.as_ref())
