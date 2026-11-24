@@ -840,6 +840,15 @@ class ReuseProducts(TestProductHandoff):
                 self.assertEqual(provenance['artifact_id'], 42)
                 shutil.rmtree(self.consumer)
 
+    def test_multiple_valid_candidates_refuse_ambiguous_reuse(self):
+        self.api.artifacts = [self.api.artifact, {**self.api.artifact, "id": 43}]
+        report = {}
+        with mock.patch.object(self.api, "download") as download:
+            self.assertFalse(self.restore_reuse(report=report))
+        self.assertIn("ambiguous_matching_artifacts", report["miss_reasons"])
+        download.assert_not_called()
+        self.assertFalse(self.consumer.exists())
+
     def test_failure_after_relocation_aborts_without_trying_another_candidate(self):
         original_restore = reuse.products.restore
         def restore(derived, identity):

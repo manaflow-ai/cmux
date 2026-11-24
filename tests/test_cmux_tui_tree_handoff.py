@@ -165,7 +165,7 @@ class CandidateTests(unittest.TestCase):
 class CommandTests(unittest.TestCase):
     """Runs the script with a fake gh on PATH."""
 
-    def run_handoff(self, state, token="t", spare="", extra=()):
+    def run_handoff(self, state, token="t", spare="", extra=(), fault_result="failure"):
         with tempfile.TemporaryDirectory() as tmp:
             gh = Path(tmp, "gh")
             gh.write_text(FAKE_GH)
@@ -175,7 +175,8 @@ class CommandTests(unittest.TestCase):
                    "FAKE_STATE": str(Path(tmp, "state.json")), "FAKE_LOG": str(Path(tmp, "log"))}
             if not token:
                 env.pop("GH_TOKEN")
-            result = subprocess.run([sys.executable, str(SCRIPT), "--repo", "o/r", "--run-id", "99", "--key", KEY, *extra],
+            result = subprocess.run([sys.executable, str(SCRIPT), "--repo", "o/r", "--run-id", "99", "--key", KEY,
+                                     "--fault-result", fault_result, *extra],
                                     capture_output=True, text=True, env=env)
             log_path, tokens_path = Path(tmp, "log"), Path(tmp, "log.tokens")
             calls = [json.loads(line) for line in log_path.read_text().splitlines()] if log_path.exists() else []
@@ -207,6 +208,22 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn("tree hand-off skipped", result.stdout)
         self.assertFalse(any(c[:2] == ["run", "rerun"] for c in calls))
+
+    def test_success_result_skips_without_api_calls(self):
+        result, calls = self.run_handoff({}, fault_result="success")
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("no tree hand-off", result.stdout)
+        self.assertEqual(calls, [])
+
+    def test_unknown_fault_result_fails_closed_without_api_calls(self):
+        for fault_result in ("", "secret-shaped-${{ github.token }}", "bogus"):
+            with self.subTest(fault_result=fault_result):
+                result, calls = self.run_handoff({}, fault_result=fault_result)
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("invalid publish-tree result", result.stderr)
+                if fault_result:
+                    self.assertNotIn(fault_result, result.stderr)
+                self.assertEqual(calls, [])
 
     # 2026-11-13: f8a39fdd's run 43425734678 deferred tree 77865e8e to its owner at attempt 3, built nothing,
     # and the owner published only its own commit's manifest: f8a39fdd answered 404. A published tree
@@ -417,6 +434,8 @@ class WorkflowTests(unittest.TestCase):
         notify = workflow["jobs"]["notify-unpublished-tree"]
         step = next(s for s in notify["steps"] if s.get("name") == "Hand the key to a run that deferred to this one")
         self.assertIn("scripts/ci/cmux_tui_tree_handoff.py", step["run"])
+        self.assertIn('--fault-result "$FAULT_RESULT"', step["run"])
+        self.assertEqual(step["env"]["FAULT_RESULT"], "${{ needs.publish-tree.result }}")
         self.assertEqual(notify["permissions"].get("actions"), "write")
         checkout = next(s for s in notify["steps"] if "actions/checkout" in str(s.get("uses", "")))
         self.assertIn("scripts/ci", checkout["with"]["sparse-checkout"])

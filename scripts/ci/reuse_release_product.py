@@ -388,9 +388,23 @@ def restore(api, value: dict, derived: Path, current_run: str, current_attempt: 
     if not artifacts:
         return {"hit": False, "outcome": "restore_miss", "reason": "no_exact_artifact", "restore_seconds": time.monotonic() - started}
     last_reason = "candidate_rejected"
+    valid = []
     for artifact in artifacts:
         try:
             run, attempt = producer_for(api, artifact, value, current_run, current_attempt)
+            valid.append((artifact, run, attempt))
+        except (ValueError, KeyError, OSError, subprocess.SubprocessError, tarfile.TarError, zipfile.BadZipFile, json.JSONDecodeError) as error:
+            last_reason = type(error).__name__
+            print(f"Skipping Release product artifact {artifact.get('id', '?')} ({last_reason}).")
+    if len(valid) > 1:
+        return {
+            "hit": False,
+            "outcome": "fallback_rebuild",
+            "reason": "ambiguous_matching_artifacts",
+            "restore_seconds": time.monotonic() - started,
+        }
+    for artifact, run, attempt in valid:
+        try:
             with tempfile.TemporaryDirectory(prefix="cmux-release-reuse-") as tmp:
                 staging = Path(tmp)
                 archive = staging / "artifact.zip"

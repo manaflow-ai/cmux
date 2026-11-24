@@ -52,7 +52,7 @@ The published path spends one artifact-list call, one page of this workflow's ru
 (its job list, rerun, marker deletion): 2+3N when candidates are on that page. A candidate missing from the page gets one
 bounded run-by-id read, so the fallback is still fixed per candidate and never walks the repository's run history.
 
-usage: cmux_tui_tree_handoff.py --repo OWNER/NAME --run-id ID --key KEY [--published]
+usage: cmux_tui_tree_handoff.py --repo OWNER/NAME --run-id ID --key KEY --fault-result RESULT [--published]
 Needs GH_TOKEN with actions: write (job logs are read with actions access).
 GH_TOKEN_SPARE, optional: a second token with actions: write and its own rate limit.
 """
@@ -90,6 +90,7 @@ ADOPT_JOB_NAME = "write the commit manifest from the published tree"
 ADOPT_JOB_RAN = frozenset({"success", "failure"})
 # Jobs that only follow a failure: they never make an owner's failure their own.
 REPORTING_JOBS = frozenset({"report an unpublished cmux-tui tree to cmux-next"})
+FAULT_RESULTS = frozenset({"success", "failure", "cancelled", "skipped"})
 GLAEDA_BUDGET = Path(os.environ.get("GLAEDA_GH_DIR") or Path.home() / ".cache" / "glaeda" / "gh") / "budget.json"
 
 
@@ -357,14 +358,33 @@ def handoff(repo: str, run_id: int, key: str) -> None:
     print(f"::warning::no run that deferred tree {key} to this one could be re-run")
 
 
+def validate_fault_result(value: str | None) -> str:
+    """Accept only GitHub's known upstream job results before making API calls."""
+    if value not in FAULT_RESULTS:
+        raise ValueError("invalid publish-tree result")
+    return value
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--repo", required=True)
     parser.add_argument("--run-id", required=True, type=int)
     parser.add_argument("--key", required=True)
+    parser.add_argument("--fault-result", required=False,
+                        help="the exact needs.publish-tree.result value")
     parser.add_argument("--published", action="store_true",
                         help="the key is published: re-run every run that deferred to it, for its commit manifest")
     args = parser.parse_args(argv)
+    try:
+        fault_result = validate_fault_result(args.fault_result) if args.fault_result is not None else None
+        if not args.published:
+            fault_result = validate_fault_result(fault_result)
+    except ValueError as error:
+        print(f"::error title=tree hand-off refused::{error}; no API calls made", file=sys.stderr)
+        return 2
+    if not args.published and fault_result == "success":
+        print("publish-tree succeeded; no tree hand-off is needed")
+        return 0
     if not os.environ.get("GH_TOKEN"):
         print("::warning::tree hand-off needs GH_TOKEN; nothing was handed off", file=sys.stderr)
         return 2

@@ -5803,7 +5803,8 @@ jobs:
           GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token || env.CI_POOL_GH_TOKEN && github.token || '' }}
           KEY: ${{ needs.tree-preflight.outputs.key }}
           RUN_ID: ${{ github.run_id }}
-        run: python3 scripts/ci/cmux_tui_tree_handoff.py --repo "$GITHUB_REPOSITORY" --run-id "$RUN_ID" --key "$KEY"
+          FAULT_RESULT: ${{ needs.publish-tree.result }}
+        run: python3 scripts/ci/cmux_tui_tree_handoff.py --repo "$GITHUB_REPOSITORY" --run-id "$RUN_ID" --key "$KEY" --fault-result "$FAULT_RESULT"
 
   # The run's large build outputs (cmux-tui-<target> 112-193 MB,
   # cmux-tui-dsyms-<target> 290-330 MB) are read only by this run's own jobs (publish, publish-tree,
