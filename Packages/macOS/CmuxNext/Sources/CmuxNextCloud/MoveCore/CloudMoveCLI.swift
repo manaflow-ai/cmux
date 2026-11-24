@@ -478,6 +478,13 @@ public nonisolated struct CloudMoveCLI: Sendable {
         return teams
     }
 
+    /// ``startChatWireTeams(active:install:)`` through `binary` with `identity`'s install token: nil without the CLI.
+    public static func wireTeams(binary: URL?, identity: MacInstallIdentity, active: String?) async -> [String]? {
+        guard let binary else { return nil }
+        let install = try? await identity.installToken()
+        return await CloudMoveCLI(binary: binary).startChatWireTeams(active: active, install: install)
+    }
+
     /// Whether a warm installed `account`'s `provider` login on `machine` recently and no newer copy onto it is in flight
     /// (Rust's `loginReceipt`): the start then checks and passes no login of its own. False on any failure.
     public func startChatLoginReceipt(machine: String, account: String, provider: String, scope: [String: String]? = nil) async -> Bool {

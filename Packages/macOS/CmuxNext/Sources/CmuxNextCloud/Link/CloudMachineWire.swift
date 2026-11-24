@@ -30,8 +30,8 @@ public final class CloudMachineWire {
     }
 
     /// `teams` and `onSpareReady`: as ``teams`` and ``onSpareReady``, set from the start.
-    public convenience init(apiBaseURL: URL, auth: CloudAuth, teams: (@MainActor (String?) async -> [String]?)? = nil,
-                            onSpareReady: @escaping @MainActor (String) -> Void = { _ in }) {
+    public convenience init(apiBaseURL: URL, auth: CloudAuth, teams: (@MainActor (String?) async -> [String]?)?,
+                            onSpareReady: @escaping @MainActor (String) -> Void) {
         self.init(apiBaseURL: apiBaseURL, token: { try await auth.tokens().access },
                   team: { await auth.teamID }, buildSpace: auth.configuration.buildSpace)
         (self.teams, self.onSpareReady) = (teams, onSpareReady)
