@@ -249,27 +249,7 @@ impl Mux {
     pub(crate) fn reapable_and_retained_terminals(
         &self,
     ) -> anyhow::Result<(HashSet<String>, HashSet<String>)> {
-        let (mut unplaced, mut retained) = {
-            let state = self.state.lock().unwrap();
-            let placed_runtimes: HashSet<SurfaceId> =
-                state.surfaces.values().filter_map(|view| view.terminal_runtime_id()).collect();
-            let mut unplaced = HashSet::new();
-            let mut placed = HashSet::new();
-            for (public_id, runtime) in &state.terminal_catalog {
-                let Some(identity) = self.resource_terminal_host_identity(runtime) else {
-                    continue;
-                };
-                let content_id = ContentPublicId::Terminal(public_id.clone());
-                if runtime.terminal_runtime_id().is_some_and(|id| placed_runtimes.contains(&id))
-                    || !state.placements_of_content(&content_id).is_empty()
-                {
-                    placed.insert(identity.terminal_id);
-                } else {
-                    unplaced.insert(identity.terminal_id);
-                }
-            }
-            (unplaced, placed)
-        };
+        let (mut unplaced, mut retained) = self.unplaced_and_placed_terminals();
         if unplaced.is_empty() {
             return Ok((unplaced, retained));
         }
@@ -291,6 +271,30 @@ impl Mux {
             !keep
         });
         Ok((unplaced, retained))
+    }
+
+    /// Host ids of the hosted terminals with no tab placement and of those
+    /// with one, read under the state lock alone (no registry access).
+    pub(crate) fn unplaced_and_placed_terminals(&self) -> (HashSet<String>, HashSet<String>) {
+        let state = self.state.lock().unwrap();
+        let placed_runtimes: HashSet<SurfaceId> =
+            state.surfaces.values().filter_map(|view| view.terminal_runtime_id()).collect();
+        let mut unplaced = HashSet::new();
+        let mut placed = HashSet::new();
+        for (public_id, runtime) in &state.terminal_catalog {
+            let Some(identity) = self.resource_terminal_host_identity(runtime) else {
+                continue;
+            };
+            let content_id = ContentPublicId::Terminal(public_id.clone());
+            if runtime.terminal_runtime_id().is_some_and(|id| placed_runtimes.contains(&id))
+                || !state.placements_of_content(&content_id).is_empty()
+            {
+                placed.insert(identity.terminal_id);
+            } else {
+                unplaced.insert(identity.terminal_id);
+            }
+        }
+        (unplaced, placed)
     }
 
     /// The reapable terminals, each with how long it has been unplaced,
@@ -669,6 +673,7 @@ impl Mux {
         let terminals = self.workspace_registry.lock().unwrap().terminal_snapshot()?.terminals;
         let mut chosen = Vec::new();
         let mut parked_surfaces = Vec::new();
+        let mut parked_ids = Vec::new();
         {
             let registry = self.workspace_registry.lock().unwrap();
             for terminal in terminals {
@@ -692,9 +697,15 @@ impl Mux {
                     continue;
                 }
                 parked_surfaces.extend(mine);
+                parked_ids.push(public_id);
                 chosen.push(terminal);
             }
         }
+        // Each shell saves its state for its tab's restart (`shell_state`),
+        // with no lock held, before its record is written. The freeing
+        // policy parks only a shell whose save succeeded
+        // (`shell_state_saved`); that save is fresh and not asked again.
+        let _ = self.save_shell_states(&parked_ids);
         // Every tab is recorded before any shell is asked to exit, so no exit removes one.
         let kept = self.record_kept_tabs(&chosen, KeptStart::OnShow)?;
         let mut failures = Vec::new();

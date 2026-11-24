@@ -26,6 +26,7 @@
 /// How soon after the last width step's work finished a new width counts as the same live resize.
 /// A drag's frames come every 8 to 17 ms when the chat is short, and one frame after the last pass
 /// when it is long; a window's or a strip's one-off change has no second width within it.
+// motion-allow: a resize hold, not a motion
 export const LIVE_RESIZE_MS = 120;
 
 /// What the transcript remembers between width steps. `served` is when the last step's work

@@ -98,7 +98,7 @@ impl FrameGate {
         }
     }
 
-    /// Changes the frame rate cap (quality ladder).
+    /// Changes the frame rate cap (resolution ladder).
     pub fn set_max_fps(&mut self, max_fps: u32) {
         self.min_interval_us = 1_000_000 / u64::from(max_fps.max(1));
     }
@@ -106,6 +106,11 @@ impl FrameGate {
     /// Changes the maximum number of frames that may be unacknowledged.
     pub fn set_max_in_flight(&mut self, max_in_flight: u32) {
         self.max_in_flight = max_in_flight.max(1);
+    }
+
+    /// Damage waits for the next frame.
+    pub fn has_pending(&self) -> bool {
+        self.pending.is_some()
     }
 
     /// Frames sent and not yet acknowledged.
@@ -143,6 +148,14 @@ impl FrameGate {
     pub fn damage(&mut self, rect: Rect, now_us: u64) -> FlowAction {
         self.pending = Some(self.pending.map_or(rect, |p| p.union(rect)));
         self.poll(now_us)
+    }
+
+    /// Puts a frame's damage back after the encoder produced nothing for it (a dropped
+    /// frame), so the next slot encodes that change again. Without this the change stays
+    /// unsent until other damage arrives, and the viewer shows a stuck region. It does not
+    /// encode now: the frame goes out at [`Self::next_deadline_us`], on the cap's schedule.
+    pub fn requeue(&mut self, rect: Rect) {
+        self.pending = Some(self.pending.map_or(rect, |p| p.union(rect)));
     }
 
     /// Records the viewer's newest decoded frame.

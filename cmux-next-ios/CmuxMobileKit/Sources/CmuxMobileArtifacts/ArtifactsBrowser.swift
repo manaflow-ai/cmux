@@ -149,12 +149,12 @@ public struct ArtifactsBrowser: View {
                             .padding(.horizontal, 14)
                             .padding(.vertical, 6)
                             .frame(minHeight: 34)
-                            .background(Color.primary.opacity(state.filter == item ? 0.16 : 0.06), in: .capsule)
+                            .cmuxMobilePressBackground(Color.primary.opacity(state.filter == item ? 0.16 : 0.06), in: .capsule)
                             // 44 pt target around the 34 pt capsule.
                             .frame(minHeight: 44)
                             .contentShape(.rect)
                     }
-                    .buttonStyle(.cmuxPressFill)
+                    .buttonStyle(.cmuxPressFillInLabel)
                     .accessibilityAddTraits(state.filter == item ? .isSelected : [])
                 }
             }

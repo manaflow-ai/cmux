@@ -2501,11 +2501,11 @@ class Workflow(unittest.TestCase):
         self.assertEqual(step["env"]["POOL_OWNED"], "${{ vars.CI_PR_POOL_OWNED }}")
 
     def test_polls_from_an_ephemeral_runner(self):
-        # Never from an owned pool it may rescue, and never only from
+        # Never from an owned pool it may rescue (the repair JIT label is one-job VMs), and never only from
         # GitHub-hosted: a GitHub billing block must not stop the rescue.
         self.assertEqual(
             workflow_jobs.runs_on_cells(self.doc["jobs"]["rescue"]),
-            ['${{ github.repository_owner != \'manaflow-ai\' && \'ubuntu-24.04\' || contains(fromJSON(\'["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]\'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || \'blacksmith-4vcpu-ubuntu-2404\' }}'],
+            ['${{ github.repository_owner != \'manaflow-ai\' && \'ubuntu-24.04\' || vars.CI_REPAIR_SKIP_FLEET != \'1\' && \'cmux-gcp-repair-jit-x64\' || contains(fromJSON(\'["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]\'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || \'blacksmith-4vcpu-ubuntu-2404\' }}'],
         )
 
     def test_marker_steps_never_fail_the_changes_job(self):

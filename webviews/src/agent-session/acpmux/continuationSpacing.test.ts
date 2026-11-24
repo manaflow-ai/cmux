@@ -15,6 +15,10 @@ import {
   TRANSCRIPT_COMPOSER_GAP,
   TRANSCRIPT_FOOTER_CONTROL,
   TRANSCRIPT_FOOTER_GAP,
+  TRANSCRIPT_LIVE_STEP_BOX,
+  TRANSCRIPT_LIVE_STEP_GAP,
+  TRANSCRIPT_LINE_ROW,
+  TRANSCRIPT_LIVE_STEP_HEIGHT,
   TRANSCRIPT_RUN_GAP,
   TRANSCRIPT_TURN_GAP,
   MARK_CARD,
@@ -208,7 +212,8 @@ test("estimated grid rows follow the Interface Size", () => {
   }
 });
 
-test("the live line keeps the scaled run gap after activity while activity rows stay flush", () => {
+// The live line under a run takes its box and the gap over it from transcriptGrid.ts (TRANSCRIPT_LIVE_STEP_BOX).
+test("the live line takes its run box and gap after activity while activity rows stay flush", () => {
   const run = row("run", "activity", {
     items: [
       {
@@ -229,11 +234,33 @@ test("the live line keeps the scaled run gap after activity while activity rows 
   } as Partial<AcpmuxRow>);
   const live = row("live", "thinking", { below: true } as Partial<AcpmuxRow>);
   const layout = layoutConversation([run, next, live], 720);
-  expect(layout.heights[0]).toBe(22);
-  expect(layout.tops[1]! - layout.tops[0]!).toBe(22);
-  expect(layout.tops[2]! - layout.tops[1]! - layout.heights[1]!).toBe(TRANSCRIPT_RUN_GAP);
-  expect(layout.heights[2]).toBe(22);
-  expect(layout.tailGap).toBe(TRANSCRIPT_COMPOSER_GAP);
+  expect(layout.heights[0]).toBe(TRANSCRIPT_LINE_ROW);
+  expect(layout.tops[1]! - layout.tops[0]!).toBe(TRANSCRIPT_LINE_ROW);
+  expect(layout.tops[2]! - layout.tops[1]! - layout.heights[1]!).toBe(TRANSCRIPT_LIVE_STEP_GAP);
+  expect(layout.heights[2]).toBe(TRANSCRIPT_LIVE_STEP_HEIGHT);
+  // The room under it is a row of its box's: the composer gap under a line, the footer slot's under a slot.
+  expect(layout.tailGap).toBe(
+    TRANSCRIPT_LIVE_STEP_BOX === "slot"
+      ? layoutConversation([row("a", "assistant", { text: "Done." }), live], 720).tailGap
+      : TRANSCRIPT_COMPOSER_GAP,
+  );
+  // Under a run and under a reply alike, the footer gap (8) over it and one room from its top to the end, so the row
+  // over it switching moves it nothing (Leo, 2026-11-21: "see the space/gap between tool calls and the current
+  // shimmer? this isnt great."; transcriptGrid.ts LIVE_GAP_LOOKS).
+  expect(TRANSCRIPT_LIVE_STEP_GAP).toBe(TRANSCRIPT_FOOTER_GAP);
+  const fromTop = (rows: AcpmuxRow[]) => {
+    const placed = layoutConversation(rows, 720);
+    const last = rows.length - 1;
+    return {
+      over: placed.tops[last]! - placed.tops[last - 1]! - placed.heights[last - 1]!,
+      room: placed.heights[last]! + placed.tailGap!,
+    };
+  };
+  const underRun = fromTop([run, live]);
+  const underReply = fromTop([row("a", "assistant", { text: "Done." }), live]);
+  expect(underRun.over).toBe(TRANSCRIPT_FOOTER_GAP);
+  expect(underReply.over).toBe(TRANSCRIPT_FOOTER_GAP);
+  expect(underRun.room).toBe(underReply.room);
   // The same live line right under its prompt still waits a block gap under it (grid.md 5.5).
   const prompt = row("p", "user", { text: "Go" });
   const waiting = layoutConversation([prompt, live], 720);
@@ -270,17 +297,17 @@ test("a finished work disclosure shares the activity rhythm when closed or opene
     [worked, run, answer],
   ]) {
     const layout = layoutConversation(rows, 720);
-    // The 22px activity line, 4 to its rule, then 8 to the next row, with no stack gap after it
+    // The one-line activity row (TRANSCRIPT_LINE_ROW), 4 to its rule, then 8 to the next row, with no stack gap after it
     // (Lucas, 2026-11-07; Leo, 2026-11-09: "we need to reduce the after").
-    expect(layout.heights[0]).toBe(34);
+    expect(layout.heights[0]).toBe(TRANSCRIPT_LINE_ROW + 12);
     expect(layout.gaps?.[1]).toBe(0);
     const replyIndex = rows.length - 1;
     // A reply right under the line takes no gap of its own; under the opened fold's rows, the run gap.
     const replyGap = rows.length === 2 ? 0 : TRANSCRIPT_RUN_GAP;
     expect(layout.gaps?.[replyIndex]).toBe(replyGap);
-    if (rows.length === 3) expect(layout.tops[1]! - layout.tops[0]!).toBe(34);
-    const placed = placeRows(layout, () => 22);
-    expect(placed.tops[replyIndex]! - placed.tops[replyIndex - 1]! - 22).toBe(replyGap);
+    if (rows.length === 3) expect(layout.tops[1]! - layout.tops[0]!).toBe(TRANSCRIPT_LINE_ROW + 12);
+    const placed = placeRows(layout, () => TRANSCRIPT_LINE_ROW);
+    expect(placed.tops[replyIndex]! - placed.tops[replyIndex - 1]! - TRANSCRIPT_LINE_ROW).toBe(replyGap);
   }
   const prompt = row("prompt", "user", { text: "Go" });
   expect(layoutConversation([prompt, worked, answer], 720).gaps?.[1]).toBe(TRANSCRIPT_TURN_GAP);
@@ -309,8 +336,8 @@ test("status rows and step rows in a row sit flush", () => {
     row("compact", "compaction", { compaction: { state: "running" } }),
   ];
   const layout = layoutConversation(lines, 720);
-  expect(layout.tops[1]! - layout.tops[0]!).toBe(22);
-  expect(layout.tops[2]! - layout.tops[1]!).toBe(22);
+  expect(layout.tops[1]! - layout.tops[0]!).toBe(TRANSCRIPT_LINE_ROW);
+  expect(layout.tops[2]! - layout.tops[1]!).toBe(TRANSCRIPT_LINE_ROW);
 });
 
 test("a session start draws nothing: no height and no gap, as if it were not there", () => {

@@ -13,6 +13,7 @@ import { FileSearchLoading } from "./FileSearchLoading";
 import { useScrollEdges } from "../../ui/scrollEdges";
 
 /// How long typing settles before the palette asks again.
+// motion-allow: a typing debounce
 const SEARCH_DEBOUNCE_MS = 80;
 
 type State =
@@ -136,7 +137,12 @@ export function FileSearch({
             : undefined;
 
   return (
-    <dialog ref={root} open className="acpmux-file-search" aria-label={t("files.search")}>
+    <dialog
+      ref={root}
+      open
+      className="acpmux-file-search ui-glass ui-glass-floats ui-glass-transient"
+      aria-label={t("files.search")}
+    >
       <input
         ref={field}
         type="text"

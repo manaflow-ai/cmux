@@ -1056,6 +1056,23 @@ pub fn allowed_var(key: &str) -> Option<String> {
     .then_some(v)
 }
 
+/// Where [`vault_env`] reads the vault env: `vault::env_for_children`, set by the vault's
+/// worker when it starts (only a daemon starts it). The vault is a higher module, so it hands
+/// its reader down here instead of this module calling up into it.
+// test-hook-allow: not a test hook; the vault worker sets it once, and no test does
+static VAULT_ENV: std::sync::OnceLock<fn() -> Vec<(String, String)>> = std::sync::OnceLock::new();
+
+/// Called by the vault's worker (`vault::start_worker`) before it marks the vault active.
+pub(crate) fn set_vault_env(read: fn() -> Vec<(String, String)>) {
+    let _ = VAULT_ENV.set(read);
+}
+
+/// The vault env every local agent of this daemon gets (`vault::env_for_children`). Empty
+/// outside a daemon, as that is.
+pub(crate) fn vault_env() -> Vec<(String, String)> {
+    VAULT_ENV.get().map_or_else(Vec::new, |read| read())
+}
+
 /// Profile and route references must not recover a machine value from the
 /// daemon's inherited environment after the local-only overlay refuses it.
 pub(crate) fn reference_var(key: &str) -> Option<String> {
@@ -1070,7 +1087,7 @@ pub(crate) fn reference_var(key: &str) -> Option<String> {
 /// current local machine declarations it removed; never restore an inherited
 /// value or expose this overlay to remote-origin launches.
 pub(crate) fn restore_machine_tokio(cmd: &mut tokio::process::Command) {
-    cmd.envs(nested_local(crate::vault::env_for_children(), machine::read()));
+    cmd.envs(nested_local(vault_env(), machine::read()));
 }
 
 /// The nested-Claude keys of the local overlay a scrub removed, in the order
@@ -1099,7 +1116,7 @@ fn pairs_for(
     family: Option<&str>,
     profile: Option<&BTreeMap<String, String>>,
 ) -> Vec<(String, String)> {
-    pairs_with(family, profile, crate::vault::env_for_children(), machine::read())
+    pairs_with(family, profile, vault_env(), machine::read())
 }
 
 fn pairs_with(
@@ -1175,7 +1192,7 @@ pub fn effective_for(
     family: Option<&str>,
     profile: &BTreeMap<String, String>,
 ) -> BTreeMap<String, String> {
-    let (vault, machine) = (crate::vault::env_for_children(), machine_values());
+    let (vault, machine) = (vault_env(), machine_values());
     effective_with(family, profile, daemon_values(), vault, machine)
 }
 
@@ -1194,7 +1211,10 @@ pub(crate) fn effective_with(
     let mut restored = nested_overrides(family);
     restored.extend(nested_local(vault.clone(), machine.clone()));
     let local = pairs_with(family, Some(profile), vault, machine);
-    layered(daemon, nested, local, restored, profile)
+    let mut env = layered(daemon, nested, local, restored, profile);
+    // A launch adds the Cloud machine's route where nothing set one; a check sees the same.
+    crate::cloud_model_plane::fill_map(&mut env);
+    env
 }
 
 /// `machine.env`'s values now (`machine.rs`), for [`effective_with`].
@@ -1260,6 +1280,8 @@ pub fn apply_tokio_for(
         cmd.env_remove(key);
     }
     cmd.envs(values);
+    // A Cloud machine's model route where nothing above set one (`cloud_model_plane.rs`).
+    crate::cloud_model_plane::fill_tokio(cmd, true);
     if let Some(path) = agent_path() {
         cmd.env("PATH", path);
     }
@@ -1286,6 +1308,9 @@ pub fn apply_remote_tokio(cmd: &mut tokio::process::Command) {
     if let Some(path) = agent_path() {
         cmd.env("PATH", path);
     }
+    // On a Cloud machine its own model route (root-owned, no credential) is the machine's, not
+    // the remote caller's authority: a chat the Mac started there reaches the edge too.
+    crate::cloud_model_plane::fill_tokio(cmd, false);
 }
 
 /// Same, for std's process builder.
@@ -1299,6 +1324,8 @@ pub fn apply_std_for(
         cmd.env_remove(key);
     }
     cmd.envs(values);
+    // A Cloud machine's model route where nothing above set one (`cloud_model_plane.rs`).
+    crate::cloud_model_plane::fill_std(cmd, true);
     if let Some(path) = agent_path() {
         cmd.env("PATH", path);
     }

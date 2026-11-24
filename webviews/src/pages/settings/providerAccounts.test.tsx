@@ -185,11 +185,10 @@ test("Claude's Add account takes an API key by its reference, with the name type
   expect(added.querySelector("[data-account-auth]")?.textContent).toBe("Authenticated · API key");
   expect(added.querySelector("[data-account-folder]")).toBeNull();
   expect(added.querySelector('[data-account-action="signOut"]')).toBeNull();
-  // Its Remove question speaks of the key, not a login folder it does not have.
+  // Remove sends on the click, with no question first.
   await act(async () => added.querySelector<HTMLButtonElement>('[data-account-action="remove"]')!.click());
-  const ask = claude().querySelector<HTMLElement>('[data-account="claude-2"] [data-account-remove-confirm]')!;
-  expect(ask.textContent).toContain("The API key stays where it is stored.");
-  expect(ask.textContent).not.toContain("login folder");
+  await settle();
+  expect(page.provider.harnessRuns.at(-1)).toEqual({ action: "accountRemove", account: "claude-2" });
   page.unmount();
 });
 
@@ -216,40 +215,10 @@ test("Make Default, Rename, Sign Out and Remove each ask the host for their acco
   expect(row().querySelector(".harness-account-name")?.textContent).toContain("Work");
   await press("signOut");
   expect(page.provider.harnessRuns.at(-1)).toEqual({ action: "accountSignOut", account: "codex-2" });
-  // Remove asks first, in the row; only the confirm sends it.
-  const runs = page.provider.harnessRuns.length;
+  // Remove sends on the click: the login folder and the CLI's own sign-in stay, so nothing asks.
   await press("remove");
-  expect(page.provider.harnessRuns.length).toBe(runs);
-  expect(row().querySelector("[data-account-remove-confirm]")?.textContent).toContain("Remove “Work” from cmux?");
-  expect(row().querySelector("[data-account-remove-confirm]")?.textContent).toContain("login folder stays");
-  await press("confirmRemove");
   expect(page.provider.harnessRuns.at(-1)).toEqual({ action: "accountRemove", account: "codex-2" });
   expect(card(page.container).querySelector('[data-account="codex-2"]')).toBeNull();
-  page.unmount();
-});
-
-test("Remove's confirm cancels with Cancel or Escape and sends nothing", async () => {
-  const page = await withAccounts();
-  const row = () => card(page.container).querySelector<HTMLElement>('[data-account="codex-2"]')!;
-  const confirm = () => row().querySelector<HTMLElement>("[data-account-remove-confirm]");
-  const runs = page.provider.harnessRuns.length;
-  await act(async () => row().querySelector<HTMLButtonElement>('[data-account-action="remove"]')!.click());
-  expect(confirm()?.getAttribute("role")).toBe("alertdialog");
-  // Remove gives way to the question while it is open.
-  expect(row().querySelector('[data-account-action="remove"]')).toBeNull();
-  await act(async () => row().querySelector<HTMLButtonElement>('[data-account-action="cancelRemove"]')!.click());
-  expect(confirm()).toBeNull();
-  // Opening it again puts focus on Cancel, and Escape there closes it.
-  await act(async () => row().querySelector<HTMLButtonElement>('[data-account-action="remove"]')!.click());
-  const cancel = row().querySelector<HTMLButtonElement>('[data-account-action="cancelRemove"]')!;
-  expect(document.activeElement).toBe(cancel);
-  await act(async () => {
-    cancel.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-  });
-  expect(confirm()).toBeNull();
-  await settle();
-  expect(page.provider.harnessRuns.length).toBe(runs);
-  expect(row()).not.toBeNull();
   page.unmount();
 });
 
@@ -312,3 +281,14 @@ function page0(): HarnessesState["harnesses"] {
     { id: "codex", name: null, kind: "acp", source: "path", problem: null },
   ];
 }
+
+// Feature map `usage-per-account` (Leo, 2026-11-23): "a hover line names the last miss cause".
+test("an account's usage hover names its last prompt cache miss and its cause, and a cause it does not know reads as unknown", async () => {
+  const { cacheMissLine } = await import("./components/ProviderAccounts");
+  const at = Date.UTC(2026, 10, 23, 14, 5);
+  expect(cacheMissLine({ cause: "expired", at }, "en-US")).toMatch(/^Last prompt cache miss .*: the cache expired$/);
+  expect(cacheMissLine({ cause: "model", at }, "en-US")).toEndWith(": the model changed");
+  expect(cacheMissLine({ cause: "something-new", at }, "en-US")).toEndWith(": cause unknown");
+  expect(cacheMissLine({ cause: "expired", at: 0 })).toBeUndefined();
+  expect(cacheMissLine(undefined)).toBeUndefined();
+});

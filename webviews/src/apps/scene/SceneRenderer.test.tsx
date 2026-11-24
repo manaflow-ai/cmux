@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import sceneType from "../../../../schemas/type-scale/scene-type.json";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -21,7 +22,7 @@ const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
 
 afterEach(async () => {
-  act(() => root?.unmount());
+  await act(() => root?.unmount());
   root = undefined;
   await settleReact();
   for (const [key, value] of saved) {
@@ -32,15 +33,6 @@ afterEach(async () => {
   dom?.window.close();
   dom = undefined;
 });
-
-/** Yields to the event loop (a 0 ms macrotask) until `done()` holds; fails past `limitMs`. */
-async function waitUntil(done: () => boolean, limitMs: number): Promise<void> {
-  const deadline = Date.now() + limitMs;
-  while (!done()) {
-    if (Date.now() > deadline) throw new Error(`condition not met within ${limitMs} ms`);
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  }
-}
 
 function render(
   ops: SceneOp[],
@@ -602,6 +594,40 @@ test("failure copy matches the native AppFailureCopy cases", () => {
   });
 });
 
+test("a node's glass puts it on the page glass at that level, replaces its fill and changes no box", () => {
+  const { container, store } = render([
+    { op: "create", id: "root", type: "VStack", props: { padding: 8, background: "#112233", cornerRadius: 12 } },
+    { op: "root", id: "root" },
+  ]);
+  const node = () => container.querySelector<HTMLElement>("[data-app-node=root]")!;
+  const box = () => ({ padding: node().style.padding, radius: node().style.borderRadius });
+  const before = box();
+  expect(node().classList.contains("ui-glass")).toBe(false);
+  expect(node().style.backgroundColor).not.toBe("");
+
+  act(() => store.apply([{ op: "update", id: "root", props: { glass: "chip" } }]));
+  expect(node().classList.contains("ui-glass")).toBe(true);
+  expect(node().getAttribute("data-glass-level")).toBe("chip");
+  expect(node().style.backgroundColor).toBe("");
+  expect(box()).toEqual(before);
+
+  act(() => store.apply([{ op: "update", id: "root", props: { glass: "frosted" } }]));
+  expect(node().classList.contains("ui-glass")).toBe(false);
+  expect(node().hasAttribute("data-glass-level")).toBe(false);
+
+  act(() => store.apply([{ op: "update", id: "root", props: { glass: null } }]));
+  expect(node().classList.contains("ui-glass")).toBe(false);
+  expect(node().style.backgroundColor).not.toBe("");
+
+  // A gradient background gives way to glass too.
+  const gradient = { linear: { colors: ["#112233", "#445566"] } };
+  act(() => store.apply([{ op: "update", id: "root", props: { background: gradient } }]));
+  expect(node().style.backgroundImage).not.toBe("");
+  act(() => store.apply([{ op: "update", id: "root", props: { glass: "menu" } }]));
+  expect(node().style.backgroundImage).toBe("");
+  expect(node().style.backgroundColor).toBe("");
+});
+
 const list: SceneOp[] = [
   { op: "create", id: "root", type: "VStack" },
   { op: "create", id: "a", type: "Text", props: { text: "Milk", transition: "slide" } },
@@ -758,6 +784,73 @@ test("layout: HStack aligns top or bottom, ZStack centers, a shape's frame wins 
   expect(css).toMatch(/\.cmux-app-scene-zstack \{\s*display: grid;\s*place-items: center;/);
 });
 
+test("a drop in a Reorderable sends the list its item key and final index", () => {
+  const { container, calls } = render([
+    { op: "create", id: "pins", type: "Reorderable", props: { onMove: true } },
+    ...["n1", "n2", "n3"].map((id) => ({
+      op: "create" as const,
+      id,
+      type: "Row",
+      props: { title: id, reorderKey: "chat-" + id },
+    })),
+    { op: "children", id: "pins", children: ["n1", "n2", "n3"] },
+    { op: "root", id: "pins" },
+  ]);
+  const rows = Array.from(container.querySelectorAll<HTMLElement>(".cmux-app-scene-move-row"));
+  rows.forEach((row, i) => {
+    row.getBoundingClientRect = () => ({ top: 20 * i, height: 20 }) as DOMRect;
+  });
+  function dragEvent(row: HTMLElement, name: string, y: number) {
+    const event = new MouseEvent(name, { bubbles: true, cancelable: true, clientY: y });
+    Object.defineProperty(event, "dataTransfer", { value: { setData() {} } });
+    act(() => {
+      row.dispatchEvent(event);
+    });
+  }
+  dragEvent(rows[0]!, "dragstart", 5);
+  dragEvent(rows[2]!, "dragover", 55);
+  expect(rows[2]?.dataset.dropEdge).toBe("after");
+  dragEvent(rows[2]!, "drop", 55);
+  dragEvent(rows[2]!, "dragstart", 55);
+  dragEvent(rows[0]!, "drop", 5);
+  dragEvent(rows[0]!, "drop", 5); // A drop that began outside this list.
+  dragEvent(rows[1]!, "dragstart", 25);
+  dragEvent(rows[1]!, "drop", 35);
+  expect(calls).toEqual([
+    ["pins", "move", { id: "chat-n1", index: 2 }],
+    ["pins", "move", { id: "chat-n3", index: 0 }],
+  ]);
+});
+
+test("a font name draws the one scene type table's size and weight, the table AppKit draws", () => {
+  const names = [...sceneType.roles, ...sceneType.styles];
+  const { container } = render([
+    { op: "create", id: "root", type: "VStack" },
+    ...names.map((style) => ({
+      op: "create" as const,
+      id: style.name,
+      type: "Text",
+      props: { text: style.name, font: style.name },
+    })),
+    { op: "create", id: "bold", type: "Text", props: { text: "72", font: "largeTitle", weight: "light" } },
+    { op: "create", id: "unknown", type: "Text", props: { text: "?", font: "display" } },
+    { op: "children", id: "root", children: [...names.map((style) => style.name), "bold", "unknown"] },
+    { op: "root", id: "root" },
+  ]);
+  const text = (id: string) =>
+    container.querySelector<HTMLElement>(`[data-app-node="${id}"] .cmux-app-scene-text`)!.style;
+  const weights: Record<string, string> = { regular: "400", medium: "500", semibold: "600", bold: "700" };
+  for (const style of names) {
+    expect(text(style.name).fontSize).toBe(`calc(${style.size}px * var(--cmux-interface-scale, 1))`);
+    expect(text(style.name).fontWeight).toBe(weights[style.weight]);
+  }
+  // The drift RFD 0009 measured: largeTitle drew 15 px here and 26 pt in AppKit; now 34 in both.
+  expect(text("largeTitle").fontSize).toBe("calc(34px * var(--cmux-interface-scale, 1))");
+  expect(text("numeral").fontWeight).toBe("600");
+  expect(text("bold").fontWeight).toBe("300");
+  expect(text("unknown").fontSize).toBe("calc(13px * var(--cmux-interface-scale, 1))");
+});
+
 test("fontDesign draws the system font's rounded, serif or monospaced design at the type scale's size", () => {
   const { container } = render([
     { op: "create", id: "root", type: "VStack" },
@@ -779,7 +872,8 @@ test("fontDesign draws the system font's rounded, serif or monospaced design at 
   expect(text("time").fontWeight).toBe("800");
   expect(text("time").fontSize).toBe("64px");
   expect(text("serif").fontFamily).toBe("var(--cmux-app-scene-font-serif)");
-  expect(text("serif").fontSize).toBe("var(--text-title)");
+  expect(text("serif").fontSize).toBe("calc(15px * var(--cmux-interface-scale, 1))");
+  expect(text("serif").fontWeight).toBe("600");
   expect(text("mono").fontFamily).toBe("var(--cmux-app-scene-font-monospaced)");
   expect(text("plain").fontFamily).toBe("var(--font-mono)");
   const css = require("node:fs").readFileSync(new URL("./scene.css", import.meta.url), "utf8") as string;
@@ -820,9 +914,13 @@ test("formatSceneDate formats each date style as SwiftUI's Text(date, style:)", 
 });
 
 test("a date Text ticks itself on the shared clock with no scene batch, and stops when hidden or unmounted", async () => {
+  // The shared clock ticks on wall-clock seconds, so the countdown ends on one too: then its first
+  // tick turns the shown second over. An end at an arbitrary millisecond can need a second tick,
+  // after the 1.1 s below (it failed whenever another test file ran first and shifted the phase).
+  const end = Math.floor(Date.now() / 1_000) * 1_000 + 65_000;
   const { container, store, calls } = render([
     { op: "create", id: "root", type: "VStack" },
-    { op: "create", id: "timer", type: "Text", props: { text: "", date: Date.now() + 65_000, dateStyle: "timer" } },
+    { op: "create", id: "timer", type: "Text", props: { text: "", date: end, dateStyle: "timer" } },
     { op: "create", id: "time", type: "Text", props: { text: "", date: Date.now(), dateStyle: "time" } },
     { op: "children", id: "root", children: ["timer", "time"] },
     { op: "root", id: "root" },
@@ -834,24 +932,23 @@ test("a date Text ticks itself on the shared clock with no scene batch, and stop
   expect(text("time").textContent).toMatch(/\d:\d\d/);
   expect(sceneClockRunning()).toBe(true);
   const subscribed = store.getGeneration();
-  // Until the next wall-clock second has turned the timer over: the condition, not a fixed time.
-  await act(() => waitUntil(() => text("timer").textContent !== before, 3_000));
+  // Wait for the tick itself, not a fixed delay: yield to the timers until the text turns over.
+  const deadline = Date.now() + 3_000;
+  while (text("timer").textContent === before && Date.now() < deadline) {
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+  }
   expect(text("timer").textContent).not.toBe(before);
   // The renderer ticked it: no app call, no new scene.
   expect(calls).toEqual([]);
   expect(store.getGeneration()).toBe(subscribed);
   // A hidden page stops the clock; showing it again catches up at once.
   Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
-  await act(() => {
-    document.dispatchEvent(new Event("visibilitychange"));
-  });
+  await act(() => document.dispatchEvent(new Event("visibilitychange")));
   expect(sceneClockRunning()).toBe(false);
   Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
-  await act(() => {
-    document.dispatchEvent(new Event("visibilitychange"));
-  });
+  await act(() => document.dispatchEvent(new Event("visibilitychange")));
   expect(sceneClockRunning()).toBe(true);
-  act(() => root?.unmount());
+  await act(() => root?.unmount());
   root = undefined;
   expect(sceneClockRunning()).toBe(false);
 });

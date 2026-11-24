@@ -88,7 +88,8 @@ impl Part {
 /// The settings file's logical path, whatever the file is called on disk.
 pub const SETTINGS: &str = "settings.json";
 /// Surfaces with a user stylesheet (`<config dir>/<surface>/theme.css`).
-const STYLE_SURFACES: &[&str] = &["agent-pane", "markdown", "diff", "picker", "fileViewer"];
+pub(crate) const STYLE_SURFACES: &[&str] =
+    &["agent-pane", "markdown", "diff", "picker", "fileViewer"];
 
 /// One file of a tree, by content.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -481,40 +482,5 @@ fn add_dir(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_path_outside_every_part_is_never_located() {
-        let roots = Roots::under(Path::new("/r"));
-        for path in [
-            "",
-            "../x",
-            "customize/../../x",
-            "/etc/passwd",
-            "cloud-secrets.json",
-            "automations/a/state.json",
-            "automations/a/b/automation.json",
-            "themes",
-            "customize",
-            "agent-pane/registry.js",
-            "customize\\x",
-        ] {
-            assert_eq!(locate(&roots, path), None, "{path}");
-        }
-        assert_eq!(locate(&roots, SETTINGS), Some(PathBuf::from("/r/config/cmux-next.json")));
-        assert_eq!(
-            locate(&roots, "automations/auto_1/automation.json"),
-            Some(PathBuf::from("/r/config/automations/auto_1/automation.json"))
-        );
-    }
-
-    #[test]
-    fn every_located_path_names_its_part() {
-        assert_eq!(Part::of(SETTINGS), Part::Settings);
-        assert_eq!(Part::of("themes/night.json"), Part::Themes);
-        assert_eq!(Part::of("customize/main.js"), Part::Views);
-        assert_eq!(Part::of("agent-pane/theme.css"), Part::Styles);
-        assert_eq!(Part::of("automations/auto_1/automation.json"), Part::Automations);
-    }
-}
+#[path = "tree_tests.rs"]
+mod tests;

@@ -15,6 +15,7 @@ use zeroize::Zeroizing;
 use crate::config::{Endpoint, InterfaceAddress, WgConfig};
 
 pub mod sim;
+pub mod tcp_oracle;
 
 /// A fresh Curve25519 keypair as `(private, public)`.
 #[allow(

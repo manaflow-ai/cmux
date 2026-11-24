@@ -12,6 +12,7 @@ import {
 import { Spinner } from "../../agent-session/acpmux/conversation/icons";
 import { Switch } from "../../ui/Switch";
 import { SceneContextMenu, SceneMenu } from "./sceneMenus";
+import { SceneReorderable } from "./SceneReorderable";
 import { SceneSymbol } from "./SceneSymbol";
 import {
   SceneAppeared,
@@ -21,7 +22,17 @@ import {
   useSceneEntering,
 } from "./sceneMotion";
 import { formatSceneDate, sceneDateStyle, useSceneNow, type SceneDateStyle } from "./sceneDate";
-import { sceneColor, sceneNumber, sceneRecord, sceneStyle, sceneText, textStyle, type SceneStyle } from "./sceneStyle";
+import {
+  sceneColor,
+  sceneGradient,
+  sceneNumber,
+  sceneStyle,
+  sceneText,
+  textStyle,
+  sceneRecord,
+  type SceneStyle,
+  sceneGlass,
+} from "./sceneStyle";
 import type { SceneNode, SceneStore } from "./store";
 import "./scene.css";
 
@@ -32,6 +43,8 @@ export type SceneAssetResolver = (bundlePath: string) => string | undefined;
 type NodeProps = { id: string; store: SceneStore; dispatch: SceneDispatch };
 const DisabledContext = createContext(false);
 const AssetContext = createContext<SceneAssetResolver | undefined>(undefined);
+/** False where a scene shares the page with a field of cmux's own (the New Tab slot): its `autofocus` is ignored. */
+const AutofocusContext = createContext(true);
 
 function SceneImage({ source }: { source: unknown }) {
   const resolveAsset = useContext(AssetContext);
@@ -110,7 +123,8 @@ function SceneTextField({ node, dispatch, disabled }: { node: SceneNode; dispatc
   const external = sceneText(node.props.text);
   const [text, setText] = useState(external);
   const input = useRef<HTMLInputElement>(null);
-  const autofocus = node.props.autofocus === true;
+  const autofocusAllowed = useContext(AutofocusContext);
+  const autofocus = autofocusAllowed && node.props.autofocus === true;
   useEffect(() => {
     if (autofocus) input.current?.focus();
   }, [autofocus]);
@@ -304,6 +318,8 @@ function contentOf(node: SceneNode, children: ReactNode, dispatch: SceneDispatch
           symbol={props.symbol}
           size={Math.max(6, sceneNumber(props.size) ?? 14)}
           color={sceneColor(props.color)}
+          rendering={props.symbolRendering}
+          palette={props.symbolColors}
         />
       );
     case "Row":
@@ -390,9 +406,20 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, leaving
   if (!node) return null;
   const props = node.props;
   const disabled = inheritedDisabled || props.disabled === true || leaving;
-  const children = shown.map((child) => (
+  const childView = (child: (typeof shown)[number]) => (
     <SceneNodeView key={child.id} id={child.id} store={store} dispatch={dispatch} leaving={child.leaving} />
-  ));
+  );
+  const children =
+    node.type === "Reorderable" && props.onMove === true && !disabled ? (
+      <SceneReorderable
+        node={node}
+        store={store}
+        dispatch={dispatch}
+        rows={shown.map((child) => ({ ...child, content: childView(child) }))}
+      />
+    ) : (
+      shown.map(childView)
+    );
   const content = contentOf(node, children, dispatch, disabled);
   if (content === undefined) return null;
   const style: SceneStyle = sceneStyle(props);
@@ -421,8 +448,10 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, leaving
     if (frame.height === undefined && frame.maxHeight === undefined && frame.minHeight === undefined)
       style.height = side;
     if (frame.maxWidth === "infinity" && frame.width === undefined) style.width = "100%";
-    style.backgroundColor =
-      sceneColor(props.fill) ?? (sceneColor(props.stroke) ? "transparent" : sceneColor("secondary"));
+    style.backgroundImage = sceneGradient(props.fill);
+    style.backgroundColor = style.backgroundImage
+      ? undefined
+      : (sceneColor(props.fill) ?? (sceneColor(props.stroke) ? "transparent" : sceneColor("secondary")));
     if (sceneColor(props.stroke)) {
       style.borderColor = sceneColor(props.stroke);
       style.borderStyle = "solid";
@@ -440,6 +469,8 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, leaving
     "data-disabled": disabled ? "" : undefined,
     "data-hover": sceneColor(props.hoverBackground) ? "" : undefined,
     "data-style": node.type === "Panel" ? (props.style === "card" ? "card" : "glass") : undefined,
+    // `glass`: the page's glass at that level (ui/glass/glass.css), the web twin of the App's material.
+    "data-glass-level": sceneGlass(props.glass),
     "data-transition": typeof props.transition === "string" ? props.transition : undefined,
     "data-entering": entering && !leaving ? "" : undefined,
     "data-leaving": own === true ? "" : undefined,
@@ -450,7 +481,7 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, leaving
     "data-fill-width": frame.maxWidth === "infinity" && frame.width === undefined ? "" : undefined,
     // A ZStack child's `position` (scene.css): its center at `--app-x`, `--app-y`.
     "data-positioned": style["--app-x"] !== undefined ? "" : undefined,
-    className: `cmux-app-scene-node cmux-app-scene-${node.type.toLowerCase()}`,
+    className: `cmux-app-scene-node cmux-app-scene-${node.type.toLowerCase()}${sceneGlass(props.glass) ? " ui-glass" : ""}`,
     style,
     title: sceneText(props.help) || undefined,
   };
@@ -514,22 +545,27 @@ export function SceneRenderer({
   store,
   dispatch,
   resolveAsset,
+  autofocus = true,
 }: {
   store: SceneStore;
   dispatch: SceneDispatch;
   resolveAsset?: SceneAssetResolver;
+  /** False: the scene's fields never take focus on their own; a click still focuses them. */
+  autofocus?: boolean;
 }) {
   const root = useSyncExternalStore(store.subscribeRoot, store.getRoot, store.getRoot);
   const generation = useSyncExternalStore(store.subscribeRoot, store.getGeneration, store.getGeneration);
   return (
     <AssetContext.Provider value={resolveAsset}>
-      {root ? (
-        <div className="cmux-app-scene-root">
-          <SceneAppeared key={generation} store={store} generation={generation}>
-            <SceneNodeView id={root} store={store} dispatch={dispatch} />
-          </SceneAppeared>
-        </div>
-      ) : null}
+      <AutofocusContext.Provider value={autofocus}>
+        {root ? (
+          <div className="cmux-app-scene-root">
+            <SceneAppeared key={generation} store={store} generation={generation}>
+              <SceneNodeView id={root} store={store} dispatch={dispatch} />
+            </SceneAppeared>
+          </div>
+        ) : null}
+      </AutofocusContext.Provider>
     </AssetContext.Provider>
   );
 }
