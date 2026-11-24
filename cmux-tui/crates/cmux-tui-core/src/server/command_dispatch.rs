@@ -170,6 +170,7 @@ fn dispatch_command(
             device_name,
             device_id,
             api_revision,
+            api_version,
             version,
             install,
             remote,
@@ -185,6 +186,7 @@ fn dispatch_command(
             device_name,
             device_id,
             api_revision,
+            api_version,
             version,
             install,
             remote.unwrap_or(false),
@@ -673,7 +675,9 @@ fn dispatch_command(
             cmd_tabs::reopen_saved_tab_group(mux, actor, saved, pane, transaction)
         }
         Command::AckTabNotifications { surface } => cmd_tabs::ack_tab_notifications(mux, surface),
-        Command::ListNotifications { limit } => cmd_frontend::list_notifications(mux, limit),
+        Command::ListNotifications { limit, stats } => {
+            cmd_frontend::list_notifications(mux, limit, stats)
+        }
         Command::SetTabPinned { surface, pinned } => {
             cmd_tabs::set_tab_pinned(mux, actor, surface, pinned)
         }
