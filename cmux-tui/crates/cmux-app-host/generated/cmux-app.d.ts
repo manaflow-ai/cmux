@@ -102,6 +102,7 @@ declare namespace Cmux {
   type CloudSurgePreview = { count: number; ttl_seconds: number; provider: string | null; available: boolean; reason: string; estimated_cost_usd: unknown | null }
   type CloudSurgeReceipt = { count: number; ttl_seconds: number; slots: Array<Cmux.CloudSurgeSlot> }
   type CloudSurgeSlot = { index: number; status: "created" | "queued" | "refused"; machine_id: Cmux.MachineId | null; provider: string | null; reason: string; retryable: boolean }
+  type CloudUsageCurrent = { period: string; as_of: number; metered_since: number | null; vcpu_seconds: unknown; memory_gib_seconds: unknown; stored_gib_seconds: unknown; usd: { vcpu: unknown; memory: unknown; stored: unknown; total: unknown }; gaps: Array<string>; payment_method: { attached: boolean; brand?: string | null; last4?: string | null }; stripe_mode: "test" | "live" }
   type CloudVmNetwork = { tenant: Cmux.NativeTenantId; mesh: Cmux.NativeMeshId; ipv4_cidr: string; ipv4: string | null }
   type CloudVmNetworkPolicyView = { schema_version: 2; machine: Cmux.MachineId; host: Cmux.HostId; epoch: number; receiver_generation: string | null; user: Cmux.UserId; install: Cmux.InstallId; team: Cmux.TeamId; origin: string; tenant: Cmux.NativeTenantId; mesh: Cmux.NativeMeshId; vm: string; ipv4: string | null; wg_public_key: Cmux.WgPublicKey; install_public_key: string; authority_version: string; checked_at: number; expires_at: number; admit_until?: number; acl_version: number; policy_digest: string; peers: Array<Cmux.CloudVmReceiverPeer> }
   type CloudVmReceiverPeer = { host: Cmux.HostId; user: Cmux.UserId; install: Cmux.InstallId; device: Cmux.NativeDeviceId; wg_public_key: Cmux.WgPublicKey; install_public_key: string; authority_version: string; services: Array<"daemon" | "ssh" | "desktop"> }
@@ -436,6 +437,8 @@ declare namespace Cmux {
   type SettingsChange = { keys: Array<string> }
   type SettingsEdit = { op: "set" | "set_exact" | "set_unset" | "reset" | "reset_unchanged"; key?: string; path?: Array<string>; value?: Cmux.JsonValue }
   type SettingsEditChange = { keys: Array<string>; applied: Array<number> }
+  type SettingsHistory = { entries: Array<Cmux.SettingsHistoryEntry> }
+  type SettingsHistoryEntry = { at: string; keys: Array<string>; origin: "user" | "cli" | "mcp" | "script" | "remote" | "app" | "file"; revision: string; undoes?: string }
   type Sharing = "team" | "private"
   type ShutdownResult = { accepted: boolean }
   type SidebarAttachItem = unknown
@@ -925,6 +928,10 @@ interface CmuxGlobal {
     surge: {
       /** `cloud.surge.preview` (read, scope `cloud:read`): Estimate a bounded Cloud capacity burst at the current running list rate and report whether the team can request it. */
       preview: CmuxOp<{ count: number; ttl_seconds: number }, Cmux.CloudSurgePreview>
+    }
+    usage: {
+      /** `cloud.usage.current` (read, scope `cloud:read`): The team's Cloud usage so far this month (awake vCPU and memory, disk held while paused), its price from the billing owner, and whether a payment method is on file. */
+      current: CmuxOp<Record<string, never>, Cmux.CloudUsageCurrent>
     }
     vm: {
       attention: {
@@ -1607,6 +1614,8 @@ interface CmuxGlobal {
   settings: {
     /** `settings.get` (read, scope `settings:read`) */
     get: CmuxOp<{ machine?: string; session?: string; key?: string; path?: Array<string> }, Cmux.JsonValue>
+    /** `settings.history` (read, scope `settings:read`) */
+    history: CmuxOp<{ machine?: string; session?: string }, Cmux.SettingsHistory>
     /** `settings.list` (read, scope `settings:read`) */
     list: CmuxOp<{ machine?: string; session?: string; section?: string }, Array<Cmux.JsonValue>>
     /** `settings.schema` (read, scope `settings:read`) */

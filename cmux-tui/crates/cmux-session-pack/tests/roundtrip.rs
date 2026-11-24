@@ -1,7 +1,7 @@
 //! A pack reads back every byte, an appended log repacks to the same chunks as a fresh pack, and
 //! a move to a store with an older copy ships only what was sealed since.
 
-use cmux_session_pack::{Manifest, Pack, Params, RangeId, Store, pack, ship};
+use cmux_session_pack::{Manifest, Pack, Params, RangeId, Store, pack, pack_after, ship};
 use std::collections::HashSet;
 use std::fmt::Write as _;
 
@@ -235,4 +235,43 @@ fn a_session_starts_elsewhere_from_its_tail_and_fetches_older_lines_when_read() 
 
     // A chunk of another session is not handed out under this one's name.
     assert!(ship::bundle_chunks(&here, "s", &[[7u8; 32]], &mut Vec::new()).is_err());
+}
+
+/// A pack extended from its last sealed segment with only the lines after it (what acpmux does
+/// as a log grows) is the pack a whole pack of the log makes: the same manifest, the same chunks,
+/// every byte back. Where the sealed segments do not end at the line given it packs nothing.
+#[test]
+fn a_pack_extended_from_its_sealed_end_is_the_whole_pack() {
+    let dir = tempfile::tempdir().unwrap();
+    let bytes = log(3000);
+    let cut = bytes.len() / 3;
+    let cut = cut + bytes[cut..].iter().position(|b| *b == b'\n').unwrap() + 1;
+    let head = dir.path().join("head.ndjson");
+    std::fs::write(&head, &bytes[..cut]).unwrap();
+    let grown = Store::new(dir.path().join("grown"));
+    let (first, _) = pack(&grown, "s", &[head], &params(), false).unwrap();
+    let sealed = first.segments.iter().rfind(|s| s.sealed).unwrap();
+    let (after, sealed_raw) = (
+        sealed.line + sealed.lines,
+        first.segments.iter().filter(|s| s.sealed).map(|s| s.raw).sum::<u64>() as usize,
+    );
+    let tail = dir.path().join("tail.ndjson");
+    std::fs::write(&tail, &bytes[sealed_raw..]).unwrap();
+    assert!(
+        pack_after(&grown, "s", after + 1, std::slice::from_ref(&tail), &params())
+            .unwrap()
+            .is_none(),
+        "a line past the sealed end packs nothing"
+    );
+    let (m, stats) = pack_after(&grown, "s", after, &[tail], &params()).unwrap().unwrap();
+    assert_eq!(stats.encoded_bytes as usize, bytes.len() - sealed_raw, "{stats:?}");
+
+    let whole = dir.path().join("whole.ndjson");
+    std::fs::write(&whole, &bytes).unwrap();
+    let fresh = Store::new(dir.path().join("fresh"));
+    let (want, _) = pack(&fresh, "s", &[whole], &params(), true).unwrap();
+    assert_eq!(m, want, "the extended pack is the whole pack");
+    let mut back = Vec::new();
+    Pack::open(&grown, "s").unwrap().cat(&mut back).unwrap();
+    assert!(back == bytes, "the extended pack does not read back");
 }
