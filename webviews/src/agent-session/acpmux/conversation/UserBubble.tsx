@@ -31,7 +31,7 @@ import type { AcpmuxRow, PromptContentPart, PromptImage } from "../model";
 import { useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import { liftInlineImages, withoutDataUris } from "../inlineImages";
-import { PendingDelivery, usePendingShown } from "./PromptDelivery";
+import { resendsItself } from "./PromptDelivery";
 import { ImageIcon, Pencil } from "./icons";
 import { VersionSwitcher } from "./VersionSwitcher";
 import { ImageViewerContext } from "./imageViewerContext";
@@ -93,8 +93,6 @@ export function UserBubble({
   const { edit, branches, fork, forkSeq, forkAny, promptTurns } = useContext(TurnActionsContext);
   const branch = branches?.of.get(row.id);
   const [editing, setEditing] = useState(false);
-  // A prompt still on its way says so in its footer's time slot, and only there (PromptDelivery.tsx).
-  const pendingShown = usePendingShown(row.delivery, Boolean(row.steer || row.delivery?.queued));
   const through = edit?.seqs.get(row.id);
   // Fork goes through the prompt's own turn, as its right-click Fork does, so the new chat keeps it.
   const own = promptTurns?.get(row.id);
@@ -264,12 +262,9 @@ export function UserBubble({
         ) : null}
         {/* A prompt held while its agent starts keeps the footer too (time and Copy), so nothing
             moves once it goes (Leo, 2026-11-01: "then the stupid ass layout shift"). */}
-        {!row.failed && (text || hasAttachment || pending) && (
+        {(!row.failed || resendsItself(row.delivery)) && (text || hasAttachment || pending) && (
           <UserFooter
-            className={
-              (branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions") +
-              (pendingShown ? " cv-user__actions--pending" : "")
-            }
+            className={branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions"}
             pending={
               pending &&
               ((actions) =>
@@ -281,11 +276,9 @@ export function UserBubble({
           >
             <MessageFooterRow>
               {branch && branches && <VersionSwitcher branch={branch} branches={branches} slot="footer" />}
-              {pendingShown && row.delivery ? (
-                <PendingDelivery delivery={row.delivery} />
-              ) : (
-                <MessageTime at={row.at} className="cv-user__time" />
-              )}
+              {/* A prompt on its way draws the queued row instead (PendingSteer.tsx), never a
+                  "Sending" in place of its time. */}
+              <MessageTime at={row.at} className="cv-user__time" />
               <MessageCopy text={row.text ?? text} />
               {through !== undefined && (
                 <button

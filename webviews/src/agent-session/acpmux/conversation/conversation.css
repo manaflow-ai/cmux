@@ -778,55 +778,11 @@
 .cv-user__cancel:hover {
   color: var(--cv-text);
 }
-/* A sent prompt's way to the agent (PromptDelivery.tsx): while it is on its way, its footer's time
-   slot says so (a clock and one sentence) and the footer stays shown; once it lands the slot is its
-   time again, in the same place, so nothing moves. The row keeps a sent row's anchor at the bubble's
-   right edge, so Copy and the buttons after it never move with the words (Leo, 2026-11-17: "stop
-   making the copy button move with the text ... why was it not just at the right edge"). A failed
-   prompt's card and Details below. */
+/* A sent prompt's way to the agent (PromptDelivery.tsx): while it waits it draws the queued row
+   (PendingSteer.tsx, `.cv-user__pending` below), its one pending look; a refused prompt's one short
+   line below. */
 .cv-user__bubble {
   position: relative;
-}
-/* Two classes: it wins over the action row's resting opacity (.cv-user__actions, later in this file). */
-.cv-user__actions.cv-user__actions--pending {
-  opacity: 1;
-}
-/* At rest only the pending state shows; the row's buttons come with the pointer, as on any prompt. */
-.cv-user:not(:hover, :focus-within) .cv-user__actions--pending .cv-message-footer-row > :not(.cv-user__pending-state) {
-  opacity: 0;
-}
-/* The keyboard's row stop brings them too (as specific, and later, so it wins). */
-.acpmux-user:focus-visible .cv-user__actions--pending .cv-message-footer-row > :not(.cv-user__pending-state) {
-  opacity: 1;
-}
-/* Four classes: the age's rule (.cv-user__time, later in this file) is three and made this slot
-   inline-block, so its flex centring and gap never applied: the clock sat on the words' baseline,
-   2px from them (Leo, 2026-11-14: "this is misaligned"). The clock is centred on the words' line
-   box and one icon-label gap (--cv-row-icon-gap, as every transcript row) from them. */
-.cv-user__actions .cv-message-footer-row > .cv-user__time.cv-user__pending-state {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--cv-row-icon-gap);
-  margin: 0;
-  padding-inline: 0;
-  color: var(--cv-text-muted);
-  line-height: var(--cv-footer-control-slot);
-  user-select: none;
-}
-/* The age's hidden width-keeper (.cv-user__time::before) would be a flex item here, and a gap. */
-.cv-user__actions .cv-message-footer-row > .cv-user__time.cv-user__pending-state::before {
-  content: none;
-}
-.cv-user__pending-state > svg {
-  flex: none;
-}
-/* Gallery variant B (`data-prompt-pending-look="clock"`): the clock alone; the state's
-   aria-label still names it. Variant C (`"dim"`): the words, and the bubble's text muted until it lands. */
-:root[data-prompt-pending-look="clock"] .cv-user__pending-words {
-  display: none;
-}
-:root[data-prompt-pending-look="dim"] .cv-user:has(.cv-user__actions--pending) .cv-user__bubble {
-  color: var(--cv-text-muted);
 }
 .cv-user__status--failed {
   flex-direction: column;
@@ -850,24 +806,12 @@
 .cv-user__cancel:disabled:hover {
   color: inherit;
 }
-/* Why Retry waits, before it, in the quieter ink. */
-.cv-user__retry-wait {
-  color: var(--cv-text-muted);
-}
 .cv-user__failure {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
   align-items: baseline;
   gap: 8px;
-}
-.cv-user__delivery-details {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 2px;
-  margin-top: 2px;
-  font-variant-numeric: tabular-nums;
 }
 
 /* ---------- Side preview panel (ArtifactPanel.tsx) ---------- */
@@ -9257,7 +9201,7 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
    height: the estimator (model.ts) measures nothing new for them. */
 
 /* timestamps always: a prompt's and a reply's time show at rest; their buttons still come with the
-   pointer, as a waiting prompt's do (.cv-user__actions--pending above). */
+   pointer, as a waiting prompt's queued row does (.cv-user__queued-hover). */
 :root[data-transcript-timestamps="always"] :is(.cv-user__actions, .cv-reply-actions),
 :root[data-transcript-timestamps="always"] :is(.cv-user__time, .cv-turn-time) {
   opacity: 1;
@@ -9278,7 +9222,7 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
 }
 /* timestamps off: no time, its space kept so the buttons never move. A waiting prompt's state is
    not a time and stays. */
-:root[data-transcript-timestamps="off"] :is(.cv-user__time:not(.cv-user__pending-state), .cv-turn-time) {
+:root[data-transcript-timestamps="off"] :is(.cv-user__time, .cv-turn-time) {
   visibility: hidden;
 }
 

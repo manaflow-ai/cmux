@@ -6,6 +6,7 @@ import { Close } from "./icons";
 import { MessageCopy, MessageFooterRow } from "./MessageActions";
 import { ROW_ICON } from "./messageActionsModel";
 import { TurnActionsContext, type QueuedActions, type TakeBack } from "./turnActions";
+import { resendsItself, usePendingShown } from "./PromptDelivery";
 import {
   NewestSteerContext,
   SteerChatContext,
@@ -14,6 +15,19 @@ import {
   publishSentNow,
   markSentNow,
 } from "./pendingSteerModel";
+/// A prompt's one pending look, from the moment it is on its way until acpmux took it and the agent
+/// read it: copy, Retry, Fork, Save and the X on hover, and Send now, as a steer queued behind the
+/// running turn has drawn them since #22834 (Leo, 2026-11-24: "why is THIS one find and good? ...
+/// this one is good. why were ther e2 of them"). Before, a prompt acpmux had not answered yet said
+/// "(clock) Sending" in its footer instead (#41513), a second look for the same waiting message.
+/// Now one row serves three states:
+/// - queued (acpmux holds it for the running turn's step, `row.steer === "waiting"`): X takes it
+///   back into the composer and Send now sends it into the step now, as before;
+/// - on its way (sent, not answered yet, past its first second, so a fast send shows nothing): it
+///   cannot be stopped or hurried, so X and Send now are drawn disabled, the row the same size;
+/// - going again by itself (it did not get there for a reason that passes: no answer in time, the
+///   link down; sendFailure.ts `sendRetriesItself`): Send now tries again at once, and X takes it
+///   back into the composer, as a queued prompt's X does.
 export function PendingSteer({
   row,
   send,
@@ -34,6 +48,9 @@ export function PendingSteer({
   const [kept, setKept] = useState(false);
   const promptId = row.steerPromptId;
   const sent = useSyncExternalStore(subscribeSentNow, readSentNow, readSentNow);
+  // On its way or going again by itself, past its first second (PromptDelivery.tsx).
+  const onItsWay = usePendingShown(row.delivery);
+  const retrying = row.failed === true && resendsItself(row.delivery);
   // Sent now from any of its controls: this row's Send now, or the composer queue's or a queued
   // card's, which turn a queued prompt into a steer under the same promptId. Read from the store by
   // promptId, never this row's own state: row ids repeat across chats, so React keeps this row when
@@ -47,10 +64,30 @@ export function PendingSteer({
   }, [waiting, ownSent, isNewest, chat, row.at]);
   const covered = newest !== undefined && !isNewest && row.at <= (sent.coveredAt.get(chat) ?? Number.NEGATIVE_INFINITY);
   // The transcript virtualizes rows: a remount must not offer an accepted send again.
-  if (!waiting || ownSent || covered) return children ?? null;
-  if (!promptId) return null;
+  const queuedNow = waiting && !ownSent && !covered;
+  if (!queuedNow && !onItsWay) return children ?? null;
+  if (queuedNow && !promptId) return null;
   const busy = sending;
-  const offersSendNow = newest === undefined || newest === row.id;
+  const offersSendNow = !queuedNow || newest === undefined || newest === row.id;
+  const act = (name: string) => window.cmuxAcpmuxActions?.[name]?.({ rowId: row.id, rowIds: [row.id] });
+  // What X and Send now do in the row's state; undefined: drawn, disabled (nothing to do yet).
+  const takeBack = queuedNow
+    ? promptId && unsteer
+      ? () => unsteer(row).catch((): TakeBack => "failed")
+      : undefined
+    : retrying
+      ? () => Promise.resolve(act("chat.editFailedPrompt")).then((): TakeBack => "back")
+      : undefined;
+  const sendNow = queuedNow
+    ? promptId
+      ? () => send(promptId, { op: "send_now" }).catch(() => false)
+      : undefined
+    : retrying
+      ? () =>
+          Promise.resolve(act("chat.retryPrompt"))
+            .then(() => false)
+            .catch(() => false)
+      : undefined;
   return (
     <div className="cv-user__pending">
       <MessageFooterRow>
@@ -61,17 +98,17 @@ export function PendingSteer({
           {queued?.retry}
           {queued?.fork}
           {queued?.save}
-          {promptId && unsteer && (
+          {(!queuedNow || (promptId && unsteer)) && (
             <button
               type="button"
               className="cv-user__take-back cv-iconbtn cv-iconbtn--compact"
               aria-label={t("composer.queueEditMessage")}
               title={t("composer.queueEditMessage")}
-              disabled={busy}
+              disabled={busy || !takeBack}
               onClick={() => {
+                if (!takeBack) return;
                 setSending(true);
-                void unsteer(row)
-                  .catch((): TakeBack => "failed")
+                void takeBack()
                   .then((result) => setKept(result === "refused"))
                   .finally(() => setSending(false));
               }}
@@ -81,19 +118,20 @@ export function PendingSteer({
           )}
         </span>
         {kept && <span className="cv-user__kept">{t("message.readAfterStep")}</span>}
-        {promptId && offersSendNow && (
+        {offersSendNow && (
           <button
             type="button"
             className="cv-user__send-now"
             // tooltip-allow: says Send now stops only the current step, not the turn; shown nowhere else
             title={t("steer.sendNowHelp")}
-            disabled={busy}
+            disabled={busy || !sendNow}
+            data-pending-state={queuedNow ? "queued" : retrying ? "retrying" : "sending"}
             onClick={() => {
+              if (!sendNow) return;
               setSending(true);
-              void send(promptId, { op: "send_now" })
-                .catch(() => false)
+              void sendNow()
                 .then((sent) => {
-                  if (sent) markSentNow(promptId);
+                  if (sent && promptId) markSentNow(promptId);
                 })
                 .finally(() => setSending(false));
             }}
