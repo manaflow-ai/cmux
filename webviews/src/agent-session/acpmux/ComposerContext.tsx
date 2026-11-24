@@ -1045,7 +1045,7 @@ export function ComposerContext({
                 <LocationFace
                   icon={
                     currentGitHub ? (
-                      <GitHubMark />
+                      <GitHubMark chip />
                     ) : currentLocation ? (
                       <ProjectBadge
                         project={{
