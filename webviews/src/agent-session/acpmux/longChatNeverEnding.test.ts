@@ -7,7 +7,7 @@
 // is infinite chats of infinite length with flat or no growth in cpu/memory/even disk".
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import type { EventRecord } from "./direct";
+import type { EventRecord } from "./eventRecord";
 import { settleReact } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });

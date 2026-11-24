@@ -324,6 +324,10 @@ public final class AgentPaneView: NSView {
             guard let self else { return nil }
             return self.performWithTheme { AgentPageEvent.theme(self.themeTokens, surface: self.surfaceKind)?.value["key"]?.stringValue }
         }
+        pageResources?.agentTheme = { [weak self] in
+            guard let self else { return nil }
+            return self.performWithTheme { AgentPageEvent.theme(self.themeTokens, surface: self.surfaceKind)?.value["agent"] }
+        }
         model.tabRow.supportsNativeTools = pageEvents != nil
         model.onTabRowToolInvoked = { [weak self] id, menuItemID in
             self?.invokeTabRowTool(id, menuItemID: menuItemID)
