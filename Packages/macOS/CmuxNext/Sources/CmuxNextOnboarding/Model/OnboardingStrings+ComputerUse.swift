@@ -42,6 +42,10 @@ extension OnboardingStrings {
         String(format: String(localized: "onboarding.computerUse.panel.drag",
                               defaultValue: "Drag %1$@ to the list above to allow %2$@", bundle: .localizedModule), helper, grant)
     }
+    /// The drag panel's second line: a dropped helper lands switched off in the list.
+    static var computerUseTurnOn: String {
+        String(localized: "onboarding.computerUse.panel.turnOn", defaultValue: "Then turn it on.", bundle: .localizedModule)
+    }
     /// No Developer ID signed helper (a dev build): the fix is a release helper.
     static var computerUseHelperUnavailable: String {
         String(localized: "onboarding.computerUse.helper.unavailable",
