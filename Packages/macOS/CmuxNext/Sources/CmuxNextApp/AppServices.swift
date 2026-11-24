@@ -800,8 +800,7 @@ final class AppServices {
         _ = palette  // built here, as before
         terminalDelegate.services = self
         _ = (configActions, uiInspector)  // built here; uiInspector alone hears the chat's Inspect Element row (no monitor until it picks)
-        let updateSheet = self.updateSheet  // built here, as before
-        updater.attach(sheet: updateSheet, services: self, simulating: { SidebarTunables.simulatePendingUpdate.value })
+        updater.attach(sheet: self.updateSheet, services: self, simulating: { SidebarTunables.simulatePendingUpdate.value })  // the sheet is built here, as before
         serverUpdates.start(registry: registry)
         cache.onBrowserReady = { [weak self] key in
             self?.keyRouter.creationInputCoordinator.pageArrived(key); for controller in self?.windows.controllers ?? [] {
