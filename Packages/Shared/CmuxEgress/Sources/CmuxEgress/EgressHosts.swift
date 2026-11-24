@@ -50,6 +50,7 @@ enum EgressHosts {
         "cmux-vnc-signal.debussy.workers.dev",
         "cmux.com",
         "cmux.dev",
+        "codeload.github.com",
         "commons.wikimedia.org",
         "compute.googleapis.com",
         "docs.google.com",
