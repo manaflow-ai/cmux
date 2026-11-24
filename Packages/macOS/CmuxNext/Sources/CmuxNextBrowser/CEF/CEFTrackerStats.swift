@@ -53,6 +53,8 @@ public nonisolated struct CEFTrackerStats: Equatable, Sendable {
     /// In-tree pages (fork API 36, ``CEFInTreeHosting``): pages the fork put into the tree, and requests it refused.
     public var inTreeAttaches = 0
     public var inTreeRefused = 0
+    /// Window page-update fan-outs an in-tree page skipped (``CEFHostView/pagesNeedUpdate(force:geometryOnly:)``).
+    public var inTreeGeometrySkips = 0
 
     public init() {}
 
@@ -80,7 +82,8 @@ public nonisolated struct CEFTrackerStats: Equatable, Sendable {
          "fences": Double(resizeFences), "fence_joined": Double(resizeFenceJoined),
          "fence_presented": Double(resizeFencePresented), "fence_missed": Double(resizeFenceMissed),
          "fences_expired": Double(resizeFencesExpired),
-         "in_tree_attaches": Double(inTreeAttaches), "in_tree_refused": Double(inTreeRefused)]
+         "in_tree_attaches": Double(inTreeAttaches), "in_tree_refused": Double(inTreeRefused),
+         "in_tree_geometry_skips": Double(inTreeGeometrySkips)]
     }
 
     /// Monotonic seconds for timing a read.

@@ -500,7 +500,13 @@ final class ShellWindow: NSWindow, FocusRouting, OverlayPlaneHosting, BrowserWin
 
     /// Every frame stays on the test screen in an agent screenshot launch, whichever path sets it
     /// (`WindowPlacement.containedOnTestScreen`), and is kept as given with no display (`constrainsToScreen`).
-    override func setFrame(_ frameRect: NSRect, display flag: Bool) { super.setFrame(WindowPlacement.containedOnTestScreen(frameRect), display: flag) }
+    override func setFrame(_ frameRect: NSRect, display flag: Bool) {
+        // A live resize's step: its main-thread time (`debug.layout_counters` `resize_steps`, DEBUG and bench builds).
+        guard inLiveResize else { return super.setFrame(WindowPlacement.containedOnTestScreen(frameRect), display: flag) }
+        let start = ResizeStepTimes.start()
+        super.setFrame(WindowPlacement.containedOnTestScreen(frameRect), display: flag)
+        LayoutRootView.resizeSteps.record("set_frame", since: start)
+    }
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { WindowPlacement.constrainsToScreen ? super.constrainFrameRect(frameRect, to: screen) : frameRect }
 
     /// The traffic lights, found once (`StandardWindowButtons`, cx-8w027.25).
