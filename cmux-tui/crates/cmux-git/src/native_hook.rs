@@ -43,7 +43,8 @@ pub fn wait(source: &str, event: &str, native: &Value, timeout: Duration) -> io:
         {
             let literal = literal_folders(pattern);
             if !literal.as_os_str().is_empty() {
-                let base = if paths.len() > 1 { paths.pop().unwrap() } else { cwd.clone() };
+                let base =
+                    if paths.len() > 1 { paths.pop() } else { None }.unwrap_or_else(|| cwd.clone());
                 paths.push(base.join(literal));
             }
         }
