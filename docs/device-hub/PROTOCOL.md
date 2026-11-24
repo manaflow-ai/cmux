@@ -272,6 +272,11 @@ that held the answer is gone is back to `ask`.
    device may send `{type:'path', path:'direct'|'relay'}` once the media path
    is known; it is not relayed and is stored as `sessions.path` (NULL until
    reported).
+   A host that serves only `cmux.rd/1` viewers (the Mac's background daemon,
+   a Linux desktop) answers a WebRTC offer with
+   `{type:'transport', transport:'cmux.rd/1'}` instead of `bye`, then waits
+   up to 15 s for an rd offer; a viewer that knows the frame reattaches and
+   offers rd/1, and an older one gets the old failed end after the wait.
    `fpSig` = base64 raw ECDSA over `"<sid>|<role>|<fingerprint>"`, where
    `fingerprint` is the value of the SDP's `a=fingerprint:` line (all of them,
    joined with `,`, in order) and `role` is the sender's. The receiver
