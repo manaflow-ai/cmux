@@ -2335,9 +2335,9 @@ struct MoveRun {
 }
 
 async fn move_over_relay(precopy: bool) -> MoveRun {
-    use acpmux::mesh::{ControlHook as _, InMessage};
+    use acpmux::mesh::InMessage;
     use acpmux::mesh_http::MeshControlFrom;
-    use acpmux::server::mesh_relay::MeshControlHook;
+    use acpmux::server::mesh_relay::{ControlHook as _, MeshControlHook};
     use acpmux::transfer_service::{CarrierDial, ConfiguredTransferGate};
 
     let _ = HERMETIC;

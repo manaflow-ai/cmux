@@ -76,7 +76,7 @@ use cmux_json::JsonSet as _;
 pub(super) mod reset_hint;
 #[path = "restart_resume.rs"]
 mod restart_resume;
-pub(in crate::hub) use restart_resume::Cut;
+pub(in crate::hub) use restart_resume::{Cut, silent};
 mod restore;
 
 use super::{Control, Hub, PromptOptions, Session, SessionStatus, TurnInfo};
