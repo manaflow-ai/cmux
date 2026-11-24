@@ -18,10 +18,11 @@ use crate::crypto::ServiceAuthority;
 use crate::service::{ServiceMultiplexer, SessionEndpoint};
 use crate::session::ReceivedFrame;
 
+#[cfg(test)]
 #[path = "wire_lockstep.rs"]
 mod wire_lockstep;
 
-#[cfg(unix)]
+#[cfg(all(test, unix))]
 #[path = "wire_lockstep_mux.rs"]
 mod wire_lockstep_mux;
 
