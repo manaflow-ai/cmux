@@ -390,6 +390,10 @@ pub const CAPABILITIES: &[Capability] = &[
     },
     // The person's Accept or Dismiss on what a chat learned (`server/memory_inbox.rs`).
     Capability { id: "memory-inbox-v1", wire: &[method::MUX_MEMORY_RESOLVE] },
+    Capability {
+        id: "agent-home-v1",
+        wire: &[method::MUX_AGENT_HOME, method::MUX_AGENT_HOME_RESOLVE],
+    },
     // The rewrite a chat that took several corrections offers (`server/prompt_coach.rs`).
     Capability { id: "prompt-coach-v1", wire: &[method::MUX_PROMPT_COACH] },
     // Pre-copy for a chat move (`hub/transfer_precopy.rs`): `transfer_prepare` exports the log
@@ -421,6 +425,9 @@ pub const CAPABILITIES: &[Capability] = &[
     // A turn's before and after picture of the chat's page, for its edited-files card
     // (`hub/turn_shots.rs`).
     Capability { id: "turn-shots-v1", wire: &[method::MUX_TURN_SHOTS] },
+    // `acp.session.fork` with `subagentId` (a subagent's own conversation as a chat of its own),
+    // `mode`, and `model` without `harness` (`hub/fork_subagent.rs`).
+    Capability { id: crate::hub::fork_subagent::CAPABILITY, wire: &[method::ACP_SESSION_FORK] },
 ];
 
 /// The ids of [`CAPABILITIES`], in its order.

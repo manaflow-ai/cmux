@@ -4991,6 +4991,20 @@ Undo: vars.CMUX_NEXT_SUPERSEDED_COMPILE_GATE = '0'.
 
 ## note-555
 
+Above `macos-placement: CI_FAST_TIER_FLEET_SPILL` in `.github/workflows/cmux-next.yml`.
+
+With Blacksmith macOS off, a FLEET_CLIENT_JOBS job (the fast tier) that no idle mini took is listed in
+fleet_jobs, so its build-fleet client runs it on an idle gateway runner instead of waiting on the owned
+label (next_macos_cascade.fleet_spill()). 2026-11-23 09-11Z the fast tier queued 46 to 65 min on
+glaeda-side-std-xcode-26.6 before starting; at 11:33Z the label had 173 jobs queued (87 of them fast tier,
+76 over 10 min), oldest 318 min, and all 31 of its slots busy, while placement logged idle gateway runners.
+fleet_gateway() still keeps the job only with an idle gateway runner of its own, and a fleet verdict
+`queued` hands it back, which with the switch off waits on the owned route rather than a Blacksmith label
+no runner serves (side_lane_placement.handback()). `vars.CI_FAST_TIER_FLEET_SPILL` set to `0` turns the
+spill off; unset or any other value leaves it on.
+
+## note-556
+
 Above `down) ...` in the `case "$word"` of app-compile-fleet, swift-canary-fleet and release-compile-fast in `.github/workflows/cmux-next.yml`.
 
 `down` from scripts/ci/fleet_compile_result.py: the build controller, which serves the tip check's results, was reached and gave no answer for 60 s (the CDN's 524 or the read's own timeout). A compile submits to that same process, so the job gives no verdict at once instead of submitting. 2026-11-23 from 09:30Z the controller answered a plain read in 78 s: 48 of 52 app compile jobs from 10:00 to 10:50Z spent 6.4-7.5 min reading and 5-8.5 min more in `cmux-ci compile-check` (exit 69 or 75), with no verdict at the end.

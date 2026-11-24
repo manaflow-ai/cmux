@@ -1288,6 +1288,8 @@ jobs:
           GATEWAY_LABEL: ${{ vars.CI_COMPILE_CHECK_GATEWAY }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-24
           FLEET_CLIENT_JOBS: fast-tier
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-555
+          CI_FAST_TIER_FLEET_SPILL: ${{ vars.CI_FAST_TIER_FLEET_SPILL }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-122
           GATEWAY_JOBS: >-
             ${{ format('{0} {1}',
@@ -2715,7 +2717,7 @@ jobs:
           case "$word" in
             pass) echo "::notice title=Build fleet compile check::the tip check compiled this head (SwiftPM Release -Onone); not compiled again" ;;
             fail) status=1 ;;
-            # Why: docs/ci/cmux-next-workflow-notes.md#note-555
+            # Why: docs/ci/cmux-next-workflow-notes.md#note-556
             down) status=69 ;;
             *) "$client" compile-check --ref "$REF" --app \
                  --timeout 1200 --queue-timeout 300 2>"$RUNNER_TEMP/compile-check.stderr" || status=$? ;;
@@ -2854,7 +2856,7 @@ jobs:
           case "$word" in
             pass) how="the tip check's SwiftPM Release (-Onone) compile of this head; not compiled again here" ;;
             fail) status=1 ;;
-            # Why: docs/ci/cmux-next-workflow-notes.md#note-555
+            # Why: docs/ci/cmux-next-workflow-notes.md#note-556
             down) no_verdict "the build controller did not answer its results read; nothing was submitted to it" ;;
             *) "$client" compile-check --ref "$REF" --app --timeout 1200 --queue-timeout 300 || status=$? ;;
           esac
@@ -5547,7 +5549,7 @@ jobs:
           case "$word" in
             pass) echo "The tip check compiled and linked the app at $REF in Release (-Onone); not compiled again." ;;
             fail) status=1 ;;
-            # Why: docs/ci/cmux-next-workflow-notes.md#note-555
+            # Why: docs/ci/cmux-next-workflow-notes.md#note-556
             down) status=69 ;;
             *) "$client" compile-check --ref "$REF" --app --release \
                  --timeout 1200 --queue-timeout 300 || status=$? ;;
