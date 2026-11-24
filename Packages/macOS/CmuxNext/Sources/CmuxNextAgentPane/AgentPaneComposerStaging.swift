@@ -63,7 +63,7 @@ final class AgentPaneComposerStaging {
             return AgentPaneReply.success(answer)
         case .chunk(let token, let offset, let data):
             let revision = model.replyLinks.composerCopyRevision
-            guard let next = await stages.append(token, offset: offset, data: data, owns: owns, work: work),
+            guard let next = await stages.chunk(token, offset: offset, data: data, owns: owns, work: work),
                   model.droppedPaths.generation == owner, model.replyLinks.composerCopyRevision == revision else {
                 return AgentPaneModel.replyFailure(.openFailed)
             }
