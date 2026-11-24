@@ -48,3 +48,13 @@ fn a_large_cold_batch_compacts_first_and_its_compaction_is_acpmuxs() {
     assert!(is_own(Some(&ours)));
     assert!(!super::super::inbox::persons_prompt(None, Some(&ours)), "nobody's words");
 }
+
+#[test]
+fn both_settings_are_on_by_default_and_compacting_first_needs_batching() {
+    assert_eq!(settings(None), (true, true));
+    assert_eq!(settings(Some(&json!({}))), (true, true));
+    let no_compact = json!({"agents": {"coldWake": {"compact": false}}});
+    assert_eq!(settings(Some(&no_compact)), (true, false));
+    let off = json!({"agents.coldWake.enabled": false});
+    assert_eq!(settings(Some(&off)), (false, false));
+}

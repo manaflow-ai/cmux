@@ -45,6 +45,29 @@ pub(crate) const SIZE_FULL_TOKENS: u64 = 200_000;
 pub(crate) const COLD_FULL_MS: u64 = 30 * 60_000;
 /// The context from which a cold batch compacts first.
 pub(crate) const COMPACT_ABOVE_TOKENS: u64 = 100_000;
+/// Settings > General > Prompt Cache: batch a cold chat's wakes on an interval (on by default).
+pub const SETTING_ENABLED: &str = "agents.coldWake.enabled";
+/// And compact a large cold chat before its batch goes in (on by default; Leo, 2026-11-24: "this
+/// can be toggled but... this as a default seems decent").
+pub const SETTING_COMPACT: &str = "agents.coldWake.compact";
+
+/// The two settings as `doc` (the settings file) has them: (batch, compact first). A missing key, file
+/// or an unreadable file is the default, on; compacting first needs batching on.
+pub(crate) fn settings(doc: Option<&Value>) -> (bool, bool) {
+    let get = |key: &str| {
+        doc.and_then(|d| crate::user_settings::value(d, key)).and_then(Value::as_bool).unwrap_or(true)
+    };
+    let enabled = get(SETTING_ENABLED);
+    (enabled, enabled && get(SETTING_COMPACT))
+}
+
+fn read_settings() -> (bool, bool) {
+    match crate::user_settings::read() {
+        crate::user_settings::Settings::Parsed(doc) => settings(Some(&doc)),
+        _ => settings(None),
+    }
+}
+
 /// A chat whose usage names no cache expiry is cold this long after its last turn ended (the
 /// prompt cache's default lifetime).
 pub(crate) const NO_EXPIRY_TTL_MS: u64 = 5 * 60_000;
@@ -115,12 +138,17 @@ impl Hub {
             *batch = None;
         }
         let (cold, tokens) = coldness(meta, now)?;
+        // Read once per batch opened, not per message: a cold chat opens one per idle stretch.
+        let (enabled, compact) = read_settings();
+        if !enabled {
+            return None;
+        }
         let window = window_ms(cold, tokens);
         let due = now.saturating_add(window);
         *batch = Some(Batch { due });
         drop(batch);
         tracing::info!(session = %session.id, window_ms = window, tokens, cold_ms = cold, "cold wake batch opened");
-        if compacts(tokens) {
+        if compact && compacts(tokens) {
             let (hub, s) = (self.clone(), session.clone());
             tokio::spawn(async move { hub.cold_wake_compact(&s, tokens).await });
         }
