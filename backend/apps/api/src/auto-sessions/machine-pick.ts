@@ -5,15 +5,18 @@ import { MACHINE } from "./http.ts"
 /**
  * Finding the owner's Auto machine when they named none (DESIGN.md "Rules added after the correctness review").
  * No client has a step that names it, so the owner's AutoSessionIndexDO picks one of the owner's own Cloud
- * machines the first time a chat needs one, and keeps it as `PUT /v1/auto-sessions/machine` would have.
+ * machines the first time a chat needs one, and keeps it for the chats of that team (machine-store.ts).
  *
  * The machines are read as the owner from the platform's CloudDO of one team: `cloud.machine.list`, the read the
  * start of machine-start.ts sits beside (`cloud.machine.get`), with the same principal. The list is the whole
- * team's, so the pick keeps only what the owner made.
+ * team's, so the pick keeps only what the owner made. The team is the chat's, and a pick is answered only for a
+ * chat of its team: a chat never goes to a machine of another team because some other chat needed one first.
  *
  * A pick is not for good the way a named machine is: a machine the owner deleted would keep every later chat
  * waiting, and nobody is there to name another. So a kept pick is read again (`cloud.machine.get`, at most every
- * PICK_CHECK_MS) when a chat needs it, and replaced when it is gone.
+ * PICK_CHECK_MS) when a chat needs it, and at once when its start is told the machine does not exist. A pick
+ * that is gone is replaced by another of the owner's machines in the team; with none, the chats it was given and
+ * never picked up wait for a machine again (machine-gone.ts).
  *
  * While a chat waits for a machine and none is found, the index's alarm looks again (`look` below): 15 s later,
  * then twice as long each time up to 10 minutes, for up to 6 hours. The owner's own calls look sooner.
@@ -54,7 +57,8 @@ export const pickMachine = (machines: ReadonlyArray<unknown>, owner: string): st
 /**
  * What the owner's machines in `team` say the Auto machine is. `kept`: the pick made earlier; it stays while the
  * owner can still use it, whatever else runs now. Answers the machine's id, null when the owner has none there,
- * and undefined when the Cloud could not be read (nothing is known, so nothing changes).
+ * and undefined when that could not be told (nothing is known, so nothing changes): the Cloud could not be read,
+ * or the team has more machines than the MAX_PAGES pages read and none of the owner's was among them.
  */
 export const findMachine = async (cloud: Pick<WakeCloud, "readOp">, owner: string, team: string, kept: string | null): Promise<string | null | undefined> => {
   const principal: Principal = { identity: `session:${owner}`, kind: "session", user: owner, team }
@@ -71,10 +75,12 @@ export const findMachine = async (cloud: Pick<WakeCloud, "readOp">, owner: strin
     if (!read.ok) return undefined
     const value = read.value as { machines?: unknown; next_cursor?: unknown } | null
     if (Array.isArray(value?.machines)) machines.push(...value.machines)
-    if (typeof value?.next_cursor !== "string" || !value.next_cursor) break
-    cursor = value.next_cursor
+    cursor = typeof value?.next_cursor === "string" && value.next_cursor ? value.next_cursor : undefined
+    if (!cursor) break
   }
-  return pickMachine(machines, owner)
+  // A list that goes on past the last page read was not read whole: one of the owner's machines among what was
+  // read is a pick, but none there does not say the owner has none.
+  return pickMachine(machines, owner) ?? (cursor ? undefined : null)
 }
 
 /** The alarm's look for a machine, kept only while a chat waits for one: one row, like a machine's start. */
