@@ -293,10 +293,13 @@ export class AcpmuxPerf {
       page.addEventListener("input", input, { capture: true, once: true });
       requestAnimationFrame((timestamp) => {
         const frame = performance.now();
+        // A trace's handle on the key's frame callback and its paint (bench/keyFrameTrace.ts).
+        performance.mark?.("acpmux:key-frame");
         sample.frame_timestamp_ms = timestamp;
         page.removeEventListener("input", input, { capture: true });
         const channel = new MessageChannel();
         channel.port1.onmessage = () => {
+          performance.mark?.("acpmux:key-paint");
           sample.frame = frame - start;
           const painted = performance.now();
           sample.paint = painted - start;
@@ -367,7 +370,11 @@ export class AcpmuxPerf {
   /** Records `stage` on the wall clock once per page (`LaunchMark`). */
   markLaunch(stage: LaunchMark, now = Date.now()): void {
     if (stage === "handshakeStart") this.handshakeAttempts += 1;
-    if (this.launchMarks[stage] === undefined) this.launchMarks[stage] = now;
+    if (this.launchMarks[stage] !== undefined) return;
+    this.launchMarks[stage] = now;
+    // The same stage as a user-timing mark, so a trace (DevTools, bench/chat-floor.bench.ts) shows it.
+    if (typeof performance !== "undefined" && typeof performance.mark === "function")
+      performance.mark(`acpmux:${stage}`);
   }
 
   /** An event of the shown chat arrived; `at` is when acpmux recorded it (ms since 1970). */
