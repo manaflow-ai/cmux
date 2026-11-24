@@ -23,6 +23,7 @@ import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { ChromeArea, type HideableChromeItem } from "../../ui/HideableChrome";
 import { ComposerListAnchor } from "./backdropLayer";
 import { remember } from "./composer/pasteMarks";
+import { type PromptText, usePromptTextValue } from "./composer/promptText";
 import { acpmuxPerf } from "./perf";
 import { holdFlag, setRef } from "./heldFlag";
 import { Slot } from "../../slots/Slot";
@@ -52,6 +53,9 @@ export type ComposerBoxProps = {
   /// The prompt field: its value and the host's own behavior (what Return does, its menus). The box
   /// runs a huge paste (a Pasted text chip, pastedChips.ts) and ⌘⇧V before the host hears them.
   field: Omit<MarkdownFieldProps, "plugins">;
+  /// The prompt's text when the host keeps it outside React state (the chat pane, composer/promptText.ts):
+  /// the box reads it itself, so a key renders the box and the field, not the host. Over `field.value`.
+  prompt?: PromptText;
   /// Receives the prompt field's handle.
   fieldRef?: (handle: MarkdownFieldHandle | null) => void;
   handle?: React.Ref<ComposerBoxHandle>;
@@ -129,6 +133,7 @@ export type ComposerBoxProps = {
 /// anchor to the field and the controls of their row.
 export function ComposerBox({
   field,
+  prompt: promptText,
   fieldRef,
   handle,
   boxRef,
@@ -177,7 +182,7 @@ export function ComposerBox({
   // The composer refresh (Settings > Advanced > Experiments, composerV2.ts): its arm and whether the draft has
   // words, as attributes composerV2.css reads; both absent while it is off.
   const composerV2 = useComposerV2();
-  const value = field.value;
+  const value = usePromptTextValue(promptText, field.value);
   const hasText = composerV2 !== undefined && /\S/.test(value);
   // The footer look and the row's place can change while this component stays mounted: the fit key
   // has both, so the live row is measured again before the new form paints.
