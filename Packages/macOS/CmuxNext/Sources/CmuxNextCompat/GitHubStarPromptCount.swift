@@ -2,7 +2,8 @@ public import Foundation
 
 /// The GitHub star ask's count of prompts the person sent (t3code's rule; CmuxNextUpdater's
 /// GitHubStarPrompt reads it). Separate keys, so a count written by another window never undoes a dismissal.
-public nonisolated enum GitHubStarPromptCount {
+public nonisolated struct GitHubStarPromptCount {
+    public nonisolated init() {}
     public static let promptsBeforeAsking = 5
     public static let sentKey = "cmux.githubStarPrompt.sent"
     public static let dismissedKey = "cmux.githubStarPrompt.dismissed"
