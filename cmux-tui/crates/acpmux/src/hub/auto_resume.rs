@@ -880,11 +880,13 @@ impl Hub {
         after: u64,
         point_stops: Option<&[String]>,
     ) {
-        let mut stopped = session
-            .auto_resume
-            .stopped_prompts
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        // The load holds the chat's `log_load` lock here: never wait on the set under it. A set
+        // someone holds is theirs to read (`prompt_stop_set`); this read is only a head start.
+        let mut stopped = match session.auto_resume.stopped_prompts.try_lock() {
+            Ok(stopped) => stopped,
+            Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => return,
+        };
         if stopped.is_some() {
             return;
         }
