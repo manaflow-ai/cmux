@@ -191008,6 +191008,60 @@
         }
       }
     },
+    "settings.notifications.sounds.lookPack": {
+      "comment": "Settings > Notifications > Sounds: toggle that plays the active look's (theme file's) sound pack",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Play the Look's Sound Pack"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تشغيل حزمة أصوات المظهر"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Reproduciraj paket zvukova izgleda"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Afspil udseendets lydpakke"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Soundpaket des Looks abspielen"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Reproducir el paquete de sonidos del aspecto"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Jouer le pack de sons de l'apparence"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Riproduci il pacchetto suoni dell'aspetto"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "ルックのサウンドパックを再生"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ចាក់កញ្ចប់សំឡេងនៃរូបរាង"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "룩의 사운드 팩 재생"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Spill av utseendets lydpakke"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Odtwarzaj pakiet dźwięków wyglądu"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Tocar o pacote de sons do visual"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Воспроизводить набор звуков оформления"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เล่นชุดเสียงของรูปลักษณ์"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Görünümün ses paketini çal"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Відтворювати набір звуків оформлення"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Phát gói âm thanh của giao diện"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "播放外观的声音包"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "播放外觀的聲音包"}}
+      }
+    },
+    "settings.notifications.sounds.lookPack.help": {
+      "comment": "Settings > Notifications > Sounds: help under the toggle that plays the active look's sound pack",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "When your theme file has a sound pack, play its sounds when an agent finishes, needs you, or its checks pass."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "عندما يحتوي ملف السمة على حزمة أصوات، شغّل أصواتها عندما ينتهي وكيل أو يحتاج إليك أو تنجح فحوصاته."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Kada vaša datoteka teme ima paket zvukova, reproduciraj njegove zvukove kada agent završi, treba vas ili mu provjere prođu."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Når din temafil har en lydpakke, afspilles dens lyde, når en agent er færdig, har brug for dig, eller dens tjek består."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Wenn deine Theme-Datei ein Soundpaket hat, spiele seine Töne ab, wenn ein Agent fertig ist, dich braucht oder seine Checks bestehen."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Cuando tu archivo de tema tiene un paquete de sonidos, reproduce sus sonidos cuando un agente termina, te necesita o pasan sus comprobaciones."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Quand votre fichier de thème contient un pack de sons, jouer ses sons quand un agent termine, a besoin de vous ou que ses vérifications réussissent."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Quando il file del tema ha un pacchetto suoni, riproduci i suoi suoni quando un agente termina, ha bisogno di te o i suoi controlli passano."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "テーマファイルにサウンドパックがある場合、エージェントの完了時、対応が必要な時、チェック成功時にそのサウンドを再生します。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "នៅពេលឯកសារស្បែករបស់អ្នកមានកញ្ចប់សំឡេង ចាក់សំឡេងរបស់វានៅពេលភ្នាក់ងារបញ្ចប់ ត្រូវការអ្នក ឬការត្រួតពិនិត្យរបស់វាឆ្លងកាត់។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "테마 파일에 사운드 팩이 있으면 에이전트가 완료되거나, 도움이 필요하거나, 검사를 통과할 때 해당 사운드를 재생합니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Når temafilen din har en lydpakke, spilles lydene når en agent er ferdig, trenger deg eller sjekkene består."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Gdy plik motywu ma pakiet dźwięków, odtwarzaj jego dźwięki, gdy agent skończy, potrzebuje Ciebie lub jego testy przejdą."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Quando seu arquivo de tema tem um pacote de sons, toca os sons quando um agente termina, precisa de você ou as verificações passam."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Если в файле темы есть набор звуков, воспроизводить его звуки, когда агент завершает работу, ждёт вас или его проверки проходят."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เมื่อไฟล์ธีมของคุณมีชุดเสียง ให้เล่นเสียงเมื่อเอเจนต์ทำงานเสร็จ ต้องการคุณ หรือการตรวจสอบผ่าน"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Tema dosyanızda bir ses paketi varsa, bir ajan bitirdiğinde, size ihtiyaç duyduğunda veya kontrolleri geçtiğinde seslerini çal."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Якщо у файлі теми є набір звуків, відтворювати його звуки, коли агент завершує роботу, чекає на вас або його перевірки проходять."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Khi tệp chủ đề của bạn có gói âm thanh, phát âm thanh khi một tác tử hoàn tất, cần bạn hoặc các kiểm tra của nó đạt."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "当主题文件包含声音包时，在代理完成、需要你或检查通过时播放其中的声音。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "當主題檔案包含聲音包時，在代理完成、需要你或檢查通過時播放其中的聲音。"}}
+      }
+    },
     "settings.notifications.sounds.when": {
       "comment": "Settings > Notifications > Sounds: when notification sounds play",
       "extractionState": "manual",
