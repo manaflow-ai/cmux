@@ -1,7 +1,7 @@
 {
  "owners": [
   {
-   "at": "2026-11-24T16:07:42Z",
+   "at": "2026-11-24T16:09:09Z",
    "harness": "claude",
    "host": "gcp-agent-lane-9",
    "name": "transport-lockstep",
