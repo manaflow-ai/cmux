@@ -217,9 +217,7 @@ public nonisolated struct CloudCallRefusal: Error, Hashable, Sendable {
 
 /// The cmux daemon's Cloud calls (cmux-tui `cloud.<call>`) through the bundled cmux's `cmux cloud api` (cmux-tui
 /// `cli/cloud_api.rs`). This only forwards: one JSON request on the child's stdin (the credential never goes in
-/// argv), with the classic Cloud session beside it when this client has one (`classic`, or `classic_unread` when it
-/// could not be read); which call takes it, and what a refusal then means, is Rust's (cmux-cloud-api `classic_runs`).
-/// One answer line back, `{"ok": true, "body": B}` or `{"ok": false, "error": E}`, where `E.kind` names a
+/// argv). One answer line back, `{"ok": true, "body": B}` or `{"ok": false, "error": E}`, where `E.kind` names a
 /// ``CloudAPIError`` case one for one.
 public struct CloudDaemon: Sendable {
     public typealias Tokens = @Sendable () async throws -> (access: String, refresh: String)
