@@ -327,6 +327,30 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         if current != lastSnapshot { sync(current) }
     }
 
+    /// A motion frame's sync: only `screens` (the ones a divider drag wrote this frame) are compared and reconciled, so
+    /// the frame costs O(their panes), not O(every workspace's screens): `==` over all screens and a pass over each
+    /// of them was the part of a drag frame that grew with the workspace count. A change anywhere else (another
+    /// screen, a screen added or removed) is not looked for here: it is left in `lastSnapshot` as it was, so the
+    /// observation's full compare finds it and syncs it as before.
+    func syncWithModel(onlyScreens screens: Set<ScreenID>) {
+        guard let previous = lastSnapshot else { return syncWithModel() }
+        var current = snapshot()
+        guard current.screens.count == previous.screens.count,
+              zip(current.screens, previous.screens).allSatisfy({ $0.id == $1.id }) else { return syncWithModel() }
+        var merged = previous.screens
+        var changed = false
+        for index in merged.indices where screens.contains(merged[index].id) && merged[index] != current.screens[index] {
+            merged[index] = current.screens[index]
+            changed = true
+        }
+        current.screens = merged
+        var rest = current, was = previous
+        rest.screens = []
+        was.screens = []
+        guard changed || rest != was else { return }
+        WindowControlsAvoiders.batching(in: window) { MotionTrace.measure("layout.sync") { syncBatched(current, only: screens) } }
+    }
+
     /// Makes the first hidden screen still waiting (``deferredScreens``): its view, hidden at its place with its
     /// panes laid out at rest, as one made with the shown screen was. Its first show finds it made.
     /// False when none waits.
@@ -368,7 +392,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
     var canAnimate: Bool { window != nil && driver.isAttached && !context.reduceMotion }
 
     /// ``sync(_:)``'s body (`LayoutRootView+AvoiderBatch`).
-    func syncBatched(_ snapshot: Snapshot) {
+    func syncBatched(_ snapshot: Snapshot, only: Set<ScreenID>? = nil) {
         let previous = lastSnapshot
         var snapshot = snapshot
         // A layout just shown keeps its chrome's rings as they were while it is held (cmux#46908): a ring the switch read
@@ -386,11 +410,19 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         let animated = chromeAnimated && context.animatesPaneLayout
         var needsFrames = false
 
-        if previous?.screens != snapshot.screens { context.livePanes = Set(snapshot.screens.flatMap(\.panes)) }
+        // A scoped sync (`only`: a motion frame's drag screens) compares just those screens: the pane set changes only
+        // when one of them gained or lost a pane, so the other screens cost nothing (O(visible), not O(workspaces)).
+        if let only, let previous {
+            let old = Dictionary(previous.screens.filter { only.contains($0.id) }.map { ($0.id, $0.panes) }, uniquingKeysWith: { first, _ in first })
+            if snapshot.screens.contains(where: { only.contains($0.id) && old[$0.id] != $0.panes }) {
+                context.livePanes = Set(snapshot.screens.flatMap(\.panes))
+            }
+        } else if previous?.screens != snapshot.screens { context.livePanes = Set(snapshot.screens.flatMap(\.panes)) }
         // Only a screen whose inputs changed reconciles (I7): a divider drag
         // frame rewrites one screen, and the others (shown or hidden) keep
         // their frames, chrome and scroll.
-        let before = Dictionary((previous?.screens ?? []).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let before = Dictionary((previous?.screens ?? []).lazy.filter { only?.contains($0.id) ?? true }.map { ($0.id, $0) },
+                                uniquingKeysWith: { first, _ in first })
         let sharedChanged = previous.map {
             $0.style != snapshot.style || $0.scrollbar != snapshot.scrollbar || $0.rowOps != snapshot.rowOps
         } ?? true
@@ -412,6 +444,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         let leaving = screenViews.filter { !ids.contains($0.key) }
         let waited = Set(deferredScreens)
         for screen in snapshot.screens {
+            if let only, !only.contains(screen.id) { continue }
             let isActive = screen.id == snapshot.activeScreen
             let view: ScreenContentView
             var isNew = false
