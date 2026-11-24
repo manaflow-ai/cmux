@@ -126,7 +126,9 @@ sys.path.insert(0, HERE)
 import bench_memory as bm  # noqa: E402  (launch, App, owned, end_bundle)
 from state_wait import wait_until  # noqa: E402
 
-_libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
+import macos_libs  # noqa: E402
+
+_libproc = macos_libs.library("/usr/lib/libproc.dylib")
 _libproc.proc_pidinfo.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_uint64, ctypes.c_void_p, ctypes.c_int]
 _libproc.proc_pidinfo.restype = ctypes.c_int
 MB = 1048576.0
