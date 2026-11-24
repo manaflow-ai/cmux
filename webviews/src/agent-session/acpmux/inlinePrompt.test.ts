@@ -600,4 +600,7 @@ test("a sent image's own part carries its size from the send", async () => {
   const wide: ComposerAttachment = { ...image("wide"), data };
   const built = inlinePrompt(`look${inlineToken("wide")}`, [wide])!;
   expect(built.parts.find((part) => part.kind === "image")).toMatchObject({ width: 640, height: 400 });
+  // The strip view's row (its `images`) carries it too.
+  const { attachedImages } = await import("./direct/queue");
+  expect(attachedImages([wide])[0]).toMatchObject({ width: 640, height: 400 });
 });
