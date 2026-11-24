@@ -100,7 +100,6 @@ SCOPED: dict[str, str] = {
     "terminal-hang-diagnostics.yml": "Packages/Shared/CMUXMobileCore/**",
     "test-ios.yml": "Packages/Shared/**",
     "web-complexity.yml": "web/**",
-    "web-complexity-trusted.yml": "web/**",
 }
 
 # Docs-only pull requests: the two of Leo's 2026-11-19 complaint that are prose (#45476 changed CLAUDE.md, which
