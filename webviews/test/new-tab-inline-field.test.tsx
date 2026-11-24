@@ -292,3 +292,65 @@ test("a file dropped on New Tab while its prompt is selected keeps the prompt", 
   await until(() => !!host.querySelector(".nt-input .acpmux-md-inline-chip"));
   expect(field.acpmuxMarkdownField!.value()).toContain("keep every word of this");
 });
+
+// #44801: a transcript selection with words and a picture, copied and pasted on the field. WebKit
+// gives the page the picture as a file and hides the clipboard's plain text (a paste with files
+// could expose their paths); the words are still in its HTML. The field kept only the picture.
+test("a pasted selection of words and a picture keeps the words beside the picture", async () => {
+  const field = await render([]);
+  const editor = await type(field, "see ");
+  const picture = new File([new Uint8Array(512)], "image.png", { type: "image/png" });
+  const html =
+    '<meta charset="utf-8"><div class="cv-md"><p>The build failed on step two.</p>' +
+    '<p><img src="blob:https://cmux.test/1"></p><p>Here is the log.</p></div>';
+  const paste = new dom.window.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(paste, "clipboardData", {
+    value: {
+      files: [picture],
+      types: ["text/html", "Files"],
+      getData: (type: string) => (type === "text/html" ? html : ""),
+    },
+  });
+  await act(async () => editor.dispatchEvent(paste));
+  await until(() => !!host.querySelector(".nt-input .acpmux-md-inline-chip"));
+  expect(editor.textContent).toContain("The build failed on step two.");
+  expect(editor.textContent).toContain("Here is the log.");
+  expect(host.querySelectorAll(".nt-input .acpmux-md-inline-chip").length).toBe(1);
+});
+
+// A file manager's copy has no HTML: its hidden plain text is only the file's name, never words.
+test("a pasted copied file brings no text with it", async () => {
+  const field = await render([]);
+  const editor = await type(field, "read ");
+  const picture = new File([new Uint8Array(512)], "shot.png", { type: "image/png" });
+  const paste = new dom.window.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(paste, "clipboardData", {
+    value: { files: [picture], types: ["Files"], getData: () => "" },
+  });
+  await act(async () => editor.dispatchEvent(paste));
+  await until(() => !!host.querySelector(".nt-input .acpmux-md-inline-chip"));
+  expect(editor.textContent?.trim()).toBe("read");
+});
+
+// #44801: a prompt copied from a chat's composer with its screenshot, pasted on New Tab. The host
+// writes the words, the screenshot's file URL and HTML of the words (composer.copy); WebKit hides
+// the plain text beside file URLs and New Tab has no copy plan of its own, so the words come from
+// the HTML, each line kept.
+test("a composer's copy of a prompt and its screenshot keeps the prompt's lines on New Tab", async () => {
+  const field = await render([]);
+  const editor = await type(field, "");
+  const shot = new File([new Uint8Array(512)], "Screenshot 2026-11-16 at 10.00.00.png", { type: "image/png" });
+  const html =
+    '<span data-cmux-composer-copy="copy-1" style="white-space: pre-wrap">why does this fail?\n  - step two: *red*</span>';
+  const paste = new dom.window.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(paste, "clipboardData", {
+    value: {
+      files: [shot],
+      types: ["text/html", "Files"],
+      getData: (type: string) => (type === "text/html" ? html : ""),
+    },
+  });
+  await act(async () => editor.dispatchEvent(paste));
+  await until(() => !!host.querySelector(".nt-input .acpmux-md-inline-chip"));
+  expect(field.acpmuxMarkdownField!.plainText()).toContain("why does this fail?\n  - step two: *red*");
+});
