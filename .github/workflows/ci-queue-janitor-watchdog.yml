@@ -48,7 +48,7 @@ jobs:
     # Off the label it watches: the fleet label while the sweep is on its one-job repair VM, the repair VM while
     # CI_QUEUE_JANITOR_ON_FLEET=1 puts the sweep on the fleet label. GitHub-hosted Ubuntu starts nothing in
     # manaflow-ai (Leo, 2026-11-21: "the ci must flow").
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-repair-jit-x64' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_QUEUE_JANITOR_ON_FLEET != '1' && 'cmux-fleet-linux-x64' || 'cmux-gcp-repair-jit-x64' }}
     timeout-minutes: 20
     env:
       # A scheduled job's GitHub API waits stop here and fail loud (scripts/ci/gh_budget_wait.sh).

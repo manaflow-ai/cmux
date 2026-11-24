@@ -140,7 +140,7 @@ jobs:
     # on 2026-11-20 the hosted pool served none of our jobs for 15 hours (Leo, 2026-11-21:
     # "the ci must flow"). No Blacksmith label (tests/test_ci_self_hosted_guard.sh
     # check_queue_janitor_runs_off_the_pools_it_judges).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-fleet-linux-x64' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_QUEUE_JANITOR_ON_FLEET == '1' && 'cmux-fleet-linux-x64' || 'cmux-gcp-repair-jit-x64' }}
     # A sweep that lists the whole queue took up to 13 minutes on 2026-10-30; a timed-out
     # job skips the upload below, so this leaves room for the longest one seen.
     timeout-minutes: 30
