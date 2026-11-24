@@ -593,6 +593,11 @@ public final class FeedStore {
     public func setRefreshErrorForDemo() {
         refreshError = Self.notConnectedMessage
     }
+
+    /// FeedShiftProbe: the header's error goes again.
+    public func clearRefreshErrorForDemo() {
+        refreshError = nil
+    }
     #endif
 
     public func clearRefreshError() { refreshError = nil }
