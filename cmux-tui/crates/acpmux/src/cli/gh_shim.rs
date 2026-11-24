@@ -152,6 +152,8 @@ fn request(
         body,
         // The daemon sets it when it sends the action on.
         deadline_ms: None,
+        // Only a `token` asks for permissions; the shim's actions never do.
+        permissions: None,
     })
 }
 
