@@ -25,6 +25,7 @@ use zeroize::Zeroizing;
 
 use crate::link::LinkError;
 use crate::provider::socks;
+use crate::provider::tailnet::{TailnetCarrierMode, TailnetHints, add_candidates};
 
 /// The bounds a dialed carrier must satisfy. Blanket-implemented, so any
 /// Tokio stream qualifies; the trait exists only because a trait object can
@@ -107,6 +108,47 @@ impl Dialer for OsTcpDialer {
         let addresses = super::hedge::v6_first(&resolve_dial_target(host, port).await?);
         let stream = super::hedge::connect(
             &addresses,
+            super::hedge::HedgePolicy::INTERNET,
+            TcpStream::connect,
+        )
+        .await
+        .map_err(|error| LinkError::Transport(format!("connect {host}:{port}: {error}")))?;
+        let _ = stream.set_nodelay(true);
+        Ok(Box::new(stream))
+    }
+}
+
+/// The operating-system dialer with an optional, cached Tailscale hint source.
+/// The hint source is consulted without I/O, so a stale or unavailable
+/// tailscaled cannot delay the ordinary transport race.
+pub struct TailnetDialer {
+    mode: TailnetCarrierMode,
+    hints: Arc<dyn TailnetHints>,
+}
+
+impl fmt::Debug for TailnetDialer {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.debug_struct("TailnetDialer").field("mode", &self.mode).finish_non_exhaustive()
+    }
+}
+
+impl TailnetDialer {
+    pub fn new(mode: TailnetCarrierMode, hints: Arc<dyn TailnetHints>) -> Self {
+        Self { mode, hints }
+    }
+}
+
+#[async_trait]
+impl Dialer for TailnetDialer {
+    fn name(&self) -> &'static str {
+        "tcp"
+    }
+
+    async fn dial(&self, host: &str, port: u16) -> Result<DialedStream, LinkError> {
+        let resolved = resolve_dial_target(host, port).await?;
+        let addresses = add_candidates(&resolved, host, self.mode, self.hints.as_ref());
+        let stream = super::hedge::connect(
+            &super::hedge::v6_first(&addresses),
             super::hedge::HedgePolicy::INTERNET,
             TcpStream::connect,
         )
