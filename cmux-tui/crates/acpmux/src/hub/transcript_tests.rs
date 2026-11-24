@@ -161,11 +161,7 @@ async fn the_missed_turns_read_past_the_mark_tell_what_the_whole_scan_did() {
                 json!({"type": "text", "text": format!("<restored_transcript note=\"acpmux restored the turns this agent session did not see (it resumed from an older copy of itself); tool state was not restored\">\n{text}\n</restored_transcript>\n")})
             });
             session.meta.lock().unwrap().agent_behind_seq = Some(after);
-            assert_eq!(
-                hub.missed_turns(&session, max_chars),
-                want,
-                "past {after}, {max_chars}"
-            );
+            assert_eq!(hub.missed_turns(&session, max_chars), want, "past {after}, {max_chars}");
         }
     }
 }
