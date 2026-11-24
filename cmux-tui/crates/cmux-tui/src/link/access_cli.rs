@@ -111,6 +111,7 @@ const SECRET_PATHS: &[&str] = &[
     ".claude/.credentials.json",
     ".config/gh/hosts.yml",
     ".config/cmux/auth.json",
+    ".config/cmux-next/auth.json",
     ".docker/config.json",
 ];
 /// Folders whose files never go from a shared folder.

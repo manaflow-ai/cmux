@@ -107,6 +107,7 @@ fn self_paths() -> Vec<PathBuf> {
         out.push(h.join("Library/LaunchAgents/dev.cmux.hand.plist"));
         out.push(h.join(".config/systemd/user/cmux-hand.service"));
         out.push(h.join(".config/cmux"));
+        out.push(h.join(".config/cmux-next"));
     }
     if let Ok(exe) = std::env::current_exe() {
         out.push(exe);

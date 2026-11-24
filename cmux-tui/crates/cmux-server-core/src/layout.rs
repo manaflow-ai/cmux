@@ -31,6 +31,27 @@ pub struct LayoutEnv {
     /// The installing user's numeric id. Required in macOS user mode, where
     /// the Postgres socket lives under `/tmp/cmux-<uid>` (server.md 8.2).
     pub uid: Option<u32>,
+    /// macOS user mode only: this Mac already has a server installed in the
+    /// old layout (`~/.config/cmux/server.json`, `Application Support/cmux`)
+    /// and none in cmux NEXT's own (`~/.config/cmux-next/server.json`), so it
+    /// keeps the old one: moving a running server's store and Postgres is not
+    /// safe. New installs use `cmux-next`. The caller reads it with
+    /// [`macos_user_keeps_legacy_layout`].
+    pub mac_legacy_install: bool,
+}
+
+/// macOS user mode's directory name under `Application Support` and
+/// `~/.config` for a new install: cmux NEXT's own, not cmux Classic's `cmux`.
+pub const MACOS_USER_DIR: &str = "cmux-next";
+/// The directory name an install made before cmux NEXT had its own roots kept.
+pub const MACOS_USER_LEGACY_DIR: &str = "cmux";
+
+/// Whether the macOS user-mode server under `home` stays in the legacy
+/// layout ([`LayoutEnv::mac_legacy_install`]): its old config file exists
+/// and cmux NEXT's own does not.
+pub fn macos_user_keeps_legacy_layout(home: &std::path::Path) -> bool {
+    let config = |dir: &str| home.join(".config").join(dir).join("server.json");
+    config(MACOS_USER_LEGACY_DIR).is_file() && !config(MACOS_USER_DIR).exists()
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -276,8 +297,9 @@ fn linux_system() -> Parts {
 fn macos_user(env: &LayoutEnv) -> Result<Parts, LayoutError> {
     let p = Platform::MacOs;
     let home = required(p, &env.home, "HOME")?;
-    let support = home.join("Library/Application Support/cmux");
-    let config_file = home.join(".config/cmux/server.json");
+    let dir = if env.mac_legacy_install { MACOS_USER_LEGACY_DIR } else { MACOS_USER_DIR };
+    let support = home.join("Library/Application Support").join(dir);
+    let config_file = home.join(".config").join(dir).join("server.json");
     let state = support.join("server");
     let plist = format!("{LAUNCHD_LABEL}.plist");
     match env_path(p, &env.mac_app_bundle, "app bundle")? {
@@ -353,4 +375,50 @@ fn windows_system(env: &LayoutEnv) -> Result<Parts, LayoutError> {
         config_file: data.join("cmux/server.json"),
         service: ServiceKind::WindowsService { service_name: WINDOWS_SERVICE },
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mac_user(legacy: bool) -> Layout {
+        let env = LayoutEnv {
+            home: Some("/Users/ana".to_owned()),
+            uid: Some(501),
+            mac_legacy_install: legacy,
+            ..LayoutEnv::default()
+        };
+        layout(InstallMode::User, Platform::MacOs, &env).unwrap()
+    }
+
+    #[test]
+    fn macos_user_new_install_uses_cmux_next_roots() {
+        let l = mac_user(false);
+        assert_eq!(l.root.as_str(), "/Users/ana/Library/Application Support/cmux-next");
+        assert_eq!(l.state.as_str(), "/Users/ana/Library/Application Support/cmux-next/server");
+        assert_eq!(l.config_file.as_str(), "/Users/ana/.config/cmux-next/server.json");
+    }
+
+    #[test]
+    fn macos_user_legacy_install_keeps_its_layout() {
+        let l = mac_user(true);
+        assert_eq!(l.root.as_str(), "/Users/ana/Library/Application Support/cmux");
+        assert_eq!(l.config_file.as_str(), "/Users/ana/.config/cmux/server.json");
+    }
+
+    #[test]
+    fn legacy_layout_is_kept_only_while_cmux_next_has_no_config() {
+        let home = std::env::temp_dir().join(format!("cmux-layout-legacy-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        assert!(!macos_user_keeps_legacy_layout(&home));
+        let old = home.join(".config/cmux");
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::write(old.join("server.json"), "{}").unwrap();
+        assert!(macos_user_keeps_legacy_layout(&home));
+        let new = home.join(".config/cmux-next");
+        std::fs::create_dir_all(&new).unwrap();
+        std::fs::write(new.join("server.json"), "{}").unwrap();
+        assert!(!macos_user_keeps_legacy_layout(&home));
+        std::fs::remove_dir_all(&home).unwrap();
+    }
 }

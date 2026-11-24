@@ -1,5 +1,6 @@
 //! The cmux settings file, read only (the app's settings owner writes it):
-//! `CMUX_NEXT_CONFIG_FILE`, else `~/.config/cmux/cmux-next.json`, else
+//! `CMUX_NEXT_CONFIG_FILE`, else `~/.config/cmux/cmux-next.json` (in
+//! `~/.config/cmux-next/` on macOS), else
 //! classic `~/.config/cmux/cmux.json` before the app's first launch copies
 //! it: `cmux_config::location`'s `config_path` and `seed_path`, read with
 //! `cmux_config::jsonc`, the settings owner's own reader. Read at each use,
@@ -28,6 +29,7 @@ pub enum Settings {
 /// else `cmux-next.json` then classic `cmux.json`. The settings watcher
 /// (`hub/settings_watch.rs`) watches these.
 pub fn paths() -> Vec<PathBuf> {
+    location::migrate_legacy_once();
     paths_from(|name| std::env::var_os(name).filter(|v| !v.is_empty()), dirs::home_dir)
 }
 
@@ -100,7 +102,10 @@ mod tests {
     fn with_no_home_both_files_stay_relative() {
         assert_eq!(
             paths_from(|_| None, || None),
-            [PathBuf::from(".config/cmux/cmux-next.json"), PathBuf::from(".config/cmux/cmux.json")]
+            [
+                PathBuf::from(".config").join(cmux_config::NEXT_DIR).join("cmux-next.json"),
+                PathBuf::from(".config/cmux/cmux.json")
+            ]
         );
     }
 
@@ -110,7 +115,7 @@ mod tests {
         assert_eq!(
             paths_from(home, || None),
             [
-                PathBuf::from("/h/.config/cmux/cmux-next.json"),
+                PathBuf::from("/h/.config").join(cmux_config::NEXT_DIR).join("cmux-next.json"),
                 PathBuf::from("/h/.config/cmux/cmux.json")
             ]
         );
