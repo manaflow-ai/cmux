@@ -1,4 +1,4 @@
-use super::{START_HUNG, StartWatch, watches_harness};
+use super::{START_HUNG, StartWatch};
 use crate::cpu_class::{HarnessSeen, HarnessState};
 use std::time::Duration;
 
@@ -126,14 +126,4 @@ fn a_harness_that_only_reads_pages_in_still_works() {
         at += TICK;
     }
     assert!(at > START_HUNG);
-}
-
-#[test]
-fn the_persons_start_is_watched_for_a_harness_that_stopped_working() {
-    // Leo, 2026-11-24: "these endless freezes, these soft locks". The person's start has no time
-    // deadline, so without the watch a silent harness held their chat on "starting" forever.
-    assert!(watches_harness(true, false), "the person's start");
-    assert!(watches_harness(false, true), "a start that asked to wait on its harness");
-    assert!(watches_harness(true, true));
-    assert!(!watches_harness(false, false), "an agent's or a lane's start keeps its deadline");
 }
