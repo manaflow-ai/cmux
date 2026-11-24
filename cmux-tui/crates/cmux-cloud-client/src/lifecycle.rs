@@ -138,13 +138,13 @@ pub fn observe(scope: &Scope, record: CloudMachine) -> Result<ObservedMachine, O
     relay::check_revision(&record.revision, &record.revision)
         .map_err(|_| ObserveError::InvalidRevision)?;
     let status = cloud_status(&record.status)?;
-    if let Some(expected) = scope.team() {
-        if expected != record.team {
-            return Err(ObserveError::TeamMismatch {
-                expected: expected.to_owned(),
-                actual: record.team,
-            });
-        }
+    if let Some(expected) = scope.team()
+        && expected != record.team
+    {
+        return Err(ObserveError::TeamMismatch {
+            expected: expected.to_owned(),
+            actual: record.team,
+        });
     }
     let machine = scope.machine(&record.id).map_err(ObserveError::Handle)?;
     let snapshot = Snapshot { machine, team: record.team, revision: record.revision };
@@ -321,6 +321,10 @@ impl Reconciled {
 impl Pending<Unknown> {
     /// Reconcile this subject with a fresh authoritative Cloud record. No
     /// lifecycle action is available on `Unknown` until this succeeds.
+    // The error hands the unreconciled subject back so its caller can retry.
+    #[allow(clippy::result_large_err)]
+    #[allow(clippy::result_large_err)] // The subject comes back with the error: it is not lost.
+    #[allow(clippy::result_large_err)] // The Err hands this Unknown subject back so the caller can reconcile again.
     pub fn reconcile(mut self, record: CloudMachine) -> Result<Reconciled, (Self, ObserveError)> {
         let status = match validate_record(self.state.payload(), &record) {
             Ok(status) => status,
