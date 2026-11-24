@@ -34,6 +34,15 @@ import Testing
         ActionInvocation(target: ActionTargetRef(kind: .profile, id: id.rawValue))
     }
 
+    /// The generated profile-menu row for Delete Space…, including rows nested in folders.
+    static func deleteRow(in menu: NSMenu) -> NSMenuItem? {
+        for item in menu.items {
+            if ActionRegistry.menuRun(of: item)?.id == "space.delete" { return item }
+            if let submenu = item.submenu, let row = deleteRow(in: submenu) { return row }
+        }
+        return nil
+    }
+
     @Test func theOnlySpaceIsDimmedWithItsReasonAndRefusedEverywhere() throws {
         let (services, sends) = try Self.fixture([ProfileSnapshot(id: .defaultProfile, name: "Home", index: 0)])
         let registry = services.registry
@@ -48,6 +57,14 @@ import Testing
         let refusal = registry.capturingRefusal { _ = registry.perform("space.delete", invocation: cli) }
         #expect(refusal == RefusalStrings.onlySpaceCannotBeDeleted, "a CLI delete of the only space reports \(refusal ?? "success")")
         #expect(sends() == 0, "a delete of the only space reached the daemon")
+
+        let menu = registry.makeContextMenu(for: .profile, target: invocation.target)
+        let row = try #require(Self.deleteRow(in: menu), "the profile menu has no Delete Space… row")
+        #expect(row.toolTip == RefusalStrings.onlySpaceCannotBeDeleted)
+        if #available(macOS 14.4, *) { #expect(row.subtitle == RefusalStrings.onlySpaceCannotBeDeleted) }
+        #expect(row.keyEquivalent.isEmpty, "a disabled reason must replace the Delete Space… shortcut")
+        #expect((row.target as? any NSMenuItemValidation)?.validateMenuItem(row) == false,
+                "Delete Space… is enabled on the only space")
     }
 
     @Test func otherSpacesStayDeletableAndDefaultSaysWhy() throws {
@@ -60,5 +77,18 @@ import Testing
         #expect(ActionTargetReasons.canPerform("space.delete", invocation: Self.target("work"), in: registry))
         #expect(ActionTargetReasons.reason(for: "space.delete", invocation: Self.target(.defaultProfile), in: registry)
             == RefusalStrings.defaultSpaceCannotBeDeleted)
+
+        let menu = registry.makeContextMenu(for: .profile, target: Self.target(.defaultProfile).target)
+        let row = try #require(Self.deleteRow(in: menu), "the profile menu has no Delete Space… row")
+        #expect(row.toolTip == RefusalStrings.defaultSpaceCannotBeDeleted)
+        if #available(macOS 14.4, *) { #expect(row.subtitle == RefusalStrings.defaultSpaceCannotBeDeleted) }
+        #expect((row.target as? any NSMenuItemValidation)?.validateMenuItem(row) == false,
+                "Delete Space… is enabled on the Default space")
+
+        let workMenu = registry.makeContextMenu(for: .profile, target: Self.target("work").target)
+        let workRow = try #require(Self.deleteRow(in: workMenu), "the Work profile menu has no Delete Space… row")
+        #expect(workRow.toolTip == nil, "a deletable space has a stale refusal reason")
+        #expect((workRow.target as? any NSMenuItemValidation)?.validateMenuItem(workRow) == true,
+                "Delete Space… is disabled on a deletable non-Default space")
     }
 }
