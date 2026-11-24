@@ -127,15 +127,22 @@ describe("agent deeplink page", () => {
     expect(rendered.join("\n")).not.toContain("does not use");
   });
 
-  test("a private reference says what it is and shows nothing to open", async () => {
-    const rendered = await render({ id: "aid-0123456789abcdef0123" });
+  test("a public footer's private reference opens in the app, which resolves it", async () => {
+    const element = await page({ id: "aid-0123456789abcdef0123" });
+    const rendered = texts(element);
     const text = rendered.join("\n");
 
-    expect(rendered).not.toContain("Open in cmux");
-    expect(text).toContain("by a private reference");
+    expect(rendered).toContain("Open in cmux");
+    expect(rendered).toContain("cmux://agent?id=aid-0123456789abcdef0123");
+    expect(autoOpened(element)).toEqual(["cmux://agent?id=aid-0123456789abcdef0123"]);
     expect(text).not.toContain("missing required parameters");
-    expect(text).not.toContain("cmux://agent");
-    expect(text).not.toContain("aid-0123456789abcdef0123");
+    expect(text).not.toContain("does not use");
+  });
+
+  test("a reference beside a session, or written twice, opens nothing", async () => {
+    expect(autoOpened(await page({ id: "aid-0123456789abcdef0123", harness: "claude", session: "s1" }))).toEqual(["cmux://agent/claude/s1"]);
+    expect(autoOpened(await page({ id: ["aid-0123456789abcdef0123", "aid-0123456789abcdef0123"] }))).toEqual([]);
+    expect(autoOpened(await page({ id: "aid-0123456789ABCDEF0123" }))).toEqual([]);
   });
 
   test("a malformed reference is just a link with no session", async () => {
@@ -170,7 +177,6 @@ describe("agent deeplink page", () => {
 
   test("a link that cannot open opens nothing on load", async () => {
     expect(autoOpened(await page({ harness: "claude" }))).toEqual([]);
-    expect(autoOpened(await page({ id: "aid-0123456789abcdef0123" }))).toEqual([]);
     expect(autoOpened(await page({ harness: "claude", session: ["s1", "s2"] }))).toEqual([]);
     expect(autoOpened(await page({ host: "-oProxyCommand=x" }, "ssh"))).toEqual([]);
   });
