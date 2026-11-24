@@ -56,8 +56,9 @@ pub(crate) const TARGET: Duration = Duration::from_millis(5);
 const MIN_WINDOW: u32 = 4 * SEGMENT;
 /// The window before the first round is measured.
 const INITIAL_WINDOW: u32 = 32 * SEGMENT;
-/// Samples of a round before slow start may end on them.
-const RECENT_SAMPLES: usize = 8;
+/// Consecutive samples that must all show a queue before it cuts the window
+/// mid-round.
+const RECENT_SAMPLES: usize = 4;
 /// Past slow start, a queue this many targets deep cuts the window at once,
 /// without waiting for the round's end.
 const OVERSHOOT: u32 = 4;
