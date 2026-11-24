@@ -5,7 +5,7 @@ import { TURN_CHECKS, withTurnChecks } from "../src/chief-brain-cc/turn-checks.t
 import { TURN_CHECKS as OPENCODE_TURN_CHECKS } from "../../../chief-opencode/plugin/chief.ts"
 
 // The one source: the local Chief's chief_kernel::TURN_CHECKS (include_str!). The Cloud Chief's copies must match it.
-const source = readFileSync(fileURLToPath(new URL("../../../../Native/OptChat/chief-kernel/src/turn_checks.md", import.meta.url)), "utf8").trim()
+const source = readFileSync(fileURLToPath(new URL("../../../../Native/OptChat/chief-kernel/src/turn_checks.md", import.meta.url).href), "utf8").trim()
 
 describe("turn checks", () => {
   it("the Cloud Chief's copies are the kernel's turn_checks.md", () => {
