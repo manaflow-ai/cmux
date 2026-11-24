@@ -209,8 +209,11 @@ fn log_bytes(dir: &std::path::Path) -> u64 {
         .sum()
 }
 
-/// A chat over 50 MB: each read is a few to tens of milliseconds. Prints the numbers.
+/// A chat over 50 MB: each read is a few to tens of milliseconds on an idle machine. A
+/// measurement (`--ignored --nocapture` prints the numbers): its limit is wall-clock time, and
+/// the outline is made at the lowest CPU priority, so on a loaded machine both run long.
 #[tokio::test]
+#[ignore = "a measurement: wall-clock read times on a 50 MB chat"]
 async fn a_50_mb_chat_reads_its_outline_a_digest_and_a_record_in_milliseconds() {
     let (dirs, mut c, _other) = two_local().await;
     let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
