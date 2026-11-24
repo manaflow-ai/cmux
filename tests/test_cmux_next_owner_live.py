@@ -45,6 +45,40 @@ class Holder(unittest.TestCase):
         rows = [row("host-a/cmux-4f"), row("host-b/acpmux-keeper", owns="PL-daemon,PL-acpmux")]
         self.assertEqual(live.holder(CELL, rows, ""), ("host-b/acpmux-keeper", "holds owns=PL-acpmux"))
 
+    def test_a_role_cell_names_lanes_by_glob_and_the_newest_live_one_holds_it(self):
+        cell = "PL-instant (lanes tabs-refine,tab-strip-*; coordinator rule 2026-11-23)"
+        self.assertEqual(live.cell_lanes(cell), ["tabs-refine", "tab-strip-*"])
+        rows = [row("h1/tab-strip-old", "closed", updated=9), row("h2/tab-strip-pins", updated=3),
+                row("h3/tabs-refine", "ready", updated=5), row("h4/sidebar-x", updated=99)]
+        self.assertEqual(live.holder(cell, rows, ""), ("h3/tabs-refine", "a lane of tabs-refine,tab-strip-*"))
+
+    def test_a_pr_finisher_named_for_the_area_never_holds_the_role(self):
+        # 2026-11-23: `lanes *sidebar*` sent every sidebar push to finish-cmux-52161-sidebar, a one-PR finisher.
+        cell = "sidebar lanes: lanes *sidebar* (coordinator rule 2026-11-23)"
+        rows = [row("g9/finish-cmux-52161-sidebar", "running", updated=99), row("g12/sidebar-running-tree", updated=3)]
+        self.assertEqual(live.holder(cell, rows, ""), ("g12/sidebar-running-tree", "a lane of *sidebar*"))
+        only = [row("g9/finish-cmux-52161-sidebar", "running"), row("c/coord", owns="coordinator")]
+        self.assertEqual(live.holder(cell, only, "")[0], "c/coord")
+        self.assertFalse(live.FINISHER.match("sidebar-finish-pass"))
+        self.assertTrue(live.FINISHER.match("finish-cmux-52161"))
+
+    def test_a_tag_the_full_listing_dropped_is_read_from_the_filtered_one(self):
+        rows = [{"name": "h2/acpmux-owner", "sessionId": "s1", "status": "ready", "tags": None, "updatedAt": 1}]
+        merged = live.merge_tagged(rows, [{"name": "h2/acpmux-owner", "sessionId": "s1", "tags": {"owns": "PL-acpmux"}}])
+        self.assertEqual(live.holder("PL-acpmux (session cmux-4f)", merged, ""), ("h2/acpmux-owner", "holds owns=PL-acpmux"))
+        self.assertIs(live.merge_tagged(rows, []), rows)
+
+    def test_an_owns_tag_still_wins_over_a_role(self):
+        cell = "PL-instant (lanes tabs-refine)"
+        rows = [row("h3/tabs-refine"), row("h5/keeper", owns="PL-instant")]
+        self.assertEqual(live.holder(cell, rows, "")[0], "h5/keeper")
+
+    def test_a_role_with_no_live_lane_falls_to_the_coordinator(self):
+        rows = [row("h1/tabs-refine", "closed"), row("c/coord", owns="coordinator")]
+        found = live.holder("Aziz (human); lanes ios-*", rows, "")
+        self.assertEqual(found, ("c/coord", "no live lane of ios-*; the coordinator"))
+        self.assertTrue(live.is_fallback(found[1]))
+
     def test_the_named_session_while_it_is_live(self):
         self.assertEqual(live.holder(CELL, [row("host-a/cmux-4f", "running")], ""), ("host-a/cmux-4f", "named"))
 
