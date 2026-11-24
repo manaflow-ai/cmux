@@ -104,10 +104,12 @@ async fn fake_peer(seen: Seen) -> u16 {
                                 )
                             }
                         }
+                        // A dated build, not older than this one: an undated or older one is
+                        // `outdated` (`build_info::lags`), which placement passes over.
                         method::INITIALIZE => Message::ok(
                             id,
                             json!({"protocolVersion": 1, "_meta": {"acpmux": {
-                                "build": "older", "origin": "peer", "features": []}}}),
+                                "build": "newer 2099-12-31", "origin": "peer", "features": []}}}),
                         ),
                         method::MUX_WATCH => Message::ok(id, json!({"sessions": []})),
                         "_acpmux/host_health" => Message::ok(
