@@ -416,6 +416,7 @@ pub fn is_test_relay(addr: &std::net::SocketAddr) -> bool {
 struct RecordedRelays {
     inner: webrtc::turn::relay::relay_range::RelayAddressGeneratorRanges,
     allocated: Arc<Mutex<Vec<std::net::SocketAddr>>>,
+    allocations: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 #[async_trait::async_trait]
@@ -434,6 +435,7 @@ impl webrtc::turn::relay::RelayAddressGenerator for RecordedRelays {
         // (also 127.0.0.1): both spellings are the same socket.
         RELAYED.lock().unwrap_or_else(PoisonError::into_inner).push(relayed);
         self.allocated.lock().unwrap_or_else(PoisonError::into_inner).push(relayed);
+        self.allocations.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let conn = RecordedConn { inner: conn, relayed, allocated: Arc::clone(&self.allocated) };
         Ok((Arc::new(conn), relayed))
     }
@@ -541,6 +543,8 @@ pub struct TestTurn {
     /// Relayed addresses this server allocated (also in [`RELAYED`] until
     /// the server drops).
     allocated: Arc<Mutex<Vec<std::net::SocketAddr>>>,
+    /// Total successful Allocate requests, including allocations since released.
+    allocations: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 /// Whether the TURN server's UDP port drops everything, and what it dropped
@@ -637,12 +641,19 @@ impl TestTurn {
         let servers = Arc::new(Mutex::new(Vec::new()));
         let udp_block = Arc::new(UdpBlock::default());
         let allocated = Arc::new(Mutex::new(Vec::new()));
+        let allocations = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let udp = BlockableUdp {
             socket: tokio::net::UdpSocket::bind("127.0.0.1:0").await.expect("bind TURN UDP"),
             block: Arc::clone(&udp_block),
         };
         let udp_port = udp.socket.local_addr().expect("addr").port();
-        let server = Self::server(Arc::new(udp), relay_ports.clone(), Arc::clone(&allocated)).await;
+        let server = Self::server(
+            Arc::new(udp),
+            relay_ports.clone(),
+            Arc::clone(&allocated),
+            Arc::clone(&allocations),
+        )
+        .await;
         servers.lock().unwrap_or_else(PoisonError::into_inner).push(server);
 
         let certified =
@@ -667,21 +678,23 @@ impl TestTurn {
             listener.set_nonblocking(true).expect("nonblocking");
             let port = listener.local_addr().expect("addr").port();
             let listener = TcpListener::from_std(listener).expect("listener");
-            let (acceptor, servers, ports, streams, allocated) = (
+            let (acceptor, servers, ports, streams, allocated, allocations) = (
                 acceptor.clone(),
                 Arc::clone(&servers),
                 relay_ports.clone(),
                 Arc::clone(&streams),
                 Arc::clone(&allocated),
+                Arc::clone(&allocations),
             );
             tasks.push(tokio::spawn(async move {
                 while let Ok((tcp, client)) = listener.accept().await {
-                    let (acceptor, servers, ports, streams, allocated) = (
+                    let (acceptor, servers, ports, streams, allocated, allocations) = (
                         acceptor.clone(),
                         Arc::clone(&servers),
                         ports.clone(),
                         Arc::clone(&streams),
                         Arc::clone(&allocated),
+                        Arc::clone(&allocations),
                     );
                     tokio::spawn(async move {
                         let _ = tcp.set_nodelay(true);
@@ -693,7 +706,7 @@ impl TestTurn {
                             Arc::new(crate::dial::turn::StreamConn::new(tcp, local, client))
                         };
                         streams.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        let server = Self::server(conn, ports, allocated).await;
+                        let server = Self::server(conn, ports, allocated, allocations).await;
                         servers.lock().unwrap_or_else(PoisonError::into_inner).push(server);
                     });
                 }
@@ -711,13 +724,24 @@ impl TestTurn {
             username: Some("cmuxMobile".into()),
             credential: Some("secret".into()),
         };
-        Self { ice, roots: Arc::new(roots), relay_ports, servers, tasks, streams, udp_block, allocated }
+        Self {
+            ice,
+            roots: Arc::new(roots),
+            relay_ports,
+            servers,
+            tasks,
+            streams,
+            udp_block,
+            allocated,
+            allocations,
+        }
     }
 
     async fn server(
         conn: Arc<dyn webrtc::util::Conn + Send + Sync>,
         ports: std::ops::RangeInclusive<u16>,
         allocated: Arc<Mutex<Vec<std::net::SocketAddr>>>,
+        allocations: Arc<std::sync::atomic::AtomicUsize>,
     ) -> webrtc::turn::server::Server {
         webrtc::turn::server::Server::new(webrtc::turn::server::config::ServerConfig {
             conn_configs: vec![webrtc::turn::server::config::ConnConfig {
@@ -732,6 +756,7 @@ impl TestTurn {
                         net: Arc::new(webrtc::util::vnet::net::Net::new(None)),
                     },
                     allocated,
+                    allocations,
                 }),
             }],
             realm: "cmuxMobile.test".into(),
@@ -779,6 +804,11 @@ impl TestTurn {
         self.allocated.lock().unwrap_or_else(PoisonError::into_inner).len()
     }
 
+    /// Total successful Allocate requests, retained after the relay is released.
+    pub fn allocation_count(&self) -> usize {
+        self.allocations.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     /// Whether `addr` is one of this server's relayed addresses.
     pub fn is_relayed(&self, addr: &std::net::SocketAddr) -> bool {
         self.allocated.lock().unwrap_or_else(PoisonError::into_inner).contains(addr)
@@ -812,6 +842,7 @@ mod tests {
     #[tokio::test]
     async fn a_released_relay_address_is_direct_again_when_reused() {
         let allocated = Arc::new(Mutex::new(Vec::new()));
+        let allocations = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let relays = RecordedRelays {
             inner: webrtc::turn::relay::relay_range::RelayAddressGeneratorRanges {
                 relay_address: "127.0.0.1".parse().expect("ip"),
@@ -822,6 +853,7 @@ mod tests {
                 net: Arc::new(webrtc::util::vnet::net::Net::new(None)),
             },
             allocated: Arc::clone(&allocated),
+            allocations,
         };
         let (conn, relayed) = relays.allocate_conn(true, 0).await.expect("allocate");
         assert!(is_test_relay(&relayed), "a live allocation is a relay");

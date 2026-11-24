@@ -307,6 +307,37 @@ impl EarlyTurn {
         Self { task: Some(task), stun: Some(stun) }
     }
 
+    /// An allocation already in hand (a [`super::turn_hold::TurnHold`]'s).
+    /// The dial's STUN wait runs on its own: nothing is allocated beside it.
+    pub(crate) fn held(carrier: TurnCarrier) -> Self {
+        Self { task: Some(tokio::spawn(async move { Some(carrier) })), stun: None }
+    }
+
+    /// The allocation a [`super::turn_hold::TurnHold`] is making, once it
+    /// comes; when none comes (it failed, or the hold's allocation was
+    /// dropped), the dial allocates itself with `options`, as it would
+    /// without a hold.
+    pub(crate) fn awaiting(held: oneshot::Receiver<Option<TurnCarrier>>, options: &DialOptions) -> Self {
+        let options = options.clone();
+        let task = tokio::spawn(async move {
+            if let Ok(Some(carrier)) = held.await {
+                return Some(carrier);
+            }
+            options.timeline.mark("turn_hold_missed");
+            let turn = TurnCarrier::allocate_with(&options, None, true).await;
+            if turn.is_some() {
+                options.timeline.mark("turn_early_allocated");
+            }
+            turn
+        });
+        Self { task: Some(task), stun: None }
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn carrier_for_test(&mut self) -> Option<TurnCarrier> {
+        self.carrier().await
+    }
+
     /// The allocation, once done. Dropped while it waits, `self` still
     /// aborts it.
     async fn carrier(&mut self) -> Option<TurnCarrier> {
