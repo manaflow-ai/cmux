@@ -6,7 +6,7 @@ public import Foundation
 /// pinned, and sends it as a
 /// `secrets-v1` request the machine's daemon opens and writes 0600. This only forwards: one JSON request
 /// on the child's stdin (values and the credential never go in argv or the environment), one JSON line back.
-extension CloudAPIClient {
+extension CloudDaemon {
     /// The machine's answer: how many secrets it wrote, or why it refused.
     public enum SealedDelivery: Sendable, Equatable {
         case wrote(Int)
@@ -36,7 +36,7 @@ extension CloudAPIClient {
         request["credential"] = access
         // The machine's team, as `cmux carrier dial --team` sends it: a shared team's machine needs it.
         // Only a platform team id (`team_` and 20 lowercase hex digits); the child refuses anything else.
-        if let team = await currentTeam(), Self.isPlatformTeam(team) { request["team"] = team }
+        if let team = await teamID(), Self.isPlatformTeam(team) { request["team"] = team }
         let input = try JSONSerialization.data(withJSONObject: request)
         let output: Data
         do {
