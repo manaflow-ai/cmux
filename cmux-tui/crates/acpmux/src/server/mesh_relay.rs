@@ -816,7 +816,28 @@ async fn run_control(hub: &Arc<Hub>, message: &InMessage) -> Option<Ack> {
             }
             without_unsent_answer(params, message)
         }
-        "resume" | "stop" => serde_json::json!({}),
+        "resume" => serde_json::json!({}),
+        // A peer's stop carries its closer's reason and outcome and the host the hub stamped
+        // (`close_why.rs`): recorded with the close, never a condition on it.
+        "stop" => {
+            let asked = body.get("params");
+            let text = |key: &str| {
+                asked
+                    .and_then(|p| p.get(key))
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned)
+            };
+            let from = message.from.host.as_deref().unwrap_or("an unnamed machine");
+            let reason = match text("reason") {
+                Some(reason) => format!("mesh stop from {from}: {reason}"),
+                None => format!("mesh stop from {from}"),
+            };
+            let mut params = serde_json::json!({"reason": reason});
+            if let Some(outcome) = text("outcome") {
+                params["outcome"] = serde_json::Value::String(outcome);
+            }
+            params
+        }
         _ => return Some(Ack::refused(format!("unsupported control operation {op:?}"))),
     };
     if matches!(op, "resume" | "stop") {
