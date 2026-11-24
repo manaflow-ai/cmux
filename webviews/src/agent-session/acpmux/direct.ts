@@ -170,7 +170,7 @@ import type { OfferPicks } from "./offer/offerChoice";
 import { errorMessage, startCancelled, knownRefusalText, switchFailedText } from "./transportErrors";
 import { failedSendText, heldSendNotice, retryHelps, sendCause } from "./sendFailure";
 import { isLostConnection, lostPrompt, type LostPrompt } from "./lostPrompt";
-import type { UnsentPromptRecord, UnsentPromptStore } from "./unsentPrompts";
+import { unanswered, type UnsentPromptRecord, type UnsentPromptStore } from "./unsentPrompts";
 import {
   SessionPageError,
   SessionPager,
@@ -1489,6 +1489,9 @@ export class AcpmuxDirectClient {
   /// Prompt ids whose Not sent row came from the host's store (`drawUnsentRow`): a lost prompt's
   /// sender may draw the same prompt on its way over one (`drawLostPrompt`).
   private restoredUnsent = new Set<string>();
+  /// Whether this connection's first read of the host's store is done (`restoreUnsentPrompts`):
+  /// only that read's unanswered prompts wait for the host's resend (`awaitHostResend`).
+  private unsentRestoredOnce = false;
   /// Failed prompt rows a chat switch cleared (``select``), never ones the person removed or took
   /// back: a Trust replay kept for one (failedRowTrustRetry.ts) still sends it once its chat shows
   /// again (``restoreFailedPrompts``). Row ids only, the oldest dropped past a bound.
@@ -12212,6 +12215,11 @@ export class AcpmuxDirectClient {
     const sessionId = this.selectedSessionId;
     if (!store || !sessionId) return;
     const generation = this.selectionGeneration;
+    // The host's journal sends its unanswered prompts again once, right after a connection's first
+    // frame: only the chat this connection opened on waits for that. A chat opened later already
+    // shows what the journal sent (its record is in the chat's history).
+    const onConnect = !this.unsentRestoredOnce && this.journalsPrompts();
+    this.unsentRestoredOnce = true;
     const records = await store.read(sessionId).catch(() => [] as UnsentPromptRecord[]);
     if (!records.length || this.selectedSessionId !== sessionId || this.selectionGeneration !== generation) return;
     const echoed = new Set<string>();
@@ -12230,8 +12238,35 @@ export class AcpmuxDirectClient {
       if (this.rows.has(rowId) || this.deliveries.has(promptId)) continue;
       drew = true;
       this.drawUnsentRow(sessionId, record);
+      if (onConnect && unanswered(record)) this.awaitHostResend(sessionId, record);
     }
     if (drew) this.emit();
+  }
+  /// A prompt that was not sent only because no answer came (the connection went, the app quit, or
+  /// acpmux said nothing in time), on the connection after: the host's prompt journal sends it
+  /// again here under its promptId (Swift `AgentPanePromptRelay.resend`), and acpmux runs a
+  /// promptId at most once. So its row is on its way again, by itself, and acpmux's record of it
+  /// settles it as any send's; only when that never comes does it say "Not sent" again, with its
+  /// Retry. Leo, 2026-11-24: after an update restarted acpmux, chats said "Not sent: no answer from
+  /// cmux" until Retry was pressed by hand. A refused prompt never comes here (`unanswered`).
+  private awaitHostResend(sessionId: string, record: UnsentPromptRecord): void {
+    const { promptId, input, attachments } = record;
+    void this.awaitResent(sessionId, promptId, deliveryTiming.resendShowMs, { input, attachments }).then((shown) => {
+      if (shown || this.closed || this.selectedSessionId !== sessionId) return;
+      const entry = this.deliveries.get(promptId);
+      const row = entry ? this.rows.get(entry.rowId) : undefined;
+      // Taken meanwhile, or the person's own Retry, Edit or Remove: no longer this wait's row.
+      if (!entry || !row || entry.delivery.state !== "sending" || !this.unsentKept.has(promptId)) return;
+      this.optimisticPromptTexts.delete(promptId);
+      this.optimisticPromptInputs.delete(promptId);
+      this.optimisticPromptAttachments.delete(promptId);
+      this.optimisticPromptParts.delete(promptId);
+      this.drawUnsentRow(sessionId, this.unsentKept.get(promptId)!.record);
+      // A newer version than the row on its way: the transcript's rows are memoized on it.
+      const failed = this.rows.get(entry.rowId);
+      if (failed) this.rows.set(entry.rowId, { ...failed, version: row.version + 1 });
+      this.emit();
+    });
   }
   /// One kept prompt as its Not sent row. One sent before the relaunch with no answer yet fails as
   /// timed out, so acpmux's late acknowledgement or echo (the host's journal sends it again) still
@@ -14267,7 +14302,7 @@ export class AcpmuxDirectClient {
     if (inline) this.optimisticPromptParts.set(promptId, inline.parts);
     this.rows.set(rowId, {
       id: rowId,
-      version: 1,
+      version: (this.rows.get(rowId)?.version ?? 0) + 1,
       at,
       kind: "user",
       text,
