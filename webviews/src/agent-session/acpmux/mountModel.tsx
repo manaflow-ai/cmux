@@ -9,7 +9,7 @@ import { nativePopupHost } from "../../ui/popupHost";
 import { installNativeMenu } from "../../ui/nativeMenu";
 import { postNative } from "./native";
 import { pageHostFlickerSend, startFlickerLog } from "./flickerLog";
-import { pageHostClient } from "./pageHost";
+import { pageHostClient } from "./pageHostClient";
 import { appPopupHost } from "../../pages/shared/pagePopupHost";
 import { installMessageMenuReporter } from "./conversation/messageMenu";
 import { installDragOut } from "./conversation/dragOut";
