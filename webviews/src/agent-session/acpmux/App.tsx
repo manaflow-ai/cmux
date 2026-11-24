@@ -244,7 +244,7 @@ import {
   type AutoLanding,
 } from "./autoWhereModel";
 import { usePeerCloudMachine } from "./peerCloudMachine";
-import { composerTrustBlock, inThisVisit, useFolderTrustAsk, visitOf } from "./useFolderTrustAsk";
+import { inThisVisit, useFolderTrustAsk, visitOf } from "./useFolderTrustAsk";
 import { movedOn, sentIn as sentInHeld, useTrustHeldPrompts, whereHeldGoes, type TrustHeldPrompt } from "./trustHeld";
 import { type SendGesture } from "./heldPrompt";
 import {
