@@ -48,7 +48,7 @@ struct ProfileMenuColumnTests {
             return true
         }
         let builder = ProfileMenuBuilder(registry: services.registry)
-        let menu = builder.make(profile: ProfileMenuProfile(name: "Default"), avatar: avatar, chiefPetShown: true)
+        let menu = builder.make(profile: ProfileMenuProfile(name: "Default"), avatar: avatar)
         builder.addAccountRows(to: menu, who: signedIn ? ["Sample User", "user@example.com"] : nil)
         return menu.themeRows(in: ThemeScope(level: .room))
     }

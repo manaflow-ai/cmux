@@ -306,6 +306,10 @@ impl HostSeqFold {
     }
 }
 
+/// Claude's logged lines that say a task ended and that one started (`subagents::expiry`).
+const TASK_NOTIFICATION: &str = "claude.system.task_notification";
+const TASK_STARTED: &str = "claude.system.task_started";
+
 /// `subagents_from_log`'s fold of one head. A harness start ends the background subagents of
 /// the one before, and a turn start the foreground ones, as live.
 fn seed_step(tree: &mut SubagentTree, head: &RecordHead<'_>) {
@@ -316,6 +320,22 @@ fn seed_step(tree: &mut SubagentTree, head: &RecordHead<'_>) {
             "host_started" | "stopped" | "exited" => tree.end_background(),
             "turn_started" => tree.end_foreground(),
             _ => {}
+        }
+        return;
+    }
+    // How Claude said a task ended, and that one started again, as the tap heard them live: a
+    // subagent the log left running past a harness exit ends as it really did, `completed`
+    // mostly, not `disconnected` (`subagents::expiry`).
+    if head.dir == "in"
+        && matches!(head.kind, TASK_NOTIFICATION | TASK_STARTED)
+        && let Some(e) = head.record()
+        && let Some(task) = e.msg.get("task_id").and_then(Value::as_str)
+    {
+        if head.kind == TASK_NOTIFICATION {
+            let status = e.msg.get("status").and_then(Value::as_str).unwrap_or("completed");
+            tree.note_task_ended(task, status);
+        } else {
+            tree.note_task_started(task);
         }
         return;
     }

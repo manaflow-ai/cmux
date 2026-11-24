@@ -118,12 +118,43 @@ export const TRANSCRIPT_LINE_TO_LIVE_STEP =
 /// The interface scale the CSS grid tokens multiply by (desktop.css: `calc(24px *
 /// var(--cmux-interface-scale, 1))`). The virtual stack places its gaps with the same factor, so
 /// placed gaps match the drawn ones and the overlays laid in them at any Interface Size. Read once
-/// per layout pass.
+/// per layout pass, and in the transcript's render (model.ts `transcriptColumn`).
+///
+/// The app writes the scale inline on <html> (DesignSettings.interfaceScaleScript), so it is read
+/// from that declaration: `getComputedStyle(...).getPropertyValue` in render made the browser
+/// recalculate the style of a page whose rows a streamed record had just changed, before React
+/// changed them again, 3.8-5.1 ms of each reply token's 8-11 ms (bench/transcript-replay.bench.ts
+/// PROFILE=1, long log). With no inline value (a page no app hosts) the computed one is read once
+/// and kept until <html>'s attributes change or the app says the scale changed.
 export function gridScale(): number {
   if (typeof document === "undefined" || typeof getComputedStyle !== "function") return 1;
-  const raw = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--cmux-interface-scale"));
+  const root = document.documentElement;
+  const inline = (root as Partial<HTMLElement>).style?.getPropertyValue?.(INTERFACE_SCALE_VAR);
+  const raw = parseFloat(inline || computedScale(root));
   return Number.isFinite(raw) && raw > 0 ? raw : 1;
 }
+
+const INTERFACE_SCALE_VAR = "--cmux-interface-scale";
+/// The computed `--cmux-interface-scale` of a page with no inline one, while <html> holds still.
+let computed: { root: Element; value: string } | undefined;
+const computedScale = (root: Element): string => {
+  // A stand-in root (a test's plain object) has no attributes to watch: read it every time.
+  if (typeof MutationObserver !== "function" || typeof Node === "undefined" || !(root instanceof Node))
+    return getComputedStyle(root).getPropertyValue(INTERFACE_SCALE_VAR);
+  if (computed?.root === root) return computed.value;
+  const value = getComputedStyle(root).getPropertyValue(INTERFACE_SCALE_VAR);
+  const kept = { root, value };
+  computed = kept;
+  const forget = () => {
+    if (computed === kept) computed = undefined;
+    watch.disconnect();
+    root.ownerDocument.defaultView?.removeEventListener("cmux-ui-scale-change", forget);
+  };
+  const watch = new MutationObserver(forget);
+  watch.observe(root, { attributes: true });
+  root.ownerDocument.defaultView?.addEventListener("cmux-ui-scale-change", forget);
+  return value;
+};
 
 /// What a row is for the gap rules (grid.md 5.5). Kept per row in the layout, so a placement that
 /// skips DOM-empty rows still picks the gap from the neighbours that draw.

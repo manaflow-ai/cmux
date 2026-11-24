@@ -158,11 +158,18 @@
       "that hid a few (the value names them), fixed forward on the push. All are in workflows a feat-cmux-next push runs.",
       "A pull request skips them unless it carries the full-ci label; the push that lands it runs them, and a red there",
       "names the pull requests in its range. affected_jobs.py check: the job's if: carries PR_SKIP_IF, a push starts its",
-      "workflow on every path a pull request does, and nothing that needs it is skipped with it."
+      "workflow on every path a pull request does, and nothing that needs it is skipped with it.",
+      "cmux-next-guards.yml tooling-tests is not listed (2026-11-23). It was Tier A: 27 runs on 52 merged pull requests, 17",
+      "with a red, 0 of them the pull request's own; 300 job-minutes; every red was the base's tests/test_ci_macos_stubs.py",
+      "and scripts/measure tests. That no longer held: the job was red on feat-cmux-next from 2026-11-22 11:32Z for over a",
+      "day and stops at its first red step, so these merged pull requests each broke a step with their own change while it",
+      "was skipped on them: #49946 (test_web_validation), #48644, #51100, #50061 (tests/test_cmux_next_fast_gates.py),",
+      "#51339 (swift-test-targets.json), #42999 (test_ios_sim_create), #51672 (test_ios_chief_benchmark_route), #48300",
+      "(rust-daemon-miss-builds fixture), #51590 (scripts/measure tests). Since 2026-11-19 its setup-tooling-route step",
+      "(scripts/ci/tooling_steps.py) runs on a pull request only the steps its changed files can fail."
     ],
     "workflows": {
       ".github/workflows/cmux-next-guards.yml": {
-        "tooling-tests": "27 runs on 52 merged pull requests, 17 with a red, 0 of them the pull request's own; 300 job-minutes; every red was the base's tests/test_ci_macos_stubs.py and scripts/measure tests, on unrelated PRs",
         "static-checks": "45 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 95 job-minutes",
         "rust-notices-tree": "47 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 79 job-minutes",
         "ci-guard-group": "33 runs on 52 merged pull requests, 12 with a red, 1 of them the pull request's own (#46253): Tier B, fixed forward on the push; 814 job-minutes",
