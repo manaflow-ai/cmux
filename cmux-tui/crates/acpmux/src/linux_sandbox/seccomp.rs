@@ -108,9 +108,15 @@ impl Assembler {
     }
 }
 
+/// fchroot(2), Linux 7.3: chroot by fd, including into failfs. It is 472 in the
+/// unified table on both arches and the libc crate has no constant for it yet.
+/// The filter is default-allow, so it is denied beside chroot by number.
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+const SYS_FCHROOT: u32 = 472;
+
 #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 fn deny_syscalls() -> Vec<u32> {
-    let mut numbers = Vec::new();
+    let mut numbers = vec![SYS_FCHROOT];
     #[cfg(target_arch = "x86_64")]
     numbers.push(libc::SYS_link as u32);
     numbers.extend(
@@ -289,6 +295,8 @@ pub(crate) fn filter(notify: bool) -> Result<Vec<libc::sock_filter>, String> {
 
     if notify {
         // Write opens and every name/metadata mutation follow the deny rules.
+        // One element on aarch64 (no SYS_open), two on x86_64.
+        #[allow(clippy::single_element_loop)]
         for (nr, argument) in [
             (libc::SYS_openat, SECCOMP_DATA_ARG2_LO),
             #[cfg(target_arch = "x86_64")]
@@ -566,6 +574,8 @@ mod tests {
             assert_eq!(evaluate(&filter, ARCH, nr as u32, [0; 6]), EPERM_ACTION, "nr {nr}");
         }
         assert_eq!(evaluate(&filter, ARCH, SYS_seccomp as u32, [0; 6]), EPERM_ACTION);
+        // fchroot is 472 in arch/x86/entry/syscalls/syscall_64.tbl and scripts/syscall.tbl.
+        assert_eq!(evaluate(&filter, ARCH, 472, [0; 6]), EPERM_ACTION, "fchroot");
         for nr in [SYS_clone3, SYS_openat2] {
             assert_eq!(evaluate(&filter, ARCH, nr as u32, [0; 6]), ENOSYS_ACTION);
         }
@@ -626,6 +636,8 @@ mod tests {
     #[test]
     fn supervisor_filter_notifies_write_opens_and_preserves_denials() {
         let program = super::filter(true).unwrap();
+        // One element on aarch64 (no SYS_open), two on x86_64.
+        #[allow(clippy::single_element_loop)]
         for (nr, flag_arg) in [
             (SYS_openat, 2),
             #[cfg(target_arch = "x86_64")]
@@ -750,6 +762,8 @@ mod tests {
             );
             assert_eq!(evaluate(&deny_only, ARCH, nr as u32, [0; 6]), SECCOMP_RET_ALLOW, "nr {nr}");
         }
+        // One element on aarch64 (no SYS_link), two on x86_64.
+        #[allow(clippy::single_element_loop)]
         for nr in [
             SYS_linkat,
             #[cfg(target_arch = "x86_64")]

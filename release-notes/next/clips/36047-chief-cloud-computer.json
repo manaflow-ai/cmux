@@ -1,0 +1,12 @@
+{
+  "caption": "Open the Chief's profile beside the chat and its Computer tab shows the Chief's own Cloud computer.",
+  "frameInterval": 0.5,
+  "launch_args": ["--showcase"],
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "The Chief's profile, Details", "rpc": {"method": "debug.scene.render", "params": {"scene": "home-chief-profile-details"}}, "wait": 2},
+    {"title": "Its Computer tab", "rpc": {"method": "debug.scene.render", "params": {"scene": "home-chief-profile-computer"}}, "wait": 2.5, "clip": true},
+    {"title": "End", "wait": 0.3}
+  ],
+  "crop": [0.45, 0.04, 0.55, 0.92]
+}

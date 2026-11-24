@@ -7,6 +7,7 @@ import type { Subagent } from "../../subagents/subagentFold";
 import { subagentProgress } from "../../subagents/subagentProgress";
 import { contextBreakdown, contextParts } from "../contextSectionModel";
 import type { NativeInfoActions, NativeInfoRow, NativeInfoSection } from "./model";
+import { intl } from "../../../../ui/intl";
 
 export const CONTEXT_SYMBOL = "gauge.with.dots.needle.33percent";
 
@@ -31,8 +32,6 @@ export type ContextInput = {
   /// Opens or closes one of the breakdown's folds; without it the folds show their counts only.
   onToggleList?: (id: "mcpTools" | "memoryFiles" | "skills") => void;
   onCompact?: () => void;
-  /// Opens the Context screen (ContextSection's View Prompt).
-  onViewPrompt?: () => void;
 };
 
 export function contextSection(
@@ -61,11 +60,11 @@ export function contextSection(
   // As the composer's context ring reads it (ComposerPickers ContextRing).
   const fraction = Math.min(1, Math.max(0, usage.used / usage.size));
   const percent = Math.round(fraction * 100);
-  const tokens = new Intl.NumberFormat(undefined, {
+  const tokens = intl.NumberFormat(undefined, {
     notation: "compact",
     maximumFractionDigits: 1,
   });
-  const share = new Intl.NumberFormat(undefined, {
+  const share = intl.NumberFormat(undefined, {
     style: "percent",
     maximumFractionDigits: 1,
   });
@@ -74,25 +73,13 @@ export function contextSection(
       id: "total",
       title: t("context.percent", { percent }),
       trailing: `${tokens.format(usage.used)} / ${tokens.format(usage.size)}`,
-      ...(input.onCompact || input.onViewPrompt
+      ...(input.onCompact
         ? {
             buttons: [
-              ...(input.onViewPrompt
-                ? [
-                    {
-                      label: t("contextScreen.viewPrompt"),
-                      action: actions.add("context.viewPrompt", input.onViewPrompt),
-                    },
-                  ]
-                : []),
-              ...(input.onCompact
-                ? [
-                    {
-                      label: t("sessionInfo.context.compactSession"),
-                      action: actions.add("context.compact", input.onCompact),
-                    },
-                  ]
-                : []),
+              {
+                label: t("sessionInfo.context.compactSession"),
+                action: actions.add("context.compact", input.onCompact),
+              },
             ],
           }
         : {}),
@@ -102,14 +89,7 @@ export function contextSection(
   const free = breakdown?.rows.some((row) => row.kind === "buffer")
     ? breakdown.rows.find((row) => row.kind === "free")
     : undefined;
-  let segments: { share: number; color: string }[] | undefined;
   if (breakdown) {
-    segments = breakdown.rows
-      .filter((row) => (row.kind === "used" || row.kind === "buffer") && (row.share ?? 0) > 0)
-      .map((row) => ({
-        share: row.share ?? 0,
-        color: row.kind === "buffer" ? "buffer" : `context${row.tone ?? 0}`,
-      }));
     breakdown.rows.forEach((row, index) => {
       const drawn = (row.kind === "used" || row.kind === "buffer") && (row.share ?? 0) > 0;
       rows.push({
@@ -169,9 +149,6 @@ export function contextSection(
   }
   return {
     ...base,
-    meta: t("rail.percent", { percent }),
-    meter: percent / 100,
-    ...(segments ? { segments } : {}),
     open: input.open,
     foldable: true,
     reorderable: true,

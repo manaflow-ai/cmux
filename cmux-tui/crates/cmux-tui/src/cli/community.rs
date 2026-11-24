@@ -107,6 +107,117 @@ pub(super) fn routed(words: &[String], is_file: impl Fn(&str) -> bool) -> Option
     Some(Routed { scope, reference: (*reference).clone(), yes })
 }
 
+/// The repository an "Open in cmux" link installs:
+/// `<scheme>://apps/install?repo=HOST/OWNER/REPO[/PATH][&commit=SHA]`, the
+/// link cmux.com's install page opens, as `HOST/OWNER/REPO[/PATH][@SHA]`.
+/// The scheme is any cmux build's (`cmux`, `cmux-dev`, `cmux-nightly`, ...).
+/// A link carries nothing else that is used: any other parameter, a user, a
+/// port or a fragment is refused, so a link can never pass `--yes` or a flag.
+pub(super) fn link_reference(link: &str) -> Result<String, String> {
+    let bad = |why: &str| Err(format!("{link}: {why}"));
+    let Some((scheme, rest)) = link.split_once("://") else {
+        return bad("not a cmux link");
+    };
+    let scheme = scheme.to_ascii_lowercase();
+    if !(scheme == "cmux" || scheme.starts_with("cmux-"))
+        || !scheme.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+    {
+        return bad("not a cmux link");
+    }
+    if rest.contains('#') {
+        return bad("a link to install has no fragment");
+    }
+    let (location, query) = rest.split_once('?').unwrap_or((rest, ""));
+    if !location.eq_ignore_ascii_case("apps/install")
+        && !location.eq_ignore_ascii_case("apps/install/")
+    {
+        return bad("not an install link (<scheme>://apps/install?repo=HOST/OWNER/REPO)");
+    }
+    let (mut repo, mut commit) = (None, None);
+    for pair in query.split('&').filter(|pair| !pair.is_empty()) {
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        let value = percent_decode(value).ok_or_else(|| format!("{link}: {key} is not text"))?;
+        let slot = match key {
+            "repo" => &mut repo,
+            "commit" => &mut commit,
+            other => return bad(&format!("an install link has no {other} parameter")),
+        };
+        if slot.replace(value).is_some() {
+            return bad(&format!("{key} is given twice"));
+        }
+    }
+    let Some(repo) = repo else { return bad("the link names no repo") };
+    if repo.contains('@') {
+        return bad("the repo names a ref; a link pins one with commit=");
+    }
+    let reference = match commit {
+        Some(commit) if commit.len() == 40 && commit.chars().all(|c| c.is_ascii_hexdigit()) => {
+            format!("{repo}@{}", commit.to_ascii_lowercase())
+        }
+        Some(_) => return bad("commit is not a 40-hex commit"),
+        None => repo,
+    };
+    RepoRef::parse(&reference).map_err(|why| format!("{link}: {why}"))?;
+    Ok(reference)
+}
+
+/// `%XX` escapes (and `+` as a space, which no reference has) taken out; None
+/// for a bad escape or text that is not UTF-8.
+fn percent_decode(text: &str) -> Option<String> {
+    let bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut at = 0;
+    while let Some(&byte) = bytes.get(at) {
+        match byte {
+            b'%' => {
+                let hex = text.get(at + 1..at + 3)?;
+                out.push(u8::from_str_radix(hex, 16).ok()?);
+                at += 3;
+            }
+            b'+' => {
+                out.push(b' ');
+                at += 1;
+            }
+            _ => {
+                out.push(byte);
+                at += 1;
+            }
+        }
+    }
+    String::from_utf8(out).ok()
+}
+
+/// `cmux [globals] apps install-link URL [--json]` as `apps install REF`:
+/// `Some(Ok(args))` with the words rewritten, `Some(Err(why))` for a link
+/// that is not one, `None` for any other command. `--yes` and other flags
+/// are refused: whoever opens a link sees the card first.
+pub(super) fn install_link(args: &[String]) -> Option<Result<Vec<String>, String>> {
+    let (_, words) = super::parse_globals(args).ok()?;
+    if words.first().map(String::as_str) != Some("apps")
+        || words.get(1).map(String::as_str) != Some("install-link")
+    {
+        return None;
+    }
+    let tail: Vec<&String> = words.iter().skip(2).filter(|w| *w != "--json").collect();
+    let [link] = tail.as_slice() else {
+        return Some(Err("usage: cmux apps install-link '<scheme>://apps/install?repo=HOST/OWNER/REPO&commit=SHA'".into()));
+    };
+    if link.starts_with('-') {
+        return Some(Err(format!("apps install-link does not take {link}")));
+    }
+    let reference = match link_reference(link) {
+        Ok(reference) => reference,
+        Err(why) => return Some(Err(why)),
+    };
+    // The verb and the link change in place; the globals before them stay.
+    let verb = args.iter().position(|w| w == "install-link")?;
+    let mut rewritten = args.to_vec();
+    *rewritten.get_mut(verb)? = "install".to_owned();
+    let at = rewritten.iter().position(|w| w == *link)?;
+    *rewritten.get_mut(at)? = reference;
+    Some(Ok(rewritten))
+}
+
 /// `cmux apps install REF` / `cmux theme import REF` for a theme or snippet
 /// repository: the community install (which applies). An extension's
 /// repository, or a probe that cannot tell, goes on to `cmux apps install`.
@@ -257,7 +368,8 @@ fn ok(global: &GlobalArgs, value: &Value, human: &str) -> i32 {
 }
 
 /// `cmux theme check DIR` on a theme or snippet repository folder: the
-/// marker, every theme file, and the art (type, size and count).
+/// marker, every theme file, the art (type, size and count), and the font
+/// pack (license, license text, each face's type and size, each face key).
 pub(super) fn check_dir(global: &GlobalArgs, dir: &Path) -> i32 {
     match community::read_package(dir) {
         Ok(package) => {
@@ -269,6 +381,13 @@ pub(super) fn check_dir(global: &GlobalArgs, dir: &Path) -> i32 {
                 package.themes.join(", "),
                 package.art.images.len()
             );
+            if !package.fonts.files.is_empty() {
+                human.push_str(&format!(
+                    "; {} font files ({})",
+                    package.fonts.files.len(),
+                    package.fonts.license.as_deref().unwrap_or_default()
+                ));
+            }
             if !package.art.pending.is_empty() {
                 human.push_str(&format!(
                     "\n  not applied yet (no cmux setting): {}",
@@ -281,6 +400,8 @@ pub(super) fn check_dir(global: &GlobalArgs, dir: &Path) -> i32 {
                 "id": package.id,
                 "themes": package.themes,
                 "images": package.art.images,
+                "fonts": package.fonts.files,
+                "fontLicense": package.fonts.license,
                 "pending": package.art.pending,
             });
             ok(global, &value, &human)
@@ -470,7 +591,9 @@ fn install(
         return Err(Failure {
             code: "community.needs_consent",
             message: format!("{card}\nNothing was changed. Pass --yes to {}.", verb.to_lowercase()),
-            details: Some(json!({ "card": card, "reviewed": reviewed })),
+            details: Some(
+                json!({ "card": card, "reviewed": reviewed, "reference": reference.reference() }),
+            ),
         });
     }
     let change =
@@ -501,6 +624,9 @@ fn install(
         if !package.art.images.is_empty() {
             human.push_str(&format!("; {} images", package.art.images.len()));
         }
+        if !package.fonts.files.is_empty() {
+            human.push_str(&format!("; {} font files", package.fonts.files.len()));
+        }
         if !package.art.pending.is_empty() {
             human.push_str(&format!(
                 "\n  not applied yet (no cmux setting): {}",
@@ -521,6 +647,7 @@ fn install(
         "receipt": receipt,
         "themes": package.themes,
         "images": package.art.images.len(),
+        "fonts": package.fonts.files.len(),
         "pending": package.art.pending,
         "change": change,
     });
@@ -801,12 +928,18 @@ impl Git {
                 || relative
                     .strip_prefix("themes/")
                     .is_some_and(|name| !name.contains('/') && name.ends_with(".json"))
-                || community::art::is_art_path(relative);
+                || community::art::is_art_path(relative)
+                || community::fonts::is_fonts_path(relative);
             if installs {
                 wanted.push((relative.to_owned(), size.parse().unwrap_or(u64::MAX)));
             }
         }
-        let most = community::MAX_THEMES + SNIPPET_FILES.len() + 2 + community::art::MAX_IMAGES;
+        let most = community::MAX_THEMES
+            + SNIPPET_FILES.len()
+            + 2
+            + community::art::MAX_IMAGES
+            + cmux_config::font_faces::MAX_FACES
+            + community::fonts::MAX_LICENSE_FILES;
         if wanted.len() > most {
             return Err(format!(
                 "{}: too many files to be a theme or snippet",
@@ -826,6 +959,10 @@ impl Git {
                     ));
                 }
                 community::art::MAX_IMAGE_BYTES
+            } else if community::fonts::is_font_path(&relative) {
+                cmux_config::font_faces::MAX_FACE_BYTES
+            } else if community::fonts::is_license_path(&relative) {
+                community::fonts::MAX_LICENSE_BYTES
             } else {
                 community::MAX_MARKER_BYTES
             };
