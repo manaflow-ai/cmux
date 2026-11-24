@@ -2,10 +2,9 @@ use std::fmt;
 
 use base64::Engine;
 use bytes::{BufMut, Bytes, BytesMut};
-use cmux_remote_protocol::MAX_FRAME_PAYLOAD;
+use cmux_remote_protocol::{MAX_FRAME_PAYLOAD, MUX_INPUT_MAGIC};
 use serde_json::{Value, json};
 
-const MAGIC: [u8; 4] = *b"CMXI";
 const HEADER_BYTES: usize = 4 + 8 + 8;
 const MAX_INPUT_BYTES: usize = MAX_FRAME_PAYLOAD - HEADER_BYTES;
 
@@ -53,7 +52,7 @@ pub(crate) fn encode_local_line(line: &[u8]) -> Result<Option<Bytes>, MuxInputEr
     }
 
     let mut packet = BytesMut::with_capacity(HEADER_BYTES + bytes.len());
-    packet.extend_from_slice(&MAGIC);
+    packet.extend_from_slice(&MUX_INPUT_MAGIC);
     packet.put_u64(request);
     packet.put_u64(surface);
     packet.extend_from_slice(&bytes);
@@ -61,7 +60,7 @@ pub(crate) fn encode_local_line(line: &[u8]) -> Result<Option<Bytes>, MuxInputEr
 }
 
 pub(crate) fn decode_packet(packet: &Bytes) -> Result<Option<MuxInput>, MuxInputError> {
-    let Some(rest) = packet.strip_prefix(&MAGIC) else {
+    let Some(rest) = packet.strip_prefix(&MUX_INPUT_MAGIC) else {
         return Ok(None);
     };
     let Some((request, rest)) = rest.split_first_chunk::<8>() else {

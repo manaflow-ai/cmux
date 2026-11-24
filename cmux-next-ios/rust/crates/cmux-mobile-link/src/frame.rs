@@ -12,29 +12,41 @@ use tokio_util::codec::{Decoder, Encoder};
 pub const MAX_PAYLOAD: usize = 256 * 1024;
 const HEADER: usize = 4 + 4 + 1;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum FrameType {
-    Open = 0,
-    Data = 1,
-    Close = 2,
-    Ping = 3,
-    Pong = 4,
-    DeflatedData = 5,
+// The encoder, decoder and compatibility manifest share the same discriminants.
+macro_rules! frame_types {
+    ($($variant:ident = $number:literal => $name:literal),+ $(,)?) => {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        #[repr(u8)]
+        pub enum FrameType { $($variant = $number),+ }
+
+        impl FrameType {
+            fn from_u8(value: u8) -> Option<Self> {
+                match value {
+                    $($number => Some(Self::$variant),)+
+                    _ => None,
+                }
+            }
+
+            #[cfg(feature = "testing")]
+            pub const ALL: &[Self] = &[$(Self::$variant),+];
+
+            #[cfg(feature = "testing")]
+            pub const fn wire_name(self) -> &'static str {
+                match self {
+                    $(Self::$variant => concat!("frame:", $name, "=", stringify!($number)),)+
+                }
+            }
+        }
+    };
 }
 
-impl FrameType {
-    fn from_u8(value: u8) -> Option<Self> {
-        Some(match value {
-            0 => Self::Open,
-            1 => Self::Data,
-            2 => Self::Close,
-            3 => Self::Ping,
-            4 => Self::Pong,
-            5 => Self::DeflatedData,
-            _ => return None,
-        })
-    }
+frame_types! {
+    Open = 0 => "open",
+    Data = 1 => "data",
+    Close = 2 => "close",
+    Ping = 3 => "ping",
+    Pong = 4 => "pong",
+    DeflatedData = 5 => "deflated-data",
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

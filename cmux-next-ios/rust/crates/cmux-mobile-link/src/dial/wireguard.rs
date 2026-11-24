@@ -53,6 +53,9 @@ use roam::{Control, Session};
 #[path = "wireguard_paths.rs"]
 mod paths;
 pub use paths::{app_backgrounded, set_app_backgrounded};
+#[cfg(feature = "testing")]
+#[doc(hidden)]
+pub use roam::RoamMessage;
 pub use roam::{network_changed, rehome, resume_session, roam_timeline, route_destinations};
 #[doc(hidden)]
 pub use roam::{

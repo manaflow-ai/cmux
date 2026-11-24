@@ -37,6 +37,7 @@ pub use dual::DualStats;
 mod dialer;
 #[path = "peer_features.rs"]
 mod features;
+pub use features::{PEER_FEATURES, PeerFeature};
 #[path = "peer_health.rs"]
 mod health;
 #[path = "peer_overlay.rs"]

@@ -12,13 +12,13 @@ use flate2::read::ZlibDecoder;
 use flate2::write::ZlibEncoder;
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt};
 
-const MAGIC: [u8; 4] = *b"CMXL";
+use cmux_remote_protocol::MUX_LINE_MAGIC as MAGIC;
 // A line whose joined parts are one zlib stream of the JSONL bytes (trailing
 // LF included). Sent only daemon-to-client, and only on a stream whose client
 // asked for it and whose daemon confirmed it (`MUX_LINE_ZLIB_V1_FEATURE`): a
 // chat's attach reply on a slow machine link is ~75 KB of JSON that crossed
 // the link whole.
-const ZLIB_MAGIC: [u8; 4] = *b"CMXZ";
+use cmux_remote_protocol::MUX_LINE_ZLIB_MAGIC as ZLIB_MAGIC;
 /// Past this, the daemon compresses a line on a blocking thread.
 pub(crate) const ZLIB_BLOCKING_LINE_BYTES: usize = 1 << 20;
 const HEADER_BYTES: usize = 4 + 8 + 4 + 4;

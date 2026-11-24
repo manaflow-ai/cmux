@@ -3,6 +3,11 @@ use std::collections::BTreeMap;
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 
+/// Packet headers on an opened mux-control stream.
+pub const MUX_INPUT_MAGIC: [u8; 4] = *b"CMXI";
+pub const MUX_LINE_MAGIC: [u8; 4] = *b"CMXL";
+pub const MUX_LINE_ZLIB_MAGIC: [u8; 4] = *b"CMXZ";
+
 pub const MUX_INPUT_V1_FEATURE: &str = "mux-input-v1";
 
 /// Optional `mux-control` open metadata key: the line codecs a client can read,
@@ -27,6 +32,7 @@ pub const MUX_LINE_ZLIB_MIN_BYTES: usize = 16 << 10;
 pub const TERMINAL_BYTES_VIEWER_SIZE_PRIORITY: &str = "viewer_size_priority";
 pub const TERMINAL_BYTES_VIEWER_SIZE_PRIORITY_PREFERRED: &str = "preferred";
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ByteString(String);
@@ -45,6 +51,7 @@ impl ByteString {
     }
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 /// Opaque UUID allocated once per request and never reused during an
@@ -73,14 +80,17 @@ impl std::fmt::Display for RequestId {
     }
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct WorkspaceId(pub String);
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct OperationId(pub String);
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ProcessId(pub uuid::Uuid);
@@ -105,14 +115,17 @@ impl std::fmt::Display for ProcessId {
     }
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct RouteId(pub u64);
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct PageCursor(pub String);
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ComputerUseInvocationId(pub uuid::Uuid);
@@ -129,6 +142,7 @@ impl std::fmt::Display for ComputerUseInvocationId {
     }
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Service {
@@ -158,6 +172,7 @@ pub enum Service {
     Acpmux,
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum ServiceControl {
@@ -166,6 +181,7 @@ pub enum ServiceControl {
     Rejected { code: String, message: String },
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum RemoteCapability {
@@ -203,6 +219,10 @@ pub enum RemoteCapability {
     Unknown(String),
 }
 
+#[cfg(test)]
+#[path = "capability_contract.rs"]
+mod capability_contract;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RpcRequest {
     pub id: RequestId,
@@ -218,6 +238,7 @@ pub struct RpcResponse {
     pub result: Result<WorkspaceResponse, RpcError>,
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RpcEvent {
     pub sequence: u64,
@@ -259,6 +280,7 @@ pub enum RpcErrorDetails {
     ProcessReplayGap { requested_after: u64, range: ProcessReplayRange },
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum WorkspaceRequest {
@@ -438,6 +460,7 @@ pub enum WorkspaceRequest {
 /// `name`. The plaintext is the time it was sealed (Unix seconds, a
 /// big-endian u64) and then the value. Only the daemon holding the key can
 /// open it.
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SealedSecret {
     pub name: String,
@@ -460,6 +483,7 @@ impl std::fmt::Debug for SealedSecret {
     }
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum WorkspaceResponse {
@@ -598,6 +622,7 @@ pub enum WorkspaceResponse {
     },
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum FilePrecondition {
@@ -606,6 +631,7 @@ pub enum FilePrecondition {
     ContentHash(String),
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum PatchFileAction {
@@ -615,6 +641,7 @@ pub enum PatchFileAction {
     Renamed,
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PatchFileResult {
     pub path: String,
@@ -627,6 +654,7 @@ pub struct PatchFileResult {
     pub new_content_hash: Option<String>,
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum FileKind {
@@ -636,6 +664,7 @@ pub enum FileKind {
     Other,
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileStat {
     pub path: String,
@@ -646,6 +675,7 @@ pub struct FileStat {
     pub content_hash: Option<String>,
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DirectoryEntry {
     pub name: String,
@@ -654,6 +684,7 @@ pub struct DirectoryEntry {
     pub size: u64,
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SearchMatch {
     pub path: String,
@@ -664,6 +695,7 @@ pub struct SearchMatch {
     pub after: Vec<String>,
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum DiffFormat {
@@ -673,12 +705,14 @@ pub enum DiffFormat {
     StructuredV1,
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StructuredDiffV1 {
     pub version: u16,
     pub files: Vec<StructuredFileDiffV1>,
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StructuredFileDiffV1 {
     pub old_path: Option<String>,
@@ -688,18 +722,21 @@ pub struct StructuredFileDiffV1 {
     pub hunks: Vec<StructuredDiffHunkV1>,
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StructuredDiffHunkV1 {
     pub header: String,
     pub lines: Vec<StructuredDiffLineV1>,
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StructuredDiffLineV1 {
     pub kind: StructuredDiffLineKind,
     pub text: String,
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum StructuredDiffLineKind {
@@ -711,6 +748,7 @@ pub enum StructuredDiffLineKind {
     Metadata,
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GitStatus {
     pub branch: Option<String>,
@@ -718,6 +756,7 @@ pub struct GitStatus {
     pub changes: Vec<GitChange>,
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GitChange {
     pub path: String,
@@ -726,6 +765,7 @@ pub struct GitChange {
     pub worktree_status: char,
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum ProcessIo {
@@ -741,6 +781,7 @@ pub enum ProcessIo {
     },
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ProcessIoKind {
@@ -748,6 +789,7 @@ pub enum ProcessIoKind {
     Pty,
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProcessDescriptor {
     pub process: ProcessId,
@@ -771,6 +813,7 @@ pub struct ProcessDescriptor {
     pub replay: ProcessReplayRange,
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum ProcessState {
@@ -778,12 +821,14 @@ pub enum ProcessState {
     Exited { code: Option<i32>, signal: Option<i32> },
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProcessTerminalSize {
     pub cols: u16,
     pub rows: u16,
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProcessTerminalColor {
     pub r: u8,
@@ -791,6 +836,7 @@ pub struct ProcessTerminalColor {
     pub b: u8,
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ProcessTerminalCursorStyle {
@@ -799,6 +845,7 @@ pub enum ProcessTerminalCursorStyle {
     Underline,
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ProcessTerminalUnderline {
@@ -809,6 +856,7 @@ pub enum ProcessTerminalUnderline {
     Dashed,
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProcessTerminalStyledRun {
     pub text: String,
@@ -823,12 +871,14 @@ pub struct ProcessTerminalStyledRun {
     pub width_hint: Option<u16>,
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProcessTerminalRow {
     pub row: u16,
     pub runs: Vec<ProcessTerminalStyledRun>,
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProcessTerminalCursor {
     pub x: u16,
@@ -840,6 +890,7 @@ pub struct ProcessTerminalCursor {
     pub color: Option<ProcessTerminalColor>,
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProcessTerminalSnapshot {
     pub process: ProcessId,
@@ -861,6 +912,7 @@ impl Default for ProcessIo {
     }
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum PtyEofPolicy {
@@ -876,6 +928,7 @@ impl PtyEofPolicy {
     }
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ProcessEnvironment {
@@ -890,6 +943,7 @@ impl ProcessEnvironment {
     }
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ProcessLifetime {
@@ -898,6 +952,7 @@ pub enum ProcessLifetime {
     Detached,
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ProcessSignal {
@@ -907,6 +962,7 @@ pub enum ProcessSignal {
     Hangup,
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProcessReplayRange {
     pub first_available: Option<u64>,
@@ -914,6 +970,7 @@ pub struct ProcessReplayRange {
     pub exited: bool,
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum ProcessOutputTruncationReason {
@@ -923,6 +980,7 @@ pub enum ProcessOutputTruncationReason {
     ReaderTaskFailed { message: String },
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ProcessOutputStream {
@@ -931,6 +989,7 @@ pub enum ProcessOutputStream {
     Pty,
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum ProcessEvent {
@@ -969,6 +1028,7 @@ impl ProcessEvent {
     }
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum RoutePolicy {
@@ -977,6 +1037,7 @@ pub enum RoutePolicy {
     Any,
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ComputerUseFeature {
@@ -988,12 +1049,14 @@ pub enum ComputerUseFeature {
     Scroll,
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ComputerUseCapability {
     pub feature: ComputerUseFeature,
     pub version: u16,
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ComputerUseInvocation {
     pub id: ComputerUseInvocationId,
@@ -1004,6 +1067,7 @@ pub struct ComputerUseInvocation {
     pub timeout_ms: Option<u64>,
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum ComputerUseAction {
@@ -1037,6 +1101,7 @@ pub enum ComputerUseAction {
     },
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum PointerAction {
@@ -1047,6 +1112,7 @@ pub enum PointerAction {
     RightUp,
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum KeyAction {
@@ -1055,12 +1121,14 @@ pub enum KeyAction {
     Press,
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ComputerUseResult {
     pub invocation: ComputerUseInvocationId,
     pub output: ComputerUseOutput,
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum ComputerUseOutput {

@@ -18,6 +18,7 @@ redundant_clone = "warn"
 
 [workspace.dependencies]
 cmux-mobile-link = { path = "crates/cmux-mobile-link" }
+cmux-wire-lockstep = { path = "../../cmux-tui/crates/cmux-wire-lockstep" }
 # The build space value and its fail-closed rule, shared with the Mac's other Rust cloud clients.
 cmux-build-space = { path = "../../cmux-tui/crates/cmux-build-space" }
 cmux-wg = { path = "../../cmux-tui/crates/cmux-wg" }
