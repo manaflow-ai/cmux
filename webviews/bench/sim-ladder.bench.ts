@@ -180,6 +180,29 @@ function pssMB(pid: number): number {
     return 0;
   }
 }
+/// The renderers' PSS split by kind (smaps_rollup), MB, with the median renderer's: what a rung's PSS is made of.
+function pssSplit(pids: number[]): string {
+  const sum: Record<string, number> = {};
+  const each: number[] = [];
+  for (const pid of pids) {
+    try {
+      const rollup = fs.readFileSync(`/proc/${pid}/smaps_rollup`, "utf8");
+      for (const key of ["Pss", "Pss_Anon", "Pss_File", "Pss_Shmem", "Private_Dirty", "Swap"]) {
+        const kb = Number(new RegExp(`^${key}:\\s+(\\d+) kB`, "m").exec(rollup)?.[1] ?? 0);
+        sum[key] = (sum[key] ?? 0) + kb / 1024;
+        if (key === "Pss") each.push(kb / 1024);
+      }
+    } catch {
+      // Gone.
+    }
+  }
+  each.sort((a, b) => a - b);
+  const fmt = Object.entries(sum).map(([k, v]) => `${k} ${Math.round(v)}`);
+  return `${fmt.join(", ")} | renderer pss min/median/max ${each
+    .map((v) => Math.round(v * 10) / 10)
+    .filter((_, i) => i === 0 || i === Math.floor(each.length / 2) || i === each.length - 1)
+    .join("/")}`;
+}
 const p95 = (xs: number[]) => {
   const s = [...xs].sort((a, b) => a - b);
   return s.length ? s[Math.min(s.length - 1, Math.floor((s.length - 1) * 0.95))]! : 0;
@@ -384,6 +407,7 @@ async function measure(rootPid: number, items: Item[], focused: Page): Promise<S
         ]),
       ),
   );
+  console.log(`SIM-LADDER   pss split MB ${pssSplit(pids)}`);
   return {
     cpu_ms_per_s: Math.round(Math.min(...thirds)),
     cpu_window_ms_per_s: Math.round(windowMsPerS),
