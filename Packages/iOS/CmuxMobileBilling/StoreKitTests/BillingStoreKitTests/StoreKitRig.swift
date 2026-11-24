@@ -215,24 +215,57 @@ final class StoreKitRig {
         XCTAssertEqual(model.offers.count, 5, "every product in CmuxBilling.storekit loads (\(String(describing: model.offersFailure)))")
     }
 
+    /// Ends what the test left, then resets the session's switches.
+    ///
+    /// storekitd outlives a session and keeps a subscription's renewal
+    /// schedule after `clearTransactions()`: a billing retry left running
+    /// renewed into the next test's purchase (runs 45287478805 and
+    /// 45289920668: that purchase arrived as reason RENEWAL, or a RENEWAL
+    /// followed it and became the current transaction). So after a billing
+    /// retry test each subscription is expired first, while the retry
+    /// setting still holds (turning it off first lets the pending retry
+    /// succeed as a renewal), and the switches are reset only once StoreKit
+    /// has settled. Only then: an expiry in every tearDown stopped storekitd
+    /// re-delivering the upgraded Pro transaction in the next upgrade test
+    /// (run 45316792026, 10 of 10 iterations).
     func stop() async throws {
         model.stop()
+        if session.shouldEnterBillingRetryOnRenewal {
+            for product in CmuxProduct.all {
+                try? session.expireSubscription(productIdentifier: product.productID)
+            }
+        }
+        try await settleStoreKit()
         session.shouldEnterBillingRetryOnRenewal = false
         session.billingGracePeriodIsEnabled = false
         session.askToBuyEnabled = false
         session.interruptedPurchasesEnabled = false
-        try await settleStoreKit()
     }
 
     /// Clears StoreKit Testing's transactions and waits until StoreKit lists
-    /// no entitlement and no unfinished transaction.
+    /// no entitlement, no unfinished transaction and no subscription that is
+    /// still subscribed, in billing retry or in a grace period.
     private func settleStoreKit() async throws {
         session.clearTransactions()
-        try await eventually("no transactions left") {
-            if await self.entitledProductIDs().isEmpty, await self.unfinishedIDs().isEmpty { return true }
+        try await eventually("no transactions or live subscriptions left") {
+            if await self.entitledProductIDs().isEmpty, await self.unfinishedIDs().isEmpty,
+               (try? await self.liveSubscriptionStates())?.isEmpty == true {
+                return true
+            }
             self.session.clearTransactions()
             return false
         }
+    }
+
+    /// The states of the cmux group's subscriptions that can still renew or
+    /// grant: subscribed, billing retry, grace period.
+    /// Throws (without failing the test) when StoreKit lists no product, so a
+    /// transient empty read only retries.
+    func liveSubscriptionStates() async throws -> [Product.SubscriptionInfo.RenewalState] {
+        guard let subscription = try await Product.products(for: [CmuxProduct.proMonthly]).first?.subscription else {
+            throw CancellationError()
+        }
+        return try await subscription.status.map(\.state).filter { $0 != .expired && $0 != .revoked }
     }
 
     func offer(_ productID: String) throws -> BillingOffer {
@@ -270,6 +303,26 @@ final class StoreKitRig {
         return try await subscription.status
     }
 
+    /// Prints what a failed wait saw: the session's table, StoreKit's
+    /// entitlements and unfinished transactions, the subscription states and
+    /// every post, so a red names what was missing.
+    func dumpStoreKit(_ label: String) async {
+        dump(label)
+        var entitlements: [String] = []
+        for await verification in Transaction.currentEntitlements {
+            if case .verified(let t) = verification {
+                entitlements.append("#\(t.id) \(t.productID) revoked=\(t.revocationDate.map { "\($0)" } ?? "-") "
+                    + "upgraded=\(t.isUpgraded) expires=\(t.expirationDate.map { "\($0)" } ?? "-")")
+            }
+        }
+        let unfinished = await unfinishedIDs()
+        let states = (try? await subscriptionStatuses().map { "\($0.state.rawValue)" }) ?? ["unreadable"]
+        let posts = server.posts.map { "#\($0.payload.transactionId) \($0.payload.productId) "
+            + "reason=\($0.payload.transactionReason ?? "-") upgraded=\($0.payload.isUpgraded ?? false)" }
+        print("[storekit] \(label): entitlements=\(entitlements) unfinished=\(unfinished) states=\(states) "
+            + "posts=\(posts) model.current=\(String(describing: model.currentAppleTransactionID))")
+    }
+
     /// Prints StoreKit Testing's transaction table, so the log shows what
     /// each step changed.
     func dump(_ label: String) {
@@ -281,13 +334,18 @@ final class StoreKitRig {
         print("[storekit] \(label)\n" + lines.joined(separator: "\n"))
     }
 
+    /// The generous upper bound of every wait here: it only bounds a hang.
+    /// storekitd on a 6 vCPU Blacksmith runner took over 20 s to drop a
+    /// refunded entitlement that a Mac mini drops at once (run 45287373762).
+    static let hangGuard: Duration = .seconds(90)
+
     /// Waits until StoreKit's own state (entitlements, renewal info) shows a
     /// change made through the session. storekitd applies a session change
     /// asynchronously and offers no signal for it, so this re-reads every
     /// 100 ms until the deadline.
     func eventually(
         _ what: String,
-        timeout: Duration = .seconds(20),
+        timeout: Duration = StoreKitRig.hangGuard,
         file: StaticString = #filePath,
         line: UInt = #line,
         _ condition: @MainActor () async throws -> Bool
@@ -298,6 +356,7 @@ final class StoreKitRig {
             try await Task.sleep(for: .milliseconds(100))
         }
         if try await condition() { return }
+        await dumpStoreKit("StoreKit did not show \(what)")
         XCTFail("StoreKit did not show \(what) within \(timeout)", file: file, line: line)
         throw CancellationError()
     }
@@ -307,7 +366,7 @@ final class StoreKitRig {
     /// timeout bounds a test that would otherwise hang; it is not a delay.
     func waitUntil(
         _ what: String,
-        timeout: Duration = .seconds(20),
+        timeout: Duration = StoreKitRig.hangGuard,
         file: StaticString = #filePath,
         line: UInt = #line,
         _ condition: @escaping @MainActor () -> Bool
@@ -328,6 +387,7 @@ final class StoreKitRig {
             arm()
         }
         if condition() { return }
+        await dumpStoreKit("timed out waiting until \(what)")
         XCTFail("timed out after \(timeout) waiting until \(what)", file: file, line: line)
         throw CancellationError()
     }
