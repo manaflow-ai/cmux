@@ -16,6 +16,21 @@
 //!   reserve) or more resident memory than theirs (RAM minus the reserve),
 //! - held for [`HOLD_SAMPLES`] samples in a row (30 s at 3 s a sample).
 //!
+//! The other rules (RFD 0072 "The trigger"), each held the same 30 s:
+//! 2. the person is present, CPU busy is at or over [`BUSY_SHARE`], agents use
+//!    at least one core, and timer lateness p50 is over [`LATE_P50_MS`] or the
+//!    app reports frames over 50 ms ([`ReserveReason::Interactive`]);
+//! 3. memory pressure is above normal or swap grows faster than
+//!    [`SWAP_GROWTH_MB_PER_MIN`], and agents hold at least a quarter of used
+//!    memory; this one holds with the person away too
+//!    ([`ReserveReason::MemoryPressure`]);
+//! 4. thermal pressure is serious or worse and agents use at least one core
+//!    ([`ReserveReason::Thermal`]).
+//!
+//! Rule 5 (sleep, lid, battery, disk) is `place.rs`'s in cmux-cloud-start-core.
+//! With the person away agents may use up to [`AWAY_SHARE`] of the machine:
+//! away is no reason to move, but past that line rule 1 judges against it.
+//!
 //! Then one agent would move out: among the agents that may move unasked, the
 //! one using the largest share of the budget. So agents do not ping-pong:
 //! - one move out per [`MOVE_GAP_MS`] at most;
@@ -42,6 +57,15 @@ pub const RESERVE_RULE_VERSION: &str = "auto-reserve/1";
 pub const RESERVE_STOPS: [u8; 4] = [0, 25, 50, 75];
 /// The default reserve.
 pub const DEFAULT_RESERVE_PERCENT: u8 = 50;
+
+/// Rule 2: CPU busy at or over this share of the machine ...
+pub const BUSY_SHARE: f64 = 0.90;
+/// ... with timer lateness p50 over this.
+pub const LATE_P50_MS: f64 = 1.0;
+/// Rule 3: swap growing faster than this is memory pressure.
+pub const SWAP_GROWTH_MB_PER_MIN: f64 = 64.0;
+/// Away, agents may use this share of the machine.
+pub const AWAY_SHARE: f64 = 0.90;
 
 /// Present: input within this long.
 pub const PRESENT_MS: u64 = 10 * 60 * 1000;
@@ -115,6 +139,24 @@ pub struct ReserveSample {
     /// Memory pressure is normal (a return needs it).
     #[serde(default = "yes")]
     pub memory_normal: bool,
+    /// The whole machine's CPU busy share, 0 to 1 (rule 2); `None` unread.
+    #[serde(default)]
+    pub cpu_busy: Option<f64>,
+    /// Timer lateness p50 in ms (rule 2); `None` unread.
+    #[serde(default)]
+    pub lateness_p50_ms: Option<f64>,
+    /// The app reported a frame over 50 ms in the last window (rule 2).
+    #[serde(default)]
+    pub slow_frames: bool,
+    /// Swap-outs in MB a minute (rule 3); `None` unread.
+    #[serde(default)]
+    pub swap_growth_mb_per_min: Option<f64>,
+    /// Memory in use on the whole machine (rule 3); `None` unread.
+    #[serde(default)]
+    pub used_ram_bytes: Option<u64>,
+    /// Thermal pressure is serious or worse (rule 4).
+    #[serde(default)]
+    pub thermal_serious: bool,
     pub agents: Vec<AgentUse>,
 }
 
@@ -148,6 +190,12 @@ pub enum ReserveReason {
     Cpu,
     /// Agents use more memory than their budget.
     Memory,
+    /// The machine is saturated and interactive speed suffers (rule 2).
+    Interactive,
+    /// Memory pressure or swap growth, agents holding a quarter of used memory (rule 3).
+    MemoryPressure,
+    /// Thermal pressure is serious (rule 4).
+    Thermal,
     /// Agents' use fits again (a return).
     Fits,
 }
@@ -240,24 +288,17 @@ impl ReserveTracker {
             sample.agents.iter().filter(|a| !self.moved.contains_key(&a.session)).collect();
         let cores: f64 = here.iter().map(|a| a.cpu_cores.max(0.0)).sum();
         let rss: u64 = here.iter().map(|a| a.rss_bytes).sum();
-        let over = if cores > budget.cores {
-            Some(ReserveReason::Cpu)
-        } else if rss > budget.rss_bytes {
-            Some(ReserveReason::Memory)
-        } else {
-            None
-        };
         let present = sample.idle_ms.is_some_and(|idle| idle < PRESENT_MS);
-
-        let Some(reason) = over else {
+        let over_reserve = cores > budget.cores || rss > budget.rss_bytes;
+        let Some(reason) = Self::reason(sample, present, &budget, cores, rss) else {
             self.over_streak = 0;
+            if over_reserve && !present {
+                self.fits_since_ms = None;
+                return ReserveVerdict::Hold { why: HoldWhy::Away };
+            }
             return self.maybe_return(sample, &budget, cores, rss);
         };
         self.fits_since_ms = None;
-        if !present {
-            self.over_streak = 0;
-            return ReserveVerdict::Hold { why: HoldWhy::Away };
-        }
         if counts {
             self.over_streak = self.over_streak.saturating_add(1);
         }
@@ -294,6 +335,49 @@ impl ReserveTracker {
         self.last_out_ms = Some(sample.at_ms);
         self.over_streak = 0;
         ReserveVerdict::MoveOut { session: pick.session.clone(), reason }
+    }
+
+    /// The first rule that holds on this sample, if any.
+    fn reason(
+        sample: &ReserveSample,
+        present: bool,
+        budget: &AgentBudget,
+        cores: f64,
+        rss: u64,
+    ) -> Option<ReserveReason> {
+        // Rule 1, against the reserve while present, against AWAY_SHARE while away.
+        let (cpu_line, ram_line) = if present {
+            (budget.cores, budget.rss_bytes as f64)
+        } else {
+            (sample.performance_cores.max(0.0) * AWAY_SHARE, sample.ram_bytes as f64 * AWAY_SHARE)
+        };
+        if cores > cpu_line {
+            return Some(ReserveReason::Cpu);
+        }
+        if rss as f64 > ram_line {
+            return Some(ReserveReason::Memory);
+        }
+        // Rule 2.
+        if present
+            && cores >= 1.0
+            && sample.cpu_busy.is_some_and(|b| b >= BUSY_SHARE)
+            && (sample.lateness_p50_ms.is_some_and(|l| l > LATE_P50_MS) || sample.slow_frames)
+        {
+            return Some(ReserveReason::Interactive);
+        }
+        // Rule 3, present or away.
+        let pressured = !sample.memory_normal
+            || sample.swap_growth_mb_per_min.is_some_and(|g| g > SWAP_GROWTH_MB_PER_MIN);
+        if pressured
+            && sample.used_ram_bytes.is_some_and(|used| used > 0 && rss.saturating_mul(4) >= used)
+        {
+            return Some(ReserveReason::MemoryPressure);
+        }
+        // Rule 4.
+        if sample.thermal_serious && cores >= 1.0 {
+            return Some(ReserveReason::Thermal);
+        }
+        None
     }
 
     fn maybe_return(

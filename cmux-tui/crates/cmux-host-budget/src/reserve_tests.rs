@@ -25,6 +25,12 @@ fn sample(at_ms: u64, idle_ms: Option<u64>, agents: Vec<AgentUse>) -> ReserveSam
         ram_bytes: 48 * GB,
         idle_ms,
         memory_normal: true,
+        cpu_busy: None,
+        lateness_p50_ms: None,
+        slow_frames: false,
+        swap_growth_mb_per_min: None,
+        used_ram_bytes: None,
+        thermal_serious: false,
         agents,
     }
 }
@@ -79,7 +85,8 @@ fn memory_over_the_budget_fires_too() {
 
 #[test]
 fn away_is_no_reason_to_move() {
-    let agents = vec![agent("a", 14.0, 4)];
+    // 13 of 15 cores: over the 50% reserve, under the away line of 90%.
+    let agents = vec![agent("a", 13.0, 4)];
     let mut t = ReserveTracker::new();
     for i in 0..20 {
         let away = sample(i * STEP, Some(PRESENT_MS), agents.clone());
@@ -261,4 +268,138 @@ fn shadow_lines_record_moves_not_holds() {
     assert_eq!(line.rule, RESERVE_RULE_VERSION);
     assert!(text.contains(r#""verdict":{"do":"moveOut","session":"a","reason":"cpu"}"#), "{text}");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Feeds `n` samples 3 s apart, each shaped by `shape`.
+fn run_with(
+    t: &mut ReserveTracker,
+    n: u64,
+    shape: &dyn Fn(&mut ReserveSample),
+    agents: &dyn Fn() -> Vec<AgentUse>,
+) -> Vec<ReserveVerdict> {
+    (0..n)
+        .map(|i| {
+            let mut s = sample(i * STEP, Some(1_000), agents());
+            shape(&mut s);
+            t.judge(&on(50), &s)
+        })
+        .collect()
+}
+
+#[test]
+fn away_past_ninety_percent_moves() {
+    let agents = || vec![agent("a", 14.0, 4)];
+    let mut t = ReserveTracker::new();
+    let v = run_with(&mut t, 10, &|s| s.idle_ms = Some(PRESENT_MS), &agents);
+    assert_eq!(v[9], ReserveVerdict::MoveOut { session: "a".into(), reason: ReserveReason::Cpu });
+}
+
+#[test]
+fn rule_two_saturated_and_late_moves_an_agent_within_its_budget() {
+    // Agents use 3 of 7.5 cores, but the machine is 95% busy and timers run late.
+    let agents = || vec![agent("a", 2.0, 1), agent("b", 1.0, 1)];
+    let late = |s: &mut ReserveSample| {
+        s.cpu_busy = Some(0.95);
+        s.lateness_p50_ms = Some(1.6);
+    };
+    let mut t = ReserveTracker::new();
+    let v = run_with(&mut t, 10, &late, &agents);
+    assert_eq!(
+        v[9],
+        ReserveVerdict::MoveOut { session: "a".into(), reason: ReserveReason::Interactive }
+    );
+
+    // Slow frames stand in for lateness.
+    let frames = |s: &mut ReserveSample| {
+        s.cpu_busy = Some(0.95);
+        s.slow_frames = true;
+    };
+    let mut t = ReserveTracker::new();
+    assert_eq!(
+        run_with(&mut t, 10, &frames, &agents)[9],
+        ReserveVerdict::MoveOut { session: "a".into(), reason: ReserveReason::Interactive }
+    );
+}
+
+#[test]
+fn rule_two_needs_lateness_agents_and_presence() {
+    let agents = || vec![agent("a", 2.0, 1)];
+    // Busy but on time: contention, not harm.
+    let on_time = |s: &mut ReserveSample| {
+        s.cpu_busy = Some(0.95);
+        s.lateness_p50_ms = Some(0.5);
+    };
+    let mut t = ReserveTracker::new();
+    assert!(run_with(&mut t, 20, &on_time, &agents).iter().all(|v| *v == hold(HoldWhy::Within)));
+    // Late, but agents idle: the person's own build.
+    let idle_agents = || vec![agent("a", 0.2, 1)];
+    let late = |s: &mut ReserveSample| {
+        s.cpu_busy = Some(0.99);
+        s.lateness_p50_ms = Some(3.0);
+    };
+    let mut t = ReserveTracker::new();
+    assert!(run_with(&mut t, 20, &late, &idle_agents).iter().all(|v| *v == hold(HoldWhy::Within)));
+    // Late with agents busy, but the person is away.
+    let away_late = |s: &mut ReserveSample| {
+        late(s);
+        s.idle_ms = Some(PRESENT_MS);
+    };
+    let mut t = ReserveTracker::new();
+    assert!(run_with(&mut t, 20, &away_late, &agents).iter().all(|v| *v == hold(HoldWhy::Within)));
+}
+
+#[test]
+fn rule_three_memory_pressure_holds_away_too_when_agents_hold_a_quarter() {
+    // Agents hold 10 of 36 GB used: over a quarter.
+    let agents = || vec![agent("a", 0.5, 6), agent("b", 0.5, 4)];
+    let pressured = |s: &mut ReserveSample| {
+        s.idle_ms = None;
+        s.memory_normal = false;
+        s.used_ram_bytes = Some(36 * GB);
+    };
+    let mut t = ReserveTracker::new();
+    assert_eq!(
+        run_with(&mut t, 10, &pressured, &agents)[9],
+        ReserveVerdict::MoveOut { session: "a".into(), reason: ReserveReason::MemoryPressure }
+    );
+
+    // Swap growth alone counts.
+    let swapping = |s: &mut ReserveSample| {
+        s.swap_growth_mb_per_min = Some(100.0);
+        s.used_ram_bytes = Some(36 * GB);
+    };
+    let mut t = ReserveTracker::new();
+    assert_eq!(
+        run_with(&mut t, 10, &swapping, &agents)[9],
+        ReserveVerdict::MoveOut { session: "a".into(), reason: ReserveReason::MemoryPressure }
+    );
+
+    // A browser with 200 tabs: agents hold under a quarter, nothing moves.
+    let browser = |s: &mut ReserveSample| {
+        s.memory_normal = false;
+        s.used_ram_bytes = Some(46 * GB);
+    };
+    let mut t = ReserveTracker::new();
+    assert!(run_with(&mut t, 20, &browser, &agents).iter().all(|v| *v == hold(HoldWhy::Within)));
+}
+
+#[test]
+fn rule_four_thermal_needs_an_agent_core() {
+    let hot = |s: &mut ReserveSample| s.thermal_serious = true;
+    let mut t = ReserveTracker::new();
+    let busy = || vec![agent("a", 1.5, 1)];
+    assert_eq!(
+        run_with(&mut t, 10, &hot, &busy)[9],
+        ReserveVerdict::MoveOut { session: "a".into(), reason: ReserveReason::Thermal }
+    );
+    let mut t = ReserveTracker::new();
+    let idle = || vec![agent("a", 0.3, 1)];
+    assert!(run_with(&mut t, 20, &hot, &idle).iter().all(|v| *v == hold(HoldWhy::Within)));
+}
+
+#[test]
+fn older_samples_without_the_new_readings_still_parse() {
+    let json = r#"{"atMs":1,"performanceCores":15.0,"ramBytes":1,"idleMs":null,"agents":[]}"#;
+    let s: ReserveSample = serde_json::from_str(json).unwrap();
+    assert!(s.memory_normal && s.cpu_busy.is_none() && !s.thermal_serious);
 }
