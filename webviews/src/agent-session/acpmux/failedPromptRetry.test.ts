@@ -309,3 +309,41 @@ test("a prompt held at dispatch never reaches acpmux and says why", async () => 
     pane.client.close?.();
   }
 });
+
+// Leo, 2026-11-24, on a failed send's "Not sent" line and its Retry, Edit, Remove and Details: "i
+// dont ever want to see these, it should just fix itself automtically. recovery for this stuff is
+// wack". A send that did not get there for a reason that passes (no answer in time) goes again by
+// itself, under its own prompt id, with no click; a refusal that would come back the same does not.
+test("a send that got no answer in time goes again by itself and lands, with no click", async () => {
+  const timedOut = Object.assign(new Error("no answer from acpmux"), { code: "timeout" });
+  const pane = await paneWith((attempt) => (attempt === 1 ? timedOut : undefined));
+  try {
+    await pane.client.send("deploy after the timeout").catch(() => undefined);
+    expect(pane.rows().find((row) => row.kind === "user" && row.text === "deploy after the timeout")?.failed).toBe(
+      true,
+    );
+    const { SELF_RESEND_FIRST_MS } = await import("./sendWhenReady");
+    const deadline = Date.now() + SELF_RESEND_FIRST_MS + 4_000;
+    while (pane.prompts.length < 2 && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(pane.prompts).toEqual(["deploy after the timeout", "deploy after the timeout"]);
+    const users = pane.rows().filter((row) => row.kind === "user" && row.text === "deploy after the timeout");
+    expect(users).toHaveLength(1);
+    expect(users[0]!.failed).toBeFalsy();
+  } finally {
+    pane.client.close?.();
+  }
+});
+
+test("a refusal that would come back the same is not sent again by itself", async () => {
+  const refusal = await gestureRefusal();
+  const pane = await paneWith(() => refusal);
+  try {
+    await pane.client.send("refused for good").catch(() => undefined);
+    const { SELF_RESEND_FIRST_MS } = await import("./sendWhenReady");
+    await new Promise((resolve) => setTimeout(resolve, SELF_RESEND_FIRST_MS + 300));
+    expect(pane.prompts).toEqual(["refused for good"]);
+  } finally {
+    pane.client.close?.();
+  }
+});

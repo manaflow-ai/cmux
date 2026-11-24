@@ -9,6 +9,11 @@ import { hostIsReconnecting, hostRefusedTooLarge, nextRetryDelay } from "./hostR
 /// The first wait before a held send asks again; each next wait doubles up to 2 s (`nextRetryDelay`).
 export const SEND_RETRY_FIRST_MS = 250;
 
+/// A failed send that goes again by itself (direct.ts `resendItself`) first waits this long, then
+/// twice as long each time, up to SELF_RESEND_MAX_MS, with no last try.
+export const SELF_RESEND_FIRST_MS = 1000;
+export const SELF_RESEND_MAX_MS = 30_000;
+
 /// Whether a failed send may go again on its own: the pane had no connection to acpmux, so the
 /// frame never left it (`native.not_connected`), and acpmux comes back by itself. Only such a frame
 /// goes again: a frame that reached the app spent the send's gesture ticket (the native relay

@@ -31,6 +31,7 @@ import { TurnActionsContext } from "./turnActions";
 import { FailedSendsContext } from "./promptDeliveryModel";
 import { errorRecovery, signInRetry, type ErrorRecovery } from "./errorRecovery";
 import {
+  footerLabel,
   isEmptyFooter,
   isStopped,
   offersRetry,
@@ -43,15 +44,24 @@ import { stoppedTurnLook } from "./stoppedTurn.experiment";
 import { failedTurnMark } from "./failedTurnMark.experiment";
 import { turnCopyText } from "./turnCopy";
 import { TimedLabel } from "./TurnTokens";
+import { replyTimeDetail } from "./turnTokensModel";
 import { AlertCircle, ChevronRight, Retry, Close } from "./icons";
-import { ForkButton, MessageCopy, MessageFooterRow, MessageMore, PinButton, ReadAloudButton } from "./MessageActions";
+import {
+  ForkButton,
+  MessageCopy,
+  MessageFooterRow,
+  MessageMore,
+  PinButton,
+  ReadAloudButton,
+  ReplyTime,
+} from "./MessageActions";
 import { forkWithFeedback, ROW_ICON } from "./messageActionsModel";
 import { dismissFailure, useFailureDismissed } from "./dismissedFailures";
 import { SteerChatContext } from "./pendingSteerModel";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { CloudSignIn } from "./CloudSignIn";
 import { offersGateway, type CloudSignIn as CloudSignInActions } from "../cloudAgentLogin";
-import { useT } from "../i18n";
+import { usePaneLanguage, useT } from "../i18n";
 import { failureCopy, failureKind, failureRecovery, isTeamMachineSignIn, type FailureRoute } from "../failureCopy";
 import { experimentArm } from "../../../experiments/experiment";
 import { turnErrorCard } from "./turnErrorCard.experiment";
@@ -314,7 +324,8 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
 
 /// The quiet row under an answer, as ChatGPT's: its buttons first, the first glyph's ink on the
 /// prose's left edge whatever the turn did (Copy, Fork from here when acpmux serves forks, Pin, Read
-/// aloud, More), then the answer's exact time, shown on hover.
+/// aloud, More), then the answer's relative time, its full date on hover (Leo, 2026-11-24: "the
+/// timestamps on the agent messages idk why those were removed? from hover").
 /// Leo, 2026-11-02: "this should not be placed in front of the copy/whatever buttons. those buttons
 /// should always just be there left aligned". A turn without a "Worked for" line (a Claude turn,
 /// #30176; history paged in mid-turn) keeps its time and tokens in the time's tooltip, never in the
@@ -322,6 +333,7 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
 /// retain their inline Retry and recovery controls; stopped replies resume from the empty composer.
 export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const t = useT();
+  const language = usePaneLanguage();
   const messages = useContext(PresentationContext) === "messages";
   const {
     fork,
@@ -355,8 +367,12 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   // says so here only, never in the transcript's text (Leo, 2026-11-03: "idk if it should be showing
   // things like that").
   const forced = row.stopForced ? t("stop.forced") : undefined;
-  // No time at the row's end: the Codex app shows none (Lawrence, 2026-11-11 standup: "when I hover,
-  // the time shows up on the right, which I don't think is good").
+  // The time after the buttons, shown on hover with its full date in the shared tooltip, as ChatGPT's
+  // (Leo, 2026-11-24: "the timestamps on the agent messages idk why those were removed? from hover";
+  // "yeah we prev had it for both my sent messages and the agent"). #42247 had taken it out to match
+  // the Codex app (Lawrence, 2026-11-11 standup: "when I hover, the time shows up on the right, which
+  // I don't think is good"); it sits right after the last button, never pushed to the row's far edge.
+  const detail = replyTimeDetail(t, language, [footerLabel(t, row), forced], row.tokens);
   // A stopped turn says so in one muted word, whoever ended it (stoppedTurn.experiment.ts).
   const stoppedLook = isStopped(row) ? experimentArm(stoppedTurnLook) : "none";
   const stoppedWord = stoppedLook !== "none" && (
@@ -552,6 +568,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             {!messages && text && <SavePromptButton text={text} />}
             {!messages && ((text && row.answerId) || menuRetry) && <MessageMore rowId={row.answerId ?? row.id} />}
           </span>
+          {!messages && <ReplyTime at={row.at} detail={detail} />}
           {stoppedLook === "word" && stoppedWord}
           {stoppedLook === "trailing" && stoppedWord}
           {!messages && endMark}
