@@ -22,7 +22,8 @@ import Testing
         store.apply(.turnResult(turnId: id, status: .completed, errorText: nil, at: Date()))
     }
 
-    final class Flag { var fired = false }
+    // onChange is @Sendable; the test reads the flag only on the main actor after each change.
+    final class Flag: @unchecked Sendable { var fired = false }
 
     @Test func readingTheCandidatesObservesNothing() {
         let store = AgentChatStore(source: Recorder())
