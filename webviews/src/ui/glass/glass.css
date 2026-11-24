@@ -572,7 +572,10 @@
        surface (data-host-glass-cover: menus, popovers) goes clear only where the page under it blurs
        in place (data-glass-over), so no text reads crisp through it. One that keeps the page's glass is
        not reported, so the App draws none under it (one glass, never two), and it keeps that glass
-       (data-host-glass-own, hostGlass.ts) until the App answers a report that has it. --host-glass-fill is the one
+       (data-host-glass-own, hostGlass.ts) until the App answers a report that has it. So does a surface
+       over another surface's App glass (a hover card, a menu or a tooltip over Session Info; hostGlass.ts
+       stackedHostGlass): the App's glasses all lie under the page, so two that overlap were two native
+       glasses on top of each other. --host-glass-fill is the one
        veil every popup and card lays on the App's glass (GLASS LEVELS, above); --host-glass-edge is
        the gallery's knob (HostGlass.gallery.tsx), none shipped. */
     :root[data-host-glass-on] [data-host-glass]:not([data-host-glass-drawn]) {
