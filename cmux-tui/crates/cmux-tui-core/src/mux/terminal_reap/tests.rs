@@ -532,11 +532,11 @@ fn terminal_reap_grace_cap_stands_down_across_an_app_relaunch() {
     );
     assert!(schedule.relaunch_hold(back + grace * 2, grace, true, false), "gone again");
     let again = back + grace * 3;
-    assert!(schedule.relaunch_hold(again, grace, true, true), "a second return starts its own grace");
     assert!(
-        !schedule.relaunch_hold(again + grace, grace, true, true),
-        "and ends one grace later"
+        schedule.relaunch_hold(again, grace, true, true),
+        "a second return starts its own grace"
     );
+    assert!(!schedule.relaunch_hold(again + grace, grace, true, true), "and ends one grace later");
 }
 
 /// The reaper checked attach streams before its close, outside the close's locks (the screen
