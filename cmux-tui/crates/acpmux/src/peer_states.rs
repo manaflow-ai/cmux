@@ -13,7 +13,7 @@
 
 use crate::no_panic::LockExt;
 use crate::protocol::peer_state::{
-    Carrier, DownCause, MachineLink, OfflineReason, PeerStateChanged,
+    Carrier, DownCause, LinkQuality, MachineLink, OfflineReason, PeerStateChanged,
 };
 use serde_json::{Value, json};
 use std::collections::{HashMap, VecDeque};
@@ -146,16 +146,27 @@ pub struct Observed {
     /// When `link` took its value.
     pub since: u64,
     pub next_retry_at: Option<u64>,
+    /// The open link's ping tier (`peer_quality.rs`): news when it changes.
+    pub quality: Option<LinkQuality>,
+    /// The open link's smoothed round trip in ms: rides along.
+    pub rtt_ms: Option<u32>,
     pub last_seen: Option<u64>,
     pub error: Option<String>,
 }
 
-/// What makes a note news: a change of any of these sends one; `since`, `lastSeen` and
-/// `error` ride along.
-type Key = (MachineLink, Option<Carrier>, Option<DownCause>, Option<OfflineReason>, Option<u64>);
+/// What makes a note news: a change of any of these sends one; `since`, `rttMs`, `lastSeen`
+/// and `error` ride along.
+type Key = (
+    MachineLink,
+    Option<Carrier>,
+    Option<DownCause>,
+    Option<OfflineReason>,
+    Option<u64>,
+    Option<LinkQuality>,
+);
 
 fn key(note: &PeerStateChanged) -> Key {
-    (note.link, note.carrier, note.cause, note.reason, note.next_retry_at)
+    (note.link, note.carrier, note.cause, note.reason, note.next_retry_at, note.quality)
 }
 
 impl Observed {
@@ -168,13 +179,15 @@ impl Observed {
             reason: None,
             since: 0,
             next_retry_at: None,
+            quality: None,
+            rtt_ms: None,
             last_seen,
             error,
         }
     }
 
     fn key(&self) -> Key {
-        (self.link, self.carrier, self.cause, self.reason, self.next_retry_at)
+        (self.link, self.carrier, self.cause, self.reason, self.next_retry_at, self.quality)
     }
 
     fn note(self, name: &str) -> PeerStateChanged {
@@ -189,6 +202,8 @@ impl Observed {
             next_retry_at: self.next_retry_at,
             reason: self.reason,
             action: self.reason.map(OfflineReason::action),
+            quality: self.quality,
+            rtt_ms: self.rtt_ms,
             last_seen: self.last_seen,
             error: self.error,
             at,

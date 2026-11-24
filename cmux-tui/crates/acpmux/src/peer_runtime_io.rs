@@ -1252,6 +1252,7 @@ impl Peer {
                         Frame::Pong(payload) => {
                             if let (Some(rtt), Some(via)) = (carriers::pong_rtt(&payload), self.serving()) {
                                 self.path_pong(via, rtt);
+                                self.link_pong(rtt);
                             }
                             continue;
                         }

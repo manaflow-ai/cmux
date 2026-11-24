@@ -19,6 +19,8 @@ pub(crate) struct LinkFacts {
     pub refused: bool,
     /// The whole state last reported and when it began.
     since: Option<(MachineLink, u64)>,
+    /// The open link's ping (`peer_quality.rs`); a new link starts it over (`carried_by`).
+    pub rtt: crate::peer_quality::RttEstimate,
 }
 
 impl LinkFacts {
@@ -66,6 +68,9 @@ impl super::Peer {
             reason,
             since,
             next_retry_at: link.retry_at.filter(|_| !link.is_ready()),
+            // Only an open link has a ping, as only it has a carrier.
+            quality: facts.live_carrier(state).and(facts.rtt.quality()),
+            rtt_ms: facts.live_carrier(state).and(facts.rtt.rtt_ms()),
             last_seen: link.last_seen,
             error,
         }

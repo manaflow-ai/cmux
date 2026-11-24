@@ -197,8 +197,21 @@ impl Peer {
     pub(super) fn carried_by(&self, by: crate::protocol::peer_state::Carrier) {
         let mut facts = self.facts.lock_or_recover();
         facts.carrier = Some(by);
+        // A new link: the old one's ping says nothing of it.
+        facts.rtt = crate::peer_quality::RttEstimate::default();
         // The upgrade went through, so the token was taken.
         facts.refused = false;
+    }
+
+    /// A pong on the link that carries the chats after `rtt`: its ping (`peer_quality.rs`).
+    /// A tier change is a state note; the round trip alone rides on the next one.
+    pub(super) fn link_pong(&self, rtt: std::time::Duration) {
+        let rtt_us = u64::try_from(rtt.as_micros()).unwrap_or(u64::MAX);
+        let changed = self.facts.lock_or_recover().rtt.sample(rtt_us);
+        if changed {
+            // `with_link` notes the state under the link's lock, in order with every other change.
+            self.with_link(|_| ());
+        }
     }
 
     /// The peer refused this attempt's token: the link is `authFailed` until one is taken.
@@ -748,6 +761,8 @@ impl Peer {
             "action": observed.reason.map(crate::protocol::peer_state::OfflineReason::action),
             "since": observed.since,
             "nextRetryAt": observed.next_retry_at,
+            "quality": observed.quality,
+            "rttMs": observed.rtt_ms,
             "lastSeen": link.last_seen,
             "downSince": link.down_since,
             "parked": link.parked(crate::store::now_ms()),
