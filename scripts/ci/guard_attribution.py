@@ -947,13 +947,13 @@ def analyze_pr(gh: GitHub | None, run: Mapping, root: Path, log: str) -> dict:
     report["pr"] = pr_number(gh, run)
     if report["state"] == "green":
         # Nothing to update unless this PR already has a red guard comment.
-        marked = [c for c in gh.comments(report["pr"]) if PR_MARKER in str(c.get("body") or "")] \
-            if report["pr"] and gh else []
+        # Only a bot's comment is guard state: a human quoting the marker must not trigger a write (#40422).
+        marked = pr_status.bot_comments(gh.comments(report["pr"]), PR_MARKER) if report["pr"] and gh else []
         if not report["pr"] or (gh and not marked):
             report["state"] = "noop"
         elif marked:
             # `report` edits this comment without reading the PR's comments again.
-            report["comments"] = [{"id": c.get("id"), "body": c.get("body"), "user": c.get("user")} for c in marked]
+            report["comments"] = marked
         return report
     failures = parse_guard_log(log)
     issue = tracking_issue(gh.open_issues(), "fast-guards") if gh else None

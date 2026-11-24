@@ -372,7 +372,8 @@ class Robustness(unittest.TestCase):
     def test_guard_conclusion_overrides_an_unrelated_ci_failure(self) -> None:
         gh = ga.GitHub("manaflow-ai/cmux", "token")
         gh.guard_job = lambda run: {"id": 42, "name": ga.FAST_WORKFLOW, "conclusion": "success"}  # type: ignore[method-assign]
-        gh.comments = lambda number: [{"id": 1, "body": ga.PR_MARKER}]  # type: ignore[method-assign]
+        bot = {"id": 1, "body": ga.PR_MARKER, "user": {"login": "github-actions[bot]"}}
+        gh.comments = lambda number: [bot]  # type: ignore[method-assign]
         run = {
             "id": 9,
             "run_attempt": 2,
