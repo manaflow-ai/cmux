@@ -46,7 +46,7 @@ async fn a_pass_journals_every_held_message_and_sends_one_digest_once() {
     hold(&hub, &s, "m1", "runners", "fyi", "runner queued 12 min");
     hold(&hub, &s, "m2", "review", "result", "review asks you to pick a base");
     hold(&hub, &s, "m3", "landed", "result", "landed #12");
-    hold(&hub, &s, "m4", "ask", "question", "which base?");
+    hold(&hub, &s, "m4", "ask", "question", "which base? the person decides");
     assert_eq!(hub.surge_triage_pass(&s).await.unwrap(), PassEnd::Done);
     assert!(
         hub.surge_triage_journals.lock().unwrap()[&s.id].cursor > 0,
@@ -74,7 +74,8 @@ async fn a_pass_journals_every_held_message_and_sends_one_digest_once() {
         ],
         "the question first, with no model"
     );
-    assert_eq!(triaged[1]["surge"]["needYou"], 2, "two open threads");
+    // Two open threads, one of them the person's: m2 is the agent's to act on.
+    assert_eq!(triaged[1]["surge"]["needYou"], 1, "only the question to the person");
     assert!(sent(&hub, &s, &digest) >= 1, "the digest went to the chat");
     let text = events
         .iter()
@@ -540,7 +541,8 @@ async fn a_repeated_observation_wakes_no_one_twice_across_passes_and_restarts() 
     assert!(item(&events, "m4").get("repeatOf").is_none(), "{}", item(&events, "m4"));
     assert_eq!(digested(&hub, &s.id), [json!(["m1"]), json!(["m4"])]);
     let last = records(&events, triage::RECORD_KIND).filter(|r| r.get("surge").is_some()).last();
-    assert_eq!(last.unwrap()["surge"]["needYou"], 1, "one open thread, not four messages");
+    // Status reports, however many, need the agent, not the person (Leo, 2026-11-23).
+    assert_eq!(last.unwrap()["surge"]["needYou"], 0, "runner reports never need the person");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

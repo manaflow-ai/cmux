@@ -26,10 +26,18 @@ use crate::desktop::*;
 /// server undoes it when the connection closes).
 static REDIRECTED: Mutex<Option<HashSet<u32>>> = Mutex::new(None);
 
+/// The display id of the whole X screen.
+pub(crate) const ROOT_DISPLAY: &str = "root";
+
 impl X11Desktop {
     pub(crate) fn capture_display(&self, name: Option<&str>) -> DResult<RawFrame> {
         let monitors = self.monitors();
         let rect = match name {
+            // The whole screen, the id `list_displays` gives when RandR
+            // lists no monitor.
+            Some(ROOT_DISPLAY) if !monitors.iter().any(|m| m.name == ROOT_DISPLAY) => {
+                self.root_rect()
+            }
             Some(n) => monitors.iter().find(|m| m.name == n).map(|m| m.rect).ok_or_else(|| {
                 let names: Vec<&str> = monitors.iter().map(|m| m.name.as_str()).collect();
                 DesktopError::TargetNotFound(format!("display {n:?}; displays: {names:?}"))
@@ -55,6 +63,36 @@ impl X11Desktop {
             scale: 1.0,
             origin: Point { x: rect.x, y: rect.y },
         })
+    }
+
+    /// `list_displays`: the RandR monitors by name, or the whole root when
+    /// RandR lists none (a bare Xvfb).
+    pub(crate) fn display_list(&self) -> Vec<crate::displays::Display> {
+        let virtual_screen = self.headless.then_some(true);
+        let monitors = self.monitors();
+        if monitors.is_empty() {
+            return vec![crate::displays::Display {
+                id: ROOT_DISPLAY.into(),
+                frame: self.root_rect(),
+                scale: 1.0,
+                main: true,
+                builtin: None,
+                is_virtual: virtual_screen,
+            }];
+        }
+        let main = monitors.iter().position(|m| m.primary).unwrap_or(0);
+        monitors
+            .into_iter()
+            .enumerate()
+            .map(|(i, m)| crate::displays::Display {
+                id: m.name,
+                frame: m.rect,
+                scale: 1.0,
+                main: i == main,
+                builtin: None,
+                is_virtual: virtual_screen,
+            })
+            .collect()
     }
 
     fn root_rect(&self) -> Rect {

@@ -266,3 +266,23 @@ fn a_message_no_model_decided_reaches_the_chat_untriaged_after_its_bound() {
     let lines = lines_of(&b, &known(&b, Some("1 this"), &Owners::default()));
     assert!(!digest("coord", &lines).unwrap().contains("not triaged"));
 }
+
+#[test]
+fn only_a_permission_or_a_question_to_the_person_needs_the_person() {
+    // Status, results and FYIs never need the person, whatever they say.
+    assert!(!needs_person("fyi", "leo: CI is green, permission granted", "leo"));
+    assert!(!needs_person("result", "PR 812 merged; the user can try it", "leo"));
+    // A question for the chat's agent is the agent's to answer.
+    assert!(!needs_person("question", "which branch did you push?", "leo"));
+    assert!(!needs_person("block", "blocked on base red, retrying in 5 min", "leo"));
+    // Addressed to the person, by name or role.
+    assert!(needs_person("question", "Leo, ship the dark theme or the light one?", "leo"));
+    assert!(needs_person("question", "@leo which icon?", "leo"));
+    assert!(needs_person("question", "can the person pick a name?", "cmux"));
+    // An ask only the person can grant.
+    assert!(needs_person("block", "need permission to force-push main", "cmux"));
+    assert!(needs_person("block", "the Vercel login expired; sign in again", "cmux"));
+    assert!(needs_person("question", "approve the $40 spend?", "cmux"));
+    // The owner's name inside another word is not the person.
+    assert!(!needs_person("question", "is cleopatra.rs yours?", "leo"));
+}
