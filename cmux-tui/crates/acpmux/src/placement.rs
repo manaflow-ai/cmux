@@ -43,6 +43,8 @@
 //! Without a registry (acpmux outside the fleet) every connected peer is a
 //! candidate and the defaults below size it.
 
+pub(crate) mod command_sampler;
+pub(crate) mod command_shadow;
 pub(crate) mod move_targets;
 pub mod sub_fork;
 
