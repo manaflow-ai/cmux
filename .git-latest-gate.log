@@ -1,0 +1,3 @@
+prepush-gate: judging e897e0c0181 over da668d6d8f0, less what 9e526b5e3ac adds over 88fce28c55e: 1 own commit(s), a merge: what HEAD adds over the upstream it merged, less what the other side already had
+prepush-gate: downloading ast-grep 0.51.0 (once) from https://github.com/ast-grep/ast-grep/releases/download/0.51.0/app-x86_64-unknown-linux-gnu.zip
+prepush-gate: downloading swiftformat 0.64.0 (once) from https://github.com/nicklockwood/SwiftFormat/releases/download/0.64.0/swiftformat_linux.zip

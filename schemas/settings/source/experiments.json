@@ -36,6 +36,27 @@
           ]
         },
         {
+          "key": "experiments.composerButtonsVisible",
+          "title": {
+            "key": "settings.experiments.composerButtonsVisible",
+            "text": "Always Show Composer Buttons"
+          },
+          "help": {
+            "key": "settings.experiments.composerButtonsVisible.help",
+            "text": "Keep Send, attachment removal, and queued message actions visible in agent chats."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "composer",
+            "buttons",
+            "send",
+            "attachments",
+            "queue",
+            "hover"
+          ]
+        },
+        {
           "key": "experiments.composerV2",
           "note": "Taste prototype: the agent chat composer as a glass panel with an edge light on focus, mode and scope chips in a row inside it (only the active one raised), inline @mention chips, the model picker left and + and Send right, and a round Send dimmed until there is text (webviews useExperimentSwitch(\"composerV2\"), composerV2.css). Off by default; off keeps today's composer.",
           "title": {
