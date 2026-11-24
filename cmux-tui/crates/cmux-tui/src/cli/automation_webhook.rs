@@ -39,6 +39,7 @@ const CLIENT_KEY_PREFIX: &str = "auto-webhook-";
 
 const VALUED: &[&str] = &[
     "on", "from", "repo", "prompt", "cwd", "harness", "events", "cooldown", "max-runs", "platform",
+    "match",
     // Refused below with a reason: a Cloud webhook runs its prompt, on its own schedule.
     "if", "watch", "every", "command", "daily", "weekdays", "weekly", "at", "in", "cron", "when",
     "debounce",
@@ -66,7 +67,7 @@ pub(super) fn wants(args: &[String]) -> bool {
 }
 
 /// A checked create: everything the three requests need.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq)]
 pub(super) struct Plan {
     pub name: String,
     pub slug: String,
@@ -79,6 +80,8 @@ pub(super) struct Plan {
     pub cooldown_seconds: u64,
     pub max_runs: u64,
     pub platform: Option<String>,
+    /// `--match` conditions, as the platform's trigger takes them; every one must hold.
+    pub conditions: Vec<Value>,
 }
 
 impl Plan {
@@ -173,6 +176,13 @@ fn plan(args: &[String]) -> Result<Plan, Failure> {
         },
         None => DEFAULT_MAX_RUNS,
     };
+    let conditions =
+        a.values_of("match").into_iter().map(parse_match).collect::<Result<Vec<_>, _>>()?;
+    if conditions.len() > MAX_CONDITIONS {
+        return usage(
+            m.webhook_bad_match.replace("{value}", &format!("{} conditions", conditions.len())),
+        );
+    }
     // RFD 5.5: the fork carries everything on the source machine; the person says so first.
     if !a.flag("yes") {
         return usage(m.webhook_consent_needed.replace("{consent}", &consent_line(&from)));
@@ -189,7 +199,78 @@ fn plan(args: &[String]) -> Result<Plan, Failure> {
         cooldown_seconds,
         max_runs,
         platform: a.value("platform").map(str::to_string),
+        conditions,
     })
+}
+
+/// What a GitHub trigger's condition may read (cmux-platform src/server/triggers/Conditions.ts).
+const MATCH_FACTS: &[&str] = &[
+    "branch",
+    "base",
+    "workflow",
+    "conclusion",
+    "event",
+    "actor",
+    "author_association",
+    "labels",
+    "draft",
+    "pull_request",
+];
+const MAX_CONDITIONS: usize = 16;
+const MAX_MATCH_LIST: usize = 32;
+const MAX_MATCH_TEXT: usize = 256;
+
+/// `--match` in the local webhook's form, with the platform's operators: `branch=main`,
+/// `branch=main,release` (any of them), `actor!=dependabot`, `workflow^=ci` (starts with),
+/// `labels~=agent` (contains), `pull_request>=100`, `draft?` (set) and `!draft` (unset).
+fn parse_match(text: &str) -> Result<Value, Failure> {
+    let bad = || usage(messages().webhook_bad_match.replace("{value}", text));
+    let text_ok =
+        |v: &str| !v.is_empty() && v.len() <= MAX_MATCH_TEXT && !v.chars().any(char::is_control);
+    let fact = |path: &str| MATCH_FACTS.contains(&path);
+    let trimmed = text.trim();
+    if let Some(path) = trimmed.strip_prefix('!').filter(|p| fact(p)) {
+        return Ok(json!({"path": path, "op": "missing"}));
+    }
+    if let Some(path) = trimmed.strip_suffix('?').filter(|p| fact(p)) {
+        return Ok(json!({"path": path, "op": "exists"}));
+    }
+    let end =
+        trimmed.find(|c: char| !(c.is_ascii_alphanumeric() || c == '_')).unwrap_or(trimmed.len());
+    let (path, rest) = trimmed.split_at(end);
+    if !fact(path) {
+        return bad();
+    }
+    const OPS: &[(&str, &str)] = &[
+        ("!=", "not_equals"),
+        ("^=", "prefix"),
+        ("~=", "contains"),
+        (">=", "gte"),
+        ("<=", "lte"),
+        ("=", "equals"),
+        (">", "gt"),
+        ("<", "lt"),
+    ];
+    let Some(&(sign, op)) = OPS.iter().find(|(sign, _)| rest.starts_with(sign)) else {
+        return bad();
+    };
+    let value = rest[sign.len()..].trim();
+    match op {
+        "gt" | "gte" | "lt" | "lte" => match value.parse::<i64>() {
+            Ok(n) => Ok(json!({"path": path, "op": op, "value": n})),
+            Err(_) => bad(),
+        },
+        "equals" | "not_equals" if value.contains(',') => {
+            let list: Vec<&str> = value.split(',').map(str::trim).collect();
+            if list.len() > MAX_MATCH_LIST || !list.iter().all(|v| text_ok(v)) {
+                return bad();
+            }
+            let op = if op == "equals" { "in" } else { "not_in" };
+            Ok(json!({"path": path, "op": op, "value": list}))
+        }
+        _ if text_ok(value) => Ok(json!({"path": path, "op": op, "value": value})),
+        _ => bad(),
+    }
 }
 
 /// `OWNER/REPO`, as the platform's trigger schema takes it.
@@ -286,7 +367,7 @@ fn bind_body(plan: &Plan, fork: &str) -> Value {
 }
 
 fn trigger_body(plan: &Plan, fork: &str) -> Value {
-    json!({
+    let mut body = json!({
         "repository": plan.repository,
         "prompt": plan.prompt,
         "events": plan.events,
@@ -299,7 +380,11 @@ fn trigger_body(plan: &Plan, fork: &str) -> Value {
             "policy": "start_session",
         },
         "guardrails": {"cooldownSeconds": plan.cooldown_seconds, "maxRunsPerDay": plan.max_runs},
-    })
+    });
+    if !plan.conditions.is_empty() {
+        body["conditions"] = Value::Array(plan.conditions.clone());
+    }
+    body
 }
 
 struct Registered {
@@ -401,6 +486,7 @@ fn created(plan: &Plan, origin: &str, done: &Registered) -> Value {
         "session": plan.session(),
         "repository": plan.repository,
         "events": plan.events,
+        "conditions": plan.conditions,
         "url": format!("{origin}{TRIGGERS_PATH}/{}/github", done.trigger),
         "content_type": "application/json",
         "github_events": github_events(&plan.events),

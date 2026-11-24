@@ -276,6 +276,70 @@ fn the_three_requests_are_exact() {
     assert!(trigger_body(&p, "vm_fork").get("installation").is_none());
 }
 
+#[test]
+fn match_sets_conditions_the_platform_takes() {
+    let p = plan(&with(&[
+        "--match",
+        "branch=main,release",
+        "--match",
+        "workflow^=ci",
+        "--match=actor!=dependabot",
+        "--match",
+        "labels~=agent",
+        "--match",
+        "pull_request>=100",
+        "--match",
+        "draft=false",
+        "--match",
+        "!draft",
+        "--match",
+        "base?",
+        "--match",
+        "actor!=a,b",
+    ]))
+    .unwrap_or_else(|_| panic!("refused"));
+    assert_eq!(
+        p.conditions,
+        vec![
+            json!({"path": "branch", "op": "in", "value": ["main", "release"]}),
+            json!({"path": "workflow", "op": "prefix", "value": "ci"}),
+            json!({"path": "actor", "op": "not_equals", "value": "dependabot"}),
+            json!({"path": "labels", "op": "contains", "value": "agent"}),
+            json!({"path": "pull_request", "op": "gte", "value": 100}),
+            json!({"path": "draft", "op": "equals", "value": "false"}),
+            json!({"path": "draft", "op": "missing"}),
+            json!({"path": "base", "op": "exists"}),
+            json!({"path": "actor", "op": "not_in", "value": ["a", "b"]}),
+        ]
+    );
+    let body = trigger_body(&p, "vm_fork");
+    assert_eq!(body["conditions"], Value::Array(p.conditions.clone()));
+    // No --match sends no conditions: the trigger starts on every event, as before.
+    assert!(trigger_body(&base_plan(), "vm_fork").get("conditions").is_none());
+}
+
+#[test]
+fn a_bad_match_is_a_usage_error() {
+    for bad in [
+        "secret=x",
+        "branch",
+        "branch=",
+        "branch>main",
+        "pull_request>=ten",
+        "branch=a,,b",
+        "!secret",
+        "data.level=error",
+    ] {
+        assert_eq!(
+            refused(&with(&["--match", bad])),
+            messages().webhook_bad_match.replace("{value}", bad),
+            "{bad}"
+        );
+    }
+    let many: Vec<&str> = (0..17).flat_map(|_| ["--match", "base?"]).collect();
+    assert!(refused(&with(&many)).starts_with("--match"));
+}
+
 fn registered() -> Registered {
     Registered {
         machine: "vm_fork".into(),
@@ -300,6 +364,7 @@ fn the_answer_has_every_field_once() {
             "session": "auto-ci-fix",
             "repository": "acme/api",
             "events": ["ci_failure", "pr_review_comment"],
+            "conditions": [],
             "url": "https://api.example.test/v1/triggers/0b6c1a52-5f0e-4c1e-9d55-6f2f3e1a9b70/github",
             "content_type": "application/json",
             "github_events": ["Workflow runs", "Pull request reviews", "Pull request review comments"],
