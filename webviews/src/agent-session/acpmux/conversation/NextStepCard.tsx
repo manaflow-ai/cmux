@@ -123,8 +123,10 @@ export const NextStepCard = memo(function NextStepCard({
   }, [pending]);
   // Whether the question or its tail runs past its cap: only then is there a Show more to offer.
   const [whole, setWhole] = useState(false);
-  // The typed answer stays while it is on its way, so a failed send gives it back to retry.
-  const [draft, setDraft] = useState("");
+  // The typed answer stays while it is on its way, so a failed send gives it back to retry. The
+  // pinned copy leaves while its answer goes (PendingAsks.tsx), so a failure hands its words back
+  // through the shared state (`typed`) when it returns.
+  const [draft, setDraft] = useState(() => (state.failed ? (state.typed ?? "") : ""));
   const [clipped, setClipped] = useState(false);
   const textRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -157,8 +159,8 @@ export const NextStepCard = memo(function NextStepCard({
       </div>
     );
   }
-  const send = (typed: string) => {
-    const label = typed.trim();
+  const send = (text: string, typed = false) => {
+    const label = text.trim();
     if (!onAnswer || sending !== undefined || !label) return;
     if (answerKey) claimAnswer(answerKey, label);
     update({ sending: label });
@@ -166,12 +168,12 @@ export const NextStepCard = memo(function NextStepCard({
     // (nextStepAsk.ts `answerPrompt`), so the bubble shows what it answers.
     void onAnswer(answerPrompt(ask.question, label, asker)).then(
       () => update({ sent: label }),
-      () => update({ failed: true }),
+      () => update({ failed: true, typed: typed ? text : undefined }),
     );
   };
   return (
     <fieldset ref={card} className={`acpmux-next-step${className ? ` ${className}` : ""}`} aria-label={ask.question}>
-      {onAnswer && (
+      {(onAnswer || onDismiss) && (
         <div className="acpmux-question-bar acpmux-next-step__bar">
           <span>
             <Icon name="status.question" size={14} />
@@ -234,7 +236,7 @@ export const NextStepCard = memo(function NextStepCard({
               if (event.key !== "Enter" || event.nativeEvent.isComposing || event.keyCode === 229) return;
               if (event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return;
               event.preventDefault();
-              send(draft);
+              send(draft, true);
             }}
           />
         </label>

@@ -213,6 +213,40 @@ test("a send that fails brings the card back with its buttons", async () => {
   expect(answeredAsks().has(askKey(failing))).toBe(false);
 });
 
+// The pinned copy leaves while its answer goes, so a typed answer that fails comes back with its words.
+test("a typed answer that fails comes back with its words", async () => {
+  let reject: (error: Error) => void = () => undefined;
+  const container = await render(
+    <PendingAsks
+      asks={[asked]}
+      onAnswer={() => new Promise((_, fail) => (reject = fail))}
+      onDismiss={() => undefined}
+    />,
+  );
+  const field = () => container.querySelector<HTMLInputElement>(".acpmux-next-step__other input")!;
+  const window = dom!.window;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!.call(field(), "Both");
+    field().dispatchEvent(new window.Event("input", { bubbles: true }));
+  });
+  await act(async () => {
+    field().dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  });
+  expect(container.querySelector(".acpmux-next-step__other")).toBeNull();
+  await act(async () => reject(new Error("refused")));
+  expect(field().value).toBe("Both");
+  expect(container.querySelector("output")).not.toBeNull();
+});
+
+// A pane that cannot send (View Only) still shows the pinned card, so it keeps its close.
+test("a pinned card in a pane that cannot send keeps its close", async () => {
+  const dismissed: string[] = [];
+  const container = await render(<PendingAsks asks={[asked]} onDismiss={(key) => dismissed.push(key)} />);
+  const dismiss = container.querySelector<HTMLButtonElement>(".acpmux-pending-ask .acpmux-next-step__bar .ui-dismiss")!;
+  await act(async () => dismiss.click());
+  expect(dismissed).toEqual([askKey(asked)]);
+});
+
 test("the pinned copy's ask is one object per ask, without its recap, so the card's memo holds", () => {
   const ask = nextStepAsk(
     "Done: the fix is in.\n\n[taste] Should I allow GitHub-hosted runners until the pool is back?",

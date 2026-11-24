@@ -419,7 +419,7 @@ function PendingQuestion({
     if (inOther) {
       if (event.key !== "Enter") return;
     } else if (
-      target.closest(".acpmux-question-actions, .acpmux-question-tabs, .acpmux-question-bar") &&
+      target.closest(".acpmux-question-actions, .acpmux-question-bar") &&
       !/^[1-9]$|^Arrow(?:Up|Down)$/.test(event.key)
     ) {
       return; // Enter and Space press the focused Submit, Skip or tab button.
