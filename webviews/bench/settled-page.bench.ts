@@ -415,7 +415,6 @@ function installFrameReader() {
       frames = [];
       marks.length = 0;
       t0 = at;
-      (globalThis as { __vtLog?: string[] }).__vtLog = [];
       lastKey = "";
       lastChange = at;
       running = true;
@@ -426,7 +425,7 @@ function installFrameReader() {
     },
     stop() {
       running = false;
-      return { t0, frames, lastChange, marks: marks.slice(), vt: (globalThis as { __vtLog?: string[] }).__vtLog };
+      return { t0, frames, lastChange, marks: marks.slice() };
     },
   };
 }
