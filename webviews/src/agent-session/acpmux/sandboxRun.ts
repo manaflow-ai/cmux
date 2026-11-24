@@ -27,7 +27,14 @@ export type RunModeRows = {
 /// The Auto row's state for a new chat: whether it is the pick, its pick, and how it draws.
 /// `cloud` (AutoCloud, autoCloud.ts): the plan and `cloud.autoCloud` allow Auto's Cloud leg, so the Where
 /// menu's Auto row is a chevron that opens Auto, Cloud only and Machine…; absent, Auto is one row.
-export type AutoRow = { picked: boolean; onPick(on: boolean): void; look: AutoLook; cloud?: boolean };
+/// `started`: a started chat's Auto, its place mode (chatPlace.set), offered in Move to… (AutoCloud only).
+export type AutoRow = {
+  picked: boolean;
+  onPick(on: boolean): void;
+  look: AutoLook;
+  cloud?: boolean;
+  started?: boolean;
+};
 
 /// The parts of a receipt the chat shows; every field may be missing from an older server.
 export type SandboxReceipt = {

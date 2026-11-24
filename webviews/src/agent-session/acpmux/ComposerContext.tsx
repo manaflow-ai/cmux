@@ -180,7 +180,6 @@ export function ComposerContext({
   onConnect,
   connectOnlyWhenEmpty = false,
   onOffload,
-  placeControl,
   offloads = NO_OFFLOADS,
   offloadReasons,
   moveTargets,
@@ -272,9 +271,6 @@ export function ComposerContext({
   /// Bring Back Local for one a move put on a Cloud machine (the tab menu's same actions), as
   /// `offloads` lists them. None when the host passes none (the floating chat).
   onOffload?(kind: OffloadKind): void;
-  /// A started chat's place control (place/PlaceControl.tsx: Local, Cloud, Auto), beside the picker's
-  /// Move to Cloud and Bring Back Local rows, which stay. None while the app reports no place.
-  placeControl?: React.ReactNode;
   /// The moves the app offers this chat now (its right-click menu's, `pane.tabState` `moves`): the
   /// picker offers only these, whatever the machine's kind.
   offloads?: readonly OffloadKind[];
@@ -1356,7 +1352,6 @@ export function ComposerContext({
               onPick={pickComputer}
             />
           )}
-          {started && placeControl}
         </div>
         {browseError && browseRetry.current && (
           <BrowseFailure

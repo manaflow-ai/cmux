@@ -412,8 +412,8 @@ export type PaneBodyDeps = NewTabShown &
     sendPerf: PerfSend;
     setDock: React.Dispatch<React.SetStateAction<HTMLElement | null>>;
     paneToasts: NoticeQueue;
-    /// The chat list's place and Evacuate calls (place/usePlace.ts).
-    chatListPlace: EvacuateActions;
+    /// The chat list's Evacuate calls (place/usePlace.ts); none while AutoCloud is off.
+    chatListPlace: EvacuateActions | undefined;
     /// The running Evacuate, for the chat list (`pane.tabState.evacuate`).
     chatListEvacuate: EvacuateState | undefined;
     toastTop: HTMLDivElement | null;
@@ -1136,10 +1136,10 @@ export function drawPaneBody({
                           Promise.reject(new Error(translate("error.notOpen"))),
                       }
                     : {})}
-                  // A chat card's place and Evacuate rows: the app moves the chats (chatPlace.set, cloudEvacuate).
-                  {...(snapshot.origin !== "remote" && snapshot.origin !== "peer"
+                  // A chat card's Evacuate and Bring Back rows: the app moves the chats (cloudEvacuate). A chat's
+                  // Auto is the picker's (Move to…), never a second one on the card.
+                  {...(chatListPlace && snapshot.origin !== "remote" && snapshot.origin !== "peer"
                     ? {
-                        onPlace: chatListPlace.setMode,
                         onEvacuate: chatListPlace.evacuate,
                         onCancelEvacuate: chatListPlace.cancelEvacuate,
                         onBringBack: chatListPlace.bringBack,

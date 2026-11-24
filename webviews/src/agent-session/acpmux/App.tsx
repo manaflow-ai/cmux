@@ -655,7 +655,7 @@ import {
 import { cloudChatHintDue, cloudChatHintShown, useCloudChatHint, useCloudChatHintClaim } from "./cloudChatHintModel";
 import { withCloudMachineSummary } from "./cloudSummary";
 import { callNative } from "./callNative";
-import { evacuateActions } from "./place/usePlace";
+import { evacuateActions, placeActions } from "./place/usePlace";
 import { awaitsProjectPreview, takeProjectPreview } from "./newtab/newProject";
 import { copyShowsRunningTurn, showsChatSnapshot, swapChatSnapshot, watchChatSnapshot } from "./chatSnapshot/live";
 import { snapshotDraft } from "./chatSnapshot/restoredDraft";
@@ -1216,8 +1216,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     () => paneNotices({ transcript: () => directClient.current, toasts: paneToasts, native: postNativePaneToast }),
     [paneToasts],
   );
-  const chatListPlace = useMemo(() => evacuateActions(notices.transient), [notices]);
-  const chatListEvacuate = useHeaderState().evacuate;
+  // AutoCloud's hidden `cloud.autoCloud` key (default off) shows the chat list's Evacuate and Bring Back.
+  const placeOn = useAutoCloudKey();
+  const chatListPlaceActions = useMemo(() => evacuateActions(notices.transient), [notices]);
+  const chatListPlace = placeOn ? chatListPlaceActions : undefined;
+  const headerEvacuate = useHeaderState().evacuate;
+  const chatListEvacuate = placeOn ? headerEvacuate : undefined;
   /// Computer Use on this Mac, for a send that names `@computer-use` (toolMentions.ts, CMUX-682), and
   /// the notice such a send raised (computerUse/ComputerUseSetupNotice.tsx): where the held send's
   /// chat runs, undefined while no notice shows.
@@ -4305,8 +4309,22 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   );
   const autoOn = autoPick?.page === newTabGeneration ? autoPick.on : autoRemembered;
   const autoOffered = cloudOfferable && !onOtherMachinePage;
-  const autoPicked = autoOn && autoOffered && (!snapshot.sessionId || emptyLocalChat);
+  /// AutoCloud (autoCloud.ts): the plan and the hidden `cloud.autoCloud` key turn Auto's row into a
+  /// chevron that opens Auto, Cloud only and Machine…. Off, Auto is the one row it was.
+  const autoCloud = autoCloudOn({ key: useAutoCloudKey(), plan: useCloudPlan() });
+  /// A started chat's Auto, with AutoCloud on: its place mode, which the app keeps and runs
+  /// (chatPlace.set; Rust's Auto rule moves it to Cloud and back). Offered in the picker's Move to….
+  const placeMode = useHeaderState().place?.mode;
+  const autoStarted = autoCloud && snapshot.sessionId !== undefined && !emptyLocalChat;
+  const autoPicked = autoStarted
+    ? placeMode === "auto"
+    : autoOn && autoOffered && (!snapshot.sessionId || emptyLocalChat);
   const pickAuto = (on: boolean) => {
+    if (autoStarted) {
+      // Off is another row's pick (a move target), which sets the place itself.
+      if (on && snapshot.sessionId) placeActions(snapshot.sessionId, notices.transient).setMode("auto");
+      return;
+    }
     autoDecided.current = undefined;
     setAutoPick({ page: newTabGeneration, on });
     // Off by another row's pick: that row remembers its own place after this.
@@ -4314,15 +4332,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   };
   const pickAutoRef = useRef(pickAuto);
   pickAutoRef.current = pickAuto;
-  /// AutoCloud (autoCloud.ts): the plan and the hidden `cloud.autoCloud` key turn Auto's row into a
-  /// chevron that opens Auto, Cloud only and Machine…. Off, Auto is the one row it was.
-  const autoCloud = autoCloudOn({ key: useAutoCloudKey(), plan: useCloudPlan() });
   const autoRow: AutoRow | undefined = autoOffered
     ? {
         picked: autoPicked,
         onPick: (on) => pickAutoRef.current(on),
         look: AUTO_LOOK,
         ...(autoCloud ? { cloud: true } : {}),
+        ...(autoStarted ? { started: true } : {}),
       }
     : undefined;
   /// Where Auto put this page's chat, said on the arrival line (AutoArrival): `deciding` while the
@@ -4395,7 +4411,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       ...(autoRow ? { auto: autoRow } : {}),
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the row's pick reads the latest handler (pickAutoRef)
-    [sandboxModeRows.mode, sandboxModeRows.environment, sandboxOffered, autoRow !== undefined, autoPicked],
+    [sandboxModeRows.mode, sandboxModeRows.environment, sandboxOffered, autoRow !== undefined, autoPicked, autoStarted],
   );
   /// A Sandboxed send: text only, by an agent a sandbox runs. A page-side refusal comes back as its
   /// code (the prompt stays where it was typed); false: nothing was sent.

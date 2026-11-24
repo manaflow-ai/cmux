@@ -432,8 +432,13 @@ export function EnvironmentPicker({
         run: () => undefined,
       }
     : undefined;
-  // Move to…'s list: where it is now, each target, then nothing else (Escape closes it, as Machines…).
-  const moveRows = [...(here ? [here.value] : []), ...targetActions.map((action) => action.value)];
+  // Move to…'s list: where it is now, Auto (a started chat's place mode, AutoCloud), each target, then
+  // nothing else (Escape closes it, as Machines…).
+  const moveRows = [
+    ...(here ? [here.value] : []),
+    ...(auto?.started ? [AUTO_RUN] : []),
+    ...targetActions.map((action) => action.value),
+  ];
   // Cloud: where a chat runs off this Mac. A new chat with `runMode` picks it as where the chat runs
   // (cloudRun.ts: the app picks and sizes a machine, CLOUD_RUN); elsewhere it shows where the chat runs
   // and a pick makes nothing (cmux#47677: it once ran New Cloud Machine, a new workspace on a click).

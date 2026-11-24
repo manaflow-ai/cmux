@@ -493,8 +493,6 @@ type Props = {
   onConnect?(kind: ConnectKind): void;
   /// A started chat's Move to Cloud or Bring Back Local (see ComposerContext), as `offloads` lists them.
   onOffload?(kind: OffloadKind): void;
-  /// The place control, for a started chat (see ComposerContext).
-  placeControl?: React.ReactNode;
   offloads?: readonly OffloadKind[];
   /// Why each offered move would refuse now (see ComposerContext).
   offloadReasons?: OffloadReasons;
@@ -779,7 +777,6 @@ function ComposerFrame({
   onBrowseFolder,
   onConnect,
   onOffload,
-  placeControl,
   offloads,
   offloadReasons,
   onRefreshMachines,
@@ -2757,7 +2754,6 @@ function ComposerFrame({
       onBrowseFolder={onBrowseFolder}
       onConnect={onConnect}
       {...(onOffload ? { onOffload } : {})}
-      {...(placeControl ? { placeControl } : {})}
       {...(offloads ? { offloads } : {})}
       {...(offloadReasons ? { offloadReasons } : {})}
       summary={snapshot.summary}

@@ -25,7 +25,6 @@ export function ChatCards({
   onOpenInTerminal,
   onShowAll,
   onColdArchive,
-  onPlace,
   onEvacuate,
   evacuate,
   onCancelEvacuate,
@@ -47,9 +46,6 @@ export function ChatCards({
   /// The card menu's Compress Chat and Decompress Chat (acpmux `_acpmux/cold_archive`): an acpmux chat's
   /// log goes into its cold archive, or comes back. Omitted where the page cannot ask acpmux.
   onColdArchive?(sessionId: string, archived: boolean): void;
-  /// The card menu's Run in Cloud, Set to Auto and Bring Back Local: the chat's place (the app decides
-  /// what a pick does now). Omitted where the page cannot ask the app.
-  onPlace?(sessionId: string, mode: "local" | "cloud" | "auto"): void;
   /// The card menu's Evacuate This Chat to Cloud (`sessions`), and the list's Evacuate All Chats to Cloud
   /// (none): the chats move off this Mac. Omitted where the page cannot ask the app.
   onEvacuate?(sessions?: readonly string[]): void;
@@ -189,27 +185,12 @@ export function ChatCards({
                       },
                     ]
                   : []),
-                ...(onPlace && !card.chatKey
-                  ? [
-                      {
-                        id: "place-cloud",
-                        label: t("place.listCloud"),
-                        separatorBefore: true,
-                        onSelect: () => onPlace(card.sessionId, "cloud"),
-                      },
-                      { id: "place-auto", label: t("place.listAuto"), onSelect: () => onPlace(card.sessionId, "auto") },
-                      {
-                        id: "place-local",
-                        label: t("place.listLocal"),
-                        onSelect: () => onPlace(card.sessionId, "local"),
-                      },
-                    ]
-                  : []),
                 ...(onEvacuate && !card.chatKey
                   ? [
                       {
                         id: "evacuate-chat",
                         label: t("place.evacuateChat"),
+                        separatorBefore: true,
                         onSelect: () => onEvacuate([card.sessionId]),
                       },
                       { id: "evacuate-all", label: t("place.evacuateAll"), onSelect: () => onEvacuate() },
