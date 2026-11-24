@@ -165,7 +165,6 @@
     "pages/markdown/linkOverlays.tsx#LinkBubbleView",
     "pages/markdown/linkOverlays.tsx#LinkEditView",
     "pages/markdown/linkOverlays.tsx#LinkOverlayHost",
-    "pages/mobile-pairing/MobilePairingPage.tsx#MobilePairingPage",
     "pages/onboarding/parts.tsx#HostIcon",
     "pages/onboarding/parts.tsx#OnboardingContext",
     "pages/server-cards/ServerCardsPage.tsx#ServerCardsPage",
@@ -215,7 +214,6 @@
   "pages": [
     "cmux.certificate",
     "cmux.cookie-import",
-    "cmux.mobile-pairing",
     "cmux.server-cards",
     "cmux.setup-card",
     "cmux.site-data",
