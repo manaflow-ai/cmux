@@ -1598,8 +1598,21 @@ fn managed_by_acpmux_unit() -> bool {
 /// exits (the app quit and its daemon went idle), so launchd keeps it served with no app
 /// (cmuxterm-hq docs/design/remote-screen-share-zero-touch.md Z1). It never asks the holder to
 /// hand over: the app's own daemon keeps serving while the app runs.
+///
+/// The per-home job a command starts (`login_placement::job_label`,
+/// `com.cmux.acpmux.daemon.<hash>`) waits the same way, in any launchd domain: on a fleet Mac
+/// that job runs as a `KeepAlive` LaunchDaemon, and after each hourly update the replaced
+/// daemon's swap handed the home to a detached `--take-over` start (`exe_swap.rs` has no restart
+/// command for that label), so launchd's start exited 75 every 10 s (2,799 runs) and the job read
+/// "loaded but not running" while the home was served outside it (cmuxterm-hq #22842).
 fn launchd_job(xpc_service_name: Option<&str>) -> bool {
-    cfg!(target_os = "macos") && xpc_service_name == Some(crate::cli::daemon_service::LAUNCHD_LABEL)
+    cfg!(target_os = "macos")
+        && xpc_service_name.is_some_and(|label| {
+            label == crate::cli::daemon_service::LAUNCHD_LABEL
+                || label
+                    .strip_prefix(login_placement::LABEL_PREFIX)
+                    .is_some_and(|hash| !hash.is_empty())
+        })
 }
 
 /// Take this home's lock. The unit's daemon (`--take-over`, or a daemon in the
@@ -1973,6 +1986,16 @@ mod launchd_job_tests {
         assert!(!super::launchd_job(Some("com.cmuxterm.app.nightly.keepalive")));
         assert!(!super::launchd_job(Some("application.com.cmuxterm.app.nightly.1.2")));
         assert!(!super::launchd_job(None));
+    }
+
+    /// The per-home job a command starts waits too, so a `KeepAlive` copy of it never loops on
+    /// exit 75 while a take-over start serves the home (cmuxterm-hq #22842).
+    #[test]
+    fn the_per_home_job_waits_for_the_home() {
+        let mac = cfg!(target_os = "macos");
+        assert_eq!(super::launchd_job(Some("com.cmux.acpmux.daemon.077f602dcb3c3936")), mac);
+        assert!(!super::launchd_job(Some("com.cmux.acpmux.daemon.")));
+        assert!(!super::launchd_job(Some("com.cmux.acpmux.daemonx")));
     }
 }
 
