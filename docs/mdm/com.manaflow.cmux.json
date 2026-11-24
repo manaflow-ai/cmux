@@ -5585,7 +5585,7 @@
       "type" : "string"
     },
     "sidebar.groupHeader.background" : {
-      "default" : "folder",
+      "default" : "auto",
       "description" : "How a group draws. Folders shows plain folders; Sections shows plain headings.",
       "enum" : [
         "folder",

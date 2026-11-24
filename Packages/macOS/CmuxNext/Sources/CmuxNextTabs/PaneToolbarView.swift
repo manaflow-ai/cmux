@@ -395,7 +395,7 @@ public final class PaneToolbarView: NSView {
         let count = max(shownCount, reservedCount)
         guard count > 0 else { return NSSize(width: 0, height: NSView.noIntrinsicMetric) }
         let buttonWidth = allButtons.reduce(CGFloat.zero) { $0 + $1.preferredWidth }
-        let reservedWidth = CGFloat(max(0, count - allButtons.count)) * TitlebarBandButton.side // the zoom button, pins another tab shows
+        let reservedWidth = CGFloat(max(0, count - allButtons.count)) * Metrics.tabBarControlSide // the zoom button, pins another tab shows
         let gaps = CGFloat(max(count - 1, 0)) * Metrics.space1 / 2
         return NSSize(width: buttonWidth + reservedWidth + gaps + Self.trailingGap, height: NSView.noIntrinsicMetric)
     }
@@ -411,7 +411,7 @@ public final class PaneToolbarView: NSView {
         let allButtons = buttons + nativeButtons
         let buttonWidth = allButtons.reduce(CGFloat.zero) { $0 + $1.preferredWidth }
         let gaps = CGFloat(max(shownCount - 1, 0)) * Metrics.space1 / 2
-        return buttonWidth + (zoomed ? 1 : 0) * TitlebarBandButton.side + gaps + Self.trailingGap
+        return buttonWidth + (zoomed ? 1 : 0) * Metrics.tabBarControlSide + gaps + Self.trailingGap
     }
 
     /// The bar's width in a pane `width` wide, which gives it at most half: `sharing`, beside a chat's tools in the row
@@ -432,7 +432,7 @@ public final class PaneToolbarView: NSView {
     public func stripSlot(_ tools: CGFloat, in width: CGFloat, of model: TabStripModel, recording: Bool, sharer: PaneTabRowSharing?) -> CGFloat {
         if recording, let selected = model.selectedID {
             trailingSlots.record(.init(intrinsic: intrinsicContentSize.width, shared: sharer == nil ? nil : tabRowWidth,
-                                       tools: sharer?.tabRowToolsNeed, taken: sharer?.tabRowToolsWidth), for: selected, live: model.tabs)
+                                       tools: sharer?.tabRowToolsNeed), for: selected, live: model.tabs)
         }
         return max(tools, trailingSlots.reserve(in: width, besides: model.selectedID))
     }
@@ -445,7 +445,7 @@ public final class PaneToolbarView: NSView {
     public func tabRowWidth(fitting limit: CGFloat) -> CGFloat {
         let full = tabRowWidth
         guard full > limit else { return full }
-        let side = TitlebarBandButton.side, gap = Metrics.space1 / 2
+        let side = Metrics.tabBarControlSide, gap = Metrics.space1 / 2
         let allButtons = buttons + nativeButtons
         // The same walk as layout(), at the capped width: a button shows only in a whole slot; creation buttons fold
         // together once the bar is capped (`alwaysVisible`, the cap being why we are here).
@@ -465,7 +465,7 @@ public final class PaneToolbarView: NSView {
 
     override public func layout() {
         super.layout()
-        let side = TitlebarBandButton.side, gap = Metrics.space1 / 2
+        let side = Metrics.tabBarControlSide, gap = Metrics.space1 / 2
         // Fixed slots from the trailing end: Exit Zoom in the last while the pane is zoomed, the buttons before it in
         // order, so fewer pins leave room only at the leading end.
         let y = buttonTop
@@ -536,7 +536,7 @@ public final class PaneToolbarView: NSView {
 
     /// The Exit Zoom button's slot: the trailing one, on the row, at a tab bar button's size.
     func zoomFrame(trailing: CGFloat) -> NSRect {
-        let side = TitlebarBandButton.side
+        let side = Metrics.tabBarControlSide
         return NSRect(x: max(0, trailing - side), y: buttonTop, width: side, height: side)
     }
 
@@ -547,19 +547,19 @@ public final class PaneToolbarView: NSView {
 
     /// The last button's gap to the trailing edge: its center on the pane's trailing control column,
     /// above the browser toolbar's ⋮ (`Metrics.paneTrailingControlCenter`, Lawrence msg 19627).
-    static var trailingGap: CGFloat { max(0, Metrics.paneTrailingControlCenter - TitlebarBandButton.side / 2) }
+    static var trailingGap: CGFloat { max(0, Metrics.paneTrailingControlCenter - Metrics.tabBarControlSide / 2) }
 
     /// The buttons' gap above them in a bar `height` tall, which is also the trailing button's gap to
     /// the trailing edge, so it rests evenly in the pane's corner as the first tab does.
     static func edgeInset(height: CGFloat) -> CGFloat {
-        max(0, ((height - TitlebarBandButton.side) / 2).rounded())
+        max(0, ((height - Metrics.tabBarControlSide) / 2).rounded())
     }
 
     /// The buttons' top: ``edgeInset(height:)``, or in a minimal window's top row the top that centers them on the
     /// row's shared line with the tabs, the traffic lights and the sidebar's + (`TopRowLine`, Leo 2026-11-07).
     /// Measured where the pane will rest (the strip's ``TabStripView/restingDrop``), as the tabs are.
     var buttonTop: CGFloat {
-        let side = TitlebarBandButton.side
+        let side = Metrics.tabBarControlSide
         guard TopRowLineLook.tunable.value != .off, let window, let content = window.contentView else { return Self.edgeInset(height: bounds.height) }
         let resting = convert(bounds, to: nil).offsetBy(dx: 0, dy: -(strip?.restingDrop ?? 0))
         guard WindowTitlebar.isInTopRow(resting, in: window), let line = WindowTitlebar.topRowLine(in: window) else { return Self.edgeInset(height: bounds.height) }
