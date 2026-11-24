@@ -1348,7 +1348,12 @@ function TranscriptView({
       const view = thread.current?.ownerDocument.defaultView;
       if (!thread.current || typeof view?.getComputedStyle !== "function") return chase.outstanding();
       const translate = view.getComputedStyle(thread.current).translate;
-      return translate && translate !== "none" ? Number.parseFloat(translate.split(" ")[1] ?? "") || 0 : 0;
+      if (!translate || translate === "none") return 0;
+      // A one-component translate ("10px") moves x only: its y is 0.
+      const parts = translate.trim().split(/\s+/);
+      if (parts.length < 2) return 0;
+      const y = Number.parseFloat(parts[1]!);
+      return Number.isFinite(y) ? y : 0;
     };
     const rowTop = (id: string, drawn: number) => {
       const name = typeof CSS === "undefined" ? id.replace(/["\\]/g, "\\$&") : CSS.escape(id);
@@ -5074,6 +5079,8 @@ function TranscriptView({
       pinLive ? LIVE_THINKING : undefined,
       carry,
       placedRows,
+      // The scroller's box: a row that moves out of the view is drawn at its place, unseen.
+      () => ref.current?.getBoundingClientRect(),
     );
     refreshPinned(thread.current);
     finishCarry(thread.current, carry, (px) => {
