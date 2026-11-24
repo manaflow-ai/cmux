@@ -1205,12 +1205,13 @@ class Writer:
         self.gh, self.dry_run = gh, dry_run
         self.log: list[str] = []
 
-    def call(self, method: str, path: str, body: Mapping) -> dict:
+    def call(self, method: str, path: str, body: Mapping | None) -> dict:
+        # pr_status plans payload-less DELETEs (cleanup of folded comments): carry them through.
         if self.dry_run or self.gh is None:
-            text = body.get("body") or json.dumps(body)
+            text = (body.get("body") or json.dumps(body)) if body is not None else ""
             self.log.append(f"--- would {method} {path}\n{text}")
             return {"number": 0, "html_url": f"(dry run: {path})"}
-        return self.gh.request(method, path, dict(body))  # type: ignore[return-value]
+        return self.gh.request(method, path, dict(body) if body is not None else None)  # type: ignore[return-value]
 
 
 def upsert_comment(writer: Writer, repo: str, number: int, marker: str, body: str,
