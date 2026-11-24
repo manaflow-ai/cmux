@@ -379,6 +379,7 @@
         "focusRing.showWhenSinglePane",
         "appearance.statusIndicator.style",
         "appearance.statusIndicator.animation",
+        "appearance.statusIndicator.iconSet",
         "appearance.statusIndicator.size",
         "appearance.statusIndicator.thickness",
         "appearance.statusIndicator.color",
@@ -390,6 +391,7 @@
         "terminal.fontFamily",
         "terminal.fontSize",
         "terminal.term",
+        "terminal.predictiveLocalEcho",
         "sidebar.sectionLook",
         "sidebar.sections.hidden",
         "sidebar.sections.order",
@@ -520,8 +522,10 @@
       "why": "Experiments are taste prototypes of how a surface looks (looks only), each off by default.",
       "keys": [
         "experiments.glassToolbarGroups",
+        "experiments.composerButtonsVisible",
         "experiments.composerV2",
         "experiments.hoverLook",
+        "experiments.seeThroughDock",
         "experiments.attachmentTypeIcons",
         "experiments.agentBadges",
         "experiments.agentBadgesBeam",
@@ -727,6 +731,7 @@
         "sidebar.workspaceRow.log",
         "sidebar.workspaceRow.notification",
         "sidebar.workspaceRow.secondLineOrder",
+        "sidebar.workspaceRow.statusPlacement",
         "sidebar.workspaceRow.lines",
         "sidebar.workspaceRow.linesByKind",
         "sidebar.workspaceRow.linesByAgent",
@@ -1591,6 +1596,13 @@
     },
     {
       "agent": "userOnly",
+      "why": "Whether acpmux edits Claude Code's own config to add its inbox relay: a person's agent config changes only when the person says so, and an agent must not decide which of its messages Claude Code runs.",
+      "keys": [
+        "agents.claudeCodeInboxRelay"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "Computer Use: what agents may do with the person's apps. An agent must never widen (or even change) its own access, so every computerUse.* key is the person's alone.",
       "keys": [
         "computerUse.mode",
@@ -1626,6 +1638,13 @@
       "keys": [
         "sessions.keepAwake",
         "sessions.keepAwakeForCommands"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Whether a locked Mac stays up on battery for agents is the person's call too.",
+      "keys": [
+        "sessions.keepAwakeWhenLocked"
       ]
     },
     {
@@ -1728,6 +1747,13 @@
       "why": "Which computers cmux dials over ssh and checks from the sidebar: the person declares a host, so an agent cannot point cmux at an address of its choosing.",
       "keys": [
         "machines.hosts"
+      ]
+    },
+    {
+      "agent": "network",
+      "why": "Whether remote connections may use a Tailscale carrier changes network egress, so only the person enables it.",
+      "keys": [
+        "transport.tailnetCarrier"
       ]
     },
     {

@@ -471,6 +471,17 @@ is forwarded, and the service never answers it.
   after its ping was counted lost does not take it back). `switches`: path
   changes since the link came up. `net`: `cellular` or `other` (the app's last
   `set_cellular_path`). `upS`: seconds up. `lib`: the link library version.
+- `echo`, `ack`, `spikeCount`, `spikes` (added 2026-11-24; absent when no key
+  was typed): the keystroke round trips since the last stat, from the key's tap
+  (`cmux-mobile-link/src/key_echo.rs`). `echo` (n, p50, p95, p99, max): tap to
+  the first terminal output after it. `ack`: tap to the Mac's reply to its
+  `send` on the input lane. With `rtt` (a datagram, outside both streams) they
+  name the slow hop: `rtt` slow too is the network; `ack` slow with `rtt` fast
+  is the input stream or the Mac daemon; `echo` slow with `ack` fast is the
+  Mac's echo or the attach stream queued behind other output. `spikeCount`:
+  keys whose echo took over 150 ms; `spikes`: the six slowest, each
+  `[upS at the key, ack ms or -1 when the reply had not come, echo ms]`, so a
+  periodic stall shows its period.
 - Bounded: every stat is under 768 bytes; ms values are clamped to 600000.
   It names no user, device, session or address.
 
@@ -480,7 +491,8 @@ error fails every dial in flight) a frame over 2048 bytes, a malformed one, or
 one within 5 s of the socket's last (an `end` stat excepted). It writes one
 Workers Logs line, `{"event":"link_stat",...}`: the frame's fields checked
 against fixed words or clamped (`rtt` flattened to `rttN`, `rttP50`, `rttP95`,
-`rttMax`), plus `kind`, `ingressColo`, `country` and `continent` (where the
+`rttMax`; `echo` and `ack` the same with `P99`; `spikes` at most six clamped
+triples), plus `kind`, `ingressColo`, `country` and `continent` (where the
 socket's upgrade entered Cloudflare, `req.cf`) and `hubColo` (where the user's
 hub runs). No user or device id is logged. `scripts/cmux-next/link-stats.py`
 reads them back.
@@ -536,7 +548,14 @@ relay was retired: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux-next/
   heard nothing for 16 s in the foreground, when its relay socket dies while
   the session needs it, or when the peer asks (`wg-relay`). A side that
   joins on its own asks the peer; one that heard the peer while its join
-  ran drops the unused socket. A failed join is retried after 1, 3, 10 and
+  ran drops the unused socket (an asked one too, once another route is
+  confirmed both ways, and an ask that arrives then is ignored). A dead
+  socket is joined again at once only while nothing else reaches the peer,
+  and only a side that left the relay on its own (another route carried the
+  session) keeps it after joining again within 5 minutes. On joining, the phone sends its handshake
+  through the relay at once and the Mac 300 to 900 ms later (at random, and
+  only if nothing arrived meanwhile): two initiations that cross in step each
+  overwrite the other side's pending one. A failed join is retried after 1, 3, 10 and
   30 s; `403`, `404` and `503` are not.
 - **On the tunnel:** the relay is one more carrier, a path of the path
   selector like each TURN route, ranked below every direct path and, by
@@ -605,6 +624,71 @@ retries on its own; it never shows "connecting" without a bound for it
 (`scripts/cmux-next/check-connection-notices.py`). What IT must allow:
 [network requirements](../web/data/next-docs/pages.ts) (cmux.com
 `/docs/nightly/next/network-requirements`).
+
+## Three-way hub (RFD 0142 R6, added 2026-11-24, backward compatible)
+
+One room per agent session where both sources of the session's events, the
+Mac and the AutoCloud VM, upload, and every viewer (the phone, another Mac)
+downloads each event once: whichever source is ahead carries the stream, and
+the other is a warm standby. When the Mac sleeps mid-turn, the VM's copies
+are already the newest and keep flowing with no reconnect.
+
+- **Join:** `GET /v1/hub/:sessionId?deviceId=<id>&role=mac|vm|viewer`, a
+  plain HTTP/1.1 `Upgrade: websocket` with the Stack token, as for the
+  relay. The Worker admits only a device registered to the caller (its own
+  hub, then the database; anyone else gets `403 not_owner`) and a source
+  role only from a Mac-kind device (the VM's daemon registers as one; a
+  phone gets `403 not_a_source`). `400` for a session id or device id that
+  is not a UUID or an unknown role, `503 hub_off` when the Worker's
+  `HUB_RELAY_MODE` is `off`. An older Worker answers `404`.
+- **Capability:** a hub client offers the `cmux-hub.v1` subprotocol and the
+  hub echoes it. A client falls back to its other paths (one link per Mac,
+  the WebSocket relay) on `404`/`405` (no route), `503` (off), any other
+  refusal, a `101` without the subprotocol, or the error `bad_frame:kind`,
+  which is what the two-party `LinkRelay`, and so every pre-hub relay,
+  answers a kind-5 frame with (`cmux_transport::hub::hub_join_outcome`,
+  `relay_error_means_no_hub`). Old clients never ask for the hub, and the
+  relay they use is unchanged.
+- **Where:** one `HubRelay` Durable Object (wrangler migration `v4`) per
+  session, named by the owner key, build space and session id
+  (`hubRoomName`), never a client value. Hibernating sockets, no storage
+  write per frame. One socket per source role and per viewer device (a
+  newer join closes the older with 4000 `replaced`). On join the socket
+  gets `{"type":"joined","hub":1,"sources":{"mac":bool,"vm":bool}}`; every
+  socket hears `{"type":"source","role","online"}` when a source comes or
+  goes (not when a newer socket of the same role replaced it).
+- **Frames:** relay frame kind `5` (`hub`; kind `4` is the
+  `LinkRelay`'s tagged datagrams, cmux#54189), golden vectors in
+  `cmux-tui/crates/cmux-transport/tests/vectors/relay-hub-frames.json`,
+  checked by the Rust crate and the backend tests. The payload is a 35-byte
+  clear header and a sealed body:
+  `[u8 1][16-byte session][u64 BE epoch][u64 BE seq][u8 source: 1 mac, 2 vm][u8 to: 0 viewers, 1 mac, 2 vm]`.
+  The header is all the relay reads; a bad one is `bad_frame:bad_hub`.
+- **Seal (end to end, source to viewer):** XChaCha20-Poly1305 under
+  `BLAKE3 derive_key("cmux relay hub v1 session key", secret || session)`,
+  nonce `[source][to][epoch BE][seq BE][6 zero bytes]`, associated data the
+  clear header, plaintext `[session][epoch BE][seq BE][source][event]`. The
+  relay holds no key that decrypts or authenticates session content; an
+  edit to any header byte, or a header moved onto another body, fails to
+  open (`cmux_transport::hub::{seal, open}`).
+- **Relay rule** (`cmux_transport::hub::HubRelayRule`, the same in
+  `src/hub-relay.ts`): a frame `to` viewers whose `(epoch, seq)` is newer
+  than the highest the room forwarded goes to every viewer once, with
+  `peer` set to the sender's device; an older or equal one is dropped and
+  counted. A frame `to` a source (Mac-to-VM sync when the two have no direct
+  path) goes to that source as is, or the sender hears
+  `{"type":"source","role","online":false}`. A viewer may not send
+  (`bad_hub:viewer`); a source speaks only as its own role
+  (`bad_hub:role`) and for the room's session (`bad_hub:session`); other
+  kinds are `bad_frame:kind`. The high-water mark lives in memory: a wake
+  forgets it, which lets at most one more copy through. `{"type":"stats"}`
+  answers `{"type":"stats","forwarded","dropped"}`.
+- **Viewer** (`cmux_transport::hub_truth::TruthTracker`, sans-io): checks
+  that the clear header equals the sealed triple, delivers events in log
+  order with no duplicates, reports a hole inside an epoch as a `Gap` to
+  fill from the source with the higher head, and flags a `StalePick` when
+  the relay's copy trails the other source's known head by more than the
+  tolerance (4).
 
 ## Link (inside either transport)
 
@@ -1296,6 +1380,11 @@ cmux-tui daemon's names hostd itself declares or checks. Printed from
 | `page-tabs-v1` | cmux-tui daemon | Declared in `set-client-info`: page tabs read as `conversation` with their `page` (a phone tab is a simulator tab). |
 | `agent-session-tabs-v1` | cmux-tui daemon | Declared in `set-client-info` on a `cloud-acpmux` carrier: agent session tabs read with their session source. |
 | `send-expect-agent-v1` | cmux-tui daemon | In `identify`: a notification reply to an agent types text and Return only while that agent waits at its prompt (#24205). |
+| `agent-cli-hybrid-v1` | cmux-tui daemon | Declared by the phone's terminal in `set-client-info` (the lean stream): an agent CLI's terminal as `agent-cli-frame` cell deltas. |
+| `agent-cli-hybrid-v2` | cmux-tui daemon | With `agent-cli-hybrid-v1`: the same deltas packed as `agent-cli-lean`. |
+| `terminal-shell-lines-v1` | cmux-tui daemon | With the hybrid pair: a plain shell's terminal as lean frames too, PTY bytes while it runs a full-screen program. |
+| `attach-output-coalesce-v1` | cmux-tui daemon | `output` at most once per display frame for a terminal that stays on PTY bytes (#43373). |
+| `terminal-full-screen-frames-v1` | cmux-tui daemon | With `terminal-shell-lines-v1`: a full-screen program as lean frames as well (its modes as bytes), one display frame apart, instead of its PTY repaints (#51565). |
 <!-- link-names:capabilities:end -->
 
 ## Pairing (`auth` service and the Mac app's control lines)
