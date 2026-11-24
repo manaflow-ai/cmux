@@ -45,6 +45,9 @@ python3 -m venv --system-site-packages "$CI_TOOLS"
 # cache, which a persistent runner keeps, so its next job downloads nothing).
 [tools]
 # The version every workflow that moved here pinned for oven-sh/setup-bun; only that exact version passes.
+# Steps run at once and every `bun install` shares bun's one global cache: two at a time failed copying from it
+# (ENOENT, #53426's first run). Each step's install holds "$CI_TOOLS/bun-install.lock" (flock), so the later ones find
+# the cache filled and finish fast; tests/test_ci_step_table.py says every install does.
 bun = 'scripts/ci/ensure-bun.sh 1.4.4 "$CI_TOOLS/bin"'
 # The `24.22.1` the repository's other workflows pin for setup-node (the moved one asked for `24`).
 node = '''
@@ -93,6 +96,20 @@ mkdir -p "$CI_TOOLS/bin"
 for tool in rustup cargo rustc rustdoc rustfmt cargo-fmt cargo-clippy clippy-driver; do
   ln -sf "$cargo_bin/$tool" "$CI_TOOLS/bin/$tool"
 done
+'''
+
+# The Zig that builds libghostty-vt from the ghostty-next gitlink (scripts/install-zig-ci.sh: the reviewed, checksummed
+# version the submodule asks for). A host zig of that version is used as is; any other is installed into $CI_TOOLS.
+zig = '''
+bash scripts/ci/init-submodule.sh ghostty-next
+export GITHUB_PATH="$CI_TOOLS/zig-path" GITHUB_ENV="$CI_TOOLS/zig-env"
+: > "$GITHUB_PATH"
+: > "$GITHUB_ENV"
+GHOSTTY_ZIG_SOURCE=ghostty-next ZIG_SYSTEM_PREFIX="$CI_TOOLS/zig-prefix" RUNNER_TEMP="$CI_TOOLS" ./scripts/install-zig-ci.sh
+mkdir -p "$CI_TOOLS/bin"
+zig_bin="$(sed -n 's/^CMUX_ZIG=//p' "$CI_TOOLS/zig-env" | tail -n 1)"
+[ -x "$zig_bin" ] || { echo "no zig was installed"; exit 1; }
+ln -sf "$zig_bin" "$CI_TOOLS/bin/zig"
 '''
 
 # Python contract tests that each had a workflow, a runner and a checkout of their own
@@ -212,9 +229,11 @@ about = "cache restore receipts classify a restore, and their test is determinis
 inputs = [
   ".github/actions/cache-restore/action.yml",
   ".github/actions/cache-save/action.yml",
-  ".github/workflows/ci.yml",
-  ".github/workflows/ci-macos.yml",
-  ".github/workflows/nightly.yml",
+  # The read-only guard reads every workflow (who holds the R2 cache-writer credentials), so a PR to any
+  # one runs it: platform-billing-test-secrets.yml (#53839) and cmux-tui-artifacts.yml (#54343) broke
+  # base on 2026-11-24 because only these three named files reached it.
+  ".github/workflows/**",
+  "tests/workflow_jobs.py",
   "scripts/ci/cache_restore_receipt.py",
   "scripts/check-test-determinism.py",
   "tests/test_ci_cache_restore_receipt.py",
@@ -377,7 +396,7 @@ needs = ["bun"]
 inputs = ["mux/**"]
 run = '''
 cd mux
-bun install --frozen-lockfile
+flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile
 bun test
 '''
 
@@ -413,7 +432,7 @@ inputs = [
 ]
 run = '''
 cd web
-bun install --frozen-lockfile
+flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile
 bun test tests/vm-image-cmux-vm-lock.test.ts tests/vm-image-cmux-vm-sshd.test.ts tests/vm-image-cmux-vm-bake-workflow.test.ts tests/vm-image-cmux-vm-dev-tree.test.ts tests/vm-image-cmux-vm-dns.test.ts tests/vm-image-cmux-vm-machine-health.test.ts tests/vm-image-cmux-vm-promote-workflow.test.ts tests/vm-image-cmux-vm-github-auth.test.ts
 '''
 
@@ -462,6 +481,9 @@ python3 tests/test_ci_parallel_artifact_transport.py
 [step.ci-artifact-worker]
 job = "linux"
 timeout = 360
+# broker.test.mjs times its deadlines in wall-clock milliseconds: beside the other linux steps "concurrent cold misses
+# time out together" failed on #53426 three runs out of three (534 ms, 2330 ms); coderouter is alone for the same test.
+alone = true
 title = "CI artifact Worker"
 about = "the artifact Worker (workers/ci-artifacts) typechecks and passes its tests against local R2 and Durable Objects; its dependencies install without scripts"
 needs = ["node"]
@@ -498,7 +520,7 @@ inputs = [
 ]
 run = '''
 cd workers/cmux-vm/sdk
-bun install --frozen-lockfile
+flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile
 status=0
 bun run generate
 if [[ -n "$(git status --porcelain -- .)" ]]; then
@@ -621,7 +643,7 @@ if head="$(git rev-parse -q --verify 'HEAD^2')"; then
   export FIXIT_COMPILE_HEAD_SHA="$head"
 fi
 cd web
-bun install --frozen-lockfile
+flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile
 status=0
 bun tools/generate-managed-iroh-relay-catalog.ts --check || status=1
 log="$(mktemp "$RUNNER_TEMP/web-typecheck.XXXXXX.log")"
@@ -760,8 +782,6 @@ about = "coderouter is rustfmt- and clippy-clean and passes its tests on Rust 1.
 needs = ["rust", "node"]
 inputs = [
   "coderouter/**",
-  ".github/workflows/coderouter-publish-npm.yml",
-  ".github/workflows/coderouter-publish-pypi.yml",
   ".github/workflows/coderouter-release.yml",
   ".github/workflows/coderouter-verify-release.yml",
 ]
@@ -800,6 +820,35 @@ python3 scripts/ci/pr_design_spec_check.py --body-file "$RUNNER_TEMP/design-body
   --paths-file "$RUNNER_TEMP/paths.txt" --tree-file "$RUNNER_TEMP/tree.txt" \
   --map .github/design-surfaces.json --pr-map "$RUNNER_TEMP/design-surfaces.json" \
   || echo "::warning title=Design spec::the design spec check could not run (exit $?); see this job's log"
+'''
+
+# Capture: a pull request that changes native app UI shows a real capture of it in its description (what
+# `cmux-ci capture` prints, the media-tour label, or a `No capture: <why>` line). It was the one description lint
+# that could turn its job red (exit 2 on bad input); as a step of the `advisory` job it warns, like the rest
+# ("Advisory checks never block", CI v2). Leo, 2026-10-31: "WE DONT NEED F***ING SCREENSHOTS JUST LET ME TRY
+# THE STUFF OUT". A media-tour label event re-runs it. When git could not list the paths it reads the files API.
+[step.capture]
+job = "advisory"
+blocks = false
+class = "idle"
+timeout = 180
+title = "Capture"
+about = "a pull request that changes native app UI shows a real capture in its description, or a No capture line"
+labels = ["media-tour", "media-tour-mac"]
+run = '''
+if [ ! -f scripts/ci/pr_capture_check.py ]; then
+  # The pull request that adds the check: its base has no check to run yet.
+  echo "::notice::The base branch has no scripts/ci/pr_capture_check.py yet; nothing to check."
+  exit 0
+fi
+printf '%s' "$BODY" > "$RUNNER_TEMP/capture-body.md"
+paths="$RUNNER_TEMP/capture-paths.txt"
+if [ "${CAPTURE_LISTED:-}" != true ]; then
+  paths="$RUNNER_TEMP/capture-api-paths.txt"
+  gh api --paginate "repos/$REPOSITORY/pulls/$PR/files?per_page=100" --jq '.[].filename' > "$paths"
+fi
+python3 scripts/ci/pr_capture_check.py --body-file "$RUNNER_TEMP/capture-body.md" --paths-file "$paths" \
+  --labels "$LABELS" --head-sha "$HEAD_SHA" --pr "$PR"
 '''
 
 # A missing table is an ::error annotation on the run and never a red check. A perf label event re-runs
@@ -1080,4 +1129,191 @@ Review [\`${HEAD_SHA:0:7}\`]($repo_url/commit/$HEAD_SHA): [HQ feed card](${feed_
 EOF
 python3 scripts/ci/pr_status.py set --repo "$REPOSITORY" --pr "$PR" --section review \
   --body-file "$RUNNER_TEMP/review-link.md" --legacy "<!-- cmux-gallery-link -->"
+'''
+
+# The `web-browser` job: browser suites that each had a ci-web.yml job, a runner and a checkout of their own on a
+# feat-cmux-next pull request (web-instant-navigation, agent-pane-real-acpmux). ci-web.yml keeps them for a push,
+# a dispatch, the post-merge batch and a pull request into another base. `inputs` cover web_subareas.py's subarea
+# (a superset: its react inputs are derived from the bundle key's imports), and the step's first line asks
+# web_subareas.py itself (`has`, over $CI_PATHS_FILE), so a path the globs over-route skips in a second.
+[step.web-instant-navigation]
+job = "web-browser"
+timeout = 600
+title = "Instant navigation"
+about = "web's instant-navigation Playwright suite against system Chrome (web/e2e/instant, test:instant)"
+needs = ["bun", "node"]
+inputs = [
+  "web/bun.lock",
+  "web/next.config.ts",
+  "web/package.json",
+  "web/playwright.instant.config.ts",
+  "web/proxy.ts",
+  "web/services/coderouter/vmGuestEnv.ts",
+  "web/app/**",
+  "web/data/**",
+  "web/e2e/instant/**",
+  "web/i18n/**",
+  "web/messages/**",
+  "scripts/ci/ensure-system-chrome.sh",
+  "scripts/ci/web_subareas.py",
+  ".github/workflows/ci-web.yml",
+]
+run = '''
+python3 -I scripts/ci/web_subareas.py has instant || exit 0
+cd web
+flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile
+# Its last line names the pinned headless shell the tests launch (test/support/systemChrome.ts reads it).
+log="$(mktemp)"
+bash ../scripts/ci/ensure-system-chrome.sh | tee "$log"
+chrome="$(tail -n 1 "$log")"
+case "$chrome" in CMUX_CHROME_HEADLESS_SHELL=*) export "$chrome" ;; esac
+# web-typecheck (the linux job) type-checks web; this browser lane does not launch tsgo again.
+CMUX_INSTANT_SKIP_TYPECHECK=1 bun run test:instant
+'''
+
+[step.agent-pane-real-acpmux]
+job = "web-browser"
+timeout = 1800
+# After the other web-browser steps: its engine installs take apt's lock, and its daemon build every core.
+alone = true
+title = "Agent pane on real acpmux"
+about = "the agent pane's new-chat and picks-hold browser tests against a freshly built acpmux daemon"
+needs = ["bun", "node", "rust"]
+inputs = [
+  "webviews/**",
+  "Resources/markdown-viewer/**",
+  "config/vite-plus/**",
+  "cmux-tui/**",
+  "schemas/**",
+  "release-notes/next/highlights/*.md",
+  "web/data/**",
+  "Packages/macOS/CmuxNext/Sources/**/*.xcstrings",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/**",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/**",
+  "scripts/build-webviews-app.sh",
+  "scripts/check-webviews-bun-version.sh",
+  "scripts/check-webviews-react-compiler.mjs",
+  "scripts/webviews_bun_version.py",
+  "scripts/cmux-next/build-*-web.sh",
+  "scripts/cmux-next/build-web-bundles.sh",
+  "scripts/cmux-next/regenerate-web-bundles.sh",
+  "scripts/cmux-next/web-bundle-key.py",
+  "scripts/ci/run-webviews-tests.sh",
+  "scripts/ci/webviews_test_shards.py",
+  "scripts/ci/webviews-tests-new-reds.sh",
+  "scripts/ci/webviews_test_results.py",
+  "scripts/ci/guards_new_reds.py",
+  "scripts/ci/webviews_test_history.py",
+  "scripts/ci/ensure-system-chrome.sh",
+  "scripts/ci/playwright-apt-deps.sh*",
+  "scripts/ci/web_subareas.py",
+  "scripts/tests/test_pr_scoped_webviews_checks.py",
+  "scripts/install-git-hooks.sh",
+  "tests/test_install_git_hooks.py",
+  ".gitattributes",
+  ".github/actions/setup-cmux-tui-rust/**",
+  ".github/actions/playwright-apt-cache/**",
+  ".github/workflows/ci-web.yml",
+]
+run = '''
+python3 -I scripts/ci/web_subareas.py has agent_pane || exit 0
+root="$PWD"
+(cd webviews && flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile)
+cd cmux-tui
+# One cold build a run: incremental state only fills the disk (No space left writing dep-graph.part.bin, #53426).
+CARGO_INCREMENTAL=0 cargo build --locked -p acpmux --bin acpmux
+# CARGO_TARGET_DIR (a fleet runner's shared target) moves the binary out of cmux-tui/target.
+target_dir="$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
+export ACPMUX_BIN="$target_dir/debug/acpmux"
+cd "$root/webviews"
+./node_modules/.bin/playwright install --with-deps webkit
+log="$(mktemp)"
+bash "$root/scripts/ci/ensure-system-chrome.sh" | tee "$log"
+chrome="$(tail -n 1 "$log")"
+case "$chrome" in CMUX_CHROME_HEADLESS_SHELL=*) export "$chrome" ;; esac
+export CMUX_REAL_ACPMUX=1 CMUX_BROWSER_TESTS=1 FAST_CHECKS_OUT="${RUNNER_TEMP:-$root/.ci-tmp}/agent-pane-real-acpmux"
+status=0
+for file in test/agent-pane-new-chat-settles.test.ts test/agent-pane-picks-hold.test.ts; do
+  echo "== $file"
+  bun test "$file" || status=1
+done
+exit "$status"
+'''
+
+# cmux-next-web-lint.yml's `webviews typecheck (whole tree)` job and its hook tests, which ran on every
+# feat-cmux-next push only. Leo's ask for it: "Every push to main gets a webview type check, so a break shows up on
+# the status board within minutes." A pull request now runs it on the merge commit, so the break shows before the
+# merge. The range lint beside it (`web lint (fast)`) is cmux-next-fast-gates.yml's, which pull requests already ran.
+[step.webviews-typecheck]
+job = "linux"
+timeout = 360
+title = "Webviews typecheck (whole tree)"
+about = "the pre-push web lint hook's tests pass, webviews' locked dependencies install and the whole tree typechecks (vp check --no-fmt --no-lint)"
+needs = ["bun", "node"]
+inputs = [
+  "webviews/**",
+  "scripts/web_lint_prepush.py",
+  "tests/test_web_lint_prepush.py",
+  ".github/workflows/cmux-next-web-lint.yml",
+]
+run = '''
+rc=0
+python3 tests/test_web_lint_prepush.py || rc=1
+cd webviews
+BUN_CONFIG_HTTP_IDLE_TIMEOUT=30 BUN_CONFIG_HTTP_RETRY_COUNT=5 flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile || exit 1
+bun run typecheck || rc=1
+exit "$rc"
+'''
+
+# cmux-tui-artifacts.yml's `cmux_next_ daemon tests` job, which ran after the branch push only (its pass writes the
+# tree's daemon-tests marker, which that workflow keeps). The same cargo test, on the pull request's merge commit:
+# only the workspace members whose sources name cmux_next_, retried only on a recognized Cargo fetch failure.
+[step.cmux-next-daemon-tests]
+job = "linux"
+# 22 minutes of test compile cold, then the tests: the job's own 65-minute bound for this step.
+alone = true
+timeout = 3900
+title = "cmux_next_ daemon tests"
+about = "the cmux_next_ daemon tests of the cmux-tui workspace members that name them pass, on Linux, in a home of their own"
+needs = ["rust", "zig"]
+inputs = [
+  "cmux-tui/**",
+  "scripts/ci/cmux-next-daemon-test-packages.sh",
+  "scripts/cmux-next/cargo-locks.py",
+  "ghostty-next",
+]
+run = '''
+cd cmux-tui
+channel="$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' rust-toolchain.toml)"
+rustup toolchain install "$channel" --profile minimal --component clippy,rustfmt
+export CARGO_NET_RETRY=10 CARGO_HTTP_TIMEOUT=120 CARGO_HTTP_MULTIPLEXING=false TMPDIR=/tmp CMUX_GHOSTTY_SRC=""
+export GHOSTTY_ZIG_SOURCE=ghostty-next
+home="$(mktemp -d /tmp/acpmux-home.XXXXXX)"
+export ACPMUX_HOME="$home" ACPMUX_SOCKET=""
+log="$(mktemp /tmp/cmux-next-tests.XXXXXX.txt)"
+read -r -a members <<<"$(../scripts/ci/cmux-next-daemon-test-packages.sh)"
+echo "cmux_next_ test members: ${members[*]}"
+status=1
+for attempt in 1 2 3; do
+  cargo test "${members[@]}" --locked cmux_next_ 2>&1 | tee "$log"
+  status=${PIPESTATUS[0]}
+  if [ "$status" -ne 0 ] && python3 ../scripts/cmux-next/cargo-locks.py explain "$log"; then break; fi
+  if [ "$status" -eq 0 ]; then
+    grep -qE 'test result: ok\. [1-9][0-9]* passed' "$log" && break
+    echo "::error::cargo test ran no cmux_next_ test (the filter matched nothing)"
+    status=1
+    break
+  fi
+  if grep -qE 'test result: FAILED|error(\[E[0-9]+\])?: could not compile|^error\[E[0-9]+\]' "$log" \
+    || ! grep -qiE 'spurious network error|failed to download|unable to update registry|failed to (fetch|get|query)|could not resolve host|couldn.t resolve host|connection (reset|refused|timed out)|operation timed out|ssl (connect )?error|http2 error|early eof|download of .* failed|registry index .*(failed|error)' "$log"; then
+    echo "::error::cmux_next_ daemon tests failed with a result that is not a Cargo fetch failure; not retrying"
+    break
+  fi
+  [ "$attempt" -lt 3 ] && sleep $((attempt * 10))
+done
+# End the daemon of this home and its agents, then delete the home (a path this step made).
+acpmux="$(command -v acpmux || true)"
+[ -z "$acpmux" ] || env -u ACPMUX_SOCKET ACPMUX_HOME="$home" "$acpmux" daemon shutdown --end-agents || true
+rm -rf "$home" "$log"
+exit "$status"
 '''
