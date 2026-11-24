@@ -248,6 +248,10 @@ url = { workspace = true, optional = true }
 # The change-only, path-following inotify watch (`quiet_dirs.rs`) of the harness, settings and
 # login-env watches; `notify` asks for every open. Already in the tree through `notify`, with its features.
 inotify = { version = "0.11", default-features = false }
+# The daemon's allocator on Linux (src/main.rs, acpmux-standalone): musl's malloc, the shipped
+# static build's, never gave freed pages back, and a daemon up 12 h held 2.5 GB with a flat live
+# heap (RFD 0156). mimalloc returns them on its own.
+mimalloc = { version = "0.1", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = [
