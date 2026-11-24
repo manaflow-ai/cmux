@@ -41,6 +41,28 @@ pub enum BgCmd {
         #[arg(long)]
         all: bool,
     },
+    /// Print a task's output (the same store the MCP's `bg_output` reads), also once it ended.
+    #[command(visible_alias = "log")]
+    Output {
+        /// The task's id, from `bg list`.
+        id: String,
+        /// Only the last N lines (default: the last 1 MiB).
+        #[arg(long)]
+        tail: Option<usize>,
+    },
+}
+
+/// The last `n` lines of `text`.
+fn tail_lines(text: &str, n: usize) -> &str {
+    let body = text.strip_suffix('\n').unwrap_or(text);
+    let mut cut = body.len();
+    for _ in 0..n {
+        match body[..cut].rfind('\n') {
+            Some(i) => cut = i,
+            None => return text,
+        }
+    }
+    &text[cut + 1..]
 }
 
 fn current_session() -> Result<String> {
@@ -84,6 +106,10 @@ pub async fn run(client: &Client, cmd: BgCmd, json_out: bool) -> Result<()> {
     let session = current_session()?;
     let caller_subagent =
         crate::cli::sender::sending_as_on(client, None).await.subagent.map(|s| s.to_value());
+    let tail = match &cmd {
+        BgCmd::Output { tail, .. } => *tail,
+        _ => None,
+    };
     let (method, params) = match cmd {
         BgCmd::Start { command, argv, cwd, description, notify } => {
             if command.is_empty() {
@@ -118,6 +144,15 @@ pub async fn run(client: &Client, cmd: BgCmd, json_out: bool) -> Result<()> {
                 "callerSubagent": caller_subagent,
             }),
         ),
+        BgCmd::Output { id, .. } => (
+            method::MUX_BG_OUTPUT,
+            json!({
+                "sessionId": session,
+                "id": id,
+                "maxBytes": 1u64 << 20,
+                "callerSubagent": caller_subagent,
+            }),
+        ),
     };
     let reply = client.request(method, params).await?;
     if json_out {
@@ -135,6 +170,17 @@ pub async fn run(client: &Client, cmd: BgCmd, json_out: bool) -> Result<()> {
                 }
             }
         }
+        method::MUX_BG_OUTPUT => {
+            let text = text(&reply, "text");
+            let shown = match tail {
+                Some(n) => tail_lines(text, n),
+                None => text,
+            };
+            print!("{shown}");
+            if !shown.is_empty() && !shown.ends_with('\n') {
+                println!();
+            }
+        }
         _ => print_task(&reply),
     }
     Ok(())
@@ -142,7 +188,15 @@ pub async fn run(client: &Client, cmd: BgCmd, json_out: bool) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::shell_quote;
+    use super::{shell_quote, tail_lines};
+
+    #[test]
+    fn tail_keeps_the_last_lines() {
+        assert_eq!(tail_lines("a\nb\nc\n", 2), "b\nc\n");
+        assert_eq!(tail_lines("a\nb\nc", 1), "c");
+        assert_eq!(tail_lines("a\nb\n", 5), "a\nb\n");
+        assert_eq!(tail_lines("", 3), "");
+    }
 
     #[test]
     fn argv_mode_quotes_shell_metacharacters_and_single_quotes() {

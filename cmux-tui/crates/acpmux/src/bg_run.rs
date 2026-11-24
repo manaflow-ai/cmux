@@ -156,6 +156,60 @@ pub fn read_record(dir: &Path, id: &str) -> Option<Record> {
     serde_json::from_slice(&std::fs::read(file(dir, id, "json")).ok()?).ok()
 }
 
+/// An ended task's record as last read, with the file's mtime and length when it was.
+type CachedRecord = (std::time::SystemTime, u64, Record);
+static RECORD_CACHE: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<PathBuf, CachedRecord>>,
+> = std::sync::LazyLock::new(Default::default);
+/// Record files read from disk by [`list_records`] (tests count them).
+thread_local! { static LIST_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+/// Tests and benches: read every record each call, as before the cache.
+static LIST_CACHE_OFF: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Every record of the folder `dir`. A record of an ended task is read once: later calls reuse it
+/// while the file's mtime and length stay what they were, so a folder of thousands of ended
+/// tasks costs one stat each instead of a read and a parse. Records of running tasks are
+/// always read, as they change.
+pub fn list_records(dir: &Path) -> Vec<Record> {
+    use std::sync::atomic::Ordering::Relaxed;
+    let off = LIST_CACHE_OFF.load(Relaxed);
+    let mut seen = Vec::new();
+    let mut out = Vec::new();
+    for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        let Ok(name) = e.file_name().into_string() else { continue };
+        let Some(id) = name.strip_suffix(".json") else { continue };
+        let path = e.path();
+        let stat = (!off)
+            .then(|| e.metadata().ok().and_then(|m| Some((m.modified().ok()?, m.len()))))
+            .flatten();
+        if let Some((mtime, len)) = stat {
+            let hit = RECORD_CACHE.lock().ok().and_then(|c| {
+                c.get(&path).filter(|(m, l, _)| (*m, *l) == (mtime, len)).map(|c| c.2.clone())
+            });
+            if let Some(r) = hit {
+                seen.push(path);
+                out.push(r);
+                continue;
+            }
+        }
+        LIST_READS.with(|c| c.set(c.get() + 1));
+        let Some(r) = read_record(dir, id) else { continue };
+        if let Some((mtime, len)) = stat.filter(|_| r.ended_at.is_some())
+            && let Ok(mut c) = RECORD_CACHE.lock()
+        {
+            c.insert(path.clone(), (mtime, len, r.clone()));
+            seen.push(path);
+        }
+        out.push(r);
+    }
+    if !off && let Ok(mut c) = RECORD_CACHE.lock() {
+        // Forget this folder's records that are gone (a purge, a pruned task).
+        let seen: std::collections::HashSet<_> = seen.into_iter().collect();
+        c.retain(|p, _| p.parent() != Some(dir) || seen.contains(p));
+    }
+    out
+}
+
 /// The task's segments, oldest first, by the start in their names.
 /// The task's segment starts, oldest first; none when the folder is gone.
 fn segments(dir: &Path, id: &str) -> std::io::Result<Vec<u64>> {
@@ -709,6 +763,66 @@ pub fn main() -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn list_records_reads_each_ended_record_once() {
+        use std::sync::atomic::Ordering::Relaxed;
+        let dir = cmux_unix_socket::short_test_dir("bg-list-cache");
+        let n = 300;
+        for i in 0..n {
+            let r = Record { id: format!("t{i}"), ended_at: Some(1), ..Record::default() };
+            write_record(dir.path(), &r).unwrap();
+        }
+        write_record(dir.path(), &Record { id: "run".into(), ..Record::default() }).unwrap();
+        LIST_CACHE_OFF.store(false, Relaxed);
+        let reads = || LIST_READS.with(|c| c.get());
+        let t0 = reads();
+        assert_eq!(list_records(dir.path()).len(), n + 1);
+        assert_eq!(reads() - t0, n + 1, "first call reads all");
+        let t1 = reads();
+        assert_eq!(list_records(dir.path()).len(), n + 1);
+        assert_eq!(reads() - t1, 1, "only the running task is read again");
+        // A rewritten record is read again.
+        let r =
+            Record { id: "t0".into(), ended_at: Some(2), exit_code: Some(3), ..Record::default() };
+        write_record(dir.path(), &r).unwrap();
+        let t2 = reads();
+        let all = list_records(dir.path());
+        assert_eq!(reads() - t2, 2);
+        assert_eq!(all.iter().find(|r| r.id == "t0").unwrap().exit_code, Some(3));
+        // A removed record leaves the cache.
+        std::fs::remove_file(file(dir.path(), "t1", "json")).unwrap();
+        assert_eq!(list_records(dir.path()).len(), n);
+    }
+
+    /// `cargo test -p acpmux --release list_records_bench -- --nocapture --ignored`
+    #[test]
+    #[ignore]
+    fn list_records_bench() {
+        use std::sync::atomic::Ordering::Relaxed;
+        let dir = cmux_unix_socket::short_test_dir("bg-list-bench");
+        let n = 6000;
+        for i in 0..n {
+            let r = Record {
+                id: format!("t{i}"),
+                ended_at: Some(1),
+                command: "x".repeat(200),
+                ..Record::default()
+            };
+            write_record(dir.path(), &r).unwrap();
+        }
+        for (label, off) in [("before (no cache)", true), ("after (cache)", false)] {
+            LIST_CACHE_OFF.store(off, Relaxed);
+            list_records(dir.path());
+            let t = std::time::Instant::now();
+            let calls = 20;
+            for _ in 0..calls {
+                assert_eq!(list_records(dir.path()).len(), n);
+            }
+            println!("BENCH {label}: {n} records, {:?} per call", t.elapsed() / calls);
+        }
+        LIST_CACHE_OFF.store(false, Relaxed);
+    }
 
     #[test]
     fn workflow_spool_retains_more_than_the_normal_two_segments() {
