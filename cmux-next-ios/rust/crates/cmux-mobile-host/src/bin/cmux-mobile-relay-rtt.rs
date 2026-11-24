@@ -411,11 +411,21 @@ async fn echo(args: &Args, session: &str, phone: &str, me: &Value) -> Result<usi
     datagram.extend_from_slice(ready.to_string().as_bytes());
     let to = peer_id(phone);
     ws.send(datagram_frame(to, &datagram)).await?;
+    // The relay drops a datagram whose peer has not joined yet, and the phone may join after this `R` (it waits
+    // for the Mac's presence first): resend it every 500 ms until the phone's first `D` shows it arrived.
     let mut echoed = 0;
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {
         let left = deadline.saturating_duration_since(Instant::now());
-        let Ok(Some(Ok(message))) = tokio::time::timeout(left, ws.next()).await else { break };
+        let wait = if echoed == 0 { left.min(Duration::from_millis(500)) } else { left };
+        let message = match tokio::time::timeout(wait, ws.next()).await {
+            Ok(Some(Ok(message))) => message,
+            Err(_) if echoed == 0 && !left.is_zero() => {
+                ws.send(datagram_frame(to, &datagram)).await?;
+                continue;
+            }
+            _ => break,
+        };
         let mut done = false;
         for d in datagrams_of(&message) {
             match d.first() {
