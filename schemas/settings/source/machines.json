@@ -115,23 +115,7 @@
             "org.keepassxc.KeePassXC",
             "1password",
             "bitwarden",
-            "com.apple.systempreferences",
-            "com.apple.Terminal",
-            "com.googlecode.iterm2",
-            "com.mitchellh.ghostty",
-            "net.kovidgoyal.kitty",
-            "com.github.wez.wezterm",
-            "org.alacritty",
-            "dev.warp.*",
-            "windowsterminal.exe",
-            "cmd.exe",
-            "powershell.exe",
-            "pwsh.exe",
-            "org.gnome.Terminal",
-            "org.gnome.Ptyxis",
-            "org.kde.konsole",
-            "com.cmuxterm.app",
-            "com.cmuxterm.app.*"
+            "com.apple.systempreferences"
           ],
           "keywords": [
             "computer use",
@@ -312,7 +296,7 @@
               "note": "OpenAI's reference loop: no wait."
             }
           ],
-          "default": "adaptive",
+          "default": "openai",
           "swift_enum": {
             "name": "ComputerUseSettle"
           },
@@ -350,6 +334,32 @@
             "agent activity",
             "screenshot",
             "chat"
+          ]
+        },
+        {
+          "key": "computerUse.whileLocked",
+          "note": "Off by default. On, while the screen is locked the engine still runs app and window lists, window captures by window id and background input to a window; foreground input, display captures, launches and permission prompts stay refused with mac_locked (cmux_computer_use::locked; cmuxterm-hq docs/design/locked-screen-computer-use.md).",
+          "title": {
+            "key": "settings.computerUse.whileLocked",
+            "text": "Keep Working While Locked"
+          },
+          "help": {
+            "key": "settings.computerUse.whileLocked.help",
+            "text": "Agents keep seeing and using app windows while this Mac is locked. Anything that needs the desktop or the pointer waits for you to unlock."
+          },
+          "summary": {
+            "key": "settings.computerUse.whileLocked.summary",
+            "text": "Lets agents use app windows while the Mac is locked"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "computer use",
+            "locked",
+            "lock screen",
+            "screen lock",
+            "background",
+            "while locked"
           ]
         },
         {
@@ -500,6 +510,41 @@
       ]
     },
     {
+      "name": "hosts",
+      "section": "machines",
+      "group": {
+        "key": "settings.group.sshLinks",
+        "text": "SSH Links"
+      },
+      "note": "Hosts declared by hand (CMUX-673): a label and the ssh endpoints tried in order, with an optional icon and id. cmux-config hosts.rs owns the rule; `cmux hosts list|check` reads them.",
+      "rows": [
+        {
+          "key": "machines.hosts",
+          "note": "A list of {label, endpoints | endpoint, icon?, id?}; labels are unique ignoring case. Edited in cmux-next.json, so it stays off the Settings page.",
+          "title": {
+            "key": "settings.machines.hosts",
+            "text": "Hosts"
+          },
+          "help": {
+            "key": "settings.machines.hosts.help",
+            "text": "Computers you reach over ssh, each a label and the addresses tried in order. cmux hosts check says which ones answer."
+          },
+          "kind": "text",
+          "swift_owner": "HostsSetting",
+          "default": [],
+          "keywords": [
+            "hosts",
+            "machines",
+            "computers",
+            "ssh",
+            "remote",
+            "endpoints"
+          ],
+          "page_hidden": "a list of host objects, edited in cmux-next.json"
+        }
+      ]
+    },
+    {
       "name": "cloud",
       "section": "machines",
       "group": {
@@ -634,6 +679,32 @@
             "back",
             "machine"
           ]
+        },
+        {
+          "key": "cloud.agentMemory.follow",
+          "name": "agentMemoryFollow",
+          "title": {
+            "key": "settings.cloud.agentMemory.follow",
+            "text": "Carry Your Agent Memory to Cloud Machines"
+          },
+          "help": {
+            "key": "settings.cloud.agentMemory.follow.help",
+            "text": "Your CLAUDE.md, AGENTS.md, agents, commands, skills and Claude's memory notes follow you to Cloud machines. Never credentials or settings files. Agents' changes wait for you in Session Info; only you can change this. Off deletes your copy in the cloud and stops every push."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "cloud",
+            "agent",
+            "memory",
+            "claude",
+            "agents",
+            "skills",
+            "commands",
+            "sync",
+            "follow",
+            "machine"
+          ]
         }
       ]
     },
@@ -711,11 +782,35 @@
           },
           "help": {
             "key": "settings.mobile.allowIPhoneConnections.help",
-            "text": "The cmux app on your iPhone can open this Mac's workspaces, on the same account."
+            "text": "The cmux app on your iPhone, signed in to the same account, can open this Mac's workspaces. You allow each new phone once."
           },
           "summary": {
             "key": "settings.mobile.allowIPhoneConnections.summary",
             "text": "Lets your iPhone reach this Mac"
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "iphone",
+            "phone",
+            "mobile",
+            "remote",
+            "connect"
+          ]
+        },
+        {
+          "key": "mobile.autoApprovePhones",
+          "title": {
+            "key": "settings.mobile.autoApprovePhones",
+            "text": "Approve Phone Requests Automatically"
+          },
+          "help": {
+            "key": "settings.mobile.autoApprovePhones.help",
+            "text": "A new phone signed in to your account connects without asking you first, and so do phones already waiting. Other accounts never connect."
+          },
+          "summary": {
+            "key": "settings.mobile.autoApprovePhones.summary",
+            "text": "New phones on your account connect without asking"
           },
           "kind": "toggle",
           "default": false,
@@ -723,8 +818,10 @@
             "iphone",
             "phone",
             "mobile",
-            "remote",
-            "connect"
+            "approve",
+            "allow",
+            "pair",
+            "automatic"
           ]
         },
         {
@@ -982,6 +1079,39 @@
             "quit",
             "background",
             "device hub"
+          ]
+        },
+        {
+          "key": "remote.agentShareIdleMinutes",
+          "note": "Read by the daemon each time an owner's agent turns sharing on under the account's \"My agents can turn screen sharing and control on my machines\" (cmux-tui-util user_settings::agent_share_idle_minutes; cmux-tui-core remote_host/agent_share.rs AutoOff). The person's own sharing never turns itself off.",
+          "title": {
+            "key": "settings.remote.agentShareIdleMinutes",
+            "text": "Agent Sharing Turns Off After"
+          },
+          "help": {
+            "key": "settings.remote.agentShareIdleMinutes.help",
+            "text": "When one of your agents turns sharing on for this Mac, it turns off again after this many minutes with no device viewing or controlling it."
+          },
+          "summary": {
+            "key": "settings.remote.agentShareIdleMinutes.summary",
+            "text": "Minutes with no viewer before an agent's sharing turns off"
+          },
+          "kind": "number",
+          "range": {
+            "min": 1,
+            "max": 240,
+            "step": 1,
+            "unit": "minutes"
+          },
+          "default": 15,
+          "keywords": [
+            "cmux remote",
+            "screen sharing",
+            "mac screen",
+            "agents",
+            "idle",
+            "timeout",
+            "turn off"
           ]
         },
         {

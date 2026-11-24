@@ -54,11 +54,11 @@ struct HomeWindowControlsTests {
         #expect(!h.filter.intersects(lights), "the filter sits on the traffic lights at \(width)")
         #expect(h.search.minY >= lights.maxY, "the search field is not under the lights' row at \(width)")
         #expect(abs(h.filter.midY - lights.midY) <= 1, "the filter is not on the lights' line at \(width)")
-        // New Chief at the row's right end, the toggle just before it.
-        #expect(h.newChief.maxX == width - HomeSidebarHeaderLayout.inset)
-        #expect(h.filter.maxX + HomeSidebarHeaderLayout.gap == h.newChief.minX)
-        #expect(!h.newChief.intersects(lights), "New Chief sits on the traffic lights at \(width)")
-        #expect(h.search.width == width - 2 * HomeSidebarHeaderLayout.inset, "the search field does not span the list at \(width)")
+        // The bare filter at the row's right end, its glyph's centre 21.75 pt from the edge (Messages).
+        // The list is the panel, 8 pt in from the column's left (`HomeSidebarView.panelInset`).
+        let list = width - HomeSidebarView.panelInset
+        #expect(abs(h.filter.midX - (list - HomeSidebarHeaderLayout.filterCenterFromRight)) <= 0.25)
+        #expect(h.search.width == list - 2 * HomeSidebarHeaderLayout.inset, "the search field does not span the list at \(width)")
         #expect(h.listTop >= h.search.maxY, "the list starts over the search field at \(width)")
         // The views follow the layout.
         #expect(home.searchCapsule.frame == h.search)
@@ -82,10 +82,10 @@ struct HomeWindowControlsTests {
         let lights = try Self.lights(in: home.list.headerView)
         let h = home.header
         #expect(abs(h.filter.midY - lights.midY) <= 1, "the filter left the lights' line beside them")
-        #expect(h.newChief.maxX == 320 - HomeSidebarHeaderLayout.inset)
-        #expect(h.filter.maxX + HomeSidebarHeaderLayout.gap == h.newChief.minX)
+        let list = 320 - HomeSidebarView.panelInset
+        #expect(abs(h.filter.midX - (list - HomeSidebarHeaderLayout.filterCenterFromRight)) <= 0.25)
         #expect(h.search.minY >= lights.maxY, "the search field left the row under the lights' line")
-        #expect(h.search.width == 320 - 2 * HomeSidebarHeaderLayout.inset)
+        #expect(h.search.width == list - 2 * HomeSidebarHeaderLayout.inset)
         #expect(h.listTop > HomeSidebarHeaderLayout.band)
     }
 
@@ -157,15 +157,15 @@ struct HomeWindowControlsTests {
         let h = HomeSidebarHeaderLayout(width: width, searchOpen: false, windowControls: Self.lightsFrame)
         #expect(!h.search.intersects(Self.lightsFrame) && !h.filter.intersects(Self.lightsFrame))
         #expect(h.filter.midY == Self.lightsFrame.midY)
-        // The search row under the lights and the filter circle on their line.
-        #expect(h.search.minY == max(Self.lightsFrame.maxY, h.filter.maxY) + HomeSidebarHeaderLayout.rowGap)
+        // The 36 pt search field centred on the workspace sidebar's Chief row, the list 7 pt under it
+        // (Messages), the bare filter's 16.5 pt glyph on the lights' line at the right end.
+        #expect(h.search.midY == Self.lightsFrame.midY + HomeSidebarHeaderLayout.searchCenterBelowLights)
+        #expect(h.search.height == HomeSidebarHeaderMetrics.standard.searchHeight && h.search.height == 36)
         #expect(h.search.width == width - 2 * HomeSidebarHeaderLayout.inset)
-        #expect(h.listTop == h.search.maxY + HomeSidebarHeaderLayout.rowGap)
+        #expect(h.listTop == h.search.maxY + HomeSidebarHeaderLayout.listGap)
         #expect(!h.filter.intersects(h.search))
-        // New Chief after the toggle on the lights' line, at the row's right end.
-        #expect(h.newChief.midY == Self.lightsFrame.midY && h.newChief.size == h.filter.size)
-        #expect(h.filter.maxX + HomeSidebarHeaderLayout.gap == h.newChief.minX)
-        #expect(h.newChief.maxX == width - HomeSidebarHeaderLayout.inset)
+        #expect(abs(h.filter.midX - (width - HomeSidebarHeaderLayout.filterCenterFromRight)) <= 0.25)
+        #expect(h.filterGlyph == 16.5)
     }
 
     /// Lights with a wide accessory after them (the incognito badge) leave no room for the toggle
@@ -174,9 +174,12 @@ struct HomeWindowControlsTests {
         let controls = CGRect(x: 7, y: 7, width: 170, height: 14)
         let h = HomeSidebarHeaderLayout(width: 200, searchOpen: false, windowControls: controls)
         #expect(!h.filter.intersects(controls) && !h.search.intersects(controls))
+        // The same bare glyph at the same place from the right as on the lights' line, on the search
+        // row; the field ends at its box.
         #expect(h.filter.midY == h.search.midY)
-        #expect(h.search.maxX + HomeSidebarHeaderLayout.gap == h.filter.minX)
-        #expect(h.filter.maxX + HomeSidebarHeaderLayout.gap == h.newChief.minX && h.newChief.maxX <= 200)
+        #expect(abs(h.filter.midX - (200 - HomeSidebarHeaderLayout.filterCenterFromRight)) <= 0.25)
+        #expect(h.filterGlyph == 16.5)
+        #expect(h.search.maxX == h.filter.minX)
     }
 
     /// The avatar-only list's search and filter circles sit under the lights, the list under them;
@@ -189,5 +192,9 @@ struct HomeWindowControlsTests {
         let open = HomeSidebarHeaderLayout(width: 90, searchOpen: true, windowControls: Self.lightsFrame)
         #expect(!open.search.intersects(Self.lightsFrame))
         #expect(open.listTop >= open.search.maxY)
+        // Opening the search moves nothing: the list starts where it did, the field centred where
+        // the circles were (the user, 2026-11-23: "make the height not shift").
+        #expect(open.listTop == closed.listTop)
+        #expect(abs(open.search.midY - closed.filter.midY) <= 0.5 && abs(open.search.midY - closed.searchIcon.midY) <= 0.5)
     }
 }
