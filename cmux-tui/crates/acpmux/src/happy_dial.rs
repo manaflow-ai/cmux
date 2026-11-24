@@ -92,6 +92,41 @@ pub async fn connect_tcp(host: &str, port: u16) -> io::Result<TcpStream> {
     Ok(stream)
 }
 
+/// [`connect_tcp`], started again every `every` while no attempt has connected; the first
+/// connect wins and the others are dropped. For a redial of a host that already answered: a
+/// dial sent into an outage waits on its SYN retransmissions (1, 2, 4, 8, 16 s apart), so after
+/// a minute's outage the network can be back for ten seconds before that dial's next SYN goes
+/// out. A fresh attempt every `every` puts a SYN on the wire within `every` of the network
+/// coming back, and none of them counts as a failed dial. An attempt that fails while none
+/// other runs ends the call with its error (a refused port fails at once, as before).
+pub async fn connect_tcp_again(host: &str, port: u16, every: Duration) -> io::Result<TcpStream> {
+    again(every, || connect_tcp(host, port)).await
+}
+
+/// `dial` now and again every `every` until one succeeds, or one fails with no other running.
+pub async fn again<T, F, Fut>(every: Duration, mut dial: F) -> io::Result<T>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = io::Result<T>>,
+{
+    let mut running = FuturesUnordered::new();
+    running.push(dial());
+    let mut next = tokio::time::Instant::now() + every;
+    loop {
+        tokio::select! {
+            Some(result) = running.next() => match result {
+                Ok(connected) => return Ok(connected),
+                Err(error) if running.is_empty() => return Err(error),
+                Err(_) => {}
+            },
+            () = tokio::time::sleep_until(next) => {
+                running.push(dial());
+                next += every;
+            }
+        }
+    }
+}
+
 /// `connect_async` over [`connect_tcp`]: the same TLS and handshake, without waiting out a
 /// stalled first address. The caller bounds the whole call.
 pub async fn connect_ws(request: impl IntoClientRequest) -> Result<(Socket, Response), WsError> {

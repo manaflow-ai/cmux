@@ -42,6 +42,7 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "PAIRMATRIX_LOADS",
     "PAIRMATRIX_PATHS",
     "PAIRMATRIX_LONG_MINUTES",
+    "PAIRMATRIX_TRACE",
 ]);
 
 use acpmux::config::{Config, HarnessProfile, PermissionPolicy, StoreMode};
@@ -856,6 +857,9 @@ const ROW_CONDITIONS: &[&str] = &["loss", "latency", "handoff", "sleep", "failov
 #[ignore = "bench: run with --ignored --nocapture (pm/DESIGN.md)"]
 async fn pair_matrix_desktop_row() {
     let _ = HERMETIC;
+    if let Ok(filter) = std::env::var("PAIRMATRIX_TRACE") {
+        let _ = tracing_subscriber::fmt().with_env_filter(filter).with_test_writer().try_init();
+    }
     let runs = env_u64("PAIRMATRIX_N", 5);
     let seed_base = env_u64("PAIRMATRIX_SEED_BASE", 0);
     let conditions = env_list("PAIRMATRIX_CONDITIONS", ROW_CONDITIONS);

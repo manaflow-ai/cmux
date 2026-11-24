@@ -38,6 +38,11 @@ const PROBE_CONNECT: Duration = Duration::from_secs(10);
 /// connect budget still accommodates a first handshake or a slow ssh login.
 const DIRECT_REDIAL_CONNECT: Duration = Duration::from_secs(4);
 
+/// How often a redial of a URL that already carried this peer starts a fresh TCP connect while
+/// none has connected. The pair matrix's direct path after a 60 s outage: the link opened 9.9 s
+/// after the network came back, its dial waiting on the SYN sent 16 s before.
+const URL_REDIAL_AGAIN: Duration = Duration::from_secs(2);
+
 pub(crate) trait Duplex: AsyncRead + AsyncWrite + Unpin + Send {}
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> Duplex for T {}
 pub(crate) type BoxDuplex = Box<dyn Duplex>;
@@ -638,8 +643,15 @@ impl Peer {
             let host = host.trim_start_matches('[').trim_end_matches(']').to_owned();
             let tls = req.uri().scheme_str() == Some("wss");
             let port = req.uri().port_u16().unwrap_or(if tls { 443 } else { 80 });
-            let tcp =
-                crate::happy_dial::connect_tcp(&host, port).await.map_err(|e| e.to_string())?;
+            // A URL that already carried this peer is dialed again every `URL_REDIAL_AGAIN`
+            // while no attempt connected (`happy_dial::connect_tcp_again`): a dial sent into an
+            // outage otherwise waits out its SYN retransmissions after the network is back.
+            let tcp = if self.linked_once.load(Ordering::SeqCst) {
+                crate::happy_dial::connect_tcp_again(&host, port, URL_REDIAL_AGAIN).await
+            } else {
+                crate::happy_dial::connect_tcp(&host, port).await
+            }
+            .map_err(|e| e.to_string())?;
             // A peer forwards the pane's prompts and their images: the listener's limits.
             tokio_tungstenite::client_async_tls_with_config(
                 req,
