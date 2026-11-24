@@ -29,7 +29,6 @@ ignores:
   - 'cmux-tui/crates/ghostty-vt/**'
   - 'cmux-tui/crates/ghostty-vt-sys/**'
   - 'cmux-tui/crates/cmux-classic-import/**'
-  - 'cmux-tui/crates/cmux-cellgrid-bench/**'
   - '**/tests.rs'
   - '**/test.rs'
   - '**/build.rs'

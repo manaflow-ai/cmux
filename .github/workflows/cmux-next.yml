@@ -5003,7 +5003,6 @@ jobs:
   # Mac run of it is red too and gh-merge-green excuses that red as the base's, so it is skipped
   # (scripts/ci/base_red_skip.py: fails open, 10% of skips still run as the audit, label full-ci runs it,
   # vars.CI_SKIP_WHILE_BASE_RED == '0' turns it off). 2026-11-24: 0 of 37 PR runs green in 2 h, about 10k min a day.
-  # Why: docs/ci/cmux-next-workflow-notes.md#note-556
   generated-files-base-red:
     needs: [path_route]
     if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.path_route.outputs.generated_host == 'generated-files' && format('{0}', vars.CI_SKIP_WHILE_BASE_RED) != '0' && !contains(github.event.pull_request.labels.*.name, 'full-ci') }}
@@ -5027,6 +5026,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python3 -I .base-red-src/scripts/ci/base_red_skip.py decide --workflow cmux-next.yml --job "cmux-next generated files" --events push,workflow_dispatch --dispatch-title "cmux-next base tier" >> "$GITHUB_OUTPUT"
 
+  # Why: docs/ci/cmux-next-workflow-notes.md#note-59
   generated-files:
     needs: [path_route, macos-placement, push-head-preflight, web-bundles, generated-files-base-red]
     # Why: docs/ci/cmux-next-workflow-notes.md#note-265
