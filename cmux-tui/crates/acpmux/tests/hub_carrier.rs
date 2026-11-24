@@ -2455,11 +2455,7 @@ async fn move_over_relay(precopy: bool) -> MoveRun {
     b.set_transfer_dial(Arc::new(CarrierDial::new(&b)));
     let ledger = tempfile::tempdir().unwrap();
     let hook = MeshControlHook::new(
-        vec![MeshControlFrom {
-            daemon_id: String::new(),
-            same_user: true,
-            ops: vec!["move".into()],
-        }],
+        vec![MeshControlFrom { same_user: true, ops: vec!["move".into()], ..Default::default() }],
         Some(ledger.path().join("mesh-controls.json")),
     )
     .with_own_user(Arc::new(|| Some("user-1".to_owned())));
