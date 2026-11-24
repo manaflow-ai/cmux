@@ -112,6 +112,34 @@ fn seeded_secrets_never_leave_in_a_panic_event() {
     }
 }
 
+/// The seeded secrets through the real send: the envelope the gated client puts
+/// on the wire to Sentry (body, headers and URL) carries none of them.
+#[cfg(unix)]
+#[test]
+fn seeded_secrets_never_reach_the_wire() {
+    cmux_egress::capture::install().unwrap();
+    let dir =
+        std::env::temp_dir().join(format!("cmux-cf-seeded-{}", uuid::Uuid::new_v4().simple()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let log = dir.join("owner-panics-seeded.jsonl");
+    let text = SEEDS.map(|[prefix, rest, _]| format!("{prefix}{rest}")).join(" | ");
+    let line =
+        |kind: &str| json!({"message": text, "location": text, "backtrace": text, "kind": kind});
+    std::fs::write(&log, format!("{}\n{}\n", line("panic"), line("memory"))).unwrap();
+    let dsn = Dsn::parse(DSN).unwrap();
+    assert_eq!(send_all(&log, &dsn, Some("/home/other")).unwrap(), 2);
+    let host = "o4507547940749312.ingest.us.sentry.io";
+    assert!(
+        cmux_egress::capture::requests_to(host).len() >= 2,
+        "the envelopes reached the capture server"
+    );
+    for [_, _, marker] in SEEDS {
+        let leaks = cmux_egress::capture::leaks(marker);
+        assert!(leaks.is_empty(), "{marker} left: {leaks:?}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn a_client_hang_line_is_a_warning_grouped_by_its_top_frame() {
     let line = json!({
