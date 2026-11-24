@@ -5120,11 +5120,29 @@ def test_web_status_allows_the_typecheck_skip_only_on_a_feat_cmux_next_pull_requ
     for outcome in ("failure", "cancelled"):
         result = run_web_status(results={"web-typecheck": outcome}, event="pull_request", base_ref="feat-cmux-next")
         assert result.returncode != 0, outcome
-    # Only web-typecheck moved: another routed job's skip is still a red there.
-    result = run_web_status(results={"web-tests": "skipped"}, event="pull_request", base_ref="feat-cmux-next")
+    # A routed job that did not move (web-db-migrations needs its postgres service): its skip is still a red there.
+    result = run_web_status(results={"web-db-migrations": "skipped"}, event="pull_request", base_ref="feat-cmux-next")
     assert result.returncode != 0
     block = workflow_job_block("web-typecheck", WEB_WORKFLOW)
     assert "&& (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') }}" in block
+
+
+def test_web_status_allows_the_web_tests_and_production_build_skips_only_on_a_feat_cmux_next_pull_request() -> None:
+    # A feat-cmux-next pull request runs them as the ci/steps.toml steps web-tests-1..4 and web-production-build
+    # (pr-pipeline.yml): the jobs skip. The docs-only fallback skips them too: pr-router still routes its paths.
+    for job in ("web-tests", "web-production-build"):
+        for workflow in ("CI", "docs-only fallback"):
+            result = run_web_status(results={job: "skipped"}, event="pull_request", base_ref="feat-cmux-next",
+                                    workflow=workflow)
+            assert result.returncode == 0, (job, workflow, result.stderr)
+        for event, base_ref in (("pull_request", "main"), ("push", ""), ("workflow_dispatch", "")):
+            result = run_web_status(results={job: "skipped"}, event=event, base_ref=base_ref)
+            assert result.returncode != 0, (job, event, base_ref)
+        for outcome in ("failure", "cancelled"):
+            result = run_web_status(results={job: outcome}, event="pull_request", base_ref="feat-cmux-next")
+            assert result.returncode != 0, (job, outcome)
+        block = workflow_job_block(job, WEB_WORKFLOW)
+        assert "&& (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') }}" in block
 
 
 def test_web_status_allows_the_diff_sidecar_skip_only_on_a_feat_cmux_next_pull_request() -> None:

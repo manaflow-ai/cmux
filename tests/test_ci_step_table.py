@@ -450,10 +450,15 @@ class PipelineTest(unittest.TestCase):
         self.assertIs(checkout["with"]["persist-credentials"], False)
         runs = [i for i, s in enumerate(job["steps"]) if "ci/run run --job linux" in s.get("run", "")]
         self.assertEqual(len(runs), 1)
-        # After it only the failure-only upload of a fixit-compile patch (the web-typecheck step's), for the
-        # cmuxterm-hq reconciler, which reads a run's `fixit-compile-*` artifacts.
+        # After it only failure-only uploads: a fixit-compile patch (the web-typecheck step's), for the cmuxterm-hq
+        # reconciler, which reads a run's `fixit-compile-*` artifacts, and a failed web test shard's JUnit report.
         after = job["steps"][runs[0] + 1:]
-        self.assertEqual([s["name"] for s in after], ["Upload the fixit-compile patch"])
+        self.assertEqual([s["name"] for s in after], ["Upload the fixit-compile patch"] + [
+            f"Upload the web test JUnit report (shard {n})" for n in range(1, 5)])
+        for upload in after:
+            self.assertEqual(upload["if"], "${{ failure() && !cancelled() }}")
+            self.assertTrue(upload["uses"].startswith("actions/upload-artifact@"))
+            self.assertEqual(upload["with"]["if-no-files-found"], "ignore")
         self.assertEqual(after[0]["if"], "${{ failure() && !cancelled() }}")
         self.assertTrue(after[0]["uses"].startswith("actions/upload-artifact@"))
         self.assertTrue(after[0]["with"]["name"].startswith("fixit-compile-"))
@@ -691,6 +696,52 @@ class PipelineTest(unittest.TestCase):
             self.assertIn(command, diff_step.run)
         self.assertGreaterEqual(diff_step.run.count("|| status=1"), 3)
         self.assertIn("lint_status=1", diff_step.run)
+        # ci-web.yml's web-tests matrix and web-production-build run as table steps on feat-cmux-next pull requests
+        # only; the jobs still run on a push, a dispatch and a pull request into any other base.
+        web_jobs = diff_wf["jobs"]
+        for job in ("web-tests", "web-production-build"):
+            with self.subTest(job=job):
+                self.assertTrue(web_jobs[job]["if"].endswith(
+                    "&& (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') }}"))
+        self.assertEqual(web_jobs["web-tests"]["strategy"]["matrix"]["shard"], ["1/4", "2/4", "3/4", "4/4"])
+        pipeline = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())
+        uploads = {s.get("with", {}).get("name"): s for s in pipeline["jobs"]["linux"]["steps"] if "uses" in s}
+        for shard in range(1, 5):
+            step = steps[f"web-tests-{shard}"]
+            with self.subTest(step=step.name):
+                self.assertEqual(step.job, "linux")
+                self.assertEqual(step.timeout, 360)
+                self.assertFalse(step.alone)
+                self.assertEqual(step.needs, ("bun",))
+                self.assertEqual(step.title, f"Web tests ({shard}/4)")
+                self.assertTrue(step.run.lstrip().startswith(
+                    "python3 -I scripts/ci/web_subareas.py has unit_tests || exit 0"))
+                self.assertIn('flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile', step.run)
+                self.assertIn(f"./scripts/run-tests.sh --shard {shard}/4 --reporter=junit", step.run)
+                self.assertIn(f'report_dir="$RUNNER_TEMP/web-test-junit/shard{shard}"', step.run)
+                self.assertIn('exit "$status"', step.run)
+                upload = uploads[f"web-test-junit-shard{shard}-attempt${{{{ github.run_attempt }}}}"]
+                self.assertEqual(upload["if"], "${{ failure() && !cancelled() }}")
+                self.assertEqual(upload["with"]["path"], f"${{{{ runner.temp }}}}/web-test-junit/shard{shard}/junit.xml")
+                for path in ("web/app/page.tsx", "web/tests/foo.test.ts", "CHANGELOG.md",
+                             "config/iroh/managed-relay-catalog.json", "scripts/ci/web_subareas.py"):
+                    self.assertTrue(ci_steps.routed(step, [path]), path)
+                self.assertFalse(ci_steps.routed(step, ["webviews/src/main.ts"]))
+        build = steps["web-production-build"]
+        self.assertEqual(build.job, "linux")
+        self.assertEqual(build.timeout, 360)
+        # next build writes web/.next/types and web/next-env.d.ts, which the web-typecheck step reads.
+        self.assertTrue(build.alone)
+        self.assertEqual(build.needs, ("bun",))
+        self.assertTrue(build.run.lstrip().startswith(
+            "python3 -I scripts/ci/web_subareas.py has production_build || exit 0"))
+        self.assertIn('flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile', build.run)
+        self.assertIn("bun run vercel-build", build.run)
+        build_env = next(s["env"] for s in web_jobs["web-production-build"]["steps"] if s.get("run") == "bun run vercel-build")
+        for key, value in build_env.items():
+            self.assertIn(f"export {key}={value}", build.run)
+        for path in ("web/app/page.tsx", "bun.lock", "vercel.json", "package.json"):
+            self.assertTrue(ci_steps.routed(build, [path]), path)
         # These workflows keep the pull_request trigger for a macOS job; the moved Linux job skips it, and
         # a pull request runs it as a step of the table with the same command.
         jobs = {("agent-brands.yml", "drift"): "agent-brands-drift",
@@ -709,7 +760,8 @@ class PipelineTest(unittest.TestCase):
         table = ci_steps.load()
         self.assertEqual(sorted(table.tools), ["bun", "go", "node", "rust", "zig"])
         wants_bun = {"app-platform", "mux", "automation-bench", "cloud-vm-image-lock", "cmux-vm-sdk", "web-complexity",
-                     "web-typecheck", "webviews-typecheck", "diff-sidecar-check"}
+                     "web-typecheck", "webviews-typecheck", "diff-sidecar-check", "web-tests-1", "web-tests-2", "web-tests-3",
+                     "web-tests-4", "web-production-build"}
         wants_node = {"ci-artifact-worker", "coderouter", "web-complexity", "webviews-typecheck"}
         self.assertEqual(table.steps["coderouter"].needs, ("rust", "node"))
         self.assertEqual(table.steps["remote-daemon-packaging"].needs, ("go",))
@@ -1101,7 +1153,8 @@ class WebBrowserStepsTest(unittest.TestCase):
                 self.assertTrue(wf["jobs"][name]["if"].endswith(
                     "&& (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') }}"))
         status = wf["jobs"]["web-status"]["steps"][0]["run"]
-        self.assertIn('may_skip.update({"web-typecheck", "web-instant-navigation", "agent-pane-real-acpmux"})', status)
+        self.assertIn('may_skip.update({"web-typecheck", "web-tests", "web-production-build", "web-instant-navigation", '
+                      '"agent-pane-real-acpmux"})', status)
 
 if __name__ == "__main__":
     unittest.main()

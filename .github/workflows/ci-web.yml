@@ -440,7 +440,10 @@ jobs:
 
   web-production-build:
     needs: web-subarea-scope
-    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.production_build == 'true' && (inputs.only == '' || inputs.only == 'web-production-build') }}
+    # A feat-cmux-next pull request runs this job's build as the ci/steps.toml step `web-production-build`
+    # (pr-pipeline.yml); a push, dispatch, the post-merge batch and a pull request into any other base still run it
+    # here. Web status counts the skip as fine only on such a pull request.
+    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.production_build == 'true' && (inputs.only == '' || inputs.only == 'web-production-build') && (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 15
     defaults:
@@ -492,7 +495,11 @@ jobs:
 
   web-tests:
     needs: web-subarea-scope
-    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.unit_tests == 'true' && (inputs.only == '' || inputs.only == 'web-tests') }}
+    # A feat-cmux-next pull request runs these shards as the ci/steps.toml steps `web-tests-1` to `web-tests-4`
+    # (pr-pipeline.yml, which uploads a failed shard's JUnit report under this job's artifact name); a push, dispatch,
+    # the post-merge batch and a pull request into any other base still run them here. Web status counts the skip as
+    # fine only on such a pull request.
+    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.unit_tests == 'true' && (inputs.only == '' || inputs.only == 'web-tests') && (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') }}
     name: Web tests (${{ matrix.shard }})
     strategy:
       fail-fast: false
@@ -2542,7 +2549,7 @@ jobs:
           may_skip = {job for job, is_required in required.items() if not is_required}
           # A feat-cmux-next pull request runs these as ci/steps.toml steps (pr-pipeline.yml): the jobs skip.
           if os.environ.get("WEB_EVENT") == "pull_request" and os.environ.get("WEB_BASE_REF") == "feat-cmux-next":
-              may_skip.update({"web-typecheck", "web-instant-navigation", "agent-pane-real-acpmux"})
+              may_skip.update({"web-typecheck", "web-tests", "web-production-build", "web-instant-navigation", "agent-pane-real-acpmux"})
               # The docs-only fallback still runs diff-sidecar-check as its own job.
               if os.environ.get("WEB_WORKFLOW") != "docs-only fallback":
                   may_skip.add("diff-sidecar-check")

@@ -32,9 +32,9 @@ jobs:
     if: ${{ inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'linux') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     # Above setup (10 min), the tool downloads (3 min), the waves of the slowest step (6 min; steps two at
-    # once on 2 CPUs) and the `alone` steps (ci-artifact-worker and coderouter 6 min each, the cmux_next_ daemon tests 65 min), with room for
-    # the checkout, so a slow step is reported by the runner, not cut here.
-    timeout-minutes: 170
+    # once on 2 CPUs) and the `alone` steps (ci-artifact-worker, coderouter and web-production-build 6 min each, the cmux_next_ daemon
+    # tests 65 min), with room for the checkout, so a slow step is reported by the runner, not cut here.
+    timeout-minutes: 190
     permissions:
       contents: read
     steps:
@@ -68,6 +68,40 @@ jobs:
           path: ${{ runner.temp }}/fixit-compile
           if-no-files-found: ignore
           retention-days: 3
+      # A failed web test shard's JUnit report (the `web-tests-N` steps keep it only on failure), under the name
+      # ci-web.yml's `Web tests (N/4)` job used, which scripts/ci/web_test_failure_census.py reads. No report, no artifact.
+      - name: Upload the web test JUnit report (shard 1)
+        if: ${{ failure() && !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: web-test-junit-shard1-attempt${{ github.run_attempt }}
+          path: ${{ runner.temp }}/web-test-junit/shard1/junit.xml
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Upload the web test JUnit report (shard 2)
+        if: ${{ failure() && !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: web-test-junit-shard2-attempt${{ github.run_attempt }}
+          path: ${{ runner.temp }}/web-test-junit/shard2/junit.xml
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Upload the web test JUnit report (shard 3)
+        if: ${{ failure() && !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: web-test-junit-shard3-attempt${{ github.run_attempt }}
+          path: ${{ runner.temp }}/web-test-junit/shard3/junit.xml
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Upload the web test JUnit report (shard 4)
+        if: ${{ failure() && !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: web-test-junit-shard4-attempt${{ github.run_attempt }}
+          path: ${{ runner.temp }}/web-test-junit/shard4/junit.xml
+          if-no-files-found: ignore
+          retention-days: 7
 
   # The `web-browser` job: the browser suites (Playwright and real Chrome), on their own warm Linux VM so a
   # webview change never waits behind the linux job's guards, and a change that routes no browser step starts no

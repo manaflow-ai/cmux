@@ -712,6 +712,173 @@ fi
 exit "$status"
 '''
 
+# ci-web.yml's `Web tests (1/4..4/4)` matrix, one step a shard: the same `scripts/run-tests.sh --shard N/4` with its
+# JUnit report. `inputs` cover web_subareas.py's unit_tests subarea (every web/ path, the docs references the tests
+# build at the head, the relay catalog), and the step's first line asks web_subareas.py itself (`has`, over
+# $CI_PATHS_FILE), so a web/e2e-only change skips in a second. A failed shard keeps its report in
+# $RUNNER_TEMP/web-test-junit/shardN, which pr-pipeline.yml uploads under the name the old job used
+# (web-test-junit-shardN-attemptA, read by scripts/ci/web_test_failure_census.py); a passing shard drops it, as the
+# old job uploaded only failed shards. Four shards at once on 8 CPUs, beside nothing else: 114 to 222 s each (shard 3
+# the slowest); one shard alone, 121 s.
+[step.web-tests-1]
+job = "linux"
+timeout = 360
+title = "Web tests (1/4)"
+about = "the first of web's four bun test shards (web/scripts/run-tests.sh --shard 1/4)"
+needs = ["bun"]
+inputs = [
+  "web/**",
+  "CHANGELOG.md",
+  "plans/cmux-next/action-surfaces.json",
+  "schemas/settings/settings-schema.json",
+  "config/iroh/managed-relay-catalog.json",
+  "workers/presence/src/generated/managedRelayCatalog.ts",
+  "scripts/ci/web_subareas.py",
+  ".github/workflows/ci-web.yml",
+]
+run = '''
+python3 -I scripts/ci/web_subareas.py has unit_tests || exit 0
+export RUNNER_TEMP="${RUNNER_TEMP:-$(mktemp -d)}"
+cd web
+flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile
+report_dir="$RUNNER_TEMP/web-test-junit/shard1"
+mkdir -p "$report_dir"
+status=0
+./scripts/run-tests.sh --shard 1/4 --reporter=junit --reporter-outfile="$report_dir/junit.xml" || status=$?
+[ "$status" -ne 0 ] || rm -f "$report_dir/junit.xml"
+exit "$status"
+'''
+
+[step.web-tests-2]
+job = "linux"
+timeout = 360
+title = "Web tests (2/4)"
+about = "the second of web's four bun test shards (web/scripts/run-tests.sh --shard 2/4)"
+needs = ["bun"]
+inputs = [
+  "web/**",
+  "CHANGELOG.md",
+  "plans/cmux-next/action-surfaces.json",
+  "schemas/settings/settings-schema.json",
+  "config/iroh/managed-relay-catalog.json",
+  "workers/presence/src/generated/managedRelayCatalog.ts",
+  "scripts/ci/web_subareas.py",
+  ".github/workflows/ci-web.yml",
+]
+run = '''
+python3 -I scripts/ci/web_subareas.py has unit_tests || exit 0
+export RUNNER_TEMP="${RUNNER_TEMP:-$(mktemp -d)}"
+cd web
+flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile
+report_dir="$RUNNER_TEMP/web-test-junit/shard2"
+mkdir -p "$report_dir"
+status=0
+./scripts/run-tests.sh --shard 2/4 --reporter=junit --reporter-outfile="$report_dir/junit.xml" || status=$?
+[ "$status" -ne 0 ] || rm -f "$report_dir/junit.xml"
+exit "$status"
+'''
+
+[step.web-tests-3]
+job = "linux"
+timeout = 360
+title = "Web tests (3/4)"
+about = "the third of web's four bun test shards (web/scripts/run-tests.sh --shard 3/4)"
+needs = ["bun"]
+inputs = [
+  "web/**",
+  "CHANGELOG.md",
+  "plans/cmux-next/action-surfaces.json",
+  "schemas/settings/settings-schema.json",
+  "config/iroh/managed-relay-catalog.json",
+  "workers/presence/src/generated/managedRelayCatalog.ts",
+  "scripts/ci/web_subareas.py",
+  ".github/workflows/ci-web.yml",
+]
+run = '''
+python3 -I scripts/ci/web_subareas.py has unit_tests || exit 0
+export RUNNER_TEMP="${RUNNER_TEMP:-$(mktemp -d)}"
+cd web
+flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile
+report_dir="$RUNNER_TEMP/web-test-junit/shard3"
+mkdir -p "$report_dir"
+status=0
+./scripts/run-tests.sh --shard 3/4 --reporter=junit --reporter-outfile="$report_dir/junit.xml" || status=$?
+[ "$status" -ne 0 ] || rm -f "$report_dir/junit.xml"
+exit "$status"
+'''
+
+[step.web-tests-4]
+job = "linux"
+timeout = 360
+title = "Web tests (4/4)"
+about = "the fourth of web's four bun test shards (web/scripts/run-tests.sh --shard 4/4)"
+needs = ["bun"]
+inputs = [
+  "web/**",
+  "CHANGELOG.md",
+  "plans/cmux-next/action-surfaces.json",
+  "schemas/settings/settings-schema.json",
+  "config/iroh/managed-relay-catalog.json",
+  "workers/presence/src/generated/managedRelayCatalog.ts",
+  "scripts/ci/web_subareas.py",
+  ".github/workflows/ci-web.yml",
+]
+run = '''
+python3 -I scripts/ci/web_subareas.py has unit_tests || exit 0
+export RUNNER_TEMP="${RUNNER_TEMP:-$(mktemp -d)}"
+cd web
+flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile
+report_dir="$RUNNER_TEMP/web-test-junit/shard4"
+mkdir -p "$report_dir"
+status=0
+./scripts/run-tests.sh --shard 4/4 --reporter=junit --reporter-outfile="$report_dir/junit.xml" || status=$?
+[ "$status" -ne 0 ] || rm -f "$report_dir/junit.xml"
+exit "$status"
+'''
+
+# ci-web.yml's web-production-build job: `bun run vercel-build` with the job's build-only env (no secrets: placeholder
+# keys and an unreachable database URL). `inputs` cover web_subareas.py's production_build subarea (a superset: its
+# web/e2e, web/tests and test-runner exclusions are left to the step's first line, `has production_build`). It runs
+# `alone`: `next build` writes web/.next/types and web/next-env.d.ts, which web's tsconfig includes, so beside the
+# web-typecheck step it could change what tsgo reads mid-run. 145 s on 8 CPUs, alone, warm bun cache.
+[step.web-production-build]
+job = "linux"
+timeout = 360
+alone = true
+title = "Web production build"
+about = "web compiles and bundles for production (bun run vercel-build); web-typecheck reports type errors"
+needs = ["bun"]
+inputs = [
+  "web/**",
+  ".npmrc",
+  ".vercelignore",
+  "CHANGELOG.md",
+  "bun.lock",
+  "bunfig.toml",
+  "config/iroh/managed-relay-catalog.json",
+  "package.json",
+  "vercel.json",
+  "workers/presence/src/generated/managedRelayCatalog.ts",
+  "scripts/ci/web_subareas.py",
+  ".github/workflows/ci-web.yml",
+]
+run = '''
+python3 -I scripts/ci/web_subareas.py has production_build || exit 0
+cd web
+flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile
+export RESEND_API_KEY=re_ci_build
+export CMUX_FEEDBACK_FROM_EMAIL=ci@example.test
+export STACK_SECRET_SERVER_KEY=ci-build-only
+export NEXT_PUBLIC_STACK_PROJECT_ID=00000000-0000-4000-8000-000000000000
+export NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY=ci-build-only
+export DATABASE_URL=postgres://cmux:cmux@127.0.0.1:1/cmux
+export DIRECT_DATABASE_URL=postgres://cmux:cmux@127.0.0.1:1/cmux
+export CMUX_ANALYTICS_TEST_MODE=1
+# web-typecheck reports type errors; this build proves the app compiles and bundles (web/next.config.ts).
+export CMUX_CI_TYPECHECK_SEPARATE=1
+bun run vercel-build
+'''
+
 # cmux-next-guards.yml's security-holes job, which every feat-cmux-next pull request ran: 3,725 jobs and 8,327
 # runner-minutes a day, a median 85 s for about 30 s of work. It judged every change whatever it touched (gitleaks
 # reads any file a change adds), so its `inputs` are `**` and every change routes it, but a docs-only change
