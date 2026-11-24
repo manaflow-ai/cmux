@@ -1545,6 +1545,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         measured("layout-terminal") { layoutTerminal() }
         if !started, surface.surface != nil, cell.height > 0 {
             started = true
+            // The page as last seen, fed first (the output queue is ordered): the surface is
+            // live before the attach, scrolls and takes keys (they wait for it). The Mac's
+            // replay, a full reset first, replaces it.
+            if let seed = model.takeSeed() { surface.feed(seed) }
             model.session.start { [weak self] event in self?.sessionEvent(event) }
         }
     }
