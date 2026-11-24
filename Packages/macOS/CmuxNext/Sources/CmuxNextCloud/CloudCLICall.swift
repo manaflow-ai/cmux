@@ -57,6 +57,36 @@ public struct CloudCLICall: Sendable {
         }
     }
 
+    /// `cmux cloud apps-relay` as the signed-in person of `auth`: the app's `cloud.apps`, what `cmux app
+    /// ls` and `cmux app versions` call off a Cloud machine (RFD 0003). The forward takes `{op: "list"}` or
+    /// `{op: "get", slug}` as JSON bytes and answers `{ok: true, value}` or `{ok: false, error}`; the
+    /// rules (two reads, nothing else) are cmux-tui's `cmux_apps::account`. The token is read per call,
+    /// never stored, and goes on stdin.
+    @MainActor
+    public func appsRelay(signedIn auth: CloudAuth) -> @Sendable (Data) async -> Data {
+        let api = auth.configuration.relayAPIBaseURL().absoluteString
+        let session: @Sendable () async -> Result<(String, String?)?, any Error> = { @MainActor [weak auth] in
+            guard let auth, auth.isSignedIn else { return .success(nil) }
+            do { return .success((try await auth.tokens().access, auth.teamID)) } catch { return .failure(error) }
+        }
+        return { [self] request in
+            let found: (String, String?)?
+            switch await session() {
+            case let .success(value): found = value
+            case let .failure(error): return Self.unreachable(String(describing: error))
+            }
+            let parsed = (try? JSONSerialization.jsonObject(with: request, options: .fragmentsAllowed)) ?? NSNull()
+            let envelope: [String: Any] = ["api": api, "credential": found.map { $0.0 as Any } ?? NSNull(),
+                                           "team": found?.1.map { $0 as Any } ?? NSNull(), "request": parsed]
+            guard let stdin = try? JSONSerialization.data(withJSONObject: envelope) else { return Self.unreachable("the request is not JSON") }
+            do {
+                return try await run(["cloud", "apps-relay"], stdin: stdin, timeout: .seconds(25))
+            } catch {
+                return Self.unreachable(String(describing: error))
+            }
+        }
+    }
+
     /// `cmux cloud api` (cmux-tui `cli/cloud_api.rs`, the cmux-cloud-api crate behind the daemon's
     /// `cloud.<call>` ops) on this Mac's daemon at `socket`, as the signed-in person of `auth` on the platform origin, worker auth. The
     /// answer line as is: `{"ok": true, "body": B}` or `{"ok": false, "error": {"kind", "code", "message", …}}`.
