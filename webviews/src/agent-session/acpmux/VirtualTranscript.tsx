@@ -28,6 +28,7 @@ import {
   layoutConversation,
   layoutGeometry,
   type PlacedLayout,
+  type ConversationLayout,
   type RowHeights,
   placedFromEstimate,
   placedWithOrigin,
@@ -1818,6 +1819,11 @@ function TranscriptView({
   }
   const drawnRef = useRef(drawn);
   drawnRef.current = drawn;
+  // A newly mounted row whose first measured box is exactly its estimate is already in the
+  // position the estimate placed it at. Keep its report pending for a later size change instead
+  // of forcing a synchronous placement render just to record an identical height.
+  const estimatedLayoutRef = useRef<ConversationLayout | undefined>(undefined);
+  const pendingAtEstimate = useRef(new Set<string>());
   const endReserve = Math.max(cardReserve, minimapBeside ? minimapReserve(width) : 0);
   // While a drag flows the rows keep the width they were placed at: nothing is estimated or placed
   // again until the width holds (`flowWidth`, the render's copy of `liveResize.flow`).
@@ -2347,27 +2353,48 @@ function TranscriptView({
       const index = Number(target.getAttribute("aria-posinset")) - 1;
       const row = shown[index];
       // With the frame's own flag: a height reported without it is taken for a stale one.
-      if (row && row.id === target.dataset.rowId)
+      if (row && row.id === target.dataset.rowId) {
+        const measured = drawnHeightOf(target);
         reportDrawn(
           row.id,
           row.version,
-          drawnHeightOf(target),
+          measured,
           keepsReplyRoom(row, nextDrawnRow(shown, index)),
           statusEdge(row, nextDrawnRow(shown, index), prevDrawnRow(shown, index)),
           collapsingRow(target),
           row,
         );
+        const estimate = estimatedLayoutRef.current?.heights[index];
+        const pending = pendingDrawn.current.get(row.id);
+        if (
+          !drawnRef.current.has(row.id) &&
+          estimate === measured &&
+          pending !== undefined &&
+          pending.actions === undefined &&
+          pending.status === undefined &&
+          pending.collapsing === undefined &&
+          pending.open === undefined
+        )
+          pendingAtEstimate.current.add(row.id);
+      }
     },
     [reportDrawn],
   );
+  const discardEstimatedReports = useCallback(() => {
+    for (const id of pendingAtEstimate.current) {
+      if (!drawnRef.current.has(id)) pendingDrawn.current.delete(id);
+    }
+    pendingAtEstimate.current.clear();
+  }, []);
   /// Places `target` at the height it lays out at now, in this task, before the browser scrolls: a
   /// fold that just landed (`settleFoldsIn`) must not wait for the observer's next delivery.
   const placeRowNow = useCallback(
     (target: HTMLElement) => {
       reportRow(target);
+      discardEstimatedReports();
       if (changesDrawn(drawnRef.current, pendingDrawn.current)) flushSync(flushDrawn);
     },
-    [reportRow, flushDrawn],
+    [reportRow, discardEstimatedReports, flushDrawn],
   );
   // The ride lives across renders; it reports through the current session's `reportRow`.
   const reportRowRef = useRef(reportRow);
@@ -2529,6 +2556,7 @@ function TranscriptView({
               for (const target of targets) reportRow(target);
             };
             measure();
+            discardEstimatedReports();
             // A late size change (a font loading) must not paint a frame of overlap first. Sizes
             // that did not change render nothing: a synchronous render here for nothing was the
             // "ResizeObserver loop completed with undelivered notifications" while streaming.
@@ -2598,7 +2626,7 @@ function TranscriptView({
               }
             } else flushDrawn();
           }),
-    [reportRow, flushDrawn],
+    [reportRow, discardEstimatedReports, flushDrawn],
   );
   useEffect(() => () => observer?.disconnect(), [observer]);
   // A CSS motion that starts out of the view draws at its end (cmuxterm-hq
@@ -3400,6 +3428,7 @@ function TranscriptView({
       ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0,
     };
   }, [rows, registry, sessionId, chatLook, attachmentView, scaledRowWidth, resizeSettled]);
+  estimatedLayoutRef.current = estimated.layout;
   // A cold open's rough estimate is laid out whole once its first frame has painted: a frame, then a
   // task, so the full layout never lands before that paint.
   useEffect(() => {
