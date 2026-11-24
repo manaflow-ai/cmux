@@ -10,6 +10,8 @@ mod build_defaults;
 mod chat_roots;
 mod json_schema;
 mod retired;
+pub mod shape;
+mod sidebar_rows;
 mod url;
 
 use std::collections::HashMap;
@@ -19,11 +21,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use serde_json::value::RawValue;
 
-pub use accepts::{Accepted, accepts, aliased, effective_value, is_hex_color};
+pub use accepts::{Accepted, accepts, aliased, effective_value, is_hex_color, is_search_template};
 pub use aliases::{choice_alias, choice_aliases};
 pub use backdrop::normalize_backdrop;
 pub use backdrop::{
-    RECENTS_CAP, is_selection as is_background, previous_background, recents_of, record_recent,
+    RECENTS_CAP, is_location as is_backdrop_location, is_memory as is_backdrop_memory,
+    is_picture as is_backdrop_picture, is_recents as is_backdrop_recents,
+    is_schedule as is_backdrop_schedule, is_selection as is_background, previous_background,
+    recents_of, record_recent,
 };
 pub use build_defaults::{BUILD_DEFAULTS_ENV, build_defaults_from};
 pub use chat_roots::chat_root_is_valid;
@@ -31,6 +36,7 @@ pub use retired::{
     Replaced, Retired, replaced_by_row, replaced_keys, retired_entries, retired_keys,
     retired_reason,
 };
+pub use sidebar_rows::problems as sidebar_row_problems;
 pub use url::{is_http_origin, new_tab_page_url_is_valid};
 
 use crate::value::canonical;
@@ -101,6 +107,12 @@ pub enum Kind {
     /// An object of notification sound rules (Swift `soundRules`): each member
     /// a sound name, or `{"sound", "volume", "events"}` (`NotificationSoundRule`).
     SoundRules,
+    /// A nested JSON value (arrays of arrays, maps of lists) of the row's own
+    /// `shape`: a JSON Schema (draft 2020-12) of the keywords `shape::check`
+    /// allows (`sidebar.workspaceRow.lines`). The shape is both the editor's
+    /// schema and the owner's check; a validation domain may add rules no
+    /// schema says (`DomainKind::SidebarRowLines`).
+    Json(Value),
 }
 
 impl Kind {
@@ -125,6 +137,7 @@ impl Kind {
             Kind::NumberList(_) => "number_list",
             Kind::StringMap => "string_map",
             Kind::SoundRules => "sound_rules",
+            Kind::Json(_) => "json",
         }
     }
 }
@@ -187,6 +200,17 @@ pub enum DomainKind {
     /// `tabs.newTabApp`: an id an app manifest may have
     /// (`app_id::is_valid_app_id`, the manifest schema's pattern; Swift `NewTabAppSetting.isValidID`).
     AppId,
+    /// `sidebar.sections.hidden` / `order`: distinct section ids of 1 to 128
+    /// characters, at most 256 (cmux-layout-reducer `sidebar_section_customization`;
+    /// Swift `SidebarSectionIDsSetting.accepts`).
+    SidebarSectionIds,
+    /// `sidebar.workspaceRow.lines`: a row layout the sidebar row reducer
+    /// draws as written (`cmux_layout_reducer::sidebar_row_layout`, `sidebar_rows`).
+    SidebarRowLines,
+    /// `sidebar.workspaceRow.linesByKind`: a layout per row kind, each drawn as written.
+    SidebarRowLinesByKind,
+    /// `sidebar.workspaceRow.linesByAgent`: a layout per agent id, each drawn as written.
+    SidebarRowLinesByAgent,
 }
 
 /// One descriptor row.
@@ -300,6 +324,9 @@ struct RawRow {
     range: Option<NumberRange>,
     #[serde(default)]
     url_key: Option<String>,
+    /// `json` rows: the value's JSON Schema.
+    #[serde(default)]
+    shape: Option<Value>,
     default: Option<Value>,
     default_label: Option<Text>,
     keywords: Vec<String>,
@@ -436,6 +463,12 @@ fn row(raw: Value, text: RowText) -> Result<Row, String> {
         "number_list" => Kind::NumberList(range()?),
         "string_map" => Kind::StringMap,
         "sound_rules" => Kind::SoundRules,
+        "json" => {
+            let shape =
+                parsed.shape.clone().ok_or_else(|| format!("{}: shape missing", parsed.key))?;
+            shape::check(&shape).map_err(|error| format!("{}: shape {error}", parsed.key))?;
+            Kind::Json(shape)
+        }
         other => return Err(format!("{}: unknown kind {other}", parsed.key)),
     };
     let validation = match parsed.validation.as_str() {
@@ -455,7 +488,13 @@ fn row(raw: Value, text: RowText) -> Result<Row, String> {
         "domain:custom_densities" => Validation::Domain(DomainKind::CustomDensities),
         "domain:command_labels" => Validation::Domain(DomainKind::CommandLabels),
         "domain:app_id" => Validation::Domain(DomainKind::AppId),
+        "domain:sidebar_row_lines" => Validation::Domain(DomainKind::SidebarRowLines),
+        "domain:sidebar_row_lines_by_kind" => Validation::Domain(DomainKind::SidebarRowLinesByKind),
+        "domain:sidebar_row_lines_by_agent" => {
+            Validation::Domain(DomainKind::SidebarRowLinesByAgent)
+        }
         "domain:transcript_tokens" => Validation::Domain(DomainKind::TranscriptTokens),
+        "domain:sidebar_section_ids" => Validation::Domain(DomainKind::SidebarSectionIds),
         "domain:hosts" => Validation::Domain(DomainKind::Hosts),
         other => return Err(format!("{}: unknown validation {other}", parsed.key)),
     };
