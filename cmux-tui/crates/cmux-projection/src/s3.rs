@@ -223,7 +223,7 @@ impl Config {
         let base = http_base(base)?;
         let (_, host, path) = split_url(&base)?;
         plain_path(&path).ok()?;
-        Some(Self { tier, base, host, path, region: String::new(), keys: None })
+        Some(Self { tier, base, host, path, region: String::new(), keys: None, sse: None })
     }
 
     /// A bucket on an S3-compatible endpoint. `Err` says why it is unusable.
