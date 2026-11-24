@@ -509,6 +509,7 @@ final class WindowManager {
             WindowActivation.show(window, restacks ? .bringForward : behind ? .presentBehind : .present); DebugTimings.markLaunch("window.ordered_front")
             keepsOrder = kept
         }
+        LaunchGlassMark.start(on: controller.root.contentHost, reveal: services.launchReveal) { DebugTimings.markLaunch($0) }
         onPresent?(controller)
         enterRestoredFullScreens()
     }

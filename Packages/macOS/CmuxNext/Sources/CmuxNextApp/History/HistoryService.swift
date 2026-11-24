@@ -203,4 +203,3 @@ final class HistoryService {
         routes[profile] = nil
     }
 }
-

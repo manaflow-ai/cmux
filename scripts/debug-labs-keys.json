@@ -70,6 +70,7 @@
   "hostPressure.style": {"case": "keep", "why": "A look comparison for the host pressure indicator, which is itself off by default; the gauge is the default look."},
   "icons.family": {"case": "keep", "why": "A look comparison between the shipped icon pack and a custom family; the pack default is the chosen one."},
   "launch.markStyle": {"case": "keep", "why": "A look comparison between trace and bloom for the launch mark; bloom is the default."},
+  "launch.reveal": {"case": "keep", "why": "The launch reveal variants (off, bloom, lens, trace, sheen) for Leo to try on a relaunch before one is picked (design/launch-reveal.md)."},
   "layout.prototype.dockEdge": {"case": "keep", "why": "Option of a view-only layout model prototype that is off by default; the prototype is not finished."},
   "layout.prototype.dockMode": {"case": "keep", "why": "A knob for the unfinished layout frame prototype; its docked workspaces are off by default."},
   "layout.prototype.model": {"case": "keep", "why": "A view-only layout prototype for trying other layout models; off because it is experimental."},
