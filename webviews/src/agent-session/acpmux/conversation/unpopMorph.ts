@@ -223,17 +223,28 @@ class Unpop {
     content.appendChild(copyText(editor, rectOf(editor).width));
     content.style.opacity = "0";
     const easing = getComputedStyle(editor).getPropertyValue("--agent-ease-send").trim() || MOTION_EASE_SEND;
-    this.clock = this.layer.animate([], { duration: this.duration, easing });
-    this.clock.oncancel = () => this.land();
+    // The clock only eases: it is held paused and set to each frame's time, so its progress is read in
+    // the frame it is drawn. A running animation is pending until the compositor starts it, and its
+    // first frame read the time it was set to again: the copy stood still a frame after it set off and
+    // the un-pop drew as two motions (agent-pane-composer-unpop `phases: 2`).
+    const clock = (this.clock = this.layer.animate([], { duration: this.duration, easing, fill: "forwards" }));
+    clock.pause();
+    clock.oncancel = () => this.land();
     // The copy is a frame along in the frame the field and the queue change, so all of it is one
     // motion (a still frame between them would be a second).
-    this.clock.currentTime = Math.min(FRAME_MS, this.duration);
+    const lead = Math.min(FRAME_MS, this.duration);
+    const started = view.performance.now() - lead;
+    let elapsed = lead;
+    clock.currentTime = elapsed;
     this.draw(0);
-    const step = () => {
+    const step = (time: number) => {
       if (this.done) return;
       if (!editor.isConnected || this.ended) return this.land();
-      this.ended = this.clock!.playState === "finished";
-      this.draw(this.ended ? 1 : (this.clock!.effect?.getComputedTiming().progress ?? 1));
+      // Each frame further along than the last, even one whose timestamp is from before play.
+      elapsed = Math.min(this.duration, Math.max(time - started, elapsed + FRAME_MS));
+      clock.currentTime = elapsed;
+      this.ended = elapsed >= this.duration;
+      this.draw(this.ended ? 1 : (clock.effect?.getComputedTiming().progress ?? 1));
       this.frame = view.requestAnimationFrame(step);
     };
     this.frame = view.requestAnimationFrame(step);
