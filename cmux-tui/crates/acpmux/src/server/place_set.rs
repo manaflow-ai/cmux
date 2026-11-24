@@ -260,9 +260,9 @@ async fn one(
     );
     let (hub, sid, why) = (hub.clone(), id.clone(), why.to_owned());
     let wait = plan.state == State::AfterTurn;
-    let owner = hub.scope.clone();
+    let owner = hub.clone();
     let (early_tx, early_rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
-    owner.spawn_named(
+    owner.scope.spawn_named(
         "place-move",
         Box::pin(async move {
             let outcome = run_move(&hub, &sid, &to, &why, cwd, wait).await;
