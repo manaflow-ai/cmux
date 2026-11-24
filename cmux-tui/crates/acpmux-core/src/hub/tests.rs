@@ -129,6 +129,9 @@ async fn list_window_gate_measures_running_subscriptions_at_both_sizes() {
     let god_p95 = best_p95(&god_rounds);
     let all_god_samples = god_rounds.iter().flatten().copied().collect::<Vec<_>>();
     let all_god_p95 = p95(&all_god_samples);
+    // Each row's line goes out before its bounds: a bound that fails leaves the row in the
+    // measures file, and the v2 home reads it red with its numbers rather than as no measure.
+    gate("v2.pr05.first_list_window", small_p95, god_p95, all_god_p95);
     assert!(
         god_p95 <= small_p95.saturating_mul(12) / 10,
         "first window p95 grew beyond 1.2x: small={small_p95}ns god={god_p95}ns"
@@ -137,7 +140,6 @@ async fn list_window_gate_measures_running_subscriptions_at_both_sizes() {
         all_god_p95 <= small_p95.saturating_mul(2),
         "first window all-sample p95 exceeded 2x small p95: small={small_p95}ns god={all_god_p95}ns"
     );
-    gate("v2.pr05.first_list_window", small_p95, god_p95, all_god_p95);
 
     let small_index = populated_index("s", 20);
     let god_index = populated_index("g", 11_000);
@@ -151,6 +153,7 @@ async fn list_window_gate_measures_running_subscriptions_at_both_sizes() {
     let god_change_p95 = best_p95(&god_changes);
     let all_god_change_samples = god_changes.iter().flatten().copied().collect::<Vec<_>>();
     let all_god_change_p95 = p95(&all_god_change_samples);
+    gate("v2.pr05.summary_change", small_change_p95, god_change_p95, all_god_change_p95);
     assert!(
         god_change_p95 <= small_change_p95.saturating_mul(37) / 10,
         "summary change p95 grew beyond 3.7x: small={small_change_p95}ns god={god_change_p95}ns"
@@ -160,7 +163,6 @@ async fn list_window_gate_measures_running_subscriptions_at_both_sizes() {
         "summary change all-sample p95 exceeded 6.2x small p95: small={small_change_p95}ns god={all_god_change_p95}ns"
     );
     assert!(god_change_p95 <= 10_000, "summary change god p95 exceeded 10us: {god_change_p95}ns");
-    gate("v2.pr05.summary_change", small_change_p95, god_change_p95, all_god_change_p95);
 }
 
 #[test]
