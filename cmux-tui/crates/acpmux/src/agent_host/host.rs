@@ -780,6 +780,12 @@ impl Started {
         crate::claude_stdio::prompt_suggestions::set_managed(spec.prompt_suggestions_managed);
         let translator = spec.translator.as_ref().map(|t| {
             let tr = Translator::new(t.acp_session_id.clone(), &t.mode, &t.model, &t.effort);
+            tr.stop_condition.store(t.stop_condition, std::sync::atomic::Ordering::Relaxed);
+            if let Some((_, home)) =
+                spec.env.iter().find(|(key, _)| key == crate::bg_hook::HOME_ENV)
+            {
+                let _ = tr.plugin_hook_home.set(home.into());
+            }
             if t.fast
                 && let Ok(mut fast) = tr.fast.try_lock()
             {
@@ -791,6 +797,9 @@ impl Started {
                 && let Ok(mut slot) = tr.session_id.try_lock()
             {
                 *slot = Some(sid.clone());
+            }
+            if t.resumes_cut_turn {
+                tr.owe_resumed();
             }
             tr
         });

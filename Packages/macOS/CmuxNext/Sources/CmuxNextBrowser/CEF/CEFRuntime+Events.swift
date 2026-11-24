@@ -270,6 +270,7 @@ extension CEFRuntime {
         windowRequests.linkClicks.onGesture = { [weak self] browser in
             guard let tab = self?.tabsByBrowser[browser] else { return }
             tab.automaticDownloads.userGesture()
+            tab.refusesDownloadsUntilGesture = false
             tab.pageUserInput?(ProcessInfo.processInfo.systemUptime)
         }
         windowRequests.linkClicks.onPersonInput = { [weak self] browser in self?.tabsByBrowser[browser]?.allowWebAuthnForPerson() }

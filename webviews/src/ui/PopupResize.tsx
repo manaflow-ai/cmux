@@ -18,6 +18,8 @@ export interface PopupResizeOptions {
   minWidth?: number;
   /** The shortest a drag makes it, in px. */
   minHeight?: number;
+  /** Fit to the content up to the saved height on open. A height drag fixes the size until close. */
+  fitHeight?: boolean;
 }
 
 export const POPUP_RESIZE_MIN_WIDTH = 200;
@@ -71,7 +73,13 @@ const AVAILABLE_WIDTH = "var(--available-width, calc(100vw - 24px))";
 /// Sizes `popup` to the kept width and height, or back to its stylesheet's default where none is kept.
 /// A kept size never runs past the room the positioner reports. Only the sizes this (or a drag) set
 /// are cleared (data-resized-width and -height mark them), never another owner's inline style.
-function applySize(popup: HTMLElement, width: number | undefined, height: number | undefined, least: number) {
+function applySize(
+  popup: HTMLElement,
+  width: number | undefined,
+  height: number | undefined,
+  least: number,
+  fixedHeight: boolean,
+) {
   if (width !== undefined) {
     popup.style.width = `min(${width}px, ${AVAILABLE_WIDTH})`;
     popup.style.minWidth = `min(${least}px, ${AVAILABLE_WIDTH})`;
@@ -86,7 +94,7 @@ function applySize(popup: HTMLElement, width: number | undefined, height: number
   if (height !== undefined) {
     const size = `min(${height}px, var(--available-height, ${height}px))`;
     popup.style.minHeight = "";
-    popup.style.height = size;
+    popup.style.height = fixedHeight ? size : "";
     popup.style.maxHeight = size;
     popup.dataset.resizedHeight = "";
   } else if (popup.dataset.resizedHeight !== undefined) {
@@ -99,9 +107,15 @@ function applySize(popup: HTMLElement, width: number | undefined, height: number
 
 /// Marks `popup` resizable and sizes it (applySize), outside the component: the popup is held in state,
 /// and the React Compiler skips a component that writes to a value it holds.
-function sizePopup(popup: HTMLElement, width: number | undefined, height: number | undefined, least: number) {
+function sizePopup(
+  popup: HTMLElement,
+  width: number | undefined,
+  height: number | undefined,
+  least: number,
+  fixedHeight: boolean,
+) {
   popup.dataset.resizable = "";
-  applySize(popup, width, height, least);
+  applySize(popup, width, height, least, fixedHeight);
 }
 
 /// Marks the sizes a drag on `axes` writes, so a reset or an unchanged drag clears them again.
@@ -121,7 +135,7 @@ export function PopupResizeGrips({
   side: "top" | "bottom";
   align: "start" | "end";
 }) {
-  const { id } = resize;
+  const { id, fitHeight } = resize;
   const leastWidth = resize.minWidth ?? POPUP_RESIZE_MIN_WIDTH;
   const leastHeight = resize.minHeight ?? POPUP_RESIZE_MIN_HEIGHT;
   const sizes = popupSizeStores(id);
@@ -131,6 +145,7 @@ export function PopupResizeGrips({
   const [placed, setPlaced] = useState<Placement>({ side, align });
   // A drag in progress owns the size: a render meanwhile (a streaming reply) never resets it.
   const dragging = useRef(false);
+  const openHeight = useRef<number | undefined>(undefined);
   const holdPopup = useCallback((grip: HTMLDivElement | null) => setPopup(grip?.parentElement ?? null), []);
   // Where the popup opened, followed as the positioner places it.
   useLayoutEffect(() => {
@@ -145,8 +160,10 @@ export function PopupResizeGrips({
     return () => observer.disconnect();
   }, [popup, side, align]);
   useLayoutEffect(() => {
-    if (popup && !dragging.current) sizePopup(popup, width, height, leastWidth);
-  }, [popup, width, height, leastWidth]);
+    if (!popup || dragging.current) return;
+    if (height === undefined) openHeight.current = undefined;
+    sizePopup(popup, width, openHeight.current ?? height, leastWidth, !fitHeight || openHeight.current !== undefined);
+  }, [popup, width, height, leastWidth, fitHeight]);
   const start = (event: React.PointerEvent<HTMLDivElement>, axes: PopupResizeAxes) => {
     const node = event.currentTarget.parentElement;
     if (!node) return;
@@ -172,9 +189,18 @@ export function PopupResizeGrips({
       onEnd: (size) => {
         dragging.current = false;
         if (size.width !== undefined) sizes.width.set(size.width);
-        if (size.height !== undefined) sizes.height.set(size.height);
+        if (size.height !== undefined) {
+          if (fitHeight) openHeight.current = size.height;
+          sizes.height.set(size.height);
+        }
         // Whatever the drag left, the kept size (or the default) sizes it again.
-        applySize(node, sizes.width.get(), sizes.height.get(), leastWidth);
+        applySize(
+          node,
+          sizes.width.get(),
+          openHeight.current ?? sizes.height.get(),
+          leastWidth,
+          !fitHeight || openHeight.current !== undefined,
+        );
       },
     });
   };

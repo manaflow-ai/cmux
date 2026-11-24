@@ -158,6 +158,20 @@ pub struct BindFile {
     pub env: Env,
     /// The relay carrier route (`carrier_entry.rs`), when the platform sent one.
     pub carrier: Option<crate::carrier_entry::CarrierRoute>,
+    /// The compiler cache's settings (`sccache_env.rs`). Never fails the bind: a refused section
+    /// only leaves the cache off.
+    pub sccache: SccacheSection,
+}
+
+/// `bind.json`'s `sccache` section (`sccache_env.rs`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SccacheSection {
+    /// No section: the cache is off.
+    Absent,
+    /// The variables, in name order.
+    Env(Vec<(String, String)>),
+    /// Refused, and why (names only, never a value): the cache is off.
+    Refused(String),
 }
 
 fn prefixed_id(raw: &str, prefix: &str) -> bool {
@@ -204,7 +218,14 @@ pub fn parse_bind_file(text: &str) -> Result<BindFile, String> {
             Some(route)
         }
     };
-    Ok(BindFile { team, machine, bind_token, api_origin, env, carrier })
+    let sccache = match raw.get("sccache") {
+        None => SccacheSection::Absent,
+        Some(section) => match crate::sccache_env::parse_section(section) {
+            Ok(vars) => SccacheSection::Env(vars),
+            Err(why) => SccacheSection::Refused(why),
+        },
+    };
+    Ok(BindFile { team, machine, bind_token, api_origin, env, carrier, sccache })
 }
 
 /// `bound.json`: what the machine needs to report after a restart.
@@ -309,6 +330,13 @@ pub fn daemon_info_from_identify(identify: &Value, activity_sender: bool) -> Dae
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Activity {
     pub active_sessions: u64,
+    /// How many of `active_sessions` are a person's attached clients (the daemon's
+    /// `attached_clients`), with no agent and no turn behind them. The Cloud's input-only idle
+    /// policy (cmux-platform `IdlePolicy.ts`, `CLOUD_IDLE_ATTACHED=input`) does not count these as
+    /// in use: an attached client keeps the machine running only through its input
+    /// (`last_user_input_at`), so an app left attached and idle no longer keeps it awake forever.
+    /// Every other policy reads `active_sessions` as before.
+    pub attached_clients: u64,
     pub last_user_input_at: Option<u64>,
     pub last_agent_action_at: Option<u64>,
     /// acpmux's `phases` block, while every daemon whose count holds sent one
@@ -331,6 +359,10 @@ impl Activity {
     pub fn to_json(&self) -> Value {
         let mut out = Map::new();
         out.insert("active_sessions".to_owned(), json!(self.active_sessions));
+        out.insert(
+            "attached_clients".to_owned(),
+            json!(self.attached_clients.min(self.active_sessions)),
+        );
         if let Some(at) = self.last_user_input_at {
             out.insert("last_user_input_at".to_owned(), json!(at));
         }
@@ -366,6 +398,7 @@ impl Activity {
     ) -> Activity {
         Activity {
             active_sessions: self.active_sessions.saturating_add(acp_sessions),
+            attached_clients: self.attached_clients,
             last_user_input_at: self.last_user_input_at,
             last_agent_action_at: self.last_agent_action_at.max(acp_action_at),
             phases: acp_phases,
@@ -380,6 +413,8 @@ impl Activity {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ActivityChange {
     pub active_sessions: Option<u64>,
+    /// The daemon's attached person clients ([`Activity::attached_clients`]).
+    pub attached_clients: Option<u64>,
     pub last_user_input_at: Option<u64>,
     pub last_agent_action_at: Option<u64>,
 }
@@ -388,6 +423,9 @@ impl ActivityChange {
     pub fn apply(&self, to: &mut Activity) {
         if let Some(n) = self.active_sessions {
             to.active_sessions = n;
+            // A count that names no attached clients (a socket `activity` line) says nothing
+            // about them: all of it counts as in use, as it always did.
+            to.attached_clients = self.attached_clients.unwrap_or(0).min(n);
         }
         if self.last_user_input_at.is_some() {
             to.last_user_input_at = self.last_user_input_at;
@@ -402,6 +440,7 @@ impl ActivityChange {
     pub fn from_json(v: &Value) -> ActivityChange {
         ActivityChange {
             active_sessions: v.field("active_sessions").as_u64(),
+            attached_clients: None,
             last_user_input_at: v.field("last_user_input_at").as_u64(),
             last_agent_action_at: v.field("last_agent_action_at").as_u64(),
         }
@@ -409,12 +448,14 @@ impl ActivityChange {
 }
 
 /// The daemon's activity (`subscribe-activity`) as a report change:
-/// sessions = attached clients + live agents; only positive times count.
+/// sessions = attached clients + live agents, with the attached clients also counted on their
+/// own ([`Activity::attached_clients`]); only positive times count.
 pub fn activity_from_daemon(a: &Value) -> ActivityChange {
     let count = |key: &str| a[key].as_u64().unwrap_or(0);
     let time = |key: &str| a[key].as_u64().filter(|ms| *ms > 0);
     ActivityChange {
         active_sessions: Some(count("attached_clients") + count("live_agents")),
+        attached_clients: Some(count("attached_clients")),
         last_user_input_at: time("last_user_input_at_ms"),
         last_agent_action_at: time("last_agent_action_at_ms"),
     }

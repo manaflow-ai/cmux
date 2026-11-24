@@ -3,6 +3,8 @@
 // of cmux Cloud classic machines (`cloud.migration.status` and `.start`, contract 4; "Later" is kept
 // per account in this browser). The plan is read
 // on sign-in and after a confirmed change that may move its usage; the page never computes a limit.
+// Whether the latest payment failed (`cmux.cloud.billing.status`) is read on sign-in and each time
+// the page is shown again; the page shows its notice only when the host answers true.
 import type { PageClient } from "../shared/pageClient";
 import type { CloudState } from "./store";
 import {
@@ -12,6 +14,8 @@ import {
   CloudOps,
   isUnsupported,
   type ActionRunResult,
+  type BillingStatus,
+  CloudActions,
   type CloudPlan,
   type CloudTeam,
   type MigrationStarted,
@@ -108,6 +112,11 @@ export function canUpgradeClassic(migration: MigrationStatus | undefined): boole
   return migration?.state === "moved";
 }
 
+/** The host's billing answer says the latest payment failed: a JSON `true`, nothing else. */
+export function pastDue(answer: BillingStatus | null | undefined): boolean {
+  return answer?.payment_past_due === true;
+}
+
 export class AccountReader {
   constructor(
     private readonly client: PageClient | null,
@@ -118,10 +127,11 @@ export class AccountReader {
   async load(session: number): Promise<void> {
     const client = this.client;
     if (!client) return;
-    const [teams, plan, migration] = await Promise.allSettled([
+    const [teams, plan, migration, billing] = await Promise.allSettled([
       client.call<CloudTeam[]>(AccountOps.teamList, {}),
       client.call<CloudPlan>(CloudOps.planGet, {}),
       client.call<MigrationStatus>(CloudOps.migrationStatus, {}),
+      client.call<BillingStatus | null>(CloudOps.billingStatus, {}),
     ]);
     if (session !== this.host.session()) return;
     for (const [op, result] of [
@@ -136,6 +146,7 @@ export class AccountReader {
       plan: plan.status === "fulfilled" ? plan.value : undefined,
       planFailed: plan.status === "rejected" && !isUnsupported(plan.reason),
       migration: migration.status === "fulfilled" ? migration.value : undefined,
+      paymentPastDue: billing.status === "fulfilled" && pastDue(billing.value),
       // "Later" is kept per account across page opens.
       migrationDismissed: account !== undefined && migrationLater(account),
     });
@@ -156,6 +167,32 @@ export class AccountReader {
       // The plan shown stays; the next change or page open reads it again. Without one, the
       // storefront shows the failure and Retry.
       if (session === this.host.session() && !this.host.get().plan) this.host.set({ planFailed: true });
+    }
+  }
+
+  /**
+   * Reads whether the latest payment failed again (the page is shown again: the person may have
+   * paid meanwhile). A failed read hides the notice; nothing is read while signed out.
+   */
+  async readBilling(session: number): Promise<void> {
+    if (!this.client || !this.host.get().auth?.signedIn) return;
+    let paymentPastDue = false;
+    try {
+      paymentPastDue = pastDue(await this.client.call<BillingStatus | null>(CloudOps.billingStatus, {}));
+    } catch {
+      // No host op, a signed-out account or cmux.com unreachable: no notice.
+    }
+    if (session !== this.host.session()) return;
+    if (paymentPastDue !== !!this.host.get().paymentPastDue) this.host.set({ paymentPastDue });
+  }
+
+  /** Manage Billing beside the payment notice: the app opens the billing page in the browser. */
+  async manageBilling(): Promise<void> {
+    if (!this.client) return;
+    try {
+      await this.client.call<ActionRunResult | null>(ACTION_RUN, { action: CloudActions.manageBilling });
+    } catch (error) {
+      this.host.fail(CloudActions.manageBilling, error);
     }
   }
 

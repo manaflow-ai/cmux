@@ -22,6 +22,7 @@ import { cloudProgressLook } from "../pages/cloud-progress/cloudProgress.experim
 import { startRecoveryLook } from "../agent-session/acpmux/startRecovery.experiment";
 import { cloudStartAskLook } from "../agent-session/acpmux/cloudStartAsk.experiment";
 import { agentStartLook } from "../agent-session/acpmux/conversation/agentStart.experiment";
+import { composerUnpop } from "../agent-session/acpmux/conversation/unpop.experiment";
 import { liveLineTokens } from "../agent-session/acpmux/conversation/liveLineTokens.experiment";
 import { compactingLine } from "../agent-session/acpmux/conversation/compactingLine.experiment";
 import { liveLineTimes } from "../agent-session/acpmux/conversation/liveLineTimes.experiment";
@@ -54,6 +55,8 @@ import { jumpUpButton } from "../agent-session/acpmux/jumpUp.experiment";
 import { turnFoldReplies } from "../agent-session/acpmux/conversation/turnFoldReplies.experiment";
 import { turnFoldSteered } from "../agent-session/acpmux/conversation/turnFoldSteered.experiment";
 import { sinceLook } from "../agent-session/acpmux/conversation/sinceLook.experiment";
+import { workedLine } from "../agent-session/acpmux/conversation/workedLine.experiment";
+import { toolRowWords } from "../agent-session/acpmux/conversation/toolRowWords.experiment";
 import { workedForMessages } from "../agent-session/acpmux/conversation/workedForMessages.experiment";
 import { bareWorkedTurns } from "../agent-session/acpmux/conversation/bareWorkedTurns.experiment";
 import { turnErrorCard } from "../agent-session/acpmux/conversation/turnErrorCard.experiment";
@@ -146,6 +149,8 @@ export const EXPERIMENTS: readonly Experiment[] = [
   jumpUpButton,
   turnFoldReplies,
   turnFoldSteered,
+  workedLine,
+  toolRowWords,
   sinceLook,
   workedForMessages,
   bareWorkedTurns,
@@ -184,6 +189,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   cloudStartAskLook,
   startRecoveryLook,
   agentStartLook,
+  composerUnpop,
   liveLineTokens,
   compactingLine,
   liveLineTimes,
