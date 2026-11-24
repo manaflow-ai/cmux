@@ -63,6 +63,8 @@ final class CEFPaneHost {
             guard let self else { return false }
             return self.visibleTab?.pendingFocus == true || CEFLayerHosting.pageWindowIsKey(over: self.hostView)
         }
+        // A first-frame hold that a window change began ends with the grant of the tab shown then (as `holdFirstFrameIfAppeared`).
+        hostView.layerHosting.heldGrant = { [weak self] in self?.visibleTab?.grantPendingFocusIfShown() }
     }
 
     /// The viewport of a tab no pane has shown (Playwright's default page
