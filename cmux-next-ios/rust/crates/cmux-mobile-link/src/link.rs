@@ -1333,7 +1333,11 @@ impl Link {
                     if has_lane && (tries < DATAGRAM_PING_ATTEMPTS || !in_stream) =>
                 {
                     // Parked since the first send: no resend wakes the Mac.
-                    if self.inner.parked_until().is_some() {
+                    let park = self.inner.park.borrow();
+                    if matches!(*park, Park::Parked { .. }) {
+                        if keepalive {
+                            return Ok(None);
+                        }
                         continue;
                     }
                     if tries < DATAGRAM_PING_ATTEMPTS {
@@ -1642,11 +1646,19 @@ async fn watch_liveness(link: Link, after: Duration) {
     let probe = |link: &Link| {
         let pinger = link.clone();
         tokio::spawn(async move {
-            let _ = tokio::time::timeout(after, pinger.ping()).await;
+            let _ = tokio::time::timeout(after, pinger.round_trip(true)).await;
         });
     };
     let mut last_probe: Option<Instant> = None;
     loop {
+        // The Mac's park reply is deliberately the last unanswered frame.
+        // Silence only indicates a dead path while we expect the peer to answer.
+        if inner.parked_until().is_some() {
+            if !wait_out_park(&link).await {
+                return;
+            }
+            last_probe = None;
+        }
         let now = Instant::now();
         let unanswered = inner.unanswered();
         let next = if inner.suspect_flag.load(Ordering::Relaxed) {
@@ -1707,6 +1719,12 @@ async fn foreground_probe(link: Link) {
                 changed = on.changed() => if changed.is_err() { return },
             }
         }
+        if inner.parked_until().is_some() {
+            if !wait_out_park(&link).await {
+                return;
+            }
+            continue;
+        }
         // The last probe (when, its nonce) and whether it was resent.
         let mut last: Option<(Instant, u64)> = None;
         let mut resent = false;
@@ -1719,7 +1737,7 @@ async fn foreground_probe(link: Link) {
                 let wait = srtt.map_or(DATAGRAM_PING_RESEND, |srtt| srtt * FOREGROUND_RESEND_RTTS);
                 at + wait.clamp(DATAGRAM_PING_RESEND, FOREGROUND_RESEND_CAP)
             });
-            tokio::select! {
+            let retry = tokio::select! {
                 _ = closed.wait_for(Option::is_some) => return,
                 changed = on.changed() => {
                     if changed.is_err() {
@@ -1730,17 +1748,23 @@ async fn foreground_probe(link: Link) {
                     }
                     continue;
                 }
-                () = tokio::time::sleep_until(resend_at.unwrap_or(tick)), if resend_at.is_some() => {
-                    resent = true;
-                    if let Some((at, nonce)) = last
-                        && inner.last_received() < at
-                        && !inner.suspect_flag.load(Ordering::Relaxed)
-                    {
-                        inner.send_datagram(DATAGRAM_PING, nonce, 1);
-                    }
-                    continue;
+                () = tokio::time::sleep_until(resend_at.unwrap_or(tick)), if resend_at.is_some() => true,
+                () = tokio::time::sleep_until(tick) => false,
+            };
+            // Serialize each send with set_parked, including a retry already due.
+            let park = inner.park.borrow();
+            if matches!(*park, Park::Parked { .. }) {
+                break;
+            }
+            if retry {
+                resent = true;
+                if let Some((at, nonce)) = last
+                    && inner.last_received() < at
+                    && !inner.suspect_flag.load(Ordering::Relaxed)
+                {
+                    inner.send_datagram(DATAGRAM_PING, nonce, 1);
                 }
-                () = tokio::time::sleep_until(tick) => {}
+                continue;
             }
             let now = Instant::now();
             tick = (tick + FOREGROUND_PROBE).max(now);
@@ -3107,6 +3131,30 @@ mod tests {
             assert!(matches!(channel.recv().await, Some(ChannelEvent::Data(got)) if got == bytes));
         }
         assert!(matches!(channel.recv().await, Some(ChannelEvent::Closed(info)) if info.code == "done"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn foreground_probes_wait_out_a_park() {
+        let (phone, mac, dark) = gated_pair(LinkConfig::default(), LinkConfig::default());
+        let sent = Arc::new(AtomicU64::new(0));
+        let (phone_lane, mac_lane) = gated_datagrams(&dark, Arc::clone(&sent));
+        phone.attach_liveness_datagrams(phone_lane);
+        mac.attach_liveness_datagrams(mac_lane);
+        phone.set_foreground_probe(true);
+        tokio::time::sleep(FOREGROUND_PROBE).await;
+        assert!(phone.park(Duration::from_secs(60), Duration::from_secs(1)).await.unwrap());
+        dark.send_replace(true);
+        let before = sent.load(Ordering::Relaxed);
+        tokio::time::sleep(Duration::from_secs(36)).await;
+        assert_eq!(sent.load(Ordering::Relaxed), before);
+        assert!(!mac.is_suspect() && !phone.is_suspect());
+
+        dark.send_replace(false);
+        assert!(phone.resume());
+        phone.probe(Duration::from_secs(1)).await.unwrap();
+        let resumed = sent.load(Ordering::Relaxed);
+        tokio::time::sleep(FOREGROUND_PROBE * 2).await;
+        assert!(sent.load(Ordering::Relaxed) > resumed);
     }
 
     /// A keepalive beat that fired just before the phone parked must not put
