@@ -29,9 +29,6 @@ import ios_link_ffi_key  # noqa: E402
 
 BUILD = "build-xcframework.sh"
 KEY_PREFIX = "ios-link-ffi-xcframework-"
-# cmux-next-ios-kit.yml checks the build script itself (that it runs and leaves
-# the generated Swift unchanged), so it always builds.
-ALWAYS_BUILDS = {"cmux-next-ios-kit.yml"}
 # The gate's legs read cmux NEXT's R2 bucket (cmux-next-fast-tier-seed.yml),
 # under a namespace of their own: the key already names the Xcode build and
 # the runner, and the Linux job that writes it is not the Mac that built it.
@@ -179,8 +176,6 @@ class WorkflowTests(unittest.TestCase):
 
     def test_every_builder_restores_by_the_input_key_and_builds_only_on_a_miss(self) -> None:
         for workflow, job, steps in self.builders():
-            if workflow in ALWAYS_BUILDS:
-                continue
             with self.subTest(workflow=workflow, job=job):
                 build_at = next(i for i, s in enumerate(steps) if BUILD in run_text(s))
                 key_steps = [i for i, s in enumerate(steps) if "ios_link_ffi_key.py" in run_text(s)]

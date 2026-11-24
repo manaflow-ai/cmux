@@ -55,6 +55,7 @@ on:
       # The toolchains it uses.
       - ".github/actions/setup-cmux-tui-rust/**"
       - ".github/actions/runner-cargo-home/**"
+      - ".github/scripts/ios_link_ffi_key.py"
       - "cmux-tui/rust-toolchain.toml"
       - "scripts/select-ci-xcode.sh"
       - "scripts/ci/xcode-pins.txt"
@@ -95,6 +96,7 @@ on:
       # The toolchains it uses.
       - ".github/actions/setup-cmux-tui-rust/**"
       - ".github/actions/runner-cargo-home/**"
+      - ".github/scripts/ios_link_ffi_key.py"
       - "cmux-tui/rust-toolchain.toml"
       - "scripts/select-ci-xcode.sh"
       - "scripts/ci/xcode-pins.txt"
@@ -302,13 +304,56 @@ jobs:
         if: ${{ !cancelled() }}
         run: ./scripts/select-ci-xcode.sh
 
+      # A PR can use the verified framework and generated Swift from the review gate's
+      # base-branch writer. Pushes and dispatches still exercise the build script itself.
+      - name: The framework's inputs
+        id: ffi-key
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          # A ref from before the key script, or a key that fails, builds as before.
+          if [ -f .github/scripts/ios_link_ffi_key.py ]; then
+            python3 -I .github/scripts/ios_link_ffi_key.py --repo . --explain \
+              --extra "xcode=$(xcodebuild -version | tr '\n' ' ')" --extra "runner=$RUNNER_OS-$RUNNER_ARCH" >> "$GITHUB_OUTPUT" \
+              || echo "::warning::no cache key for CmuxMobileLinkFFI.xcframework; building it"
+          fi
+      - name: Restore the framework built from the same inputs
+        id: ffi
+        if: ${{ !cancelled() && steps.ffi-key.outputs.key != '' }}
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          # The key names the Xcode build and the runner; the Linux writer
+          # is not the Mac that built it.
+          CI_CACHE_R2_NAMESPACE: ios-link-ffi
+        with:
+          backend: r2
+          # One directory per entry: the framework and its generated Swift.
+          path: ${{ runner.temp }}/link-ffi
+          key: ios-link-ffi-xcframework-${{ steps.ffi-key.outputs.key }}
+      - name: Put the restored framework in place
+        id: ffi-place
+        if: ${{ !cancelled() && steps.ffi.outputs.cache-hit == 'true' }}
+        # An incomplete entry builds the framework instead of failing the leg.
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          test -d "$RUNNER_TEMP/link-ffi/CmuxMobileLinkFFI.xcframework"
+          test -f "$RUNNER_TEMP/link-ffi/CmuxMobileLinkFFI.swift"
+          kit=cmux-next-ios/CmuxMobileKit
+          rm -rf "$kit/Frameworks/CmuxMobileLinkFFI.xcframework"
+          mkdir -p "$kit/Frameworks" "$kit/Sources/CmuxMobileLinkFFI"
+          cp -R "$RUNNER_TEMP/link-ffi/CmuxMobileLinkFFI.xcframework" "$kit/Frameworks/"
+          cp "$RUNNER_TEMP/link-ffi/CmuxMobileLinkFFI.swift" "$kit/Sources/CmuxMobileLinkFFI/"
       # cmux-next-ios/rust pins the same toolchain as cmux-tui (1.95.0).
       - name: Set up pinned Rust
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && (steps.ffi.outputs.cache-hit != 'true' || steps.ffi-place.outcome != 'success') }}
         uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: Cache cargo
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && (steps.ffi.outputs.cache-hit != 'true' || steps.ffi-place.outcome != 'success') }}
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
@@ -318,7 +363,7 @@ jobs:
           key: cmux-next-ios-kit
 
       - name: Build CmuxMobileLinkFFI.xcframework
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && (steps.ffi.outputs.cache-hit != 'true' || steps.ffi-place.outcome != 'success') }}
         env:
           JOBS: "8"
         run: bash cmux-next-ios/rust/scripts/build-xcframework.sh
