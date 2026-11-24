@@ -588,6 +588,16 @@ impl SubagentTree {
                 if let Some(tokens) = update.get("tokens").and_then(Value::as_u64) {
                     event.insert("tokens".into(), json!(tokens));
                 }
+                // An end acpmux wrote after the fact (`expiry.rs`): when it really ended and
+                // started, and that it was recovered, so a client draws it where it ended.
+                for key in ["endedAt", "startedAt"] {
+                    if let Some(at) = update.get(key).and_then(Value::as_u64) {
+                        event.insert(key.into(), json!(at));
+                    }
+                }
+                if update.get("recovered") == Some(&Value::Bool(true)) {
+                    event.insert("recovered".into(), json!(true));
+                }
                 self.remember_label(&id, &event);
                 self.label(&id, &mut event);
                 vec![Value::Object(event)]
