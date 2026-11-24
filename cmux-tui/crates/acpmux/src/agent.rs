@@ -925,6 +925,7 @@ struct Spawned {
     run_class: std::sync::OnceLock<crate::cpu_class::CpuClass>,
     /// Its command line carries the repository hook (`codex_repo_gate::in_args`).
     repo_gated: bool,
+    plugin_hook_home: Option<std::path::PathBuf>,
     #[cfg(windows)]
     job: Option<crate::job::Job>,
     #[cfg(feature = "sim")]
@@ -950,6 +951,12 @@ impl Spawned {
         .await;
         let preview_format = Some(pinned_preview_format(&cmd));
         let repo_gated = crate::codex_repo_gate::in_args(cmd.as_std().get_args());
+        let plugin_hook_home = cmd.as_std().get_envs().find_map(|(key, value)| {
+            (key == crate::bg_hook::HOME_ENV)
+                .then_some(value)
+                .flatten()
+                .map(std::path::PathBuf::from)
+        });
         #[cfg(windows)]
         cmd.creation_flags(crate::job::AGENT_FLAGS);
         // Never at background class while it starts; its class, from the harness's own env (its
@@ -999,6 +1006,7 @@ impl Spawned {
             preview_format,
             run_class: std::sync::OnceLock::from(run_class),
             repo_gated,
+            plugin_hook_home,
             #[cfg(windows)]
             job,
             #[cfg(feature = "sim")]
@@ -1020,6 +1028,7 @@ impl Spawned {
             preview_format: None,
             run_class: std::sync::OnceLock::new(),
             repo_gated: false,
+            plugin_hook_home: None,
             #[cfg(windows)]
             job: None,
             sim_alive: Some(pipes.alive),
@@ -1111,11 +1120,15 @@ impl ChildAgent {
             preview_format,
             run_class,
             repo_gated,
+            plugin_hook_home,
             #[cfg(windows)]
             job,
             #[cfg(feature = "sim")]
             sim_alive,
         } = spawned;
+        if let (Some(translator), Some(home)) = (&translator, plugin_hook_home) {
+            let _ = translator.plugin_hook_home.set(home);
+        }
 
         let (stdin_tx, stdin_rx) = mpsc::channel::<(String, Option<Fence>)>(256);
         let pending = Arc::new(Mutex::new(Pending {

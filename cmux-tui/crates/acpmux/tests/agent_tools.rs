@@ -397,19 +397,8 @@ async fn local_sessions_get_the_browser_and_computer_use_tools_and_skills() {
     )
     .unwrap();
     assert_eq!(manifest["name"], "cmux");
-    // The background-shell hook (`bg_hook.rs`) runs before every Bash call.
-    let hooks: Value =
-        serde_json::from_str(&std::fs::read_to_string(plugin.join("hooks/hooks.json")).unwrap())
-            .unwrap();
-    let bash = &hooks["hooks"]["PreToolUse"][0];
-    assert_eq!(bash["matcher"], "Bash", "{hooks}");
-    // With the daemon's home, which the harness's env does not carry. The shell starts it only
-    // for a call it may answer, and a hook binary that fails (version skew) lets the call run:
-    // the command ends `true` (`hook_command`).
-    let command = bash["hooks"][0]["command"].as_str().unwrap();
-    let with_home = format!("'__bg-hook' '{}' ;; esac; true", acpmux::config::home().display());
-    assert!(command.starts_with("input=$(cat); case ") && command.ends_with(&with_home), "{hooks}");
-    assert!(command.contains(r#"*'"run_in_background":true'*"#), "{hooks}");
+    // Tool hooks use the existing Claude control channel. No command hook runs beside them.
+    assert!(!plugin.join("hooks/hooks.json").exists());
 
     // `agents.memory.enabled` adds the memory server for the next session,
     // with the session as its provenance.

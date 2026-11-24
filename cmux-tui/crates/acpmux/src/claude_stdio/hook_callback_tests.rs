@@ -68,3 +68,60 @@ async fn registered_pre_tool_callback_waits_and_failed_sync_returns_denial() {
         hook_callback::SYNC_CALLBACK
     );
 }
+
+/// Local session tools and the goal opt in independently. All the installed handlers run over
+/// Claude's existing control stream, including at the second attempted stop of a goal.
+#[tokio::test]
+async fn session_hook_callbacks_use_the_control_stream() {
+    let home = tempfile::tempdir().unwrap();
+    for plugin in [false, true] {
+        for goal in [false, true] {
+            let t = Translator::new("acp-1".into(), "default", "sonnet", "default");
+            if plugin {
+                t.plugin_hook_home.set(home.path().into()).unwrap();
+            }
+            t.stop_condition.store(goal, Ordering::Relaxed);
+            let init = Message::request(1, method::INITIALIZE, json!({}));
+            let Outbound::LinesThenReply(lines, _) = t.outbound(&init).await else {
+                panic!("initialize must write Claude's hook registration");
+            };
+            let hooks = &lines[0]["request"]["hooks"];
+            for event in ["PreToolUse", "PostToolUse", "PostToolUseFailure", "SubagentStop", "Stop"]
+            {
+                let id = if event == "Stop" {
+                    hook_callback::STOP_CALLBACK
+                } else {
+                    hook_callback::TOOL_CALLBACK
+                };
+                let mut entries = hooks[event].as_array().into_iter().flatten();
+                assert_eq!(
+                    entries.clone().filter(|e| e["hookCallbackIds"] == json!([id])).count(),
+                    usize::from(if event == "Stop" { goal } else { plugin }),
+                    "{event}: {hooks}"
+                );
+                assert!(entries.all(|e| e.get("command").is_none()));
+            }
+            let mut call = callback("mark", hook_callback::TOOL_CALLBACK, "PreToolUse");
+            call["request"]["input"]["tool_name"] = json!("Bash");
+            call["request"]["input"]["tool_input"] = json!({"command": "acpmux ls"});
+            call["request"]["input"]["agent_id"] = json!("child");
+            t.inbound(&call).await;
+            let reply = t.take_stdin_replies().await;
+            let mark =
+                reply[0].pointer("/response/response/hookSpecificOutput/updatedInput/command");
+            if plugin {
+                assert!(mark.unwrap().as_str().unwrap().ends_with(":child\nacpmux ls"));
+            } else {
+                assert!(mark.is_none());
+            }
+            let mut stop = callback("stop", hook_callback::STOP_CALLBACK, "Stop");
+            stop["request"]["input"]["stop_hook_active"] = json!(true);
+            t.inbound(&stop).await;
+            let reply = t.take_stdin_replies().await;
+            assert_eq!(
+                reply[0].pointer("/response/response/continue"),
+                goal.then_some(&Value::Bool(false))
+            );
+        }
+    }
+}
