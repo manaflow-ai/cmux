@@ -274,6 +274,8 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `ext-hot-reload.sh` | Extension hot reload read-back test from DEV and Release builds. | - | 2026-11-14 | active |
 | `ext-reload-nightly.sh` | Extension hot reload on a published NIGHTLY: the activity example saved under a watching ext dev and read back with no rebuild asked (the watcher's reload, the daemon's loaded copy, open views), and edit-repaint.py in read-back mode. | - | 2026-11-19 | active |
 | `ext-reload-nightly.py` | App half of ext-reload-nightly.sh. | - | 2026-11-19 | active |
+| `look-keys-readback.sh` | Look keys read back on a published NIGHTLY side instance (`build=VERSION` or `dmg=URL`): each case of a cases file (`look-keys-readback/cases.json`: theme file keys, chat stylesheet tokens) applied live, every theme key read through `settings.get`, window and desktop shots before and after, and a color probe for what no socket method reads. | goals/look-keys-land | 2026-11-24 | active |
+| `look-keys-readback.py` | App half of look-keys-readback.sh (`prepare`, `run`). | goals/look-keys-land | 2026-11-24 | active |
 | `ext-rows-nightly.sh` | Extension rows closed in code read back on a published NIGHTLY side instance, CLI and daemon ops only: web panes, background activation, link openers, the New Tab page, `ext new` for every kind, composer commands and mentions, chat-widget routing. | - | 2026-11-19 | active |
 | `ext-rows-nightly.py` | App half of ext-rows-nightly.sh: one function per row. | - | 2026-11-19 | active |
 | `meet-browser.sh` | What a video-call page needs, on a published NIGHTLY side instance (Chromium, WebKit) against Google Chrome on the same Mac: getUserMedia with and without fake-device switches, getDisplayMedia, Picture-in-Picture, notifications, a loopback 720p WebRTC call with CPU, meet.google.com load cold and warm, hidden-tab timer drift. | - | 2026-11-22 | active |
@@ -328,6 +330,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `classic-upgrade.sh` | Opt-in classic upgrade timings, apart from PR correctness checks. | - | 2026-10-29 | active |
 | `hotkey-history.sh` | Runs one CmuxNext action-catalog regression test (not a measurement). | - | 2026-11-10 | active |
 | `projection.sh` | Projection window of a published build: shows a change within 5 s. | hq#7149 L10 | 2026-11-05 | active |
+| `closed-kit-raw-values.sh` | Hand-set values that type-check in the first closed webviews directory (15 probes, `open` or `closed`), and `tsc -p tsconfig.closed.json` cold and incremental. The follow rate is `bun run gallery:perturb` in webviews. | RFD 0040 | 2026-11-23 | active |
 
 No script is marked `duplicate of`: the A/B wrappers (`*-ab.sh`) and the `.py` drivers reuse their base script on purpose, and no other pair clearly measures the same thing the same way.
 
