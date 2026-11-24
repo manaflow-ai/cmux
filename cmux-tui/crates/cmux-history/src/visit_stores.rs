@@ -8,7 +8,6 @@ use std::path::{Path, PathBuf};
 
 use crate::entry::{HistoryEntry, HistoryKind};
 use crate::error::HistoryError;
-use crate::query::ActorFilter;
 use crate::query::HistoryQuery;
 use crate::visits::{NewVisit, VisitStore, VisitSummary};
 

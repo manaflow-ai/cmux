@@ -143,7 +143,7 @@ impl VisitStore {
         Self::prepare(Connection::open_in_memory()?)
     }
 
-    fn prepare(mut connection: Connection) -> Result<Self, HistoryError> {
+    fn prepare(connection: Connection) -> Result<Self, HistoryError> {
         connection.busy_timeout(Duration::from_millis(250))?;
         connection
             .pragma_update_and_check(None, "journal_mode", "WAL", |row| row.get::<_, String>(0))?;
