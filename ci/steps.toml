@@ -1150,7 +1150,8 @@ python3 -I scripts/ci/web_subareas.py has agent_pane || exit 0
 root="$PWD"
 (cd webviews && flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile)
 cd cmux-tui
-cargo build --locked -p acpmux --bin acpmux
+# One cold build a run: incremental state only fills the disk (No space left writing dep-graph.part.bin, #53426).
+CARGO_INCREMENTAL=0 cargo build --locked -p acpmux --bin acpmux
 # CARGO_TARGET_DIR (a fleet runner's shared target) moves the binary out of cmux-tui/target.
 target_dir="$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
 export ACPMUX_BIN="$target_dir/debug/acpmux"
