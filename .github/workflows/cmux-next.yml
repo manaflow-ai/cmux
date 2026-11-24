@@ -3072,7 +3072,7 @@ jobs:
           REF: ${{ github.sha }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-193
           HOME_RENDER_SUITES: MotionTokenTests,IntentMappingTests
-          CMUX_NEXT_SUITES: ModelMatrixTests,PaneZoomMotionTests,CEFProfileStorageLogTests,AgentSubagentPanesFocusTests,HandlerCoverageTests,AcpmuxClientTests
+          CMUX_NEXT_SUITES: ModelMatrixTests,PaneZoomMotionTests,CEFProfileStorageLogTests,AgentSubagentPanesFocusTests,HandlerCoverageTests,AcpmuxClientTests,AcpmuxPaneInitializeFailSafeTests,AcpmuxPaneInitializeParamsContractTests
           FFI_REPIN: ${{ needs.path_route.outputs.ffi_repin }}
         run: |
           set -uo pipefail
@@ -3770,7 +3770,7 @@ jobs:
 
       - name: Restore the cargo build from R2
         id: r2-cargo-target
-        if: ${{ steps.r2-cargo-key.outputs.target-key != '' }}
+        if: ${{ steps.reuse.outputs.hit != 'true' && steps.r2-cargo-key.outputs.target-key != '' }}
         timeout-minutes: 4
         continue-on-error: true
         uses: ./.github/actions/cache-restore
@@ -3784,7 +3784,7 @@ jobs:
 
       - name: Restore the cargo registry from R2
         id: r2-cargo-registry
-        if: ${{ steps.r2-cargo-key.outputs.registry-key != '' }}
+        if: ${{ steps.reuse.outputs.hit != 'true' && steps.r2-cargo-key.outputs.registry-key != '' }}
         timeout-minutes: 4
         continue-on-error: true
         uses: ./.github/actions/cache-restore
@@ -3815,7 +3815,7 @@ jobs:
       # rust-cache keeps (scripts/ci/cargo_target_strip.py). Why: docs/ci/cmux-next-workflow-notes.md#note-210b
       - name: Strip the workspace's own output before the R2 save
         id: r2-cargo-strip
-        if: ${{ success() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.r2-cargo-key.outputs.target-key != '' && steps.r2-cargo-target.outputs.cache-hit != 'true' }}
+        if: ${{ success() && steps.reuse.outputs.hit != 'true' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.r2-cargo-key.outputs.target-key != '' && steps.r2-cargo-target.outputs.cache-hit != 'true' }}
         continue-on-error: true
         env:
           REGISTRY: ${{ steps.r2-cargo-key.outputs.registry }}
@@ -3829,7 +3829,7 @@ jobs:
           du -sh cmux-tui/target "$REGISTRY" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Save the cargo build to R2
-        if: ${{ success() && steps.r2-cargo-strip.outcome == 'success' }}
+        if: ${{ success() && steps.reuse.outputs.hit != 'true' && steps.r2-cargo-strip.outcome == 'success' }}
         timeout-minutes: 6
         continue-on-error: true
         uses: ./.github/actions/cache-save
@@ -3844,7 +3844,7 @@ jobs:
           key: ${{ steps.r2-cargo-key.outputs.target-key }}
 
       - name: Save the cargo registry to R2
-        if: ${{ success() && steps.r2-cargo-strip.outcome == 'success' && steps.r2-cargo-registry.outputs.cache-hit != 'true' }}
+        if: ${{ success() && steps.reuse.outputs.hit != 'true' && steps.r2-cargo-strip.outcome == 'success' && steps.r2-cargo-registry.outputs.cache-hit != 'true' }}
         timeout-minutes: 6
         continue-on-error: true
         uses: ./.github/actions/cache-save
