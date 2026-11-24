@@ -213,6 +213,8 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         &[
             ("List this agent session's background tasks", "acpmux bg list"),
             ("Start a background test command", "acpmux bg start \"cargo test -p acpmux\""),
+            ("Read a background task's last lines", "acpmux bg output bg-7 --tail 50"),
+            ("Stop a background task you started", "acpmux bg stop bg-7"),
         ],
     ),
     (
@@ -220,6 +222,8 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         &[("Start a background test command", "acpmux bg start \"cargo test -p acpmux\"")],
     ),
     ("bg list", &[("List this agent session's background tasks", "acpmux bg list")]),
+    ("bg output", &[("Read a background task's last lines", "acpmux bg output bg-7 --tail 50")]),
+    ("bg stop", &[("Stop a background task you started", "acpmux bg stop bg-7")]),
     ("notices", &[("Read a session's inbox notices", "acpmux notices review-27310")]),
     ("open", &[("Open a session in a new cmux workspace", "acpmux open review-27310")]),
     ("open-tab", &[("Open a session as a cmux tab", "acpmux open-tab review-27310")]),

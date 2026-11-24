@@ -176,7 +176,7 @@ pub enum Command {
     /// Send a local brief to another harness on a machine (or the least-loaded
     /// allowed machine with `--machine auto`) and record its identity.
     Dispatch(DispatchArgs),
-    /// Start and inspect background tasks owned by this agent session.
+    /// Start, read and stop background tasks owned by this agent session.
     #[command(subcommand)]
     Bg(crate::cli::bg::BgCmd),
     /// Read the current session's inbox notices and message threads.

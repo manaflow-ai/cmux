@@ -42,26 +42,26 @@ pub(super) fn tools() -> Vec<Value> {
         json!({"type": "string", "description": "The task's id, as bg_start or bg_list gave it."});
     let description = json!({"type": "string", "description": "A few words: what this call is for. The transcript titles the call with it."});
     vec![
-        json!({"name": "bg_start", "description": "Run a shell command in the background: a dev server, a watcher, a long build or test run. It keeps running while this chat is idle or its agent hibernates, and after a restart; read it later with bg_output by its id. Prefer it to the harness's own background shell, which ends when the agent hibernates. Returns at once with the task's id. When it ends, this chat gets one message with how it ended and its last lines (unless notify is false), so there is no need to poll it.",
+        json!({"name": "bg_start", "description": "Run a shell command in the background: a dev server, a watcher, a long build or test run. It keeps running while this chat is idle or its agent hibernates, and after a restart; read it later with bg_output by its id, or with `acpmux bg output <id>` in a shell when this MCP server is unreachable. Prefer it to the harness's own background shell, which ends when the agent hibernates. Returns at once with the task's id. When it ends, this chat gets one message with how it ended and its last lines (unless notify is false), so there is no need to poll it.",
             "inputSchema": {"type": "object", "properties": {
                 "command": {"type": "string", "description": "The command, run by bash -c (/bin/sh where there is no bash), in the agent's environment."},
                 "cwd": {"type": "string", "description": "Its folder (default: the chat's)."},
                 "description": {"type": "string", "description": "A few words: what the task is for. Kept with the task; bg_list, bg_output and the end message name it by this."},
                 "notify": {"type": "boolean", "description": "Send this chat one message when the task ends (default true). It waits for a running turn to end; it never interrupts one."}},
                 "required": ["command"]}}),
-        json!({"name": "bg_list", "description": "Your background tasks (the ones you started; a subagent sees its own), newest first, one line each: id, state (running, exited, stopped, killed, lost), exit code, age and the command, cut. A bare call lists the newest 30; the last line says how many more there are and the argument that lists them. Tasks other subagents or the lead started are counted, not listed, unless all is true; they are not yours to stop.",
+        json!({"name": "bg_list", "description": "Your background tasks (the ones you started; a subagent sees its own), newest first, one line each: id, state (running, exited, stopped, killed, lost), exit code, age and the command, cut. A bare call lists the newest 30; the last line says how many more there are and the argument that lists them. Tasks other subagents or the lead started are counted, not listed, unless all is true; they are not yours to stop. The same list from a shell: `acpmux bg list`.",
             "inputSchema": {"type": "object", "properties": {"description": description,
                 "all": {"type": "boolean", "description": "List every task of this chat, whoever started it, each with who started it (default false: only yours)."},
                 "limit": {"type": "integer", "minimum": 1, "maximum": 500, "description": "How many tasks to list (default 30)."},
                 "offset": {"type": "integer", "minimum": 0, "description": "How many of the newest to skip first (default 0): the last line's offset lists the next page."},
                 "state": {"type": "string", "enum": ["running", "exited", "stopped", "killed", "lost", "ok", "failed"], "description": "Only tasks in this state, or with this outcome (ok, failed)."},
                 "full": {"type": "boolean", "description": "Each task's whole command and the tail of its output (default false). bg_output reads one task's output."}}}}),
-        json!({"name": "bg_output", "description": "Read a background task's output: by default its last 64 KiB; with fromByte, from there (pass the last nextByte to read only what is new). Each task keeps its newest 8 MiB of output; skippedBytes says how much before fromByte is gone.",
+        json!({"name": "bg_output", "description": "Read a background task's output: by default its last 64 KiB; with fromByte, from there (pass the last nextByte to read only what is new). Each task keeps its newest 8 MiB of output; skippedBytes says how much before fromByte is gone. The same read from a shell, for when this MCP server is unreachable and the daemon is not: `acpmux bg output <id> [--tail N]`.",
             "inputSchema": {"type": "object", "properties": {"id": id, "description": description,
                 "fromByte": {"type": "integer", "minimum": 0},
                 "maxBytes": {"type": "integer", "minimum": 1, "maximum": 1048576}},
                 "required": ["id"]}}),
-        json!({"name": "bg_stop", "description": "Stop a background task you started: SIGTERM to every process it started (its process group and those that left it), then SIGKILL to them 5 s later; returns once it ended. A task another subagent or the lead started is refused, naming who started it.",
+        json!({"name": "bg_stop", "description": "Stop a background task you started: SIGTERM to every process it started (its process group and those that left it), then SIGKILL to them 5 s later; returns once it ended. A task another subagent or the lead started is refused, naming who started it. The same stop from a shell: `acpmux bg stop <id>`.",
             "inputSchema": {"type": "object", "properties": {"id": id, "description": description,
                 "force_other_owner": {"type": "boolean", "description": "Stop it even though another subagent or the lead started it. Only when its owner asked you to or is gone; never as cleanup (default false)."}},
                 "required": ["id"]}}),
@@ -79,7 +79,7 @@ pub(super) fn tools() -> Vec<Value> {
 }
 
 /// What a Claude Code subagent's start (`callerSubagent`) adds to its answer: when its end comes.
-const SUBAGENT_END: &str = "You get its end after your next Bash or acpmux tool call; if you end first, it goes to your lead. bg_output reads it now.";
+const SUBAGENT_END: &str = "You get its end after your next Bash or acpmux tool call; if you end first, it goes to your lead. bg_output, or `acpmux bg output <id>` in a shell, reads it now.";
 
 pub(crate) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: &Value) -> Value {
     let by_subagent = args.get("callerSubagent").is_some_and(Value::is_object);

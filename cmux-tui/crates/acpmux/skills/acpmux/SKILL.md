@@ -143,6 +143,8 @@ cmux agent last NAME [-n 3]                            # last reply text
 cmux agent history NAME                                # one line per turn: prompt, status, tools, tokens, wall time
 cmux agent bg start 'make test'                         # inside a session, start a background shell command
 cmux agent bg list                                     # show this session's background tasks
+cmux agent bg output bg-7 [--tail 50]                   # read a task's output (last 200 lines of its newest 64 KiB by default); works while the acpmux MCP server is down
+cmux agent bg stop bg-7                                 # stop a task you started (--force-other-owner for another caller's)
 cmux agent notices                                     # read this session's inbox threads
 cmux agent search "cache"                              # every authorized session on this host and peers; session, host, UTC Z time, preview
                                                         # reachable hits remain visible; unreachable peers print unavailable with a stable reason
