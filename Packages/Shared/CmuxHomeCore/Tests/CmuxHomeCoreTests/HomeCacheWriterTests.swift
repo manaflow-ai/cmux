@@ -24,7 +24,11 @@ import Testing
         var labels: [String] { state.withLock { $0.labels } }
 
         func write(_ data: Data, _ url: URL) throws {
+            #if canImport(Darwin)
             let label = String(cString: __dispatch_queue_get_label(nil))
+            #else
+            let label = ""
+            #endif
             let call = state.withLock { state -> Int in
                 state.calls += 1
                 state.labels.append(label)
@@ -40,6 +44,8 @@ import Testing
                   writeFile: { try writer.write($0, $1) })
     }
 
+    #if canImport(Darwin)
+    // Linux has no public queue label read; the label check runs on Apple platforms.
     @Test func writesRunOnTheCachesOwnQueue() async throws {
         let writer = Writer(failures: 0)
         let cache = Self.cache(writer)
@@ -49,6 +55,7 @@ import Testing
         #expect(!writer.labels.isEmpty)
         #expect(writer.labels.allSatisfy { $0 == "com.cmuxterm.home.cache" }, "\(writer.labels)")
     }
+    #endif
 
     @Test func aFailedWriteIsTriedOnceMoreByTheFlush() async throws {
         let writer = Writer(failures: 1)
