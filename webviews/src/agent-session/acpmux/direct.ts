@@ -335,6 +335,7 @@ import {
   promptImages,
 } from "./direct/queue";
 import { OrderedRows } from "./direct/orderedRows";
+import { showsChatSnapshot } from "./chatSnapshot/live";
 import { isTrustRefusal, type TrustRefusal, type TrustRoute, trustRefusal } from "./direct/refusals";
 import { normalizeFolderProfiles } from "./direct/catalog";
 import {
@@ -820,6 +821,12 @@ const READ_AHEAD_REFRESH_MS = 5_000;
 const READ_AHEAD_WAIT_MS = 150;
 /// The longest a connect keeps the pane's last snapshot on screen while it reads the chat.
 const OPEN_HOLD_MS = 1500;
+/// How long an open under the last launch's copy (chatSnapshot/live.ts) waits for its attach before
+/// it draws the kept tail. The copy already shows the chat, and the live page takes over from it
+/// only once the attach answered, so a tail drawn first is a whole render nobody sees: about
+/// 300 ms of main thread at a restart, which held the host's `initialize` and attach answers
+/// unread behind it (ask-2152844fff). A slow attach still draws the tail once this runs out.
+const TAIL_UNDER_COPY_MS = 400;
 /// How old the draft the open asked with its attach may be when the composer's first read takes it
 /// (`earlyDraft`). That read follows the open within its first frames; one later asks acpmux again.
 const EARLY_DRAFT_FRESH_MS = 5_000;
@@ -1622,6 +1629,9 @@ export class AcpmuxDirectClient {
   /// The selection an open in flight may still draw a tail for while it connects; cleared once
   /// the open reaches its own draw, which then decides.
   private earlyTailWindow?: number;
+  /// Until when the open in flight leaves its kept tail undrawn under the copy on screen
+  /// (`TAIL_UNDER_COPY_MS`); 0 when no copy showed as it began.
+  private tailUnderCopyUntil = 0;
   /// The hold of the open in flight (`OPEN_HOLD_MS`): a tail drawn for the open's chat ends it.
   private openHold?: number;
   /// The selected peer chat was drawn from the Mac's copy of it (peerCopy.ts): set from the draw
@@ -2423,6 +2433,7 @@ export class AcpmuxDirectClient {
     // Any attach of the copy already out (a select's, a recovery's) leaves it to this one when it
     // fails, copy drawn yet or not.
     let mine = ++this.copyAttaches;
+    this.tailUnderCopyUntil = showsChatSnapshot() ? performance.now() + TAIL_UNDER_COPY_MS : 0;
     // A chat another tab read already is held by the app host: ask for its tail now, while the
     // socket connects and acpmux lists the chats, so drawing it below costs this open no round
     // trip of its own (tailCache.ts). A page that read the chat itself has the newer tail.
@@ -2740,13 +2751,26 @@ export class AcpmuxDirectClient {
           const hostTail = readHostTail(sessionId).catch(() => undefined);
           // An attach that answered already is newer than any tail the host holds: the chat draws
           // from it rather than waiting out the host's read (at most `HOST_TAIL_READ_MS`).
-          await (adopted ? Promise.race([hostTail, adopted.sent.attaching.then(ignore, ignore)]) : hostTail);
+          // Under the copy, an attach that answers by `TAIL_UNDER_COPY_MS` draws the chat alone: the
+          // tail would be a render under the copy, and the attach's page a second one over it.
+          const underCopy = adopted && showsChatSnapshot() ? this.tailUnderCopyUntil - performance.now() : 0;
+          let attachFirst = false;
+          if (adopted && underCopy > 0) {
+            await Promise.race([
+              adopted.sent.attaching.then(() => {
+                attachFirst = true;
+              }, ignore),
+              new Promise((resolve) => setTimeout(resolve, underCopy)),
+            ]);
+          }
+          if (!attachFirst)
+            await (adopted ? Promise.race([hostTail, adopted.sent.attaching.then(ignore, ignore)]) : hostTail);
           // A switch that landed while the host answered chose another chat: its own select draws
           // that one, and these rows belong to the chat this open was for.
-          if (generation === this.selectionGeneration && this.selectedSessionId === sessionId) {
+          if (!attachFirst && generation === this.selectionGeneration && this.selectedSessionId === sessionId) {
             keptThrough = this.drawKeptTail(sessionId);
           }
-          if (keptThrough === 0) keptThrough = await this.drawPeerCopy(sessionId, generation);
+          if (!attachFirst && keptThrough === 0) keptThrough = await this.drawPeerCopy(sessionId, generation);
           if (keptThrough > 0) {
             // Where the caller decides, not where the tail is read: a tail that drew no row is a
             // cold open, and the host must not be told rows are on screen that are not.
@@ -3491,6 +3515,10 @@ export class AcpmuxDirectClient {
     if (connectFailedAfterEarlyTail === sessionId) return;
     this.earlyTailWindow = generation;
     const held = keptTail(sessionId) ?? (await readHostTail(sessionId).catch(() => undefined));
+    // Under the copy the open draws the attach's page, not this tail, unless the attach is slow: an
+    // open that reached its own draw meanwhile closed this window (`TAIL_UNDER_COPY_MS`).
+    const underCopy = this.tailUnderCopyUntil - performance.now();
+    if (underCopy > 0 && showsChatSnapshot()) await new Promise((resolve) => setTimeout(resolve, underCopy));
     if (
       !held ||
       this.closed ||
