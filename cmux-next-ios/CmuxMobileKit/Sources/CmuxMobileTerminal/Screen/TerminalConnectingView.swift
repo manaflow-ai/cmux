@@ -21,6 +21,9 @@ public struct TerminalConnectingView: View {
     /// Whether a page with no frame draws the skeleton (a warm surface that
     /// keeps its own live rows draws nothing over them).
     let showsPlaceholder: Bool
+    /// The Mac's screen as text, as its `tabs` service last pushed it: drawn dimmed where
+    /// there is no frame, for a tab not opened on this phone yet. Real rows, not live yet.
+    let screenText: String?
 
     /// How far above this view's bottom edge the page's rows end now (the composer's top as it
     /// rests, keyboard up or down). Nil: the view does not know (a grid card), and draws a still
@@ -31,10 +34,12 @@ public struct TerminalConnectingView: View {
     let rowsMeasured: Bool
 
     public init(topInset: CGFloat = 0, lastFrame: UIImage? = nil, showsPlaceholder: Bool = true,
+                screenText: String? = nil,
                 rowsLift: CGFloat? = nil, rows: TerminalFrameRows? = nil, rowsMeasured: Bool = true) {
         self.topInset = topInset
         self.lastFrame = lastFrame
         self.showsPlaceholder = showsPlaceholder
+        self.screenText = screenText
         self.rowsLift = rowsLift
         self.rows = rows
         self.rowsMeasured = rowsMeasured
@@ -44,18 +49,22 @@ public struct TerminalConnectingView: View {
     /// cache at all.
     enum Content: Equatable {
         case lastFrame
+        case screenText
         case skeleton
         case nothing
     }
 
-    static func content(hasLastFrame: Bool, showsPlaceholder: Bool) -> Content {
+    static func content(hasLastFrame: Bool, showsPlaceholder: Bool, hasScreenText: Bool = false) -> Content {
         if hasLastFrame { return .lastFrame }
+        // Only where the skeleton would be: a warm surface keeps its own live rows.
+        if hasScreenText, showsPlaceholder { return .screenText }
         return showsPlaceholder ? .skeleton : .nothing
     }
 
     public var body: some View {
         ZStack(alignment: .top) {
-            switch Self.content(hasLastFrame: lastFrame != nil, showsPlaceholder: showsPlaceholder) {
+            switch Self.content(hasLastFrame: lastFrame != nil, showsPlaceholder: showsPlaceholder,
+                                hasScreenText: screenText?.isEmpty == false) {
             case .lastFrame:
                 if let lastFrame {
                     GeometryReader { proxy in
@@ -89,6 +98,12 @@ public struct TerminalConnectingView: View {
                     }
                     .accessibilityHidden(true)
                 }
+            case .screenText:
+                GeometryReader { proxy in
+                    TerminalCardScreenText(text: screenText ?? "", topInset: topInset, width: proxy.size.width)
+                        .opacity(0.55)
+                }
+                .accessibilityHidden(true)
             case .skeleton:
                 TerminalSkeleton(topInset: topInset, rowsLift: rowsLift)
             case .nothing:

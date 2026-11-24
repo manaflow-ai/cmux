@@ -166,6 +166,7 @@ public struct TerminalTabPage: View {
                         // page as it is now (keyboard up or down), never over the
                         // composer: typing and the key row work at once.
                         TerminalConnectingView(topInset: insets.top, lastFrame: model.coldFrame,
+                                               screenText: model.cardScreenText,
                                                rowsLift: rowsLift, rows: model.coldFrameRows, rowsMeasured: model.coldFrameMeasured)
                             .ignoresSafeArea()
                             .padding(.bottom, insets.bottom)
@@ -202,16 +203,20 @@ public struct TerminalTabCard: View {
         cardContent.accessibilityHidden(true)
     }
 
+    /// What the card draws: also read by the UI tests' face probe (`TabCardFaceRecord`).
+    public var content: TerminalCardContent {
+        let started = model.controller?.started == true
+        return TerminalCardContent.choose(sessionStarted: started,
+                                          connecting: model.connectionState.cardShowsConnecting(sessionStarted: started),
+                                          hasSnapshot: model.snapshot != nil, screenText: model.cardScreenText,
+                                          screenTextIsNewer: model.cardScreenTextIsNewer)
+    }
+
     private var cardContent: some View {
         GeometryReader { geo in
             ZStack(alignment: .top) {
                 Color(uiColor: (model.hostTheme ?? CmuxMobileTerminalThemes.shared.theme(for: model.hostMacID))?.backgroundColor
                     ?? CmuxMobileGhosttyApp.background)
-                let started = model.controller?.started == true
-                let content = TerminalCardContent.choose(sessionStarted: started,
-                                                         connecting: model.connectionState.cardShowsConnecting(sessionStarted: started),
-                                                         hasSnapshot: model.snapshot != nil, screenText: model.cardScreenText,
-                                                         screenTextIsNewer: model.cardScreenTextIsNewer)
                 switch content {
                 case .connecting:
                     TerminalConnectingView(topInset: insets.top, lastFrame: model.snapshot)

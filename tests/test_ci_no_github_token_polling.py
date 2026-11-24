@@ -78,8 +78,6 @@ ALLOWED: dict[str, str] = {
         'retry only: one runs list, retried after a rate limit/429/5xx/timeout, at most 4 tries, 10/20/40 s apart',
     'nightly-tag-permission-probe.yml: Expect github.token to reject the workflow-changing ref':
         'by hand: each ref call retried after 408/425/429/5xx or a network error, at most 4 tries; the expected 403 is not retried',
-    'risk-tier.yml: Grade the pull request':
-        'retry only: a loop over the two sign-off labels; gh_run retries a failed gh call at most 3 times, 2 and 4 s apart',
     'auto-resume-nightly-notarization.yml: Poll saved Apple submissions without reserving a Mac':
         "polls Apple's notary service (poll-notary-submission.py), not GitHub; the scan counts urlopen as an API call",
     "cmux-next-perf-budgets.yml: Read the state and pick this tick's work":
