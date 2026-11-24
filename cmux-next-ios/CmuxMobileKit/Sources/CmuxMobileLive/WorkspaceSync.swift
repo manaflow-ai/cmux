@@ -650,7 +650,7 @@ public final class WorkspaceSync {
                                                           previous: tree?.workspaces ?? [], agents: agents,
                                                           activity: activity, arrangement: arrangement)
                     guard self.client === client, !Task.isCancelled else { return }
-                    if let macID { Self.noteHeld(await projection.known, macID: macID) }
+                    if !macID.isEmpty { Self.noteHeld(await projection.known, macID: macID) }
                     snapshotSequence = coveredThrough
                     if reloadArrangement { arrangementSequence = arrangementCoveredThrough }
                     discardBeforeSnapshot()
