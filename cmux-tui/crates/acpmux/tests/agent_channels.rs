@@ -225,8 +225,8 @@ async fn a_channel_opens_carries_bytes_both_ways_and_closes_across_a_peer() {
     opener.notify(method::MUX_CHANNEL_SEND, json!({"channelId": id, "data": "AAEC/w=="})).await;
     opener.notify(method::MUX_CHANNEL_SEND, json!({"channelId": id, "text": "two"})).await;
     let one = listener.hear(method::MUX_CHANNEL_DATA).await;
-    assert_eq!(one["data"], "AAEC/w==", "{one}");
     let two = listener.hear(method::MUX_CHANNEL_DATA).await;
+    assert_eq!(one["data"], "AAEC/w==", "first {one}, then {two}");
     assert_eq!(two["text"], "two", "{two}");
 
     // A stranger on A cannot write on it: it is told `unknown_channel`, the parties hear nothing.
@@ -298,6 +298,23 @@ async fn a_loopback_channel_and_a_listener_that_leaves() {
     assert_eq!(opened["text"], "a");
     listener.notify(method::MUX_CHANNEL_SEND, json!({"channelId": id, "text": "b"})).await;
     assert_eq!(opener.hear(method::MUX_CHANNEL_DATA).await["text"], "b");
+    // Frames keep their order, raw bytes and text alike.
+    for i in 0..20 {
+        let frame = if i % 2 == 0 {
+            json!({"channelId": id, "data": "AAEC/w=="})
+        } else {
+            json!({"channelId": id, "text": format!("{i}")})
+        };
+        opener.notify(method::MUX_CHANNEL_SEND, frame).await;
+    }
+    for i in 0..20 {
+        let got = listener.hear(method::MUX_CHANNEL_DATA).await;
+        if i % 2 == 0 {
+            assert_eq!(got["data"], "AAEC/w==", "frame {i}: {got}");
+        } else {
+            assert_eq!(got["text"], format!("{i}"), "frame {i}: {got}");
+        }
+    }
     // Both text and data at once is refused, and closes the channel.
     let bad = opener
         .call(method::MUX_CHANNEL_OPEN, json!({"service": "svc/one", "text": "a", "data": "YQ=="}))

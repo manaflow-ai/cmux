@@ -2075,6 +2075,9 @@ async fn serve_connection_from(
     };
     let notification_worker =
         spawn_notification_worker(notification_rx, notification_handler.clone());
+    // A channel's frames, one at a time in the order they came (`channels.rs`): the worker above
+    // runs notifications side by side, which would reorder a byte stream.
+    let (channel_tx, channel_worker) = channels::spawn_worker(hub.clone(), conn.clone());
     let cancel_worker = spawn_notification_worker(cancel_rx, notification_handler);
 
     let notification_waiters = Arc::new(Semaphore::new(NOTIFICATION_WAIT_LIMIT));
@@ -2368,6 +2371,13 @@ async fn serve_connection_from(
                     requests::cancel_on_connection(&hub, &conn, params.as_ref());
                 }
             }
+            // A full channel queue holds this reader: backpressure on the sender, never a
+            // dropped or reordered frame.
+            Message::Notification { method: m, params } if channels::takes(&m) => {
+                if channel_tx.send((m, params.unwrap_or(Value::Null))).await.is_err() {
+                    break;
+                }
+            }
             Message::Notification { method: m, params } => {
                 let params = params.unwrap_or(Value::Null);
                 if m == method::SESSION_CANCEL {
@@ -2431,6 +2441,8 @@ async fn serve_connection_from(
     }
     drop(cancel_tx);
     let _ = cancel_worker.await;
+    drop(channel_tx);
+    let _ = channel_worker.await;
 
     let deadline = tokio::time::Instant::now() + WORK_BACKPRESSURE_WAIT;
     let mut waiters = notification_waits.into_iter();
