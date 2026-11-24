@@ -1426,6 +1426,7 @@ dependencies = [
 name = "cmux-braid-path"
 version = "0.1.0"
 dependencies = [
+ "cmux-transport",
  "futures-util",
  "tokio",
 ]
@@ -3354,6 +3355,7 @@ dependencies = [
  "blake2",
  "boringtun",
  "bytes",
+ "cmux-braid-path",
  "cmux-rd-core",
  "cmux-rd-engine",
  "cmux-rd-link",
