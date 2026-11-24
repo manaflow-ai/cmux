@@ -2440,6 +2440,7 @@ class MergedHeadChecksRegression(unittest.TestCase):
             "  echo \"[UNRESOLVED_IMPORT] Could not resolve '../config/vite-plus/check' in $PWD/vite.config.ts\"; exit 1\n"
             "fi\n"
             "if [ \"$1 $2 $3\" = 'x vp check' ] && ls BAD*.tsx >/dev/null 2>&1; then echo 'error: Formatting issues found'; for f in BAD*.tsx; do echo \"$PWD/$f\"; done; exit 1; fi\n"
+            "if [ \"$1 $2 $3\" = 'x vp check' ] && ls ../Resources/markdown-viewer/BAD*.tsx >/dev/null 2>&1; then echo 'error: Formatting issues found'; for f in ../Resources/markdown-viewer/BAD*.tsx; do echo \"$(cd ../Resources/markdown-viewer && pwd -P)/$(basename $f)\"; done; exit 1; fi\n"
         )
         bun.chmod(0o755)
         return work, head, directory / "bin"
@@ -2743,6 +2744,17 @@ class MergedHeadChecksRegression(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists())
             self.assertIn("bun x vp check", log)
+
+    def test_a_vp_check_red_on_the_base_under_markdown_viewer_does_not_block(self):
+        # vp_flagged_files must strip the merged/ and base/ prefixes for every
+        # shared directory web_shared_paths materializes, not only webviews/config.
+        shared = {"Resources/markdown-viewer/BAD.tsx": "x\n"}
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker, log = self.run_merge(
+                directory, {"webviews/Good.tsx": "x\n", **shared}, base_files=shared)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+            self.assertIn("base", result.stderr)
 
     def test_a_clean_webviews_change_merges_after_vp_check(self):
         with tempfile.TemporaryDirectory() as directory:
