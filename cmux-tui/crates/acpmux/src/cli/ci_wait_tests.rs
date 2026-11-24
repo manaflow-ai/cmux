@@ -223,3 +223,26 @@ async fn the_deadline_ends_a_pending_wait_with_a_timeout() {
     let app = error.downcast_ref::<AppError>().expect("a typed error");
     assert_eq!(app.code, Code::Timeout);
 }
+
+#[test]
+fn a_cancel_a_newer_run_replaced_is_no_red() {
+    let none = json!({"statuses": []});
+    let with = |id: u64, status: &str, conclusion: Option<&str>| {
+        let mut r = run("risk evidence", status, conclusion);
+        r["id"] = json!(id);
+        r
+    };
+    let cancelled = with(45437464016, "completed", Some("cancelled"));
+    let passed = vec![cancelled.clone(), with(45437534352, "completed", Some("success"))];
+    assert!(matches!(pr_state(&open_pull(), &passed, &none, Duration::ZERO), State::Green { .. }));
+    let queued = vec![cancelled.clone(), with(45437534352, "queued", None)];
+    assert!(matches!(
+        pr_state(&open_pull(), &queued, &none, Duration::ZERO),
+        State::Pending { .. }
+    ));
+    let alone = vec![cancelled];
+    let State::Red { note } = pr_state(&open_pull(), &alone, &none, Duration::ZERO) else {
+        panic!("a lone cancel is red");
+    };
+    assert_eq!(note, "cancelled, no newer run: risk evidence");
+}
