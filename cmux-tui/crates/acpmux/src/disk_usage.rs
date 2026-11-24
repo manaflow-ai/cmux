@@ -153,7 +153,6 @@ fn take_lock(lock: &Path) -> bool {
 
 #[cfg(unix)]
 fn start_walk() {
-    use std::os::unix::process::CommandExt;
     let lock = lock_path();
     if let Some(dir) = lock.parent() {
         let _ = std::fs::create_dir_all(dir);
@@ -165,15 +164,21 @@ fn start_walk() {
         let _ = std::fs::remove_file(&lock);
         return;
     };
-    let started = std::process::Command::new(exe)
+    let started = cmux_process::Command::new(exe)
         .args(["host", "disk-walk"])
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .process_group(0)
         .spawn();
-    if started.is_err() {
-        let _ = std::fs::remove_file(&lock);
+    match started {
+        // The sample exits at once; the walk writes its file and lets go of the lock after.
+        Ok(mut child) => {
+            child.detach("the disk walk outlives the one-shot `host load` that started it");
+        }
+        Err(_) => {
+            let _ = std::fs::remove_file(&lock);
+        }
     }
 }
 
