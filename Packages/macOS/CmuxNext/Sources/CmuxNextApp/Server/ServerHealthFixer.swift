@@ -31,10 +31,10 @@ struct ServerHealthFixer {
         switch check {
         case .sleepEnabled:
             HealthFix(title: String(localized: "server.fix.sleep", defaultValue: "Keep Awake on Power",
-                                    table: "Server", bundle: .module), needsAdmin: true)
+                                    table: "Server", bundle: .module.inAppLanguage), needsAdmin: true)
         case .noAutoRestart:
             HealthFix(title: String(localized: "server.fix.autoRestart", defaultValue: "Restart After Power Loss",
-                                    table: "Server", bundle: .module), needsAdmin: true)
+                                    table: "Server", bundle: .module.inAppLanguage), needsAdmin: true)
         default:
             nil
         }

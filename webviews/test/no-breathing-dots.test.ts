@@ -30,6 +30,12 @@ const ALLOWED: { file: string; keyframes: string; selector: string; why: string;
     selector: '[data-working-look="breathe"] .cv-spinner[data-working]',
     why: "explicit user-selected Breathing Dot only; the default and unknown values use the spinner",
   },
+  ...["start", "middle", "end"].map((dot) => ({
+    file: "agent-session/acpmux/conversation/JumpDots.css",
+    keyframes: `cv-jump-dots-${dot}`,
+    selector: ".cv-jump-dots__dot",
+    why: "the opt-in activity mark on the live working line and visible Jump to latest button; the dots trade size and position and honor static and reduced motion",
+  })),
   {
     file: "agent-session/acpmux/styles.css",
     keyframes: "acpmux-mic-wait",
@@ -37,7 +43,7 @@ const ALLOWED: { file: string; keyframes: string; selector: string; why: string;
     why: "the mic button while dictation starts",
   },
   {
-    file: "pages/home-messages/transcript/transcript.css",
+    file: "pages/home-channels/transcript/transcript.css",
     keyframes: "mt-dot",
     selector: ".mt-typing i",
     why: "the Messages typing bubble's three dots (the native transcript's typing indicator, shown only while someone types; still under the motion gate), not a status dot",

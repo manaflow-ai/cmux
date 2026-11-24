@@ -161,6 +161,9 @@ const NOTICE_KINDS: &[&str] = &[
     "forked",
     "fork_start_failed",
     "host_notice",
+    // A model name read as its catalog id, or a turn retried under it (`hub/model_alias.rs`).
+    "model_rewrite",
+    "model_reroute",
     "policy_unenforced",
     "recap",
     "stopping",
@@ -439,8 +442,9 @@ impl RowTable {
             .pointer("/_meta/acpmux/segment")
             .or_else(|| rec.msg.pointer("/params/_meta/acpmux/segment"))
             .and_then(Value::as_str)
-            .filter(|s| !s.is_empty());
-        let goes_on = match (stamped, self.open_reply.as_ref()) {
+            .filter(|s| !s.is_empty())
+            .map(|segment| reply_row_key(segment, message_id.as_deref()));
+        let goes_on = match (stamped.as_deref(), self.open_reply.as_ref()) {
             // acpmux named the segment: its row, if that is the reply streaming now.
             (Some(segment), Some((open, _))) => {
                 self.by_id.get(&format!("reply:{segment}")).copied().filter(|at| at == open)
@@ -457,10 +461,9 @@ impl RowTable {
         }
         self.end_reply(out);
         self.segments = self.segments.saturating_add(1);
-        let segment = stamped.map_or_else(
-            || format!("{}.{}", self.turn.as_deref().unwrap_or("-"), self.segments),
-            str::to_owned,
-        );
+        let segment = stamped.unwrap_or_else(|| {
+            format!("{}.{}", self.turn.as_deref().unwrap_or("-"), self.segments)
+        });
         let mut id = format!("reply:{segment}");
         if self.by_id.contains_key(&id) {
             // A segment id seen before (acpmux's count starts again after a restart).
@@ -737,5 +740,16 @@ impl RowMirror {
         }
         self.version = v;
         Ok(())
+    }
+}
+
+/// The key a reply's row is named by: its stamped segment, with its message id when the segment is
+/// of text between turns (`-.<boot>.<n>`), as the pane names it (webviews `replyRowKey.ts`).
+/// acpmux numbered such text from 1 again after every turn (`hub/stream.rs` before cmux#48659), so
+/// logs written then give one id to replies an hour apart; a message id tells them apart in any page.
+pub(super) fn reply_row_key(segment: &str, message_id: Option<&str>) -> String {
+    match message_id {
+        Some(id) if segment.starts_with("-.") => format!("{segment}~{id}"),
+        _ => segment.to_owned(),
     }
 }

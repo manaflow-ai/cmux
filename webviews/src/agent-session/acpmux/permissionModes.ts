@@ -38,6 +38,18 @@ export function reportsNoModes(reported: unknown): boolean {
   return permissionModes({ availableModes: rows }, options) === undefined;
 }
 
+/// Whether acpmux's harness list row says the harness's chats report permission modes: modes that
+/// are not a copy of another option (OpenCode's Build and Plan, Claude Code's). Unknown is not some.
+export function reportsModes(reported: unknown): boolean {
+  if (!reported || typeof reported !== "object") return false;
+  const { modes, configOptions } = reported as { modes?: unknown; configOptions?: unknown };
+  const rows = Array.isArray(modes)
+    ? (modes as { id?: unknown }[]).filter((mode): mode is { id: string } => typeof mode?.id === "string")
+    : [];
+  const options = Array.isArray(configOptions) ? (configOptions as ConfigOption[]) : [];
+  return rows.length > 0 && permissionModes({ availableModes: rows }, options) !== undefined;
+}
+
 function isModeOption(option: ConfigOption): boolean {
   return option.category === "mode" || option.id === "mode";
 }
@@ -58,4 +70,17 @@ function sameValues(values: readonly string[], ids: readonly string[]): boolean 
   if (values.length === 0) return false;
   const set = new Set(values);
   return set.size === new Set(ids).size && ids.every((id) => set.has(id));
+}
+
+/// The agent's `modes` with the mode the chat runs now. acpmux's session row (`_acpmux/session_changed`,
+/// SessionSummary) names a mode change only as its top-level `currentModeId` and carries no `modes`; the
+/// page merges that row into the summary, so `modes.currentModeId` is the one the last detail read
+/// named. The row's id is the newer one: /plan, the + menu's Plan row, Toggle Plan Mode and a mode
+/// another window or the agent set reach the chips with it.
+export function liveModes<M extends { currentModeId?: unknown }>(
+  modes: M | undefined,
+  currentModeId: unknown,
+): M | undefined {
+  if (!modes || typeof modes !== "object" || typeof currentModeId !== "string" || !currentModeId) return modes;
+  return modes.currentModeId === currentModeId ? modes : { ...modes, currentModeId };
 }

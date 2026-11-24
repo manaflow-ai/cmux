@@ -26,7 +26,7 @@ extension KeyRouter {
 
     /// The context keys for a key in a window with `focus`.
     func keyContext(for focus: FocusState, facts: Facts) -> KeyContext {
-        Self.keyContext(for: focus, appContext: registry.context, facts: facts)
+        keyModes.marking(Self.keyContext(for: focus, appContext: registry.context, facts: facts))
     }
 
     /// Pure: the focus-independent bits of `appContext` (signed in, Cloud
@@ -146,7 +146,7 @@ extension KeyRouter {
                      omnibarListOpen: focusedAddressBar(in: controller)?.isShowingSuggestions == true,
                      internalPage: focusedInternalPage(in: controller),
                      showsPageHistory: services?.locationTrail.pageHistory(in: controller) != nil,
-                     topPage: controller.shownTopPage == .home ? "home" : controller.shownTopPage == .page(.importHistory) ? KeyBindingDefaults.historyImportTopPage : nil,
+                     topPage: controller.shownTopPage == .home ? "home" : nil,
                      pageKeySequencePending: editor.map { services?.viewers.editorPages.keySequencePending(on: $0) ?? false } ?? false,
                      textBoxFocused: window.firstResponder is TextBoxTextView,
                      sidebarMultiSelection: controller.sidebar.model.selection.count > 1,

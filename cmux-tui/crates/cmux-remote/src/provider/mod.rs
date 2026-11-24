@@ -36,7 +36,8 @@ use crate::observability::TransportSnapshot;
 #[cfg(feature = "wireguard-transport")]
 pub use dial::WireGuardDialer;
 pub use dial::{
-    DialedIo, DialedStream, Dialer, HubClientToken, OsTcpDialer, SocksDialer, resolve_dial_target,
+    DialedIo, DialedStream, Dialer, HubClientToken, OsTcpDialer, PER_ADDRESS_CONNECT_TIMEOUT,
+    SocksDialer, resolve_dial_target,
 };
 #[cfg(feature = "iroh-transport")]
 pub use iroh::{
@@ -47,12 +48,13 @@ pub use iroh_config::{
 };
 #[cfg(unix)]
 pub use machine_pipe::{
-    MACHINE_PIPE_METHOD, MachinePipeDialer, machine_pipe_reply, machine_pipe_request,
+    MACHINE_PIPE_METHOD, MachinePipeDialer, TERMINAL_REFUSALS, machine_pipe_reply,
+    machine_pipe_request,
 };
 pub use relay::{
-    RelayClientConfig, RelayCredentialSource, RelayDaemonConfig, RelayDaemonRegistration,
-    RelayIncoming, RelayProvider, RelayTls, register_relay_daemon,
-    register_relay_daemon_with_credentials, register_relay_daemon_with_tls,
+    BoundCredential, RegistrationState, RelayClientConfig, RelayCredentialSource,
+    RelayDaemonConfig, RelayDaemonRegistration, RelayIncoming, RelayProvider, RelayTls,
+    register_relay_daemon, register_relay_daemon_with_credentials, register_relay_daemon_with_tls,
     spawn_relay_daemon_registration,
 };
 pub use ssh::{
@@ -62,9 +64,10 @@ pub use ssh::{
 pub use stream::LengthDelimitedLink;
 #[cfg(unix)]
 pub use unix::UnixProvider;
+pub(crate) use websocket::DisplaySeconds;
 pub use websocket::{
-    AxumWebSocketLink, DirectWebSocketProvider, TungsteniteWebSocketLink, connect_websocket,
-    connect_websocket_via,
+    AxumWebSocketLink, DIRECT_DIAL_TIMEOUT, DirectWebSocketProvider, TungsteniteWebSocketLink,
+    connect_websocket, connect_websocket_via, connect_websocket_within,
 };
 
 /// Non-authoritative facts learned from the carrier.

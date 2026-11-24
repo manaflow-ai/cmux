@@ -64,6 +64,8 @@ export function schemeFromThemeFile(file: ThemeFile, source: string): GoldenSche
   const set = Object.fromEntries(Object.entries(picked).filter(([, value]) => value)) as GoldenScheme["colors"];
   if (set && Object.keys(set).length) scheme.colors = set;
   if (typeof file["appearance.accent"] === "string") scheme.accent = file["appearance.accent"];
+  if (file["appearance.selection"] === "accent" || file["appearance.selection"] === "neutral")
+    scheme.selection = file["appearance.selection"];
   const sidebar = hex(file["appearance.surfaces.sidebar.color"]);
   const agentPane = hex(file["appearance.surfaces.agentPane.color"]);
   if (sidebar || agentPane) scheme.surfaces = { ...(sidebar && { sidebar }), ...(agentPane && { agentPane }) };
@@ -107,7 +109,7 @@ export function lookFromSetup(dir: string, base: Partial<RegistryLook> = {}): Go
     tagline?: string;
     settings?: Record<string, unknown>;
   };
-  const settings = { ...(setup.settings ?? {}) };
+  const settings = { ...setup.settings };
   const schemes: GoldenLook["schemes"] = { light: {}, dark: {} };
   const themeName = settings["appearance.themeFile"];
   if (typeof themeName === "string") {

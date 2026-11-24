@@ -432,3 +432,69 @@ fn an_unchanged_chats_newest_page_asked_again_reads_nothing() {
     assert_eq!(seqs(&after).last(), Some(&appended.seq), "the page holds the appended record");
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// A chat on disk of `turns` reply chunks of about 2 KB each, as `sparse_tail_chat` makes one.
+fn chat_of(turns: u64) -> (std::path::PathBuf, Arc<Hub>) {
+    let root = std::env::temp_dir().join(format!("acpmux-page-history-{}", uuid::Uuid::now_v7()));
+    let sessions = root.join("sessions");
+    let writer = crate::store::LocalStore::new(sessions.clone(), 8 << 20).unwrap();
+    let text = "word ".repeat(400);
+    for seq in 1..=turns {
+        let update = json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}});
+        let record = EventRecord {
+            seq,
+            at: seq,
+            dir: "in".into(),
+            kind: "agent_message_chunk".into(),
+            msg: json!({"method": "session/update", "params": {"sessionId": "a", "update": update}}),
+            host_seq: None,
+        };
+        writer.append("c", &record).unwrap();
+    }
+    let meta: SessionMeta = serde_json::from_value(json!({
+        "schema": crate::store::META_SCHEMA, "id": "c", "name": "chat", "harness": "fake",
+        "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 2,
+        "lastSeq": turns, "eventCount": turns,
+    }))
+    .unwrap();
+    writer.save(&meta).unwrap();
+    writer.flush().unwrap();
+    drop(writer);
+    let mut config = crate::config::Config::default();
+    config.store.mode = crate::config::StoreMode::Memory;
+    let store = crate::store::LocalStore::new(sessions, 8 << 20).unwrap();
+    (root, Hub::new_deferred(config, Box::new(store), crate::mailbox::Mailbox::memory()))
+}
+
+/// hq#14027: the bytes of a chat's newest page at 1x and 10x history, asked as a Cloud chat's
+/// page reached acpmux before `agent-session-page-bytes-v1` (no `maxBytes`: the 1 MiB default)
+/// and with the pane's own 128 KiB budget, which a local chat's page always carried. Prints one
+/// `cloud-page-bytes` line per cell; the budgeted page stays the same size as history grows.
+#[test]
+fn a_chats_newest_page_with_the_panes_budget_stays_constant_with_history() {
+    let page = |hub: &Arc<Hub>, budget: Option<u64>| {
+        let mut ask = newest_transcript_page();
+        match budget {
+            Some(bytes) => ask["maxBytes"] = json!(bytes),
+            None => {
+                ask.as_object_mut().unwrap().remove("maxBytes");
+            }
+        }
+        serde_json::to_vec(&handle(hub, method::MUX_EVENTS, &ask, None).unwrap()).unwrap().len()
+    };
+    let mut budgeted = Vec::new();
+    for (history, turns) in [("1x", 100), ("10x", 1000)] {
+        let (root, hub) = chat_of(turns);
+        let before = page(&hub, None);
+        let after = page(&hub, Some(131_072));
+        println!(
+            "cloud-page-bytes history={history} records={turns} before={before} after={after}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+        assert!(after <= 131_072 + 4096, "{history}: {after}");
+        budgeted.push((before, after));
+    }
+    let (before_10x, after_10x) = budgeted[1];
+    assert!(before_10x > after_10x, "10x history: {before_10x} vs {after_10x}");
+    assert!(after_10x <= budgeted[0].1.max(131_072) + 4096, "the budgeted page grew: {budgeted:?}");
+}

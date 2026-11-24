@@ -453,3 +453,50 @@ async fn what_a_failed_turn_held_goes_in_by_itself() {
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert!(queue_order(&mut c, &id).await.is_empty(), "nothing waits for Resume");
 }
+
+/// A session that ran one turn of the person's and is idle again: no first work, nothing runs.
+async fn idle_after_a_turn(c: &mut TestClient) -> String {
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let answer = c.request(method::SESSION_PROMPT, person(&id, "p-first", "hello")).await;
+    assert!(answer.is_ok(), "{answer:?}");
+    id
+}
+
+/// Agent messages that come close together to an idle chat go in together (`digest.rs`
+/// `AGENT_GATHER_MS`), as the inbox's burst window does for the ones it takes: two 300 ms apart
+/// are one turn, not two. One lane VM spent 1,144 turns on 1,552 agent messages in 24 h.
+#[tokio::test]
+async fn agent_messages_close_together_to_an_idle_chat_go_in_as_one_turn() {
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
+    let mut agents = connect(&hub).await;
+    let id = idle_after_a_turn(&mut c).await;
+    let a = agents.send(method::SESSION_PROMPT, from_agent(&id, "p-a", "lane-a", "from a")).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let b = agents.send(method::SESSION_PROMPT, from_agent(&id, "p-b", "lane-b", "from b")).await;
+    let echoes = echoes_until(&mut c, "from b").await;
+    assert_eq!(echoes.len(), 1, "one turn for both: {echoes:?}");
+    let text = &echoes[0];
+    assert!(text.contains("[agent message 1 of 2] from lane-a"), "{text}");
+    assert!(text.contains("[agent message 2 of 2] from lane-b"), "{text}");
+    let answered = answers(&mut agents, &[a, b]).await;
+    assert_eq!(answered[&b]["_meta"]["acpmux"]["joinedPromptId"], "p-a", "{answered:?}");
+    let turns = find(&hub.events(&id, 0, 1000).unwrap(), "user_message").len();
+    assert_eq!(turns, 2, "the person's first turn and one turn of agent messages");
+}
+
+/// The person's prompt never waits out an agent message's gather window: it starts at once,
+/// unqueued, and the agent message's turn follows it.
+#[tokio::test]
+async fn the_persons_prompt_never_waits_for_the_gather_window() {
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
+    let mut agents = connect(&hub).await;
+    let id = idle_after_a_turn(&mut c).await;
+    // Waiting in the queue for the messages after it.
+    queue(&mut agents, from_agent(&id, "p-a", "lane-a", "from a")).await;
+    c.send(method::SESSION_PROMPT, person(&id, "p-me", "mine")).await;
+    let accepted = c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-me").await;
+    assert_eq!(accepted["queued"], false, "{accepted}");
+    assert_eq!(accepted["state"], "started", "{accepted}");
+    assert_eq!(echoes_until(&mut c, "from a").await, ["echo: mine", "echo: from a"]);
+}

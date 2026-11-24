@@ -37,11 +37,11 @@ pub fn mix_rgba(from: [f64; 4], to: [f64; 4], t: f64, space: ColorSpace) -> [f64
     [r, g, bl, alpha.clamp(0., 1.)]
 }
 
-fn linear(c: f64) -> f64 {
+pub(crate) fn linear(c: f64) -> f64 {
     if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
 }
 
-fn gamma(c: f64) -> f64 {
+pub(crate) fn gamma(c: f64) -> f64 {
     if c <= 0.003_130_8 { c * 12.92 } else { 1.055 * c.powf(1. / 2.4) - 0.055 }
 }
 

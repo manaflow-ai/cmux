@@ -17,12 +17,13 @@ import Testing
 
     @MainActor final class Stops { var count = 0 }
 
-    /// A machine made with no size named is 4 vCPU / 16 GB / 64 GB disk. RED before: 2 vCPU / 4 GB / 16 GB,
-    /// whose disk a chat's 23 GB folder could not fit (2026-11-13).
-    @Test func theDefaultMachineIsFourCoresSixteenGigabytesAndASixtyFourGigabyteDisk() {
+    /// A machine made with no size named is 2 vCPU / 4 GB / 20 GB disk, the platform's spare size (cmux-platform#1756),
+    /// so a start claims a warm spare. RED before: 4 vCPU / 16 GB / 64 GB, which no 2/4/20 spare matches (2026-11-23).
+    /// A chat's larger folder still raises the disk (`CloudChatSizeTests`).
+    @Test func theDefaultMachineIsTwoCoresFourGigabytesAndATwentyGigabyteDisk() {
         let machine = CloudMachineCreateFlow.named(" builder ")
         #expect(machine.name == "builder")
-        #expect((machine.cpu, machine.memoryMB, machine.diskMB) == (4, 16_384, 65_536))
+        #expect((machine.cpu, machine.memoryMB, machine.diskMB) == (2, 4_096, 20_480))
     }
 
     func make() -> (AppServices, NSWindow) {

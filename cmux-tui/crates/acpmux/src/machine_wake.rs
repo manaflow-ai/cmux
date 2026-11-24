@@ -73,7 +73,7 @@ pub async fn wake(config: &MachineWakeConfig, summary: &Value) -> Result<bool> {
         path_segment(&lease)
     );
     let client =
-        reqwest::Client::builder().default_headers(cmux_build_space::headers()?).build()?;
+        crate::happy_dial::http_client().default_headers(cmux_build_space::headers()?).build()?;
     let mut request = client.post(url);
     if let Some(token) = &config.token {
         request = request.bearer_auth(token);
@@ -83,6 +83,28 @@ pub async fn wake(config: &MachineWakeConfig, summary: &Value) -> Result<bool> {
         return Err(anyhow!("machine wake returned {}", response.status()));
     }
     Ok(true)
+}
+
+/// One `peerWake` run (`Peer::wake` runs it once per wake window, on a blocking thread):
+/// `ACPMUX_PEER_WAKE=1`, no stdin, in a process group of its own, so a run past `limit` is
+/// ended with all it started (the `Child`'s drop). The command keeps its own log.
+pub(crate) fn run_peer_wake(argv: &[String], limit: std::time::Duration) -> Result<(), String> {
+    let (program, args) = argv.split_first().ok_or("no command")?;
+    let mut child = cmux_process::Command::new(crate::config::user_program(program))
+        .args(args)
+        .env(crate::peer::WAKE_ENV, "1")
+        .stdin(cmux_process::Stdio::null())
+        .stdout(cmux_process::Stdio::null())
+        .stderr(cmux_process::Stdio::null())
+        .process_group(0)
+        .spawn()
+        .map_err(|e| format!("did not start: {e}"))?;
+    match child.wait_timeout(limit) {
+        Err(e) => Err(e.to_string()),
+        Ok(None) => Err(format!("ended after {} s", limit.as_secs())),
+        Ok(Some(status)) if status.success() => Ok(()),
+        Ok(Some(status)) => Err(status.to_string()),
+    }
 }
 
 #[cfg(test)]

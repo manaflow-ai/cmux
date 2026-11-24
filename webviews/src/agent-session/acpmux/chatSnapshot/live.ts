@@ -10,8 +10,10 @@ import {
   SNAPSHOT_SHOWN_GLOBAL,
   type SnapshotLive,
 } from "./shared";
+import { watchLaunchSettle } from "../launchSettle";
+import { LIVE_THINKING } from "../conversation/turns";
 
-type Shown = { at: number; swappedAt?: number };
+type Shown = { at: number; swappedAt?: number; chromeOnly?: boolean };
 
 function shown(): Shown | undefined {
   if (typeof window === "undefined") return undefined;
@@ -34,13 +36,23 @@ export function showsChatSnapshot(): boolean {
   return !!shown() && typeof document !== "undefined" && !!document.querySelector(SNAPSHOT_HOST_TAG);
 }
 
+/// Whether the copy on screen shows a turn still running: its live line (turns.ts LIVE_THINKING),
+/// which a kept tail cannot draw, since it keeps rows and not the turn's state.
+export function copyShowsRunningTurn(): boolean {
+  if (!showsChatSnapshot()) return false;
+  const root = document.querySelector(SNAPSHOT_HOST_TAG)?.shadowRoot;
+  return !!root?.querySelector(`[data-row-id="${LIVE_THINKING}"]`);
+}
+
 /// When the snapshot drew and when the live page took over, in `performance.now()` time (layoutWatch.ts).
-export function chatSnapshotTimes(): { painted_ms: number; swapped_ms: number | null } | undefined {
+export function chatSnapshotTimes(): { painted_ms: number; swapped_ms: number | null; chrome_only?: true } | undefined {
   const value = shown();
   if (!value) return undefined;
   return {
     painted_ms: Math.round(value.at),
     swapped_ms: value.swappedAt === undefined ? null : Math.round(value.swappedAt),
+    // Written at another size: the pane's chrome drew, the transcript's rows did not (shared.ts `fitsChromeOnly`).
+    ...(value.chromeOnly ? { chrome_only: true as const } : {}),
   };
 }
 
@@ -63,9 +75,12 @@ export function chatSnapshotReport(): Record<string, unknown> {
 /// The live page shows and the copy goes, in the same task, so the frame after shows the live page
 /// and no frame shows both or neither. `doc` is the page's document.
 export function removeChatSnapshot(doc: Document = document): boolean {
-  // The copy's input watch (``reportChatSnapshot``) ends with the copy, however it goes.
+  // The copy's input watch (``reportChatSnapshot``) ends with the copy, however it goes, and so does
+  // a takeover that waits for the live rows to fill the view (``swapChatSnapshot``).
   stopCopyInput?.();
   stopCopyInput = undefined;
+  stopCoverWait?.();
+  stopCoverWait = undefined;
   const host = doc.querySelector(SNAPSHOT_HOST_TAG);
   const root = doc.getElementById("root");
   if (root) root.style.removeProperty("opacity");
@@ -77,13 +92,88 @@ export function removeChatSnapshot(doc: Document = document): boolean {
   return true;
 }
 
+/// The transcript's scroller and rows, in the live page and in the copy (capture.ts keeps both).
+const SCROLLER_SELECTOR = ".acpmux-scroll";
+const SHOWN_SCROLLER_SELECTOR = ".acpmux-scroll[data-cmux-shown-scroller]";
+const ROW_SELECTOR = ".acpmux-row";
+/// How much more empty room above the rows the live page may show than the copy did before it is a
+/// step back: about a line, so a row a few pixels shorter in the live page's fonts never holds it.
+const BAND_SLACK_PX = 48;
+
+/// How far below the top of the shown transcript's view its topmost row starts, in CSS pixels: 0
+/// when rows reach the view's top (or start above it), the view's height when it shows no row.
+/// Undefined when `scope` (the live root, or the copy's shadow root) shows no transcript.
+export function bandAboveRows(scope: ParentNode): number | undefined {
+  const scroller =
+    scope.querySelector<HTMLElement>(SHOWN_SCROLLER_SELECTOR) ?? scope.querySelector<HTMLElement>(SCROLLER_SELECTOR);
+  if (!scroller || scroller.clientHeight === 0) return undefined;
+  const view = scroller.getBoundingClientRect();
+  let top = Infinity;
+  for (const row of Array.from(scroller.querySelectorAll(ROW_SELECTOR))) {
+    const box = row.getBoundingClientRect();
+    if (box.height > 0 && box.top < top) top = box.top;
+  }
+  if (top === Infinity) return view.height;
+  return Math.min(view.height, Math.max(0, top - view.top));
+}
+
+/// Whether the live page, taking over now, would show an empty band above its rows where the copy
+/// showed rows: a kept tail cut to its byte bound inside one busy turn draws a few rows at the
+/// bottom, and the older history that fills the view waits for acpmux, which an update restarts
+/// (Leo, 2026-11-22, after a restart to update: "the top half of the chat blanked out for like 10
+/// seconds"). False when either shows no transcript (an error, a New Tab page): that is no step back.
+export function liveStepsBack(doc: Document = document): boolean {
+  const copy = doc.querySelector(SNAPSHOT_HOST_TAG)?.shadowRoot;
+  const root = doc.getElementById("root");
+  if (!copy || !root) return false;
+  const live = bandAboveRows(root);
+  const drawn = bandAboveRows(copy);
+  return live !== undefined && drawn !== undefined && live > drawn + BAND_SLACK_PX;
+}
+
+/// Ends a takeover waiting for the live rows to fill the view (``swapChatSnapshot``).
+let stopCoverWait: (() => void) | undefined;
+
 /// Takes over from the copy at the next frame: the live page's frame is in by then (it rendered
-/// under the copy), and removing the copy before that frame paints shows it in one step.
-export function swapChatSnapshot(): void {
+/// under the copy), and removing the copy before that frame paints shows it in one step. A live page
+/// whose rows do not yet reach as high as the copy's (``liveStepsBack``) keeps the copy up until they
+/// do: each change of the live page is read at its next frame, and the copy goes in the frame its
+/// rows fill the view (an older page landed). Input on the copy and live.ts ``SNAPSHOT_HOLD_MS`` still
+/// end it, so the wait has the copy's own bound.
+export function swapChatSnapshot(doc: Document = document): void {
   // A copy the host answers after this draws nothing (boot.ts): the page shows the chat itself.
   if (typeof window !== "undefined") liveSide().drawn = true;
   if (!showsChatSnapshot()) return;
-  requestAnimationFrame(() => removeChatSnapshot());
+  const view = doc.defaultView ?? window;
+  view.requestAnimationFrame(() => {
+    if (!liveStepsBack(doc)) {
+      removeChatSnapshot(doc);
+      return;
+    }
+    const root = doc.getElementById("root");
+    if (!root || stopCoverWait) return;
+    performance.mark?.("cmux-chat:snapshot-hold-band");
+    let frame: number | undefined;
+    const check = () => {
+      frame = undefined;
+      if (!liveStepsBack(doc)) removeChatSnapshot(doc);
+    };
+    // Rows land as markup and move as style (VirtualTranscript places them absolutely): one read
+    // per frame that changed anything, none while the page is at rest.
+    const observer = new view.MutationObserver(() => {
+      frame ??= view.requestAnimationFrame(check);
+    });
+    observer.observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ["style", "class"] });
+    const resized = () => {
+      frame ??= view.requestAnimationFrame(check);
+    };
+    view.addEventListener("resize", resized);
+    stopCoverWait = () => {
+      observer.disconnect();
+      view.removeEventListener("resize", resized);
+      if (frame !== undefined) view.cancelAnimationFrame(frame);
+    };
+  });
 }
 
 /// How long the live page may take to draw the chat before the copy goes anyway, so a page that
@@ -153,7 +243,10 @@ export function reportChatSnapshot(
 ): void {
   if (typeof window === "undefined") return;
   const shows = () => {
-    void report("pane.painted", { drewKeptTail: true }).catch(() => undefined);
+    // `copy`: the inert saved copy, not the page's own paint, which reports again (AgentPaneRequest `painted`).
+    void report("pane.painted", { drewKeptTail: true, copy: true }).catch(() => undefined);
+    // The copy is the page's first paint: what moves from here is the launch's settle (launchSettle.ts).
+    watchLaunchSettle(report, SNAPSHOT_HOST_TAG);
     // A click or key while the copy shows ends the copy and does nothing else: the live page under
     // it is at opacity 0, so a press must never act on a control the person can't see (a permission
     // card's Allow, a shortcut). The press is consumed, with the rest of its gesture (its pointerup
@@ -215,6 +308,11 @@ export function watchChatSnapshot(
     timer = undefined;
     // No theme heard yet: nothing to key a copy by, and the one kept stays.
     if (stopped || !chatTheme) return;
+    // The last launch's copy still shows (the live rows have not filled the view yet,
+    // ``swapChatSnapshot``): that copy is what the person sees and the one kept, never the live page
+    // half drawn under it. The copy's going clears the root's opacity, a change the observer below
+    // hears, so the write comes once the page is quiet after it.
+    if (showsChatSnapshot()) return;
     const snapshot = captureSnapshot(doc, chatTheme);
     wroteAt = performance.now();
     // Too large to keep (or no chat drawn): the host forgets the older one, which no longer shows

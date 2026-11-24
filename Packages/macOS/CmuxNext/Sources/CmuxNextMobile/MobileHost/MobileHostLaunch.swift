@@ -214,6 +214,15 @@ public struct MobileHostLaunch: Sendable, Equatable {
         line(["type": "surface_gone", "tab": tab])
     }
 
+    /// A browser tab's favicon or thumbnail for the phones' tab overview (`tab_picture`,
+    /// `tab_snapshots.rs`): `surface` is the tab's daemon surface id, `part` `thumb` or `favicon`,
+    /// `path` a JPEG or PNG the app wrote in its own cache folder. hostd checks the file.
+    public static func tabPictureLine(surface: UInt64, part: String, path: String, width: Int, height: Int,
+                                      capturedAtMs: Int64) -> Data {
+        anyLine(["type": "tab_picture", "surface": surface, "part": part, "path": path, "w": width, "h": height,
+                 "captured_at_ms": capturedAtMs])
+    }
+
     static func anyLine(_ object: [String: Any]) -> Data {
         var data = (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data()
         data.append(0x0A)

@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use super::super::fresh::{START_BOUND, STUCK_CODE};
+use super::super::fresh::{LOOK_BOUND, RELEASE_WAIT, START_BOUND, STUCK_CODE};
 use super::*;
 
 /// A new machine with a folder on it: the start answers once start-session does (no read of where it runs).
@@ -170,6 +170,75 @@ fn a_stuck_machine_that_cannot_be_deleted_stops_the_retry_and_names_the_delete()
     );
 }
 
+/// Production 2026-11-22 (job 137057804629): the Cloud service still held the stuck machine's create at
+/// `approval.pending` when the bound passed, so the app listed it only as creating. The delete is tried again until
+/// the machine is listed, then deleted, and the chat starts on a fresh machine.
+#[test]
+fn a_stuck_machine_whose_create_is_still_on_its_way_is_deleted_once_it_lands_and_replaced() {
+    let creating = ok(json!({"account": {"signed_in": true}, "machines": [{"title": "dev"}],
+                             "creating": [{"name": "chat-fresh"}]}));
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        not_connected("chat-fresh", "vm-stuck"),
+        creating.clone(),
+        creating,
+        listed_stuck("vm-stuck"),
+        ok(json!({"deleted": true})),
+        signed_in(),
+        started(),
+    ]);
+    let Outcome::Done(answer) = run(&mut fake, &request(CWD)) else { panic!("{:?}", fake.ran) };
+    assert_eq!(fake.ran[5], kill("vm-stuck"));
+    assert_eq!(starts(&fake), 2);
+    assert_eq!(answer["fresh_retry"][0]["deleted"], true);
+    assert_eq!(fake.paused, Duration::from_secs(6), "two waits before the create landed");
+}
+
+/// Production 2026-11-22 (job 137099694829): a long-idle spare began pausing just after its claim, and its delete
+/// answered "This machine is pausing". The delete is tried again once it can be, then the chat starts on a fresh one.
+#[test]
+fn a_stuck_machine_that_is_pausing_is_deleted_once_it_can_be_and_replaced() {
+    let pausing = Ran {
+        code: 1,
+        stderr: json!({"code": "unavailable",
+                       "message": "This machine is pausing. Try again once it is paused."})
+        .to_string(),
+        ..Ran::default()
+    };
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        not_connected("chat-fresh", "vm-stuck"),
+        listed_stuck("vm-stuck"),
+        pausing,
+        listed_stuck("vm-stuck"),
+        ok(json!({"deleted": true})),
+        signed_in(),
+        started(),
+    ]);
+    let Outcome::Done(answer) = run(&mut fake, &request(CWD)) else { panic!("{:?}", fake.ran) };
+    assert_eq!(starts(&fake), 2);
+    assert_eq!(answer["fresh_retry"][0]["deleted"], true);
+    assert_eq!(answer["fresh_retry"][0]["machine_id"], "vm-stuck");
+}
+
+/// A machine still creating after [`RELEASE_WAIT`] is left as before: no fresh machine, and the answer says how to
+/// delete it.
+#[test]
+fn a_create_that_never_lands_within_the_release_wait_stops_the_retry() {
+    let creating = ok(json!({"account": {"signed_in": true}, "machines": [],
+                             "creating": [{"name": "chat-fresh"}]}));
+    let mut answers = vec![signed_in(), not_connected("chat-fresh", "vm-stuck")];
+    answers.extend(std::iter::repeat_n(creating, 40));
+    let mut fake = Fake::new(answers);
+    let Outcome::Failed { error, .. } = run(&mut fake, &request(CWD)) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(starts(&fake), 1);
+    assert_eq!(error["details"]["fresh_retry"][0]["deleted"], false);
+    assert!(fake.paused <= RELEASE_WAIT, "{:?}", fake.paused);
+    assert!(error["message"].as_str().unwrap().contains("could not be deleted"), "{error}");
+}
+
 /// A machine the caller named (`--name`, `--target`) is never given up or deleted: the app's answer stands,
 /// and the start is not bounded.
 #[test]
@@ -182,4 +251,180 @@ fn a_named_machine_is_never_replaced_or_deleted() {
     assert_eq!(error["code"], "unavailable");
     assert_eq!(fake.ran.len(), 2, "no delete and no second start: {:?}", fake.ran);
     assert!(fake.said.is_empty());
+}
+
+fn agent_refused(code: &str) -> Ran {
+    Ran {
+        code: 1,
+        stderr: json!({"code": "unavailable", "message": format!(
+            "Machine `chat-fresh` started but its agent didn't ({code}). Run `cmux cloud start-session --target machine:vm-failed --agent codex` again."
+        )}).to_string(),
+        ..Ran::default()
+    }
+}
+
+#[test]
+fn a_refused_codex_start_deletes_its_new_machine_without_retrying() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        agent_refused("agent_session.bad_request"),
+        listed_stuck("vm-failed"),
+        ok(json!({"deleted": true})),
+    ]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &request(&["--agent", "codex"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(exit, 1);
+    assert_eq!(error["code"], "unavailable");
+    assert_eq!(error["details"]["cleanup"]["machine_id"], "vm-failed");
+    assert_eq!(error["details"]["cleanup"]["deleted"], true);
+    assert_eq!(fake.ran[3], kill("vm-failed"));
+    assert_eq!(starts(&fake), 1, "a bad request is not a reason to create another machine");
+    let message = error["message"].as_str().unwrap();
+    assert!(message.contains("agent_session.bad_request") && message.contains("was deleted"));
+    assert!(!message.contains("start-session --target"), "no retry on the deleted machine");
+    assert!(
+        error["details"]["app"]["message"].as_str().unwrap().contains("start-session --target")
+    );
+}
+
+#[test]
+fn a_refused_start_never_deletes_an_existing_named_or_targeted_machine() {
+    for args in [&["--name", "dev"][..], &["--target", "machine:vm-existing"]] {
+        let mut fake = Fake::new(vec![signed_in(), agent_refused("agent_session.bad_request")]);
+        let Outcome::Failed { error, .. } = run(&mut fake, &request(args)) else {
+            panic!("{:?}", fake.ran)
+        };
+        assert!(error["details"]["cleanup"].is_null());
+        assert_eq!(fake.ran.len(), 2, "no delete: {:?}", fake.ran);
+    }
+}
+
+#[test]
+fn a_refused_start_deletes_the_machine_it_just_created_in_an_environment() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        made(),
+        agent_refused("agent_session.bad_request"),
+        ok(json!({"deleted": true})),
+    ]);
+    let Outcome::Failed { error, .. } =
+        run(&mut fake, &request(&["--agent", "codex", "--environment", "env_1"]))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(fake.ran[3], kill("vm-1"));
+    assert_eq!(error["details"]["cleanup"]["machine_id"], "vm-1");
+    assert_eq!(error["details"]["cleanup"]["deleted"], true);
+    assert_eq!(starts(&fake), 1);
+}
+
+#[test]
+fn cleanup_crossing_the_deadline_keeps_the_refusal_and_deletion_receipt() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        agent_refused("agent_session.bad_request"),
+        listed_stuck("vm-failed"),
+        ok(json!({"deleted": true})),
+    ]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &request(&["--timeout", "15"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(exit, 1);
+    assert_eq!(error["code"], "unavailable");
+    assert_eq!(error["details"]["cleanup"]["deleted"], true);
+    assert_eq!(fake.ran[3], kill("vm-failed"));
+    assert!(error["details"]["again"].is_null(), "no pending retry on a deleted machine");
+}
+
+#[test]
+fn a_refused_start_reports_failed_cleanup_and_keeps_the_original_refusal() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        agent_refused("agent_session.harness_missing"),
+        listed_stuck("vm-failed"),
+        Ran { code: 1, stderr: "delete unavailable".to_owned(), ..Ran::default() },
+    ]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &request(&["--agent", "codex"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["details"]["cleanup"]["deleted"], false);
+    let message = error["message"].as_str().unwrap();
+    assert!(message.contains("agent_session.harness_missing"));
+    assert!(message.contains("kill-machine --target machine:vm-failed --confirm"));
+    assert_eq!(starts(&fake), 1);
+}
+
+#[test]
+fn a_refused_start_does_not_call_an_unloaded_machine_list_cleaned_up() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        agent_refused("agent_session.bad_request"),
+        ok(json!({"loaded": false, "machines": []})),
+    ]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &request(&[])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["details"]["cleanup"]["deleted"], false);
+    assert_eq!(fake.ran.len(), 3, "no guessed delete");
+}
+
+#[test]
+fn a_lost_start_reply_never_deletes_a_machine_that_may_have_a_running_agent() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        Ran { code: 1, stderr: "app connection closed".to_owned(), ..Ran::default() },
+    ]);
+    assert!(matches!(run(&mut fake, &request(&[])), Outcome::Failed { .. }));
+    assert_eq!(fake.ran.len(), 2);
+}
+
+/// 2026-11-23 (cmux-platform#1719): a stuck machine is asked why before its delete, over the exec route, and what
+/// it said rides on its `fresh_retry` row and in the run's progress; the look is bounded and the start goes on.
+#[test]
+fn a_stuck_machine_is_looked_at_before_its_delete() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        not_connected("chat-fresh", "vm-stuck"),
+        listed_stuck("vm-stuck"),
+        ok(json!({"deleted": true})),
+        signed_in(),
+        started(),
+    ]);
+    let said = "resolv: nameserver 10.0.0.2 \nhost api.example dns=fail http=000\ncmux-host: activating\n\
+                2026-11-23T22:08:01 cmux-host: relay connect failed: dns error\n";
+    fake.look = Some(ok(json!({"exit_code": 0, "stdout": said, "stderr": ""})));
+    let Outcome::Done(answer) = run(&mut fake, &request(CWD)) else { panic!("{:?}", fake.ran) };
+    assert_eq!(fake.looked.len(), 1, "one look, at the stuck machine");
+    let look = &fake.looked[0];
+    assert_eq!(look[..4], strings(&["cloud", "exec", "--target", "machine:vm-stuck"]));
+    let script = &look[5];
+    assert!(script.starts_with("timeout -k 1 "), "bounded on the machine: {script}");
+    let seconds: u64 = script.split_whitespace().nth(3).unwrap().parse().unwrap();
+    assert!(seconds < LOOK_BOUND.as_secs(), "{script}");
+    assert_eq!(fake.ran[3], kill("vm-stuck"), "deleted after the look");
+    let guest = &answer["fresh_retry"][0]["guest"];
+    assert_eq!(guest["stdout"], said);
+    assert!(
+        fake.said[0].contains("host api.example dns=fail http=000; cmux-host: activating"),
+        "{:?}",
+        fake.said
+    );
+}
+
+/// A look the exec route refuses keeps its error as evidence and changes nothing else.
+#[test]
+fn a_refused_look_is_kept_and_the_delete_goes_on() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        not_connected("chat-fresh", "vm-stuck"),
+        listed_stuck("vm-stuck"),
+        ok(json!({"deleted": true})),
+        signed_in(),
+        started(),
+    ]);
+    let Outcome::Done(answer) = run(&mut fake, &request(CWD)) else { panic!("{:?}", fake.ran) };
+    let guest = &answer["fresh_retry"][0]["guest"];
+    assert_eq!(guest["error"]["message"], "no exec here", "{guest}");
+    assert_eq!(fake.said.len(), 1, "only the retry is said: {:?}", fake.said);
 }

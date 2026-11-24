@@ -329,7 +329,11 @@ fn computer_use_off_is_a_tool_error_but_status_still_answers() {
         caller(FakeDaemon::new(vec![Ok(json!({"state": "off", "reason": "mode is off"}))]));
     let mcp = caller.call("click", &json!({}), "c").to_mcp();
     assert_eq!(mcp["isError"], true);
-    assert!(mcp["content"][0]["text"].as_str().unwrap().contains("computer_use_off"), "{mcp}");
+    let text = mcp["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("computer_use_off"), "{mcp}");
+    // The refusal tells the agent to open the guided setup for the person.
+    assert!(text.contains("cmux action run palette.computerUse.setup"), "{mcp}");
+    assert!(text.contains("mode is off"), "{mcp}");
     let Outcome::Output(status) = caller.call("status", &json!({}), "c2") else { panic!() };
     assert!(!status.is_error);
     assert_eq!(status.body["mode"], "off");
@@ -360,6 +364,26 @@ fn a_daemon_without_the_endpoint_fails_at_once() {
     let started = std::time::Instant::now();
     let out = caller.call("status", &json!({}), "c");
     assert!(matches!(out, Outcome::Failed { .. }), "{out:?}");
+    assert!(started.elapsed() < Duration::from_secs(5));
+}
+
+/// A daemon that still lacks the endpoint after the shared restart
+/// (`daemon_skew.rs`, which adds why to the refusal) fails at once, with that reason.
+#[test]
+fn a_refused_endpoint_fails_at_once_with_the_daemons_reason() {
+    let refused = Err(DaemonError::Refused {
+        code: "refused".into(),
+        message: "bad request: unknown variant `computer-use-endpoint`. the cmux daemon already \
+                  runs the installed build, which does not have it"
+            .into(),
+    });
+    let caller = caller(FakeDaemon::new(vec![refused])).with_budget(Duration::from_secs(30));
+    let started = std::time::Instant::now();
+    let Outcome::Failed { code, message } = caller.call("status", &json!({}), "c") else {
+        panic!()
+    };
+    assert_eq!(code, "computer_use_unavailable");
+    assert!(message.contains("already runs the installed build"), "{message}");
     assert!(started.elapsed() < Duration::from_secs(5));
 }
 
