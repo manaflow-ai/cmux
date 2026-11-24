@@ -30,6 +30,8 @@ mod kind_heads;
 mod kind_index;
 mod sealed_segments;
 mod segment_starts;
+#[cfg(test)]
+pub(crate) use kind_heads::KEYED_KINDS;
 mod segment_table;
 pub use kind_heads::KindHead;
 pub use kind_index::{DIR as KIND_INDEX_DIR, INDEXED_KINDS, carry_copy as carry_kind_index};
@@ -2018,6 +2020,8 @@ pub struct LocalStore {
     parts: meta_parts::PartsMemo,
     /// The segments' record heads a keyed scan read (`store/kind_heads.rs`).
     kind_heads: kind_heads::KindHeads,
+    /// The copies of segments' indexed kinds the reads checked (`store/kind_index.rs`).
+    kind_index_checks: kind_index::Checked,
     /// Each segment's first seq, once read (`store/segment_starts.rs`).
     pub(crate) segment_starts: segment_starts::SegmentStarts,
     segment_table: segment_table::SegmentTable,
@@ -2060,6 +2064,7 @@ impl LocalStore {
             seal_hook: Default::default(),
             parts: Default::default(),
             kind_heads: Default::default(),
+            kind_index_checks: Default::default(),
             segment_starts: Default::default(),
             segment_table: Default::default(),
             #[cfg(test)]
@@ -3103,6 +3108,7 @@ impl Store for LocalStore {
             w.retire();
         }
         self.kind_heads.forget(id);
+        self.kind_index_checks.forget(id);
         self.segment_starts.forget(id);
         self.segment_table.forget(id);
         let dir = self.dir(id);

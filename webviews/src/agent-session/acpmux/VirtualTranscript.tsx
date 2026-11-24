@@ -154,6 +154,7 @@ import {
   playTurnEnd,
   settleTurnEnd,
   TURN_END_ATTR,
+  turnEndRecap,
   type TurnEndCapture,
   type TurnEndFold,
 } from "./conversation/turnEndFold";
@@ -167,7 +168,7 @@ import {
   type ChatFind,
   rowHolds,
 } from "./conversation/chatFind";
-import { LIVE_THINKING, THINKING, foldCovers, turnFooterFrom, retryTargetIn } from "./conversation/turns";
+import { LIVE_THINKING, NEXT_STEP, THINKING, foldCovers, turnFooterFrom, retryTargetIn } from "./conversation/turns";
 import { createLiveLinePulse } from "./conversation/liveLinePulse";
 import { installWheelGlide } from "./wheelGlide";
 import { installDockWheelHold, installWheelPassThrough } from "./wheelPassThrough";
@@ -4850,11 +4851,25 @@ function TranscriptView({
             // the rows it brings, not the reply's text that lands in the send's window. A
             // steer's next reply segment landing within SEND_RISE_MS moved 40.69 px in one frame, and
             // a send's first reply row 38.75 px (send-stream-motion.test.ts); they drift with the stream.
+            // The turn's closing recap card (wrapUp.ts) arrives in place: with the shipped `place`
+            // entrance the pass that brings it moves the rows at once, so the card is drawn whole where
+            // it lands in the frame it comes. On the chase it came in at the view's bottom edge and the
+            // view followed it up 109 px over 100 ms (fold-variants-record, big-claude-recap). Leo,
+            // 2026-11-22: "i think the fade in from the bottom is pretty awkward sometimes when you
+            // finish chats." `open` and `hold` keep the chase (their own entrances ride it).
+            // O(the last rows): the card lands at the tail, or just above the live line.
+            let recapCame = false;
+            for (let index = rows.length - 1; index >= Math.max(0, rows.length - 3) && !recapCame; index -= 1) {
+              const row = rows[index]!;
+              if (row.kind === NEXT_STEP && !oldRows.slice(-4).some((old) => old.id === row.id)) recapCame = true;
+            }
+            if (recapCame && turnEndRecap(node) !== "place") recapCame = false;
             const atOnce =
               dockMoved ||
               !live ||
               stepped ||
               slimFollow ||
+              recapCame ||
               (followArm === "steady" && (promptCame || (sentRows && noReplyCame(oldRows, rows))));
             // A row that came above the live line (not the reply's own growth) holds back up to the
             // trail bound, while the live line glides under it (followChase CHASE_ARRIVAL_HOLD_LINES).

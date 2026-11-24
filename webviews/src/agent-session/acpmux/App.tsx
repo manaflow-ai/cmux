@@ -303,6 +303,7 @@ import { OpenBackgroundTasks, requestBackgroundFocus, useBackgroundFocus } from 
 import { backgroundGroups, type TaskCache } from "./backgroundTasks/backgroundTasks";
 import { useListedSubagents } from "./backgroundTasks/useListedSubagents";
 import { settleTrayExit } from "./subagents/trayMotionModel";
+import { useStopPresence } from "./composer/turnPresence";
 import { configureWorkflowCardOpen, configureWorkflowCardSideTab } from "./summary/workflowCardModel";
 import {
   type DoneLineCache,
@@ -2239,6 +2240,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const doneLines = useRef<DoneLineCache>(new Map());
   const childDoneLines = useRef<DoneLineCache>(new Map());
   const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
+  // The turn as the composer hat reads it: the composer's Stop hysteresis (composer/turnPresence.ts),
+  // so a turn that ends and the next that starts a few hundred ms later (a queued prompt, a steer, a
+  // subagent's notice) never moves the plan out of the hat and back, nor drops and redraws its
+  // running lines. Leo, 2026-11-24: "composer hat seems to be getting a lot of flickers recently. it
+  // needs to stay tight like the composer".
+  const hatWorking = useStopPresence(snapshot.isWorking, shownSessionId).shown;
   // The open folds as the shown chat's transcript view draws them: Normal is `expanded` itself;
   // Thinking and Verbose also open each finished turn's "Worked for" (conversation/viewFolds.ts).
   // One object per view, set or toggle change, so the turns are not reshaped per event.
@@ -2684,16 +2691,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [hatPillArm] = useState(() => experimentArm(hatPillPlace));
   const hatHandle = hatSide(jumpPlaceArm, trayHandle, hatPillArm);
   // Debug Settings agent.sessionStatus draws its activity line under the pinned list, so it pins it.
-  const planInHat = !pinnedPlan && !sessionStatus && !quick && !childRows && snapshot.isWorking;
+  const planInHat = !pinnedPlan && !sessionStatus && !quick && !childRows && hatWorking;
   const hatPlanRow = useMemo(() => (planInHat ? liveTurnPlan(turnRowsShown) : undefined), [planInHat, turnRowsShown]);
   // A running turn with no list of its own yet keeps the agent's earlier list with steps left in
   // sight, marked as from before the person's last message (turns.ts earlierTurnPlan). It stays folded in its own turn too; the copy goes once the agent writes a list.
   const earlierPlanRow = useMemo(
     () =>
-      snapshot.isWorking && !quick && !childRows && !liveTurnPlan(turnRowsShown)
-        ? earlierTurnPlan(turnRowsShown)
-        : undefined,
-    [snapshot.isWorking, quick, childRows, turnRowsShown],
+      hatWorking && !quick && !childRows && !liveTurnPlan(turnRowsShown) ? earlierTurnPlan(turnRowsShown) : undefined,
+    [hatWorking, quick, childRows, turnRowsShown],
   );
   // The chat's task list across its turns (acpmux `taskList`, chatTaskList.ts): between turns the hat
   // shows it while steps are left, and a running turn without a list of its own shows it when the
@@ -2701,7 +2706,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const tasksInHat = !pinnedPlan && !sessionStatus && !quick && !childRows;
   const hatTasks = tasksInHat
     ? hatPlanOf({
-        working: snapshot.isWorking,
+        working: hatWorking,
         live: hatPlanRow?.plan,
         earlier: earlierPlanRow?.plan,
         list: snapshot.summary?.taskList,
@@ -5438,9 +5443,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     [workflowLabsEnabled, chatAgents],
   );
   const trayList = useMemo(
-    () => trayItems(trayAgents, runningCommandList, childSessions, snapshot.isWorking),
+    () => trayItems(trayAgents, runningCommandList, childSessions, hatWorking),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runningCommandList is new on every snapshot; its key is not
-    [trayAgents, commandsKey, childSessions, snapshot.isWorking],
+    [trayAgents, commandsKey, childSessions, hatWorking],
   );
   // What ended stays in the hat a while as done, failed or stopped, then goes (subagents/trayLinger.ts;
   // Leo, 2026-11-07: "it's probably better to let them expire after a while. But the key point: after
@@ -6036,7 +6041,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             chat={shownSessionId}
             items={trayList}
             finished={trayFinished}
-            working={snapshot.isWorking}
+            working={hatWorking}
             waiting={waitingAgents}
             onOpen={showSubagent}
             onOpenCommand={openTrayCommand}
