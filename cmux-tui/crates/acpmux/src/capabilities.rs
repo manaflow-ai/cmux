@@ -211,6 +211,10 @@ pub const CAPABILITIES: &[Capability] = &[
     // `_acpmux/sessions {pendingOnly: true}`: only the chats with a pending ask, without the
     // list's pace (the app's dialog list). Older daemons would answer the whole list.
     Capability { id: "session-list-pending-v1", wire: &[method::MUX_SESSIONS] },
+    // `_acpmux/sessions {topLevelOnly: true}`: no side chat and no session another chat's agent
+    // started, filtered before the page is cut (the phone's chat lists). Older daemons ignore it
+    // and list every chat.
+    Capability { id: "session-list-top-level-v1", wire: &[method::MUX_SESSIONS] },
     // `_acpmux/usage`: every listed chat's `usageStats` and nothing else, `unchanged` while the
     // digest the client holds is current (Session Info's Usage). Older daemons: the client reads
     // the list's pages with `usage: true`.
