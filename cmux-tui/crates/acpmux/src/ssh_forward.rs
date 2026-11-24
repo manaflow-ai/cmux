@@ -11,7 +11,8 @@ pub(crate) struct Forward {
     /// The socket here that reaches the remote daemon.
     pub local: PathBuf,
     dir: PathBuf,
-    ssh: tokio::process::Child,
+    /// `None` only once `close` or `drop` has taken it.
+    ssh: Option<tokio::process::Child>,
     /// Its recorded owner, dropped after `drop` kills `ssh`: cancels the forward on any shared
     /// master and removes the record (`ssh_forward_owners.rs`).
     _owner: crate::ssh_forward_owners::Owner,
@@ -78,10 +79,10 @@ impl Forward {
         );
         // Dropped on every early return below: ssh killed, the forward cancelled on any
         // master, the folder and the record removed.
-        let mut fwd = Self { local, dir, ssh, _owner: owner };
+        let mut fwd = Self { local, dir, ssh: Some(ssh), _owner: owner };
         let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
         while !fwd.local.exists() {
-            if let Some(status) = fwd.ssh.try_wait()? {
+            if let Some(status) = fwd.ssh.as_mut().map(|s| s.try_wait()).transpose()?.flatten() {
                 bail!("ssh to {host} ended ({status}) before forwarding the daemon's socket");
             }
             if tokio::time::Instant::now() > deadline {
@@ -96,29 +97,49 @@ impl Forward {
 impl Forward {
     #[cfg(test)]
     pub(crate) fn ssh_pid(&self) -> Option<u32> {
-        self.ssh.id()
+        self.ssh.as_ref().and_then(|s| s.id())
     }
 
     /// The owner dies without its drop running (SIGKILL): its end of the ssh's stdin closes.
     #[cfg(test)]
     pub(crate) fn owner_dies(mut self) {
-        drop(self.ssh.stdin.take());
+        drop(self.ssh.as_mut().and_then(|s| s.stdin.take()));
         std::mem::forget(self);
     }
 
     /// Ends the forward and waits for its ssh to exit, so it leaves no zombie behind while the
     /// caller goes on (a move of several chats waits minutes on the next one's turn).
     pub(crate) async fn close(mut self) {
-        kill_group(&self.ssh);
-        let _ = self.ssh.kill().await;
+        if let Some(mut ssh) = self.ssh.take() {
+            kill_group(&ssh);
+            let _ = ssh.kill().await;
+        }
     }
 }
 
 impl Drop for Forward {
     fn drop(&mut self) {
-        kill_group(&self.ssh);
-        reap(&mut self.ssh);
+        if let Some(ssh) = self.ssh.take() {
+            kill_group(&ssh);
+            reap_off_worker(ssh);
+        }
         let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
+
+/// Kills `child` and reaps it without holding up the caller: on a tokio runtime the bounded wait
+/// runs on a blocking thread (a forward dropped on an error path must not stall a worker for up
+/// to 2 s); with no runtime it waits here.
+pub(crate) fn reap_off_worker(mut child: tokio::process::Child) {
+    if matches!(child.try_wait(), Ok(Some(_))) {
+        return;
+    }
+    let _ = child.start_kill();
+    match tokio::runtime::Handle::try_current() {
+        Ok(rt) => {
+            rt.spawn_blocking(move || reap(&mut child));
+        }
+        Err(_) => reap(&mut child),
     }
 }
 
@@ -171,10 +192,18 @@ pub(crate) fn reap(child: &mut tokio::process::Child) {
     }
 }
 
-/// `ssh -N -L LOCAL:REMOTE -- HOST`, failing at once when the forward cannot be made.
+/// `ssh -N -L LOCAL:REMOTE -- HOST`, failing at once when the forward cannot be made. On a
+/// connection of its own (`ControlMaster=no`, `ControlPath=none`, which win over the fleet ssh
+/// config's `ControlMaster auto` per host): a forward a mux client asks for is the shared
+/// master's and outlives the killed client there (its listener still bound), and the peer link's
+/// `ssh -W` to the same host rides that master, so the move's ssh never takes part in it.
 pub(crate) fn forward_argv(host: &str, local: &Path, remote: &str) -> Vec<String> {
     let mut argv: Vec<String> = [
         "-N",
+        "-o",
+        "ControlMaster=no",
+        "-o",
+        "ControlPath=none",
         "-o",
         "BatchMode=yes",
         "-o",
@@ -210,5 +239,25 @@ mod tests {
         // SAFETY: signal 0 only checks that the pid exists.
         let alive = unsafe { libc::kill(pid, 0) } == 0;
         assert!(!alive, "the killed child {pid} is still in the process table");
+    }
+
+    /// On a runtime, the wait for a killed child runs off the worker (`spawn_blocking`), and the
+    /// child is still reaped, not left defunct.
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_child_reaped_off_the_worker_leaves_no_zombie() {
+        let child =
+            tokio::process::Command::new("sleep").arg("60").kill_on_drop(true).spawn().unwrap();
+        let pid = child.id().unwrap() as libc::pid_t;
+        super::reap_off_worker(child);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        // SAFETY: signal 0 only checks that the pid exists.
+        while unsafe { libc::kill(pid, 0) } == 0 {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the killed child {pid} is still in the process table"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
     }
 }

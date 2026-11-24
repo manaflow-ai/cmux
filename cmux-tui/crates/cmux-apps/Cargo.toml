@@ -8,8 +8,10 @@ publish.workspace = true
 description = "Versioned apps published from a Cloud preview: inference, source pinning, staging, start, probe, and the platform client (RFD 0003), as a pure core over injected IO"
 
 [dependencies]
+base64.workspace = true
 cmux-process.workspace = true
 libc.workspace = true
+png.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 

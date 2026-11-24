@@ -193,21 +193,42 @@ class NewReds(unittest.TestCase):
 
     def test_no_first_base_pass_means_no_flake_verdict_from_a_later_replay(self):
         # #41414 review F2: a later base replay that fails a test proves the base flaps on it only when the first
-        # replay passed it. A missing or unreadable first result, or a first replay whose file timed out (it names no
-        # test), followed by a replay that names the test red, turned "no base result is the change's" into a pass.
+        # replay passed it. A missing or unreadable first result stays unknown, never a flake. A first replay whose
+        # file timed out (it names no test) followed by replays that name the test red is no flake either: the base
+        # failed it by name, so it is red on the base too (cmux#50088), never excused as flaky.
         red = "test/agent-pane-stream-row-overlap.test.ts > webkit: followed, no lag"
         file = red.split(" > ")[0]
         for first in ("unreadable", {file: False}, {f"{file} > other": False, file: False}):
             done = self.run_again({red: False}, first, {red: False})
+            self.assertNotIn(f"webview test red step (flaky): {red}", done.stdout)
             if first == "unreadable":
                 self.assertEqual(done.returncode, 1, f"{first}: {done.stdout}{done.stderr}")
                 self.assertIn(f"webview test red step (unknown): {red}", done.stdout)
             else:
-                self.assertEqual(done.returncode, 1, f"{first}: {done.stdout}{done.stderr}")
-                self.assertIn(f"::error title=Webview test red on this change::{red}", done.stdout)
-                self.assertIn(f"webview test red step (new): {red}", done.stdout)
+                self.assertEqual(done.returncode, 0, f"{first}: {done.stdout}{done.stderr}")
+                self.assertIn(f"webview test red step (base): {red}", done.stdout)
             listed = self.run_again({red: False}, first, {red: False}, new_files=True)
-            self.assertEqual(listed.stdout.splitlines(), [] if first == "unreadable" else [file], first)
+            self.assertEqual(listed.stdout.splitlines(), [], first)
+
+    def test_a_red_the_first_replay_timed_out_on_is_the_bases_when_every_later_replay_fails_it(self):
+        # cmux#50088 (job 137410904472): feel-plan-tray.test.ts timed out on the first base replay, naming the tests
+        # it finished; both later base replays failed "five drags in a row" by name with the head's own numbers, and
+        # the compare called it the change's.
+        file = "test/feel-plan-tray.test.ts"
+        red = f"{file} > feel: plan tray rim drag > five drags in a row, up and down: each follows the hand, none jumps"
+        other = f"{file} > feel: plan tray rim drag > a click on the rim (no drag) moves and changes nothing"
+        head = {red: False, other: False, file: False}
+        first = {other: False, file: False}
+        done = self.run_again(head, first, {red: False, other: False, file: False}, {red: False, file: False})
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertNotIn("::error", done.stdout)
+        self.assertIn(f"::warning title=Webview test red on the base too::{red}", done.stdout)
+        self.assertIn(f"webview test red step (base): {red}", done.stdout)
+        # One later replay that passes it, or none that names it: still the change's.
+        for again in (({red: False}, {red: True}), ({file: False},), ({file: False}, {file: False})):
+            done = self.run_again(head, first, *again)
+            self.assertEqual(done.returncode, 1, f"{again}: {done.stdout}{done.stderr}")
+            self.assertIn(f"webview test red step (new): {red}", done.stdout)
         # A first replay whose file passed whole (it names no passing test) did pass it.
         done = self.run_again({red: False}, {file: True}, {red: False})
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
