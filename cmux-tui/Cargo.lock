@@ -1476,6 +1476,7 @@ dependencies = [
  "blake3",
  "chacha20poly1305",
  "cmux-fault",
+ "flate2",
  "tokio",
  "zstd",
 ]
