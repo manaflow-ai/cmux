@@ -2268,6 +2268,9 @@ impl Overlay {
 #[path = "pin.rs"]
 pub mod pin;
 
+// Linux only: `renameat2` is a Linux syscall, and its one caller (`git_swap::swap`) swaps under the
+// Linux FUSE mount; the macOS NFS serve (#51365) has no swap yet.
+#[cfg(target_os = "linux")]
 #[path = "overlay_swap.rs"]
 mod swap;
 
