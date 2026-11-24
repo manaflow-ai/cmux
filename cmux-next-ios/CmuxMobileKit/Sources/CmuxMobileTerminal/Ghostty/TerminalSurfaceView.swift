@@ -754,6 +754,9 @@ final class TerminalSurfaceView: UIView {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.presents += 1
+                #if DEBUG
+                TerminalModel.debugPresentsTotal += 1
+                #endif
                 self.presentPending = true
                 self.observeCommits()
             }

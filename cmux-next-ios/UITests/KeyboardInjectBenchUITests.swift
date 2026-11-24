@@ -113,13 +113,20 @@ final class KeyboardInjectBenchUITests: XCTestCase {
     @MainActor func testTTITerminal() throws { try run(Self.terminal, mode: "tti", rounds: 20) }
     @MainActor func testTTIChat() throws { try run(Self.chat, mode: "tti", rounds: 20) }
     @MainActor func testTTIChief() throws { try run(Self.chief, mode: "tti", rounds: 20) }
+    /// No injected input: the keyboard shows and hides 20 times each way, and
+    /// the trace's per-frame content (`cb=`, `cf=`), the terminal's presents
+    /// (`tp=`) and resizes (`rz=`) say when the transcript or the grid stops
+    /// moving after the keyboard's last frame (scripts/measure/ios_keyboard_settle.py).
+    @MainActor func testSettleChat() throws { try run(Self.chat, mode: nil, rounds: 20) }
+    @MainActor func testSettleTerminal() throws { try run(Self.terminal, mode: nil, rounds: 20) }
 
     @MainActor
-    private func run(_ surface: Surface, mode: String, rounds: Int) throws {
+    private func run(_ surface: Surface, mode injected: String?, rounds: Int) throws {
+        let mode = injected ?? "settle"
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
-        app.launchArguments += Self.base + surface.arguments + ["-cmux-mobile-kbd-inject", mode]
+        app.launchArguments += Self.base + surface.arguments + (injected.map { ["-cmux-mobile-kbd-inject", $0] } ?? [])
         app.launch()
         let probe = app.staticTexts["debug.kbd-pin"]
         XCTAssertTrue(probe.waitForExistence(timeout: 30), "\(surface.name): the keyboard pin probe")

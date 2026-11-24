@@ -225,6 +225,8 @@ public final class KeyboardPinTrace: NSObject {
         parts.append("orient=\(window.windowScene?.effectiveGeometry.interfaceOrientation.rawValue ?? 0)")
         parts.append("hw=\(GCKeyboard.coalesced == nil ? 0 : 1)")
         parts.append("rz=\(TerminalModel.debugResizesSentTotal)")
+        // Terminal frames presented so far (a paint marker for the content settle bench).
+        parts.append("tp=\(TerminalModel.debugPresentsTotal)")
         // Busy ms and wakeups since the last tick; the open stretch counts up to now.
         let now = CACurrentMediaTime()
         let open = awakeSince.map { now - $0 } ?? 0
@@ -260,7 +262,7 @@ public final class KeyboardPinTrace: NSObject {
                 let bounds = (scroll.layer.presentation() ?? scroll.layer).bounds
                 // The content's bottom edge on screen.
                 let bottom = frame.minY + scroll.contentSize.height - bounds.minY
-                parts.append(String(format: "cb=%.2f off=%.2f inb=%.2f trk=%d", bottom, bounds.minY, scroll.contentInset.bottom, scroll.isTracking ? 1 : 0))
+                parts.append(String(format: "cb=%.2f off=%.2f inb=%.2f trk=%d cf=%.2f,%.2f", bottom, bounds.minY, scroll.contentInset.bottom, scroll.isTracking ? 1 : 0, frame.minY, frame.maxY))
             }
         } else {
             parts.append("field=-")
