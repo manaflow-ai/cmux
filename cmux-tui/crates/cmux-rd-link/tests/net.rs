@@ -260,6 +260,34 @@ fn a_stun_server_that_resolves_after_start_still_gives_the_reflexive_candidate()
     assert!(wait(&net, &mut seen, |e| e.contains(&late)), "the late STUN server is queried");
 }
 
+#[test]
+fn a_record_sent_just_before_the_close_still_reaches_the_peer() {
+    let (v, h) = (KeyPair::generate().unwrap(), KeyPair::generate().unwrap());
+    let host = start(Role::Responder, &h, v.public);
+    let viewer = start(Role::Initiator, &v, h.public);
+    viewer.add_remote_candidate(Candidate { kind: CandidateKind::Host, addr: host.local_addr() });
+    host.add_remote_candidate(Candidate { kind: CandidateKind::Host, addr: viewer.local_addr() });
+    viewer.send_control(b"hello".to_vec());
+    let established =
+        |e: &[NetEvent]| e.contains(&NetEvent::Endpoint(EndpointEvent::Link(Event::Established)));
+    let (mut at_host, mut at_viewer) = (Vec::new(), Vec::new());
+    assert!(wait(&host, &mut at_host, established));
+    assert!(wait(&viewer, &mut at_viewer, established));
+
+    // As `cmux-rd serve` ends a session: its `ended` reason, then the link dropped at once.
+    host.send_control(b"ended: failed: no grant".to_vec());
+    drop(host);
+    let closed = NetEvent::Endpoint(EndpointEvent::Link(Event::Closed));
+    assert!(wait(&viewer, &mut at_viewer, |e| e.contains(&closed)));
+    let ended = NetEvent::Endpoint(EndpointEvent::Link(Event::Control(
+        b"ended: failed: no grant".to_vec(),
+    )));
+    let ended_at = at_viewer.iter().position(|e| *e == ended);
+    let closed_at = at_viewer.iter().position(|e| *e == closed);
+    assert!(ended_at.is_some(), "the last record crosses before the close: {at_viewer:?}");
+    assert!(ended_at < closed_at, "the record comes before the close");
+}
+
 /// A send the system refuses (here a broadcast address without SO_BROADCAST; on a Mac, a LAN
 /// address while the app has no Local Network access) used to be dropped without a word, so
 /// the failure read only "heard 0" (cmuxterm-hq CMUX-572). The reason now counts it.

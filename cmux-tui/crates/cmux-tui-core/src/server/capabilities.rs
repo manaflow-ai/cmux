@@ -123,6 +123,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(agent_transfer::AGENT_TRANSFER_CAPABILITY);
         capabilities.push(agent_transfer::AGENT_TRANSFER_VM_KIND_CAPABILITY);
         capabilities.push(agent_transfer::AGENT_TRANSFER_CONTINUES_CAPABILITY);
+        capabilities.push(agent_transfer::AGENT_TRANSFER_HISTORY_LATER_CAPABILITY);
     }
     #[cfg(unix)]
     if mux.on_cloud_host() {
@@ -242,6 +243,7 @@ pub fn build_capabilities() -> Vec<&'static str> {
             && *capability != crate::git_seed::GIT_SEED_HOLD_CAPABILITY
             && *capability != crate::blob_fetch::BLOB_FETCH_CAPABILITY
             && *capability != crate::projection::PROJECTION_CAPABILITY
+            && *capability != crate::projection::PROJECTION_EXTEND_CAPABILITY
             && *capability != BROWSER_RUNTIME_CAPABILITY
     });
     #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
@@ -334,6 +336,7 @@ pub(super) fn advertised_capabilities(
         MACHINE_LISTENING_TCP_CAPABILITY,
         TERMINAL_PORTS_CAPABILITY,
         SERVER_STATS_CAPABILITY,
+        PROCESS_CENSUS_CAPABILITY,
         DAEMON_SHUTDOWN_RESTART_CAPABILITY,
         DAEMON_STOP_IF_IDLE_CAPABILITY,
         TERMINAL_IDLE_CLOSE_CAPABILITY,
@@ -408,6 +411,7 @@ pub(super) fn advertised_capabilities(
         conversations::CONVERSATION_THREAD_OBJECTS_CAPABILITY,
         conversations::CONVERSATION_INBOX_STATE_CAPABILITY,
         conversations::HOME_INBOX_CAPABILITY,
+        conversation_scheduled::CONVERSATION_SCHEDULED_CAPABILITY,
         conversations::HOME_INBOX_SINCE_CAPABILITY,
         conversations::HOME_INBOX_WINDOW_CAPABILITY,
         conversation_runs::CONVERSATION_RUNS_CAPABILITY,
@@ -434,6 +438,7 @@ pub(super) fn advertised_capabilities(
         LAUNCH_SNAPSHOT_CAPABILITY,
         LIST_WORKSPACES_KNOWN_CAPABILITY,
         LIST_WORKSPACES_LIMIT_CAPABILITY,
+        LIST_WORKSPACES_PAGE_CAPABILITY,
         STATE_RESOURCES_CAPABILITY,
         WINDOW_RECORDS_CAPABILITY,
         TERMINAL_STATE_CAPABILITY,
@@ -501,8 +506,11 @@ pub(super) fn advertised_capabilities(
         crate::git_ops::WORKTREE_APPLY_CAPABILITY,
         crate::git_ops::WORKTREE_REMOVE_CAPABILITY,
         crate::git_ops::DIFF_COMMENTS_CAPABILITY,
+        crate::git_ops::REVIEW_CAPABILITY,
         crate::git_ops::DIFF_COMMENTS_SEND_CAPABILITY,
+        crate::git_ops::DIFF_COMMENTS_THREADS_CAPABILITY,
         crate::git_ops::WORKTREE_SETUP_CAPABILITY,
+        crate::git_ops::WORKTREE_SETUP_RUN_CAPABILITY,
         crate::request_origin::ORIGIN_CLAIM_CAPABILITY,
         crate::request_origin::page_router_table::PAGE_ROUTER_CAPABILITY,
         crate::request_origin::page_router_table::PAGE_EVENTS_CAPABILITY,

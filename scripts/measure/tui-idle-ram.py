@@ -208,7 +208,7 @@ def main():
         for i in range(args.workspaces):
             c.call("new-workspace", name=f"w{i}", cols=80, rows=24)
         c.close()
-        time.sleep(args.settle)  # bench: the idle window
+        time.sleep(args.settle)  # sleep-ok: --settle is the measured idle window before the RAM sample
         result.update(sample(proc.pid))
         d = result["daemon"]
         print("TUI-IDLE " + json.dumps({"label": args.label, "workspaces": args.workspaces,

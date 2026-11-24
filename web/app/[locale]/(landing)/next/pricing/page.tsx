@@ -19,7 +19,10 @@ import {
   type ChiefPlanId,
 } from "../../../../../services/billing/chiefPricing";
 import { isNextPricingPreviewEnabled } from "../../../../../services/billing/nextPricingPreview";
+import { isCloudIntroEnabled } from "../../../../../services/billing/cloudIntro";
+import { cloudIntroLayout } from "../../../../../services/billing/cloudIntroOffer";
 import { ChiefPricingCalculator } from "./chief-pricing-calculator";
+import { CloudIntroCard, CloudIntroPass, cloudIntroCopy } from "./cloud-intro-pass";
 
 /** Proposal page: never indexed, never linked from the live site. */
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
@@ -56,10 +59,21 @@ const PLAN_ACTION_HREF: Record<ChiefPlanId, string> = {
   enterprise: "/enterprise",
 };
 
-export default async function NextPricingPage({ params }: { params: Promise<{ locale: string }> }) {
+export default async function NextPricingPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ locale: string }>;
+  /** `?intro=a|b|c` picks the $1 pass layout while it is being decided. */
+  searchParams?: Promise<{ intro?: string | string[] }>;
+}) {
   if (!isNextPricingPreviewEnabled()) notFound();
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "nextPricing" });
+  // The $1 pass shows only where its checkout is on.
+  const intro = isCloudIntroEnabled()
+    ? { copy: cloudIntroCopy(t), layout: cloudIntroLayout((await searchParams)?.intro) }
+    : null;
 
   const kimi = blendedUsdPerMillion(chiefModel("kimi-k2.7-code"));
   const standardSandbox = { vcpu: 2, gib: 4 };
@@ -115,6 +129,8 @@ export default async function NextPricingPage({ params }: { params: Promise<{ lo
           <span className="text-muted">{` · ${t("previewNote")}`}</span>
         </div>
 
+        {intro ? <CloudIntroPass {...intro} slot="top" /> : null}
+
         <p className="text-sm font-medium text-muted">{t("eyebrow")}</p>
         <h1 className="mt-2 max-w-3xl text-3xl font-medium tracking-tight sm:text-4xl">{t("title")}</h1>
         <p className="mt-5 max-w-2xl text-[15px] leading-relaxed text-muted">{t("lede")}</p>
@@ -128,7 +144,10 @@ export default async function NextPricingPage({ params }: { params: Promise<{ lo
           ))}
         </div>
 
-        <div className="mt-12 grid items-stretch gap-5 md:grid-cols-3">
+        {intro ? <CloudIntroPass {...intro} slot="beforePlans" /> : null}
+
+        <div className={`${intro?.layout === "a" ? "mt-5" : "mt-12"} grid items-stretch gap-5 ${intro?.layout === "b" ? "md:grid-cols-2 lg:grid-cols-4" : "md:grid-cols-3"}`}>
+          {intro?.layout === "b" ? <CloudIntroCard copy={intro.copy} /> : null}
           {CHIEF_PLANS.filter((p) => !p.perSeat).map(card)}
         </div>
         <div className="mt-5 grid items-stretch gap-5 md:grid-cols-2">

@@ -79,6 +79,10 @@ pub struct HarnessHealth {
     /// The last update auto-update ran for it, since the daemon started.
     #[serde(default)]
     pub last_auto_update: Option<auto::AutoUpdateResult>,
+    /// Which Codex app-server a new chat starts while Labs
+    /// `labs.bundledCodexAppServer` is on (`codex_bundle.rs`); absent while it is off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub codex_bundle: Option<crate::codex_bundle::Health>,
 }
 
 /// A harness to check, as the hub's configuration describes it.
@@ -182,6 +186,9 @@ pub(crate) fn builtin_login(family: &str) -> Option<&'static str> {
         "unii" => crate::uniichat_endpoint::LOGIN,
         "hermes" => "hermes model",
         "openclaw" => "openclaw onboard",
+        // oh-my-pi's terminal counterpart of `/login` (can1357/oh-my-pi
+        // `docs/cli-reference.md`, `commands/login.ts`).
+        "omp" => "omp login",
         _ => return None,
     })
 }
@@ -295,7 +302,8 @@ fn builtin_auth(s: &Subject, cwd: Option<&Path>) -> Option<(Auth, Option<String>
                 Err(why) => (Auth::SignedOut, Some(why)),
             })
         }
-        // Gemini, OpenCode, Pi, Cursor, Copilot, Grok, Muse and Antigravity: their login files and keys.
+        // Gemini, OpenCode, Pi, Cursor, Copilot, Grok, Muse, Antigravity, DeepSeek, Prime
+        // and Hermes: their login files and keys.
         family => {
             let env = crate::login_env::effective_for(Some(family), &s.env);
             agent_files::file_auth(family, &program, &env)
@@ -695,6 +703,12 @@ fn save(path: &Path, rows: &[HarnessHealth]) {
 /// The part of a check that runs here: where the program is, how it was
 /// installed, its version, its sign-in, and its update and login commands.
 fn local(s: Subject, home: &Path) -> HarnessHealth {
+    // Bundled or installed, while Labs `labs.bundledCodexAppServer` is on; None while off.
+    let codex_bundle = (s.family == "codex")
+        .then(|| {
+            crate::codex_bundle::resolve_now(&[s.program.clone(), "app-server".into()]).health()
+        })
+        .flatten();
     let mut found = if Path::new(&s.program).is_absolute() {
         Path::new(&s.program).is_file().then(|| s.program.clone())
     } else {
@@ -773,6 +787,7 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
         checked_at: now_ms(),
         auto_update: false,
         last_auto_update: None,
+        codex_bundle,
     }
 }
 
@@ -892,6 +907,7 @@ mod tests {
             checked_at: 1,
             auto_update: false,
             last_auto_update: None,
+            codex_bundle: None,
         }]);
         let subject = Subject {
             id: "codex-sr".into(),
@@ -928,6 +944,7 @@ mod tests {
             checked_at: 1,
             auto_update: false,
             last_auto_update: None,
+            codex_bundle: None,
         }]);
         let feed = service.inventory_changes();
         service.record_acp_auth_success("muse", "ACP session/new authenticated the harness");

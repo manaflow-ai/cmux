@@ -111,9 +111,16 @@ def result_path() -> Path:
 
 
 def measure(folder: Path, sock: str, png: Path) -> int:
+    empty = snapshot(sock, png)
     (folder / "cmux-app.json").write_text(json.dumps(MANIFEST, indent=2), encoding="utf-8")
     (folder / "main.js").write_text(script(0), encoding="utf-8")
-    time.sleep(3)  # first install and mount
+    # First install and mount: the window's pixels change from before the install (the rounds settle it after).
+    deadline = time.monotonic() + 15
+    while snapshot(sock, png) == empty:
+        if time.monotonic() > deadline:
+            print("note: the window did not change within 15s of the first install")
+            break
+        time.sleep(0.1)
     samples: list[float] = []
     snaps: list[float] = []
     for revision in range(1, ROUNDS + 1):

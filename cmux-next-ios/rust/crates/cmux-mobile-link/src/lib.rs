@@ -10,20 +10,24 @@
 //! - [`hybrid`]: the phone's WebRTC media session beside a WireGuard link.
 //! - [`keepalive`]: the phone's one keepalive clock (Align Keepalives).
 //! - [`link_stat`]: the phone's path report (`link_stat` on the signaling socket).
+//! - [`path_report`]: one log line per path change and per 10 s (path, srtt).
 //! - [`names`]: the link's capability names, declared once (PROTOCOL.md "Capabilities").
 //! - [`reconnect`]: the reconnect decision as one pure step (a port of `LinkMachine.swift`).
 
 pub mod api;
 pub mod build_space;
 pub mod class_queue;
+pub mod classes;
 pub mod dial;
 pub mod frame;
 pub mod hybrid;
 pub mod keepalive;
 pub mod link;
 pub mod link_stat;
+mod liveness;
 pub mod media;
 pub mod names;
+pub mod path_report;
 pub mod reconnect;
 mod send_queue;
 pub mod signaling;

@@ -41,6 +41,11 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(self.verdict([("M", "Packages/macOS/CmuxNext/ci-target-graph.json")]), "no-app")
         self.assertEqual(self.verdict([("M", "examples/extensions/activity/src/main.ts")]), "no-app")
         self.assertEqual(self.verdict([("M", "design/terminal-chat-toggle-gallery.html")]), "no-app")
+        self.assertEqual(self.verdict([("M", ".gitattributes")]), "no-app")
+        self.assertEqual(self.verdict([("D", "dogfood/scenarios/copy-actions-tour.json")]), "no-app")
+        self.assertEqual(self.verdict([("M", "evals/computer-use/tasks/finder-new-folder.json")]), "no-app")
+        self.assertEqual(self.verdict([("A", "Native/OptChat/optchat-chief/evals/cases/upsell-a675-cloud-plan-required.json")]),
+                         "no-app")
         # The screen detector under cmux-tui/bindings/examples/ ships in the app: a daemon restart, not no-app.
         self.assertEqual(self.verdict([("M", "cmux-tui/bindings/examples/rust-agent-screen-detection/src/lib.rs")]),
                          "daemon")

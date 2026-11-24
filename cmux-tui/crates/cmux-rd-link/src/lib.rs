@@ -28,6 +28,7 @@ pub mod dlink;
 #[cfg(feature = "net")]
 pub mod net;
 pub mod turn;
+pub mod wake;
 
 use control::{ControlReceiver, ControlSender};
 use replay::ReplayWindow;
@@ -471,6 +472,13 @@ impl Link {
     /// Seals one rd datagram (best effort) and returns the packet to send now.
     pub fn seal_datagram(&mut self, datagram: &[u8]) -> Result<Vec<u8>, LinkError> {
         self.seal(inner::DATAGRAM, datagram)
+    }
+
+    /// Whether every queued control record has been acknowledged by the peer.
+    pub fn controls_acknowledged(&self) -> bool {
+        self.is_established()
+            && self.pending_control.is_empty()
+            && self.control_out.next_deadline_us().is_none()
     }
 
     /// Queues one control record: delivered once and in order. Records queued
