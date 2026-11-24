@@ -402,6 +402,19 @@ import Testing
         #expect(request.userText == "look")
     }
 
+    @Test func linkPreviewURLIsPassedToTheBrain() async throws {
+        let brain = FakeBrain.replying(["Looking"])
+        let owner = try ChiefFixture().owner(brain)
+        let link = LinkPreview(url: "https://example.com/archives/p456", title: "Review thread")
+
+        try await owner.submit(HomeIntent(op: .sendMessage(conversation: conversation,
+                                                           parts: [.text("check this"), .linkPreview(link)])))
+        _ = try await ChiefFixture.idleMessages(owner, count: 2)
+        let request = try #require(await brain.log.requests.first)
+        #expect(request.userText.contains("https://example.com/archives/p456"))
+        #expect(request.userText.contains("Review thread"))
+    }
+
     static func sha256(_ url: URL) throws -> String {
         let data = try Data(contentsOf: url)
         return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
