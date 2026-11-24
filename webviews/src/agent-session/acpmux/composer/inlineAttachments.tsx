@@ -374,7 +374,10 @@ export function useInlineAttachments(options: Options) {
       if (before !== shape) changed = dom;
     }
     shapes.current = next;
-    changed?.dispatchEvent(new window.CustomEvent(TILE_SHAPE_EVENT, { bubbles: true }));
+    if (!changed) return;
+    // The tile's own window builds the event, so a tile in another document (a test's DOM) can carry it.
+    const Custom = changed.ownerDocument.defaultView?.CustomEvent ?? CustomEvent;
+    changed.dispatchEvent(new Custom(TILE_SHAPE_EVENT, { bubbles: true }));
   }, [views, options.pending, options.attachments]);
 
   const chips = [...views].map(([id, dom]) =>
