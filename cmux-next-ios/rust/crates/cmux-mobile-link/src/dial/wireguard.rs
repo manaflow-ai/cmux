@@ -2163,14 +2163,22 @@ fn start_tunnel(
         ultra: ultra_for_dial(options.ultra),
     };
     let peer = underlay.peer.subscribe();
-    let net = WgNet::start_with_underlay(config, underlay).map_err(transport_error)?;
+    let net = Arc::new(WgNet::start_with_underlay(config, underlay).map_err(transport_error)?);
+    if let Some(gap) = options.idle_air_gap {
+        let net = Arc::clone(&net);
+        tokio::spawn(async move {
+            if let Err(error) = net.set_idle_air_gap(Some(gap)).await {
+                tracing::debug!(%error, "idle air gap not set");
+            }
+        });
+    }
     let session = Session::register(roam::SessionParts {
         session_id: spec.session_id.to_owned(),
         peer: spec.peer_device.to_owned(),
         dialer: spec.dialer,
         peer_ip: spec.peer_ip,
         signaling: current,
-        net: Arc::new(Mutex::new(Some(Arc::new(net)))),
+        net: Arc::new(Mutex::new(Some(net))),
         control: control_tx,
         reach: reach_rx,
         options: options.clone(),
