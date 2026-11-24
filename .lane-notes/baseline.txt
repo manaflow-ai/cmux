@@ -1,0 +1,4 @@
+baseline 4a025848 (eviction code not yet in), infinite-items-linux.sh counts=1000 days=1 pages=0 freed=1 --window=5
+FREED (idle tabs parked) day1: stack 387.1 MB PSS, 2.87x empty (135.1), 0.252 MB/item, wakeups 0.0
+  acpmux 156.58 MB PSS, 0.094 MB/item over empty, 0.0 wk/s; one_kb thread-stack 107332, arena 13632, heap 3196, binary 35292
+product arm day1: acpmux 156.39 MB, 0.096 MB/item, 244.0 wk/s (tokio-rt-worker 1010 wakes/window)
