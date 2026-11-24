@@ -521,16 +521,19 @@ impl TurnCarrier {
     /// The TCP leg to `server`: through the system's proxy for it when the
     /// settings name one (`CONNECT host:443`, the TURN server's name, not an
     /// address: the proxy resolves it).
-    async fn connect_tcp(server: &TurnServer, options: &DialOptions) -> Result<TcpStream, AllocFailure> {
+    async fn connect_tcp(
+        server: &TurnServer,
+        options: &DialOptions,
+    ) -> Result<(TcpStream, crate::egress::Via), AllocFailure> {
         let (host, port) = split_host_port(&server.address, 443)
             .ok_or_else(|| AllocFailure::Other(format!("bad TURN address {}", server.address)))?;
         let secure = server.transport == TurnTransport::Tls;
         match crate::egress::connect_tcp(&host, port, secure, &options.egress).await {
             Ok((tcp, via)) => {
-                if let crate::egress::Via::Proxy(hop) = via {
+                if let crate::egress::Via::Proxy(hop) = &via {
                     tracing::info!(%hop, server = server.address, "TURN over TLS through the proxy");
                 }
-                Ok(tcp)
+                Ok((tcp, via))
             }
             Err(error) if error.is_proxy_refusal() => Err(AllocFailure::Proxy(error)),
             Err(error) => Err(AllocFailure::Other(error.to_string())),
@@ -541,7 +544,7 @@ impl TurnCarrier {
         server: &TurnServer,
         options: &DialOptions,
     ) -> Result<(Arc<dyn Conn + Send + Sync>, watch::Receiver<bool>), AllocFailure> {
-        let tcp = Self::connect_tcp(server, options).await?;
+        let (tcp, via) = Self::connect_tcp(server, options).await?;
         let _ = tcp.set_nodelay(true);
         let keepalive =
             socket2::TcpKeepalive::new().with_time(STREAM_KEEPALIVE).with_interval(STREAM_KEEPALIVE / 2);
@@ -558,6 +561,7 @@ impl TurnCarrier {
             .connect(name, tcp)
             .await
             .map_err(|e| format!("TLS to {}: {e}", server.host))?;
+        crate::egress::note(crate::egress::PathKind::of(&via, &server.host));
         let conn = StreamConn::new(tls, local, peer);
         let dead = conn.dead();
         Ok((Arc::new(conn), dead))

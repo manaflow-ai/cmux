@@ -70,6 +70,10 @@ pub struct RelayEndpoint {
     /// This side's device id: the relay admits the two devices of the
     /// session.
     pub device_id: String,
+    /// How a join leaves this device: the system's proxy for the service
+    /// (`CONNECT`, PAC included) and the OS trust store, as signaling. The
+    /// dial sets it from [`super::DialOptions::egress`].
+    pub egress: crate::egress::Egress,
     token: Arc<dyn Fn() -> TokenFuture + Send + Sync>,
 }
 
@@ -90,7 +94,13 @@ impl RelayEndpoint {
         device_id: impl Into<String>,
         token: impl Fn() -> TokenFuture + Send + Sync + 'static,
     ) -> Self {
-        Self { base_url: base_url.into(), build_space, device_id: device_id.into(), token: Arc::new(token) }
+        Self {
+            base_url: base_url.into(),
+            build_space,
+            device_id: device_id.into(),
+            egress: crate::egress::Egress::default(),
+            token: Arc::new(token),
+        }
     }
 
     /// An endpoint with one fixed token (the phone's dial carries a fresh one).
@@ -171,6 +181,26 @@ impl RelayFailure {
     }
 }
 
+/// A failed join as a [`RelayFailure`]: a proxy that refused (sign-in,
+/// policy) answers like the service would have, with its status.
+fn classify_websocket(error: crate::egress::WebSocketError) -> RelayFailure {
+    use crate::egress::{EgressError, WebSocketError};
+    match error {
+        WebSocketError::Upgrade(error) => classify(error),
+        WebSocketError::Tls(detail) => RelayFailure::TlsRejected { detail },
+        WebSocketError::BadUrl(detail) => RelayFailure::Unreachable { detail },
+        WebSocketError::Egress(error @ EgressError::Io(_)) => {
+            RelayFailure::Unreachable { detail: error.to_string() }
+        }
+        WebSocketError::Egress(
+            error @ (EgressError::ProxyAuthMissing { .. }
+            | EgressError::ProxyAuthRefused { .. }
+            | EgressError::ProxyAuthUnsupported { .. }),
+        ) => RelayFailure::Refused { status: 407, code: error.to_string() },
+        WebSocketError::Egress(error) => RelayFailure::Refused { status: 403, code: error.to_string() },
+    }
+}
+
 /// The failed upgrade as a [`RelayFailure`].
 fn classify(error: tokio_tungstenite::tungstenite::Error) -> RelayFailure {
     use tokio_tungstenite::tungstenite::Error;
@@ -244,10 +274,16 @@ impl RelayCarrier {
         if let Some(space) = &endpoint.build_space {
             headers.insert(crate::build_space::HEADER, header(space.as_str())?);
         }
-        let (socket, _) = tokio::time::timeout(JOIN_WAIT, tokio_tungstenite::connect_async(request))
-            .await
-            .map_err(|_| RelayFailure::Timeout)?
-            .map_err(classify)?;
+        let host = request.uri().host().unwrap_or_default().trim_matches(['[', ']']).to_owned();
+        let (socket, via) =
+            tokio::time::timeout(JOIN_WAIT, crate::egress::connect_websocket(request, &endpoint.egress))
+                .await
+                .map_err(|_| RelayFailure::Timeout)?
+                .map_err(classify_websocket)?;
+        let path = crate::egress::PathKind::of(&via, &host);
+        if path != crate::egress::PathKind::Direct {
+            tracing::info!(path = path.as_str(), host, "relay joined through the proxy");
+        }
         let expected = uuid::Uuid::parse_str(peer_device).ok().map(|id| PeerId(*id.as_bytes()));
         Ok(Self::run(socket, expected))
     }

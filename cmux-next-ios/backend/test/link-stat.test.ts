@@ -81,6 +81,13 @@ describe("link_stat log line", () => {
     expect(linkStatLine(stat({ reason: "end", end: "keepalive" }), "phone", ingress, null)!.end).toBe("keepalive")
   })
 
+  it("keeps how the link left the device (proxy, inspected) and drops any other word", () => {
+    expect(linkStatLine(stat({ egress: "inspected" }), "phone", ingress, null)!.egress).toBe("inspected")
+    expect(linkStatLine(stat({ egress: "proxy" }), "phone", ingress, null)!.egress).toBe("proxy")
+    expect(linkStatLine(stat({ egress: "proxy.corp:3128" }), "phone", ingress, null)!.egress).toBeUndefined()
+    expect(linkStatLine(stat(), "phone", ingress, null)!.egress).toBeUndefined()
+  })
+
   it("rejects a malformed stat", () => {
     for (const bad of [{ v: 2 }, { transport: "carrier-pigeon" }, { path: "10.0.0.1:443" }, { reason: "because" }, { pings: -1 }, { lost: "none" }, { pings: Number.NaN }]) {
       expect(linkStatLine(stat(bad), "phone", ingress, null)).toBeNull()
