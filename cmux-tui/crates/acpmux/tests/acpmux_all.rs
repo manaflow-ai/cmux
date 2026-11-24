@@ -454,8 +454,6 @@ mod one_command;
 mod opencode_policy;
 #[path = "opencode_task_subagents.rs"]
 mod opencode_task_subagents;
-#[path = "published_bench.rs"]
-mod published_bench;
 #[path = "pairing.rs"]
 mod pairing;
 #[path = "pairing_join_stdin.rs"]
@@ -528,6 +526,8 @@ mod prompt_images;
 mod prompt_local_video_links;
 #[path = "prompt_uploads.rs"]
 mod prompt_uploads;
+#[path = "published_bench.rs"]
+mod published_bench;
 #[path = "question_replies.rs"]
 mod question_replies;
 #[path = "rc_faults.rs"]
