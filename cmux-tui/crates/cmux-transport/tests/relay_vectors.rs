@@ -162,3 +162,34 @@ fn an_old_relay_refuses_kind_4_and_the_sender_falls_back_to_plain_datagrams() {
     // Old frame, new relay: a plain Datagrams frame decodes exactly as before.
     assert_eq!(RelayFrame::decode(&plain.encode().expect("encodes")).expect("decodes"), plain);
 }
+
+/// This crate's record parser and hop's decoder (`HopMsg::decode`) agree on every tagged vector's payload: the same
+/// records when valid, and a refusal from both when not. Both are one wire (docs/cmux-next/relay-pop-hop.md).
+#[test]
+fn the_tagged_parser_agrees_with_hops_record_decoder() {
+    let mut checked = 0;
+    for line in TAGGED.lines().filter(|line| line.contains("\"hex\"")) {
+        let bytes = hex(field(line, "hex").expect("hex field"));
+        let Some(payload) = bytes.get(18..) else { continue };
+        let mut hop_bytes = vec![0xC1, 1, 0, 0, 0, 1];
+        hop_bytes.extend_from_slice(payload);
+        let hop = cmux_transport::HopMsg::decode(&hop_bytes);
+        let ours =
+            RelayFrame::decode(&bytes).ok().map(|frame| frame.split_tagged().map(|r| r.len()));
+        match (hop, ours) {
+            (Ok(cmux_transport::HopMsg::Data { records, .. }), Some(Ok(count))) => {
+                assert_eq!(records.len(), count);
+                let frame = RelayFrame::decode(&bytes).expect("decodes");
+                for (theirs, mine) in records.iter().zip(frame.split_tagged().expect("records")) {
+                    assert_eq!(theirs.class as u8, mine.class);
+                    assert_eq!(theirs.tag.map(|t| (t.key, t.seq)), mine.tag);
+                    assert_eq!(theirs.bytes, mine.data);
+                }
+            }
+            (Err(_), None | Some(Err(_))) => {}
+            (hop, ours) => panic!("hop and relay_frame disagree: {hop:?} vs {ours:?} for {line}"),
+        }
+        checked += 1;
+    }
+    assert!(checked >= 15);
+}

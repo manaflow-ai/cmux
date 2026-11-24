@@ -533,7 +533,10 @@ relay was retired: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux-next/
   An older relay answers kind 4 with `bad_frame:kind` and a sender then
   falls back to `datagrams` (`RelaySender`). A client's text `stats`
   is answered `{"type":"stats","leg":{...},"peer":{...}|null}` with in-memory
-  per-leg counters (frames, bytes, records, superseded, refused, notices). Malformed
+  per-leg counters (frames, bytes, records, superseded, refused, notices).
+  The Rust client of this WebSocket relay is not built yet (the dial the app
+  uses today has none on `feat-cmux-next`), so `RelaySender` is not wired into
+  any sender and nothing sends kind 4 yet. Malformed
   frames, other kinds and frames past the per-socket limit (1500 frames and
   8 MiB a second) are dropped; the sender hears `{"type":"error","code":...}`
   at most every 5 s.

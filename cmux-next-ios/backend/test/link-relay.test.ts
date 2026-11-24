@@ -306,9 +306,9 @@ describe("TaggedQueue (R5 latest-wins, as far as a Durable Object can do it)", (
 
   it("never drops or reorders control, input, bulk, media or untagged class 1", () => {
     const q = new TaggedQueue()
-    const input = [one(0, 1), one(1, 2, [7, 1]), one(2, 3), one(1, 9), one(3, 4), one(4, 5), one(1, 6, [7, 2]), one(0, 7), one(2, 8, [7, 1])]
+    const input = [one(0, 1), one(1, 2, [7, 1]), one(2, 3), one(1, 9), one(3, 4), one(4, 5), one(1, 6, [7, 2]), one(0, 7), one(2, 8)]
     for (const r of input) q.add(r)
-    // Only the superseded tagged class 1 (data 2) is gone; the class-2 record tagged with the same key survives.
+    // Only the superseded tagged class 1 (data 2) is gone.
     expect(dataOf(q)).toEqual([1, 3, 9, 4, 5, 6, 7, 8])
   })
 

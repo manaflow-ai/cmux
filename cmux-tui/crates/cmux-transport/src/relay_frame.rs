@@ -187,8 +187,9 @@ fn split_batch(payload: &[u8]) -> Result<Vec<&[u8]>, RelayFrameError> {
 
 /// One hop/1 DATA record (docs/cmux-next/relay-pop-hop.md): `[u8 class][u8 flags][tag if flags & 1: u32 key,
 /// u32 key_seq][u16 len > 0][bytes]`. Class 0 control, 1 interactive state (latest-wins when tagged), 2 input,
-/// 3 bulk, 4 media. The only flag defined is bit 0 (tag present); any other bit is a bad batch, because the
-/// record's length could not be read past it.
+/// 3 bulk, 4 media. A class above 4, a flag bit other than bit 0 (tag present), or a tag on a class other than 1
+/// is a bad batch (hop's `HopError::Class`, `Flags`, `TagClass`); `tests/relay_vectors.rs` checks this parser
+/// against `hop::HopMsg::decode` on every vector.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TaggedRecord<'a> {
     pub class: u8,
@@ -224,7 +225,8 @@ fn split_tagged(payload: &[u8]) -> Result<Vec<TaggedRecord<'_>>, RelayFrameError
             return Err(RelayFrameError::BadBatch);
         };
         let [class, flags] = *head;
-        if flags & !1 != 0 {
+        // The checks of hop's record decoder (`hop::decode_record`), in its order: class, flags, tag class.
+        if class > 4 || flags & !1 != 0 || (flags & 1 == 1 && class != 1) {
             return Err(RelayFrameError::BadBatch);
         }
         let (tag, tail) = if flags & 1 == 1 {

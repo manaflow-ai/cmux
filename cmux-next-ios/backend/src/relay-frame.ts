@@ -45,8 +45,8 @@ export interface TaggedRecord {
 
 /**
  * The records of a `tagged-datagrams` payload: `[u8 class][u8 flags][u32 key, u32 key_seq if flags & 1][u16 len > 0]
- * [bytes]`, tiling it exactly, at least one. Only flag bit 0 is defined; another bit is `bad_batch` (the record's
- * length could not be read past it). `undefined` when it does not tile.
+ * [bytes]`, tiling it exactly, at least one. Class above 4, a flag bit other than bit 0, or a tag on a class other than 1 is `bad_batch`
+ * (hop's `Class`, `Flags`, `TagClass`). `undefined` when it does not tile.
  */
 export const splitTagged = (payload: Uint8Array): TaggedRecord[] | undefined => {
   const records: TaggedRecord[] = []
@@ -57,7 +57,8 @@ export const splitTagged = (payload: Uint8Array): TaggedRecord[] | undefined => 
     const start = offset
     const cls = payload[offset]!
     const flags = payload[offset + 1]!
-    if (flags & ~1) return undefined
+    // hop's decode_record checks, in its order: class, flags, tag class.
+    if (cls > 4 || flags & ~1 || (flags & 1 && cls !== 1)) return undefined
     offset += 2
     let tag: [number, number] | undefined
     if (flags & 1) {
