@@ -83,11 +83,11 @@ final class WorkspacesLaunchStatesUITests: XCTestCase {
     /// placeholder waiting out its 250 ms show delay is in the tree at opacity 0 (handoff-red-4
     /// a530d27a passed on the blink), so each sample is a screenshot of the band.
     @MainActor
-    func testFirstLoadHandOffKeepsThePlaceholderRowsUntilTheRows() { handOff(dark: false) }
+    func testFirstLoadHandOffKeepsThePlaceholderRowsUntilTheRows() { judgeHandOff(dark: false) }
 
     /// The same in dark appearance: the background and the bars are other grays.
     @MainActor
-    func testFirstLoadHandOffKeepsThePlaceholderRowsUntilTheRowsDark() { handOff(dark: true) }
+    func testFirstLoadHandOffKeepsThePlaceholderRowsUntilTheRowsDark() { judgeHandOff(dark: true) }
 
     /// The rows' band in points (iPhone 17 Pro portrait, 402 x 874): below the search field and the
     /// loading caption, above the tab bar; the placeholder rows fill it in every phase.
@@ -187,8 +187,49 @@ final class WorkspacesLaunchStatesUITests: XCTestCase {
         return drawn ? (px, width, height) : nil
     }
 
+    /// One run's verdict. INCONCLUSIVE (the run could not judge: a gap over the bound, the wrong
+    /// appearance) is retried once; BLINK (a blank band) and FAILED (anything else) never are.
+    enum HandOffVerdict { case pass, blink(String), inconclusive(String, gapMs: Int?), failed(String) }
+
+    /// Runs the hand-off once, and once more only when the first run was INCONCLUSIVE. Both runs'
+    /// timelines and verdicts are attached (`attempt 1`, `attempt 2`); the verdict is the last run's,
+    /// and its message says it was retried, so the retry rate shows across runs.
     @MainActor
-    private func handOff(dark: Bool) {
+    private func judgeHandOff(dark: Bool) {
+        let name = dark ? "dark" : "light"
+        let first = handOff(dark: dark, attempt: 1)
+        record(first, name: name, attempt: 1)
+        var verdict = first
+        var retried = ""
+        if case .inconclusive(_, let gap) = first {
+            retried = "retried after INCONCLUSIVE (gap \(gap.map { "\($0) ms" } ?? "n/a")): "
+            verdict = handOff(dark: dark, attempt: 2)
+            record(verdict, name: name, attempt: 2)
+        }
+        switch verdict {
+        case .pass: break
+        case .blink(let why): XCTFail(retried + why)
+        case .inconclusive(let why, _): XCTFail(retried + why)
+        case .failed(let why): XCTFail(retried + why)
+        }
+    }
+
+    private func record(_ verdict: HandOffVerdict, name: String, attempt: Int) {
+        let text: String
+        switch verdict {
+        case .pass: text = "PASS"
+        case .blink(let why): text = "BLINK: " + why
+        case .inconclusive(let why, _): text = "INCONCLUSIVE: " + why
+        case .failed(let why): text = "FAILED: " + why
+        }
+        let note = XCTAttachment(string: text)
+        note.name = "handoff-\(name)-attempt-\(attempt)-verdict"
+        note.lifetime = .keepAlways
+        add(note)
+    }
+
+    @MainActor
+    private func handOff(dark: Bool, attempt: Int) -> HandOffVerdict {
         let name = dark ? "dark" : "light"
         // As HomeNewMessageUITests: the device's appearance and the app's own setting
         // (-cmuxMobile.settings.appearance), which wins over the device's. handoff-red-5 set the
@@ -198,7 +239,7 @@ final class WorkspacesLaunchStatesUITests: XCTestCase {
         let app = launch("retry-first-launch-handoff", appearance: name)
         defer { app.terminate() }
         let loading = app.descendants(matching: .any)["workspaces.loading"]
-        XCTAssertTrue(loading.waitForExistence(timeout: 30), "first-load placeholders\n\(app.debugDescription)")
+        guard loading.waitForExistence(timeout: 30) else { return .failed("no first-load placeholders (\(name))\n\(app.debugDescription)") }
         // The page's placeholder rows wait out their own show delay first: start once they are drawn.
         let ready = Date()
         var first: BandRead?
@@ -208,20 +249,15 @@ final class WorkspacesLaunchStatesUITests: XCTestCase {
                 if !r.blank { first = r; break }
             }
         }
-        guard first != nil else {
-            XCTFail("the first-load placeholder rows were never drawn in the band (\(name))")
-            return
-        }
-        attach(app, "handoff-\(name)-first-load")
+        guard first != nil else { return .failed("the first-load placeholder rows were never drawn in the band (\(name))") }
+        attach(app, "handoff-\(name)-attempt-\(attempt)-first-load")
         // The appearance it ran in, from pixels: the navigation bar's background (above the title's
         // glyphs). A dark run on a light page, or the reverse, is INCONCLUSIVE, never a pass.
         guard let backdrop = Self.meanLuma(XCUIScreen.main.screenshot(), Self.backdropBand) else {
-            XCTFail("INCONCLUSIVE (\(name)): the appearance band could not be read")
-            return
+            return .inconclusive("INCONCLUSIVE (\(name)): the appearance band could not be read", gapMs: nil)
         }
         guard dark ? backdrop < 80 : backdrop > 175 else {
-            XCTFail("INCONCLUSIVE (\(name)): the page's background reads luma \(Int(backdrop)), not \(name)")
-            return
+            return .inconclusive("INCONCLUSIVE (\(name)): the page's background reads luma \(Int(backdrop)), not \(name)", gapMs: nil)
         }
         // The window: the three phase changes and the rows (7.5 s after the first phase), screenshots
         // only, no accessibility query in between (each costs more than a gap allows).
@@ -231,7 +267,7 @@ final class WorkspacesLaunchStatesUITests: XCTestCase {
             let t = Date().timeIntervalSince(start)
             if let b = Self.band(XCUIScreen.main.screenshot()) { shots.append((t, b.px, b.width, b.height)) }
         }
-        attach(app, "handoff-\(name)-rows")
+        attach(app, "handoff-\(name)-attempt-\(attempt)-rows")
         var timeline: [String] = []
         var gaps: [TimeInterval] = []
         var blanks: [Int] = []
@@ -245,24 +281,26 @@ final class WorkspacesLaunchStatesUITests: XCTestCase {
         let maxGap = gaps.max() ?? .infinity
         let note = XCTAttachment(string: "appearance \(name), background luma \(Int(backdrop)), band \(Self.handOffBand) pt, \(shots.count) samples, max gap \(Int(maxGap * 1000)) ms\n"
             + timeline.joined(separator: "\n"))
-        note.name = "handoff-\(name)-timeline"
+        note.name = "handoff-\(name)-attempt-\(attempt)-timeline"
         note.lifetime = .keepAlways
         add(note)
         if let index = blanks.first, let image = Self.image(shots[index].px, width: shots[index].width, height: shots[index].height) {
             let shot = XCTAttachment(image: image)
-            shot.name = "handoff-\(name)-first-blank-band"
+            shot.name = "handoff-\(name)-attempt-\(attempt)-first-blank-band"
             shot.lifetime = .keepAlways
             add(shot)
         }
         let rows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "workspace.row."))
-        XCTAssertTrue(rows.firstMatch.waitForExistence(timeout: 10), "the rows arrived (\(name))")
-        XCTAssertGreaterThan(shots.count, 30, "too few samples to judge (\(name))")
+        guard rows.firstMatch.waitForExistence(timeout: 10) else { return .failed("the rows never arrived (\(name))") }
+        guard shots.count > 30 else { return .inconclusive("INCONCLUSIVE (\(name)): \(shots.count) samples, too few to judge", gapMs: nil) }
         guard maxGap <= Self.maxSampleGap else {
-            XCTFail("INCONCLUSIVE (\(name)): a gap of \(Int(maxGap * 1000)) ms between samples, over \(Int(Self.maxSampleGap * 1000)) ms; gaps: \(gaps.map { Int($0 * 1000) })")
-            return
+            return .inconclusive("INCONCLUSIVE (\(name)): a gap of \(Int(maxGap * 1000)) ms between samples, over \(Int(Self.maxSampleGap * 1000)) ms; gaps: \(gaps.map { Int($0 * 1000) })",
+                                 gapMs: Int(maxGap * 1000))
         }
-        XCTAssertTrue(blanks.isEmpty, "the placeholder rows blinked out (\(name)): \(blanks.count) blank samples:\n"
-            + blanks.map { timeline[$0] }.joined(separator: "\n"))
+        guard blanks.isEmpty else {
+            return .blink("the placeholder rows blinked out (\(name)): \(blanks.count) blank samples:\n" + blanks.map { timeline[$0] }.joined(separator: "\n"))
+        }
+        return .pass
     }
 
     /// A band's bytes as an image, to attach.
