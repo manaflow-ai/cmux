@@ -23,7 +23,9 @@ fn hub() -> Arc<crate::hub::Hub> {
     let meta = serde_json::from_value(json!({
         "schema": crate::store::META_SCHEMA, "id": OWN, "name": OWN,
         "harness": "fake", "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1,
-        "title": format!("fix {}", github_token())
+        // A rename names the title, so the secret sits where a rename leaves it too.
+        "title": format!("fix {}", github_token()),
+        "lastPrompt": format!("deploy with {}", github_token())
     }))
     .unwrap();
     store.save(&meta).unwrap();
