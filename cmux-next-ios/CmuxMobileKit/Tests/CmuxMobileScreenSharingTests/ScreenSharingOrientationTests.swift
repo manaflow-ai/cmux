@@ -32,5 +32,19 @@ import UIKit
     @Test func noWindowYetIsPortrait() {
         #expect(ScreenSharingOrientation.resting(windowSize: .zero) == .portrait)
     }
+
+    /// UIKit calls a refused geometry request's error handler on a background queue. A handler
+    /// isolated to the main actor traps there (step aed9d983: three crashes in
+    /// `ScreenSharingOrientation.update()`); this one runs on a background queue and returns.
+    @Test func aRefusedPortraitRequestsHandlerRunsOffTheMainQueue() async {
+        let handler = ScreenSharingOrientation.ignoreGeometryError
+        let ran: Bool = await withCheckedContinuation { done in
+            DispatchQueue.global(qos: .default).async {
+                handler(NSError(domain: "UISceneErrorDomain", code: 100))
+                done.resume(returning: !Thread.isMainThread)
+            }
+        }
+        #expect(ran, "the handler ran on the main thread, so the test proves nothing")
+    }
 }
 #endif

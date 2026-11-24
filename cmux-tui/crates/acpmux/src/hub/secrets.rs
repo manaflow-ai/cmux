@@ -34,6 +34,7 @@
 
 use super::{Hub, Session, SessionStatus};
 use crate::rpc::RpcError;
+use crate::store::WaitReason;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::Mutex as StdMutex;
@@ -68,6 +69,8 @@ struct Pending {
     nonce: Option<String>,
     /// [`CardKind::one_line`].
     one_line: Option<usize>,
+    /// [`CardKind::wait`].
+    wait: WaitReason,
     reply: oneshot::Sender<Option<Zeroizing<String>>>,
 }
 
@@ -91,19 +94,22 @@ pub(super) struct CardKind {
     /// refuses another and the card stays open, so a decision is never recorded for a value the
     /// asker cannot use.
     pub one_line: Option<usize>,
+    /// What the chat waits on the person for while the card is open (its `waitingOn`).
+    pub wait: WaitReason,
 }
 
 /// The option a phone signs for a card's value (`approvers::message`, the card's id as the
 /// permission). A decline is not signed.
 pub const CARD_PROVIDE: &str = "card_provide";
 
-const CARD_SECRET: CardKind = CardKind {
+pub(super) const CARD_SECRET: CardKind = CardKind {
     request: "secret_request",
     decision: "secret_decision",
     provided: "provided",
     declined: "declined",
     signed: false,
     one_line: None,
+    wait: WaitReason::Secret,
 };
 
 /// An environment variable name: what the card shows and `secret_run` sets.
@@ -255,6 +261,7 @@ impl Hub {
                 session: session.id.clone(),
                 nonce: nonce.clone(),
                 one_line: kind.one_line,
+                wait: kind.wait,
                 reply: tx,
             };
             pending.insert(secret_id.clone(), card);
@@ -273,7 +280,7 @@ impl Hub {
         }
         self.append(session, "mux", kind.request, record);
         let prev = session.status();
-        self.set_status(session, SessionStatus::Waiting);
+        self.set_waiting(session, kind.wait);
         let answer = tokio::time::timeout(ttl, rx).await.ok().and_then(Result::ok);
         // A cancelled or expired card is gone from the pane as well.
         self.secrets.pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&secret_id);
@@ -286,11 +293,11 @@ impl Hub {
         cmux_json::JsonSet::set(&mut decision, "secretId", json!(secret_id));
         cmux_json::JsonSet::set(&mut decision, "outcome", json!(outcome));
         self.append(session, "mux", kind.decision, decision);
-        if session.status() == SessionStatus::Waiting
-            && session.permissions.lock().unwrap_or_else(|e| e.into_inner()).pending.is_empty()
-            && !self.secrets.waiting_in(&session.id)
         {
-            self.set_status(session, super::permissions::status_after_ask(session, prev));
+            let state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
+            self.settle_after_ask(session, &state, || {
+                super::permissions::status_after_ask(session, prev)
+            });
         }
         (outcome, answer.flatten())
     }
@@ -552,10 +559,16 @@ impl Hub {
 impl Secrets {
     /// Whether `session` has an open card (the Waiting status stays for it).
     pub(super) fn waiting_in(&self, session: &str) -> bool {
+        self.waiting_for(session).is_some()
+    }
+
+    /// What `session`'s open card asks for, when it has one: a secret or a root password.
+    pub(super) fn waiting_for(&self, session: &str) -> Option<WaitReason> {
         self.pending
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .values()
-            .any(|p| p.session == session)
+            .find(|p| p.session == session)
+            .map(|p| p.wait)
     }
 }
