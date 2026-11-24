@@ -37,9 +37,14 @@
  * arm and point, with n.
  */
 import { readFileSync, writeFileSync } from "node:fs";
+import { type ProviderAdapter, selectProvider } from "./resume-slo-provider.ts";
 import { ChatClient, feltAfterSend, feltBoundary, feltMarker, turnOutcome, type ChaosContext } from "./cloud-chaos.ts";
 
 export type ResumeArm = "direct" | "platform" | "send" | "reattach" | "resume";
+/** A ProviderAdapter's arm (resume-slo-provider.ts), `provider:NAME`: a bare machine of that provider, in the same cells. */
+export type ProviderArm = `provider:${string}`;
+export type AnyArm = ResumeArm | ProviderArm;
+export const providerArm = (name: string): ProviderArm => `provider:${name}`;
 export const RESUME_ARMS: ResumeArm[] = ["direct", "platform", "send", "reattach", "resume"];
 /** Arms that are not the app's own path, labelled so in the table. */
 export const EXTRA_ARMS: ResumeArm[] = ["reattach", "resume"];
@@ -67,7 +72,7 @@ export type ResumePoint = (typeof RESUME_POINTS)[number];
 
 export type ResumeSample = {
   pause_s: number;
-  arm: ResumeArm;
+  arm: AnyArm;
   i: number;
   machine: string;
   at: string;
@@ -157,7 +162,7 @@ export type ResumeDeps = {
 };
 
 /** Why a cell or arm took fewer samples than asked. */
-export type ResumeStop = { pause_s: number; arm?: ResumeArm; after: number; reason: string };
+export type ResumeStop = { pause_s: number; arm?: AnyArm; after: number; reason: string };
 
 /** Default K for ResumeDeps.failStreak. */
 export const FAIL_STREAK = 3;
@@ -498,6 +503,72 @@ export async function runResumeMatrix(deps: ResumeDeps, pauses: number[], n: num
   return out;
 }
 
+/**
+ * One ProviderAdapter as an arm of the same cells: for each pause length, n samples of probe, pause, hold, resume, probe on
+ * a machine the adapter creates (a bare machine: no chat, no relay), timed from the event (the resume call) as the other
+ * arms are. answered = the resume call's answer; running = the guest answering a probe after it. registered and first_byte
+ * stay null (a bare provider machine runs neither the relay nor an agent), so they read "-" and the cell's n for them is 0.
+ * Rows are ResumeSample, so resumeCells and resumeMarkdown give them the same columns and p50/p95 as every other arm.
+ * A provider with no credentials gives one stop per pause length: `skipped: ...`, never a failure.
+ */
+export async function runProviderArm(
+  name: string,
+  env: Readonly<Record<string, string | undefined>>,
+  pauses: number[],
+  n: number,
+  opts: { adapter?: ProviderAdapter; sleep?: (ms: number) => Promise<void>; now?: () => number; deadlineAt?: number; failStreak?: number; log?: (l: string) => void } = {},
+): Promise<{ samples: ResumeSample[]; stops: ResumeStop[] }> {
+  const arm = providerArm(name);
+  const samples: ResumeSample[] = [];
+  const stops: ResumeStop[] = [];
+  const now = opts.now ?? Date.now;
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const log = opts.log ?? (() => undefined);
+  const k = Math.max(1, opts.failStreak ?? FAIL_STREAK);
+  let adapter = opts.adapter;
+  if (!adapter) {
+    const sel = selectProvider(name, env);
+    if ("skipped" in sel) {
+      const reason = name === "morph" && !env.MORPH_API_KEY ? "skipped: no MORPH_API_KEY" : `skipped: ${sel.skipped}`;
+      for (const pause_s of pauses) stops.push({ pause_s, arm, after: 0, reason });
+      log(`resume matrix: ${arm}: ${reason}`);
+      return { samples, stops };
+    }
+    adapter = sel.adapter;
+  }
+  for (const pause_s of pauses) {
+    let id: string;
+    try { id = await adapter.create(); } catch (e) { stops.push({ pause_s, arm, after: 0, reason: `create: ${(e as Error).message}` }); continue; }
+    let streak = 0;
+    let longest = pause_s * 1000 + 60_000;
+    try {
+      for (let i = 0; i < n; i++) {
+        if (opts.deadlineAt !== undefined && now() + longest > opts.deadlineAt) { stops.push({ pause_s, arm, after: i, reason: "out of time" }); break; }
+        const began = now();
+        const s: ResumeSample = { pause_s, arm, i, machine: id, at: new Date().toISOString(), paused_ms: null, answered_ms: null, running_ms: null, registered_ms: null, first_byte_ms: null, ack_ms: null, clock_offset_ms: null, error: "" };
+        samples.push(s);
+        try {
+          await adapter.probe(id);
+          try { await adapter.pause(id); } catch (e) { s.cause = "pause"; throw e; }
+          const pausedAt = now();
+          await sleep(pause_s * 1000);
+          const t0 = now();
+          s.paused_ms = t0 - pausedAt;
+          try { await adapter.resume(id); } catch (e) { s.cause = "wake"; throw e; }
+          s.answered_ms = now() - t0;
+          await adapter.probe(id);
+          s.running_ms = now() - t0;
+        } catch (e) { s.error ||= (e as Error).message; s.cause ??= "read"; }
+        log(`resume matrix: pause ${pause_s} s ${arm} #${i}: answered ${s.answered_ms ?? "-"}, running ${s.running_ms ?? "-"}${s.error ? ` ERROR ${s.error}` : ""}`);
+        longest = Math.max(longest, now() - began);
+        streak = s.error ? streak + 1 : 0;
+        if (streak >= k) { stops.push({ pause_s, arm, after: i + 1, reason: `${k} ${arm} samples in a row failed; the last: ${s.error}` }); break; }
+      }
+    } finally { await adapter.remove(id).catch(() => undefined); }
+  }
+  return { samples, stops };
+}
+
 /** Nearest-rank percentile of `xs` (sorted copy); null for none. */
 export function percentile(xs: number[], p: number): number | null {
   if (!xs.length) return null;
@@ -505,13 +576,19 @@ export function percentile(xs: number[], p: number): number | null {
   return s[Math.min(s.length - 1, Math.max(0, Math.ceil((p / 100) * s.length) - 1))];
 }
 
-export type ResumeCell = { pause_s: number; arm: ResumeArm; point: ResumePoint; n: number; failed: number; p50: number | null; p95: number | null };
+export type ResumeCell = { pause_s: number; arm: AnyArm; point: ResumePoint; n: number; failed: number; p50: number | null; p95: number | null };
+
+/** The arms present in `samples`, in table order: the fixed arms, then each provider arm by name. */
+export function armsOf(samples: ResumeSample[], stops: ResumeStop[] = []): AnyArm[] {
+  const named = new Set<AnyArm>([...samples.map((s) => s.arm), ...stops.flatMap((x) => (x.arm ? [x.arm] : []))]);
+  return [...RESUME_ARMS, ...[...named].filter((a) => !(RESUME_ARMS as AnyArm[]).includes(a)).sort()];
+}
 
 export function resumeCells(samples: ResumeSample[]): ResumeCell[] {
   const cells: ResumeCell[] = [];
   const pauses = [...new Set(samples.map((s) => s.pause_s))].sort((a, b) => a - b);
   for (const pause_s of pauses) {
-    for (const arm of RESUME_ARMS) {
+    for (const arm of armsOf(samples)) {
       const mine = samples.filter((s) => s.pause_s === pause_s && s.arm === arm);
       if (!mine.length) continue;
       for (const point of RESUME_POINTS) {
@@ -547,14 +624,14 @@ export function largestPhase(samples: ResumeSample[]): string {
  */
 export function resumeMarkdown(samples: ResumeSample[], stops: (ResumeStop & { machine?: string })[] = [], providers: string[] = []): string {
   const cells = resumeCells(samples);
-  const get = (pause_s: number, arm: ResumeArm, point: ResumePoint) => cells.find((c) => c.pause_s === pause_s && c.arm === arm && c.point === point);
+  const get = (pause_s: number, arm: AnyArm, point: ResumePoint) => cells.find((c) => c.pause_s === pause_s && c.arm === arm && c.point === point);
   const lines = [
     "| pause | arm | n | failed | of them product-suspect | restored | answered p50 / p95 | running p50 / p95 | registered p50 / p95 | first byte p50 / p95 | first byte p95 - direct answered p95 | page-in p50 / p95 | largest server phase p50 |",
     "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
   ];
   for (const pause_s of [...new Set(cells.map((c) => c.pause_s))]) {
     const floor = get(pause_s, "direct", "answered")?.p95 ?? null;
-    for (const arm of RESUME_ARMS) {
+    for (const arm of armsOf(samples)) {
       const fb = get(pause_s, arm, "first_byte");
       if (!fb) continue;
       const total = samples.filter((s) => s.pause_s === pause_s && s.arm === arm).length;
@@ -565,14 +642,14 @@ export function resumeMarkdown(samples: ResumeSample[], stops: (ResumeStop & { m
       const judged = mine.filter((x) => typeof x.restored === "boolean");
       const restored = judged.length ? `${judged.filter((x) => x.restored).length}/${judged.length}` : "-";
       const suspect = mine.filter((x) => x.error && x.product_suspect).length;
-      lines.push(`| ${pause_s} s | ${EXTRA_ARMS.includes(arm) ? `${arm} (extra)` : arm} | ${total} | ${fb.failed} | ${suspect} | ${restored} | ${pts.join(" | ")} | ${gap} | ${pin.length ? `${sec(percentile(pin, 50))} / ${sec(percentile(pin, 95))}` : "-"} | ${largestPhase(mine)} |`);
+      lines.push(`| ${pause_s} s | ${(EXTRA_ARMS as AnyArm[]).includes(arm) ? `${arm} (extra)` : arm} | ${total} | ${fb.failed} | ${suspect} | ${restored} | ${pts.join(" | ")} | ${gap} | ${pin.length ? `${sec(percentile(pin, 50))} / ${sec(percentile(pin, 95))}` : "-"} | ${largestPhase(mine)} |`);
     }
   }
   const stopped = stops.map((x) => `- ${x.pause_s} s${x.arm ? ` ${x.arm}` : ""}${x.machine ? ` (${x.machine})` : ""}: stopped after ${x.after} sample(s): ${x.reason}`);
   // Each arm's errors, so a row of failures says why without the job log.
   const errs: string[] = [];
   for (const pause_s of [...new Set(samples.map((x) => x.pause_s))].sort((a, b) => a - b)) {
-    for (const arm of RESUME_ARMS) {
+    for (const arm of armsOf(samples)) {
       const counts = new Map<string, number>();
       for (const x of samples) if (x.pause_s === pause_s && x.arm === arm && x.error) { const k = `${x.product_suspect ? "[product-suspect] " : x.cause ? `[${x.cause}] ` : ""}${x.error}`; counts.set(k, (counts.get(k) ?? 0) + 1); }
       for (const [e, c] of [...counts].sort((a, b) => b[1] - a[1]).slice(0, 3)) errs.push(`- ${pause_s} s ${arm}: ${c}x ${e.slice(0, 300)}`);

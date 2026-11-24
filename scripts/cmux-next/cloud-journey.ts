@@ -128,7 +128,7 @@ import { fileURLToPath } from "node:url";
 import { appStartDetail } from "./cloud-chat-matrix.ts";
 import { collectGuestDiagnostics, type GuestDiagnostics } from "./cloud-journey-guest-diagnostics.ts";
 import { ChatClient, chaosProbeRow, countingTurnScript, feltTurnScript, runChaos } from "./cloud-chaos.ts";
-import { FAIL_STREAK, parseServerTiming, RESUME_ARMS, type ResumeArm, resumeMarkdown, type ResumeSample, type ResumeStop, runResumeMatrix, syncRunning } from "./cloud-resume-matrix.ts";
+import { FAIL_STREAK, parseServerTiming, RESUME_ARMS, type ResumeArm, resumeMarkdown, type ResumeSample, type ResumeStop, runProviderArm, runResumeMatrix, syncRunning } from "./cloud-resume-matrix.ts";
 import { clientSpans, hopDurations, readStartTrace, slowestHop, traceMarkdown } from "./cloud-start-trace.ts";
 import { answeredPath, answerTimings, DAEMON_CHECK, MachineFailed, pickVmApiTenant, type StartPath, type StartSample, type StartTarget, startBenchMarkdown, summarize, timeStart, traceFacts } from "./cloud-start-bench.ts";
 
@@ -4263,6 +4263,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (!Number.isInteger(resumeN) || resumeN < 1) throw new Error("--resume-n must be a positive integer");
   const resumeArms = (argValue("--resume-arms", argv) ?? RESUME_ARMS.join(",")).split(",").filter(Boolean) as ResumeArm[];
   if (resumeArms.some((a) => !RESUME_ARMS.includes(a))) throw new Error(`--resume-arms: ${RESUME_ARMS.join(", ")}`);
+  // --provider NAME (repeatable): a ProviderAdapter (resume-slo-provider.ts) as one more arm in the same cells, `provider:NAME`.
+  // Morph needs MORPH_API_KEY and MORPH_SNAPSHOT_ID; without them its cells read "skipped: no MORPH_API_KEY".
+  const resumeProviders = argv.flatMap((a, i) => (a === "--provider" && argv[i + 1] ? [argv[i + 1]!] : []));
   // --resume-fill PCT: a guest holder keeps PCT% of MemTotal resident through the pauses and walks it after each wake
   // (the page-in, hq#17877's resume-memory-probe.sh measure, now beside the matrix's points).
   const resumeFill = Number(argValue("--resume-fill", argv) ?? 0);
@@ -5641,8 +5644,15 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           stops = [...stops, { pause_s: resumePauses[0] ?? 0, after: sofar.length, reason: `the matrix failed: ${e.message}` }];
           return sofar;
         });
+        // --provider arms run in the same cells (same pauses, same n) after the machine's own arms; a provider with no
+        // credentials is a skip in its cells, never a failure.
+        for (const name of resumeProviders) {
+          const r = await runProviderArm(name, process.env, resumePauses, resumeN, { deadlineAt: resumeDeadlineAt, failStreak: resumeFailStreak, log: (line) => console.log(scrub(line, J.secrets)) });
+          samples.push(...r.samples);
+          stops = [...stops, ...r.stops];
+        }
         sofar = samples;
-        for (const x of stops) J.record({ step: `resume matrix: ${x.pause_s} s${x.arm ? ` ${x.arm}` : ""} stopped early`, status: "fail", ms: 0, detail: x.reason });
+        for (const x of stops) J.record({ step: `resume matrix: ${x.pause_s} s${x.arm ? ` ${x.arm}` : ""} ${x.reason.startsWith("skipped") ? "skipped" : "stopped early"}`, status: x.reason.startsWith("skipped") ? "skip" : "fail", ms: 0, detail: x.reason });
         const table = resumeMarkdown(samples, stops, [provider]);
         for (const s of samples.filter((x) => x.error)) J.record({ step: `resume matrix: ${s.pause_s} s ${s.arm} #${s.i}`, status: "fail", ms: s.first_byte_ms ?? 0, detail: s.error });
         if (samples.length) J.record({ step: "resume matrix", status: samples.some((x) => x.error) ? "fail" : "pass", ms: 0, detail: `${samples.length} samples` });

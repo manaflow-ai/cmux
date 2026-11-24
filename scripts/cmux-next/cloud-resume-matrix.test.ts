@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import type { ProviderAdapter } from "./resume-slo-provider.ts";
 import { cliExecResult } from "./cloud-journey.ts";
-import { armOrder, armUnavailable, infraCause, largestPhase, productSuspect, cellDeadline, parseAgents, CLIENT_SESSION_MAX_S, CLIENT_SESSION_MIN_S, directSessionPlan, parseServerTiming, parseWakeFacts, percentile, resumeMarkdown, syncRunning, type ResumeSample } from "./cloud-resume-matrix.ts";
+import { armOrder, armUnavailable, infraCause, largestPhase, productSuspect, cellDeadline, parseAgents, CLIENT_SESSION_MAX_S, CLIENT_SESSION_MIN_S, directSessionPlan, parseServerTiming, parseWakeFacts, percentile, resumeCells, resumeMarkdown, runProviderArm, syncRunning, type ResumeSample } from "./cloud-resume-matrix.ts";
 
 describe("parseWakeFacts", () => {
   test("takes the gap spanning the event and the first relay line after it, guest clock corrected", () => {
@@ -201,5 +202,67 @@ describe("syncRunning", () => {
   });
   test("any other refused start still fails", async () => {
     await expect(run("paused", "cloud.machine.start: HTTP 503")).rejects.toThrow("HTTP 503");
+  });
+});
+
+describe("runProviderArm", () => {
+  // A fake adapter on a fake clock: resume answers after 100 + 10*i ms, the probe after it takes 50 ms.
+  const fake = () => {
+    let t = 0;
+    let i = 0;
+    const calls: string[] = [];
+    const adapter: ProviderAdapter = {
+      name: "fake",
+      create: async () => { calls.push("create"); return "m1"; },
+      pause: async () => { calls.push("pause"); },
+      resume: async () => { t += 100 + 10 * i++; calls.push("resume"); },
+      probe: async () => { t += 50; calls.push("probe"); },
+      remove: async () => { calls.push("remove"); },
+    };
+    return { adapter, calls, now: () => t, sleep: async (ms: number) => { t += ms; } };
+  };
+  const platformRows = (): ResumeSample[] => Array.from({ length: 20 }, (_, i) => ({
+    pause_s: 5, arm: "platform" as const, i, machine: "m", at: "", paused_ms: 5000, answered_ms: 100 + 10 * i, running_ms: 150 + 10 * i,
+    registered_ms: null, first_byte_ms: null, ack_ms: null, clock_offset_ms: null, error: "",
+  }));
+
+  test("rows carry the same columns and percentiles as the platform arm", async () => {
+    const f = fake();
+    const r = await runProviderArm("fake", {}, [5], 20, { adapter: f.adapter, now: f.now, sleep: f.sleep });
+    expect(r.stops).toEqual([]);
+    expect(r.samples).toHaveLength(20);
+    expect(f.calls.at(-1)).toBe("remove");
+    const plat = platformRows();
+    expect(Object.keys(r.samples[0]!).sort()).toEqual(Object.keys(plat[0]!).sort());
+    expect(r.samples.every((s) => s.arm === "provider:fake" && s.paused_ms === 5000)).toBe(true);
+    const cells = resumeCells([...plat, ...r.samples]);
+    const pick = (arm: string) => cells.filter((c) => c.arm === arm).map(({ arm: _a, ...c }) => c);
+    expect(pick("provider:fake")).toEqual(pick("platform"));
+    expect(pick("provider:fake").map((c) => c.point)).toEqual(["answered", "running", "registered", "first_byte"]);
+    const answered = pick("provider:fake")[0]!;
+    expect([answered.n, answered.p50, answered.p95]).toEqual([20, 190, 280]);
+    const md = resumeMarkdown([...plat, ...r.samples]);
+    expect(md).toContain("| 5 s | platform | 20 |");
+    expect(md).toContain("| 5 s | provider:fake | 20 |");
+  });
+
+  test("Morph without MORPH_API_KEY is skipped in every cell, not failed", async () => {
+    const r = await runProviderArm("morph", {}, [5, 30], 20);
+    expect(r.samples).toEqual([]);
+    expect(r.stops.map((x) => [x.pause_s, x.arm, x.after, x.reason])).toEqual([
+      [5, "provider:morph", 0, "skipped: no MORPH_API_KEY"],
+      [30, "provider:morph", 0, "skipped: no MORPH_API_KEY"],
+    ]);
+    expect(resumeMarkdown([], r.stops)).toContain("skipped: no MORPH_API_KEY");
+  });
+
+  test("a failing adapter stops its cell after the fail streak and still removes the machine", async () => {
+    const f = fake();
+    const bad: ProviderAdapter = { ...f.adapter, resume: async () => { throw new Error("boom"); } };
+    const r = await runProviderArm("fake", {}, [5], 20, { adapter: bad, now: f.now, sleep: f.sleep });
+    expect(r.samples).toHaveLength(3);
+    expect(r.samples.every((s) => s.cause === "wake" && s.error === "boom")).toBe(true);
+    expect(r.stops[0]!.reason).toContain("3 provider:fake samples in a row failed");
+    expect(f.calls.at(-1)).toBe("remove");
   });
 });
