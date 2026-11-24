@@ -27,7 +27,7 @@ fn the_key_never_leaves_through_debug_serialization_or_the_script() {
     let script = vm_join_script(&checked);
     assert!(!script.contains("SECRET"), "{script}");
     assert!(script.contains("--auth-key=file:/run/cmux-tailnet/authkey"));
-    assert!(script.contains("trap 'rm -f \"$k\"' EXIT"));
+    assert!(script.contains("trap 'rm -f \"$k\" 2>/dev/null || true' EXIT"));
     assert_eq!(checked.key_file_contents(), KEY);
 }
 
@@ -187,4 +187,27 @@ fn embedded_options_match_the_node_config() {
     assert_eq!(o.control_url.as_deref(), Some("https://hs.example.com"));
     assert_eq!(o.hostname.as_deref(), Some("dev-vm-1"));
     assert!(o.ephemeral);
+}
+
+#[test]
+fn a_join_runs_detached_and_is_read_back() {
+    assert!(prepare_command("cmux").contains("chmod 700 /run/cmux-tailnet"));
+    let start = start_command();
+    assert!(start.contains("systemd-run") && start.contains("--unit=cmux-tailnet-join"));
+    assert!(read_command().contains("/run/cmux-tailnet/rc"));
+    assert_eq!(read_answer("rc=\n"), Progress::Running);
+    let done = "rc=0\ncmux-tailnet-joined {\"BackendState\":\"Running\",\"Self\":{\"DNSName\":\"a.b.\",\"Online\":true}}\ncmux-tailnet-stderr\n";
+    assert!(
+        matches!(read_answer(done), Progress::Ended(Outcome::Joined(j)) if j.dns_name == "a.b")
+    );
+    assert_eq!(
+        read_answer("rc=1\ncmux-tailnet-stderr\nbackend error: invalid key\n"),
+        Progress::Ended(Outcome::Failed(
+            "the join exited 1: backend error: invalid key".to_owned()
+        ))
+    );
+    assert!(matches!(
+        read_answer("rc=4\ncmux-tailnet: other-tailnet https://x\ncmux-tailnet-stderr\n"),
+        Progress::Ended(Outcome::OtherTailnet { .. })
+    ));
 }

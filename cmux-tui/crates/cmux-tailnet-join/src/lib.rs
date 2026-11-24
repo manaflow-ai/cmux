@@ -188,6 +188,11 @@ impl JoinRequest {
             if port.local_port == 0 {
                 return invalid("A preview port must be 1-65535.");
             }
+            if port.funnel && self.control_url.is_some() {
+                return invalid(
+                    "Funnel is Tailscale's; a Headscale tailnet has no public ingress.",
+                );
+            }
             if port.funnel && ![443, 8443, 10000].contains(&port.https_port) {
                 return invalid("Funnel serves only on 443, 8443 or 10000.");
             }
@@ -331,7 +336,7 @@ pub fn vm_join_script(checked: &Checked) -> String {
     let r = &checked.request;
     let mut s = String::new();
     s.push_str("#!/bin/sh\n# cmux: join this machine to the user's tailnet (cmux-tailnet-join).\nset -eu\n");
-    s.push_str(&format!("k={KEY_FILE}\ntrap 'rm -f \"$k\"' EXIT INT TERM\n"));
+    s.push_str(&format!("k={KEY_FILE}\ntrap 'rm -f \"$k\" 2>/dev/null || true' EXIT INT TERM\n"));
     s.push_str("[ -f \"$k\" ] || { echo 'cmux-tailnet: no key file' >&2; exit 2; }\n");
     s.push_str(
         "if ! command -v tailscale >/dev/null 2>&1; then\n  curl -fsSL https://tailscale.com/install.sh | sh >&2\nfi\n",
@@ -362,10 +367,13 @@ pub fn vm_join_script(checked: &Checked) -> String {
     if r.ssh {
         s.push_str("tailscale set --ssh=true >&2\n");
     }
+    // Tailscale's control server issues the node an HTTPS certificate; Headscale cannot, so
+    // there the preview is plain HTTP inside the tailnet (still WireGuard end to end).
+    let scheme = if r.control_url.is_none() { "https" } else { "http" };
     for port in &r.serve {
         let verb = if port.funnel { "funnel" } else { "serve" };
         s.push_str(&format!(
-            "tailscale {verb} --bg --https={} http://127.0.0.1:{} >&2\n",
+            "tailscale {verb} --bg --{scheme}={} http://127.0.0.1:{} >&2\n",
             port.https_port, port.local_port
         ));
     }
@@ -384,13 +392,87 @@ pub fn vm_leave_script() -> String {
      command -v tailscale >/dev/null 2>&1 || exit 0\n\
      tailscale serve reset >/dev/null 2>&1 || true\n\
      tailscale funnel reset >/dev/null 2>&1 || true\n\
-     timeout 20 tailscale logout >&2 || true\n\
+     timeout 12 tailscale logout >&2 || true\n\
      echo cmux-tailnet-left\n"
         .to_owned()
 }
 
 fn shell_quote(text: &str) -> String {
     format!("'{}'", text.replace('\'', "'\\''"))
+}
+
+/// The folder the join's files live in on a VM (tmpfs: gone at reboot).
+pub const RUN_DIR: &str = "/run/cmux-tailnet";
+/// The join script's path on a VM.
+pub const SCRIPT_FILE: &str = "/run/cmux-tailnet/join.sh";
+/// The transient unit a join runs in (`systemctl status cmux-tailnet-join`).
+pub const UNIT: &str = "cmux-tailnet-join";
+
+const ROOT: &str = r#"root() { if [ "$(id -u)" = 0 ]; then "$@"; else sudo -n "$@"; fi; }"#;
+
+/// A VM's exec has a short limit (about 20 s), and a join that installs Tailscale takes longer, so
+/// a join is steps: [`prepare_command`], two file writes ([`KEY_FILE`] 0600 with
+/// [`Checked::key_file_contents`], [`SCRIPT_FILE`] 0700 with [`vm_join_script`]), [`start_command`],
+/// then [`read_command`] until [`read_answer`] says it ended.
+///
+/// `user` is the account the file API writes as; the folder is made its own, 0700.
+pub fn prepare_command(user: &str) -> String {
+    format!(
+        "{ROOT}; u={}; root mkdir -p {RUN_DIR} && root chown \"$u\" {RUN_DIR} && root chmod 700 {RUN_DIR} && root rm -f {RUN_DIR}/out {RUN_DIR}/err {RUN_DIR}/rc && echo prepared",
+        shell_quote(user)
+    )
+}
+
+/// Starts the join detached (under systemd when the machine has it) and answers `started`.
+pub fn start_command() -> String {
+    let body = format!("sh {SCRIPT_FILE} >{RUN_DIR}/out 2>{RUN_DIR}/err; echo $? >{RUN_DIR}/rc");
+    format!(
+        "{ROOT}; if command -v systemd-run >/dev/null 2>&1 && [ -d /run/systemd/system ]; then root systemctl reset-failed {UNIT} >/dev/null 2>&1; root systemd-run --quiet --collect --unit={UNIT} /bin/sh -c {} || exit 1; else root setsid /bin/sh -c {} </dev/null >/dev/null 2>&1 & fi; echo started",
+        shell_quote(&body),
+        shell_quote(&body)
+    )
+}
+
+/// Reads where a join is: `rc=N` (or `rc=`), then the script's stdout, then its stderr's end.
+pub fn read_command() -> String {
+    format!(
+        "{ROOT}; printf 'rc=%s\\n' \"$(root cat {RUN_DIR}/rc 2>/dev/null)\"; root cat {RUN_DIR}/out 2>/dev/null; echo cmux-tailnet-stderr; root tail -n 8 {RUN_DIR}/err 2>/dev/null; true"
+    )
+}
+
+/// What one [`read_command`] answer says.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Progress {
+    Running,
+    Ended(Outcome),
+}
+
+pub fn read_answer(stdout: &str) -> Progress {
+    let mut lines = stdout.splitn(2, '\n');
+    let rc = lines
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .strip_prefix("rc=")
+        .unwrap_or_default()
+        .trim()
+        .to_owned();
+    if rc.is_empty() {
+        return Progress::Running;
+    }
+    let rest = lines.next().unwrap_or_default();
+    let (out, err) = rest.split_once("cmux-tailnet-stderr\n").unwrap_or((rest, ""));
+    match parse_joined(out) {
+        Outcome::Failed(why) if rc != "0" => {
+            let err = err.trim();
+            Progress::Ended(Outcome::Failed(if err.is_empty() {
+                format!("the join exited {rc}: {why}")
+            } else {
+                format!("the join exited {rc}: {err}")
+            }))
+        }
+        outcome => Progress::Ended(outcome),
+    }
 }
 
 /// The machine on the tailnet after a join.
