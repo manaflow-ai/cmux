@@ -1344,6 +1344,21 @@ pub async fn serve_ws_until(
     auth: WsAuth,
     shutdown: WsShutdown,
 ) -> Result<()> {
+    serve_ws_gated(hub, listener, token, auth, shutdown, None).await
+}
+
+/// [`serve_ws_until`] with an admission gate: the tailnet listener (`tailnet_carrier.rs`) reads
+/// no byte of a connection whose source `whois` does not name a node of this person, and treats
+/// one it admits as it does the end of an `ssh -W` tunnel (a loopback source: the peer token is
+/// proven over it). Without a gate every connection is as before.
+pub async fn serve_ws_gated(
+    hub: Arc<Hub>,
+    listener: TcpListener,
+    token: String,
+    auth: WsAuth,
+    shutdown: WsShutdown,
+    gate: Option<Arc<crate::tailnet_carrier::Gate>>,
+) -> Result<()> {
     let (shutdown, _draining) = shutdown.listener();
     anyhow::ensure!(!token.is_empty(), "the acpmux web listener needs a token");
     if shutdown.is_requested() {
@@ -1398,9 +1413,20 @@ pub async fn serve_ws_until(
         let local_app = auth.local_app.clone();
         let peer_auth = auth.peer.clone();
         let shutdown = shutdown.clone();
+        let gate = gate.clone();
         connections.spawn(async move {
             let _handshake_slot = handshake_slot;
             let mut stream = stream;
+            let peer = match &gate {
+                Some(gate) if gate.admits(peer).await => {
+                    std::net::SocketAddr::new(std::net::Ipv4Addr::LOCALHOST.into(), peer.port())
+                }
+                Some(_) => {
+                    tracing::debug!(peer = %peer, "tailnet connection refused: not this person's node");
+                    return;
+                }
+                None => peer,
+            };
             // The whole head routes the request (`ws_peek.rs`). Each path checks it: serve_http
             // as it reads, tungstenite as it parses it again for the callback.
             let mut probed = false;

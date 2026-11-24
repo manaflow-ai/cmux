@@ -27,8 +27,32 @@ use crate::signaling::{SignalingClient, SignalingError};
 pub const SERVICE_TYPE: &str = "_cmux-link._tcp.local.";
 /// The same type as NWBrowser names it (no `.local.`).
 pub const BONJOUR_TYPE: &str = "_cmux-link._tcp";
-/// The ad's format version (`v=`).
+/// The ad's format version (`v=`), in lockstep with every reader:
+///
+/// - a key this side does not know is ignored, so a new key (a capability, a
+///   hint) is added with no bump and older phones read the rest of the ad;
+/// - an ad with no `v` is read as version 1 (the first ads);
+/// - a bump means an older reader can no longer use the ad: it skips it
+///   ([`LocalAd::from_txt`]) and dials through the Worker as before, so a
+///   newer Mac that must stay reachable to older phones keeps advertising a
+///   version-1 instance beside its new one;
+/// - a `v` that is not a number is skipped like an unknown version.
+///
+/// Tests: `lockstep_*` here and in `local_hub.rs`.
 pub const AD_VERSION: u32 = 1;
+/// The local hub's wire version, in lockstep both ways: the hub's `hello`
+/// carries it as `hubVersion` and a phone's upgrade URL as
+/// `&hubVersion=` ([`HUB_VERSION_PARAM`]). Either side missing the field is
+/// version 0, the hub before it was sent, and the two speak the subset of
+/// the Worker's signaling wire both have (PROTOCOL.md "Signaling
+/// WebSocket"): unknown fields are kept and forwarded, unknown message
+/// types ignored. Bump it when the hub learns something a phone may rely on
+/// (and gate that on the phone's version), never to drop the old subset.
+///
+/// - 1: `hello`, `signal` forwarding by `to`, text `ping` / `pong`.
+pub const HUB_VERSION: u32 = 1;
+/// The upgrade URL's query key for [`HUB_VERSION`].
+pub const HUB_VERSION_PARAM: &str = "hubVersion";
 /// The team segment of a hub URL: a hub serves one Mac, not a team.
 pub const LOCAL_TEAM: &str = "local";
 /// The bearer a phone presents to a hub: the hub admits by device id and
@@ -78,9 +102,11 @@ impl LocalAd {
         txt
     }
 
-    /// Read an ad from TXT pairs; `None` without an id or of another version.
+    /// Read an ad from TXT pairs; `None` without an id, or of a version this
+    /// side cannot read ([`AD_VERSION`]: unknown keys are ignored, a missing
+    /// `v` is 1, any other `v` is skipped).
     pub fn from_txt<'a>(pairs: impl IntoIterator<Item = (&'a str, &'a str)>) -> Option<Self> {
-        let (mut id, mut version, mut tag) = (None, None, None);
+        let (mut id, mut version, mut tag) = (None, Some(AD_VERSION), None);
         for (key, value) in pairs {
             match key {
                 "id" if !value.is_empty() => id = Some(value.to_owned()),
@@ -89,8 +115,8 @@ impl LocalAd {
                 _ => {}
             }
         }
-        let version = version.unwrap_or(AD_VERSION);
-        (version == AD_VERSION).then_some(Self { device_id: id?, version, tag })
+        let version = version.filter(|v| *v == AD_VERSION)?;
+        Some(Self { device_id: id?, version, tag })
     }
 
     /// Whether this ad is the Mac the phone wants: its id, and its key tag
@@ -253,6 +279,43 @@ mod tests {
         assert_eq!(LocalAd::from_txt([("id", "m"), ("v", "2")]), None);
         assert_eq!(LocalAd::from_txt([("v", "1")]), None);
         assert!(LocalAd::from_txt([("id", "m")]).is_some());
+    }
+
+    /// Lockstep (P7 13f): a v=2 ad (a newer Mac) against this v=1 browser is
+    /// skipped, never misread, and never reaches [`LocalPeers`]; a `v` that is
+    /// not a number is skipped too.
+    #[test]
+    fn lockstep_newer_ad_version_is_skipped_by_this_browser() {
+        let tag = key_tag(b"pub");
+        let newer = [("id", "mac-1"), ("v", "2"), ("k", tag.as_str()), ("h", "2")];
+        assert_eq!(LocalAd::from_txt(newer), None);
+        assert_eq!(LocalAd::from_txt([("id", "mac-1"), ("v", "two")]), None);
+        assert_eq!(LocalAd::from_txt([("id", "mac-1"), ("v", "")]), None);
+        assert_eq!(LocalAd::from_txt([("id", "mac-1"), ("v", "0")]), None);
+        // What a browse does with what it heard: only the readable ad is a peer.
+        let mut peers = LocalPeers::default();
+        let now = Instant::now();
+        for txt in [vec![("id", "mac-2"), ("v", "2")], vec![("id", "mac-1"), ("v", "1")]] {
+            if let Some(ad) = LocalAd::from_txt(txt) {
+                peers.observe(ad, vec!["10.0.0.2:9".parse().unwrap()], now);
+            }
+        }
+        assert!(peers.addresses("mac-2", None, now).is_empty());
+        assert_eq!(peers.addresses("mac-1", None, now).len(), 1);
+    }
+
+    /// Lockstep (P7 13f): a v=1 ad from a newer Mac with keys this side does
+    /// not know reads as the ad it knows; an ad with no `v` (the first ads)
+    /// is version 1; and this side's ad is what a v=1 reader expects.
+    #[test]
+    fn lockstep_unknown_keys_and_missing_version_read_as_v1() {
+        let tag = key_tag(b"pub");
+        let with_more = [("id", "mac-1"), ("future", "x"), ("v", "1"), ("k", tag.as_str()), ("flag", "")];
+        let ad = LocalAd::from_txt(with_more).unwrap();
+        assert_eq!(ad, LocalAd { device_id: "mac-1".into(), version: 1, tag: Some(tag.clone()) });
+        assert_eq!(LocalAd::from_txt([("id", "mac-1")]).unwrap().version, AD_VERSION);
+        let ours = LocalAd { device_id: "mac-1".into(), version: AD_VERSION, tag: Some(tag) }.txt();
+        assert!(ours.contains(&("v".to_owned(), "1".to_owned())), "{ours:?}");
     }
 
     #[test]
