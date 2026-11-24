@@ -58,7 +58,7 @@ public enum Interactivity {
             }
         }
 
-        isolated deinit { token.map(NSEvent.removeMonitor) }
+        nonisolated deinit { token.map { t in MainActor.assumeIsolated { NSEvent.removeMonitor(t) } } }
     }
 }
 
