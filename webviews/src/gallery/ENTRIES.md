@@ -303,7 +303,15 @@ cmux-ci test --setup playwright --artifact /tmp/golden -- bash -c 'cd webviews &
   bun run golden:looks --out "$FAST_CHECKS_OUT/golden"'
 bun run golden:looks --looks cmux,codex --setup ~/src/my-look   # an outside look beside the built-in ones
 bun run golden:looks --native DIR   # adds the native sidebar and tab bar (AAGoldenLookGalleryTests' PNGs) per look
+bun run golden:looks --settings appearance,chat   # adds the golden Settings page per look (below)
 ```
+
+The golden Settings page (`looks.golden.settings.appearance` and `looks.golden.settings.chat`,
+`src/gallery/golden/settings.ts`) is the real Settings page under each look, from the same looks: the
+scheme's theme file themes the page and answers as the named theme's colors, and the look's settings,
+composer look and theme file keys are the values the rows show (`lookSettingsValues` in
+`src/gallery/golden/look.ts`). Appearance holds a look's own rows; Chat is a long section with the
+chat's display rows. `--settings` captures each section whole beside the golden screen, in the sheet.
 
 ## Seeing it
 
