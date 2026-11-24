@@ -224,7 +224,8 @@ fn set_text(
         // The default's own value removes the key, so it keeps following the default when a later
         // release changes it (Swift `isUnsetValue`); not when a layer below the file fills the key.
         let below = state.managed.recommended.contains_key(&row.key)
-            || state.team.defaults.contains_key(&row.key);
+            || state.team.defaults.contains_key(&row.key)
+            || row.key == crate::sidebar_look::GROUP_BACKGROUND;
         if remove_default && !below && row.default.clone().map(canonical).as_ref() == Some(&value) {
             let text = remove_pruning(without_replaced(source.to_string(), &path)?, &path)?;
             return Ok(text);

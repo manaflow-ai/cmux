@@ -67,3 +67,29 @@ fn setting_the_default_removes_the_key() {
         "MDM recommends another value, so the default stays"
     );
 }
+
+#[test]
+fn explicit_automatic_groups_override_a_preset_until_reset() {
+    let key = "sidebar.groupHeader.background";
+    let target = Target::Key(key.to_string());
+    for look in ["claude", "codex", "studio"] {
+        let inherited = state(&json!({"sidebar": {"look": look}}).to_string(), Default::default());
+        assert_eq!(inherited.get(&target).value, Some(json!("sections")));
+        let written = set(&inherited, key, json!("auto")).expect("an explicit choice is stored");
+        let chosen = state(&written, Default::default());
+        let view = chosen.get(&target);
+        assert_eq!(view.file_value, Some(json!("auto")));
+        assert_eq!(view.value, Some(json!("auto")));
+        assert!(view.row.unwrap().customized);
+
+        let reset =
+            apply(&chosen, Op::Reset { target: target.clone(), meta: WriteMeta::default() })
+                .unwrap()
+                .write
+                .expect("reset removes the override");
+        let inherited = state(&reset, Default::default()).get(&target);
+        assert_eq!(inherited.file_value, None);
+        assert_eq!(inherited.value, Some(json!("sections")));
+        assert!(!inherited.row.unwrap().customized);
+    }
+}

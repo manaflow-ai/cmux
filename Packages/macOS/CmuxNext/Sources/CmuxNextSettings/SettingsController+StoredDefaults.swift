@@ -26,6 +26,8 @@ extension SettingsSchema {
         // follow another (`autoClosingQuotes` follows `autoClosingBrackets`).
         // `editor.importFrom` itself is none of these (`unsetIsNotDefault` leaves it out).
         "editor.": "another editor's settings, the built-in per-language values, a key it follows",
+        // An unset group follows the sidebar look. A stored choice overrides it, including Automatic.
+        "sidebar.groupHeader.background": "the selected sidebar look",
         // webviews' `resolveHarnessPlacement`: the Debug tunable `agent.harnessPlacement` fills it.
         "agentPane.display.harnessPlacement": "the Debug tunable agent.harnessPlacement",
     ]

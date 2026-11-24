@@ -4266,14 +4266,17 @@
           "title": "Group Background",
           "help": "How a group draws. Folders shows plain folders; Sections shows plain headings.",
           "kind": "choice",
-          "default": "folder",
+          "default": "auto",
           "group": "Sidebar",
           "values": [
             "folder",
             "auto",
             "glass",
             "solid",
-            "sections"
+            "sections",
+            "chip",
+            "tree",
+            "card"
           ]
         },
         {

@@ -158,8 +158,9 @@ impl State {
     }
 
     fn row_view(&self, row: &'static Row) -> RowView<'static> {
-        let customized = value_at(&self.effective.file_root, &row.path)
-            .is_some_and(|stored| Some(stored) != row.default.as_ref());
+        let customized = value_at(&self.effective.file_root, &row.path).is_some_and(|stored| {
+            row.key == crate::sidebar_look::GROUP_BACKGROUND || Some(stored) != row.default.as_ref()
+        });
         RowView {
             row,
             value: effective_value(row, &self.effective.root, &self.domains),

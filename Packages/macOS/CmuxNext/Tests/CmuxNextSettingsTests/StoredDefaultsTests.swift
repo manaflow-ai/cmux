@@ -29,6 +29,26 @@ import Testing
         return defaults
     }
 
+    @Test func anExplicitGroupLookSurvivesWritingAndMigrationUntilReset() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let settings = try await controller(#"{ "sidebar": { "look": "codex" } }"#)
+        let path = SidebarSectionsSetting.groupHeaderBackgroundPath
+        let row = try #require(SettingsSchema.descriptor(for: path))
+
+        try await settings.setSetting(row, to: .string("auto"), by: .user)
+        #expect(try await settings.file.value(at: path) == .string("auto"))
+        #expect(settings.isCustomized(row))
+
+        let report = try #require(try await settings.forgetStoredDefaults(marker: try marker()))
+        #expect(report.kept[row.id] == .string("auto"))
+        #expect(try await settings.file.value(at: path) == .string("auto"))
+
+        try await settings.setSetting(row, to: nil, by: .user)
+        #expect(try await settings.file.value(at: path) == nil)
+        #expect(try await settings.file.value(at: SidebarLookPreset.configPath) == .string("codex"))
+        #expect(!settings.isCustomized(row))
+    }
+
     @Test func writingTheDefaultStoresNothing() async throws {
         defer { try? FileManager.default.removeItem(at: home) }
         let settings = try await controller(#"{ "appearance": { "chromeStyle": "card" } }"#)
