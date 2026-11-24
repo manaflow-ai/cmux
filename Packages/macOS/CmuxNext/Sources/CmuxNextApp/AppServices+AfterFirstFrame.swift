@@ -13,18 +13,6 @@ import CmuxNextWakeups
 // Launch work no first frame needs: AppDelegate starts it once the first window's
 // frame is committed (FirstFrameGate), so it never delays that frame (perf-launch-memory).
 extension AppServices {
-    /// Start listening after the frame, then catch up with a front chat that already painted and connected.
-    func recordLaunchTimes() {
-        guard let bundleID = environment.launch.bundleID, let file = LaunchTimesFile.app(bundleID: bundleID) else { return }
-        let recorder = LaunchTimesRecorder(file: file, work: work, info: Bundle.main.infoDictionary ?? [:],
-                                           listen: AgentPaneLaunchTimings.shared.listen, marks: DebugTimings.launchMarkTimes) {
-            StagedUpdatePrewarm.consumeLaunchMarker(build: $0, bundleIdentifier: bundleID)
-        }
-        launchReveal.whenReady(.home, orAfter: .seconds(10)) { [weak self] in
-            recorder.write(marks: DebugTimings.launchMarkTimes(), workspaces: self?.daemon.store.workspaces.count)
-        }
-    }
-
     /// Starts acpmux-backed feeds after the restored window's first frame. These observers do not
     /// affect the initial layout, but constructing and priming them opens sockets and reads the
     /// chat index on the launch path.
@@ -46,8 +34,6 @@ extension AppServices {
                 self?.feed.configureGitHub(enabled: github.enabled, pollIntervalSeconds: github.pollIntervalSeconds)
             }
         }
-        harnessIcons.start()
-        updateFeedObservation = UpdateFeedPosting.follow(self)
         dockMenu.start()
         DebugTimings.markLaunch("launch.post_frame_feeds")
     }
