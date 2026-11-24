@@ -223,8 +223,8 @@ final class CreationInputCoordinator {
         if let replaying { return !replaying.lane && kind == .content && keepsFromWindow(event, in: shell) }
         if asking[shell.windowNumber] != nil { return false } // a close's question is up: a key typed now is its own, the held keys wait for its answer
         // The focus names a terminal whose surface is not shown yet (a reopened window, a workspace shown
-        // cold): the key waits for it, at most `holdLimit`, and goes to that terminal (REOPEN-F4); a second one gets its own lane.
-        if buffers[shell.windowNumber].map({ $0.awaitedTab != nil || $0.personLeftEveryCreation }) ?? true, kind == .content, let controller, ActionRunScope.viewChangeAllowed(),
+        // cold, a launch's restored window under a selection's hold): the key waits for it, at most `holdLimit`, and goes to that terminal (REOPEN-F4, hq#22681); a second one gets its own lane.
+        if buffers[shell.windowNumber]?.mayAwaitFocusedContent ?? true, kind == .content, let controller, ActionRunScope.viewChangeAllowed(),
            let awaited = Self.awaitedContent(controller), buffers[shell.windowNumber]?.awaitedTab != awaited.tab, awaited.hasTerminalLane || !holdEnds.pageExpired.contains(awaited.tab) {
             buffer(in: shell).awaitContent(awaited, machine: controller.content?.daemon.machineID)
         }
