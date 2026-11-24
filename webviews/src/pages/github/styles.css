@@ -322,6 +322,21 @@ html[data-cmux-page="github"],
 .gh-review-comments { margin: var(--ds-space-2) 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--ds-space-2); }
 .gh-review-comment { padding-inline-start: var(--ds-space-3); border-inline-start: 2px solid var(--page-separator); }
 .gh-review-comment-path { color: var(--page-text-2); }
+/* The person's review and thread writes (ReviewBox.tsx, audit fix eight). */
+.gh-review-box { display: flex; flex-direction: column; gap: var(--ds-space-2); margin-block-start: var(--ds-space-3); }
+.gh-review-box-label { color: var(--page-text-2); font-size: var(--text-caption); font-weight: 600; }
+.gh-review-box-text {
+  padding: var(--ds-space-2);
+  border: 1px solid var(--page-separator);
+  border-radius: var(--ds-radius-control);
+  color: var(--page-text);
+  background: var(--page-elevated);
+  font: inherit;
+  font-size: var(--text-control);
+  resize: vertical;
+}
+.gh-review-box-actions { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--ds-space-2); }
+.gh-thread-actions { margin-block-start: var(--ds-space-1); }
 
 .gh-reviewer-state { flex: none; color: var(--page-text-3); font-size: var(--text-caption); }
 .gh-row[data-review=approved] .gh-reviewer-state { color: var(--agent-status-success); }
