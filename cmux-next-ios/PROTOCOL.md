@@ -1129,6 +1129,33 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   `bad_request`, `io`) is answered `{"error","message"}` before the channel
   closes with that code. The name is made safe, and an existing file is never
   replaced (`name 2.ext`, ...).
+- `bundle` (`bundle-v1`; added 2026-11-24, backward compatible): an attachment
+  upload or a file open as sealed, content-defined chunks (cmux-tui
+  `cmux-bundle`, RFD 0142 R7), so a file the far end already holds costs one
+  round trip and its manifest (36 bytes per ~64 KiB chunk) instead of its bytes.
+  Every message is `u32 BE length | bytes`; one that starts with `{` is JSON,
+  any other a `cmux-bundle` sync message (offer, want, chunks). A length past
+  4 MiB is refused. The Mac's first message is `{"v":1,"key":"<64 hex>"}`, the
+  pair's bundle secret: `blake3::derive_key("cmux-bundle v1 pair secret", the
+  Mac's box key (derived from its identity key) || phone device id)`, so the
+  same phone always gets the same key; chunk ids and seals derive from it, and
+  a relay cache never sees it. The phone keeps it per Mac and may offer before
+  reading it; the Mac takes one offer under a stale key and the next.
+  - `{"op":"put","name","size","cwd"?}` (as `upload`, needs what `upload`
+    needs): the phone offers; the Mac answers a want (the chunks it lacks); the
+    phone sends those chunks without waiting; the Mac publishes the file as
+    `upload` does and answers `{"path","size"}`, then `eof`.
+  - `{"op":"get","path"}` (as `file`: the same roots and open checks): the Mac
+    offers; the phone answers a want, or closes when it holds every chunk; the
+    Mac sends the chunks, then an empty message.
+  Files past 256 MiB are refused `too_large` (the phone uses `upload` or
+  `file`); a chunk that does not open to its id, an offer under another key, or
+  chunks the offer does not name are refused `bad_request`, and nothing is
+  published. Refusals are `{"error","message"}` before the close. The Mac keeps
+  chunks (ciphertext) under `<uploads>/bundle-chunks`, at most 2 GiB, least
+  recently used out first; the phone keeps its own per Mac in its Caches. An
+  older Mac closes `bundle` with `unknown_service`; the phone then uses
+  `upload` / `file` for the rest of the link.
 - `browser`: `{"tab", "url"?}` a streamed Mac browser tab
   (verify/browser-stream.md). The channel carries the `cmux.rd/1` stream
   carrier (`u8 kind | u32 LE len | payload`, kind 1 control JSON, 2 datagram)
@@ -1504,6 +1531,7 @@ cmux-tui daemon's names hostd itself declares or checks. Printed from
 | `phone-frames-v1` | hostd `version` | The host serves `phone-frames`: the phone's terminal scroll frame times, logged to `phone-frames.jsonl` on the Mac. |
 | `tab-snapshots-v1` | hostd `version` | (2026-11-22) The host serves `tabs`: every tab's title, favicon, thumbnail or terminal screen text, each picture sent once by hash and then only changes. |
 | `mailbox-send-v1` | hostd `version` | (2026-11-24) The Mac's mailbox takes `send` (a chat message) and `compose` (a queue action) items, held up to 24 hours and applied once, in each phone's order: a phone routes a send to the mailbox only to a Mac that listed it on its last link. |
+| `bundle-v1` | hostd `version` | (2026-11-24) The host serves `bundle`: an attachment upload (`put`) or file open (`get`) as sealed content-defined chunks, so a file the far end already holds costs one round trip and its manifest. |
 | `browser-stream-v1` | hostd `version` | The host streams browser tabs (`browser`); listed only when the Mac has a browser host. |
 | `browser-video-track-v1` | hostd `version` | With `browser-stream-v1`: `browser {"video":"track"}` carries the page's video on the media lane (WebRTC, and WireGuard since 2026-10-14). |
 | `surface-stream-v1` | hostd `version` | (2026-10-22) The host streams the Mac's phone tabs' simulators (`surface`); listed only when the Mac app streams simulators. |

@@ -26,6 +26,8 @@ async-trait = "0.1"
 cmux-auto-session.workspace = true
 # The terminal composer's keyed Send (src/composer_outbox.rs).
 cmux-composer-send.workspace = true
+# Attachments over the `bundle` service (src/bundle.rs).
+cmux-bundle.workspace = true
 cmux-follow-cam.workspace = true
 cmux-mobile-auto.workspace = true
 cmux-mobile-core.workspace = true

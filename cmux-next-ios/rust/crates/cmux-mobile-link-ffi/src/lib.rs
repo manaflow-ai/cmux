@@ -19,6 +19,7 @@ mod auto_chats;
 mod browser;
 mod catch_up;
 mod chat_prompt_outbox;
+mod bundle;
 mod classic_leftovers;
 mod composer_outbox;
 mod follow_camera;
@@ -350,6 +351,8 @@ pub struct LinkHandle {
     /// The phone end of viewport sync (cmux_mobile_link::viewport): what
     /// daemon channels ask for, and the link's datagram receivers.
     viewport: PhoneViewport,
+    /// The Mac refused `bundle` (`unknown_service`, an older hostd): files go the old way on this link.
+    bundle_refused: std::sync::atomic::AtomicBool,
 }
 
 impl Drop for LinkHandle {
@@ -1076,6 +1079,7 @@ async fn finish_link(
         tunnel_keys: connected.tunnel_keys,
         media,
         viewport,
+        bundle_refused: std::sync::atomic::AtomicBool::new(false),
     }))
 }
 

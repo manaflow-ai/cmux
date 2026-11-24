@@ -383,6 +383,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "375989decec1a0fa424442bed520fa12ede43a48475ce8c7417d2c69b32b5f6b"
 dependencies = [
  "find-msvc-tools",
+ "jobserver",
+ "libc",
  "shlex",
 ]
 
@@ -538,6 +540,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-bundle"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "chacha20poly1305",
+ "zstd",
+]
+
+[[package]]
 name = "cmux-cloud-wire"
 version = "0.1.0"
 dependencies = [
@@ -616,8 +627,10 @@ dependencies = [
  "aes-gcm",
  "anyhow",
  "base64",
+ "blake3",
  "bytes",
  "cmux-build-space",
+ "cmux-bundle",
  "cmux-deadline",
  "cmux-fault",
  "cmux-message-preview",
@@ -671,6 +684,7 @@ dependencies = [
  "cmux-braid-carrier",
  "cmux-braid-path",
  "cmux-build-space",
+ "cmux-bundle",
  "cmux-fault",
  "cmux-mobile-link",
  "cmux-rd-core",
@@ -714,6 +728,7 @@ dependencies = [
  "async-trait",
  "base64",
  "cmux-auto-session",
+ "cmux-bundle",
  "cmux-composer-send",
  "cmux-follow-cam",
  "cmux-mobile-auto",
@@ -1804,6 +1819,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
+name = "jobserver"
+version = "0.1.35"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1c00acbd29eabad4a2392fa0e921c874934dbbf4194312ad20f04a0ed67a3cb3"
+dependencies = [
+ "getrandom 0.4.3",
+ "libc",
+]
+
+[[package]]
 name = "js-sys"
 version = "0.3.106"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2153,6 +2178,12 @@ dependencies = [
  "der",
  "spki",
 ]
+
+[[package]]
+name = "pkg-config"
+version = "0.3.34"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 
 [[package]]
 name = "plain"
@@ -4255,3 +4286,31 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
+
+[[package]]
+name = "zstd"
+version = "0.13.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b04655dc7bf4abd8ebe23dac6bef20fceea52a29ad19e37a4101b3951d7e8b45"
+dependencies = [
+ "zstd-safe",
+]
+
+[[package]]
+name = "zstd-safe"
+version = "7.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df2575690b2a3eccad509fe7898cdde32a5afca06a06449ff4dcfb318c7b7281"
+dependencies = [
+ "zstd-sys",
+]
+
+[[package]]
+name = "zstd-sys"
+version = "2.2.0+zstd.1.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3f4089cda6dda4dc43c43dd9f8964140064fd2f752f3da46c3a483c3c175160"
+dependencies = [
+ "cc",
+ "pkg-config",
+]
