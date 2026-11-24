@@ -170,6 +170,8 @@ cmux agent history NAME
 cmux agent pending
 ```
 
+A retry loop around `send` checks its exit code, never its text: every hand-off (queued, held,
+delivered, steered) exits 0, a refusal exits nonzero (`cmux agent send --help` lists the codes).
 A timeout or `prompt_stalled` does not prove delivery failed. Inspect `last` and `history` before
 retrying. A permission-pending result (including `wait` exit 2) is a handoff to the approved
 human/app path, not a reason to auto-allow. Do not delete or purge sessions you did not create.

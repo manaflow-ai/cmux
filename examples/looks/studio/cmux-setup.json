@@ -23,7 +23,8 @@
     // The composer: one rounded card, the prompt over a row of model, effort and access chips, the
     // attach clip and a round accent send button at the right; the branch and checkout sit in a tray
     // under it (cmux#46738). A new, empty chat holds it in the middle of the pane under its heading.
-    // Pending cmux#46738: both keys are in review; install refuses a key the build does not know.
+    // Pending the settings export: cmux#46738 landed both keys, but schemas/settings/settings-schema.json
+    // (what install checks a key against) is not regenerated yet; install refuses a key it does not know.
     // "agentPane.composerLook": "studio",
     // "agentPane.emptyChatComposerPosition": "center",
 

@@ -40,6 +40,12 @@ ARTIFACT_SECRETS = {
     "CMUX_CEF_R2_SECRET_ACCESS_KEY",
     "CMUX_CEF_R2_ACCOUNT_ID",
 }
+# mark-tree-commits also signs the Linux release files of commits that share a published tree
+# (scripts/ci/cmux-linux-release-aliases.sh, one step): it runs feat-cmux-next's own code only, as the
+# point-*-channel jobs that hold the same key do.
+ARTIFACT_JOB_EXTRA_SECRETS = {
+    ("cmux-tui-artifacts.yml", "mark-tree-commits"): {"CMUX_WEB_OTA_SIGNING_KEY"},
+}
 
 NIGHTLY_TRACK_ENVIRONMENT = "${{ needs.decide.outputs.environment }}"
 NIGHTLY_TRACK_ENVIRONMENT_RULE = "core.setOutput('environment', isNextRef ? 'release-next' : 'release');"
@@ -105,7 +111,8 @@ def main():
                    f"{name} {job} runs in the artifacts environment")
             # Every form GitHub accepts; `secrets: inherit` or a computed index reads ALL_SECRETS, never a subset.
             used = workflow_jobs.secret_names(definition)
-            _check(used <= ARTIFACT_SECRETS, f"{name} {job} uses only R2 upload secrets (found {sorted(used)})")
+            allowed = ARTIFACT_SECRETS | ARTIFACT_JOB_EXTRA_SECRETS.get((name, job), set())
+            _check(used <= allowed, f"{name} {job} uses only R2 upload secrets (found {sorted(used)})")
     if FAILURES:
         print(f"\n{len(FAILURES)} failure(s)")
         sys.exit(1)
