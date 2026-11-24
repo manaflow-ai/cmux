@@ -201,7 +201,7 @@ final class TabStripGoo {
     func hover(_ id: TabID?, in strip: TabStripView) {
         let id = id == strip.model.selectedID ? nil : id
         guard DesignSettings.shared.gooeyTabs == .full, let blob, dragAttached == nil, id != necked else { return }
-        if let plan, now() < plan.begin + plan.duration { return }
+        if let plan, now() < max(planner.restTime(plan.left), planner.restTime(plan.right)) { return }
         let tuning = GooTunables.tuning(for: .full).ffi
         var target = planner.restPath(blob)
         necked = nil

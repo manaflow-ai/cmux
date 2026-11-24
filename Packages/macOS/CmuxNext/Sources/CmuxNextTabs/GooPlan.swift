@@ -60,6 +60,14 @@ final class GooPlanner {
         return cmux_goo_track_retarget(&track, t, target, spring)
     }
 
+    /// Media time when `track` comes to rest: its start plus the seconds until its offset and velocity fall under
+    /// half a point (and half a point per second), from cmux-motion's spring.
+    func restTime(_ track: CmuxGooTrack) -> Double {
+        var track = track
+        calls += 1
+        return track.start + cmux_goo_track_rest_time(&track, 0.5)
+    }
+
     /// `track`'s position and velocity at media time `t`.
     func state(_ track: CmuxGooTrack, at t: Double) -> (x: Double, v: Double) {
         var track = track, x = 0.0, v = 0.0
