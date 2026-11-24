@@ -36,9 +36,14 @@ import CmuxNextSettings
     /// (``sharedWidth(zoom:)``). A report, 0 included, ends it.
     private var awaitingReport = false
 
-    /// The page reported its tools' width.
-    func report(width: CGFloat) {
-        if width > 0 { neededWidth = width }
+    /// The page reported its tools' width, and their `need`: the width less what takes only the row's leftover room
+    /// (the chat's rolling summary, header/tabRow.ts TAB_ROW_ACCESSORY). The need, not the width, is what decides
+    /// whether a pane offers the row: a summary measured in a wide pane made the tools need more than half of the row
+    /// once the pane was split, and the chat's tools dropped to a second row under the tabs (Leo 2026-11-22: "the icons
+    /// on the top right have gotten displaced due to putting things on a line"). A page that sends no need (older) has
+    /// its width as the need.
+    func report(width: CGFloat, need: CGFloat? = nil) {
+        if width > 0 { neededWidth = min(width, need.map { $0 > 0 ? $0 : width } ?? width) }
         let awaited = awaitingReport
         awaitingReport = false
         guard width != toolsWidth || awaited else { return }
