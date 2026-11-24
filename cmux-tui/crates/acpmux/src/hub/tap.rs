@@ -150,6 +150,9 @@ impl Hub {
                 && method == crate::rpc::method::SESSION_UPDATE
             {
                 tap_hub.note_tool_update(&tap_session, &p["update"]);
+                if !tap_session.loading.load(Ordering::SeqCst) {
+                    tap_hub.note_verify(&tap_session, &p["update"]);
+                }
                 // Counted before it is logged, so no check waits for the inbound loop to apply
                 // it (review 69 of #23322).
                 if super::full_access_bound::own_full_access_report(&tap_session, p) {
@@ -306,8 +309,12 @@ impl Hub {
                                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                                 .leave_out_repeats(&kind, &mut line)
                         });
-                        let retry = (!muted && method == "claude.system.api_retry")
-                            .then(|| super::turn_retry::claude_retry(&line));
+                        let retry = (!muted
+                            && matches!(
+                                method.as_str(),
+                                "claude.system.api_retry" | "claude.system.api_error"
+                            ))
+                        .then(|| super::turn_retry::claude_retry(&line));
                         let logged =
                             tap_hub.append_logged(&tap_session, "in", &kind, line, host_seq).1;
                         // Only a logged line's sections count as logged: a retried write is
