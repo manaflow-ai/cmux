@@ -77,7 +77,7 @@ function pullRequestFor(state: "running" | "green" | "red"): HeaderPullRequest {
 }
 
 /// A ring of the checks: passed, failed and pending arcs on the muted track (14 px, the row icon size).
-export function ChecksRing({ checks, size = 14 }: { checks: readonly HeaderCheck[]; size?: number }) {
+function ChecksRing({ checks, size = 14 }: { checks: readonly HeaderCheck[]; size?: number }) {
   const radius = 5.5;
   const length = 2 * Math.PI * radius;
   const total = Math.max(checks.length, 1);
