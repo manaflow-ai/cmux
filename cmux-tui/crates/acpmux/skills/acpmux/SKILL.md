@@ -523,7 +523,8 @@ groups), `account` (sign the Codex, Claude and GitHub accounts in or out, add,
 switch, remove, list; `account readiness` says which still need installing or a
 sign-in), `harness`, `capabilities`,
 `machine-auth`, `hand`, `share-host`, `router`, `web`, `board`, `attach`, `resume-here`,
-`stdio`, `cli-agent`, `uniichat-agent`, and `skill` (this guide).
+`stdio`, `cli-agent`, `uniichat-agent`, `channel` (named byte channels to an agent on
+another machine: `channel listen SERVICE`, `channel open PEER SERVICE`), and `skill` (this guide).
 
 ## 8. Output
 
