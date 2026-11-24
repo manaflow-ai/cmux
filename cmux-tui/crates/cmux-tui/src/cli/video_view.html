@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>{{TITLE}}</title>
+<link rel="icon" href="data:,">
+<style>
+/* The deck viewer's tokens (cli/mcp/pptx_view.html), so both viewers match. */
+:root{color-scheme:light dark;--text:#1d1d1f;--muted:#6e6e73;--accent:#0a64d8;--border:#d9d9de;--page:#f2f2f4;--panel:#ffffff;--well:#e4e4e8;--frame:#000;--font:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;--bar:56px;--label:26px;--rows:1}
+@media (prefers-color-scheme:dark){:root{--text:#f2f2f4;--muted:#a1a1a6;--accent:#5aa2ff;--border:#3a3a3e;--page:#111113;--panel:#1c1c1f;--well:#2c2c30}}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{display:flex;flex-direction:column;overflow:hidden;background:var(--page);color:var(--text);font:13px/1.4 var(--font);-webkit-font-smoothing:antialiased;user-select:none;-webkit-user-select:none}
+#stage{flex:1;min-height:0;display:grid;gap:12px;padding:12px 16px 8px;align-content:center;justify-items:center}
+#stage.cols-2{grid-template-columns:1fr 1fr}
+.clip{width:100%;min-width:0;display:flex;flex-direction:column;align-items:center}
+.label{height:var(--label);width:100%;display:flex;gap:8px;align-items:baseline;justify-content:center;white-space:nowrap;overflow:hidden}
+.label b{font-weight:600}
+.label span{color:var(--muted);overflow:hidden;text-overflow:ellipsis}
+.frame{position:relative;aspect-ratio:var(--ar,1.7778);width:min(100%,calc((100vh - var(--bar) - 20px - var(--rows) * (var(--label) + 12px)) / var(--rows) * var(--ar,1.7778)));background:var(--frame);border-radius:6px;overflow:hidden;outline:1px solid var(--border);cursor:pointer}
+video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:block}
+.notice{position:absolute;inset:auto 0 0 0;padding:8px 12px;background:rgba(200,30,30,.92);color:#fff;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:default}
+.notice:empty{display:none}
+#bar{height:var(--bar);flex:none;display:flex;align-items:center;gap:10px;padding:0 16px;background:var(--panel);border-top:1px solid var(--border)}
+button{all:unset;box-sizing:border-box;height:28px;min-width:28px;padding:0 6px;display:inline-flex;align-items:center;justify-content:center;border-radius:6px;color:var(--text);cursor:pointer;font:500 12px var(--font)}
+button:hover{background:var(--well)}
+button:focus-visible{outline:2px solid var(--accent)}
+button[aria-pressed=true]{color:var(--accent)}
+button svg{width:16px;height:16px;fill:currentColor}
+#play svg{width:18px;height:18px}
+.time{font-variant-numeric:tabular-nums;color:var(--muted);font-size:12px;min-width:58px}
+#cur{text-align:right}
+#scrub{flex:1;min-width:80px;height:28px;position:relative;cursor:pointer;touch-action:none}
+#scrub .track{position:absolute;left:0;right:0;top:12px;height:4px;border-radius:2px;background:var(--well)}
+#scrub .fill{position:absolute;left:0;top:0;bottom:0;border-radius:2px;background:var(--accent);width:0}
+#scrub .thumb{position:absolute;top:7px;width:14px;height:14px;margin-left:-7px;border-radius:50%;background:var(--panel);border:2px solid var(--accent);left:0}
+#scrub:focus-visible{outline:2px solid var(--accent);border-radius:6px}
+.seg{display:inline-flex;background:var(--well);border-radius:7px;padding:2px}
+.seg button{height:24px;min-width:38px;border-radius:5px;color:var(--muted)}
+.seg button[aria-pressed=true]{background:var(--panel);color:var(--text);box-shadow:0 0 0 .5px var(--border),0 1px 2px rgba(0,0,0,.15)}
+.sep{width:1px;height:20px;background:var(--border)}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<main id="stage"></main>
+<footer id="bar">
+  <button id="play" title="Play (Space or K)" aria-label="Play"></button>
+  <span class="time" id="cur">0:00.00</span>
+  <div id="scrub" role="slider" tabindex="0" aria-label="Position" aria-valuemin="0"><div class="track"><div class="fill"></div></div><div class="thumb"></div></div>
+  <span class="time" id="dur">0:00.00</span>
+  <span class="sep"></span>
+  <button id="back" title="Previous frame (,)" aria-label="Previous frame"><svg viewBox="0 0 16 16"><path d="M3 3h2v10H3zM13 3v10L6 8z"/></svg></button>
+  <button id="fwd" title="Next frame (.)" aria-label="Next frame"><svg viewBox="0 0 16 16"><path d="M11 3h2v10h-2zM3 3v10l7-5z"/></svg></button>
+  <div class="seg" id="rates" title="Speed ([ and ])"></div>
+  <button id="loop" title="Loop (L)" aria-label="Loop"><svg viewBox="0 0 16 16"><path d="M4 5h7V3l3 3-3 3V7H4.5A1.5 1.5 0 0 0 3 8.5V9H1v-.5A3.5 3.5 0 0 1 4 5zm8 6H5v2l-3-3 3-3v2h6.5A1.5 1.5 0 0 0 13 7.5V7h2v.5A3.5 3.5 0 0 1 12 11z"/></svg></button>
+  <button id="layout" hidden title="Side by side or stacked" aria-label="Layout"></button>
+</footer>
+<script id="config" type="application/json">{{CONFIG}}</script>
+<script>
+"use strict";
+const C = JSON.parse(document.getElementById("config").textContent);
+const $ = (id) => document.getElementById(id);
+const RATES = [0.5, 1, 2];
+const ICON = {
+  play: '<svg viewBox="0 0 16 16"><path d="M4 2.5v11L13.5 8z"/></svg>',
+  pause: '<svg viewBox="0 0 16 16"><path d="M4 2.5h3v11H4zM9 2.5h3v11H9z"/></svg>',
+  cols: '<svg viewBox="0 0 16 16"><path d="M1 3h6v10H1zM9 3h6v10H9z"/></svg>',
+  rows: '<svg viewBox="0 0 16 16"><path d="M2 1h12v6H2zM2 9h12v6H2z"/></svg>',
+};
+const REASON = { 1: "loading was stopped", 2: "a network error", 3: "it cannot be decoded", 4: "the format is not supported" };
+const stage = $("stage"), clips = [];
+for (const s of C.sources) {
+  const clip = document.createElement("section"), label = document.createElement("div"), frame = document.createElement("div");
+  const v = document.createElement("video"), notice = document.createElement("div");
+  clip.className = "clip"; label.className = "label"; frame.className = "frame"; notice.className = "notice";
+  const b = document.createElement("b"); b.textContent = s.label; label.append(b);
+  if (s.label !== s.name) { const n = document.createElement("span"); n.textContent = s.name; label.append(n); }
+  v.playsInline = true; v.preload = "metadata"; v.controls = false; v.src = s.src;
+  v.addEventListener("loadedmetadata", () => {
+    if (v.videoWidth && v.videoHeight) frame.style.setProperty("--ar", (v.videoWidth / v.videoHeight).toFixed(4));
+    fit(); paint();
+  });
+  v.addEventListener("error", () => {
+    const code = v.error && v.error.code;
+    notice.textContent = "Cannot play " + s.name + ": " + (REASON[code] || "an unknown error") + ".";
+  });
+  frame.addEventListener("click", toggle);
+  frame.append(v, notice); clip.append(label, frame); stage.append(clip);
+  clips.push({ v, frame });
+}
+const lead = clips[0].v, follow = clips.slice(1).map((c) => c.v), all = clips.map((c) => c.v);
+
+// Layout: two clips sit side by side or stacked, whichever shows them larger, until the
+// person picks one with the layout button.
+let layout = "auto";
+function ratio(c) { return parseFloat(getComputedStyle(c.frame).getPropertyValue("--ar")) || 16 / 9; }
+function fit() {
+  if (clips.length < 2) return;
+  let mode = layout;
+  if (mode === "auto") {
+    const w = stage.clientWidth - 32, h = innerHeight - 56 - 20, ar = Math.max(...clips.map(ratio));
+    const cols = Math.min((w - 12) / 2, (h - 38) * ar), rows = Math.min(w, ((h - 76) / 2) * ar);
+    mode = cols >= rows ? "cols" : "rows";
+  }
+  stage.classList.toggle("cols-2", mode === "cols");
+  document.documentElement.style.setProperty("--rows", mode === "cols" ? 1 : 2);
+  $("layout").innerHTML = mode === "cols" ? ICON.cols : ICON.rows;
+  $("layout").title = (mode === "cols" ? "Side by side" : "Stacked") + ": click for " + (mode === "cols" ? "stacked" : "side by side");
+  $("layout").dataset.mode = mode;
+}
+if (clips.length > 1) {
+  $("layout").hidden = false;
+  $("layout").onclick = () => { layout = $("layout").dataset.mode === "cols" ? "rows" : "cols"; fit(); };
+}
+addEventListener("resize", fit);
+fit();
+
+// Transport: every command goes to all clips; the follower is pulled back to the lead.
+let playing = false, rate = RATES.includes(C.rate) ? C.rate : 1, looping = !!C.loop, frameDur = 1 / 30;
+const dur = () => (isFinite(lead.duration) ? lead.duration : 0);
+const clampTo = (v, t) => Math.max(0, Math.min(t, isFinite(v.duration) ? v.duration : t));
+function seek(t) {
+  t = Math.max(0, Math.min(t, dur() || t));
+  for (const v of all) v.currentTime = clampTo(v, t);
+  paint();
+}
+function play() {
+  if (lead.ended || (dur() && lead.currentTime >= dur() - 0.01)) seek(0);
+  playing = true;
+  for (const v of all) v.play().catch(() => { if (v === lead) { playing = false; paint(); } });
+  paint(); tick();
+}
+function pause() {
+  playing = false;
+  for (const v of all) v.pause();
+  for (const v of follow) v.currentTime = clampTo(v, lead.currentTime);
+  paint();
+}
+function toggle() { playing ? pause() : play(); }
+function setRate(r) { rate = r; for (const v of all) { v.playbackRate = r; v.defaultPlaybackRate = r; } paint(); }
+function setLoop(on) { looping = on; lead.loop = on; paint(); }
+function step(n) { if (playing) pause(); seek(lead.currentTime + n * frameDur); }
+lead.addEventListener("ended", () => { if (!looping) { playing = false; for (const v of follow) v.pause(); paint(); } });
+lead.addEventListener("pause", () => { if (playing && !lead.ended && !dragging) { playing = false; for (const v of follow) v.pause(); paint(); } });
+
+let lastSync = 0;
+function tick() {
+  if (!playing) return;
+  const now = performance.now();
+  if (now - lastSync > 250) {
+    for (const v of follow) {
+      const target = lead.currentTime;
+      if (isFinite(v.duration) && target >= v.duration) continue;
+      if (v.paused) { v.currentTime = target; v.play().catch(() => {}); lastSync = now; }
+      else if (Math.abs(v.currentTime - target) > 0.05) { v.currentTime = target; lastSync = now; }
+    }
+  }
+  paint();
+  requestAnimationFrame(tick);
+}
+
+// The real frame duration, when WebKit reports presented frames.
+if ("requestVideoFrameCallback" in HTMLVideoElement.prototype) {
+  let last = null, best = Infinity;
+  const onFrame = (_, m) => {
+    if (last !== null) {
+      const d = m.mediaTime - last;
+      if (d > 1 / 241 && d < 1 / 9 && d < best) { best = d; frameDur = d; }
+    }
+    last = m.mediaTime;
+    lead.requestVideoFrameCallback(onFrame);
+  };
+  lead.requestVideoFrameCallback(onFrame);
+}
+
+// Scrub bar: click or drag; playback pauses while dragging and resumes after.
+const scrub = $("scrub");
+let dragging = false, resume = false;
+function scrubTo(e) { const r = scrub.getBoundingClientRect(); seek(((e.clientX - r.left) / r.width) * dur()); }
+scrub.addEventListener("pointerdown", (e) => {
+  dragging = true; resume = playing; if (playing) pause();
+  scrub.setPointerCapture(e.pointerId); scrubTo(e);
+});
+scrub.addEventListener("pointermove", (e) => { if (dragging) scrubTo(e); });
+const endDrag = () => { if (!dragging) return; dragging = false; if (resume) play(); };
+scrub.addEventListener("pointerup", endDrag);
+scrub.addEventListener("pointercancel", endDrag);
+
+const fmt = (t) => {
+  t = Math.max(0, t || 0);
+  const m = Math.floor(t / 60), s = t - m * 60;
+  return m + ":" + (s < 10 ? "0" : "") + s.toFixed(2);
+};
+const rateButtons = RATES.map((r) => {
+  const b = document.createElement("button");
+  b.textContent = r + "×"; b.onclick = () => setRate(r); $("rates").append(b); return b;
+});
+function paint() {
+  const t = lead.currentTime, d = dur(), p = d ? Math.min(1, t / d) * 100 + "%" : "0%";
+  $("cur").textContent = fmt(t); $("dur").textContent = fmt(d);
+  scrub.querySelector(".fill").style.width = p; scrub.querySelector(".thumb").style.left = p;
+  scrub.setAttribute("aria-valuemax", d.toFixed(2)); scrub.setAttribute("aria-valuenow", t.toFixed(2));
+  $("play").innerHTML = playing ? ICON.pause : ICON.play;
+  $("play").title = (playing ? "Pause" : "Play") + " (Space or K)";
+  $("loop").setAttribute("aria-pressed", looping);
+  rateButtons.forEach((b, i) => b.setAttribute("aria-pressed", RATES[i] === rate));
+}
+for (const v of all) {
+  v.addEventListener("seeked", paint);
+  v.addEventListener("durationchange", paint);
+}
+$("play").onclick = toggle;
+$("back").onclick = () => step(-1);
+$("fwd").onclick = () => step(1);
+$("loop").onclick = () => setLoop(!looping);
+
+addEventListener("keydown", (e) => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const i = RATES.indexOf(rate);
+  const act = {
+    " ": toggle, k: toggle, K: toggle,
+    ",": () => step(-1), ".": () => step(1),
+    "[": () => setRate(RATES[Math.max(0, i - 1)]), "]": () => setRate(RATES[Math.min(RATES.length - 1, i + 1)]),
+    l: () => setLoop(!looping), L: () => setLoop(!looping),
+    ArrowLeft: () => seek(lead.currentTime - 5), ArrowRight: () => seek(lead.currentTime + 5),
+    Home: () => seek(0), End: () => seek(dur()),
+  }[e.key];
+  if (!act) return;
+  e.preventDefault(); act();
+});
+
+setRate(rate); setLoop(looping); paint();
+// Start once every clip knows its size and length, so two clips start together.
+Promise.all(all.map((v) => (v.readyState >= 1 ? 1 : new Promise((ok) => {
+  v.addEventListener("loadedmetadata", ok, { once: true }); v.addEventListener("error", ok, { once: true });
+})))).then(() => { if (!lead.error) play(); });
+</script>
+</body>
+</html>
