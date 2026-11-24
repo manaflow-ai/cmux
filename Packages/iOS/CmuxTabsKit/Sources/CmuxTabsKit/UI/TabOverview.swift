@@ -83,6 +83,8 @@ struct TabCard<Content: View>: View {
     /// The zoom draws this card's content and close button; its title row
     /// stays here and fades in with the others.
     var contentHidden = false
+    /// What the content shows that the title does not (`cardAccessibilityValue(for:)`).
+    var accessibilityValue: String?
     var onOpen: () -> Void = {}
     var onClose: () -> Void
     @ViewBuilder var content: Content
@@ -124,6 +126,7 @@ struct TabCard<Content: View>: View {
         // Open and Close actions (no nested images or buttons).
         .accessibilityRepresentation {
             Button("\(title), tab", action: onOpen)
+                .accessibilityValue(accessibilityValue ?? "")
                 .accessibilityAction(named: "Open", onOpen)
                 .accessibilityAction(named: "Close", onClose)
         }
@@ -348,7 +351,8 @@ struct TabOverview<Source: TabsDataSource>: View {
 
     /// An unbuilt card's accessibility element, named as its built card is.
     private func standIn(_ tab: TabsKitTab, rect: CGRect, pinned: Bool) -> CardStandIn {
-        CardStandIn(label: pinned ? "\(tab.title), Pinned" : "\(tab.title), tab", rect: rect,
+        CardStandIn(label: pinned ? "\(tab.title), Pinned" : "\(tab.title), tab",
+                    value: pinned ? nil : source.cardAccessibilityValue(for: tab.id), rect: rect,
                     open: { [onSelect] in onSelect(tab.id) },
                     close: pinned ? nil : { Task { _ = await closeTapped(tab.id) } })
     }
@@ -385,7 +389,8 @@ struct TabOverview<Source: TabsDataSource>: View {
         TabCard(title: tab.title, systemImage: tab.systemImage, icon: source.icon(for: tab.id), pageSize: layout.size, width: r.width, height: r.height,
                 radius: layout.cardRadius, showsClose: !selecting, closeOpacity: chrome.closeOpacity,
                 titleOpacity: chrome.titleOpacity, titleOffset: chrome.titleOffset,
-                contentHidden: tab.id == hiddenTabId, onOpen: { onSelect(tab.id) },
+                contentHidden: tab.id == hiddenTabId, accessibilityValue: source.cardAccessibilityValue(for: tab.id),
+                onOpen: { onSelect(tab.id) },
                 onClose: { Task { _ = await closeTapped(tab.id) } }) {
             source.card(for: tab)
                 .offset(y: -source.cardContentOffset(for: tab.id, visibleHeight: layout.cardPageHeight))

@@ -50,7 +50,7 @@
 /* One height policy for chat, side chat, New Tab and Cmd-I composers: Claude desktop's 384 px cap (Leo 2026-11-24), then scroll. */
 .acpmux-shell{--acpmux-composer-max-height:calc(384px * var(--cmux-interface-scale, 1))}
 .acpmux-composer{position:relative;padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 16px;padding-right:var(--cv-inset-end,var(--cv-inset));font-family:var(--font-ui);-webkit-font-smoothing:antialiased}
-.acpmux-composer-box{--acpmux-composer-radius:var(--cmux-composer-radius,22px);position:relative;display:flex;flex-direction:column;box-sizing:border-box;border-radius:var(--acpmux-composer-radius);--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge);box-shadow:var(--acpmux-card-ring)}
+.acpmux-composer-box{position:relative;display:flex;flex-direction:column;box-sizing:border-box;border-radius:var(--acpmux-composer-radius);--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge);box-shadow:var(--acpmux-card-ring)}
 .acpmux-composer-box button{font:inherit}
 .acpmux-composer-field{display:block;box-sizing:border-box;width:100%;min-height:0;max-height:40vh;margin:0;padding:15px 16px 8px;border:0;outline:0;background:transparent;resize:none;field-sizing:content;font-family:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height);color:var(--agent-text);caret-color:var(--cmux-caret, var(--agent-text))}
 .acpmux-composer-field::placeholder{color:var(--acpmux-composer-placeholder);opacity:1}
@@ -485,9 +485,6 @@
    is running and the chats are kept, so one line turning into the other moves nothing. */
 .acpmux-host-line-group>.acpmux-host-line:first-child{min-height:24px;padding-bottom:0}
 .acpmux-host-line-note{flex:0 1 auto;min-width:0;margin:0;color:color-mix(in srgb,var(--agent-muted) 85%,transparent)}
-/* An optional step (Restart agent service): text in the message row, not a filled button. */
-.acpmux-host-line .acpmux-host-line-quiet{height:24px;padding:0 4px;background:transparent;color:var(--agent-muted);text-decoration:underline;text-decoration-color:color-mix(in srgb,var(--agent-muted) 40%,transparent);text-underline-offset:2px}
-.acpmux-host-line .acpmux-host-line-quiet:hover:not(:disabled){background:transparent;color:var(--agent-text)}
 /* Details: acpmux's own words behind the plain line (hostLine.ts), a quiet text button; the text it
    opens sits under the line at the same inset, never red. */
 .acpmux-host-line .acpmux-host-line-details{padding:0 4px;background:transparent;color:var(--agent-muted)}
