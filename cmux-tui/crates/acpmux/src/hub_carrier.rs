@@ -84,8 +84,8 @@ use cmux_remote::crypto::{
 };
 use cmux_remote::link::FrameLink;
 use cmux_remote::provider::{
-    ConnectRequest, LinkRequest, RelayClientConfig, RelayCredentialSource, RelayDaemonConfig,
-    RelayDaemonRegistration, RelayIncoming, RelayProvider, TransportProvider,
+    ConnectRequest, LinkRequest, RegistrationState, RelayClientConfig, RelayCredentialSource,
+    RelayDaemonConfig, RelayDaemonRegistration, RelayIncoming, RelayProvider, TransportProvider,
     spawn_relay_daemon_registration,
 };
 use cmux_remote_protocol::{Lane, LanePolicy, SessionId};
@@ -124,6 +124,10 @@ pub struct CarrierAnswer {
     /// Register: the keys this machine lets in.
     #[serde(default)]
     pub peers: Vec<String>,
+    /// The other relays the platform may carry this slot on, in its order of preference after
+    /// `relay` (re-homing, `hub_carrier_rehome.rs`). Empty from a platform that knows one relay.
+    #[serde(default)]
+    pub relays: Vec<String>,
 }
 
 impl std::fmt::Debug for CarrierAnswer {
@@ -131,6 +135,7 @@ impl std::fmt::Debug for CarrierAnswer {
         f.debug_struct("CarrierAnswer")
             .field("relay", &cmux_remote::provider::sanitized_route_text(&self.relay))
             .field("peers", &self.peers.len())
+            .field("relays", &self.relays.len())
             .finish_non_exhaustive()
     }
 }
@@ -425,6 +430,9 @@ pub struct Timings {
     pub keepalive: Duration,
     /// How long a kept circuit with no stream stays open.
     pub kept_idle: Duration,
+    /// How long a serving carrier's registration may stay down before it registers on the
+    /// platform's next relay (`hub_carrier_rehome.rs`); only when the platform names another.
+    pub rehome_after: Duration,
 }
 
 impl Default for Timings {
@@ -442,6 +450,9 @@ impl Default for Timings {
             // gcp-agent-lane-13) where a stream on the kept one costs 0.086 s p50: an idle kept
             // circuit is one 30 s ping, so holding it an hour is cheap.
             kept_idle: Duration::from_secs(3600),
+            // A relay that restarts is back in about a second (the registration's first retry);
+            // past this one that went away is taken as gone, and the host moves.
+            rehome_after: Duration::from_secs(3),
         }
     }
 }
@@ -463,6 +474,8 @@ pub struct Stats {
     pub kept_opens: AtomicU64,
     /// Kept circuits opened.
     pub kept_circuits: AtomicU64,
+    /// Times this machine's own slot moved to the platform's next relay (re-homing).
+    pub rehomes: AtomicU64,
 }
 
 /// Where a new circuit's time went, step by step (`RUST_LOG=acpmux::hub_carrier=debug` logs it
@@ -593,6 +606,10 @@ pub struct HubCarrier {
     /// Whether acpmux links ride kept circuits as streams, dialed and served
     /// ([`Self::acpmux_streams`]).
     acpmux_streams: std::sync::atomic::AtomicBool,
+    /// Which relay last carried each far machine; a dial tries it first (re-homing).
+    homes: rehome::Homes,
+    /// The relay this machine's own slot is registered on now, once one is.
+    serving_on: RwLock<Option<String>>,
     /// The direct path to machines on this machine's private network (`hub_carrier_direct.rs`).
     direct: direct::Direct,
 }
@@ -631,6 +648,8 @@ impl HubCarrier {
             alive: Arc::new(()),
             serves_kept: std::sync::atomic::AtomicBool::new(true),
             acpmux_streams: std::sync::atomic::AtomicBool::new(true),
+            homes: rehome::Homes::default(),
+            serving_on: RwLock::new(None),
             direct: direct::Direct::default(),
         })
     }
@@ -666,6 +685,8 @@ impl HubCarrier {
             alive: Arc::new(()),
             serves_kept: std::sync::atomic::AtomicBool::new(true),
             acpmux_streams: std::sync::atomic::AtomicBool::new(true),
+            homes: rehome::Homes::default(),
+            serving_on: RwLock::new(None),
             direct: direct::Direct::default(),
         })
     }
@@ -700,6 +721,7 @@ impl HubCarrier {
         self.kept.clear();
         self.direct.kept.clear();
         self.ticket_cache.clear();
+        self.homes.clear();
         self.generation.fetch_add(1, Ordering::SeqCst);
         self.rekeyed.notify_one();
         Ok(())
@@ -1168,7 +1190,45 @@ impl HubCarrier {
         if pinned != key_bytes(daemon).unwrap_or(pinned) {
             return Err("the hub's peer key is not the one asked for".into());
         }
-        let endpoint = relay_url(&answer.relay)?;
+        // The relay that last carried this machine first, then the platform's order: a relay the
+        // host left answers `slot-offline` at once, so following a moved host is one fast refusal
+        // per relay passed (`hub_carrier_rehome.rs`). A failure past the circuit (the handshake)
+        // is the far machine's answer and is the same on every relay.
+        let order = self.homes.order(daemon, rehome::candidates(&answer));
+        let mut last = String::from("the hub named no relay");
+        let mut found = None;
+        for relay in order {
+            match self.circuit_on(daemon, &relay, &answer, &mut stages).await {
+                Ok(circuit) => {
+                    self.homes.carried(daemon, &relay);
+                    found = Some(circuit);
+                    break;
+                }
+                Err(e) => last = e,
+            }
+        }
+        let (link, session) = found.ok_or(last)?;
+        let step = Instant::now();
+        // The service hello rides behind the last Noise message; its first receive checks the
+        // daemon's welcome (the key is pinned, and enrolled auth never waits on a human).
+        let mut handshake = self.client_handshake(pinned, self.timings.handshake)?;
+        handshake.session = session;
+        let secure =
+            initiate_secure_link_pipelined(link, handshake).await.map_err(|e| e.to_string())?;
+        stages.noise = step.elapsed();
+        Ok((secure, stages))
+    }
+
+    /// One relay circuit to `daemon`'s slot on `relay`, before the handshake: the relay's
+    /// allocation and the far machine's join, timed into `stages`.
+    async fn circuit_on(
+        &self,
+        daemon: &str,
+        relay: &str,
+        answer: &CarrierAnswer,
+        stages: &mut DialStages,
+    ) -> Result<(Box<dyn FrameLink>, SessionId), String> {
+        let endpoint = relay_url(relay)?;
         // The ticket in hand first; a later relay authentication asks the platform again.
         let first = Arc::new(Mutex::new(Some(Zeroizing::new(answer.ticket.clone()))));
         let tickets = self.tickets.clone();
@@ -1219,15 +1279,7 @@ impl HubCarrier {
             .map_err(|_| carrier_not_serving(self.timings.peer_join))?
             .map_err(|e| relay_refusal(e.to_string(), self.timings.peer_join))?;
         stages.peer_join = step.elapsed();
-        let step = Instant::now();
-        // The service hello rides behind the last Noise message; its first receive checks the
-        // daemon's welcome (the key is pinned, and enrolled auth never waits on a human).
-        let mut handshake = self.client_handshake(pinned, self.timings.handshake)?;
-        handshake.session = session;
-        let secure =
-            initiate_secure_link_pipelined(link, handshake).await.map_err(|e| e.to_string())?;
-        stages.noise = step.elapsed();
-        Ok((secure, stages))
+        Ok((link, session))
     }
 
     /// The Noise XX dialer's side, its far key pinned to `pinned`, with a session of its own.
@@ -1248,6 +1300,7 @@ impl HubCarrier {
             connection_attempt: ConnectionAttemptId(random_16()?),
             resume: BTreeMap::new(),
             daemon_takes_ik: false,
+            early: Vec::new(),
             handshake_timeout,
         })
     }
@@ -1335,12 +1388,12 @@ impl HubCarrier {
         if attempts > 1 {
             tracing::info!("hub carrier: a register ticket came after {attempts} attempts");
         }
-        let endpoint = match relay_url(&answer.relay) {
-            Ok(endpoint) => endpoint,
-            Err(e) => {
-                tracing::warn!("hub carrier off: {e}");
-                return;
-            }
+        // Re-homing (`hub_carrier_rehome.rs`): the platform's first relay, then, each time a
+        // registration stays down past `rehome_after`, the next one it names.
+        let relays = rehome::candidates(&answer);
+        let Some(mut home) = relays.first().cloned() else {
+            tracing::warn!("hub carrier off: the hub named no relay");
+            return;
         };
         set_allowed(&allowed, &answer.peers);
         // Registered: from here the peers' Connect tickets are kept ready (cut 5), once per carrier.
@@ -1350,7 +1403,47 @@ impl HubCarrier {
                 self.ticket_cache.clone().premint_until(Arc::downgrade(&self.alive)),
             );
         }
-        let first = Arc::new(Mutex::new(Some(Zeroizing::new(answer.ticket.clone()))));
+        let mut first = Some(Zeroizing::new(answer.ticket.clone()));
+        loop {
+            let served = self
+                .clone()
+                .serve_on(websocket, generation, &home, &answer.slot, first.take(), relays.len())
+                .await;
+            *self.serving_on.write().unwrap_or_else(|e| e.into_inner()) = None;
+            if served == Served::Stop {
+                return;
+            }
+            let Some(next) = rehome::next_home(&relays, &home) else { return };
+            tracing::warn!(
+                "hub carrier: the relay stayed down over {}s; registering on the next one",
+                self.timings.rehome_after.as_secs_f32()
+            );
+            self.stats.rehomes.fetch_add(1, Ordering::Relaxed);
+            home = next;
+        }
+    }
+
+    /// One registration of this machine's slot on `relay`, until the carrier stops
+    /// ([`Served::Stop`]) or, when the platform names `relays` > 1, the registration stays down
+    /// past `rehome_after` ([`Served::Rehome`]). `first` is the Register ticket in hand.
+    async fn serve_on(
+        self: Arc<Self>,
+        websocket: SocketAddr,
+        generation: u64,
+        relay: &str,
+        slot: &str,
+        first: Option<Zeroizing<String>>,
+        relays: usize,
+    ) -> Served {
+        let allowed = self.allowed.clone();
+        let endpoint = match relay_url(relay) {
+            Ok(endpoint) => endpoint,
+            Err(e) => {
+                tracing::warn!("hub carrier off: {e}");
+                return Served::Stop;
+            }
+        };
+        let first = Arc::new(Mutex::new(first));
         let credentials = {
             let tickets = self.tickets.clone();
             let allowed = allowed.clone();
@@ -1375,7 +1468,7 @@ impl HubCarrier {
             incoming,
             RelayDaemonConfig {
                 endpoint,
-                slot: answer.slot,
+                slot: slot.to_owned(),
                 ticket: String::new(),
                 maximum_frame_bytes: MAX_FRAME_BYTES,
                 control_timeout: self.timings.control,
@@ -1387,7 +1480,7 @@ impl HubCarrier {
             Ok(registration) => registration,
             Err(e) => {
                 tracing::warn!("hub carrier off: {e}");
-                return;
+                return Served::Stop;
             }
         };
         tracing::info!("hub carrier: serving on the relay as {}", self.identity().fingerprint());
@@ -1399,11 +1492,28 @@ impl HubCarrier {
         every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         // False once the registration's task ended (only at shutdown, which the drop does).
         let mut reporting = true;
+        // Since when the relay has not held the registration (a refusal, no answer, or the first
+        // attempt still running); a missing ticket is the platform's, never the relay's.
+        let mut down_since = Some(tokio::time::Instant::now());
         loop {
-            let reason =
-                state.borrow_and_update().reason().map(|_| OfflineReason::CredentialUnavailable);
-            self.set_serve_reason(reason);
+            let now = state.borrow_and_update().clone();
+            self.set_serve_reason(now.reason().map(|_| OfflineReason::CredentialUnavailable));
+            match now {
+                RegistrationState::Registered => {
+                    down_since = None;
+                    *self.serving_on.write().unwrap_or_else(|e| e.into_inner()) =
+                        Some(relay.to_owned());
+                }
+                RegistrationState::CredentialUnavailable { .. } => down_since = None,
+                RegistrationState::Registering | RegistrationState::RelayUnavailable { .. } => {
+                    *self.serving_on.write().unwrap_or_else(|e| e.into_inner()) = None;
+                    down_since.get_or_insert_with(tokio::time::Instant::now);
+                }
+            }
+            let rehome_at =
+                down_since.filter(|_| relays > 1).map(|since| since + self.timings.rehome_after);
             tokio::select! {
+                () = sleep_until_some(rehome_at), if rehome_at.is_some() => return Served::Rehome,
                 _ = every.tick() => {}
                 () = self.rekeyed.notified() => {}
                 changed = state.changed(), if reporting => {
@@ -1412,13 +1522,40 @@ impl HubCarrier {
                 }
             }
             if self.generation.load(Ordering::SeqCst) != generation {
-                return;
+                return Served::Stop;
             }
             if !self.key_current() {
                 tracing::warn!("hub carrier: the node key was replaced; unregistering");
-                return;
+                return Served::Stop;
             }
         }
+    }
+
+    /// The relay this machine's own slot is registered on now, if it is.
+    pub fn serving_relay(&self) -> Option<String> {
+        self.serving_on.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// The relay that last carried a circuit to `daemon`.
+    pub fn relay_of(&self, daemon: &str) -> Option<String> {
+        self.homes.of(daemon)
+    }
+}
+
+/// How one registration of [`HubCarrier::serve_on`] ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Served {
+    /// The carrier stops (shutdown, a rekey, a replaced key): the caller decides what follows.
+    Stop,
+    /// The relay stayed down past `rehome_after`: register on the next one.
+    Rehome,
+}
+
+/// Sleeps until `at`; never returns without one (its `select!` arm is off then).
+async fn sleep_until_some(at: Option<tokio::time::Instant>) {
+    match at {
+        Some(at) => tokio::time::sleep_until(at).await,
+        None => std::future::pending().await,
     }
 }
 
@@ -2277,6 +2414,9 @@ pub mod tickets;
 
 #[path = "hub_carrier_mux.rs"]
 mod mux;
+
+#[path = "hub_carrier_rehome.rs"]
+mod rehome;
 
 #[path = "hub_carrier_direct.rs"]
 pub mod direct;
