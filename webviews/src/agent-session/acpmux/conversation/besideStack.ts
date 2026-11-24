@@ -137,6 +137,8 @@ export function bandMask(band: StackBand, width: number): BesideMask | undefined
       radius: hole.radius,
     }))
     .filter((hole) => hole.right - hole.left > 0.25 && hole.bottom - hole.top > 0.25);
+  // A transparent notice has no hole. Its band must not add an opaque mask over the transcript.
+  if (!holes.length) return undefined;
   const images: string[] = [];
   const sizes: string[] = [];
   const positions: string[] = [];

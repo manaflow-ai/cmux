@@ -9,6 +9,7 @@
 import { useLayoutEffect, type RefObject } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { dockBand } from "../dockBand.experiment";
+import { DOCK_NOTICE } from "../noticeSlotModel";
 // The asks stack has no surface of its own: a "Needs your input" line and a card. The rows stay in
 // sight across its band but for what it draws (besideStack.ts `bandMask`).
 import { bandMask, besideMask, joinMasks, type BandHole } from "./besideStack";
@@ -20,6 +21,23 @@ const ASKS = ":scope > .acpmux-asks-stack";
 /// the asks stack (a permission card, the folder trust bar) is drawn whole.
 const PENDING_PARTS =
   ".acpmux-pending-ask__label, .acpmux-pending-ask__dismiss, .acpmux-pending-ask > .acpmux-next-step";
+
+const painted = (root: HTMLElement): HTMLElement[] => {
+  const elements = [root, ...root.querySelectorAll<HTMLElement>("*")];
+  return elements.filter((element) => {
+    const style = getComputedStyle(element);
+    return (
+      (style.backgroundColor &&
+        style.backgroundColor !== "transparent" &&
+        style.backgroundColor !== "rgba(0, 0, 0, 0)") ||
+      style.backgroundImage !== "none" ||
+      style.boxShadow !== "none" ||
+      (style.borderStyle !== "none" && style.borderWidth !== "0px") ||
+      style.backdropFilter !== "none" ||
+      style.getPropertyValue("-webkit-backdrop-filter") !== "none"
+    );
+  });
+};
 
 /// Keeps `scroller`'s beside-the-stack mask layers on `dock`'s surfaces. `ghostClass` marks the copy
 /// of a tray that left, which takes no room.
@@ -64,7 +82,7 @@ export function useBesideStack(
         for (const part of asks.children) {
           const drawn = part.classList.contains("acpmux-pending-ask")
             ? [...part.querySelectorAll<HTMLElement>(PENDING_PARTS)]
-            : [part as HTMLElement];
+            : painted(part as HTMLElement);
           for (const element of drawn) {
             const rect = element.getBoundingClientRect();
             holes.push({
@@ -81,6 +99,25 @@ export function useBesideStack(
           box.width,
         );
       }
+      const notices = over ? [...dock.querySelectorAll<HTMLElement>(DOCK_NOTICE)] : [];
+      let noticeMask: ReturnType<typeof bandMask>;
+      for (const notice of notices) {
+        const area = notice.getBoundingClientRect();
+        const holes = painted(notice).map((element) => {
+          const rect = element.getBoundingClientRect();
+          return {
+            left: rect.left - box.left,
+            top: rect.top - box.top,
+            right: rect.right - box.left,
+            bottom: rect.bottom - box.top,
+            radius: Number.parseFloat(getComputedStyle(element).borderTopLeftRadius) || 0,
+          } satisfies BandHole;
+        });
+        noticeMask = joinMasks(
+          noticeMask,
+          bandMask({ top: area.top - box.top, bottom: Math.min(area.bottom, box.bottom) - box.top, holes }, box.width),
+        );
+      }
       // The rows run under the card only where its glass frosts them (a see-through window, Lens,
       // Spectrum). An opaque window's card blurs nothing and Reduce Transparency draws it solid.
       const card = dock.querySelector<HTMLElement>(".acpmux-composer-box");
@@ -90,7 +127,10 @@ export function useBesideStack(
         const blur = style.backdropFilter || style.getPropertyValue("-webkit-backdrop-filter");
         return !!blur && blur !== "none";
       })();
-      const mask = joinMasks(besideMask(placed, box.width, frosts ? { arm, height: box.height } : undefined), band);
+      const mask = joinMasks(
+        joinMasks(besideMask(placed, box.width, frosts ? { arm, height: box.height } : undefined), band),
+        noticeMask,
+      );
       const values = [mask?.images, mask?.sizes, mask?.positions];
       VARIABLES.forEach((name, at) => {
         const value = values[at];

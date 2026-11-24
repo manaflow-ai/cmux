@@ -91,11 +91,18 @@ test("an asks band keeps its label, Dismiss and card as the only painted holes",
 
 test("joining an asks band does not discard the existing surface mask", () => {
   const surface = besideMask([card], 700)!;
-  const band = bandMask({ top: 400, bottom: 428, holes: [{ left: 16, top: 400, right: 150, bottom: 428, radius: 0 }] }, 700)!;
+  const band = bandMask(
+    { top: 400, bottom: 428, holes: [{ left: 16, top: 400, right: 150, bottom: 428, radius: 0 }] },
+    700,
+  )!;
   const joined = joinMasks(surface, band)!;
   expect(joined).toEqual({
     images: `${surface.images}, ${band.images}`,
     sizes: `${surface.sizes}, ${band.sizes}`,
     positions: `${surface.positions}, ${band.positions}`,
   });
+});
+
+test("a transparent overlay band contributes no mask", () => {
+  expect(bandMask({ top: 400, bottom: 428, holes: [] }, 700)).toBeUndefined();
 });
