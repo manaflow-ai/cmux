@@ -184,6 +184,7 @@ final class ProxyConnection: Sendable {
         tcp.connectionTimeout = 15
         tcp.noDelay = true
         guard let port = NWEndpoint.Port(rawValue: head.port) else { return }
+        Egress.allowNamed(head.host)  // The person named this host (docs/privacy.md, "Egress gate").
         let upstream = Egress.connection(host: proxy.directHost(head.host), port: port, using: NWParameters(tls: nil, tcp: tcp), site: "CmuxNextRemoteLocalhost.ProxyConnection")
         defer { upstream.cancel() }
         guard await upstream.ready(on: proxy.queue) else {

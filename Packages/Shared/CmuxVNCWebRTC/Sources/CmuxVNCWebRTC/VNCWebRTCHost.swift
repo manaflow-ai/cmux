@@ -98,6 +98,7 @@ public final class VNCWebRTCHost: @unchecked Sendable {
 
     /// The channel opened: connect to the VNC server and pipe server bytes back.
     private func bridge(_ link: VNCPeerLink) {
+        Egress.allowNamed(targetHost)  // The person named this host (docs/privacy.md, "Egress gate").
         let tcp = Egress.connection(host: NWEndpoint.Host(targetHost), port: NWEndpoint.Port(rawValue: targetPort) ?? 5900, using: .tcp, site: "CmuxVNCWebRTC.VNCWebRTCHost")
         guard lock.withLock({ () -> Bool in
             guard current?.link === link else { return false }

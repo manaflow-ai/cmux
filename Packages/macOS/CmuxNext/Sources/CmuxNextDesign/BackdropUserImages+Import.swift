@@ -158,6 +158,7 @@ private nonisolated final class LinkDownload: NSObject, URLSessionDataDelegate, 
         configuration.timeoutIntervalForRequest = 60
         configuration.timeoutIntervalForResource = 600
         configuration.urlCache = nil
+        Egress.allowNamed(link)  // The person named this host (docs/privacy.md, "Egress gate").
         let session = Egress.session(site: "CmuxNextDesign.BackdropUserImages+Import", configuration: configuration, delegate: self, delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
         return try await withTaskCancellationHandler {
@@ -203,6 +204,7 @@ private nonisolated final class LinkDownload: NSObject, URLSessionDataDelegate, 
             task.cancel()
             return completionHandler(nil)
         }
+        Egress.allowNamed(request.url)
         completionHandler(request)
     }
 

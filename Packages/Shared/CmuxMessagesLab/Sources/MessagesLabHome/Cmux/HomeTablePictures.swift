@@ -168,6 +168,7 @@ final class HomeTablePictures: Sendable {
     /// The default ``Fetch``: an ephemeral `URLSession` (no cookies, no cache), https only, 200, at most ``maxBytes``.
     @Sendable static func download(_ url: URL) async throws -> URL {
         guard url.scheme == "https" else { throw URLError(.unsupportedURL) }
+        Egress.allowNamed(url)  // The person named this host (docs/privacy.md, "Egress gate").
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 20
         config.timeoutIntervalForResource = 60

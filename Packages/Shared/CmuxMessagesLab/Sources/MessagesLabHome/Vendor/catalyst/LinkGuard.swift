@@ -229,6 +229,7 @@ final class GuardedFetcher: NSObject, URLSessionDataDelegate {
     func get(_ url: URL, limit: Int, html: Bool, done: @escaping (Swift.Result<Result, LinkGuard.Refusal>) -> Void) {
         queue.addOperation { [self] in
             if let r = LinkGuard.check(url) { done(.failure(r)); return }
+            Egress.allowNamed(url)  // The person named this host (docs/privacy.md, "Egress gate").
             var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: timeout)
             req.httpShouldHandleCookies = false
             req.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
@@ -249,6 +250,7 @@ final class GuardedFetcher: NSObject, URLSessionDataDelegate {
         if j.redirects > LinkGuard.maxRedirects { j.refusal = .redirectLimit; completionHandler(nil); task.cancel(); return }
         if j.url.scheme?.lowercased() == "https" && next.scheme?.lowercased() == "http" { j.refusal = .downgrade; completionHandler(nil); task.cancel(); return }
         if let r = LinkGuard.check(next) { j.refusal = r; completionHandler(nil); task.cancel(); return }
+        Egress.allowNamed(next)
         j.url = next
         var r = request; r.httpShouldHandleCookies = false
         completionHandler(r)

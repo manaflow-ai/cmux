@@ -19,6 +19,7 @@ public nonisolated struct URLSessionSuggestFetcher: OmniboxSuggestFetching {
     public init() {}
 
     public func fetch(_ url: URL, ephemeral: Bool) async throws -> Data {
+        Egress.allowNamed(url)  // The person named this host (docs/privacy.md, "Egress gate").
         var request = URLRequest(url: url)
         request.setValue("application/json, application/x-suggestions+json", forHTTPHeaderField: "Accept")
         request.cachePolicy = ephemeral ? .reloadIgnoringLocalCacheData : .useProtocolCachePolicy
