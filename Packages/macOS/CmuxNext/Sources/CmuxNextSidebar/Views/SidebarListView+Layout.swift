@@ -100,6 +100,7 @@ extension SidebarListViewComponents {
         if let tree = SidebarSessionTree.shared.drawn {
             o.sessionTree = tree
             o.parentTitles = SidebarLayout.parentTitles(tree.parents, workspaces: model.allWorkspaces)
+            o.subagentsBelow = SidebarLayout.subagentsBelow(tree.parents, workspaces: model.allWorkspaces)
             // Lineage nesting alone (`SidebarTunables.lineageNesting`) nests rows; the keycaps and the chat history
             // stay `sidebar.sessionTree`'s.
             if DesignSettings.shared.sidebarSections.sessionTree {

@@ -41,14 +41,50 @@ import Testing
         #expect(row.height == bare.height + 3 * SidebarLayoutMetrics.standard.subagentLineHeight)
     }
 
-    @Test func manySubagentsCostFiveRowsAndAMoreLine() throws {
-        let row = try #require(Self.layout(Self.subagents(Array(repeating: .done, count: 8), total: 40), tree: SidebarSessionTreeState()))
+    /// Leo 2026-11-23: the tree read "4,162 more" under a chat with 19 running. "N more" counts the subagents
+    /// that run now and no row shows, never the ones the chat started in all.
+    @Test func manyFinishedSubagentsCostFiveRowsAndNoMoreLine() throws {
+        let row = try #require(Self.layout(Self.subagents(Array(repeating: .done, count: 8), total: 4162), tree: SidebarSessionTreeState()))
         let strip = try #require(row.content?.subagents)
         #expect(strip.rows.count == SidebarSubagentStrip.visibleRows)
         #expect(strip.rows.first?.subagent.id == "t3", "the latest ones")
-        #expect(strip.more == 35)
-        #expect(strip.lineCount == 6)
+        #expect(strip.more == 0, "finished ones are never counted as more")
+        #expect(strip.lineCount == 5)
         #expect(Strings.moreSubagents(35) == "35 more")
+    }
+
+    @Test func runningOnesFillTheRowsFirstAndMoreCountsOnlyTheRunningLeftOver() throws {
+        // Eight listed: t0..t6 running, t7 done; acpmux says 19 run, 4162 were started.
+        let items = Self.subagents([.running, .running, .running, .running, .running, .running, .running, .done], total: 4162)
+        let strip = try #require(SidebarSubagentStrip.make(SidebarSubagents(items: items.items, total: 4162, running: 19, chat: Self.tab),
+                                                           tree: true, folded: false))
+        #expect(strip.rows.map(\.subagent.id) == ["t2", "t3", "t4", "t5", "t6"], "the five latest that run, the done one left out")
+        #expect(strip.more == 14, "19 run, 5 shown")
+    }
+
+    @Test func aChildRowListsItsOwnSubagentsAndTheParentDoesNotRepeatThem() throws {
+        let parent = WorkspaceID("parent"), child = WorkspaceID("child")
+        func chat(_ prefix: String, running: Int, total: Int) -> SidebarSubagents {
+            SidebarSubagents(items: (0..<running).map { SidebarSubagent(id: "\(prefix)\($0)", title: prefix, state: .running, tab: Self.tab) },
+                             total: total, running: running, chat: Self.tab)
+        }
+        var parentWS = SidebarWorkspace(id: parent, title: "claude-sr2-coord")
+        // The parent's chats include the child's session, so its list holds the child's lines too.
+        parentWS.subagents = SidebarSubagents(items: chat("own", running: 2, total: 40).items + chat("kid", running: 3, total: 269).items,
+                                              total: 309, running: 5, chat: Self.tab)
+        var childWS = SidebarWorkspace(id: child, title: "Background suite stop")
+        childWS.subagents = chat("kid", running: 3, total: 269)
+        let below = SidebarLayout.subagentsBelow([child: parent], workspaces: [parentWS, childWS])
+        #expect(below[parent] == ["kid0", "kid1", "kid2"])
+        #expect(below[child] == nil)
+        var options = SidebarLayoutOptions()
+        options.sessionTree = SidebarSessionTreeState(parents: [child: parent])
+        options.subagentsBelow = below
+        let own = try #require(options.rowContent(parentWS, machine: nil).subagents)
+        #expect(own.rows.map(\.subagent.id) == ["own0", "own1"])
+        #expect(own.more == 0)
+        let kid = try #require(options.rowContent(childWS, machine: nil).subagents)
+        #expect(kid.rows.map(\.subagent.id) == ["kid0", "kid1", "kid2"])
     }
 
     @Test func aFoldedChatShowsOneStackedLine() throws {
