@@ -128,6 +128,7 @@ import { fileURLToPath } from "node:url";
 import { appStartDetail } from "./cloud-chat-matrix.ts";
 import { collectGuestDiagnostics, type GuestDiagnostics } from "./cloud-journey-guest-diagnostics.ts";
 import { ChatClient, chaosProbeRow, countingTurnScript, feltTurnScript, runChaos } from "./cloud-chaos.ts";
+import { awaitPaused, runWakeEcho, setupProbe, wakeEchoMarkdown, summarize as wakeEchoSummary, type WakeCycle } from "./cloud-wake-echo.ts";
 import { FAIL_STREAK, parseServerTiming, RESUME_ARMS, type ResumeArm, resumeMarkdown, resumeRouteCall, type ResumeSample, type ResumeStop, runProviderArm, runResumeMatrix, syncRunning } from "./cloud-resume-matrix.ts";
 import { clientSpans, hopDurations, readStartTrace, slowestHop, traceMarkdown } from "./cloud-start-trace.ts";
 import { answeredPath, answerTimings, DAEMON_CHECK, MachineFailed, pickVmApiTenant, type StartPath, type StartSample, type StartTarget, startBenchMarkdown, summarize, timeStart, traceFacts } from "./cloud-start-bench.ts";
@@ -4271,6 +4272,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const resumeProviders = argv.flatMap((a, i) => (a === "--provider" && argv[i + 1] ? [argv[i + 1]!] : []));
   // --resume-fill PCT: a guest holder keeps PCT% of MemTotal resident through the pauses and walks it after each wake
   // (the page-in, hq#17877's resume-memory-probe.sh measure, now beside the matrix's points).
+  // --wake-echo N: right after the machine runs, N platform pause/wake cycles timed to the first echo of a typed
+  // character (cloud-wake-echo.ts), then the machine is deleted; nothing else of the journey runs.
+  const wakeEchoN = Number(argValue("--wake-echo", argv) ?? 0);
+  const wakeEchoHoldMs = Number(argValue("--wake-echo-hold", argv) ?? 5) * 1000;
+  const wakeEchoDeadline = argValue("--wake-echo-deadline", argv);
   const resumeFill = Number(argValue("--resume-fill", argv) ?? 0);
   if (!Number.isFinite(resumeFill) || resumeFill < 0 || resumeFill > 80) throw new Error("--resume-fill must be 0..80 percent");
   // --resume-deadline EPOCH_S: the matrix takes no sample it cannot finish by then (each pause length its even share of
@@ -4741,6 +4747,56 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     });
     const exec = namesUnavailableFirstExec(cmux ? cliExec(cmux, api, created.id) : directExec(api, created.id, J));
     machineExec = exec;
+    if (wakeEchoN > 0) {
+      const row = async () => (await api.read("cloud.machine.get", { machine: created.id }, 30_000).catch(() => null)) as Record<string, any> | null;
+      const log = (line: string) => console.log(scrub(line, J.secrets));
+      let cycles: WakeCycle[] = [];
+      const meta: Record<string, unknown> = { backend: backend.name, machine: created.id };
+      const write = () => {
+        if (!outDir) return;
+        writeFileSync(path.join(outDir, "wake-echo.json"), `${scrub(JSON.stringify({ ...meta, summary: wakeEchoSummary(cycles), cycles }, null, 2), J.secrets)}\n`);
+        writeFileSync(path.join(outDir, "wake-echo.md"), wakeEchoMarkdown(cycles, meta));
+      };
+      let k = 0;
+      try {
+        await J.step("wake-echo machine size", async () => {
+          const m = await row();
+          const g = await exec("echo \"nproc $(nproc) $(grep MemTotal /proc/meminfo)\"", 30_000);
+          meta.size = { platform: m?.size ?? null, guest: g.stdout.trim() };
+          log(`wake-echo size: ${JSON.stringify(meta.size)}`);
+          return { value: null, detail: JSON.stringify(meta.size) };
+        });
+        const netHost = new URL(backend.api).hostname;
+        const setup = await J.step("wake-echo probe setup", async () => ({ value: await setupProbe({ exec, guest: GUEST, netHost, netPort: 443, log }), detail: "daemon socket, terminal and dry run ok" }));
+        meta.probe = { daemon: setup.daemon, version: setup.version, protocol: setup.protocol, dry_run: setup.dry_run };
+        cycles = await runWakeEcho({
+          exec, guest: GUEST, netHost, netPort: 443, holdMs: wakeEchoHoldMs, log,
+          deadlineAt: wakeEchoDeadline === undefined ? undefined : Number(wakeEchoDeadline) * 1000,
+          status: async () => String((await row())?.status ?? "unread"),
+          pause: async () => {
+            const t0 = Date.now();
+            await api.op("cloud.machine.pause", { machine: created.id }, `${tag}-we-pause-${k++}`);
+            return awaitPaused(async () => String((await row())?.status ?? "unread"), t0, 180_000);
+          },
+          wake: async () => {
+            const r = await api.raw("POST", "/v1/ops", { op: "cloud.machine.start", params: { machine: created.id }, idempotency_key: `${tag}-we-start-${k++}` }, 180_000);
+            if (r.status !== 200 || r.body?.ok !== true) throw new Error(`cloud.machine.start: HTTP ${r.status} ${short(r.body?.error ?? r.body)}`);
+          },
+          onCycle: (all) => { cycles = all; write(); },
+        }, wakeEchoN);
+      } catch (e) {
+        J.record({ step: "wake-echo", status: "fail", ms: 0, detail: String((e as Error).message ?? e) });
+        meta.setup_error = String((e as Error).message ?? e);
+      }
+      write();
+      const sum = wakeEchoSummary(cycles);
+      const table = wakeEchoMarkdown(cycles, meta);
+      console.log(table);
+      if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n## Wake to first echo (${backend.name}, ${created.id})\n\n${table}${meta.setup_error ? `\nSetup failed: ${meta.setup_error}\n` : ""}`);
+      if (sum.echoed) J.record({ step: "wake-echo", status: "pass", ms: 0, detail: `${sum.echoed} of ${sum.cycles} echoed` });
+      else if (!meta.setup_error) J.record({ step: "wake-echo", status: "fail", ms: 0, detail: `no cycle echoed (${cycles[0]?.error ?? "no cycle ran"})` });
+      return sum.echoed ? 0 : 1;
+    }
     if (reuse) {
       // A kept machine still has the last run's model stub and its endpoint in Claude Code's settings, which the
       // login installer refuses: put both back as a fresh machine has them.
