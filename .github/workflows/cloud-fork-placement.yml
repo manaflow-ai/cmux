@@ -1,0 +1,69 @@
+name: Cloud fork placement (staging)
+
+# RFD 0168: a new session placed on a fork of its parent's Cloud machine. Creates a parent machine on
+# staging, writes a marker, commits a repo and starts a counter there, forks it with cmux-platform's
+# POST /v1/machines/{id}/fork, times the fork call and fork-to-first-exec, checks the copy has the
+# same files, commit and live process, reads the copy's cost, deletes both and prints one JSON verdict
+# (scripts/cmux-next/cloud-fork-placement.ts). Staging only, on the agent test account the Cloud
+# journey uses (cloud-journey-pr.yml); same-repo pull requests and a dispatch on feat-cmux-next only.
+
+on:
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: "How many forks to time (1 to 10)"
+        default: "5"
+  pull_request:
+    branches: [feat-cmux-next]
+    paths:
+      - scripts/cmux-next/cloud-fork-placement.ts
+      - scripts/cmux-next/cloud-fork-placement.test.ts
+      - .github/workflows/cloud-fork-placement.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-fork-placement-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  measure:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat-cmux-next' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    environment:
+      name: cmux-next-vm-image-dev
+      deployment: false
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          submodules: false
+          sparse-checkout: scripts/cmux-next
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+      - name: Unit tests
+        run: bun test scripts/cmux-next/cloud-fork-placement.test.ts
+      - name: Fork placement on staging
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          RUNS: ${{ inputs.runs || '5' }}
+        run: |
+          set -o pipefail
+          bun scripts/cmux-next/cloud-fork-placement.ts --backend staging --runs "$RUNS" --out "$RUNNER_TEMP/fork-placement.json"
+      - name: Verdict in the summary
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/fork-placement.json" ]; then
+            { echo '```json'; python3 -m json.tool "$RUNNER_TEMP/fork-placement.json"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cloud-fork-placement-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/fork-placement.json
+          if-no-files-found: warn
+          retention-days: 7

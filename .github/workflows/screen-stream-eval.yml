@@ -12,7 +12,13 @@ name: screen stream eval
 # gateway runner, which only hands the step to the controller with `cmux-ci run`.
 
 # Daily: main's screen-stream-eval-dispatch.yml starts it (a schedule here would never fire, since
-# scheduled workflows run only from the default branch).
+# scheduled workflows run only from the default branch): the default targets, and an iPhone viewer run
+# (targets=iphone-sim) pinned to a Mac with an iOS simulator runtime.
+# Each run is named by its targets (the defaults keep the plain name), so a run's baseline is the last
+# daily run with the same targets, the dispatcher tells a pending run of each apart, and the two runs
+# wait for each other only on the fleet (each step is exclusive), never in a concurrency group whose
+# newer pending run would cancel the other.
+run-name: ${{ (inputs.targets && inputs.targets != 'rd,webrtc') && format('screen stream eval ({0})', inputs.targets) || 'screen stream eval' }}
 on:
   workflow_dispatch:
     inputs:
@@ -37,7 +43,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: screen-stream-eval
+  group: screen-stream-eval-${{ inputs.targets || 'rd,webrtc' }}
   cancel-in-progress: false
 
 env:
@@ -64,21 +70,26 @@ jobs:
         id: previous
         env:
           GH_TOKEN: ${{ github.token }}
+          TARGETS: ${{ inputs.targets || 'rd,webrtc' }}
         run: |
           python3 - <<'EOF' >> "$GITHUB_OUTPUT"
           import json, os, urllib.request
           # The daily runs: main's screen-stream-eval-dispatch.yml starts them (scheduled workflows run only
           # from the default branch), so they are workflow_dispatch runs by github-actions[bot]. A run the
-          # budget gate failed still measured, so the newest completed run whose results artifact is
-          # still kept counts, whatever its conclusion.
+          # budget gate failed still measured, so the newest completed run with the same targets (its
+          # name, this workflow's run-name) whose results artifact is still kept counts, whatever its conclusion.
           api = f"{os.environ['GITHUB_API_URL']}/repos/{os.environ['GITHUB_REPOSITORY']}/actions"
           def get(path):
               request = urllib.request.Request(f"{api}/{path}", headers={"Authorization": f"Bearer {os.environ['GH_TOKEN']}", "Accept": "application/vnd.github+json"})
               return json.load(urllib.request.urlopen(request, timeout=30))
+          targets = os.environ["TARGETS"]
+          title = "screen stream eval" if targets == "rd,webrtc" else f"screen stream eval ({targets})"
           found = ""
           try:
-              runs = get("workflows/screen-stream-eval.yml/runs?event=workflow_dispatch&actor=github-actions%5Bbot%5D&status=completed&per_page=5").get("workflow_runs") or []
+              runs = get("workflows/screen-stream-eval.yml/runs?event=workflow_dispatch&actor=github-actions%5Bbot%5D&status=completed&per_page=10").get("workflow_runs") or []
               for run in runs:
+                  if run.get("display_title") != title:
+                      continue
                   artifacts = get(f"runs/{run['id']}/artifacts?name=screen-stream-eval").get("artifacts") or []
                   if any(not a.get("expired") for a in artifacts):
                       found = str(run["id"])

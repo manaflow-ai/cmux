@@ -203,6 +203,8 @@ jobs:
       - name: Pick the macOS pool
         id: pool
         env:
+          # The overflow switch the granted default reads (ios_runner_pool.py granted_default()).
+          CI_OVERFLOW_MAC: ${{ vars.CI_OVERFLOW_MAC }}
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -331,6 +333,7 @@ jobs:
         if: ${{ !cancelled() }}
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
           add-rust-environment-hash-key: false
           cache-bin: false
@@ -404,6 +407,10 @@ jobs:
       # the xcframework has.
       - name: xcodebuild test (iOS simulator)
         id: ios-sim
+        # A pull request that fell back to a Blacksmith Mac runs the macOS swift test only (about 1 min); the
+        # simulator half ran 6 to 17 min there and was red on 8 tests of the base on 1,100+ runs (2026-11-24).
+        # It still runs on an owned Mac, and on every feat-cmux-next push and dispatch, so the check moves, not goes.
+        if: ${{ !(github.event_name == 'pull_request' && startsWith(runner.name, 'blacksmith')) }}
         # About 3x its usual 10 min: a hung simulator ends the step, not the job's
         # 60 min with a macOS runner held (run 43604565423, 2026-11-14).
         timeout-minutes: 30
@@ -488,7 +495,7 @@ jobs:
       # variable through to the test process).
       - name: Instant list bench (iOS simulator)
         id: bench-ios
-        if: ${{ !cancelled() && (github.event_name != 'pull_request' || success()) }}
+        if: ${{ !cancelled() && (github.event_name != 'pull_request' || success()) && !(github.event_name == 'pull_request' && startsWith(runner.name, 'blacksmith')) }}
         # Advisory, as the macOS bench above.
         continue-on-error: true
         # The same bound as the test step above: a hung simulator ends the step.

@@ -290,7 +290,22 @@ pub(super) async fn place_chat(params: &Value) -> Value {
         let level = crate::host_pressure::level_for(&reading, crate::host_pressure::Level::Normal);
         HereBudget { level, over: verdict.over }
     });
-    place_chat_decision(params, here)
+    with_fork(place_chat_decision(params, here), params, crate::fork_place::enabled())
+}
+
+/// `reply` with fork placement's `fork` (`fork_place.rs`) when `cloud.autoCloud` is on: a chat
+/// started from a chat on a forkable Cloud machine (`parent`) goes to a fork of that machine
+/// under `key`; otherwise `fork` says why it keeps `placement` (the warm path). Off, the reply is
+/// as it was.
+pub(super) fn with_fork(mut reply: Value, params: &Value, enabled: bool) -> Value {
+    let parent = crate::fork_place::parent_of(params);
+    let key = params.get("key").and_then(Value::as_str).unwrap_or_default();
+    if let (Some(place), Some(obj)) =
+        (crate::fork_place::decide(enabled, parent.as_ref(), key), reply.as_object_mut())
+    {
+        obj.insert("fork".into(), crate::fork_place::to_json(&place));
+    }
+    reply
 }
 
 /// `{"where": "auto"|"here"|PLACE, "targets": [{"place", "headroom"}]}` and this host's budget
