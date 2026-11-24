@@ -130,7 +130,11 @@ impl Counts {
         if let Some(count) = self.buckets.get(bucket_of(micros)) {
             count.fetch_add(1, Ordering::Relaxed);
         }
-        self.max_us.fetch_max(micros, Ordering::Relaxed);
+        // A read first: the maximum rarely moves, and a read-modify-write on one shared word is
+        // what 8 threads would queue on.
+        if micros > self.max_us.load(Ordering::Relaxed) {
+            self.max_us.fetch_max(micros, Ordering::Relaxed);
+        }
     }
 
     fn clear(&self) {
