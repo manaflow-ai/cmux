@@ -117,10 +117,6 @@ fn v2_pr04b_mirror_v1_rows_gate() {
         let mut output = std::fs::OpenOptions::new().create(true).append(true).open(path).unwrap();
         writeln!(output, "{line}").unwrap();
     }
-    assert!(
-        god_bytes.saturating_mul(10) <= small_bytes.saturating_mul(12),
-        "received bytes exceed the 1.2x bound: god={god_bytes}, small={small_bytes}"
-    );
     // The bound after the line: a red row keeps its numbers in the v2 home.
     assert!(
         god_bytes.saturating_mul(10) <= small_bytes.saturating_mul(12),

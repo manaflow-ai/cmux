@@ -129,7 +129,6 @@ async fn list_window_gate_measures_running_subscriptions_at_both_sizes() {
     let god_p95 = best_p95(&god_rounds);
     let all_god_samples = god_rounds.iter().flatten().copied().collect::<Vec<_>>();
     let all_god_p95 = p95(&all_god_samples);
-    gate("v2.pr05.first_list_window", small_p95, god_p95, all_god_p95);
     // Each row's line goes out before its bounds: a bound that fails leaves the row in the
     // measures file, and the v2 home reads it red with its numbers rather than as no measure.
     gate("v2.pr05.first_list_window", small_p95, god_p95, all_god_p95);

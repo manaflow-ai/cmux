@@ -1539,7 +1539,6 @@ mod tests {
                 small.0, god.0
             )?;
         }
-        assert_eq!(small, god);
         // The bound after the line: a red row keeps its numbers in the v2 home.
         assert_eq!(small, god);
         Ok(())
