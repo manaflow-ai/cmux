@@ -5,7 +5,11 @@
 #
 #   cmux-next-ios/scripts/review.sh --tag <task-slug> [--device-id <udid>] [--target-worker <worker>]
 #       [--workspace <PR URL>]   (default: the branch's PR, else cmux-next-ios-review/<task-slug>)
-#       [--manual-pairing | --approve-first | --no-auth] [--backend <origin|tag-stack|dev>]
+#       [--manual-pairing | --approve-first | --no-auth] [--backend <origin|tag-stack|dev>] [--urgent]
+#
+# --urgent: a person waits on the phone now. The iPhone step goes ahead of the simulator queue
+#   (cmux-ci run --urgent) and the Mac build moves up the Mac queue (cmux-ci promote), each logged with
+#   the reason "review.sh --urgent: a person waits ...". Not for an agent's own end-of-task run.
 #
 # --backend: the Cloud backend this tag's Mac and iPhone builds talk to, chosen at launch, no rebuild.
 #   (none), dev   the shared dev Workers deployment (default): a backend.json an earlier run left is
@@ -106,7 +110,7 @@ usage() { sed -n '2,98p' "$0"; }
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 TEAM=7WLXT3NR37
-TAG="" SLUG="" DEVICE_ID="" TARGET_WORKER="" WORKSPACE=""
+TAG="" SLUG="" DEVICE_ID="" TARGET_WORKER="" WORKSPACE="" URGENT=0 SIM_SIGNIN_RETRIED=0
 # --backend: what was asked for, the origin it names ("" = the shared dev Workers, no override) and the
 # report's words for it; the Mac app's own answer lands in REPORT_BACKEND_MAC.
 BACKEND_ARG="" BACKEND_URL="" BACKEND_REPORT="shared dev Workers (default, no override)" REPORT_BACKEND_MAC="not checked"
@@ -182,7 +186,11 @@ retry_command() {
   esac
   [[ -z "$TARGET_WORKER" ]] || printf ' --target-worker %s' "$TARGET_WORKER"
   [[ -z "$BACKEND_ARG" ]] || printf ' --backend %s' "$BACKEND_ARG"
+  [[ "${URGENT:-0}" -eq 0 ]] || printf ' --urgent'
 }
+
+# --urgent: the reason the fleet logs for raising this hand-off's steps (cmux-ci run --urgent, cmux-ci promote).
+urgent_reason() { printf 'review.sh --urgent: a person waits on the phone for the hand-off of tag %s at %s' "$SLUG" "${SHA:0:12}"; }
 
 # --backend to an origin (BACKEND_URL) and the report's words for it (BACKEND_REPORT), before any build.
 review_resolve_backend() {
@@ -239,6 +247,7 @@ fleet_submit_mac() {
       MAC_JOB=""
     else
       echo "==> Mac build: resuming fleet job $MAC_JOB"
+      mac_promote
       return 0
     fi
   fi
@@ -256,6 +265,18 @@ fleet_submit_mac() {
     { REPORT_MAC="BLOCKED: cmux-ci build cmux printed no job id"; return 1; }
   printf '%s\n' "$MAC_JOB" >"$STATE/cmux-job"
   echo "==> Mac build: fleet job $MAC_JOB"
+  mac_promote
+}
+
+# --urgent: the Mac build moves up the Mac queue (cmux-ci promote; a build has no --urgent). A refusal
+# (the job already started or finished) changes nothing, so it is only noted.
+mac_promote() {
+  [[ "${URGENT:-0}" -ne 0 && -n "${MAC_JOB:-}" ]] || return 0
+  if cmux_ci promote "$MAC_JOB" --reason "$(urgent_reason)" >/dev/null 2>&1; then
+    echo "==> Mac build: promoted (--urgent)"
+  else
+    echo "==> Mac build: promote refused (--urgent); it keeps its place"
+  fi
 }
 
 # The simulator step's key for this head. The controller answers a key with the step it already
@@ -274,6 +295,12 @@ sim_step_ended() {
   local step="$1" attempt
   [[ -n "$step" ]] || return 1
   cmux_ci status "$step" 2>/dev/null | grep -Eq '"state": *"(failed|cancelled|timeout|timed_out)"' || return 1
+  sim_next_attempt
+}
+
+# The next head's step gets a new key (sim_key's -rN).
+sim_next_attempt() {
+  local attempt
   attempt="$(cat "$STATE/sim-attempt" 2>/dev/null || true)"
   [[ "$attempt" =~ ^[0-9]+$ ]] || attempt=0
   printf '%s\n' "$((attempt + 1))" >"$STATE/sim-attempt"
@@ -288,6 +315,7 @@ fleet_start_sim() {
     --arg shots --arg "handoff=$SLUG" --sign-in agent --artifact artifacts/ios-sim/evidence.zip
     --key "$(sim_key)")
   [[ -z "$TARGET_WORKER" ]] || args+=(--target-worker "$TARGET_WORKER")
+  [[ "${URGENT:-0}" -eq 0 ]] || args+=(--urgent --reason "$(urgent_reason)")
   echo "==> iPhone app: fleet step cmux-next-ios-sim.sh handoff tag=$SLUG${TARGET_WORKER:+ on $TARGET_WORKER} (log: $STATE/sim-step.log)"
   cmux_ci "${args[@]}" >"$STATE/sim-step.log" 2>"$STATE/sim-step.err" &
   SIM_PID=$!
@@ -326,6 +354,26 @@ fleet_finish_sim() {
     sim_step_ended "$SIM_STEP" || true
     newer="$(sed -n 's/.*superseded by \([0-9a-f]\{24\}\).*/\1/p' "$STATE/sim-step.err" | tail -n 1)"
     REPORT_SIM="BLOCKED: not a failure: step ${SIM_STEP:-not created} was superseded by ${newer:-a newer step}, sent for a newer head of tag $SLUG; a newer review.sh run of this tag owns it; review.sh builds the checkout's HEAD, so to review ${SHA:0:12} again, check it out and rerun: $(retry_command)"
+    return 1
+  fi
+  # The step's sign-in session comes from this Mac while cmux-ci run follows it (hq build-fleet sign_in). A
+  # delivery the controller dropped ("no session was delivered within 10m0s", step 1e1c4a5c2700774f73411917 while
+  # the controller timed out, 2026-11-24) says nothing about the build: send one new step, once.
+  # A controller restart under the step loses it the same way: "the controller no longer lists this run as the
+  # step's (409 Conflict)" (step df827ca8f4eb26596c17942e, hq#22711, 2026-11-24).
+  if [[ $rc -ne 0 ]] && grep -qE "no session was delivered|no longer lists this run as the step" \
+    "$STATE/sim-step.log" "$STATE/sim-step.err" 2>/dev/null; then
+    # The step's own log says it ended; a status read that fails (the controller timing out, as when the
+    # delivery was lost) must not resend under the dead step's key, which answers with that step again.
+    sim_step_ended "$SIM_STEP" || sim_next_attempt
+    if [[ "${SIM_SIGNIN_RETRIED:-0}" -eq 0 ]]; then
+      SIM_SIGNIN_RETRIED=1
+      echo "==> iPhone app: step ${SIM_STEP:-?} ended because no sign-in session reached it from this Mac; sending it once more"
+      fleet_start_sim
+      fleet_finish_sim
+      return
+    fi
+    REPORT_SIM="BLOCKED: the fleet iPhone build got no sign-in session from this Mac twice (steps ended: last ${SIM_STEP:-?}; $STATE/sim-step.log): check that cmux-ci reaches the controller (cmux-ci status), then retry: $(retry_command)"
     return 1
   fi
   if [[ $rc -ne 0 || -z "$SIM_STEP" ]]; then
@@ -808,6 +856,8 @@ main() {
       --tag) TAG="${2:-}"; shift 2 ;;
       --device-id) REQUESTED_DEVICE_ID="${2:-}"; shift 2 ;;
       --target-worker) TARGET_WORKER="${2:-}"; shift 2 ;;
+      # --urgent: a person waits on the phone now; both fleet builds go first (logged with a reason).
+      --urgent) URGENT=1; shift ;;
       --workspace) WORKSPACE="${2:-}"; shift 2 ;;
       --manual-pairing) [[ "$PHONE_MODE" == none ]] || PHONE_MODE=manual; shift ;;
       # --approve-first: the person's Allow on the Mac pairs the phone (no auto-approve).
