@@ -302,6 +302,11 @@ public final class DaemonTerminalSession: TerminalSession {
     private var tailProbe: Task<Void, Never>?
     /// Sends written and not yet answered (tests).
     var inputsInFlight: Int { inputInFlight }
+    /// The oldest typed batch whose echo has not come yet: its number and its first key's tap.
+    /// The first output after it is its echo (PROTOCOL.md "Link stats", `echo`).
+    private var echoDue: (number: Int, typedAt: TimeInterval)?
+    /// The Mac's answer to the `echoDue` batch, ms after its tap, when it came first.
+    private var echoDueAckMs: UInt32?
     /// A tail probe is armed (tests).
     var tailProbeArmed: Bool { tailProbe != nil }
     private var nextInputBatch = 0
@@ -747,6 +752,8 @@ public final class DaemonTerminalSession: TerminalSession {
         outbox.removeAll()
         input.removeAll()
         pasteNotSent.removeAll()
+        echoDue = nil
+        echoDueAckMs = nil
         tailProbe?.cancel()
         tailProbe = nil
         autoReattach?.cancel()
@@ -1451,6 +1458,7 @@ public final class DaemonTerminalSession: TerminalSession {
     private func apply(_ event: DaemonTerminalInbound) {
         switch event {
         case .output(let data):
+            keyEchoed()
             show(.output(data))
         case .stamped(let seq, let receivedMs):
             show(.paintMark(seq: seq, receivedMs: receivedMs))
@@ -1761,6 +1769,37 @@ public final class DaemonTerminalSession: TerminalSession {
         }
     }
 
+    // MARK: Keystroke round trips
+
+    /// Milliseconds since `typedAt` (the input clock), or nil past the hold limit (keys held over an
+    /// outage are an outage, not a slow key).
+    private func msSince(_ typedAt: TimeInterval) -> UInt32? {
+        let elapsed = now() - typedAt
+        guard elapsed >= 0, elapsed <= Self.inputHoldLimit else { return nil }
+        return UInt32((elapsed * 1000).rounded())
+    }
+
+    /// The Mac answered typed batch `number`: one `ack` sample for the next `link_stat`.
+    private func keyAnswered(number: Int, typedAt: TimeInterval) {
+        guard let ms = msSince(typedAt) else { return }
+        if echoDue?.number == number { echoDueAckMs = ms }
+        #if canImport(CmuxMobileLinkFFI)
+        recordKeyAck(ackMs: ms)
+        #endif
+    }
+
+    /// Terminal output came: the echo of the oldest typed batch still waiting for one.
+    private func keyEchoed() {
+        guard let due = echoDue else { return }
+        echoDue = nil
+        let ack = echoDueAckMs
+        echoDueAckMs = nil
+        guard let ms = msSince(due.typedAt) else { return }
+        #if canImport(CmuxMobileLinkFFI)
+        recordKeyEcho(echoMs: ms, ackMs: ack)
+        #endif
+    }
+
     // MARK: Input lane
 
     /// Opens the input-lane channel for the attach `main` (a no-op without
@@ -1868,6 +1907,12 @@ public final class DaemonTerminalSession: TerminalSession {
         let typedBytes = taken.reduce(0) { $0 + ($1.typed ? $1.bytes.count : 0) }
         let key = composerRequest.flatMap(Self.requestKey) ?? resendKey ?? (sendKeys ? UUID().uuidString : nil)
         let resent = resendKey != nil
+        // Typed keys (no paste, no resend, no terminal replies): this batch's echo is timed.
+        let timesEcho = typedBytes > 0 && paste == nil && !resent
+        if timesEcho, echoDue == nil {
+            echoDue = (number, typedAt)
+            echoDueAckMs = nil
+        }
         let surface = surface
         let onLane = target !== client
         let deadline = inputRequestDeadline
@@ -1916,6 +1961,9 @@ public final class DaemonTerminalSession: TerminalSession {
                     reply = answer
                 } else {
                     reply = try await target.reply(to: id)
+                }
+                if timesEcho, Self.error(in: reply) == nil {
+                    keyAnswered(number: number, typedAt: typedAt)
                 }
                 if let error = Self.error(in: reply) {
                     lastError = error

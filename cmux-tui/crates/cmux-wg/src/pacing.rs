@@ -301,6 +301,10 @@ impl Connection {
 pub enum Priority {
     /// Control and terminal bytes: before everything else.
     Interactive,
+    /// Terminal screen state (latest wins): queued exactly like
+    /// [`Interactive`](Self::Interactive), but Ultra Mode repairs it only
+    /// above 1 % measured loss (input is repaired at any loss).
+    Screen,
     /// Remote desktop media: after interactive traffic, dropped when stale.
     Media,
     /// Everything that can wait: after media.
@@ -332,7 +336,8 @@ pub(crate) struct Pacer {
     /// Packets from the TCP stack that are not TCP (rare): first, unpaced.
     other: VecDeque<Vec<u8>>,
     /// Interactive datagrams: right after `other`, unpaced.
-    interactive: VecDeque<Vec<u8>>,
+    /// Each with its class: [`Priority::Interactive`] or [`Priority::Screen`].
+    interactive: VecDeque<(Vec<u8>, Priority)>,
     media: VecDeque<(Instant, Vec<u8>)>,
     bulk: VecDeque<Vec<u8>>,
     /// Earliest departure of the next bulk datagram: bulk datagrams are
@@ -370,7 +375,7 @@ impl Pacer {
     pub(crate) fn drain(&mut self) -> Vec<Vec<u8>> {
         self.queued = 0;
         let mut packets: Vec<Vec<u8>> = self.other.drain(..).collect();
-        packets.extend(self.interactive.drain(..));
+        packets.extend(self.interactive.drain(..).map(|(packet, _)| packet));
         packets.extend(self.media.drain(..).map(|(_, packet)| packet));
         packets.extend(self.bulk.drain(..));
         for connection in self.connections.values_mut() {
@@ -383,11 +388,13 @@ impl Pacer {
     /// class bound (see [`MAX_DATAGRAMS`]).
     pub(crate) fn push_datagram(&mut self, packet: Vec<u8>, priority: Priority, now: Instant) {
         match priority {
-            Priority::Interactive if self.interactive.len() < MAX_DATAGRAMS => {
-                self.interactive.push_back(packet);
+            Priority::Interactive | Priority::Screen if self.interactive.len() < MAX_DATAGRAMS => {
+                self.interactive.push_back((packet, priority));
             }
             Priority::Bulk if self.bulk.len() < MAX_DATAGRAMS => self.bulk.push_back(packet),
-            Priority::Interactive => DropCounters::count(&self.drops.interactive_full),
+            Priority::Interactive | Priority::Screen => {
+                DropCounters::count(&self.drops.interactive_full);
+            }
             Priority::Bulk => DropCounters::count(&self.drops.bulk_full),
             Priority::Media => {
                 self.expire_media(now);
@@ -542,8 +549,8 @@ impl Pacer {
             self.queued = self.queued.saturating_sub(1);
             return Ok(Some((packet, Priority::Interactive)));
         }
-        if let Some(packet) = self.interactive.pop_front() {
-            return Ok(Some((packet, Priority::Interactive)));
+        if let Some((packet, class)) = self.interactive.pop_front() {
+            return Ok(Some((packet, class)));
         }
         if let Some(packet) = self.pop_connection(now, true) {
             return Ok(Some((packet, Priority::Interactive)));
