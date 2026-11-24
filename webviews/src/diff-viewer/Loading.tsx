@@ -1,5 +1,6 @@
 // Owns the diff viewer's loading placeholders: the file list and diff skeletons and the
 // loading layer.
+import { Spinner } from "../agent-session/acpmux/conversation/Spinner";
 import type { DiffViewerLabelResolver } from "../labels";
 import type { DiffViewerStatus } from "../status";
 
@@ -68,6 +69,7 @@ export function LoadingLayer({ label, status }: { label: DiffViewerLabelResolver
         data-error={status.error ? "true" : "false"}
         data-pending={status.pending ? "true" : "false"}
       >
+        {status.loading || status.pending ? <Spinner loading size={14} className="status-spinner" /> : null}
         <span id="status-text">{status.message || label("loadingDiff")}</span>
       </div>
       {status.loading || status.pending ? <LoadingDiffSkeleton /> : null}

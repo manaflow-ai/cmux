@@ -19,6 +19,9 @@ struct ChatComposerField: UIViewRepresentable {
     /// A copied image or file pasted into the field (edit menu Paste or
     /// Command-V): the composer attaches it.
     var onPasteAttachments: (() -> Void)?
+    /// The draft gained or lost a line (typed, or set from outside): the bottom stack's next
+    /// height change moves on `ComposerLineMotion`, not the stack's slower spring.
+    var onLineChange: (() -> Void)?
 
     static let maxLines = ComposerFieldHeight.defaultMaxLines
     static let accessibilityIdentifier = "chat.composer.field"
@@ -35,11 +38,16 @@ struct ChatComposerField: UIViewRepresentable {
         view.textColor = .label
         view.textContainerInset = .zero
         view.textContainer.lineFragmentPadding = 0
-        // Prompts are code-like: no autocorrect, no capitals (full verify D5).
-        view.autocorrectionType = .no
+        // GUI text, so autocorrect and spell check are on, as in every other text app (Leo,
+        // 2026-11-23: "you need to not ... entirely disable autocorrect in the gui"; the
+        // terminal's composer keeps it off). No capitals and no curly quotes or long dashes:
+        // a prompt holds code, paths and flags (full verify D5).
+        view.autocorrectionType = .yes
+        view.spellCheckingType = .yes
         view.autocapitalizationType = .none
         view.smartQuotesType = .no
         view.smartDashesType = .no
+        ComposerTextTraits.blockSiriSuggestions(view)
         view.returnKeyType = .default
         view.accessibilityIdentifier = Self.accessibilityIdentifier
         view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -64,6 +72,7 @@ struct ChatComposerField: UIViewRepresentable {
         }
         if view.text != text {
             view.text = text
+            if view.lineCountChangePending { onLineChange?() }
             view.invalidateIntrinsicContentSize()
         }
         if view.placeholder != placeholder { view.placeholder = placeholder }
@@ -116,9 +125,17 @@ struct ChatComposerField: UIViewRepresentable {
         }
 
         func textViewDidChange(_ textView: UITextView) {
-            parent.text = textView.text
+            if (textView as? ComposerReturnTextView)?.lineCountChangePending == true {
+                // A line came or went: the field grows (or shrinks) on the same short spring the
+                // stack and the transcript above it take, one motion (`ComposerLineMotion`).
+                parent.onLineChange?()
+                withAnimation(ComposerLineMotion.animation.unlessReduceMotion) { parent.text = textView.text }
+            } else {
+                parent.text = textView.text
+            }
             (textView as? ComposerReturnTextView)?.updatePlaceholder()
-            textView.invalidateIntrinsicContentSize()
+            // The height is settled once per edit, and SwiftUI asked again only when it changed.
+            (textView as? ComposerReturnTextView)?.settleAfterEdit()
             (textView as? ComposerReturnTextView)?.followCaret()
         }
 

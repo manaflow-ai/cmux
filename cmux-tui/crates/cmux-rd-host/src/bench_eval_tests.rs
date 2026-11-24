@@ -50,6 +50,7 @@ fn viewer(outcome: Outcome) -> (Viewer, TcpStream) {
         reassembler: Reassembler::new(200_000),
         decoder: Decoder::new().expect("create fallback decoder"),
         sender: InputSender::new(),
+        input_ack: 0,
         arrivals: Vec::new(),
         marker: None,
         marker_at_ns: 0,
