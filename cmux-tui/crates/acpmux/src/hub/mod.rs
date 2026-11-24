@@ -6,6 +6,8 @@
 
 // A reply's checkable claims against the turn's runs (`claim_checks`).
 mod claim_check;
+#[cfg(unix)]
+mod closed_tmp;
 mod control_asks;
 
 mod account_usage;
@@ -44,6 +46,9 @@ mod asks_below;
 mod atomic_json;
 pub use crate::build_info::{build, install_build, version_line};
 pub(crate) mod auto_resume;
+mod bg_folder;
+#[cfg(all(test, unix))]
+mod bg_folder_bench;
 mod bg_notify;
 mod bg_tasks;
 #[cfg(test)]
@@ -228,6 +233,7 @@ pub use model_options::{
 mod earned_access;
 #[cfg_attr(not(test), allow(dead_code))]
 mod earned_events;
+mod hybrid_hold;
 pub mod ledger;
 mod list_order;
 mod model_alias;
@@ -1262,6 +1268,8 @@ pub struct Hub {
     pub(super) bg_runner: StdMutex<Option<(crate::self_command::SelfCommand, u64)>>,
     /// Background-task starts, one at a time (`bg_tasks.rs`).
     pub(super) bg_starts: tokio::sync::Mutex<()>,
+    /// The chats' task folders at their last look (`bg_folder.rs`).
+    pub(super) bg_folders: bg_folder::BgFolders,
     /// The harnesses the model probes may start (`ACPMUX_PROBE_HARNESSES`);
     /// None: every harness.
     pub(super) probe_only: StdMutex<Option<std::collections::BTreeSet<String>>>,
@@ -1740,6 +1748,7 @@ impl Hub {
             workflow_runs: crate::workflow_runs::Service::default(),
             bg_runner: StdMutex::new(None),
             bg_starts: tokio::sync::Mutex::new(()),
+            bg_folders: bg_folder::BgFolders::default(),
             probe_only: StdMutex::new(None),
             idle_wake: Arc::new(Notify::new()),
             idle_reaper: AtomicBool::new(false),
@@ -2330,6 +2339,7 @@ impl Hub {
             credential: StdMutex::new(None),
             route_switch: AtomicBool::new(false),
             profile_respawn: AtomicBool::new(false),
+            respawn_when_quiet: AtomicBool::new(false),
             ending: StdMutex::new(None),
             detaching: AtomicBool::new(false),
             inbound_tx,

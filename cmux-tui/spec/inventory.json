@@ -128,6 +128,7 @@
     "diff.comments.list",
     "diff.comments.save",
     "diff.comments.send",
+    "diff.comments.thread",
     "frontend_projection.get",
     "frontend_projection.put",
     "git.branches",
