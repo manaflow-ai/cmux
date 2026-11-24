@@ -232,9 +232,24 @@ final class RemoteTmuxViewConnection {
     ) {
         self.host = host
         self.transportProfile = transportProfile
-        self.view = RemoteTmuxViewSession(ownerId: ownerId)
+        self.view = RemoteTmuxViewSession(
+            ownerId: Self.viewOwnerId(installOwnerId: ownerId, host: host),
+            legacyOwnerId: ownerId)
         self.initialCols = initialCols
         self.initialRows = initialRows
+    }
+
+    /// The owner a view session is named and tagged with: the install plus this connection's
+    /// endpoint.
+    ///
+    /// Two SSH aliases can reach the same account on the same tmux server. They are different
+    /// endpoints, so each gets a view stream of its own, and with the install's owner id alone both
+    /// streams attached to one view session. The stale-client sweep of whichever connected second
+    /// then detached the other's live client, and the `%exit` that followed ended every mirror on
+    /// it. With the endpoint in the owner, each alias has its own view session, and the other's is
+    /// a foreign view that nothing here touches.
+    nonisolated static func viewOwnerId(installOwnerId: String, host: RemoteTmuxHost) -> String {
+        "\(installOwnerId)-\(host.connectionHash)"
     }
 
     // MARK: - Lifecycle
@@ -604,24 +619,30 @@ final class RemoteTmuxViewConnection {
         }
     }
 
-    /// Detaches control clients that earlier streams of this install left on its view session.
+    /// Detaches control clients that earlier streams of this view left on its view session.
     ///
-    /// The view session belongs to one cmux install, since its name carries the install's owner
-    /// id, and that install runs one view stream per host. So any other control client on it is a
-    /// stream this install already gave up on. One is left behind whenever a stream ends without
+    /// The view session belongs to one view: its name and owner tag carry the install's owner id
+    /// and this connection's endpoint (see ``viewOwnerId(installOwnerId:host:)``), and a view runs
+    /// one stream at a time. So any other control client on it is a stream this view already gave
+    /// up on. A second alias that reaches the same server has a view session of its own, which
+    /// this never touches. One is left behind whenever a stream ends without
     /// tmux hearing a `detach-client`: et keeps its server side up after the local client dies,
     /// and a stream torn down before it reported `.connected` never sends one. On a host where
     /// an app's reconnect loop ran for 40 minutes, 89 control clients were attached to one view
     /// session, each still holding a size claim on every window it could see. Clients that are
     /// not in control mode are people, and are left alone.
-    private func detachStaleViewClients(_ conn: RemoteTmuxControlConnection) async {
+    private func detachStaleViewClients(_ conn: RemoteTmuxControlConnection, generation: UInt64) async {
         guard let own = await conn.queryWithTimeout("display-message -p '#{client_name}'", timeout: 15)?
             .first?.trimmingCharacters(in: .whitespaces), !own.isEmpty else { return }
         guard let lines = await conn.queryWithTimeout(
             "list-clients -t \(quoted("=" + view.sessionName)) -F '#{client_control_mode} #{client_name}'",
             timeout: 15
         ) else { return }
-        guard !isStopped, connection === conn else { return }
+        // Both answers must come from the process the sweep started on. The connection object
+        // outlives a reconnect, and a list read from an earlier process can name a tty that this
+        // process has since been given.
+        guard !isStopped, connection === conn, conn.processGeneration == generation,
+              conn.connectionState == .connected else { return }
         for name in Self.staleViewClientNames(lines, ownClientName: own) {
             _ = conn.send("detach-client -t \(quoted(name))")
         }
@@ -743,7 +764,11 @@ final class RemoteTmuxViewConnection {
                   conn.connectionState == .connected else { return }
             didBootstrapView = true
             bringupRetries = 0
-            Task { @MainActor [weak self] in await self?.detachStaleViewClients(conn) }
+            // Part of the bringup, not a task of its own: it finishes on the process that started
+            // it, before the view reads the server, and nothing outlives a stop or a reconnect.
+            await detachStaleViewClients(conn, generation: generation)
+            guard !isStopped, connection === conn, conn.processGeneration == generation,
+                  conn.connectionState == .connected else { return }
         }
 
         // Bounded: an alive-but-slow server gets one longer retry before we decide

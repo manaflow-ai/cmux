@@ -362,6 +362,46 @@ struct RemoteTmuxMultiplexFuzzTests {
         #expect(plan.staleViewsToKill == [staleOther.name])
     }
 
+    /// A view's owner names its connection, so two aliases of one server get separate views. The
+    /// plan of one alias must collect this install's pre-change view (tagged with the install's
+    /// owner id alone) and must never collect the other alias's live view.
+    @Test func planCollectsTheOldSharedViewButNeverAnotherAliasesView() {
+        let install = "install-owner"
+        let aliasA = RemoteTmuxViewSession(
+            ownerId: RemoteTmuxViewConnection.viewOwnerId(
+                installOwnerId: install, host: RemoteTmuxHost(destination: "alias-one")),
+            legacyOwnerId: install)
+        let aliasB = RemoteTmuxViewSession(
+            ownerId: RemoteTmuxViewConnection.viewOwnerId(
+                installOwnerId: install, host: RemoteTmuxHost(destination: "alias-two")),
+            legacyOwnerId: install)
+        #expect(aliasA.sessionName != aliasB.sessionName)
+
+        let legacy = RemoteTmuxViewSession(ownerId: install)
+        let legacyRow = RemoteTmuxViewSession.SessionRow(
+            name: legacy.sessionName, isView: true, owner: install,
+            version: RemoteTmuxViewSession.formatVersion)
+        let aliasBRow = RemoteTmuxViewSession.SessionRow(
+            name: aliasB.sessionName, isView: true, owner: aliasB.ownerId,
+            version: RemoteTmuxViewSession.formatVersion)
+        let plan = RemoteTmuxLinkedViewPlan.plan(
+            view: aliasA,
+            snapshot: .init(
+                sessions: [
+                    legacyRow,
+                    aliasBRow,
+                    .init(name: "work", isView: false, owner: "", version: nil),
+                ],
+                windows: [
+                    .init(sessionName: "work", sessionId: "$1", windowId: "@1", windowIndex: 0,
+                          isActive: true),
+                ],
+                cmuxOwnedWindowIds: [],
+                placeholderWindowId: nil))
+        #expect(plan.staleViewsToKill == [legacy.sessionName])
+        #expect(!plan.staleViewsToKill.contains(aliasB.sessionName))
+    }
+
     /// The view session name carries the format version, which is what makes a bump take
     /// effect: the stream attaches with `new-session -A -s <name>` and would otherwise reuse an
     /// incompatible view and stamp the new version onto it. A different name instead falls
@@ -1113,7 +1153,12 @@ struct RemoteTmuxViewStaleClientTests {
         }
 
         let ownerId = "stale-test-\(UUID().uuidString)"
-        let viewName = RemoteTmuxViewSession(ownerId: ownerId).sessionName
+        let view = RemoteTmuxViewConnection(
+            host: RemoteTmuxHost(destination: "stale-client-test"),
+            ownerId: ownerId,
+            transportProfile: LocalTmuxTransportProfile(tmuxPath: tmuxPath, socketPath: socket))
+        defer { view.stop() }
+        let viewName = view.view.sessionName
         #expect(Self.tmux(tmuxPath, socket, ["new-session", "-d", "-s", viewName, "-x", "120", "-y", "40"]).status == 0)
         _ = Self.tmux(tmuxPath, socket, ["new-session", "-d", "-s", "work"])
 
@@ -1133,11 +1178,6 @@ struct RemoteTmuxViewStaleClientTests {
         }
         #expect(await Self.waitForControlClients(tmuxPath, socket, viewName, count: 3))
 
-        let view = RemoteTmuxViewConnection(
-            host: RemoteTmuxHost(destination: "stale-client-test"),
-            ownerId: ownerId,
-            transportProfile: LocalTmuxTransportProfile(tmuxPath: tmuxPath, socketPath: socket))
-        defer { view.stop() }
         try view.start()
 
         // The new stream attaches (four control clients), then detaches the three it did not open.

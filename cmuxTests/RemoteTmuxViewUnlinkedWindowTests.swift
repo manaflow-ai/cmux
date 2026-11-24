@@ -305,7 +305,7 @@ private final class ScriptedViewHost {
             return []
         }
         if command.hasPrefix("list-sessions") {
-            return ["1:\(ownerId):\(RemoteTmuxViewSession.formatVersion):\(viewName)"]
+            return ["1:\(view.view.ownerId):\(RemoteTmuxViewSession.formatVersion):\(viewName)"]
                 + sessions.map { ":::\($0.name)" }
         }
         if command.hasPrefix("list-windows -a") {
