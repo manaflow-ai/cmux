@@ -29,6 +29,25 @@ import UniformTypeIdentifiers
         #expect(AgentAttachment(kind: .image, name: "transparent", data: optimized).imageMIMEType == "image/png")
     }
 
+    @Test func reencodesUnsupportedImageTypesAsJPEG() throws {
+        let image = try #require(makeImage(width: 1200, height: 900, alpha: false))
+        let original = try encode(image, type: UTType.tiff.identifier as CFString)
+        let optimized = AgentImageOptimizer.optimize(original)
+
+        #expect(optimized != original)
+        #expect(AgentAttachment(kind: .image, name: "photo", data: optimized).imageMIMEType == "image/jpeg")
+    }
+
+    @Test func keepsUndecodableAndAnimatedDataUnchanged() throws {
+        let invalid = Data("not an image".utf8)
+        #expect(AgentImageOptimizer.optimize(invalid) == invalid)
+
+        let first = try #require(makeImage(width: 2, height: 2, alpha: false))
+        let second = try #require(makeImage(width: 2, height: 2, alpha: true))
+        let animated = try encodeAnimated([first, second])
+        #expect(AgentImageOptimizer.optimize(animated) == animated)
+    }
+
     private func makeImage(width: Int, height: Int, alpha: Bool) -> CGImage? {
         let colorSpace = CGColorSpaceCreateDeviceRGB()
         let bitmapInfo = alpha ? CGImageAlphaInfo.premultipliedLast.rawValue : CGImageAlphaInfo.noneSkipLast.rawValue
@@ -53,6 +72,14 @@ import UniformTypeIdentifiers
         var properties: [CFString: Any] = [:]
         if let quality { properties[kCGImageDestinationLossyCompressionQuality] = quality }
         CGImageDestinationAddImage(destination, image, properties as CFDictionary)
+        #expect(CGImageDestinationFinalize(destination))
+        return data as Data
+    }
+
+    private func encodeAnimated(_ images: [CGImage]) throws -> Data {
+        let data = NSMutableData()
+        let destination = try #require(CGImageDestinationCreateWithData(data, UTType.gif.identifier as CFString, images.count, nil))
+        for image in images { CGImageDestinationAddImage(destination, image, nil) }
         #expect(CGImageDestinationFinalize(destination))
         return data as Data
     }
