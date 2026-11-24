@@ -45,7 +45,7 @@ jobs:
   linux-build:
     name: build on Linux and compare (no Apple SDK)
     needs: [mac-build]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER_DARWIN_CROSS || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER_DARWIN_CROSS || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     # Cold, this job builds both macOS targets one after the other: on cmux-gcp-lane-build-x64 (LINUX_RUNNER_DARWIN_CROSS)
     # run 44985475776 took 1934 s for aarch64-apple-darwin alone and was cancelled at 60 min mid x86_64. 90 fits two cold targets.
     timeout-minutes: 90

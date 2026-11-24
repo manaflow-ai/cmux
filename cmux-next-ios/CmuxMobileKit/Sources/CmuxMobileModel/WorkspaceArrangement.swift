@@ -23,6 +23,32 @@ public enum WorkspaceColor: String, CaseIterable, Hashable, Sendable {
         }
     }
 
+    /// The Mac's vibrant palette (`GroupColor.vibrantDark` / `vibrantLight`), as `0xRRGGBB`: the
+    /// color a Mac tab group draws, so a group reads the same color on the phone.
+    public func vibrant(dark: Bool) -> UInt32 {
+        switch self {
+        case .grey: dark ? 0xA1A1AA : 0x8E8E93
+        case .red: dark ? 0xFD7273 : 0xE36364
+        case .orange: dark ? 0xFE843D : 0xE57431
+        case .yellow: dark ? 0xF5BA14 : 0xD6A20A
+        case .green: dark ? 0x20C45F : 0x33AC5A
+        case .cyan: dark ? 0x14BBC2 : 0x10A6AD
+        case .blue: dark ? 0x62A7FD : 0x4693F1
+        case .purple: dark ? 0xB28BFD : 0x9F79E6
+        case .pink: dark ? 0xF46CBF : 0xD465A8
+        }
+    }
+
+    /// A background that carries white text, as the Mac's dark chip fill (`GroupColor` role
+    /// `fill`): the vibrant color taken 55% toward 0x1C1C1E.
+    public static func darkFill(_ rgb: UInt32) -> UInt32 {
+        func mix(_ shift: UInt32) -> UInt32 {
+            let from = Double(rgb >> shift & 0xFF), to = Double(0x1C1C1E >> shift & 0xFF)
+            return UInt32((from + (to - from) * 0.55).rounded()) << shift
+        }
+        return mix(16) | mix(8) | mix(0)
+    }
+
     /// A stored color value: a palette name, or nil (`#RRGGBB` colors are not in the menu).
     public init?(stored: String?) {
         guard let stored, let color = WorkspaceColor(rawValue: stored.lowercased()) else { return nil }
