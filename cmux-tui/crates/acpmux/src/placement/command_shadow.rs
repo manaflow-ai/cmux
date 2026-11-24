@@ -320,6 +320,11 @@ pub fn class_of(script: &str) -> String {
 }
 
 /// Classes that listen when first seen: dev servers and services.
+/// More than half.
+fn most(count: usize, of: usize) -> bool {
+    count * 2 > of
+}
+
 fn listens_by_class(class: &str) -> bool {
     let words: Vec<&str> = class.split(' ').collect();
     let last = words.last().copied().unwrap_or_default();
@@ -421,8 +426,11 @@ impl Table {
                 runs: runs.len(),
                 wall_s: Some(wall),
                 need,
-                listens: listens || runs.iter().any(|r| r.listened),
-                outlives: background || runs.iter().any(|r| r.outlived),
+                // Most of its last runs, not any one: `python3 -c` that once served a port is
+                // not a server the next time.
+                listens: listens || most(runs.iter().filter(|r| r.listened).count(), runs.len()),
+                outlives: background
+                    || most(runs.iter().filter(|r| r.outlived).count(), runs.len()),
                 third_party,
             };
         }

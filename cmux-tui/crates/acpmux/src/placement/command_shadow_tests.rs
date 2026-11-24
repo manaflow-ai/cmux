@@ -212,3 +212,27 @@ fn the_table_keeps_a_bounded_number_of_classes() {
     assert_eq!(table.classes.len(), MAX_CLASSES);
     assert_eq!(table.predict("/r", "tool0", "tool0", false).source, Source::None, "oldest dropped");
 }
+
+#[test]
+fn one_run_of_a_class_that_listened_does_not_make_the_class_a_server() {
+    // The lane VM read-back: `python3 -c` ran a loop, then a listener, then a loop again; the
+    // listener's one run made the next loop a serve VM.
+    let mut table = Table::default();
+    let run = |listened| Run {
+        wall_s: 1.0,
+        cpu_s: Some(0.5),
+        peak_mem_gib: Some(0.1),
+        listened,
+        outlived: false,
+    };
+    for listened in [false, false, true] {
+        table.record("/r", "python3", run(listened));
+    }
+    let p = table.predict("/r", "python3", "python3 -c 'print(1)'", false);
+    assert!(!p.listens);
+    assert_eq!(decide(&p, &situation()).decision, Decision::Here);
+    for _ in 0..2 {
+        table.record("/r", "python3", run(true));
+    }
+    assert!(table.predict("/r", "python3", "python3", false).listens, "3 of 5 listened");
+}

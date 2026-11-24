@@ -207,3 +207,21 @@ fn the_live_sampler_measures_a_real_command_and_its_port() {
     assert!(usage["cpuS"].as_f64().unwrap() >= 0.5, "{row}");
     assert_eq!(usage["ports"].as_array().map(Vec::len), Some(1), "{row}");
 }
+
+#[test]
+fn a_call_that_ends_between_two_readings_is_unmeasured_not_zero() {
+    let dir = tempfile::tempdir().unwrap();
+    let shadow = Shadow::new(dir.path().join("rows.jsonl"));
+    shadow.begin(start("quick", "echo hi", Some(10)), Some(1_000));
+    let only_agent =
+        || Some(Procs { rows: HashMap::from([(10, proc(1, 5, 0, 0))]), ..Default::default() });
+    shadow.tick(&only_agent);
+    shadow.end("s1", "quick", "completed");
+    shadow.tick(&only_agent);
+    let row = &rows(&dir)[0];
+    assert!(row["usage"]["cpuS"].is_null() && row["usage"]["peakMemGiB"].is_null(), "{row}");
+    assert_eq!(row["why"], "usage unmeasured: it ended between two readings");
+    // Nothing is learned from it: the class still has no history.
+    let p = shadow.lock().table.predict("/r", "echo", "echo hi", false);
+    assert_eq!(p.source, shadow::Source::None);
+}

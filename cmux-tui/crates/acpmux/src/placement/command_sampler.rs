@@ -405,8 +405,9 @@ fn run_of(f: &Flight) -> Option<shadow::Run> {
     }
     Some(shadow::Run {
         wall_s: ended_at.duration_since(f.began).as_secs_f64(),
-        cpu_s: Some(f.cpu_ticks as f64 / clock_ticks()),
-        peak_mem_gib: Some(f.peak_rss_bytes as f64 / GIB),
+        // No process of its seen: it ended between two readings, its usage unmeasured, not zero.
+        cpu_s: (!f.procs.is_empty()).then(|| f.cpu_ticks as f64 / clock_ticks()),
+        peak_mem_gib: (!f.procs.is_empty()).then(|| f.peak_rss_bytes as f64 / GIB),
         listened: !f.ports.is_empty(),
         outlived: f.alive_at_end == Some(true),
     })
@@ -423,8 +424,8 @@ fn row_of(f: &Flight, why: Option<&str>) -> Value {
     let wall = f.ended.as_ref().map(|(at, _)| round3(at.duration_since(f.began).as_secs_f64()));
     let usage = (f.samples > 0).then(|| {
         json!({
-            "peakMemGiB": round3(f.peak_rss_bytes as f64 / GIB),
-            "cpuS": round3(f.cpu_ticks as f64 / clock_ticks()),
+            "peakMemGiB": (!f.procs.is_empty()).then(|| round3(f.peak_rss_bytes as f64 / GIB)),
+            "cpuS": (!f.procs.is_empty()).then(|| round3(f.cpu_ticks as f64 / clock_ticks())),
             "ports": f.ports,
             "outlived": f.alive_at_end == Some(true),
             "procs": f.procs.len(),
@@ -454,6 +455,7 @@ fn row_of(f: &Flight, why: Option<&str>) -> Value {
             (None, None) => Some("usage unknown: no agent process"),
             (None, _) if cfg!(not(target_os = "linux")) => Some("usage unknown: not Linux"),
             (None, _) => Some("usage unknown: no process seen"),
+            _ if f.procs.is_empty() => Some("usage unmeasured: it ended between two readings"),
             _ => None,
         }),
     })
