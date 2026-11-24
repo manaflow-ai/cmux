@@ -320,6 +320,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `trycloudflare.com` | identifier | a shared hosting domain, so sites under it are told apart |
 | `vs-ssh.visualstudio.com` | identifier | a git host name, so it is not shown as one of your computers |
 | `m.youtube.com` | identifier | YouTube host names, to find captions in a page you have open |
+| `meet.google.com` | identifier | the Google Meet host name, so an agent finds the call you have open in a cmux browser tab to read its captions; never fetched by the app |
 | `youtu.be` | identifier | a YouTube host name, so a pasted video address can be a background (read as its video id); never fetched |
 | `youtube-nocookie.com` | identifier | a YouTube host name, so a pasted video address can be a background (read as its video id); never fetched |
 | `fly.dev` | identifier | a shared hosting domain, so sites under it are told apart |
