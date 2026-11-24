@@ -23,10 +23,9 @@ use cmux_remote::daemon::{
 };
 use cmux_remote::identity::AuthDatabase;
 use cmux_remote::link::{FrameLink, LinkError};
-use cmux_remote::observability::CarrierEvidence;
 use cmux_remote::provider::{
-    ConnectRequest, DirectWebSocketProvider, LinkGroup, LinkRequest, ProviderCapabilities,
-    ProviderError, TransportProvider,
+    CarrierEvidence, ConnectRequest, DirectWebSocketProvider, LinkGroup, LinkRequest,
+    ProviderCapabilities, ProviderError, TransportProvider,
 };
 use cmux_remote::session::SessionLimits;
 use cmux_remote_protocol::{FrameFlags, Lane, LanePolicy, SessionId};
