@@ -100,7 +100,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             let v = client
                 .request(
                     method::MUX_RETENTION,
-                    json!({"dryRun": args.dry_run, "archive": archive, "olderThanDays": args.older_than_days, "only": args.only}),
+                    json!({"dryRun": args.dry_run, "archive": archive, "olderThanDays": args.older_than_days, "only": args.only, "unreadOnly": args.unread_only}),
                 )
                 .await?;
             if json_out {
@@ -116,6 +116,19 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     if args.dry_run { "would be freed (dry run)" } else { "freed" }
                 );
                 println!("skipped: {}", v["skipped"]);
+                let read_back = v.get("readBack").and_then(|r| r.as_array());
+                for chat in read_back.into_iter().flatten() {
+                    let text = |key: &str| chat.get(key).and_then(|x| x.as_str()).unwrap_or("?");
+                    let num = |key: &str| chat.get(key).and_then(|x| x.as_u64()).unwrap_or(0);
+                    println!(
+                        "{}: {} -> {} bytes, reads back the same {} rows (digest {})",
+                        text("sessionId"),
+                        num("bytesBefore"),
+                        num("bytesAfter"),
+                        num("rows"),
+                        text("digest")
+                    );
+                }
             }
             Ok(())
         }
