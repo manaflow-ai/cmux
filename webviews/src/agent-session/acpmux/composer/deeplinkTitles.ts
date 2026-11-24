@@ -40,6 +40,8 @@ export type DeeplinkTitles = {
   label(info: CmuxLinkInfo): string;
   /// The CSS mask image of `info`'s kind icon (icons/iconMask.ts), or undefined for none.
   icon?(info: CmuxLinkInfo): string | undefined;
+  /// A full-color picture's URL drawn in place of the icon mask (a built-in tool's, toolMentions.ts `image`).
+  image?(info: CmuxLinkInfo): string | undefined;
 };
 
 /// A link drawn as its chip: its range in the draft and its text there.
@@ -84,12 +86,14 @@ function chipElement(title: string, kind: string, href: string, icon: string | u
 /// The chip's front: the kind's icon on its ::before (markdownField.css), as the sent chip draws it.
 /// A box of its own before the link's characters, so the caret before the chip stands beside a drawn
 /// element in WebKit too, never against the hidden text alone (at a line's start WebKit drew none).
-function chipStart(icon: string | undefined): HTMLElement {
+function chipStart(icon: string | undefined, image = false): HTMLElement {
   const start = document.createElement("span");
   start.className = TITLED_START_CLASS;
   start.setAttribute("contenteditable", "false");
   if (icon) {
     start.dataset.icon = "";
+    // A picture draws as itself, not as a mask in the text color (markdownField.css).
+    if (image) start.dataset.image = "";
     start.style.setProperty("--cmux-link-icon", icon);
   }
   return start;
@@ -127,10 +131,14 @@ export function deeplinkTitlesPlugin(titles: DeeplinkTitles | undefined): Plugin
       const info = titles.known(href);
       if (!info) continue;
       const title = titles.label(info);
-      const icon = titles.icon?.(info);
+      const image = titles.image?.(info);
+      const icon = image ? `url("${image}")` : titles.icon?.(info);
       decorations.push(
         // After the position before the link (side 1): the caret there stands before the chip.
-        Decoration.widget(link.from, () => chipStart(icon), { side: 1, key: `start\n${icon ?? ""}` }),
+        Decoration.widget(link.from, () => chipStart(icon, image !== undefined), {
+          side: 1,
+          key: `start\n${icon ?? ""}`,
+        }),
         Decoration.inline(link.from, link.to, { class: TITLED_LINK_CLASS }),
         // Before the position after the link (side -1): the caret there stands after the chip.
         Decoration.widget(link.to, () => chipElement(title, info.kind, href, icon), {

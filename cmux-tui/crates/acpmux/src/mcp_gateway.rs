@@ -140,9 +140,21 @@ struct Holder {
 impl Holder {
     fn of_self(home: &Path) -> Option<Self> {
         let pid = std::process::id();
-        let started_ms = cmux_tui_platform::process_identity::started_ms(pid)?;
+        let started_ms = started_ms(pid)?;
         Some(Self { pid, started_ms, home: home.to_owned() })
     }
+}
+
+/// When `pid` started, where the platform can say (`process_identity` is Unix only). Without it
+/// no holder is recorded, so a successor waits for the kept port as before the holder existed.
+#[cfg(unix)]
+fn started_ms(pid: u32) -> Option<u64> {
+    cmux_tui_platform::process_identity::started_ms(pid)
+}
+
+#[cfg(not(unix))]
+fn started_ms(_pid: u32) -> Option<u64> {
+    None
 }
 
 /// Whether the kept port, found taken, may be the daemon this one replaces letting it go: the
@@ -156,8 +168,7 @@ fn may_hand_over(kept: &Listener, home: &Path) -> bool {
     let same_home = holder.home == home
         || std::fs::canonicalize(&holder.home)
             .is_ok_and(|held| std::fs::canonicalize(home).is_ok_and(|here| held == here));
-    same_home
-        && cmux_tui_platform::process_identity::started_ms(holder.pid) == Some(holder.started_ms)
+    same_home && started_ms(holder.pid) == Some(holder.started_ms)
 }
 
 pub struct Gateway {
