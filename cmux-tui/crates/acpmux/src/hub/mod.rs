@@ -472,9 +472,9 @@ mod refused_append_tests;
 pub(crate) mod release_to_watch;
 mod restore_point;
 pub mod rules;
+pub(crate) mod session_hold;
 #[cfg(feature = "sim")]
 mod sim_startup;
-pub(crate) mod session_hold;
 pub(crate) mod stop_if_idle;
 #[cfg(test)]
 mod stop_settles_tests;
