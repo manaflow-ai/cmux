@@ -33,6 +33,29 @@ impl Hub {
         true
     }
 
+    /// Refuses `credential` for a chat of `harness` when its variable serves another family.
+    pub(crate) async fn credential_serves(
+        &self,
+        harness: &str,
+        credential: &AgentCredential,
+    ) -> Result<(), RpcError> {
+        let family = {
+            let cfg = self.config.read().await;
+            cfg.harnesses
+                .get(harness)
+                .map(|p| crate::config::derive_family(harness, p))
+                .or_else(|| cfg.family(harness))
+                .unwrap_or_else(|| harness.to_owned())
+        };
+        if Family::of_harness(&family) != Some(credential.family()) {
+            return Err(RpcError::invalid_params(
+                "this credential does not serve this chat's agent",
+            )
+            .with_data(json!({"reason": "credentials.family"})));
+        }
+        Ok(())
+    }
+
     /// Sets `credential` on session `id` (its exact id, a session of this daemon) and restarts its
     /// live agent on it. A credential of another family than the session's harness is refused.
     pub(crate) async fn update_credential(
@@ -47,21 +70,7 @@ impl Hub {
                         .with_data(json!({"reason": "credentials.no_session"}))
                 },
             )?;
-        let meta = session.meta();
-        let family = {
-            let cfg = self.config.read().await;
-            cfg.harnesses
-                .get(&meta.harness)
-                .map(|p| crate::config::derive_family(&meta.harness, p))
-                .or_else(|| cfg.family(&meta.harness))
-                .unwrap_or_else(|| meta.harness.clone())
-        };
-        if Family::of_harness(&family) != Some(credential.family()) {
-            return Err(RpcError::invalid_params(
-                "this credential does not serve this chat's agent",
-            )
-            .with_data(json!({"reason": "credentials.family"})));
-        }
+        self.credential_serves(&session.meta().harness, &credential).await?;
         let changed = {
             let mut held = session.credential.lock().unwrap_or_else(|e| e.into_inner());
             let changed = held.as_ref() != Some(&credential);
