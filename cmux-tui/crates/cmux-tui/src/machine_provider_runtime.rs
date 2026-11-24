@@ -2940,6 +2940,7 @@ mod tests {
             capabilities: protocol::ProviderCapabilities {
                 create_machine: true,
                 connect_external_machine: false,
+                ..protocol::ProviderCapabilities::default()
             },
             actions: vec![protocol::ProviderAction {
                 id: id("billing"),
@@ -3874,6 +3875,7 @@ mod tests {
             capabilities: protocol::ProviderCapabilities {
                 create_machine: true,
                 connect_external_machine: false,
+                ..protocol::ProviderCapabilities::default()
             },
             actions: vec![
                 protocol::ProviderAction {

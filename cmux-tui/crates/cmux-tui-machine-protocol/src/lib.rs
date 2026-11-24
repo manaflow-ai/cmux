@@ -15,6 +15,12 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 
+pub mod provider;
+pub use provider::{
+    CreateMachineRequest, ExecRequest, ExecResult, ExposedPort, InMemoryMachineProvider,
+    MachineProvider, MachineProviderError, MachineProviderOperation, PortProtocol,
+};
+
 pub const PROTOCOL_NAME: &str = "cmux.machine-provider";
 pub const PROTOCOL_VERSION: u16 = 1;
 /// Gates provider-owned external-machine enrollment.
@@ -656,6 +662,56 @@ pub struct ProviderCapabilities {
     pub create_machine: bool,
     #[serde(default)]
     pub connect_external_machine: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub snapshot: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub fork: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub pause_resume: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub fs_while_paused: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub exec: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub exposed_ports: bool,
+    #[serde(default, skip_serializing_if = "ForkLatencyClass::is_unknown")]
+    pub estimated_fork_latency_class: ForkLatencyClass,
+}
+
+impl ProviderCapabilities {
+    pub const fn all_supported() -> Self {
+        Self {
+            create_machine: true,
+            connect_external_machine: true,
+            snapshot: true,
+            fork: true,
+            pause_resume: true,
+            fs_while_paused: true,
+            exec: true,
+            exposed_ports: true,
+            estimated_fork_latency_class: ForkLatencyClass::Short,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ForkLatencyClass {
+    Immediate,
+    Short,
+    Long,
+    #[default]
+    Unknown,
+}
+
+impl ForkLatencyClass {
+    fn is_unknown(&self) -> bool {
+        *self == Self::Unknown
+    }
+}
+
+fn is_false(value: &bool) -> bool {
+    !value
 }
 
 pub mod provider_action_id {
@@ -1547,6 +1603,7 @@ mod tests {
             capabilities: ProviderCapabilities {
                 create_machine: true,
                 connect_external_machine: false,
+                ..ProviderCapabilities::default()
             },
             actions: vec![ProviderAction {
                 id: id("team.invite"),

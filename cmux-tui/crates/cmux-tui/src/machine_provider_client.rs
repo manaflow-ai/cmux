@@ -2305,6 +2305,7 @@ mod tests {
                         capabilities: cmux_tui_machine_protocol::ProviderCapabilities {
                             create_machine: false,
                             connect_external_machine: false,
+                            ..cmux_tui_machine_protocol::ProviderCapabilities::default()
                         },
                         actions: Vec::new(),
                         notice: None,
