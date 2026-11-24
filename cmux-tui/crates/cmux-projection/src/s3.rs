@@ -424,10 +424,10 @@ impl Config {
         if let Some(token) = &keys.session_token {
             headers.push(("x-amz-security-token".to_owned(), token.clone()));
         }
-        if method == "PUT" {
-            if let Some(sse) = self.sse {
-                headers.push(("x-amz-server-side-encryption".to_owned(), sse.to_owned()));
-            }
+        if method == "PUT"
+            && let Some(sse) = self.sse
+        {
+            headers.push(("x-amz-server-side-encryption".to_owned(), sse.to_owned()));
         }
         let path = format!("{}/{oid}", self.path);
         let authorization = authorization(keys, &self.region, method, &path, "", &headers);
