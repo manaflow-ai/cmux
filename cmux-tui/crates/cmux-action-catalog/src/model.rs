@@ -275,6 +275,10 @@ pub enum ParamSource {
     Target(&'static str),
     /// A fixed value.
     Constant(BindingValue),
+    /// The standard base64 of the bytes of the file whose path the action's argument of this
+    /// name holds (a picked file); left out when the argument is omitted. The app reads the
+    /// file, as `cmux avatar set` does for its FILE.
+    FileBase64(&'static str),
 }
 
 /// One param of a [`Request`]: its wire name and its value's source.
@@ -297,6 +301,32 @@ pub struct Request {
 /// The prefix of a [`Suggestions::source`] the app answers from a list request in
 /// [`crate::request::LIST_SOURCES`] (`op:closed.list`), with no Swift source of its own.
 pub const LIST_SOURCE_PREFIX: &str = "op:";
+
+/// Suggestion source of an argument whose value is a folder path: the app shows its folder
+/// panel, not a list. `file:<ext>,<ext>` is the file panel for those extensions (`file:` any).
+pub const FOLDER_SOURCE: &str = "folder";
+/// The prefix of a file panel's [`Suggestions::source`] (`file:png,jpg`).
+pub const FILE_SOURCE_PREFIX: &str = "file:";
+
+/// The panel the palette opens for an argument (`Suggestions::source` `folder`, `file:png,jpg`)
+/// instead of a list or a text field; the value is the chosen path.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Picker {
+    /// A file with one of these extensions (any file when empty).
+    File(Vec<&'static str>),
+    Folder,
+}
+
+impl Picker {
+    /// The picker a suggestion `source` names, if it names one.
+    pub fn from_source(source: &'static str) -> Option<Picker> {
+        if source == FOLDER_SOURCE {
+            return Some(Picker::Folder);
+        }
+        let extensions = source.strip_prefix(FILE_SOURCE_PREFIX)?;
+        Some(Picker::File(extensions.split(',').filter(|e| !e.is_empty()).collect()))
+    }
+}
 
 /// A suggestion source answered by one list request: `items` names the result's member that
 /// holds the rows (`None`: the result is the array), `value` and `title` the row fields a

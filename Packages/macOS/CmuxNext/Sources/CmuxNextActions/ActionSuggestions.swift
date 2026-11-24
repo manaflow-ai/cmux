@@ -14,8 +14,14 @@ public nonisolated struct ActionSuggestions: Sendable, Hashable {
     /// The argument takes several values, comma-joined (a group's members): the palette keeps
     /// its list open, each chosen value a chip in the search field, until Continue.
     public let allowsMultiple: Bool
+    /// The panel the palette opens instead of a list or a text field (a picture, a folder): the
+    /// value is the chosen path. Nil for a list or plain text. An older app that does not know the
+    /// member reads a string argument with a source it has no list for.
+    public let picker: ActionPicker?
 
-    public init(source: String, pinned: [ActionEnumCase], otherTitle: String? = nil, allowsMultiple: Bool = false) {
+    public init(source: String, pinned: [ActionEnumCase], otherTitle: String? = nil, allowsMultiple: Bool = false,
+                picker: ActionPicker? = nil) {
+        self.picker = picker
         self.source = source
         self.pinned = pinned
         self.otherTitle = otherTitle
@@ -83,4 +89,19 @@ public nonisolated struct ActionSuggestions: Sendable, Hashable {
     public static let tabBarButtons = "tabBarButtons"
     /// The code editors installed on this Mac, the default first (Open In ▸'s `app`; the App lists them).
     public static let editors = "editors"
+}
+
+/// A file or folder panel for an argument (cmux-action-catalog `Picker`, the `file:png,jpg` and
+/// `folder` suggestion sources).
+public nonisolated enum ActionPicker: Sendable, Hashable {
+    /// A file with one of these extensions (any file when empty).
+    case file(extensions: [String])
+    case folder
+
+    /// The export's `picker` member: `"folder"` or `{"file": [extension]}`; nil when it is neither.
+    static func decode(_ wire: Any?) -> ActionPicker? {
+        if let text = wire as? String, text == "folder" { return .folder }
+        if let object = wire as? [String: Any], let extensions = object["file"] as? [String] { return .file(extensions: extensions) }
+        return nil
+    }
 }

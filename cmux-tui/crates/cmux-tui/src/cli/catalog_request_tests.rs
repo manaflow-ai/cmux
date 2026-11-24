@@ -13,6 +13,9 @@ struct Case {
     values: Vec<(&'static str, Value)>,
 }
 
+/// The bytes the avatar case stands for (the case never reads a file).
+const PICTURE_BYTES: &[u8] = b"\x89PNG picture";
+
 /// One case per catalog row with a request (`every_request_row_has_a_cli_case`).
 fn cases() -> Vec<Case> {
     vec![
@@ -28,6 +31,12 @@ fn cases() -> Vec<Case> {
             values: vec![("argument:closed", json!("cl_1"))],
         },
         Case { id: "errors.clear", argv: &["errors", "clear"], values: vec![] },
+        // The picked file's bytes, as the app reads and encodes them.
+        Case {
+            id: "home.setMyAvatar",
+            argv: &["avatar", "set", "me", "picture.png"],
+            values: vec![("file:file", json!(super::chief::avatar::set_bytes(PICTURE_BYTES)))],
+        },
         Case {
             id: "workspace.unpinFromSpace",
             argv: &["room", "unpin", "--workspace", "ws_00000000000000000000000000000004"],
@@ -46,6 +55,17 @@ fn runs_verb(argv: &[&str], cli_name: &str) -> bool {
 /// What the CLI sends for `argv`: its lane, operation and params. A verb the CLI resolves
 /// with a read first, or one that is not one typed request, is not a request row's verb.
 fn sent_by_cli(argv: &[&str]) -> Result<(RequestLane, String, Value), String> {
+    // `cmux avatar set` is not a protocol-plan verb: it reads its FILE and sends the bytes
+    // (`chief::avatar`), which `PICTURE_BYTES` stands for here.
+    if let ["avatar", "set", "me", _file] = argv {
+        let params = json!({
+            "machine": "current",
+            "session": "current",
+            "participant_id": "user_local",
+            "bytes": super::chief::avatar::set_bytes(PICTURE_BYTES),
+        });
+        return Ok((RequestLane::Session, "participant.avatar.set".to_owned(), params));
+    }
     let args: Vec<String> = argv.iter().map(|word| (*word).to_owned()).collect();
     match super::app::parse(&args) {
         Ok(Some(super::app::AppCommand::Call { method, params, .. })) => {
@@ -78,6 +98,7 @@ fn sent_by_catalog(action: &Action, values: &[(&str, Value)]) -> (RequestLane, S
     let mut params: Map<String, Value> = request::params(request, |source| match source {
         ParamSource::Argument(name) => value(format!("argument:{name}")),
         ParamSource::Target(kind) => value(format!("target:{kind}")),
+        ParamSource::FileBase64(name) => value(format!("file:{name}")),
         ParamSource::Constant(_) => None,
     });
     if request.lane == RequestLane::Session {

@@ -210,3 +210,49 @@ fn params_take_each_source_and_leave_out_omitted_ones() {
     });
     assert_eq!(Value::Object(sent), json!({"closed": "cl_1", "all": false}));
 }
+
+const PICK_ARGUMENT: Argument = Argument {
+    name: "file",
+    title: Text::raw("File"),
+    kind: ArgKind::String,
+    required: true,
+    suggestions: Some(Suggestions {
+        source: "file:png,jpg",
+        pinned: &[],
+        other_title: None,
+        allows_multiple: false,
+    }),
+    is_target_name: false,
+    is_target_description: false,
+    is_supplied_by_target: false,
+    asked_in_palette: false,
+};
+
+const PICK_ARGUMENTS: [Argument; 2] = [
+    PICK_ARGUMENT,
+    Argument {
+        name: "folder",
+        suggestions: Some(Suggestions {
+            source: "folder",
+            pinned: &[],
+            other_title: None,
+            allows_multiple: false,
+        }),
+        ..PICK_ARGUMENT
+    },
+];
+
+#[test]
+fn a_picker_source_is_exported_as_a_picker_and_stays_a_string() {
+    assert_eq!(Picker::from_source("folder"), Some(Picker::Folder));
+    assert_eq!(Picker::from_source("file:png,jpg"), Some(Picker::File(vec!["png", "jpg"])));
+    assert_eq!(Picker::from_source("file:"), Some(Picker::File(vec![])));
+    assert_eq!(Picker::from_source("op:closed.list"), None);
+    let action = Action { arguments: &PICK_ARGUMENTS, ..Action::DEFAULT };
+    let row = json::app_action(&action, 0);
+    // An older app reads `kind` string and a source it does not know: plain text, not a dropped row.
+    assert_eq!(row["arguments"][0]["kind"], json!("string"));
+    assert_eq!(row["arguments"][0]["suggestions"]["picker"], json!({"file": ["png", "jpg"]}));
+    assert_eq!(row["arguments"][1]["suggestions"]["picker"], json!("folder"));
+    assert!(json::action(&action, 0)["arguments"][0]["suggestions"].get("picker").is_none());
+}

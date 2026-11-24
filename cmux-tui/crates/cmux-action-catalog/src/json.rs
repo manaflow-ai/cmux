@@ -94,6 +94,7 @@ fn catalog_request(value: &Request) -> Value {
             ParamSource::Constant(constant) => {
                 json!({ "name": param.name, "constant": request::constant(constant) })
             }
+            ParamSource::FileBase64(name) => json!({ "name": param.name, "fileBase64": name }),
         })
         .collect();
     json!({ "lane": value.lane.wire(), "operation": value.operation, "params": params })
@@ -251,6 +252,13 @@ pub fn app_action(value: &Action, locale: usize) -> Value {
             let list = declared.suggestions.and_then(|s| request::list_source(s.source));
             if let (Some(list), Some(suggestions)) = (list, argument.get_mut("suggestions")) {
                 suggestions["list"] = list_source(list);
+            }
+            let picker = declared.suggestions.and_then(|s| Picker::from_source(s.source));
+            if let (Some(picker), Some(suggestions)) = (picker, argument.get_mut("suggestions")) {
+                suggestions["picker"] = match picker {
+                    Picker::Folder => json!("folder"),
+                    Picker::File(extensions) => json!({ "file": extensions }),
+                };
             }
         }
     }

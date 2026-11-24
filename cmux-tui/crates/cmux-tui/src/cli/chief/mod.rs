@@ -11,7 +11,7 @@
 
 mod acp;
 mod adapter;
-mod avatar;
+pub(in crate::cli) mod avatar;
 mod backend;
 pub(in crate::cli) mod caller;
 mod chat;
