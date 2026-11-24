@@ -250,7 +250,11 @@ function DoneLine({
           className="cv-tool cv-subagent-done-row"
           attributes={{ "data-state": "failed", "data-look": "quiet", "data-refused": "" }}
         >
-          <div className="cv-tool cv-bgtask cv-subagent-done" data-state="failed" aria-label={`${name} · ${reason}`}>
+          <div
+            className="cv-tool cv-bgtask cv-subagent-done"
+            data-state="failed"
+            aria-label={error ? `${name} · ${error}` : `${name} · ${reason}`}
+          >
             <span className="cv-tool__icon">
               <AgentIdentity
                 harness={foreignHarness(agent.harness, chatHarness, senderBadge)}
@@ -259,8 +263,8 @@ function DoneLine({
                 fallback={SUBAGENT_FALLBACK}
               />
             </span>
-            {/* tooltip-allow: the line cuts the harness's reason; its whole text */}
-            <span className="cv-tool__text cv-subagent-failed__text" title={error ? `${name} · ${error}` : name}>
+            {/* No tooltip: it drew over the next row (cmux#52916); the whole reason is in the name. */}
+            <span className="cv-tool__text cv-subagent-failed__text">
               <span className="cv-subagent-failed__title">{name}</span>
               <span className="cv-subagent-failed__reason">{reason}</span>
             </span>

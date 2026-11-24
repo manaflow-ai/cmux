@@ -63,6 +63,7 @@ function snapshot(restart: boolean) {
     });
     // The settles of the two read above, then of two whose spawns are on a page this window never read.
     feed(1, "subagent_state_update", [settle(PUSH, "a1c94e6b50cb40c7c")], { _acpmuxRecovery: true });
+    feed(1, "subagent_state_update", [settle(AUDIT, "add483bc55fb3da4d")], { _acpmuxRecovery: true });
     feed(1, "subagent_state_update", [settle(UNREAD[0]!, "a0000000000000001")], { _acpmuxRecovery: true });
     feed(1, "subagent_state_update", [settle(UNREAD[1]!, "a0000000000000002")], { _acpmuxRecovery: true });
   }
