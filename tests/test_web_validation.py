@@ -275,15 +275,23 @@ class WebValidationTests(unittest.TestCase):
         self.assertNotIn("strategy:", base)
         self.assertIn("HEAD_SHARDS: ${{ needs.web-subarea-scope.outputs.react_shards }}", base)
         self.assertIn("pattern: react-apps-head-results-shard*", base)
-        for step in ("Generated bundle merge driver", "Check diff viewer eager JS budget",
-                     "Verify React Compiler for webviews", "Check webviews (Oxlint, Oxfmt, source rules)",
-                     "Check PR-scoped webview rules"):
+        # The shard-independent checks run once, in react-apps-static (lint and bundle at once, beside the shards),
+        # not before shard 1's tests: there they were about 10 of shard 1's 12-22 min (2026-11-24).
+        static_start = workflow.index("  react-apps-static:")
+        static_match = re.search(r"\n  [A-Za-z0-9_-]+:", workflow[static_start + 3 :])
+        static = workflow[static_start : static_start + 3 + static_match.start()]
+        for step, group in (("Generated bundle merge driver", "lint"), ("Post-edit formatting hook", "lint"),
+                            ("Check webviews (Oxlint, Oxfmt, source rules)", "lint"),
+                            ("Check diff viewer eager JS budget", "bundle"),
+                            ("Verify React Compiler for webviews", "bundle"), ("Check PR-scoped webview rules", "bundle")):
             with self.subTest(step=step):
-                body = block[block.index(f"- name: {step}"):]
+                self.assertNotIn(f"- name: {step}\n", block)
+                body = static[static.index(f"- name: {step}"):]
                 body = body[: body.index("\n      - name:", 1)] if "\n      - name:" in body[1:] else body
-                # Shard 1 only; a same-input receipt hit (#49946, react_shard_receipt.py) may also skip it.
-                self.assertRegex(body, r"\n        if: (matrix\.shard == 1|\$\{\{ matrix\.shard == 1 && "
-                                       r"steps\.receipt\.outputs\.hit != 'true' \}\})\n")
+                self.assertIn(f"\n        if: ${{{{ matrix.group == '{group}' }}}}\n", body)
+        aggregate = workflow[workflow.index("\n  react-apps-check:\n"):workflow.index("\n  webviews-test-durations:\n")]
+        self.assertIn("needs: [web-subarea-scope, react-apps-check-shard, react-apps-static,", aggregate)
+        self.assertIn('required_jobs = ["react-apps-check-shard", "react-apps-static"]', aggregate)
 
     def test_a_shard_whose_engines_failed_is_red_without_running_its_tests(self):
         """A failed engine install went on to the whole suite, 15-25 min, and the shard was red
@@ -304,8 +312,7 @@ class WebValidationTests(unittest.TestCase):
         # 50 of 52 shard 1 jobs red on one gate, then 40 min of tests). A push still runs every test.
         tests = " ".join(step("Test webviews").split())
         self.assertIn("!(github.event_name == 'pull_request' && (", tests)
-        for gate_id in ("source-build", "bundles", "merge-driver", "post-edit-format", "webviews-check",
-                        "pr-scoped-rules"):
+        for gate_id in ("source-build", "bundles"):
             with self.subTest(gate=gate_id):
                 self.assertIn(f"steps.{gate_id}.outcome == 'failure'", tests)
                 self.assertIn(f"id: {gate_id}", block)
