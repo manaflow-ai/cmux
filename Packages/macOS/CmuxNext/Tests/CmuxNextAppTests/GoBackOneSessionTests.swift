@@ -27,17 +27,22 @@ struct GoBackOneSessionTests {
         let places = [Self.chat("a"), Self.terminal("t"), Self.chat("b", workspace: "two"), Self.chat("c", window: "w2")]
         Self.visit(places, chats: ["a", "b", "c"], into: &sessions)
         #expect(sessions.entries.map(\.location.title) == ["a", "b", "c"], "the terminal is not a session step")
-        #expect(try #require(sessions.back()).location.title == "b")
+        let step1 = sessions.back() // a mutating call cannot sit inside #expect or #require
+        #expect(try #require(step1).location.title == "b")
         // The chat it focuses settles: absorbed, not a new step.
-        #expect(!sessions.record(Self.chat("b", workspace: "two"), at: Date(timeIntervalSince1970: 100)))
-        #expect(try #require(sessions.back()).location.title == "a")
-        #expect(sessions.back() == nil, "no earlier session: the action refuses quietly")
+        let recorded2 = sessions.record(Self.chat("b", workspace: "two"), at: Date(timeIntervalSince1970: 100))
+        #expect(!recorded2)
+        let step3 = sessions.back() // a mutating call cannot sit inside #expect or #require
+        #expect(try #require(step3).location.title == "a")
+        let step4 = sessions.back()
+        #expect(step4 == nil, "no earlier session: the action refuses quietly")
     }
 
     @Test func twoChatsInOneWorkspaceAreTwoSteps() throws {
         var sessions = LocationTrail()
         Self.visit([Self.chat("a"), Self.chat("b")], chats: ["a", "b"], into: &sessions)
-        #expect(try #require(sessions.back()).location.title == "a")
+        let step5 = sessions.back() // a mutating call cannot sit inside #expect or #require
+        #expect(try #require(step5).location.title == "a")
     }
 
     @Test func aClosedOrEndedChatIsSkippedNotDropped() throws {
@@ -51,10 +56,12 @@ struct GoBackOneSessionTests {
     @Test func openingAnotherChatAfterGoingBackDropsTheLaterSteps() throws {
         var sessions = LocationTrail()
         Self.visit([Self.chat("a"), Self.chat("b"), Self.chat("c")], chats: ["a", "b", "c"], into: &sessions)
-        #expect(try #require(sessions.back()).location.title == "b")
+        let step6 = sessions.back() // a mutating call cannot sit inside #expect or #require
+        #expect(try #require(step6).location.title == "b")
         sessions.record(Self.chat("b"), at: Date(timeIntervalSince1970: 100))
         sessions.record(Self.chat("d"), at: Date(timeIntervalSince1970: 200))
         #expect(sessions.entries.map(\.location.title) == ["a", "b", "d"])
-        #expect(try #require(sessions.back()).location.title == "b")
+        let step7 = sessions.back() // a mutating call cannot sit inside #expect or #require
+        #expect(try #require(step7).location.title == "b")
     }
 }
