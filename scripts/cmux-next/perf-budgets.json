@@ -13,6 +13,7 @@
   "tab_scale": ["tab_switch\\.terminal\\.(2|30)\\.e2e"],
   "tab_close": ["tab_close\\.terminal\\.burst\\.input_to_commit", "tab_close\\.chat\\.burst\\.input_to_commit"],
   "surfaces_scale": ["cmd_t\\.idle_(10|30)ws\\.key_to_visible", "ctrl_backtick\\.idle_(10|30)ws\\.key_to_visible"],
+  "many_chats": ["many_chats\\.main_thread_pct", "many_chats\\.hangs_over_250ms"],
   "terminal_burst": ["terminal_burst\\.(open|close)\\.\\d+\\.key_to_visible", "terminal_burst\\.new_terminal\\.(first|last)\\.key_to_visible", "terminal_burst\\.new_terminal\\.growth", "terminal_burst\\.close_terminal\\.key_to_state"]
  },
  "rows": {
@@ -171,6 +172,24 @@
    "unit": "%",
    "floor": 1.0,
    "what": "app CPU while 15 agents tick (15 busy spinners)"
+  },
+  "many_chats\\.main_thread_pct": {
+   "p95": 0.5,
+   "unit": "%",
+   "floor": 0.3,
+   "what": "many-chats (bench_power.py: 200 agent chat tabs, 10 streaming, 13 Chromium tabs, the New Tab page shown): the app's main-thread CPU % over the 60 s window; before the hidden-chat fix 1.06 % with six 10 s stalls, after it 0.18 % with none (cmux#48392)"
+  },
+  "many_chats\\.hangs_over_(100|250)ms": {
+   "p95": 0,
+   "unit": "stalls",
+   "floor": 1.0,
+   "what": "many-chats: main-thread stalls (debug.hangs) over 100 / 250 ms in the 60 s window; none is the target"
+  },
+  "many_chats\\.hang_max_ms": {
+   "p95": 250,
+   "unit": "ms",
+   "floor": 20.0,
+   "what": "many-chats (bench_power.py, Leo's ~200 agent chat tabs, 10 streaming, the New Tab page shown): the longest main-thread stall in the 60 s window (debug.hangs)"
   },
   "idle\\..*\\.app_cpu_pct": {
    "p95": 0.5,
