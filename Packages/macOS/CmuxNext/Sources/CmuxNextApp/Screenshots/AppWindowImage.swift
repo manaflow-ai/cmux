@@ -24,16 +24,16 @@ struct AppWindowImage {
 
     /// The window's image at its backing scale, raw: only a person's own run in the app gets
     /// this (``ActionInvocation/isPersonsOwnRun``). An agent's or a script's run goes through
-    /// ``maskedCapture(_:)``, which covers every page area and chat.
+    /// ``maskedCapture(_:)``, which covers every page area and chat. `overlays: false`: no panels, menus or other windows (stage 0's saved frame).
     /// - Throws: ``WindowScreenshotFailure`` when the window server gives no image.
-    func capture(_ window: NSWindow) async throws -> CGImage {
+    func capture(_ window: NSWindow, overlays: Bool = true) async throws -> CGImage {
         let base = try await window.screenshotImage(includeChild: WindowOverlayHost.isPageWindow)
         var layers = await Self.pageLayers(in: window, services: services).layers
         // The panel and floating-window captures run off the main actor too; main reads only their window numbers.
-        if let panels = await window.childWindowsImage(includeChild: { !WindowOverlayHost.isPageWindow($0) }) {
+        if overlays, let panels = await window.childWindowsImage(includeChild: { !WindowOverlayHost.isPageWindow($0) }) {
             layers.append(.window(panels))
         }
-        if let floating = await window.floatingWindowsImage() { layers.append(.window(floating.image)) }
+        if overlays, let floating = await window.floatingWindowsImage() { layers.append(.window(floating.image)) }
         // The full-resolution redraw runs off the main actor.
         return await WindowImageLayer.compositedOffMain(base: base, windowSize: window.frame.size, layers: layers) ?? base
     }

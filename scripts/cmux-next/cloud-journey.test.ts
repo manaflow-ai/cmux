@@ -12,11 +12,33 @@ import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from ".
 import { directExec, settleBackground, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
+import { sessionModelVerdict } from "./cloud-journey";
 import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, listedMachine, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
 import { http as journeyHttp, socketDropped } from "./cloud-journey";
 import { sameSurgeSlots, surgeMachineIds, SURGE_PROOF_REQUEST } from "./cloud-journey";
 
 describe("cloud journey", () => {
+  test("session model is read from the Claude transcript: a record naming the asked model does not pass a different one", async () => {
+    // Production 2026-11-10 (cmux#40383): the second chat's record named Haiku while the pooled agent ran Sonnet.
+    const fake = (transcript: string, info = '{"model":"claude-haiku-5-5","agentSessionId":"sid-1"}') => {
+      const commands: string[] = [];
+      const exec = async (command: string) => {
+        commands.push(command);
+        return { stdout: command.includes("session info") ? info : transcript, stderr: "", code: 0 };
+      };
+      return { exec: exec as any, commands };
+    };
+    const line = (model: string) => `"model":"${model}"\n`;
+    const ok = fake(line("claude-haiku-5-5") + line("<synthetic>"));
+    expect(await sessionModelVerdict(ok.exec, "s-m2", "claude-haiku-5-5")).toBe("asked claude-haiku-5-5; the agent ran claude-haiku-5-5 (its Claude transcript)");
+    expect(ok.commands[1]).toContain("sid-1");
+    expect(await sessionModelVerdict(fake(line("claude-haiku-5-5-20261101")).exec, "s-m2", "claude-haiku-5-5")).toContain("claude-haiku-5-5-20261101");
+    await expect(sessionModelVerdict(fake(line("claude-sonnet-5-5")).exec, "s-m2", "claude-haiku-5-5")).rejects.toThrow("the agent ran claude-sonnet-5-5");
+    await expect(sessionModelVerdict(fake(line("claude-haiku-5-5") + line("claude-sonnet-5-5")).exec, "s-m2", "claude-haiku-5-5")).rejects.toThrow("claude-sonnet-5-5");
+    await expect(sessionModelVerdict(fake("").exec, "s-m2", "claude-haiku-5-5")).rejects.toThrow("names no model");
+    await expect(sessionModelVerdict(fake("", '{"model":"claude-haiku-5-5"}').exec, "s-m2", "claude-haiku-5-5")).rejects.toThrow("no agentSessionId");
+  });
+
   test("preclaim table survives the enclosing journey step on success and failure", async () => {
     for (const fail of [false, true]) {
       const out = mkdtempSync(join(tmpdir(), "preclaim-summary-test-"));
@@ -3343,5 +3365,19 @@ describe("listedMachine (run 45174448964: `vm_... missing from 49 machines` on a
   test("a machine neither read finds fails", async () => {
     await expect(listedMachine("vm_99", async () => ({ machines: rows(0, 3) }), async () => { throw new Error("HTTP 404"); })).rejects.toThrow("vm_99 missing from 3 machines, and cloud.machine.get: HTTP 404");
     await expect(listedMachine("vm_99", async () => ({ machines: rows(0, 3) }), async () => ({ id: "vm_99", status: "deleted" }))).rejects.toThrow("reads deleted");
+  });
+});
+
+describe("guestTimed", () => {
+  const { guestTimed, guestMs, guestDetail } = require("./cloud-journey");
+  test("times a heredoc command on its own lines and keeps its output and exit marker", () => {
+    const r = spawnSync("bash", ["-c", guestTimed(`python3 -I - <<'X'\nprint('@@session s1')\nX\necho "@@exit $?"`)], { encoding: "utf8" });
+    expect(r.stdout).toContain("@@session s1");
+    expect(r.stdout).toContain("@@exit 0");
+    const ms = guestMs(r.stdout);
+    expect(ms).not.toBeNull();
+    expect(ms).toBeGreaterThanOrEqual(0);
+    expect(guestDetail(ms)).toContain("on the guest");
+    expect(guestDetail(null)).toBe("");
   });
 });

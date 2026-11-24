@@ -3,6 +3,8 @@
 //!
 //! - `_acpmux/transfer_receive {manifest}`: the source's `transfer_begin` answer. Refused when a
 //!   chat with its id is here already, or its agent is not configured here. Answers `{receiveId}`.
+//! - `_acpmux/transfer_preflight {manifest}`: the same question with nothing begun, for a dry
+//!   run and for a move before it freezes the chat. Answers `{takes: true}` or that refusal.
 //! - `_acpmux/transfer_write {receiveId, path, offset, data}`: one page (base64), in order.
 //! - `_acpmux/transfer_finish {receiveId, cwd?, name?, from?}`: the chat is imported (its history,
 //!   draft and agent store), in `cwd` when its folder has another path here, and its queue runs
@@ -399,17 +401,41 @@ impl Hub {
         self.seal_retry_replacement(old);
         // Drain an earlier retention commit before replacing the journal.
         drop(old.append_lock.lock().unwrap_or_else(|e| e.into_inner()));
-        self.kill(old, false).await
+        let why =
+            crate::close_why::CloseWhy::by("daemon", "replaced by an import of the same chat")
+                .outcome("moved");
+        self.kill_why(old, false, why).await
     }
 
-    pub(super) async fn transfer_receive(&self, params: &Value) -> Result<Value, RpcError> {
+    /// `_acpmux/transfer_preflight {manifest, guard?}`: whether this daemon would take the chat
+    /// the manifest describes, asked before the source freezes or copies anything. The manifest
+    /// is what the source knows by then (`schema`, `sessionId`, `session.harness`, and `epoch`,
+    /// `approvedWaiting`, `files` when it has them); the answer is `transfer_receive`'s own
+    /// ([`Self::receive_admission`]): `{takes: true}`, or the refusal the receive would give,
+    /// code and text. Nothing is written and no receive begins.
+    pub(super) async fn transfer_preflight(&self, params: &Value) -> Result<Value, RpcError> {
         let manifest = params.get("manifest").cloned().unwrap_or(Value::Null);
-        let incoming_epoch = manifest_epoch(&manifest)?;
-        let incoming_floor = incoming_epoch.unwrap_or(0);
+        manifest_epoch(&manifest)?;
         let guard = match params.get("guard") {
             Some(g) => Some(Guard::parse(g).await?),
             None => None,
         };
+        self.receive_admission(&manifest, guard.as_ref(), true).await?;
+        Ok(json!({"takes": true, "sessionId": manifest["sessionId"]}))
+    }
+
+    /// Every refusal this daemon can give a chat from its manifest alone, before one byte of the
+    /// bundle: the one check behind `transfer_receive` and `transfer_preflight`, so a dry run
+    /// and the move it previews hear the same answer. `preflight`: the source has not begun the
+    /// move, so a manifest without an epoch has none yet and is not judged stale.
+    async fn receive_admission(
+        &self,
+        manifest: &Value,
+        guard: Option<&Guard>,
+        preflight: bool,
+    ) -> Result<(), RpcError> {
+        let incoming_epoch = manifest_epoch(manifest)?;
+        let incoming_floor = incoming_epoch.unwrap_or(0);
         let schema = manifest["schema"].as_str().unwrap_or("");
         if schema != TRANSFER_SCHEMA && schema != DURABLE_TRANSFER_SCHEMA {
             return Err(transfer_error(
@@ -432,7 +458,7 @@ impl Hub {
             return Err(RpcError::invalid_params(format!("transfer: bad session id {id:?}")));
         }
         // A chat that moved away from here may come back (`finish` replaces its closed copy).
-        let here = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
+        let here = self.session_get(id);
         if let Some(existing) = here.as_ref() {
             if !existing.ownership_epoch_is_valid() {
                 return Err(transfer_error("epoch_unreadable", "ownership history is unreadable"));
@@ -440,7 +466,12 @@ impl Hub {
             // A delayed bundle for an older owner must not replace a newer moved copy.
             self.restore_ownership_epoch(existing)
                 .map_err(|e| transfer_error("store", format!("ownership epoch unreadable: {e}")))?;
-            if incoming_floor != 0 || schema != TRANSFER_SCHEMA {
+            let judged = if preflight {
+                incoming_epoch.is_some()
+            } else {
+                incoming_floor != 0 || schema != TRANSFER_SCHEMA
+            };
+            if judged {
                 reject_stale_epoch(existing.ownership_epoch(), incoming_floor)?;
             }
         }
@@ -455,7 +486,16 @@ impl Hub {
             ));
         }
         if !self.config.read().await.harnesses.contains_key(harness) {
-            let e = transfer_error("harness", format!("agent {harness:?} is not configured here"));
+            // What to do next, for whoever reads it on the source: the chat runs under that
+            // harness, so the machine it moves to must have a profile of the same name.
+            let e = transfer_error(
+                "harness",
+                format!(
+                    "agent {harness:?} is not configured here: this machine needs a harness \
+                     profile named {harness:?} (a `harnesses` entry in its acpmux config) before \
+                     the chat can move to it"
+                ),
+            );
             return Err(e.with_data(json!({"harness": harness})));
         }
         let files = manifest["files"].as_array().cloned().unwrap_or_default();
@@ -468,9 +508,21 @@ impl Hub {
         if files.len() > MAX_FILES {
             return Err(transfer_error("size", format!("{} files", files.len())));
         }
-        if let Some(g) = &guard {
-            self.guarded_receive_check(g, &manifest).await?;
+        if let Some(g) = guard {
+            self.guarded_receive_check(g, manifest).await?;
         }
+        Ok(())
+    }
+
+    pub(super) async fn transfer_receive(&self, params: &Value) -> Result<Value, RpcError> {
+        let manifest = params.get("manifest").cloned().unwrap_or(Value::Null);
+        manifest_epoch(&manifest)?;
+        let guard = match params.get("guard") {
+            Some(g) => Some(Guard::parse(g).await?),
+            None => None,
+        };
+        self.receive_admission(&manifest, guard.as_ref(), false).await?;
+        let id = manifest["sessionId"].as_str().unwrap_or("");
         // A delta bundle comes with the prefix staged for it (`transfer_precopy.rs`), never alone.
         let stage_id = params.get("stageId").and_then(Value::as_str);
         if names_prefix(&manifest) != stage_id.is_some() {
@@ -614,7 +666,7 @@ impl Hub {
                 "bundle identity does not match transfer manifest",
             ));
         }
-        let old = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
+        let old = self.session_get(id);
         let old = old.filter(|s| self.moved_away(s));
         if let Some(existing) = old.as_ref() {
             if !existing.ownership_epoch_is_valid() {
@@ -626,10 +678,15 @@ impl Hub {
                 reject_stale_epoch(existing.ownership_epoch(), incoming_floor)?;
             }
         }
+        // Only cmux-harness binds durable state (its journal) to the agent session id. Another
+        // harness that cannot load its session starts a new one on each machine it moves to
+        // (an ACP agent without loadSession), so its id differs on the way back and the chat
+        // is still this one: the outer id and the harness say so.
         let replacing_durable = old.as_ref().is_some_and(|existing| {
             let existing_meta = existing.meta();
             existing_meta.harness == bundle_meta.harness
-                && existing_meta.agent_session_id == bundle_meta.agent_session_id
+                && (existing_meta.agent_session_id == bundle_meta.agent_session_id
+                    || bundle_meta.harness != "cmux-harness")
         });
         if old.is_some() && !replacing_durable {
             return Err(transfer_error(
@@ -762,6 +819,8 @@ impl Hub {
                 if guard.is_none() {
                     self.note_received(&session, &transfer_id, bundle_meta.last_seq);
                 }
+                // A prefix whose history follows the chat: awaited here (`transfer_history.rs`).
+                self.note_history_pending(&session, &dir);
                 if let Some((_, backup)) = source_store_backup.as_ref() {
                     let state = backup.with_extension("replacement-state.json");
                     let commit = serde_json::to_value(json!({"id": id, "agentId": bundle_meta.agent_session_id, "transferId": manifest["transferId"], "phase": "committed"}))
@@ -828,7 +887,7 @@ impl Hub {
                 let _ = crate::home_fs::remove_dir_all(entry.path());
             }
         }
-        let here = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(session_id).cloned();
+        let here = self.session_get(session_id);
         let mut landed = false;
         if let Some(session) = here {
             // The whole log when it did not land: off the runtime's workers (`qos::off_worker`).

@@ -10,7 +10,7 @@ import Observation
 /// area like a workspace's; `HomeDockSwitchView.rowTools`): only the Chief's status mark
 /// (``ChiefSidebar/status``, what its sidebar item shows; hidden while idle, its slot kept, so a
 /// status change never moves the tabs). Chief Actions and Subagents are rows at the top of the
-/// pane's one more menu (⋮, ``PaneMoreMenuContributing``), not buttons of their own (Lawrence
+/// selected tab's right-click (``PaneMoreMenuContributing``), not buttons of their own (Lawrence
 /// 2026-10-22: "fix it so it's simple, like tf are these buttons for").
 public final class ChiefPaneTools: NSView, PaneMoreMenuContributing {
     public let indicator = StatusIndicatorView()
