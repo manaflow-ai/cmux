@@ -187,8 +187,17 @@ impl Mux {
                 "key": key,
                 "index": index,
             });
-            let commit = if project_resource {
-                registry.commit_workspace_insert(
+            // A row the store kept past the in-memory end (a staged create whose rollback the
+            // store refused) makes the lists differ: the full commit restates the order and
+            // drops it. Otherwise the append's work follows this one workspace.
+            let stale_rows = registry.stored_order_reaches(index)?;
+            let desired = stale_rows.then(|| {
+                let mut desired = self.registry_projection(&state);
+                desired.push(created.clone());
+                desired
+            });
+            let commit = match (project_resource, desired.as_deref()) {
+                (true, None) => registry.commit_workspace_insert(
                     mutation,
                     &fingerprint,
                     expected_generation,
@@ -199,28 +208,55 @@ impl Mux {
                     &result,
                     true,
                     None,
-                )?
-            } else {
-                let marked = workspace_public_id.as_str().to_string();
-                let marked_key = key.clone();
-                let writes = mark.writes();
-                let write_mark =
-                    move |tx: &rusqlite::Transaction<'_>| mark.write(tx, &marked, &marked_key);
-                // Staged for the resource effect, as `commit_for_resource_effect_with`.
-                registry.commit_workspace_insert(
+                )?,
+                (true, Some(desired)) => registry.commit_with_active_workspace(
                     mutation,
                     &fingerprint,
                     expected_generation,
                     expected_revision,
                     "workspace-added",
-                    insert,
+                    &key,
+                    desired,
                     Some(&active_public_id),
                     &result,
-                    false,
-                    writes.then_some(
+                )?,
+                (false, desired) => {
+                    let marked = workspace_public_id.as_str().to_string();
+                    let marked_key = key.clone();
+                    let writes = mark.writes();
+                    let write_mark =
+                        move |tx: &rusqlite::Transaction<'_>| mark.write(tx, &marked, &marked_key);
+                    let extra = writes.then_some(
                         &write_mark as crate::workspace_registry::RegistryTransactionWrite<'_>,
-                    ),
-                )?
+                    );
+                    match desired {
+                        // Staged for the resource effect, as `commit_for_resource_effect_with`.
+                        None => registry.commit_workspace_insert(
+                            mutation,
+                            &fingerprint,
+                            expected_generation,
+                            expected_revision,
+                            "workspace-added",
+                            insert,
+                            Some(&active_public_id),
+                            &result,
+                            false,
+                            extra,
+                        )?,
+                        Some(desired) => registry.commit_for_resource_effect_with(
+                            mutation,
+                            &fingerprint,
+                            expected_generation,
+                            expected_revision,
+                            "workspace-added",
+                            &key,
+                            desired,
+                            Some(&active_public_id),
+                            &result,
+                            extra,
+                        )?,
+                    }
+                }
             };
             let committed_workspace = commit.result["workspace"]
                 .as_u64()

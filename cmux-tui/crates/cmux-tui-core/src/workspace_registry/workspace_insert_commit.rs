@@ -96,6 +96,25 @@ impl WorkspaceRegistry {
         })
     }
 
+    /// Whether the stored order holds a live row at `position` or later: one read of the live
+    /// position index, not a walk. An append at the in-memory count finds none when the store
+    /// and memory agree; a row there is one memory let go but the store kept (a staged create
+    /// whose rollback the store refused), which only the full commit's restatement removes.
+    pub(crate) fn stored_order_reaches(&self, position: usize) -> anyhow::Result<bool> {
+        let position =
+            i64::try_from(position).context("workspace position exceeds SQLite range")?;
+        Ok(self
+            .connection
+            .get()
+            .query_row(
+                "SELECT 1 FROM workspaces WHERE tombstoned = 0 AND position >= ?1 LIMIT 1",
+                [position],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some())
+    }
+
     /// Commit a workspace registry revision that adds `insert` and changes nothing else (see
     /// the module text): [`Self::commit_workspace_registry`] without the whole list. With
     /// `project_resource` it also writes the new workspace's resource rows and journals the
