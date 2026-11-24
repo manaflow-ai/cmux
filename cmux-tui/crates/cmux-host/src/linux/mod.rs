@@ -314,6 +314,8 @@ impl LinuxPlatform {
         spec.args.extend(carrier.iter().cloned());
         spec.set_env.extend(crate::turn_scope::environment(&paths)?);
         ensure_run_dir(&paths, &layout);
+        // The compiler cache settings for acpmux: `/run` is empty after a boot (`sccache_env.rs`).
+        crate::sccache_env::publish(&paths);
         // Every spawn runs the installed build: nothing waits any more.
         self.clear_host_deferred();
         let child = spawn::spawn_daemon_supervised(&spec, self.bootstrap.as_deref())?;
