@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronIcon } from "./ComposerPickers";
-import type { BrowseRequest } from "./AddProjectPanel";
-import type { BrowseResult } from "./addProjectPanelModel";
+import type { BrowseRequest, BrowseResult } from "./browseProject";
 import { BrowseFailure } from "./BrowseFailure";
 import { browseFailureMessage } from "./browseFailureModel";
 import { useT } from "./i18n";

@@ -36,6 +36,7 @@ repo=$(cd "$here/../.." && pwd)
 [ -x "$acpmux" ] || { echo "agent-quota: acpmux=PATH (a build of this checkout) is required" >&2; exit 2; }
 command -v claude >/dev/null || { echo "agent-quota: claude is not on PATH" >&2; exit 2; }
 work=$(mktemp -d "${TMPDIR:-/tmp}/agent-quota.XXXXXX")
+trap '[ -n "${AGENT_QUOTA_KEEP:-}" ] || rm -rf "$work"' EXIT
 mkdir -p "$work/bin" "$work/plugin/.claude-plugin" "$work/plugin/skills/cmux-quota"
 cp "$here/agent-quota/gh" "$work/bin/gh" && cp "$acpmux" "$work/bin/acpmux" && chmod +x "$work/bin/"*
 echo '{"name":"cmux","version":"0.0.0","description":"cmux agent tools"}' > "$work/plugin/.claude-plugin/plugin.json"
@@ -64,7 +65,7 @@ trial() { # ARM K N
     git -C "$t/repo$i" init -q && git -C "$t/repo$i" remote add origin https://github.com/octo/app.git
     ( cd "$t/repo$i" && BENCH=$t CI_SECONDS=$ci_seconds ACPMUX_PR_WAIT_DIR=$t/state PATH="$work/bin:$PATH" \
         timeout $(( ci_seconds * 4 + 300 )) claude -p --bare --settings "$settings" --model "$model" --effort medium \
-        --allowedTools Bash,Read "${plugin[@]}" --output-format stream-json --verbose "$pre$ask" \
+        --allowedTools Bash,Read ${plugin[@]+"${plugin[@]}"} --output-format stream-json --verbose "$pre$ask" \
         > "$t/transcript$i.jsonl" 2> "$t/stderr$i" ) &
   done
   wait
