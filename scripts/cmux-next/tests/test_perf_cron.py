@@ -280,6 +280,26 @@ class DecideTests(unittest.TestCase):
         self.assertEqual(cron.part_order(state, ["build", "motion", "stress", "fresh"], t),
                          ["build", "fresh", "motion", "stress"])
 
+    def test_a_part_with_no_stored_rows_that_failed_last_time_goes_after_the_stale_ones(self):
+        state = cron.empty_state(T0)
+        state["part_stored"] = {"web-ui-god": {"at": cron.iso(T0)}}
+        state["history"] = [{"sha": "a" * 40, "kind": "tip", "failed_parts": ["coord-sim", "web-ui-flat", "web-ui"],
+                             "ran_failed": ["coord-sim", "web-ui-flat"]}]
+        t = at(cron.PART_STALE_HOURS + 2)
+        self.assertEqual(cron.part_order(state, ["build", "coord-sim", "web-ui-flat", "fresh", "web-ui-god"], t),
+                         ["build", "fresh", "web-ui-god", "coord-sim", "web-ui-flat"])
+
+    def test_an_older_history_entry_names_its_failed_runs_by_their_reason(self):
+        state = cron.empty_state(T0)
+        state["history"] = [{"sha": "a" * 40, "kind": "tip", "failed_parts": ["coord-sim", "web-ui", "web-ui-god", "build"],
+                             "failed_why": {
+                                 "coord-sim": "coord-sim gen: /w/shapes/default.json: No such file or directory (os error 2)",
+                                 "web-ui": "chat-open: timed out after 105 s; chat-switch: exit 1",
+                                 "web-ui-god": "not run: the measurement reached its bound (12 h active or 48 h in all)",
+                                 "build": "no published cmux-tui tree of 2322b92a504d for 2 h"}},
+                            {"sha": "b" * 40, "kind": "bisect", "failed_parts": ["web-ui-god"], "ran_failed": ["web-ui-god"]}]
+        self.assertEqual(cron.ran_failed(state), {"coord-sim", "web-ui"})
+
     def test_a_part_with_no_row_anywhere_goes_before_one_with_old_rows(self):
         state = cron.empty_state(T0)
         state["part_stored"] = {}
@@ -4583,6 +4603,12 @@ class LinuxControllerRouteTests(unittest.TestCase):
         cur = self.cur()
         self.assertEqual(cron.linux_picks(cur, ["web-ui-god", "diff-viewer"], T0, False, True), ("web-ui-god", "", []))
         self.assertNotIn("linux_requests", cur)
+
+    def test_cloud_claim_is_never_asked_of_the_controller(self):
+        cur = self.cur()
+        self.assertEqual(cron.linux_route(cur, "cloud-claim", T0, True, True), "runner",
+                         "it needs the run's token, which a pool worker has not")
+        self.assertNotIn("cloud-claim", cur.get("linux_requests") or {})
 
     def test_no_controller_or_an_older_commit_runs_on_the_runner(self):
         self.assertEqual(cron.linux_route(self.cur(), "web-ui-god", T0, False, True), "runner")
