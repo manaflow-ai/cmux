@@ -168,6 +168,10 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         private var lastFontFamily: String = ""
         private var lastFontSize: Double = MarkdownFontSizeSettings.defaultPointSize
         private var lastMaxContentWidth: Double = MarkdownMaxWidthSettings.defaultCSSPixels
+        /// Added to local image URLs on every render. WebKit caches images by
+        /// URL, so `reloadLocalImages()` bumps it to load files that changed
+        /// on disk, and later renders keep the new URLs.
+        private var localImageRevision = 0
         private var isLoaded = false
         private var isShellLoading = false
         private var webContentProcessRecoveryAttempts = 0
@@ -356,6 +360,20 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             }
         }
 
+        /// Points the page's local images at new URLs so WebKit loads them
+        /// again. Refresh needs this when an image changed on disk but the
+        /// Markdown text did not, which `update(markdown:theme:)` ignores.
+        func reloadLocalImages() {
+            localImageRevision += 1
+            // A shell that is still loading picks up the new revision when
+            // `didFinish` renders the document.
+            guard isLoaded, let webView else { return }
+            webView.evaluateJavaScript(
+                "window.__cmuxReloadLocalImages && window.__cmuxReloadLocalImages(\(localImageRevision));",
+                completionHandler: nil
+            )
+        }
+
         func renderedHTML(markdown: String? = nil) async -> String? {
             guard isLoaded else { return nil }
             if let markdown {
@@ -425,7 +443,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 #if DEBUG
             NSLog("MarkdownPanel.pushMarkdown bytes=\(markdown.utf8.count)")
 #endif
-            guard let js = Self.renderMarkdownScript(markdown) else { return }
+            guard let js = Self.renderMarkdownScript(markdown, localImageRevision: localImageRevision) else { return }
             webView.evaluateJavaScript(js) { [weak self] _, error in
 #if DEBUG
                 if let error {
@@ -440,7 +458,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 
         private func renderMarkdownForExport(_ markdown: String) async -> Bool {
             guard let webView, isLoaded else { return false }
-            guard let js = Self.renderMarkdownScript(markdown) else { return false }
+            guard let js = Self.renderMarkdownScript(markdown, localImageRevision: localImageRevision) else { return false }
             do {
                 _ = try await webView.evaluateJavaScript(js)
                 lastMarkdown = markdown
@@ -454,15 +472,15 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             }
         }
 
-        private static func renderMarkdownScript(_ markdown: String) -> String? {
+        private static func renderMarkdownScript(_ markdown: String, localImageRevision: Int) -> String? {
             // Send the raw markdown through a JSON literal so we don't have
             // to hand-escape backticks/backslashes/quotes for JS.
             guard let data = try? JSONSerialization.data(withJSONObject: [markdown]),
                   let arrayLiteral = String(data: data, encoding: .utf8) else { return nil }
             return """
-            (function(md) {
+            (function(md, localImageRevision) {
               if (window.__cmuxRenderMarkdown) {
-                window.__cmuxRenderMarkdown(md);
+                window.__cmuxRenderMarkdown(md, localImageRevision);
                 return;
               }
               var el = document.getElementById('content') || document.body;
@@ -472,7 +490,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 return div.innerHTML;
               }
               el.innerHTML = '<pre style=\"color:#f85149;white-space:pre-wrap\">Markdown renderer failed to initialize. Showing raw source.\\n\\n' + esc(md) + '</pre>';
-            })(\(arrayLiteral)[0]);
+            })(\(arrayLiteral)[0], \(localImageRevision));
             """
         }
 
