@@ -70,11 +70,7 @@ jobs:
           - group: shared
             packages: Packages/Shared/CmuxSentryTelemetry
           - group: mobile-core
-            packages: >-
-              Packages/Shared/CMUXMobileCore
-              Packages/Shared/CmuxTheme
-              Packages/iOS/CmuxMobilePairedMac
-              Packages/iOS/CmuxMobileShellModel
+            packages: Packages/Shared/CmuxTheme
           # Other SDK suites need a local Stack backend; these use URLProtocol fixtures.
           - group: stack-auth
             packages: vendor/stack-auth-swift-sdk-prerelease
