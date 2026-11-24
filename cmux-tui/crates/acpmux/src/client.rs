@@ -94,7 +94,10 @@ impl Client {
     pub(crate) async fn in_process(hub: Arc<crate::hub::Hub>) -> Result<Arc<Self>> {
         let (out, requests) = mpsc::channel(32);
         let (responses, mut incoming) = mpsc::channel(32);
-        tokio::spawn(crate::server::serve_connection(hub, requests, responses));
+        hub.scope.spawn_until_cancelled(
+            "hub-move-out-client",
+            crate::server::serve_connection(hub.clone(), requests, responses),
+        );
         let lines = futures::stream::poll_fn(move |cx| incoming.poll_recv(cx));
         Self::from_lines(&crate::config::socket_path(), false, out, lines).await
     }
