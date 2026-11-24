@@ -85,6 +85,7 @@ extension PageWebView {
         state.start = .now
         if let script = Self.attributesScript(documentAttributes) { webView.evaluateJavaScript(script, completionHandler: nil) }
         applyTheme(force: true)
+        applyLanguage()
         applyLiveDocumentAttributes()
         let params: JSONValue = route.map { ["route": .string($0)] } ?? .object([:])
         let router = router

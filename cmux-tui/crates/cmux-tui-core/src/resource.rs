@@ -128,6 +128,10 @@ pub enum ResourceOperation {
     ChiefEngineSet,
     #[serde(rename = "chief.stop")]
     ChiefStop,
+    #[serde(rename = "chief.automation.list")]
+    ChiefAutomationList,
+    #[serde(rename = "chief.automation.update")]
+    ChiefAutomationUpdate,
     #[serde(rename = "chief.continue")]
     ChiefContinue,
     #[serde(rename = "chief.retry")]
@@ -188,6 +192,12 @@ pub enum ResourceOperation {
     DiffCommentsSend,
     #[serde(rename = "git.branches")]
     GitBranches,
+    #[serde(rename = "git.review.comment")]
+    GitReviewComment,
+    #[serde(rename = "git.review.post")]
+    GitReviewPost,
+    #[serde(rename = "git.review.start")]
+    GitReviewStart,
     #[serde(rename = "git.commit")]
     GitCommit,
     #[serde(rename = "git.diff")]
@@ -210,6 +220,8 @@ pub enum ResourceOperation {
     GitWorktreeRemove,
     #[serde(rename = "git.worktree.setup")]
     GitWorktreeSetup,
+    #[serde(rename = "git.worktree.setup.run")]
+    GitWorktreeSetupRun,
     #[serde(rename = "history.entries.list")]
     HistoryEntriesList,
     #[serde(rename = "history.entries.remove")]
@@ -470,6 +482,8 @@ pub enum ResourceOperation {
     KeybindingsRemove,
     #[serde(rename = "keybindings.reset")]
     KeybindingsReset,
+    #[serde(rename = "language_packs.ensure")]
+    LanguagePacksEnsure,
     #[serde(rename = "window_record.list")]
     WindowRecordList,
     #[serde(rename = "window_record.put")]
@@ -518,6 +532,8 @@ pub enum ResourceOperation {
     SidebarReset,
     #[serde(rename = "project.list")]
     ProjectList,
+    #[serde(rename = "project.actions.list")]
+    ProjectActionsList,
     #[serde(rename = "project.observe")]
     ProjectObserve,
     #[serde(rename = "project.add")]
@@ -668,6 +684,10 @@ pub enum ResourceOperation {
     CloudMachineChatAccess,
     #[serde(rename = "cloud.machine.share_chat")]
     CloudMachineShareChat,
+    #[serde(rename = "cloud.machine.chief_start")]
+    CloudMachineChiefStart,
+    #[serde(rename = "cloud.machine.chief_resize")]
+    CloudMachineChiefResize,
     #[serde(rename = "room.create")]
     RoomCreate,
     #[serde(rename = "room.delete")]

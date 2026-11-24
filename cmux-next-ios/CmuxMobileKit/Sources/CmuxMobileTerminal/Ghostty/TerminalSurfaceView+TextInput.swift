@@ -28,13 +28,15 @@ extension TerminalSurfaceView: UITextInput {
         // context returns to the anchor at each word; and the first key after input the
         // keyboard did not type (the key bar's Return, a paste), so an input method that
         // rewrites the previous letters (Vietnamese Telex) never reaches past the prompt.
-        guard input.markedText == nil, !keyboardContextStale, !text.contains(where: \.isWhitespace) else {
+        if input.markedText == nil, !keyboardContextStale, !text.contains(where: \.isWhitespace) {
+            perform(input.insertText(text))
+        } else {
             withTextChange { perform(input.insertText(text)) }
-            keyboardContextStale = false
-            return
         }
-        perform(input.insertText(text))
         keyboardContextStale = false
+        #if DEBUG
+        NotificationCenter.default.post(name: TerminalModel.debugKeyAccepted, object: self)
+        #endif
     }
 
     public func deleteBackward() {

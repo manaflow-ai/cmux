@@ -86,6 +86,9 @@ mod restart_tests;
 #[path = "peer_handshake_tests.rs"]
 mod handshake_tests;
 #[cfg(test)]
+#[path = "peer_hub_behind_tests.rs"]
+mod hub_behind_tests;
+#[cfg(test)]
 #[path = "peer_liveness_tests.rs"]
 mod liveness_tests;
 #[cfg(test)]
@@ -178,6 +181,20 @@ pub enum PeerNotice {
 }
 
 impl PeerNotice {
+    /// What it is, for counts (`gauges.peerNotices.kinds`): the variant, and a changed row's kind
+    /// or a notification's method.
+    pub(crate) fn label(&self) -> String {
+        match self {
+            Self::SessionChanged { kind, .. } => format!("changed:{kind}"),
+            Self::Notification { method, .. } => format!("note:{method}"),
+            Self::SessionsPatch { .. } => "patch".into(),
+            Self::Sessions(_) => "list".into(),
+            other => {
+                format!("{other:?}").split(['(', ' ', '{']).next().unwrap_or("other").to_owned()
+            }
+        }
+    }
+
     /// A list's (or a follow's patch's) bytes of row text; None for any other notice.
     pub(crate) fn list_bytes(&self) -> Option<u64> {
         let (Self::Sessions(rows) | Self::SessionsPatch { rows, .. }) = self else { return None };
@@ -444,7 +461,7 @@ pub struct Peer {
     /// repeat and dropped. It lasts only until the chat's first newer live frame, or the next
     /// request about the chat (a `session/load` sends its history again, which is no repeat).
     replay_tail: StdMutex<HashMap<String, u64>>,
-    notices: mpsc::Sender<(String, u64, PeerNotice)>,
+    notices: crate::peer_notice_outbox::NoticeOutbox,
     stop: AtomicBool,
     /// A replacement requested now attempts immediately, even if its cache is parked.
     retry_immediately: AtomicBool,
