@@ -2442,7 +2442,8 @@ fn size_run(label: &str, bytes: u64) -> Value {
     daemon.stop();
     let shutdown_ms = ms(stopped);
     let heap = profile.as_deref().map(attribute);
-    let mut daemon = Daemon::start(&scratch, &home, None);
+    let restart_profile = profile.as_ref().map(|_| scratch.join("dhat-restart-heap.json"));
+    let mut daemon = Daemon::start(&scratch, &home, restart_profile.as_deref());
     let mut rpc = Rpc::connect(&daemon.socket);
     rpc.call("initialize", json!({"protocolVersion": 1, "clientInfo": {"name": "size-sweep"}}))
         .unwrap();
@@ -2461,8 +2462,10 @@ fn size_run(label: &str, bytes: u64) -> Value {
         .is_some_and(|(seq, before)| seq > before);
     let restart_send = send_first_token(&mut rpc, &id, &format!("size {label} restarted"));
     let (restart_rss, restart_peak_rss) = daemon.rss();
+    let restart_maps = daemon.rss_maps();
     drop(rpc);
     daemon.stop();
+    let restart_heap = restart_profile.as_deref().map(attribute);
 
     // A second restart: the first adoption left whatever it saves for the next one, so this
     // reads what a chat costs on every restart after its first.
@@ -2512,6 +2515,7 @@ fn size_run(label: &str, bytes: u64) -> Value {
         "restartSendFirstTokenUs": restart_send.as_ref().ok(),
         "restartSendError": restart_send.as_ref().err(),
         "restartRss": restart_rss, "restartPeakRss": restart_peak_rss,
+        "restartMaps": restart_maps, "restartHeap": restart_heap,
         "secondRestartAttachMs": second_attach_ms,
         "secondRestartAttachError": second_attach.as_ref().err(),
         "secondRestartAllLogsMs": second_all_logs.as_ref().ok(),
