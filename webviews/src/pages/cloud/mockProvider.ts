@@ -20,6 +20,7 @@ import {
   type CloudPlan,
   type CloudRetention,
   type CloudSnapshot,
+  type CloudSurge,
   type MachineEvent,
   type MachineResult,
   type TransferChanged,
@@ -104,6 +105,8 @@ type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 export class MockCloudProvider implements PageClient {
   readonly calls: MockCall[] = [];
   machines: CloudMachine[] = sampleMachines();
+  /** The latest surge the list's last page reports (the server computes it); absent: no surge. */
+  surge?: CloudSurge;
   snapshots: CloudSnapshot[] = sampleSnapshots();
   account = sampleAccount();
   /** Machines whose daemon reports `fs-v1`; file ops on the others answer `unsupported`. */
@@ -159,6 +162,13 @@ export class MockCloudProvider implements PageClient {
   spendCap?: NonNullable<CloudPlan["spend_cap"]>;
   /** The member's own monthly budget is spent: a start or create answers `member_budget_reached`. */
   memberBudget?: { spent_usd: number; limit_usd: number };
+  /**
+   * The app's billing read (`cmux.cloud.billing.status`, served by the app, not the Cloud app server):
+   * true answers `{payment_past_due: true}`; `"fail"` makes the read fail.
+   */
+  paymentPastDue: boolean | "fail" = false;
+  /** How many times Manage Billing (`billing.openPortal`) ran. */
+  billingPortalOpens = 0;
   holdTransfers: boolean;
   pageSize: number;
   /** The owner's normalization of a new name (the echo then differs from the intent). */
@@ -203,7 +213,14 @@ export class MockCloudProvider implements PageClient {
     if (op === CloudOps.authStatus) return this.authStatus() as R;
     if (op === ACTION_RUN && p.action === AccountOps.signIn) return this.runAction(p) as R;
     if (!this.signedIn) throw pageError("cmux.cloud.auth_required", "Sign in to cmux Cloud.");
+    if (op === ACTION_RUN && p.action === CloudActions.manageBilling)
+      return ((this.billingPortalOpens += 1), { ran: true }) as R;
     if (op === ACTION_RUN) return this.runAction(p) as R;
+    if (op === CloudOps.billingStatus) {
+      if (this.unsupported.has(op)) throw pageError("cmux.cloud.unknown_op", `${op} is not a Cloud op`);
+      if (this.paymentPastDue === "fail") throw pageError("cmux.cloud.unavailable", "cmux.com did not answer", true);
+      return { payment_past_due: this.paymentPastDue } as R;
+    }
     return this.keyed(op, p, false) as R;
   }
 
@@ -524,6 +541,7 @@ export class MockCloudProvider implements PageClient {
           machines: this.machines.slice(start, end),
           next_cursor: end < this.machines.length ? `cur_${end}` : null,
           revision: this.revision,
+          ...(end >= this.machines.length && this.surge ? { surge: this.surge } : {}),
         };
         this.onList?.();
         return result;
