@@ -3383,6 +3383,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-wire-lockstep"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-worktree-care"
 version = "0.1.0"
 dependencies = [
