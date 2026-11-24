@@ -373,7 +373,7 @@ pub struct Supervisor {
     transactions: AtomicU64,
     /// `apps-set` commits take turns here, so the supervisor lock is free
     /// while one writes `apps.json` (`Supervisor::set`).
-    commits: Mutex<()>,
+    pub(super) commits: Mutex<()>,
     /// One `apps.json` write at a time (`Supervisor::persist`).
     persisting: Mutex<()>,
     /// App host processes spawned (`safe_mode.rs` `host_spawns`).
@@ -388,6 +388,8 @@ pub struct Supervisor {
     pub(super) link_changed: Mutex<(bool, bool)>,
     /// Deployed instances of apps with a `deploy` block (`deploy.rs`).
     pub(super) deployments: super::deploy::Deployments,
+    /// Git installs: staged fetches and the transport (`git_install.rs`).
+    pub(super) git: super::git_install::GitState,
     /// The owner's keepers observers (`AppsSlot::add_server_observer`),
     /// told outside the lock when [`Self::kept_servers`] changes.
     server_observers: OnceLock<super::ServerObservers>,
@@ -544,6 +546,7 @@ impl Supervisor {
             local_reload_pass: Mutex::new(()),
             link_changed: Mutex::new((false, false)),
             deployments: super::deploy::Deployments::load(config_state_dir.as_deref()),
+            git: Default::default(),
             server_observers: OnceLock::new(),
             #[cfg(test)]
             emit_pause: Mutex::new(None),

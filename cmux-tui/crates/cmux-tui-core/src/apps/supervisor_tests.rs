@@ -1477,5 +1477,8 @@ mod activation;
 #[path = "supervisor_load_tests.rs"]
 mod under_load;
 
+#[path = "supervisor_git_tests.rs"]
+mod git_installs;
+
 #[path = "supervisor_scale_tests.rs"]
 mod at_scale;
