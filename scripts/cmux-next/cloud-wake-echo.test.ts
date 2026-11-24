@@ -117,3 +117,7 @@ test("the on arm's arm file names the prefetch and every cycle records a plan be
   expect(arms[0]).toContain('"prefetch":"/tmp/wake-echo/cmux-resume-prefetch"');
   expect(arms[1]).not.toContain('"prefetch"');
 });
+
+test("a probe gap that ended before wake_at fails the cycle as the harness's, never counted as an echo", () => {
+  expect(causeOf({ error: "the probe's gap ended 9517 ms before wake_at: not this wake", guest: null })).toBe("probe fired before the wake (harness)");
+});
