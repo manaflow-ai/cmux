@@ -53,6 +53,17 @@ def test_one_shot_rules_regressions():
     assert visible_text(b"\x1b[1mbold\x1b[0m \x1b]0;t\x07ok") == b"bold ok"
 
 
+def test_parameter_after_intermediate_is_malformed():
+    assert joined(tokenize(b"a\x1b[ 1qb\x1b[1 qc\x1b[? 2\n$pd")) == [
+        ("text", b"ab"), ("csi", b"\x1b[1 q"), ("text", b"c\nd")]
+    assert joined(tokenize(b"\x1b[!p\x1b[>4;2m\x1b[1$ 7z")) == [("csi", b"\x1b[!p"), ("csi", b"\x1b[>4;2m")]
+    data = b"x\x1b[2 3\x07q\x1b[5 q" * 3
+    want = [("text", b"x\x07"), ("csi", b"\x1b[5 q")] * 3
+    assert joined(tokenize(data)) == joined(want)
+    for cut in range(1, len(data)):
+        assert chunked(data, [cut]) == joined(want), cut
+
+
 def test_flush_drops_unfinished_but_keeps_controls():
     t = Tokenizer()
     out = t.feed(b"ab\x1b[1\t2")
@@ -81,7 +92,7 @@ def test_reported_st_split_across_reads():
 def test_any_chunking_gives_the_same_tokens():
     rnd = random.Random(5)
     pieces = [b"ab", b"\n", b"\x1b[", b"1;2", b"m", b"\x1b]0;", b"t", b"\x07", b"\x1b\\", b"\x1b", b"\x18", b"\x1a",
-              b"(", b"B", b"\x7f", b"\xc3\xa9", b"\t", b"]", b"\\", b"J"]
+              b"(", b"B", b" ", b"$", b"\x7f", b"\xc3\xa9", b"\t", b"]", b"\\", b"J"]
     for _ in range(400):
         data = b"".join(rnd.choice(pieces) for _ in range(rnd.randint(1, 14)))
         whole = joined(tokenize(data))

@@ -18,7 +18,11 @@ class Model:
         self.cur = 0
 
     def commit(self, text):
-        if text != self.texts[self.cur]:
+        same = [k for k in self.kids[self.cur] if self.texts[k] == text]
+        if same and text != self.texts[self.cur]:
+            self.pref[self.cur] = same[-1]
+            self.cur = same[-1]
+        elif text != self.texts[self.cur]:
             nid = len(self.texts)
             self.texts[nid] = text
             self.par[nid] = self.cur
@@ -125,7 +129,13 @@ def test_documented_regressions():
     assert t.commit("new") == 1 and t.commit("new") == 1
     assert t.parent(1) == 0 and t.parent(0) is None
     t.undo()
-    assert t.commit("new") == 2 and t.children(0) == [1, 2]
+    assert t.commit("new") == 1 and t.children(0) == [1] and t.last_id == 1
+    t.undo()
+    assert t.commit("other") == 2
+    t.undo()
+    assert t.commit("new") == 1 and t.last_id == 2
+    t.undo()
+    assert t.redo() and t.current == 1
     raises(KeyError, t.goto, 3)
     raises(KeyError, t.children, -1)
 

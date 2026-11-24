@@ -12,7 +12,9 @@ Ghostty implement, so some are not what you would guess:
   all of those bytes. A C0 control (below 0x20, other than ESC, CAN and SUB) inside a CSI is not part of it: it
   comes out as a text token right where it occurs, before the CSI's token, and the CSI goes on (if the CSI later
   aborts, the control has still come out). DEL (0x7F) inside a CSI is ignored. Any byte 0x80 or above aborts the
-  CSI, and that byte is then text.
+  CSI, and that byte is then text. Parameter bytes (0x30-0x3F) must come before intermediates (0x20-0x2F): a CSI
+  with a parameter byte after an intermediate is malformed, and it runs to its final byte as usual but makes no
+  "csi" token (its C0 controls still come out).
 - OSC is ESC "]" up to and including a BEL (0x07) or an ST (ESC "\\"); its token is all of it. Inside an OSC an
   ESC not followed by "\\" aborts the OSC and starts a new sequence.
 - Any other ESC sequence is ESC, any intermediates (0x20-0x2F), and a final byte (0x30-0x7E): an "esc" token.
@@ -47,15 +49,20 @@ def _sequence(buf, i, osc_from=None):
         body = bytearray(buf[i:i + 2])
         controls = []
         k = i + 2
+        inter = bad = False
         while True:
             if k >= n:
                 raise Incomplete(controls)
             b = buf[k]
             if 0x40 <= b <= 0x7E:
                 body.append(b)
-                return k + 1, controls + [("csi", bytes(body))]
+                return k + 1, controls + ([] if bad else [("csi", bytes(body))])
             if 0x20 <= b <= 0x3F:
                 body.append(b)
+                if b <= 0x2F:
+                    inter = True
+                elif inter:
+                    bad = True
             elif b == 0x7F:
                 pass
             elif b in (CAN, SUB):

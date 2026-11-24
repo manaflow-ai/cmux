@@ -3,8 +3,9 @@
 Undo never throws history away: committing after an undo starts a new branch, and every state stays reachable.
 
 - Node 0 holds the starting text. `commit(text)` adds a child of the current node holding `text` and moves to
-  it, unless `text` equals the current text, in which case nothing happens. Either way it returns the current
-  node id. Ids count up from 1 in commit order and are never reused.
+  it, unless `text` equals the current text, in which case nothing happens. If a child of
+  the current node already holds `text`, `commit` moves to that child instead of adding a node (to the newest
+  one if several do) and makes it the preferred child. In every case it returns the current node id. Ids count up from 1 in commit order and are never reused.
 - Every node remembers a preferred child: the child you were at most recently. `commit` makes the new node its
   parent's preferred child; `undo()` moves to the parent and makes the node it left the parent's preferred
   child; `redo()` moves to the preferred child. A node with children always has a preferred child.
@@ -56,6 +57,12 @@ class UndoTree:
     def commit(self, text):
         if text == self.text:
             return self.current
+        here = self._nodes[self.current]
+        for kid in reversed(here.kids):
+            if self._nodes[kid].text == text:
+                here.preferred = kid
+                self.current = kid
+                return kid
         node = _Node(len(self._nodes), self.current, text)
         self._nodes.append(node)
         self._nodes[self.current].kids.append(node.id)
