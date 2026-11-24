@@ -68,6 +68,11 @@ bench() {
     return 0
   fi
   [[ "$workspace" == cmux-tui ]] && git submodule update --init --depth 1 ghostty-next >/dev/null
+  # hub-carrier builds libghostty-vt with zig (cmux-remote); a fast-checks runner has none (run 45426933150).
+  if [[ "$features" == *hub-carrier* ]] && ! command -v zig >/dev/null && [[ -z "${CMUX_ZIG:-}" ]]; then
+    CMUX_ZIG="$(MEDIA_ZIG_CACHE="$root/.build/transport-pair-matrix-zig" scripts/ci/media_pinned_zig.sh "$root")"
+    export CMUX_ZIG PATH="$(dirname "$CMUX_ZIG"):$PATH"
+  fi
   (cd "$workspace" && CARGO_TARGET_DIR="$work/target-${workspace//\//-}" PAIRMATRIX_PAIR="$pair" \
     cargo test --release --locked -p "$crate" ${features:+--features "$features"} --test "$test" -- --ignored --nocapture --test-threads 1 2>&1 | tee "$log" |
     { sed -un -e "s/^PAIRCELL/PAIRMATRIX-LIVE PAIRCELL/p" || true; }) || code=$?
