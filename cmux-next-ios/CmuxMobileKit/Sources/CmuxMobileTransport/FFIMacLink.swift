@@ -264,6 +264,7 @@ final class FFIChannel: LinkChannel, @unchecked Sendable {
     private let closeLock = NSLock()
     private var closeInfo: LinkError?
     var closedBy: LinkError? { closeLock.withLock { closeInfo } }
+    var sentBytes: UInt64? { handle.sentBytes() }
 
     init(handle: ChannelHandle) {
         self.handle = handle

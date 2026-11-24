@@ -1156,6 +1156,13 @@ public protocol ChannelHandleProtocol: AnyObject, Sendable {
     
     func send(data: Data) async throws 
     
+    /**
+     * Payload bytes this channel has queued for the transport so far. It moves while a long
+     * write is taken by the link and stops when the link stalls: a request's deadline reads it
+     * as progress, not a wall clock (`DaemonClient` on iOS).
+     */
+    func sentBytes()  -> UInt64
+    
 }
 /**
  * One multiplexed channel.
@@ -1276,6 +1283,19 @@ open func send(data: Data)async throws   {
             liftFunc: { $0 },
             errorHandler: FfiConverterTypeCmuxMobileError_lift
         )
+}
+    
+    /**
+     * Payload bytes this channel has queued for the transport so far. It moves while a long
+     * write is taken by the link and stops when the link stalls: a request's deadline reads it
+     * as progress, not a wall clock (`DaemonClient` on iOS).
+     */
+open func sentBytes() -> UInt64  {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_channelhandle_sent_bytes(
+            self.uniffiCloneHandle(),$0
+    )
+})
 }
     
 
@@ -9424,6 +9444,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_channelhandle_send() != 33874) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_channelhandle_sent_bytes() != 4104) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_close() != 25269) {

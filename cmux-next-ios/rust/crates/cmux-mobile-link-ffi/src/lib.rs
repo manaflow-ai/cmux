@@ -687,6 +687,13 @@ impl ChannelHandle {
         self.id
     }
 
+    /// Payload bytes this channel has queued for the transport so far. It moves while a long
+    /// write is taken by the link and stops when the link stalls: a request's deadline reads it
+    /// as progress, not a wall clock (`DaemonClient` on iOS).
+    pub fn sent_bytes(&self) -> u64 {
+        self.sender.sent_bytes()
+    }
+
     pub async fn send(&self, data: Vec<u8>) -> Result<(), CmuxMobileError> {
         let sender = Arc::clone(&self.sender);
         on_runtime(async move { sender.send(data.into()).await }).await?;
