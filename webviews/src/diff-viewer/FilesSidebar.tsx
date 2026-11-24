@@ -462,6 +462,7 @@ function PierreFileTree({
         ) : null}
         <FileTree model={model} style={{ height: "100%" }} renderContextMenu={() => null} />
         <MenuPopup
+          atPointer
           className="file-tree-context-menu"
           label={
             contextMenu && viewedStateByPath.get(contextMenu.path) === "viewed"
