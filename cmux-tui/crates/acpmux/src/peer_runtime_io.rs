@@ -540,8 +540,8 @@ impl Peer {
         // own dials at once; 40 dropping together go a few at a time, wanted peers first.
         let first = {
             let mut stopped = self.stop_changed.subscribe();
-            let gate = crate::peer_dial_gate::global();
-            let dial = gate.pass(self.is_wanted(), crate::peer_link::jitter(), self.open_first());
+            // measure only: the gate bypassed, every dial goes at once (before #52544).
+            let dial = self.open_first();
             tokio::select! {
                 biased;
                 _ = stopped.wait_for(|stopped| *stopped) => return Err("peer stopped".to_owned()),
