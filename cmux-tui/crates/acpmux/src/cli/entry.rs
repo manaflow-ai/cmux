@@ -342,6 +342,7 @@ async fn async_main(parsed: Parsed) -> Result<()> {
         Some(Command::Gh { args }) => crate::cli::gh_shim::run(args).await,
         Some(Command::PrWait(args)) => crate::cli::pr_wait::run(args, json_out).await,
         Some(Command::Ci(ci)) => crate::cli::ci_wait::run(ci, json_out).await,
+        Some(Command::RunAsk { file }) => crate::run_ask::run_cli(file).await,
         // Before anything that reads or writes the home: this runs as root.
         #[cfg(target_os = "linux")]
         Some(Command::DaemonEnroll { person_key_fd }) => {
