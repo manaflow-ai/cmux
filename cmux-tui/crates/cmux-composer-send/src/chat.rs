@@ -210,7 +210,7 @@ impl Entry {
 
     /// Since when it has made no progress: its hold is measured from here.
     fn stalled_since(&self) -> Instant {
-        self.progress_at.map_or(self.waiting_since, |at| at.max(self.waiting_since))
+        crate::progress::stalled_since(self.waiting_since, self.progress_at)
     }
 
     fn may_be_on_mac(&self) -> bool {

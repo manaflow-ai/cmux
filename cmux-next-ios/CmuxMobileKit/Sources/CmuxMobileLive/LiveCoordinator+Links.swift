@@ -160,6 +160,8 @@ extension LiveCoordinator {
         #endif
         session.acpmux.macLink = nil
         session.currentLink = link
+        // A link up is progress for every wait on this Mac (a reply waiting for it, held keys).
+        if link != nil { session.progress.progressed() }
         session.servedLink = nil
         session.pairingGate = nil
         // A new link pairs from the start: the old link's retry ends, the backoff starts over.
@@ -237,6 +239,7 @@ extension LiveCoordinator {
         }
         session.servedLink = link
         session.acpmux.macLink = link
+        session.progress.progressed()
         bindWorkspaces(session, link, prepared: daemon)
         Task { [weak self] in await self?.checkVersion(session, link) }
         let passed = startPairing(session, link, auth: auth)
@@ -261,6 +264,7 @@ extension LiveCoordinator {
             return
         }
         guard session.currentLink === link, sessions[macID] === session else { return }
+        session.progress.progressed()  // paired: the link moved a step
         for relay in session.cloudChats.values { relay.bind(link) }
         #if DEBUG
         UploadProbe.start(on: link, macName: session.name)  // the pair-e2e rig's upload leg; inert without its launch argument
