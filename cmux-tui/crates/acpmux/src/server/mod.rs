@@ -946,11 +946,6 @@ pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
     }
     crate::config::refuse_lost_home(&crate::config::home())?;
     let listener = bind_owner_only(path)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        crate::home_fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
-    }
     tracing::info!("listening on {}", path.display());
     Ok(listener)
 }
