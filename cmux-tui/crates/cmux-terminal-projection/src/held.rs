@@ -16,6 +16,16 @@
 //!   last held screen (a spinner, a clock) replaces that screen instead of
 //!   holding another.
 //!
+//! - **Rows an app moved by repainting.** An app that never scrolls but
+//!   redraws its screen in place, its content one or more rows higher (Claude
+//!   Code's full-screen mode: cursor moves, no scroll region, no `IND` or
+//!   `SU`), is compared after each batch of its bytes with the screen before
+//!   it. When a band of rows moved up by `k` (at least
+//!   [`SHIFT_MATCH_ROWS`] of its rows with text match, `k` rows higher), the
+//!   `k` rows that left the band's top are held, as if it had scrolled; rows
+//!   above and below the band (a header, an input box, a status line) stay
+//!   put on a pan.
+//!
 //! The store keeps at most [`HELD_ROW_CAP`] rows (the oldest go first), each
 //! without its trailing empty cells. It holds only what the phone was sent:
 //! it is filled from the same bytes the phone's surface drew. The store
@@ -36,9 +46,21 @@ pub const HELD_ROW_CAP: usize = 3_000;
 /// replaces it (an in-place update, not a new page).
 pub const FRAME_REDRAW_ROWS: usize = 2;
 
+/// Rows with text that must match, one band `k` rows higher, for a repaint
+/// to count as the band moving up `k` rows.
+pub const SHIFT_MATCH_ROWS: usize = 3;
+
 /// The rows a full-screen app moved off its screen, oldest first.
 #[derive(Debug, Default)]
 pub struct HeldRows {
+    /// The screen at the end of the last batch, rows without trailing empty
+    /// cells, for a repaint's inferred move.
+    last_seen: Vec<Vec<Cell>>,
+    /// The app scrolled, or cleared a page, in this batch: nothing to infer.
+    moved: bool,
+    /// The screen rows (first, last) a repaint's move was seen in: a pan
+    /// shows the held rows there and keeps the rows outside it in place.
+    band: Option<(usize, usize)>,
     rows: VecDeque<Row>,
     /// Rows ever held since the store started (front drops keep counting).
     pushed: u64,
@@ -70,11 +92,39 @@ impl HeldRows {
     pub fn clear(&mut self) {
         self.rows.clear();
         self.last_frame = None;
+        self.last_seen.clear();
+        self.moved = false;
+        self.band = None;
+    }
+
+    /// Where a pan shows held rows, when a repaint's move set it.
+    pub fn band(&self) -> Option<(usize, usize)> {
+        self.band
+    }
+
+    /// The end of a batch of the app's bytes: `screen` is its screen now.
+    /// When the app did not scroll or clear in the batch, compare it with
+    /// the screen before: a band that moved up holds the rows that left it.
+    pub fn observe(&mut self, screen: &[Row]) {
+        let now: Vec<Vec<Cell>> = screen.iter().map(trimmed_cells).collect();
+        if !std::mem::take(&mut self.moved)
+            && let Some((top, k, bottom)) = inferred_shift(&self.last_seen, &now)
+        {
+            self.last_frame = None;
+            for i in top..top + k {
+                let cells = self.last_seen.get(i).cloned().unwrap_or_default();
+                self.push_row(Row { cells, wrapped: false, prompt: false });
+            }
+            self.band = Some((top, bottom));
+        }
+        self.last_seen = now;
     }
 
     /// A row left the top of the app's scroll region.
     pub fn push(&mut self, row: Row) {
         self.last_frame = None;
+        self.moved = true;
+        self.band = None;
         self.push_row(row);
     }
 
@@ -92,6 +142,7 @@ impl HeldRows {
     /// The app scrolled its region down `n`: the newest `n` held rows are
     /// back on its screen.
     pub fn pop(&mut self, n: usize) {
+        self.moved = true;
         for _ in 0..n.min(self.rows.len()) {
             self.rows.pop_back();
             self.pushed = self.pushed.saturating_sub(1);
@@ -107,6 +158,8 @@ impl HeldRows {
     /// scrolling: hold it as one screen, or replace the last held screen
     /// when only a few of its rows changed. A blank screen is not held.
     pub fn push_frame(&mut self, screen: &[Row]) {
+        self.moved = true;
+        self.band = None;
         let blank = |row: &Row| row.cells.iter().all(|c| c.is_empty_or_space() && c.style == 0);
         if screen.iter().all(blank) {
             return;
@@ -146,6 +199,44 @@ impl HeldRows {
     }
 }
 
+fn trimmed_cells(row: &Row) -> Vec<Cell> {
+    let keep = row.cells.iter().rposition(|c| *c != Cell::default()).map_or(0, |i| i + 1);
+    row.cells.get(..keep).unwrap_or_default().to_vec()
+}
+
+fn has_text(cells: &[Cell]) -> bool {
+    cells.iter().any(|c| !c.is_empty_or_space())
+}
+
+/// How a repaint moved the screen: `(top, k, bottom)` when the rows from
+/// `top` moved up `k` rows (the rows `top..top + k` of `before` left the
+/// screen), with `bottom` the band's last row now. Rows the same in both,
+/// at the top, are a header and not part of the band; the smallest `k`
+/// whose matching run has [`SHIFT_MATCH_ROWS`] rows with text wins.
+fn inferred_shift(before: &[Vec<Cell>], now: &[Vec<Cell>]) -> Option<(usize, usize, usize)> {
+    let n = now.len();
+    if before.len() != n || n < SHIFT_MATCH_ROWS + 1 {
+        return None;
+    }
+    let top = (0..n).find(|&i| before[i] != now[i])?;
+    for k in 1..n - top {
+        let mut run = 0;
+        let mut text = 0;
+        while top + k + run < n && before[top + k + run] == now[top + run] {
+            if has_text(&now[top + run]) {
+                text += 1;
+            }
+            run += 1;
+        }
+        // The run starts at the band's top: the rows the move brought there
+        // are the ones that were `k` rows lower.
+        if run > 0 && text >= SHIFT_MATCH_ROWS {
+            return Some((top, k, (top + run + k - 1).min(n - 1)));
+        }
+    }
+    None
+}
+
 /// The phone's surface showing the app's screen as it is now: every cell,
 /// then the app's cursor, pen and character sets, so the app's next bytes
 /// draw on the surface exactly as on the Mac.
@@ -164,7 +255,8 @@ pub fn paint_live(term: &Terminal) -> Vec<u8> {
 /// rows `back` rows up. The cursor is hidden while the reader is back.
 pub fn paint_back(term: &Terminal, held: &HeldRows, back: usize) -> Vec<u8> {
     let screen = term.screen_rows();
-    let (top, bottom) = term.scroll_region();
+    let (top, bottom) = held.band().unwrap_or_else(|| term.scroll_region());
+    let bottom = bottom.min(screen.len().saturating_sub(1));
     let height = bottom + 1 - top;
     let back = back.min(held.len());
     // The run: held rows, then the region's rows; the window ends `back`

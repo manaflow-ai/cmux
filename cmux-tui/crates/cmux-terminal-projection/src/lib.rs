@@ -273,6 +273,9 @@ impl Projection {
         } else if paint && let Some(paint) = self.paint() {
             segments.push(paint);
         }
+        if self.term.is_alternate() {
+            self.term.observe_held();
+        }
         segments
     }
 
