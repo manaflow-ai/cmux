@@ -21,10 +21,13 @@ const ONE_ROW: &str = r#"printf '%s' '{"sessions":[{"peer":"relayed-vm","session
 fn concurrent_processes_claim_one_relay_refresh() {
     let dir = tempfile::tempdir().unwrap();
     let cache = dir.path().join(CACHE_FILE);
-    assert!(claim_refresh(&cache));
-    assert!(!claim_refresh(&cache), "a second caller must not start another relay process");
-    std::fs::remove_file(cache.with_file_name(REFRESH_MARK)).unwrap();
-    assert!(claim_refresh(&cache), "the owner may retry after releasing its mark");
+    let lease = claim_refresh(&cache).expect("first caller owns the relay lease");
+    assert!(
+        claim_refresh(&cache).is_none(),
+        "a second caller must not start another relay process"
+    );
+    drop(lease);
+    let _retry = claim_refresh(&cache).expect("the owner may retry after releasing its lease");
 }
 
 #[tokio::test]
