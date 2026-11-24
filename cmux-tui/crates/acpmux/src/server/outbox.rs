@@ -949,12 +949,26 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                     None => own,
                 };
                 let sleep = tokio::time::sleep(wait);
+                tokio::pin!(sleep);
                 let on_ready = !delivery.projection_only() && wake_on_ready;
                 let on_open = !delivery.projection_only() && (by_hub || behind_gate);
-                tokio::select! {
-                    () = sleep => {}
-                    () = ready, if on_ready => {}
-                    () = opened, if on_open => {}
+                loop {
+                    tokio::select! {
+                        () = &mut sleep => break,
+                        () = &mut opened, if on_open => break,
+                        () = &mut ready, if on_ready => {
+                            // `peer_ready` is one signal for every peer. Another peer's link
+                            // coming back leaves this one's still down: waking for it retried
+                            // (and ssh-carried, and journaled) every queued delivery at once on
+                            // each link flap anywhere. Re-armed before the look, so a ready in
+                            // between is not missed.
+                            ready.set(hub.outbox.peer_ready.notified());
+                            ready.as_mut().enable();
+                            if hub.peer_down_for(&delivery.target).is_none() {
+                                break;
+                            }
+                        }
+                    }
                 }
             }
         }
