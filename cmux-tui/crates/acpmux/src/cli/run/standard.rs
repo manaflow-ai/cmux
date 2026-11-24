@@ -27,6 +27,7 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::Compare { .. }
             | Command::Preset { .. }
             | Command::Models { .. }
+            | Command::WarmHome { .. }
             | Command::Reload
             | Command::Schema
             | Command::Defaults { .. }
@@ -209,6 +210,19 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 for id in ids {
                     println!("  {id}");
                 }
+            }
+            Ok(())
+        }
+        Command::WarmHome { wait } => {
+            let client = connect(true).await?;
+            let v = client
+                .request(method::MUX_PREWARM, json!({"reserveHome": true, "wait": wait}))
+                .await?;
+            if json_out {
+                print_json(&v);
+            } else {
+                let state = v.get("state").and_then(Value::as_str).unwrap_or("not accepted");
+                println!("home chat warm: {state}");
             }
             Ok(())
         }
