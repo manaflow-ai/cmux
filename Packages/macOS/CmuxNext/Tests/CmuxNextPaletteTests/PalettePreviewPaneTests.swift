@@ -48,7 +48,8 @@ struct PalettePreviewPaneTests {
         let provider = WorkspacePaletteProvider(source: Workspaces(), showsItemsForEmptyQuery: true)
         provider.now = { Self.now }
         let item = try #require(provider.makeItems().first)
-        let facts = try #require(item.facts)()
+        let readFacts = try #require(item.facts)
+        let facts = readFacts()
         #expect(facts == PaletteFacts.workspace(PaletteWorkspace(id: "w1", title: "api", tabCount: 2), now: Self.now))
     }
 
@@ -65,7 +66,8 @@ struct PalettePreviewPaneTests {
         #expect(Self.value(facts, PaletteStrings.factStatus) == PaletteStrings.current)
         // The Cmd-P row carries the same facts, built when asked.
         let item = NavigationPaletteProvider.item(entry, recencyBoost: 0, source: nil)
-        #expect(Self.labels(try #require(item.facts)()) == Self.labels(facts))
+        let readItemFacts = try #require(item.facts)
+        #expect(Self.labels(readItemFacts()) == Self.labels(facts))
     }
 
     @Test func aTerminalAndABrowserTabSayTheirKind() {
