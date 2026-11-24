@@ -190,8 +190,7 @@ extension TerminalHandlers {
     }
 
     /// The terminal `invocation` names, the workspace chat it sends to and that chat's session host
-    /// (which must keep threads), else why not. Reads no live view and selects nothing, so a menu can ask it.
-    /// Off while Labs `labs.commentThreads` is off: the action stays the placeholder it was.
+    /// (which must keep threads; Labs `labs.commentThreads` on), else why not. Reads no live view, so a menu can ask it.
     static func commentTarget(_ invocation: ActionInvocation, _ ctx: AppActionContext) -> (target: TerminalCommentThreads.Target?, refusal: String?) {
         let services = ctx.services
         guard services.settings?.snapshot.commentThreads == true else { return (nil, TerminalToChatPlaceholders.reason) }
