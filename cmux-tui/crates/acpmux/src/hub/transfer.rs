@@ -15,6 +15,10 @@ pub(super) fn harness_state_lock() -> std::sync::MutexGuard<'static, ()> {
 
 pub(super) use super::atomic_json::{is_plain_id, write_json_atomic};
 
+/// Beside a move's bundle: what the first bytes of each agent file a history-later prepare had
+/// copied hash to, `{"native/<label>/<path>": {length, sha256}}` (`export_grown`).
+pub(super) const NATIVE_DIGESTS: &str = "native-digests.json";
+
 /// Whether the durable marker at `marker` stands for the chat `outer_id`.
 fn marker_names(marker: &Path, outer_id: &str) -> bool {
     std::fs::read(marker)
@@ -50,6 +54,21 @@ impl Hub {
         dest: &Path,
         after: Option<u64>,
     ) -> Result<PathBuf> {
+        self.export_grown(session, dest, after, None)
+    }
+
+    /// [`Self::export_after`]; `grown` a history-later prepare's copies of the agent's files and
+    /// what each holds (`transfer_precopy.rs` `PrefixFold`): each that the file now only grew
+    /// past moves into the bundle with that growth appended, and `dest`'s
+    /// [`NATIVE_DIGESTS`] says what its first bytes hash to, so neither the copy nor the
+    /// digest a move asks of them (`transfer_digest`) reads the whole file under the freeze.
+    pub(super) fn export_grown(
+        &self,
+        session: &Arc<Session>,
+        dest: &Path,
+        after: Option<u64>,
+        grown: Option<(&Path, &Value)>,
+    ) -> Result<PathBuf> {
         // What the log holds back goes in first (`store/deferred.rs`).
         anyhow::ensure!(
             self.store_deferred(session),
@@ -70,9 +89,11 @@ impl Hub {
         let mut out = std::io::BufWriter::new(file);
         let mut event_count = 0usize;
         let mut failed: Option<anyhow::Error> = None;
+        let mut images = std::collections::BTreeSet::new();
         self.scan_off(&meta.id, after.unwrap_or(0), &mut |mut e: EventRecord| {
             // An ask carries the display line acpmux works out now, never a logged one.
             self.display_logged(Some(&**session), &mut e);
+            images.extend(super::prompt_images::ids_named_by(&e.kind, &e.msg));
             let written = serde_json::to_string(&e).map_err(anyhow::Error::from).and_then(|line| {
                 out.write_all(line.as_bytes())?;
                 out.write_all(b"\n")?;
@@ -93,6 +114,20 @@ impl Hub {
             return Err(e);
         }
         out.flush()?;
+        // The images its prompts sent (`prompt_images.rs`), which the log names but does not hold,
+        // the pre-copied prefix's prompts' too.
+        if let Some(after) = after {
+            super::prompt_images::prefix_ids(&*self.store, &meta.id, after, &mut images)?;
+        }
+        // Each surface's unsent draft and who sent the queued prompts (`composers.rs`), which
+        // live in memory, not the log; the images the drafts hold go with the prompts' images.
+        let composers = {
+            let c = session.composers.lock().unwrap_or_else(|e| e.into_inner());
+            images.extend(c.image_ids());
+            c.bundled()
+        };
+        super::prompt_images::bundle_images(&images, &dir)?;
+        crate::home_fs::write(dir.join(super::composers::BUNDLE_FILE), composers.to_string())?;
         let native = crate::native::locate(&meta);
         let harness = self.export_harness_state(&meta, &dir)?;
         let mut manifest = json!({
@@ -109,10 +144,37 @@ impl Hub {
         let mut copied = Vec::new();
         if !native.is_empty() {
             crate::home_fs::create_dirs(dir.join("native"))?;
+            let home = dirs::home_dir().unwrap_or_default();
+            let mut digests = serde_json::Map::new();
             for (label, src) in native {
-                if let Ok(rel) = crate::native::copy_into(&src, &dir.join("native"), &label) {
+                let fast = grown.and_then(|(prepared, held)| {
+                    let rel = crate::native::grow_into_from(
+                        &src,
+                        prepared,
+                        &dir.join("native"),
+                        &label,
+                        &home,
+                    );
+                    let rel = rel
+                        .inspect_err(|e| tracing::debug!("native file not grown: {e:#}"))
+                        .ok()??;
+                    let at = format!("native/{rel}");
+                    if let Some(digest) = held.get(&at) {
+                        digests.insert(at, digest.clone());
+                    }
+                    Some(rel)
+                });
+                let rel = match fast {
+                    Some(rel) => Ok(rel),
+                    None => crate::native::copy_into(&src, &dir.join("native"), &label),
+                };
+                if let Ok(rel) = rel {
                     copied.push(json!({"label": label, "path": rel, "source": src}));
                 }
+            }
+            if !digests.is_empty() {
+                let digests = Value::Object(digests).to_string();
+                crate::home_fs::write(dest.join(NATIVE_DIGESTS), digests)?;
             }
         }
         // OpenCode keeps its sessions in a database: the session goes as its export. A failed
@@ -296,6 +358,11 @@ impl Hub {
             return Err(RpcError::invalid_params(format!("import durable journal: {e}")));
         }
         let restored = match guarded {
+            // A history-later move's receive bundle is read by nothing after its finish: its
+            // transcript becomes the home folder's file by a link, not a copy under the freeze.
+            None if staged.is_some_and(|s| s.history_later) => {
+                crate::native::restore_linked(bundle, &meta).unwrap_or_default()
+            }
             None => crate::native::restore(bundle, &meta).unwrap_or_default(),
             // A guarded chat keeps its agent session only with its file: a failed restore fails
             // the import, like its events.
@@ -312,6 +379,11 @@ impl Hub {
                 }
             }
         };
+        // Its images: a chat that shows none is no move (`prompt_images.rs`). One that cannot be
+        // kept leaves the chat showing that image as missing, as a pruned one does.
+        if let Err(e) = super::prompt_images::restore_images(bundle) {
+            tracing::warn!(session = %meta.id, "moved images not kept: {e:#}");
+        }
         // OpenCode's session is imported into its own database, in the chat's folder here. One
         // that fails leaves the chat to resume from its log, as a chat with no agent store does.
         if let Err(e) = crate::native::import_opencode(bundle, &meta) {
@@ -331,6 +403,13 @@ impl Hub {
         }
         if live {
             self.restore_queue(&session);
+            // A bundle from a daemon that wrote none moves the chat without them.
+            if let Some(v) = std::fs::read(bundle.join(super::composers::BUNDLE_FILE))
+                .ok()
+                .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+            {
+                session.composers.lock().unwrap_or_else(|e| e.into_inner()).restore(&v);
+            }
             // The source's subagent retries stayed there: their prompts do not wait here.
             self.drop_unsent_subagent_retries(&session);
         }

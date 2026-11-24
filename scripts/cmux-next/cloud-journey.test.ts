@@ -3345,3 +3345,17 @@ describe("listedMachine (run 45174448964: `vm_... missing from 49 machines` on a
     await expect(listedMachine("vm_99", async () => ({ machines: rows(0, 3) }), async () => ({ id: "vm_99", status: "deleted" }))).rejects.toThrow("reads deleted");
   });
 });
+
+describe("guestTimed", () => {
+  const { guestTimed, guestMs, guestDetail } = require("./cloud-journey");
+  test("times a heredoc command on its own lines and keeps its output and exit marker", () => {
+    const r = spawnSync("bash", ["-c", guestTimed(`python3 -I - <<'X'\nprint('@@session s1')\nX\necho "@@exit $?"`)], { encoding: "utf8" });
+    expect(r.stdout).toContain("@@session s1");
+    expect(r.stdout).toContain("@@exit 0");
+    const ms = guestMs(r.stdout);
+    expect(ms).not.toBeNull();
+    expect(ms).toBeGreaterThanOrEqual(0);
+    expect(guestDetail(ms)).toContain("on the guest");
+    expect(guestDetail(null)).toBe("");
+  });
+});

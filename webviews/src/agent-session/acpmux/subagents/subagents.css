@@ -1368,11 +1368,6 @@ button.cv-subagent > :last-child {
   flex: none;
   margin-inline-start: auto;
 }
-/* Started task names use the available sentence width instead of the shared tag's 40% cap. */
-.cv-subagent-started .cv-agent-activity__sentence > .cv-agent-tag {
-  flex: 0 1 auto;
-  max-width: none;
-}
 /* The name chip takes the room the line has and is cut, with an ellipsis, only at the row's edge,
    never at AgentTag.css's 40% cap (#29754); the words before it keep their width. A block box so
    text-overflow draws the ellipsis; the 20px line keeps it one line. */
@@ -1891,16 +1886,14 @@ button.cv-subagent > :last-child {
 .cv-subagent-done-row:is([data-look="grid"], [data-look="quiet"]) > .cv-subagent-done[data-state="failed"] {
   color: var(--cv-activity-text);
 }
-/* A title that opens the subagent is the link chip (SubagentDoneLine.tsx), yet at rest it stays the
-   plain title, uncut by AgentTag.css's 40%: its wash and ring come only under the pointer or focus,
-   so the clickable bit is what lights (Leo, 2026-11-05). */
-.cv-subagent-failed__text > .cv-agent-tag.is-open {
-  display: block;
-  flex: 0 1 auto;
-  max-width: none;
-}
-.cv-subagent-failed__text > .cv-agent-tag.is-open:not(:hover, :focus-visible, :active) {
-  background: transparent;
+/* A failed line that opens the subagent is one button, the way a tool row that opens is: under the
+   pointer anywhere on the row its words lift and its chevron lights, with no chip, ring or hover
+   card on its title (cmux#52916: "what is the point of this this looks weird?", on a ringed
+   "Subagent" chip and a "Failed · 0s" card over the row above). The reason stays dim. */
+.cv-subagent-done-row:is([data-look="grid"], [data-look="quiet"]):has(> button.cv-subagent-done):is(:hover, :focus-within)
+  > button.cv-subagent-done
+  > .cv-tool__text {
+  color: var(--cv-text);
 }
 .cv-subagent-done-row:is([data-look="grid"], [data-look="quiet"]) > .cv-subagent-done .cv-tool__icon {
   color: var(--agent-status-failure);
@@ -2036,6 +2029,9 @@ button.cv-subagent > :last-child {
   /* How strong the surface is: faint at rest once revealed, so it reads as a control before the
      pointer reaches it; lit on hover; darker while pressed. */
   --acpmux-tuck-ink: 6%;
+  /* Over the rim's resize band (a resize handle's layer, scrollers.ts RESIZE_HANDLE_CSS), so the
+     revealed tuck keeps the middle of the band's clicks. */
+  z-index: calc(var(--cmux-resize-handle-layer, 2) + 1);
   top: 0;
   width: calc(2 * var(--ds-space-48));
   height: var(--ds-space-3);
@@ -2831,8 +2827,9 @@ button.cv-subagent > :last-child {
      colour (a dark slab on the hat's lighter glass, the same fault as the icons' old ring): the header's
      words under a spread icon blur out, and it follows any theme. */
   background: var(--ds-surface-inset);
+  /* glass-raw-blur-allow: an 8 px soften under the hat's fanned faces so the header's words blur out, a backing inside the hat's glass, not a glass surface */
   -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px); /* glass-raw-blur-allow: the same soften, unprefixed */
 }
 
 /* ---------- The count's characters (HatCount.tsx, hatCount.experiment.ts) ----------

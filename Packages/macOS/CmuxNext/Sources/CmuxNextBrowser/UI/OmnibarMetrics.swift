@@ -57,7 +57,8 @@ public nonisolated struct OmnibarMetrics: Equatable, Sendable {
     ///   - rowHeight: The chrome row the bar and buttons take; nil uses the density's
     ///     (``DensityTokens/toolbarButtonSize``), without the sidebar's extra height.
     ///   - glyphSide: The toolbar glyphs' side; nil uses the density's (``DensityTokens/toolbarGlyphSize``).
-    ///   - buttonSide: The toolbar buttons' side; nil uses the density's `omnibarButtonSize`, else the row's height.
+    ///   - buttonSide: The toolbar buttons' side, even past the row's height; nil uses the density's `omnibarButtonSize`
+    ///     (at most the row's height), else the row's height.
     public init(tokens: DensityTokens, height: Double? = nil, fontSize: Double? = nil, textScale: CGFloat = 1,
                 rowHeight: CGFloat? = nil, glyphSide: CGFloat? = nil, buttonSide: CGFloat? = nil) {
         let row = rowHeight ?? tokens.toolbarButtonSize
@@ -77,9 +78,10 @@ public nonisolated struct OmnibarMetrics: Equatable, Sendable {
         let font = fontSize.flatMap { $0.isFinite ? CGFloat(Self.clamp($0, Self.fontSizeRange).rounded()) : nil } ?? densityFont
         barHeight = max(requested, Self.minimumBarHeight(fontSize: font))
         self.fontSize = font
-        // A density's own button side (Default's Compact 28 pt on its 34 pt bar: Compact's padding around Compact's
-        // glyphs), else the row's height (Helium's `kToolbarButtonHeight`, the bar's).
-        buttonSize = min(row, buttonSide ?? tokens.tokens["omnibarButtonSize"].map { CGFloat($0) } ?? row)
+        // The side the caller gives (the chrome's: a tab's height, as the tab bar's ⋮ above the toolbar's; Lawrence
+        // 2026-11-23), which the toolbar row grows to hold (`OmnibarStyle.rowContentHeight`); else a density's own button
+        // side (Default's Compact 28 pt on its 34 pt bar), else the row's height (Helium's `kToolbarButtonHeight`).
+        buttonSize = buttonSide ?? min(row, tokens.tokens["omnibarButtonSize"].map { CGFloat($0) } ?? row)
         // The chip is the bar less 2 pt on each side. Its glyph draws at `iconRowSize`, about 1.2
         // times this point size (13 -> 16 at Standard), and keeps 2 pt inside the chip, so a short
         // bar shrinks it (a suggestion row centers the glyph on the chip's center).
@@ -108,7 +110,7 @@ public nonisolated struct OmnibarMetrics: Equatable, Sendable {
         let overrides = OmnibarGlassAppearance.current
         return OmnibarMetrics(tokens: Metrics.tokens, height: overrides.height, fontSize: overrides.fontSize,
                               textScale: Typography.userScale, rowHeight: Metrics.tokens.tokens["omnibarHeight"].map { Metrics.scale(CGFloat($0)) } ?? Metrics.tabHeight, glyphSide: Metrics.toolbarGlyphSize,
-                              buttonSide: Metrics.densityToken("omnibarButtonSize"))
+                              buttonSide: Metrics.tabBarControlSide)
     }
 
     private static func clamp(_ value: Double, _ range: ClosedRange<Double>) -> Double {
