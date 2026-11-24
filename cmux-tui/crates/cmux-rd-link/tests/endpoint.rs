@@ -409,3 +409,24 @@ fn a_candidate_trickled_after_the_first_handshake_is_tried_without_waiting_for_a
     let viewer_again = viewer.poll_transmit(at + 10_000).unwrap();
     assert!(viewer_again.iter().all(|t| t.packet.first() != sent[0].packet.first()));
 }
+
+#[test]
+fn a_viewer_with_no_route_yet_sleeps_between_retries_instead_of_spinning() {
+    let viewer_key = KeyPair::generate().unwrap();
+    let host_key = KeyPair::generate().unwrap();
+    let mut viewer =
+        Endpoint::new(Role::Initiator, b"idle", &viewer_key, host_key.public, 0).unwrap();
+    // A caller that polls at each deadline, with no candidate for one second.
+    let mut now = 0;
+    let mut polls = 0;
+    while now < 1_000_000 && polls < 10_000 {
+        assert!(viewer.poll_transmit(now).unwrap().is_empty(), "there is no route yet");
+        polls += 1;
+        let next = viewer.next_deadline_us().expect("a handshake retry is due");
+        assert!(next > now, "deadline {next} is not after now {now}: the caller would spin");
+        now = next;
+    }
+    println!("NO-ROUTE-POLLS one_second={polls}");
+    // 50 ms doubling to the 250 ms cap: 0, 50, 150, 350, 600, 850 ms.
+    assert!(polls <= 8, "{polls} polls in one second with no route");
+}
