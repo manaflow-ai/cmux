@@ -360,20 +360,31 @@ fleet_finish_sim() {
   # delivery the controller dropped ("no session was delivered within 10m0s", step 1e1c4a5c2700774f73411917 while
   # the controller timed out, 2026-11-24) says nothing about the build: send one new step, once.
   # A controller restart under the step loses it the same way: "the controller no longer lists this run as the
-  # step's (409 Conflict)" (step df827ca8f4eb26596c17942e, hq#22711, 2026-11-24).
-  if [[ $rc -ne 0 ]] && grep -qE "no session was delivered|no longer lists this run as the step" \
-    "$STATE/sim-step.log" "$STATE/sim-step.err" 2>/dev/null; then
+  # step's (409 Conflict)" (step df827ca8f4eb26596c17942e, hq#22711, 2026-11-24). So does a worker that stops
+  # mid-step: "lease lost: cmux23 stopped renewing the step's lease" (step c50f2a91d132270d466e64d8, 2026-11-24).
+  local lost
+  lost="$(grep -ohE "no session was delivered|no longer lists this run as the step|lease lost" \
+    "$STATE/sim-step.log" "$STATE/sim-step.err" 2>/dev/null | head -n 1 || true)"
+  if [[ $rc -ne 0 && -n "$lost" ]]; then
     # The step's own log says it ended; a status read that fails (the controller timing out, as when the
     # delivery was lost) must not resend under the dead step's key, which answers with that step again.
     sim_step_ended "$SIM_STEP" || sim_next_attempt
     if [[ "${SIM_SIGNIN_RETRIED:-0}" -eq 0 ]]; then
       SIM_SIGNIN_RETRIED=1
-      echo "==> iPhone app: step ${SIM_STEP:-?} ended because no sign-in session reached it from this Mac; sending it once more"
+      if [[ "$lost" == "lease lost" ]]; then
+        echo "==> iPhone app: step ${SIM_STEP:-?} ended because its fleet worker stopped mid-step (lease lost); sending it once more"
+      else
+        echo "==> iPhone app: step ${SIM_STEP:-?} ended because no sign-in session reached it from this Mac; sending it once more"
+      fi
       fleet_start_sim
       fleet_finish_sim
       return
     fi
-    REPORT_SIM="BLOCKED: the fleet iPhone build got no sign-in session from this Mac twice (steps ended: last ${SIM_STEP:-?}; $STATE/sim-step.log): check that cmux-ci reaches the controller (cmux-ci status), then retry: $(retry_command)"
+    if [[ "$lost" == "lease lost" ]]; then
+      REPORT_SIM="BLOCKED: the fleet iPhone build lost its worker mid-step twice (last step ${SIM_STEP:-?}; $STATE/sim-step.log): the simulator workers are failing (cmux-ci status), retry later: $(retry_command)"
+    else
+      REPORT_SIM="BLOCKED: the fleet iPhone build got no sign-in session from this Mac twice (steps ended: last ${SIM_STEP:-?}; $STATE/sim-step.log): check that cmux-ci reaches the controller (cmux-ci status), then retry: $(retry_command)"
+    fi
     return 1
   fi
   if [[ $rc -ne 0 || -z "$SIM_STEP" ]]; then
