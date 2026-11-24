@@ -23,7 +23,7 @@ const LANES = [
   "Bisect the stalled cloud sync",
 ];
 const WAITS = [
-  "glaeda-gh wait pr 53101 --timeout 2000",
+  "gh pr checks 53101 --watch",
   "Wait for rust test run",
   "Peek at both runs",
   "Block on verdict wait",
@@ -63,8 +63,8 @@ const steered = (burst: AcpmuxRow[]): AcpmuxRow[] => [
   user("Keep the lanes moving and land what goes green", 20),
   activity(
     [
-      tool("glaeda-gh wait pr 53101", "execute", "completed", {
-        command: "glaeda-gh wait pr 53101",
+      tool("gh pr checks 53101 --watch", "execute", "completed", {
+        command: "gh pr checks 53101 --watch",
         output: "green",
       }),
     ],
