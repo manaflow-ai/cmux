@@ -572,7 +572,15 @@ impl DaemonServices {
                 }
             };
             let Some(encoded) = encoded else { break };
-            let request = decode_workspace_request(&workspace, purpose, encoded).await?;
+            let request = match decode_workspace_request(&workspace, purpose, encoded).await? {
+                DecodedWorkspaceRequest::Request(request) => request,
+                DecodedWorkspaceRequest::Undecodable(response) => {
+                    // A method or field this daemon predates fails only that
+                    // request; the stream and its other requests carry on.
+                    send_workspace_response(&workspace, &messages, response, false).await?;
+                    continue;
+                }
+            };
             let request_id = request.id;
             if purpose == WorkspaceRpcPurpose::Cancellation
                 && !matches!(&request.request, WorkspaceRequest::CancelRequest { .. })
@@ -1136,27 +1144,64 @@ async fn read_terminal_frame(stream: &mut tokio::net::UnixStream) -> Result<Fram
     Ok(frames.remove(0))
 }
 
+/// The code of a workspace request the daemon could not decode (an unknown
+/// method, or a field shape it predates) but whose ID it could read.
+pub const UNSUPPORTED_REQUEST_CODE: &str = "unsupported-request";
+
+enum DecodedWorkspaceRequest {
+    Request(RpcRequest),
+    /// The request's own failure, answered on the stream it arrived on.
+    Undecodable(RpcResponse),
+}
+
 async fn decode_workspace_request(
     workspace: &WorkspaceService,
     purpose: WorkspaceRpcPurpose,
     encoded: Bytes,
-) -> Result<RpcRequest, ServicesError> {
-    if purpose == WorkspaceRpcPurpose::Cancellation {
-        if encoded.len() >= RPC_CODEC_OFFLOAD_BYTES {
-            return Err(ServicesError::MessageTooLarge(encoded.len()));
+) -> Result<DecodedWorkspaceRequest, ServicesError> {
+    if purpose == WorkspaceRpcPurpose::Cancellation && encoded.len() >= RPC_CODEC_OFFLOAD_BYTES {
+        return Err(ServicesError::MessageTooLarge(encoded.len()));
+    }
+    let decoded = if encoded.len() < RPC_CODEC_OFFLOAD_BYTES {
+        serde_json::from_slice::<RpcRequest>(&encoded).map_err(|error| error.to_string())
+    } else {
+        let offloaded = encoded.clone();
+        match workspace
+            .run_codec("RPC request decode", move || {
+                Ok(serde_json::from_slice::<RpcRequest>(&offloaded)
+                    .map_err(|error| error.to_string()))
+            })
+            .await
+        {
+            Ok(decoded) => decoded,
+            Err(error) => return Err(ServicesError::Remote(error.message)),
         }
-        return Ok(serde_json::from_slice(&encoded)?);
+    };
+    match decoded {
+        Ok(request) => Ok(DecodedWorkspaceRequest::Request(request)),
+        Err(error) => undecodable_request(&encoded, error),
     }
-    if encoded.len() < RPC_CODEC_OFFLOAD_BYTES {
-        return Ok(serde_json::from_slice(&encoded)?);
+}
+
+/// A request that names a readable ID fails alone with
+/// [`UNSUPPORTED_REQUEST_CODE`]. Without one nothing can be answered, so the
+/// stream fails as before.
+fn undecodable_request(
+    encoded: &[u8],
+    error: String,
+) -> Result<DecodedWorkspaceRequest, ServicesError> {
+    #[derive(serde::Deserialize)]
+    struct RequestIdOnly {
+        id: cmux_remote_protocol::RequestId,
     }
-    workspace
-        .run_codec("RPC request decode", move || {
-            serde_json::from_slice(&encoded)
-                .map_err(|error| RpcError::new("invalid-json", error.to_string()))
-        })
-        .await
-        .map_err(|error| ServicesError::Remote(error.message))
+    let RequestIdOnly { id } = serde_json::from_slice(encoded)?;
+    Ok(DecodedWorkspaceRequest::Undecodable(RpcResponse {
+        id,
+        result: Err(RpcError::new(
+            UNSUPPORTED_REQUEST_CODE,
+            format!("this daemon cannot decode the workspace request: {error}"),
+        )),
+    }))
 }
 
 async fn send_workspace_response(

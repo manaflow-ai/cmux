@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use async_trait::async_trait;
 use cmux_remote_protocol::{
     ByteString, FrameFlags, ProcessEnvironment, ProcessEvent, ProcessIo, ProcessLifetime,
-    ProcessSignal, RpcEvent, WorkspaceId, WorkspaceResponse,
+    ProcessSignal, RemoteCapability, RequestId, RpcEvent, WorkspaceId, WorkspaceResponse,
 };
 use tempfile::tempdir;
 #[cfg(unix)]
@@ -1752,4 +1752,220 @@ async fn the_mux_bridge_inflates_a_compressed_line_to_the_daemons_bytes() {
     }
     bridge.abort();
     client_mux.shutdown().await;
+}
+
+/// A daemon that answers `capabilities` with `advertised`, `list-workspaces`
+/// with `workspaces_body`, and records every request tag it receives.
+async fn scripted_daemon(
+    daemon: Arc<ServiceMultiplexer>,
+    advertised: serde_json::Value,
+    workspaces_body: serde_json::Value,
+    seen: Arc<std::sync::Mutex<Vec<String>>>,
+) {
+    let mut tasks = JoinSet::new();
+    for _ in 0..5 {
+        let incoming = daemon.accept().await.unwrap().unwrap();
+        let (lane, _) = workspace_rpc_metadata(&incoming.metadata).unwrap();
+        send_opened(&incoming.stream, lane).await.unwrap();
+        let messages = MessageStream::with_lane(Arc::new(incoming.stream), lane);
+        let advertised = advertised.clone();
+        let workspaces_body = workspaces_body.clone();
+        let seen = seen.clone();
+        tasks.spawn(async move {
+            while let Ok(Some(bytes)) = messages.receive().await {
+                let rpc: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+                let tag = rpc["request"]["type"].as_str().unwrap().to_owned();
+                seen.lock().unwrap().push(tag.clone());
+                let body = match tag.as_str() {
+                    "capabilities" => {
+                        serde_json::json!({"type":"capabilities","capabilities":advertised})
+                    }
+                    "list-workspaces" => workspaces_body.clone(),
+                    other => panic!("the scripted daemon got {other}"),
+                };
+                let response = serde_json::json!({"id":rpc["id"],"result":{"Ok":body}});
+                messages.send(&serde_json::to_vec(&response).unwrap()).await.unwrap();
+            }
+        });
+    }
+    while tasks.join_next().await.is_some() {}
+}
+
+// The class: every capability-gated request is refused locally, with no wire
+// send, once the peer's advertisement lacks it (wire lockstep, #54206).
+#[tokio::test]
+async fn workspace_client_never_sends_a_request_the_peer_did_not_advertise() {
+    let (client_endpoint, daemon_endpoint) = endpoint_pair();
+    let client_multiplexer = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+    let daemon_multiplexer = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let server = tokio::spawn(scripted_daemon(
+        daemon_multiplexer.clone(),
+        serde_json::json!(["workspace-files-v1", "future-capability-v9"]),
+        serde_json::json!({"type":"workspaces","workspaces":[]}),
+        seen.clone(),
+    ));
+    let client = WorkspaceClient::connect(client_multiplexer.clone()).await.unwrap();
+    assert!(client.advertised_capabilities().is_none());
+    let advertised = client.capabilities().await.unwrap();
+    assert!(advertised.contains(&RemoteCapability::Unknown("future-capability-v9".into())));
+
+    let workspace = WorkspaceId("w".into());
+    let gated = [
+        (WorkspaceRequest::ListProcesses, "process-catalog-v1"),
+        (WorkspaceRequest::GitStatus { workspace: workspace.clone() }, "workspace-diff-v1"),
+        (
+            WorkspaceRequest::SnapshotProcessTerminal { process: ProcessId::from_u128(1) },
+            "process-terminal-snapshot-v1",
+        ),
+        (
+            WorkspaceRequest::ListDirectory {
+                workspace: workspace.clone(),
+                path: ".".into(),
+                include_hidden: false,
+                limit: 1,
+                cursor: Some(cmux_remote_protocol::PageCursor("next".into())),
+            },
+            "workspace-pagination-v1",
+        ),
+        (WorkspaceRequest::ReplaceMachineSecrets { items: Vec::new() }, "secrets-v1"),
+    ];
+    for (request, missing) in gated {
+        let error = client.request(request).await.unwrap_err();
+        assert_eq!(error.code, crate::client::PEER_UNSUPPORTED_CODE);
+        assert_eq!(error.message, format!("peer does not support {missing}"));
+    }
+    let error = match client.process_events(ProcessId::from_u128(1), 0).await {
+        Err(error) => error,
+        Ok(_) => panic!("process-stream needs process-pipes-v1"),
+    };
+    assert_eq!(error.code, crate::client::PEER_UNSUPPORTED_CODE);
+    // An advertised request still goes out on the same client.
+    assert!(matches!(
+        client.request(WorkspaceRequest::ListWorkspaces).await.unwrap(),
+        WorkspaceResponse::Workspaces { .. }
+    ));
+    assert_eq!(*seen.lock().unwrap(), ["capabilities", "list-workspaces"]);
+
+    drop(client);
+    client_multiplexer.shutdown().await;
+    daemon_multiplexer.shutdown().await;
+    server.abort();
+}
+
+// A newer daemon's response shape fails only the request it answers; the
+// channel's reader keeps serving the next request.
+#[tokio::test]
+async fn workspace_client_survives_an_unknown_response_tag() {
+    let (client_endpoint, daemon_endpoint) = endpoint_pair();
+    let client_multiplexer = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+    let daemon_multiplexer = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let server = tokio::spawn(scripted_daemon(
+        daemon_multiplexer.clone(),
+        serde_json::json!(["workspace-files-v1"]),
+        serde_json::json!({"type":"future-response-v9","extra":1}),
+        seen.clone(),
+    ));
+    let client = WorkspaceClient::connect(client_multiplexer.clone()).await.unwrap();
+    for _ in 0..2 {
+        let error = client.request(WorkspaceRequest::ListWorkspaces).await.unwrap_err();
+        assert_eq!(error.code, crate::client::UNSUPPORTED_RESPONSE_CODE);
+    }
+    // The control channel that carried both still answers.
+    client.capabilities().await.unwrap();
+    assert_eq!(*seen.lock().unwrap(), ["list-workspaces", "list-workspaces", "capabilities"]);
+
+    drop(client);
+    client_multiplexer.shutdown().await;
+    daemon_multiplexer.shutdown().await;
+    server.abort();
+}
+
+// An older daemon answers a request it cannot decode on that request alone,
+// instead of resetting the stream under every other in-flight request.
+#[tokio::test]
+async fn workspace_daemon_refuses_an_unknown_request_without_resetting_the_stream() {
+    let (client_endpoint, daemon_endpoint) = endpoint_pair();
+    let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+    let daemon = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+    let stream = Arc::new(client.open(Service::WorkspaceRpc, BTreeMap::new()).await.unwrap());
+    let incoming = daemon.accept().await.unwrap().unwrap();
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            let serve = DaemonServices::serve_workspace_rpc(
+                WorkspaceService::new(),
+                ClientScope::new("unknown-tag", cmux_remote_protocol::SessionId([2; 16])),
+                RequestAdmission::new(),
+                incoming.stream,
+                incoming.metadata,
+            );
+            let exchange = async {
+                stream.receive().await.unwrap().unwrap();
+                let messages = MessageStream::with_lane(stream, Lane::Control);
+                let id = "00000000-0000-4000-8000-000000000001";
+                let unknown = format!(r#"{{"id":"{id}","request":{{"type":"future-method-v9"}}}}"#);
+                messages.send(unknown.as_bytes()).await.unwrap();
+                let refused: RpcResponse =
+                    serde_json::from_slice(&messages.receive().await.unwrap().unwrap()).unwrap();
+                assert_eq!(refused.id.to_string(), id);
+                let error = refused.result.unwrap_err();
+                assert_eq!(error.code, UNSUPPORTED_REQUEST_CODE);
+                let next = RpcRequest {
+                    id: RequestId::from_u128(0x8000_0000_0000_0002),
+                    timeout_ms: None,
+                    request: WorkspaceRequest::ListWorkspaces,
+                };
+                messages.send(&serde_json::to_vec(&next).unwrap()).await.unwrap();
+                let answered: RpcResponse =
+                    serde_json::from_slice(&messages.receive().await.unwrap().unwrap()).unwrap();
+                assert_eq!(answered.id, next.id);
+                assert!(matches!(answered.result, Ok(WorkspaceResponse::Workspaces { .. })));
+                messages.close().await.unwrap();
+            };
+            let (result, ()) = tokio::join!(serve, exchange);
+            result.unwrap();
+        })
+        .await;
+    client.shutdown().await;
+    daemon.shutdown().await;
+}
+
+// An OPEN naming a service or control shape this side predates resets that
+// one stream; the multiplexer and its other streams keep working.
+#[tokio::test]
+async fn unknown_service_open_resets_only_its_stream() {
+    let (peer, daemon_endpoint) = endpoint_pair();
+    let daemon = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+    for payload in [
+        br#"{"type":"open","service":"future-service-v9","metadata":{}}"#.as_slice(),
+        br#"{"type":"future-control-v9"}"#.as_slice(),
+    ] {
+        let stream = if payload.starts_with(br#"{"type":"open""#) { 1 } else { 3 };
+        peer.send_frame(
+            None,
+            Lane::Control,
+            stream,
+            Bytes::copy_from_slice(payload),
+            FrameFlags::OPEN,
+        )
+        .await
+        .unwrap();
+        let reset = peer.receive_frame().await.unwrap().unwrap();
+        assert_eq!(reset.stream, stream);
+        assert!(reset.flags.contains(FrameFlags::RESET), "{:?}", reset.flags);
+    }
+    let open = ServiceControl::Open { service: Service::WorkspaceRpc, metadata: BTreeMap::new() };
+    peer.send_frame(
+        None,
+        Lane::Control,
+        5,
+        Bytes::from(serde_json::to_vec(&open).unwrap()),
+        FrameFlags::OPEN,
+    )
+    .await
+    .unwrap();
+    let accepted = daemon.accept().await.unwrap().unwrap();
+    assert_eq!(accepted.service, Service::WorkspaceRpc);
+    daemon.shutdown().await;
 }
