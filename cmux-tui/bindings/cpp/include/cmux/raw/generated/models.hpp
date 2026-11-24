@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "858e0f04f55412fc1f8d7d3c6cb8baa61a104fdf7d313197268b7159d15d2a77";
+inline constexpr std::string_view kProtocolIrSha256 = "5903a272cf82bcdf6ebebfc819cbbae76e9b554826e7efe512b783c38bda48f9";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -195,6 +195,7 @@ struct ServerStatsResult;
 struct ServerStatsWritePath;
 enum class ServerStatsWriterPhase;
 struct SetCellPixelsResult;
+struct SetClientInfoResult;
 struct SetHostSizePolicyResult;
 struct SetSizeCountsResult;
 struct SetSizePolicyResult;
@@ -600,6 +601,7 @@ struct TerminalClipboardReplyRequest;
 struct TerminalClipboardSubscribeRequest;
 struct TerminalCommandContextRequest;
 struct TerminalEventsRequest;
+struct TerminalFindRequest;
 struct TerminalHistoryRequest;
 struct TerminalLastCommandRequest;
 struct TerminalPortsRequest;
@@ -3546,6 +3548,7 @@ struct MachinePlatform {
 
 struct IdentifyResult {
     Field<std::uint32_t> api_revision{};
+    Field<std::string> api_version{};
     Field<std::string> build_commit{};
     Field<std::string> build_id{};
     Field<std::uint64_t> build_time{};
@@ -3564,6 +3567,7 @@ struct IdentifyResult {
     std::optional<MachinePlatform> machine_platform{};
     std::optional<std::string> machine_symbol{};
     Field<std::uint32_t> min_api_revision{};
+    Field<std::string> min_api_version{};
     std::uint32_t pid{};
     std::uint32_t protocol{};
     std::string registry_id{};
@@ -5605,6 +5609,7 @@ struct SetCellPixelsResult {
 
 struct SetClientInfoRequest {
     Field<std::uint32_t> api_revision{};
+    Field<std::string> api_version{};
     Field<std::vector<std::string>> capabilities{};
     Field<std::string> device_id{};
     Field<std::string> device_kind{};
@@ -5617,6 +5622,12 @@ struct SetClientInfoRequest {
     Field<std::string> user_id{};
     Field<std::string> version{};
     friend bool operator==(const SetClientInfoRequest&, const SetClientInfoRequest&) = default;
+};
+
+struct SetClientInfoResult {
+    std::optional<std::uint32_t> api_revision{};
+    std::optional<std::string> api_version{};
+    friend bool operator==(const SetClientInfoResult&, const SetClientInfoResult&) = default;
 };
 
 struct SetClientSizingRequest {
@@ -6245,6 +6256,19 @@ struct TerminalEventsResult {
     std::string registry_id{};
     std::uint64_t terminal_revision{};
     friend bool operator==(const TerminalEventsResult&, const TerminalEventsResult&) = default;
+};
+
+struct TerminalFindRequest {
+    Field<std::uint64_t> before{};
+    std::optional<bool> case_sensitive{};
+    Field<std::uint64_t> epoch{};
+    Field<std::uint64_t> max_matches{};
+    Field<std::uint64_t> page_rows{};
+    std::string query{};
+    std::optional<bool> regex{};
+    Id surface{};
+    std::optional<bool> whole_word{};
+    friend bool operator==(const TerminalFindRequest&, const TerminalFindRequest&) = default;
 };
 
 struct TerminalHistoryPage {
@@ -7854,6 +7878,12 @@ template <>
 struct Codec<SetCellPixelsResult> {
     static Result<Json> encode(const SetCellPixelsResult& value);
     static Result<SetCellPixelsResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<SetClientInfoResult> {
+    static Result<Json> encode(const SetClientInfoResult& value);
+    static Result<SetClientInfoResult> decode(const Json& value);
 };
 
 template <>
@@ -10284,6 +10314,12 @@ template <>
 struct Codec<TerminalEventsRequest> {
     static Result<Json> encode(const TerminalEventsRequest& value);
     static Result<TerminalEventsRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalFindRequest> {
+    static Result<Json> encode(const TerminalFindRequest& value);
+    static Result<TerminalFindRequest> decode(const Json& value);
 };
 
 template <>

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 858e0f04f55412fc1f8d7d3c6cb8baa61a104fdf7d313197268b7159d15d2a77. */
+/* cmux-tui mux protocol 12, IR 5903a272cf82bcdf6ebebfc819cbbae76e9b554826e7efe512b783c38bda48f9. */
 
 
 import type * as T from "./types.js";
@@ -2500,6 +2500,7 @@ export interface SetCellPixelsRequest extends CmuxRequestBase {
 export interface SetClientInfoRequest extends CmuxRequestBase {
   cmd: "set-client-info";
   "api_revision"?: (number) | null;
+  "api_version"?: (string) | null;
   "capabilities"?: (Array<string>) | null;
   "device_id"?: (string) | null;
   "device_kind"?: (string) | null;
@@ -2512,7 +2513,6 @@ export interface SetClientInfoRequest extends CmuxRequestBase {
   "user_id"?: (string) | null;
   "version"?: (string) | null;
 }
-export type SetClientInfoResult = T.EmptyResult;
 
 /** Protocol v10; authority: control. */
 export interface SetClientSizingRequest extends CmuxRequestBase {
@@ -2886,6 +2886,25 @@ export interface TerminalEventsRequest extends CmuxRequestBase {
   cmd: "terminal-events";
   "after_revision"?: bigint;
 }
+
+/** Protocol v7; authority: control. */
+export interface TerminalFindRequest extends CmuxRequestBase {
+  cmd: "terminal-find";
+  /** Marker the page ends above (exclusive): the previous page's next_before. */
+  "before"?: (bigint) | null;
+  "case_sensitive"?: boolean;
+  /** The previous page's epoch; a different one restarts at the bottom. */
+  "epoch"?: (bigint) | null;
+  "max_matches"?: (bigint) | null;
+  "page_rows"?: (bigint) | null;
+  /** Empty matches nothing. */
+  "query": string;
+  /** query is a Rust regex pattern, not a literal. */
+  "regex"?: boolean;
+  "surface": T.Id;
+  "whole_word"?: boolean;
+}
+export type TerminalFindResult = T.JsonValue;
 
 /** Protocol v12; authority: control. */
 export interface TerminalHistoryRequest extends CmuxRequestBase {
@@ -3443,6 +3462,7 @@ export type CmuxRequest =
   | TerminalClipboardSubscribeRequest
   | TerminalCommandContextRequest
   | TerminalEventsRequest
+  | TerminalFindRequest
   | TerminalHistoryRequest
   | TerminalLastCommandRequest
   | TerminalPortsRequest
@@ -5398,7 +5418,7 @@ export interface CmuxCommandDefinitionMap {
   };
   "set-client-info": {
     request: SetClientInfoRequest;
-    result: SetClientInfoResult;
+    result: T.SetClientInfoResult;
     authority: "control";
     since: 6;
     capability: null;
@@ -5721,6 +5741,14 @@ export interface CmuxCommandDefinitionMap {
     result: T.TerminalEventsResult;
     authority: "control";
     since: 9;
+    capability: null;
+    stream: null;
+  };
+  "terminal-find": {
+    request: TerminalFindRequest;
+    result: TerminalFindResult;
+    authority: "control";
+    since: 7;
     capability: null;
     stream: null;
   };
