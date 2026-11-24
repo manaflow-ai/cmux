@@ -216,7 +216,8 @@ impl Git<'_> {
     /// The commits checked out and the patch applied, at the repository's top.
     fn check_out(&self, root: &Path, head: &str, patch: &Path) -> Result<(), String> {
         let mut checkout = vec!["checkout", "-q"];
-        if root.join(".git").exists() && git(root, &["rev-parse", "-q", "--verify", "HEAD"]).is_ok() {
+        if root.join(".git").exists() && git(root, &["rev-parse", "-q", "--verify", "HEAD"]).is_ok()
+        {
             checkout.push("-f");
         }
         match self.branch {

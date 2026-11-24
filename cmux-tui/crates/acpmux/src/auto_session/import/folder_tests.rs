@@ -33,7 +33,11 @@ fn write(path: &Path, bytes: &[u8], mode: u32) {
 }
 
 fn mode(path: &Path) -> u32 {
-    std::fs::metadata(path).unwrap().permissions().mode() & 0o777
+    if std::fs::metadata(path).unwrap().permissions().mode() & 0o111 == 0o111 {
+        0o755
+    } else {
+        0o644
+    }
 }
 
 /// A laptop checkout and the Cloud machine's clone of the same remote, both at one commit that

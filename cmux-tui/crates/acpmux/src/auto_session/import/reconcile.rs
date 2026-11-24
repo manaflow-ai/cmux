@@ -42,7 +42,12 @@ fn path_of(bytes: &[u8]) -> PathBuf {
 
 /// The tree of `head` with `patch` applied, in a scratch index: nothing the person sees changes.
 /// A patch that does not apply is found here, before any file is touched.
-pub(super) fn tree_with(root: &Path, scratch: &Path, head: &str, patch: &Path) -> Result<String, String> {
+pub(super) fn tree_with(
+    root: &Path,
+    scratch: &Path,
+    head: &str,
+    patch: &Path,
+) -> Result<String, String> {
     let index = scratch.join("index");
     let env = [("GIT_INDEX_FILE", index.to_string_lossy().into_owned())];
     git_with(root, &env, &["read-tree", head])?;
@@ -86,7 +91,8 @@ fn same_as(root: &Path, file: &Path, entry: &Entry) -> bool {
     if exec != (entry.mode == "100755") || entry.mode == "120000" {
         return false;
     }
-    git(root, &["hash-object", "--no-filters", "--", &file.to_string_lossy()]).is_ok_and(|id| id == entry.blob)
+    git(root, &["hash-object", "--no-filters", "--", &file.to_string_lossy()])
+        .is_ok_and(|id| id == entry.blob)
 }
 
 impl Aside {
