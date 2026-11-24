@@ -201,14 +201,14 @@ fn workspace_name_source_v1_release_returns_a_pinned_name_to_auto() {
     let released = listed(&mux, &key);
     assert_eq!(released["name"], "Billing");
     assert_eq!(released["name_source"], "auto", "{released}");
-    assert_eq!(released["name_revision"], "1", "{released}");
+    assert_eq!(released["name_revision"], "2", "{released}");
 
     let (_, generation) = mux.registry_identity();
     run_json_command(
         &mux,
         json!({
             "cmd":"rename-workspace", "key":key, "name":"Fix Login", "source":"auto",
-            "expected_generation":generation, "expected_name_revision":"1",
+            "expected_generation":generation, "expected_name_revision":"2",
         }),
     )
     .unwrap();
