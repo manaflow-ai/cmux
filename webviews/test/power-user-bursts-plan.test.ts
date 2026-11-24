@@ -127,9 +127,11 @@ describe("judge against the idle stream", () => {
 });
 
 describe("knownBreach", () => {
-  test("a filed breach names its issue; another engine's or kind's does not", () => {
+  test("a filed breach names its issue, for any kind under `*`; another engine's or metric's does not", () => {
     expect(knownBreach("chromium", { kind: "resize", what: "blank_frames", value: 4, budget: 0 })).toMatch(/#\d+$/);
-    expect(knownBreach("chromium", { kind: "sweep", what: "blank_frames", value: 4, budget: 0 })).toBeUndefined();
+    expect(knownBreach("chromium", { kind: "sweep", what: "blank_frames", value: 4, budget: 0 })).toMatch(/#\d+$/);
+    expect(knownBreach("firefox", { kind: "sweep", what: "blank_frames", value: 4, budget: 0 })).toBeUndefined();
+    expect(knownBreach("chromium", { kind: "type", what: "dropped_keys", value: 1, budget: 0 })).toBeUndefined();
     const duplicate = "3x Encountered two children with the same key, `%s`.";
     expect(knownBreach("webkit", { kind: "console", what: "error", value: duplicate, budget: "none" })).toMatch(
       /#\d+$/,

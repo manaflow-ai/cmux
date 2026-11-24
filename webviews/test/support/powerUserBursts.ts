@@ -372,32 +372,22 @@ export function draftDiff(expected: string, actual: string): { dropped: number; 
 /** Breaches already filed, by `engine kind what`: reported, not failed, until the fix lands. */
 export const KNOWN: Record<string, string> = {
   "console Encountered two children with the same key": "manaflow-ai/cmux#50478",
-  "chromium flick blank_frames": "manaflow-ai/cmux#50479",
-  "chromium resize blank_frames": "manaflow-ai/cmux#50479",
-  "chromium paste blank_frames": "manaflow-ai/cmux#50479",
-  "chromium type blank_frames": "manaflow-ai/cmux#50479",
-  "chromium momentum blank_frames": "manaflow-ai/cmux#50479",
-  "webkit flick blank_frames": "manaflow-ai/cmux#50479",
-  "webkit resize blank_frames": "manaflow-ai/cmux#50479",
-  "webkit paste blank_frames": "manaflow-ai/cmux#50479",
-  "chromium flick stray_worst_px": "manaflow-ai/cmux#50480",
-  "chromium paste stray_worst_px": "manaflow-ai/cmux#50480",
-  "chromium momentum stray_worst_px": "manaflow-ai/cmux#50480",
-  "webkit flick stray_worst_px": "manaflow-ai/cmux#50480",
-  "webkit paste stray_worst_px": "manaflow-ai/cmux#50480",
-  "webkit momentum stray_worst_px": "manaflow-ai/cmux#50480",
-  // A wave's stray is counted against every input kind in it: wave 21 (flick+momentum+type) puts the same
-  // flick-caused follow reversal on "type" too.
-  "chromium type stray_worst_px": "manaflow-ai/cmux#50480",
-  "webkit type stray_worst_px": "manaflow-ai/cmux#50480",
+  // A wave's blank frames and strays count against every input kind in the wave, and which kinds share a
+  // wave with the blank or the stray moves run to run (the same seed put blank frames on "switch" and "send"
+  // in one run and not the next), so these two are filed for every kind (`*`) until #50479 and #50480 land.
+  "chromium * blank_frames": "manaflow-ai/cmux#50479",
+  "webkit * blank_frames": "manaflow-ai/cmux#50479",
+  "chromium * stray_worst_px": "manaflow-ai/cmux#50480",
+  "webkit * stray_worst_px": "manaflow-ai/cmux#50480",
   "console ResizeObserver loop completed": "manaflow-ai/cmux#50481",
 };
 
-/** The issue a breach is already filed as: `engine kind what`, or a `console <substring>` of the message. */
+/** The issue a breach is already filed as: `engine kind what` (`engine * what` for any kind), or a
+ *  `console <substring>` of the message. */
 export function knownBreach(engine: string, breach: Breach): string | undefined {
   if (breach.kind === "console")
     return Object.entries(KNOWN).find(
       ([key]) => key.startsWith("console ") && String(breach.value).includes(key.slice(8)),
     )?.[1];
-  return KNOWN[`${engine} ${breach.kind} ${breach.what}`];
+  return KNOWN[`${engine} ${breach.kind} ${breach.what}`] ?? KNOWN[`${engine} * ${breach.what}`];
 }
