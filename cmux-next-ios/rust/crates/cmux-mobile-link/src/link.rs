@@ -729,6 +729,9 @@ struct Inner {
     rtt: watch::Sender<Option<Duration>>,
     /// The smoothed round trip of answered pings ([`Link::probe_timeout`]).
     srtt: Mutex<Option<Duration>>,
+    /// When a round trip (the app's heartbeat, the keepalive) last sent its
+    /// first ping as a datagram: the foreground probe takes it for its own.
+    last_datagram_ping: Mutex<Option<Instant>>,
     /// Ping counts and round trips for the link's path report ([`Link::take_ping_stats`]).
     ping_stats: Mutex<PingStats>,
     closed: watch::Sender<Option<String>>,
@@ -1030,6 +1033,7 @@ impl Link {
             foreground: watch::channel(config.foreground_probe).0,
             rtt: watch::channel(None).0,
             srtt: Mutex::new(None),
+            last_datagram_ping: Mutex::new(None),
             ping_stats: Mutex::new(PingStats::default()),
             closed: watch::channel(None).0,
             incoming: tokio::sync::Mutex::new(incoming_rx),
@@ -1067,24 +1071,65 @@ impl Link {
             tasks.push(tokio::spawn(aligned_keepalive(link, interval, config.keepalive_timeout)));
         } else if let Some(interval) = config.keepalive {
             let link = Self { inner: Arc::clone(&inner) };
+            // The phone pings every interval, busy or not: its pongs are
+            // the link's round-trip samples. The Mac pings only after
+            // `interval` and a quarter with nothing heard: any frame, a
+            // pong or the phone's own ping, proves the phone as a pong of
+            // its own would. On an idle link the phone's pings arrive first
+            // and the Mac only answers: one ping and one pong per interval,
+            // not two of each. Its timeout counts from that quarter earlier, so it
+            // still closes `interval + keepalive_timeout` after the last
+            // frame at the latest, as before; and it is suspect when its own
+            // ping would have made it (`suspect_after` past the interval),
+            // since the phone's ping is due before then.
+            let extra = if link.inner.role == Role::Mac { interval / 4 } else { Duration::ZERO };
+            let suspect_after = config.suspect_after.filter(|after| !extra.is_zero() && *after < extra);
             tasks.push(tokio::spawn(async move {
                 let mut closed = link.inner.closed.subscribe();
+                let mut last_ping = Instant::now();
                 loop {
-                    tokio::select! {
-                        () = tokio::time::sleep(interval) => {}
-                        _ = closed.wait_for(Option::is_some) => return,
+                    loop {
+                        let base = if extra.is_zero() {
+                            last_ping
+                        } else {
+                            link.inner.last_received().max(last_ping)
+                        };
+                        let due = base + interval + extra;
+                        let now = Instant::now();
+                        if due <= now {
+                            break;
+                        }
+                        let suspect_at = suspect_after
+                            .map(|after| base + interval + after)
+                            .filter(|_| !link.inner.suspect_flag.load(Ordering::Relaxed));
+                        if let Some(at) = suspect_at
+                            && at <= now
+                        {
+                            if link.inner.parked_until().is_none() {
+                                link.inner.raise_suspect(base + interval);
+                                // The watchdog sleeps on an idle link: wake it to probe.
+                                link.inner.unanswered_changed.notify_one();
+                            }
+                        }
+                        let wake = suspect_at.filter(|at| *at > now).map_or(due, |at| at.min(due));
+                        tokio::select! {
+                            () = tokio::time::sleep_until(wake) => {}
+                            _ = closed.wait_for(Option::is_some) => return,
+                        }
                     }
                     if !wait_out_park(&link).await {
                         return;
                     }
                     let sent = Instant::now();
+                    last_ping = sent;
+                    let credited = sent.checked_sub(extra).unwrap_or(sent);
                     // Not sent if a park came since the check above.
                     let ping = link.round_trip(true);
                     tokio::pin!(ping);
                     loop {
                         // Wait for the pong, but count any inbound frame as
                         // life: a pong can trail a full transmit queue.
-                        let deadline = link.inner.last_received().max(sent) + config.keepalive_timeout;
+                        let deadline = link.inner.last_received().max(credited) + config.keepalive_timeout;
                         tokio::select! {
                             result = &mut ping => {
                                 if result.is_err() {
@@ -1097,7 +1142,7 @@ impl Link {
                                 if link.inner.parked_until().is_some() {
                                     break;
                                 }
-                                let quiet_since = link.inner.last_received().max(sent);
+                                let quiet_since = link.inner.last_received().max(credited);
                                 if quiet_since + config.keepalive_timeout <= Instant::now() {
                                     link.inner.shut("keepalive timed out");
                                     return;
@@ -1381,7 +1426,10 @@ impl Link {
                 }
                 self.inner.send_datagram(DATAGRAM_PING, nonce, 0)
             };
-            if !datagram {
+            if datagram {
+                *self.inner.last_datagram_ping.lock().unwrap_or_else(PoisonError::into_inner) =
+                    Some(Instant::now());
+            } else {
                 self.inner.send_control(Frame::new(0, FrameType::Ping, nonce.to_be_bytes().to_vec()))?;
             }
             Ok(())
@@ -1869,6 +1917,20 @@ async fn foreground_probe(link: Link) {
                 // The watchdog sleeps on an idle link: wake it to probe.
                 inner.unanswered_changed.notify_one();
                 (last, misses, first_miss) = (None, 0, None);
+                continue;
+            }
+            // A datagram ping another round trip (the app's heartbeat, the
+            // keepalive) sent within the last beat, after the ping judged
+            // above, proves the link as one of ours would: judge it a beat
+            // after it left, which is no later than ours would be, instead
+            // of sending another. Its resends are its own round trip's.
+            let other = *inner.last_datagram_ping.lock().unwrap_or_else(PoisonError::into_inner);
+            if let Some(other) = other
+                && now.checked_sub(FOREGROUND_PROBE).is_none_or(|beat_ago| other > beat_ago)
+                && last.is_none_or(|(at, _)| other > at)
+            {
+                (last, resent) = (Some((other, 0)), true);
+                tick = (other + FOREGROUND_PROBE).max(now);
                 continue;
             }
             let nonce = inner.next_nonce.fetch_add(1, Ordering::Relaxed);
@@ -3856,14 +3918,14 @@ mod tests {
         let from = sent.load(Ordering::Relaxed);
         tokio::time::sleep(Duration::from_secs(60)).await;
         let background = sent.load(Ordering::Relaxed) - from;
-        // Its keepalive pings and its pongs to the Mac's: 4 each.
-        assert!(background <= 10, "{background} datagrams in a backgrounded minute");
+        // Its keepalive pings: the Mac only answers them.
+        assert!(background <= 5, "{background} datagrams in a backgrounded minute");
         phone.set_foreground_probe(true);
         let from = sent.load(Ordering::Relaxed);
         tokio::time::sleep(Duration::from_secs(60)).await;
         let foreground = sent.load(Ordering::Relaxed) - from;
-        // 20 probes besides.
-        assert!((26..=32).contains(&foreground), "{foreground} datagrams in a foreground minute");
+        // A probe every beat; the keepalive's pings stand in for four of them.
+        assert!((18..=22).contains(&foreground), "{foreground} datagrams in a foreground minute");
         assert!(!phone.is_closed() && !mac.is_closed());
         phone.close("done");
         mac.close("done");

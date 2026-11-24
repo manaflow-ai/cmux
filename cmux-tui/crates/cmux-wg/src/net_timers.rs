@@ -228,9 +228,35 @@ impl Driver {
             // gives up; a keepalive alone does not.
             let retry = classify(packet) == DatagramClass::WireGuardInitiation;
             self.underlay.send(packet);
+            if let Some(keepalive) = &mut self.quiet_keepalive {
+                keepalive.sent(Instant::now());
+            }
             if retry {
                 self.schedule.on_activity(Instant::now());
             }
+        }
+        self.send_quiet_keepalive();
+    }
+
+    /// The persistent keepalive: an empty data datagram once an interval has
+    /// passed with nothing sent through the session, so a NAT binding never
+    /// sees a longer gap than the configured interval. Anything else the
+    /// tunnel sends (a TCP segment, a probe, a `reach`) holds it as well, so
+    /// it is not sent then. Not while held (its peer is suspended on
+    /// purpose), and not without a session: unlike boringtun's, it never
+    /// starts a handshake.
+    fn send_quiet_keepalive(&mut self) {
+        let now = Instant::now();
+        let Some(keepalive) = &mut self.quiet_keepalive else { return };
+        if !keepalive.due(self.tunn.stats().1, now)
+            || self.stack.hold().is_some()
+            || self.tunn.time_since_last_handshake().is_none()
+        {
+            return;
+        }
+        if let TunnResult::WriteToNetwork(packet) = self.tunn.encapsulate(&[], &mut self.scratch) {
+            self.underlay.send(packet);
+            keepalive.sent(now);
         }
     }
 }
