@@ -99,7 +99,9 @@ test("a caught render error is logged with what failed, the error's own words an
 
 test("a thrown value that is not an Error still says what it was", () => {
   expect(paneFailureLine("bad state")).toBe("agent pane render failed: bad state");
-  expect(paneFailureLine(new Error(""))).toBe("agent pane render failed: no message");
+  const empty = new Error("");
+  empty.stack = "";
+  expect(paneFailureLine(empty)).toBe("agent pane render failed: no message");
 });
 
 test("the logged line names components and frames on its one line", () => {
