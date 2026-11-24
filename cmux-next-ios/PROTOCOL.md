@@ -510,8 +510,10 @@ relay was retired: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux-next/
   signal opened too. `503 relay_off` when the Worker's `LINK_RELAY_MODE` is
   `off` (the kill switch); an older Worker answers `404`.
 - **Where:** one `LinkRelay` Durable Object per session, named by the owner
-  key, build space and session id (never a client value), created with the
-  joiner's `locationHint` like a hub. Hibernating sockets, no storage, one
+  key, build space and session id (never a client value), created in the
+  region that makes the two ends' round trips through it least ("Relay
+  placement" below); the joiner's `locationHint` when the peer's location is
+  unknown. Hibernating sockets, no storage, one
   socket per device (a newer join closes the older with 4000 `replaced`).
 - **Frames:** the overlay relay frame of `cmux_transport::relay_frame`
   (`[u8 1][u8 kind][16-byte peer][payload ≤ 16 KiB]`, the shared golden
@@ -556,6 +558,35 @@ relay was retired: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux-next/
   allocation, the relay at once, never left; without the relay the dial
   fails at once. `CMUX_MOBILE_DEV_NO_RELAY=1` dials without it, and
   `CMUX_MOBILE_RELAY=0` turns it off for `cmux-mobile-host`.
+
+### Relay placement
+
+A Durable Object stays where it is first created, so the first join decides
+where a session's relay lives for good (`backend/src/placement.ts`). The
+Worker picks the region r that makes cost(joiner, r) + cost(r, peer) least.
+The peer is the other party of the session, located by its live signal
+socket. Each end's cost to r is either:
+
+- its own measured round trip to r, from its netcheck; or
+- an estimate from Cloudflare's geolocation of its request (lat/lon rounded
+  to 0.1°): the great-circle distance to the region's assumed centre at
+  100 km per ms of round trip.
+
+When an end has neither, the relay takes the joiner's `locationHint`, as
+before. Regions within 2 ms of the least sum count as a tie; the more even
+split wins.
+
+- **Netcheck targets:** `GET /v1/netcheck/:region` (`wnam`, `enam`, `sam`,
+  `weur`, `eeur`, `apac`, `oc`, `afr`, `me`), a WebSocket upgrade with the
+  same bearer as signaling. It reaches one object per region and build
+  space, created with that region's hint. The object answers `ping` with
+  `pong` without waking; any other frame closes the socket with 1008. An
+  unknown region gets `404 unknown_region`, and `503 relay_off` comes with
+  the relay's kill switch.
+- **Reporting it:** a client that has measured adds
+  `netcheck=<region>:<ms>,...` to its signal socket's URL (and may add it to
+  a relay join). Entries that fail to parse are dropped. The hub keeps the
+  value with the socket and never stores it.
 
 ### When no path works
 
@@ -1185,6 +1216,13 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   `c~<machine_id>~<team_id>`: the desktop of a Cloud machine the account owns
   (exactly one owner link from the app, else `forbidden`; not running: `asleep`),
   view only: hostd sends the source no input from the phone.
+  With `mac-display-v1` (2026-11-23), `tab` may be `d~<display>`: this Mac's own
+  display (a CGDirectDisplayID in decimal, no leading zero; `d~0` the main display),
+  the Mac screen as rd/1 on this link with its video on the media lane, view only like
+  a Cloud desktop. hostd lists `mac-display-v1` only when the app's source captures
+  displays (`CMUX_MOBILE_MAC_DISPLAY=1`, else `no_surface_host`); the app starts a
+  capture only while Share This Mac is on (else the open fails `unavailable`) and
+  stops it when sharing turns off or the viewer goes.
   `tab` is the phone tab's key `s<surface>`;
   hostd opens it only when the daemon's `list-workspaces` lists that surface
   as a page tab with `conversation.page: "phone"` (else `forbidden`; not a
@@ -1252,6 +1290,7 @@ cmux-tui daemon's names hostd itself declares or checks. Printed from
 | `browser-video-track-v1` | hostd `version` | With `browser-stream-v1`: `browser {"video":"track"}` carries the page's video on the media lane (WebRTC, and WireGuard since 2026-10-14). |
 | `surface-stream-v1` | hostd `version` | (2026-10-22) The host streams the Mac's phone tabs' simulators (`surface`); listed only when the Mac app streams simulators. |
 | `cloud-desktop-v1` | hostd `version` | (2026-11-02) `surface` also streams an owned Cloud machine's desktop, view only, on the key `c~<machine_id>~<team_id>`. |
+| `mac-display-v1` | hostd `version` | (2026-11-23) `surface` also streams this Mac's own display as rd/1 on the link, view only, on the key `d~<display>` (CGDirectDisplayID, 0 the main display); served while Share This Mac is on. |
 | `cloud-mobile-chat-v1` | cmux-tui daemon | On a `cloud-acpmux` carrier hostd requires the Cloud daemon's `identify` to list it before declaring it (phone prompt restrictions). |
 | `conversation-tabs-v1` | cmux-tui daemon | Declared in `set-client-info`: conversation tabs read as `conversation` with their record, not `browser`. |
 | `page-tabs-v1` | cmux-tui daemon | Declared in `set-client-info`: page tabs read as `conversation` with their `page` (a phone tab is a simulator tab). |
@@ -1318,6 +1357,27 @@ With both, the challenge frame adds `macKey` (the X9.63 point, hex) and
 pins `macKey` per Mac device id when pairing first passes, and from then on
 refuses (`mac_identity_changed`, before it signs) a Mac that proves another key
 or none. Removing the Mac forgets the pin.
+
+#### Tunnel keys in the proofs (`proofVersion` 2)
+
+On a WireGuard link, both identity proofs also cover the tunnel's two static
+public keys, as each side's own tunnel handshook with them: `dialer` (the
+phone's, or a dialing Mac's) and `answerer` (the Mac's), base64 as in `wg-init`
+and `wg-resp`.
+
+- The phone's `auth` args add `proofVersion: "2"` on a WireGuard link.
+- A Mac that supports it answers on a WireGuard link with `proofVersion: "2"` in
+  the challenge, `macSignature` over
+  `cmux-mobile-mac-identity-v2 \0 mac \0 phone \0 macNonce \0 challenge \0 dialer \0 answerer`,
+  and checks the phone's signature over
+  `cmux-mobile-link-auth-v2 \0 mac \0 phone \0 nonce \0 identityKey \0 approvalKey \0 action \0 dialer \0 answerer`
+  (refused `unpaired` otherwise).
+- The phone checks the proof over its own tunnel's keys (refused
+  `mac_identity_changed`, before it signs). Once a Mac proved v2, the phone
+  remembers it beside the pin and refuses a v1 challenge from it on a WireGuard
+  link; a v2 challenge on a link with no tunnel keys is refused too.
+- A peer that sends no `proofVersion` (an older phone, or a WebRTC link) gets
+  the v1 proofs above; an older Mac ignores it and answers v1.
 
 ### Chief question answers
 
