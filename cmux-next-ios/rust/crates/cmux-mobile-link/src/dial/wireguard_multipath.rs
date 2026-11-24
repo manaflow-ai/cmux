@@ -177,6 +177,7 @@ impl Secondary {
             return false;
         };
         self.stun.swap_remove(index);
+        tracing::debug!(%reflexive, interface = self.interface, "the second socket's address, announced as metered");
         let _ = self.reflexive.send(Some(reflexive));
         self.announced.get_or_insert_with(Instant::now);
         true
@@ -189,9 +190,8 @@ pub(super) struct Assist {
     /// The phone: its socket on the cellular interface.
     secondary: Option<Secondary>,
     /// The Mac: the phone's addresses on its metered interface, as it
-    /// announced them (compared by IP: a carrier NAT may map another port
-    /// toward us than toward the STUN server).
-    peer_metered: HashSet<IpAddr>,
+    /// announced them ([`HybridUnderlay::is_metered`]).
+    peer_metered: HashSet<SocketAddr>,
     /// The Mac: the metered address the phone's datagrams last came from.
     metered_from: Option<(SocketAddr, Instant)>,
     /// When a promotion moved the session onto the warm socket.
@@ -206,8 +206,17 @@ impl HybridUnderlay {
         self.paths.drives() && !self.paths.suspect()
     }
 
+    /// Compared by IP (a carrier NAT may map another port toward us than
+    /// toward the STUN server), unless the phone's current route shares
+    /// that IP (both interfaces behind one NAT, or loopback): then only the
+    /// exact address.
     pub(super) fn is_metered(&self, addr: SocketAddr) -> bool {
-        self.assist.peer_metered.contains(&addr.ip())
+        let metered = &self.assist.peer_metered;
+        if metered.contains(&addr) {
+            return true;
+        }
+        let shared = self.direct.is_some_and(|route| route.addr.ip() == addr.ip());
+        !shared && metered.iter().any(|metered| metered.ip() == addr.ip())
     }
 
     /// Take (`Some`) or drop the second socket.
@@ -223,7 +232,12 @@ impl HybridUnderlay {
                 return;
             }
         };
-        tracing::debug!(interface, local = ?socket.local_addr().ok(), "WireGuard takes a second socket");
+        tracing::debug!(
+            interface,
+            local = ?socket.local_addr().ok(),
+            stun = stun.len(),
+            "WireGuard takes a second socket"
+        );
         let mut transactions = Vec::new();
         for server in stun {
             let mut transaction = [0u8; 12];
@@ -248,14 +262,12 @@ impl HybridUnderlay {
     /// The peer named its metered addresses (none: it has no second
     /// interface now). They leave the selector's paths.
     pub(super) fn set_peer_metered(&mut self, addresses: &[String]) {
-        self.assist.peer_metered = addresses
-            .iter()
-            .filter_map(|text| text.parse::<SocketAddr>().ok())
-            .map(|addr| addr.ip())
-            .collect();
-        let metered = &self.assist.peer_metered;
-        self.learned.retain(|addr| !metered.contains(&addr.ip()));
-        if self.assist.metered_from.is_some_and(|(addr, _)| !metered.contains(&addr.ip())) {
+        self.assist.peer_metered =
+            addresses.iter().filter_map(|text| text.parse::<SocketAddr>().ok()).collect();
+        tracing::debug!(metered = ?self.assist.peer_metered, "the peer's metered addresses");
+        let learned = std::mem::take(&mut self.learned);
+        self.learned = learned.into_iter().filter(|addr| !self.is_metered(*addr)).collect();
+        if self.assist.metered_from.is_some_and(|(addr, _)| !self.is_metered(addr)) {
             self.assist.metered_from = None;
         }
     }
