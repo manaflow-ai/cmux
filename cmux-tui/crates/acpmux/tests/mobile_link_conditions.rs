@@ -1295,6 +1295,24 @@ fn page_seqs(reply: &Value) -> Option<u64> {
     newest.max(through)
 }
 
+/// NETCOND_DEBUG=1: each read's page on stderr.
+fn bg_debug(phase: &str, read: &str, reply: &Value) {
+    if std::env::var_os("NETCOND_DEBUG").is_none() {
+        return;
+    }
+    let page = rows(reply);
+    eprintln!(
+        "netcond-debug {phase} {read}: {} rows {:?}..{:?} hasMore {} pageThrough {} lastSeq {} bytes {}",
+        page.len(),
+        page.first(),
+        page.last(),
+        reply["hasMore"],
+        reply["pageThrough"],
+        reply["lastSeq"],
+        reply.to_string().len()
+    );
+}
+
 /// The chat's catch-up from `after` on a fresh link through `shaper`.
 async fn bg_chat_once(
     shaper: &Shaper,
@@ -1314,7 +1332,8 @@ async fn bg_chat_once(
     let (_, reply) = link.answer(id, deadline).await?;
     let last = reply["lastSeq"].as_u64().ok_or(format!("attach has no lastSeq: {reply}"))?;
     let page = rows(&reply);
-    let mut held = page_seqs(&reply).unwrap_or(after);
+    bg_debug(phase, "attach", &reply);
+    let mut held = page_seqs(&reply).unwrap_or(0).max(after);
     let mut more = reply["hasMore"] == json!(true);
     let gap = more && page.first().is_some_and(|first| *first > after + 1);
     let hit = !more;
@@ -1330,6 +1349,7 @@ async fn bg_chat_once(
             )
             .await?;
         let (_, next) = link.answer(id, deadline).await?;
+        bg_debug(phase, "confirm", &next);
         let events = rows(&next);
         more = !events.is_empty() && next["hasMore"] == json!(true);
         held = held.max(page_seqs(&next).unwrap_or(0));
@@ -1348,6 +1368,7 @@ async fn bg_chat_once(
             )
             .await?;
         let (_, next) = link.answer(id, deadline).await?;
+        bg_debug(phase, "forward", &next);
         let events = rows(&next);
         more = !events.is_empty() && next["hasMore"] == json!(true);
         held = held.max(page_seqs(&next).unwrap_or(0));
