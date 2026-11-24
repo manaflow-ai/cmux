@@ -319,9 +319,10 @@ impl OutMessage {
             (Kind::Control, Some("start" | "resume" | "stop" | "read")) => Ok(()),
             // A chat moved through the hub (`hub/transfer_pull.rs`).
             (Kind::Control, Some(crate::mesh_relay_config::MOVE_OP))
+            | (Kind::Control, Some(crate::mesh_relay_config::MOVE_OUT_OP))
             | (Kind::Control, Some(crate::mesh_relay_config::MOVE_FORGET_OP)) => Ok(()),
             (Kind::Control, _) => {
-                Err("control messages require op start, resume, stop, read, move or move_forget"
+                Err("control messages require op start, resume, stop, read, move, move_out or move_forget"
                     .into())
             }
             (Kind::Prompt, None) => Ok(()),
