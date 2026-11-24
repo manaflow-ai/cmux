@@ -90,14 +90,97 @@ fn the_hybrid_start_flag_is_the_env_then_the_disabled_list_then_none() {
     let none = |_: &str| None;
     let kept = |_: &str| false;
     let dropped = |name: &str| name == HYBRID_CHAT_START;
+    let no_key = || None;
     for on in ["1", "true", "on", "yes", " yes "] {
-        assert_eq!(hybrid_chat_start_flag(&env(on), &dropped), Some(true), "{on}");
+        assert_eq!(hybrid_chat_start_flag(&env(on), &dropped, &no_key), Some(true), "{on}");
     }
     for off in ["0", "false", "off", "no"] {
-        assert_eq!(hybrid_chat_start_flag(&env(off), &kept), Some(false), "{off}");
+        assert_eq!(hybrid_chat_start_flag(&env(off), &kept, &no_key), Some(false), "{off}");
     }
-    assert_eq!(hybrid_chat_start_flag(&none, &kept), None);
-    assert_eq!(hybrid_chat_start_flag(&env("maybe"), &kept), None);
-    assert_eq!(hybrid_chat_start_flag(&none, &dropped), Some(false));
-    assert_eq!(hybrid_chat_start_flag(&env(""), &dropped), Some(false));
+    assert_eq!(hybrid_chat_start_flag(&none, &kept, &no_key), None);
+    assert_eq!(hybrid_chat_start_flag(&env("maybe"), &kept, &no_key), None);
+    assert_eq!(hybrid_chat_start_flag(&none, &dropped, &no_key), Some(false));
+    assert_eq!(hybrid_chat_start_flag(&env(""), &dropped, &no_key), Some(false));
+}
+
+/// Every combination of `CMUX_HYBRID_START` (on, off, absent, unreadable), cmux-next.json's
+/// `cloud.autoCloud` (true, false, absent) and `hybrid-chat-start` disabled or not: the env wins
+/// both ways, then disabled is off, then only a `true` key is on; a false or absent key is none,
+/// as before the key, so no plan's default moves.
+#[test]
+fn cloud_auto_cloud_turns_the_hybrid_start_on_below_the_env_and_the_disabled_list() {
+    let env = |value: Option<&'static str>| {
+        move |name: &str| {
+            (name == HYBRID_CHAT_START_ENV).then_some(value).flatten().map(str::to_owned)
+        }
+    };
+    let disabled = |off: bool| move |name: &str| off && name == HYBRID_CHAT_START;
+    for (env_value, key, off, expected) in [
+        (Some("1"), Some(true), false, Some(true)),
+        (Some("1"), Some(false), false, Some(true)),
+        (Some("1"), None, false, Some(true)),
+        (Some("1"), Some(true), true, Some(true)),
+        (Some("1"), Some(false), true, Some(true)),
+        (Some("1"), None, true, Some(true)),
+        (Some("0"), Some(true), false, Some(false)),
+        (Some("0"), Some(false), false, Some(false)),
+        (Some("0"), None, false, Some(false)),
+        (Some("0"), Some(true), true, Some(false)),
+        (Some("0"), Some(false), true, Some(false)),
+        (Some("0"), None, true, Some(false)),
+        (None, Some(true), false, Some(true)),
+        (None, Some(false), false, None),
+        (None, None, false, None),
+        (None, Some(true), true, Some(false)),
+        (None, Some(false), true, Some(false)),
+        (None, None, true, Some(false)),
+        (Some("maybe"), Some(true), false, Some(true)),
+        (Some("maybe"), Some(false), false, None),
+        (Some(""), None, false, None),
+        (Some(""), Some(true), true, Some(false)),
+    ] {
+        let reads = std::cell::Cell::new(0);
+        let auto_cloud = || {
+            reads.set(reads.get() + 1);
+            key
+        };
+        assert_eq!(
+            hybrid_chat_start_flag(&env(env_value), &disabled(off), &auto_cloud),
+            expected,
+            "env {env_value:?}, cloud.autoCloud {key:?}, disabled {off}"
+        );
+        let decided_above = matches!(env_value, Some("1" | "0")) || off;
+        assert_eq!(
+            reads.get(),
+            usize::from(!decided_above),
+            "the key is read only when it decides"
+        );
+    }
+}
+
+/// The key through the real settings reader: a cmux-next.json with `cloud.autoCloud: true` turns
+/// the hybrid start on, `false` and no key leave it to the plan.
+#[test]
+fn a_settings_file_with_auto_cloud_true_turns_the_hybrid_start_on() {
+    use cmux_tui_core::user_settings::auto_cloud_from_config_file;
+    let path =
+        std::env::temp_dir().join(format!("cmux-hybrid-auto-cloud-{}.json", std::process::id()));
+    let none = |_: &str| None;
+    let kept = |_: &str| false;
+    let flag = |text: Option<&str>| {
+        match text {
+            Some(text) => std::fs::write(&path, text).unwrap(),
+            None => {
+                let _ = std::fs::remove_file(&path);
+            }
+        }
+        hybrid_chat_start_flag(&none, &kept, &|| auto_cloud_from_config_file(&path))
+    };
+    assert_eq!(
+        flag(Some("{\n  // AutoCloud\n  \"cloud\": {\"autoCloud\": true,},\n}")),
+        Some(true)
+    );
+    assert_eq!(flag(Some(r#"{"cloud": {"autoCloud": false}}"#)), None);
+    assert_eq!(flag(Some("{}")), None);
+    assert_eq!(flag(None), None);
 }

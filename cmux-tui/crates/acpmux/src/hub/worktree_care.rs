@@ -331,6 +331,8 @@ impl Hub {
                     &home, &configs,
                 )),
                 open: Arc::new(cmux_worktree_care::procs::open_inside),
+                // A recorded session on the Desktop: no git there unasked (LAUNCH-NO-TCC-PROMPTS).
+                guarded: Arc::new(crate::protected_folders::in_protected_location),
                 settings: CareSettings::default(),
                 apply,
                 pressure: None,
@@ -485,7 +487,12 @@ impl Hub {
         // the refusal is final, so an outbox or relayed delivery is refused once, its sender told
         // why, instead of being tried again every minute forever. Any other folder may come back
         // (a worktree removed by hand and made again), so its refusal stays retryable.
-        if meta.worktree.is_none() && crate::agent::session_tmp::holds(&meta.cwd) {
+        #[cfg(unix)]
+        let session_tmp = crate::agent::session_tmp::holds(&meta.cwd);
+        // Session temp folders are a unix-only part of acpmux (`agent::session_tmp`).
+        #[cfg(not(unix))]
+        let session_tmp = false;
+        if meta.worktree.is_none() && session_tmp {
             return Err(RpcError::internal(format!(
                 "session.folder_missing: the folder of {} ({}) was a temporary folder and is gone \
                  for good, so its agent cannot start again; start a new chat, or archive this one \
