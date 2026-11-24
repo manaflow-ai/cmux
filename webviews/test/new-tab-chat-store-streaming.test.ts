@@ -265,3 +265,69 @@ test("Prioritize Chat Input: the store's cost outside the idle lane, off against
   // On: only the first list (an empty store) is written outside the idle lane.
   expect(await measure(true)).toBe(1);
 });
+
+// Leo 2026-11-22: "i feel likesometimes there's like... lags every few frames or something. like a regular
+// stutter". A V8 profile of his NIGHTLY's agent pages showed each 500 ms write re-encoding every chat and parsing
+// the text back, 20 to 47 ms on the page's main thread each time. A write now encodes only the entries that changed
+// since the last one and parses nothing.
+test("a write while chats stream encodes only the changed chats and parses nothing back", async () => {
+  jest.useFakeTimers();
+  const store = await import("../src/agent-session/acpmux/newtab/chatStore");
+  const lists = streamingLists();
+  store.publishSessions(connected(lists[0]), T0 + 1);
+  jest.advanceTimersByTime(1_000);
+  const stringify = JSON.stringify;
+  const parse = JSON.parse;
+  let entriesEncoded = 0;
+  let listsEncoded = 0;
+  let parsedChars = 0;
+  JSON.stringify = ((value: unknown, ...rest: unknown[]) => {
+    if (value && typeof value === "object" && "sessionId" in value) entriesEncoded += 1;
+    if (value && typeof value === "object" && Array.isArray((value as { sessions?: unknown }).sessions))
+      listsEncoded += 1;
+    return (stringify as (...args: unknown[]) => string)(value, ...rest);
+  }) as typeof JSON.stringify;
+  JSON.parse = ((text: string, ...rest: unknown[]) => {
+    parsedChars += text.length;
+    return (parse as (...args: unknown[]) => unknown)(text, ...rest);
+  }) as typeof JSON.parse;
+  const writes = 10;
+  const started = performance.now();
+  try {
+    for (let frame = 1; frame <= writes; frame += 1) {
+      store.publishSessions(connected(lists[frame]), T0 + 1_000 * (frame + 1));
+      jest.advanceTimersByTime(1_000);
+    }
+  } finally {
+    JSON.stringify = stringify;
+    JSON.parse = parse;
+  }
+  const perWrite = (performance.now() - started) / writes;
+  console.log(
+    `chat store write at ${CHATS} chats, one changed: ${perWrite.toFixed(2)} ms, entries encoded ${entriesEncoded}`,
+  );
+  // One chat changed per write; a chat crossing the whole/short boundary can add one more.
+  expect(entriesEncoded).toBeLessThanOrEqual(writes * 3);
+  expect(listsEncoded).toBe(0);
+  expect(parsedChars).toBe(0);
+  // What the store holds is still the newest list, readable by another page.
+  const raw = window.localStorage.getItem(store.CHAT_STORE_KEY_FOR_TESTS)!;
+  expect(parse(raw).sessions.length).toBe(CHATS);
+});
+
+test("the stored text is what JSON.stringify of the kept list makes", async () => {
+  const store = await import("../src/agent-session/acpmux/newtab/chatStore");
+  const lists = streamingLists();
+  const sessions = lists[7];
+  const text = store.encodeChatStoreForTests(sessions, T0 + 7);
+  const value = JSON.parse(text) as { at: number; sessions: AcpmuxSessionEntry[] };
+  expect(text).toBe(JSON.stringify(value));
+  expect(value.at).toBe(T0 + 7);
+  expect(value.sessions.length).toBe(CHATS);
+  // The newest 60 stay whole, the rest keep their ids and folder.
+  expect(value.sessions[0]?.displayTitle).toBeDefined();
+  expect(value.sessions[100]?.displayTitle).toBeUndefined();
+  expect(value.sessions[100]?.archived).toBe(true);
+  // Encoding the same list again, from the cache, makes the same text.
+  expect(store.encodeChatStoreForTests(sessions, T0 + 7)).toBe(text);
+});

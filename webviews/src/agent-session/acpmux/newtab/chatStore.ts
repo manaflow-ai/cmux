@@ -116,32 +116,71 @@ function load(): void {
 /// Whether `session` waits on the user: it lists first whatever its age, so it stays whole.
 const urgent = (session: AcpmuxSessionEntry) => (session.pendingPermissions ?? 0) > 0 || !!session.indicator;
 
-/// What the store keeps of `sessions`: the daemon's chats, newest first (a tie on its id), the newest
-/// `FULL` and those waiting on the user whole, the others as the ids that keep their transcripts out
-/// of the device chats.
-function kept(sessions: Sessions): AcpmuxSessionEntry[] {
-  // Every page talks to this Mac's daemon, whose list names other machines' chats too (`peer`).
-  const ordered = (sessions as AcpmuxSessionEntry[])
+/// What the store keeps of one listed chat at its place in the newest-first order: the whole entry,
+/// or (past the newest `FULL`, not waiting on the user) the ids that keep its transcript out of the
+/// device chats and its folder in the project picker.
+function keptEntry(session: AcpmuxSessionEntry, index: number): AcpmuxSessionEntry {
+  if (index < FULL || urgent(session)) return session;
+  return {
+    sessionId: session.sessionId,
+    ...(session.agentSessionId ? { agentSessionId: session.agentSessionId } : {}),
+    ...(session.updatedAt !== undefined ? { updatedAt: session.updatedAt } : {}),
+    ...(session.cwd ? { cwd: session.cwd } : {}),
+    ...(session.host ? { host: session.host } : {}),
+    ...(session.hostKind ? { hostKind: session.hostKind } : {}),
+    ...(session.peer ? { peer: session.peer } : {}),
+    archived: true,
+  } as AcpmuxSessionEntry;
+}
+
+/// Each listed entry's kept value and its JSON, whole and short, by the entry object. The direct
+/// client keeps an unchanged session's entry, so a write re-encodes only the chats that changed since
+/// the last one, not every chat on the Mac (about 3,000 on Leo's): a whole re-encode and parse of the
+/// list every 500 ms while agents stream was 20 to 47 ms on the page's main thread, a regular
+/// stutter (Leo, 2026-11-22: "lags every few frames or something. like a regular stutter").
+type Encoded = { full?: [AcpmuxSessionEntry, string]; short?: [AcpmuxSessionEntry, string] };
+const encodedEntries = new WeakMap<AcpmuxSessionEntry, Encoded>();
+
+function encodedEntry(session: AcpmuxSessionEntry, index: number): [AcpmuxSessionEntry, string] {
+  const whole = index < FULL || urgent(session);
+  let cached = encodedEntries.get(session);
+  if (!cached) encodedEntries.set(session, (cached = {}));
+  const slot = whole ? "full" : "short";
+  let value = cached[slot];
+  if (!value) {
+    const entry = keptEntry(session, index);
+    value = cached[slot] = [entry, JSON.stringify(entry)];
+  }
+  return value;
+}
+
+/// The daemon's chats, newest first (a tie on its id): every page talks to this Mac's daemon, whose
+/// list names other machines' chats too (`peer`).
+function ordered(sessions: Sessions): AcpmuxSessionEntry[] {
+  return (sessions as AcpmuxSessionEntry[])
     .filter(Boolean)
     .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0) || a.sessionId.localeCompare(b.sessionId));
-  return ordered.map((session, index) =>
-    index < FULL || urgent(session)
-      ? session
-      : ({
-          sessionId: session.sessionId,
-          ...(session.agentSessionId ? { agentSessionId: session.agentSessionId } : {}),
-          ...(session.updatedAt !== undefined ? { updatedAt: session.updatedAt } : {}),
-          ...(session.cwd ? { cwd: session.cwd } : {}),
-          ...(session.host ? { host: session.host } : {}),
-          ...(session.hostKind ? { hostKind: session.hostKind } : {}),
-          ...(session.peer ? { peer: session.peer } : {}),
-          archived: true,
-        } as AcpmuxSessionEntry),
-  );
+}
+
+/// What the store keeps of `sessions` (``keptEntry`` at each place), and the list's JSON text.
+function keptList(sessions: Sessions): { sessions: AcpmuxSessionEntry[]; listed: string } {
+  const kept: AcpmuxSessionEntry[] = [];
+  const parts: string[] = [];
+  ordered(sessions).forEach((session, index) => {
+    const [entry, text] = encodedEntry(session, index);
+    kept.push(entry);
+    parts.push(text);
+  });
+  return { sessions: kept, listed: `[${parts.join(",")}]` };
+}
+
+/// The text a write stores: `{"at":N,"sessions":[...]}`, what `JSON.stringify` of a ``Stored`` makes.
+function storedText(listed: string, at: number): string {
+  return `{"at":${JSON.stringify(at)},"sessions":${listed}}`;
 }
 
 function encode(sessions: Sessions, at: number): string {
-  return JSON.stringify({ at, sessions: kept(sessions) } satisfies Stored);
+  return storedText(keptList(sessions).listed, at);
 }
 
 function sameEntries(a: Sessions, b: Sessions | undefined): boolean {
@@ -220,17 +259,16 @@ function writePending(): void {
 }
 
 function write(sessions: Sessions, at: number): void {
-  const text = encode(sessions, at);
-  const stored = JSON.parse(text) as Stored;
-  const listed = written(text)?.listed ?? JSON.stringify(stored.sessions);
+  // The kept entries are this page's own (unchanged ones reused), not a parse of the text it stores.
+  const { sessions: kept, listed } = keptList(sessions);
   // The list the store already holds (this page's or another's): no write, no event elsewhere.
   if (listed === lastText && current) return;
   try {
-    storage()?.setItem(KEY, text);
+    storage()?.setItem(KEY, storedText(listed, at));
   } catch {
     // A full or blocked store: this page still lists the newest it has.
   }
-  current = stored;
+  current = { at, sessions: kept };
   lastText = listed;
   notify();
 }

@@ -407,3 +407,147 @@ fn a_read_ahead_gives_way_while_the_store_is_behind_and_then_reads_what_changed(
     let changed = (2 * WARM_PER_PEER * 33) as u64 * 200;
     assert!(new[2].read <= changed, "after, {} bytes read, past what changed", new[2].read);
 }
+
+/// fleet-dogfoods-remote move 2: a daemon with no clients of its own (the fleet watcher) reads
+/// ahead the chats of a peer its config names as its own machine (`githubBroker`) or as a dedicated
+/// agent VM (`vmBoundary`), so a move from its copy can start when that machine dies; a peer it
+/// names as neither is read ahead only once a client here opens a peer chat, as before.
+#[tokio::test]
+async fn a_daemon_with_no_client_reads_ahead_the_peers_whose_copies_it_keeps() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-pw");
+    let hub = hub_at(dir.path());
+    let add = |name: &str, url: &str| {
+        let (tx, rx) = tokio::sync::mpsc::channel(8);
+        std::mem::forget(rx);
+        let peer = crate::peer::Peer::new(name, url, None, None, tx);
+        hub.peers.lock().unwrap().insert(name.to_owned(), peer.clone());
+        peer
+    };
+    let plain = add("plain", "ws://127.0.0.1:9");
+    let lane = add("lane-vm", "ws://127.0.0.1:9");
+    lane.set_vm_boundary(true);
+    let mine = add("own-mac", "ssh://own-mac");
+    mine.set_github_broker(true);
+    assert!(!keeps_copies(&plain) && keeps_copies(&lane) && keeps_copies(&mine));
+    for name in ["plain", "lane-vm", "own-mac"] {
+        hub.warm_peer_copies(name);
+    }
+    {
+        let s = hub.peer_snapshots.warm.state();
+        assert!(!s.due.contains_key("plain"), "no client asked, and the config keeps none");
+        assert!(s.due.contains_key("lane-vm") && s.due.contains_key("own-mac"));
+    }
+    assert!(hub.peer_snapshots.warm.started.load(Ordering::SeqCst));
+    // Turned off by a reload: its next change reads nothing ahead.
+    lane.set_vm_boundary(false);
+    hub.peer_snapshots.warm.state().due.clear();
+    hub.warm_peer_copies("lane-vm");
+    assert!(hub.peer_snapshots.warm.state().due.is_empty());
+    hub.stop_idle_reaper();
+}
+
+/// The cost of keeping every working chat of a fleet: `peers` peers whose chats each take
+/// `per_round` records between two rounds ([`WARM_EVERY`], 30 s), every chat read each round past
+/// its copy, the store flushed between rounds. Prints records paged and CPU per read; a minute is
+/// two rounds, so 26 peers x 12 working chats is 624 reads a minute at most.
+/// `cargo test -p acpmux --release --lib peer_copies_follow_bench -- --ignored --nocapture`
+#[test]
+#[ignore = "bench: prints records paged and CPU per read"]
+fn peer_copies_follow_bench() {
+    use crate::peer::PeerNotice;
+    let (peers, per_round, rounds) = (26usize, 20u64, 20u64);
+    let dir = cmux_unix_socket::short_test_dir("acpmux-pw");
+    let hub = hub_at(dir.path());
+    let links: Vec<_> = (0..peers)
+        .map(|i| {
+            let (tx, rx) = tokio::sync::mpsc::channel(8);
+            std::mem::forget(rx);
+            let name = format!("lane-{i}");
+            let peer = crate::peer::Peer::new(&name, "ws://127.0.0.1:9", None, None, tx);
+            peer.set_vm_boundary(true);
+            hub.peers.lock().unwrap().insert(name, peer.clone());
+            peer
+        })
+        .collect();
+    let chats: Vec<String> = (0..WARM_PER_PEER).map(|i| format!("m{i}")).collect();
+    let record = |mux: &str, seq: u64| {
+        json!({"sessionId": mux, "seq": seq, "at": seq, "dir": "agent",
+               "kind": "agent_message_chunk", "msg": {"text": "a line of a working turn"}})
+    };
+    let (mut reads, mut records, mut bytes, mut cpu) = (0u64, 0u64, 0u64, Duration::ZERO);
+    let mut steady = (0u64, 0u64, Duration::ZERO);
+    // Reads past a held copy (afterSeq), and cold reads of a chat the store could not keep: the
+    // test-size store (TOTAL_BYTES, 40 KiB) holds a few of these chats, not all.
+    let (mut follow_reads, mut follow_records, mut cold_reads) = (0u64, 0u64, 0u64);
+    for round in 1..=rounds {
+        let started = cpu_time();
+        let last = per_round * round;
+        let now = now_ms();
+        let rows: Vec<Value> = chats
+            .iter()
+            .map(|mux| {
+                json!({"sessionId": mux, "name": mux, "status": "running", "createdAt": 42,
+                       "lastSeq": last, "updatedAt": now})
+            })
+            .collect();
+        let (mut round_reads, mut round_records) = (0u64, 0u64);
+        for peer in &links {
+            let name = peer.name.as_str();
+            hub.apply_peer_notice(
+                name,
+                peer.generation,
+                PeerNotice::sessions_from_values(rows.clone()),
+            );
+            let covers = hub.peer_snapshots.covers(name).unwrap_or_default();
+            let (asks, ..) =
+                plan(name, &rows, &covers, &HashMap::new(), (now_ms(), Instant::now()));
+            for ask in asks {
+                let after = ask.params.get("afterSeq").and_then(Value::as_u64);
+                let from = match after {
+                    Some(after) => after + 1,
+                    None => last.saturating_sub(WARM_LIMIT - 1).max(1),
+                };
+                let events: Vec<Value> = (from..=last).map(|s| record(&ask.mux, s)).collect();
+                round_records += events.len() as u64;
+                if round > 1 {
+                    if after.is_some() {
+                        (follow_reads, follow_records) =
+                            (follow_reads + 1, follow_records + events.len() as u64);
+                    } else {
+                        cold_reads += 1;
+                    }
+                }
+                let page = json!({"events": events, "hasMore": from > 1, "lastSeq": last,
+                                  "pageThrough": last, "createdAt": 42});
+                bytes += record_bytes(&page);
+                let on = (name, peer.generation, peer.link_epoch(), Some(ask.generation));
+                hub.capture_peer_page_ahead(on, &ask.mux, &ask.params, &page);
+                round_reads += 1;
+            }
+        }
+        hub.peer_snapshots.flush_now();
+        let spent = cpu_time() - started;
+        (reads, records, cpu) = (reads + round_reads, records + round_records, cpu + spent);
+        if round > 1 {
+            steady = (steady.0 + round_reads, steady.1 + round_records, steady.2 + spent);
+        }
+    }
+    let held: usize =
+        links.iter().map(|p| hub.peer_snapshots.covers(&p.name).unwrap_or_default().len()).sum();
+    let per_read = steady.2 / u32::try_from(steady.0.max(1)).unwrap_or(u32::MAX);
+    eprintln!(
+        "peer-copies-follow: {peers} peers x {} chats, {per_round} records/chat/round, {rounds} rounds: \
+         {reads} reads, {records} records, {bytes} bytes, cpu {cpu:?}; after the first round \
+         {} reads, {} records, cpu {:?} ({per_read:?}/read); copies held {held}; \
+         {follow_reads} reads past a copy took {follow_records} records, {cold_reads} cold",
+        chats.len(),
+        steady.0,
+        steady.1,
+        steady.2
+    );
+    assert!(follow_reads > 0, "some chats are followed past their copy");
+    assert!(
+        follow_records <= follow_reads * per_round,
+        "a read past a copy takes only new records"
+    );
+}

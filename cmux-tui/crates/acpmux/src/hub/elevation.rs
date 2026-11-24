@@ -65,6 +65,7 @@ pub(super) const CARD: CardKind = CardKind {
     declined: "denied",
     signed: true,
     one_line: Some(1024),
+    wait: crate::store::WaitReason::Elevation,
 };
 
 /// The sudo this daemon runs: [`SUDO`], or in a debug build `ACPMUX_ELEVATION_SUDO`, the tests'

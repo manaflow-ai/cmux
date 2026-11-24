@@ -2981,7 +2981,7 @@ jobs:
   resolve-nightly-cmux-tui-client:
     needs: decide
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}
     permissions:
       contents: read
       actions: read
@@ -3196,7 +3196,7 @@ jobs:
       contents: read
       actions: read
     # Only moves and reads files; Mach-O checks run in verify-signed-nightly. It uses about one core.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 220 || 100 }}
     strategy:
       fail-fast: false
@@ -3445,7 +3445,7 @@ jobs:
       contents: read
       actions: read
     # After a primary success it only reads that result.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 220 || 100 }}
     strategy:
       fail-fast: false
@@ -3962,6 +3962,11 @@ jobs:
           CMUX_NEXT_LANGUAGE_PACKS: ${{ needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_LANGUAGE_PACKS != '0' && '1' || '' }}
           CMUX_NEXT_LANGUAGE_PACKS_OUT: ${{ runner.temp }}/language-packs
           CMUX_NEXT_LANGUAGE_PACKS_BASE_URL: https://files-next.cmux.com/language-packs
+          # Tools few people use download on first use too (bin/cmux-mobile-host, the iPhone
+          # host): its pack goes in the language packs' tools/ and is published with them. On
+          # with language packs; the repository variable CMUX_NEXT_TOOL_PACKS=0 turns it off.
+          CMUX_NEXT_TOOL_PACKS: ${{ needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_LANGUAGE_PACKS != '0' && vars.CMUX_NEXT_TOOL_PACKS != '0' && '1' || '' }}
+          CMUX_NEXT_TOOL_PACKS_BASE_URL: https://files-next.cmux.com/tool-packs
           # sign-cef.sh reuses it when it is the same code and signer, so deltas leave Chromium out.
           CMUX_CEF_REUSE_FRAMEWORK: ${{ runner.temp }}/cef-reuse/Chromium Embedded Framework.framework
         run: |
@@ -4390,7 +4395,7 @@ jobs:
       actions: read
     # A failed-jobs rerun retains an older picker. Rejoin the fleet pool, never
     # that old runner choice, once; later attempts use the Blacksmith overflow.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 160 || 40 }}
     strategy:
       fail-fast: false
@@ -4504,7 +4509,7 @@ jobs:
     outputs:
       # 'true' only when this job's own launch smoke passed.
       smoked_in_job: ${{ steps.own-smoke.outcome == 'success' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 150 || 30 }}
     strategy:
       fail-fast: false
