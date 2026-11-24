@@ -1573,7 +1573,10 @@ function HeadKind({
   const [names, setNames] = useState<string | undefined>(undefined);
   // Its count changes at most once per dwell, as the step does: a burst of joins is one roll. The `tally`
   // arm's text is the number alone; the words are the hover's and a reader's.
-  const kindText = useDwell(tally ? String(part.items.length) : part.text, PHASE_DWELL_MS);
+  // A lone count never reads bare ("2"): the kind's noun comes with it ("2 subagents"), a single item
+  // by its own name, and a row without room ends in an ellipsis (subagents.css `kind-text`).
+  const lone = part.items.length === 1 && part.items[0] ? itemName(t, part.items[0]) : undefined;
+  const kindText = useDwell(tally ? (lone ?? part.text) : part.text, PHASE_DWELL_MS);
   // A subagent kind draws its first subagent's harness mark, in its tone, as its line does (the
   // `tally` arm: one kind per harness, so its own harness's).
   const lead = part.items[0];

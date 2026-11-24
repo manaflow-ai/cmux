@@ -94,6 +94,18 @@ export interface ContextMenuProps {
   };
 }
 
+/** A row's height in the menu, for the room a menu of `rows` rows needs (an estimate: the host draws it). */
+const NATIVE_ROW_PX = 28;
+
+/**
+ * Whether a menu of `rows` rows at pointer height `y` opens upward: there is no room below it in the
+ * page and more above (a hat over the composer at the window's bottom edge).
+ */
+export function opensUp(y: number, rows: number, viewportHeight = window.innerHeight): boolean {
+  const need = rows * NATIVE_ROW_PX + 8;
+  return viewportHeight - y < need && y > viewportHeight - y;
+}
+
 /** The control a closed menu gives focus back to. */
 const RETURN_FOCUS =
   "button, a[href], input, select, textarea, [contenteditable]:not([contenteditable='false']), [role='textbox'], [tabindex]:not([tabindex='-1'])";
@@ -150,6 +162,8 @@ export function ContextMenu({
   const [point, setPoint] = useState<{ x: number; y: number } | null>(null);
   const [nativeAnchor, setNativeAnchor] = useState<AnchorBox | null>(null);
   const [nativeOpen, setNativeOpen] = useState(false);
+  // Which side of the pointer the host's panel opens on: up when the page has no room below it.
+  const [nativeSide, setNativeSide] = useState<"top" | "bottom">("bottom");
   const [active, setActive] = useState(0);
   const returnFocus = useRef<HTMLElement | null>(null);
   const popupTarget = useRef<HTMLElement | null>(null);
@@ -160,7 +174,9 @@ export function ContextMenu({
   const host = usePopupHost();
   const nativePopup = useNativePopup({
     open: nativeOpen && native !== undefined,
-    model: native?.model ?? { side: "bottom", align: "start", width: 0, rows: [] },
+    model: native?.model
+      ? { ...native.model, side: nativeSide }
+      : { side: "bottom", align: "start", width: 0, rows: [] },
     anchor: () => nativeAnchor,
     onEvent: (event) => {
       const action = event.type === "pick" && native ? popupAction(native.model, event.id) : undefined;
@@ -216,7 +232,9 @@ export function ContextMenu({
           bottom: point.y,
         }),
       },
-    { side: "bottom", align: "start", gap: 0, shell: "self" },
+    // Up when the page has no room below the pointer: the host's panel then opens above it, not down
+    // into no space (the composer hat at the window's bottom edge).
+    { side: point && opensUp(point.y, items.length) ? "top" : "bottom", align: "start", gap: 0, shell: "self" },
   );
   // Where the menu sits, measured before it paints.
   const [place, setPlace] = useState<{ left: number; top: number } | null>(null);
@@ -429,6 +447,7 @@ export function ContextMenu({
           )
         : null;
     if (native && nativePopup.available) {
+      setNativeSide(opensUp(at.y, native.model.rows.length) ? "top" : "bottom");
       setNativeAnchor({
         getBoundingClientRect: () => ({ left: at.x, right: at.x, top: at.y, bottom: at.y }),
       });

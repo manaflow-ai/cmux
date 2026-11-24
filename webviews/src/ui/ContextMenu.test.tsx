@@ -442,3 +442,10 @@ test("a held right-press dragged off the menu and released after the click time 
   expect(ran).toEqual([]);
   expect(document.querySelector(".ui-context-menu")).toBeNull();
 });
+
+test("a menu with no room below the pointer opens upward, and one with room opens down", async () => {
+  const { opensUp } = await import("./ContextMenu");
+  expect(opensUp(780, 4, 800)).toBe(true);
+  expect(opensUp(100, 4, 800)).toBe(false);
+  expect(opensUp(300, 30, 800)).toBe(false);
+});
