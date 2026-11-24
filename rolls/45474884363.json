@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45474884363",
+  "recorded_at": "2026-11-24T20:42:28Z",
+  "reason": "image inputs changed in c51080b82b2b2be2fd7657be9bbe3f492d9c39f6..3b6b000ca9323a1b7f08f6eddc80b777166c8fed",
+  "dry_run": false,
+  "cmux_tui": "67d01201b152cf703af3a9adab5bba27544acf99",
+  "fixes": [
+    {
+      "sha": "3b6b000ca9323a1b7f08f6eddc80b777166c8fed",
+      "mergedAt": "2026-11-24T19:50:50Z",
+      "subject": "ci: export the VM image as a compressed qcow2 with a sha256, to private R2 (RFD 0100 step 6) (#53777)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-24T20:42:28Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
