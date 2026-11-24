@@ -15,6 +15,9 @@ anyhow.workspace = true
 base64.workspace = true
 bytes.workspace = true
 cmux-build-space.workspace = true
+# The `bundle` service (src/bundle.rs): attachments as sealed content-defined chunks.
+cmux-bundle.workspace = true
+blake3 = "1"
 # The Chief's push body as words, not Markdown (src/notify.rs).
 cmux-message-preview.workspace = true
 cmux-mobile-link.workspace = true

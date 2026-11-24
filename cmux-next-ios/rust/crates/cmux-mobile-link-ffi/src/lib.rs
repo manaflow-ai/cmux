@@ -15,6 +15,7 @@ use cmux_mobile_link::{
 use tokio::runtime::Runtime;
 
 mod browser;
+mod bundle;
 mod classic_leftovers;
 mod composer_outbox;
 mod follow_camera;
@@ -299,6 +300,8 @@ pub struct LinkHandle {
     /// The WebRTC media session beside a WireGuard link, when both sides
     /// support one (cmux_mobile_link::hybrid).
     media: Option<cmux_mobile_link::hybrid::MediaManager>,
+    /// The Mac refused `bundle` (`unknown_service`, an older hostd): files go the old way on this link.
+    bundle_refused: std::sync::atomic::AtomicBool,
 }
 
 impl Drop for LinkHandle {
@@ -928,6 +931,7 @@ async fn connect_on(
         timeline,
         session_id: connected.session_id,
         media,
+        bundle_refused: std::sync::atomic::AtomicBool::new(false),
     }))
 }
 

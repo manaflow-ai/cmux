@@ -24,6 +24,8 @@ bindgen = ["uniffi/cli"]
 [dependencies]
 # The terminal composer's keyed Send (src/composer_outbox.rs).
 cmux-composer-send.workspace = true
+# Attachments over the `bundle` service (src/bundle.rs).
+cmux-bundle.workspace = true
 cmux-follow-cam.workspace = true
 cmux-mobile-link.workspace = true
 cmux-rd-ffi.workspace = true
