@@ -86,6 +86,9 @@ public final class MacScreenSession {
     /// Settings > cmux Remote > Screen Sharing Profile (`remote.screenSharingProfile`): `ultra`
     /// asks the host for its ultra encode profile in the next offer; nil (Balanced) asks for nothing.
     @ObservationIgnored public var encodeProfile: String?
+    /// Settings > cmux Remote > Screen Sharing Frame Rate Limit (`remoteDesktop.maxFps`): the next offer asks
+    /// for at most this many frames per second; nil asks for the quality's rate.
+    @ObservationIgnored public var maxFpsCap: Int?
     @ObservationIgnored public var reconnectLimit = 0
     /// Relay errors for the failed card (relays are a link carrier, not reported apart).
     public var relayErrors: [ICECandidateError] { [] }
@@ -293,7 +296,8 @@ public final class MacScreenSession {
             if let key = line.key, !offered {
                 offered = true
                 var offer = MacScreenRdDocument(key: key)
-                let wish = MacScreenRdDocument.wish(preferences.quality, refresh: displayMaximumFrameRate ?? 60, paneWidth: paneWidthPixels)
+                let wish = MacScreenRdDocument.wish(preferences.quality, refresh: displayMaximumFrameRate ?? 60, paneWidth: paneWidthPixels,
+                                                    maxFps: maxFpsCap)
                 offer.maxWidth = wish.maxWidth
                 offer.maxFps = wish.maxFps
                 offer.display = wantedDisplay
