@@ -945,6 +945,17 @@ async fn new_on_peer(
             "credentials start an agent on this machine only, never on a peer",
         ));
     }
+    // A machine only the mesh hub reaches starts it through the hub's start control
+    // (`mesh_control_send.rs`), as `acpmux session start --machine` does, so a placed
+    // `new` lands there instead of being refused as no peer.
+    if hub.peer_by_name(peer_name).is_none()
+        && conn.origin == Origin::Local
+        && hub.mesh.get().is_some()
+        && hub.mesh_book_has_host(peer_name)
+        && !super::trust_gate::gated(conn.origin, params)
+    {
+        return super::mesh_control_send::start_through_hub(hub, conn, params, peer_name).await;
+    }
     let peer = hub.peer_by_name(peer_name).ok_or_else(|| RpcError::no_peer(peer_name))?;
     if super::trust_gate::gated(conn.origin, params) && !peer.supports_trust_gate() {
         return Err(super::trust_gate::peer_unsupported(&peer.name));
@@ -1444,7 +1455,7 @@ async fn dispatch_request_with_identity(
                 super::peer_forward::TRUST_PEER_EXTENSION,
                 method::MUX_V2, method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_USAGE, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
                 method::MUX_DETACH, method::MUX_WATCH, method::MUX_HARNESS_INVENTORY_WATCH, method::MUX_HARNESS_INVENTORY_REFRESH, method::MUX_HARNESS_UPDATE_PLAN, method::MUX_HARNESS_UPDATE_PREPARE, method::MUX_RENAME, method::MUX_REGISTER, method::MUX_INBOX_RELAY, method::MUX_DETACH_PARENT, method::MUX_KEEP, method::MUX_KILL, method::MUX_PAUSE, method::MUX_WAKE, method::MUX_SESSION_HOLD, method::MUX_FLEET_HOLD, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT, method::MUX_QUEUE_APPROVE, method::MUX_QUEUE_DECLINE, method::MUX_QUEUE_TEXT, method::MUX_ROWS,
-                method::MUX_INFO, method::MUX_MACHINE_INFO, method::MUX_SESSION_FILES, method::MUX_EVENTS, method::MUX_GITHUB_ACTION, method::MUX_GITHUB_APP_LEASE, method::MUX_ATTACHMENT, method::MUX_TURN_SHOTS, method::MUX_MAIL_SEND, method::MUX_MAIL_READ, method::MUX_MAIL_WAIT, method::MUX_MAIL_ACK, method::MUX_TEAM_SEND, method::MUX_TEAM_INBOX, method::MUX_TEAM_READ, method::MUX_TEAM_ACK, method::MUX_PERMISSION_RESPOND, method::MUX_PROCESS_LIST, method::MUX_PROCESS_TAIL, method::MUX_PROCESS_KILL, method::MUX_PROCESS_BACKGROUND, method::MUX_PROCESS_CENSUS, method::MUX_WORKTREE_REPORT, method::MUX_WORKTREE_CLEAN, method::MUX_WORKTREE_RESTORE, method::MUX_RETENTION, method::MUX_COLD_ARCHIVE,
+                method::MUX_INFO, method::MUX_MACHINE_INFO, method::MUX_SESSION_FILES, method::MUX_EVENTS, method::MUX_GITHUB_ACTION, method::MUX_GITHUB_APP_LEASE, method::MUX_GITHUB_REST, method::MUX_ATTACHMENT, method::MUX_TURN_SHOTS, method::MUX_MAIL_SEND, method::MUX_MAIL_READ, method::MUX_MAIL_WAIT, method::MUX_MAIL_ACK, method::MUX_TEAM_SEND, method::MUX_TEAM_INBOX, method::MUX_TEAM_READ, method::MUX_TEAM_ACK, method::MUX_PERMISSION_RESPOND, method::MUX_PROCESS_LIST, method::MUX_PROCESS_TAIL, method::MUX_PROCESS_KILL, method::MUX_PROCESS_BACKGROUND, method::MUX_PROCESS_CENSUS, method::MUX_WORKTREE_REPORT, method::MUX_WORKTREE_CLEAN, method::MUX_WORKTREE_RESTORE, method::MUX_RETENTION, method::MUX_COLD_ARCHIVE,
                 method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_COMPOSER_SET, method::MUX_COMPOSERS, method::MUX_BOOKMARK_GET, method::MUX_BOOKMARK_SET, method::MUX_PROMPTS_LIST, method::MUX_PROMPTS_SAVE, method::MUX_PROMPTS_DELETE, method::MUX_STASH_LIST, method::MUX_STASH_PUSH, method::MUX_STASH_GET, method::MUX_STASH_DROP, method::MUX_STASH_MOVE, method::MUX_MEMORY_RESOLVE, method::MUX_AGENT_HOME, method::MUX_AGENT_HOME_RESOLVE, method::MUX_PROMPT_COACH, method::MUX_ASK, method::MUX_BTW, method::MUX_VIEW, method::MUX_TYPING, method::MUX_MARK_UNREAD, method::MUX_MARK_READ, method::MUX_SEEN, method::MUX_ARCHIVE, method::MUX_SIDE,
                 method::MUX_SET_POLICY, method::MUX_SET_TOOLS, method::MUX_SET_DIRECTORIES, method::MUX_MCP_RECONNECT, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_FILE_PUT, method::MUX_FILE_PUT_BEGIN, method::MUX_FILE_PUT_CHUNK, method::MUX_FILE_PUT_FINISH, method::MUX_FILE_PUT_CANCEL, method::MUX_FILE_PUT_STATUS, method::MUX_UPLOADS_KEEP, method::MUX_MEDIA_OPEN, method::MUX_MEDIA_RANGE, method::MUX_SUBAGENT_TRANSCRIPT, method::MUX_SUBAGENT_LIST, method::MUX_NATIVE_HISTORY, method::MUX_WORKFLOWS, method::MUX_DISPATCH, method::MUX_STEER, method::MUX_BRIEFS, method::MUX_REPORT, method::MUX_TASK_NEW, method::MUX_TASKS, method::MUX_RESOLVE, method::MUX_WHO_ELSE, method::MUX_SEND_FANOUT, method::MUX_SHUTDOWN, method::MUX_SESSION_AUTH, method::MUX_MESH_CONTROL,
                 method::CHAT_FIX_FROM_LINK,
@@ -1455,6 +1466,10 @@ async fn dispatch_request_with_identity(
                 method::MUX_CALLERS,
                 method::MUX_FELT_SNAPSHOT,
             ];
+            let capabilities = crate::capabilities::ids_for_connection(matches!(
+                conn.transport,
+                Transport::LocalStream { .. }
+            ));
             #[allow(unused_mut)]
             let mut reply = json!({
                 "protocolVersion": 1,
@@ -1465,7 +1480,7 @@ async fn dispatch_request_with_identity(
                     "sessionCapabilities": {"list": {}, "fork": {}, "resume": {}, "close": {}, "delete": {}},
                 },
                 "authMethods": [],
-                "_meta": {"acpmux": {"version": VERSION, "build": crate::hub::build(), "capabilities": crate::capabilities::ids(),
+                "_meta": {"acpmux": {"version": VERSION, "build": crate::hub::build(), "capabilities": capabilities,
                 // `local`: the unix socket or the proven local app
                 // (`local_app.rs`), which the session pool serves.
                 "origin": match conn.origin { Origin::Web => "remote", Origin::Peer => "peer", _ => "local" },
@@ -1492,7 +1507,7 @@ async fn dispatch_request_with_identity(
                 // The daemon run decision proofs bind (`hub/person.rs`).
                 "personInstance": hub.person.instance(),
                 "extensions": extensions, "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::fork_through::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", crate::config::chief_builtins::BRAIN_PRESETS_FEATURE, "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::journal_restore::PAGES_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::agent_login::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, crate::hub::pause::FEATURE, crate::hub::session_hold::FEATURE, crate::hub::release_to_watch::FEATURE, SESSION_RESUME_FEATURE, workflow_dispatch::FEATURE, crate::peer::HANDSHAKE_PIPELINE_FEATURE, super::dual_requests::FEATURE, crate::hub::require_asking::FEATURE, crate::hub::create_key::FEATURE, crate::sender_token::FEATURE, crate::hub::register::AUTO_FEATURE, crate::request_cancel::FEATURE, super::fork_through::RETARGET_FEATURE, crate::hub::fork_subagent::FEATURE], "trustGate": true}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", crate::config::chief_builtins::BRAIN_PRESETS_FEATURE, "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::file_uploads::window::FEATURE, crate::hub::journal_restore::PAGES_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::agent_login::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, crate::hub::pause::FEATURE, crate::hub::session_hold::FEATURE, crate::hub::release_to_watch::FEATURE, SESSION_RESUME_FEATURE, workflow_dispatch::FEATURE, crate::peer::HANDSHAKE_PIPELINE_FEATURE, super::dual_requests::FEATURE, crate::hub::require_asking::FEATURE, crate::hub::create_key::FEATURE, crate::sender_token::FEATURE, crate::hub::register::AUTO_FEATURE, crate::request_cancel::FEATURE, super::fork_through::RETARGET_FEATURE, crate::hub::fork_subagent::FEATURE, super::client_features::UNSENT_FEATURE], "trustGate": true}}
             });
             // This link carries the v2 list stream (`link_v2.rs`): the one change `peers` makes
             // to what v1 sends a link.
@@ -1571,6 +1586,18 @@ async fn dispatch_request_with_identity(
                 return Err(crate::hub::person::person_required("lending the cmux sign-in"));
             }
             hub.github_app.set(&params)
+        }
+        method::MUX_GITHUB_REST => {
+            if conn.origin != Origin::Local {
+                return Err(RpcError::new(
+                    -32040,
+                    "the app's GitHub calls come over the unix socket only",
+                ));
+            }
+            if !conn.is_person() {
+                return Err(crate::hub::person::person_required("the app's GitHub calls"));
+            }
+            crate::github_rest_op::serve(params, &hub.github_app).await
         }
         method::MUX_GITHUB_ACTION => super::github_lane::handle(hub, conn, params).await,
         // Decided in order in `Conn::bind_person`; a proof that came before this run's key waits
@@ -1685,7 +1712,11 @@ async fn dispatch_request_with_identity(
                 }
                 // The VM provisioning exec (root) gives an unsigned daemon its key
                 // (`daemon/provision.rs`); an agent, the daemon's own user, never can.
-                (false, _) if conn.provisioner => return hub.person.provision(key),
+                (false, _)
+                    if matches!(conn.transport, Transport::LocalStream { provisioner: true }) =>
+                {
+                    return hub.person.provision(key);
+                }
                 (false, _) => false,
             };
             hub.person.enroll(key, verified)
@@ -2812,6 +2843,17 @@ async fn dispatch_request_with_identity(
             Ok(json!({"warmed": warmed}))
         }
         method::MUX_PREWARM => {
+            // A Cloud machine's first home chat folder, warm before the chat exists
+            // (`hub/pool/reserved.rs`): this machine's own socket only.
+            if params.get("reserveHome").and_then(Value::as_bool) == Some(true) {
+                if conn.origin != Origin::Local {
+                    return Err(RpcError::invalid_params(
+                        "reserveHome is asked on this machine's own socket only",
+                    ));
+                }
+                let wait = params.get("wait").and_then(Value::as_bool) == Some(true);
+                return heap(|| hub.reserve_home_warm(wait)).await;
+            }
             let s = |k: &str| params.get(k).and_then(Value::as_str).map(str::to_owned);
             // A Cloud chat's coming start (cmux#45953): its owner credential, from this machine's
             // own socket only, as `session/new` takes one; never from an agent's connection.
@@ -2874,6 +2916,7 @@ async fn dispatch_request_with_identity(
             Ok(json!({"policy":policy.to_string()}))
         }
         "_acpmux/peers" => Ok(json!({"peers": hub.peers()})),
+        "_acpmux/host_overload" => Ok(crate::host_overload::current().to_json()),
         "_acpmux/host_health" => Ok(super::peer_status::host_health(hub, conn.origin).await),
         "_acpmux/peer_status" => super::peer_status::peer_status(hub, conn.origin, &params).await,
         super::vm_host::METHOD => super::vm_host::handle(hub, conn, &params).await,
@@ -4230,17 +4273,20 @@ async fn dispatch_request_with_identity(
         // Anything else that names a session goes to the agent untouched, from the unix
         // socket (the app: only a subagent stop); it may spawn or read (`remote_guard.rs`).
         other => {
-            if !super::remote_guard::forwards(conn.origin, other) && session_key(&params).is_ok() {
+            let key = session_key(&params).map_err(|_| match other {
+                method::MUX_SUBAGENT_STOP | method::MUX_STEER_WITHDRAW | method::MUX_STEP_NOW => {
+                    RpcError::invalid_params("sessionId is required")
+                }
+                _ => RpcError::method_not_found(other),
+            })?;
+            if !super::remote_guard::forwards(conn.origin, other) {
                 return Err(RpcError::invalid_params(format!(
                     "{other} is passed to the harness only from the local unix socket"
                 )));
             }
-            if let Ok(key) = session_key(&params) {
-                let s = hub.resolve(key)?;
-                crate::hub::person::harness_forward_check(conn.is_person(), other)?;
-                return heap(|| hub.forward(&s, other, params)).await;
-            }
-            Err(RpcError::method_not_found(other))
+            let s = hub.resolve(key)?;
+            crate::hub::person::harness_forward_check(conn.is_person(), other)?;
+            heap(|| hub.forward(&s, other, params)).await
         }
     }
 }
@@ -4625,6 +4671,8 @@ pub(super) fn note_initialize(conn: &Conn, params: &Value) {
     // Opt-in: a client that does not ask hears every peer row's `session_changed`, as before.
     let batches = params.pointer("/_meta/acpmux/peerRowBatches").and_then(Value::as_bool);
     conn.peer_row_batches.store(batches == Some(true), Ordering::SeqCst);
+    // The features it reads (`client_features.rs`); none listed: a client from before the list.
+    conn.client_features.note(params);
     // Opt-in too (`chunk_deltas.rs`): a client that does not ask hears every chunk's whole event.
     // A peer's link reads text masked (`peer_text.rs`), so it is never sent the compact form.
     let deltas = params.pointer("/_meta/acpmux/chunkDeltas").and_then(Value::as_bool);
