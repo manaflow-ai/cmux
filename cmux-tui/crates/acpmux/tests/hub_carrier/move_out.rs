@@ -4,7 +4,7 @@ use acpmux::mesh::{
     Ack, Heartbeat, HeartbeatReply, HubError, InMessage, MeshHub, OutMessage, Receipt,
 };
 use acpmux::mesh_http::MeshControlFrom;
-use acpmux::server::mesh_relay::{ControlHook as _, MeshControlHook};
+use acpmux::server::mesh_relay::{ControlHook, MeshControlHook};
 use acpmux::transfer_service::{CarrierDial, ConfiguredTransferGate};
 use futures::future::BoxFuture;
 use std::path::Path;

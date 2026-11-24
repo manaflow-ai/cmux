@@ -209,7 +209,7 @@ pub(crate) async fn serve_pipe<R, W>(
         } else {
             CircuitService::CmuxTui { port }
         };
-        carrier.dial_service(&daemon, service).await.map_err(|e| {
+        carrier.dial_service_reported(&daemon, service).await.map_err(|e| {
             let refusal = crate::machine_routes::refusal_of(&e);
             let message =
                 refusal.get("error").and_then(serde_json::Value::as_str).unwrap_or(&e).to_owned();
@@ -217,7 +217,7 @@ pub(crate) async fn serve_pipe<R, W>(
         })
     }
     .await;
-    let mut circuit = match dialed {
+    let (mut circuit, report) = match dialed {
         Ok(circuit) => circuit,
         Err(error) => {
             let _ = writer.write_all(Message::err(id, error).to_line().as_bytes()).await;
@@ -225,7 +225,10 @@ pub(crate) async fn serve_pipe<R, W>(
             return;
         }
     };
-    let reply = Message::ok(id, json!({"via": "hub"}));
+    // `dial` says where the open's time went (a stream on the kept circuit, or a new circuit's
+    // ticket, relay, join, Noise and answer), so a caller such as NOW's weft probe splits its
+    // first byte by step instead of inferring it.
+    let reply = Message::ok(id, json!({"via": "hub", "dial": report.to_json()}));
     if writer.write_all(reply.to_line().as_bytes()).await.is_err() {
         return;
     }
