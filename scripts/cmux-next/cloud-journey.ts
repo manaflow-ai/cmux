@@ -2602,14 +2602,15 @@ async function cleanupTagMode(tag: string, backend: Backend, email: string | und
 /**
  * The run as one synthetic-probe result row (cmuxterm-hq tools/fleet-reconcilers/probes.py): ok only when a reply
  * was read back, with the existing ms from send to completed reply; otherwise fail with the first failed step.
- * Real-model runs separately carry create-to-streamed-first-text and cumulative phase marks.
+ * Both legs carry create-to-streamed-first-text and cumulative phase marks; the row's `model` says which leg, and
+ * cmuxterm-hq's cloud_journey_probe.py files each leg under its own probe, so a stub time never joins the real one.
  */
 export function probeRow(probe: string, steps: Step[], run?: string, at = new Date(), context?: { backend: string; model: "real" | "stub"; run_attempt?: number }, extra: ProbeExtra = {}): Record<string, unknown> {
   const send = steps.find((s) => s.step === "send chat");
   const reply = steps.find((s) => s.step === "reply");
   const failed = steps.find((s) => s.status === "fail");
   const ready = readyMs(steps);
-  const fields = context?.model === "real" ? [...steps].reverse().find((s) => s.fields)?.fields : undefined;
+  const fields = context ? [...steps].reverse().find((s) => s.fields)?.fields : undefined;
   const { failure_facts, ...spare } = extra;
   const base = { probe, at: at.toISOString().replace(/\.\d+Z$/, "Z"), runner: "github-actions", ...(run ? { run } : {}), ...(ready === null ? {} : { ready_ms: ready }), ...context, ...fields, ...spare };
   if (reply?.status === "pass" && send) return { ...base, outcome: "ok", ms: send.ms + reply.ms };
