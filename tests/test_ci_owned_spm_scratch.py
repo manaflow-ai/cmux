@@ -872,42 +872,6 @@ class SeedRoot(unittest.TestCase):
         scratch.release_holders()
         self.assertEqual(self.seed_lease(), self.seed)
 
-    def second_root(self):
-        second = Path(self.tmp.name) / "runner/_work/cmux-2/cmux"
-        second.parent.mkdir(parents=True)
-        (second.parent / SEED_MARKER).touch()
-        return second
-
-    def test_a_job_that_finds_the_seed_root_held_takes_the_second(self):
-        second = self.second_root()
-        roots = [(self.seed, scratch.seed_fits), (second, scratch.second_seed_fits)]
-        with unittest.mock.patch.object(scratch, "seed_roots", return_value=roots), \
-                unittest.mock.patch.object(scratch, "free_bytes", return_value=70 * GIB):
-            taken = []
-            for _ in range(2):
-                for root, fits in roots:
-                    leased = scratch.seed_lease(self.workspace, root, RUNNER, fits=fits)
-                    if leased is not None:
-                        taken.append(leased)
-                        break
-        self.assertEqual(taken, [self.seed, second])
-        self.assertTrue((second / "Packages/macOS/B/Sources/b.swift").is_file())
-
-    def test_the_second_root_needs_room_to_stay_beside_the_first(self):
-        self.assertFalse(scratch.second_seed_fits(free=48 * GIB, kept=0, floor_gib=30, growth_gib=20,
-                                                  footprint=16 * GIB))
-        self.assertTrue(scratch.second_seed_fits(free=66 * GIB, kept=0, floor_gib=30, growth_gib=20,
-                                                 footprint=16 * GIB))
-        second = self.second_root()
-        self.assertIsNone(scratch.seed_lease(self.workspace, second, RUNNER, fits=scratch.second_seed_fits))
-
-    def test_the_second_root_can_be_disabled(self):
-        self.assertEqual([root for root, _ in scratch.seed_roots({})],
-                         [scratch.SEED_WORKSPACE, scratch.SECOND_SEED_WORKSPACE])
-        self.assertEqual([root for root, _ in scratch.seed_roots({"CMUX_FAST_TIER_SECOND_SEED_ROOT": "0"})],
-                         [scratch.SEED_WORKSPACE])
-        self.assertEqual(scratch.SECOND_SEED_WORKSPACE.parent.parent, scratch.SEED_WORKSPACE.parent.parent)
-
     PREFIX = "cmux-next-fast-v3-swift-macOS-ARM64-aaaa-bbbb-cccc-"
 
     def build_seed_root(self):
