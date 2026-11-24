@@ -305,3 +305,40 @@ fn claude_code_full_screen_repaints_are_held() {
     eprintln!("claude_code_session.vt held (batch bytes, rows, bytes): {per_batch:?}");
     assert!(p.held().0 > 0, "held {per_batch:?}");
 }
+
+/// A repaint matches only on rows with text: a line alone on a blank screen
+/// moving up, or a screen of one repeated line with a row changed, holds
+/// nothing.
+#[test]
+fn a_mostly_blank_or_repeated_line_screen_makes_no_false_shift() {
+    let mut p = alt_app();
+    let _ = p.feed(b"\x1b[10;1Hlonely line\x1b[K", true);
+    let _ = p.feed(b"\x1b[10;1H\x1b[K\x1b[9;1Hlonely line\x1b[K", true);
+    assert_eq!(p.held().0, 0);
+
+    let mut p = alt_app();
+    let mut rule = Vec::new();
+    for row in 2..=21 {
+        rule.extend_from_slice(format!("\x1b[{row};1H----------\x1b[K").as_bytes());
+    }
+    let _ = p.feed(&rule, true);
+    let _ = p.feed(b"\x1b[12;1Hchanged\x1b[K", true);
+    let _ = p.feed(b"\x1b[12;1H----------\x1b[K\x1b[2;1Hchanged\x1b[K", true);
+    let _ = p.feed(&rule, true);
+    assert_eq!(p.held().0, 0);
+}
+
+/// An app that asked for the mouse, with nothing held, gets every wheel
+/// event whole, as before held rows.
+#[test]
+fn a_mouse_mode_app_with_nothing_held_gets_every_wheel_event() {
+    let mut p = alt_app();
+    let _ = p.feed(b"\x1b[?1000h\x1b[?1006h\x1b[5;1Hno scrolling", true);
+    assert_eq!(p.held().0, 0);
+    for rows in [0.4, 1.0, 2.5, -3.0, -0.25, 7.0] {
+        let step = p.alt_pan(rows);
+        assert!(step.paint.is_empty());
+        assert_eq!(step.forward_rows, rows);
+    }
+    assert_eq!(p.alt_rows_back(), 0);
+}
