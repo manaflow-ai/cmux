@@ -1423,6 +1423,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-braid-session"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-browser-host"
 version = "1.0.0"
 dependencies = [
@@ -2428,6 +2436,7 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
+ "cmux-braid-session",
  "cmux-build-identity",
  "cmux-deadline",
  "cmux-fault",
