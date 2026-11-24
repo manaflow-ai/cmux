@@ -277,19 +277,18 @@ pub fn route(f: &Facts) -> Route {
     if in_grace {
         return if f.host_startable && !t.start_asked { Route::StartHost } else { Route::None };
     }
-    if let Some(reset) = f.reset_in_seconds {
-        if !f.host_down && reset > 0.0 {
-            let when = if f.reset_at.is_empty() {
-                format!("in {} min", (reset / 60.0).ceil() as u64)
-            } else {
-                format!("at {}", f.reset_at)
-            };
-            return Route::Wait {
-                why: format!(
-                    "waits for its Codex usage limit to reset {when}, then restarts in place"
-                ),
-            };
-        }
+    if let Some(reset) = f.reset_in_seconds
+        && !f.host_down
+        && reset > 0.0
+    {
+        let when = if f.reset_at.is_empty() {
+            format!("in {} min", (reset / 60.0).ceil() as u64)
+        } else {
+            format!("at {}", f.reset_at)
+        };
+        return Route::Wait {
+            why: format!("waits for its Codex usage limit to reset {when}, then restarts in place"),
+        };
     }
     let capacity = f.capacity && !f.host_down;
     if !capacity && !f.paused && !network {
@@ -298,20 +297,24 @@ pub fn route(f: &Facts) -> Route {
             .iter()
             .find(|c| **c != f.host && listed(&h.answering, c) && !listed(&h.refused, c))
             .cloned();
-        if let Some(to) = persistent {
-            if !f.host_down && f.host_on_demand && t.move_failed.is_empty() && f.has_row {
-                return Route::Move { to, otherwise: "restarting in place instead".into() };
-            }
+        if let Some(to) = persistent
+            && !f.host_down
+            && f.host_on_demand
+            && t.move_failed.is_empty()
+            && f.has_row
+        {
+            return Route::Move { to, otherwise: "restarting in place instead".into() };
         }
         let full = if f.host_down { "" } else { h.own_full.as_str() };
         if !full.is_empty() && t.restarts < f.max_restarts {
-            if let Some(to) = h.admitted.first() {
-                if t.move_failed.is_empty() && f.has_row {
-                    return Route::Move {
-                        to: to.clone(),
-                        otherwise: "its work goes to a live owner instead".into(),
-                    };
-                }
+            if let Some(to) = h.admitted.first()
+                && t.move_failed.is_empty()
+                && f.has_row
+            {
+                return Route::Move {
+                    to: to.clone(),
+                    otherwise: "its work goes to a live owner instead".into(),
+                };
             }
             let why = if !t.move_failed.is_empty() {
                 format!(
@@ -337,15 +340,15 @@ pub fn route(f: &Facts) -> Route {
         if !f.placement_cap.is_empty() {
             return Route::Wait { why: format!("failover waits: {}", f.placement_cap) };
         }
-        if let Some(left) = f.pass_seconds_left {
-            if left < f.failover_min_seconds {
-                return Route::Wait {
-                    why: format!(
-                        "failover waits: under {} s of this pass left; the next pass starts it",
-                        f.failover_min_seconds
-                    ),
-                };
-            }
+        if let Some(left) = f.pass_seconds_left
+            && left < f.failover_min_seconds
+        {
+            return Route::Wait {
+                why: format!(
+                    "failover waits: under {} s of this pass left; the next pass starts it",
+                    f.failover_min_seconds
+                ),
+            };
         }
         let to = if network { healthy.first().cloned().unwrap_or_default() } else { String::new() };
         return Route::Successor { to, number: t.failovers + 1 };
