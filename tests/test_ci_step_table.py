@@ -648,8 +648,8 @@ class PipelineTest(unittest.TestCase):
         # inputs are `**` and any change routes it; the job skips feat-cmux-next's pull requests (the base matched exactly).
         wf = yaml.safe_load((ROOT / ".github/workflows/cmux-next-guards.yml").read_text())
         self.assertEqual(wf["jobs"]["security-holes"]["if"],
-                         "${{ github.event_name == 'pull_request' && (github.base_ref != 'feat-cmux-next' "
-                         "|| github.workflow == 'docs-only fallback') }}")
+                         "${{ (github.event.action != 'ready_for_review') && (github.event_name == 'pull_request' && "
+                         "(github.base_ref != 'feat-cmux-next' || github.workflow == 'docs-only fallback')) }}")
         holes = steps["security-holes"]
         self.assertEqual(holes.job, "linux")
         self.assertEqual(holes.inputs, ("**",))
