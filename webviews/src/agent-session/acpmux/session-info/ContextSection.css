@@ -124,10 +124,10 @@
    The four hues are Claude's own, read off its card; the greys are the same shares of the text color
    (58%, 32%, 8%), so they hold in light and dark. */
 .acpmux-context-breakdown {
-  --acpmux-context-messages: #4d8ae6;
-  --acpmux-context-mcp-tools: #d76e38;
-  --acpmux-context-system-prompt: #4ba58a;
-  --acpmux-context-skills: #c89132;
+  --acpmux-context-messages: #4d8ae6; /* colour-allow: Claude Code desktop's Messages colour, matched on request (Lucas, 2026-11-23) */
+  --acpmux-context-mcp-tools: #d76e38; /* colour-allow: Claude Code desktop's MCP tools colour, matched on request (Lucas, 2026-11-23) */
+  --acpmux-context-system-prompt: #4ba58a; /* colour-allow: Claude Code desktop's System prompt colour, matched on request (Lucas, 2026-11-23) */
+  --acpmux-context-skills: #c89132; /* colour-allow: Claude Code desktop's Skills colour, matched on request (Lucas, 2026-11-23) */
   /* Its own, so the ring's details (outside Session Info's Context wrapper) draw the track too. */
   --acpmux-context-free: color-mix(in srgb, var(--agent-text) 8%, transparent);
   --acpmux-context-buffer: color-mix(in srgb, var(--agent-text) 32%, transparent);
