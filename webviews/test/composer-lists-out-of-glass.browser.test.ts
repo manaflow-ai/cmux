@@ -119,6 +119,7 @@ await requireBrowserLane("composer-lists-out-of-glass.browser.test.ts", async ()
             inBox: card.contains(menu),
             roots,
             ownBlur: getComputedStyle(menu).backdropFilter,
+            solid: menu.hasAttribute("data-popup-solid"),
             gap: b.top - m.bottom,
             left: m.left - b.left,
             right: m.right - b.right,
@@ -130,7 +131,9 @@ await requireBrowserLane("composer-lists-out-of-glass.browser.test.ts", async ()
       console.log(`composer-lists-out-of-glass: ${name} ${JSON.stringify(found)}`);
       expect(found.inBox).toBe(false);
       expect(found.roots).toEqual([]);
-      expect(found.ownBlur).not.toBe("none");
+      // Solid over the composer (cmux#50983): an opaque surface, no blur, so no text reads through.
+      expect(found.solid).toBe(true);
+      expect(found.ownBlur).toBe("none");
       expect(found.above).toBe(true);
       expect(Math.abs(found.gap - 6)).toBeLessThanOrEqual(1);
       expect(Math.abs(found.left)).toBeLessThanOrEqual(1);

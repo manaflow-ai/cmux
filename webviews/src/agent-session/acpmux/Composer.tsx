@@ -5,14 +5,14 @@ import { chatPlace } from "./chatMachine";
 import React, {
   useCallback,
   useEffect,
-  useId,
   useImperativeHandle,
-  useInsertionEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
   useSyncExternalStore,
+  useInsertionEffect,
+  useId,
 } from "react";
 import type { ExtraFolderControl } from "./extraFolders";
 import { createPortal } from "react-dom";
@@ -51,7 +51,7 @@ import { ComposerQueue } from "./ComposerQueue";
 import { ownQueue } from "./conversation/queuedMessages";
 import { BuildIcon, ContextRing, PlanIcon } from "./ComposerPickers";
 import { type Choice } from "./composerPickerModel";
-import { SendSlot, SendSlotGlyph, StopPulse } from "./composer/SendSlotGlyph";
+import { SendSlotGlyph, SendSlot, StopPulse } from "./composer/SendSlotGlyph";
 import { useStopPresence } from "./composer/turnPresence";
 import { SendMenu } from "./composer/SendMenu";
 import { SIDE_COMMAND, sendChoiceForKey, sendMenuChoices, type SendChoice } from "./composer/sendMenuModel";
@@ -201,6 +201,7 @@ import { focusRoute } from "../../ui/focusRoute";
 import { outcomeAsk } from "./outcomeAsk.experiment";
 import { withOutcomeAsk } from "./outcomeAsk";
 import type { ComposerEditCommand } from "./composerEditCommand";
+import { SolidPopups } from "../../ui/solidPopups";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -683,7 +684,13 @@ function useRelayProps(props: Props): Props {
 /// its identity while nothing the composer shows changed (composer/composerView.ts), so a transcript
 /// change (a tool call, a row added) leaves it be. A relayed one (`relay`) is the same composer.
 export function Composer(props: Props) {
-  return <MemoComposer {...useStableHandlers(useRelayProps(props))} />;
+  const stable = useStableHandlers(useRelayProps(props));
+  // Every menu, picker and list the composer opens is solid (cmux#50983, ui/solidPopups.tsx).
+  return (
+    <SolidPopups>
+      <MemoComposer {...stable} />
+    </SolidPopups>
+  );
 }
 
 /// The prompt box with the agent's `/` command menu:

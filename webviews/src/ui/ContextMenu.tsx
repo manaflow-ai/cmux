@@ -3,7 +3,6 @@ import {
   isValidElement,
   useCallback,
   useEffect,
-  useId,
   useLayoutEffect,
   useRef,
   useState,
@@ -11,11 +10,13 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactElement,
   type ReactNode,
+  useId,
 } from "react";
 import { createPortal } from "react-dom";
 import { cx } from "./cx";
 import { MenuCheckGlyph } from "./MenuCheckGlyph";
 import { useScrollEdges } from "./scrollEdges";
+import { popupSurfaceAttributes, useSolidPopups } from "./solidPopups";
 import { hasNativeMenuPick, nativeMenu, pickedId, type NativeMenuRow } from "./nativeMenu";
 import { useEscapingPopup, type AnchorBox } from "./popupHost";
 import { usePopupHost } from "./UiProvider";
@@ -158,6 +159,7 @@ export function ContextMenu({
   const heldPress = useRef<(() => void) | null>(null);
   const menu = useRef<HTMLDivElement | null>(null);
   const host = usePopupHost();
+  const solid = useSolidPopups();
   const nativePopup = useNativePopup({
     open: nativeOpen && native !== undefined,
     model: native?.model ?? { side: "bottom", align: "start", width: 0, rows: [] },
@@ -558,9 +560,10 @@ export function ContextMenu({
                 ref={attach}
                 className={cx("ui-popup ui-glass ui-context-menu ui-popup-scroll-shell", popupClassName)}
                 role="menu"
-                // The App's menu glass under the page, as ui/Menu's popups (ui/glass/hostGlass.ts).
-                data-host-glass="menu"
-                data-host-glass-cover=""
+                // The App's menu glass under the page, as ui/Menu's popups (ui/glass/hostGlass.ts), or,
+                // opened from a composer, the solid popup surface (solidPopups.tsx).
+                // host-glass-allow: popupSurfaceAttributes sets data-host-glass, except on a solid composer popup (opaque, no host glass)
+                {...popupSurfaceAttributes(solid, "menu")}
                 data-focus-ring="rows"
                 tabIndex={-1}
                 {...menuArms}
@@ -610,8 +613,9 @@ export function ContextMenu({
                             className={cx("ui-popup ui-glass ui-context-menu ui-context-submenu", popupClassName)}
                             role="menu"
                             aria-label={item.ariaLabel ?? (typeof item.label === "string" ? item.label : undefined)}
-                            data-host-glass="menu"
-                            data-host-glass-cover=""
+                            // As its parent: solid when opened from a composer (solidPopups.tsx).
+                            // host-glass-allow: popupSurfaceAttributes sets data-host-glass, except on a solid composer popup (opaque, no host glass)
+                            {...popupSurfaceAttributes(solid, "menu")}
                             data-focus-ring="rows"
                             {...menuArms}
                           >

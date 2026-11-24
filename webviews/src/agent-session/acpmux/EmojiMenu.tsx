@@ -5,6 +5,7 @@ import { useComposerListBox } from "./backdropLayerModel";
 import type { EmojiMatch } from "./emojiShortcodes";
 import type { emojiShortcodeLook } from "./emojiShortcodeLook.experiment";
 import { useT } from "./i18n";
+import { useSolidPopupAttributes } from "../../ui/solidPopups";
 
 type Look = keyof (typeof emojiShortcodeLook)["arms"];
 
@@ -33,6 +34,8 @@ export function EmojiMenu({
   onHover(index: number): void;
   onPick(match: EmojiMatch): void;
 }) {
+  // Solid over the composer (ui/solidPopups.tsx); a list that follows the field yields to a chip menu.
+  const solid = useSolidPopupAttributes({ yields: true });
   const t = useT();
   const box = useComposerListBox();
   const escape = useEscapingList("top", 6, undefined, box, true);
@@ -69,6 +72,7 @@ export function EmojiMenu({
       className={`ui-popup ui-glass acpmux-slash-menu acpmux-emoji-menu is-${look}`}
       id="acpmux-emoji-menu"
       data-emoji-look={look}
+      {...solid}
     >
       <div className="acpmux-emoji-rows">
         {matches.map((match, index) => (

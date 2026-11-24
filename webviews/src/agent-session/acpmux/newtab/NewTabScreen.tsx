@@ -31,11 +31,11 @@ import {
   firstProject,
   homePath,
   isAgentHome,
+  isTemporaryFolder,
   projectLabel,
   sessionMark,
   SessionsBy,
   FolderRecency,
-  isTemporaryFolder,
 } from "../sessionList";
 import { leaders } from "../leads";
 import { WorktreeFailure } from "../startFolder";
@@ -163,6 +163,7 @@ import { elementBox, reportToastAvoidance } from "../toastAvoidance";
 import { githubIssueLink } from "../../../githubReferences";
 import { reportInputReadyWhenFocused } from "./inputReady";
 import { rememberNewChatPlace } from "../lastNewChatPlace";
+import { SolidPopups, useYieldsToPopup } from "../../../ui/solidPopups";
 import { KEYCAP_THEN, keycapLegend, keycapStrokes } from "../../../ui/keycapLegend";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
@@ -1405,6 +1406,9 @@ export function NewTabScreen(props: Props) {
     [split, composer, box],
   );
   const suggesting = rows.length > 0;
+  // One popup at a time (cmux#50983): the rows give way while a chip's menu (folder, machine, access,
+  // model) or any other solid popup is open, so it never opens over rows still standing under it.
+  const yieldRows = useYieldsToPopup(drawnRows > 0, box?.ownerDocument);
   useEffect(() => {
     if (!suggesting || !box) return;
     const document = box.ownerDocument;
@@ -1891,7 +1895,7 @@ export function NewTabScreen(props: Props) {
       input.writeText(fill, fill.length, fill.length);
       return;
     }
-    if (event.key === "Tab" && plain && rows.length && current < rows.length - 1) {
+    if (event.key === "Tab" && plain && rows.length && !yieldRows && current < rows.length - 1) {
       // Tab steps the open suggestions, as in Chrome's omnibox; Enter still performs the action.
       // From the last row, with none open, and Shift-Tab always, focus moves on, so the keyboard
       // can leave the field.
@@ -1905,7 +1909,8 @@ export function NewTabScreen(props: Props) {
     // the suggestion rows.
     const step = kept < 0 && movesCaretInPrompt(event, state, input) ? undefined : listStep(event);
     // Only drawn rows take the arrows: a prompt whose one row is its own hidden Ask keeps them for the caret.
-    if (step && drawnRows) {
+    // Hidden rows (they gave way to a chip's menu, cmux#50983) take no keys.
+    if (step && drawnRows && !yieldRows) {
       event.preventDefault();
       pick(stepRows(current, step));
     } else if (step && dismissed !== undefined && text) {
@@ -2630,7 +2635,7 @@ export function NewTabScreen(props: Props) {
                   "aria-controls": commandsOpen ? "acpmux-slash-menu" : "nt-rows",
                   "aria-activedescendant": commandsOpen
                     ? `acpmux-slash-${commandIndex}`
-                    : rows[current] && current >= firstDrawn
+                    : rows[current] && current >= firstDrawn && !yieldRows
                       ? `nt-row-${current}`
                       : undefined,
                   // One completion UI: the system's spelling bubble and inline predictions stay off
@@ -2800,7 +2805,7 @@ export function NewTabScreen(props: Props) {
           {lists}
         </>
       )}
-      {drawnRows > 0 && anchor && (
+      {drawnRows > 0 && anchor && !yieldRows && (
         <Popover
           open
           // The rows follow the field (Escape there and a press outside close them): the popover
@@ -2817,6 +2822,7 @@ export function NewTabScreen(props: Props) {
             }${boxFocused ? " nt-popover-focused" : ""}`
           }
           hostGlass={false}
+          yields
           initialFocus={false}
           finalFocus={false}
         >
@@ -2921,7 +2927,10 @@ export function NewTabScreen(props: Props) {
         }
       }
     >
-      <OnNewTab.Provider value={true}>{page}</OnNewTab.Provider>
+      <OnNewTab.Provider value={true}>
+        {/* Every menu, picker and list the screen opens is solid (cmux#50983, ui/solidPopups.tsx). */}
+        <SolidPopups>{page}</SolidPopups>
+      </OnNewTab.Provider>
     </SignInContext.Provider>
   );
 }

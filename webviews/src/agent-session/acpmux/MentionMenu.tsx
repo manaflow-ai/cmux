@@ -7,6 +7,7 @@ import { Listbox } from "../../ui/Listbox";
 import { useT } from "./i18n";
 import { FileSearchLoading } from "./FileSearchLoading";
 import { type MentionState } from "./mentionMenuModel";
+import { useSolidPopupAttributes } from "../../ui/solidPopups";
 /// The picker under the prompt, styled as the slash menu: other chats, folders, then files
 /// (mentionItems.ts), each with its icon, its name with the matched letters bold and its project or
 /// folder muted beside it. The prompt keeps focus and its keys (Composer.tsx): arrows move, Return
@@ -25,6 +26,8 @@ export function MentionMenu({
   onHover(index: number): void;
   onPick(item: MentionItem): void;
 }) {
+  // Solid over the composer (ui/solidPopups.tsx); a list that follows the field yields to a chip menu.
+  const solid = useSolidPopupAttributes({ yields: true });
   const t = useT();
   // Above the composer's box, or past the window's edge when the pane has no room there (cx-6k6cg).
   // The list draws out of the box (backdropLayer.tsx): the box is what it stands beside.
@@ -56,6 +59,7 @@ export function MentionMenu({
         getItemId={(_, index) => `acpmux-mention-${index}`}
         itemAttributes={(item) => ({ "data-mention-kind": item.kind })}
         shellClassName="ui-popup ui-glass acpmux-slash-menu acpmux-mention-menu"
+        shellAttributes={solid}
         id="acpmux-mention-menu"
         rowClassName="acpmux-slash-row acpmux-mention-row"
         empty={state?.kind === "searching" && items.length === 0 ? <FileSearchLoading mention /> : undefined}
