@@ -22,7 +22,7 @@ There is no claim that a workspace's focused flag identifies its active chat.
 ## Install or preview
 
 ```sh
-cmux setup install github.com/manaflow-ai/cmux/examples/looks/rex/session-picker@lane/rex-feature-looks
+cmux setup install github.com/manaflow-ai/cmux/examples/looks/rex/session-picker@feat-cmux-next
 ```
 
 To remove the installed layer, run `cmux setup remove manaflow-ai/rex-session-picker`.

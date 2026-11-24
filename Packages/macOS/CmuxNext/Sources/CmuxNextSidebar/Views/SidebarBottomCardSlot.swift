@@ -27,8 +27,11 @@ struct SidebarBottomCardSlot {
         // The highlights show in the app's one hover card window (one card at a time).
         update.hoverCards = { [weak sidebar] in sidebar?.list.hoverCards }
         notice.onAction = { [weak sidebar] card, action in
-            // The restoring card's Details opens what the footer's health line opens (app health's popover).
-            if card == "restoring", action == SidebarNoticeCard.detailsAction, sidebar?.healthIndicator?.accessibilityPerformPress() == true { return }
+            // The restoring card's Details opens app health's popover.
+            if card == "restoring", action == SidebarNoticeCard.detailsAction, let open = sidebar?.onHealthDetails {
+                open()
+                return
+            }
             sidebar?.model.send(.noticeAction(card: card, action: action))
         }
         notice.onDismiss = { [weak sidebar] card in sidebar?.model.send(.dismissNotice(card)) }

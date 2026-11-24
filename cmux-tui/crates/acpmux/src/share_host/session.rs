@@ -42,7 +42,12 @@ pub(crate) fn run() -> anyhow::Result<()> {
         let _ = records::write(&records::dir(&home), &record);
     }
     let command = match helper::resolve(&home) {
-        Ok(resolved) => serve_command(resolved.executable),
+        Ok(resolved) => {
+            // The helper's own grants, read in its process before it captures: `cmux
+            // remote-host grants` names the item that captures, never a stale null.
+            helper::read_grants(&home, &resolved.executable);
+            serve_command(resolved.executable)
+        }
         Err(why) => {
             eprintln!("{LOG}: session {}: no helper: {why}", ticket.session_id);
             // The viewer's card says why (a helper that failed its signature check, none

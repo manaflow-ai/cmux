@@ -1,5 +1,5 @@
-//! `acpmux bridge connect|send|inbox` (`desktop_bridge.rs`): connect Claude Desktop and Codex
-//! Desktop to cmux, and message them from a shell or a cmux session.
+//! `acpmux bridge connect|send|inbox` (`desktop_bridge.rs`): connect Claude Desktop, Codex
+//! Desktop and ChatGPT Desktop to cmux, and message them from a shell or a cmux session.
 //!
 //! `connect` registers the `cmux-bridge` MCP server (`acpmux bridge mcp --as APP`,
 //! `acpmux_mcp_bridge.rs`) through each harness's own CLI (`codex mcp add`, `claude mcp add-json
@@ -7,6 +7,7 @@
 //! app's `claude_desktop_config.json` when that app is installed. acpmux never edits Codex's
 //! `config.toml` or Claude Code's `.claude.json` itself (`trust.rs`). A server already named
 //! `cmux-bridge` that does not run `bridge mcp --as` is someone else's and is never replaced.
+//! ChatGPT Desktop has no such CLI: `connect chatgpt` prints the server for the person to add.
 
 use anyhow::{Context, Result, bail};
 use clap::Subcommand;
@@ -18,10 +19,10 @@ use crate::desktop_bridge::{self, App, Bridge};
 
 #[derive(Subcommand)]
 pub enum BridgeCmd {
-    /// Add the cmux bridge to Claude Desktop and Codex Desktop, so each can message the other and
-    /// every cmux session. Restart the app after.
+    /// Add the cmux bridge to Claude Desktop and Codex Desktop, and print it for ChatGPT Desktop,
+    /// so each can message the others and every cmux session. Restart the app after.
     Connect {
-        /// claude, codex, or both when left out.
+        /// claude, codex or chatgpt; all of them when left out.
         app: Option<String>,
         /// Print what it would run and write, change nothing.
         #[arg(long)]
@@ -30,7 +31,7 @@ pub enum BridgeCmd {
     /// Leave a message for Claude Desktop or Codex Desktop; its agent reads it with the bridge's
     /// inbox tool.
     Send {
-        /// claude-desktop or codex-desktop.
+        /// claude-desktop, codex-desktop or chatgpt-desktop.
         to: String,
         /// Who it is from (default: this session's name, or what this shell names).
         #[arg(long)]
@@ -41,7 +42,7 @@ pub enum BridgeCmd {
     },
     /// Read the messages left for Claude Desktop or Codex Desktop, and mark them read.
     Inbox {
-        /// claude-desktop or codex-desktop.
+        /// claude-desktop, codex-desktop or chatgpt-desktop.
         app: String,
         /// Leave them unread.
         #[arg(long)]
@@ -111,7 +112,7 @@ pub async fn run(cmd: BridgeCmd, json_out: bool) -> Result<()> {
 
 fn named(word: &str) -> Result<App> {
     desktop_bridge::app(word)
-        .with_context(|| format!("unknown app {word:?}: claude-desktop or codex-desktop"))
+        .with_context(|| format!("unknown app {word:?}: {}", desktop_bridge::addresses()))
 }
 
 /// Who a `send` with no `--from` is from: `ACPMUX_FROM`, this session's name, what an agent
@@ -226,6 +227,9 @@ async fn connect(app: App, dry_run: bool) -> Vec<Value> {
         Err(e) => return vec![step(false, format!("{}: {e:#}", app.name))],
     };
     let env = home_env();
+    if app.harness == desktop_bridge::CHATGPT {
+        return vec![by_hand(app, &argv, &env)];
+    }
     let entry = server_entry(&argv, &env);
     let mut steps = vec![if dry_run {
         step(
@@ -313,6 +317,21 @@ async fn register(app: App, argv: &[String], env: &str, entry: &Value) -> Result
         );
     }
     Ok(format!("added {SERVER_NAME} with `claude mcp add-json --scope user`."))
+}
+
+/// ChatGPT Desktop has no CLI of its own that adds a server and no config file cmux may write, so
+/// `connect` changes nothing for it: it prints the server to add in the app's own MCP settings.
+fn by_hand(app: App, argv: &[String], env: &str) -> Value {
+    json!({
+        "ok": true,
+        "byHand": true,
+        "server": server_entry(argv, env),
+        "text": format!(
+            "{}: cmux changes nothing in this app. Add a local (STDIO) MCP server named {SERVER_NAME} in its settings, with the command `{}` and the environment `{env}`, then restart it.",
+            app.name,
+            shell_line(argv)
+        ),
+    })
 }
 
 fn step(ok: bool, text: String) -> Value {
@@ -459,6 +478,21 @@ mod tests {
         assert!(ours(&json!({"args": argv[1..]})));
         assert!(!ours(&json!({"args": ["serve", "bridge mcp --as claude-desktop"]})));
         assert!(!ours(&json!({"args": ["bridge", "mcp", "--as", "other"]})));
+    }
+
+    #[tokio::test]
+    async fn connecting_chatgpt_desktop_prints_the_server_to_add_and_writes_nothing() {
+        let chatgpt = desktop_bridge::app("chatgpt").unwrap();
+        // Not a dry run: there is still nothing for it to run or write.
+        let steps = connect(chatgpt, false).await;
+        assert_eq!(steps.len(), 1);
+        assert_eq!((&steps[0]["ok"], &steps[0]["byHand"]), (&json!(true), &json!(true)));
+        let args = steps[0]["server"]["args"].as_array().unwrap();
+        let tail: Vec<&str> = args[args.len() - 4..].iter().filter_map(Value::as_str).collect();
+        assert_eq!(tail, ["bridge", "mcp", "--as", "chatgpt-desktop"]);
+        assert!(ours(&steps[0]["server"]));
+        let text = steps[0]["text"].as_str().unwrap();
+        assert!(text.contains("--as chatgpt-desktop") && text.contains("ACPMUX_HOME="), "{text}");
     }
 
     #[test]

@@ -153,14 +153,14 @@ public final class NativeNewTabView: NSView, NSTextFieldDelegate {
             guard index < rows.count else {
                 // A row out of the list holds no action and no place under the field.
                 view.isHidden = true
-                view.activate = {}
+                view.activate = { _ in }
                 view.frame = .zero
                 continue
             }
             let row = rows[index]
             view.isHidden = false
             view.show(NativeNewTabRowContent(row, strings: strings, home: model.page.home), selected: index == selected, images: faviconImages)
-            view.activate = { [weak model] in model?.activate(row) }
+            view.activate = { [weak model] event in model?.activate(row, event: event) }
         }
         divider.isHidden = rows.isEmpty
         if rows != shownRows {
@@ -185,7 +185,8 @@ public final class NativeNewTabView: NSView, NSTextFieldDelegate {
         switch selector {
         case #selector(NSResponder.moveDown(_:)): model.move(1)
         case #selector(NSResponder.moveUp(_:)): model.move(-1)
-        case #selector(NSResponder.insertNewline(_:)): model.commit()
+        // The Return key in dispatch, never another event (an accessibility confirm has none of its own).
+        case #selector(NSResponder.insertNewline(_:)): model.commit(event: NSApp.currentEvent.flatMap { $0.type == .keyDown ? $0 : nil })
         default: return false
         }
         render()

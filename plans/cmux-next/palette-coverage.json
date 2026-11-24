@@ -7,56 +7,6 @@
   ],
   "keep": [
     {
-      "surface": "menu",
-      "name": "remoteBrowserPage",
-      "reason": "keep: Debug builds only; its rows are a remote page's own right-click menu and <select> options, sent by that page and answered back to it (RemoteBrowserNativeUI, RT5), which the palette cannot name"
-    },
-    {
-      "surface": "menu",
-      "name": "terminalPaste",
-      "reason": "keep: every row runs a palette-offered action: terminalCopy, terminalPaste, terminal.selectAll"
-    },
-    {
-      "surface": "menu",
-      "name": "homeBackground",
-      "reason": "keep: every row runs a palette-offered action: home.newMessage, home.newChief, home.createChannel, home.invite, home.inviteToTeam, home.showHiddenConversations, openTeamPicker"
-    },
-    {
-      "surface": "menu",
-      "name": "browserReload",
-      "reason": "keep: every row runs a palette-offered action: browserReload, browserHardReload"
-    },
-    {
-      "surface": "menu",
-      "name": "browserMachineBadge",
-      "reason": "keep: its one row is browser.openOnMachine, palette-offered"
-    },
-    {
-      "surface": "menu",
-      "name": "browserProfileLink",
-      "reason": "keep: a row per browser profile; the palette's browserProfile.openLink picks the same profile"
-    },
-    {
-      "surface": "menu",
-      "name": "bookmarkFolder",
-      "reason": "keep: a row per bookmark; the palette's bookmark.open lists the same bookmarks, and bookmark.openAll opens a folder"
-    },
-    {
-      "surface": "menu",
-      "name": "browserMedia",
-      "reason": "keep: a card per media tab; the palette's browser.media.show lists them and tab.focus shows one"
-    },
-    {
-      "surface": "menu",
-      "name": "browserDevice",
-      "reason": "keep: device choices; the palette's browserDevice (Emulate Device) offers the same list"
-    },
-    {
-      "surface": "menu",
-      "name": "titlebarHistory",
-      "reason": "keep: location rows; the palette's recentlyFocused (Location History), history.reopen and history.show cover them"
-    },
-    {
       "surface": "action",
       "name": "import.list",
       "reason": "keep: an agent's read of the import cards it may suggest (`cmux import list`); a person imports with the palette's Import from Browser (importFromBrowser)"
@@ -70,16 +20,6 @@
       "surface": "action",
       "name": "import.suggest",
       "reason": "keep: an agent asks to show a site's cookie import card (`cmux import suggest`); a person imports with the palette's Import from Browser (importFromBrowser)"
-    },
-    {
-      "surface": "menu",
-      "name": "notificationRow",
-      "reason": "keep: every row runs a palette-offered action: notificationOpen, notificationCopy, notificationToggleRead, notificationDismiss; Customize Menu… is settings.customizeMenus"
-    },
-    {
-      "surface": "menu",
-      "name": "agentPaneMessage",
-      "reason": "keep: rows act on the message, image, code/path/link part or selection under the pointer (or that message's More button), which the palette cannot name; Point at Element is agentPane.togglePointerInspector and empty space shows the registry's agentChat rows"
     }
   ],
   "cli_source": "cmux-tui 70e5c08f8b72156ad732bf96c593a067fc010b39",
@@ -509,7 +449,8 @@
       "reason": "keep: a read for scripts and agents (a participant's picture); the app shows the same state on screen"
     },
     {
-      "verb": "avatar set"
+      "verb": "avatar set",
+      "palette": "home.setMyAvatar"
     },
     {
       "verb": "billing checkout",
@@ -648,7 +589,8 @@
       "reason": "keep: runs the Chief as an ACP agent on stdin/stdout for the agent chat's Chief harness"
     },
     {
-      "verb": "chief adopt"
+      "verb": "chief adopt",
+      "palette": "agentPane.adoptAsChief"
     },
     {
       "verb": "chief delete",
@@ -2058,10 +2000,12 @@
       "reason": "keep: a read for scripts and agents (output bytes); the app shows the same state on screen"
     },
     {
-      "verb": "terminal pin-tail off"
+      "verb": "terminal pin-tail off",
+      "palette": "terminal.pinTail"
     },
     {
-      "verb": "terminal pin-tail on"
+      "verb": "terminal pin-tail on",
+      "palette": "terminal.pinTail"
     },
     {
       "verb": "terminal process show",

@@ -38,6 +38,7 @@ struct TabHoverCardLines: Equatable {
     /// The tab's title; a blank page's address is no title (Leo 2026-10-19: "about:blank").
     static func title(_ item: TabItem) -> String {
         if item.title.isEmpty || (item.hover.kind == .browser && isBlank(item.title)) { return Strings.untitled }
+        if let former = item.hover.formerName, !former.isEmpty, former != item.title { return Strings.formerlyKnownAs(item.title, former: former) }
         return item.title
     }
 

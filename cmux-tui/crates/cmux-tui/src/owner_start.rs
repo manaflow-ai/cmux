@@ -15,7 +15,8 @@ mod owner_panic;
 /// The headless owner also records every panic (`owner_panic`, cx-urd.59)
 /// and sends the ones not sent yet to Sentry (`crash_forward`), and watches
 /// its own memory (`memory_guard`), and fetches the signed invite-wave flags
-/// and the daily update answer (`background_checks`).
+/// and the daily update answer (`background_checks`), and starts the opt-in
+/// live daemon updater (`updates.daemon`, cli/app/try_cmd/daemon_updates.rs).
 pub(crate) fn prepare(args: &crate::Args) -> anyhow::Result<()> {
     if args.headless {
         owner_panic::install(&args.session);
@@ -29,6 +30,9 @@ pub(crate) fn prepare(args: &crate::Args) -> anyhow::Result<()> {
         let forwarder = crash_forward::start(logs);
         memory_guard::spawn(panic_log, forwarder);
         background_checks::spawn();
+        // `updates.daemon` (on by default): NIGHTLY's own daemon takes signed daemon builds live.
+        #[cfg(unix)]
+        crate::cli::spawn_daemon_updates(&args.session, args.socket.clone());
         // Opt-in usage patterns (cmux-usage-patterns): counts nothing until the person turns on
         // `diagnostics.usagePatterns`; one file per session's daemon, named by an opaque stand-in
         // for the session's name (a name the person typed is never a file name or a key).

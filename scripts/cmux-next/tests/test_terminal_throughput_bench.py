@@ -23,6 +23,20 @@ class Payload(unittest.TestCase):
             self.assertEqual(tput.write_payload(path, 3), 3 * tput.MB)
             self.assertEqual(os.path.getsize(path), 3 * tput.MB)
 
+    def test_the_sgr_block_changes_color_on_every_character(self):
+        a = tput.sgr_payload_block()
+        self.assertEqual(a, tput.sgr_payload_block())
+        text = a.decode()
+        visible = tput.re.sub(r"\x1b\[[0-9;]*m", "", text)
+        self.assertNotIn("\x1b", visible, "no escape byte is itself wrapped in a color change")
+        self.assertEqual(text.count("\x1b[38;5;"), len(visible.replace("\n", "")))
+
+    def test_the_sgr_file_is_exactly_the_asked_size(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "p")
+            self.assertEqual(tput.write_payload(path, 2, "sgr"), 2 * tput.MB)
+            self.assertEqual(os.path.getsize(path), 2 * tput.MB)
+
 
 class Rows(unittest.TestCase):
     def test_both_rates_and_their_ratio(self):
@@ -31,6 +45,11 @@ class Rows(unittest.TestCase):
         self.assertEqual(rows["terminal.throughput.ghostty_mb_s"]["unit"], "MB/s")
         self.assertEqual(rows["terminal.throughput.ratio"]["p95"], 0.5)
         self.assertTrue(all(r["budget"] is None for r in rows.values()), "reporting only")
+
+    def test_the_sgr_arm_has_its_own_row_names(self):
+        names = [r["name"] for r in tput.report_rows(150.0, 300.0, None, tput.ROW_PREFIX["sgr"])]
+        self.assertEqual(names, ["terminal.throughput_sgr.next_mb_s", "terminal.throughput_sgr.ghostty_mb_s",
+                                 "terminal.throughput_sgr.ratio"])
 
     def test_no_ratio_without_ghostty(self):
         self.assertEqual([r["name"] for r in tput.report_rows(150.0, None)], ["terminal.throughput.next_mb_s"])
@@ -226,6 +245,82 @@ class Trace(unittest.TestCase):
     def test_thread_names(self):
         self.assertEqual(trace.thread_process(READER_T), "cmux DEV x")
         self.assertEqual(trace.thread_pid(READER_T), 60)
+
+    def test_stage_split_names_the_pty_reader_and_the_render_side(self):
+        got = trace.stage_split(self.summary())
+        self.assertEqual(got["pty_read"]["thread"], READER_T)
+        self.assertEqual(got["pty_read"]["blocked_in_read_pct"], 40.0)
+        self.assertNotIn("render", got, "the fixture has no thread that moves no bytes")
+        self.assertEqual(got["bound"], "hand-off")
+        line = trace.split_text("NEXT", got)
+        self.assertIn("pty read 0.0% run, 40.0% in read", line)
+        self.assertIn("[cmux DEV x]", line)
+
+    def test_stage_split_picks_the_first_hop_and_the_bound(self):
+        call = lambda b: {"count": 1, "wall_ms": 1.0, "blocked_pct": 10.0, "bytes": b, "mb_s": b / 1e6}
+        summary = {"window_s": 1.0, "writer_pid": 1, "threads": [
+            {"thread": "Main Thread 0x1 (Python, pid: 1)", "pid": 1, "running_pct": 50.0, "calls": {"write": call(1000)}},
+            {"thread": "Thread 0x2 (cmux-tui, pid: 2)", "pid": 2, "running_pct": 40.0, "calls": {"read": call(1000)}},
+            {"thread": "Thread 0x3 (cmux, pid: 3)", "pid": 3, "running_pct": 30.0, "calls": {"read": call(1400)}},
+            {"thread": "renderer 0x4 (cmux, pid: 3)", "pid": 3, "running_pct": 97.0, "calls": {}},
+            {"thread": "Thread 0x5 (cmux, pid: 3)", "pid": 3, "running_pct": 3.0, "calls": {"kevent": {"count": 4}}}]}
+        got = trace.stage_split(summary)
+        self.assertEqual(got["pty_read"]["process"], "cmux-tui", "the reader nearest the written bytes")
+        self.assertEqual(got["render"]["thread"], "renderer 0x4 (cmux, pid: 3)")
+        self.assertEqual(got["render"]["all_pct"], 100.0)
+        self.assertEqual(got["bound"], "render")
+        self.assertIn("parse/render busiest 97.0% (renderer 0x4 [cmux])", trace.split_text("NEXT", got))
+        self.assertEqual(trace.stage_split({"error": "no burst window"}), {"error": "no burst window"})
+        self.assertIn("no split", trace.split_text("Ghostty", {"error": "x"}))
+
+class Installed(unittest.TestCase):
+    """--installed (terminal-throughput-quick.sh): a side copy of an installed app, remade only when needed."""
+
+    def test_a_copy_of_the_same_app_and_version_is_reused(self):
+        with tempfile.TemporaryDirectory() as d:
+            marker = {"app": d, "from": "/Applications/cmux NIGHTLY.app", "version": "571", "socket": "/x.sock"}
+            self.assertTrue(tput.side_copy_current(marker, "/Applications/cmux NIGHTLY.app", "571"))
+            self.assertFalse(tput.side_copy_current(marker, "/Applications/cmux NIGHTLY.app", "572"), "a new nightly")
+            self.assertFalse(tput.side_copy_current(marker, "/Applications/cmux NEXT.app", "571"), "another app")
+            self.assertFalse(tput.side_copy_current(dict(marker, app=d + "/gone"), "/Applications/cmux NIGHTLY.app", "571"))
+            self.assertFalse(tput.side_copy_current({}, "/Applications/cmux NIGHTLY.app", "571"), "no copy yet")
+            self.assertFalse(tput.side_copy_current(marker, "/Applications/cmux NIGHTLY.app", None), "no version read")
+
+    def test_the_marker_is_read_from_the_side_root(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "tt-bench"))
+            with open(os.path.join(d, "tt-bench", ".side-instance"), "w") as f:
+                f.write("app=/r/cmux tt-bench.app\nfrom=/Applications/cmux NIGHTLY.app\nversion=9\nsocket=/r/c.sock\n")
+            old = os.environ.get("CMUX_SIDE_ROOT")
+            os.environ["CMUX_SIDE_ROOT"] = d
+            try:
+                got = tput.side_marker("tt-bench")
+                self.assertEqual((got["app"], got["version"], got["socket"]), ("/r/cmux tt-bench.app", "9", "/r/c.sock"))
+                self.assertEqual(tput.side_marker("none"), {})
+            finally:
+                if old is None:
+                    del os.environ["CMUX_SIDE_ROOT"]
+                else:
+                    os.environ["CMUX_SIDE_ROOT"] = old
+
+    def refused(self, argv):
+        with self.assertRaises(SystemExit) as raised, open(os.devnull, "w") as null:
+            import contextlib
+            with contextlib.redirect_stderr(null):
+                tput.main(argv)
+        return raised.exception.code
+
+    def test_one_of_app_or_installed(self):
+        self.assertEqual(self.refused(["--out", "/tmp/x"]), 2)
+        self.assertEqual(self.refused(["--app", "a", "--installed", "b", "--out", "/tmp/x"]), 2)
+
+    def test_installed_refuses_an_arm_and_a_missing_app(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "x.app", "Contents"))
+            open(os.path.join(d, "x.app", "Contents", "Info.plist"), "w").close()
+            self.assertEqual(self.refused(["--installed", os.path.join(d, "x.app"), "--out", d,
+                                           "--next-arm", "a:CMUX_NEXT_X=0"]), 2)
+            self.assertEqual(self.refused(["--installed", os.path.join(d, "none.app"), "--out", d]), 2)
 
 
 if __name__ == "__main__":

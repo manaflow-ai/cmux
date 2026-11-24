@@ -1,3 +1,6 @@
+#if canImport(CCmuxSystemCalendarFFI)
+import CCmuxSystemCalendarFFI
+#endif
 #if canImport(EventKit)
 import CoreGraphics
 import EventKit
@@ -67,6 +70,9 @@ public nonisolated protocol CalendarEventSource: Sendable {
 /// The `system_calendar` family (`cmux.system_calendar.*`; not the Cloud's Google `calendar.*` ops): the person's system calendar, which only the Mac app
 /// (holding the calendar permission and its usage strings) can read; the daemon routes the family here.
 ///
+/// The params, the window and the answer are Rust (cmux-app-ffi `src/system_calendar.rs`); this
+/// type keeps what needs EventKit: the access status, the prompt and reading the occurrences.
+///
 /// - `system_calendar.events {days?, limit?}` (read, scope `system_calendar:read`): `{access, events}`. Events from
 ///   now (in progress ones too: `end > now`) through now + `days` (1-31, default 7), sorted by start,
 ///   at most `limit` (1-50, default 20). Never prompts: without full access, `events` is empty.
@@ -93,27 +99,26 @@ public nonisolated struct CalendarAppOps: AppHostCapabilityHandler {
         #endif
     }
 
-    static let defaultDays = 7
-    static let maxDays = 31
-    static let defaultLimit = 20
-    static let maxLimit = 50
-    static let maxText = 200
-    static let maxURL = 2_000
-
     public var families: Set<String> { ["system_calendar"] }
 
     public func handle(_ request: AppHostCapabilityRequest) async throws(AppHostCapabilityError) -> AppJSON {
         guard request.params == .null || request.params.objectValue != nil else { throw Self.invalid("\(request.op) takes an object") }
         switch request.op {
         case "system_calendar.events":
-            let days = try Self.integer(request.params, "days", default: Self.defaultDays, in: 1...Self.maxDays)
-            let limit = try Self.integer(request.params, "limit", default: Self.defaultLimit, in: 1...Self.maxLimit)
+            // The params, the window and the answer are Rust's (cmux-app-ffi src/system_calendar.rs).
+            let window = try Self.call("window", ["params": request.params, "now": .number(now().timeIntervalSince1970)])
+            if let error = window["error"] {
+                throw AppHostCapabilityError(code: error["code"]?.stringValue ?? "invalid_params", message: error["message"]?.stringValue ?? "")
+            }
+            guard let start = window["start"]?.numberValue, let end = window["end"]?.numberValue,
+                  let days = window["days"], let limit = window["limit"] else { throw .unsupported(request.op) }
             let access = await source.access()
-            guard access == .granted else { return Self.answer(access: access, records: [], now: now(), days: days, limit: limit) }
-            let start = now()
-            let end = start.addingTimeInterval(TimeInterval(days) * 86_400)
-            let records = await source.events(from: start, to: end)
-            return Self.answer(access: access, records: records, now: start, days: days, limit: limit)
+            let records = access == .granted
+                ? await source.events(from: Date(timeIntervalSince1970: start), to: Date(timeIntervalSince1970: end)) : []
+            return try Self.call("answer", [
+                "access": .string(access.rawValue), "now": .number(start), "days": days, "limit": limit,
+                "records": .array(records.map(\.json)),
+            ])
         case "system_calendar.request_access":
             return ["access": .string(await source.requestAccess().rawValue)]
         default:
@@ -121,61 +126,40 @@ public nonisolated struct CalendarAppOps: AppHostCapabilityHandler {
         }
     }
 
-    /// `system_calendar.events`' answer: the occurrences with `end > now` and `start < now + days`, sorted by
-    /// start (then end, title, id), at most `limit`, text capped. No events unless `access` is granted.
-    static func answer(access: CalendarAccess, records: [CalendarEventRecord], now: Date, days: Int, limit: Int) -> AppJSON {
-        guard access == .granted else { return ["access": .string(access.rawValue), "events": []] }
-        let end = now.addingTimeInterval(TimeInterval(days) * 86_400)
-        let kept = records
-            .filter { $0.end > now && $0.start < end }
-            .sorted { a, b in
-                if a.start != b.start { return a.start < b.start }
-                if a.end != b.end { return a.end < b.end }
-                if a.title != b.title { return a.title < b.title }
-                return a.id < b.id
-            }
-            .prefix(limit)
-        return ["access": .string(access.rawValue), "events": .array(kept.map { Self.json($0) })]
-    }
-
-    /// One event as the app sees it (`CmuxCalendarEvent`): epoch ms, capped text, no empty optionals.
-    static func json(_ record: CalendarEventRecord) -> AppJSON {
-        var event: [String: AppJSON] = [
-            "id": .string(String(record.id.prefix(maxText))),
-            "title": .string(String(record.title.prefix(maxText))),
-            "start": .number(milliseconds(record.start)),
-            "end": .number(milliseconds(record.end)),
-            "allDay": .bool(record.allDay),
-            "calendar": .string(String(record.calendar.prefix(maxText))),
-        ]
-        if let location = record.location?.trimmingCharacters(in: .whitespacesAndNewlines), !location.isEmpty {
-            event["location"] = .string(String(location.prefix(maxText)))
+    /// One op of `cmux_system_calendar_call`; `unsupported` where the app FFI is not linked.
+    static func call(_ op: String, _ request: [String: AppJSON]) throws(AppHostCapabilityError) -> AppJSON {
+        #if canImport(CCmuxSystemCalendarFFI)
+        guard let body = try? JSONEncoder().encode(AppJSON.object(request)) else { throw .unsupported("system_calendar.\(op)") }
+        var out = CmuxSystemCalendarBytes(ptr: nil, len: 0)
+        let code = body.withUnsafeBytes { raw in
+            op.withCString { cmux_system_calendar_call($0, raw.bindMemory(to: UInt8.self).baseAddress, raw.count, &out) }
         }
-        if let url = record.url, !url.isEmpty, url.count <= maxURL { event["url"] = .string(url) }
-        if let color = record.color, isHexColor(color) { event["color"] = .string(color) }
-        return .object(event)
-    }
-
-    static func milliseconds(_ date: Date) -> Double {
-        (date.timeIntervalSince1970 * 1_000).rounded()
-    }
-
-    /// Whether `text` is a `#rrggbb` color, the only form an app gets.
-    static func isHexColor(_ text: String) -> Bool {
-        text.count == 7 && text.first == "#" && text.dropFirst().allSatisfy(\.isHexDigit)
-    }
-
-    /// The integer param `key`, `fallback` when absent or null; `invalid_params` outside `range`.
-    static func integer(_ params: AppJSON, _ key: String, default fallback: Int, in range: ClosedRange<Int>) throws(AppHostCapabilityError) -> Int {
-        guard let value = params[key], value != .null else { return fallback }
-        guard let number = value.numberValue, number.rounded() == number, number >= Double(range.lowerBound), number <= Double(range.upperBound) else {
-            throw invalid("\(key) is a whole number from \(range.lowerBound) to \(range.upperBound)")
-        }
-        return Int(number)
+        defer { cmux_system_calendar_bytes_free(out) }
+        guard code == CMUX_SYSTEM_CALENDAR_OK, let bytes = out.ptr,
+              let reply = try? JSONDecoder().decode(AppJSON.self, from: Data(bytes: bytes, count: out.len))
+        else { throw .unsupported("system_calendar.\(op)") }
+        return reply
+        #else
+        throw .unsupported("system_calendar.\(op)")
+        #endif
     }
 
     static func invalid(_ message: String) -> AppHostCapabilityError {
         AppHostCapabilityError(code: "invalid_params", message: message)
+    }
+}
+
+nonisolated extension CalendarEventRecord {
+    /// The record as `cmux_system_calendar_call`'s `answer` reads it: times in seconds since 1970.
+    var json: AppJSON {
+        var record: [String: AppJSON] = [
+            "id": .string(id), "title": .string(title), "start": .number(start.timeIntervalSince1970),
+            "end": .number(end.timeIntervalSince1970), "allDay": .bool(allDay), "calendar": .string(calendar),
+        ]
+        if let location { record["location"] = .string(location) }
+        if let url { record["url"] = .string(url) }
+        if let color { record["color"] = .string(color) }
+        return .object(record)
     }
 }
 
@@ -236,7 +220,7 @@ actor EventKitCalendarSource: CalendarEventSource {
     private nonisolated static func record(_ event: EKEvent) -> CalendarEventRecord {
         let base = event.eventIdentifier ?? event.calendarItemIdentifier
         return CalendarEventRecord(
-            id: "\(base)@\(Int64(CalendarAppOps.milliseconds(event.startDate)))",
+            id: "\(base)@\(Int64((event.startDate.timeIntervalSince1970 * 1_000).rounded()))",
             title: event.title ?? "",
             start: event.startDate,
             end: event.endDate,

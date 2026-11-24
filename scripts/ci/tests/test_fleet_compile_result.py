@@ -53,6 +53,11 @@ class ReadTest(unittest.TestCase):
         self.assertEqual(len(urls), 3)
         self.assertIn("pr=12", urls[0])
 
+    def test_each_hold_stays_under_the_gateway_limit(self):
+        _, _, urls, _ = run([(404, None), (200, rec("running")), (200, rec("pass"))], wait=1500)
+        holds = [int(u.rsplit("wait=", 1)[1]) for u in urls]
+        self.assertTrue(holds and max(holds) <= 90, holds)
+
     def test_no_record_hands_back_to_the_compile(self):
         word, why, _, t = run([(404, None)], no_record=600)
         self.assertEqual(word, "none")
