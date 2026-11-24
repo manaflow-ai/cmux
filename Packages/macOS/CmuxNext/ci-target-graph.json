@@ -953,7 +953,9 @@
         "CMUXAuthCore"
       ],
       "reads": [
-        "cmux-tui/spec/"
+        "cmux-tui/crates/cmux-cloud-machine/src/power.rs",
+        "cmux-tui/spec/",
+        "schemas/cloud-machine-power/table.json"
       ]
     },
     "CmuxNextCloudUI": {
