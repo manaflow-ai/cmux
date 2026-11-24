@@ -254,7 +254,14 @@ fn a_wake_with_no_answer_waits_for_the_network() {
     let (chat, effects) = step(holding(0), Event::Wake, 3_000);
     let (chat, effects) = step(chat, Event::Unanswered { request: request(&effects) }, 4_000);
     assert_eq!(chat.state, State::Stopped { epoch: 1, why: Stop::Offline });
-    assert_eq!(effects, [Effect::ShowBlocked { blocked: Some(Blocked::Offline) }]);
+    // It asks again soon, not a whole period later (`RENEW_RETRY_MS`).
+    assert_eq!(
+        effects,
+        [
+            Effect::ShowBlocked { blocked: Some(Blocked::Offline) },
+            Effect::ScheduleAt { at: 4_000 + RENEW_RETRY_MS },
+        ]
+    );
 }
 
 #[test]
