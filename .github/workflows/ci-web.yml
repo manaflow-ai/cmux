@@ -1227,6 +1227,20 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      # narrow-pane-layout-browser.test.ts's screenshots: the key agent panes at narrow widths, for
+      # reading a red overlap or ellipsis (or a baseline row to add) against what was drawn.
+      - name: Upload the narrow pane screenshots
+        if: ${{ always() && steps.webview-tests.outcome != 'skipped' }}
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: narrow-pane-layout-shard${{ matrix.shard }}
+          overwrite: true
+          path: webviews/test-results/narrow-pane-layout/
+          if-no-files-found: ignore
+          retention-days: 7
+
       # Also when a newer head cancels the run: what passed before the cancel is what that head's shard reuses
       # (webviews_test_history.py passed-before).
       - name: Upload the files that passed

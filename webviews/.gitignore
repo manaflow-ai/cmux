@@ -3,3 +3,6 @@ dist/
 # dom-teardown-settles.test.ts writes its fixture files here while it runs.
 test/.dom-teardown-*/
 latency-results.json
+
+# narrow-pane-layout-browser.test.ts screenshots
+test-results/

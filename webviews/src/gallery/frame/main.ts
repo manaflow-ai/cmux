@@ -29,6 +29,7 @@ import entryIndex from "virtual:cmux-gallery/entry-index";
 import { isSubpixelLayoutShift, resolveTarget, type LoadReport, type Shift } from "../play";
 import { startBoxTracker } from "../shift";
 import { collectInvariants, type Violation } from "../invariants";
+import { collectNarrowLayout, type NarrowViolation } from "../narrowLayout";
 import { installScrollingMarks } from "../../scrollers";
 
 installGalleryClock();
@@ -254,9 +255,12 @@ declare global {
     cmuxGalleryLoadReport?: LoadReport;
     /** The design specs' geometry rules this stage breaks (invariants.ts); the runner reads it after its screenshot. */
     cmuxGalleryInvariants?: () => Violation[];
+    /** Overlap and ellipsis at the stage's width (narrowLayout.ts); narrow-pane-layout-browser.test.ts reads it. */
+    cmuxGalleryNarrowLayout?: () => NarrowViolation[];
   }
 }
 window.cmuxGalleryInvariants = () => collectInvariants(document);
+window.cmuxGalleryNarrowLayout = () => collectNarrowLayout(document);
 
 /**
  * Opening the stage, measured like a play step: the browser's layout-shift entries since navigation
