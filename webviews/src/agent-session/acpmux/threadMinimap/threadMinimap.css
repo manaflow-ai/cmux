@@ -748,7 +748,7 @@
 .acpmux-minimap__cutover {
   position: absolute;
   inset-inline-start: 0;
-  z-index: 1;
+  z-index: var(--layer-raised);
   width: min(100%, var(--ds-space-3));
   height: var(--acpmux-minimap-bar-height);
   border-radius: var(--ds-space-1);
