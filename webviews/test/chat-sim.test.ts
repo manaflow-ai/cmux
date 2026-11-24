@@ -217,9 +217,7 @@ describe("chat simulator: no sub-second rows and no mid-turn shifts", () => {
         flashes: flashes.filter((line) => !known[line]),
         midTurnShifts: midTurnShifts.filter((line) => !known[line]),
       }).toEqual({ flashes: [], midTurnShifts: [] });
-      expect(Object.keys(known).filter((line) => !flashes.includes(line) && !midTurnShifts.includes(line))).toEqual(
-        [],
-      );
+      expect(Object.keys(known).filter((line) => !flashes.includes(line) && !midTurnShifts.includes(line))).toEqual([]);
     });
   for (const name of CHURN_EXCERPTS)
     test(`${name} (sanitized excerpt)`, () => {
