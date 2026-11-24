@@ -234,6 +234,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "acpmux-team-space"
+version = "1.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "addr2line"
 version = "0.26.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
