@@ -312,7 +312,8 @@ extension AgentPaneModel {
             tabRow.report(width: CGFloat(width), need: need.map { CGFloat($0) }) // used only while the pane offered the row
             return AgentPaneReply.success()
         case .tabRowToolsSet(let tools):
-            guard tabRow.nativeToolsEnabled else { return AgentPaneReply.success() }
+            // Native row tools off: the page publishes them for the pane's stand-in through a resize drag only.
+            guard tabRow.nativeToolsEnabled else { tabRow.setStandInTools(tools); return AgentPaneReply.success() }
             setTabRowTools(tools)
             return AgentPaneReply.success()
         case .tabRowToolsOpenMenu(let id, let menuItemID):

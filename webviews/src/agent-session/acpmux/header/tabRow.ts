@@ -15,6 +15,11 @@ export interface TabRow {
   /// ... have even more of that area be not some row blocking it? cuz isn't it kinda arbitrary anyway if you
   /// literally only have one tab there?"). Absent/false: two or more tabs, the row as before.
   readonly soloTab?: boolean;
+  /// The App draws a native stand-in for the tools while a resize drag moves the row (AgentPaneTabRow's stand-in):
+  /// the page keeps drawing its own buttons and publishes their list for it (`pane.tabRowTools.set`). Leo, 2026-11-24:
+  /// "i want all our resizing at any cpu to be able to happen in lockstep ... the relevant ui elements like the top
+  /// right buttons."
+  readonly standInRowTools?: boolean;
 }
 
 /// Space between the last tab and the tools, in the width the page reports: the tools' own pitch, not a gutter.
@@ -35,6 +40,7 @@ export function setTabRow(value: unknown): void {
     trailingInset?: unknown;
     nativeRowTools?: unknown;
     soloTab?: unknown;
+    standInRowTools?: unknown;
   };
   const height = pixels(raw.height);
   current =
@@ -44,6 +50,7 @@ export function setTabRow(value: unknown): void {
           trailingInset: pixels(raw.trailingInset),
           nativeRowTools: raw.nativeRowTools === true,
           soloTab: raw.soloTab === true,
+          standInRowTools: raw.standInRowTools === true,
         }
       : NONE;
   // The native row draws over the page's top, so menus and popovers open below it (ui/popupInset.ts).

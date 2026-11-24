@@ -15,6 +15,9 @@ import type { Translate } from "../i18n";
 
 export interface NativeRowToolsHost {
   enabled: boolean;
+  /// The App stands in for the page's tools while a resize drag moves the row (tabRow.ts `standInRowTools`): the
+  /// list is published as with `enabled`, but the page keeps drawing its own buttons.
+  mirror?: boolean;
   callNative(method: string, params: Record<string, unknown>): Promise<unknown>;
   panel?: NativeRowPanel;
 }
@@ -37,6 +40,8 @@ export function useNativeRowTools(
   menus?: NativeRowMenus,
 ): boolean {
   const enabled = host?.enabled === true;
+  // Published for the native row, or for the App's stand-in of the page's own buttons.
+  const publishes = enabled || host?.mirror === true;
   const callNative = host?.callNative;
   const [menuKeys] = useState(createNativeMenuKeys);
   const baseBindings = nativeRowToolBindings(quick, host?.panel, menus?.extras, menus?.t, menuKeys, menus?.glass).map(
@@ -60,15 +65,15 @@ export function useNativeRowTools(
   const sent = useRef<string | undefined>(undefined);
   const [failed, setFailed] = useState<string>();
   useEffect(() => {
-    if (!enabled || !callNative) return;
+    if (!publishes || !callNative) return;
     setFailed(undefined);
     return () => {
       sent.current = undefined;
       void callNative("pane.tabRowTools.set", { tools: [] }).catch(() => undefined);
     };
-  }, [enabled, callNative]);
+  }, [publishes, callNative]);
   useEffect(() => {
-    if (!enabled || !callNative || sent.current === payload) return;
+    if (!publishes || !callNative || sent.current === payload) return;
     sent.current = payload;
     let live = true;
     void callNative("pane.tabRowTools.set", JSON.parse(payload))
@@ -84,7 +89,7 @@ export function useNativeRowTools(
     return () => {
       live = false;
     };
-  }, [enabled, callNative, payload]);
+  }, [publishes, callNative, payload]);
   const active = enabled && failed !== payload;
   useEffect(() => {
     if (!active) return;

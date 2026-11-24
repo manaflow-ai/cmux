@@ -1125,6 +1125,50 @@ test("tab-row native opt-in requires a true flag and an offered positive height"
   expect(sent.at(-1)).toEqual([]);
 });
 
+test("a stand-in row publishes the tools for the App while the page keeps drawing its own", async () => {
+  // Leo, 2026-11-24: "i want all our resizing at any cpu to be able to happen in lockstep ... the relevant ui
+  // elements like the top right buttons." The App draws these natively while a resize drag moves the row.
+  const container = mount();
+  const sent: NativeRowTool[][] = [];
+  const callNative = async (_method: string, params: Record<string, unknown>) => {
+    sent.push(params.tools as NativeRowTool[]);
+  };
+  function SaveRow() {
+    previousTabRow = useTabRow();
+    return null;
+  }
+  await act(async () => root!.render(<SaveRow />));
+  await act(async () => root!.render(null));
+  setTabRow(null);
+  function Row() {
+    const row = useTabRow();
+    const native = useNativeRowTools(
+      {
+        enabled: row.height > 0 && row.nativeRowTools === true,
+        mirror: row.height > 0 && row.standInRowTools === true,
+        callNative,
+      },
+      [{ id: "terminal", icon: "terminal", label: "Terminal", run: () => {} }],
+    );
+    return <span data-native={String(native)} />;
+  }
+  await act(async () => root!.render(<Row />));
+  for (const value of [{ height: 28 }, { height: 28, standInRowTools: "true" }, { height: 0, standInRowTools: true }]) {
+    await act(async () => applyHostEvent({ kind: "tabRow", value }));
+  }
+  expect(sent).toEqual([]);
+  await act(async () => applyHostEvent({ kind: "tabRow", value: { height: 28, standInRowTools: true } }));
+  // Published, but the page still draws its buttons: the App's band covers them only during a drag.
+  expect(container.querySelector("[data-native]")?.getAttribute("data-native")).toBe("false");
+  expect(sent).toHaveLength(1);
+  expect(sent[0]!.map(({ id }) => id)).toEqual(["terminal"]);
+  await act(async () => applyHostEvent({ kind: "tabRow", value: { height: 28, nativeRowTools: true } }));
+  expect(container.querySelector("[data-native]")?.getAttribute("data-native")).toBe("true");
+  await act(async () => applyHostEvent({ kind: "tabRow", value: { height: 28 } }));
+  expect(container.querySelector("[data-native]")?.getAttribute("data-native")).toBe("false");
+  expect(sent.at(-1)).toEqual([]);
+});
+
 test("native chat menus publish current state, customize shared actions, and expand from the palette", async () => {
   const container = mount();
   const sent: { method: string; params: Record<string, unknown> }[] = [];
