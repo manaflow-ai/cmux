@@ -103,8 +103,51 @@ jobs:
   # 55 min (jobs 137458123841, 137465404382, 2026-11-23: 87 of 245 files in 47 min). Six shards with a worker per
   # reported vCPU, then with 4 workers, still timed out there (runs 45172479573, PR #52237): a twelfth of the suite
   # with 3 workers fits a quarter of a VM, and a shard that fails reruns its files once.
-  api-workerd:
+  # ci500k, Leo: "de facto, im asking for 99% fewer minutes of ci time, period." A pull request whose API Worker
+  # test inputs (scripts/ci/api_workerd_key.py) match a head whose twelve shards already passed has nothing new to
+  # prove: the shards skip, and `test` still runs and passes (its last step accepts a skipped shard only on a hit).
+  # Only on a pull_request without the full-ci label: a push, a dispatch and every deploy always run the shards.
+  api-workerd-scope:
     if: github.event.action != 'closed'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    timeout-minutes: 5
+    outputs:
+      key: ${{ steps.key.outputs.key }}
+      hit: ${{ steps.reuse.outputs.hit }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: scripts/ci/api_workerd_key.py
+          sparse-checkout-cone-mode: false
+      - name: Hash the API Worker test inputs
+        id: key
+        if: ${{ github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+        run: echo "key=$(python3 scripts/ci/api_workerd_key.py)" >> "$GITHUB_OUTPUT"
+      - name: Look up a green marker for these inputs
+        id: green
+        if: ${{ steps.key.outputs.key != '' }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/api-workerd-green-marker
+          key: api-workerd-green-${{ steps.key.outputs.key }}
+          lookup-only: true
+      - name: Decide whether the shards skip
+        id: reuse
+        env:
+          KEY: ${{ steps.key.outputs.key }}
+          HIT: ${{ steps.green.outputs.cache-hit }}
+        run: |
+          if [ -n "$KEY" ] && [ "$HIT" = true ]; then
+            echo "api-workerd: the inputs already passed (key $KEY); the shards skip"
+            echo "hit=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "hit=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  api-workerd:
+    needs: [api-workerd-scope]
+    if: ${{ github.event.action != 'closed' && needs.api-workerd-scope.outputs.hit != 'true' }}
     name: api-workerd (${{ matrix.shard }}/12)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 45
@@ -151,7 +194,7 @@ jobs:
   test:
     # Runs after the API Worker shards whatever they end with, and fails on a red shard (its last step), so the
     # `test` check that the deploys and prod-promote.ts read still covers the whole suite.
-    needs: [api-workerd]
+    needs: [api-workerd-scope, api-workerd]
     if: ${{ !cancelled() && github.event.action != 'closed' }}
     # A Blacksmith LINUX_RUNNER is taken as the other jobs here take it (the label the probe saw serving). On
     # 2026-11-20 LINUX_RUNNER was blacksmith-4vcpu (serving) while linux_8 was blacksmith-8vcpu, and this job alone
@@ -275,12 +318,27 @@ jobs:
           echo "::error title=type check::the type check failed; see its step. The steps after it ran anyway."
           exit 1
       - name: Fail on the API Worker shards
-        if: ${{ !cancelled() && needs.api-workerd.result != 'success' }}
+        # A skipped shard is fine only on a green-marker hit (api-workerd-scope); a skip for any other reason fails.
+        if: ${{ !cancelled() && needs.api-workerd.result != 'success' && !(needs.api-workerd.result == 'skipped' && needs.api-workerd-scope.result == 'success' && needs.api-workerd-scope.outputs.hit == 'true') }}
         env:
           SHARDS: ${{ needs.api-workerd.result }}
         run: |
           echo "::error title=API Worker tests::the API Worker tests (workerd) ended ${SHARDS}; see the api-workerd jobs."
           exit 1
+
+      # Save the marker once all 12 shards passed in a run that ran them (not on a hit), and the rest of `test` passed.
+      # A cache key holding a date, no secrets; only for a pull request from this repository, never a fork.
+      - name: Mark these API Worker inputs green
+        if: ${{ success() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.api-workerd-scope.outputs.key != '' && needs.api-workerd-scope.outputs.hit != 'true' && needs.api-workerd.result == 'success' }}
+        continue-on-error: true
+        run: mkdir -p "$RUNNER_TEMP/api-workerd-green-marker" && date -u > "$RUNNER_TEMP/api-workerd-green-marker/passed"
+      - name: Save the API Worker green marker (cache)
+        if: ${{ success() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.api-workerd-scope.outputs.key != '' && needs.api-workerd-scope.outputs.hit != 'true' && needs.api-workerd.result == 'success' }}
+        continue-on-error: true
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/api-workerd-green-marker
+          key: api-workerd-green-${{ needs.api-workerd-scope.outputs.key }}
 
   # Development is shared by previews and holds no real data, so the PR's own runner may
   # apply there; staging and production only through backend-migrations.yml.
