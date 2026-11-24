@@ -1,5 +1,5 @@
 //! A closed session's temporary folder (`agent/session_tmp.rs`) is freed: at its close, and every
-//! hour for closed sessions whose folder is still there (one a live process kept, one closed
+//! hour for closed sessions whose folder is still there (one an open session worked in, one closed
 //! before this daemon started). Before, a folder went only with a purge, so a closed chat kept its
 //! agents' scratch forever (gcp-agent-lane-14, 2026-11-24: 12.4 GiB in 106 folders, the largest
 //! 4.9 GiB of a closed `ask-...` chat, all test scratch).
@@ -8,8 +8,9 @@
 //! while it makes the folder (`ensure_child`), with the session read again as closed under it: a
 //! reopen either comes first (the session is no longer closed, its folder stays) or after (its
 //! start makes a new, empty folder). The removal of what was moved aside runs after the lock is
-//! let go, on a blocking thread. A folder a live process works in, or an open session's folder is
-//! inside, stays, and the log says which and why.
+//! let go, on a blocking thread. A folder an open session's folder is inside stays, and the log
+//! says which. Processes are not scanned (cmux-next never scans processes): the ones acpmux holds
+//! end with the close.
 
 use super::*;
 
@@ -69,14 +70,12 @@ impl Hub {
         if candidates.is_empty() {
             return FreedTmp::default();
         }
-        // A stat each, then one process scan, only when some closed session has a folder.
+        // A stat each, off the runtime.
         let ids: Vec<String> = candidates.iter().map(|s| s.id.clone()).collect();
-        let Ok((with_folder, holders)) = tokio::task::spawn_blocking(move || {
-            let with: std::collections::HashSet<String> =
-                ids.into_iter().filter(|id| crate::agent::session_tmp::has_folder(id)).collect();
-            let holders =
-                if with.is_empty() { None } else { crate::agent::session_tmp::Holders::scan() };
-            (with, holders)
+        let Ok(with_folder) = tokio::task::spawn_blocking(move || {
+            ids.into_iter()
+                .filter(|id| crate::agent::session_tmp::has_folder(id))
+                .collect::<std::collections::HashSet<String>>()
         })
         .await
         else {
@@ -113,11 +112,7 @@ impl Hub {
             let mut cwds = open_cwds.clone();
             cwds.push((session.id.clone(), session.meta().cwd));
             use crate::agent::session_tmp::Freed;
-            match crate::agent::session_tmp::free_closed_session(
-                &session.id,
-                holders.as_ref(),
-                &cwds,
-            ) {
+            match crate::agent::session_tmp::free_closed_session(&session.id, &cwds) {
                 Freed::Aside(dir) => {
                     pass.freed += 1;
                     aside.push(dir);

@@ -20,11 +20,11 @@
 //! hour for closed sessions whose folder is still there), a purge removes it,
 //! and a starting daemon removes every folder in its own root whose session
 //! its store no longer has, and the root of any daemon whose acpmux home is
-//! gone (`stale`). A closed session's folder stays while a live process still
-//! works in it (its cwd, or a path in its environment such as `TMPDIR`, is
-//! inside: a background command the stop kept, a leaked server), or an open
-//! session's folder is inside it; where processes cannot be listed (not Linux
-//! or macOS) it stays. A reopened session gets a new, empty folder at its
+//! gone (`stale`). A closed session's folder stays while an open session's
+//! folder (its cwd: a probe chat) is inside it. Processes are not scanned for
+//! it (cmux-next never scans processes, plans/cmux-next/pty-holder.md 4):
+//! the processes acpmux holds end with the session's close, as at a purge. A
+//! reopened session gets a new, empty folder at its
 //! agent's start (`make`). Nothing goes by age (gcp-agent-lane-14,
 //! 2026-11-24: 12.4 GiB of test scratch in 106 folders, 104 of them of
 //! sessions acpmux still listed, most of them closed).
@@ -388,23 +388,14 @@ pub(crate) fn remove_session(session_id: &str) {
 /// Why a closed session's folder stays ([`free_closed`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Kept {
-    /// A live process works in it: `what` is `cwd` or the environment key
-    /// whose value is inside it.
-    Process { pid: u32, what: String, path: PathBuf },
     /// An open session's folder (its cwd) is inside it.
     Session { id: String, cwd: PathBuf },
-    /// This system's processes could not be listed, so none can be ruled out.
-    Unlisted,
 }
 
 impl std::fmt::Display for Kept {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Kept::Process { pid, what, path } => {
-                write!(f, "process {pid} has its {what} at {}", path.display())
-            }
             Kept::Session { id, cwd } => write!(f, "open session {id} works in {}", cwd.display()),
-            Kept::Unlisted => write!(f, "this system's processes could not be listed"),
         }
     }
 }
@@ -422,41 +413,6 @@ pub(crate) enum Freed {
     Failed,
 }
 
-/// The paths live processes work in that are inside the sessions' temporary
-/// folders: each one's cwd and every environment value that is such a path
-/// (`TMPDIR`, `ACPMUX_SESSION_TMPDIR`, `CLAUDE_CODE_TMPDIR`, ...). `None`
-/// when this system's processes cannot be listed.
-#[derive(Debug, Default)]
-pub(crate) struct Holders {
-    paths: Vec<(u32, String, PathBuf)>,
-}
-
-impl Holders {
-    /// The processes of this system, read once (this daemon's own left out).
-    #[cfg(unix)]
-    pub(crate) fn scan() -> Option<Self> {
-        Self::scan_in(&per_user_base())
-    }
-
-    fn scan_in(base: &Path) -> Option<Self> {
-        let me = std::process::id();
-        let mut paths = Vec::new();
-        let listed = each_process_path(&mut |pid, what, path| {
-            if pid != me && holds_in(base, &path) {
-                paths.push((pid, what, path));
-            }
-        });
-        listed.then_some(Holders { paths })
-    }
-
-    /// The first process working in `dir`.
-    fn holder_of(&self, dir: &Path) -> Option<Kept> {
-        self.paths.iter().find(|(_, _, path)| inside(dir, path)).map(|(pid, what, path)| {
-            Kept::Process { pid: *pid, what: what.clone(), path: path.clone() }
-        })
-    }
-}
-
 /// `path` is `dir` or below it, either spelling of macOS's `/tmp`.
 fn inside(dir: &Path, path: &Path) -> bool {
     let other = match dir.strip_prefix("/private") {
@@ -464,142 +420,6 @@ fn inside(dir: &Path, path: &Path) -> bool {
         Err(_) => Path::new("/private").join(dir.strip_prefix("/").unwrap_or(dir)),
     };
     path.starts_with(dir) || path.starts_with(&other)
-}
-
-/// Every live process's cwd (`"cwd"`) and each environment value that is an
-/// absolute path (its key), as far as this user may read them. False when the
-/// processes could not be listed at all.
-#[cfg(target_os = "linux")]
-fn each_process_path(f: &mut dyn FnMut(u32, String, PathBuf)) -> bool {
-    use std::os::unix::ffi::OsStrExt as _;
-    let Ok(entries) = std::fs::read_dir("/proc") else { return false };
-    for entry in entries.flatten() {
-        let Some(pid) = entry.file_name().to_str().and_then(|n| n.parse::<u32>().ok()) else {
-            continue;
-        };
-        if let Ok(cwd) = std::fs::read_link(format!("/proc/{pid}/cwd")) {
-            f(pid, "cwd".into(), cwd);
-        }
-        // Another user's process is not readable: it cannot write in a 0700 folder of ours.
-        if let Ok(env) = std::fs::read(format!("/proc/{pid}/environ")) {
-            each_env_path(&env, &mut |key, value| {
-                f(pid, key, PathBuf::from(std::ffi::OsStr::from_bytes(value)))
-            });
-        }
-    }
-    true
-}
-
-#[cfg(target_os = "macos")]
-fn each_process_path(f: &mut dyn FnMut(u32, String, PathBuf)) -> bool {
-    use std::os::unix::ffi::OsStrExt as _;
-    let int = std::mem::size_of::<libc::c_int>();
-    // SAFETY: a null buffer asks only for the count.
-    let count = unsafe { libc::proc_listallpids(std::ptr::null_mut(), 0) };
-    if count <= 0 {
-        return false;
-    }
-    let mut pids: Vec<libc::c_int> = vec![0; count as usize + 64];
-    // SAFETY: the buffer holds `pids.len()` ints and its size in bytes is passed.
-    let count = unsafe {
-        libc::proc_listallpids(pids.as_mut_ptr().cast(), (pids.len() * int) as libc::c_int)
-    };
-    if count <= 0 {
-        return false;
-    }
-    pids.truncate((count as usize).min(pids.len()));
-    // KERN_PROCARGS2 is at most KERN_ARGMAX bytes (1 MiB).
-    let mut args = vec![0u8; 1 << 20];
-    for pid in pids.into_iter().filter(|p| *p > 0) {
-        let mut info = std::mem::MaybeUninit::<libc::proc_vnodepathinfo>::zeroed();
-        let size = std::mem::size_of::<libc::proc_vnodepathinfo>() as libc::c_int;
-        // SAFETY: `info` is `size` bytes; a failed call (another user's process) returns <= 0.
-        let got = unsafe {
-            libc::proc_pidinfo(pid, libc::PROC_PIDVNODEPATHINFO, 0, info.as_mut_ptr().cast(), size)
-        };
-        if got == size {
-            // SAFETY: the call filled the struct.
-            let info = unsafe { info.assume_init() };
-            let raw = &info.pvi_cdir.vip_path;
-            // SAFETY: the path is a byte array of the struct's own size, NUL-terminated or full.
-            let bytes = unsafe {
-                std::slice::from_raw_parts(raw.as_ptr().cast::<u8>(), std::mem::size_of_val(raw))
-            };
-            let end = bytes.iter().position(|b| *b == 0).unwrap_or(bytes.len());
-            if end > 0 {
-                f(
-                    pid as u32,
-                    "cwd".into(),
-                    PathBuf::from(std::ffi::OsStr::from_bytes(&bytes[..end])),
-                );
-            }
-        }
-        let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid];
-        let mut len: libc::size_t = args.len();
-        // SAFETY: `args` is `len` bytes; the kernel writes at most that and sets `len`.
-        let rc = unsafe {
-            libc::sysctl(
-                mib.as_mut_ptr(),
-                3,
-                args.as_mut_ptr().cast(),
-                &mut len,
-                std::ptr::null_mut(),
-                0,
-            )
-        };
-        if rc == 0 {
-            procargs_env(&args[..len.min(args.len())], &mut |key, value| {
-                f(pid as u32, key, PathBuf::from(std::ffi::OsStr::from_bytes(value)))
-            });
-        }
-    }
-    true
-}
-
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
-fn each_process_path(_f: &mut dyn FnMut(u32, String, PathBuf)) -> bool {
-    false
-}
-
-/// Each `KEY=/absolute/path` of a NUL-separated environment block.
-fn each_env_path(block: &[u8], f: &mut dyn FnMut(String, &[u8])) {
-    for kv in block.split(|b| *b == 0) {
-        let Some(eq) = kv.iter().position(|b| *b == b'=') else { continue };
-        let value = &kv[eq + 1..];
-        if value.starts_with(b"/") {
-            f(String::from_utf8_lossy(&kv[..eq]).into_owned(), value);
-        }
-    }
-}
-
-/// The environment of a macOS `KERN_PROCARGS2` buffer: argc (an int), the
-/// executable path, NUL padding, argc arguments, then the environment, each
-/// NUL-terminated, to an empty string.
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-fn procargs_env(buf: &[u8], f: &mut dyn FnMut(String, &[u8])) {
-    let int = std::mem::size_of::<libc::c_int>();
-    let Some(argc) = buf.get(..int).map(|b| i32::from_ne_bytes(b.try_into().unwrap_or([0; 4])))
-    else {
-        return;
-    };
-    let mut rest = &buf[int..];
-    // The executable path, then its padding.
-    let Some(end) = rest.iter().position(|b| *b == 0) else { return };
-    rest = &rest[end..];
-    let start = rest.iter().position(|b| *b != 0).unwrap_or(rest.len());
-    rest = &rest[start..];
-    let mut strings = rest.split(|b| *b == 0);
-    for _ in 0..argc.max(0) {
-        if strings.next().is_none() {
-            return;
-        }
-    }
-    let mut env = Vec::new();
-    for s in strings.take_while(|s| !s.is_empty()) {
-        env.extend_from_slice(s);
-        env.push(0);
-    }
-    each_env_path(&env, f);
 }
 
 /// The prefix of a closed session's folder moved aside for removal.
@@ -612,27 +432,20 @@ fn gone_named(name: &str) -> bool {
 }
 
 /// The session is closed: move its folder in this daemon's root aside, for
-/// [`remove_all`], unless a live process works in it (`holders`), or an open
-/// session's folder (`open_cwds`: id and cwd of each session that is not
+/// [`remove_all`], unless an open session's folder (`open_cwds`: id and cwd of each session that is not
 /// closed, and the session's own cwd) is inside it. The caller holds the
 /// session's spawn lock, so no agent start (`make`) runs meanwhile; a start
-/// after it makes a new folder. `holders` None: processes cannot be listed,
-/// and the folder stays.
+/// after it makes a new folder.
 pub(crate) fn free_closed(
     base: &Path,
     acpmux_home: &Path,
     session_id: &str,
-    holders: Option<&Holders>,
     open_cwds: &[(String, PathBuf)],
 ) -> Freed {
     let Some(root) = own_root(base, acpmux_home) else { return Freed::Absent };
     let Some(dir) = session_dir(&root, session_id) else { return Freed::Absent };
     if !std::fs::symlink_metadata(&dir).is_ok_and(|m| m.file_type().is_dir()) {
         return Freed::Absent;
-    }
-    let Some(holders) = holders else { return Freed::Kept(Kept::Unlisted) };
-    if let Some(kept) = holders.holder_of(&dir) {
-        return Freed::Kept(kept);
     }
     if let Some((id, cwd)) = open_cwds.iter().find(|(_, cwd)| inside(&dir, cwd)) {
         return Freed::Kept(Kept::Session { id: id.clone(), cwd: cwd.clone() });
@@ -649,16 +462,11 @@ pub(crate) fn free_closed(
 
 /// [`free_closed`] for this daemon, from its environment.
 #[cfg(unix)]
-pub(crate) fn free_closed_session(
-    session_id: &str,
-    holders: Option<&Holders>,
-    open_cwds: &[(String, PathBuf)],
-) -> Freed {
-    free_closed(&per_user_base(), &crate::config::home(), session_id, holders, open_cwds)
+pub(crate) fn free_closed_session(session_id: &str, open_cwds: &[(String, PathBuf)]) -> Freed {
+    free_closed(&per_user_base(), &crate::config::home(), session_id, open_cwds)
 }
 
-/// Whether this daemon has a folder for `session_id` (a cheap check before
-/// a process scan).
+/// Whether this daemon has a folder for `session_id`.
 #[cfg(unix)]
 pub(crate) fn has_folder(session_id: &str) -> bool {
     session_dir(&daemon_root(&per_user_base(), &crate::config::home()), session_id)
@@ -1180,44 +988,6 @@ mod tests {
         assert!(legacy_root(&user).join(id_c).is_dir());
     }
 
-    /// A process that works in `dir` (its cwd, or `TMPDIR` only), killed at drop.
-    struct Worker(cmux_process::Child);
-    impl Worker {
-        fn new(cwd: &Path, tmpdir: Option<&Path>) -> Self {
-            let mut cmd = cmux_process::Command::new("sleep");
-            cmd.arg("60").current_dir(cwd);
-            if let Some(t) = tmpdir {
-                cmd.env("TMPDIR", t);
-            }
-            Worker(cmd.spawn().unwrap())
-        }
-    }
-    impl Drop for Worker {
-        fn drop(&mut self) {
-            let _ = self.0.kill();
-            let _ = self.0.wait();
-        }
-    }
-
-    /// [`free_closed`] with a fresh scan, until it keeps the folder for `pid` (a just-spawned
-    /// child may not have exec'd yet) or 5 s pass.
-    fn kept_for(base: &Path, home: &Path, id: &str, pid: u32) -> Freed {
-        let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        loop {
-            let holders = Holders::scan_in(base).expect("processes listed");
-            if holders.holder_of(&daemon_root(base, home).join(id)).is_some()
-                || std::time::Instant::now() > until
-            {
-                let freed = free_closed(base, home, id, Some(&holders), &[]);
-                if let Freed::Kept(Kept::Process { pid: got, .. }) = &freed {
-                    assert_eq!(*got, pid);
-                }
-                return freed;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(50));
-        }
-    }
-
     #[test]
     fn a_closed_sessions_folder_is_moved_aside_and_a_reopen_gets_a_new_one() {
         let s = Scratch::new("closed");
@@ -1227,8 +997,7 @@ mod tests {
         let other = make(&base, home, B).unwrap();
         std::fs::create_dir_all(dir.join("stall-reconciler-1/deep")).unwrap();
         std::fs::write(dir.join("stall-reconciler-1/deep/f"), b"x").unwrap();
-        let Freed::Aside(aside) = free_closed(&base, home, A, Some(&Holders::default()), &[])
-        else {
+        let Freed::Aside(aside) = free_closed(&base, home, A, &[]) else {
             panic!("not moved aside");
         };
         assert!(!dir.exists());
@@ -1240,7 +1009,7 @@ mod tests {
         remove_all(std::slice::from_ref(&aside));
         assert!(!aside.exists());
         // Gone already: nothing to do.
-        assert_eq!(free_closed(&base, home, A, Some(&Holders::default()), &[]), Freed::Absent);
+        assert_eq!(free_closed(&base, home, A, &[]), Freed::Absent);
         // Reopened: its start makes a new, empty folder at the same path.
         assert_eq!(make(&base, home, A), Some(dir.clone()));
         assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
@@ -1249,63 +1018,28 @@ mod tests {
         let target = s.0.join("target");
         std::fs::create_dir(&target).unwrap();
         std::os::unix::fs::symlink(&target, &dir).unwrap();
-        assert_eq!(free_closed(&base, home, A, Some(&Holders::default()), &[]), Freed::Absent);
+        assert_eq!(free_closed(&base, home, A, &[]), Freed::Absent);
         assert!(target.is_dir() && dir.symlink_metadata().is_ok());
     }
 
     #[test]
-    fn a_closed_sessions_folder_a_live_process_works_in_stays() {
+    fn a_closed_sessions_folder_an_open_session_works_in_stays() {
         let s = Scratch::new("held");
         let base = s.0.join("acpmux-1");
         let home = Path::new("/home/u/state");
         let dir = make(&base, home, A).unwrap();
-        let deep = dir.join("gh-edge");
+        let deep = dir.join("probe-1");
         std::fs::create_dir(&deep).unwrap();
-        // Its cwd inside.
-        let worker = Worker::new(&deep, None);
-        let freed = kept_for(&base, home, A, worker.0.id());
-        assert!(
-            matches!(&freed, Freed::Kept(Kept::Process { what, .. }) if what == "cwd"),
-            "{freed:?}"
-        );
-        assert!(dir.is_dir());
-        drop(worker);
-        // Only its TMPDIR inside (a leaked server started from the chat).
-        let worker = Worker::new(&s.0, Some(&dir));
-        let freed = kept_for(&base, home, A, worker.0.id());
-        assert!(
-            matches!(&freed, Freed::Kept(Kept::Process { what, .. }) if what == "TMPDIR"),
-            "{freed:?}"
-        );
-        assert!(dir.is_dir());
-        drop(worker);
-        // An open session works in it.
         let open = [(B.to_owned(), deep.clone())];
-        let freed = free_closed(&base, home, A, Some(&Holders::default()), &open);
+        let freed = free_closed(&base, home, A, &open);
         assert_eq!(freed, Freed::Kept(Kept::Session { id: B.into(), cwd: deep.clone() }));
-        // Processes that cannot be listed: it stays.
-        assert_eq!(free_closed(&base, home, A, None, &[]), Freed::Kept(Kept::Unlisted));
         assert!(dir.is_dir());
-        // Nobody left: it goes.
-        let holders = Holders::scan_in(&base).unwrap();
-        assert!(matches!(free_closed(&base, home, A, Some(&holders), &[]), Freed::Aside(_)));
-    }
-
-    #[test]
-    fn a_macos_argument_block_yields_only_the_environment() {
-        let mut buf = 2i32.to_ne_bytes().to_vec();
-        buf.extend_from_slice(b"/bin/sleep\0\0\0\0sleep\0/not/env\0TMPDIR=/tmp/acpmux-1/t/x/y\0");
-        buf.extend_from_slice(b"HOME=/Users/u\0LANG=C\0\0junk=/after\0");
-        let mut got = Vec::new();
-        procargs_env(&buf, &mut |k, v| got.push((k, String::from_utf8_lossy(v).into_owned())));
-        assert_eq!(
-            got,
-            vec![
-                ("TMPDIR".to_owned(), "/tmp/acpmux-1/t/x/y".to_owned()),
-                ("HOME".to_owned(), "/Users/u".to_owned()),
-            ]
-        );
-        // A short or empty buffer yields nothing.
-        procargs_env(&[1, 0], &mut |_, _| panic!("read past the buffer"));
+        // macOS spells /tmp two ways.
+        if let Ok(bare) = dir.strip_prefix("/private") {
+            let open = [(B.to_owned(), Path::new("/").join(bare).join("probe-1"))];
+            assert!(matches!(free_closed(&base, home, A, &open), Freed::Kept(_)));
+        }
+        // Nobody left in it: it goes.
+        assert!(matches!(free_closed(&base, home, A, &[]), Freed::Aside(_)));
     }
 }
