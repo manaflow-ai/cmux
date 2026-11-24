@@ -1483,6 +1483,12 @@ SAMPLE_MARKERS = {  # main-thread stack frames to count in a sample of a live re
     "ca_commit": "CA::Transaction::commit",
     "appkit_live_resize": "_resizeWithEvent",
     "window_server_sync": "_NSWindowSyncResize",
+    # A synchronous window-server query (NSApp orderedWindows and friends) waiting for the server's CA transaction:
+    # the other Mac's ~500 ms in-tree frame, from a delayed perform in CEF (2026-11-24).
+    "window_server_query_sync": "SLSConnectionSynchronizeSLSCATransaction",
+    "ordered_windows": "_orderedWindowsWithPanels",
+    "appkit_edge_resize": "resizedFromEdge",
+    "shell_set_frame": "ShellWindow.setFrame",
     "cg_sync": "CGSSync",
     "cef_pump": "CefDoMessageLoopWork",
     "layout": "layoutSubtreeIfNeeded",
