@@ -64,7 +64,7 @@ fn every_recipe_has_a_unique_name_and_every_group_a_recipe() {
 /// stylesheet and sets the sidebar and chat settings.
 #[test]
 fn each_app_look_alike_carries_its_theme_its_chat_stylesheet_and_its_settings() {
-    for name in ["codex-app", "codex-app-dark", "claude-code-app"] {
+    for name in ["codex-app", "codex-app-dark", "claude-code-app", "web-coding-app"] {
         let recipe = find(name).unwrap_or_else(|| panic!("no {name} recipe"));
         assert_eq!(recipe.group, Group::Apps, "{name}");
         let profile = recipe.profile().unwrap();
@@ -218,7 +218,11 @@ fn a_folder_with_shell_characters_stays_one_argument_in_every_run_command() {
         let path = dir.join(format!("{}.json", recipe.name)).display().to_string();
         let line = page
             .lines()
-            .find(|line| line.starts_with("cmux customize use ") && line.contains(recipe.name))
+            .find(|line| {
+                // By its file, so `grid` does not find `dot-grid`'s line.
+                line.starts_with("cmux customize use ")
+                    && line.contains(&format!("/{}.json", recipe.name))
+            })
             .unwrap_or_else(|| panic!("no Run command for {}", recipe.name));
         let argument = line.strip_prefix("cmux customize use ").unwrap();
         // The shell reads the argument back as exactly the path, as one word.
