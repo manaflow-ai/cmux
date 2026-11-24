@@ -6,7 +6,8 @@
 // The pages are built as the app ships them (scripts/cmux-next/build-pages-web.sh --out: one shared chunk graph, the
 // production React, the packed `.deflate` files the app inflates on request) and served the way the app's scheme
 // handler serves them. Each page opens cold (a new browser context) at `/<page>/?mock`, its in-memory provider standing
-// in for the app; a page with no mock provider opens with no host at all, which is what it shows until the app answers.
+// in for the app. A page with no mock provider (it draws only once the app answers) is opened and reported, but is
+// unmeasured: it is left out of the worst and over-bound rows, and counted in surface_loading.unmeasured.
 // Every painted frame from navigation is read (test/support/paintedFrames.ts) and judged blank, loading (a spinner,
 // skeleton, `aria-busy`, a progress bar or a "Loading…" line in view) or content (bench/surfaceLoadingFrames.ts).
 // A page is read until its content has held QUIET_MS, or to WINDOW_MS.
@@ -19,6 +20,7 @@
 //   surface_loading.<page>.time_to_content   median and worst over rounds, ms, target BOUND_MS
 //   surface_loading.worst_time_to_content    the slowest page's median, ms
 //   surface_loading.over_bound               pages over the bound or held (count, target 0)
+//   surface_loading.unmeasured               pages with no mock provider, so no number here (count)
 //   SURFACE_LOADING_JSON {...}               every round's metrics and the loaders each page showed
 //
 //   bun bench/surface-loading.bench.ts [rounds=3] [--pages settings,history] [--pages-dir DIR]
@@ -39,6 +41,7 @@ import {
   LOADING_TEXT,
   median,
   readSurfaceFrame,
+  STATUS_SPINNER_PX,
   type SurfaceFrame,
   type SurfaceMetrics,
 } from "./surfaceLoadingFrames";
@@ -116,7 +119,7 @@ function recorderScript(): string {
     const read = (${readSurfaceFrame.toString()});
     const frames = (window.__surfaceFrames = []);
     const start = () => window.cmuxAfterPaint(() => {
-      frames.push({ t: performance.now(), ...read(${JSON.stringify(LOADER_SELECTOR)}, ${JSON.stringify(LOADING_TEXT.source)}) });
+      frames.push({ t: performance.now(), ...read(${JSON.stringify(LOADER_SELECTOR)}, ${JSON.stringify(LOADING_TEXT.source)}, ${STATUS_SPINNER_PX}) });
     });
     if (typeof window.cmuxAfterPaint === "function") start();
     else addEventListener("DOMContentLoaded", start, { once: true });
@@ -138,7 +141,7 @@ async function measure(
   await installPaintedFrames(tab);
   await tab.addInitScript(recorderScript());
   const startedAt = Date.now();
-  await tab.goto(`${base}/${page}/${mock ? "?mock" : ""}`, { waitUntil: "commit" });
+  await tab.goto(`${base}/${page}/${mock ? "?mock" : ""}${ROUTES[page] ?? ""}`, { waitUntil: "commit" });
   let frames: SurfaceFrame[] = [];
   let now = 0;
   for (;;) {
@@ -161,6 +164,9 @@ async function measure(
   await context.close();
   return { ...classifySurface(frames, now), errors, mock } satisfies Round;
 }
+
+/// A page whose mock draws nothing until a route is chosen: the route the app opens it at.
+const ROUTES: Record<string, string> = { "server-cards": "#/server-panel" };
 
 /// Pages that boot their mock provider on `?mock` (src/pages/<page>/main.tsx reads it).
 function hasMock(page: string): boolean {
@@ -191,25 +197,39 @@ try {
   cleanup();
 }
 
-type Summary = { page: string; medianMs: number; worstMs: number; held: number; over: boolean; loaders: string[] };
+type Summary = {
+  page: string;
+  medianMs: number;
+  worstMs: number;
+  held: number;
+  over: boolean;
+  measured: boolean;
+  loaders: string[];
+  status: string[];
+};
 const summaries: Summary[] = pages.map((page) => {
   const rounds = results[page];
   const times = rounds.map((r) => r.timeToContentMs ?? WINDOW_MS);
   const medianMs = median(times) ?? WINDOW_MS;
   const held = rounds.filter((r) => r.held).length;
   const loaders = [...new Set(rounds.flatMap((r) => r.loaders.map((l) => l.name)))].slice(0, 4);
-  return { page, medianMs, worstMs: Math.max(...times), held, over: medianMs > BOUND_MS || held > 0, loaders };
+  const status = [...new Set(rounds.flatMap((r) => r.status.map((l) => l.name)))].slice(0, 4);
+  const measured = rounds.every((r) => r.mock);
+  const over = measured && (medianMs > BOUND_MS || held > 0);
+  return { page, medianMs, worstMs: Math.max(...times), held, over, measured, loaders, status };
 });
-summaries.sort((a, b) => b.medianMs - a.medianMs);
+summaries.sort((a, b) => Number(b.measured) - Number(a.measured) || b.medianMs - a.medianMs);
 console.log(`\nsurface loading: ${pages.length} pages, ${ROUNDS} rounds, bound ${BOUND_MS} ms, window ${WINDOW_MS} ms`);
 console.log("page                  median ms  worst ms  held  loaders");
 for (const s of summaries) {
-  const mark = s.over ? " OVER" : "";
+  const mark = !s.measured ? " (no mock: unmeasured)" : s.over ? " OVER" : "";
+  const shown = [...s.loaders, ...s.status.map((name) => `status:${name}`)];
   console.log(
-    `${s.page.padEnd(22)}${s.medianMs.toFixed(0).padStart(9)}${s.worstMs.toFixed(0).padStart(10)}${String(s.held).padStart(6)}  ${s.loaders.join(" ") || "-"}${mark}`,
+    `${s.page.padEnd(22)}${s.medianMs.toFixed(0).padStart(9)}${s.worstMs.toFixed(0).padStart(10)}${String(s.held).padStart(6)}  ${shown.join(" ") || "-"}${mark}`,
   );
 }
-for (const s of summaries) {
+const measured = summaries.filter((s) => s.measured);
+for (const s of measured) {
   perfRow({
     name: `surface_loading.${s.page.replace(/-/g, "_")}.time_to_content`,
     p50: s.medianMs,
@@ -218,9 +238,18 @@ for (const s of summaries) {
     samples: results[s.page].map((r) => r.timeToContentMs ?? WINDOW_MS),
   });
 }
-const worst = summaries[0];
+const worst = measured[0] ?? { medianMs: 0 };
 perfRow({ name: "surface_loading.worst_time_to_content", p50: worst.medianMs, p95: worst.medianMs, target: BOUND_MS });
-const over = summaries.filter((s) => s.over);
+const over = measured.filter((s) => s.over);
+const unmeasured = summaries.filter((s) => !s.measured);
+perfRow({
+  name: "surface_loading.unmeasured",
+  p50: unmeasured.length,
+  p95: unmeasured.length,
+  unit: "count",
+  target: 0,
+  floor: 0.5,
+});
 perfRow({
   name: "surface_loading.over_bound",
   p50: over.length,
@@ -236,6 +265,7 @@ console.log(
       windowMs: WINDOW_MS,
       rounds: ROUNDS,
       over: over.map((s) => s.page),
+      unmeasured: unmeasured.map((s) => s.page),
       pages: Object.fromEntries(summaries.map((s) => [s.page, { ...s, rounds: results[s.page] }])),
     }),
 );

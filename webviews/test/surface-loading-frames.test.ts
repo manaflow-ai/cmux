@@ -42,6 +42,15 @@ describe("surface loading frames", () => {
     expect(metrics.loadingMs).toBe(3960);
   });
 
+  test("a row's small status spinner beside content settles, and is named apart from loaders", () => {
+    const row = (t: number): SurfaceFrame => ({ t, state: "content", status: ["svg.machines-spinner"] });
+    const metrics = classifySurface([blank(16), row(60), row(76)], 2000);
+    expect(metrics.timeToContentMs).toBe(60);
+    expect(metrics.held).toBe(false);
+    expect(metrics.loaders).toEqual([]);
+    expect(metrics.status).toEqual([{ name: "svg.machines-spinner", frames: 2 }]);
+  });
+
   test("no frame at all is held", () => {
     const metrics = classifySurface([], 4000);
     expect(metrics.held).toBe(true);

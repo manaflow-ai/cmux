@@ -7,7 +7,9 @@
 //   blank    nothing a person could read or use: no visible text and no visible control, image or icon;
 //   loading  a loading indicator in view: a spinner, a skeleton, `aria-busy`, a progress bar, or a line that only
 //            says it is loading (LOADER_SELECTOR, LOADING_TEXT); content around it does not make it settled;
-//   content  something to read or use, and no loading indicator in view.
+//   content  something to read or use, and no loading indicator in view. A small spinner (STATUS_SPINNER_PX or less)
+//            beside readable content is one row's status (a machine connecting), not the surface loading: the frame
+//            is content, and the spinner is named in `status`.
 // A surface's time to content is when its settled content first painted: the first content frame after which no
 // frame went back to blank or loading. One that never settled inside the window has none, and is held.
 
@@ -19,7 +21,12 @@ export type SurfaceFrame = {
   state: FrameState;
   /// What made a loading frame loading: each indicator's tag and class (`div.apps-skeleton-line`), at most a few.
   loaders?: string[];
+  /// Small spinners beside content (row status), on a content frame.
+  status?: string[];
 };
+
+/// The largest spinner, in CSS px on either side, read as a row's status when the frame has readable content.
+export const STATUS_SPINNER_PX = 20;
 
 /// Elements that are a loading state when in view. Class matches are on whole words of a class name (a
 /// `spinner`, `skeleton`, `shimmer` or `loading` part), so `machines-spinner` and `cloud-loading` count and a
@@ -56,6 +63,8 @@ export type SurfaceMetrics = {
   held: boolean;
   /// The loading indicators seen, by how many frames showed each, most first.
   loaders: { name: string; frames: number }[];
+  /// Row-status spinners seen on content frames, by frames, most first.
+  status: { name: string; frames: number }[];
 };
 
 /// Judges a surface's painted frames, read until `endMs` (ms from navigation: the window's end).
@@ -68,11 +77,13 @@ export function classifySurface(frames: readonly SurfaceFrame[], endMs: number):
   let longestLoadingMs = 0;
   let runStart: number | null = null;
   const loaders = new Map<string, number>();
+  const status = new Map<string, number>();
   for (let i = 0; i < sorted.length; i += 1) {
     const frame = sorted[i];
     const next = i + 1 < sorted.length ? sorted[i + 1].t : Math.max(endMs, frame.t);
     const span = Math.max(0, next - frame.t);
     if (frame.state === "content") {
+      for (const name of frame.status ?? []) status.set(name, (status.get(name) ?? 0) + 1);
       firstContentMs ??= frame.t;
       settledAt ??= frame.t;
       if (runStart !== null) longestLoadingMs = Math.max(longestLoadingMs, frame.t - runStart);
@@ -101,9 +112,13 @@ export function classifySurface(frames: readonly SurfaceFrame[], endMs: number):
     blankMs,
     longestLoadingMs,
     held,
-    loaders: [...loaders].map(([name, count]) => ({ name, frames: count })).sort((a, b) => b.frames - a.frames),
+    loaders: byFrames(loaders),
+    status: byFrames(status),
   };
 }
+
+const byFrames = (counts: Map<string, number>) =>
+  [...counts].map(([name, frames]) => ({ name, frames })).sort((a, b) => b.frames - a.frames);
 
 /// Median of the numbers (the mean of the middle two for an even count), or null for none.
 export function median(values: readonly number[]): number | null {
@@ -115,7 +130,11 @@ export function median(values: readonly number[]): number | null {
 
 /// The page-side reader: runs in the page (so it closes over nothing but its arguments) after each painted frame
 /// and says what the frame showed. `loaderSelector` and `loadingText` are LOADER_SELECTOR and LOADING_TEXT's source.
-export function readSurfaceFrame(loaderSelector: string, loadingText: string): Omit<SurfaceFrame, "t"> {
+export function readSurfaceFrame(
+  loaderSelector: string,
+  loadingText: string,
+  statusPx: number,
+): Omit<SurfaceFrame, "t"> {
   const textPattern = new RegExp(loadingText, "i");
   const vw = innerWidth;
   const vh = innerHeight;
@@ -131,7 +150,8 @@ export function readSurfaceFrame(loaderSelector: string, loadingText: string): O
     return true;
   };
   const name = (el: Element) => {
-    const cls = typeof el.className === "string" ? el.className.trim().split(/\s+/).filter(Boolean)[0] : "";
+    const raw = typeof el.className === "string" ? el.className : (el.getAttribute("class") ?? "");
+    const cls = raw.trim().split(/\s+/).filter(Boolean).at(-1) ?? "";
     const busy = el.getAttribute("aria-busy") === "true" ? "[aria-busy]" : "";
     const role = el.getAttribute("role") === "progressbar" ? "[progressbar]" : "";
     return `${el.tagName.toLowerCase()}${cls ? `.${cls}` : ""}${busy}${role}`;
@@ -139,12 +159,18 @@ export function readSurfaceFrame(loaderSelector: string, loadingText: string): O
   const body = document.body;
   if (!body) return { state: "blank" };
   const loaders: string[] = [];
+  const small: string[] = [];
   for (const el of Array.from(body.querySelectorAll(loaderSelector))) {
     // `aria-busy` on a whole list while one row updates still draws the list: count it only when it holds no
     // readable text of its own, so a busy wrapper around drawn rows is content, and a busy empty box is loading.
     if (el.getAttribute("aria-busy") === "true" && (el.textContent ?? "").trim().length > 40) continue;
-    if (shown(el)) loaders.push(name(el));
-    if (loaders.length >= 4) break;
+    // A spinner's own parts (an svg's arc path) are the spinner, not another loader.
+    if (el.parentElement?.closest(loaderSelector)) continue;
+    if (!shown(el)) continue;
+    const box = el.getBoundingClientRect();
+    const isSmall = box.width <= statusPx && box.height <= statusPx && !(el.textContent ?? "").trim();
+    (isSmall ? small : loaders).push(name(el));
+    if (loaders.length + small.length >= 8) break;
   }
   // Text nodes in view, and whether any line says only that it loads.
   let readable = 0;
@@ -163,7 +189,9 @@ export function readSurfaceFrame(loaderSelector: string, loadingText: string): O
     if (readable > 0 && loaders.length > 0) break;
   }
   if (loaders.length > 0) return { state: "loading", loaders };
-  if (readable > 0) return { state: "content" };
+  if (readable > 0) return small.length > 0 ? { state: "content", status: small.slice(0, 4) } : { state: "content" };
+  // A small spinner alone on an empty page is the page loading.
+  if (small.length > 0) return { state: "loading", loaders: small.slice(0, 4) };
   // No text: a control, image, icon or canvas in view is something to use.
   for (const el of Array.from(
     body.querySelectorAll("button,input,textarea,select,img,svg,canvas,video,[contenteditable]"),
