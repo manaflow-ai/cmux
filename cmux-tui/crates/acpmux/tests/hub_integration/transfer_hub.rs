@@ -98,6 +98,7 @@ impl TransferDial for Direct {
 fn hook(ledger: &Path, ops: &[&str]) -> MeshControlHook {
     let entry = MeshControlFrom {
         daemon_id: String::new(),
+        max_policy: None,
         same_user: true,
         ops: ops.iter().map(|o| (*o).to_owned()).collect(),
     };
