@@ -522,6 +522,63 @@ async fn a_move_whose_client_goes_away_before_the_target_finished_is_dropped_the
     assert!(there.is_err(), "the target has no copy: {there:?}");
 }
 
+/// RFD 0063 item 4: a move whose target never answers (its daemon gone, every ask unanswered)
+/// held the chat frozen for ever. After a bound of undecided asks it is offered to the person:
+/// a `transfer_undecided` record and `moveUndecided` in info, refused before that bound, and
+/// `session move --abort --take-back` gives the chat back here, its queue running.
+#[tokio::test]
+async fn a_move_whose_target_never_answers_is_offered_back_and_taken_back() {
+    let (a, mut src) = setup(PermissionPolicy::ApproveAll).await;
+    let (b, mut dst) = setup(PermissionPolicy::ApproveAll).await;
+    let socket = listen(&b).await;
+    let id = busy_chat(&mut src, &[("p-a", "a")]).await;
+    let begin = src
+        .request(
+            "_acpmux/transfer_begin",
+            json!({"sessionId": id, "interrupt": true, "to": {"socket": &socket.0}}),
+        )
+        .await
+        .unwrap();
+    let received =
+        dst.request("_acpmux/transfer_receive", json!({"manifest": begin})).await.unwrap();
+    let receive_id = received["receiveId"].as_str().unwrap().to_owned();
+    copy_bundle(&mut src, &mut dst, &begin, &receive_id).await;
+    // The target is gone (its socket with it): no ask of the source's is answered.
+    drop(socket);
+    let early =
+        src.request("_acpmux/transfer_end_stale", json!({"sessionId": id, "takeBack": true})).await;
+    assert!(early.is_err(), "nothing to take back before the move is stale: {early:?}");
+    a.set_transfer_lease(Duration::from_secs(2));
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    let offered = loop {
+        let info = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+        if info["moveUndecided"]["offeredAt"].is_u64() {
+            break info;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "never offered: {info}");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    };
+    assert_eq!(offered["moveUndecided"]["transferId"], begin["transferId"], "{offered}");
+    assert_eq!(offered["moving"], true, "still held in its move until the person says: {offered}");
+    let undecided = records(&mut src, &id, "transfer_undecided").await;
+    assert_eq!(undecided.len(), 1, "offered once: {undecided:?}");
+    assert!(undecided[0]["takeBack"].as_str().unwrap().contains("--take-back"), "{undecided:?}");
+
+    let ended = src
+        .request("_acpmux/transfer_end_stale", json!({"sessionId": id, "takeBack": true}))
+        .await
+        .unwrap();
+    assert_eq!(ended["ended"], "taken back", "{ended}");
+    src.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "echo: a").await;
+    let aborted = records(&mut src, &id, "transfer_aborted").await;
+    assert_eq!(aborted.len(), 1, "{aborted:?}");
+    assert_eq!(aborted[0]["reason"], "taken_back", "{aborted:?}");
+    let info = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(info["transferBlocked"], false, "{info}");
+    assert!(info["moveUndecided"].is_null(), "{info}");
+}
+
 /// A daemon whose store is on disk at `dir`, with `cmux-harness` among its agents: an import of a
 /// durable session writes its recovery marker beside the sessions (`hub/transfer.rs`).
 fn disk_hub(dir: &std::path::Path) -> Arc<Hub> {
