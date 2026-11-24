@@ -87,7 +87,7 @@ import { newWorktree } from "../startFolderModel";
 import { LiveChatChoice } from "../LiveChatChoice";
 import { WatchBanner } from "../WatchBanner";
 import { HandoffReviewMessage } from "../handoff/ReviewMessage";
-import { withExtensionCommands } from "../composer/extensionCommands";
+import { withExtensionCommands, withToolCommands } from "../composer/extensionCommands";
 import { ReplayScreen } from "../replay/ReplayScreen";
 import { recordSteer, type SteerAct } from "../steerQueue/log";
 import { SteerQueue, type SteerActions } from "../steerQueue/SteerQueue";
@@ -127,6 +127,7 @@ import type { PathRef } from "../diff";
 import type { UnderHeaderLines } from "../header/underHeader";
 import type { ChatUnavailable } from "../chatUnavailable";
 import type { ComputerUsePreview } from "../computerUse/computerUsePreview";
+import type { ComputerUsePlace } from "../computerUse/computerUseState";
 import type { ComposerWake } from "../Composer";
 import type { Handoff } from "../handoff/protocol";
 import type { HandoffStrings } from "../handoff/strings";
@@ -275,6 +276,15 @@ export type PaneBodyDeps = NewTabShown &
     newTabSnapshot: AcpmuxSnapshot;
     pendingCommands: SlashCommand[] | undefined;
     extensionCommands: readonly SlashCommand[];
+    /// Computer use and browser use in the `/` and `$` menus (toolMentions.ts).
+    toolCommands: readonly SlashCommand[];
+    /// Whether a send of `text` from `place` waits for Computer Use (App.tsx, #48541).
+    holdsForComputerUseSetup: (
+      text: string,
+      toast?: boolean,
+      place?: ComputerUsePlace,
+      opensSetup?: boolean,
+    ) => boolean;
     newTabFixError: string | undefined;
     /// A New Tab start that failed before any chat opened: the page came back and says it.
     newTabStartFailure: Omit<NewTabStartFailure, "retry"> | undefined;
@@ -549,6 +559,8 @@ export function drawPaneBody({
   newTabSnapshot,
   pendingCommands,
   extensionCommands,
+  toolCommands,
+  holdsForComputerUseSetup,
   newTabFixError,
   newTabStartFailure,
   leaveNewTabForStart,
@@ -813,6 +825,19 @@ export function drawPaneBody({
               {/* Setup keeps this page's draft and project, while its hidden input effects stop. */}
               <Activity mode={harnessesOpen ? "hidden" : "visible"}>
                 <LazyNewTabScreen
+                  // `@computer-use` held on the send's own gesture, before the page waits or starts anything (CMUX-682).
+                  // A page whose chats start on another machine (an inherited remote workspace: the client starts
+                  // them on the first send) is that machine's, whatever the screen's own pick says.
+                  holdsSend={(text, place, late) =>
+                    holdsForComputerUseSetup(
+                      text,
+                      true,
+                      place === "here" && (newTab.startsRemote || directClient.current?.startsOnSend)
+                        ? "machine"
+                        : place,
+                      !late,
+                    )
+                  }
                   // Over cmux's composer, never in its place (Leo 2026-11-16): the clock
                   // (`tabs.newTabClock.*`, newtab/NewTabClock.tsx), then an extension's slot
                   // (`tabs.newTabApp`, newtab/NewTabAppSlot.tsx). Whatever the extension does, the
@@ -923,6 +948,8 @@ export function drawPaneBody({
                           model: string | undefined,
                           attachments: ComposerAttachment[],
                         ) => {
+                          // A Cloud chat has no Computer Use tools: @computer holds here, with the notice (cmux#48541).
+                          if (holdsForComputerUseSetup(text, true, "cloud")) return false;
                           const folder = cloudStartFolder(cwd);
                           // New Tab sends use this callback directly, so record their complete folder too.
                           // Otherwise Retry would reuse the pane's previous folder.
@@ -944,6 +971,8 @@ export function drawPaneBody({
                           );
                         },
                         onSandbox: (harness: string, text: string, attachments: ComposerAttachment[]) => {
+                          // A sandbox is another machine, with no Computer Use tools (cmux#48541).
+                          if (holdsForComputerUseSetup(text, true, "machine")) return false;
                           // Only a run this tab can make goes: a Sandboxed pick left over once a session opened here is refused.
                           const started = sandboxing ? startSandbox(text, attachments.length, harness) : sandboxNotNow;
                           if (started !== false) newTabSandboxSent.current = true;
@@ -988,7 +1017,13 @@ export function drawPaneBody({
                   {...(newTab.suggestionOrder ? { suggestionOrder: newTab.suggestionOrder } : {})}
                   snapshot={
                     commandSession
-                      ? { ...newTabSnapshot, commands: withExtensionCommands(pendingCommands ?? [], extensionCommands) }
+                      ? {
+                          ...newTabSnapshot,
+                          commands: withToolCommands(
+                            withExtensionCommands(pendingCommands ?? [], extensionCommands),
+                            toolCommands,
+                          ),
+                        }
                       : newTabSnapshot
                   }
                   {...(newTabFixError ? { fixError: newTabFixError } : {})}
@@ -1038,6 +1073,8 @@ export function drawPaneBody({
                       chatCwd: startFolder,
                       requestFolder,
                       startsHere: () => !directClient.current?.startsOnSend,
+                      // After the screen's own early hold (NewTabScreen `holdsSend`): only holds and says why.
+                      holdsSend: (text, here) => holdsForComputerUseSetup(text, true, here ? "here" : "machine", false),
                       // A start belongs to this New Tab visit. Cmd-T adoption, chat selection,
                       // or another start advances the marker and fences every late completion.
                       // Harness starts may reconnect their client while the queued prompt waits;
@@ -1107,6 +1144,14 @@ export function drawPaneBody({
             />
           ) : showNewTab ? (
             <LazyNewTabPage
+              holdsSend={(text, late) =>
+                holdsForComputerUseSetup(
+                  text,
+                  true,
+                  newTab.startsRemote || directClient.current?.startsOnSend ? "machine" : "here",
+                  !late,
+                )
+              }
               onCmuxCommand={(command, args) => handleCmuxCommand(command, args, true)}
               onImportFile={importFile}
               importError={importError}
@@ -1128,7 +1173,19 @@ export function drawPaneBody({
               chips={registryChips ?? NewTabComposerChips}
               {...(newTab.lastAgent ? { lastAgent: newTab.lastAgent } : {})}
               // A terminal or browser tab opens at once; a chat waits for acpmux (cx-hnpxh).
-              onSubmit={newTabPageSubmit({ callNative, whenHandshaken, startChat: chatFromNewTab })}
+              onSubmit={newTabPageSubmit({
+                callNative,
+                whenHandshaken,
+                startChat: chatFromNewTab,
+                // After the page's own hold on Return (NewTabPage `holdsSend`) and its wait for files: holds and says why.
+                holdsSend: (text) =>
+                  holdsForComputerUseSetup(
+                    text,
+                    true,
+                    newTab.startsRemote || directClient.current?.startsOnSend ? "machine" : "here",
+                    false,
+                  ),
+              })}
               onJump={(target, id) => void callNative("tab.jump", { target, id })}
               onOpenSession={selectSession}
               onShowAll={showAllChats}
@@ -1388,6 +1445,7 @@ export function drawPaneBody({
                     unavailable={cloudUnavailable}
                     onResumeMachine={cloudRecovery.resume}
                     resuming={cloudRecovery.resuming}
+                    resumeLong={cloudRecovery.slow}
                     error={cloudRecovery.error}
                     {...(machineName ? { machine: machineName } : {})}
                     onRemove={() => runHeaderAction(HEADER_ACTIONS.close)}
@@ -1474,6 +1532,7 @@ export function drawPaneBody({
                     unavailable={cloudUnavailable}
                     onResumeMachine={cloudRecovery.resume}
                     resuming={cloudRecovery.resuming}
+                    resumeLong={cloudRecovery.slow}
                     error={cloudRecovery.error}
                     {...(snapshot.missingSession ? { session: snapshot.missingSession } : {})}
                     {...(machineName ? { machine: machineName } : {})}
