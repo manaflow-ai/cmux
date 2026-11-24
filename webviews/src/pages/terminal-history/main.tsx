@@ -1,5 +1,6 @@
 import "../shared/desktop";
 import "../shared/transientMaterial";
+import { focusRoute } from "../../ui/focusRoute";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
 import { subscribePageStreams } from "../shared/pageStreams";
@@ -19,7 +20,11 @@ export function mountTerminalHistoryPage(
       onCommand: ({ command, text }) => {
         if (command === "focusSearch" || command === "find") {
           if (typeof text === "string") void store.find(text);
-          document.querySelector<HTMLInputElement>(".terminal-history-search input")?.focus();
+          focusRoute(
+            document.querySelector<HTMLInputElement>(".terminal-history-search input"),
+            "person",
+            "Find in terminal transcript",
+          );
         }
       },
     });
