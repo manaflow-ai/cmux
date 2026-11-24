@@ -108,6 +108,8 @@ final class CEFInTreePageView: NSView, InTreePageContainer {
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         if case .rect = hole { applyHole() }
+        // After super: AppKit resized the page's views; their drawing layers take the same size in this pass.
+        CEFInTreeLayerFit.shared.fit(self)
     }
 
     private func applyHole() {
@@ -204,7 +206,7 @@ final class CEFInTreeHosting {
         let content = calls.contentView(browser)
         if let content, !content.isDescendant(of: container) { return attach(retry: true) }
         // A new renderer brings a new view with a new drawing layer.
-        CEFInTreeLayerFit.shared.fit(content)
+        CEFInTreeLayerFit.shared.fit(container)
     }
 
     /// The page window's tabs changed; a live one names the window from now on.
@@ -242,7 +244,7 @@ final class CEFInTreeHosting {
         if let page = calls.setInTreeHosting(browser, container) {
             let was = self.page
             self.page = page
-            CEFInTreeLayerFit.shared.fit(calls.contentView(browser))
+            CEFInTreeLayerFit.shared.fit(container)
             CEFHostView.trackerStats.inTreeAttaches += 1
             if was == nil { onAttached?() }
             return
@@ -312,8 +314,8 @@ final class CEFInTreeHosting {
     /// full screen transitions held theirs (defects.md 5, 6).
     func pageViewResized() { // perf-hot: 0.05ms cef-geometry (each in-tree page, each motion frame)
         guard page != nil, let browser else { return }
-        // The page's drawing layer follows its view exactly (CEFInTreeLayerFit), never by Core Animation's autoresizing.
-        CEFInTreeLayerFit.shared.fit(calls?.contentView(browser))
+        // The page's drawing layers follow their views exactly (CEFInTreeLayerFit), never by Core Animation's autoresizing.
+        CEFInTreeLayerFit.shared.fit(container)
         guard let fence = calls?.resizeFence, let view, let window = view.window,
               let layer = view.layer else { return }
         let windowSize = window.frame.size

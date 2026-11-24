@@ -103,4 +103,22 @@ import Testing
             #expect(page.host.frame.origin == .zero, "the page's host layer left the drawing layer's top left")
         }
     }
+
+    @Test func aRendererViewANavigationLeftUnderThePageIsFittedToo() throws {
+        try inTree { host, page in
+            try #require(host.inTree.isInTree, "the fake page did not go in tree")
+            // A cross-document navigation leaves the old RenderWidgetHostViewCocoa under the new one for a while (seen in
+            // the debug.layers geometry on the other Mac): it is no content view, and its drawing layer drifts as well.
+            let old = FakePage()
+            old.widget.removeFromSuperview()
+            old.widget.frame = page.contents.bounds
+            page.contents.addSubview(old.widget, positioned: .below, relativeTo: page.widget)
+            for size in [NSSize(width: 266.5, height: 353.5), NSSize(width: 333.5, height: 280.5)] {
+                host.setFrameSize(size)
+                settle(old.background)
+                #expect(old.flipped.frame == old.background.bounds,
+                        "at \(size) the old renderer's drawing layer is \(old.flipped.frame), its view \(old.background.bounds)")
+            }
+        }
+    }
 }
