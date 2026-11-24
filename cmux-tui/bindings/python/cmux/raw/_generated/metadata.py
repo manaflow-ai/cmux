@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '7c3f644f957de907f2984e181e7b7b409f2f3b9b828314c8bf918be3b8203f18'
+IR_SHA256 = '61748603bd46887f7c2596ece6acce4c5352a51eb9cf71ec1940c7849a3fd264'
 
 
 @dataclass(frozen=True)
@@ -3267,6 +3267,7 @@ COMMANDS = {
         None,
         {
             'api_revision': CommandFieldMetadata(12, None),
+            'api_version': CommandFieldMetadata(12, None),
             'capabilities': CommandFieldMetadata(None, None),
             'device_id': CommandFieldMetadata(12, 'shared-sizing-v1'),
             'device_kind': CommandFieldMetadata(12, 'shared-sizing-v1'),
@@ -3822,6 +3823,25 @@ COMMANDS = {
         None,
         {
             'after_revision': CommandFieldMetadata(None, None),
+        },
+    ),
+    'terminal-find': CommandMetadata(
+        'terminal-find',
+        'control',
+        7,
+        None,
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'before': CommandFieldMetadata(None, None),
+            'case_sensitive': CommandFieldMetadata(None, None),
+            'epoch': CommandFieldMetadata(None, None),
+            'max_matches': CommandFieldMetadata(None, None),
+            'page_rows': CommandFieldMetadata(None, None),
+            'query': CommandFieldMetadata(None, None),
+            'regex': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+            'whole_word': CommandFieldMetadata(None, None),
         },
     ),
     'terminal-history': CommandMetadata(

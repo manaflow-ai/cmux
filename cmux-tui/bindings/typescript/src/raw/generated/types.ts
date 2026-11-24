@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 7c3f644f957de907f2984e181e7b7b409f2f3b9b828314c8bf918be3b8203f18. */
+/* cmux-tui mux protocol 12, IR 61748603bd46887f7c2596ece6acce4c5352a51eb9cf71ec1940c7849a3fd264. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -603,6 +603,7 @@ export type IdMapping = {
 
 export type IdentifyResult = {
   "api_revision"?: (number) | null;
+  "api_version"?: (string) | null;
   "app": "cmux-tui";
   "build_commit"?: (string) | null;
   "build_id"?: (string) | null;
@@ -623,6 +624,7 @@ export type IdentifyResult = {
   "machine_platform"?: MachinePlatform;
   "machine_symbol"?: string;
   "min_api_revision"?: (number) | null;
+  "min_api_version"?: (string) | null;
   "pid": number;
   "protocol": number;
   "registry_id": string;
@@ -1362,6 +1364,11 @@ export type ServerStatsWriterPhase = "idle" | "waiting_lock" | "committing";
 export type SetCellPixelsResult = {
   "failures": Array<CellPixelFailure>;
   "resizes": Array<CellPixelResize>;
+};
+
+export type SetClientInfoResult = {
+  "api_revision"?: number;
+  "api_version"?: string;
 };
 
 export type SetHostSizePolicyResult = {
