@@ -502,7 +502,8 @@
     {
       "agent": "settable",
       "keys": [
-        "labs.previewFeatures"
+        "labs.previewFeatures",
+        "labs.appStore"
       ]
     },
     {
@@ -863,7 +864,10 @@
         "agentPane.display.rail.side",
         "agentPane.display.rail.show",
         "agentPane.display.rail.control",
-        "agentPane.display.commandLabels"
+        "agentPane.display.commandLabels",
+        "agentPane.display.layout.messages",
+        "agentPane.display.layout.composer",
+        "agentPane.display.layout.header"
       ]
     },
     {
@@ -1797,6 +1801,15 @@
       "why": "Always spends about 2 to 3 times the data on every remote connection, and Off gives up loss protection; only the person picks it.",
       "keys": [
         "remote.ultra"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Where a new Screen Sharing session's quality, frame rate and bitrate start; the toolbar still changes each session.",
+      "keys": [
+        "remoteDesktop.quality",
+        "remoteDesktop.maxFps",
+        "remoteDesktop.maxBitrateMbps"
       ]
     },
     {

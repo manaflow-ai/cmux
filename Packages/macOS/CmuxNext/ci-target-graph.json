@@ -285,6 +285,7 @@
         "CmuxNextAgentUpdates",
         "CmuxNextAppCore",
         "CmuxNextAppHealth",
+        "CmuxNextAppInstallLink",
         "CmuxNextAppTry",
         "CmuxNextApps",
         "CmuxNextBookmarks",
@@ -428,6 +429,16 @@
         "CmuxNextServer",
         "CmuxNextSettings",
         "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
+    "CmuxNextAppInstallLink": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAppInstallLink",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextDaemon",
+        "CmuxNextDesign"
       ],
       "packages": []
     },
