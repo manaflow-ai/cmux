@@ -84,4 +84,22 @@ describe("sealed chunk cache", () => {
     expect((await request(p, "GET", `/v1/chunks/${chunkId}`)).status).toBe(404)
     p.sockets.forEach((s) => s.ws.close())
   })
+
+  it("measures a cached 4 MiB attachment in one batch against source upload", async () => {
+    const p = await pair("chunk-measure")
+    const payload = bytes(256 * 1024, 9).buffer
+    const ids = Array.from({ length: 16 }, (_, n) => id(16 + n))
+    const started = performance.now()
+    for (const chunkId of ids) expect((await request(p, "PUT", `/v1/chunks/${chunkId}`, payload)).status).toBe(201)
+    const uploadMs = performance.now() - started
+    const cachedStart = performance.now()
+    const cached = await request(p, "POST", "/v1/chunks/get", JSON.stringify({ ids }))
+    expect((await cached.arrayBuffer()).byteLength).toBe(16 * (32 + 4 + payload.byteLength))
+    const cachedMs = performance.now() - cachedStart
+    const sourceStart = performance.now()
+    for (const chunkId of ids.map((value) => `${value.slice(0, 62)}${value.endsWith("0") ? "01" : "00"}`)) expect((await request(p, "PUT", `/v1/chunks/${chunkId}`, payload)).status).toBe(201)
+    const sourceMs = performance.now() - sourceStart
+    console.log(JSON.stringify({ benchmark: "sealed-chunks-4MiB", localUploadMs: Math.round(uploadMs), localCachedBatchGetMs: Math.round(cachedMs), localSourceReuploadMs: Math.round(sourceMs), lteModelMs: { cachedBatchGet: Math.round(70 + (4 * 1024 * 1024 * 8 * 1000) / 12_000_000), sourceReupload: Math.round(16 * (70 + (256 * 1024 * 8 * 1000) / 12_000_000)) } }))
+    p.sockets.forEach((s) => s.ws.close())
+  })
 })
