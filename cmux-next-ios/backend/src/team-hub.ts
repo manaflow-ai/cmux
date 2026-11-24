@@ -38,7 +38,7 @@ export const MAX_LINK_STAT_FRAME = 2048
 /** A socket's stats closer together than this are dropped silently (the phone sends one a minute). */
 export const LINK_STAT_MIN_GAP_MS = 5000
 const LINK_STAT_TRANSPORTS = new Set(["wireguard", "webrtc"])
-const LINK_STAT_PATHS = new Set(["direct", "turn", "turn-tls", "none"])
+const LINK_STAT_PATHS = new Set(["direct", "turn", "turn-tls", "https-relay", "none"])
 const LINK_STAT_REASONS = new Set(["first", "periodic", "path", "end"])
 const LINK_STAT_ENDS = new Set(["app", "keepalive", "transport", "other"])
 const LINK_STAT_NETS = new Set(["cellular", "other"])
@@ -201,7 +201,9 @@ export interface SeedMac {
   machineId?: string | null
 }
 
-const SIGNAL_KINDS = new Set(["webrtc-offer", "webrtc-answer", "webrtc-ice", "wg-init", "wg-resp", "wg-endpoints", "bye"])
+// `wg-relay` (0.17.0): a side joined the session's WebSocket relay and asks its peer to join too (PROTOCOL.md
+// "WebSocket relay"); forwarded like any signal of the session, and carrying nothing else.
+const SIGNAL_KINDS = new Set(["webrtc-offer", "webrtc-answer", "webrtc-ice", "wg-init", "wg-resp", "wg-endpoints", "wg-relay", "bye"])
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const MEMBER_TTL_MS = 60_000
 const NON_MEMBER_TTL_MS = 15_000

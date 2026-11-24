@@ -2,7 +2,7 @@ import { env } from "cloudflare:workers"
 import { describe, expect, it } from "vitest"
 import vectors from "../../../cmux-tui/crates/cmux-transport/tests/vectors/relay-frames.json"
 import { checkFrame } from "../src/relay-frame.ts"
-import { uuidToBytes } from "../src/team-hub.ts"
+import { linkStatLine, uuidToBytes } from "../src/team-hub.ts"
 import { connect, register, sockOf, token, worker, type Sock } from "./helpers.ts"
 
 // PROTOCOL.md "WebSocket relay": the last way a WireGuard link reaches its peer, WireGuard datagrams in relay
@@ -209,6 +209,25 @@ describe("link relay: what it carries", () => {
     a.ws.send("ping")
     expect(await pong).toBe("pong")
     a.ws.close()
+  })
+})
+
+describe("link relay: signaling and stats", () => {
+  it("forwards wg-relay, the ask to join, between the session's two devices only", async () => {
+    const { tok, phone, mac, p, m, sessionId } = await session()
+    m.send({ type: "signal", to: phone, from: mac, sessionId, payload: { kind: "wg-relay" } })
+    await p.until((x) => x.frames.some((f) => f.type === "signal" && f.payload?.kind === "wg-relay"))
+    expect(p.frames.find((f) => f.payload?.kind === "wg-relay")).toMatchObject({ from: mac, sessionId, fromUserId: "alice" })
+    // Not to a device outside the session.
+    const other = await register(tok, "phone", "team-a")
+    m.send({ type: "signal", to: other, from: mac, sessionId, payload: { kind: "wg-relay" } })
+    await m.until((x) => x.frames.some((f) => f.type === "error" && f.sessionId === sessionId))
+    expect(m.frames.find((f) => f.type === "error")).toMatchObject({ code: "not_owner" })
+  })
+
+  it("logs a link that rides the relay as path https-relay", () => {
+    const line = linkStatLine({ type: "link_stat", v: 1, transport: "wireguard", path: "https-relay", reason: "first", pings: 1, lost: 0 }, "phone", undefined, null)
+    expect(line).toMatchObject({ path: "https-relay" })
   })
 })
 
