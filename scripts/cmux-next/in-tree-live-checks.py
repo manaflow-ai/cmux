@@ -55,6 +55,10 @@ pane beside the terminal:
                   .unzoom: the page's real pixels fill its view after each
   popup_float     (10) a 520 x 420 window.open popup has inner 520 x 420 within 2 pt and a window smaller than the
                   screen, with the opener windowed and in full screen
+  zoom_motion     (sweep D2) two pages side by side, Cmd-Shift-Return and back with window captures: B's pane never
+                  bare background (blank) during the zoom; from 300 ms A's band at its top, A never drawn inside B
+  grid_resize     (sweep D5) four pages in a grid, the window 400 x 200 pt smaller in 45 steps at 60 Hz and back: in
+                  every captured frame each page's top band is at its view's top; settled paint rows per page
   omnibar_narrow  (15) at pane widths 480/360/300/260 with a long URL, the omnibar text area ends before every icon
                   to its right in the bar, and the bar stays in the toolbar
 
@@ -71,7 +75,7 @@ parser.add_argument("--json")
 parser.add_argument("--in-tree", dest="in_tree", choices=["on", "off"], default="on")
 parser.add_argument("--idle", type=float, default=8.0)
 parser.add_argument("--checks", default="mode,census,focus,shortcuts,prompts,file_after_popup,pane_fit,divider_resize,"
-                    "window_resize,fullscreen,pane_zoom,popup_float,omnibar_narrow,two_pages,reveal",
+                    "window_resize,fullscreen,pane_zoom,popup_float,omnibar_narrow,zoom_motion,grid_resize,two_pages,reveal",
                     help="comma-separated; `regressions` names every row of in-tree-regressions.md (bugs 4, 9 to 15)")
 parser.add_argument("--reveal-hidden", dest="reveal_hidden", type=float, default=10.0,
                     help="reveal: seconds the window stays off the screen")
@@ -82,7 +86,7 @@ os.makedirs(opts.out, exist_ok=True)
 CHECKS = set(opts.checks.split(","))
 if "regressions" in CHECKS:  # in-tree-regressions.md: the live rows of the bugs found in real use
     CHECKS |= {"mode", "prompts", "file_after_popup", "reveal", "pane_fit", "divider_resize", "window_resize", "fullscreen",
-               "pane_zoom", "popup_float", "omnibar_narrow"}
+               "pane_zoom", "popup_float", "omnibar_narrow", "zoom_motion", "grid_resize"}
 with open(os.path.join(opts.app, "Contents/Info.plist"), "rb") as f:
     BINARY = os.path.join(opts.app, "Contents/MacOS", plistlib.load(f)["CFBundleExecutable"])
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
@@ -139,6 +143,7 @@ body{margin:0;background:#246;color:#fff;font:14px sans-serif} .t{position:fixed
 <div id="rows"></div>
 <script>
 window.__popupFile = []; window.__vp = []; window.__clicks = [];
+{ const c = new URLSearchParams(location.search).get('c'); if (c && /^[0-9a-f]{6}$/i.test(c)) document.body.style.background = '#' + c; }
 const rows = document.getElementById('rows');
 for (let i = 0; i < 120; i++) { const d = document.createElement('div'); d.className = 'row'; d.textContent = 'row ' + i; rows.appendChild(d); }
 const vv = window.visualViewport;
@@ -1141,7 +1146,290 @@ def check_omnibar_narrow(tab, pane):
              "pass_if": "text area ends before every icon to its right in the bar; bar inside the toolbar"})
 
 
-REGRESSION_CHECKS = ("pane_fit", "divider_resize", "window_resize", "fullscreen", "pane_zoom", "popup_float", "omnibar_narrow")
+# ---- Motion paint rows (QA sweep 06675353 D2 and D5): the page's real pixels in every captured frame of a zoom and a
+# window resize, judged against the page views' frames that debug.layers gave around each capture. ----
+
+PAGE_A_BG, PAGE_B_BG = (0x22, 0x44, 0x66), (0x66, 0x44, 0x22)
+
+
+def near(px, rgb, tol=16):
+    return all(abs(a - b) <= tol for a, b in zip(px, rgb))
+
+
+class MotionCapture:
+    """Window captures (CuaDriver, the window server's pixels) on two threads and debug.layers samples on a third, all
+    stamped against one clock, until stop(). Each capture is judged against the layer samples taken while it ran."""
+
+    def __init__(self, folder):
+        self.folder = folder
+        os.makedirs(folder, exist_ok=True)
+        self.pid = RAW.get("pid")
+        self.window = main_window_id(self.pid) if CUA_DRIVER else None
+        self.frames, self.samples, self.running, self.threads, self.count = [], [], False, [], 0
+        self.lock = threading.Lock()
+
+    def start(self):
+        if not self.window:
+            return False
+        self.running = True
+        self.threads = [threading.Thread(target=self._capture, daemon=True) for _ in range(2)]
+        self.threads.append(threading.Thread(target=self._layers, daemon=True))
+        for thread in self.threads:
+            thread.start()
+        return True
+
+    def _capture(self):
+        while self.running:
+            with self.lock:
+                self.count += 1
+                path = os.path.join(self.folder, f"cap-{self.count:04d}.png")
+            started = time.time()
+            cua("get_window_state", {"pid": self.pid, "window_id": self.window, "include_accessibility_tree": False,
+                                     "screenshot_out_file": path, "max_image_dimension": 1000})
+            ended = time.time()
+            if os.path.exists(path):
+                self.frames.append({"path": path, "t0": started, "t1": ended})
+
+    def _layers(self):
+        while self.running:
+            t = time.time()
+            layers = main_layers()
+            views = {v.get("pane"): v.get("frame_in_window") for v in layers.get("page_views") or [] if not v.get("parked")}
+            self.samples.append({"t": t, "window": layers.get("frame"), "views": views})
+            time.sleep(0.008)  # test harness: about two layer reads a display frame
+
+    def stop(self):
+        self.running = False
+        for thread in self.threads:
+            thread.join(timeout=15)
+
+    def around(self, frame, slack=0.03):
+        return [s for s in self.samples if frame["t0"] - slack <= s["t"] <= frame["t1"] + slack and s["window"]]
+
+
+def top_band_ok(rows, width, sx, sy, window, view):
+    """Whether the page's magenta top band starts at `view`'s top edge (window points, bottom-left), within PAINT_PX + 1
+    pt, in the columns at 30, 50 and 70% of the view; and those columns' first band rows, for the detail."""
+    x, y, w, h = view
+    top = window[3] - (y + h)
+    found = []
+    for f in (0.3, 0.5, 0.7):
+        col = max(0, min(width - 1, int((x + w * f) * sx)))
+        first = None
+        y0, y1 = max(0, int((top - 24) * sy)), min(len(rows), int((top + 24) * sy))
+        for yy in range(y0, y1):
+            r, g, b = rows[yy][3 * col], rows[yy][3 * col + 1], rows[yy][3 * col + 2]
+            if r > 200 and g < 90 and b > 200:
+                first = round(yy / sy, 1)
+                break
+        found.append(first)
+    ok = all(v is not None and abs(v - top) <= PAINT_PX + 1 for v in found)
+    return ok, {"view_top": round(top, 1), "band_top": found}
+
+
+def region_colors(rows, width, sx, sy, window, view, colors):
+    """Share of sampled pixels in `view` (window points) near each of `colors`."""
+    x, y, w, h = view
+    top = window[3] - (y + h)
+    counts, total = [0] * len(colors), 0
+    for yy in range(int((top + 30) * sy), int((top + h - 4) * sy), 6):
+        if yy < 0 or yy >= len(rows):
+            continue
+        for xx in range(int((x + 4) * sx), int((x + w - 4) * sx), 6):
+            if xx < 0 or xx >= width:
+                continue
+            px = rows[yy][3 * xx:3 * xx + 3]
+            total += 1
+            for i, c in enumerate(colors):
+                if near(px, c):
+                    counts[i] += 1
+    return [round(c / total, 3) if total else 0 for c in counts]
+
+
+def judge_frames(cap, t_start, panes, pane_rules):
+    """Each capture after t_start, against the layer samples around it: pane_rules(frame, rows, width, sx, sy, sample)
+    returns a list of problems (empty: the frame is right for some sample taken while it ran)."""
+    bad, judged = [], 0
+    for frame in sorted(cap.frames, key=lambda f: f["t0"]):
+        if frame["t0"] < t_start:
+            continue
+        samples = cap.around(frame)
+        if not samples:
+            continue
+        try:
+            width, height, rows = png_rgb(frame["path"])
+        except Exception as error:
+            bad.append({"file": os.path.basename(frame["path"]), "error": repr(error)})
+            continue
+        # Only samples of the window at the capture's own size judge it (the window changes size at 60 Hz in a resize,
+        # a capture takes longer); a capture no sample matches is not judged.
+        sized = [smp for smp in samples if abs(width / smp["window"][2] - height / smp["window"][3]) <= 0.02]
+        if not sized:
+            continue
+        judged += 1
+        best = None
+        for sample in sized:
+            window = sample["window"]
+            sx, sy = width / window[2], height / window[3]
+            problems = pane_rules(rows, width, sx, sy, sample)
+            if not problems:
+                best = None
+                break
+            best = problems if best is None or len(problems) < len(best) else best
+        if best:
+            bad.append({"ms": round((frame["t0"] - t_start) * 1000), "file": os.path.basename(frame["path"]), "problems": best[:3]})
+    return judged, bad
+
+
+def open_page_in(pane_tab, query):
+    """Opens the layout page (`query`) as a new tab in the pane of `pane_tab`; its tab id or None."""
+    action("tab.focus", target=f"tab:{pane_tab}")
+    time.sleep(0.4)  # test harness: focus lands
+    action("openBrowser.chromium", {"url": URL + "layout?" + query})
+    got = wait(lambda: (lambda r: r if r.get("value") is True else None)(
+        page_eval(f"location.search === '?{query}' && window.layoutReady === true")), 60, 0.5)
+    return got.get("tab") if got else None
+
+
+def check_zoom_motion(tab, pane):
+    """QA sweep D2: two layout pages side by side (A #246, B #642), Cmd-Shift-Return on A and back, with window captures
+    through each. zoom_motion.zoom: no frame shows B's pane area as its bare background without its page (B blank while
+    A grows), and from 300 ms after the trigger (the zoom spring is about 220 ms) A's top band is at A's view top.
+    zoom_motion.unzoom: from 300 ms after the trigger, A's colour never shows inside B's view (A drawn at its zoomed size
+    over B) and both pages' top bands are at their views' tops."""
+    terminal_tab = next((c for c in ((RAW.get("split") or {}).get("created") or []) if str(c).startswith("tab_")), None)
+    if not terminal_tab or not page_view(pane):
+        row("INFO", "zoom_motion", {"note": "no terminal pane or no page view", "terminal_tab": terminal_tab})
+        return
+    page_eval("document.body.style.background = '#246'; true", tab)
+    b_tab = open_page_in(terminal_tab, "zoomb&c=664422")
+    b_pane = page_pane(b_tab) if b_tab else None
+    RAW["zoom_motion_b"] = {"tab": b_tab, "pane": b_pane}
+    if not b_pane or not page_view(b_pane):
+        row(False, "zoom_motion.setup", {"b_tab": b_tab, "b_pane": b_pane})
+        return
+    time.sleep(1.0)  # test harness: both pages draw
+    before = {"a": page_view(pane), "b": page_view(b_pane)}
+    action("tab.focus", target=f"tab:{tab}")
+    time.sleep(0.4)  # test harness: focus lands
+    for direction in ("zoom", "unzoom"):
+        cap = MotionCapture(os.path.join(opts.out, f"zoom-motion-{direction}"))
+        if not cap.start():
+            row("INFO", f"zoom_motion.{direction}", {"note": "no window captures on this host"})
+            return
+        time.sleep(0.3)  # test harness: captures from before the trigger
+        t_start = time.time()
+        rpc("debug.key", {"key": "return", "modifiers": ["command", "shift"]})
+        time.sleep(1.5)  # test harness: the zoom and its spring end, then settled frames
+        cap.stop()
+
+        def rules(rows, width, sx, sy, sample, direction=direction, t_start=t_start):
+            problems, window, views = [], sample["window"], sample["views"]
+            late = sample["t"] - t_start > 0.3
+            a, b = views.get(pane), views.get(b_pane)
+            if direction == "zoom":
+                region = before["b"]
+                share = region_colors(rows, width, sx, sy, window, region, [PAGE_A_BG, PAGE_B_BG])
+                band, _ = top_band_ok(rows, width, sx, sy, window, region)
+                if share[1] > 0.6 and not band and b is not None:
+                    problems.append({"b_blank": share})
+                if late and a:
+                    ok, detail = top_band_ok(rows, width, sx, sy, window, a)
+                    if not ok:
+                        problems.append(dict(detail, page="a"))
+            elif late:
+                if b:
+                    share = region_colors(rows, width, sx, sy, window, b, [PAGE_A_BG, PAGE_B_BG])
+                    if share[0] > 0.02:
+                        problems.append({"a_over_b": share})
+                for name, view in (("a", a), ("b", b)):
+                    if view:
+                        ok, detail = top_band_ok(rows, width, sx, sy, window, view)
+                        if not ok:
+                            problems.append(dict(detail, page=name))
+            return problems
+
+        judged, bad = judge_frames(cap, t_start, [pane, b_pane], rules)
+        RAW[f"zoom_motion_{direction}"] = {"judged": judged, "bad": bad, "samples": len(cap.samples)}
+        if not judged:
+            row("INFO", f"zoom_motion.{direction}", {"note": "no capture matched a layer sample", "captures": len(cap.frames)})
+            continue
+        row(not bad, f"zoom_motion.{direction}",
+            {"bug": "sweep D2", "judged": judged, "bad_frames": len(bad), "first_bad": bad[:4], "before": before,
+             "pass_if": "zoom: B never blank, A's top band at its top from 300 ms; unzoom: from 300 ms A never inside B, both bands at the top"})
+    RAW["zoom_motion_tabs"] = [tab, b_tab]
+
+
+def check_grid_resize(tab, pane):
+    """QA sweep D5: a 2x2 grid of layout pages; the window goes 400 x 200 pt smaller in 45 steps at 60 Hz and back, the
+    way Rectangle or a person's edge drag sets frames, with window captures through it. grid_resize.top: in every
+    captured frame, each page's magenta top band starts at its view's top within 3 pt (the sweep saw every page drawn
+    15 to 20 pt high, its top under the omnibar, for about 1 s while the window grew back). grid_resize.settle: 1 s after
+    the last step, check_paint's band rows for each page."""
+    b_tab = (RAW.get("zoom_motion_b") or {}).get("tab")
+    if not b_tab:
+        terminal_tab = next((c for c in ((RAW.get("split") or {}).get("created") or []) if str(c).startswith("tab_")), None)
+        b_tab = open_page_in(terminal_tab, "gridb&c=664422") if terminal_tab else None
+    tabs = [tab, b_tab]
+    for source, query in ((tab, "gridc&c=225522"), (b_tab, "gridd&c=442266")):
+        if not source:
+            break
+        action("tab.focus", target=f"tab:{source}")
+        time.sleep(0.3)  # test harness: focus lands
+        split = action("splitDown")
+        created = next((c for c in (split or {}).get("created") or [] if str(c).startswith("tab_")), None)
+        time.sleep(1.0)  # test harness: the new pane's terminal attaches
+        tabs.append(open_page_in(created, query) if created else None)
+    panes = [page_pane(t) if t else None for t in tabs]
+    RAW["grid_resize_setup"] = {"tabs": tabs, "panes": panes}
+    if not all(panes) or len(set(panes)) != 4 or not all(page_view(p) for p in panes):
+        row(False, "grid_resize.setup", {"tabs": tabs, "panes": panes})
+        return
+    time.sleep(1.5)  # test harness: four pages draw
+    start = main_layers().get("frame")
+    top = start[1] + start[3]
+    steps = [[start[0], top - (start[3] - 200 * k / 45), start[2] - 400 * k / 45, start[3] - 200 * k / 45] for k in range(1, 46)]
+    steps += steps[::-1][1:] + [start]
+    cap = MotionCapture(os.path.join(opts.out, "grid-resize"))
+    if not cap.start():
+        row("INFO", "grid_resize.top", {"note": "no window captures on this host"})
+        return
+    record("grid_resize", 6)
+    time.sleep(0.3)  # test harness: captures from before the first step
+    t_start = time.time()
+    for i, frame in enumerate(steps):
+        rpc("debug.window_frame", {"frame": frame})
+        next_at = t_start + (i + 1) / 60
+        if next_at > time.time():
+            time.sleep(next_at - time.time())  # test harness: one frame a display refresh, as a drag sets them
+    time.sleep(1.5)  # test harness: the pages settle
+    cap.stop()
+
+    def rules(rows, width, sx, sy, sample):
+        problems = []
+        for p in panes:
+            view = sample["views"].get(p)
+            if not view:
+                continue
+            ok, detail = top_band_ok(rows, width, sx, sy, sample["window"], view)
+            if not ok:
+                problems.append(dict(detail, pane=p))
+        return problems
+
+    judged, bad = judge_frames(cap, t_start, panes, rules)
+    RAW["grid_resize"] = {"judged": judged, "bad": bad, "samples": len(cap.samples), "steps": len(steps)}
+    if not judged:
+        row("INFO", "grid_resize.top", {"note": "no capture matched a layer sample", "captures": len(cap.frames)})
+    else:
+        row(not bad, "grid_resize.top",
+            {"bug": "sweep D5", "judged": judged, "bad_frames": len(bad), "first_bad": bad[:4],
+             "pass_if": "each page's top band at its view's top within 3 pt in every captured frame of the resize"})
+    for i, p in enumerate(panes):
+        check_paint(p, f"grid{i}")
+
+
+REGRESSION_CHECKS = ("pane_fit", "divider_resize", "window_resize", "fullscreen", "pane_zoom", "popup_float", "omnibar_narrow",
+                     "zoom_motion", "grid_resize")
 
 
 if os.path.exists(SOCKET):
@@ -1337,7 +1625,9 @@ try:
             for name, run in (("pane_fit", check_pane_fit), ("divider_resize", check_divider_resize),
                               ("window_resize", check_window_resize), ("fullscreen", check_fullscreen),
                               ("pane_zoom", check_pane_zoom), ("popup_float", check_popup_float),
-                              ("omnibar_narrow", check_omnibar_narrow)):
+                              ("omnibar_narrow", check_omnibar_narrow),
+                              # Last: they open more pages and split the window into a grid.
+                              ("zoom_motion", check_zoom_motion), ("grid_resize", check_grid_resize)):
                 if name in CHECKS:
                     try:
                         run(page_tab, pane)
