@@ -15,7 +15,26 @@ fn parses_list_and_info_and_leaves_other_verbs() {
     assert!(matches!(parse(&words("info")), Some(Err(_))));
     assert!(matches!(parse(&words("list --bogus")), Some(Err(_))));
     assert_eq!(parse(&words("install acme/x")), None, "install is the app action");
+    assert_eq!(
+        parse(&words("update github.com/acme/x")),
+        Some(Ok(Request::Update { app: "github.com/acme/x".into() }))
+    );
+    assert!(matches!(parse(&words("update")), Some(Err(_))));
+    assert_eq!(
+        install_args(&words("--json apps update acme/x"), "github.com/acme/x@dev"),
+        words("--json apps install github.com/acme/x@dev")
+    );
     assert_eq!(parse(&words("run acme/x op")), None, "run is apps_run");
+}
+
+#[test]
+fn info_names_a_git_apps_source_and_review_state() {
+    let detail = json!({"app": "acme/x", "name": "X", "version": "1.2.0", "summary": "s", "tier": "unverified",
+        "repository": "https://github.com/acme/tools", "path": "apps/x", "tag": "1.2.0",
+        "commit": "0123456789abcdef0123456789abcdef01234567", "reviewed": false, "scopes": []});
+    let text = info_text(&detail);
+    assert!(text.contains("source: github.com/acme/tools/apps/x at 1.2.0 (0123456)"), "{text}");
+    assert!(text.contains("not reviewed by cmux"), "{text}");
 }
 
 #[test]

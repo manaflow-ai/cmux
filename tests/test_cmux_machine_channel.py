@@ -758,6 +758,18 @@ class MacLivePayload(unittest.TestCase):
             with self.subTest(daemon=str(daemon)[:60]), self.assertRaises(SystemExit):
                 self.run_payload()
 
+    def test_the_tree_key_is_named_for_the_team_signed_set(self):
+        # A Team-signed NIGHTLY's daemon updater takes cmux-tui/tree/<key>/team-signed/, bound to these bytes by
+        # each file's unsigned_sha256; the payload's urls stay the commit's ad-hoc files every older CLI reads.
+        self.assertNotIn("tree_key", self.run_payload())
+        value = self.run_payload("--tree-key", "c" * 40)
+        self.assertEqual(value["tree_key"], "c" * 40)
+        self.assertEqual(value["targets"]["aarch64-apple-darwin"]["cmux-tui"]["url"],
+                         f"{channel.FILES}/{MAC_COMMIT}/cmux-tui-aarch64-apple-darwin")
+        for bad in ("C" * 40, "c" * 39, "nope"):
+            with self.subTest(bad=bad), self.assertRaises(SystemExit):
+                self.run_payload("--tree-key", bad)
+
     def test_refusals(self):
         (self.served / "cmux-tui-host-aarch64-apple-darwin").write_bytes(b"other bytes")
         with self.assertRaises(SystemExit):
@@ -1001,6 +1013,18 @@ class MacLivePoint(LinuxReleasePoint):
         self.assert_ok(self.point(self.payload(), run_id="2"))
         self.assertEqual(self.verified(self.RELEASE, None, "cmux-mac-live-update", False)["commit"], RELEASE_COMMIT)
         self.assertEqual(self.verified(self.POINTER)["commit"], newer)
+
+    def test_a_tree_key_is_signed_in_but_writes_no_tree_release_file(self):
+        path = self.payload()
+        value = json.loads(path.read_text())
+        value["tree_key"] = "c" * 40
+        path.write_bytes(json.dumps(value, sort_keys=True, separators=(",", ":")).encode())
+        self.assert_ok(self.point(path))
+        self.assertEqual(self.verified(self.POINTER, "nightly-live", "cmux-mac-live-update")["tree_key"], "c" * 40)
+        self.assertIsNone(self.served(f"cmux-tui/tree/{'c' * 40}/release.json"))
+        value["tree_key"] = "C" * 40
+        path.write_bytes(json.dumps(value, sort_keys=True, separators=(",", ":")).encode())
+        self.assertNotEqual(self.point(path, run_id="2").returncode, 0)
 
     def test_a_pr_head_writes_its_own_file_and_leaves_the_channel(self):
         # `cmux app try PR` reads cmux-tui/<head>/mac-live.json; a PR head never moves nightly-live.
