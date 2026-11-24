@@ -979,6 +979,7 @@ fn move_kill_drill_matrix() {
     let mut rows = Vec::new();
     let mut failed = Vec::new();
     let mut known_seen = Vec::new();
+    let mut clean = 0usize;
     for (step, kill, seed) in cases() {
         let case = format!("{step}:{kill}");
         // Machine processes left by a case that panicked are stopped by its Drop; one case's
@@ -1030,6 +1031,9 @@ fn move_kill_drill_matrix() {
             failed.push(format!("{case} (seed {seed}): {}", new.join(", ")));
         }
         rows.push(row);
+        if out.lost.is_empty() && out.wrong.is_empty() {
+            clean += 1;
+        }
     }
     eprintln!(
         "\n| direction | step | kill | seed | lost | frozen past the settle | wrong answer to the person | where the work is | what the person sees |"
@@ -1038,6 +1042,15 @@ fn move_kill_drill_matrix() {
     for row in &rows {
         eprintln!("{row}");
     }
+    // One line a gate runner parses (RFD 0135 gate 3): cells, clean ones, cells with only
+    // KNOWN findings, and cells with a finding KNOWN does not list.
+    let summary = json!({
+        "cells": rows.len(),
+        "clean": clean,
+        "known": rows.len() - clean - failed.len(),
+        "new": failed.len(),
+    });
+    eprintln!("\nMOVE_KILL_MATRIX {summary}");
     if !known_seen.is_empty() {
         eprintln!("\nknown on base (KNOWN):");
         for k in &known_seen {
