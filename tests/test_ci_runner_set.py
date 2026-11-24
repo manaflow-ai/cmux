@@ -134,10 +134,9 @@ class RunnerSetTests(unittest.TestCase):
         job = yaml.safe_load((WORKFLOWS / "pr-checks.yml").read_text(encoding="utf-8"))["jobs"]["advisory"]
         runs_on = runs_on_text(job, "pr-checks.yml#advisory")
         self.assertNotIn("cmux-gcp-pr-control-jit-x64", runs_on)
-        self.assertIn("github.event.pull_request.head.repo.full_name != github.repository && "
-                      "'blacksmith-4vcpu-ubuntu-2404'", runs_on)
-        self.assertTrue(runs_on.endswith("vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || "
-                                         "'blacksmith-4vcpu-ubuntu-2404' }}"), runs_on)
+        # CI_TRUSTED_RUNNER's picker is frozen to the label it resolved to; a fork takes the same label.
+        self.assertTrue(runs_on.endswith("'blacksmith-4vcpu-ubuntu-2404' }}"), runs_on)
+        self.assertNotIn("vars.", runs_on)
         for persistent in ("RUNNER_POOLS", "cmux-linux", "cmux-fleet-linux-x64"):
             self.assertNotIn(persistent, runs_on)
         self.assertEqual(job["permissions"]["pull-requests"], "write")
