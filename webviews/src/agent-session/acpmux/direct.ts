@@ -69,6 +69,7 @@ import { liftInlineImages } from "./inlineImages";
 import { primeSentImages, withSentShapes } from "./conversation/imageEntries";
 import { resentAttachments } from "./pastedText";
 import { withoutFrames } from "./composer/videoPrompt";
+import { isBehindSend, sendBehind, settleAllBehindSend } from "./composer/sendBehind";
 import { PeerStateEvents } from "./peerStateEvents";
 import {
   peerConnectedFromStatus,
@@ -170,7 +171,7 @@ import type { OfferPicks } from "./offer/offerChoice";
 import { errorMessage, startCancelled, knownRefusalText, switchFailedText } from "./transportErrors";
 import { failedSendText, heldSendNotice, retryHelps, sendCause } from "./sendFailure";
 import { isLostConnection, lostPrompt, type LostPrompt } from "./lostPrompt";
-import type { UnsentPromptRecord, UnsentPromptStore } from "./unsentPrompts";
+import { unanswered, type UnsentPromptRecord, type UnsentPromptStore } from "./unsentPrompts";
 import {
   SessionPageError,
   SessionPager,
@@ -337,6 +338,7 @@ import {
   promptImages,
 } from "./direct/queue";
 import { OrderedRows } from "./direct/orderedRows";
+import { type SubagentListing, subagentListing } from "./backgroundTasks/listedSubagents";
 import { isTrustRefusal, type TrustRefusal, type TrustRoute, trustRefusal } from "./direct/refusals";
 import { normalizeFolderProfiles } from "./direct/catalog";
 import {
@@ -864,6 +866,8 @@ const OFFER_RESULT_PROMPT = "offer-result-";
 const BACKGROUND_TURN_KIND = "background_turn";
 /// acpmux's refusals of an answer to a card it no longer has (hub/secrets.rs): a restart lost it,
 /// or the agent stopped waiting.
+/// The capability id an acpmux that lists a chat's subagents from its tree names (`_acpmux/subagents`).
+const SUBAGENT_LIST_CAPABILITY = "subagent-list-v1";
 /// The capability id an acpmux with `_acpmux/agent_login/*` names (and its versioned spelling).
 const AGENT_LOGIN_CAPABILITIES = ["agent_login", "agent-login-v1"];
 /// The feature a new chat's wire names when its machine signs its agent in before the chat has a
@@ -1188,7 +1192,11 @@ export class AcpmuxDirectClient {
       method: string;
     }
   >();
-  /// A request crossed its progress threshold on an open socket. This is a UI state, never a
+  /// Since when the daemon on an open socket has owed a sign of life: a liveness probe out and
+  /// unanswered, or (a wire the probe cannot reach) a request past its progress threshold. The
+  /// pane says "Waiting for the agent service" from it, so it is set only while the service may be
+  /// down, never for a daemon that answered and is only slow to read a long chat or a big list
+  /// (Leo, 2026-11-19: the GUI too coupled to load, size and history). A UI state, never a
   /// failure: a busy daemon may answer later, while a close still rejects promptly.
   private daemonWaitingSince?: number;
   /// How many `pending` requests are `waiting` (`markWaiting`, `noteRequestSettled`): a reply asks
@@ -1482,6 +1490,9 @@ export class AcpmuxDirectClient {
   /// Prompt ids whose Not sent row came from the host's store (`drawUnsentRow`): a lost prompt's
   /// sender may draw the same prompt on its way over one (`drawLostPrompt`).
   private restoredUnsent = new Set<string>();
+  /// Whether this connection's first read of the host's store is done (`restoreUnsentPrompts`):
+  /// only that read's unanswered prompts wait for the host's resend (`awaitHostResend`).
+  private unsentRestoredOnce = false;
   /// Failed prompt rows a chat switch cleared (``select``), never ones the person removed or took
   /// back: a Trust replay kept for one (failedRowTrustRetry.ts) still sends it once its chat shows
   /// again (``restoreFailedPrompts``). Row ids only, the oldest dropped past a bound.
@@ -3765,7 +3776,9 @@ export class AcpmuxDirectClient {
         // The daemon's count and this page's drifted: the request goes again later, never at once.
         request.busy += 1;
         this.markWaiting(request);
-        this.daemonWaitingSince ??= Date.now();
+        // The daemon's own refusal proves it alive, even if an earlier probe is still held.
+        // Clear that probe's deadline and waiting state just as its own answer would.
+        this.probeAnswered(message);
         this.armDaemonLiveness();
         this.emit("waiting: daemon");
         this.wire.lifecycle("busy retry", { id: message.id, tries: request.busy });
@@ -5288,6 +5301,18 @@ export class AcpmuxDirectClient {
     return [...found, ...records(newest?.events).filter((event) => event.seq > after)];
   }
 
+  /// Every running subagent of the selected chat and its latest ended ones, from acpmux's subagent
+  /// tree (`_acpmux/subagents`, hub/subagent_list.rs), whatever the page holds: the Background tasks
+  /// panel's list. Undefined from an acpmux that does not serve it.
+  async listSubagents(): Promise<SubagentListing | undefined> {
+    const sessionId = this.selectedSessionId;
+    if (!sessionId || this.capabilities?.has(SUBAGENT_LIST_CAPABILITY) !== true) return undefined;
+    const result = await this.request("_acpmux/subagents", { sessionId }, 10_000);
+    // l10n-allow: internal selection race; the panel keeps its last list.
+    if (sessionId !== this.selectedSessionId) throw new Error("Session changed");
+    return subagentListing(result);
+  }
+
   /// Reads only this pane's selected chat; the native relay enforces the same scope.
   readWorkflowAgent(params: {
     sessionId: string;
@@ -5654,7 +5679,9 @@ export class AcpmuxDirectClient {
             const request = this.pending.get(id);
             if (!request || request.waiting) return;
             this.markWaiting(request);
-            this.daemonWaitingSince ??= Date.now();
+            // A probed socket says it waits only once its probe goes unanswered (`probeDaemon`):
+            // a slow reply from a live daemon is not a service that is down.
+            if (this.daemonUnprobed()) this.daemonWaitingSince ??= Date.now();
             this.armDaemonLiveness();
             this.emit("waiting: daemon");
           }, deadline)
@@ -5688,8 +5715,8 @@ export class AcpmuxDirectClient {
       request.waiting = false;
       this.waitingRequests -= 1;
     }
-    if (this.waitingRequests === 0) this.daemonWaitingSince = undefined;
-    if (this.daemonWaitingSince === undefined) {
+    if (this.waitingRequests === 0) {
+      this.daemonWaitingSince = undefined;
       this.daemonProbe = undefined;
       if (this.daemonLivenessTimer !== undefined) clearTimeout(this.daemonLivenessTimer);
       this.daemonLivenessTimer = undefined;
@@ -5742,7 +5769,7 @@ export class AcpmuxDirectClient {
 
   private checkDaemonLiveness(): void {
     const socket = this.socket;
-    if (this.closed || this.daemonWaitingSince === undefined || !socket || socket.readyState !== WebSocket.OPEN) {
+    if (this.closed || this.waitingRequests === 0 || !socket || socket.readyState !== WebSocket.OPEN) {
       this.daemonProbe = undefined;
       return;
     }
@@ -5760,6 +5787,9 @@ export class AcpmuxDirectClient {
       // while a loaded daemon streamed their chats).
       this.daemonProvedAt = this.daemonFrameAt;
       this.daemonProbe = undefined;
+      const wasWaiting = this.daemonWaitingSince !== undefined;
+      this.daemonWaitingSince = undefined;
+      if (wasWaiting) this.emit("daemon resumed");
     } else if (probe) {
       // The socket stayed open but nothing behind it answered, not even the probe.
       if (now - probe.at >= AcpmuxDirectClient.DAEMON_PROBE_ANSWER_MS) return this.daemonGone(socket, now);
@@ -5794,15 +5824,20 @@ export class AcpmuxDirectClient {
     const refused = probeRefusals.has(String(data?.code));
     if (message.error && !refused && data?.origin === "native") return;
     this.daemonProbe = undefined;
+    const wasWaiting = this.daemonWaitingSince !== undefined;
     if (refused) {
       this.daemonProbeRefused = true;
       this.wire.lifecycle("liveness probe refused", { code: String(data?.code) });
+      // No probe on this wire: the older bound, and the line, as before.
+      if (this.waitingRequests > 0) this.daemonWaitingSince ??= Date.now();
     } else {
       this.daemonProvedAt = Date.now();
+      this.daemonWaitingSince = undefined;
     }
     if (this.daemonLivenessTimer !== undefined) clearTimeout(this.daemonLivenessTimer);
     this.daemonLivenessTimer = undefined;
-    if (this.daemonWaitingSince !== undefined) this.armDaemonLiveness();
+    if (this.waitingRequests > 0) this.armDaemonLiveness();
+    if (wasWaiting && this.daemonWaitingSince === undefined) this.emit("daemon resumed");
   }
 
   /// Asks the daemon on `socket` one cheap question, outside the request budget: its own answer,
@@ -5815,6 +5850,9 @@ export class AcpmuxDirectClient {
     const method = "_acpmux/peers";
     const text = JSON.stringify({ jsonrpc: "2.0", id, method, params: {} });
     this.daemonProbe = { at: Date.now(), id };
+    // From here the daemon owes an answer; until it comes the service may be down.
+    this.daemonWaitingSince ??= this.daemonProbe.at;
+    this.emit("waiting: daemon");
     try {
       this.wire.sent(text, method, id);
       socket.send(text);
@@ -11357,7 +11395,17 @@ export class AcpmuxDirectClient {
       if (untaken) this.untakenSends -= 1;
       untaken = false;
     };
+    // A prompt sent ahead of its files: the composer cleared at once, so a refusal of it fails its
+    // row here instead of handing it back to the composer.
+    const aheadIn = attachments.some(isBehindSend) && !this.creating ? this.selectedSessionId : undefined;
     try {
+      // Files the composer sent the prompt ahead of (composer/sendBehind.ts): it shows as sent now,
+      // and goes to the agent once each is its chip, never without one.
+      if (attachments.some(isBehindSend)) {
+        const settled = await this.sendAheadOfFiles(input, attachments, promptId, steer);
+        if (!settled) return undefined;
+        attachments = settled;
+      }
       return await this.sendNow(
         input,
         attachments,
@@ -11370,9 +11418,138 @@ export class AcpmuxDirectClient {
         suggestionTaken,
         emptyContinuation,
       );
+    } catch (error) {
+      const drawn = this.aheadDrawn.get(promptId);
+      const rowId = `local-${promptId}`;
+      // Refused before its send drew its own row over the one drawn ahead: that row fails, kept.
+      if (aheadIn && drawn && (this.rows.get(rowId) === drawn || !this.rows.has(rowId))) {
+        this.aheadDrawn.delete(promptId);
+        this.queue = this.queue.filter((entry) => entry !== drawn);
+        const at = "at" in drawn ? drawn.at : Date.now();
+        this.failAheadRow(aheadIn, { promptId, input, attachments, at }, failedSendText(error, false, attachments));
+        return undefined;
+      }
+      throw error;
     } finally {
       settle();
+      this.dropAheadDrawing(promptId);
     }
+  }
+
+  /// What `sendAheadOfFiles` drew for each prompt (its row or queue entry): its send draws over it
+  /// under the same id, and one its send never drew over (refused first, or sent under a hand-off
+  /// turn's id) goes once the send ended, never left sending.
+  private aheadDrawn = new Map<string, AcpmuxRow | QueuedPrompt>();
+  private dropAheadDrawing(promptId: string): void {
+    const drawn = this.aheadDrawn.get(promptId);
+    if (!drawn) return;
+    this.aheadDrawn.delete(promptId);
+    const rowId = `local-${promptId}`;
+    let changed = false;
+    if (this.rows.get(rowId) === drawn) {
+      this.rows.delete(rowId);
+      this.optimisticPromptRows.delete(promptId);
+      this.optimisticPromptTexts.delete(promptId);
+      this.promptRowKeys.delete(promptId);
+      changed = true;
+    }
+    if (this.queue.includes(drawn as QueuedPrompt)) {
+      this.queue = this.queue.filter((entry) => entry !== drawn);
+      changed = true;
+    }
+    if (changed) this.emit();
+  }
+
+  /// A prompt the composer sent ahead of files still attaching (composer/sendBehind.ts: a dropped
+  /// video's path still asked of the host, or its bytes still streaming to the chat's machine). It
+  /// shows as sent at once, as its row in the chat shown (or its queue entry behind a running turn),
+  /// under its own prompt id, which its send then draws over; it goes once each file is its chip
+  /// (Leo, 2026-11-17: "JUST MAKE IT LOOK LIKE IT'S SENT OR JUST SEND IT"). Answers the settled
+  /// attachments, or undefined when it does not go now: a file failed (its row fails with the
+  /// host's words, and Retry keeps what did attach), or the chat left the screen meanwhile (the
+  /// prompt is kept as not sent in its own chat, unsentPrompts.ts).
+  private async sendAheadOfFiles(
+    input: string,
+    attachments: ComposerAttachment[],
+    promptId: string,
+    steer: boolean,
+  ): Promise<ComposerAttachment[] | undefined> {
+    const sessionId = this.creating ? undefined : this.selectedSessionId;
+    const generation = this.selectionGeneration;
+    const rowId = `local-${promptId}`;
+    const at = Date.now();
+    // The bubble names each file while it still goes; its link is drawn once it is one.
+    const shown = attachments.map((chip) => (isBehindSend(chip) ? { ...chip, path: chip.path ?? chip.name } : chip));
+    const { inline, text, pasted } = sentPromptShape(input, shown, { dropped: () => false });
+    const queued = Boolean(sessionId) && !steer && this.workingNow();
+    if (sessionId && queued) {
+      const entry = queuedEntry(
+        promptId,
+        text,
+        false,
+        true,
+        attachedImages(attachments),
+        undefined,
+        undefined,
+        inline?.parts,
+      );
+      this.queue = [...this.queue.filter((each) => each.id !== promptId), entry];
+      this.aheadDrawn.set(promptId, entry);
+    } else if (sessionId) {
+      const drawn: AcpmuxRow = {
+        id: rowId,
+        version: (this.rows.get(rowId)?.version ?? 0) + 1,
+        at,
+        kind: "user",
+        text,
+        ...(pasted.length ? { pasted } : {}),
+        ...(inline ? { inlineParts: inline.parts } : {}),
+        ...(attachments.some((chip) => !isBehindSend(chip)) ? { images: attachedImages(attachments) } : {}),
+        pending: true,
+        delivery: { state: "sending", promptId, sessionId, sentAt: at, ...(steer ? { queued: true } : {}) },
+      };
+      this.rows.set(rowId, drawn);
+      this.aheadDrawn.set(promptId, drawn);
+      this.promptRowKeys.set(promptId, rowId);
+      this.optimisticPromptRows.set(promptId, rowId);
+      this.optimisticPromptTexts.set(promptId, text);
+    }
+    if (sessionId) this.emit();
+    const standIns = attachments.filter(isBehindSend).map((chip) => chip.id);
+    const { attachments: settled, error } = await settleAllBehindSend(attachments);
+    const here = generation === this.selectionGeneration && this.selectedSessionId === sessionId;
+    if (error === undefined && (here || !sessionId)) return settled;
+    if (!sessionId) throw new Error(error);
+    this.aheadDrawn.delete(promptId);
+    if (here) {
+      // A file failed: the row fails with the host's words, kept as not sent like any other failed
+      // prompt (its delivery record gives it Edit, Remove, Details and Retry, and a reload keeps it).
+      this.queue = this.queue.filter((entry) => entry.id !== promptId);
+      // The row still names the file that failed, and a Retry here fails again with the host's words
+      // rather than sending the prompt without it: the person drops the file again from Edit.
+      const went = new Map(settled.map((chip) => [chip.id, chip]));
+      for (const id of standIns) if (!went.has(id)) sendBehind(id, Promise.resolve({ error: error! }));
+      const kept = shown.map((chip) => went.get(chip.id) ?? chip);
+      this.failAheadRow(sessionId, { promptId, input, attachments: kept, at }, error!);
+      return undefined;
+    }
+    // The chat left the screen while its files went: the prompt waits there as not sent.
+    this.keepUnsent(sessionId, { promptId, input, attachments: settled, at });
+    return undefined;
+  }
+
+  /// A prompt sent ahead of its files that did not go: its row in the chat shown fails with
+  /// `error`, and the host keeps it as not sent (unsentPrompts.ts), so Retry and a reload keep it.
+  private failAheadRow(sessionId: string, record: UnsentPromptRecord, error: string): void {
+    const failedAt = Date.now();
+    const kept: UnsentPromptRecord = { ...record, error, failure: { hop: "connection", error, failedAt } };
+    this.keepUnsent(sessionId, kept);
+    // Another chat on screen now: the host's store brings it back when its own chat shows.
+    if (this.selectedSessionId !== sessionId) return;
+    this.drawUnsentRow(sessionId, kept);
+    // Drawn here, not restored from the store: acpmux's echo of it still replaces it as usual.
+    this.restoredUnsent.delete(record.promptId);
+    this.emit();
   }
 
   /// WEB-SWAP: why a web update's reload would lose a prompt this page holds: one acpmux has not
@@ -12175,6 +12352,11 @@ export class AcpmuxDirectClient {
     const sessionId = this.selectedSessionId;
     if (!store || !sessionId) return;
     const generation = this.selectionGeneration;
+    // The host's journal sends its unanswered prompts again once, right after a connection's first
+    // frame: only the chat this connection opened on waits for that. A chat opened later already
+    // shows what the journal sent (its record is in the chat's history).
+    const onConnect = !this.unsentRestoredOnce && this.journalsPrompts();
+    this.unsentRestoredOnce = true;
     const records = await store.read(sessionId).catch(() => [] as UnsentPromptRecord[]);
     if (!records.length || this.selectedSessionId !== sessionId || this.selectionGeneration !== generation) return;
     const echoed = new Set<string>();
@@ -12193,8 +12375,35 @@ export class AcpmuxDirectClient {
       if (this.rows.has(rowId) || this.deliveries.has(promptId)) continue;
       drew = true;
       this.drawUnsentRow(sessionId, record);
+      if (onConnect && unanswered(record)) this.awaitHostResend(sessionId, record);
     }
     if (drew) this.emit();
+  }
+  /// A prompt that was not sent only because no answer came (the connection went, the app quit, or
+  /// acpmux said nothing in time), on the connection after: the host's prompt journal sends it
+  /// again here under its promptId (Swift `AgentPanePromptRelay.resend`), and acpmux runs a
+  /// promptId at most once. So its row is on its way again, by itself, and acpmux's record of it
+  /// settles it as any send's; only when that never comes does it say "Not sent" again, with its
+  /// Retry. Leo, 2026-11-24: after an update restarted acpmux, chats said "Not sent: no answer from
+  /// cmux" until Retry was pressed by hand. A refused prompt never comes here (`unanswered`).
+  private awaitHostResend(sessionId: string, record: UnsentPromptRecord): void {
+    const { promptId, input, attachments } = record;
+    void this.awaitResent(sessionId, promptId, deliveryTiming.resendShowMs, { input, attachments }).then((shown) => {
+      if (shown || this.closed || this.selectedSessionId !== sessionId) return;
+      const entry = this.deliveries.get(promptId);
+      const row = entry ? this.rows.get(entry.rowId) : undefined;
+      // Taken meanwhile, or the person's own Retry, Edit or Remove: no longer this wait's row.
+      if (!entry || !row || entry.delivery.state !== "sending" || !this.unsentKept.has(promptId)) return;
+      this.optimisticPromptTexts.delete(promptId);
+      this.optimisticPromptInputs.delete(promptId);
+      this.optimisticPromptAttachments.delete(promptId);
+      this.optimisticPromptParts.delete(promptId);
+      this.drawUnsentRow(sessionId, this.unsentKept.get(promptId)!.record);
+      // A newer version than the row on its way: the transcript's rows are memoized on it.
+      const failed = this.rows.get(entry.rowId);
+      if (failed) this.rows.set(entry.rowId, { ...failed, version: row.version + 1 });
+      this.emit();
+    });
   }
   /// One kept prompt as its Not sent row. One sent before the relaunch with no answer yet fails as
   /// timed out, so acpmux's late acknowledgement or echo (the host's journal sends it again) still
@@ -14230,7 +14439,7 @@ export class AcpmuxDirectClient {
     if (inline) this.optimisticPromptParts.set(promptId, inline.parts);
     this.rows.set(rowId, {
       id: rowId,
-      version: 1,
+      version: (this.rows.get(rowId)?.version ?? 0) + 1,
       at,
       kind: "user",
       text,
