@@ -178,7 +178,7 @@ where
             )));
         }
     };
-    Some(machine(row, &on_hub).map(|mut found| {
+    Some(machine(row, &rows, &on_hub).map(|mut found| {
         // The host as the hub spells it, when the hub lists it in another case.
         if let Some(host) = listed(&found.host) {
             found.host.clone_from(host);
@@ -254,14 +254,21 @@ fn find<'a>(key: &str, by_id: bool, rows: &'a [Value]) -> Result<Option<&'a Valu
 }
 
 /// `row` as the machine a chat starts on, or why it cannot take one now.
-fn machine(row: &Value, on_hub: &dyn Fn(&str) -> bool) -> Result<JoinedMachine, Value> {
+fn machine(
+    row: &Value,
+    rows: &[Value],
+    on_hub: &dyn Fn(&str) -> bool,
+) -> Result<JoinedMachine, Value> {
     let id = row.get_str("id").unwrap_or_default().to_owned();
     let name = row.get_str("name").unwrap_or(&id).to_owned();
     // The hub knows it by the host name it heartbeats with: the name it joined with
     // (`cmux device add HOST --name NAME`, a pasted line's CMUX_JOIN_NAME) on a current acpmux,
-    // which the hub lists, else its host name, as an older acpmux heartbeats.
+    // which the hub lists, else its host name, as an older acpmux heartbeats. A host name
+    // another of the person's live machines also has names neither of them (two Macs or VMs
+    // from one image, two builds signed in on one Mac): the name it joined with does.
     let hostname = row.get_str("hostname").filter(|host| !host.is_empty());
-    let host = if on_hub(&name) || hostname.is_none() {
+    let shared = hostname.is_some_and(|host| hostname_shared(host, rows));
+    let host = if on_hub(&name) || hostname.is_none() || shared {
         name.clone()
     } else {
         hostname.unwrap_or(&name).to_owned()
@@ -294,6 +301,16 @@ fn machine(row: &Value, on_hub: &dyn Fn(&str) -> bool) -> Result<JoinedMachine, 
     }
 }
 
+/// Whether more than one live joined machine in `rows` has the host name `host`.
+fn hostname_shared(host: &str, rows: &[Value]) -> bool {
+    rows.iter()
+        .filter(|row| row.get_str("kind").is_none_or(|kind| kind == "joined"))
+        .filter(|row| row.get_str("state") != Some("revoked"))
+        .filter(|row| row.get_str("hostname").is_some_and(|other| other.eq_ignore_ascii_case(host)))
+        .count()
+        > 1
+}
+
 /// acpmux's machines (`acp host ls --json`'s `peers`: its own peers and the hub's); none when
 /// acpmux does not answer.
 pub(in crate::cli) fn hub_peers() -> Vec<Value> {
@@ -307,14 +324,67 @@ pub(in crate::cli) fn peers_within(limit: Duration) -> Result<Vec<Value>, String
     Ok(listed.get("peers").and_then(Value::as_array).cloned().unwrap_or_default())
 }
 
-/// The account's joined machines: with `CMUX_CLOUD_ACCESS_TOKEN`, else a token the app mints.
+/// The account's joined machines: with `CMUX_CLOUD_ACCESS_TOKEN`, else the joined machines the
+/// cmux app's own Machines list shows ([`app_joined_rows`]), else a token the app mints.
+///
+/// The app's list comes first without the variable: the app read the account with its own
+/// sign-in and its own backend, so it lists a machine the person sees there (and clicks) even
+/// when this process's environment names no backend, or another one (a tagged build on the
+/// development backend run from a plain shell, own-machine-parity run 45367945285: the app
+/// listed B joined and connected, the minted token read the production list and failed, and
+/// `cmux chat --on B` was refused as `chat_target.unknown_device`).
 pub(in crate::cli) fn account_rows(global: &GlobalArgs) -> Result<Vec<Value>, String> {
-    let credential = match crate::cli::joined_machine_credential(None, false)? {
-        Some(credential) => credential,
-        None => app_token(global)?,
-    };
+    if let Some(credential) = crate::cli::joined_machine_credential(None, false)? {
+        return crate::cli::joined_machine_rows(None, Some(credential))
+            .unwrap_or_else(|| Err("not signed in".to_owned()));
+    }
+    if let Ok(rows) = app_joined_rows(global)
+        && !rows.is_empty()
+    {
+        return Ok(rows);
+    }
+    let credential = app_token(global)?;
     crate::cli::joined_machine_rows(None, Some(credential))
         .unwrap_or_else(|| Err("not signed in".to_owned()))
+}
+
+/// The joined machines in the cmux app's Machines list (`machine.list`, `cmux app machines`),
+/// as account rows ([`rows_from_app_list`]).
+fn app_joined_rows(global: &GlobalArgs) -> Result<Vec<Value>, String> {
+    const TIMEOUT: Duration = Duration::from_secs(50);
+    let mut stream = super::super::app::connect_command(global)
+        .map_err(|_| "no cmux app to read the machines from".to_owned())?;
+    let answer = super::super::app::request(
+        &mut stream,
+        super::super::app::MACHINES_METHOD,
+        json!({}),
+        TIMEOUT,
+    )?
+    .map_err(|error| {
+        error.get("message").and_then(Value::as_str).unwrap_or("no machine list").to_owned()
+    })?;
+    Ok(rows_from_app_list(&answer))
+}
+
+/// The account rows (`id`, `name`, `hostname`, `state`, as `cmux machine list`'s joined rows)
+/// of the joined machines in the app's `machine.list` answer: each row of kind `joined`
+/// carries the account's row as `joined`.
+pub(in crate::cli) fn rows_from_app_list(listed: &Value) -> Vec<Value> {
+    let rows = match listed {
+        Value::Array(rows) => rows.as_slice(),
+        _ => listed.get("machines").and_then(Value::as_array).map_or(&[][..], Vec::as_slice),
+    };
+    rows.iter()
+        .filter(|row| row.get_str("kind") == Some("joined"))
+        .filter_map(|row| row.get("joined").filter(|joined| joined.get_str("id").is_some()))
+        .map(|joined| {
+            let mut joined = joined.clone();
+            if let Some(map) = joined.as_object_mut() {
+                map.insert("kind".to_owned(), json!("joined"));
+            }
+            joined
+        })
+        .collect()
 }
 
 /// A short-lived token from the cmux app's sign-in (`auth.token`, as `cmux auth token`); also
