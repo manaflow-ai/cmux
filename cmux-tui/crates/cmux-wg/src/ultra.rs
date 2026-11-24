@@ -132,8 +132,16 @@ pub fn is_parity(datagram: &[u8]) -> bool {
     datagram.first() == Some(&TAG)
 }
 
+/// A process-wide pin set by [`crate::testing::pin_loss_based_congestion`]:
+/// it wins over [`CC_ENV`], and setting it needs no environment write.
+pub(crate) static CUBIC_PINNED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
 /// The congestion control [`CC_ENV`] asks for; BBR when unset or unknown.
 pub(crate) fn congestion_from_env() -> smoltcp::socket::tcp::CongestionControl {
+    if CUBIC_PINNED.load(std::sync::atomic::Ordering::Relaxed) {
+        return smoltcp::socket::tcp::CongestionControl::Cubic;
+    }
     congestion_from(std::env::var(CC_ENV).ok().as_deref())
 }
 
