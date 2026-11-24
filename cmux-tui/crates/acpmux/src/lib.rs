@@ -111,7 +111,11 @@ pub mod git_state;
 pub mod github_app_token;
 pub mod github_broker;
 #[cfg(unix)]
+pub mod github_lane_mint;
+#[cfg(unix)]
 pub mod github_mcp;
+#[cfg(unix)]
+pub mod github_session_env;
 pub mod god_fixture;
 pub mod install_share;
 /// GitHub's MCP server needs the Cloud agent's unix socket (`github_mcp.rs`): elsewhere it is
@@ -126,6 +130,13 @@ pub mod github_mcp {
 
     pub async fn run() -> anyhow::Result<()> {
         anyhow::bail!("acpmux github-mcp runs only on a cmux Cloud machine")
+    }
+}
+/// Machines a Mac lends GitHub are unix machines (`github_session_env.rs`).
+#[cfg(not(unix))]
+pub mod github_session_env {
+    pub fn lent() -> bool {
+        false
     }
 }
 pub mod github_status;
