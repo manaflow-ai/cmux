@@ -638,7 +638,7 @@ impl Hub {
                 self.save_meta(session);
             }
         } else if kept {
-            self.set_status(session, SessionStatus::Idle);
+            self.set_status(session, NotWaiting::Idle);
             self.save_meta(session);
         }
         // A log read before adoption kept its cut turn for the host: settle it now, and queue
