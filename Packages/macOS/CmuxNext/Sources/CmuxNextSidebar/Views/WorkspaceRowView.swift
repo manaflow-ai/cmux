@@ -48,7 +48,8 @@ final class WorkspaceRowView: SidebarRowView {
     private(set) var spokenLabelBuilds = 0
 
     override func accessibilityLabel() -> String? {
-        guard let inputs = spokenLabelInputs else { return super.accessibilityLabel() }
+        // Before the first configure the row says nothing (it never had a label of its own before one either).
+        guard let inputs = spokenLabelInputs else { return nil }
         let key = SpokenLabelKey(count: count, presence: driveIndicator.drivers + (presenceDots.isHidden ? [] : presenceDots.presence),
                                  chip: inputs.shown.chip.map { SidebarPriorityRowView.chipText($0, now: Date()) })
         if let spokenLabel, spokenLabel.key == key { return spokenLabel.text }
