@@ -12,13 +12,19 @@ Each attempt's worktree is then scored on the hidden tests here, with no model i
 - win_rate_gain = pick - single, in solve-rate points (a ratio, 0..1).
 
     run.py setup --work DIR                      make DIR/repo, a git repo with every task's starter
-    run.py start --work DIR [--model M] [--attempts N] [--reviewer R] [--tasks a,b]
+    run.py start --work DIR [--model M] [--attempts N] [--reviewer R] [--tasks a,b] [--diverse models|full]
     run.py score --work DIR [--wait SECONDS] [--out FILE]
 
 `start` must run inside an authenticated acpmux agent session: the races' parent is a sub-session of it that works in
 DIR/repo. Put DIR under a folder the person trusts by rule (`agents.trust.projectRoots`, such as ~/scratch): the
 candidates' worktree starts are made from DIR/repo, and a folder with no trust decision raises one trust card per
 candidate on the parent, which only the person can answer (`hub/trust_wait.rs`); /tmp hangs the same way.
+Attempts are identical samples of one prompt by default. `--diverse` makes them differ on purpose, so the judge has
+something to choose between (DIVERSE below): `models` gives each attempt its own model (haiku, sonnet, codex, haiku);
+`full` adds a different plan hint per attempt (`acpmux race new --hint`, one per candidate), the first attempt cold
+with none. `score` reports oracle_gain (oracle - single: did the attempts differ in a way that matters) and
+judge_gap (pick - oracle: what the judge left on the table) beside win_rate_gain.
+
 `score` waits for every race to end (or its deadline) and writes the results (schema best-of-n-results/v1).
 """
 from __future__ import annotations
@@ -52,6 +58,16 @@ def use_set(work: Path, chosen: str | None = None) -> str:
     TASKS = HERE / name
     return name
 SCHEMA = "best-of-n-results/v1"
+# `--diverse`: one (model, plan hint) per attempt, cycled past four. The first attempt starts cold: no hint at all.
+DIVERSE = (
+    ("claude/haiku", ""),
+    ("claude/sonnet", "Approach for this attempt: write the failing test first. Turn the spec's bug report into a "
+                      "check that fails on the current code, then change the code until it passes, then add edge cases."),
+    ("codex", "Approach for this attempt: read the code path first. Trace how the current code handles each input the "
+              "spec names before you edit anything, write down where it goes wrong, then make the smallest fix."),
+    ("claude/haiku", "Approach for this attempt: enumerate the spec's rules and edge cases as a list first, then "
+                     "rewrite the function from that list rather than patching the old code, and check every item."),
+)
 TERMINAL = {"completed", "failed", "cancelled"}
 
 
@@ -100,7 +116,19 @@ def prompt_for(name: str) -> str:
             f"Write your own checks if you want; do not add dependencies.\n\n{spec}")
 
 
-def start(work: Path, model: str, attempts: int, reviewer: str, effort: str | None, only: str | None) -> None:
+def plan(model: str, attempts: int, diverse: str | None) -> list[tuple[str, str]]:
+    """Each attempt's (model, plan hint): the same model and no hint unless `--diverse`."""
+    if not diverse:
+        return [(model, "")] * attempts
+    return [(DIVERSE[i % len(DIVERSE)][0], DIVERSE[i % len(DIVERSE)][1] if diverse == "full" else "")
+            for i in range(attempts)]
+
+
+def start(work: Path, model: str, attempts: int, reviewer: str, effort: str | None, only: str | None,
+          diverse: str | None = None) -> None:
+    if diverse == "full" and "--hint" not in subprocess.run(["acpmux", "race", "new", "--help"], capture_output=True,
+                                                            text=True).stdout:
+        sys.exit("run.py: this acpmux has no `race new --hint` (per-attempt plan hints); use --diverse models")
     repo = work / "repo"
     state_file = work / "state.json"
     state = json.loads(state_file.read_text()) if state_file.exists() else {}
@@ -110,15 +138,18 @@ def start(work: Path, model: str, attempts: int, reviewer: str, effort: str | No
                "You hold best-of-N benchmark races as their parent. Reply with the single word ready and stop.",
                timeout=300)
         state = {"parent": name, "repo": str(repo), "model": model, "attempts": attempts, "reviewer": reviewer,
-                 "effort": effort, "races": {}}
+                 "effort": effort, "diverse": diverse, "plan": plan(model, attempts, diverse), "races": {}}
     for name in tasks(only):
         if name in state["races"]:
             continue
         args = ["race", "new", "--parent", state["parent"], "--reviewer", reviewer, "--prompt-file",
                 str(work / f"{name}.prompt.md")]
         (work / f"{name}.prompt.md").write_text(prompt_for(name))
-        for _ in range(attempts):
-            args += ["-m", model]
+        for model_i, _ in plan(model, attempts, diverse):
+            args += ["-m", model_i]
+        if diverse == "full":
+            for _, hint in plan(model, attempts, diverse):
+                args += ["--hint", hint]
         if effort:
             args += ["-e", effort]
         race = acpmux(*args, timeout=300)
@@ -188,7 +219,8 @@ def score(work: Path, wait_s: float, out: Path | None) -> dict:
         for c in race.get("candidates", []):
             cwd = c.get("cwd")
             passed, total, fails = hidden_tests(name, Path(cwd) / name) if cwd else (0, 1, ["no worktree"])
-            cands.append({"id": c["id"], "state": c.get("state"), "passed": passed, "total": total,
+            cands.append({"id": c["id"], "state": c.get("state"), "target": c.get("target"), "passed": passed,
+                          "total": total,
                           "solved": passed == total and total > 0, "failures": fails[:5]})
         winner = race.get("winnerId")
         pick = next((c for c in cands if c["id"] == winner), None)
@@ -201,6 +233,9 @@ def score(work: Path, wait_s: float, out: Path | None) -> dict:
             "pick": 1.0 if pick and pick["solved"] else 0.0,
             "pick_tests": pick["passed"] / pick["total"] if pick else 0.0,
             "oracle": 1.0 if any(c["solved"] for c in cands) else 0.0,
+            "oracle_tests": max((c["passed"] / c["total"] for c in cands), default=0.0),
+            # createdAt to the verdict (or last change): every attempt and the review, wall clock.
+            "wall_s": round(((race.get("updatedAt") or 0) - (race.get("createdAt") or 0)) / 1000, 1),
             "candidates": cands,
         })
     done = [r for r in rows if r["state"] == "completed"]
@@ -210,15 +245,17 @@ def score(work: Path, wait_s: float, out: Path | None) -> dict:
         "measured_at": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "task_set": f"cmux evals/best-of-n/{TASKS.name}",
         "model": state["model"], "attempts": state["attempts"], "reviewer": state["reviewer"],
-        "effort": state.get("effort"),
+        "effort": state.get("effort"), "diverse": state.get("diverse"), "plan": state.get("plan"),
         "n_tasks": len(done), "n_started": len(rows),
         "single_solve_rate": mean("single"), "pick_solve_rate": mean("pick"), "oracle_solve_rate": mean("oracle"),
         "single_test_share": mean("single_tests"), "pick_test_share": mean("pick_tests"),
+        "oracle_test_share": mean("oracle_tests"), "mean_wall_s": mean("wall_s"),
         "rows": rows,
     }
     if done:
         doc["win_rate_gain"] = round(doc["pick_solve_rate"] - doc["single_solve_rate"], 4)
         doc["oracle_gain"] = round(doc["oracle_solve_rate"] - doc["single_solve_rate"], 4)
+        doc["judge_gap"] = round(doc["pick_solve_rate"] - doc["oracle_solve_rate"], 4)
     text = json.dumps(doc, indent=2) + "\n"
     (out or work / "results.json").write_text(text)
     return doc
@@ -238,6 +275,8 @@ def main() -> None:
             p.add_argument("--reviewer", default="claude/sonnet")
             p.add_argument("--effort")
             p.add_argument("--tasks")
+            p.add_argument("--diverse", choices=("models", "full"),
+                           help="make attempts differ: per-attempt models, plus per-attempt plan hints with full")
         if name == "score":
             p.add_argument("--wait", type=float, default=3600)
             p.add_argument("--out", type=Path)
@@ -256,7 +295,7 @@ def main() -> None:
     if a.cmd == "start":
         if a.attempts < 2:
             sys.exit("run.py: --attempts must be at least 2 (a race needs two candidates)")
-        start(work, a.model, a.attempts, a.reviewer, a.effort, a.tasks)
+        start(work, a.model, a.attempts, a.reviewer, a.effort, a.tasks, a.diverse)
     else:
         doc = score(work, a.wait, a.out)
         print(json.dumps({k: v for k, v in doc.items() if k != "rows"}, indent=2))
