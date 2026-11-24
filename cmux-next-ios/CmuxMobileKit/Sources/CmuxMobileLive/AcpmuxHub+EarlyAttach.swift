@@ -1,3 +1,4 @@
+import CmuxMobileAgentChat
 import Foundation
 
 /// A chat open when the link comes up (a cold launch into a chat, a reconnect) reads its page in
