@@ -482,6 +482,12 @@ impl Underlay for Multipath {
         }
     }
 
+    /// Data goes on the current path alone; while it is suspect (no
+    /// current path) it goes on every path, out of counter order.
+    fn carries_data(&self, path: PathId) -> bool {
+        lock(&self.shared).selector.current() == Some(path)
+    }
+
     fn poll_probes(&mut self, now: Instant) -> DueProbes {
         let mut shared = lock(&self.shared);
         // The driver asks only while the session carries traffic, which is

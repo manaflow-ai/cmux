@@ -1121,6 +1121,10 @@ impl Underlay for UltraUnderlay {
         UltraCounters::add(&self.counters.data_bytes, datagram.len() as u64);
     }
 
+    fn carries_data(&self, path: PathId) -> bool {
+        self.inner.carries_data(path)
+    }
+
     fn poll_probes(&mut self, now: Instant) -> DueProbes {
         self.inner.poll_probes(now)
     }
