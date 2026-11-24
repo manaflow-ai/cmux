@@ -76,7 +76,7 @@ pub(super) fn answered(answer: Value) -> Result<Value, (String, String)> {
     if code == "bad_request" && message.starts_with("op is ") {
         return Err((
             "phone.unsupported_host".to_owned(),
-            "this Mac's cmux is too old to drive a phone tab; update cmux".to_owned(),
+            "this Mac's link host has no phone-page service (phone-page-v1)".to_owned(),
         ));
     }
     Err((format!("phone.{code}"), message.to_owned()))
