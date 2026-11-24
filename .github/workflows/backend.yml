@@ -185,7 +185,17 @@ jobs:
       # The Bun package cache for backend/ and the release rails. Only this job saves it (it holds
       # no secrets); the secret-bearing jobs below only restore it.
       - name: Cache Bun package cache
+        if: ${{ (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-backend-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('backend/bun.lock', 'scripts/cmux-next/release/bun.lock') }}
+          restore-keys: |
+            bun-backend-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Cache Bun package cache (restore only off base branches)
+        if: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
           key: bun-backend-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('backend/bun.lock', 'scripts/cmux-next/release/bun.lock') }}
@@ -1007,8 +1017,13 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          fetch-depth: 0
           persist-credentials: false
+      # Ancestry (the lineage recheck, rev-list, production's source SHA) needs feat-cmux-next's history, not
+      # every branch and tag: fetch-depth 0 died "curl 28 ... bad pack header" on all three tries in promote-production
+      # 138367811946, leaving the picked 3bbe7dc (the owner.state_full sign-in fix) unpromoted.
+      - name: Fetch feat-cmux-next's history without blobs
+        working-directory: ${{ github.workspace }}
+        run: scripts/ci/fetch_branch_history.sh feat-cmux-next
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
@@ -1102,8 +1117,11 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ needs.promote-gates.outputs.candidate }}
-          fetch-depth: 0
           persist-credentials: false
+      # feat-cmux-next's history alone, not fetch-depth 0's every branch and tag (why: promote-gates).
+      - name: Fetch feat-cmux-next's history without blobs
+        working-directory: ${{ github.workspace }}
+        run: scripts/ci/fetch_branch_history.sh feat-cmux-next
       # Bun waits on a registry connection that stops answering with no limit of its own; scripts/ci/bun-install.sh
       # bounds it. This job's checkout may predate the script, so it comes from this workflow's own commit.
       - name: Check out the bounded bun install
@@ -1206,8 +1224,11 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          fetch-depth: 0
           persist-credentials: false
+      # feat-cmux-next's history alone, not fetch-depth 0's every branch and tag (why: promote-gates).
+      - name: Fetch feat-cmux-next's history without blobs
+        working-directory: ${{ github.workspace }}
+        run: scripts/ci/fetch_branch_history.sh feat-cmux-next
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
@@ -1253,8 +1274,11 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          fetch-depth: 0
           persist-credentials: false
+      # feat-cmux-next's history alone, not fetch-depth 0's every branch and tag (why: promote-gates).
+      - name: Fetch feat-cmux-next's history without blobs
+        working-directory: ${{ github.workspace }}
+        run: scripts/ci/fetch_branch_history.sh feat-cmux-next
       # Bun waits on a registry connection that stops answering with no limit of its own; scripts/ci/bun-install.sh
       # bounds it. This job's checkout may predate the script, so it comes from this workflow's own commit.
       - name: Check out the bounded bun install
@@ -1294,8 +1318,11 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ steps.serving.outputs.sha }}
-          fetch-depth: 0
           persist-credentials: false
+      # feat-cmux-next's history alone, not fetch-depth 0's every branch and tag (why: promote-gates).
+      - name: Fetch feat-cmux-next's history without blobs
+        working-directory: ${{ github.workspace }}
+        run: scripts/ci/fetch_branch_history.sh feat-cmux-next
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24"
@@ -1448,18 +1475,27 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          # The rollback reads production's source tags as commits (prod-promote.ts), so the whole history.
-          fetch-depth: 0
+          # The rollback reads production's source tags as commits (prod-promote.ts): feat-cmux-next's history,
+          # fetched below by scripts/ci (in this list for that).
           # backend's bun install needs its workspaces outside backend/ (clients/ts, workers/cmux-vm/sdk):
           # without them the rollback stopped at "listed in bun.lock but not on disk" (run 44764045780).
           # scripts/cmux-next/release/test/backend-sparse-checkout.test.ts keeps this list complete.
           sparse-checkout: |
             scripts/cmux-next
+            scripts/ci
             Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials
             tests/fixtures/model-stub
             backend
             clients/ts
             workers/cmux-vm/sdk
+      # feat-cmux-next's history alone, not fetch-depth 0's every branch and tag (why: promote-gates).
+      - name: Fetch feat-cmux-next's history without blobs
+        working-directory: ${{ github.workspace }}
+        run: scripts/ci/fetch_branch_history.sh feat-cmux-next
+      - name: Fetch the run's own branch history too (a deploy from main)
+        if: github.ref_name != 'feat-cmux-next'
+        working-directory: ${{ github.workspace }}
+        run: scripts/ci/fetch_branch_history.sh "$GITHUB_REF_NAME"
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"

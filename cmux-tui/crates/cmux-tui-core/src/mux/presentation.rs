@@ -377,6 +377,24 @@ impl Mux {
         decorations
     }
 
+    /// [`Self::tree_decorations_placing`] for a delta that serializes the one tab `placing` (a
+    /// `pane-added` or `tab-added` entity holds that tab only): its marker, its directory and
+    /// its terminal's state, with no walk of the session's other surfaces.
+    #[track_caller]
+    pub(crate) fn tab_decorations_placing(&self, placing: &Surface) -> TreeDecorations {
+        let (mut decorations, mut directories) = {
+            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            self.tab_tree_decorations_parts(&state, &[placing.id])
+        };
+        if let Some(directory) = placing.presented_directory()
+            && !directories.iter().any(|(surface, _)| *surface == placing.id)
+        {
+            directories.push((placing.id, directory));
+        }
+        decorations.directories = self.resolve_tab_directories(directories, true);
+        decorations
+    }
+
     /// The same as [`Self::tree_decorations`] for a caller that already
     /// holds the state lock. It never touches the filesystem, so git HEADs
     /// come from the cache only.
@@ -394,6 +412,23 @@ impl Mux {
             terminal_ends,
             terminal_loss_causes: self.terminal_loss_causes_snapshot(),
         }
+    }
+
+    /// [`Self::tree_decorations_in_state`] for a delta that serializes the one workspace at
+    /// `workspace_index` (a rename, a move): the decorations of its tabs only.
+    pub(crate) fn workspace_tree_decorations_in_state(
+        &self,
+        state: &State,
+        workspace_index: usize,
+    ) -> TreeDecorations {
+        let surfaces = state
+            .workspaces
+            .get(workspace_index)
+            .into_iter()
+            .flat_map(|workspace| &workspace.screens)
+            .flat_map(|screen| screen_tabs(state, screen))
+            .collect::<Vec<_>>();
+        self.tab_tree_decorations_in_state(state, &surfaces)
     }
 
     /// Each placed PTY tab's git branch, from the HEAD cache only (no
