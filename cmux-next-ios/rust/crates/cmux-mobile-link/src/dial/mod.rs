@@ -569,6 +569,12 @@ pub async fn connect(
         }
     };
     let link = Link::new(dialed.stream, Role::Phone, link_config, Some(dialed.guard));
+    // Put a link-level hello behind the transport's final ACK while the
+    // remaining dial setup runs. It is best effort, so an older peer leaves
+    // the existing post-ready ping and channel order unchanged.
+    if kind == TransportKind::WireGuard {
+        link.send_early_hello();
+    }
     if let Some(hold) = dialed.hold {
         link.set_hold_hook(hold);
     }

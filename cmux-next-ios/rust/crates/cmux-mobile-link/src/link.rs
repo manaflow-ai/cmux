@@ -1272,6 +1272,16 @@ impl Link {
         self.round_trip(false).await.map(Option::unwrap_or_default)
     }
 
+    /// Queue the link's non-blocking hello as soon as its transport is usable.
+    ///
+    /// The reserved nonce is deliberately outside the ping sequence. The peer
+    /// still answers it as an ordinary link Ping, while this best-effort hello
+    /// never becomes an RTT sample or a readiness dependency. Callers that
+    /// need a confirmed peer continue to use [`Link::ping`].
+    pub(crate) fn send_early_hello(&self) {
+        let _ = self.inner.send_control(Frame::new(0, FrameType::Ping, u64::MAX.to_be_bytes().to_vec()));
+    }
+
     /// Round-trip one ping; a `keepalive` ping is not sent while parked
     /// (`Ok(None)`).
     async fn round_trip(&self, keepalive: bool) -> Result<Option<Duration>, LinkError> {
