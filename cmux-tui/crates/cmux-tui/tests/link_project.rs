@@ -72,9 +72,10 @@ fn delayed(mut from: UnixStream, mut to: UnixStream) {
 /// A Cloud machine on `socket` over `home`: every connection crosses the delayed link; a dial
 /// whose first line is `projection.serve` is served by the daemon's projection, any other by its
 /// `fs-v1` lines.
-fn machine(socket: &Path, home: &Path) {
+fn machine(socket: &Path, home: &Path, extend: bool) {
     let listener = UnixListener::bind(socket).unwrap();
     let home = home.to_path_buf();
+    let extend = extend;
     let service: &'static FsService =
         Box::leak(Box::new(FsService::new(Roots::new([home.clone()]))));
     std::thread::spawn(move || {
@@ -84,12 +85,12 @@ fn machine(socket: &Path, home: &Path) {
             delayed(connection.try_clone().unwrap(), near.try_clone().unwrap());
             delayed(near, connection);
             let home = home.clone();
-            std::thread::spawn(move || serve(far, service, &home));
+            std::thread::spawn(move || serve(far, service, &home, extend));
         }
     });
 }
 
-fn serve(connection: UnixStream, service: &FsService, home: &Path) {
+fn serve(connection: UnixStream, service: &FsService, home: &Path, extend: bool) {
     let mut writer = connection.try_clone().unwrap();
     let mut reader = BufReader::new(connection.try_clone().unwrap());
     let mut first = true;
@@ -113,11 +114,17 @@ fn serve(connection: UnixStream, service: &FsService, home: &Path) {
         let id = request["id"].clone();
         let cmd = request["cmd"].as_str().unwrap_or_default().to_string();
         let reply = if cmd == "identify" {
-            json!({"id": id, "ok": true, "data": {"capabilities": [
-                fs_ops::FS_CAPABILITY, fs_ops::FS_SYMLINK_CAPABILITY,
-                fs_ops::FS_WRITE_DEFLATE_CAPABILITY, fs_ops::FS_WRITE_NOFOLLOW_CAPABILITY,
+            let mut capabilities = vec![
+                fs_ops::FS_CAPABILITY,
+                fs_ops::FS_SYMLINK_CAPABILITY,
+                fs_ops::FS_WRITE_DEFLATE_CAPABILITY,
+                fs_ops::FS_WRITE_NOFOLLOW_CAPABILITY,
                 cmux_tui_core::projection::PROJECTION_CAPABILITY,
-            ]}})
+            ];
+            if extend {
+                capabilities.push(cmux_tui_core::projection::PROJECTION_EXTEND_CAPABILITY);
+            }
+            json!({"id": id, "ok": true, "data": {"capabilities": capabilities}})
         } else {
             stream::answer(&id, service.call("local", &cmd, request))
         };
@@ -288,7 +295,7 @@ struct World {
     socket: PathBuf,
 }
 
-fn world(files: usize) -> World {
+fn world(files: usize, extend: bool) -> World {
     let root = tempfile::tempdir().unwrap();
     let base = std::fs::canonicalize(root.path()).unwrap();
     let local = base.join("Projects");
@@ -297,7 +304,7 @@ fn world(files: usize) -> World {
     std::fs::create_dir_all(home.join("work")).unwrap();
     let sockets = tempfile::Builder::new().prefix("pj").tempdir_in("/tmp").unwrap();
     let socket = sockets.path().join("m.sock");
-    machine(&socket, &home);
+    machine(&socket, &home, extend);
     World { _root: root, _sockets: sockets, local, home, socket }
 }
 
@@ -307,7 +314,7 @@ fn a_folder_past_the_limits_is_projected_whole_and_reads_come_from_the_mac() {
         eprintln!("skipping: no FUSE here");
         return;
     }
-    let w = world(500);
+    let w = world(500, false);
     let state = w.home.parent().unwrap().join("state");
     let start = start_chat(&state, &w.socket, &w.local, &w.home.join("work"), true, &[]);
     let folder = &start.folder;
@@ -348,6 +355,31 @@ fn a_folder_past_the_limits_is_projected_whole_and_reads_come_from_the_mac() {
     stop(&state, folder);
 }
 
+#[test]
+fn a_head_first_projection_extends_before_a_tail_read() {
+    if !fuse_here() {
+        eprintln!("skipping: no FUSE here");
+        return;
+    }
+    let w = world(20, true);
+    let state = w.home.parent().unwrap().join("state-head-first");
+    let start = start_chat(&state, &w.socket, &w.local, &w.home.join("work"), true, &[]);
+    if start.could_not_mount() {
+        eprintln!("skipping: this host may not mount FUSE: {}", start.stderr);
+        return;
+    }
+    assert_eq!(start.answer["mode"], "projected", "{}", start.answer);
+    assert!(
+        start.answer["projected"]["head_entries"].as_u64().is_some(),
+        "the start answer did not carry the head-ready marker: {}",
+        start.answer
+    );
+    cmux_git::sync_barrier::wait_ready(&start.folder, Duration::from_secs(60)).unwrap();
+    let tail = start.folder.join("notes/d019/f000019.md");
+    assert_eq!(std::fs::read_to_string(tail).unwrap(), "note 19\n");
+    stop(&state, &start.folder);
+}
+
 /// The App's first copy asks (`--on-seed-refusal ask`) and ends a start whose folder its
 /// machine's disk cannot hold, so that copy has to project too, before any seed or copy.
 #[test]
@@ -356,7 +388,7 @@ fn the_apps_asking_copy_projects_too() {
         eprintln!("skipping: no FUSE here");
         return;
     }
-    let w = world(50);
+    let w = world(50, false);
     let state = w.home.parent().unwrap().join("state");
     let work = w.home.join("work");
     let start = start_chat(&state, &w.socket, &w.local, &work, true, &["--on-seed-refusal", "ask"]);
@@ -411,7 +443,7 @@ fn a_moved_chats_folder_is_projected_and_projected_again_once_frozen() {
         eprintln!("skipping: no FUSE here");
         return;
     }
-    let w = world(20);
+    let w = world(20, false);
     let state = w.home.parent().unwrap().join("state");
     let remote = w.home.join("work/Projects");
     let (answer, stderr) = seed_push(&state, &w.socket, &w.local, &remote, false);
@@ -451,7 +483,7 @@ fn a_bench_of_the_first_turn() {
         .ok()
         .and_then(|n| n.parse().ok())
         .unwrap_or(20_000);
-    let w = world(files);
+    let w = world(files, false);
     let mut rows = Vec::new();
     for projected in [false, true] {
         let state = w.home.parent().unwrap().join(if projected { "state-p" } else { "state-c" });
