@@ -116,8 +116,20 @@ async fn a_peer_link_that_asks_gets_patches_of_the_masked_row_and_a_resync() {
     link.send(Message::request(20, method::MUX_SESSION_RESYNC, ask).to_line()).await.unwrap();
     // Rows sent before the ask (a rename can send more than one) come first, numbered on.
     let mut last = 2;
+    let mut reply = None;
     let whole = loop {
-        let line = row_notice(&mut link_out).await;
+        let line = next(&mut link_out, |line| {
+            line["id"] == 20
+                || (matches!(
+                    line["method"].as_str(),
+                    Some(method::MUX_SESSION_CHANGED | method::MUX_SESSION_PATCH)
+                ) && line["params"]["sessionId"] == OWN)
+        })
+        .await;
+        if line["id"] == 20 {
+            reply = Some(line);
+            continue;
+        }
         if line["params"]["recordKind"] == "resync" {
             break line;
         }
@@ -129,20 +141,24 @@ async fn a_peer_link_that_asks_gets_patches_of_the_masked_row_and_a_resync() {
     assert_eq!(whole["method"], method::MUX_SESSION_CHANGED, "{whole}");
     assert_eq!(whole["params"]["rowSeq"], last + 1, "the next number, not a restart");
     assert!(!whole.to_string().contains(&token), "the whole row is masked too");
-    // The patch made the row the peer would have sent whole.
-    let differ: Vec<String> = held
-        .as_object()
-        .unwrap()
-        .keys()
-        .chain(whole["params"]["session"].as_object().unwrap().keys())
-        .filter(|k| held.get(k.as_str()) != whole["params"]["session"].get(k.as_str()))
-        .map(|k| format!("{k}: {} vs {}", held[k.as_str()], whole["params"]["session"][k.as_str()]))
-        .collect();
-    assert!(differ.is_empty(), "the patched row differs from the resync's: {differ:?}");
-    let reply = next(&mut link_out, |line| line["id"] == 20).await;
+    // The resync's row is the chat as it is now, which can be newer than the last row noticed
+    // (the rename's later rows): the link holds it, and the patches after it go on from it.
+    let mut held = whole["params"]["session"].clone();
+    let mut last = whole["params"]["rowSeq"].as_u64().unwrap();
+    let reply = match reply {
+        Some(reply) => reply,
+        None => next(&mut link_out, |line| line["id"] == 20).await,
+    };
     assert_eq!(reply["result"]["sent"], true, "{reply}");
-
-    assert_eq!(held["name"], "second");
+    rename(&cli, 12, "third").await;
+    while held["name"] != "third" {
+        let line = row_notice(&mut link_out).await;
+        assert_eq!(line["method"], method::MUX_SESSION_PATCH, "{line}");
+        assert_eq!(line["params"]["baseRowSeq"], last, "{line}");
+        assert!(!line.to_string().contains(&token), "{line}");
+        assert!(crate::server::session_patch::apply(&mut held, &line["params"]["patch"]));
+        last += 1;
+    }
 
     // The local watcher that did not ask heard whole rows, raw.
     let heard = next(&mut cli_out, |l| {
