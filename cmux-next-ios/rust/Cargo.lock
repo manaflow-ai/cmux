@@ -527,6 +527,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-cloud-wire"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-composer-send"
 version = "0.1.0"
 dependencies = [
@@ -563,6 +571,14 @@ dependencies = [
 [[package]]
 name = "cmux-message-preview"
 version = "0.1.0"
+
+[[package]]
+name = "cmux-mobile-core"
+version = "0.1.0"
+dependencies = [
+ "cmux-cloud-wire",
+ "cmux-terminal-sizing",
+]
 
 [[package]]
 name = "cmux-mobile-host"
@@ -649,6 +665,7 @@ dependencies = [
  "base64",
  "cmux-composer-send",
  "cmux-follow-cam",
+ "cmux-mobile-core",
  "cmux-mobile-host",
  "cmux-mobile-link",
  "cmux-rd-core",
@@ -777,6 +794,13 @@ version = "0.1.0"
 dependencies = [
  "unicode-segmentation",
  "unicode-width",
+]
+
+[[package]]
+name = "cmux-terminal-sizing"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
