@@ -72,7 +72,20 @@ pub const HANDOVER_WAIT: Duration = Duration::from_secs(10);
 /// How often [`bind_kept`] tries the kept port again.
 const BIND_RETRY_EVERY: Duration = Duration::from_millis(100);
 /// How many earlier ports `run/mcp-gateway.json` remembers, for the harnesses configured at them.
-const PORTS_REMEMBERED: usize = 8;
+/// A chat keeps dialing the port it was configured at for as long as it lives, and a busy home
+/// holds chats from many daemon runs: on 2026-11-22 one home's live configs named 20 ports, so a
+/// bound of 8 left the oldest of them refused.
+const PORTS_REMEMBERED: usize = 24;
+/// Where a port with no kept one is derived: the IANA dynamic range, so a derived port cannot be
+/// a registered service's.
+const DERIVED_PORT_BASE: u16 = 49_152;
+const DERIVED_PORT_SPAN: u16 = 8_192;
+/// `DERIVED_PORT_SPAN - 1`. The span is a power of two, so a port is derived with a mask instead
+/// of a division or a remainder: no arithmetic that can panic in a debug build, and none that can
+/// divide by zero. `the_derived_port_mask_is_the_span` keeps the two in step.
+const DERIVED_PORT_MASK: u64 = 8_191;
+/// How many ports upward from the derived one are tried before any free port will do.
+const DERIVED_PORT_TRIES: u16 = 16;
 const MAX_HEAD: usize = 64 * 1024;
 const MAX_BODY: usize = 32 * 1024 * 1024;
 /// The id of the `initialize` the gateway replays to a server it started for a later request.
@@ -313,12 +326,16 @@ pub async fn bind_at(
                      free one and keeping {port} in run/mcp-gateway.json"
                 );
                 earlier.insert(0, port);
-                TcpListener::bind(("127.0.0.1", 0)).await?
+                bind_derived(home).await?
             }
         },
-        None => TcpListener::bind(("127.0.0.1", 0)).await?,
+        None => bind_derived(home).await?,
     };
     let port = listener.local_addr()?.port();
+    // The record is one daemon's memory and can be short, stale or lost; the configs the daemon
+    // wrote are what the live harnesses dial. Both, so a chat whose port fell off the record is
+    // served again.
+    earlier.extend(ports_chats_are_configured_at(home));
     let mut seen = std::collections::HashSet::new();
     earlier.retain(|p| *p != 0 && *p != port && seen.insert(*p));
     earlier.truncate(PORTS_REMEMBERED);
@@ -352,6 +369,88 @@ pub async fn bind_at(
     }
     gateway.scope.spawn_named("mcp gateway idle stop", reap(gateway.clone(), reap_every));
     Ok(gateway)
+}
+
+/// The ports this home's chats are configured at: every `http://127.0.0.1:PORT/mcp/` in the
+/// `--mcp-config` files the daemon wrote (`run/mcp/<session>.json`), newest file first. A harness
+/// only ever dials the url its config named at launch, so these are the ports where a chat gets
+/// `ECONNREFUSED` once the gateway moves — ground truth, where `run/mcp-gateway.json` is one
+/// daemon's memory of its own runs and may have been truncated, replaced or lost.
+fn ports_chats_are_configured_at(home: &Path) -> Vec<u16> {
+    let Ok(entries) = std::fs::read_dir(home.join("run").join("mcp")) else {
+        return Vec::new();
+    };
+    let mut found: Vec<(std::time::SystemTime, u16)> = Vec::new();
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        // `<session>.gateway.json` is the kept launch, which names no url.
+        if !name.ends_with(".json") || name.ends_with(".gateway.json") {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(entry.path()) else { continue };
+        let when = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+        for port in configured_ports(&text) {
+            found.push((when, port));
+        }
+    }
+    // Newest config first: the ports most likely to belong to a chat that is still running.
+    found.sort_by(|a, b| b.0.cmp(&a.0));
+    let mut seen = std::collections::HashSet::new();
+    found.into_iter().map(|(_, port)| port).filter(|p| seen.insert(*p)).collect()
+}
+
+/// Every loopback gateway port named in one config's text.
+fn configured_ports(text: &str) -> Vec<u16> {
+    const MARK: &str = "http://127.0.0.1:";
+    text.split(MARK)
+        .skip(1)
+        .filter_map(|rest| {
+            let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+            // Only this gateway's routes: another loopback server's url is not ours. `strip_prefix`
+            // rather than a slice at `digits.len()`, which is an index into `rest` this code would
+            // have to prove is a char boundary.
+            if !rest.strip_prefix(digits.as_str())?.starts_with("/mcp/") {
+                return None;
+            }
+            digits.parse().ok()
+        })
+        .collect()
+}
+
+/// A port derived from the home path, probing upward, instead of a fresh ephemeral one: with no
+/// kept port (a lost or unreadable record, a first run after a reinstall) the gateway lands on the
+/// port its predecessor landed on, which is the port the live chats are configured at.
+async fn bind_derived(home: &Path) -> std::io::Result<TcpListener> {
+    let first = derived_port(home);
+    for step in 0..DERIVED_PORT_TRIES {
+        let within_span = (u64::from(first.saturating_sub(DERIVED_PORT_BASE))
+            .saturating_add(u64::from(step)))
+            & DERIVED_PORT_MASK;
+        let port = DERIVED_PORT_BASE.saturating_add(u16::try_from(within_span).unwrap_or(0));
+        match TcpListener::bind(("127.0.0.1", port)).await {
+            Ok(listener) => return Ok(listener),
+            Err(e) => tracing::debug!("mcp gateway: derived port {port} is taken ({e})"),
+        }
+    }
+    TcpListener::bind(("127.0.0.1", 0)).await
+}
+
+/// `DERIVED_PORT_BASE + FNV-1a(home) & DERIVED_PORT_MASK`. The hash is written out here rather
+/// than taken from `DefaultHasher`, which the standard library may change between releases: this
+/// port has to be the same after an app update, not only after a restart.
+pub(crate) fn derived_port(home: &Path) -> u16 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in home.as_os_str().as_encoded_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100_0000_01b3);
+    }
+    // The mask holds the result inside the span, so neither the conversion nor the add can lose a
+    // bit: `DERIVED_PORT_BASE + DERIVED_PORT_MASK` is 57343, well inside a `u16`.
+    DERIVED_PORT_BASE.saturating_add(u16::try_from(hash & DERIVED_PORT_MASK).unwrap_or(0))
 }
 
 /// Binds the kept port, trying again until `wait` runs out. A daemon hands over to its successor:

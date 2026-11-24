@@ -1,5 +1,6 @@
 import * as Effect from "effect/Effect";
 import {
+  ACPMUX_EXIT_NO_WORK_USER,
   ACPMUX_EXIT_TEAM_VM,
   ACPMUX_EXIT_UNSUPPORTED,
   ACPMUX_PREPARE_TIMEOUT_MS,
@@ -35,6 +36,7 @@ export type AcpmuxRefusal =
   | "not_single_owner"
   | "owner_unconfirmed"
   | "team_vm"
+  | "no_work_user"
   | "not_running"
   | "unsupported"
   | "timeout"
@@ -86,6 +88,7 @@ function guestExec(provider: ProviderId, vmId: string, command: string, timeoutM
 
 function commonRefusal(result: ExecResult): AcpmuxRefusal | null {
   if (result.exitCode === ACPMUX_EXIT_TEAM_VM) return "team_vm";
+  if (result.exitCode === ACPMUX_EXIT_NO_WORK_USER) return "no_work_user";
   if (result.exitCode === 124) return "timeout";
   return null;
 }
