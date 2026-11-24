@@ -40,6 +40,10 @@ pub enum Delivery {
 
 /// The datagram kind of a class message fragment (liveness pings are 1, pongs 2).
 pub(crate) const DATAGRAM_CLASS: u8 = 3;
+/// The kind of a [`Delivery::Latest`] (class 1, screen state) fragment: the
+/// same layout as [`DATAGRAM_CLASS`]. The tunnel sends it as
+/// `cmux_wg::Priority::Screen`, repaired only above 1 % loss.
+pub(crate) const DATAGRAM_SCREEN: u8 = 4;
 /// Kind, channel (4), message number (8), fragment index (2), fragment count (2).
 pub(crate) const DATAGRAM_HEADER: usize = 17;
 /// Payload bytes per fragment: under the 1232-byte datagram limit of the
@@ -56,7 +60,8 @@ const HELD: usize = 1024;
 const ASSEMBLIES: usize = 64;
 
 /// Fragment `message` (number `seq` of `channel`) into class datagrams.
-pub(crate) fn datagrams(channel: u32, seq: u64, message: &[u8]) -> Vec<Vec<u8>> {
+pub(crate) fn datagrams(channel: u32, seq: u64, message: &[u8], delivery: Delivery) -> Vec<Vec<u8>> {
+    let kind = if delivery == Delivery::Latest { DATAGRAM_SCREEN } else { DATAGRAM_CLASS };
     let count = message.len().div_ceil(FRAGMENT).max(1);
     let Ok(count16) = u16::try_from(count) else { return Vec::new() };
     (0..count)
@@ -64,7 +69,7 @@ pub(crate) fn datagrams(channel: u32, seq: u64, message: &[u8]) -> Vec<Vec<u8>> 
             let start = index * FRAGMENT;
             let part = &message[start.min(message.len())..(start + FRAGMENT).min(message.len())];
             let mut datagram = Vec::with_capacity(DATAGRAM_HEADER + part.len());
-            datagram.push(DATAGRAM_CLASS);
+            datagram.push(kind);
             datagram.extend_from_slice(&channel.to_be_bytes());
             datagram.extend_from_slice(&seq.to_be_bytes());
             datagram.extend_from_slice(&(index as u16).to_be_bytes());
@@ -86,7 +91,7 @@ pub(crate) struct Fragment {
 }
 
 pub(crate) fn parse_datagram(datagram: &[u8]) -> Option<Fragment> {
-    if datagram.len() < DATAGRAM_HEADER || datagram[0] != DATAGRAM_CLASS {
+    if datagram.len() < DATAGRAM_HEADER || !matches!(datagram[0], DATAGRAM_CLASS | DATAGRAM_SCREEN) {
         return None;
     }
     let channel = u32::from_be_bytes(datagram[1..5].try_into().ok()?);
@@ -259,13 +264,18 @@ mod tests {
     use super::*;
 
     fn fragments(channel: u32, seq: u64, message: &[u8]) -> Vec<Fragment> {
-        datagrams(channel, seq, message).iter().map(|d| parse_datagram(d).unwrap()).collect()
+        datagrams(channel, seq, message, Delivery::Latest)
+            .iter()
+            .map(|d| parse_datagram(d).unwrap())
+            .collect()
     }
 
     #[test]
     fn datagrams_round_trip_and_fragment() {
         let message: Vec<u8> = (0..3500u32).map(|i| i as u8).collect();
-        let parts = datagrams(7, 9, &message);
+        let parts = datagrams(7, 9, &message, Delivery::Latest);
+        assert!(parts.iter().all(|d| d[0] == DATAGRAM_SCREEN));
+        assert!(datagrams(7, 9, &message, Delivery::Ordered).iter().all(|d| d[0] == DATAGRAM_CLASS));
         assert_eq!(parts.len(), 3);
         assert!(parts.iter().all(|d| d.len() <= DATAGRAM_HEADER + FRAGMENT));
         let mut sequencer = Sequencer::new(Delivery::Latest);
