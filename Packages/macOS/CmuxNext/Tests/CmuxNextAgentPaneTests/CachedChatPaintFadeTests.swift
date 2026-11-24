@@ -18,7 +18,7 @@ struct CachedChatPaintFadeTests {
 
     @Test func aPaintReportCarriesWhetherThePageDrewAKeptTail() {
         let cached = AgentPaneRequest(body: ["method": "pane.painted", "params": ["drewKeptTail": true]])
-        guard case .painted(let fromKeptTail, _) = cached else { return #expect(Bool(false), "pane.painted did not parse") }
+        guard case .painted(let fromKeptTail, _, _, _) = cached else { return #expect(Bool(false), "pane.painted did not parse") }
         #expect(fromKeptTail, "the page said it drew a kept tail and the host did not keep that")
     }
 
@@ -26,11 +26,12 @@ struct CachedChatPaintFadeTests {
     /// is what the fade was made for, so the absent fact has to mean cold.
     @Test func aPaintReportWithoutTheFactMeansTheChatWasReadCold() {
         let bare = AgentPaneRequest(body: ["method": "pane.painted", "params": [:]])
-        guard case .painted(let fromKeptTail, let settled) = bare else { return #expect(Bool(false), "pane.painted did not parse") }
+        guard case .painted(let fromKeptTail, let settled, let copy, _) = bare else { return #expect(Bool(false), "pane.painted did not parse") }
         #expect(!fromKeptTail)
         #expect(!settled, "a report that did not say settled was read as the settled view")
+        #expect(!copy, "a report that did not say copy was read as the saved copy")
         let noParams = AgentPaneRequest(body: ["method": "pane.painted"])
-        guard case .painted(let withoutParams, let settledWithoutParams) = noParams else { return #expect(Bool(false), "pane.painted did not parse") }
+        guard case .painted(let withoutParams, let settledWithoutParams, _, _) = noParams else { return #expect(Bool(false), "pane.painted did not parse") }
         #expect(!withoutParams)
         #expect(!settledWithoutParams)
     }
@@ -39,12 +40,36 @@ struct CachedChatPaintFadeTests {
     /// not a Bool (a malformed or future page) reads as absent, never as settled.
     @Test func aPaintReportCarriesWhetherItWasTheSettledView() {
         let settled = AgentPaneRequest(body: ["method": "pane.painted", "params": ["settled": true]])
-        guard case .painted(let fromKeptTail, let isSettled) = settled else { return #expect(Bool(false), "pane.painted did not parse") }
+        guard case .painted(let fromKeptTail, let isSettled, _, _) = settled else { return #expect(Bool(false), "pane.painted did not parse") }
         #expect(isSettled, "the page said it drew the settled view and the host did not keep that")
         #expect(!fromKeptTail)
         let odd = AgentPaneRequest(body: ["method": "pane.painted", "params": ["settled": "yes"]])
-        guard case .painted(_, let oddSettled) = odd else { return #expect(Bool(false), "pane.painted did not parse") }
+        guard case .painted(_, let oddSettled, _, _) = odd else { return #expect(Bool(false), "pane.painted did not parse") }
         #expect(!oddSettled)
+    }
+
+    /// The saved copy's report (chatSnapshot/live.ts) says `copy`: the relaunch bench's live-paint mark
+    /// (`agent_pane.page_painted`) waits for the page's own paint, not the inert copy.
+    @Test func aPaintReportCarriesWhetherItWasTheSavedCopy() {
+        let copy = AgentPaneRequest(body: ["method": "pane.painted", "params": ["drewKeptTail": true, "copy": true]])
+        guard case .painted(let fromKeptTail, _, let isCopy, _) = copy else { return #expect(Bool(false), "pane.painted did not parse") }
+        #expect(isCopy, "the page said it drew the saved copy and the host did not keep that")
+        #expect(fromKeptTail)
+        let odd = AgentPaneRequest(body: ["method": "pane.painted", "params": ["copy": "yes"]])
+        guard case .painted(_, _, let oddCopy, _) = odd else { return #expect(Bool(false), "pane.painted did not parse") }
+        #expect(!oddCopy)
+    }
+
+    /// A chat's first open has no settled view (acpmux writes it for the next open): the page says `live`
+    /// once its attach to the chat answered, which is what a remote chat's `agent.chat.live_paint` keys on.
+    @Test func aPaintReportCarriesWhetherTheChatOnScreenIsLive() {
+        let live = AgentPaneRequest(body: ["method": "pane.painted", "params": ["live": true]])
+        guard case .painted(_, let isSettled, let isCopy, let isLive) = live else { return #expect(Bool(false), "pane.painted did not parse") }
+        #expect(isLive, "the page said the chat on screen is live and the host did not keep that")
+        #expect(!isSettled && !isCopy)
+        let odd = AgentPaneRequest(body: ["method": "pane.painted", "params": ["live": "yes"]])
+        guard case .painted(_, _, _, let oddLive) = odd else { return #expect(Bool(false), "pane.painted did not parse") }
+        #expect(!oddLive)
     }
 
     @Test func theModelKeepsWhatTheFirstPaintSaidItDrew() async {

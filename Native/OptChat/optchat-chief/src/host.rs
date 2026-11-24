@@ -2147,6 +2147,21 @@ fn start(
     brain.set_max_live(crate::subagents::live_limit(
         env(crate::subagents::MAX_LIVE_ENV).as_deref(),
     ));
+    // The machine's own helper limit (machine_limits.rs): a ceiling from its
+    // cores and memory, and a hold while it is over budget. Queues, never
+    // refuses; OPTCHAT_MACHINE_HELPERS=0 turns it off.
+    let machine = crate::machine_limits::this_machine();
+    if let (Some(m), Some(ceiling)) = (
+        machine,
+        crate::machine_limits::ceiling_with(env(crate::machine_limits::ENV).as_deref(), machine),
+    ) {
+        brain.set_machine_limit(
+            ceiling,
+            Box::new(move || {
+                crate::machine_limits::over_budget(m, crate::machine_limits::load_now())
+            }),
+        );
+    }
     // Finished subagents' workspaces stay, names untouched, unless this says close.
     brain.set_sub_close_on_finish(env("OPTCHAT_SUBAGENT_ON_FINISH").as_deref() == Some("close"));
     // A person's message steered into the running turn and still unread

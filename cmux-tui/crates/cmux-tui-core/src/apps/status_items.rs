@@ -43,14 +43,12 @@ impl Supervisor {
     /// order (one per app: a v2 app implements an interface once).
     pub(super) fn status_items(&self) -> Value {
         let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if inner.safe_mode.is_some() {
-            return json!({ "items": [] });
-        }
         let items: Vec<StatusItem> = inner
             .mirror
             .apps
             .iter()
             .filter(|(_, record)| record.installed && record.enabled && !record.hidden)
+            .filter(|(app, _)| !super::safe_mode_bisect::held_off(&inner, app))
             .filter_map(|(app, _)| {
                 let manifest = &inner.catalog.packages.get(app)?.manifest;
                 let entry = manifest.get("implements")?.get(INTERFACE)?;

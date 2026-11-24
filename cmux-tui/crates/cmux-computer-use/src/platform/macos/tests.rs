@@ -1109,7 +1109,10 @@ fn blocked_in(
 
 #[test]
 fn a_denied_app_is_never_reachable_through_menus_in_any_language() {
-    let guard = PolicyGuard(crate::policy::PolicyConfig::default()); // Terminal, Keychain, System Settings, Ghostty, ...
+    // Keychain, System Settings, ... (the default) plus Terminal and Ghostty.
+    let mut config = crate::policy::PolicyConfig::default();
+    config.denied_apps.extend(["com.apple.Terminal".into(), "com.mitchellh.ghostty".into()]);
+    let guard = PolicyGuard(config);
     // German Apple menu > Benutzte Objekte (Recent Items): by structure (Apple menu, a submenu), not by title.
     let recent = ["Programme", "Terminal", "TextEdit", "notizen.txt", "Menü löschen"];
     assert!(blocked_in(&guard, Some(0), 2, &recent, "Terminal"));
@@ -2155,7 +2158,9 @@ fn a_shortcut_blocked_only_while_names_load_says_they_are_loading() {
 #[test]
 fn a_menu_item_check_tells_a_real_block_from_a_name_not_resolved_yet() {
     use roles::{ItemCheck, MenuItemContext, menu_item_check};
-    let guard = PolicyGuard(crate::policy::PolicyConfig::default());
+    let mut config = crate::policy::PolicyConfig::default();
+    config.denied_apps.push("com.apple.Terminal".into());
+    let guard = PolicyGuard(config);
     let ctx =
         |t| MenuItemContext { title: t, top_index: None, depth: 1, siblings: &[], launch: None };
     let loading = |_: &str| -> Option<Vec<String>> { None };
@@ -2227,8 +2232,10 @@ fn a_refusal_names_why_an_item_is_blocked() {
 #[test]
 fn an_open_with_item_naming_an_allowed_app_is_allowed_once_the_index_is_built() {
     use crate::menus::BlockReason;
-    // The default deny list is not empty (Terminal is on it).
-    let guard = PolicyGuard(crate::policy::PolicyConfig::default());
+    // The default deny list is not empty; Terminal is denied on top of it.
+    let mut config = crate::policy::PolicyConfig::default();
+    config.denied_apps.push("com.apple.Terminal".into());
+    let guard = PolicyGuard(config);
     let open_with = vec!["Open With".to_string()];
     let index = |n: &str| -> Option<Vec<String>> {
         Some(match n.to_lowercase().as_str() {
