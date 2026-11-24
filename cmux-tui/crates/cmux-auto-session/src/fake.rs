@@ -118,6 +118,19 @@ impl FakeAutoCloud {
         self.as_caller(Caller::Owner)
     }
 
+    /// The same store, called by another install of the owner's that holds chats (a second
+    /// laptop), `install` its install id.
+    pub fn as_install(&self, install: &str) -> FakeAutoCloud {
+        let _ = install;
+        self.as_caller(Caller::Owner)
+    }
+
+    /// The same store, called by an install of the owner's that never holds a chat: a phone or
+    /// a browser session.
+    pub fn as_phone(&self) -> FakeAutoCloud {
+        self.as_caller(Caller::Owner)
+    }
+
     /// The same store, called as the VM install of `machine`, one of the owner's Cloud
     /// machines (the Auto machine or another). Its holder is `vm:<machine>`, and it reaches
     /// only the chats that machine holds.
