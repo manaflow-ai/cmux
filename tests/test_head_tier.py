@@ -177,7 +177,6 @@ GATED = {
     "cmux-rd-windows.yml": "pull_request",
     "cmux-vnc.yml": "pull_request",
     "ios-e2e.yml": "pull_request",
-    "ios-reliability-matrix.yml": "pull_request",
     "iroh-v2.yml": "pull_request",
     "measure-swift-typecheck.yml": "pull_request",
     "relay-tls.yml": "pull_request",
