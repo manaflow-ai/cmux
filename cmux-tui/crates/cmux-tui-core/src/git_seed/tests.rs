@@ -751,6 +751,7 @@ mod export;
 mod head_first;
 mod hold;
 mod moves;
+mod play;
 
 #[test]
 fn clone_job_releases_only_successful_repository_sync() {

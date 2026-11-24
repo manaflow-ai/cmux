@@ -377,7 +377,9 @@ pub fn wait_filled(path: &Path, timeout: Duration) -> io::Result<()> {
         let state = probe_with(path, |folder, path| {
             let relative = path.strip_prefix(folder).unwrap_or(Path::new(""));
             let relative = relative.to_string_lossy();
-            let is_dir = std::fs::symlink_metadata(path).is_ok_and(|meta| meta.is_dir());
+            // A path not there yet may be a folder still to come (`a/b` while only `a/`'s
+            // own files are in): only a whole folder's line (`a/**`) holds it.
+            let is_dir = std::fs::symlink_metadata(path).map_or(true, |meta| meta.is_dir());
             let mut ledger = String::new();
             if let Ok(mut file) = open(&filled_ledger(folder)?, false) {
                 file.read_to_string(&mut ledger)?;
