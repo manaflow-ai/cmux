@@ -36,7 +36,7 @@ public final class DisplaySleep {
     }
 
     /// Whether `screen`'s display draws no frames now.
-    public func isAsleep(_ screen: NSScreen) -> Bool {
+    func isAsleep(_ screen: NSScreen) -> Bool {
         if let override = Self.asleepOverride { return override }
         guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { return false }
         return CGDisplayIsAsleep(CGDirectDisplayID(number.uint32Value)) != 0
