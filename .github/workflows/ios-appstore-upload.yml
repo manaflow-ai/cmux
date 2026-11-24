@@ -329,7 +329,8 @@ jobs:
             echo "::error::No Xcode 27.1 on this runner; App Store Connect needs the iOS 27 SDK (ITMS-90725)." >&2
             exit 1
           fi
-          sdk="$(DEVELOPER_DIR="$pick/Contents/Developer" xcrun --sdk iphoneos --show-sdk-version)"
+          # Read the SDK from its settings file: the toolchain runs only after Select Xcode.
+          sdk="$(/usr/libexec/PlistBuddy -c 'Print :Version' "$pick/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk/SDKSettings.plist")"
           case "$sdk" in 27|27.*) ;; *) echo "::error::$pick has iOS SDK $sdk, not 27" >&2; exit 1 ;; esac
           echo "Pinned $pick (iOS SDK $sdk) for App Store Connect"
           echo "CMUX_CI_XCODE_APP=$pick" >> "$GITHUB_ENV"
