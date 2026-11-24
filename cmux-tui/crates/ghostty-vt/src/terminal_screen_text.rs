@@ -43,13 +43,11 @@ impl Terminal {
     /// row), whether each cell carries an OSC 8 hyperlink, and the row's
     /// soft-wrap flag; `None` past the last retained row. The projection
     /// parity harness reads the Mac's grid with it.
-    pub fn styled_screen_row(&self, row: u64) -> Option<(Vec<crate::Cell>, Vec<bool>, bool)> {
+    pub fn styled_screen_row(&self, row: u64) -> Option<(Vec<Cell>, Vec<bool>, bool)> {
         let cols = self.cols();
         let tag = sys::GHOSTTY_POINT_TAG_SCREEN;
         let first = self.grid_ref(tag, 0, row)?;
-        let palette =
-            crate::render::terminal_palette(self.raw, sys::GHOSTTY_TERMINAL_DATA_COLOR_PALETTE)
-                .ok()?;
+        let palette = terminal_palette(self.raw, sys::GHOSTTY_TERMINAL_DATA_COLOR_PALETTE).ok()?;
         // One page-list walk for the row when both ends land on the same
         // page row (see `styled_history_rows`).
         let whole_row = cols == 1
@@ -65,9 +63,7 @@ impl Terminal {
             } else {
                 self.grid_ref(tag, x, row)?
             };
-            cells.push(
-                crate::render::read_grid_ref_cell(&grid_ref, &palette, &mut grapheme_buf).ok()?,
-            );
+            cells.push(read_grid_ref_cell(&grid_ref, &palette, &mut grapheme_buf).ok()?);
             let mut raw = sys::GhosttyCell::default();
             check(unsafe { sys::ghostty_grid_ref_cell(&grid_ref, &mut raw) }).ok()?;
             let mut link = false;

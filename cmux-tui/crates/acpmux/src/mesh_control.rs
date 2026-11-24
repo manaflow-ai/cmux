@@ -8,12 +8,48 @@
 //! allowed by the target owner's `meshRelay.controlFrom`, then uses existing peer rules.
 //! Claimed user, host, name and session fields never confer authority.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::future::Future;
 use std::sync::Arc;
 
 const MAX_BODY_BYTES: usize = 64 * 1024;
+
+/// What an authenticated driver asks the holder to move. The local RPC names a source in
+/// `moveOut`; on the mesh the envelope carries the protocol `version` instead.
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct MoveOutParams {
+    pub session_id: String,
+    pub to: String,
+    #[serde(default)]
+    pub after_turn: bool,
+    #[serde(default)]
+    pub interrupt: bool,
+    #[serde(default = "move_timeout_secs")]
+    pub timeout_secs: u64,
+}
+
+fn move_timeout_secs() -> u64 {
+    crate::cli::run::session_move::DEFAULT_TURN_TIMEOUT.as_secs()
+}
+
+impl MoveOutParams {
+    pub fn parse(mut value: Value, envelope_field: &str) -> Result<Self, String> {
+        if let Some(object) = value.as_object_mut() {
+            object.remove(envelope_field);
+        }
+        let args: Self =
+            serde_json::from_value(value).map_err(|e| format!("invalid move_out: {e}"))?;
+        if args.session_id.trim().is_empty() || args.to.trim().is_empty() {
+            return Err("move_out needs a sessionId and a target".into());
+        }
+        if args.after_turn && args.interrupt {
+            return Err("move_out cannot combine afterTurn and interrupt".into());
+        }
+        Ok(args)
+    }
+}
 
 /// Hub lookup keys. Names remain names until the hub resolves them, refusing ambiguity.
 #[derive(Clone, Debug, Serialize)]

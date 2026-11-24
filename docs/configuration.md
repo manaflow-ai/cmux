@@ -278,7 +278,7 @@ The Cards, Default, Threads and Console pages no longer ship as templates: each 
 
 ## `tabs.newTabApp`
 
-An extension that draws the whole New Tab page, by its app id. The extension implements
+An extension that draws over the New Tab composer, by its app id. The extension implements
 `cmux.newtab/1` (see `cmux-tui/crates/cmux-extension-sdk/README.md`). Unset (the default), cmux
 draws its own page, as above.
 

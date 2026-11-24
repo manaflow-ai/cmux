@@ -297,12 +297,30 @@ arm() {
     kill "$presser" 2>/dev/null; wait "$presser" 2>/dev/null
     local seen=false; grep -q 'LF-PROMPT' "$OUT/prompts-$tag.log" 2>/dev/null && seen=true
     extra="{\"prompt_seen\": $seen, \"quarantine\": \"$(qattr "$target" | cut -c1-40)\", \"ran_from\": \"$target\"}"
+    # No window: say why in the step log, before the prompt is cancelled (the logs below stay on the Mac otherwise).
+    [[ "$json" == *'"error"'* ]] && first_install_diag "$tag" "$target"
     sweep_prompts Cancel "after $tag"
   fi
   gone "$target"
   record "$scenario" "$rep" "$json" "$extra"
   [[ "$scenario" == first-install ]] && rm -rf "$OUT/fi/$tag"
   [[ "$json" != *'"error"'* ]]
+}
+
+# first_install_diag TAG TARGET: LM-DIAG lines for a first-install launch that showed no window: what the presser
+# saw, the prompt owners' windows now against the baseline, the app's processes, and Gatekeeper's last 90 s of log.
+first_install_diag() {
+  local tag="$1" target="$2" f
+  for f in "$OUT/prompts-$tag.log" "$OUT/prompts.log"; do
+    echo "LM-DIAG $tag $(basename "$f") lines=$(wc -l <"$f" 2>/dev/null | tr -d ' ')"
+    tail -n 6 "$f" 2>/dev/null | cut -c1-600 | sed "s/^/LM-DIAG $tag   /"
+  done
+  echo "LM-DIAG $tag prompt-owner windows now: [$(prompts ids 2>&1 | cut -c1-300)] baseline: [${PROMPT_BASELINE:-}] cua: ${CUA:-none}"
+  ps -axo pid,ppid,user,etime,comm | grep -E "CoreServicesUIAgent|syspolicyd|XprotectService|$(basename "$target" .app)" | grep -v grep \
+    | cut -c1-200 | sed "s/^/LM-DIAG $tag ps /"
+  log show --last 90s --style compact \
+    --predicate 'process == "syspolicyd" OR process == "CoreServicesUIAgent" OR process == "XprotectService"' 2>/dev/null \
+    | grep -iE 'gatekeeper|quarantine|prompt|assess|notariz|denied|error|scan' | tail -n 25 | cut -c1-400 | sed "s/^/LM-DIAG $tag log /"
 }
 
 # evict APP: the bundle out of the page cache; prints the row's evict fields.
