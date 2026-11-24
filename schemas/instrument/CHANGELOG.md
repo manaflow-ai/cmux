@@ -7,7 +7,7 @@ system (cmuxterm-hq RFD 0034). A version moves when a token's Instrument value o
 Semver for a design system: a patch moves no pixel (a source, a note, a renamed path); a minor applies
 pending values (a default moves, the pending list shrinks); a major changes a seed or a rule.
 
-## 0.1.2 (2026-11-24)
+## 0.1.3 (2026-11-24)
 
 A patch: one token added at the value the app draws, no pixel moves.
 
@@ -16,6 +16,20 @@ A patch: one token added at the value the app draws, no pixel moves.
   it is now the public look token `--cv-activity-text` (`schemas/agent-pane/style-tokens.json`), so a
   look on a tinted page sets it to hold 4.5:1. `conversation.css` sets that look token's default through
   `var(--instrument-ink-activity, ...)`, the stylesheet source 0.1.1 added.
+
+## 0.1.2 (2026-11-24)
+
+The second half of RFD 0116 section 9's type tokens, each at the value the app draws today. A patch: no pixel
+moves.
+
+- Faces: `type.chrome.family` (the system stack in `type-scale.json`, drawn as `--font-ui`) and
+  `type.chat.family` (`var(--font-ui)`, the transcript's `--cv-font`).
+- Tracking: `type.chat.tracking` 0px behind `--cv-tracking`; `type.<step>.tracking` for each chrome step as a
+  rule, 0em, because `check-ui-font.py` pins `--text-<step>--letter-spacing` to 0em and a token there would
+  change that pin.
+- `type.numerals`: tabular numerals as a role (`tabular-nums`), read by the 26 declarations in
+  `conversation.css` that draw them; the places that draw proportional numerals keep them.
+- `link.underline`: `underline`, the transcript link's decoration.
 
 ## 0.1.1 (2026-11-24)
 
