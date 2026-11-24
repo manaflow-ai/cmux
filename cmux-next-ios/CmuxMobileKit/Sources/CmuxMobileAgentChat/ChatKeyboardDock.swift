@@ -1403,6 +1403,7 @@ private final class TopFadeView: UIView {
 extension ChatTranscriptController: ComposerProofHost {
     var proofView: UIView { view }
     var proofCardFrame: CGRect { surface.drawnStackFrame }
+    var proofField: ComposerReturnTextView? { surface.composerField.view }
     var proofContentY: CGFloat? { scrollView.convert(CGPoint.zero, to: nil).y }
     func proofSetText(_ text: String) { surface.text = text }
     func proofSetAttachments(_ count: Int) {

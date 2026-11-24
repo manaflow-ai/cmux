@@ -146,6 +146,14 @@ open class ComposerReturnTextView: UITextView {
         return abs(fittingSize(proposedWidth: bounds.width).height - bounds.height) > 0.5
     }
 
+    /// Whether the caret's line is wholly inside the field's visible rect.
+    public var caretInView: Bool {
+        guard let end = selectedTextRange?.end else { return true }
+        let caret = caretRect(for: end)
+        guard caret.height > 0, !caret.isNull, !caret.isInfinite else { return true }
+        return bounds.insetBy(dx: 0, dy: -0.5).contains(CGRect(x: bounds.minX + 1, y: caret.minY, width: 1, height: caret.height))
+    }
+
     /// Whether the text is taller than the field (it scrolls inside).
     public var textOverflows: Bool { contentSize.height > bounds.height + 0.5 }
 
@@ -184,9 +192,20 @@ open class ComposerReturnTextView: UITextView {
     }
     #endif
 
+    /// The height the last layout pass saw: a change (an attachment strip
+    /// taking or giving back its share of the cap) keeps the caret in view.
+    private var laidOutHeight: CGFloat = 0
+
     override open func layoutSubviews() {
         super.layoutSubviews()
-        if !textOverflows { pinToTop() }
+        if !textOverflows {
+            pinToTop()
+        } else if abs(bounds.height - laidOutHeight) > 0.5, laidOutHeight > 0 {
+            // The field shrank under a strip: without this the text stays
+            // at its old offset and the caret line sits below the field.
+            followCaret()
+        }
+        laidOutHeight = bounds.height
         let width = max(0, bounds.width - textContainerInset.left - textContainerInset.right)
         let size = placeholderLabel.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
         placeholderLabel.frame = CGRect(x: textContainerInset.left + textContainer.lineFragmentPadding, y: textContainerInset.top,

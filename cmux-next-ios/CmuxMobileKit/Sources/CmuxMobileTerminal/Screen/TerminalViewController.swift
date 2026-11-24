@@ -5111,6 +5111,7 @@ extension TerminalViewController: ComposerProofHost {
     func proofSetKeyboard(_ up: Bool) {
         if up { model.focusComposer() } else { view.endEditing(true) }
     }
+    var proofField: ComposerReturnTextView? { model.composerField.view }
 }
 #endif
 #endif

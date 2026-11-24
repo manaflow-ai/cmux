@@ -76,6 +76,12 @@ final class ComposerHeightCapUITests: XCTestCase {
                                                      "5", "\(attachments)"] + extra)
                     rows += readings.lines.map { "\(screen.0) \(label) \($0)" }
                     cards["\(label)-\(attachments)"] = readings.height(lines: 5, attachments: attachments, keyboard: true)
+                    if label == "after" {
+                        // The strip takes part of the field: the line being typed stays in view.
+                        for h in readings.heights where h.keyboard {
+                            XCTAssertEqual(h.caret, "in", "\(name): the caret line is hidden under the field's edge")
+                        }
+                    }
                 }
             }
             if let before = cards["before-4"], let after = cards["after-4"], let plain = cards["after-0"] {
@@ -90,7 +96,7 @@ final class ComposerHeightCapUITests: XCTestCase {
     // MARK: Readings
 
     struct Shift { var lines: Int; var adding: Bool; var attachments: Int; var frames: Int; var max: Double }
-    struct Height { var lines: Int; var attachments: Int; var keyboard: Bool; var card: Double; var frac: Double }
+    struct Height { var lines: Int; var attachments: Int; var keyboard: Bool; var card: Double; var frac: Double; var caret: String }
     struct Readings {
         var lines: [String]
         var heights: [Height]
@@ -157,7 +163,7 @@ final class ComposerHeightCapUITests: XCTestCase {
             if line.hasPrefix("h ") {
                 heights.append(Height(lines: Int(fields["L"] ?? "") ?? 0, attachments: Int(fields["A"] ?? "") ?? 0,
                                       keyboard: fields["kb"] == "up", card: Double(fields["card"] ?? "") ?? 0,
-                                      frac: Double(fields["frac"] ?? "") ?? 0))
+                                      frac: Double(fields["frac"] ?? "") ?? 0, caret: fields["caret"] ?? "-"))
             } else if line.hasPrefix("shift ") {
                 shifts.append(Shift(lines: Int(fields["L"] ?? "") ?? 0, adding: line.contains(" add "),
                                     attachments: Int(fields["A"] ?? "") ?? 0, frames: Int(fields["frames"] ?? "") ?? -1,
