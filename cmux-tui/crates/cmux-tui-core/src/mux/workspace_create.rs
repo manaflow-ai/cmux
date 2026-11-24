@@ -168,8 +168,9 @@ impl Mux {
                 .as_ref()
                 .map_or(&workspace_public_id, |(_, public_id)| public_id)
                 .clone();
-            let mut desired = self.registry_projection(&state);
-            desired.push(RegistryWorkspace {
+            // An append: the commit is told so, and its work follows this one workspace, not
+            // the count of workspaces (no copy of the list, no order change naming each one).
+            let created = RegistryWorkspace {
                 id: ws_id,
                 public_id: workspace_public_id.clone(),
                 key: key.clone(),
@@ -177,7 +178,9 @@ impl Mux {
                 name_source,
                 name_revision: 0,
                 group_key: self.session.clone(),
-            });
+            };
+            let insert =
+                crate::workspace_registry::WorkspaceInsert { workspace: &created, position: index };
             let result = serde_json::json!({
                 "workspace": ws_id,
                 "workspace_id": workspace_public_id.as_str(),
@@ -185,16 +188,17 @@ impl Mux {
                 "index": index,
             });
             let commit = if project_resource {
-                registry.commit_with_active_workspace(
+                registry.commit_workspace_insert(
                     mutation,
                     &fingerprint,
                     expected_generation,
                     expected_revision,
                     "workspace-added",
-                    &key,
-                    &desired,
+                    insert,
                     Some(&active_public_id),
                     &result,
+                    true,
+                    None,
                 )?
             } else {
                 let marked = workspace_public_id.as_str().to_string();
@@ -202,16 +206,17 @@ impl Mux {
                 let writes = mark.writes();
                 let write_mark =
                     move |tx: &rusqlite::Transaction<'_>| mark.write(tx, &marked, &marked_key);
-                registry.commit_for_resource_effect_with(
+                // Staged for the resource effect, as `commit_for_resource_effect_with`.
+                registry.commit_workspace_insert(
                     mutation,
                     &fingerprint,
                     expected_generation,
                     expected_revision,
                     "workspace-added",
-                    &key,
-                    &desired,
+                    insert,
                     Some(&active_public_id),
                     &result,
+                    false,
                     writes.then_some(
                         &write_mark as crate::workspace_registry::RegistryTransactionWrite<'_>,
                     ),
