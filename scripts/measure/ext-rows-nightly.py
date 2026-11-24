@@ -407,6 +407,23 @@ def row_ext_new(ctx: Ctx) -> dict:
     return {"checks": {f"kind_{k}": v["ok"] for k, v in per_kind.items()} | {"kinds_listed": bool(kinds)},
             "kinds": kinds, "per_kind": per_kind}
 
+
+def row_leo_customizer(ctx: Ctx) -> dict:
+    """Opt-in (rows=leo_customizer): leo-workspace apps/leo-customizer (#9909), copied into
+    scripts/measure/leo-customizer, loaded with `ext dev --once --json` and pictured with `ext shot --json`."""
+    folder = ctx.work / "leo-customizer"
+    shutil.rmtree(folder, ignore_errors=True)
+    shutil.copytree(Path(__file__).resolve().parent / "leo-customizer", folder)
+    dev = ctx.ext(["ext", "dev", str(folder), "--once", "--json"])
+    png = ctx.work / "leo-customizer.png"
+    shot = ctx.ext(["ext", "shot", str(folder), "--json", "--out", str(png)])
+    (ctx.work / "leo-customizer-dev.json").write_text(json.dumps(dev, indent=2))
+    (ctx.work / "leo-customizer-shot.json").write_text(json.dumps(shot, indent=2))
+    scene = scene_of(shot) or scene_of(dev)
+    return {"checks": {"dev_exit_0": dev.get("exit") == 0, "shot_exit_0": shot.get("exit") == 0,
+                       "png": png.is_file(), "scene": bool(scene)},
+            "dev": dev, "shot": shot, "scene": scene}
+
 SIDE = Path(__file__).resolve().parents[2] / "scripts/cmux-next/side-instance.sh"
 
 
@@ -754,7 +771,9 @@ ROWS = {
     "newtab": (row_newtab, "#42998"),
     "web_pane": (row_web_pane, "#41546 #43033"),
     "widget": (row_widget, "#45106"),
+    "leo_customizer": (row_leo_customizer, "leo-workspace#9909"),
 }
+OPT_IN = {"leo_customizer"}
 
 
 def run_rows(ctx: Ctx, names: list[str]) -> dict:
@@ -810,7 +829,7 @@ def main() -> int:
     parser.add_argument("--mcp-config", type=Path, help="the private settings file prepared for the MCP probe")
     parser.add_argument("--customize", required=True, help="the copy's own customize folder")
     parser.add_argument("--out", required=True)
-    parser.add_argument("--rows", default=",".join(ROWS))
+    parser.add_argument("--rows", default=",".join(n for n in ROWS if n not in OPT_IN))
     args = parser.parse_args()
     names = [n for n in args.rows.split(",") if n]
     unknown = [n for n in names if n not in ROWS]
