@@ -189,6 +189,33 @@ fn a_listing_the_index_moved_under_answers_without_waiting_for_the_read() {
     assert_eq!(read_probe::count(Read::Listing, &repo), 2);
 }
 
+/// Asks that come while the read behind a moved index runs do not mark that
+/// read stale before it lands: the Files page's refresh lists several folders
+/// at once, and each of them used to invalidate the index again, so the read
+/// behind landed stale and the next ask ran a third read.
+#[test]
+fn asks_during_the_read_behind_do_not_spend_it() {
+    let temp = Temp::new("asks-during");
+    let repo = repository(&temp, 3);
+    list_folder(&repo, "");
+    write(&repo, "d01/added.txt");
+    git(&repo, &["add", "d01/added.txt"]);
+    read_probe::slow(Read::Listing, &repo, Duration::from_millis(800));
+    list_folder(&repo, "");
+    wait_for_reads(Read::Listing, &repo, 2);
+    // The read behind sleeps 800 ms: these all come while it runs.
+    for folder in ["d00", "d02", "d00"] {
+        list_folder(&repo, folder);
+    }
+    let start = Instant::now();
+    while search(&repo, "added") != ["d01/added.txt"] {
+        assert!(start.elapsed() < Duration::from_secs(20), "the read behind never landed");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    list_folder(&repo, "d00");
+    assert_eq!(read_probe::count(Read::Listing, &repo), 2, "the read behind landed stale");
+}
+
 /// A new untracked file in the folder the page lists shows on its next
 /// listing: the folder changed after the cached listing was read, so the
 /// listing is read again before the answer, never served without it.

@@ -67,6 +67,7 @@ dependencies = [
  "cmux-source-scan",
  "cmux-stack-auth",
  "cmux-supervise-core",
+ "cmux-tag-cache",
  "cmux-tailnet",
  "cmux-transport",
  "cmux-tui-hooks",
@@ -2539,6 +2540,19 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "tokio",
+ "zstd",
+]
+
+[[package]]
+name = "cmux-session-pack"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "blake3",
+ "memchr",
+ "serde",
+ "serde_json",
+ "tempfile",
  "zstd",
 ]
 

@@ -314,3 +314,81 @@ async fn ensure_records_a_new_trigger_chat_as_a_scripts() {
         })
     );
 }
+
+/// The turns the journal admitted for `delivery`: its daemon-written `queued` and `user_message`
+/// records (a prompt that waits behind a running turn is `queued` first), by turn id.
+fn admitted_turns(hub: &Hub, session: &str, delivery: &str) -> std::collections::BTreeSet<String> {
+    hub.events(session, 0, 10_000)
+        .expect("events")
+        .into_iter()
+        .filter(|rec| {
+            rec.dir == "mux"
+                && matches!(rec.kind.as_str(), "queued" | "user_message")
+                && rec.msg.get("promptId").and_then(Value::as_str) == Some(delivery)
+        })
+        .filter_map(|rec| rec.msg.get("turnId").and_then(Value::as_str).map(str::to_owned))
+        .collect()
+}
+
+/// Wake kind 3 (RFD 0017): a CI result reaches a paused machine, the platform wakes it and calls
+/// `ensure` then `send`. Its delivery is retried with the same delivery id whenever an attempt's
+/// answer is lost: the attempt waited out a slow wake, the platform crashed after the send, or a
+/// second alarm ran beside a hung one (TriggerObject.ts `drain`). Every retry, in turn or at once,
+/// must answer with the first send's turn: the chat runs the event exactly once.
+#[tokio::test]
+async fn a_retried_trigger_delivery_runs_its_turn_once_in_turn_or_at_once() {
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let mut config: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", fake]}},
+        "webRoots": [std::env::temp_dir()],
+        "webAskingModes": {"fake": ["normal", "strict"]},
+    }))
+    .expect("config");
+    config.store.mode = StoreMode::Memory;
+    let store = crate::store::open(&config.store, Path::new("/nonexistent")).expect("memory store");
+    let hub = Hub::new(config, store);
+    let body = "CI failed on lane/x: fix it";
+    let mut scoped = scope();
+    scoped.harness = "fake".into();
+    scoped.cwd = std::env::temp_dir().to_string_lossy().into_owned();
+    scoped.prompt_hash = format!("{:x}", sha2::Sha256::digest(body.as_bytes()));
+    // The retried attempt calls ensure again: it finds the chat the first one started.
+    ensure(&hub, &scoped).await.expect("first ensure");
+    let again = ensure(&hub, &scoped).await.expect("retried ensure");
+    assert_eq!(again["session"], scoped.session);
+
+    let first = send(&hub, &scoped, body.to_owned()).await.expect("first send");
+    let turn = first["turnId"].as_str().expect("first send's turn").to_owned();
+    assert_eq!(first["duplicate"], false);
+    // A retry after the answer was lost, then two at once (a second alarm beside a hung one).
+    let retried = send(&hub, &scoped, body.to_owned()).await.expect("retried send");
+    let (a, b) =
+        tokio::join!(send(&hub, &scoped, body.to_owned()), send(&hub, &scoped, body.to_owned()));
+    for answer in [retried, a.expect("concurrent send a"), b.expect("concurrent send b")] {
+        assert_eq!(answer["turnId"], turn.as_str(), "a retry answers with the first turn");
+        assert_eq!(answer["duplicate"], true, "a retry is a replay");
+    }
+    let session = hub.resolve(&scoped.session).expect("trigger chat");
+    let admitted = admitted_turns(&hub, &session.id, &scoped.delivery);
+    assert_eq!(
+        admitted.into_iter().collect::<Vec<_>>(),
+        [turn.clone()],
+        "one turn, not one per retry"
+    );
+
+    // A second event whose first two sends race (the slow wake's attempt and its retry both reach
+    // the guest before either is journaled): one turn, and both answer with it.
+    let mut second = scoped.clone();
+    second.delivery = "delivery-2".into();
+    let (a, b) =
+        tokio::join!(send(&hub, &second, body.to_owned()), send(&hub, &second, body.to_owned()));
+    let (a, b) = (a.expect("racing send a"), b.expect("racing send b"));
+    assert_eq!(a["turnId"], b["turnId"], "racing first sends answer with one turn");
+    let admitted = admitted_turns(&hub, &session.id, "delivery-2");
+    assert_eq!(
+        admitted.into_iter().collect::<Vec<_>>(),
+        [a["turnId"].as_str().expect("racing turn").to_owned()],
+        "racing first sends admitted one turn"
+    );
+    hub.shutdown_all().await;
+}
