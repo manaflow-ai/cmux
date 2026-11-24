@@ -1,0 +1,102 @@
+// Lamina Tide: a layered, translucent desktop look (accent-forward teal, dark). Pane and control corners 4 and 8,
+// one-point strokes, no reveal effects, an accent mark on the selected row. Every key is a look key.
+{
+  "name": "Lamina Tide",
+  "description": "A layered, translucent desktop look: accent-forward teal, dark.",
+
+  // Palette: layer color, ink, selection, accent.
+  "appearance.theme": "Builtin Dark",
+  "colors": {"background": "#141f1f", "foreground": "#eef6f5", "selection": "#1f4a47", "accent": "#2dd4bf"},
+  "appearance.appTheme": "followTerminal",
+  "appearance.accent": "theme",
+  "appearance.highlightColor": "#1f4a47",
+
+  // Glass: how much of the desktop shows through the layers.
+  "appearance.background": "none",
+  "appearance.backgroundBlur": "frosted",
+  "appearance.backgroundOpacity": 0.9,
+  "appearance.glassTransparency": 0.1,
+  "appearance.wallpaperTint": true,
+  "appearance.inactiveWindowDim": 0.05,
+  "appearance.hue": 0.5,
+  "appearance.saturation": 1.1,
+
+  // Chrome: cards with a one-point stroke, a subtle tone in the title area.
+  "appearance.chromeStyle": "card-outlined",
+  "appearance.borders": "default",
+  "appearance.titleAreaTone": "subtleTone",
+  "appearance.titleAreaContrast": 0.9,
+  "appearance.cornerFlush": "off",
+  "appearance.focusIndicator": "tabs",
+  "focus.inactiveTabStyle": "tonal",
+
+  // Layers: sidebar and docks lowest, title and tabs next, content on top.
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#1a2a29",
+  "appearance.surfaces.sidebar.opacity": 0.75,
+  "appearance.surfaces.tabBar.color": "#141f1f",
+  "appearance.surfaces.tabBar.opacity": 0.88,
+  "appearance.surfaces.agentPane.color": "#172524",
+  "appearance.surfaces.agentPane.opacity": 0.94,
+  "appearance.surfaces.terminal.color": "#111a1a",
+  "appearance.surfaces.terminal.opacity": 0.94,
+  "appearance.surfaces.newTabPage.color": "#172524",
+  "appearance.surfaces.newTabPage.opacity": 0.94,
+  "appearance.surfaces.home.color": "#172524",
+  "appearance.surfaces.home.opacity": 0.94,
+  "appearance.surfaces.settings.color": "#172524",
+  "appearance.surfaces.settings.opacity": 0.94,
+  "appearance.surfaces.internalPage.color": "#172524",
+  "appearance.surfaces.internalPage.opacity": 0.94,
+  "appearance.surfaces.markdown.color": "#172524",
+  "appearance.surfaces.markdown.opacity": 0.94,
+  "appearance.surfaces.diff.color": "#172524",
+  "appearance.surfaces.diff.opacity": 0.94,
+  "appearance.surfaces.editor.color": "#172524",
+  "appearance.surfaces.editor.opacity": 0.94,
+  "appearance.surfaces.browserChrome.color": "#141f1f",
+  "appearance.surfaces.browserChrome.opacity": 0.88,
+  "appearance.surfaces.docks.color": "#1a2a29",
+  "appearance.surfaces.docks.opacity": 0.75,
+  "appearance.surfaces.splitDivider.color": "#2b4240",
+  "appearance.surfaces.splitDivider.opacity": 1,
+
+  // Panes: 8 point corners, one-point stroke.
+  "layout.paneCornerRadius": 8,
+  "layout.paneBorderWidth": 1,
+  "layout.cornerPadding": 4,
+
+  // Sidebar: compact rows, a one-point edge, the accent on the selected row.
+  "sidebar.border": true,
+  "sidebar.borderWidth": 1,
+  "sidebar.sectionLook": "card",
+  "sidebar.density": "compact",
+  "sidebar.groupHeader.background": "sections",
+
+  // Density and metrics.
+  "appearance.density": "compact",
+  "appearance.metrics.sidebarRowHeight": 28,
+  "appearance.metrics.titlebarHeight": 32,
+  "appearance.metrics.tabStripHeight": 30,
+  "appearance.metrics.tabFontSize": 12,
+  "appearance.metrics.chromeFontSize": 12,
+  "appearance.metrics.dividerThickness": 1,
+  "appearance.fontSmoothing": "auto",
+
+  // Type: the system face in the chat, a slightly smaller code scale.
+  "agentPane.display.font.preset": "system",
+  "agentPane.display.font.ui": "system-ui",
+  "agentPane.display.font.size": 14,
+  "agentPane.display.font.lineHeight": 1.5,
+  "agentPane.display.code.scale": 0.9,
+
+  // Status: work in progress shows as a thin ring in the accent.
+  "appearance.statusIndicator.style": "arc",
+  "appearance.statusIndicator.size": 1,
+  "appearance.statusIndicator.thickness": 2,
+  "appearance.statusIndicator.color": "#2dd4bf",
+
+  // Motion: short color changes, nothing slides in.
+  "appearance.colorTransition.duration": 120,
+  "appearance.colorTransition.curve": "easeOut"
+}
