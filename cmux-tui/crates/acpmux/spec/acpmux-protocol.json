@@ -1873,6 +1873,24 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/transfer_history",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/transfer_history_export",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/transfer_history_have",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/transfer_prepare",
       "params": true,
       "result": true
@@ -6752,6 +6770,10 @@
           "default": null,
           "description": "Who created it (`hub/created_by.rs`): `{kind: \"person\"|\"agent\"|\"script\", workspace?,\nsession?}`, decided by the daemon from the connection, never from a request value.\nNull for a fork, a moved-in session and one saved before it existed; absent from a\npeer on an older acpmux."
         },
+        "credentialOnlyHere": {
+          "description": "It holds its owner's launch credential (`agent_credentials.rs`) while its agent is\nhibernated, so the credential is in this daemon's memory and nowhere else: a daemon restart\nnow loses it, and the chat's next start runs without it. `acpmux session wake` starts the\nagent, whose env then carries the credential across the restart; a machine update does that\nbefore it restarts this daemon. Says only that one is held, never its name or value. Absent\notherwise, and from an older acpmux.",
+          "type": "boolean"
+        },
         "currentModeId": {
           "type": [
             "string",
@@ -7725,6 +7747,10 @@
           ],
           "default": null,
           "description": "Who created it (`hub/created_by.rs`): `{kind: \"person\"|\"agent\"|\"script\", workspace?,\nsession?}`, decided by the daemon from the connection, never from a request value.\nNull for a fork, a moved-in session and one saved before it existed; absent from a\npeer on an older acpmux."
+        },
+        "credentialOnlyHere": {
+          "description": "It holds its owner's launch credential (`agent_credentials.rs`) while its agent is\nhibernated, so the credential is in this daemon's memory and nowhere else: a daemon restart\nnow loses it, and the chat's next start runs without it. `acpmux session wake` starts the\nagent, whose env then carries the credential across the restart; a machine update does that\nbefore it restarts this daemon. Says only that one is held, never its name or value. Absent\notherwise, and from an older acpmux.",
+          "type": "boolean"
         },
         "currentModeId": {
           "type": [

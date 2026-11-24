@@ -35,19 +35,8 @@ pub(super) async fn run(
     let host = field(&machine, "host").as_str().unwrap_or(&args.host).to_owned();
     let mut outcomes = Vec::new();
     for key in ids {
-        let mut o = Outcome {
-            session: key.clone(),
-            name: key.clone(),
-            host: Some(host.clone()),
-            cwd: None,
-            moved: false,
-            there: None,
-            resumed: Ok(false),
-            carried: None,
-            error: None,
-            error_code: None,
-            preflight: preflight::Preflight::default(),
-        };
+        let mut o = Outcome::new(key);
+        o.host = Some(host.clone());
         if let Err(e) = steps(src, key, args, home, &daemon, &host, &mut o).await {
             o.error = Some(format!("{e:#}"));
         }
@@ -63,7 +52,8 @@ pub(super) async fn run(
             .map(|o| {
                 json!({"sessionId": o.session, "name": o.name, "host": o.host, "cwd": o.cwd,
                        "moved": o.moved, "dryRun": args.dry_run, "via": "hub",
-                       "there": o.there, "error": o.error})
+                       "there": o.there, "targetSessionId": o.there,
+                       "error": o.error})
             })
             .collect();
         print_json(&json!({"moves": rows, "failed": failed}));
@@ -211,6 +201,7 @@ async fn precopy(src: &Client, id: &str, daemon: &str) -> Option<Staged> {
         prepare_id: field(&staged, "prepareId").as_str()?.to_owned(),
         after_seq: field(&staged, "afterSeq").as_u64()?,
         stage_id: field(&staged, "stageId").as_str()?.to_owned(),
+        history_later: false,
     })
 }
 

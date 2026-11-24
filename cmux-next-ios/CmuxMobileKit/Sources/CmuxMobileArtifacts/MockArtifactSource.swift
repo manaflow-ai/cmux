@@ -1,5 +1,5 @@
-// DEBUG and Demo builds only: mock content is never compiled into Production.
-#if DEBUG
+// In every build: DEBUG mock mode and the App Review demo account (server-flagged,
+// AppStore.loadReviewDemo) use it. A live account never does (TerminalSessionChoice).
 import Foundation
 #if os(iOS)
 import AVFoundation
@@ -391,4 +391,3 @@ public struct MockArtifactSource: ArtifactSource {
     }
     #endif
 }
-#endif
