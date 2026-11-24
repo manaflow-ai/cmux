@@ -62,13 +62,24 @@ const TCP_KEEP_ALIVE: Duration = Duration::from_secs(15);
 /// with the same floor against each other's delayed ACKs, and smoltcp delays
 /// an ACK by 10 ms.
 const TCP_MIN_RTO: Duration = Duration::from_millis(200);
-/// The retransmission timeout before a connection has an RTT sample, which
-/// is what a lost SYN or SYN-ACK waits. smoltcp defaults to RFC 6298's 1 s,
-/// so one lost SYN held a cold dial a full second (3% of them on a lossy
-/// phone link). 300 ms is above a typical cellular round trip; a slower one
-/// resends a SYN early, which costs one segment, and no RTT sample is taken
-/// from a resent segment (Karn), so the estimate is not skewed.
-const TCP_INITIAL_RTO: Duration = Duration::from_millis(300);
+/// The floor under the retransmission timeout before a connection has an
+/// RTT sample, which is what a lost SYN or SYN-ACK waits. smoltcp defaults to
+/// RFC 6298's 1 s, so one lost SYN held a cold dial a full second (3% of them
+/// on a lossy phone link). Above it the timeout is twice the path's round
+/// trip ([`rto_for_path`]): a fixed 300 ms resent every SYN on a 400 ms path
+/// before its answer could arrive, and Karn then took no RTT sample from it.
+pub(crate) const TCP_INITIAL_RTO: Duration = Duration::from_millis(300);
+/// The initial RTO when the path's round trip is not known: smoltcp's own
+/// default, RFC 6298 (2.1).
+pub(crate) const TCP_UNKNOWN_PATH_RTO: Duration = Duration::from_secs(1);
+
+/// The retransmission timeout a new connection starts with, from the path's
+/// round trip as the tunnel last measured it: `max(300 ms, 2 * rtt)`, the
+/// margin `crate::handshake_retry` gives a handshake, or 1 s with none. An
+/// RTO of one RTT would fire about half the time on a jittery path.
+pub(crate) fn rto_for_path(path_rtt: Option<Duration>) -> Duration {
+    path_rtt.map_or(TCP_UNKNOWN_PATH_RTO, |rtt| (rtt * 2).max(TCP_INITIAL_RTO))
+}
 /// How long a peer may hold an ACK, in the tail-loss probe timeout
 /// (`2 * SRTT` plus this). smoltcp peers delay ACKs 10 ms; the margin covers
 /// a kernel peer's first delayed ACK. A probe sent too early costs one
@@ -175,6 +186,10 @@ pub(crate) struct TcpStack {
     /// After a hold is released, when the usual user timeout comes back
     /// ([`HOLD_RELEASE_GRACE`]).
     release_at: Option<Instant>,
+    /// The RTO new sockets start with before their first RTT sample
+    /// ([`TcpStack::set_path_rtt`]). A stack whose owner never reports a
+    /// path round trip (the mesh) keeps [`TCP_INITIAL_RTO`].
+    initial_rto: Duration,
 }
 
 /// How long a released hold keeps its long timeout. A connection idle
@@ -230,6 +245,7 @@ impl TcpStack {
             congestion: tcp::CongestionControl::Cubic,
             hold: None,
             release_at: None,
+            initial_rto: TCP_INITIAL_RTO,
         })
     }
 
@@ -277,6 +293,24 @@ impl TcpStack {
             socket.set_retransmit_paused(true);
         }
         self.conns.push(conn);
+    }
+
+    /// The path's round trip as the tunnel last measured it (`None`: not
+    /// known yet). New sockets, and the listeners' spares made ahead of time,
+    /// start with [`rto_for_path`] of it. A socket that already has an RTT
+    /// sample, or backed off, keeps its own; one waiting on a segment sent
+    /// before keeps that segment's deadline.
+    pub(crate) fn set_path_rtt(&mut self, rtt: Option<Duration>) {
+        let rto = rto_for_path(rtt);
+        if rto == self.initial_rto {
+            return;
+        }
+        self.initial_rto = rto;
+        let handles = self.conns.iter().map(|conn| conn.handle);
+        let spares = self.listeners.iter().flat_map(|listener| listener.handles.iter().copied());
+        for handle in handles.chain(spares) {
+            self.sockets.get_mut::<tcp::Socket>(handle).set_initial_rto(smol_duration(rto));
+        }
     }
 
     /// The hold in force ([`TcpStack::set_hold`]).
@@ -407,10 +441,12 @@ impl TcpStack {
         self.next_port
     }
 
-    /// A socket that gives up after `timeout` without an ACK from the peer.
+    /// A socket that gives up after `timeout` without an ACK from the peer,
+    /// and waits `initial_rto` for one before its first RTT sample.
     pub(crate) fn new_socket(
         timeout: Duration,
         congestion: tcp::CongestionControl,
+        initial_rto: Duration,
     ) -> tcp::Socket<'static> {
         let mut socket = tcp::Socket::new(
             tcp::SocketBuffer::new(vec![0u8; SOCKET_BUFFER_BYTES]),
@@ -422,9 +458,7 @@ impl TcpStack {
         socket.set_min_rto(smoltcp::time::Duration::from_micros(
             u64::try_from(TCP_MIN_RTO.as_micros()).unwrap_or(u64::MAX),
         ));
-        socket.set_initial_rto(smoltcp::time::Duration::from_micros(
-            u64::try_from(TCP_INITIAL_RTO.as_micros()).unwrap_or(u64::MAX),
-        ));
+        socket.set_initial_rto(smol_duration(initial_rto));
         // A lone lost segment is resent after about two round trips, not the RTO.
         socket.set_tail_loss_probe(Some(smoltcp::time::Duration::from_micros(
             u64::try_from(TCP_PROBE_ACK_DELAY.as_micros()).unwrap_or(u64::MAX),
@@ -458,7 +492,8 @@ impl TcpStack {
         }
         let port = self.allocate_port();
         let local = SocketAddr::new(local_ip, port);
-        let mut socket = Self::new_socket(user_timeout(remote.port()), self.congestion);
+        let timeout = user_timeout(remote.port());
+        let mut socket = Self::new_socket(timeout, self.congestion, self.initial_rto);
         let result = socket.connect(
             self.iface.context(),
             IpEndpoint::new(ip_address(remote.ip()), remote.port()),
@@ -487,7 +522,7 @@ impl TcpStack {
     }
 
     pub(crate) fn listening_socket(&mut self, port: u16) -> Result<SocketHandle, WgError> {
-        let mut socket = Self::new_socket(user_timeout(port), self.congestion);
+        let mut socket = Self::new_socket(user_timeout(port), self.congestion, self.initial_rto);
         socket
             .listen(IpListenEndpoint::from(port))
             .map_err(|error| WgError::Stack(format!("{error}")))?;
@@ -584,3 +619,7 @@ fn half_open_flows(sockets: &SocketSet<'_>, listeners: &[Listener]) -> HashSet<F
 
 #[path = "tcp_bridge.rs"]
 mod bridge;
+
+#[cfg(test)]
+#[path = "tcp_stack_rto_tests.rs"]
+mod rto_tests;
