@@ -248,13 +248,18 @@ impl Path {
     }
 }
 
+/// The frames one link's client sent.
+type SentFrames = Arc<StdMutex<Vec<Bytes>>>;
+/// A delayed frame read: the time it may be delivered, or the link's end or error.
+type DelayedRead = Result<Option<(Instant, Bytes)>, LinkError>;
+
 /// A link group that delays every frame by its path's one-way latency each way, charges the
 /// path's open cost per open (a carrier dial), and keeps every frame the client sent, per link,
 /// for the replay test. While `withhold` is set its links keep what the client sends and deliver
 /// none of it: a carrier that died with frames in flight.
 struct DelayedGroup {
     inner: Arc<dyn LinkGroup>,
-    sent: Arc<StdMutex<Vec<(LinkRequest, Arc<StdMutex<Vec<Bytes>>>)>>>,
+    sent: Sent,
     path: Path,
     withhold: Arc<AtomicBool>,
 }
@@ -262,8 +267,8 @@ struct DelayedGroup {
 struct DelayedLink {
     inner: Arc<dyn FrameLink>,
     out: mpsc::UnboundedSender<(Instant, Bytes)>,
-    inc: Mutex<mpsc::UnboundedReceiver<Result<Option<(Instant, Bytes)>, LinkError>>>,
-    sent: Arc<StdMutex<Vec<Bytes>>>,
+    inc: Mutex<mpsc::UnboundedReceiver<DelayedRead>>,
+    sent: SentFrames,
     one_way: Duration,
     withhold: Arc<AtomicBool>,
 }
@@ -271,7 +276,7 @@ struct DelayedLink {
 impl DelayedLink {
     fn new(
         inner: Box<dyn FrameLink>,
-        sent: Arc<StdMutex<Vec<Bytes>>>,
+        sent: SentFrames,
         one_way: Duration,
         withhold: Arc<AtomicBool>,
     ) -> Self {
@@ -386,7 +391,7 @@ async fn daemon() -> Daemon {
     Daemon { auth, server, accepted, _state: state }
 }
 
-type Sent = Arc<StdMutex<Vec<(LinkRequest, Arc<StdMutex<Vec<Bytes>>>)>>>;
+type Sent = Arc<StdMutex<Vec<(LinkRequest, SentFrames)>>>;
 
 async fn group(daemon: &Daemon, session: SessionId, sent: &Sent) -> Arc<dyn LinkGroup> {
     group_on(daemon, session, sent, Path::DIRECT_50, LanePolicy::Isolated).await
