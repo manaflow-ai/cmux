@@ -251,6 +251,8 @@ pub struct Catalog {
     pub defaults: Vec<String>,
     /// Packages that failed validation: (directory, first issue).
     pub rejected: Vec<(PathBuf, String)>,
+    /// The setups' views layers that loaded, top first (`Sources::setups`).
+    pub setup_layers: Vec<String>,
 }
 
 /// Where packages come from.
@@ -277,6 +279,12 @@ pub struct Sources {
     /// by itself with its required scopes (the user wrote it) and reloads
     /// when its files change (`local_reload.rs`).
     pub customize: Option<PathBuf>,
+    /// Installed setups' own views layers (`cmux setup install`): the
+    /// `setups` folder next to the customize folder. Only the folders its
+    /// `layers.json` names load, in its order (top first), each as the app
+    /// `local/setup-OWNER-NAME`; a setup never writes the person's own
+    /// customize folder (cmux-customize `setup::layers`).
+    pub setups: Option<PathBuf>,
     /// The person's saved prompts (`cmux agent-config commands add --agent cmux`): one `NAME.md`
     /// each, `$CMUX_COMMANDS_DIR`, else `$XDG_CONFIG_HOME/cmux/commands`, else
     /// `~/.config/cmux/commands`. `apps.composer.list` answers them first, so the composer's `/`
@@ -310,6 +318,7 @@ impl Sources {
             extra,
             local: state_dir.map(|d| d.join("apps").join("local")),
             customize: customize_dir(),
+            setups: setups_dir(),
             saved_prompts: std::env::var_os("HOME").filter(|h| !h.is_empty()).map(|home| {
                 cmux_agent_customize::paths::cmux_commands_dir(Path::new(&home), |name| {
                     std::env::var_os(name)
@@ -330,6 +339,71 @@ pub fn customize_dir() -> Option<PathBuf> {
     let config =
         non_empty("XDG_CONFIG_HOME").or_else(|| non_empty("HOME").map(|h| h.join(".config")))?;
     Some(config.join("cmux").join("customize"))
+}
+
+/// The setups' layers folder (`Sources::setups`): `setups` next to the
+/// customize folder, as cmux-customize's `Roots::setups_dir`.
+pub fn setups_dir() -> Option<PathBuf> {
+    customize_dir().map(|dir| dir.with_file_name("setups"))
+}
+
+/// The id prefix of a setup's views layer: such an app loads only from the
+/// setups folder's index.
+pub const SETUP_LAYER_PREFIX: &str = "local/setup-";
+
+/// The setups folder's index of the layers that are on, top first.
+pub const SETUP_LAYERS_INDEX: &str = "layers.json";
+
+/// One row of `layers.json` (cmux-customize `setup::layers::IndexRow`).
+#[derive(Debug, Clone, serde::Deserialize)]
+struct LayerRow {
+    app: String,
+    dir: String,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct LayerIndex {
+    #[serde(rename = "cmuxSetupLayers")]
+    format: u32,
+    layers: Vec<LayerRow>,
+}
+
+/// The layers `layers.json` names, top first: (expected app id, folder).
+type Layers = Vec<(String, PathBuf)>;
+/// The rows refused, each with why: (file, reason).
+type Refused = Vec<(PathBuf, String)>;
+
+/// The layers `layers.json` in `root` names, top first: (expected app id,
+/// folder). A row whose folder is not a plain `setup-...` name in `root`,
+/// or whose app is not `local/<folder>`, is refused with why.
+fn setup_layers(root: &Path) -> (Layers, Refused) {
+    let file = root.join(SETUP_LAYERS_INDEX);
+    let Ok(text) = std::fs::read_to_string(&file) else { return (Vec::new(), Vec::new()) };
+    let index: LayerIndex = match serde_json::from_str(&text) {
+        Ok(index) => index,
+        Err(error) => return (Vec::new(), vec![(file, format!("not readable: {error}"))]),
+    };
+    if index.format != 1 {
+        return (
+            Vec::new(),
+            vec![(file, format!("format {} is not one this cmux reads", index.format))],
+        );
+    }
+    let mut layers = Vec::new();
+    let mut refused = Vec::new();
+    for row in index.layers {
+        let plain = row.dir.starts_with("setup-")
+            && row.dir.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
+        if !plain || row.app != format!("local/{}", row.dir) {
+            refused.push((file.clone(), format!("{}: not a setup layer ({})", row.app, row.dir)));
+            continue;
+        }
+        if layers.iter().any(|(app, _)| app == &row.app) {
+            continue;
+        }
+        layers.push((row.app, root.join(&row.dir)));
+    }
+    (layers, refused)
 }
 
 /// The customization app's id: its manifest must use it.
@@ -388,6 +462,14 @@ pub fn load_reusing(sources: &Sources, reuse: &Reuse<'_>, listed: &Listed<'_>) -
                 Ok(package) if package.id == CUSTOMIZE_APP => catalog
                     .rejected
                     .push((dir, format!("{CUSTOMIZE_APP} loads only from the customize folder"))),
+                // A setup's layer is the person's consented install, in its
+                // stated order: only the setups folder's index provides one.
+                Ok(package) if package.id.starts_with(SETUP_LAYER_PREFIX) => {
+                    catalog.rejected.push((
+                        dir,
+                        format!("{}: a setup layer loads only from the setups folder", package.id),
+                    ));
+                }
                 // First source wins: the first-party directory, then bundled,
                 // then local (a local package never shadows a shipped id).
                 Ok(package) if !catalog.packages.contains_key(&package.id) => {
@@ -429,6 +511,25 @@ pub fn load_reusing(sources: &Sources, reuse: &Reuse<'_>, listed: &Listed<'_>) -
                 format!("{}: the customize folder holds {CUSTOMIZE_APP} only", package.id),
             )),
             Err(issue) => catalog.rejected.push((dir.clone(), issue)),
+        }
+    }
+    if let Some(root) = &sources.setups {
+        let (layers, refused) = setup_layers(root);
+        catalog.rejected.extend(refused);
+        for (app, dir) in layers {
+            if !dir.join("cmux-app.json").is_file() && !dir.join(V2_MANIFEST).is_file() {
+                continue;
+            }
+            match read(&dir, DirKind::Local) {
+                Ok(package) if package.id == app && !catalog.packages.contains_key(&app) => {
+                    catalog.setup_layers.push(app.clone());
+                    catalog.packages.insert(app, package);
+                }
+                Ok(package) => catalog
+                    .rejected
+                    .push((dir, format!("{}: the layer {app} holds {app} only", package.id))),
+                Err(issue) => catalog.rejected.push((dir, issue)),
+            }
         }
     }
     catalog.defaults = sources.defaults.clone().unwrap_or(shipped_first_party);

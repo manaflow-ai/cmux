@@ -167,3 +167,34 @@ export function waterfall(
   const gapTotal = gaps.reduce((sum, gap) => sum + gap.to - gap.from, 0);
   return { start, total, spans, ...(slowest !== undefined && { slowest }), gaps, gapTotal };
 }
+
+/// A bar under this share of the axis is a tick, not a bar: it shows a call happened, not how long.
+export const WATERFALL_VISIBLE_BAR = 0.02;
+
+/// Whether a turn's Timeline is worth a chart (Leo, 2026-11-22, on "1 call · 1m 40s" drawn as a
+/// 551ms tick, one 24.5s bar and 1m 15s of stripes: "IF THIS IS THE CASE, THEN DON'T FUCKING DISPLAY
+/// THIS BULLSHIT LIKE THIS"). A chart compares bars on one axis, so it needs two or more tool calls
+/// whose bars are visible (each at least 2% of the axis), and the model's time outside every call
+/// and thought under half the turn. Anything else (a lone call, a turn that only thought, a turn
+/// that was mostly the model) reads as plain lines instead (`waterfallLines`).
+export function waterfallCharts(chart: Pick<Waterfall, "spans" | "total" | "gapTotal">): boolean {
+  if (chart.gapTotal * 2 >= chart.total) return false;
+  let visible = 0;
+  for (const span of chart.spans)
+    if (span.item.tool && span.to - span.from >= chart.total * WATERFALL_VISIBLE_BAR && ++visible >= 2) return true;
+  return false;
+}
+
+/// One line of the plain form: a call with its own time, or (no span) the turn's thinking.
+export type WaterfallLine = { span?: WaterfallSpan; ms: number };
+
+/// The plain form's lines: one "Thinking" line for all of the turn's time with no tool running
+/// (its thoughts and the model's time around them, which the chart split into a tick and a striped
+/// row), then each call with its own time, in the order they ran. Under 1ms of thinking is no line.
+export function waterfallLines(chart: Pick<Waterfall, "spans" | "total">): WaterfallLine[] {
+  const calls = chart.spans.filter((span) => span.item.tool);
+  const thinking = waterfallGaps(calls, chart.total).reduce((sum, gap) => sum + gap.to - gap.from, 0);
+  const lines: WaterfallLine[] = thinking >= 1 ? [{ ms: thinking }] : [];
+  for (const span of calls) lines.push({ span, ms: span.to - span.from });
+  return lines;
+}

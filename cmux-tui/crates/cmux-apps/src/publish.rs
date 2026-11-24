@@ -7,8 +7,9 @@ use std::time::Duration;
 use serde::Serialize;
 use serde_json::Value;
 
+use crate::frame;
 use crate::infer::Inferred;
-use crate::io::{Clock, Fs, Git, Listeners, Probe, Procs, Start};
+use crate::io::{Capture, Clock, Fs, Git, Listeners, Probe, Procs, Start};
 use crate::platform::{PlatformApi, Promote};
 use crate::slug::slugify;
 use crate::state::{self, AppState, Version, VersionState};
@@ -31,6 +32,8 @@ pub struct Host<'a> {
     pub platform: &'a dyn PlatformApi,
     /// Who listens on a port (this machine's agent answers, for the caller's own processes).
     pub listeners: &'a dyn Listeners,
+    /// Renders a version's loopback target to a PNG (its first frame).
+    pub capture: &'a dyn Capture,
     /// The apps store: `apps` under cmux's state root.
     pub apps_root: PathBuf,
     /// The caller's environment, read only for [`PASSED_THROUGH`].
@@ -104,9 +107,19 @@ pub fn app_env(
     parent: &[(String, String)],
     service_env: &[(String, String)],
 ) -> Vec<(String, String)> {
+    with_secrets(parent, service_env, &[])
+}
+
+/// [`app_env`] with the app's own secrets (`process-env`) laid over the `service.env`
+/// literals: a secret wins over a literal of the same name. Only for that app's start.
+pub fn with_secrets(
+    parent: &[(String, String)],
+    service_env: &[(String, String)],
+    secrets: &[(String, String)],
+) -> Vec<(String, String)> {
     let mut env: Vec<(String, String)> =
         parent.iter().filter(|(k, _)| PASSED_THROUGH.contains(&k.as_str())).cloned().collect();
-    for (key, value) in service_env {
+    for (key, value) in service_env.iter().chain(secrets) {
         if key == "PORT" || key == "HOME" {
             continue;
         }
@@ -115,6 +128,18 @@ pub fn app_env(
     }
     env.sort();
     env
+}
+
+/// The app's secrets for the start of `slug` v`n`, or why the platform would not give them.
+fn secrets(
+    host: &Host<'_>,
+    slug: &str,
+    n: u32,
+    machine: &str,
+) -> Result<Vec<(String, String)>, String> {
+    host.platform.process_env(slug, machine).map_err(|e| {
+        format!("v{n} of {slug} not started: the platform did not give it its secrets ({e})")
+    })
 }
 
 /// `.cmux/apps/<slug>/app.json`'s `service`: its `setup` command and literal `env` strings.
@@ -259,13 +284,18 @@ pub fn publish(host: &Host<'_>, req: &PublishRequest) -> Result<Published, Failu
         Err(e) => return fail(&mut app, version, "app.stage", e),
     };
 
-    // 4. Start, through the agent, as the app user (setup first, in the same process).
+    // 4. Start, through the agent, as the app user (setup first, in the same process), with
+    // this app's secrets, held only in memory for this one start.
+    let secrets = match secrets(host, &slug, n, &machine) {
+        Ok(secrets) => secrets,
+        Err(e) => return fail(&mut app, version, "app.secrets", e),
+    };
     let port = match host.procs.free_port() {
         Ok(port) => port,
         Err(e) => return fail(&mut app, version, "app.start", format!("no free port: {e}")),
     };
     version.port = port;
-    let env = app_env(&host.parent_env, &service.env);
+    let env = with_secrets(&host.parent_env, &service.env, &secrets);
     let start = Start {
         slug: &slug,
         version: n,
@@ -332,6 +362,10 @@ pub fn publish(host: &Host<'_>, req: &PublishRequest) -> Result<Published, Failu
     let version = app.version(n).cloned().unwrap_or(version);
 
     let mut warnings = vec![];
+    // 7. First frame: best-effort, after the promote, never blocking it.
+    if let Err(e) = first_frame(host, &slug, version.platform_n, port) {
+        warnings.push(format!("published, but v{n} has no first frame: {e}"));
+    }
     if req.share_team {
         let team = moved.app.get("team").and_then(Value::as_str).unwrap_or_default();
         if let Err(e) = host.platform.share_team(&slug, team) {
@@ -339,6 +373,21 @@ pub fn publish(host: &Host<'_>, req: &PublishRequest) -> Result<Published, Failu
         }
     }
     Ok(Published { app, version, url: moved.url, inferred, warnings })
+}
+
+/// Renders the version's loopback target and uploads it as its first frame (RFD 0003, publish
+/// step 7). Any failure leaves the version without one: the waking page then shows the previous
+/// version's frame or plain text, never a made-up frame.
+fn first_frame(
+    host: &Host<'_>,
+    slug: &str,
+    platform_n: Option<u32>,
+    port: u16,
+) -> Result<(), String> {
+    let n = platform_n.ok_or("the promote's answer named no version number")?;
+    let png = host.capture.png(port).map_err(|e| format!("capture: {e}"))?;
+    let png = frame::fit(&png, frame::FRAME_BUDGET)?;
+    host.platform.put_frame(slug, n, &png).map_err(|e| format!("upload: {e}"))
 }
 
 /// `GET /` on the version's port until it answers 2xx or 3xx, the process exits, or `timeout`.
@@ -414,6 +463,8 @@ pub fn rollback(
         ));
     }
     host.platform.ready().map_err(|e| Failure::new("app.platform", e.to_string()))?;
+    let machine =
+        host.platform.machine().map_err(|e| Failure::new("app.platform", e.to_string()))?;
     let mut target = target;
     if !host.procs.alive(slug, target.n) {
         if !host.procs.port_free(target.port) {
@@ -425,7 +476,9 @@ pub fn rollback(
         let vdir = state::version_dir(&host.apps_root, slug, target.n);
         let service =
             service(host.fs, &vdir.join("src"), slug).map_err(|e| Failure::new("app.stage", e))?;
-        let env = app_env(&host.parent_env, &service.env);
+        let secrets =
+            secrets(host, slug, target.n, &machine).map_err(|e| Failure::new("app.secrets", e))?;
+        let env = with_secrets(&host.parent_env, &service.env, &secrets);
         let start = Start {
             slug,
             version: target.n,

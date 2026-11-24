@@ -89,8 +89,11 @@ guard; a scripting sandbox was considered and decided against.
   after it (`batch_time_limit`).
 - An acting step runs through `dispatch` like its own call: policy, the
   guards, the desktop's caret and web gates and priming scope, and the focus
-  guard (the batch is guarded once, as a whole). It then settles on its own
-  (adaptive, its own AX watch) and gets its own outcome from its own read-back,
+  guard (the batch is guarded once, as a whole). It captures the window at once,
+  with no wait. Only a step whose outcome is required (`require: "confirmed"`
+  or `"not_no_effect"`) or that asks for `settle: "adaptive"` settles on its
+  own (adaptive, its own AX watch): `confirmed` and `no_effect` need a real
+  settle to read back and compare. It gets its own outcome from its own read-back,
   pixels (against the previous step's capture), elements (against the
   previous step's tree) and what changed outside the window. Its outcome is
   decided before the next step runs, so a later step can never confirm it.
@@ -182,8 +185,14 @@ the agent's words.
 | `fullAccess` (default) | Every app that is not denied. |
 
 - `computerUse.deniedApps` (exact id, `prefix*`, `name:App Name`) holds password
-  managers and keychains, System Settings, terminals and cmux by default; the
-  person can remove any entry. No agent screenshot shows a denied window: on
+  managers and keychains and System Settings by default; the person can remove
+  any entry or add one (a terminal, say). Agents may act in cmux itself and in
+  terminals by default (Leo, 2026-11-22: "why not. it should be able to"); a
+  list an earlier build stored with the terminals and cmux on it loses those
+  entries and keeps the person's own. Settings > Computer Use, its Saved
+  Approvals and `cmux settings set computerUse.* --confirm` change only with
+  the person's own click or key (posted input is refused), and the approval
+  prompts are cmux Remote's (protected) or person-only buttons. No agent screenshot shows a denied window: on
   macOS the capture itself leaves out every window of every denied app, at
   every window level, and the compositor draws what is behind them (an allowed
   window in front keeps its pixels); elsewhere, and for an app that started

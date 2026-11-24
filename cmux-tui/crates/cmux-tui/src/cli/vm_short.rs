@@ -44,8 +44,14 @@ const VERBS: &[(&str, &str)] = &[
     ("move", "move"),
 ];
 
+/// The app's Cloud verb a short verb runs (`pause` → `pause-machine`), for its `--help`.
+pub(super) fn long_verb(short: &str) -> Option<&'static str> {
+    VERBS.iter().find(|(name, _)| *name == short).map(|(_, long)| *long)
+}
+
 /// The short verbs the VM API (vm.rs) also has: with no signed-in app to answer, they go there.
-const API_VERBS: &[&str] = &["ls", "list", "pause", "shutdown", "resume", "rm", "fork", "exec"];
+pub(super) const API_VERBS: &[&str] =
+    &["ls", "list", "pause", "shutdown", "resume", "rm", "fork", "exec"];
 
 /// Options only the VM API reads (its issuer, team and page size): a short verb with one goes
 /// there, app or not.
@@ -176,16 +182,24 @@ pub(super) enum Resolved {
     Refused(Value),
 }
 
-pub(super) fn resolve(named: Option<&str>, listed: &Value) -> Resolved {
-    // Not loaded yet, the app lists no VMs: say to retry, never that you have none or that a
-    // `vm_…` id is the VM API's.
-    if listed.get("loaded") == Some(&Value::Bool(false)) {
-        return Resolved::Refused(retryable(refusal(
+/// The app has not loaded its VM list yet (`loaded: false`): a retryable refusal, so no caller
+/// reads its empty list as "you have none".
+pub(super) fn not_loaded(listed: &Value) -> Option<Value> {
+    (listed.get("loaded") == Some(&Value::Bool(false))).then(|| {
+        retryable(refusal(
             "cloud.not_loaded",
             "the cmux app has not loaded your Cloud VMs yet",
             "run this command again in a moment",
             json!({}),
-        )));
+        ))
+    })
+}
+
+pub(super) fn resolve(named: Option<&str>, listed: &Value) -> Resolved {
+    // Not loaded yet, the app lists no VMs: say to retry, never that you have none or that a
+    // `vm_…` id is the VM API's.
+    if let Some(error) = not_loaded(listed) {
+        return Resolved::Refused(error);
     }
     let rows = listed.get("machines").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
     // A VM the app is still making (`creating`, not failed): you have it, it is not listed yet.
@@ -258,6 +272,21 @@ pub(super) fn misuse(short: &Short) -> Option<&'static str> {
         (true, _, "list-machines") => Some("`cmux vm ls` lists every VM; it takes no name"),
         _ => None,
     }
+}
+
+/// `vm pause --all` (or `shutdown --all`): a mass pause, which only the app runs.
+pub(super) fn pause_all_requested(short: &Short) -> bool {
+    short.cloud_verb == "pause-machine" && short.tail.iter().any(|word| word == "--all")
+}
+
+/// `vm pause --all` with any other word (`--all --minutes 15`): refused, so a mass pause never
+/// runs with a flag it quietly drops.
+pub(super) fn pause_all_misuse(short: &Short) -> Option<String> {
+    if short.cloud_verb != "pause-machine" || !short.tail.iter().any(|word| word == "--all") {
+        return None;
+    }
+    let extra = short.tail.iter().find(|word| word.as_str() != "--all")?;
+    Some(format!("`--all` pauses every VM; it takes no `{extra}`"))
 }
 
 /// `error`, marked retryable.
@@ -407,11 +436,31 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     if let Some(message) = misuse(&short) {
         return Some(usage(&global, message));
     }
+    if let Some(message) = pause_all_misuse(&short) {
+        return Some(usage(&global, &message));
+    }
     let listed = match app_list(&short, super::cloud_start_chat::app_machines(&global)) {
         Ok(listed) => listed,
+        // The VM API has no `--all`: with no app, `pause --all` is refused, never handed on.
+        Err(None) if pause_all_requested(&short) => {
+            return Some(usage(
+                &global,
+                "`--all` pauses every VM through the cmux app; run `cmux login` and open cmux",
+            ));
+        }
         Err(None) => return None,
         Err(Some(error)) => return Some(super::wire::print_local_error(&error, global.output, 1)),
     };
+    if pause_all_requested(&short) {
+        if short.named.is_some() || short.targeted {
+            return Some(usage(&global, "`--all` pauses every VM; it takes no name or --target"));
+        }
+        // Not loaded yet, the app lists no VMs: "none running" would be a false success.
+        if let Some(error) = not_loaded(&listed) {
+            return Some(super::wire::print_local_error(&error, global.output, 1));
+        }
+        return Some(pause_all(&global, &listed));
+    }
     if short.cloud_verb == "list-machines"
         && short.tail.is_empty()
         && global.output == super::OutputMode::Human
@@ -450,6 +499,73 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         )),
         Resolved::Refused(error) => Some(super::wire::print_local_error(&error, global.output, 1)),
     }
+}
+
+/// The VMs `vm pause --all` pauses: every listed VM that is running (a paused, failed or
+/// still-creating one is left as it is), as (id, name).
+pub(super) fn pausable(listed: &Value) -> Vec<(String, String)> {
+    let rows = listed.get("machines").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
+    rows.iter()
+        .filter(|row| row.get("status").and_then(Value::as_str) == Some("running"))
+        .filter_map(|row| {
+            let id = row.get("machine_id").and_then(Value::as_str)?.to_owned();
+            let name = row
+                .get("title")
+                .and_then(Value::as_str)
+                .map_or_else(|| format!("vm:{id}"), super::wire::sanitize_remote_text);
+            Some((id, name))
+        })
+        .collect()
+}
+
+/// `cmux vm pause --all` (and `shutdown --all`): pause every running VM, one app `pause-machine`
+/// each, and say which paused and which did not. Leo, 2026-11-20 (ask-b97d36a28a): a mass pause.
+/// Exit 0 when every one paused (or none was running), 1 when any failed.
+fn pause_all(global: &GlobalArgs, listed: &Value) -> i32 {
+    // Each pause is its own request: one caller key would make the second replay the first.
+    let mut one = global.clone();
+    one.idempotency_key = None;
+    let mut results = Vec::new();
+    for (id, name) in pausable(listed) {
+        let words = [
+            "cloud".to_owned(),
+            "pause-machine".to_owned(),
+            "--target".to_owned(),
+            format!("machine:{id}"),
+        ];
+        let answer = super::cloud_start_chat::app_step(&one, &words);
+        results.push((id, name, answer));
+    }
+    let failed = results.iter().filter(|(_, _, answer)| answer.is_err()).count();
+    if global.output == super::OutputMode::Human {
+        if results.is_empty() {
+            println!("No running Cloud VMs to pause.");
+        }
+        for (_, name, answer) in &results {
+            match answer {
+                Ok(_) => println!("paused {name}"),
+                Err(error) => {
+                    let why = error.get("message").and_then(Value::as_str).unwrap_or("failed");
+                    println!("not paused {name}: {}", super::wire::sanitize_remote_text(why));
+                }
+            }
+        }
+    } else {
+        let rows: Vec<Value> = results
+            .iter()
+            .map(|(id, name, answer)| match answer {
+                Ok(_) => json!({"machine_id": id, "name": name, "paused": true}),
+                Err(error) => {
+                    json!({"machine_id": id, "name": name, "paused": false, "error": error})
+                }
+            })
+            .collect();
+        println!(
+            "{}",
+            json!({"ok": failed == 0, "paused": results.len() - failed, "failed": failed, "machines": rows})
+        );
+    }
+    i32::from(failed > 0)
 }
 
 /// A `vm_…` id the app does not list, for a verb only the app runs: deleted, another team's or

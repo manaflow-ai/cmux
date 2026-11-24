@@ -23,6 +23,8 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     public var railLook = WorkspaceRailLook.standard
     /// The second line: the shown second-line elements in order, joined.
     public var detail: String?
+    /// The normalized custom title; nil retains every legacy row behavior.
+    public var titleParts: [TitlePart]?
     /// The tab count, when that element is on.
     public var tabCount: Int?
     /// The pull request / CI badge text, when that element is on.
@@ -84,6 +86,8 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     public var treeFold: SidebarTreeFold?
     /// The session tree: a folded parent's descendants by state, drawn as chips.
     public var rollUp: SidebarTreeRollUp?
+    /// Its chats' subagents under the name: a line each (a click opens one) or one stacked line; nil without any.
+    public var subagents: SidebarSubagentStrip?
     /// The Priority view's chip (`SidebarWorkspace.agentChip`) when it asks for something
     /// (`rowChip`), for the row's accessibility label. Never drawn: a row shows no status words
     /// (Leo 2026-10-21); needs you is the badge's yellow dot.
@@ -91,9 +95,6 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// What the working agent does now (`SidebarWorkspace.agentStep`), in place of the second
     /// line's text: the row view draws it as "Now: …". Set only on a row that has a second line.
     public var now: String?
-    /// The agent chat's task progress (`SidebarWorkspace.taskProgress`) when the row draws its
-    /// count on the name's line (`trailingStatus`); its accessibility label says it in words.
-    public var tasks: SidebarTaskProgress?
 
     public init(icon: WorkspaceIcon? = nil, detail: String? = nil, tabCount: Int? = nil, badge: String? = nil,
                 activity: StatusIndicatorState = .idle, progress: SidebarProgress? = nil, showsWorking: Bool = false,
@@ -128,6 +129,10 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     }
 
     private init(_ ws: SidebarWorkspace, preferences: WorkspaceRowPreferences, now: Date, machine: String?, ageCache ages: AgeTextCache) {
+        if let layout = preferences.layouts.layout(for: ws.rowKind, agent: ws.kindBrand) {
+            self.init(ws, layout: layout, now: now)
+            return
+        }
         let set = preferences.resolved(for: ws.rowKind)
         let secondLine = set.secondLine.compactMap { element in Self.text(of: element, in: ws, now: now).map { (element, $0) } }
         var items = secondLine.map(\.1)
