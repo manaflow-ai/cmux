@@ -5,21 +5,22 @@ import Testing
 @testable import CmuxNextDiff
 
 /// Browser comments go back to the agent as threads (cmuxterm-hq goals/all-surface-comments-round-trip.md):
-/// one action saves a design mode comment as `surface: "browser"` and sends it to the chat with
-/// `keep: true`; the thread shows "Sent", then the agent's reply from `diff.comments.list`; Resolve
+/// one action saves a design mode comment as `surface: "browser"` and sends it to the chat in a
+/// threaded send; the thread shows "Sent", then the agent's reply in the thread from
+/// `diff.comments.list`; Resolve
 /// deletes it. A send needs a real click or key, and a host without threads keeps the chip path.
 @MainActor
 @Suite(.serialized)
 struct BrowserCommentThreadsTests {
-    /// The session host's `diff.comments.*` with `comment-threads-v1`, in memory.
+    /// The session host's `diff.comments.*` with `diff-comments-threads-v1`, in memory.
     final class ThreadingHost: DiffCommentsStoring {
         var comments: [String: [JSONValue]] = [:]
         var keys: [String] = []
-        var keepsThreads = true
-        /// Each `diff.comments.send {keep: true}`: its acpmux session, ids, text and key.
-        var sends: [(session: String, ids: [String], text: String, key: String)] = []
+        var supportsCommentThreads = true
+        /// Each `diff.comments.send {threads: true}`: its acpmux session, ids, note and key.
+        var sends: [(session: String, ids: [String], text: String?, key: String)] = []
         var lists = 0
-        /// The next `diff.comments.send {keep: true}` fails (the chat refused the prompt).
+        /// The next `diff.comments.send {threads: true}` fails (the chat refused the prompt).
         var refusesSend = false
 
         func listComments(root: String) async throws(AgentPaneGitFailure) -> JSONValue {
@@ -44,27 +45,27 @@ struct BrowserCommentThreadsTests {
 
         func sendComments(root: String, acpSession: String, ids: [String], versions: [String: JSONValue],
                           text: String, key: String) async throws(AgentPaneGitFailure) -> JSONValue {
-            Issue.record("a browser comment is sent with keep, never cleared")
+            Issue.record("a browser comment is sent threaded, never cleared")
             throw AgentPaneGitFailure.failed
         }
 
-        func sendCommentThreads(root: String, acpSession: String, ids: [String], versions: [String: JSONValue],
-                                text: String, key: String) async throws(AgentPaneGitFailure) -> JSONValue {
+        func sendThreadedComments(root: String, acpSession: String, ids: [String], text: String?, key: String)
+            async throws(AgentPaneGitFailure) -> JSONValue {
             if refusesSend { throw AgentPaneGitFailure.failed }
             sends.append((acpSession, ids, text, key))
             comments[root] = (comments[root] ?? []).map { comment in
                 guard case .object(var record) = comment, ids.contains(record["id"]?.stringValue ?? "") else { return comment }
-                record["thread"] = ["state": "sent", "opid": .string(key)]
+                record["sentIn"] = .string(key)
                 return .object(record)
             }
-            return ["sent": .number(Double(ids.count)), "threaded": .array(ids.map(JSONValue.string))]
+            return ["sent": .number(Double(ids.count)), "cleared": [], "threads": .array(ids.map(JSONValue.string))]
         }
 
-        /// The agent's turn ended: the host answers comment `id`'s thread with `reply`.
+        /// The agent answers in comment `id`'s thread with `reply` (`diff.comments.thread {author: agent}`).
         func answer(_ id: String, root: String, reply: String) {
             comments[root] = (comments[root] ?? []).map { comment in
                 guard case .object(var record) = comment, record["id"]?.stringValue == id else { return comment }
-                record["thread"] = ["state": "answered", "reply": ["text": .string(reply)]]
+                record["replies"] = [["id": "r1", "author": "agent", "text": .string(reply)]]
                 return .object(record)
             }
         }
@@ -75,7 +76,7 @@ struct BrowserCommentThreadsTests {
                                         quote: "Simple pricing", message: "Make this bigger",
                                         prompt: "On https://example.com/pricing, main > h1: Make this bigger")
 
-    @Test func sendSavesABrowserCommentThenSendsItWithKeepAndShowsTheReply() async throws {
+    @Test func sendSavesABrowserCommentThenSendsItThreadedAndShowsTheReply() async throws {
         let host = ThreadingHost()
         let threads = BrowserCommentThreads(pollInterval: nil)
         var changes: [(String, BrowserCommentThread?)] = []
@@ -92,11 +93,14 @@ struct BrowserCommentThreadsTests {
         #expect(saved["selector"]?.stringValue == "main > h1")
         #expect(saved["quote"]?.stringValue == "Simple pricing")
         #expect(saved["message"]?.stringValue == "Make this bigger")
-        // Then sent with keep to the chat's acpmux session, once, under the fresh opid.
+        // The host's threaded prompt names the page and quotes the card's text.
+        #expect(saved["place"]?.stringValue == "https://example.com/pricing")
+        #expect(saved["submissionText"]?.stringValue == Self.comment.prompt)
+        // Then sent threaded to the chat's acpmux session, once, under the fresh opid.
         #expect(host.sends.count == 1)
         #expect(host.sends.first?.session == "acp-7")
         #expect(host.sends.first?.ids == ["c1"])
-        #expect(host.sends.first?.text == Self.comment.prompt)
+        #expect(host.sends.first?.text == nil)
         #expect(host.sends.first?.key == "op-1")
         #expect(host.keys == ["op-1-save"])
         // The comment stays on the host: its thread now waits for the agent.
@@ -145,7 +149,7 @@ struct BrowserCommentThreadsTests {
 
     @Test func aHostWithoutThreadsKeepsTheChipPath() async {
         let host = ThreadingHost()
-        host.keepsThreads = false
+        host.supportsCommentThreads = false
         let threads = BrowserCommentThreads(pollInterval: nil)
         await #expect(throws: BrowserCommentSendFailure.threadsUnavailable) {
             try await threads.send(Self.comment, key: "card-1", store: host, root: Self.root, acpSession: "acp-7",

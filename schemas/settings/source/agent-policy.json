@@ -504,7 +504,8 @@
       "agent": "settable",
       "keys": [
         "labs.previewFeatures",
-        "labs.appStore"
+        "labs.appStore",
+        "labs.commentThreads"
       ]
     },
     {

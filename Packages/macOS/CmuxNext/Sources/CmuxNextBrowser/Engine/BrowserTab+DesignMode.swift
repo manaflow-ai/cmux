@@ -45,7 +45,7 @@ extension BrowserTab {
     }
 
     /// Offers Command-Return (send the pick to the agent as a comment thread) in the comment bubble,
-    /// or takes it away: the workspace's agent chat keeps comment threads (`comment-threads-v1`) or not.
+    /// or takes it away: the workspace's agent chat keeps comment threads (`diff-comments-threads-v1`) or not.
     public func setDesignModeSendAvailable(_ available: Bool) async {
         _ = try? await evaluate("globalThis.__cmuxDesignMode?.setSendAvailable(\(available)); true", world: .isolated, gesture: .cmux)
     }

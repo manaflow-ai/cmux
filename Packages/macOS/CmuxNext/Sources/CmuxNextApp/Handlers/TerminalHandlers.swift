@@ -159,11 +159,11 @@ enum TerminalHandlers {
     }
 }
 
-/// Comment… on a terminal selection (`terminal.sendSelectionToChat`, comment-threads-v1): the cmux
+/// Comment… on a terminal selection (`terminal.sendSelectionToChat`, diff-comments-threads-v1): the cmux
 /// comment dialog takes a comment on the selected text, and Add to Chat saves it on the chat's
 /// session host as a terminal comment and sends it to the workspace's agent chat (the one design
 /// mode sends to) with `keep: true`, so it stays as a thread whose reply shows in a card over the
-/// terminal (``TerminalCommentThreads``). Without comment-threads-v1 the row stays the placeholder
+/// terminal (``TerminalCommentThreads``). Without diff-comments-threads-v1 the row stays the placeholder
 /// (``TerminalToChatPlaceholders``): out of the menus and refused with its reason.
 extension TerminalHandlers {
     static func bindComments(into registry: ActionRegistry, context ctx: AppActionContext) {
@@ -191,13 +191,15 @@ extension TerminalHandlers {
 
     /// The terminal `invocation` names, the workspace chat it sends to and that chat's session host
     /// (which must keep threads), else why not. Reads no live view and selects nothing, so a menu can ask it.
+    /// Off while Labs `labs.commentThreads` is off: the action stays the placeholder it was.
     static func commentTarget(_ invocation: ActionInvocation, _ ctx: AppActionContext) -> (target: TerminalCommentThreads.Target?, refusal: String?) {
         let services = ctx.services
+        guard services.settings?.snapshot.commentThreads == true else { return (nil, TerminalToChatPlaceholders.reason) }
         guard let (tab, pane) = ctx.daemonTab(invocation), tab.kind == .pty || tab.kind == .remoteTerminal else { return (nil, RefusalStrings.notATerminal) }
         guard let chat = services.workspaceAgentChat(near: pane), let session = chat.tab.agentSession?.session, !session.isEmpty else {
             return (nil, TerminalCommentStrings.noChat)
         }
-        guard let link = services.viewers.diffPages.gitLink(for: chat.tab), link.keepsCommentThreads else { return (nil, TerminalToChatPlaceholders.reason) }
+        guard let link = services.viewers.diffPages.gitLink(for: chat.tab), link.supportsDiffCommentThreads else { return (nil, TerminalToChatPlaceholders.reason) }
         guard let root = NewTerminalStart.folder(of: chat.tab, services: services) ?? tab.cwd, root.hasPrefix("/") else {
             return (nil, TerminalCommentStrings.noChat)
         }

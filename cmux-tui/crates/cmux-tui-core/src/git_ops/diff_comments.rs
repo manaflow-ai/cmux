@@ -1,4 +1,4 @@
-//! `diff.comments.list|save|delete|send`: the diff page's review comments,
+//! `diff.comments.list|save|delete|send|thread`: the diff page's review comments,
 //! kept by the session host until they are sent to the agent.
 //!
 //! Comments are keyed by a worktree root, an absolute path used only as a
@@ -15,8 +15,8 @@
 //! A send (`send`) hands the caller's prompt to an acpmux session of this
 //! machine as one queued prompt; once acpmux takes it, the sent comments
 //! still at the caller's versions are removed, as a delete removes them.
-//! With `keep`, they stay instead, each with a `thread` naming the chat and
-//! prompt it went out as; `list` fills in the reply once that turn ends.
+//! A threaded send (`threads: true`) keeps them as review threads instead,
+//! and `diff.comments.thread` adds replies and resolves (`thread.rs`).
 
 use std::collections::HashMap;
 use std::io;
@@ -38,16 +38,15 @@ mod send;
 #[cfg(test)]
 #[path = "diff_comments/send_tests.rs"]
 mod send_tests;
+mod thread;
 
 /// Advertised in identify: the session host owns `diff.comments.*`.
 pub(crate) const CAPABILITY: &str = "diff-comments-v1";
 /// Advertised in identify: the session host answers `diff.comments.send`.
 pub(crate) const SEND_CAPABILITY: &str = "diff-comments-send-v1";
-/// Advertised in identify: a send with `keep` leaves its comments as threads,
-/// and `diff.comments.list` brings each thread the agent's reply
-/// (`crate::comment_threads`). Any surface's comment (`surface`: diff,
-/// browser, terminal) is stored, sent and answered the same way.
-pub(crate) const THREADS_CAPABILITY: &str = "comment-threads-v1";
+/// Advertised in identify: the session host keeps review threads
+/// (`diff.comments.thread`, and `diff.comments.send` with `threads: true`).
+pub(crate) const THREADS_CAPABILITY: &str = "diff-comments-threads-v1";
 
 const DIRECTORY: &str = "diff-comments";
 /// The longest root, in bytes.
@@ -72,6 +71,7 @@ pub(super) fn handles(operation: ResourceOperation) -> bool {
             | ResourceOperation::DiffCommentsSave
             | ResourceOperation::DiffCommentsDelete
             | ResourceOperation::DiffCommentsSend
+            | ResourceOperation::DiffCommentsThread
     )
 }
 
@@ -85,11 +85,7 @@ pub(super) fn dispatch(
     let store = Store::open(mux, operation)?;
     match request.envelope.operation {
         ResourceOperation::DiffCommentsList => {
-            let mut file = store.read(root).map_err(|error| io_failed(operation, &error))?;
-            if file.has_open_threads() {
-                file = answer_threads(mux, &store, root, file)
-                    .map_err(|error| io_failed(operation, &error))?;
-            }
+            let file = store.read(root).map_err(|error| io_failed(operation, &error))?;
             let mut listed = json!({"root": root, "comments": file.sorted()});
             // A pull request review's worktree (`git.review.start`) says which
             // pull request its comments go to.
@@ -108,6 +104,12 @@ pub(super) fn dispatch(
             mutate(mux, &store, request, root, |file, _| Ok(delete(file, &ids, &versions)))
         }
         ResourceOperation::DiffCommentsSend => send::send(mux, &store, request, root),
+        ResourceOperation::DiffCommentsThread => {
+            let change = thread::change(&request.fields)?;
+            mutate(mux, &store, request, root, |file, key| {
+                thread::apply(file, root, key, change, &rfc3339(now_ms()))
+            })
+        }
         // Dispatched only for the operations `handles` names; any other is refused, never a panic.
         _ => Err(ResourceError::operation_failed(
             operation,
@@ -165,149 +167,6 @@ fn cleared(
     (json!({"sent": sent, "cleared": cleared}), changed)
 }
 
-/// A delivered `keep` send: each sent comment still at its version stays,
-/// with `thread: {promptId, acpSession, sentAt, state: "sent"}`, answered as
-/// `{sent, cleared: [], threaded}`. The comment's `updatedAt` is not touched: it is the
-/// person's edit, which a later send's `versions` compares.
-fn threaded(
-    file: &mut File,
-    ids: &[String],
-    versions: &Map<String, Value>,
-    sent: usize,
-    prompt_id: &str,
-    acp_session: &str,
-) -> (Value, bool) {
-    let now_at = now_ms();
-    let now = rfc3339(now_at);
-    let mut threaded = Vec::new();
-    for comment in &mut file.comments {
-        let Some(id) = comment.get("id").and_then(Value::as_str).map(str::to_owned) else {
-            continue;
-        };
-        if !ids.contains(&id)
-            || versions.get(&id).is_some_and(|version| comment.get("updatedAt") != Some(version))
-        {
-            continue;
-        }
-        let thread = json!({
-            "promptId": prompt_id,
-            "acpSession": acp_session,
-            "sentAt": now,
-            "sentMs": now_at,
-            "state": "sent",
-        });
-        comment.insert("thread".into(), thread);
-        threaded.push(id);
-    }
-    let changed = !threaded.is_empty();
-    (json!({"sent": sent, "cleared": [], "threaded": threaded}), changed)
-}
-
-/// The most prompts one list asks acpmux about, newest sent first.
-const MAX_THREAD_READS: usize = 8;
-/// How long one list may spend asking acpmux, over all its chats; a thread
-/// not answered by then stays open for the next list.
-const THREAD_READ_BUDGET: std::time::Duration = std::time::Duration::from_millis(1500);
-/// A thread sent longer ago than this with no ended turn found is closed as
-/// failed: its turn fell out of the pages a read walks, or its chat is gone,
-/// and leaving it open would have every surface poll for it forever.
-const THREAD_GIVE_UP_MS: u64 = 24 * 60 * 60 * 1000;
-/// The reply a thread closed by [`THREAD_GIVE_UP_MS`] shows.
-const THREAD_GAVE_UP: &str =
-    "The agent's reply could not be found: its chat is gone or the turn is too far back.";
-
-/// Asks acpmux how each open thread's turn ended and stores the answers on
-/// their comments (under the root's lock, re-read, so a save or delete
-/// meanwhile is kept). One link and one walk per chat answers all of its
-/// threads; the newest [`MAX_THREAD_READS`] are asked, within
-/// [`THREAD_READ_BUDGET`]. An acpmux that cannot be read leaves them open
-/// until [`THREAD_GIVE_UP_MS`].
-fn answer_threads(mux: &Arc<Mux>, store: &Store, root: &str, file: File) -> io::Result<File> {
-    use crate::comment_threads::TurnReply;
-    let now = now_ms();
-    // Open threads, newest sent first, so old ones never starve new ones.
-    let mut open: Vec<(String, String, Option<u64>)> = Vec::new();
-    for comment in &file.comments {
-        let Some((session, prompt_id)) = open_thread(comment) else { continue };
-        if open.iter().any(|(_, id, _)| *id == prompt_id) {
-            continue;
-        }
-        open.push((session, prompt_id, sent_at_ms(comment)));
-    }
-    open.sort_by(|a, b| b.2.cmp(&a.2));
-    let mut answers: Vec<(String, Value)> = Vec::new();
-    let stamp = |state: &str, text: String| json!({"state": state, "reply": {"text": text, "at": rfc3339(now)}});
-    let mut sessions: Vec<(String, Vec<String>)> = Vec::new();
-    for (session, prompt_id, sent) in open.iter().take(MAX_THREAD_READS) {
-        if sent.is_some_and(|sent| now.saturating_sub(sent) > THREAD_GIVE_UP_MS) {
-            answers.push((prompt_id.clone(), stamp("failed", THREAD_GAVE_UP.to_owned())));
-            continue;
-        }
-        match sessions.iter_mut().find(|(s, _)| s == session) {
-            Some((_, ids)) => ids.push(prompt_id.clone()),
-            None => sessions.push((session.clone(), vec![prompt_id.clone()])),
-        }
-    }
-    // Past the newest few, only the give-up check runs (no read).
-    for (_, prompt_id, sent) in open.iter().skip(MAX_THREAD_READS) {
-        if sent.is_some_and(|sent| now.saturating_sub(sent) > THREAD_GIVE_UP_MS) {
-            answers.push((prompt_id.clone(), stamp("failed", THREAD_GAVE_UP.to_owned())));
-        }
-    }
-    let deadline = std::time::Instant::now() + THREAD_READ_BUDGET;
-    for (session, ids) in &sessions {
-        let Some(replies) = mux.acp_prompt_replies(session, ids, deadline) else { continue };
-        for (prompt_id, reply) in ids.iter().zip(replies) {
-            match reply {
-                TurnReply::Answered(text) => {
-                    answers.push((prompt_id.clone(), stamp("answered", text)))
-                }
-                TurnReply::Failed(text) => answers.push((prompt_id.clone(), stamp("failed", text))),
-                TurnReply::Pending => {}
-            }
-        }
-    }
-    if answers.is_empty() {
-        return Ok(file);
-    }
-    store.exclusive(root, || {
-        let mut file = store.read(root)?;
-        let mut changed = false;
-        for comment in &mut file.comments {
-            let Some((_, prompt_id)) = open_thread(comment) else { continue };
-            let Some((_, answer)) = answers.iter().find(|(id, _)| *id == prompt_id) else {
-                continue;
-            };
-            if let Some(Value::Object(thread)) = comment.get_mut("thread") {
-                for (key, value) in answer.as_object().into_iter().flatten() {
-                    thread.insert(key.clone(), value.clone());
-                }
-                changed = true;
-            }
-        }
-        if changed {
-            store.write(root, &file)?;
-        }
-        Ok(file)
-    })
-}
-
-/// When a comment's thread was sent, in Unix milliseconds (its `sentMs`).
-fn sent_at_ms(comment: &Map<String, Value>) -> Option<u64> {
-    comment.get("thread")?.get("sentMs")?.as_u64()
-}
-
-/// A comment's thread still waiting on the agent: its chat and prompt id.
-fn open_thread(comment: &Map<String, Value>) -> Option<(String, String)> {
-    let thread = comment.get("thread")?;
-    if thread.get("state").and_then(Value::as_str) != Some("sent") {
-        return None;
-    }
-    let session = thread.get("acpSession").and_then(Value::as_str)?;
-    let prompt_id = thread.get("promptId").and_then(Value::as_str)?;
-    Some((session.to_owned(), prompt_id.to_owned()))
-}
-
 /// Stamps and stores `comment`: an edit of the comment its `id` names, or a
 /// new one. Returns `{comment}`.
 pub(super) fn save(
@@ -328,6 +187,8 @@ pub(super) fn save(
         _ => new_id(root, key),
     };
     let existing = existing.or_else(|| file.position(&id));
+    // The thread (replies, resolved, what the agent read) is the daemon's.
+    thread::keep_thread(existing.and_then(|index| file.comments.get(index)), &mut comment);
     let created = existing
         .and_then(|index| file.comments.get(index)?.get("createdAt").cloned())
         .filter(Value::is_string)
@@ -491,10 +352,6 @@ pub(super) struct File {
 }
 
 impl File {
-    fn has_open_threads(&self) -> bool {
-        self.comments.iter().any(|comment| open_thread(comment).is_some())
-    }
-
     fn position(&self, id: &str) -> Option<usize> {
         self.comments
             .iter()

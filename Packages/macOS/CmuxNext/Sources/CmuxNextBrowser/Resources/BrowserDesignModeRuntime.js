@@ -122,7 +122,7 @@
     send: "Command-Return to send to agent", sending: "Sending…", sent: "Sent", answered: "Agent replied",
     failed: "Not answered", resolve: "Resolve",
   };
-  // Comment threads (comment-threads-v1): when the workspace's agent chat keeps them, Command-Return
+  // Comment threads (diff-comments-threads-v1): when the workspace's agent chat keeps them, Command-Return
   // in a bubble adds the pick and asks the app to send it to the agent at once
   // (`send_requested`), and the pick's thread card next to its pin shows "Sent", then the agent's
   // reply, with Resolve (`thread_resolve`). Both are posted only for a real key or click. Off, the
@@ -1231,7 +1231,7 @@
     .thread .reply:empty { display: none; }
     .thread .resolve { display: none; margin-top: 6px; padding: 2px 8px; border: 0.5px solid rgba(0, 0, 0, 0.2); border-radius: 6px;
       background: transparent; color: inherit; font: inherit; font-size: 11px; cursor: pointer; }
-    .thread[data-state="answered"] .resolve, .thread[data-state="failed"] .resolve { display: inline-block; }
+    .thread[data-state="sent"] .resolve, .thread[data-state="answered"] .resolve, .thread[data-state="failed"] .resolve { display: inline-block; }
     @keyframes cmux-pin-in { from { opacity: 0; transform: scale(0.6); } to { opacity: 1; transform: none; } }
     @media (prefers-color-scheme: dark) {
       .bubble { background: rgba(40, 40, 43, 0.98); color: rgba(255, 255, 255, 0.92); border-color: rgba(255, 255, 255, 0.16);

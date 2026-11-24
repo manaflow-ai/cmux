@@ -4,7 +4,7 @@ public import CmuxNextDaemonService
 public import CmuxNextDiff
 import Foundation
 
-/// Every terminal's comment threads (`terminal.sendSelectionToChat`, comment-threads-v1): one
+/// Every terminal's comment threads (`terminal.sendSelectionToChat`, diff-comments-threads-v1): one
 /// ``CommentThreadsModel`` per session host and root, and the card that shows them over a terminal.
 /// The action's binding owns one.
 @MainActor
@@ -72,7 +72,7 @@ public final class TerminalCommentThreads {
         watches[terminalID] = Task { [weak self, weak anchor] in
             for await threads in ObservationStream({ model.threads(onTerminal: terminalID) }) {
                 guard let self, let anchor else { return }
-                let answered = Set(threads.filter { $0.state == .answered || $0.state == .failed }.map(\.id))
+                let answered = Set(threads.filter { $0.state == .answered }.map(\.id))
                 if !answered.subtracting(self.shownAnswers).isEmpty, !self.popup.isShown {
                     self.popup.show(model, terminalID: terminalID, anchor: anchor, makeKey: false)
                 }

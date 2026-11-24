@@ -16,9 +16,9 @@ import Foundation
 /// leaves the page, so the pins always match the chips.
 ///
 /// Comment threads (cmuxterm-hq goals/all-surface-comments-round-trip.md): when the chat's session
-/// host keeps them (`comment-threads-v1`), Command-Return in a pick's bubble sends the pick to that
+/// host keeps them (`diff-comments-threads-v1`), Command-Return in a pick's bubble sends the pick to that
 /// chat at once (``BrowserCommentThreads``: `diff.comments.save` as a browser comment, then
-/// `diff.comments.send` with `keep`), with no chip, and the pick's thread card on the page shows
+/// a threaded `diff.comments.send`), with no chip, and the pick's thread card on the page shows
 /// "Sent", then the agent's reply; Resolve deletes it. Without the capability the chip path stays.
 @MainActor
 final class BrowserDesignModeController {
@@ -197,12 +197,13 @@ extension AppServices {
 
 extension BrowserDesignModeController {
     /// Where a pick of browser tab `key` goes as a thread: the chat ``chat(near:)`` picks, when it
-    /// has an acpmux session and its session host keeps comment threads (`comment-threads-v1`).
+    /// has an acpmux session and its session host keeps comment threads (`diff-comments-threads-v1`),
+    /// while Labs `labs.commentThreads` is on (off: the card sends a chip, as before).
     private func threadTarget(near key: String) -> (view: AgentPaneView, session: String, git: DiffAgentGit,
                                                      folder: String?)? {
-        guard let services, let (view, tab, workspace) = chat(near: key),
+        guard let services, services.settings?.snapshot.commentThreads == true, let (view, tab, workspace) = chat(near: key),
               let session = tab.agentSession?.session, !session.isEmpty,
-              let link = services.viewers.diffPages.gitLink(for: tab), link.keepsCommentThreads else { return nil }
+              let link = services.viewers.diffPages.gitLink(for: tab), link.supportsDiffCommentThreads else { return nil }
         let folder = NewTerminalStart.folder(of: tab, services: services) ?? workspace.agentFolder
         return (view, session, DiffAgentGit(link: link), folder)
     }

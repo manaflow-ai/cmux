@@ -5,23 +5,23 @@ import Testing
 @testable import CmuxNextApp
 @testable import CmuxNextDiff
 
-/// Comment… on a terminal selection (`terminal.sendSelectionToChat`, comment-threads-v1): the
-/// comment is saved on the session host as a terminal comment, sent to the workspace's chat with
-/// `keep: true` so it stays as a thread, and the agent's reply shows in that thread on a later list.
-/// Resolve deletes it.
+/// Comment… on a terminal selection (`terminal.sendSelectionToChat`, diff-comments-threads-v1): the
+/// comment is saved on the session host as a terminal comment, sent to the workspace's chat in a
+/// threaded send so it stays as a thread, and the agent's reply in that thread (`cmux git comments
+/// reply`) shows on a later list. Resolve deletes it.
 @MainActor
 @Suite(.serialized)
 struct TerminalCommentThreadsTests {
-    /// The session host's `diff.comments.*` with threads (`keep: true`), in memory.
+    /// The session host's `diff.comments.*` with threads (`threads: true`), in memory.
     final class ThreadingHost: DiffCommentsStoring {
         var comments: [String: [JSONValue]] = [:]
         var keys: [String] = []
-        /// Each keep send: its acpmux session, ids, text and key.
-        var sends: [(session: String, ids: [String], text: String, key: String)] = []
+        /// Each threaded send: its acpmux session, ids, note and key.
+        var sends: [(session: String, ids: [String], text: String?, key: String)] = []
         /// Each plain (clearing) send's key; a thread send must not use it.
         var clearingSends: [String] = []
 
-        var keepsThreads: Bool { true }
+        var supportsCommentThreads: Bool { true }
 
         func listComments(root: String) async throws(AgentPaneGitFailure) -> JSONValue {
             ["root": .string(root), "comments": .array(comments[root] ?? [])]
@@ -48,24 +48,25 @@ struct TerminalCommentThreadsTests {
             return ["sent": .number(Double(ids.count))]
         }
 
-        func sendCommentThreads(root: String, acpSession: String, ids: [String], versions: [String: JSONValue],
-                                text: String, key: String) async throws(AgentPaneGitFailure) -> JSONValue {
+        func sendThreadedComments(root: String, acpSession: String, ids: [String], text: String?, key: String)
+            async throws(AgentPaneGitFailure) -> JSONValue {
             sends.append((acpSession, ids, text, key))
-            setThread(root: root, ids: ids, ["promptId": .string(key), "acpSession": .string(acpSession), "state": "sent"])
-            return ["sent": .number(Double(ids.count)), "threaded": .array(ids.map(JSONValue.string))]
+            update(root: root, ids: ids) { $0["sentIn"] = .string(key) }
+            return ["sent": .number(Double(ids.count)), "cleared": [], "threads": .array(ids.map(JSONValue.string))]
         }
 
-        /// The agent's turn ended: the host fills the thread's reply.
+        /// The agent answers in the thread (`diff.comments.thread {author: agent}`).
         func answer(root: String, id: String, reply: String) {
-            setThread(root: root, ids: [id], ["state": "answered", "reply": ["text": .string(reply), "at": .number(2)]])
+            update(root: root, ids: [id]) { record in
+                let replies = record["replies"]?.arrayValue ?? []
+                record["replies"] = .array(replies + [["id": "r1", "author": "agent", "text": .string(reply)]])
+            }
         }
 
-        private func setThread(root: String, ids: [String], _ fields: [String: JSONValue]) {
+        private func update(root: String, ids: [String], _ change: (inout [String: JSONValue]) -> Void) {
             comments[root] = (comments[root] ?? []).map { comment in
                 guard case .object(var record) = comment, ids.contains(record["id"]?.stringValue ?? "") else { return comment }
-                var thread: [String: JSONValue] = record["thread"]?.objectValue ?? [:]
-                thread.merge(fields) { _, new in new }
-                record["thread"] = .object(thread)
+                change(&record)
                 return .object(record)
             }
         }
@@ -74,7 +75,7 @@ struct TerminalCommentThreadsTests {
     static let root = "/Users/me/project"
     static let terminal = CommentedTerminal(id: "tab-7", title: "zsh", cwd: "/Users/me/project")
 
-    @Test func commentSavesAsTerminalSendsWithKeepAndShowsTheReply() async throws {
+    @Test func commentSavesAsTerminalSendsThreadedAndShowsTheReply() async throws {
         let host = ThreadingHost()
         let model = CommentThreadsModel(root: Self.root, store: host, interval: .seconds(60))
 
@@ -89,17 +90,22 @@ struct TerminalCommentThreadsTests {
         #expect(saved["terminal"]?["cwd"]?.stringValue == "/Users/me/project")
         #expect(saved["quote"]?.stringValue == "error: cannot find 'x' in scope\n")
         #expect(saved["message"]?.stringValue == "why does this fail?")
+        #expect(saved["place"]?.stringValue == "zsh (/Users/me/project)")
+        // The thread's block in the host's threaded prompt.
+        let block = try #require(saved["submissionText"]?.stringValue)
+        #expect(block.hasPrefix("> **Terminal · zsh (`/Users/me/project`)**\n> error: cannot find 'x' in scope"))
+        #expect(block.hasSuffix("\n\nwhy does this fail?"))
         #expect(host.keys == ["op-1-save"])
 
-        // Sent with keep (a thread, not a clearing send) to the chat's session, under the opid.
+        // A threaded send (not a clearing one) to the chat's session, under the opid; the host
+        // writes the prompt from the thread.
         #expect(host.clearingSends.isEmpty)
         let send = try #require(host.sends.first)
         #expect(host.sends.count == 1)
         #expect(send.session == "acp-1")
         #expect(send.ids == [thread.id])
         #expect(send.key == "op-1")
-        #expect(send.text.hasPrefix("> **Terminal · zsh (`/Users/me/project`)**\n> error: cannot find 'x' in scope"))
-        #expect(send.text.hasSuffix("\n\nwhy does this fail?"))
+        #expect(send.text == nil)
 
         // The comment stays as a "sent" thread and polling runs while it waits.
         #expect(thread.state == .sent)
@@ -127,13 +133,21 @@ struct TerminalCommentThreadsTests {
         #expect(model.failure == nil)
     }
 
-    @Test func aFailedTurnShowsAsFailed() async throws {
-        let record: JSONValue = ["id": "c1", "surface": "terminal", "terminal": ["id": "tab-1"], "quote": "ls",
-                                 "message": "hm", "thread": ["state": "failed"]]
-        let thread = try #require(CommentThread(record))
-        #expect(thread.state == .failed)
-        #expect(thread.reply == nil)
-        #expect(thread.terminalID == "tab-1")
+    @Test func theNewestAgentReplyIsTheThreadsAnswer() async throws {
+        let unsent: JSONValue = ["id": "c1", "surface": "terminal", "terminal": ["id": "tab-1"], "quote": "ls", "message": "hm"]
+        #expect(try #require(CommentThread(unsent)).state == .draft)
+        var sent = try #require(unsent.objectValue)
+        sent["sentIn"] = "op-1"
+        sent["replies"] = [["id": "r1", "author": "reviewer", "text": "more?"]]
+        let waiting = try #require(CommentThread(.object(sent)))
+        #expect(waiting.state == .sent)
+        #expect(waiting.reply == nil)
+        #expect(waiting.terminalID == "tab-1")
+        sent["replies"] = [["id": "r1", "author": "agent", "text": "first"], ["id": "r2", "author": "reviewer", "text": "and?"],
+                           ["id": "r3", "author": "agent", "text": "second"]]
+        let answered = try #require(CommentThread(.object(sent)))
+        #expect(answered.state == .answered)
+        #expect(answered.reply == "second")
     }
 
     @Test func aSendTheHostRefusesDeletesTheSavedCommentAndReportsIt() async throws {
@@ -153,7 +167,7 @@ struct TerminalCommentThreadsTests {
             }
             func sendComments(root: String, acpSession: String, ids: [String], versions: [String: JSONValue],
                               text: String, key: String) async throws(AgentPaneGitFailure) -> JSONValue { [:] }
-            // No sendCommentThreads: the protocol's default refuses, as a host without comment-threads-v1.
+            // No sendThreadedComments: the protocol's default refuses, as a host without diff-comments-threads-v1.
         }
         let host = RefusingHost()
         let model = CommentThreadsModel(root: Self.root, store: host, interval: .seconds(60))

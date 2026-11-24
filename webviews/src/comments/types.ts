@@ -1,14 +1,11 @@
 export type DiffCommentSide = "additions" | "deletions";
 
-export type DiffCommentThreadState = "sent" | "answered" | "failed";
-
-/** A comment kept after "Send to agent": the turn it started and, once it ended, the agent's reply. */
-export type DiffCommentThread = {
-  promptId: string;
-  acpSession?: string;
-  sentAt: string;
-  state: DiffCommentThreadState;
-  reply?: { text: string; at: string };
+export type DiffCommentReply = {
+  id: string;
+  author: "reviewer" | "agent";
+  text: string;
+  createdAt: string;
+  sentIn?: string;
 };
 
 export type DiffCommentRecord = {
@@ -23,8 +20,11 @@ export type DiffCommentRecord = {
   submissionText?: string; // precomputed text block consumed by the native pending pool
   createdAt: string; // ISO8601
   updatedAt: string;
-  surface?: "diff" | "browser" | "terminal"; // absent means "diff"
-  thread?: DiffCommentThread; // set by the host once the comment was sent with keep
+  replies?: DiffCommentReply[];
+  resolved?: boolean;
+  resolvedAt?: string;
+  sentIn?: string;
+  resolveSent?: boolean;
 };
 
 export type DiffCommentSaveInput = Omit<DiffCommentRecord, "id" | "createdAt" | "updatedAt"> & {

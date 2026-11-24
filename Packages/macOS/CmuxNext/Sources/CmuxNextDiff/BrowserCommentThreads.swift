@@ -3,7 +3,7 @@ public import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
 
-/// A design mode comment on a browser page as the session host keeps it (`comment-threads-v1`,
+/// A design mode comment on a browser page as the session host keeps it (`diff-comments-threads-v1`,
 /// `surface: "browser"`): the page, the picked element and what the person wrote.
 public nonisolated struct BrowserComment: Sendable, Equatable {
     /// The page's URL.
@@ -28,9 +28,12 @@ public nonisolated struct BrowserComment: Sendable, Equatable {
         self.prompt = prompt
     }
 
-    /// The `diff.comments.save` comment: `{surface: "browser", url, title?, selector?, quote?, message}`.
+    /// The `diff.comments.save` comment: `{surface: "browser", place, url, title?, selector?, quote?,
+    /// message, submissionText}`; a threaded send's prompt names the thread by `place` and quotes
+    /// `submissionText`, the design mode card's text.
     public var record: JSONValue {
-        var value: [String: JSONValue] = ["surface": "browser", "url": .string(url), "message": .string(message)]
+        var value: [String: JSONValue] = ["surface": "browser", "place": .string(url), "url": .string(url),
+                                          "message": .string(message), "submissionText": .string(prompt)]
         if let title, !title.isEmpty { value["title"] = .string(title) }
         if let selector, !selector.isEmpty { value["selector"] = .string(selector) }
         if let quote, !quote.isEmpty { value["quote"] = .string(quote) }
@@ -43,11 +46,11 @@ public nonisolated struct BrowserCommentThread: Sendable, Equatable {
     public enum State: String, Sendable {
         /// Saved or being sent; no answer from the host yet.
         case sending
-        /// The chat took it (`thread.state` "sent"); the agent has not answered.
+        /// The chat took it (`sentIn`); the agent has not answered in the thread.
         case sent
-        /// The agent's turn ended with a reply (`thread.state` "answered").
+        /// The agent answered in the thread (an `agent` reply).
         case answered
-        /// Not sent, or the agent's turn failed (`thread.state` "failed").
+        /// Not sent.
         case failed
     }
 
@@ -79,7 +82,7 @@ public nonisolated struct BrowserCommentPick: Sendable, Equatable {
 public nonisolated enum BrowserCommentSendFailure: Error, Sendable, Equatable {
     /// Sending needs a real click or key.
     case gestureRequired
-    /// The host has no comment threads (`comment-threads-v1`): the chip path stays.
+    /// The host has no comment threads (`diff-comments-threads-v1`): the chip path stays.
     case threadsUnavailable
     /// The host refused or did not answer.
     case host(AgentPaneGitFailure)
@@ -87,9 +90,10 @@ public nonisolated enum BrowserCommentSendFailure: Error, Sendable, Equatable {
 
 /// Browser design mode comments sent to the agent as threads (cmuxterm-hq
 /// goals/all-surface-comments-round-trip.md): one action saves the comment through the session
-/// host's `diff.comments.save` with `surface: "browser"`, then `diff.comments.send` with `keep: true`
-/// to the workspace's chat; the thread then shows "Sent", and `diff.comments.list`, read about every
-/// 2 s while any thread is sent, brings the agent's reply. Resolve is `diff.comments.delete`.
+/// host's `diff.comments.save` with `surface: "browser"`, then a threaded `diff.comments.send` to the
+/// workspace's chat; the thread then shows "Sent". The agent answers in the thread
+/// (`cmux git comments reply`), and `diff.comments.list`, read about every 2 s while any thread is
+/// sent, brings that reply. Resolve is `diff.comments.delete`.
 ///
 /// Threads are keyed by the caller's key (the design mode card id), so a page shows each on its pick.
 public final class BrowserCommentThreads {
@@ -168,7 +172,7 @@ public final class BrowserCommentThreads {
     public func send(_ comment: BrowserComment, key: String, store: any DiffCommentsStoring, root: String,
                      acpSession: String, opid: String, userGesture: Bool) async throws(BrowserCommentSendFailure) -> BrowserCommentThread {
         guard userGesture else { throw .gestureRequired }
-        guard store.keepsThreads else { throw .threadsUnavailable }
+        guard store.supportsCommentThreads else { throw .threadsUnavailable }
         homes[key] = (store, root)
         if threads[key]?.state != .sending { update(key, BrowserCommentThread(commentID: nil, state: .sending)) }
         let saved: JSONValue
@@ -182,15 +186,12 @@ public final class BrowserCommentThreads {
             update(key, BrowserCommentThread(commentID: nil, state: .failed))
             throw .host(.failed)
         }
-        let versions: [String: JSONValue] = saved["comment"]?["updatedAt"].map { [id: $0] } ?? [:]
         // Resolved while it was saved: the comment leaves the host unsent.
         guard threads[key] != nil else { return await abandon(id, store: store, root: root) }
         do {
-            let sent = try await store.sendCommentThreads(root: root, acpSession: acpSession, ids: [id], versions: versions,
-                                                          text: comment.prompt, key: opid)
+            let sent = try await store.sendThreadedComments(root: root, acpSession: acpSession, ids: [id], text: nil, key: opid)
             guard threads[key] != nil else { return await abandon(id, store: store, root: root) }
-            let threaded = sent["threaded"]?.arrayValue?.compactMap(\.stringValue) ?? []
-            let thread = BrowserCommentThread(commentID: id, state: threaded.contains(id) ? .sent : .failed)
+            let thread = BrowserCommentThread(commentID: id, state: (sent["sent"]?.intValue ?? 0) > 0 ? .sent : .failed)
             update(key, thread)
             poll()
             return thread
@@ -204,8 +205,8 @@ public final class BrowserCommentThreads {
         }
     }
 
-    /// One `diff.comments.list` per store and root with a waiting thread: an answered or failed
-    /// thread takes its state and reply; one the host no longer lists is gone.
+    /// One `diff.comments.list` per store and root with a waiting thread: one the agent answered
+    /// takes its reply; one the host no longer lists is gone.
     public func refresh() async {
         var asked: [String: JSONValue] = [:]
         for (key, thread) in threads where thread.state == .sent {
@@ -221,12 +222,8 @@ public final class BrowserCommentThreads {
                 drop(key)
                 continue
             }
-            let state = record["thread"]?["state"]?.stringValue
-            let reply = record["thread"]?["reply"]?["text"]?.stringValue
-            switch state {
-            case "answered": update(key, BrowserCommentThread(commentID: id, state: .answered, reply: reply ?? ""))
-            case "failed": update(key, BrowserCommentThread(commentID: id, state: .failed, reply: reply))
-            default: break
+            if let reply = CommentThread.agentReply(of: record) {
+                update(key, BrowserCommentThread(commentID: id, state: .answered, reply: reply))
             }
         }
     }

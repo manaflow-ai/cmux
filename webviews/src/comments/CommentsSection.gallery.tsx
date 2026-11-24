@@ -6,11 +6,11 @@
 // two headers it was chosen over.
 import { componentEntry } from "../gallery/format";
 import type { SidebarCommentEntry } from "./annotations";
-import { SavedComment } from "./SavedComment";
 import { CommentsSidebarSection, pullRequestReference } from "./CommentsSection";
 import { commentDisplayName } from "./format";
-import { resolveCommentLabels, fillCommentLabel } from "./labels";
-import type { CommentsSendState, DiffCommentRecord, CommentsPostState, DiffReviewTarget } from "./types";
+import { fillCommentLabel, resolveCommentLabels } from "./labels";
+import { SavedComment } from "./SavedComment";
+import type { CommentsPostState, CommentsSendState, DiffCommentRecord, DiffReviewTarget } from "./types";
 
 const record = (id: string, filePath: string, line: number, message: string): DiffCommentRecord => ({
   id,
@@ -48,57 +48,33 @@ const REVIEW: DiffReviewTarget = {
 };
 const POSTED = { url: "https://github.com/acme/net/pull/482#pullrequestreview-1", posted: 2, inBody: 0 };
 
-type Design = "header" | "footer" | "link" | "review" | "review-replace" | "review-both";
-type ThreadKind = "sent" | "answered" | "failed" | "long";
+type Design =
+  | "header"
+  | "footer"
+  | "link"
+  | "review"
+  | "review-replace"
+  | "review-both"
+  | "thread-agent"
+  | "thread-resolved"
+  | "thread-reply";
 type Props = {
   design?: Design;
   count?: number;
   state?: CommentsSendState;
   postState?: CommentsPostState;
-  thread?: ThreadKind;
 };
 
-const LONG_REPLY = [
-  "Done. Uploads now take their attempt count from `net.retries` in config, defaulting to 5.",
-  "",
-  ...Array.from({ length: 14 }, (_, i) => `Step ${i + 1}: adjusted the retry path and covered it with a test.`),
-].join("\n");
-
-const threadComment = (kind: ThreadKind): DiffCommentRecord => ({
-  ...COMMENTS[0]!,
-  thread: {
-    promptId: "p1",
-    sentAt: "2026-11-07T00:01:00.000Z",
-    state: kind === "sent" ? "sent" : kind === "failed" ? "failed" : "answered",
-    ...(kind === "answered"
-      ? { reply: { text: "Done. It now reads `net.retries` from config.", at: "2026-11-07T00:02:00.000Z" } }
-      : {}),
-    ...(kind === "long" ? { reply: { text: LONG_REPLY, at: "2026-11-07T00:02:00.000Z" } } : {}),
-  },
-});
-
-/** A sent comment as the diff draws it under its line: the thread card in each state. */
-function CommentThreadStage({ thread = "sent" }: Props) {
-  return (
-    <SavedComment
-      comment={threadComment(thread)}
-      labels={resolveCommentLabels(undefined)}
-      onDelete={() => {}}
-      onReply={() => {}}
-      onSaveMessage={() => {}}
-    />
-  );
-}
-
 /** The sidebar's bottom, as FilesSidebar lays it out: the section under a stand-in file tree. */
-function CommentsSendStage({ design = "header", count = 2, state = "idle", postState = "idle", thread }: Props) {
-  if (thread != null) return <CommentThreadStage thread={thread} />;
+function CommentsSendStage({ design = "header", count = 2, state = "idle", postState = "idle" }: Props) {
   const labels = resolveCommentLabels(undefined);
   const list = entries(count);
   return (
     <aside style={{ position: "relative", display: "flex", flexDirection: "column", height: "100%", width: 300 }}>
       <div style={{ flex: "1 1 auto" }} />
-      {design === "review" ? (
+      {design === "thread-agent" || design === "thread-resolved" || design === "thread-reply" ? (
+        <ThreadStage design={design} />
+      ) : design === "review" ? (
         <CommentsSidebarSection
           entries={list}
           hasDraft={false}
@@ -180,6 +156,39 @@ function AlternativeSection({
   );
 }
 
+function ThreadStage({ design }: { design: "thread-agent" | "thread-resolved" | "thread-reply" }) {
+  const labels = resolveCommentLabels(undefined);
+  const comment: DiffCommentRecord = {
+    ...record("thread", "src/net/client.ts", 3, "Should this retry use the request deadline?"),
+    resolved: design === "thread-resolved",
+    replies:
+      design === "thread-agent"
+        ? [
+            {
+              id: "reply-1",
+              author: "agent",
+              text: "I’ll use the request deadline and keep the backoff bounded.",
+              createdAt: "2026-11-07T00:01:00.000Z",
+            },
+          ]
+        : [],
+  };
+  return (
+    <div style={{ padding: 8 }}>
+      <SavedComment
+        comment={comment}
+        labels={labels}
+        onDelete={() => {}}
+        onSaveMessage={() => {}}
+        onReply={() => {}}
+        onResolve={() => {}}
+        replyOpen={design === "thread-reply"}
+        threads
+      />
+    </div>
+  );
+}
+
 /** A review header not taken, drawn with the same parts so the comparison is only the header. */
 function AlternativeReviewSection({
   design,
@@ -236,7 +245,7 @@ export default componentEntry<Props>({
   area: "Pages",
   height: 300,
   widths: { normal: 300 },
-  covers: ["comments/CommentsSection.tsx", "comments/SavedComment.tsx"],
+  covers: ["comments/CommentsSection.tsx"],
   styles: () => import("../styles.css"),
   load: async () => CommentsSendStage,
   variants: {
@@ -255,22 +264,6 @@ export default componentEntry<Props>({
     "header-many": {
       props: { design: "header", count: 3 },
       note: "Three comments across three files.",
-    },
-    "thread-sent": {
-      props: { thread: "sent" },
-      note: "Kept after Send to agent: the comment, then 'Sent to agent…'; Resolve only until the turn ends.",
-    },
-    "thread-answered": {
-      props: { thread: "answered" },
-      note: "The agent's reply under the comment, with Reply and Resolve.",
-    },
-    "thread-failed": {
-      props: { thread: "failed" },
-      note: "The turn failed: one line says so; Reply asks again, Resolve removes it.",
-    },
-    "thread-long-reply": {
-      props: { thread: "long" },
-      note: "A long reply scrolls inside the card instead of pushing the diff down.",
     },
     "alt-footer": {
       props: { design: "footer", count: 2 },
@@ -303,6 +296,18 @@ export default componentEntry<Props>({
     "alt-review-both": {
       props: { design: "review-both", count: 2 },
       note: "Not taken: Send and Post side by side in the header crowd a 300 px sidebar, the pull request shows nowhere, and Posted to needs a row that appears.",
+    },
+    "thread-agent": {
+      props: { design: "thread-agent" },
+      note: "A saved comment with an agent reply in its thread.",
+    },
+    "thread-resolved": {
+      props: { design: "thread-resolved" },
+      note: "A resolved thread is dimmed and collapsed until it is reopened.",
+    },
+    "thread-reply": {
+      props: { design: "thread-reply" },
+      note: "The reply composer is open for a saved comment.",
     },
   },
 });

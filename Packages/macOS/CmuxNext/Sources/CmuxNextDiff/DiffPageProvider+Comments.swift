@@ -7,6 +7,8 @@ import Foundation
 /// Where a diff tab's review comments live: the session host's `diff.comments.*`, keyed by the
 /// repository root, so they outlive the page and the app until they are sent (hq #7563).
 public protocol DiffCommentsStoring: AnyObject {
+    /// Whether the session host supports replies, resolution and threaded sends.
+    var supportsCommentThreads: Bool { get }
     /// `diff.comments.list {root}`: the saved comments, oldest first.
     func listComments(root: String) async throws(AgentPaneGitFailure) -> JSONValue
     /// `diff.comments.save {root, comment}`: the stored record (the host owns id and dates).
@@ -22,20 +24,26 @@ public protocol DiffCommentsStoring: AnyObject {
     /// the comments still at `versions` leave the store. A resend under the same key runs once.
     func sendComments(root: String, acpSession: String, ids: [String], versions: [String: JSONValue],
                       text: String, key: String) async throws(AgentPaneGitFailure) -> JSONValue
-    /// Whether the host keeps sent comments as threads the agent's reply comes back to.
-    var keepsThreads: Bool { get }
-    /// `diff.comments.send {…, keep: true}` → `{sent, threaded}`: as ``sendComments``, but the comments
-    /// stay, each with a `thread` the host answers with the agent's reply on a later list.
-    func sendCommentThreads(root: String, acpSession: String, ids: [String], versions: [String: JSONValue],
-                            text: String, key: String) async throws(AgentPaneGitFailure) -> JSONValue
+    /// `diff.comments.send {root, acp_session, ids, threads: true, text?}`: sends unread thread items
+    /// while keeping the stored comments.
+    func sendThreadedComments(root: String, acpSession: String, ids: [String], text: String?, key: String)
+        async throws(AgentPaneGitFailure) -> JSONValue
+    /// `diff.comments.thread {root, id, reply?, author?, resolved?}`: mutates one stored thread.
+    func threadComment(root: String, id: String, reply: String?, author: String?, resolved: Bool?, key: String)
+        async throws(AgentPaneGitFailure) -> JSONValue
 }
 
-public extension DiffCommentsStoring {
-    var keepsThreads: Bool { false }
+extension DiffCommentsStoring {
+    public var supportsCommentThreads: Bool { false }
 
-    func sendCommentThreads(root: String, acpSession: String, ids: [String], versions: [String: JSONValue],
-                            text: String, key: String) async throws(AgentPaneGitFailure) -> JSONValue {
-        throw AgentPaneGitFailure.failed
+    public func sendThreadedComments(root: String, acpSession: String, ids: [String], text: String?, key: String)
+        async throws(AgentPaneGitFailure) -> JSONValue {
+        throw AgentPaneGitFailure.unsupported
+    }
+
+    public func threadComment(root: String, id: String, reply: String?, author: String?, resolved: Bool?, key: String)
+        async throws(AgentPaneGitFailure) -> JSONValue {
+        throw AgentPaneGitFailure.unsupported
     }
 }
 
@@ -85,7 +93,19 @@ extension DiffPageProvider {
                 _ = try await store.deleteComments(root: root, ids: [id], versions: [:], key: key)
                 return .object([:])
             case "comments.send":
+                if inner["threads"]?.boolValue == true {
+                    guard store.supportsCommentThreads else { throw PageError.unknownOp(method) }
+                    return try await sendThreadedComments(inner, root: root, store: store, context: context)
+                }
                 return try await sendComments(inner, root: root, store: store, context: context)
+            case "comments.thread":
+                guard store.supportsCommentThreads else { throw PageError.unknownOp(method) }
+                guard let id = inner["id"]?.stringValue else { throw PageError.invalidParams("id is required") }
+                let reply = inner["reply"]?.stringValue
+                let resolved = inner["resolved"]?.boolValue
+                guard reply != nil || resolved != nil else { throw PageError.invalidParams("reply or resolved is required") }
+                return try await store.threadComment(root: root, id: id, reply: reply,
+                                                      author: inner["author"]?.stringValue, resolved: resolved, key: key)
             case "comments.post":
                 // Posting publishes under the person's GitHub account: only their click does it.
                 guard context.userGesture else {
@@ -116,22 +136,6 @@ extension DiffPageProvider {
         }
         let promptID = context.opid ?? UUID().uuidString
         let versions = params["versions"]?.objectValue ?? [:]
-        if params["keep"]?.boolValue == true {
-            // A page asks to keep only when the payload said this host could; if the chat or host
-            // changed since, refuse rather than send and clear comments the page means to keep.
-            guard chat.deliver == nil, store.keepsThreads else {
-                throw PageError(code: "cmux.diff.threads_unavailable", message: "This chat no longer keeps comment threads")
-            }
-            // The comments stay as threads; a later `comments.list` carries the agent's reply.
-            let sent: JSONValue
-            do {
-                sent = try await store.sendCommentThreads(root: root, acpSession: chat.session, ids: ids,
-                                                          versions: versions, text: text, key: promptID)
-            } catch {
-                throw Self.sendError(error) ?? (remote ? remoteError(error) : Self.pageError(error))
-            }
-            return ["sent": sent["sent"] ?? .number(Double(ids.count)), "threaded": sent["threaded"] ?? .array([])]
-        }
         guard let deliver = chat.deliver else {
             // The session host hands the prompt to the chat on its own machine and clears the
             // comments in one keyed op.
@@ -153,6 +157,25 @@ extension DiffPageProvider {
         let deleted = try await store.deleteComments(root: root, ids: ids, versions: versions, key: promptID + "-clear")
         let cleared = deleted["ids"]?.arrayValue ?? []
         return ["sent": .number(Double(ids.count)), "cleared": .array(cleared)]
+    }
+
+    private func sendThreadedComments(_ params: JSONValue, root: String, store: any DiffCommentsStoring,
+                                      context: PageCallContext) async throws -> JSONValue {
+        guard context.userGesture else {
+            throw PageError(code: "transport.gesture_required", message: "Sending needs a click or key in the page")
+        }
+        let ids = params["ids"]?.arrayValue?.compactMap(\.stringValue) ?? []
+        guard !ids.isEmpty, ids.count <= Self.maximumSentComments else { throw PageError.invalidParams("ids are required") }
+        guard let chat = chat() else {
+            throw PageError(code: "cmux.diff.no_chat", message: "No chat owns this diff")
+        }
+        do {
+            return try await store.sendThreadedComments(root: root, acpSession: chat.session, ids: ids,
+                                                        text: params["text"]?.stringValue,
+                                                        key: context.opid ?? UUID().uuidString)
+        } catch {
+            throw Self.sendError(error) ?? (remote ? remoteError(error) : Self.pageError(error))
+        }
     }
 
     /// The page's error for a send the session host refused: `cmux.diff.send_failed` when nothing
@@ -186,7 +209,9 @@ extension DiffPageProvider {
         members["ops"] = .array((members["ops"]?.arrayValue ?? []) + [.string(Self.commentsOp)])
         if chat() != nil, case .object(var payload)? = members["payload"] {
             payload["commentsSend"] = true
-            if chat()?.deliver == nil, commentStore?.keepsThreads == true { payload["commentsThreads"] = true }
+            if (commentStore as? any DiffCommentsStoring)?.supportsCommentThreads == true {
+                payload["commentsThreads"] = true
+            }
             members["payload"] = .object(payload)
         }
         return .object(members)
@@ -194,6 +219,8 @@ extension DiffPageProvider {
 }
 
 extension DiffAgentGit: DiffCommentsStoring {
+    public var supportsCommentThreads: Bool { link.supportsDiffCommentThreads }
+
     public func listComments(root: String) async throws(AgentPaneGitFailure) -> JSONValue {
         try Self.parseComments(try await link.read("diff.comments.list", params: ["root": .string(root)]))
     }
@@ -224,14 +251,21 @@ extension DiffAgentGit: DiffCommentsStoring {
         return try await mutate("diff.comments.send", .object(params), key: key)
     }
 
-    public var keepsThreads: Bool { link.keepsCommentThreads }
-
-    public func sendCommentThreads(root: String, acpSession: String, ids: [String], versions: [String: JSONValue],
-                                   text: String, key: String) async throws(AgentPaneGitFailure) -> JSONValue {
-        let params: [String: JSONValue] = ["root": .string(root), "acp_session": .string(acpSession),
-                                           "ids": .array(ids.map(JSONValue.string)), "text": .string(text),
-                                           "versions": .object(versions), "keep": true]
+    public func sendThreadedComments(root: String, acpSession: String, ids: [String], text: String?, key: String)
+        async throws(AgentPaneGitFailure) -> JSONValue {
+        var params: [String: JSONValue] = ["root": .string(root), "acp_session": .string(acpSession),
+                                           "ids": .array(ids.map(JSONValue.string)), "threads": .bool(true)]
+        if let text, !text.isEmpty { params["text"] = .string(text) }
         return try await mutate("diff.comments.send", .object(params), key: key)
+    }
+
+    public func threadComment(root: String, id: String, reply: String?, author: String?, resolved: Bool?, key: String)
+        async throws(AgentPaneGitFailure) -> JSONValue {
+        var params: [String: JSONValue] = ["root": .string(root), "id": .string(id)]
+        if let reply { params["reply"] = .string(reply) }
+        if let author { params["author"] = .string(author) }
+        if let resolved { params["resolved"] = .bool(resolved) }
+        return try await mutate("diff.comments.thread", .object(params), key: key)
     }
 
     private func mutate(_ operation: String, _ params: JSONValue, key: String) async throws(AgentPaneGitFailure) -> JSONValue {

@@ -11,7 +11,6 @@ public struct TerminalCommentStrings {
     static var header: String { text("terminalComments.header", "Comments") }
     static var sent: String { text("terminalComments.sent", "Sent") }
     static var waiting: String { text("terminalComments.waiting", "Waiting for the agent's reply…") }
-    static var failed: String { text("terminalComments.failed", "The agent's turn failed.") }
     static var resolve: String { text("terminalComments.resolve", "Resolve") }
     public static var notSent: String { text("terminalComments.notSent", "The comment was not sent to the chat.") }
 

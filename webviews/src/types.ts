@@ -20,7 +20,7 @@ export type DiffViewerPayload = {
   sessionCapabilities?: string[];
   /** The host sends the saved comments to the chat that owns this diff (`comments.send`). */
   commentsSend?: boolean;
-  /** With `commentsSend`: the host keeps sent comments as threads and returns the agent's reply (`keep`). */
+  /** The host supports persisted replies, resolution and threaded sends. */
   commentsThreads?: boolean;
   /** A chat owns this diff and the host serves its review brief (`cmux.diff.brief`). */
   reviewBrief?: boolean;

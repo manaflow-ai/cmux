@@ -42,7 +42,7 @@ public nonisolated struct BrowserDesignModeStrings: Sendable {
         String(localized: "browser.designMode.commentSave", defaultValue: "Return to save", bundle: .localizedModule)
     }
 
-    /// The bubble's hint when the workspace's agent chat keeps comment threads (`comment-threads-v1`):
+    /// The bubble's hint when the workspace's agent chat keeps comment threads (`diff-comments-threads-v1`):
     /// Command-Return adds the pick and sends it to the agent at once.
     public var commentSend: String {
         String(localized: "browser.designMode.commentSend", defaultValue: "Command-Return to send to agent", bundle: .localizedModule)

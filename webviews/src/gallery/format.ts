@@ -43,11 +43,11 @@ import type {
   HostLists,
   IntegrationsState,
   KeysState,
-  HubState,
   SharesState,
   TailnetState,
   ModelsState,
   LibraryListing,
+  HubState,
   DoctorReport,
 } from "../pages/settings/ops";
 import type { DoctorTreatment } from "../pages/settings/customizeDoctor";
@@ -347,8 +347,6 @@ export type DiffPageVariant = VariantBase & {
   comments?: DiffCommentRecord[];
   /** The host sends comments to the diff's chat (Send to agent). */
   commentsSend?: boolean;
-  /** With commentsSend: sent comments stay as threads with the agent's reply. */
-  commentsThreads?: boolean;
   /** A review worktree's pull request (`comments.list`'s `review`): the section posts to it. */
   commentsReview?: DiffReviewTarget;
   /** The diff's chat's review brief the in-page host answers (`cmux.diff.brief`), as acpmux's

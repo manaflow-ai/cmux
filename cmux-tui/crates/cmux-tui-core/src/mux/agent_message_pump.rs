@@ -410,15 +410,6 @@ impl Mux {
         Handover::Unreachable
     }
 
-    pub(crate) fn acp_prompt_replies(
-        &self,
-        _session: &str,
-        _prompt_ids: &[String],
-        _deadline: std::time::Instant,
-    ) -> Option<Vec<crate::comment_threads::TurnReply>> {
-        None
-    }
-
     pub(crate) fn acp_withdraw_message(
         &self,
         _session: &str,

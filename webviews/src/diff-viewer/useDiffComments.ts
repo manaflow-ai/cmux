@@ -4,19 +4,21 @@ import type { SelectedLineRange } from "@pierre/diffs";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { lineTextFor, type CommentFileDiff } from "../comments/anchor";
 import {
-  deleteComment as bridgeDeleteComment,
-  saveComment as bridgeSaveComment,
-  listComments as bridgeListComments,
-  sendComments as bridgeSendComments,
   DiffCommentsBridgeError,
+  deleteComment as bridgeDeleteComment,
   postComments as bridgePostComments,
+  saveComment as bridgeSaveComment,
+  sendComments as bridgeSendComments,
+  sendThreadedComments as bridgeSendThreadedComments,
+  threadComment as bridgeThreadComment,
+  listCommentsAndReview,
 } from "../comments/bridge";
 import { commentSubmissionText, commentsPromptText } from "../comments/format";
 import type {
+  CommentsPostState,
   CommentsSendState,
   DiffCommentRecord,
   DiffCommentSide,
-  CommentsPostState,
   DiffReviewPosted,
   DiffReviewTarget,
 } from "../comments/types";
@@ -33,18 +35,6 @@ import { useSyncedRef } from "./useSyncedRef";
  * them once the chat took it. A review worktree's (`review`, from the host's list) posts them to
  * its pull request as one GitHub review (`post`) and clears them once GitHub took it.
  */
-const THREAD_POLL_MS = 2000;
-
-/** A comment made on the diff (no `surface`, or `diff`), not one from the browser pane or a terminal. */
-export function isDiffComment(comment: DiffCommentRecord): boolean {
-  return comment.surface == null || comment.surface === "diff";
-}
-
-/** True while any comment's thread waits for the agent's turn to end. */
-export function hasSentThread(comments: readonly DiffCommentRecord[]): boolean {
-  return comments.some((comment) => comment.thread?.state === "sent");
-}
-
 /** One Send as it went out: the comments, their versions, the prompt and its id. */
 type SendBatch = { ids: string[]; versions: Record<string, string>; text: string; opid: string };
 /** One Post as it went out: the comments, their versions and its id. */
@@ -70,24 +60,19 @@ function nextBatch<Batch extends { ids: string[]; versions: Record<string, strin
 export function useDiffComments({
   bridgeAvailable,
   canSend,
-  canThread = false,
-  comments: shown = [],
   dispatch,
   latestState,
   repoRoot,
+  commentsThreads = false,
 }: {
   bridgeAvailable: boolean;
   canSend: boolean;
-  /** The host keeps sent comments as threads (`payload.commentsThreads`): sends use `keep`. */
-  canThread?: boolean;
-  /** The comments on the page now: polling runs only while one of them waits for its reply. */
-  comments?: readonly DiffCommentRecord[];
   dispatch: React.Dispatch<AppAction>;
   latestState: React.MutableRefObject<AppState>;
   repoRoot: string | null;
+  commentsThreads?: boolean;
 }) {
   const activeRepoRoot = useSyncedRef(repoRoot);
-  const threads = canThread && canSend;
   const [sendState, setSendState] = useState<CommentsSendState>("idle");
   // The pull request this worktree reviews (absent for an ordinary one), and its last post.
   const [review, setReview] = useState<DiffReviewTarget | undefined>(undefined);
@@ -117,13 +102,49 @@ export function useDiffComments({
   }, [repoRoot]);
   const onLoaded = useCallback(
     (comments: DiffCommentRecord[], loadedReview?: DiffReviewTarget) => {
-      // The host's store also keeps the browser pane's and terminal selections' comments under this
-      // root; they have no file or line, so the diff, its sidebar and a review post leave them out.
-      dispatch({ type: "replace-comments", comments: comments.filter(isDiffComment) });
+      dispatch({ type: "replace-comments", comments });
       setReview(loadedReview);
     },
     [dispatch],
   );
+
+  const refreshComments = useCallback(async () => {
+    if (!commentsThreads || !bridgeAvailable || repoRoot == null) {
+      return;
+    }
+    try {
+      const loaded = await listCommentsAndReview(repoRoot);
+      if (activeRepoRoot.current === repoRoot) {
+        onLoaded(loaded.comments, loaded.review);
+      }
+    } catch (error) {
+      console.warn("cmux diff comments refresh failed", error);
+    }
+  }, [activeRepoRoot, bridgeAvailable, commentsThreads, onLoaded, repoRoot]);
+
+  useEffect(() => {
+    if (!commentsThreads || !bridgeAvailable || repoRoot == null) {
+      return;
+    }
+    // Only a thread sent to the agent and still open can gain an answer the page has not written.
+    const awaitingAgent = () =>
+      latestState.current.comments.some((comment) => comment.sentIn != null && comment.resolved !== true);
+    const refresh = () => {
+      if (document.visibilityState === "visible" && awaitingAgent()) {
+        void refreshComments();
+      }
+    };
+    const onFocus = () => refresh();
+    const onVisibilityChange = () => refresh();
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    const interval = window.setInterval(refresh, 4000);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.clearInterval(interval);
+    };
+  }, [bridgeAvailable, commentsThreads, latestState, refreshComments, repoRoot]);
 
   const onGutterUtilityClick = (range: SelectedLineRange, context: { item: DiffItem }) => {
     const side: DiffCommentSide = range.side === "deletions" ? "deletions" : "additions";
@@ -203,78 +224,8 @@ export function useDiffComments({
     }
   };
 
-  // Reads the host's comments and takes in each one whose thread moved (sent, answered, failed);
-  // everything else on the page, a draft being written included, stays as it is.
-  const refreshThreads = (targetRepoRoot: string): Promise<void> =>
-    bridgeListComments(targetRepoRoot)
-      .then((listed) => {
-        if (activeRepoRoot.current !== targetRepoRoot) return;
-        const current = new Map(latestState.current.comments.map((comment) => [comment.id, comment]));
-        for (const comment of listed) {
-          const known = current.get(comment.id);
-          if (known != null && JSON.stringify(known.thread) !== JSON.stringify(comment.thread)) {
-            dispatch({ type: "upsert-comment", comment });
-          }
-        }
-      })
-      .catch((error) => console.warn("cmux diff comment threads refresh failed", error));
-
-  // Polls only while a thread waits for its reply.
-  const waiting = threads && hasSentThread(shown);
-  const refreshRef = useSyncedRef(refreshThreads);
-  useEffect(() => {
-    if (!waiting || !bridgeAvailable || repoRoot == null) return;
-    // The next read is scheduled once the last one ended, so slow list calls never pile up.
-    let stopped = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const tick = () => {
-      if (stopped) return;
-      void refreshRef.current(repoRoot).finally(() => {
-        if (!stopped) timer = setTimeout(tick, THREAD_POLL_MS);
-      });
-    };
-    timer = setTimeout(tick, THREAD_POLL_MS);
-    return () => {
-      stopped = true;
-      clearTimeout(timer);
-    };
-  }, [waiting, bridgeAvailable, repoRoot, refreshRef]);
-
-  // A reply is a new comment on the same anchor, sent at once with keep; its thread follows.
-  const reply = (comment: DiffCommentRecord, message: string, fileDiff: CommentFileDiff | null | undefined) => {
-    if (!threads || !bridgeAvailable || repoRoot == null || message.trim() === "") return;
-    const targetRepoRoot = repoRoot;
-    const input = {
-      filePath: comment.filePath,
-      side: comment.side,
-      startLine: comment.startLine,
-      endLine: comment.endLine,
-      ...(comment.endSide != null ? { endSide: comment.endSide } : {}),
-      ...(comment.surface != null ? { surface: comment.surface } : {}),
-      lineText: comment.lineText,
-      message,
-    };
-    const record = { ...input, submissionText: commentSubmissionText(input, fileDiff) };
-    bridgeSaveComment(targetRepoRoot, record, `diff-comment-${crypto.randomUUID()}`)
-      .then(async (saved) => {
-        if (activeRepoRoot.current === targetRepoRoot) dispatch({ type: "upsert-comment", comment: saved });
-        await bridgeSendComments(
-          targetRepoRoot,
-          [saved.id],
-          { [saved.id]: saved.updatedAt },
-          commentsPromptText([saved]),
-          `diff-comments-${crypto.randomUUID()}`,
-          true,
-        );
-        await refreshThreads(targetRepoRoot);
-      })
-      .catch((error) => console.warn("cmux diff comment reply failed", error));
-  };
-
   const send = () => {
-    const all = latestState.current.comments;
-    // With threads a sent comment stays listed, so a send takes only those not yet sent.
-    const comments = threads ? all.filter((comment) => comment.thread == null) : all;
+    const comments = latestState.current.comments;
     if (!canSend || !bridgeAvailable || repoRoot == null || comments.length === 0 || sendState === "sending") {
       return;
     }
@@ -305,7 +256,10 @@ export function useDiffComments({
     if (pending.length > 0) pendingSends.current.set(targetRepoRoot, pending);
     else pendingSends.current.delete(targetRepoRoot);
     setSendState("sending");
-    bridgeSendComments(targetRepoRoot, batch.ids, batch.versions, batch.text, batch.opid, threads)
+    const sendRequest: Promise<string[] | undefined> = commentsThreads
+      ? bridgeSendThreadedComments(targetRepoRoot, batch.ids, batch.opid).then(() => undefined)
+      : bridgeSendComments(targetRepoRoot, batch.ids, batch.versions, batch.text, batch.opid);
+    sendRequest
       .then((cleared) => {
         const outstanding = pendingSends.current.get(targetRepoRoot);
         if (outstanding?.[0]?.opid === batch.opid) outstanding.shift();
@@ -314,10 +268,14 @@ export function useDiffComments({
         // Another repository is shown now: its button is idle; the sent one lists what the host kept
         // when it is shown again.
         if (activeRepoRoot.current !== targetRepoRoot) return setSendState("idle");
+        if (commentsThreads) {
+          void refreshComments();
+          setSendState("idle");
+          return;
+        }
         // Only the comments sent and unchanged since leave, together; one saved or edited while the
         // send was on its way stays for the next send.
-        if (threads) void refreshThreads(targetRepoRoot);
-        else removeUnchanged(cleared, batch.versions);
+        removeUnchanged(cleared ?? [], batch.versions);
         setSendState("idle");
       })
       .catch((error) => {
@@ -325,6 +283,32 @@ export function useDiffComments({
         setSendState(activeRepoRoot.current === targetRepoRoot ? "failed" : "idle");
       });
   };
+
+  const reply = useCallback(
+    (comment: DiffCommentRecord, message: string) => {
+      if (!commentsThreads || !bridgeAvailable || repoRoot == null || message.trim() === "") return;
+      const targetRepoRoot = repoRoot;
+      bridgeThreadComment(targetRepoRoot, comment.id, { reply: message }, `diff-comment-reply-${crypto.randomUUID()}`)
+        .then((updated) => {
+          if (activeRepoRoot.current === targetRepoRoot) dispatch({ type: "upsert-comment", comment: updated });
+        })
+        .catch((error) => console.warn("cmux diff comment reply failed", error));
+    },
+    [activeRepoRoot, bridgeAvailable, commentsThreads, dispatch, repoRoot],
+  );
+
+  const resolve = useCallback(
+    (comment: DiffCommentRecord, resolved: boolean) => {
+      if (!commentsThreads || !bridgeAvailable || repoRoot == null) return;
+      const targetRepoRoot = repoRoot;
+      bridgeThreadComment(targetRepoRoot, comment.id, { resolved }, `diff-comment-resolve-${crypto.randomUUID()}`)
+        .then((updated) => {
+          if (activeRepoRoot.current === targetRepoRoot) dispatch({ type: "upsert-comment", comment: updated });
+        })
+        .catch((error) => console.warn("cmux diff comment resolve failed", error));
+    },
+    [activeRepoRoot, bridgeAvailable, commentsThreads, dispatch, repoRoot],
+  );
 
   const removeUnchanged = (cleared: readonly string[], versions: Record<string, string>) => {
     const current = new Map(latestState.current.comments.map((comment) => [comment.id, comment.updatedAt]));
@@ -392,7 +376,7 @@ export function useDiffComments({
   return {
     canPost: review != null && bridgeAvailable,
     canSend: canSend && bridgeAvailable,
-    canThread: threads && bridgeAvailable,
+    threaded: commentsThreads && bridgeAvailable,
     editMessage,
     onGutterUtilityClick,
     onLoaded,
@@ -401,7 +385,9 @@ export function useDiffComments({
     posted,
     postState,
     remove,
+    refreshComments,
     reply,
+    resolve,
     review,
     saveDraft,
     send,

@@ -5,7 +5,7 @@ import CmuxNextDiff
 import Observation
 import SwiftUI
 
-/// A terminal's comment threads (comment-threads-v1): a popup card at the terminal's top trailing
+/// A terminal's comment threads (diff-comments-threads-v1): a popup card at the terminal's top trailing
 /// corner listing each thread's quote, comment, "Sent" and then the agent's reply, with Resolve.
 /// It opens after Comment… sends, and again by itself when a reply comes while it is closed
 /// (``TerminalCommentThreads``).
@@ -159,10 +159,6 @@ private struct TerminalCommentThreadRow: View {
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("terminal.comments.reply")
-            case .failed:
-                Text(TerminalCommentStrings.failed)
-                    .font(Font(Typography.caption))
-                    .foregroundStyle(colors.danger)
             case .draft:
                 EmptyView()
             }

@@ -82,7 +82,7 @@ public nonisolated struct BrowserDesignModeCards: Sendable {
         sent[selector]?.card
     }
 
-    /// What a pick's thread asks of the app (comment threads, `comment-threads-v1`): the page posts
+    /// What a pick's thread asks of the app (comment threads, `diff-comments-threads-v1`): the page posts
     /// `{type: "send_requested", selector}` for Command-Return in a pick's bubble, and
     /// `{type: "thread_resolve", selector}` for its thread card's Resolve, each only for a real key
     /// or click. Nil for any other message.

@@ -9,12 +9,10 @@ public nonisolated struct CommentThread: Sendable, Equatable, Identifiable {
     public enum State: String, Sendable {
         /// Saved, not sent.
         case draft
-        /// Sent; the agent's turn has not ended.
+        /// Sent (`sentIn`); the agent has not answered in the thread.
         case sent
-        /// The agent's turn ended; ``CommentThread/reply`` is its text.
+        /// The agent answered in the thread; ``CommentThread/reply`` is its newest reply.
         case answered
-        /// The agent's turn failed.
-        case failed
     }
 
     public let id: String
@@ -38,8 +36,15 @@ public nonisolated struct CommentThread: Sendable, Equatable, Identifiable {
         terminalID = record["terminal"]?["id"]?.stringValue
         quote = record["quote"]?.stringValue ?? record["lineText"]?.stringValue ?? ""
         message = record["message"]?.stringValue ?? ""
-        state = record["thread"]?["state"]?.stringValue.flatMap(State.init(rawValue:)) ?? .draft
-        reply = record["thread"]?["reply"]?["text"]?.stringValue
+        reply = Self.agentReply(of: record)
+        state = reply != nil ? .answered : record["sentIn"]?.stringValue != nil ? .sent : .draft
+    }
+
+    /// The newest reply the agent wrote in a `diff.comments.list` record's thread (`replies`, author
+    /// `agent`, from `cmux git comments reply`); nil before it answered.
+    public static func agentReply(of record: JSONValue) -> String? {
+        let replies = record["replies"]?.arrayValue ?? []
+        return replies.last { $0["author"]?.stringValue == "agent" }?["text"]?.stringValue
     }
 }
 
@@ -62,8 +67,15 @@ public nonisolated struct CommentedTerminal: Sendable, Equatable {
         return .object(object)
     }
 
-    /// The prompt the chat gets: the selection as a Markdown block quote headed by the terminal,
-    /// then the comment.
+    /// Where the prompt says the thread is: the title and the folder.
+    var place: String {
+        var out = title ?? ""
+        if let cwd, !cwd.isEmpty { out += out.isEmpty ? cwd : " (\(cwd))" }
+        return out
+    }
+
+    /// The thread's block in the prompt the chat gets: the selection as a Markdown block quote
+    /// headed by the terminal, then the comment.
     public func prompt(quote: String, message: String) -> String {
         var heading = "Terminal"
         if let title, !title.isEmpty { heading += " · " + title }
@@ -78,11 +90,11 @@ public nonisolated struct CommentedTerminal: Sendable, Equatable {
     }
 }
 
-/// The comment threads of one root on one session host (`comment-threads-v1`,
-/// ``DiffCommentsStoring/keepsThreads``): Comment… on a
-/// terminal selection saves it and sends it to the workspace's chat in one step, keeping it as a
-/// thread; ``threads`` is polled about every 2 s while any is "sent", so the agent's reply shows in
-/// the same thread. Resolve deletes it.
+/// The comment threads of one root on one session host (`diff-comments-threads-v1`,
+/// ``DiffCommentsStoring/supportsCommentThreads``): Comment… on a terminal selection saves it and
+/// sends it to the workspace's chat in one threaded send; the agent answers in the thread
+/// (`cmux git comments reply`), and ``threads`` is polled about every 2 s while any is "sent", so
+/// that reply shows in the same thread. Resolve deletes it.
 @MainActor
 @Observable
 public final class CommentThreadsModel {
@@ -113,16 +125,16 @@ public final class CommentThreadsModel {
     @discardableResult
     public func comment(on terminal: CommentedTerminal, quote: String, message: String, acpSession: String,
                         key: String) async throws(AgentPaneGitFailure) -> CommentThread {
-        let record: JSONValue = ["surface": "terminal", "terminal": terminal.json, "quote": .string(quote),
-                                 "message": .string(message)]
+        let record: JSONValue = ["surface": "terminal", "place": .string(terminal.place), "terminal": terminal.json,
+                                 "quote": .string(quote), "message": .string(message),
+                                 "submissionText": .string(terminal.prompt(quote: quote, message: message))]
         do throws(AgentPaneGitFailure) {
             let saved = try await store.saveComment(root: root, comment: record, key: key + "-save")
             guard let comment = saved["comment"], let thread = CommentThread(comment) else { throw AgentPaneGitFailure.failed }
             upsert(thread)
             do throws(AgentPaneGitFailure) {
-                _ = try await store.sendCommentThreads(root: root, acpSession: acpSession, ids: [thread.id],
-                                                       versions: thread.version.map { [thread.id: $0] } ?? [:],
-                                                       text: terminal.prompt(quote: quote, message: message), key: key)
+                _ = try await store.sendThreadedComments(root: root, acpSession: acpSession, ids: [thread.id],
+                                                         text: nil, key: key)
             } catch {
                 // The send failed: the saved comment leaves the host too, so no later diff Send
                 // takes it as a plain comment.
