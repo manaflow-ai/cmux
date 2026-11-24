@@ -67,8 +67,13 @@ impl Driver {
 
     /// Send the initiation again while data waits for a session and its
     /// answer is overdue (see `crate::handshake_retry`).
+    /// Not while a crossed handshake is held (`wait_for_handshake_until`):
+    /// a new initiation would drop the state the peer's reply needs.
     pub(super) fn run_handshake_retry(&mut self) {
         let now = Instant::now();
+        if self.wait_for_handshake_until.is_some_and(|end| now < end) {
+            return;
+        }
         if !self.handshake_retry.fire(now, self.pacer.srtt()) {
             return;
         }
