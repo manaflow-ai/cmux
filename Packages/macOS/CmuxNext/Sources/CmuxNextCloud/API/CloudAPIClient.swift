@@ -34,11 +34,6 @@ public struct CloudAPIClient: Sendable {
         get { daemon.machineIO }
         set { daemon.machineIO = newValue }
     }
-    /// The `cmux cloud api` child's run (``CloudDaemon/daemonCall``); a test passes its own.
-    var daemonCall: (@Sendable (_ input: Data, _ timeout: Duration) async throws -> Data)? {
-        get { daemon.daemonCall }
-        set { daemon.daemonCall = newValue }
-    }
     /// A Worker machines client's install token, for the routes that take an install, not a session (``listNetworks()``).
     var installToken: (@Sendable () async throws -> String)?
 

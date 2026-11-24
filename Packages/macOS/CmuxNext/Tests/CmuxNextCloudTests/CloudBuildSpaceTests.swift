@@ -104,7 +104,7 @@ struct CloudBuildSpaceTests {
         await #expect(throws: CMUXBuildSpaceError.self) { try await Self.workerClient(Self.misconfigured).listDomains() }
         // A daemon call refuses too, before the child starts (cmux-tui sends the space itself).
         var daemon = Self.workerClient(Self.misconfigured)
-        daemon.daemonCall = { _, _ in
+        daemon.daemon.daemonCall = { _, _ in
             Issue.record("a misconfigured build started a daemon call")
             return Data()
         }

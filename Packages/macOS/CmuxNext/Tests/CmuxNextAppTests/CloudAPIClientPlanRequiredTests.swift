@@ -20,7 +20,7 @@ struct CloudAPIClientPlanRequiredTests {
         let seen = Mutex<Data?>(nil)
         guard let baseURL = URL(string: "https://vm-api.standin.invalid") else { return }
         var api = CloudAPIClient.workerMachines(baseURL: baseURL, accessToken: { "access" }, teamID: { "team-1" })
-        api.daemonCall = { input, _ in
+        api.daemon.daemonCall = { input, _ in
             seen.withLock { $0 = input }
             return Data(#"{"ok":false,"error":{"kind":"plan_required","message":"Cloud VMs require a cmux Pro subscription.","upgrade_url":"https://cmux.com/pricing","plan":"pro"}}"#.utf8)
         }
@@ -33,7 +33,7 @@ struct CloudAPIClientPlanRequiredTests {
         #expect(request["auth"] as? String == "owner")
         #expect(request["credential"] as? String == "access")
         #expect((request["args"] as? [String: Any])?["id"] as? String == "vm_aaaaaaaaaaaaaaaaaaaa")
-        api.daemonCall = { _, _ in Data(#"{"ok":true,"body":{"ok":true}}"#.utf8) }
+        api.daemon.daemonCall = { _, _ in Data(#"{"ok":true,"body":{"ok":true}}"#.utf8) }
         try await api.setupDesktop("vm_aaaaaaaaaaaaaaaaaaaa")
     }
 
