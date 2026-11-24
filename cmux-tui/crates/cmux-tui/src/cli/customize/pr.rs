@@ -161,6 +161,8 @@ fn base_url() -> String {
     std::env::var("CMUX_WEB_BUNDLES_BASE")
         .ok()
         .filter(|base| !base.is_empty())
+        // The person named this base (CMUX_WEB_BUNDLES_BASE): the gate lets its host through.
+        .inspect(|base| cmux_egress::allow_named(base))
         .unwrap_or_else(|| DEFAULT_BASE.to_owned())
         .trim_end_matches('/')
         .to_owned()
@@ -188,7 +190,7 @@ impl Http {
             .enable_all()
             .build()
             .map_err(|error| failure(format!("could not start a network runtime: {error}")))?;
-        let client = reqwest::Client::builder()
+        let client = cmux_egress::client_builder("cmux_tui::cli::customize::pr")
             .timeout(timeout)
             .user_agent(concat!("cmux-customize/", env!("CARGO_PKG_VERSION")))
             .build()

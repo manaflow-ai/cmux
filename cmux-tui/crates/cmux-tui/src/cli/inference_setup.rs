@@ -295,7 +295,9 @@ fn now_ms() -> u64 {
 
 async fn setup(options: &Options) -> Result<(), String> {
     let token = backend_token(&options.token, options.team.as_deref()).await?;
-    let http = reqwest::Client::builder()
+    // The person named the cmux API (--api or CMUX_CLOUD_API_URL).
+    cmux_egress::allow_named(&options.api);
+    let http = cmux_egress::client_builder("cmux_tui::cli::inference_setup")
         .default_headers(cmux_build_space::headers().map_err(|e| e.to_string())?)
         .redirect(reqwest::redirect::Policy::none())
         .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))

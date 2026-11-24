@@ -220,6 +220,8 @@ pub(super) fn run(_global: &GlobalArgs, command: &Command) -> i32 {
         Command::Check(check) => {
             let fetched = (!check.offline).then(|| {
                 let etag = State::of(&check.state, &check.channel).etag;
+                // --base is the person's (the default is cmux's own files host, listed anyway).
+                cmux_egress::allow_named(&check.base);
                 fetch(&file_url(&check.base, &check.channel), etag.as_deref())
             });
             apply(check, fetched, &cmux_web_pieces::trusted_keys(), now())
@@ -459,7 +461,7 @@ pub(super) fn fetch(url: &str, etag: Option<&str>) -> Fetched {
             return Fetched::Failed(format!("could not start a network runtime: {error}"));
         }
     };
-    let client = reqwest::Client::builder()
+    let client = cmux_egress::client_builder("cmux_tui::cli::app::web_pieces")
         .timeout(FETCH_TIMEOUT)
         .redirect(reqwest::redirect::Policy::none())
         .user_agent(concat!("cmux-web-pieces/", env!("CARGO_PKG_VERSION")))

@@ -517,8 +517,10 @@ impl HttpSource {
         let space = cmux_build_space::headers().map_err(|e| e.to_string())?;
         // A black-holed SYN costs 1 s per address, then a new socket (`connect_retry`); the last
         // try connects with no connect timeout. Both clients carry the space.
+        // The API origin is the person's (a flag, CMUX_CLOUD_API_URL or the app's backend setting).
+        cmux_egress::allow_named(&api);
         let clients = cmux_cloud_client::connect_retry::Clients::build(|| {
-            reqwest::Client::builder()
+            cmux_egress::client_builder("cmux_tui::carrier::answer")
                 .default_headers(space.clone())
                 .redirect(reqwest::redirect::Policy::none())
                 .timeout(FETCH_TIMEOUT)
