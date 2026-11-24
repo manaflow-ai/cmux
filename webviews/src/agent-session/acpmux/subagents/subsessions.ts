@@ -103,6 +103,19 @@ export function subsessionName(
   return session.name === session.sessionId || OPAQUE_ID.test(session.name) ? undefined : session.name;
 }
 
+/// Whether anything names the subagent (its task, its name, what it was asked, its kind), so a line
+/// can show it by more than the generic "Subagent" or its raw id. A start line names only these, and
+/// counts the rest (runningTray.ts `startedLine`).
+export function subagentNamed(agent: {
+  id: string;
+  name: string;
+  task?: string;
+  kind?: string;
+  prompt?: string;
+}): boolean {
+  return (namedBy(agent, firstLine(agent.task)) ?? namedBy(agent, agent.name) ?? fallbackName(agent)) !== undefined;
+}
+
 /// `text` when it names the subagent: not empty and not one of its raw ids.
 function namedBy(agent: { id: string; name: string }, text: string | undefined): string | undefined {
   if (!text) return undefined;
@@ -123,10 +136,14 @@ const firstLine = (text: string | undefined) =>
     .find(Boolean);
 
 /// What a sub-session waiting on the person waits for, in one line: a question (and its first
-/// prompt, which the line cuts when there is no room) or a tool's permission. Only the person
-/// answers it, in its chat (person proof): its parent's agent cannot, so the line says where.
+/// prompt, which the line cuts when there is no room), a tool's permission, a secret, a command to
+/// run as root or an MCP server to connect. Only the person answers it, in its chat (person proof):
+/// its parent's agent cannot, so the line says where.
 export function waitingLine(t: Translate, waiting: SessionWaiting): string {
   if (waiting.on === "permission") return t("subsession.waitingPermission");
+  if (waiting.on === "secret") return t("subsession.waitingSecret");
+  if (waiting.on === "elevation") return t("subsession.waitingElevation");
+  if (waiting.on === "mcpConnect") return t("subsession.waitingMcpConnect");
   const line = t("subsession.waitingQuestion");
   return waiting.prompt ? `${line} · ${waiting.prompt}` : line;
 }

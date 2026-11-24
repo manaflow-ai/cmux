@@ -119,6 +119,17 @@ fn note_gone(gone: &mut VecDeque<Gone>, id: &str, agent_id: Option<&str>, why: &
     gone.push_back(Gone { id: id.to_owned(), agent_id: agent_id.map(str::to_owned), why });
 }
 
+/// What the settle of a chat's open retries read of one subagent (`settle_subagent_retries`).
+#[derive(Default)]
+struct Settled {
+    state: Value,
+    agent_id: Value,
+    task: Value,
+    error: Value,
+    /// acpmux's last entry for it left a retry waiting or in flight.
+    open: bool,
+}
+
 #[derive(Default)]
 struct Sub {
     name: Option<String>,
@@ -322,6 +333,8 @@ impl Hub {
                     }
                     "failed" => {
                         let mut sub = subs.remove(id).unwrap_or_default();
+                        // Its failure may name it where no `running` update did (cmux#52916).
+                        sub.name = name.map(str::to_owned).or(sub.name.take());
                         // Failed again: its new failure's update follows.
                         if let Some(f) = sub.failed.take().filter(|f| f.wait.is_some()) {
                             skipped.push((id.to_owned(), f, "superseded", "failed", false));
@@ -523,25 +536,39 @@ impl Hub {
             return;
         }
         drop(open);
-        // Each subagent's last state and agent id, and whether acpmux's last entry left it open.
-        let mut subs: HashMap<String, (Value, Value, bool)> = HashMap::new();
-        let kinds = ["subagent_state_update"];
+        // Each subagent's last state, agent id, task (its name) and error, and whether acpmux's
+        // last entry left it open.
+        let mut subs: HashMap<String, Settled> = HashMap::new();
+        let kinds = ["subagent_state_update", "subagent_spawned"];
         let scanned =
-            self.scan_for_rebuild(session, &kinds, &mut |e: crate::store::EventRecord| {
+            self.scan_for_rebuild_off(session, &kinds, &mut |e: crate::store::EventRecord| {
                 let entries =
                     e.msg.pointer("/params/_meta/acpmux/subagents").and_then(Value::as_array);
                 for entry in entries.into_iter().flatten() {
                     let Some(id) = entry.get("id").and_then(Value::as_str) else { continue };
-                    let sub =
-                        subs.entry(id.to_owned()).or_insert((Value::Null, Value::Null, false));
-                    for (key, slot) in [("state", &mut sub.0), ("agentId", &mut sub.1)] {
+                    let sub = subs.entry(id.to_owned()).or_default();
+                    // A spawn only names the subagent: its `running` is no state to settle.
+                    let spawn = e.kind == "subagent_spawned";
+                    for (key, slot) in [
+                        ("state", &mut sub.state),
+                        ("agentId", &mut sub.agent_id),
+                        ("error", &mut sub.error),
+                    ] {
+                        if spawn && key != "agentId" {
+                            continue;
+                        }
                         if let Some(v) = entry.get(key).filter(|v| v.is_string()) {
                             *slot = v.clone();
                         }
                     }
+                    if let Some(v) = ["task", "name"].into_iter().find_map(|k| {
+                        entry.get(k).filter(|v| v.as_str().is_some_and(|s| !s.trim().is_empty()))
+                    }) {
+                        sub.task = v.clone();
+                    }
                     if entry.get("retryable").is_some() {
                         let set = |k: &str| entry.get(k).is_some_and(|v| !v.is_null());
-                        sub.2 = set("retry") || set("retryInFlight");
+                        sub.open = set("retry") || set("retryInFlight");
                     }
                 }
                 true
@@ -550,10 +577,23 @@ impl Hub {
             tracing::warn!(session = %session.id, "settling subagent retries: {e}");
             return;
         }
-        for (id, (state, agent_id, _)) in subs.into_iter().filter(|(_, s)| s.2) {
-            let state = state.as_str().unwrap_or("failed").to_owned();
-            let entry = json!({"id": id, "parent": null, "state": state, "agentId": agent_id,
-                "retry": null, "retryInFlight": null, "retryable": false});
+        for (id, sub) in subs.into_iter().filter(|(_, s)| s.open) {
+            let state = sub.state.as_str().unwrap_or("failed").to_owned();
+            // An end written after the fact (`recovered`), with what names it and why it failed:
+            // a pane that never read its spawn (an older page) draws nothing for it, and one that
+            // did keeps its line, now with no retry to wait for (cmux#52916: two "Subagent Failed
+            // 0s" lines, nameless and reasonless, under a reply after a restart).
+            let mut entry = json!({"id": id, "parent": null, "state": state,
+                "agentId": sub.agent_id, "retry": null, "retryInFlight": null,
+                "retryable": false, "recovered": true});
+            if let Some(fields) = entry.as_object_mut() {
+                if !sub.task.is_null() {
+                    fields.insert("task".into(), sub.task);
+                }
+                if !sub.error.is_null() {
+                    fields.insert("error".into(), sub.error);
+                }
+            }
             self.append_entry(session, &id, &state, entry);
         }
         self.set_retry_open(session, false);
@@ -937,9 +977,24 @@ impl Hub {
         if open {
             self.set_retry_open(session, true);
         }
-        let entry = json!({"id": id, "parent": null, "state": state,
+        let mut entry = json!({"id": id, "parent": null, "state": state,
             "agentId": failure.agent_id, "retry": retry, "retryInFlight": in_flight,
             "retryable": retryable});
+        // What names it and why it failed, on every entry: a pane whose history starts after its
+        // spawn names its line from this one (cmux#52916).
+        let name = {
+            let all = self.subagent_retries.lock();
+            all.subs.get(&session.id).and_then(|s| s.get(id)).and_then(|s| s.name.clone())
+        };
+        if let Some(fields) = entry.as_object_mut() {
+            if let Some(name) = name {
+                fields.insert("task".into(), Value::String(name));
+            }
+            // Only a failed entry names the failure: a resumed `running` one must not carry it.
+            if state == "failed" && !failure.error.is_empty() {
+                fields.insert("error".into(), Value::String(failure.error.clone()));
+            }
+        }
         self.append_entry(session, id, state, entry);
         // The last open entry settled: no load needs to read the log for it.
         if !open && !self.any_open(session) {
