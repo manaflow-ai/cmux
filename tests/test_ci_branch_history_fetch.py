@@ -19,7 +19,10 @@ JOBS = {
     "cmux-next-web-bundle-publish.yml": ["build"],
     # The same failure in the backend deploy on 2026-11-23 and 24: deploy-staging (jobs 138123838319, 138095039278)
     # and deploy-dashboard-staging (137939866003), so a merged console fix did not reach staging.
-    "backend.yml": ["deploy-staging", "deploy-dashboard-staging", "deploy-development"],
+    # And in the production promote on 2026-11-24: promote-production 138367811946 picked 3bbe7dc (the
+    # owner.state_full sign-in fix every production Cloud probe was failing on) and died in checkout.
+    "backend.yml": ["deploy-staging", "deploy-dashboard-staging", "deploy-development", "promote-gates",
+                    "promote-production", "rollback-production", "chief-off-production", "journey-production"],
 }
 
 

@@ -65,13 +65,16 @@ def honors_no_lazy_fetch(env: dict[str, str] | None = None) -> bool:
     return _git_version >= (2, 44)
 
 
-def fetch_blobs(repo: Path, remote: str, specs: list[str], env: dict[str, str] | None = None) -> int:
-    """Fetch the blobs `<rev>:<path>` SPECS name from REMOTE in ONE fetch; returns how many ids it asked for (0 on
-    any failure: the caller then reads as before, fetching blob by blob).
+# Which of the named objects a clone holds, never fetching, on every git: rev-list turns lazy fetching off in-process
+# (`--missing=print`) and never scans the promisor packs for a miss. A named object the clone lacks is dropped
+# (`--ignore-missing`; git 2.43 prints no `?` line for it), so what is missing is what was asked less what came back
+# (scripts/ci/git_tree.py, leo-workspace tools/git_missing.py).
+MISSING_ARGS = ["rev-list", "--objects", "--no-walk", "--ignore-missing", "--missing=print", "--stdin"]
 
-    The ids come from `ls-tree -r` of each revision, with GIT_NO_LAZY_FETCH: trees are local in a blobless clone,
-    so no blob is read to find them. The fetch is the command git itself runs for a lazy fetch, with every id on
-    stdin instead of one."""
+
+def blob_ids(repo: Path, specs: list[str], env: dict[str, str] | None = None) -> set[str]:
+    """The blob ids `<rev>:<path>` SPECS name, from `ls-tree` of each rev (trees only: local in a blobless clone, so
+    nothing is fetched). A path a rev lacks, a tree or a rev ls-tree cannot read adds nothing."""
     quiet = {**(os.environ if env is None else env), "GIT_NO_LAZY_FETCH": "1"}
     wanted: dict[str, set[str]] = {}
     for spec in specs:
@@ -79,25 +82,71 @@ def fetch_blobs(repo: Path, remote: str, specs: list[str], env: dict[str, str] |
         if sep and rev and path:
             wanted.setdefault(rev, set()).add(path)
     oids: set[str] = set()
+    for rev, paths in wanted.items():
+        # A few paths: ls-tree of those alone; many: one listing of the whole tree (cheaper than a long pathspec).
+        args = (["--literal-pathspecs", "ls-tree", "-z", "--full-tree", "--end-of-options", rev, "--", *sorted(paths)]
+                if len(paths) < RESOLVE_MIN_SPECS else ["ls-tree", "-r", "-z", "--full-tree", "--end-of-options", rev])
+        listing = run(repo, args, env=quiet, timeout=PREFETCH_TIMEOUT)
+        if listing.returncode != 0:
+            continue
+        for entry in listing.stdout.split(b"\0"):
+            meta, _, name = entry.partition(b"\t")
+            fields = meta.split()
+            if len(fields) == 3 and fields[1] == b"blob" and name.decode("utf-8", "surrogateescape") in paths:
+                oids.add(fields[2].decode())
+    return oids
+
+
+def lacking(repo: Path, oids, env: dict[str, str] | None = None) -> set[str]:
+    """Which of OIDS the clone at REPO does not hold, asked of rev-list once (MISSING_ARGS), fetching nothing.
+    Raises GitError when rev-list fails."""
+    oids = sorted(set(oids))
+    if not oids:
+        return set()
+    listed = run(repo, MISSING_ARGS, "".join(f"{oid}\n" for oid in oids).encode(),
+                 {**(os.environ if env is None else env), "GIT_NO_LAZY_FETCH": "1"}, PREFETCH_TIMEOUT)
+    if listed.returncode != 0:
+        raise GitError(f"git rev-list --missing=print exited {listed.returncode}")
+    present = {line.split()[0] for line in listed.stdout.decode("utf-8", "replace").splitlines()
+               if line and not line.startswith("?")}
+    return {oid for oid in oids if oid not in present}
+
+
+def fetch_ids(repo: Path, remote: str, oids, env: dict[str, str] | None = None) -> int:
+    """Fetch the objects OIDS from REMOTE in ONE fetch: the command git itself runs for a lazy fetch, with every id on
+    stdin instead of one. Returns how many it asked for (0 for none or on any failure)."""
+    oids = sorted(set(oids))
+    if not oids:
+        return 0
     try:
-        for rev, paths in wanted.items():
-            listing = run(repo, ["ls-tree", "-r", "-z", "--end-of-options", rev], env=quiet, timeout=PREFETCH_TIMEOUT)
-            if listing.returncode != 0:
-                continue
-            for entry in listing.stdout.split(b"\0"):
-                meta, _, name = entry.partition(b"\t")
-                fields = meta.split()
-                if len(fields) == 3 and fields[1] == b"blob" and name.decode("utf-8", "surrogateescape") in paths:
-                    oids.add(fields[2].decode())
-        if not oids:
-            return 0
         fetch = run(repo, ["-c", "fetch.negotiationAlgorithm=noop", "fetch", remote, "--no-tags",
                            "--no-write-fetch-head", "--recurse-submodules=no", "--filter=blob:none", "--stdin"],
-                    "".join(f"{oid}\n" for oid in sorted(oids)).encode(),
+                    "".join(f"{oid}\n" for oid in oids).encode(),
                     {**(os.environ if env is None else env), "GIT_TERMINAL_PROMPT": "0"}, PREFETCH_TIMEOUT)
     except (OSError, subprocess.SubprocessError):
         return 0
     return len(oids) if fetch.returncode == 0 else 0
+
+
+def fetch_missing_ids(repo: Path, remote: str, oids, env: dict[str, str] | None = None) -> int:
+    """Fetch the objects of OIDS the clone lacks (lacking) in one fetch; how many it lacked and fetched (0 when it
+    lacks none, which costs one rev-list and no fetch; 0 on any failure: the caller reads as before)."""
+    try:
+        return fetch_ids(repo, remote, lacking(repo, oids, env), env)
+    except (OSError, subprocess.SubprocessError, GitError):
+        return 0
+
+
+def fetch_blobs(repo: Path, remote: str, specs: list[str], env: dict[str, str] | None = None,
+                only_missing: bool = False) -> int:
+    """Fetch the blobs `<rev>:<path>` SPECS name from REMOTE in ONE fetch (ONLY_MISSING: only those the clone lacks,
+    asked of rev-list first); returns how many ids it fetched (0 on any failure: the caller then reads as before,
+    fetching blob by blob)."""
+    try:
+        oids = blob_ids(repo, specs, env)
+    except (OSError, subprocess.SubprocessError):
+        return 0
+    return fetch_missing_ids(repo, remote, oids, env) if only_missing else fetch_ids(repo, remote, oids, env)
 
 
 def cat_file(repo: Path, specs: list[str], env: dict[str, str] | None = None, ids: dict[str, str] | None = None
@@ -112,7 +161,8 @@ def cat_file(repo: Path, specs: list[str], env: dict[str, str] | None = None, id
     row (0.49 s a blob on big-red; a cold clone's 9,000 now take 14 s). So the read there runs with
     GIT_NO_LAZY_FETCH first, which answers `missing` instead of fetching; the specs it misses get their blobs in
     one fetch (fetch_blobs) and are read again the plain way, which still fetches whatever the one fetch did not
-    bring. A warm clone pays nothing extra: the first read is the whole read.
+    bring. A warm clone pays nothing extra: the first read is the whole read. A git before 2.44 asks rev-list which
+    blobs it lacks first and fetches those in one fetch (fetch_blobs, only_missing).
 
     Raises GitError when git exits non-zero or its answer does not cover every spec in order (git stopped
     early, or an answer this parser does not know), so a caller never judges a file whose text it lacks.
@@ -121,8 +171,15 @@ def cat_file(repo: Path, specs: list[str], env: dict[str, str] | None = None, id
         return {}
     # Many specs of one rev are read by blob id (resolve_specs): the same blobs, the same answer, a fraction of the time.
     queries = resolve_specs(repo, specs, env)
-    remote = promisor_remote(repo, env) if honors_no_lazy_fetch(env) else None
+    remote = promisor_remote(repo, env)
     if remote is None:
+        return _cat_file_batch(repo, specs, env, ids, set(), queries)
+    if not honors_no_lazy_fetch(env):
+        # A git before 2.44 (2.43: the GCP lane VMs') ignores GIT_NO_LAZY_FETCH, so the probe below would fetch blob
+        # by blob itself. Ask rev-list which blobs the clone lacks instead, fetch those in one fetch, then read.
+        # fs-agent-lane-10, 2026-11-24: reads blob by blob wrote a pack a second, 2372 in an hour, into the host's
+        # shared wt mirror.
+        fetch_blobs(repo, remote, specs, env, only_missing=True)
         return _cat_file_batch(repo, specs, env, ids, set(), queries)
     missing: set[str] = set()
     quiet = {**(os.environ if env is None else env), "GIT_NO_LAZY_FETCH": "1"}
