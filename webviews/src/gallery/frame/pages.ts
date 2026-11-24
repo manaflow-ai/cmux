@@ -420,6 +420,8 @@ export async function mountCloudPage(state: CloudPageVariant, _context: StageCon
   if (state.surge) provider.surge = JSON.parse(JSON.stringify(state.surge));
   if (state.paymentPastDue !== undefined) provider.paymentPastDue = state.paymentPastDue;
   if (state.planId) provider.account.plan.plan_id = state.planId;
+  if (state.usage !== undefined)
+    provider.usage = typeof state.usage === "string" ? state.usage : structuredClone(state.usage);
   const operations = pageOps(provider, [...Object.values(CloudOps), CLOUD_ACTION_RUN, CLOUD_PAGE_COMMAND], {
     mode: state.mode === "normal" ? undefined : state.mode,
     firstOperation: CloudOps.authStatus,
