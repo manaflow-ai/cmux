@@ -7354,6 +7354,7 @@ def quarantined_only(view: "FailedView | Unplaced", known: dict) -> bool:
 WS_CHECK = "ws-check"
 WS_CHECK_REPOS = {"teamleaderleo/leo-workspace": "manaflow-ai/cmuxterm-hq"}  # repo: the repo its runs are in
 WS_CHECK_COMMITS = 30  # base commits read for a verdict, newest first (most main commits get none)
+WS_CHECK_TESTED_TIPS = 20  # base commits whose squash tree a run may have tested (one local merge-tree each)
 # leo-workspace tools/ws-check describes a failure "N of M steps failed: STEP", cut to 139 characters. It may lead with
 # "base red (main SHA8 fails it too) " (main's own run fails those steps) and end the step with a hint ("STEP; lints
 # before the next push: ..."); ws_check_names_step reads the step text.
@@ -7659,22 +7660,45 @@ def ws_check_squash_tree(repo: str, head: str, tip: str, branches: Callable[[], 
     return cut
 
 
-def ws_check_tested_tree(repo: str, base: str, sha: str, snapshot: dict, tip: str, github=None) -> None:
-    """Refused unless the head SHA's snapshot run (SNAPSHOT: {"run", "tree"}, ws_check_verdict) tested the tree a pinned
-    squash of SHA onto BASE's tip TIP makes (ws_check_squash_tree), compared by tree id only. A run that tested an older
-    base, another head, or names no tree is no verdict on what lands."""
+def ws_check_tested_tree(repo: str, base: str, sha: str, snapshot: dict, tips, github=None) -> str:
+    """The BASE commit the head SHA's snapshot run (SNAPSHOT: {"run", "tree"}, ws_check_verdict) tested SHA against: the
+    newest of TIPS (BASE's commits newest first, or one sha) whose pinned squash with SHA (ws_check_squash_tree) makes
+    the tree the run tested, compared by tree id only. The tip is tried first, and a run that tested an older tip is
+    still a verdict on the tree that tip made: ws_check_red holds its red against that same commit and the ones before
+    it, never a newer one. Refused when the run names no tree, or no commit in TIPS makes its tree: that run tested
+    another head, or a base older than the window, and is no verdict on SHA.
+
+    A single tip is not enough: a base that moves faster than one run of its own checks can never be matched by its tip
+    (2026-11-24, leo-workspace main: 16.8 merges/hour, median gap 104 s, 99.7% of gaps under one 2000 s ws-check run),
+    so every head was refused "it tested another base or head" and the remedy that refusal names (merge the base in and
+    run again) could never finish either."""
     where = f"'{WS_CHECK}' on {sha}: run {snapshot.get('run')}"
     tested = snapshot.get("tree")
     if not (isinstance(tested, str) and HEX40.fullmatch(tested)):
         raise Refused(f"{where} names no tested tree in its receipt, so it cannot be held to {sha[:12]} merged with "
                       f"{base}")
-    if not HEX40.fullmatch(tip or ""):
+    if isinstance(tips, str):
+        tips = [tips]
+    window = [tip for tip in tips[:WS_CHECK_TESTED_TIPS] if isinstance(tip, str) and HEX40.fullmatch(tip)]
+    if not window:
         raise Refused(f"{where}: {base} has no tip to merge {sha[:12]} with")
     WS_CHECK_BRANCHES[(repo, sha)] = lambda: ws_check_branches(repo, base, sha, github)
-    want = ws_check_squash_tree(repo, sha, tip)
-    if tested != want:
-        raise Refused(f"{where} tested tree {tested[:12]}, not {sha[:12]} merged with {base}'s tip {tip[:12]} "
-                      f"({want[:12]}): it tested another base or head. Run ws-check again at this head")
+    made, unread = [], []
+    for tip in window:
+        try:
+            want = ws_check_squash_tree(repo, sha, tip)
+        except Refused as error:  # one commit git cannot merge is no verdict on the others
+            unread.append(f"{tip[:12]}: {error}")
+            continue
+        if tested == want:
+            return tip
+        made.append(f"{tip[:12]} ({want[:12]})")
+    if not made:
+        raise Refused(f"{where}: {sha[:12]} merges with none of {base}'s {len(window)} newest commits, so its tested "
+                      f"tree {tested[:12]} cannot be placed: {unread[0]}"[:400])
+    raise Refused(f"{where} tested tree {tested[:12]}, not {sha[:12]} merged with any of {base}'s {len(window)} newest "
+                  f"commits (tip {made[0]}, oldest tried {made[-1]}): it tested another base or head. Run ws-check "
+                  f"again at this head")
 
 
 def ws_check_status(repo: str, sha: str, github) -> dict | None:
@@ -8087,7 +8111,10 @@ def ws_check_red(repo: str, base: str, sha: str, github, evidence: "Evidence | N
     merge_base = evidence.merge_base(sha)
     commits = evidence.status_commits(WS_CHECK_COMMITS)
     if head.get("snapshot"):
-        ws_check_tested_tree(repo, base, sha, head["snapshot"], commits[0] if commits else "", github)
+        # The run tested the head on one of the base's commits, not always its tip: compare with that commit and the
+        # ones before it. A newer base commit never tested this tree, and could only have fixed what the run found.
+        anchor = ws_check_tested_tree(repo, base, sha, head["snapshot"], commits, github)
+        commits = commits[commits.index(anchor):]
     unreadable: list[str] = []
 
     def readable(found: tuple) -> bool:
