@@ -45,7 +45,7 @@ const connections = (env: Env, team: string) => env.CONNECTION_DO.get(env.CONNEC
 export const MACHINE_TOKEN_ENVIRONMENTS: ReadonlySet<string> = new Set(["development", "staging"])
 
 /** The caller, in `team` (a vm install: its machine's team), with grant classes, or why not. */
-const caller = async (request: Request, env: Env, team: string | undefined): Promise<{ p: Principal; team: string; machine?: string } | Fail> => {
+const caller = async (request: Request, env: Env, team: string | undefined): Promise<{ p: Principal; team: string; machine?: string; edgeOnly?: true } | Fail> => {
   const authorization = request.headers.get("authorization") ?? ""
   const token = await authenticate(env, /^Bearer (.+)$/.exec(authorization)?.[1])
   if (!token?.user || !token.team) return no(401, "auth.required", "a cmux bearer token is required")
@@ -71,7 +71,10 @@ const caller = async (request: Request, env: Env, team: string | undefined): Pro
   // This live-machine ownership check gates the VM's existing vm-self read and write access. The platform reads it
   // as this same install's bearer, so it applies its own vm-self gate too.
   const self = await platformRead(env.PLATFORM, request.url, authorization, "cloud.vm.self.get", { machine: p.bound_machine ?? "" })
-  return self.ok ? { p, team: p.team!, machine: p.bound_machine! } : self.retryable ? unreachable("the VM's machine") : no(403, "auth.forbidden", "a VM install speaks only for its own live machine")
+  // An edge machine (cmux-platform PlatformEdge carries it: its git reaches GitHub through platform.cmux.internal)
+  // says so on this same read; then only the platform egress's own bearer (claim `edge`) mints, never the guest's.
+  const edgeOnly = self.ok && (self.value as { platform_edge?: unknown } | null)?.platform_edge === true && p.edge !== true
+  return self.ok ? { p, team: p.team!, machine: p.bound_machine!, ...(edgeOnly ? { edgeOnly: true as const } : {}) } : self.retryable ? unreachable("the VM's machine") : no(403, "auth.forbidden", "a VM install speaks only for its own live machine")
 }
 
 const decode = <A>(schema: Schema.Codec<A, unknown>, body: unknown): A | Fail => {
@@ -138,6 +141,8 @@ export const handleGithubToken = async (request: Request, env: Env, sub: string)
     if (Object.keys(body.permissions).length === 0) return failed(no(400, "request.invalid", "permissions must name at least one permission"))
     const who = await caller(request, env, body.team)
     if (isFail(who)) return failed(who)
+    // No secret through a request the guest can make: on an edge machine its git needs no token (T15).
+    if (who.edgeOnly) return failed(no(403, "github.edge_only", "this machine's git reaches GitHub through its platform edge; the machine may not ask for a GitHub token"))
     if (sub === "machine-token" && (who.p.kind !== "install" || who.p.install_kind !== "vm" || !who.machine)) return failed(no(403, "auth.forbidden", "a machine install is required"))
     if (who.p.kind === "install" && who.p.install_kind !== "vm" && !who.p.grant_classes?.includes("read")) {
       return failed(no(403, "auth.forbidden", "this install's grant does not cover read"))

@@ -12,7 +12,7 @@ import Observation
 @Observable
 public final class QuietStatusGate {
     /// How long a connection is down before its line shows.
-    public static let threshold: Duration = .seconds(10)
+    public nonisolated static let threshold: Duration = .seconds(10)
 
     /// The line may show now (down for at least `delay`).
     public private(set) var isShown = false

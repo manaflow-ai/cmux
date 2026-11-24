@@ -106,7 +106,7 @@ fn client() -> Option<Arc<Client>> {
     }
     let origin = reqwest::Url::parse(relay.url.trim()).ok()?.origin().ascii_serialization();
     let hub = HttpHub::new(&relay).ok()?;
-    let http = reqwest::Client::builder()
+    let http = crate::happy_dial::http_client()
         .default_headers(cmux_build_space::headers().ok()?)
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(10))
