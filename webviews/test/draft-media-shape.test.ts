@@ -43,6 +43,7 @@ test("a local chip moved before its header arrives gets a visible, stable box in
       paint(tick * 16);
     }
     expect(shape.read()).toBe(1);
+    expect(shape.forSend()).toBe(1);
     expect(oldPaints).toBe(0);
     expect(newPaints).toBe(1);
     // A valid wide PNG header that arrives late cannot shift what the new chat has already drawn.
@@ -56,6 +57,7 @@ test("a local chip moved before its header arrives gets a visible, stable box in
     await new Promise<void>((resolve) => setImmediate(resolve));
     expect(shape.read()).toBe(1);
     expect(newPaints).toBe(1);
+    expect(shape.forSend()).toBe(1);
     detach();
   } finally {
     globalThis.requestAnimationFrame = request;

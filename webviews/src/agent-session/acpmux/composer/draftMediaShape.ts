@@ -8,6 +8,8 @@ import { videoShapeOf } from "./videoShape";
 export const localDraftShape = Symbol("local draft tile shape");
 export type LocalDraftShape = {
   read(): number;
+  /** The box the draft drew, or a known header ratio when the file was sent before mounting. */
+  forSend(): number | undefined;
   subscribe(paint: () => void): () => void;
 };
 
@@ -16,10 +18,13 @@ export function draftShapeOf(file: File, video: boolean): LocalDraftShape {
     ? /\.(mov|mp4|m4v)$/i.test(file.name) || /video\/(quicktime|mp4)/.test(file.type)
     : /\.(png|jpe?g|gif|webp)$/i.test(file.name) || /image\/(png|jpeg|gif|webp)/.test(file.type);
   let ratio = hasSizeHeader ? 0 : 1;
+  let measured: number | undefined;
+  let displayed: number | undefined;
   const paints = new Set<() => void>();
   const settle = (value: number | undefined) => {
     if (ratio) return;
     ratio = value || 1;
+    if (paints.size) displayed = ratio;
     for (const paint of paints) paint();
     paints.clear();
   };
@@ -29,12 +34,22 @@ export function draftShapeOf(file: File, video: boolean): LocalDraftShape {
       : imageSize(file, () => ratio !== 0).then((size) =>
           size?.width && size.height ? thumbRatio(size.width, size.height) : undefined,
         );
-    void header.then(settle, () => settle(undefined));
+    void header.then(
+      (value) => {
+        measured = value;
+        settle(value);
+      },
+      () => settle(undefined),
+    );
   }
   return {
     read: () => ratio,
+    forSend: () => displayed ?? measured,
     subscribe(paint) {
-      if (ratio) return () => {};
+      if (ratio) {
+        displayed = ratio;
+        return () => {};
+      }
       if (typeof requestAnimationFrame !== "function") {
         settle(undefined);
         return () => {};

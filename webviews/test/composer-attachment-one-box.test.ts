@@ -450,12 +450,16 @@ await requireBrowserLane("composer-attachment-one-box.test.ts", async () => {
           undefined,
           { polling: 10, timeout: 30_000 },
         );
+        const draft = (await samples(page)).at(-1)!.rect!;
+        const draftRatio = draft.width / draft.height;
         const sent = await send(page, ".cv-user__video");
+        const sentRatio = sent.rect.width / sent.rect.height;
         await samples(page, true);
         console.log(
-          `one-box metrics ${JSON.stringify({ case: `${engine} recording send at once`, sendToSentMs: sent.sentMs })}`,
+          `one-box metrics ${JSON.stringify({ case: `${engine} recording send at once`, sendToSentMs: sent.sentMs, composerShape: draftRatio, sentShape: sentRatio })}`,
         );
         expect(sent.sentMs).toBeLessThan(SEND_MS);
+        expect(Math.abs(draftRatio - sentRatio)).toBeLessThan(0.03);
       } finally {
         await page.close();
       }

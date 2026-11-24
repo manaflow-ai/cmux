@@ -7,6 +7,7 @@ import { closeSync, mkdtempSync, openSync, rmSync, truncateSync, writeFileSync, 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { build } from "vite";
+import { attachmentWithoutCwd } from "../test/support/attachmentWithoutCwd";
 import { chromium } from "./browsers";
 import type { Page } from "playwright";
 
@@ -157,19 +158,7 @@ try {
     configFile: path.join(root, "vite.config.acpmux-pane.mjs"),
     build: { outDir: out, emptyOutDir: true },
     logLevel: "error",
-    plugins: [
-      {
-        name: "attachment-bench-no-cwd",
-        transform(code, id) {
-          // Only the mock daemon's fixture changes. Both revisions route the drop through their own PaneComposer.
-          if (id.endsWith("/acpmux/mockFixture.ts"))
-            return (
-              code +
-              '\nif (new URLSearchParams(location.search).has("noCwd")) delete mockSessions.find(s => s.sessionId === WORKED_SESSION).cwd;'
-            );
-        },
-      },
-    ],
+    plugins: [attachmentWithoutCwd],
   });
   const server = Bun.serve({
     hostname: "127.0.0.1",
