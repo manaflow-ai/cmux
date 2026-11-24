@@ -7702,6 +7702,11 @@ a.cv-sha:focus-visible {
   --glass-elevation: var(--elevation-2);
   color: var(--agent-text);
   opacity: 0;
+  /* Hidden, it is out of the frame too, not a clear disc: an opacity-0 glass keeps its
+     backdrop-filter pass, so Chromium blurred the transcript under it on every frame, each typed key
+     included (composer-typing bench: the compositor's draw per frame). Visibility goes after the
+     fade-out (the transition below) and comes back at once with data-shown. */
+  visibility: hidden;
   pointer-events: none;
   transform: translate3d(-50%, 0, 0);
 }
@@ -7711,6 +7716,7 @@ a.cv-sha:focus-visible {
 }
 .acpmux-jump-latest[data-shown] {
   opacity: 1;
+  visibility: visible;
   pointer-events: auto;
 }
 :root:not([data-glass="lens"], [data-glass="spectrum"]) .acpmux-jump-latest {
@@ -7772,10 +7778,13 @@ a.cv-sha:focus-visible {
 }
 @media (prefers-reduced-motion: no-preference) {
   .acpmux-jump-latest {
-    transition: opacity var(--agent-motion-out) var(--agent-ease-out);
+    transition:
+      opacity var(--agent-motion-out) var(--agent-ease-out),
+      visibility 0s linear var(--agent-motion-out);
   }
   .acpmux-jump-latest[data-shown] {
-    transition-duration: var(--agent-motion-in);
+    transition-duration: var(--agent-motion-in), 0s;
+    transition-delay: 0s;
   }
 }
 /* The transcript's soft edges (New Tab's list, #19791): rows fade in under the header once the view

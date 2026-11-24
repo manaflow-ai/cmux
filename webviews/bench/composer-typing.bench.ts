@@ -292,24 +292,112 @@ async function measure(
   engine: "chromium" | "webkit" = ENGINE as "chromium" | "webkit",
   replyWords = 0,
 ): Promise<Record<string, unknown>> {
-  const browser = await (engine === "webkit" ? webkit : chromium).launch({ headless: true });
+  const browser = await (engine === "webkit" ? webkit : chromium).launch({
+    headless: true,
+    ...(process.env.CT_ARGS ? { args: process.env.CT_ARGS.split(" ") } : {}),
+  });
   try {
     const page = await browser.newPage({ viewport: { width: 1100, height: 820 } });
     if (mode.startsWith("L") || engine === "webkit") {
       const canonical = mode === "idle" ? "L0" : mode === "stream" ? "L1" : mode;
       // One renderer runs the focused page and L2's documents, so its profile is what every key waits behind.
       const cdp = PROFILE && engine === "chromium" ? await page.context().newCDPSession(page) : undefined;
-      const typing = cdp && {
-        start: async () => {
-          await cdp.send("Profiler.enable");
-          await cdp.send("Profiler.setSamplingInterval", { interval: 200 });
-          await cdp.send("Profiler.start");
-        },
-        stop: async () => {
-          const { profile } = (await cdp.send("Profiler.stop")) as { profile: CpuProfile };
-          printProfile(length, profile);
-        },
-      };
+      if (process.env.CT_PROBE)
+        await page.addInitScript(() => {
+          (window as any).__p = { mc: [], pt: [], to: [], ic: [] };
+          (window as any).__sc = new Map();
+          document.addEventListener(
+            "scroll",
+            (ev) => {
+              const el = ev.target as any;
+              const k = el === document ? "document" : `${el.tagName}.${String(el.className).slice(0, 80)}`;
+              const m = (window as any).__sc;
+              m.set(k, [(m.get(k)?.[0] ?? 0) + 1, el.scrollTop ?? 0]);
+            },
+            true,
+          );
+          document.addEventListener(
+            "scrollend",
+            (ev) => {
+              const el = ev.target as any;
+              const k = "END " + (el === document ? "document" : `${el.tagName}.${String(el.className).slice(0, 80)}`);
+              const m = (window as any).__sc;
+              m.set(k, [(m.get(k)?.[0] ?? 0) + 1, el.scrollTop ?? 0]);
+            },
+            true,
+          );
+          const s = (window as any).__p;
+          document.addEventListener(
+            "keydown",
+            (ev) => {
+              const t = ev.timeStamp;
+              requestAnimationFrame(() => {
+                const c = new MessageChannel();
+                c.port1.onmessage = () => s.mc.push(performance.now() - t);
+                c.port2.postMessage(0);
+                (globalThis as any).scheduler?.postTask(() => s.pt.push(performance.now() - t), {
+                  priority: "user-blocking",
+                });
+                setTimeout(() => s.to.push(performance.now() - t), 0);
+                const i = new MessageChannel();
+                i.port1.onmessage = () => s.ic.push(performance.now() - t);
+                i.port2.postMessage(0);
+              });
+            },
+            true,
+          );
+        });
+      if (process.env.CT_PROBE) (globalThis as any).__probePage = page;
+      if (process.env.CT_CSS)
+        await page.addInitScript((css: string) => {
+          const add = () => {
+            const st = document.createElement("style");
+            st.textContent = css;
+            document.head.appendChild(st);
+          };
+          if (document.head) add();
+          else document.addEventListener("DOMContentLoaded", add);
+        }, process.env.CT_CSS);
+      const traceOut = process.env.CT_TRACE_OUT;
+      const typing =
+        traceOut && engine === "chromium"
+          ? {
+              start: async () => {
+                await (browser as any).startTracing(page, {
+                  path: traceOut,
+                  categories: [
+                    "toplevel",
+                    "disabled-by-default-devtools.timeline.invalidationTracking",
+                    "devtools.timeline",
+                    "disabled-by-default-devtools.timeline",
+                    "renderer.scheduler",
+                    "disabled-by-default-renderer.scheduler",
+                    "blink",
+                    "cc",
+                    "gpu",
+                    "viz",
+                    "input",
+                    "benchmark",
+                    "sequence_manager",
+                    "disabled-by-default-sequence_manager",
+                  ],
+                });
+              },
+              stop: async () => {
+                await (browser as any).stopTracing();
+              },
+            }
+          : cdp && {
+              start: async () => {
+                await cdp.send("Profiler.enable");
+                await cdp.send("Profiler.setSamplingInterval", { interval: 200 });
+                await cdp.send("Profiler.start");
+              },
+              stop: async () => {
+                const { profile } = (await cdp.send("Profiler.stop")) as { profile: CpuProfile };
+                printProfile(length, profile);
+              },
+            };
       try {
         return {
           engine,
@@ -325,6 +413,53 @@ async function measure(
           })),
         };
       } finally {
+        if (process.env.CT_BD)
+          console.log(
+            "BD",
+            JSON.stringify(
+              await page.evaluate(() =>
+                [...document.querySelectorAll("*")].flatMap((el) => {
+                  const cs = getComputedStyle(el);
+                  const out = [];
+                  for (const pe of [null, "::before", "::after"]) {
+                    const c = pe ? getComputedStyle(el, pe) : cs;
+                    const f = [
+                      c.backdropFilter,
+                      c.maskImage,
+                      c.filter,
+                      c.opacity,
+                      c.mixBlendMode,
+                      c.clipPath,
+                      c.willChange,
+                    ].join(" | ");
+                    if (
+                      !/^none \| none \| none \| 1 \| normal \| none \| auto$/.test(f) &&
+                      el.getBoundingClientRect().width > 0
+                    ) {
+                      const r = el.getBoundingClientRect();
+                      out.push([
+                        el.tagName + "." + String(el.className).slice(0, 70) + (pe ?? ""),
+                        f,
+                        Math.round(r.x),
+                        Math.round(r.y),
+                        Math.round(r.width),
+                        Math.round(r.height),
+                      ]);
+                    }
+                  }
+                  return out;
+                }),
+              ),
+            ),
+          );
+        if (process.env.CT_PROBE) {
+          const r = await page.evaluate(() => (window as any).__p);
+          const q = (a: number[], x: number) =>
+            [...a].sort((m, n) => m - n)[Math.round((a.length - 1) * x)]?.toFixed(1);
+          console.log("SCROLLS", JSON.stringify([...(await page.evaluate(() => [...(window as any).__sc.entries()]))]));
+          for (const k of ["mc", "pt", "to", "ic"])
+            console.log("PROBE", k, r[k].length, "p50", q(r[k], 0.5), "p95", q(r[k], 0.95), "p99", q(r[k], 0.99));
+        }
         await page.close();
       }
     }
