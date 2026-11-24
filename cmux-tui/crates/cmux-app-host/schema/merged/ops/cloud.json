@@ -13,7 +13,7 @@
       "owner": "cloud:CloudDO",
       "class": "mutation",
       "risk": "money",
-      "digest": "333c4534d71a65c0"
+      "digest": "a5fe0856a56f4a54"
     },
     "cloud.browser.open": {
       "source": "app",
@@ -484,14 +484,21 @@
       "owner": "cloud:CloudDO",
       "class": "mutation",
       "risk": "money",
-      "digest": "058889354ac6e9f5"
+      "digest": "a94d9fec6dffd635"
     },
     "cloud.surge.preview": {
       "source": "cloud",
       "owner": "cloud:CloudDO",
       "class": "read",
       "risk": "read",
-      "digest": "622cd71d3f1ca70d"
+      "digest": "498711a0b2046067"
+    },
+    "cloud.usage.current": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "read",
+      "risk": "read",
+      "digest": "34636fdecb9b6e88"
     },
     "cloud.vm.attention.emit": {
       "source": "cloud",

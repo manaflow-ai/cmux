@@ -194,6 +194,9 @@ public final class AgentChatStore {
     public private(set) var summary: AgentSessionSummary
     public private(set) var turns: [AgentTurn] = []
     public private(set) var queue: [QueuedPrompt] = []
+    /// Messages with files on their way to the Mac, oldest first: each shows at once with its
+    /// upload's progress until the Mac echoes it (`userMessage`) or it comes back (`promptNotSent`).
+    public private(set) var outgoing: [OutgoingMessage] = []
     public private(set) var availableCommands: [ACPAvailableCommand] = []
     public private(set) var configOptions: [ACPConfigOption] = []
     public private(set) var models: [ACPModelInfo] = []
@@ -574,6 +577,9 @@ public final class AgentChatStore {
         resendable = nil
         let promptID = resend ?? UUID().uuidString.lowercased()
         keepSent(attachments, promptID: promptID)
+        if !attachments.isEmpty, !outgoing.contains(where: { $0.id == promptID }) {
+            outgoing.append(OutgoingMessage(id: promptID, text: text, attachments: attachments))
+        }
         // One of the agent's own slash commands waits for the turn and runs as its own.
         let steers = steer && !Self.commandWaitsForTurn(text, harness: summary.harness, commands: availableCommands)
         #if DEBUG && os(iOS)
@@ -876,6 +882,11 @@ public final class AgentChatStore {
     }
 
     /// Resume (the Mac's Resume over a paused queue): acpmux runs the held prompts again.
+    /// Stops a message's upload: it comes back to the composer (`promptNotSent`).
+    public func cancelSend(promptID: String) {
+        source.send(.cancelSend(promptID: promptID))
+    }
+
     public func resumeQueue() {
         guard queuePaused else { return }
         source.send(.resumeQueue)
@@ -977,6 +988,7 @@ public final class AgentChatStore {
             #endif
             retryRequested = false
             currentMessageID = nil
+            outgoing.removeAll { $0.id == promptId }
             reached(promptId)
             if gapFiller != nil { gapLeftQueue.insert(promptId) }
             // A steer into a running turn shares its id: only the message that opened the turn is its prompt.
@@ -1192,7 +1204,14 @@ public final class AgentChatStore {
             awaitsPermissionReply = false
             retryRequested = false
             clientError = message
+        case .promptUploading(let promptID, let progress):
+            guard let index = outgoing.firstIndex(where: { $0.id == promptID }) else { break }
+            // Steps hop to the main actor one by one: an older one that lands late is dropped.
+            if let shown = outgoing[index].progress, shown.name == progress.name, shown.attempt == progress.attempt,
+               shown.sent > progress.sent, progress.phase == .sending { break }
+            outgoing[index].progress = progress
         case .promptNotSent(let text, let attachments, let promptID, let reason):
+            outgoing.removeAll { $0.id == promptID }
             // The transcript already showed it run: only its reply was lost.
             guard !seenPromptIDs.contains(promptID) else { break }
             clientError = reason
@@ -1884,5 +1903,21 @@ extension AgentChatStore {
     /// "Starting Claude…"; the Mac's default agent, not named yet, is "Starting chat…".
     public static func startingText(_ summary: AgentSessionSummary) -> String {
         summary.harness.isEmpty ? "Starting chat…" : "Starting \(summary.agentName)…"
+    }
+}
+
+/// A message with files the phone is sending (``AgentChatStore/outgoing``).
+public struct OutgoingMessage: Identifiable, Equatable, Sendable {
+    public let id: String
+    public let text: String
+    public let attachments: [AgentAttachment]
+    /// The current file's upload; nil until its first step.
+    public var progress: AgentUploadProgress?
+
+    public init(id: String, text: String, attachments: [AgentAttachment], progress: AgentUploadProgress? = nil) {
+        self.id = id
+        self.text = text
+        self.attachments = attachments
+        self.progress = progress
     }
 }
