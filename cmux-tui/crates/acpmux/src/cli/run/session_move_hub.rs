@@ -83,6 +83,12 @@ impl Row {
         }
     }
 
+    fn failed(key: &str, host: &str, error: anyhow::Error) -> Self {
+        let mut row = Self::new(key, host, false);
+        row.error = Some(format!("{error:#}"));
+        row
+    }
+
     pub(super) fn into_outcome(self) -> Outcome {
         let mut outcome = Outcome::new(&self.session_id);
         outcome.name = self.name;
@@ -120,11 +126,6 @@ pub(crate) async fn move_out(
     hub: &std::sync::Arc<crate::hub::Hub>,
     request: crate::mesh_control::MoveOutParams,
 ) -> Result<Value> {
-    // Resolve on the holder before the CLI sees the key. A remote name must not expand
-    // against the daemon process's current-session environment or select a mirrored chat.
-    let session = hub.resolve(&request.session_id)?;
-    let src = Client::in_process(hub.clone()).await?;
-    let home = dirs::home_dir().context("this machine has no home folder")?;
     let args = MoveArgs {
         sessions: vec![],
         host: request.to,
@@ -140,8 +141,18 @@ pub(crate) async fn move_out(
         from: None,
         from_snapshot: false,
     };
-    let machine = resolve(&src, &args.host).await?;
-    Ok(serde_json::to_value(one(&src, &session.id, &args, &home, &machine).await)?)
+    let result = async {
+        // Resolve here before the CLI sees the key. A remote name must not expand against
+        // the daemon process's current-session environment or select a mirrored chat.
+        let session = hub.resolve(&request.session_id)?;
+        let src = Client::in_process(hub.clone()).await?;
+        let home = dirs::home_dir().context("this machine has no home folder")?;
+        let machine = resolve(&src, &args.host).await?;
+        Ok(one(&src, &session.id, &args, &home, &machine).await)
+    }
+    .await;
+    let row = result.unwrap_or_else(|e| Row::failed(&request.session_id, &args.host, e));
+    Ok(serde_json::to_value(row)?)
 }
 
 pub(super) async fn ask_holder(
@@ -159,11 +170,7 @@ pub(super) async fn ask_holder(
         Ok::<Row, anyhow::Error>(serde_json::from_value(reply)?)
     }
     .await;
-    result.unwrap_or_else(|e| {
-        let mut row = Row::new(session, to, args.dry_run);
-        row.error = Some(format!("{e:#}"));
-        row
-    })
+    result.unwrap_or_else(|e| Row::failed(session, to, e))
 }
 
 /// The folder op `move` names: `{cwd}` for `--cwd`, `{home}` for a plain folder under the home
@@ -253,7 +260,7 @@ async fn steps(
     // log's tail. A target that lost the stage refuses the move as unstaged: made again in full.
     let staged = precopy(src, &id, daemon).await;
     let moving = Moving { src, id: &id, args, home: &home, home_text: &home_text, cwd: &cwd };
-    let (sent, answer, mut timing) = match moving.run(daemon, host, staged.as_ref()).await {
+    let (sent, answer, timing) = match moving.run(daemon, host, staged.as_ref()).await {
         Err(e) if staged.is_some() && refused_as(&e, "transfer.unstaged") => {
             moving.run(daemon, host, None).await?
         }

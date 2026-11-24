@@ -103,6 +103,40 @@ impl MeshHub for Mesh {
     }
 }
 
+// Each daemon serves on its own relay slot. A connect ticket pins the target's key
+// and names that same slot, as the platform's carrier endpoint does.
+struct MachineTickets {
+    relay: String,
+    slot: String,
+    peers: BTreeMap<String, String>,
+}
+
+#[async_trait::async_trait]
+impl Tickets for MachineTickets {
+    async fn register(&self) -> Result<CarrierAnswer, String> {
+        Ok(CarrierAnswer {
+            relay: self.relay.clone(),
+            slot: self.slot.clone(),
+            ticket: "open-register".into(),
+            expires_at: 0,
+            peer_key: None,
+            peers: self.peers.keys().cloned().collect(),
+        })
+    }
+
+    async fn connect(&self, peer: &str) -> Result<CarrierAnswer, String> {
+        let slot = self.peers.get(peer).ok_or("machine.not_found")?;
+        Ok(CarrierAnswer {
+            relay: self.relay.clone(),
+            slot: slot.clone(),
+            ticket: "open-connect".into(),
+            expires_at: 0,
+            peer_key: Some(peer.to_owned()),
+            peers: Vec::new(),
+        })
+    }
+}
+
 fn machines(relay: &str, root: &Path, ledgers: &Path) -> Vec<Machine> {
     let names = ["machine-a", "machine-b", "machine-c"];
     let keys = names.map(|_| random_key());
@@ -128,11 +162,8 @@ fn machines(relay: &str, root: &Path, ledgers: &Path) -> Vec<Machine> {
             .filter(|(j, _)| *j != i)
             .map(|(_, (key, name))| (key.clone(), name.to_owned()))
             .collect();
-        let tickets = FixedTickets {
-            relay: relay.into(),
-            peers: peers.keys().cloned().collect(),
-            asked: AtomicU64::new(0),
-        };
+        let tickets =
+            MachineTickets { relay: relay.into(), slot: name.into(), peers: peers.clone() };
         let carrier = HubCarrier::new(Arc::new(tickets), keys[i], Timings::default());
         hub.set_mesh_book_machines(peers);
         carrier.set_transfer_gate(Arc::new(ConfiguredTransferGate::new(&hub)));
@@ -177,6 +208,15 @@ async fn a_third_machine_moves_the_chat_and_its_queue_over_the_relay() {
     let machines = machines(&format!("relay+ws://127.0.0.1:{}", proxy.port), &root, ledgers.path());
     let [a, b, c] = machines.as_slice() else { unreachable!() };
     let mut ca = client(a.hub.clone()).await;
+    let missing = ca
+        .call(
+            "_acpmux/transfer_hub",
+            json!({"moveOut": b.key, "sessionId": "missing-chat", "to": c.key}),
+        )
+        .await;
+    assert_eq!(missing["moved"], false);
+    assert_eq!(missing["sessionId"], "missing-chat");
+    assert!(missing["error"].as_str().unwrap().contains("missing-chat"));
     let made = ca
         .call(
             method::SESSION_NEW,
