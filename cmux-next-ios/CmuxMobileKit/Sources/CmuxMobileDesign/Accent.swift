@@ -116,5 +116,39 @@ public final class CmuxMobileAccentTheme: @unchecked Sendable {
         guard macAccent != nil else { return accent.onAccent }
         return macTheme.token(accent.onAccent) { $0.onAccent }
     }
+
+    /// Send's fill in the composers. A hue the person chose is Send's hue. With Default
+    /// (monochrome) Send takes the theme's own blue (the Mac terminal theme's ANSI blue, or the
+    /// Blue accent with no Mac theme) instead of a white disk in dark and a black one in light
+    /// (Leo, 2026-11-23: the send button "has no reason to be white on whatever").
+    public var sendToken: CmuxMobileColorToken {
+        guard accent == .neutral else { return accentToken }
+        return macTheme.token(CmuxMobileAccent.blue.accent) { palette in
+            Self.themeBlue(palette) ?? (palette.isDark ? CmuxMobileAccent.blue.accent.dark : CmuxMobileAccent.blue.accent.light)
+        }
+    }
+
+    /// The ink on ``sendToken``: black on a light fill, white on a dark one.
+    public var onSendToken: CmuxMobileColorToken {
+        guard accent == .neutral else { return onAccentToken }
+        let fill = sendToken
+        return CmuxMobileColorToken(dark: Self.ink(on: fill.dark), light: Self.ink(on: fill.light))
+    }
+
+    /// The terminal theme's blue for its appearance: bright blue (ANSI 12) on a dark theme,
+    /// blue (ANSI 4) on a light one; nil when the theme sends no palette.
+    static func themeBlue(_ palette: CmuxMobileMacPalette) -> CmuxMobileRGBA? {
+        let slot = palette.isDark ? 12 : 4
+        guard palette.terminalPalette.indices.contains(slot) else { return nil }
+        return CmuxMobileRGBA(hex: palette.terminalPalette[slot])
+    }
+
+    /// Black or white, whichever reads on `fill` (relative luminance, WCAG).
+    static func ink(on fill: CmuxMobileRGBA) -> CmuxMobileRGBA {
+        func linear(_ c: Double) -> Double { c <= 0.03928 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4) }
+        let luminance = 0.2126 * linear(fill.red) + 0.7152 * linear(fill.green) + 0.0722 * linear(fill.blue)
+        // Contrast against black is (L + 0.05) / 0.05, against white 1.05 / (L + 0.05): equal at L ≈ 0.179.
+        return luminance > 0.179 ? CmuxMobileRGBA(hex: "#000000") : CmuxMobileRGBA(hex: "#FFFFFF")
+    }
 }
 #endif
