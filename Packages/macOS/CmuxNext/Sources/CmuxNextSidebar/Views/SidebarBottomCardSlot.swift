@@ -134,8 +134,11 @@ struct SidebarBottomCardSlot {
         } else {
             notice.presence.setShown(shown == .notice)
         }
-        if shown == .notice || !notice.isLeaving {
+        // Measured only when it shows: a hidden notice's progress changes would measure its text each layout.
+        if shown == .notice {
             notice.frame = frame(.notice, height: notice.notice.map { notice.height(for: $0, width: width) } ?? 0)
+        } else if !notice.isLeaving {
+            notice.frame = .zero
         }
     }
 
