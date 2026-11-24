@@ -1,14 +1,15 @@
 //! [`AutoCloud`] for the fake: each route is one call into the store. `wait` and `assignments`
-//! are held until there is something to answer or the store's clock reaches their deadline.
+//! are held until there is something to answer or the store's clock reaches their deadline. A
+//! holder write first passes the install check of `devices.rs`.
 
 use std::future::poll_fn;
 
 use super::FakeAutoCloud;
 use crate::cloud::{AutoCloud, CloudResult};
 use crate::wire::{
-    Assignment, CreateRequest, EventsAppend, EventsPage, Fence, InboxAck, InboxMessage, InboxPost,
-    InboxPosted, LeaseAnswer, LeaseRequest, MachineSetting, PutRequest, SessionList, SessionView,
-    SnapshotAnswer, SnapshotPost,
+    Assignment, CreateRequest, EventsAppend, EventsPage, Fence, Holder, InboxAck, InboxMessage,
+    InboxPost, InboxPosted, LeaseAnswer, LeaseRequest, MachineSetting, PutRequest, SessionList,
+    SessionView, SnapshotAnswer, SnapshotPost,
 };
 
 impl AutoCloud for FakeAutoCloud {
@@ -21,7 +22,11 @@ impl AutoCloud for FakeAutoCloud {
     }
 
     async fn put(&self, id: &str, request: &PutRequest) -> CloudResult<SessionView> {
-        self.call("put", |store, caller| store.put(caller, id, request))
+        if !request.auto || !super::check::device(&request.device) {
+            return self.call("put", |store, caller| store.put(caller, id, request));
+        }
+        let holder = Holder::device(request.device.clone());
+        self.holder_call("put", id, &holder, true, |store, caller| store.put(caller, id, request))
     }
 
     async fn create(&self, request: &CreateRequest) -> CloudResult<SessionView> {
@@ -49,15 +54,21 @@ impl AutoCloud for FakeAutoCloud {
     }
 
     async fn lease(&self, id: &str, request: &LeaseRequest) -> CloudResult<LeaseAnswer> {
-        self.call("lease", |store, caller| store.lease(caller, id, request))
+        self.holder_call("lease", id, &request.holder, false, |store, caller| {
+            store.lease(caller, id, request)
+        })
     }
 
     async fn release(&self, id: &str, fence: &Fence) -> CloudResult<SessionView> {
-        self.call("release", |store, caller| store.release(caller, id, fence))
+        self.holder_call("release", id, &fence.holder, false, |store, caller| {
+            store.release(caller, id, fence)
+        })
     }
 
     async fn append_events(&self, id: &str, request: &EventsAppend) -> CloudResult<u64> {
-        self.call("append_events", |store, caller| store.append_events(caller, id, request))
+        self.holder_call("append_events", id, &request.holder, false, |store, caller| {
+            store.append_events(caller, id, request)
+        })
     }
 
     async fn events(&self, id: &str, after: u64, limit: Option<u32>) -> CloudResult<EventsPage> {
@@ -71,7 +82,9 @@ impl AutoCloud for FakeAutoCloud {
         bytes: &[u8],
         fence: &Fence,
     ) -> CloudResult<()> {
-        self.call("put_chunk", |store, caller| store.put_chunk(caller, id, sha256, bytes, fence))
+        self.holder_call("put_chunk", id, &fence.holder, false, |store, caller| {
+            store.put_chunk(caller, id, sha256, bytes, fence)
+        })
     }
 
     async fn chunk(&self, id: &str, sha256: &str) -> CloudResult<Vec<u8>> {
@@ -79,7 +92,9 @@ impl AutoCloud for FakeAutoCloud {
     }
 
     async fn post_snapshot(&self, id: &str, request: &SnapshotPost) -> CloudResult<u64> {
-        self.call("post_snapshot", |store, caller| store.post_snapshot(caller, id, request))
+        self.holder_call("post_snapshot", id, &request.holder, false, |store, caller| {
+            store.post_snapshot(caller, id, request)
+        })
     }
 
     async fn snapshot(&self, id: &str) -> CloudResult<SnapshotAnswer> {
@@ -95,7 +110,9 @@ impl AutoCloud for FakeAutoCloud {
     }
 
     async fn ack_inbox(&self, id: &str, ack: &InboxAck) -> CloudResult<SessionView> {
-        self.call("ack_inbox", |store, caller| store.ack_inbox(caller, id, ack))
+        self.holder_call("ack_inbox", id, &ack.holder, false, |store, caller| {
+            store.ack_inbox(caller, id, ack)
+        })
     }
 
     async fn keep(&self, id: &str, keep_in_cloud: bool) -> CloudResult<SessionView> {

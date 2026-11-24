@@ -83,6 +83,20 @@ export const findMachine = async (cloud: Pick<WakeCloud, "readOp">, owner: strin
   return pickMachine(machines, owner) ?? (cursor ? undefined : null)
 }
 
+/**
+ * Whether the owner may name `machine` of `team` as their Auto machine: the rule a pick follows (`candidate`), so a
+ * named machine is one the owner made, usable and not classic (security review of cmux#52931, item 2). Without it
+ * the owner could name a teammate's machine in a shared team, and that machine would be handed the owner's chats,
+ * their copies and their messages. Undefined when the Cloud could not be read: nothing is named then.
+ */
+export const ownMachine = async (cloud: Pick<WakeCloud, "readOp">, owner: string, team: string, machine: string): Promise<boolean | undefined> => {
+  const principal: Principal = { identity: `session:${owner}`, kind: "session", user: owner, team }
+  const read = await cloud.readOp(team, principal, "cloud.machine.get", { machine })
+  if (!read.ok) return read.code === "cloud.machine.not_found" ? false : undefined
+  const value = read.value as { machine?: unknown } | null
+  return candidate(value?.machine ?? value, owner)?.id === machine
+}
+
 /** The alarm's look for a machine, kept only while a chat waits for one: one row, like a machine's start. */
 export type LookRow = { readonly owner: string; readonly since: number; readonly tries: number; readonly next_at: number }
 

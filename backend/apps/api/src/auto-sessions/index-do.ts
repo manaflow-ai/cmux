@@ -4,7 +4,7 @@ import { roleHas } from "../domains/team-roles.ts"
 import { personalTeamIdFor } from "../domains/user.ts"
 import type { Env, RawEnv } from "../env.ts"
 import { GIVE_UP_MS, wakeCloud } from "../mux-machine-wake.ts"
-import { closeLook, dueLook, findMachine, LOOK_MIN_MS, LOOK_TABLE, missLook, nextLookAt, openLook, PICK_CHECK_MS } from "./machine-pick.ts"
+import { closeLook, dueLook, findMachine, ownMachine, LOOK_MIN_MS, LOOK_TABLE, missLook, nextLookAt, openLook, PICK_CHECK_MS } from "./machine-pick.ts"
 import { dueStarts, hasStart, nextStartAt, openStart, STARTS_TABLE, stepStart } from "./machine-start.ts"
 import { dropPick, hasColumn, keepNamed, keepPick, namedMachine, openMachineTables, pickedMachine, sameMachine, storedMachine } from "./machine-store.ts"
 import { MAX_WAIT_MS, type AssignmentKind, type AutoIndexEntry, type AutoMachine, type AutoSessionView } from "./model.ts"
@@ -206,10 +206,17 @@ export class AutoSessionIndexDO extends DurableObject<Env> {
     await this.startFor(owner, m)
   }
 
-  /** `PUT /v1/auto-sessions/machine`: the owner names their Auto machine, and the chats that waited for one go to it. It replaces every pick, and is never replaced by one. */
-  async nameMachine(owner: string, m: AutoMachine): Promise<void> {
+  /**
+   * `PUT /v1/auto-sessions/machine`: the owner names their Auto machine, and the chats that waited for one go to it. It replaces every pick, and is
+   * never replaced by one. Only a machine the store could have picked is named (machine-pick.ts `ownMachine`): `not_own` for any other, `unknown`
+   * when the Cloud could not say, and nothing changes then.
+   */
+  async nameMachine(owner: string, m: AutoMachine): Promise<"named" | "not_own" | "unknown"> {
+    const own = await ownMachine(wakeCloud(this.env)(m.team), owner, m.team, m.machine)
+    if (own !== true) return own === false ? "not_own" : "unknown"
     await this.setMachine(owner, m)
     await this.send(owner, m, false)
+    return "named"
   }
 
   /**

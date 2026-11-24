@@ -59,8 +59,12 @@ fn a_phone_reads_and_sends_but_holds_nothing() {
     let phone = owner.as_phone();
     let lease = LeaseRequest { holder: mac(), epoch: 1, needs_run: false, standby: None };
     assert_eq!(refused(ready(phone.lease(CHAT, &lease))), no_laptop());
-    let standby =
-        LeaseRequest { holder: Holder::device("phone"), epoch: 1, needs_run: false, standby: Some(true) };
+    let standby = LeaseRequest {
+        holder: Holder::device("phone"),
+        epoch: 1,
+        needs_run: false,
+        standby: Some(true),
+    };
     assert_eq!(refused(ready(phone.lease(CHAT, &standby))), no_laptop());
     assert_eq!(refused(append_as(&phone, &mac(), 1, 1..=1)), no_laptop());
     assert_eq!(refused(snapshot_as(&phone, &mac(), 1, b"x", 0)), no_laptop());

@@ -67,6 +67,7 @@
 
 mod check;
 mod copy;
+mod devices;
 mod inbox;
 mod lease;
 mod owner;
@@ -82,6 +83,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::task::{Context, Poll};
 
+use devices::Install;
 use store::{Caller, Store};
 
 use crate::cloud::{AutoCloudError, CloudResult};
@@ -93,6 +95,8 @@ use crate::wire::SessionView;
 pub struct FakeAutoCloud {
     store: Arc<Mutex<Store>>,
     caller: Caller,
+    /// The owner's install it calls as: a laptop's holds chats, a phone's does not.
+    install: Install,
     /// This caller has no network. Clones of the handle share it.
     offline: Arc<AtomicBool>,
 }
@@ -109,39 +113,40 @@ impl FakeAutoCloud {
         FakeAutoCloud {
             store: Arc::new(Mutex::new(Store::new())),
             caller: Caller::Owner,
+            install: Install::Laptop("install_1".to_owned()),
             offline: Arc::new(AtomicBool::new(false)),
         }
     }
 
     /// The same store, called as the owner, with a network of its own (a second laptop).
     pub fn as_owner(&self) -> FakeAutoCloud {
-        self.as_caller(Caller::Owner)
+        self.as_caller(Caller::Owner, self.install.clone())
     }
 
     /// The same store, called by another install of the owner's that holds chats (a second
     /// laptop), `install` its install id.
     pub fn as_install(&self, install: &str) -> FakeAutoCloud {
-        let _ = install;
-        self.as_caller(Caller::Owner)
+        self.as_caller(Caller::Owner, Install::Laptop(install.to_owned()))
     }
 
     /// The same store, called by an install of the owner's that never holds a chat: a phone or
     /// a browser session.
     pub fn as_phone(&self) -> FakeAutoCloud {
-        self.as_caller(Caller::Owner)
+        self.as_caller(Caller::Owner, Install::Phone)
     }
 
     /// The same store, called as the VM install of `machine`, one of the owner's Cloud
     /// machines (the Auto machine or another). Its holder is `vm:<machine>`, and it reaches
     /// only the chats that machine holds.
     pub fn as_machine(&self, machine: &str) -> FakeAutoCloud {
-        self.as_caller(Caller::Machine(machine.to_owned()))
+        self.as_caller(Caller::Machine(machine.to_owned()), self.install.clone())
     }
 
-    fn as_caller(&self, caller: Caller) -> FakeAutoCloud {
+    fn as_caller(&self, caller: Caller, install: Install) -> FakeAutoCloud {
         FakeAutoCloud {
             store: Arc::clone(&self.store),
             caller,
+            install,
             offline: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -223,6 +228,22 @@ impl FakeAutoCloud {
         store.alarm();
         store.calls.push(route);
         run(store, &self.caller)
+    }
+
+    /// One holder write: refused when this handle's install may not write as `holder`
+    /// (devices.rs), before the route's own checks run. `making`: the PUT that may make the chat.
+    fn holder_call<T>(
+        &self,
+        route: &'static str,
+        id: &str,
+        holder: &crate::wire::Holder,
+        making: bool,
+        run: impl FnOnce(&mut Store, &Caller) -> CloudResult<T>,
+    ) -> CloudResult<T> {
+        self.call(route, |store, caller| {
+            store.claim(caller, &self.install, id, holder, making)?;
+            run(store, caller)
+        })
     }
 
     /// When a request held for `timeout_ms` from now answers at the latest.
