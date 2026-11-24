@@ -843,7 +843,7 @@ pub(crate) async fn authorize_secure_link(
                     daemon_name: Some(grant.daemon_name.clone()),
                     device_id: Some(grant.device_id.clone()),
                     revocation_generation: Some(grant.revocation_generation),
-                    capabilities: Some(Capabilities { ik: true }),
+                    capabilities: Some(Capabilities { ik: true, ..Capabilities::default() }),
                 },
             )
             .await?;
@@ -1162,7 +1162,7 @@ mod lockstep_tests {
             daemon_name: Some("d".into()),
             device_id: Some("x".into()),
             revocation_generation: Some(0),
-            capabilities: Some(Capabilities { ik: true }),
+            capabilities: Some(Capabilities { ik: true, ..Capabilities::default() }),
         })
         .unwrap();
         let old: OldWelcome = serde_json::from_slice(&new).unwrap();

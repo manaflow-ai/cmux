@@ -92,6 +92,10 @@ pub struct Capabilities {
     /// The peer's responder takes [`Pattern::Ik`].
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub ik: bool,
+    /// The peer keeps a WireGuard session dormant after its link drops, so a client can resume
+    /// it without a fresh dial (the phone's handshake-first redial).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub wg_resume: bool,
 }
 
 /// The ticket format this build writes.
@@ -107,28 +111,40 @@ pub struct ResumeTicket {
     pub capabilities: Capabilities,
     /// When the peer last said so, in milliseconds since the Unix epoch.
     pub issued_unix_ms: u64,
+    /// How long the peer holds a dormant session after the link drops, in milliseconds.
+    /// `None`: no dormant hold, so the client makes the full dial.
+    pub dormant_hold_ms: Option<u64>,
+    /// When the session went dormant, in milliseconds since the Unix epoch.
+    pub dormant_since_unix_ms: Option<u64>,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 struct WireTicket {
     v: u8,
     peer_static: String,
     #[serde(default)]
     caps: Capabilities,
     issued_unix_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    dormant_hold_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    dormant_since_unix_ms: Option<u64>,
 }
 
 impl ResumeTicket {
-    /// The ticket as JSON: `{"v":1,"peer_static":"<64 hex>","caps":{"ik":true},"issued_unix_ms":N}`.
+    /// The ticket as JSON: `{"v":1,"peer_static":"<64 hex>","caps":{"ik":true},"issued_unix_ms":N}`,
+    /// plus `dormant_hold_ms` and `dormant_since_unix_ms` when the peer holds a dormant session.
     pub fn encode(&self) -> Vec<u8> {
-        // Written by hand so encoding cannot fail; `decode` reads it with serde.
-        let caps = if self.capabilities.ik { r#"{"ik":true}"# } else { "{}" };
-        format!(
-            r#"{{"v":{TICKET_VERSION},"peer_static":"{}","caps":{caps},"issued_unix_ms":{}}}"#,
-            hex(&self.peer_static),
-            self.issued_unix_ms
-        )
-        .into_bytes()
+        let wire = WireTicket {
+            v: TICKET_VERSION,
+            peer_static: hex(&self.peer_static),
+            caps: self.capabilities,
+            issued_unix_ms: self.issued_unix_ms,
+            dormant_hold_ms: self.dormant_hold_ms,
+            dormant_since_unix_ms: self.dormant_since_unix_ms,
+        };
+        // Strings, bools and integers only: serializing it cannot fail.
+        serde_json::to_vec(&wire).unwrap_or_default()
     }
 
     /// A ticket this build can use, or `None` for one it cannot read (garbage, or a newer
@@ -142,7 +158,18 @@ impl ResumeTicket {
             peer_static: unhex32(&wire.peer_static)?,
             capabilities: wire.caps,
             issued_unix_ms: wire.issued_unix_ms,
+            dormant_hold_ms: wire.dormant_hold_ms,
+            dormant_since_unix_ms: wire.dormant_since_unix_ms,
         })
+    }
+
+    /// Whether the peer still holds the dormant session at `now_unix_ms`, so a WireGuard resume
+    /// can skip the full dial. A ticket without a hold, or one past it, takes the full dial.
+    pub fn dormant_resumable(&self, now_unix_ms: u64) -> bool {
+        match (self.capabilities.wg_resume, self.dormant_hold_ms, self.dormant_since_unix_ms) {
+            (true, Some(hold), Some(since)) => now_unix_ms.saturating_sub(since) < hold,
+            _ => false,
+        }
     }
 
     /// Whether this ticket lets a link to `peer` start with IK.
@@ -199,8 +226,10 @@ mod tests {
     fn a_ticket_round_trips_and_names_its_version() {
         let ticket = ResumeTicket {
             peer_static: [0xab; 32],
-            capabilities: Capabilities { ik: true },
+            capabilities: Capabilities { ik: true, ..Capabilities::default() },
             issued_unix_ms: 1_795_000_000_000,
+            dormant_hold_ms: None,
+            dormant_since_unix_ms: None,
         };
         let bytes = ticket.encode();
         let text = std::str::from_utf8(&bytes).unwrap();
@@ -226,5 +255,29 @@ mod tests {
         assert!(ResumeTicket::decode(extra.as_bytes()).unwrap().capabilities.ik);
         let bare = format!(r#"{{"v":1,"peer_static":"{key}","issued_unix_ms":1}}"#);
         assert!(!ResumeTicket::decode(bare.as_bytes()).unwrap().capabilities.ik);
+    }
+
+    #[test]
+    fn a_dormant_hold_round_trips_and_lapses() {
+        let ticket = ResumeTicket {
+            peer_static: [0x11; 32],
+            capabilities: Capabilities { ik: true, wg_resume: true },
+            issued_unix_ms: 1_000,
+            dormant_hold_ms: Some(150_000),
+            dormant_since_unix_ms: Some(2_000),
+        };
+        let bytes = ticket.encode();
+        assert_eq!(ResumeTicket::decode(&bytes), Some(ticket.clone()));
+        assert!(ticket.dormant_resumable(2_000 + 149_999));
+        assert!(!ticket.dormant_resumable(2_000 + 150_000));
+        // No hold (an older writer, or a peer without it): the full dial.
+        let plain = ResumeTicket { dormant_hold_ms: None, ..ticket.clone() };
+        assert!(!plain.dormant_resumable(2_001));
+        let text = String::from_utf8(plain.encode()).unwrap();
+        assert!(!text.contains("dormant_hold_ms"), "{text}");
+        assert!(
+            !ResumeTicket { capabilities: Capabilities::default(), ..ticket }
+                .dormant_resumable(2_001)
+        );
     }
 }
