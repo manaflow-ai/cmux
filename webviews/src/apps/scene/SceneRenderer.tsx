@@ -14,6 +14,7 @@ import { Switch } from "../../ui/Switch";
 import { SceneContextMenu, SceneMenu } from "./sceneMenus";
 import { SceneReorderable } from "./SceneReorderable";
 import { SceneSymbol } from "./SceneSymbol";
+import { componentState, componentVariant, SceneChart, SceneComponentStateView, SceneStat } from "./sceneComponents";
 import {
   SceneAppeared,
   SceneLeavingContext,
@@ -24,14 +25,14 @@ import {
 import { formatSceneDate, sceneDateStyle, useSceneNow, type SceneDateStyle } from "./sceneDate";
 import {
   sceneColor,
-  sceneGradient,
+  sceneGlass,
   sceneNumber,
   sceneStyle,
   sceneText,
   textStyle,
+  sceneGradient,
   sceneRecord,
   type SceneStyle,
-  sceneGlass,
 } from "./sceneStyle";
 import type { SceneNode, SceneStore } from "./store";
 import "./scene.css";
@@ -349,6 +350,10 @@ function contentOf(node: SceneNode, children: ReactNode, dispatch: SceneDispatch
       );
     case "Badge":
       return <SceneBadge text={sceneText(props.text)} tone={props.tone} />;
+    case "Stat":
+      return <SceneStat props={props} />;
+    case "Chart":
+      return <SceneChart props={props} variant={componentVariant(node.type, props.variant)} />;
     case "ProgressView": {
       const value = sceneNumber(props.value);
       return value === undefined ? (
@@ -420,7 +425,18 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, leaving
     ) : (
       shown.map(childView)
     );
-  const content = contentOf(node, children, dispatch, disabled);
+  // A finished component in a state (`.state(...)`) draws the host's state in its place.
+  const state = componentState(node.type, props.state);
+  const variant = componentVariant(node.type, props.variant);
+  const content = state ? (
+    <SceneComponentStateView
+      state={state}
+      message={props.stateMessage ?? (node.type === "EmptyState" ? props.message : undefined)}
+      title={node.type === "EmptyState" ? props.title : undefined}
+    />
+  ) : (
+    contentOf(node, children, dispatch, disabled)
+  );
   if (content === undefined) return null;
   const style: SceneStyle = sceneStyle(props);
   if (node.type === "Button" && props.destructive === true) style.color = sceneColor("danger");
@@ -458,7 +474,8 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, leaving
       style.borderWidth = Math.max(0, sceneNumber(props.strokeWidth) ?? 1);
     }
   }
-  const tappable = props.onTap === true || node.type === "Button";
+  // A component in a state has nothing to tap until it draws again.
+  const tappable = !state && (props.onTap === true || node.type === "Button");
   const tap = () => {
     if (!disabled) dispatch(node.id, "tap");
   };
@@ -471,6 +488,8 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, leaving
     "data-style": node.type === "Panel" ? (props.style === "card" ? "card" : "glass") : undefined,
     // `glass`: the page's glass at that level (ui/glass/glass.css), the web twin of the App's material.
     "data-glass-level": sceneGlass(props.glass),
+    "data-variant": variant === "standard" ? undefined : variant,
+    "data-state": state,
     "data-transition": typeof props.transition === "string" ? props.transition : undefined,
     "data-entering": entering && !leaving ? "" : undefined,
     "data-leaving": own === true ? "" : undefined,
