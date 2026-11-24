@@ -756,7 +756,11 @@ if [[ "$mode" != release-build && "$mode" != try ]]; then
     # The offline walk-through reads and taps the phone through AXe, which opens only the DEFAULT device set
     # ("No simulator with UDID ... was found" for one in `simctl --set`; AXe 2.0.4 passes deviceSetPath nil).
     # So on this throwaway VM the phone lives in the default set; cleanup then deletes only $udid, never the set.
-    sims="$HOME/Library/Developer/CoreSimulator/Devices"
+    # The default set belongs to the account, not to $HOME: the pair step runs under a HOME of its own
+    # (run 45365711634: "Provided set path does not exist: .../pair-home/Library/Developer/CoreSimulator/Devices").
+    acct_home="$(dscl . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"
+    [[ -n "$acct_home" ]] || acct_home="$(eval echo "~$(id -un)")"
+    sims="$acct_home/Library/Developer/CoreSimulator/Devices"
     sims_is_default=1
   else
     sims="$(sim_set_dir "$work" "$(df -P "$work" | awk 'NR==2 {print $6}')")"
