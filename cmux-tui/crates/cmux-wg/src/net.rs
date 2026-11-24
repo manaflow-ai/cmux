@@ -28,6 +28,7 @@ use x25519_dalek::{PublicKey, StaticSecret};
 
 use crate::config::{InterfaceAddress, WgConfig};
 pub use crate::error::WgError;
+use crate::handshake_retry::HandshakeRetry;
 use crate::pacing::{DropCounters, Pacer, Priority};
 use crate::probing;
 use crate::stream::WgStream;
@@ -408,6 +409,10 @@ struct Driver {
     /// Bound datagram-service ports.
     datagram_ports: HashMap<u16, mpsc::Sender<Datagram>>,
     watchdog: Watchdog,
+    /// Resends a lost initiation while data waits for the session.
+    handshake_retry: HandshakeRetry,
+    /// Give a crossed handshake one REKEY_TIMEOUT to finish before the queue starts another.
+    wait_for_handshake_until: Option<Instant>,
     /// When the peer's last authenticated data arrived, and whether it came
     /// after a silence of [`RESUME_GAP`] (a blackout ending on the same path).
     last_inbound: Option<Instant>,
@@ -491,6 +496,8 @@ impl Driver {
             auto,
             datagram_ports: HashMap::new(),
             watchdog: Watchdog::default(),
+            handshake_retry: HandshakeRetry::default(),
+            wait_for_handshake_until: None,
             last_inbound: None,
             resumed: false,
             wakeups: Arc::new(AtomicU64::new(0)),
@@ -517,11 +524,17 @@ impl Driver {
             };
             let watchdog = self.watchdog.deadline(self.pacer.srtt());
             let hello = self.hello_deadline();
+            // A held crossed handshake defers the resend, never busy-wakes.
+            let retry = self
+                .handshake_retry
+                .deadline(self.pacer.srtt())
+                .map(|due| self.wait_for_handshake_until.map_or(due, |end| due.max(end)));
             let next_tick = [
                 self.schedule.next_tick(),
                 self.probe_deadline,
                 self.pace_deadline,
                 watchdog,
+                retry,
                 hello,
                 self.stack.release_deadline(),
             ]
@@ -556,6 +569,7 @@ impl Driver {
             self.wakeups.fetch_add(1, Ordering::Relaxed);
             self.catch_up_timers();
             self.run_watchdog();
+            self.run_handshake_retry();
             match event {
                 Event::Datagram(count, origin) => {
                     // A count past the buffer is not a datagram: drop it.
@@ -617,7 +631,12 @@ impl Driver {
                     // rate limiter's answer) proves only the public key.
                     // Nor does it begin a session: the handshake it
                     // answers is unchecked, so it leaves the watchdog armed.
-                    let cookie = classify(packet) == DatagramClass::WireGuardCookieReply;
+                    let kind = classify(packet);
+                    let cookie = kind == DatagramClass::WireGuardCookieReply;
+                    if kind == DatagramClass::WireGuardResponse {
+                        self.wait_for_handshake_until
+                            .get_or_insert_with(|| Instant::now() + Duration::from_secs(5));
+                    }
                     if !cookie {
                         self.underlay.authenticated(origin);
                         self.schedule.on_activity(Instant::now());
@@ -701,8 +720,17 @@ impl Driver {
         self.pace_deadline = None;
         // Without a session boringtun would hold the segment through the
         // handshake, and the pacer would time that wait as a round trip.
-        if self.tunn.time_since_last_handshake().is_none() && self.pacer.has_queued() {
+        // Starting again after replying to a crossed initiation would make
+        // boringtun discard the state for our own outstanding initiation.
+        self.wait_for_handshake_until = self.wait_for_handshake_until.filter(|&end| now < end);
+        let no_session = self.tunn.time_since_last_handshake().is_none();
+        if no_session && self.pacer.has_queued() && self.wait_for_handshake_until.is_none() {
             self.initiate_handshake();
+        }
+        if no_session {
+            self.handshake_retry.set_waiting(now, self.pacer.has_queued());
+        } else {
+            self.handshake_retry.on_session();
         }
         while !self.underlay.backlogged() && self.tunn.time_since_last_handshake().is_some() {
             let (packet, priority) = match self.pacer.pop_classified(now) {
