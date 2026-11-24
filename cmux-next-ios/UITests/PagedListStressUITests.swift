@@ -58,6 +58,34 @@ final class PagedListStressUITests: XCTestCase {
     @MainActor func testDownFastHugeWindowed() { stress("down", .fast, "huge", window: 300) }
     @MainActor func testUpFastHugeWindowed() { stress("up", .fast, "huge", window: 300) }
 
+    // MARK: The person's jump to the newest rows, mid-flood
+
+    /// The newest-rows pill tapped while rows flood in: the list goes to its newest row on purpose,
+    /// which the push measure must not count (with motion: the slide, smooth; with Reduce Motion on, a
+    /// step run with `reducemotion=1`: one jump, marked as asked for). It lands at the newest row.
+    @MainActor func testUpNewestPillMidFloodIsNotAPush() {
+        let lab = PagedLabDriver.launch("up:normal", extra: ["-cmux-mobile-paged-lab-stress", "flood"], test: self)
+        let name = "STRESS-up-pill-flood"
+        XCTAssertTrue(lab.list.cells.firstMatch.waitForExistence(timeout: 20), "\(name): no rows")
+        for _ in 0..<4 { lab.scroll(towardOlder: true, direction: "up", speed: .medium) }
+        let pill = lab.app.buttons["pagedList.newest"]
+        XCTAssertTrue(pill.waitForExistence(timeout: 10), "\(name): no newest-rows pill under the flood")
+        let before = lab.reading
+        pill.tap()
+        lab.waitFor("the pill to go", timeout: 10) { !pill.exists }
+        lab.settle(lab.list.cells.firstMatch)
+        lab.attach("\(name)-jumped")
+        let reading = lab.reading
+        lab.record(name, #"{"direction":"up","load":"flood","pill":true,"hud":\#(reading.json)}"#)
+        XCTAssertEqual(reading.pushShifted, before.pushShifted,
+                       "\(name): the jump the person asked for counted as \(reading.pushShifted - before.pushShifted) pushes (largest \(reading.pushShift) pt)")
+        // At the newest end: the lowest row on screen sits on the bars under the list.
+        let lowest = lab.visibleRow(nearFloor: true)
+        XCTAssertTrue(lowest.exists, "\(name): no row on screen after the jump")
+        XCTAssertLessThanOrEqual(lowest.frame.maxY, lab.floor + 1, "\(name): the lowest row is under the composer")
+        XCTAssertGreaterThan(lowest.frame.maxY, lab.floor - 80, "\(name): the pill did not take the list to its newest row")
+    }
+
     // MARK: The run
 
     /// Scrolls into the older pages and back toward the newest rows under `load`, then keeps the
