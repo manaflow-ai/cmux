@@ -2993,7 +2993,7 @@ pub(crate) mod queue_gauge;
 mod review_queue;
 mod run_elsewhere;
 mod sign_in_follow;
-mod ssh_carry;
+pub(crate) mod ssh_carry;
 mod surgery;
 mod task_list;
 pub use pairing::serve_connection_device;
