@@ -270,8 +270,10 @@ fn hello_of(old: &OldPeer) -> Value {
     json!({"protocolVersion": 1, "clientInfo": {"name": "old-client"}, "_meta": {"acpmux": meta}})
 }
 
-/// Requests an old client may not ask in this test: they end the daemon under test.
-const NOT_ASKED: &[&str] = &[method::MUX_SHUTDOWN];
+/// Requests an old client may not ask in this test as a text message: `_acpmux/shutdown` ends the
+/// daemon under test, and `_acpmux/file_put_data` is only ever a binary frame's method
+/// (`server/upload_frames.rs`), refused as text by every build that knows it.
+const NOT_ASKED: &[&str] = &[method::MUX_SHUTDOWN, method::MUX_FILE_PUT_DATA];
 
 /// One-sided names feat-cmux-next has today, each with the gap that makes it one-sided. The
 /// non-strict tests pass over these; the `#[ignore]`d strict ones fail on them. Fix a gap, drop
@@ -396,6 +398,8 @@ async fn serve_old_client(head: &Manifest, old: &OldPeer, tap: &Tap) {
         {
             let name = format!("method:{m}");
             if served(&name) {
+                // The daemon's own words travel with the refusal, so a red names its cause.
+                eprintln!("{name} refused: {message}");
                 tap.refused(Dir::Received, name);
             }
         }

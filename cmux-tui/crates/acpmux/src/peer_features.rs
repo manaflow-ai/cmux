@@ -100,6 +100,11 @@ pub const PEER_FEATURES: &[PeerFeature] = &[
             m::MUX_FILE_PUT_CANCEL,
         ],
     },
+    // A window of chunks in flight, the finish right behind them (`hub/file_uploads/window.rs`).
+    PeerFeature {
+        id: crate::hub::file_uploads::window::FEATURE,
+        gates: &["param:_acpmux/file_put_finish#chunksInFlight"],
+    },
     PeerFeature {
         id: crate::hub::journal_restore::PAGES_FEATURE,
         gates: &["field:_meta.acpmux#throughSeq"],
