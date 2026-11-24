@@ -66,6 +66,9 @@ struct AgentCLIHybridFrame: Sendable, Equatable {
     /// one display frame can show part of the frame.
     var terminalBytes: Data? {
         guard let delta else { return nil }
+        // A resumed frame with no shifted or changed cells leaves the mirror identical. Do not
+        // send cursor/mode bytes that would wake the terminal view for an unchanged screen.
+        if base != nil, delta.shift == 0, delta.spans.isEmpty { return nil }
         var out = "\u{1b}[?25l\u{1b}[0m"
         if base == nil { out += "\u{1b}[H\u{1b}[2J" }
         if delta.shift > 0 {

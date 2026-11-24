@@ -354,6 +354,9 @@ public final class AgentChatStore {
     /// The newest change was a replayed batch: views that animate on a value change
     /// (the permission bar, the queue) draw it in place.
     @ObservationIgnored public private(set) var lastChangeWasReplay = false
+    /// The same attach replay can be delivered again after a reconnect. Equal batches do not
+    /// change the transcript, so they must not bump ``revision`` or redraw its rows.
+    @ObservationIgnored private var lastReplayBatch: [AgentSessionEvent]?
     /// Set by the composer when it took its place without motion (the chat opened on its
     /// history): the bottom stack's next height lands at once too (then cleared).
     @ObservationIgnored var placeBottomStackInstantly = false
@@ -944,6 +947,10 @@ public final class AgentChatStore {
 
     private func applyEvent(_ event: AgentSessionEvent) {
         if !spilledTurnIDs.isEmpty, replaysSpilledTurn(event) { return }
+        if case .batch(let events) = event {
+            guard events != lastReplayBatch else { return }
+            lastReplayBatch = events
+        }
         revision &+= 1
         lastChangeWasReplay = false
         placeBottomStackInstantly = false
