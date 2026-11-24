@@ -418,6 +418,9 @@ struct Driver {
     /// When this side last answered the peer's handshake initiation
     /// ([`ANSWER_WAIT`]).
     answered_at: Option<Instant>,
+    /// The watchdog's replay for a session this side answered, until that
+    /// session is current.
+    pending_replay: Vec<Vec<u8>>,
     scratch: Vec<u8>,
 }
 
@@ -432,6 +435,8 @@ struct Driver {
 /// 18,000 handshakes in 17 s without a session (tests/handshake_crossing.rs).
 /// Past it, a lost answer is retried as before.
 const ANSWER_WAIT: Duration = Duration::from_secs(2);
+/// The most replay packets kept for an answered session (the newest).
+const PENDING_REPLAY_MAX: usize = 128;
 
 /// A peer silent this long and then heard again counts as a path change for
 /// the tunnel's TCP: a blackout on the same route backs smoltcp's RTO off
@@ -511,6 +516,7 @@ impl Driver {
             wakeups: Arc::new(AtomicU64::new(0)),
             reassert_at_release: false,
             answered_at: None,
+            pending_replay: Vec::new(),
             scratch: vec![0u8; BUFFER_BYTES + 32],
         })
     }
@@ -644,6 +650,12 @@ impl Driver {
                     }
                     if class == DatagramClass::WireGuardInitiation && !cookie && !input.is_empty() {
                         self.answered_at = Some(Instant::now());
+                        // The repeated call sends what boringtun queued, which
+                        // with no current session means a new initiation that
+                        // replaces our pending one ([`ANSWER_WAIT`]).
+                        if self.tunn.time_since_last_handshake().is_none() {
+                            break;
+                        }
                     }
                     input = &[];
                 }
@@ -699,7 +711,17 @@ impl Driver {
                 }
             }
         }
-        self.replay(replay);
+        if self.tunn.time_since_last_handshake().is_some() {
+            let pending = std::mem::take(&mut self.pending_replay);
+            self.replay(pending);
+            self.replay(replay);
+        } else {
+            // Answered, not yet current: encrypting now would start another
+            // handshake ([`ANSWER_WAIT`]). Sent once the peer's data arrives.
+            self.pending_replay.extend(replay);
+            let excess = self.pending_replay.len().saturating_sub(PENDING_REPLAY_MAX);
+            self.pending_replay.drain(..excess);
+        }
     }
 
     /// Move what smoltcp emitted into the pacer, then encrypt and send what
