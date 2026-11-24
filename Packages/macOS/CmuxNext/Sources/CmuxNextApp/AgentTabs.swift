@@ -11,7 +11,6 @@ import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextFloating
 import CmuxNextHomeEngine
-import CmuxNextPalette
 import CmuxNextRemote
 import CmuxNextSettings
 import CmuxNextTabs
@@ -160,7 +159,6 @@ final class AgentTabStore {
     var cloudRepositoryLocal: @MainActor () async throws -> Data = {
         throw DaemonError.notConnected
     }
-    var projectPalette: (@MainActor () -> PaletteController?)?
     var imessage: (@MainActor (AgentPaneIMessageAction, AgentPaneView) async -> [String: Any])?
     /// The daemon whose tree lists `tab`, by the record's identity (MachineRegistry.daemon(forTab:)):
     /// it reads no tab list, so a pane snapshot that asks hears no other pane's tabs. Nil in tests.
@@ -753,11 +751,6 @@ final class AgentTabStore {
         (model.readAloud, model.cloudMachines, model.remoteControl, model.transport.peerApprover) = (readAloud, cloudMachines, remoteControl, peerApprover)
         guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate, pageHost: AgentPaneTunables.pageHost.value || AgentPaneTunables.chromium.value, shared: paneShared) else { return nil }
         DebugTimings.markLaunch("agent_pane.view_created")
-        if let projectPalette {
-            let bridge = ProjectPaletteBridge(view: view, controller: projectPalette)
-            view.onProjectPaletteRequest = bridge.respond
-            view.onProjectPaletteLayout = { [weak bridge] in bridge?.paneMoved() }
-        }
         view.customization = customization.current
         model.onIMessage = { [weak self, weak view] action in
             guard let view, let handler = self?.imessage else { return AgentPaneReply.failure(code: "unavailable", message: "unavailable") }

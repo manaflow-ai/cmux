@@ -1,8 +1,8 @@
 import AppKit
-import CmuxNextAgentPane
 import CmuxNextPalette
 
-/// Presents the composer's source pages using the same controller as Cmd-Shift-P.
+/// Presents the composer's source pages using the same controller as Cmd-Shift-P. A pane made over
+/// ``AgentPaneShared/projectPalette`` makes one (``AgentPaneView/init(model:source:renderRate:pageHost:shared:)``).
 @MainActor
 final class ProjectPaletteBridge {
     private weak var view: AgentPaneView?
