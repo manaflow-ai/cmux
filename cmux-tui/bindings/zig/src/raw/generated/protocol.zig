@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "91c50a55de2ecea259929a75acbaf02356bc21a508db474ba5432325c2752ec4";
+pub const ir_sha256 = "43507a3d52a06df38f65954a93b512940c0e6b9249a25c653cef6ce6735a3924";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -3558,6 +3558,7 @@ pub const TerminalResumeCommandResult = struct {
 
 pub const Tree = struct {
     generation: ?[]const u8 = null,
+    next: ?u64 = null,
     pane_revision: ?u64 = null,
     registry_id: ?[]const u8 = null,
     terminal_revision: ?u64 = null,
@@ -3569,6 +3570,7 @@ pub const Tree = struct {
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "generation",
+        "next",
         "pane_revision",
         "registry_id",
         "terminal_revision",
@@ -7342,6 +7344,7 @@ pub fn listWorkspaceGroups(client: anytype, request: ListWorkspaceGroupsRequest)
 }
 
 pub const ListWorkspacesRequest = struct {
+    after: wire.Field(u64) = .absent,
     known: wire.Field(ListWorkspacesKnown) = .absent,
     limit: wire.Field(u64) = .absent,
 };
@@ -7357,6 +7360,7 @@ pub fn listWorkspaces(client: anytype, request: ListWorkspacesRequest) !wire.Dec
             .since = 5,
             .capability = null,
             .fields = &.{
+                .{ .name = "after", .since = 12, .capability = "list-workspaces-page-v1" },
                 .{ .name = "known", .since = 12, .capability = "list-workspaces-known-v1" },
                 .{ .name = "limit", .since = 12, .capability = "list-workspaces-limit-v1" },
             },
@@ -8509,6 +8513,23 @@ pub fn ping(client: anytype, request: PingRequest) !wire.Decoded(PingResult) {
             .authority = "control",
             .since = 6,
             .capability = null,
+        },
+        request,
+    );
+}
+
+pub const ProcessCensusRequest = struct {};
+
+pub const ProcessCensusResult = JsonValue;
+
+pub fn processCensus(client: anytype, request: ProcessCensusRequest) !wire.Decoded(ProcessCensusResult) {
+    return client.callTyped(
+        ProcessCensusResult,
+        .{
+            .name = "process-census",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "process-census-v1",
         },
         request,
     );
@@ -12890,7 +12911,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 310;
+pub const command_count: usize = 311;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -13087,6 +13108,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "paste-image", .authority = "control", .since = 12, .capability = "terminal-image-paste-v1", .stream = null },
     .{ .name = "pin-workspace", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "ping", .authority = "control", .since = 6, .capability = null, .stream = null },
+    .{ .name = "process-census", .authority = "local-admin", .since = 12, .capability = "process-census-v1", .stream = null },
     .{ .name = "process-info", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "put-blob", .authority = "control", .since = 12, .capability = "icon-assets-v1", .stream = null },
     .{ .name = "put-frontend-projection", .authority = "control", .since = 7, .capability = null, .stream = null },
