@@ -84,6 +84,6 @@ import Testing
         #expect(view.tabRowWidth == PaneToolbarView.trailingGap)
         #expect(view.intrinsicContentSize.width > view.tabRowWidth, "the strip keeps the reserved room")
         view.show([], zoomed: true, reserving: 3)
-        #expect(view.tabRowWidth == PaneToolbarView.trailingGap + TitlebarBandButton.side)
+        #expect(view.tabRowWidth == PaneToolbarView.trailingGap + Metrics.tabBarControlSide)
     }
 }

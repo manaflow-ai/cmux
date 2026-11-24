@@ -6,22 +6,70 @@
 // The stack can also move with no size changing: Session Info pushing the chat over shifts it inside
 // a scroller of the same size. So an attribute change on any of the stack's ancestors, and the end of
 // an ancestor's own motion, read it again on the next frame (one read per frame at most).
-// The asks stack's pinned cards ("Needs your input", PendingAsks.tsx; a sub-session's ask, ChildAsk.tsx)
-// are surfaces too, and the stack's gaps under them paint nothing (besideStack.ts `clearTo`): the
-// transcript stays in sight beside and between them, as it does beside the composer card (Leo,
-// 2026-11-17: "this needs your input dismiss row erases things behind it").
 import { useLayoutEffect, type RefObject } from "react";
 import { experimentArm } from "../../../experiments/experiment";
+import { experimentSwitchOn, subscribeExperimentSwitches } from "../../../experiments/switches";
 import { dockBand } from "../dockBand.experiment";
-import { besideMask } from "./besideStack";
+import { DOCK_NOTICE } from "../noticeSlotModel";
+// The asks stack has no surface of its own: a "Needs your input" line and a card. The rows stay in
+// sight across its band but for what it draws (besideStack.ts `bandMask`).
+import { bandMask, besideMask, joinMasks, type BandHole } from "./besideStack";
 
 const VARIABLES = ["--acpmux-beside-images", "--acpmux-beside-sizes", "--acpmux-beside-positions"] as const;
-/// A pinned ask's card: the part of its section under the "Needs your input" line.
-const ASK_CARD = ".acpmux-asks-stack > .acpmux-pending-ask > :not(.acpmux-pending-ask__head)";
-/// The stack's surfaces, the asks stack's cards with the tray and the composer card.
-export const SURFACE = `.acpmux-running-tray, .acpmux-composer-box, ${ASK_CARD}`;
-/// What a surface's own motion plays on: a surface, or a pinned ask's section (its entrance, its fold).
-const MOVES = `${SURFACE}, .acpmux-asks-stack > .acpmux-pending-ask`;
+const SURFACE = ".acpmux-running-tray, .acpmux-composer-box, .acpmux-asks-stack > *";
+const ASKS = ":scope > .acpmux-asks-stack";
+/// Settings > Advanced > Experiments > See-Through Dock (`experiments.seeThroughDock`, off by default):
+/// the asks stack and the dock notices hide only what they draw. Off keeps today's mask, which ends
+/// the rows at the stack's top.
+export const SEE_THROUGH_DOCK = "seeThroughDock";
+/// What a pending ask draws (PendingAsks.tsx): its label, its Dismiss and its card. Any other part of
+/// the asks stack (a permission card, the folder trust bar) is drawn whole.
+const PENDING_PARTS =
+  ".acpmux-pending-ask__label, .acpmux-pending-ask__dismiss, .acpmux-pending-ask > .acpmux-next-step";
+
+/// What `root` draws, as boxes in `box`'s coordinates: each element that paints (a fill, a border, a
+/// shadow, glass), each replaced element (an icon, a field), and each line of its words. A notice
+/// line with no fill of its own (the switch notice, the managed banner, the host's line) hides the
+/// rows behind its words and buttons only, never across its whole width (Leo, 2026-11-17: "why do
+/// you have the entire row blanked out? don't ever do that").
+const drawn = (root: HTMLElement, box: DOMRect): BandHole[] => {
+  const holes: BandHole[] = [];
+  const push = (rect: DOMRect, radius: number) => {
+    if (rect.width <= 0.25 || rect.height <= 0.25) return;
+    holes.push({
+      left: rect.left - box.left,
+      top: rect.top - box.top,
+      right: rect.right - box.left,
+      bottom: rect.bottom - box.top,
+      radius,
+    });
+  };
+  for (const element of [root, ...root.querySelectorAll<HTMLElement>("*")]) {
+    const style = getComputedStyle(element);
+    if (style.visibility === "hidden" || style.display === "none") continue;
+    const background = style.backgroundColor.trim();
+    const transparentBackground =
+      !background || background === "transparent" || background.endsWith(", 0)") || background.endsWith("/ 0)");
+    const paints =
+      !transparentBackground ||
+      style.backgroundImage !== "none" ||
+      style.boxShadow !== "none" ||
+      (style.borderStyle !== "none" && style.borderWidth !== "0px") ||
+      (!!style.backdropFilter && style.backdropFilter !== "none") ||
+      (style.getPropertyValue("-webkit-backdrop-filter") || "none") !== "none" ||
+      element.matches("svg, img, input, textarea, select, canvas, video");
+    if (paints) push(element.getBoundingClientRect(), Number.parseFloat(style.borderTopLeftRadius) || 0);
+  }
+  const words = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const range = document.createRange();
+  for (let node = words.nextNode(); node; node = words.nextNode()) {
+    if (!node.textContent?.trim()) continue;
+    range.selectNodeContents(node);
+    for (const line of range.getClientRects()) push(line, 0);
+  }
+  range.detach();
+  return holes;
+};
 
 /// Keeps `scroller`'s beside-the-stack mask layers on `dock`'s surfaces. `ghostClass` marks the copy
 /// of a tray that left, which takes no room.
@@ -35,8 +83,7 @@ export function useBesideStack(
     if (!dock || !view) return;
     // Read once per stack: an arm changes with a reload (the gallery's arm, the debug key).
     const arm = experimentArm(dockBand);
-    const surfaces = () =>
-      dock.querySelectorAll<HTMLElement>(`:scope > .acpmux-running-tray, .acpmux-composer-box, :scope > ${ASK_CARD}`);
+    const surfaces = () => dock.querySelectorAll<HTMLElement>(`:scope > .acpmux-running-tray, .acpmux-composer-box`);
     const paint = () => {
       const box = view.getBoundingClientRect();
       const stack = dock.getBoundingClientRect();
@@ -48,29 +95,56 @@ export function useBesideStack(
             .map((surface) => {
               const rect = surface.getBoundingClientRect();
               const style = getComputedStyle(surface);
-              // A pinned ask's card is drawn only inside its section (which clips it while it folds
-              // out) and the asks stack (its own scroller); the stack's room under it paints nothing.
-              const asks = surface.matches(ASK_CARD) ? surface.closest(".acpmux-asks-stack") : null;
-              const section = asks ? surface.parentElement : null;
-              const stack = asks?.getBoundingClientRect();
-              const stackBottom = stack ? Math.min(stack.bottom, box.bottom) : box.bottom;
-              const drawnBottom = Math.min(
-                rect.bottom,
-                section?.getBoundingClientRect().bottom ?? rect.bottom,
-                stackBottom,
-              );
               return {
                 left: rect.left - box.left,
-                top: Math.max(rect.top, stack?.top ?? rect.top) - box.top,
+                top: rect.top - box.top,
                 right: rect.right - box.left,
-                bottom: drawnBottom - box.top,
+                bottom: Math.min(rect.bottom, box.bottom) - box.top,
                 radiusLeft: Number.parseFloat(style.borderTopLeftRadius) || 0,
                 radiusRight: Number.parseFloat(style.borderTopRightRadius) || 0,
-                ...(asks && { clearTo: stackBottom - box.top }),
                 card: surface.classList.contains("acpmux-composer-box"),
               };
             })
         : [];
+      const seeThrough = experimentSwitchOn(SEE_THROUGH_DOCK);
+      // bottomStack.css passes the pointer through the asks stack's room only while its rows show.
+      dock.toggleAttribute("data-see-through", seeThrough);
+      const asks = over && seeThrough ? dock.querySelector<HTMLElement>(ASKS) : null;
+      let band: ReturnType<typeof bandMask>;
+      if (asks) {
+        const area = asks.getBoundingClientRect();
+        const holes: BandHole[] = [];
+        for (const part of asks.children) {
+          if (!part.classList.contains("acpmux-pending-ask")) {
+            holes.push(...drawn(part as HTMLElement, box));
+            continue;
+          }
+          for (const element of part.querySelectorAll<HTMLElement>(PENDING_PARTS)) {
+            const rect = element.getBoundingClientRect();
+            holes.push({
+              left: rect.left - box.left,
+              top: rect.top - box.top,
+              right: rect.right - box.left,
+              bottom: rect.bottom - box.top,
+              radius: Number.parseFloat(getComputedStyle(element).borderTopLeftRadius) || 0,
+            });
+          }
+        }
+        band = bandMask(
+          { top: area.top - box.top, bottom: Math.min(area.bottom, box.bottom) - box.top, holes },
+          box.width,
+        );
+      }
+      const notices = over && seeThrough ? [...dock.querySelectorAll<HTMLElement>(DOCK_NOTICE)] : [];
+      let noticeMask: ReturnType<typeof bandMask>;
+      for (const notice of notices) {
+        const area = notice.getBoundingClientRect();
+        const holes = drawn(notice, box);
+        noticeMask = joinMasks(
+          noticeMask,
+          bandMask({ top: area.top - box.top, bottom: Math.min(area.bottom, box.bottom) - box.top, holes }, box.width),
+        );
+      }
       // The rows run under the card only where its glass frosts them (a see-through window, Lens,
       // Spectrum). An opaque window's card blurs nothing (composerStates.css `--glass-backdrop: none`)
       // and Reduce Transparency draws it solid: under them the rows read sharp through the prompt, so
@@ -82,7 +156,10 @@ export function useBesideStack(
         const blur = style.backdropFilter || style.getPropertyValue("-webkit-backdrop-filter");
         return !!blur && blur !== "none";
       })();
-      const mask = besideMask(placed, box.width, frosts ? { arm, height: box.height } : undefined);
+      const mask = joinMasks(
+        joinMasks(besideMask(placed, box.width, frosts ? { arm, height: box.height } : undefined), band),
+        noticeMask,
+      );
       const values = [mask?.images, mask?.sizes, mask?.positions];
       VARIABLES.forEach((name, at) => {
         const value = values[at];
@@ -103,22 +180,36 @@ export function useBesideStack(
     // A new surface (a tray that opens) is sized from its first frame; a ghost tray removed frees
     // the room it held.
     const children = new MutationObserver(() => {
-      for (const surface of surfaces()) sizes.observe(surface);
+      observeParts();
       paint();
     });
+    // The asks stack's parts come and go inside it (an ask answered or dismissed), so its subtree's
+    // children are watched as well, and each of its parts is sized.
+    const observeParts = () => {
+      for (const surface of surfaces()) sizes.observe(surface);
+      const asks = dock.querySelector<HTMLElement>(ASKS);
+      if (!asks) return;
+      sizes.observe(asks);
+      for (const part of asks.children) sizes.observe(part);
+      children.observe(asks, { childList: true });
+    };
     // The tray's corners round as it turns into a card (`data-card`): rare, so the whole dock's.
     const cards = new MutationObserver(paint);
     sizes.observe(dock);
     sizes.observe(view);
-    for (const surface of surfaces()) sizes.observe(surface);
+    observeParts();
     children.observe(dock, { childList: true });
     cards.observe(dock, { attributes: true, attributeFilter: ["data-card"], subtree: true });
     // Only a surface's own motion moves it; the composer's hovers and the tray's count rolls do not.
     const settled = (event: Event) => {
-      if (event.target instanceof Element && event.target.matches(MOVES)) paint();
+      if (event.target instanceof Element && event.target.matches(SURFACE)) paint();
     };
     dock.addEventListener("animationend", settled);
     dock.addEventListener("transitionend", settled);
+    // The asks stack scrolls inside its own height in a short pane: its parts move with no size changing.
+    dock.addEventListener("scroll", nextFrame, true);
+    // The person flips See-Through Dock in Settings: the mask follows at once.
+    const unsubscribeSwitches = subscribeExperimentSwitches(nextFrame);
     // The stack's ancestors (the scroller writes its own mask variables, so it is never one here).
     const moved = new MutationObserver(nextFrame);
     for (let node = dock.parentElement; node; node = node.parentElement)
@@ -137,6 +228,9 @@ export function useBesideStack(
       if (frame) cancelAnimationFrame(frame);
       dock.removeEventListener("animationend", settled);
       dock.removeEventListener("transitionend", settled);
+      dock.removeEventListener("scroll", nextFrame, true);
+      unsubscribeSwitches();
+      dock.removeAttribute("data-see-through");
       document.removeEventListener("animationend", ancestorSettled);
       document.removeEventListener("transitionend", ancestorSettled);
       for (const name of VARIABLES) view.style.removeProperty(name);

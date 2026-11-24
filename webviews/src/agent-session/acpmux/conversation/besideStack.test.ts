@@ -2,7 +2,7 @@
 // icons cut along a straight line beside the composer card's rounded corner, "where as chatgpt allows
 // it like this").
 import { expect, test } from "bun:test";
-import { besideMask } from "./besideStack";
+import { bandMask, besideMask, joinMasks } from "./besideStack";
 
 const card = { left: 16, top: 460, right: 684, bottom: 556, radiusLeft: 22, radiusRight: 22 };
 
@@ -47,29 +47,6 @@ test("a tray wider than the card keeps the rows under its foot hidden: the card'
   expect(pieces).not.toContain("0px 460px 16px 96px");
 });
 
-test("a pinned ask's card keeps the rows in sight beside it and across the stack's gap under it", () => {
-  // The asks stack's card (PendingAsks.tsx) over the composer card: its gutters, and from its bottom
-  // (300) down to the stack's bottom (310) the whole width, where the stack paints nothing.
-  const ask = { left: 16, top: 220, right: 684, bottom: 300, radiusLeft: 12, radiusRight: 12, clearTo: 310 };
-  const mask = besideMask([ask, card], 700)!;
-  const pieces = mask.sizes.split(", ").map((size, at) => `${mask.positions.split(", ")[at]} ${size}`);
-  expect(pieces).toContain("0px 220px 16px 80px");
-  expect(pieces).toContain("684px 220px 16px 80px");
-  expect(pieces).toContain("0px 300px 700px 10px");
-});
-
-test("the gap under a pinned ask stops at the next card, and a surface with no clearTo keeps none", () => {
-  const first = { left: 16, top: 100, right: 684, bottom: 180, radiusLeft: 0, radiusRight: 0, clearTo: 310 };
-  const second = { left: 16, top: 220, right: 684, bottom: 300, radiusLeft: 0, radiusRight: 0, clearTo: 310 };
-  const mask = besideMask([first, second, card], 700)!;
-  const pieces = mask.sizes.split(", ").map((size, at) => `${mask.positions.split(", ")[at]} ${size}`);
-  // From the first card to the second (its "Needs your input" line is dockClear.ts's hole).
-  expect(pieces).toContain("0px 180px 700px 40px");
-  expect(pieces).toContain("0px 300px 700px 10px");
-  // The composer card, no clearTo: nothing under it.
-  expect(pieces.some((piece) => piece.startsWith("0px 556px"))).toBe(false);
-});
-
 // The dock band arms (dockBand.experiment.ts; Leo, 2026-11-22: "FIGURE OUT HOW WE CAN HAVE MORE STUFF
 // THERE"): the card, 556 px down a 600 px scroller, over its quiet row's 44 px band.
 const composerCard = { ...card, card: true };
@@ -87,4 +64,47 @@ test("frost-ramp fades the rows out over 16 px under the card; frost-through ove
   expect(ramp.positions.split(", ").at(-1)).toBe("0px 556px");
   const through = besideMask([composerCard], 700, { arm: "frost-through", height: 600 })!;
   expect(through.sizes.split(", ").at(-1)).toBe("700px 44px");
+});
+
+test("an asks band keeps its label, Dismiss and card as the only painted holes", () => {
+  const mask = bandMask(
+    {
+      top: 400,
+      bottom: 620,
+      holes: [
+        { left: 16, top: 400, right: 150, bottom: 428, radius: 0 },
+        { left: 550, top: 400, right: 684, bottom: 428, radius: 6 },
+        { left: 16, top: 436, right: 684, bottom: 620, radius: 12 },
+      ],
+    },
+    700,
+  )!;
+  const pieces = mask.sizes.split(", ").map((size, at) => `${mask.positions.split(", ")[at]} ${size}`);
+  // The header's center gap and the gap above the card remain transparent in the mask.
+  expect(pieces).toContain("150px 400px 400px 28px");
+  expect(pieces).toContain("0px 428px 700px 8px");
+  // The card's side gutters remain painted, so the card itself is the only full-width surface.
+  expect(pieces).toContain("0px 436px 16px 184px");
+  expect(pieces).toContain("684px 436px 16px 184px");
+  expect(mask.images).toContain("radial-gradient(circle 6px");
+});
+
+test("joining an asks band does not discard the existing surface mask", () => {
+  const surface = besideMask([card], 700)!;
+  const band = bandMask(
+    { top: 400, bottom: 428, holes: [{ left: 16, top: 400, right: 150, bottom: 428, radius: 0 }] },
+    700,
+  )!;
+  const joined = joinMasks(surface, band)!;
+  expect(joined).toEqual({
+    images: `${surface.images}, ${band.images}`,
+    sizes: `${surface.sizes}, ${band.sizes}`,
+    positions: `${surface.positions}, ${band.positions}`,
+  });
+});
+
+test("a transparent overlay band keeps the whole band visible", () => {
+  const mask = bandMask({ top: 400, bottom: 428, holes: [] }, 700)!;
+  expect(mask.sizes).toBe("700px 28px");
+  expect(mask.positions).toBe("0px 400px");
 });

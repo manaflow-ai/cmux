@@ -6,10 +6,7 @@
 // 2026-11-17: "this is the issue here, it gets clipped", "where as chatgpt allows it like this").
 // So the mask gains a few layers over the stack's reach: each surface's two gutters down to the
 // next surface (or its own bottom), and the room outside each top corner's curve. Under a surface's
-// glass the rows stay out of sight, as before. A pinned "Needs your input" card (the asks stack,
-// PendingAsks.tsx) is a surface too, and the stack's gaps under it (to the next card, and its own
-// foot) paint nothing, so the rows stay in sight there across the whole width (`clearTo`). Leo,
-// 2026-11-17: "this needs your input dismiss row erases things behind it".
+// glass the rows stay out of sight, as before.
 
 /// One of the stack's surfaces (the tray, the composer card), in the scroller's own coordinates.
 export type StackSurface = {
@@ -19,10 +16,6 @@ export type StackSurface = {
   bottom: number;
   radiusLeft: number;
   radiusRight: number;
-  /// Where the room under the surface stops painting nothing: the rows stay in sight across the
-  /// whole width from its bottom down to this (or the next surface's top, if that comes first).
-  /// The asks stack's cards set it to the stack's bottom; the tray and the composer card leave it.
-  clearTo?: number;
   /** The composer's card (`.acpmux-composer-box`), the one surface the dock band arms reach under. */
   card?: boolean;
 };
@@ -92,11 +85,6 @@ export function besideMask(surfaces: readonly StackSurface[], width: number, ban
     }
     add(solid, 0, foot, surface.left, end - foot);
     add(solid, surface.right, foot, width - surface.right, end - foot);
-    // The gap under a card that paints nothing (the asks stack's gap and foot), down to the next one.
-    if (surface.clearTo !== undefined) {
-      const until = next ? Math.min(next.top, surface.clearTo) : surface.clearTo;
-      add(solid, 0, surface.bottom, width, until - surface.bottom);
-    }
     const leftRoom = tucked ? Math.max(0, tucked.left - surface.left) : Infinity;
     const rightRoom = tucked ? Math.max(0, surface.right - tucked.right) : Infinity;
     const r = surface.radiusLeft;
@@ -124,4 +112,77 @@ export function besideMask(surfaces: readonly StackSurface[], width: number, ban
   });
   if (!images.length) return undefined;
   return { images: images.join(", "), sizes: sizes.join(", "), positions: positions.join(", ") };
+}
+
+/// A box drawn in a band of the stack (the "Needs your input" line's label and Dismiss, a waiting
+/// question's card), in the scroller's own coordinates, with its corner radius.
+export type BandHole = { left: number; top: number; right: number; bottom: number; radius: number };
+
+/// A part of the stack with no surface of its own (the asks stack: a quiet label line over a card),
+/// from `top` to `bottom` across the pane, and the boxes it draws.
+export type StackBand = { top: number; bottom: number; holes: readonly BandHole[] };
+
+/// The mask layers that keep the rows in sight across `band`, everywhere but under its holes and
+/// inside their rounded corners (Leo, 2026-11-17: "why do you have the entire row blanked out? don't
+/// ever do that. this needs your input dismiss row erases things behind it"). The band is cut into
+/// slices at each hole's top and bottom; each slice keeps the room between the holes it crosses.
+export function bandMask(band: StackBand, width: number): BesideMask | undefined {
+  if (band.bottom - band.top <= 0.25 || width <= 0.25) return undefined;
+  const holes = band.holes
+    .map((hole) => ({
+      left: Math.max(0, hole.left),
+      right: Math.min(width, hole.right),
+      top: Math.max(band.top, hole.top),
+      bottom: Math.min(band.bottom, hole.bottom),
+      radius: hole.radius,
+    }))
+    .filter((hole) => hole.right - hole.left > 0.25 && hole.bottom - hole.top > 0.25);
+  const images: string[] = [];
+  const sizes: string[] = [];
+  const positions: string[] = [];
+  const add = (image: string, x: number, y: number, w: number, h: number) => {
+    if (w <= 0.25 || h <= 0.25) return;
+    images.push(image);
+    sizes.push(`${px(w)} ${px(h)}`);
+    positions.push(`${px(x)} ${px(y)}`);
+  };
+  const solid = "linear-gradient(#000, #000)"; // colour-allow: a mask layer's alpha only, never painted
+  const edges = [...new Set([band.top, band.bottom, ...holes.flatMap((hole) => [hole.top, hole.bottom])])].sort(
+    (a, b) => a - b,
+  );
+  for (let at = 0; at + 1 < edges.length; at++) {
+    const top = edges[at]!;
+    const bottom = edges[at + 1]!;
+    const crossing = holes.filter((hole) => hole.top < bottom && hole.bottom > top).sort((a, b) => a.left - b.left);
+    let x = 0;
+    for (const hole of crossing) {
+      add(solid, x, top, hole.left - x, bottom - top);
+      x = Math.max(x, hole.right);
+    }
+    add(solid, x, top, width - x, bottom - top);
+  }
+  // The room outside each hole's four rounded corners.
+  for (const hole of holes) {
+    const r = Math.min(hole.radius, (hole.right - hole.left) / 2, (hole.bottom - hole.top) / 2);
+    if (r <= 0.5) continue;
+    const corner = (cx: number, cy: number) =>
+      `radial-gradient(circle ${px(r)} at ${px(cx)} ${px(cy)}, transparent ${px(r - 0.5)}, #000 ${px(r + 0.5)})`; // colour-allow: mask alpha only
+    add(corner(r, r), hole.left, hole.top, r, r);
+    add(corner(0, r), hole.right - r, hole.top, r, r);
+    add(corner(r, 0), hole.left, hole.bottom - r, r, r);
+    add(corner(0, 0), hole.right - r, hole.bottom - r, r, r);
+  }
+  if (!images.length) return undefined;
+  return { images: images.join(", "), sizes: sizes.join(", "), positions: positions.join(", ") };
+}
+
+/// Two sets of mask layers as one (either may be absent).
+export function joinMasks(a: BesideMask | undefined, b: BesideMask | undefined): BesideMask | undefined {
+  if (!a) return b;
+  if (!b) return a;
+  return {
+    images: `${a.images}, ${b.images}`,
+    sizes: `${a.sizes}, ${b.sizes}`,
+    positions: `${a.positions}, ${b.positions}`,
+  };
 }
