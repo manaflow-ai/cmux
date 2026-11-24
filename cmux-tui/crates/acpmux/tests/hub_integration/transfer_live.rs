@@ -241,6 +241,11 @@ async fn a_resumed_stage_the_source_does_not_match_is_written_again_from_zero() 
 /// the live freeze is a small share of the whole one and bounded.
 #[tokio::test]
 async fn a_live_move_freezes_for_the_tail_only_over_a_slow_link() {
+    // Each daemon step of the move, timed (`hub/transfer_live.rs` `MoveSteps`).
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("acpmux::move_steps=info")
+        .with_writer(std::io::stderr)
+        .try_init();
     let prompts: usize =
         std::env::var("ACPMUX_LIVE_BENCH_PROMPTS").ok().and_then(|v| v.parse().ok()).unwrap_or(30);
     let rate: f64 = std::env::var("ACPMUX_LIVE_BENCH_RATE")
@@ -256,11 +261,13 @@ async fn a_live_move_freezes_for_the_tail_only_over_a_slow_link() {
             .await
             .unwrap();
         let id = s["sessionId"].as_str().unwrap().to_owned();
+        let filling = std::time::Instant::now();
         for n in 0..prompts {
             src.request(method::SESSION_PROMPT, prompt(&id, &format!("p-{n}"), "chunks: 2500"))
                 .await
                 .unwrap();
         }
+        eprintln!("{mode}: {prompts} prompts in {} ms", filling.elapsed().as_millis());
         let history =
             src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap()["historyBytes"]
                 .as_u64()
@@ -276,8 +283,14 @@ async fn a_live_move_freezes_for_the_tail_only_over_a_slow_link() {
                 src.request(method::SESSION_PROMPT, prompt(&id, &format!("q-{n}"), "chunks: 50"))
                     .await
                     .unwrap();
+                let took = std::time::Instant::now();
                 let (prepared, stage_id, _, sent) =
                     round(&mut src, &mut dst, &id, link, None).await;
+                eprintln!(
+                    "live round {n}: {:.1} MB raw in {} ms",
+                    sent.raw as f64 / 1e6,
+                    took.elapsed().as_millis()
+                );
                 precopy.raw += sent.raw;
                 precopy.wire += sent.wire;
                 let small = sent.raw <= 8 << 20 && n > 0;
@@ -287,9 +300,11 @@ async fn a_live_move_freezes_for_the_tail_only_over_a_slow_link() {
                 }
             }
             let (prepared, stage_id) = last.unwrap();
+            let took = std::time::Instant::now();
             dst.request("_acpmux/transfer_stage_finish", json!({"stageId": stage_id}))
                 .await
                 .unwrap();
+            eprintln!("live stage_finish: {} ms", took.elapsed().as_millis());
             precopy_ms = started.elapsed().as_millis();
             Some((prepared, stage_id))
         } else {
