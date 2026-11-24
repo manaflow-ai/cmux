@@ -59,6 +59,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     private var placeholderTabs: [String: (tab: WorkspaceTab, workspace: Workspace)] = [:]
     /// Last frames kept across launches.
     var frameStore: TerminalFrameStore? = .standard
+    /// Each tab's composer draft, kept across rebuilds and launches (nil: not kept).
+    var drafts: ComposerDraftStore? = .shared
     /// The signed-in account that owns the linked Macs. Unscoped frames are
     /// never loaded or saved when auth has not resolved to a stable ID.
     var accountUserIDProvider: (@MainActor () -> String?)?
@@ -176,6 +178,9 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     var workspaceLookup: (@MainActor (String) -> Workspace?)?
 
     /// Whether the tab would get a live session now (the tree lists its surface).
+    /// Whether a Mac's link is up (nil: no links to wait on).
+    var macLinkUp: (@MainActor (_ macID: String) -> Bool)?
+    private var missingTabs = MissingGrace<String>()
     var hasLiveSession: (@MainActor (_ tabID: String, _ macID: String?) -> Bool)?
 
     private func canGoLive(_ id: String) -> Bool {
@@ -199,6 +204,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     /// DEBUG mock mode (Settings → Developer → Mock): tabs with no live
     /// session run the scripted mock. Ignored outside DEBUG builds.
     var mockDataEnabled = false
+    /// The App Review demo account (its terminals open ready for typing).
+    var reviewDemo = false
     /// The workspace's Mac, for the connecting placeholder's label.
     var macName: (@MainActor (Workspace) -> String?)?
     /// Opens Connected Devices for a live terminal of a Mac (its session, its Mac).
@@ -221,7 +228,11 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         if let host = hosts[tab.id], liveTabs.contains(tab.id) || sessionProvider == nil { return host }
         // Closed tabs release their surface.
         let open = Set(workspace.tabs.map(\.id))
-        for (id, owner) in workspaceOwner where owner == workspace.id && !open.contains(id) {
+        // A tab missing from one publish (a reconnect resyncs in pieces) keeps its host: scrollback
+        // place, focus and sheets. It goes once it stays missing on a connected Mac.
+        let mine = workspaceOwner.filter { $0.value == workspace.id }.map(\.key)
+        let linkUp = macLinkUp?(workspace.macID) ?? true
+        for id in missingTabs.expired(held: mine, present: open, linkUp: linkUp) {
             // Its Mac attach goes too: a closed tab's session kept waiting to
             // reattach after the next drop (V5-5).
             release(id)
@@ -238,7 +249,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         // A live tab never builds the mock: without a session it shows the
         // honest connecting placeholder (TerminalSessionChoice).
         let mock = mockDataEnabled && live == nil && sessionProvider == nil
-        let session = TerminalSessionChoice.session(live: live, mockDataEnabled: mock, macName: macName?(workspace), programName: tab.title)
+        let session = TerminalSessionChoice.session(live: live, mockDataEnabled: mock, reviewDemo: mock && reviewDemo,
+                                                    macName: macName?(workspace), programName: tab.title)
         let artifacts = live == nil ? nil : artifactSourceProvider?(tab, workspace.macID)
         let model = TerminalModel(
             session: session,
@@ -248,13 +260,21 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         model.hostMacID = workspace.macID
         model.reconnect = { [weak self, weak session] in
             self?.reconnect?(workspace.macID)
-            (session as? DaemonTerminalSession)?.reconnect()
+            (session?.underlyingSession as? DaemonTerminalSession)?.reconnect()
             self?.liveDataChanged()
         }
         model.uploader = live == nil ? nil : uploaderProvider?(tab, workspace.macID)
         model.voiceSource = voiceSourceProvider?(tab, workspace, model)
         // The page shown already keeps opening links where it did (R1-0 swaps the host in place).
         model.linkOpener = previous?.model.linkOpener
+        // The draft survives the rebuild (a reconnect replaces the host) and the app's restart.
+        let draftKey = ComposerDraftStore.key(macID: workspace.macID, tabID: tab.id)
+        if let previous { model.adoptComposer(from: previous.model) }
+        model.restoreDraft(drafts?.text(for: draftKey))
+        model.onDraftChange = { [weak self, weak model] in
+            guard let model else { return }
+            self?.drafts?.save(model.draftToKeep, for: draftKey)
+        }
         // The placeholder's page carries over only through the frame gate: a
         // still of its never-attached surface is a blank page (`TerminalFrameKeep`).
         var frame = key.flatMap { lastFrames.removeValue(forKey: $0) ?? framesBeingWritten[$0] } ?? previous?.model.frameToKeep()
@@ -321,6 +341,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         hosts = [:]
         slots = [:]
         cardViews = [:]
+        heldCardText = [:]
         upgrade.reset()
         placeholderTabs = [:]
         workspaceOwner = [:]
@@ -421,7 +442,9 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
                 guard let indicator else { return }
                 if case .offline = state { indicator.update(offline: true); continue }
                 indicator.update(offline: false)
-                if case .reattaching = state { indicator.update(reattaching: true) } else { indicator.update(reattaching: false) }
+                // Any outage (a reattach, a first connect, a failure) says so in
+                // the pill past the quiet bound: the page has no status row.
+                indicator.update(reattaching: !state.isAttached)
             }
         }
     }
@@ -433,12 +456,16 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         indicators[id]?.cancel()
     }
 
-    /// A read (no host is created): the tab's pill says "Reattaching…" while
-    /// its reattach has lasted `QuietStatusGate.threshold` or more.
+    /// A read (no host is created): the tab's pill says "Reattaching…" (or
+    /// "Connecting…", "Can't connect") while its outage has lasted
+    /// `QuietStatusGate.threshold` or more, "Mac offline" at once. The only
+    /// place a terminal tab shows its connection: no row by the composer
+    /// (Leo, 2026-11-17: "The reconnect takes an extra line").
     func statusSubtitle(for tab: WorkspaceTab) -> String? {
         let indicator = indicator(tab.id)
         if indicator.isOffline { return "Mac offline" }
-        return indicator.isShown ? "Reattaching…" : nil
+        guard indicator.isShown else { return nil }
+        return hosts[tab.id]?.model.connectionState.pillSubtitle ?? "Reattaching…"
     }
 
     func focusInput(for tab: WorkspaceTab, in workspace: Workspace) {
@@ -515,6 +542,12 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             // A slower older reply never replaces a newer card text (A6).
             guard self.screenTextRefresh.finished(tab.id, request: request) else { return }
             guard let model, live || !model.pageStarted else { return }
+            // The grid is scrolling: the card keeps what it shows, and the text
+            // lands once the grid stops (`overviewScrollingChanged`).
+            if self.liveRefresh.isScrolling {
+                self.heldCardText[tab.id] = (model, text, live)
+                return
+            }
             // Unchanged text is only re-dated (still the Mac's screen now), so
             // an unchanged card is not redrawn every second (r13 review).
             if model.cardScreenText != text { model.cardScreenText = text } else if live { model.confirmCardScreenText() }
@@ -546,12 +579,35 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         liveRefreshTask?.cancel()
         liveRefreshTask = nil
         gridTabs = visible ? tabs : nil
+        // A grid that hid mid-scroll never reports its stop: nothing shows the
+        // cards now, so what was held lands here instead of staying held.
+        if !visible {
+            liveRefresh.setScrolling(false, now: CACurrentMediaTime())
+            applyHeldCardText()
+        }
         wakeLiveRefresh()
     }
 
     func overviewScrollingChanged(_ scrolling: Bool) {
         liveRefresh.setScrolling(scrolling, now: CACurrentMediaTime())
+        if !scrolling { applyHeldCardText() }
         wakeLiveRefresh()
+    }
+
+    /// Screen reads that came back while the grid scrolled, newest per tab
+    /// (Leo, 2026-11-22: "new updates even are a maybe").
+    private var heldCardText: [String: (model: TerminalModel, text: String, live: Bool)] = [:]
+
+    private func applyHeldCardText() {
+        guard !heldCardText.isEmpty else { return }
+        let held = heldCardText
+        heldCardText = [:]
+        for (id, entry) in held where hosts[id]?.model === entry.model {
+            // The same rule as a read that lands at rest: the grid's own refresh
+            // also fills a started tab's card, and only it re-dates unchanged text.
+            guard entry.live || !entry.model.pageStarted else { continue }
+            if entry.model.cardScreenText != entry.text { entry.model.cardScreenText = entry.text } else if entry.live { entry.model.confirmCardScreenText() }
+        }
     }
 
     func sceneActiveChanged(_ active: Bool) {
@@ -644,9 +700,23 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         // The keyboard toggle and ^C live on the key bar, and Back leaves
         // the workspace, so the menu does not repeat them (design/terminal P1).
         var actions: [TerminalTabAction] = []
+        // Retry, past the quiet bound of an outage only (the pill says
+        // "Reattaching…" then): first in the menu, no layout space on the page.
+        if model.offersReconnect, let reconnect = model.reconnect {
+            actions.append(TerminalTabAction(title: "Reconnect", systemImage: "arrow.clockwise") { Task { await reconnect() } })
+        }
         // A Mac terminal: who shows it, the size each asks for, and the Mac's sizing policy.
-        if let live = model.session as? DaemonTerminalSession, let macID = hostMacs[tab.id], let show = showConnectedDevices {
+        if let live = model.session.underlyingSession as? DaemonTerminalSession, let macID = hostMacs[tab.id], let show = showConnectedDevices {
             actions.append(TerminalTabAction(title: "Connected Devices…", systemImage: "laptopcomputer.and.iphone") { show(live, macID) })
+        }
+        // Fit to Phone, one tap away and remembered for this program (Leo, 2026-11-21): on,
+        // the Mac's terminal resizes to the phone; off, the phone projects it.
+        if liveTabs.contains(tab.id) {
+            let fits = !(model.session is TerminalProjectingSession)
+            let program = model.session.programName
+            actions.append(TerminalTabAction(title: "Fit to Phone", systemImage: fits ? "checkmark" : "iphone") { [weak self] in
+                self?.setFitToPhone(!fits, program: program, tab: tab, in: workspace)
+            })
         }
         return actions + [
             TerminalTabAction(title: "Files and Links", systemImage: "folder") { model.showFilesAndLinks() },
@@ -669,6 +739,32 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             TerminalTabAction(title: "Scroll to Top", systemImage: "arrow.up.to.line", isEnabled: !model.isTUI) { model.scrollToTop() },
             TerminalTabAction(title: "Scroll to Bottom", systemImage: "arrow.down.to.line", isEnabled: model.isScrolledUp) { model.scrollToBottom() },
         ]
+    }
+
+    /// Per-program Fit to Phone (the page menu's toggle).
+    var fitToPhoneMemory = TerminalFitToPhoneMemory()
+
+    /// Remembers `program`'s Fit to Phone and applies it now: this tab's host is built
+    /// again on a new session (projected or not, `TerminalSessionChoice`) and swapped
+    /// into the page in place, as a placeholder is for the live session (its frame, draft
+    /// and the reader's place carry over). Other warm tabs of the program cool, so each
+    /// builds in the new mode when it is shown next.
+    private func setFitToPhone(_ fit: Bool, program: String, tab: WorkspaceTab, in workspace: Workspace) {
+        fitToPhoneMemory.set(fit, for: program)
+        for (id, other) in hosts where id != tab.id && other.model.session.programName == program
+            && (other.model.session is TerminalProjectingSession) == fit {
+            cool(id)
+        }
+        guard let old = hosts[tab.id], liveTabs.contains(tab.id) else { return }
+        if let place = old.scrollPlace() { scrollPlaces[tab.id] = place }
+        // Not live for `host(for:in:)`, which then asks for a new session instead of
+        // returning this host.
+        liveTabs.remove(tab.id)
+        if host(for: tab, in: workspace) === old {
+            // No live session now: the tab keeps its host (the next build follows the choice).
+            liveTabs.insert(tab.id)
+            scrollPlaces[tab.id] = nil
+        }
     }
 
     /// The open terminal tab's model: voice mode reads it in every build, and DEBUG demos

@@ -1,0 +1,171 @@
+{
+  "title": "Browser element picker: several picks in a row, each with a comment, beside an agent chat (David Beyer 2026-11-20: \"I like the way Codex does it\")",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 3,
+      "shot": false
+    },
+    {
+      "title": "A browser workspace",
+      "rpc": {
+        "method": "action.run",
+        "params": {
+          "action": "newBrowserWorkspace",
+          "focus": true
+        }
+      },
+      "wait": 4,
+      "shot": false
+    },
+    {
+      "title": "A page",
+      "rpc": {
+        "method": "debug.omnibar_type",
+        "params": {
+          "text": "https://example.com"
+        }
+      },
+      "wait": 5,
+      "shot": false
+    },
+    {
+      "title": "An agent chat beside it (the page keeps the focus)",
+      "cmux": [
+        "agent",
+        "new-chat"
+      ],
+      "wait": 5,
+      "shot": false,
+      "optional": "agent backend unavailable on this runner"
+    },
+    {
+      "title": "Settle the page",
+      "rpc": {
+        "method": "browser.page.eval",
+        "params": {
+          "script": "document.readyState"
+        }
+      },
+      "wait": 1,
+      "shot": false,
+      "optional": "the page may reload once"
+    },
+    {
+      "title": "Settle the page (again, after its one reload)",
+      "rpc": {
+        "method": "browser.page.eval",
+        "params": {
+          "script": "document.readyState"
+        }
+      },
+      "wait": 1,
+      "shot": false,
+      "optional": "the page may reload once"
+    },
+    {
+      "title": "The picker's Debug Settings switch on (older builds gate it)",
+      "rpc": {
+        "method": "debug.tunables",
+        "params": {
+          "action": "set",
+          "key": "browserPage.uiPointer",
+          "value": true
+        }
+      },
+      "wait": 0.5,
+      "shot": false,
+      "optional": "on by default from this change"
+    },
+    {
+      "title": "Design mode on (Ctrl-Opt-Cmd-D, as a person presses it)",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "d",
+          "modifiers": [
+            "control",
+            "option",
+            "command"
+          ]
+        }
+      },
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Pick the first paragraph",
+      "rpc": {
+        "method": "browser.page.eval",
+        "params": {
+          "script": "(() => { const el = document.querySelectorAll('p')[0]; if (!el) return false; el.scrollIntoView({block: 'center'}); const r = el.getBoundingClientRect(); const o = {clientX: r.x + Math.min(40, r.width / 2), clientY: r.y + r.height / 2, bubbles: true, button: 0, isPrimary: true, pointerId: 1}; document.dispatchEvent(new PointerEvent('pointerdown', o)); document.dispatchEvent(new PointerEvent('pointerup', o)); return true; })()"
+        }
+      },
+      "wait": 1.5
+    },
+    {
+      "title": "Comment on the first paragraph",
+      "rpc": {
+        "method": "debug.design_mode",
+        "params": {
+          "comment": "Make this text larger and darker"
+        }
+      },
+      "wait": 1.5,
+      "optional": "debug.design_mode is new with the comment bubble"
+    },
+    {
+      "title": "Pick the third paragraph",
+      "rpc": {
+        "method": "browser.page.eval",
+        "params": {
+          "script": "(() => { const el = document.querySelectorAll('p')[2]; if (!el) return false; el.scrollIntoView({block: 'center'}); const r = el.getBoundingClientRect(); const o = {clientX: r.x + Math.min(40, r.width / 2), clientY: r.y + r.height / 2, bubbles: true, button: 0, isPrimary: true, pointerId: 1}; document.dispatchEvent(new PointerEvent('pointerdown', o)); document.dispatchEvent(new PointerEvent('pointerup', o)); return true; })()"
+        }
+      },
+      "wait": 1.5
+    },
+    {
+      "title": "Comment on the third paragraph",
+      "rpc": {
+        "method": "debug.design_mode",
+        "params": {
+          "comment": "Too gray, use the body text color"
+        }
+      },
+      "wait": 1.5,
+      "optional": "debug.design_mode is new with the comment bubble"
+    },
+    {
+      "title": "Pick the link",
+      "rpc": {
+        "method": "browser.page.eval",
+        "params": {
+          "script": "(() => { const el = document.querySelector('a'); if (!el) return false; el.scrollIntoView({block: 'center'}); const r = el.getBoundingClientRect(); const o = {clientX: r.x + Math.min(40, r.width / 2), clientY: r.y + r.height / 2, bubbles: true, button: 0, isPrimary: true, pointerId: 1}; document.dispatchEvent(new PointerEvent('pointerdown', o)); document.dispatchEvent(new PointerEvent('pointerup', o)); return true; })()"
+        }
+      },
+      "wait": 1.5
+    },
+    {
+      "title": "Typing a third comment: the bubble under the link",
+      "rpc": {
+        "method": "debug.design_mode",
+        "params": {
+          "draft": "Turn this into a button"
+        }
+      },
+      "wait": 1.5,
+      "optional": "debug.design_mode is new with the comment bubble"
+    },
+    {
+      "title": "Three picks, three comments: pins on the page, one chip each in the chat",
+      "rpc": {
+        "method": "debug.design_mode",
+        "params": {
+          "commit": true
+        }
+      },
+      "wait": 2,
+      "optional": "debug.design_mode is new with the comment bubble"
+    }
+  ]
+}

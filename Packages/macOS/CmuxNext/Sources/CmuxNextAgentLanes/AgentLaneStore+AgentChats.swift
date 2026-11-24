@@ -7,7 +7,7 @@ extension AgentActivityLane {
     /// The lane as `agent_chat.list` gives it to a script (``AgentChatSummary``).
     public var agentChat: AgentChatSummary {
         AgentChatSummary(id: id, title: title, harness: harness, state: state.rawValue, unread: unread,
-                         project: project ?? cwd.map { URL(fileURLWithPath: $0).lastPathComponent }, cwd: cwd,
+                         project: project ?? cwd.map { ($0 as NSString).lastPathComponent }, cwd: cwd,
                          workspace: workspaceID, machine: peer, step: step, error: error, since: since,
                          updatedAt: updatedAt, createdAt: createdAt, pullRequests: pullRequests)
     }

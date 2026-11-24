@@ -74,6 +74,26 @@ pub(crate) fn per_user_base() -> PathBuf {
         .unwrap_or_else(|| std::env::temp_dir().join(format!("acpmux-unit-session-tmp-{uid}")))
 }
 
+/// Whether `path` is inside the sessions' temporary folders (`<base>/t/...`, also as macOS's
+/// `/private/tmp/...`). acpmux never makes a folder there again once it is gone: a session's own
+/// is made only at its agent's start, and anything an agent made inside one (a probe session's
+/// `mktemp -d` folder) is that agent's scratch. So a session whose folder is in here and gone
+/// never runs again (Leo's cosmic-gray, 2026-11-23: relayed messages to a probe chat whose
+/// folder an agent's scratch cleanup removed were tried again every minute, forever).
+pub(crate) fn holds(path: &Path) -> bool {
+    holds_in(&per_user_base(), path)
+}
+
+fn holds_in(base: &Path, path: &Path) -> bool {
+    let root = base.join(TMP_SUBDIR);
+    // macOS's `/tmp` is `/private/tmp`: a folder recorded either way is the same folder.
+    let other = match root.strip_prefix("/private") {
+        Ok(bare) => Path::new("/").join(bare),
+        Err(_) => Path::new("/private").join(root.strip_prefix("/").unwrap_or(&root)),
+    };
+    path.starts_with(&root) || path.starts_with(&other)
+}
+
 /// One daemon's root: `<base>/t/<first 8 hex of fnv1a64(acpmux home)>`.
 pub(crate) fn daemon_root(base: &Path, acpmux_home: &Path) -> PathBuf {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
@@ -423,6 +443,20 @@ pub(crate) fn stale_for_daemon(
 
 #[cfg(all(test, unix))]
 mod tests {
+    #[test]
+    fn holds_only_the_session_temp_folders_in_either_spelling() {
+        let base = Path::new("/tmp/acpmux-501");
+        let probe = "t/93dddea7/01a18a35-b1e8-7951-ba2f-703bf916b9a6/first-turn-probe-3w0m8ppi";
+        assert!(super::holds_in(base, &base.join(probe)));
+        assert!(super::holds_in(base, &Path::new("/private/tmp/acpmux-501").join(probe)));
+        assert!(super::holds_in(Path::new("/private/tmp/acpmux-501"), &base.join(probe)));
+        // The per-user directory's sockets, a plain /tmp folder, a project: not session temp.
+        assert!(!super::holds_in(base, &base.join("acpmux.sock")));
+        assert!(!super::holds_in(base, Path::new("/tmp/send-async-gone-1")));
+        assert!(!super::holds_in(base, Path::new("/Users/leoli/Projects")));
+        assert!(!super::holds_in(base, Path::new("/tmp/acpmux-5011/t/x")));
+    }
+
     use super::*;
     use std::os::unix::fs::PermissionsExt as _;
 

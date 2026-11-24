@@ -83,6 +83,12 @@ impl Supervisor {
             matches!(table.check(op, params, &grant), Decision::Allow(_))
                 && matches!(table.check(op, params, &host.grant), Decision::Allow(_))
         };
+        // An extension signal source's stream (`signal_sources.rs`): its scope, or its own app.
+        if let Some(source) = Self::signal_source_for_stream(inner, stream) {
+            return !key.preview && key.app == source.app
+                || grant.scopes.contains(&source.scope)
+                    && host.grant.scopes.contains(&source.scope);
+        }
         // A stream the SDKs' table declares is readable with its `reads` op and `readsParams`
         // (`theme.changed` reads `settings.get`); a provider family's stream, with that family's
         // list or get.
@@ -187,14 +193,20 @@ impl Supervisor {
                 "agent_cli changes go through apps-agent-inventory-changed",
             ));
         }
-        let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if inner.providers.get(family) != Some(&client) {
             return Err(ApiError::new(
                 "apps.provider.unknown",
                 "this connection does not provide that family",
             ));
         }
-        Self::publish_stream_locked(&inner, &format!("{family}.changed"), json!({}));
+        // A changed calendar makes every cached read stale before anyone reads again.
+        if family == super::system_calendar::FAMILY {
+            inner.system_calendar.clear();
+        }
+        let stream = format!("{family}.changed");
+        self.signals_pushed_locked(&inner, &stream);
+        Self::publish_stream_locked(&inner, &stream, json!({}));
         Ok(json!({}))
     }
 

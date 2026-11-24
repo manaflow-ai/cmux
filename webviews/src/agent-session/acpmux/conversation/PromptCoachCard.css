@@ -17,7 +17,7 @@
 .cv-coach[data-look="compact"] {
   padding: var(--grid-cards-padding, 12px);
   border-radius: var(--grid-cards-radius, 12px);
-  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+  box-shadow: inset 0 0 0 1px var(--ds-surface-card-line);
 }
 .cv-coach[data-look="rule"] {
   padding: 4px 0 4px 12px;
@@ -85,11 +85,11 @@
 .cv-coach__action:hover,
 .cv-coach__toggle:hover {
   color: var(--agent-text);
-  background: color-mix(in srgb, var(--agent-text) 9%, transparent);
+  background: var(--ds-surface-hover);
 }
 .cv-coach__action:active,
 .cv-coach__toggle:active {
-  background: color-mix(in srgb, var(--agent-text) 13%, transparent);
+  background: var(--ds-color-pressed);
 }
 .cv-coach__action:focus-visible,
 .cv-coach__toggle:focus-visible {
@@ -112,7 +112,7 @@
   padding: 8px var(--ds-space-3, 12px);
   overflow-y: auto;
   border-radius: 8px;
-  background: color-mix(in srgb, var(--agent-text) 5%, transparent);
+  background: var(--ds-surface-card);
   color: var(--agent-text);
   line-height: var(--cv-coach-line);
   overflow-wrap: anywhere;

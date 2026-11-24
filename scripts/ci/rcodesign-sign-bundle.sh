@@ -19,8 +19,7 @@
 #   1. Mach-O helpers under Contents/Resources/{bin,libexec}: hardened runtime and
 #      the helper entitlements; libexec/cmux-server-helper: no entitlements,
 #      identifier cmux-server-helper. Symlinks and scripts are left to the seal.
-#   2. The nested cmux Computer Use app (helper entitlements), then the
-#      Screen Sharing helper app, if any (no entitlements).
+#   2. The Screen Sharing helper app, if any (no entitlements).
 #   3. Each Contents/PlugIns/* (recursive, like codesign --deep).
 #   4. Contents/Frameworks/*: Sparkle's sandbox XPC services removed first,
 #      then each framework recursively. A bundle with the Chromium engine is
@@ -78,14 +77,11 @@ for dir in bin libexec; do
   done
 done
 
-# 2. Computer Use helper app.
-computer_use="$APP/Contents/Library/cmux Computer Use.app"
-[[ -d "$computer_use" ]] && sign --entitlements-xml-file "$HELPER_ENTITLEMENTS" "$computer_use"
-# 2b. The Screen Sharing helper app ("<app> Screen Sharing.app",
+# 2. The Screen Sharing helper app ("<app> Helper.app", executable cmux-screen-sharing,
 # plans/cmux-next/screen-sharing-helper.md): hardened runtime, no entitlements.
 # Its --stamp (bundle-screen-sharing-helper.sh) is not ported, as above.
-for screen_share in "$APP/Contents/Library/"*" Screen Sharing.app"; do
-  if [[ -d "$screen_share" ]]; then sign "$screen_share"; fi
+for screen_share in "$APP/Contents/Library/"*" Helper.app"; do
+  if [[ -e "$screen_share/Contents/MacOS/cmux-screen-sharing" ]]; then sign "$screen_share"; fi
 done
 
 # 3. Plugins.

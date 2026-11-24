@@ -105,14 +105,51 @@ const ELEMENT_LOOK = [
   "text-decoration-line",
 ] as const;
 
+/// The blocks of `source` (its element children) that the band from `top` to `bottom` (viewport y)
+/// shows: `[first, end)`, found by halving, so a draft of thousands of lines reads a few rects.
+function shownBlocks(source: Element, top: number, bottom: number): [number, number] {
+  const blocks = source.children;
+  const firstBelow = (y: number) => {
+    let low = 0;
+    let high = blocks.length;
+    while (low < high) {
+      const middle = (low + high) >> 1;
+      if (blocks[middle]!.getBoundingClientRect().bottom <= y) low = middle + 1;
+      else high = middle;
+    }
+    return low;
+  };
+  const first = firstBelow(top);
+  let end = first;
+  while (end < blocks.length && blocks[end]!.getBoundingClientRect().top < bottom) end += 1;
+  return [first, end];
+}
+
 /// A copy of `source`'s children in a box of `width` with `source`'s text look; each element keeps
 /// its own drawn look (the copy is outside the rules that drew it). O(copied nodes), once per send.
-function copyText(source: Element, width: number): HTMLElement {
+/// With `shown` (the viewport band the field's scroller shows of a long draft), only the blocks in it
+/// are copied, below a spacer that keeps them where they were drawn: the rest is clipped away anyway,
+/// and copying a draft of thousands of lines (a clone and a style read per element) held the send's
+/// task, and so the composer's collapse, for hundreds of ms (Leo, 2026-11-22: "THE FUCSKING
+/// COLLAPSING OF THE FUCKING COMPOSER / IT TAKES TOO FUCKING LONG").
+export function copyText(source: Element, width: number, shown?: { top: number; bottom: number }): HTMLElement {
   const box = source.ownerDocument.createElement("div");
   const look = getComputedStyle(source);
   for (const property of TEXT_LOOK) box.style.setProperty(property, look.getPropertyValue(property));
   box.style.width = `${width}px`;
-  for (const child of source.childNodes) {
+  let children: Iterable<ChildNode> = source.childNodes;
+  if (shown && source.childNodes.length === source.children.length && source.children.length > 1) {
+    const [first, end] = shownBlocks(source, shown.top, shown.bottom);
+    const lead = source.children[first];
+    if (lead && first > 0) {
+      const spacer = source.ownerDocument.createElement("div");
+      const margin = Number.parseFloat(getComputedStyle(lead).marginTop) || 0;
+      spacer.style.height = `${lead.getBoundingClientRect().top - margin - source.getBoundingClientRect().top}px`;
+      box.appendChild(spacer);
+    }
+    children = [...source.children].slice(first, end);
+  }
+  for (const child of children) {
     const copy = child.cloneNode(true);
     if (copy instanceof Element && child instanceof Element) keepLook(child, copy);
     box.appendChild(copy);
@@ -139,7 +176,8 @@ function keepLook(source: Element, copy: Element): void {
 }
 
 /// Records what the composer draws of the prompt it sends, before it lets it go: its card (`box`, or
-/// the card around it), its words and the chips of `attachments`. O(sent attachments + typed nodes).
+/// the card around it), its words and the chips of `attachments`. O(sent attachments + the typed nodes
+/// the field shows): a long draft's lines scrolled out of the field are not copied.
 export function noteSendOrigins(
   attachments: readonly { id: string; path?: string }[],
   box?: Element | null,
@@ -156,11 +194,9 @@ export function noteSendOrigins(
     if (editor && text) {
       const rect = rectOf(editor);
       const lineHeight = Number.parseFloat(getComputedStyle(editor).lineHeight) || 20;
-      const copy = copyText(editor, rect.width);
-      // A chip placed in the text moves on its own (below), not with the words.
-      for (const chip of copy.querySelectorAll<HTMLElement>(".acpmux-md-inline-chip")) chip.style.visibility = "hidden";
       // The field's scroller between the editor and the card clips a long draft: so does its copy.
       let clip = { top: 0, bottom: 0 };
+      let band: { top: number; bottom: number } | undefined;
       for (let at = editor.parentElement; at && at !== card; at = at.parentElement)
         if (at.scrollHeight > at.clientHeight + 1 && getComputedStyle(at).overflowY !== "visible") {
           const shown = rectOf(at);
@@ -168,8 +204,12 @@ export function noteSendOrigins(
             top: Math.max(0, shown.top - rect.top),
             bottom: Math.max(0, rect.top + rect.height - (shown.top + shown.height)),
           };
+          band = { top: shown.top, bottom: shown.top + shown.height };
           break;
         }
+      const copy = copyText(editor, rect.width, band);
+      // A chip placed in the text moves on its own (below), not with the words.
+      for (const chip of copy.querySelectorAll<HTMLElement>(".acpmux-md-inline-chip")) chip.style.visibility = "hidden";
       origin.words = { rect, copy, oneLine: rect.height < lineHeight * 1.5, text, clip };
     }
   }

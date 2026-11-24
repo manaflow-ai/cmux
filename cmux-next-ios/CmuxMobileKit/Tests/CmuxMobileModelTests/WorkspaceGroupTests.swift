@@ -171,6 +171,11 @@ import Testing
 
     private func setup() -> (AppStore, WorkspaceCreator, Recorder, String) {
         let store = AppStore.mock(tabMemory: .inMemory())
+        // The edit windows (10 s confirmed, 30 s unanswered) count on the store's clock. A test that does not move
+        // it stops it: on the wall clock, a runner that stalls the test process for 30 s or more right after launch
+        // (the kit job's macOS swift test, 2026-11-17) expired a held edit mid-test and reopened the group.
+        let now = Date(timeIntervalSince1970: 1_000)
+        store.now = { now }
         let mac = store.activeTeam!.macs.first { $0.isOnline }!
         store.workspaces = ["a", "b", "c"].enumerated().map { index, id in
             var ws = Workspace(id: id, macID: mac.id, title: id.uppercased(), directory: "~", tabs: [], lastActivityAt: Date())

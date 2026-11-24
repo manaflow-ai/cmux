@@ -1,0 +1,25 @@
+[
+  {
+    "key": "cmd+shift+p",
+    "command": "commandPalette"
+  },
+  {
+    "key": "cmd+,",
+    "command": "openSettings"
+  },
+  {
+    "key": "cmd+opt+p",
+    "command": "tab.search",
+    "when": "terminalFocused && !paletteOpen"
+  },
+  {
+    "key": "cmd+opt+r",
+    "command": "renameTab",
+    "when": "terminalFocused && !paletteOpen"
+  },
+  {
+    "key": "cmd+opt+quote",
+    "command": "focusHistoryLast",
+    "when": "terminalFocused && !paletteOpen"
+  }
+]

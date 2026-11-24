@@ -1,3 +1,4 @@
+import CMUXAuthCore
 import Foundation
 import struct CmuxMobileModel.ServiceFailureMessage
 import struct CmuxMobileModel.TeamAppearance
@@ -9,10 +10,16 @@ public struct LiveAPI: Sendable {
     /// A Stack access token; `true` forces a refresh after a 401.
     let accessToken: @Sendable (_ forceRefresh: Bool) async throws -> String
     let session: URLSession
+    /// A dev build's cloud data space (`X-Cmux-Build-Space`), on every request and the signaling
+    /// upgrade; `.nightly` (nightly, TestFlight, App Store, Demo) sends no header, and a misconfigured
+    /// dev build's requests throw ``CMUXBuildSpaceError``.
+    public let buildSpace: CMUXBuildSpaceState
 
-    public init(baseURL: URL, session: URLSession = .shared, accessToken: @escaping @Sendable (_ forceRefresh: Bool) async throws -> String) {
+    public init(baseURL: URL, session: URLSession = .shared, buildSpace: CMUXBuildSpaceState = .nightly,
+                accessToken: @escaping @Sendable (_ forceRefresh: Bool) async throws -> String) {
         self.baseURL = baseURL
         self.session = session
+        self.buildSpace = buildSpace
         self.accessToken = accessToken
     }
 
@@ -29,9 +36,13 @@ public struct LiveAPI: Sendable {
         public var removed: Bool?
         /// The computer the Mac runs on (added 2026-10-21): one per computer, shared by its cmux builds.
         public var machineId: String?
+        /// Milliseconds since the service last heard the Mac's heartbeat; only for an online Mac
+        /// (PROTOCOL.md "Mac freshness"). An older Worker sends none.
+        public var quietMs: Int?
 
         public init(deviceId: String, name: String, online: Bool, lastSeenAt: String? = nil, ownerUserId: String? = nil, teamId: String? = nil, removed: Bool? = nil,
-                    machineId: String? = nil) {
+                    machineId: String? = nil, quietMs: Int? = nil) {
+            self.quietMs = quietMs
             self.deviceId = deviceId
             self.name = name
             self.online = online
@@ -252,7 +263,7 @@ public struct LiveAPI: Sendable {
     func pinningToken() async throws -> LiveAPI {
         let token = try await accessToken(false)
         let provider = accessToken
-        return LiveAPI(baseURL: baseURL, session: session, accessToken: { forceRefresh in
+        return LiveAPI(baseURL: baseURL, session: session, buildSpace: buildSpace, accessToken: { forceRefresh in
             if forceRefresh { return try await provider(true) }
             return token
         })
@@ -302,10 +313,12 @@ public struct LiveAPI: Sendable {
         var request = URLRequest(url: components.url!)
         request.setValue("Bearer \(try await accessToken(false))", forHTTPHeaderField: "Authorization")
         request.setValue("cmux-mobile.v1", forHTTPHeaderField: "Sec-WebSocket-Protocol")
+        try buildSpace.apply(to: &request)
         return request
     }
 
-    func call(_ method: String, _ path: String, body: [String: Any]? = nil) async throws -> Data {
+    /// The request ``call(_:_:body:)`` sends, before its bearer.
+    func makeRequest(_ method: String, _ path: String, body: [String: Any]? = nil) throws -> URLRequest {
         var request = URLRequest(url: baseURL.appending(path: path))
         request.httpMethod = method
         request.timeoutInterval = 15
@@ -313,6 +326,12 @@ public struct LiveAPI: Sendable {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         }
+        try buildSpace.apply(to: &request)
+        return request
+    }
+
+    func call(_ method: String, _ path: String, body: [String: Any]? = nil) async throws -> Data {
+        var request = try makeRequest(method, path, body: body)
         // A rejected token (expired while the app slept) is refreshed once.
         for forceRefresh in [false, true] {
             request.setValue("Bearer \(try await accessToken(forceRefresh))", forHTTPHeaderField: "Authorization")
@@ -411,7 +430,7 @@ extension LiveAPI {
             case .notConnectedToInternet, .networkConnectionLost, .dataNotAllowed:
                 return ServiceFailureMessage(text: "You're offline. Connect to the internet and try again.")
             case .timedOut:
-                return ServiceFailureMessage(text: "The Cloud service didn't answer in time. Try again.")
+                return ServiceFailureMessage(text: "Can't reach the cmux Cloud service right now. Try again in a moment.")
             default:
                 return ServiceFailureMessage(text: "Couldn't reach the Cloud service. Try again in a moment.")
             }

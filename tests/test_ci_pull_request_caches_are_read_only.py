@@ -185,6 +185,8 @@ def main() -> int:
     # enters it only on main.
     signing_writer = "${{ github.ref == 'refs/heads/main' && 'release' || '' }}"
     next_writer = "${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}"
+    store_signer = ("${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || "
+                    "github.ref == 'refs/heads/nightly-next' && 'artifacts' || '' }}")
     signing_secret = ("IOS_", "ASC_API_", "APPLE_")
     writers = 0
     for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
@@ -193,8 +195,29 @@ def main() -> int:
             if not reads_secret_prefix(job, "CI_CACHE_R2_"):
                 continue
             writers += 1
+            # A job that calls a reusable workflow cannot enter an environment; it may pass the credentials only on
+            # feat-cmux-next, each one by name, and the called workflow's own jobs (checked as they come up in
+            # this loop) enter next-cache-writer and write only cmux-ci-cache-next (cmux-tui-artifacts.yml's builds).
+            if str(job.get("uses", "")).startswith("./.github/workflows/"):
+                passed = job.get("secrets")
+                gate = "${{ github.ref == 'refs/heads/feat-cmux-next' && secrets."
+                if isinstance(passed, dict) and all(
+                        not reads_secret_prefix(value, "CI_CACHE_R2_")
+                        or str(value) == f"{gate}{name} || '' }}}}"
+                        for name, value in passed.items()) and not reads_secret_prefix(
+                            {k: v for k, v in job.items() if k != "secrets"}, "CI_CACHE_R2_"):
+                    continue
+                failures.append(f"{path.name} {job_name}: a reusable-workflow call passes the R2 write credentials only as"
+                                f" {gate}NAME || '' }}}}, each under its own name")
+                continue
             environment = workflow_jobs.resolve(job).environment  # a string environment is {"name": it}
             if environment == {"name": writer}:
+                continue
+            # The nightly-next app build signs cmux's App Store packages with CMUX_STORE_SIGNING_KEY, a
+            # secret of the artifacts environment (deployment branches main, feat-cmux-next, nightly-next).
+            # It enters ci-cache-writer on main exactly as above and artifacts on nightly-next only, which
+            # holds no R2 write credentials, so a nightly-next build still saves nothing.
+            if environment == {"name": store_signer} and "CMUX_STORE_SIGNING_KEY" in workflow_jobs.secret_names(job):
                 continue
             # Only a named signing secret exempts the job: reading every secret at once is no signing exemption.
             if environment == {"name": signing_writer} and any(

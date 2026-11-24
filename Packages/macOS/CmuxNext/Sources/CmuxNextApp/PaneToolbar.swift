@@ -13,8 +13,10 @@ import os
 /// Lawrence 2026-10-12), a zoomed pane's Exit Zoom, then the pane's actions menu "…" (Leo 2026-10-12; back after
 /// 2026-11-13's removal, user 2026-11-16: "tabbar right side … is missing now like the one with pane actions"). The
 /// menu is the strip plus's (a terminal, a browser, an agent chat, … in this pane), then the splits and zoom not
-/// pinned, Search Tabs, then Show in Tab Bar, which pins or unpins one. The Toggle Terminal and Chat pair stays out. A chat's pane draws its own tools (acpmux
-/// header/ChatHeaderTools.tsx).
+/// pinned, Search Tabs, then Show in Tab Bar, which pins or unpins one. On a terminal running an agent session it leads
+/// with Switch to Chat (user 2026-11-20: "we used to have an additional button that will let u switch from terminal to
+/// chat ui; we should add that back, but inside the 3 dots thing"); the toolbar's `>_ | bubble` pair stays out. A
+/// chat's pane draws its own tools (acpmux header/ChatHeaderTools.tsx), whose ⋮ offers Switch to Terminal.
 @MainActor
 final class PaneToolbar: PaneControlsRefreshing {
     /// What the selected tab is, for its own actions; nil is a chat: no pins and no "…".
@@ -49,6 +51,9 @@ final class PaneToolbar: PaneControlsRefreshing {
     /// The shown content's own rows (``PaneMoreMenuContributing``: the docked Home's Chief Actions and
     /// Subagents), first in "…" and the selected tab's right-click.
     private let contentMenu: () -> [NSMenuItem]
+    /// The selected tab's own switch, Switch to Chat or Switch to Terminal on half of a terminal and chat pair
+    /// (``PaneController/terminalChatSwitchRows(tab:model:)``), read when "…" opens; none for any other tab.
+    private let switchRows: (String) -> [NSMenuItem]
     private(set) var target: String?
     private(set) var kind: Kind?
     private(set) var zoomed = false
@@ -59,11 +64,13 @@ final class PaneToolbar: PaneControlsRefreshing {
     private var refreshCurrent: (() -> Void)?
 
     init(registry: @escaping () -> ActionRegistry?, paneTarget: ActionTargetRef? = nil,
-         contentMenu: @escaping () -> [NSMenuItem] = { [] }, machineID: @escaping () -> String? = { nil }, view: PaneToolbarView = PaneToolbarView()) {
+         contentMenu: @escaping () -> [NSMenuItem] = { [] }, switchRows: @escaping (String) -> [NSMenuItem] = { _ in [] },
+         machineID: @escaping () -> String? = { nil }, view: PaneToolbarView = PaneToolbarView()) {
         (self.view, self.registry) = (view, registry)
         self.machineID = machineID
         self.paneTarget = paneTarget
         self.contentMenu = contentMenu
+        self.switchRows = switchRows
         view.moreMenu = { [weak self] in self?.moreMenu() }
         view.onPerform = { [weak self] id in self?.perform(ActionID(rawValue: id)) }
     }
@@ -79,15 +86,12 @@ final class PaneToolbar: PaneControlsRefreshing {
         let services = pane.services
         self.init(registry: { [weak services] in services?.registry },
                   paneTarget: ActionTargetRef(kind: .pane, id: pane.paneKey),
-                  contentMenu: { [weak pane] in (pane?.view.content as? PaneMoreMenuContributing)?.paneMoreMenuItems() ?? [] }, machineID: { [weak pane] in pane?.daemon.machineID }, view: view ?? PaneToolbarView())
+                  contentMenu: { [weak pane] in (pane?.view.content as? PaneMoreMenuContributing)?.paneMoreMenuItems() ?? [] },
+                  switchRows: { [weak pane] id in pane.flatMap { pane in pane.tab(StripTabID(id)).map { pane.terminalChatSwitchRows(tab: id, model: $0) } } ?? [] },
+                  machineID: { [weak pane] in pane?.daemon.machineID }, view: view ?? PaneToolbarView())
         writePinned = { [weak services] next in
             guard let settings = services?.settings else { return }
-            // task-owner: one write; the menu item's gesture is the user's (SettingWriter.currentRun)
-            Task {
-                do { try await settings.setSetting(at: PaneToolbarButtonsSetting.configPath, to: next.configValue, by: .currentRun()) } catch {
-                    Logger(subsystem: "com.cmuxterm.app.next", category: "pane-toolbar").error("tabs.toolbarButtons write failed: \(String(describing: error), privacy: .public)")
-                }
-            }
+            Self.write(next, in: settings)
         }
         refreshCurrent = { [weak self, weak pane] in
             if let self, let pane { self.apply(Self.state(pane), owner: pane.view.nativeToolOwner) }
@@ -216,15 +220,15 @@ final class PaneToolbar: PaneControlsRefreshing {
         return Self.actions(kind).filter { ActionTargetReasons.canPerform($0, invocation: invocation, in: registry) }
     }
 
-    /// "…": the content's own rows (the Chief's), what opens in the pane, the actions without a button
-    /// with their keys, Search Tabs, then Show in Tab Bar.
+    /// "…": the tab's own switch (Switch to Chat), the content's own rows (the Chief's), what opens in the pane, the
+    /// actions without a button with their keys, Search Tabs, then Show in Tab Bar.
     private func moreMenu() -> NSMenu? {
         guard let registry = registry(), let target else { return nil }
         let menu = paneTarget.map { registry.makePaneMoreMenu(pane: $0, trimming: Self.overflowNewTabTrimmedActions, machineID: machineID()) } ?? NSMenu()
         view.layoutSubtreeIfNeeded()
         let buttons = zip(view.items, view.buttons).compactMap { item, button in button.isHidden ? nil : ActionID(rawValue: item.id) }
         let rows = tabActions().filter { !buttons.contains($0) && (!Self.overflowTabTrimmedActions.contains($0) || pinned.contains($0.rawValue)) }
-        let sections = [contentMenu(), menu.items, Self.detach(registry.makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: target),
+        let sections = [switchRows(target), contentMenu(), menu.items, Self.detach(registry.makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: target),
                                                                                   entries: rows.map { .action($0) }, machineID: machineID())),
                         // Search Tabs runs with no tab target: a tab target only reveals that tab.
                         Self.detach(registry.makeContextMenu(for: .tab, entries: [.action(Self.search)])), [showInTabBarItem(registry: registry)]]
@@ -257,7 +261,11 @@ final class PaneToolbar: PaneControlsRefreshing {
             guard let descriptor = registry.descriptor(for: ActionID(rawValue: id)) else { continue }
             let row = NSMenuItem(title: descriptor.title, action: #selector(ActionMenuClosure.run), keyEquivalent: "")
             row.state = pinned.contains(id) ? .on : .off
-            let closure = ActionMenuClosure { [weak self] in self?.writePinned(setting.toggling(id)) }
+            // The palette's Pin or Unpin Tab Bar Button… (one handler); where it does not run, the row's own write.
+            let closure = ActionMenuClosure { [weak self, weak registry] in
+                let invocation = ActionInvocation(arguments: ["button": .string(id)], origin: .user)
+                if registry?.perform(Self.togglePin, invocation: invocation) != true { self?.writePinned((Self.pendingPinned ?? setting).toggling(id)) }
+            }
             row.target = closure
             row.representedObject = closure
             submenu.addItem(row)
@@ -267,6 +275,58 @@ final class PaneToolbar: PaneControlsRefreshing {
     }
 }
 
+/// Pin or Unpin Tab Bar Button… (`tabs.toolbar.togglePin`, `button`: an action id `tabs.toolbarButtons` takes): the
+/// "…" menu's Show in Tab Bar rows run it, so the row and the palette run one handler. The palette lists the
+/// pinnable actions, the pinned ones marked (`tabBarButtons`).
+extension PaneToolbar {
+    static let togglePin: ActionID = "tabs.toolbar.togglePin"
+
+    static func bindTogglePin(into registry: ActionRegistry, settings: @escaping @MainActor () -> SettingsController?) {
+        registry.bindEffect(togglePin, isEnabled: { settings() != nil }, effect: { invocation in
+            guard let settings = settings(), let id = invocation["button"]?.stringValue,
+                  PaneToolbarButtonsSetting.values.contains(id) else { return .done }
+            write(pinnedSetting(in: settings).toggling(id), in: settings)
+            return .done
+        })
+        let other = registry.argumentSuggestions
+        registry.argumentSuggestions = { [weak registry] source in
+            guard source == ActionSuggestions.tabBarButtons else { return other?(source) ?? [] }
+            let pinned = settings().map { pinnedSetting(in: $0).pinned } ?? []
+            return PaneToolbarButtonsSetting.values.compactMap { id in
+                guard let title = registry?.descriptor(for: ActionID(rawValue: id))?.title else { return nil }
+                return ActionEnumCase(value: id, title: title, symbol: pinned.contains(id) ? "pin.fill" : "pin")
+            }
+        }
+    }
+
+    /// The pinned list last asked for, until its write lands. A second quick toggle starts from it: read from the
+    /// file, two toggles both saw the old list and the later write dropped the earlier pin.
+    private static var pendingPinned: PaneToolbarButtonsSetting?
+    /// The write in flight; the next one waits for it, so the file takes the toggles in the order they were asked.
+    private static var lastWrite: Task<Void, Never>?
+
+    /// The pinned list a toggle starts from: the one still being written, else the file's.
+    static func pinnedSetting(in settings: SettingsController) -> PaneToolbarButtonsSetting {
+        pendingPinned ?? PaneToolbarButtonsSetting.current(settings)
+    }
+
+    /// Writes the pinned list (`tabs.toolbarButtons`); every pane follows the file. Writes go one at a time, in order.
+    static func write(_ next: PaneToolbarButtonsSetting, in settings: SettingsController) {
+        pendingPinned = next
+        let previous = lastWrite
+        let writer = SettingWriter.currentRun() // the menu item's or palette row's gesture is the user's
+        // task-owner: one write, after the one before it (lastWrite); ends when the file has it
+        let task = Task {
+            await previous?.value
+            do { try await settings.setSetting(at: PaneToolbarButtonsSetting.configPath, to: next.configValue, by: writer) } catch {
+                Logger(subsystem: "com.cmuxterm.app.next", category: "pane-toolbar").error("tabs.toolbarButtons write failed: \(String(describing: error), privacy: .public)")
+            }
+            if pendingPinned == next { pendingPinned = nil }
+        }
+        lastWrite = task
+    }
+}
+
 enum PaneToolbarStrings {
-    static var showInTabBar: String { String(localized: "paneToolbar.showInTabBar", defaultValue: "Show in Tab Bar", bundle: .module) }
+    static var showInTabBar: String { String(localized: "paneToolbar.showInTabBar", defaultValue: "Show in Tab Bar", bundle: .module.inAppLanguage) }
 }

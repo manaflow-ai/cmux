@@ -199,7 +199,7 @@ def log_size():
 def measure(app_pid, phase):
     rows = processes(app_pid)
     before, log_before, t0, ticks_before = snapshot(rows), log_size(), time.monotonic(), ticks[0]
-    time.sleep(opts.idle_s)  # the measured idle window itself
+    time.sleep(opts.idle_s)  # sleep-ok: the measured idle window itself
     after, log_after, seconds = snapshot(rows), log_size(), time.monotonic() - t0
     classes = {}
     for pid, kind in rows.items():

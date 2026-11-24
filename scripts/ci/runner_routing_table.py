@@ -9,8 +9,7 @@ ask whether the job needed macOS. This module asks.
 
 * `job_classes`: what kind of work a job does, and whether that kind of work
   needs macOS (`"needs": "macos"`), runs on Linux (`"needs": "linux"`), or
-  runs anywhere (`"needs": "any"`: fleet Linux first, then a free owned mini,
-  Blacksmith Linux last, through scripts/ci/portable_job_placement.py).
+  runs anywhere (`"needs": "any"`: it takes cmux-linux).
 * `macos_jobs`: every workflow job whose `runs-on:` can route to macOS,
   as `"<workflow file>#<job id>"`, mapped to its class.
 
@@ -81,7 +80,7 @@ MACOS_HINT = re.compile(
     r"|early_(?!(?:linux|mini)_runner)[a-z_]+_runner",
     re.IGNORECASE,
 )
-NON_MAC_HINT = re.compile(r"ubuntu|linux|windows", re.IGNORECASE)
+NON_MAC_HINT = re.compile(r"ubuntu|linux|windows|cmux-gcp-", re.IGNORECASE)  # cmux-gcp-*-x64: GCP Linux VMs
 
 NEEDS = ("macos", "linux", "any")
 
@@ -102,6 +101,7 @@ NIGHTLY_MINI = re.compile(r"needs\.(?:build-nightly-app\.outputs\.light_mini_run
 NIGHTLY_LINUX = ("needs.build-nightly-app.outputs.light_linux_runner", "needs.decide.outputs.early_linux_runner")
 NIGHTLY_SLOT = re.compile(r"vars\.CI_NIGHTLY_NEXT_BUILD_RUNNER$")
 BLACKSMITH_LINUX = re.compile(r"^'blacksmith-\d+vcpu-ubuntu-2404'$")
+ONE_LINUX_LABEL = "'cmux-linux'"
 POOL_REFERENCE = re.compile(r"^fromJSON\(vars\.RUNNER_POOLS\)\.([A-Za-z0-9_]+)$")
 
 
@@ -125,8 +125,14 @@ def blacksmith_linux_term(term: str, pools: dict[str, list[str]] | None = None,
     if match is None or (allowed_pools is not None and match.group(1) not in allowed_pools):
         return False
     members = (pool_members() if pools is None else pools).get(match.group(1), [])
-    return bool(members) and all(re.fullmatch(r"blacksmith-\d+vcpu-ubuntu-\d+(?:-arm)?", member)
-                                  for member in members)
+    blacksmith = [member for member in members if re.fullmatch(r"blacksmith-\d+vcpu-ubuntu-\d+(?:-arm)?", member)]
+    # Every x64 Linux pool leads with our own fleet label (#47803); the variable may name it or a Blacksmith size,
+    # and the pool's Blacksmith members are the overflow it moves to. Any other member is not this overflow.
+    return bool(blacksmith) and all(member in blacksmith or member in POOL_FLEET_MEMBERS for member in members)
+
+
+# The owned Linux label a declared x64 pool may lead with (.github/runners.json, #47803).
+POOL_FLEET_MEMBERS = ("cmux-fleet-linux-x64",)
 
 
 # Nightlies never run on Blacksmith (user, 2026-10-30): a nightly route's overflow is our own
@@ -227,6 +233,9 @@ def portable_order(runs_on: str, nightly: bool = False, pools: dict[str, list[st
         return "it takes the mini before fleet Linux"
     if nightly:
         return "" if nightly_overflow_term(terms[-1]) else "it does not end on an overflow that is never Blacksmith"
+    # The one Linux label (scripts/ci/one_linux_label.py) is the owned Linux overflow after the mini.
+    if terms[-1] == ONE_LINUX_LABEL:
+        return ""
     if not blacksmith_linux_term(terms[-1], pools) or not any(
             blacksmith_linux_term(term, pools) for term in terms[mini + 1:]):
         return "it does not end on a Blacksmith Linux label after the mini"
@@ -507,10 +516,10 @@ def referenced_secrets(value: Any) -> set[str]:
 FORK_PR_BLACKSMITH = re.compile(
     r"github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name != github\.repository"
     r" && 'blacksmith-\d+vcpu-ubuntu-2404'")
-# The CI_TRUSTED_RUNNER selector (scripts/ci/validate-cla-policy.rb), split at its top-level `||`. A
+# The CI_TRUSTED_RUNNER selector (main's scripts/ci/validate-cla-policy.rb), split at its top-level `||`. A
 # secretless declared light job whose workflow cannot read RUNNER_POOLS may retry on it.
 TRUSTED_SELECTOR_TAIL = [
-    "contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), "
+    "contains(fromJSON('[\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), "
     "vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER",
     "'blacksmith-4vcpu-ubuntu-2404'",
 ]
@@ -519,13 +528,6 @@ EPHEMERAL_MIRROR_TERM = re.compile(
     r"vars\.LINUX_RUNNER\) && vars\.LINUX_RUNNER")
 # A pool read wrapped for forks, `(<fork pull request> && '<label>' || fromJSON(vars.RUNNER_POOLS).<pool>)`: a fork's
 # run gets no variables, so it keeps the label; every other run reads the pool. Forks are outside this exception.
-# The hosted-first release valve (scripts/ci/linux_pool_spill.py valve_choice()): while RUNNER_POOLS marks GitHub-hosted
-# saturated, attempt 1 takes the smallest live Linux pool. Only this exact term, right before the hosted branch, is
-# accepted; a reusable workflow (which must not fromJSON a variable) guards its hosted branch instead and falls to
-# its declared retry.
-HOSTED_VALVE_TERM = ("github.run_attempt == 1 && fromJSON(vars.RUNNER_POOLS).hosted_saturated && "
-                     "fromJSON(vars.RUNNER_POOLS).linux_2")
-GUARDED_HOSTED_TERM = "github.run_attempt == 1 && !contains(vars.RUNNER_POOLS, '\"hosted_saturated\"') && 'ubuntu-24.04'"
 FORK_WRAPPED_POOL_READ = re.compile(
     r"\((?:" + FORK_PR_BLACKSMITH.pattern + r") \|\| (fromJSON\(vars\.RUNNER_POOLS\)\.[a-z0-9_]+)\)")
 
@@ -641,7 +643,7 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
             nightly = path.name == "nightly.yml"
             always_hosted = "'ubuntu-24.04'"
             owned_tail = ["vars.CI_NIGHTLY_ONLY_RUNNER", "'glaeda-nightly-only-m4pro'"]
-            hosted_forms = (hosted, track_hosted, always_hosted) if nightly else (hosted, track_hosted, GUARDED_HOSTED_TERM)
+            hosted_forms = (hosted, track_hosted, always_hosted) if nightly else (hosted, track_hosted)
             hosted_terms = [part for part in alternatives if part in hosted_forms]
             pool = "fromJSON(vars.RUNNER_POOLS).linux_2" if bootstrap else "fromJSON(vars.RUNNER_POOLS).linux"
             secretless_tail = (alternatives[-1] == pool or alternatives[-2:] == TRUSTED_SELECTOR_TAIL) and not used
@@ -657,10 +659,6 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
                 continue
             position = alternatives.index(hosted_term)
             tail = alternatives[position + 1:]
-            # The valve right before plain hosted Ubuntu is part of the hosted branch, not a label before it.
-            if not nightly and hosted_term == hosted and position and alternatives[position - 1] == HOSTED_VALVE_TERM:
-                alternatives = alternatives[:position - 1] + alternatives[position:]
-                position -= 1
             measured16 = ("vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && "
                           "'blacksmith-16vcpu-ubuntu-2404'")
             measured16_pool = ("vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && "

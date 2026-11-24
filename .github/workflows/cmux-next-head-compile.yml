@@ -1,0 +1,180 @@
+name: cmux-next head compile
+# Compiles the feat-cmux-next head after every push, and when it does not compile, names the merge that broke it
+# (scripts/ci/head_compile.py, scripts/ci/head-compile.sh).
+#
+# 2026-11-22 the head broke four times from merges that each passed on their own base: a stale cmux-app-ffi
+# Cargo.lock, a second Supervisor::signal_due (#50234), a committed SettingsSchema+Appearance5.generated.swift
+# (#49757 after #50929 moved it into a SwiftPM plugin), and #51052 calling acpmux qos helpers the #51319 revert
+# had removed. A pull request compiles its own merge with the base it saw; since 2026-11-21 the head's compiles run
+# only in the post-merge batch (about every 2 h), so each break was found by an agent's red build and bisected by
+# hand.
+#
+# Each run checks the change since the newest commit this workflow verified (so a run a newer push superseded
+# leaves nothing unchecked), on the build fleet:
+#   app    `cmux-ci compile-check --app --release --tests`: the cmux-next app, the FFI it links and the macOS
+#          cmux-tui crates it bundles, test targets included;
+#   linux  `feat-parity-check.sh head-check`: every Cargo.lock in sync, then `cargo check --workspace
+#          --all-targets --locked` of cmux-tui on Linux.
+# A change no compile reads (docs, web) runs neither and takes no fleet time. A red head probes the merges in the
+# range that touch a compile input, six at a time, down to the first red one, and the report job opens (or
+# comments on) the issue "feat-cmux-next head does not compile" naming that merge, its pull request and its
+# author, and comments on the pull request. While that issue is open, later runs check the head only (no second
+# bisect); the first green run closes it. No verdict (a busy fleet) is never red: the run cancels itself so it is
+# never a verified base.
+#
+# A dispatch with `head` replays a range (say a known break) without touching the issue.
+#
+# Off until `vars.CI_HEAD_COMPILE` is `on`: the glaeda gateway runners admit only the thin cmux-ci client jobs on
+# their list (glaeda-cmux-runner-hook GATEWAY_JOBS), and refuse this job at "Set up runner" until it is on it.
+on:
+  push:
+    branches: [feat-cmux-next]
+  workflow_dispatch:
+    inputs:
+      base:
+        description: "Check the change since this commit (full SHA) instead of the last verified one."
+        required: false
+        type: string
+      head:
+        description: "Replay: the commit to check (full SHA). Leaves the issue alone."
+        required: false
+        type: string
+
+permissions: {}
+
+concurrency:
+  # One run at a time; GitHub keeps one newer run pending and drops older pending ones, and the next run covers
+  # every push since the last verified commit. A replay is keyed by its head, so it never evicts the push's run.
+  group: cmux-next-head-compile${{ inputs.head && format('-replay-{0}', inputs.head) || '' }}
+  cancel-in-progress: false
+
+jobs:
+  compile:
+    name: cmux-next head compile
+    if: ${{ github.repository == 'manaflow-ai/cmux' && (github.ref == 'refs/heads/feat-cmux-next' || inputs.head != '') && vars.CI_COMPILE_CHECK_GATEWAY != '' && vars.CI_HEAD_COMPILE == 'on' }}
+    runs-on: ${{ vars.CI_COMPILE_CHECK_GATEWAY }}
+    permissions:
+      contents: read
+      actions: read
+      issues: read
+    # The fleet legs wait 30 min in the queue and run 40 at most; a bisect adds rounds of the same.
+    timeout-minutes: 240
+    outputs:
+      verdict: ${{ steps.run.outputs.verdict }}
+      base: ${{ steps.plan.outputs.base }}
+      head: ${{ steps.plan.outputs.head }}
+      report: ${{ steps.run.outputs.report }}
+      culprit_pr: ${{ steps.run.outputs.culprit_pr }}
+    steps:
+      - name: Checkout the head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.head || github.sha }}
+          persist-credentials: false
+          submodules: false
+          fetch-depth: 1
+
+      - name: Plan the checks the change since the last verified commit reaches
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BEFORE: ${{ github.event.before }}
+          FORCED_BASE: ${{ inputs.base }}
+          HEAD_SHA: ${{ inputs.head || github.sha }}
+        run: |
+          set -euo pipefail
+          # History without blobs: the range's commits and trees only.
+          git fetch --no-tags --filter=blob:none --depth=400 origin "$HEAD_SHA"
+          base="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/cmux-next-head-compile.yml/runs?branch=feat-cmux-next&event=push&status=success&per_page=1" \
+            --jq '.workflow_runs[0].head_sha // ""' || true)"
+          [ -z "${FORCED_BASE:-}" ] || base="$FORCED_BASE"
+          usable() { [[ "$1" =~ ^[0-9a-f]{40}$ ]] && [ "$1" != "$HEAD_SHA" ] && git merge-base --is-ancestor "$1" "$HEAD_SHA" 2>/dev/null; }
+          usable "${base:-}" || base="${BEFORE:-}"
+          usable "${base:-}" || base="$(git rev-parse "$HEAD_SHA^1")"
+          plan="$(python3 scripts/ci/head_compile.py plan --base "$base" --head "$HEAD_SHA")"
+          checks="$(python3 -c 'import json,sys; print(",".join(json.loads(sys.argv[1])["checks"]))' "$plan")"
+          {
+            echo "### cmux-next head compile plan"
+            echo
+            echo "Since \`$base\`: $(git diff --name-only "$base" "$HEAD_SHA" | wc -l | tr -d ' ') files, plan \`$plan\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+          { echo "base=$base"; echo "head=$HEAD_SHA"; echo "checks=$checks"; } >> "$GITHUB_OUTPUT"
+
+      - name: Compile the head on the build fleet; bisect a red one
+        id: run
+        if: ${{ steps.plan.outputs.checks != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE: ${{ steps.plan.outputs.base }}
+          HEAD_SHA: ${{ steps.plan.outputs.head }}
+          CHECKS: ${{ steps.plan.outputs.checks }}
+          REPLAY: ${{ inputs.head != '' }}
+        run: |
+          set -uo pipefail
+          started=$SECONDS
+          # The head already red (the issue is open): check it, name the range, probe nothing.
+          bisect=()
+          if [ "$REPLAY" != true ]; then
+            open="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search '"feat-cmux-next head does not compile" in:title' \
+              --json number --jq 'length' || echo 0)"
+            [ "${open:-0}" = 0 ] || bisect=(--no-bisect)
+          fi
+          status=0
+          python3 scripts/ci/head_compile.py run --base "$BASE" --head "$HEAD_SHA" --parallel 6 ${bisect[@]+"${bisect[@]}"} \
+            --check "bash scripts/ci/head-compile.sh {sha} $BASE $CHECKS" --json "$RUNNER_TEMP/verdict.json" || status=$?
+          python3 scripts/ci/head_compile.py report --json "$RUNNER_TEMP/verdict.json" > "$RUNNER_TEMP/report.md"
+          verdict="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["verdict"])' "$RUNNER_TEMP/verdict.json")"
+          pr="$(python3 -c 'import json,sys; c=json.load(open(sys.argv[1]))["culprit"]; print((c or {}).get("pr") or "")' "$RUNNER_TEMP/verdict.json")"
+          { cat "$RUNNER_TEMP/report.md"; echo; echo "Wall time: $(( SECONDS - started )) s."; } >> "$GITHUB_STEP_SUMMARY"
+          { echo "verdict=$verdict"; echo "culprit_pr=$pr"; echo "report=$(base64 < "$RUNNER_TEMP/report.md" | tr -d '\n')"; } >> "$GITHUB_OUTPUT"
+          if [ "$verdict" = fail ]; then
+            echo "::error title=feat-cmux-next head does not compile::$(head -n 3 "$RUNNER_TEMP/report.md" | tr '\n' ' ')"
+          fi
+          exit "$status"
+
+  report:
+    name: cmux-next head compile report
+    needs: compile
+    if: ${{ !cancelled() && inputs.head == '' && needs.compile.outputs.verdict != '' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    permissions:
+      issues: write
+      pull-requests: write
+      actions: write
+    timeout-minutes: 5
+    steps:
+      - name: Open, update or close the head's compile issue; tell the culprit's pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERDICT: ${{ needs.compile.outputs.verdict }}
+          REPORT: ${{ needs.compile.outputs.report }}
+          PR: ${{ needs.compile.outputs.culprit_pr }}
+          HEAD_SHA: ${{ needs.compile.outputs.head }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          title="feat-cmux-next head does not compile"
+          open="$(gh issue list --state open --search "\"$title\" in:title" --json number,title \
+            --jq "map(select(.title == \"$title\"))[0].number // \"\"")"
+          link="[\`${HEAD_SHA:0:11}\`]($GITHUB_SERVER_URL/$GH_REPO/commit/$HEAD_SHA)"
+          case "$VERDICT" in
+            pass)
+              [ -z "$open" ] || gh issue close "$open" --comment "Fixed: the head $link compiles ([run]($RUN_URL))."
+              ;;
+            fail)
+              body="$(printf '%s\n\n[Run](%s).\n' "$(echo "$REPORT" | base64 -d)" "$RUN_URL")"
+              if [ -n "$open" ]; then
+                gh issue comment "$open" --body "$body"
+              else
+                gh issue create --title "$title" --body "$body"
+                if [ -n "$PR" ]; then
+                  gh pr comment "$PR" --body "$(printf 'After this merged, the feat-cmux-next head stopped compiling (it passed on its own base; together with the merges before it, it does not).\n\n%s\n\n[Run](%s).\n' "$(echo "$REPORT" | base64 -d)" "$RUN_URL")" || true
+                fi
+              fi
+              ;;
+            *)
+              echo "No verdict ($VERDICT); cancelling this run so it is not a verified base."
+              gh run cancel "$GITHUB_RUN_ID"
+              ;;
+          esac

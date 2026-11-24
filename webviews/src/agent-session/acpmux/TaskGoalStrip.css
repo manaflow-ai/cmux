@@ -114,7 +114,7 @@
   --acpmux-goal-line: 18px;
   --acpmux-goal-inset: var(--acpmux-tray-inset, var(--acpmux-composer-inset, 8px));
   --acpmux-goal-actions: calc(3 * var(--ds-control-icon) + 2 * var(--ds-space-1));
-  --acpmux-goal-radius: var(--acpmux-composer-radius, 11px);
+  --acpmux-goal-radius: var(--cmux-composer-hat-radius, var(--acpmux-composer-radius, 11px));
   /* The reference, frame-stepped: opens in about 200 ms on an ease-out quad, closes in about 110 ms
      on an ease-out cubic, no overshoot. Both scale with the motion token, so the motion gate's 0 ms
      and the app's animation speed apply. */
@@ -389,6 +389,29 @@
     inset 0 var(--cmux-hairline, 0.5px) 0 var(--acpmux-composer-edge, transparent),
     inset var(--cmux-hairline, 0.5px) 0 0 var(--acpmux-composer-edge, transparent),
     inset calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 var(--acpmux-composer-edge, transparent);
+}
+/* The banner at the top of a joined stack takes the card's light, as the tray does when it heads the
+   stack (bottomStack.css): the soft band into the top corners and the sheen, inside the edge, at the
+   card's glint (composerStates.css .acpmux-stack-material). The card and a tray joined under it give
+   their top light up, so no bright line runs along the seam (user 2026-11-20, "ensure all border colors
+   are the same"; test/composer-one-edge.test.ts). Reduce Transparency, Lens and Spectrum over art keep
+   the edge alone. */
+@media not (prefers-reduced-transparency: reduce) {
+  :root:not([data-reduce-transparency], [data-bottom-stack="cards"]):not(
+      [data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"])
+    )
+    .acpmux-dock
+    > .acpmux-goal:is([data-look="head"], [data-look="foot"]:not(.acpmux-running-tray[data-card] + *)):has(
+      + .acpmux-composer > .acpmux-composer-box.ui-glass-material,
+      + .acpmux-running-tray[data-card] + .acpmux-composer > .acpmux-composer-box.ui-glass-material
+    ) {
+    box-shadow:
+      inset 0 var(--cmux-hairline, 0.5px) 0 var(--acpmux-composer-edge, transparent),
+      inset var(--cmux-hairline, 0.5px) 0 0 var(--acpmux-composer-edge, transparent),
+      inset calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 var(--acpmux-composer-edge, transparent),
+      inset 1px 1.5px 1px -1px var(--glass-material-specular),
+      inset 0 16px 20px -16px var(--glass-material-sheen);
+  }
 }
 :root:not([data-bottom-stack="cards"])
   .acpmux-dock

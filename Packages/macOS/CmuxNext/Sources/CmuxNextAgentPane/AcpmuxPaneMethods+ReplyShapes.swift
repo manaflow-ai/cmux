@@ -27,6 +27,12 @@ nonisolated extension AcpmuxPaneMethods {
     /// tell a chat on a machine that is not connected (with when it was last seen) from a deleted
     /// one, and from one whose machine is still connecting (chatUnavailable.ts).
     public static let replyShapes: [String: ReplyShape] = [
+        // The Labs live-tree preview reads only `liveTree` (direct.ts liveTreeStatus): numeric lane
+        // facts acpmux projects from its status file. The rest of the chat's detail stays out.
+        "_acpmux/info": .object(["liveTree": .object([
+            "available": .bool, "updated": .number, "seq": .number, "stale": .bool,
+            "lanes": .list(.object(["name": .string, "verdict": .string])),
+        ])]),
         // The local/app connection's peer state snapshot; never transport URLs or credentials.
         "_acpmux/peers": .object(["peers": .list(.object([
             "name": .string, "state": .string, "lastSeen": .number, "error": .string,
@@ -57,6 +63,15 @@ nonisolated extension AcpmuxPaneMethods {
                     ]),
                 ]),
             ])),
+        ]),
+        // The move picker needs labels and placement state only. Keep transport endpoints,
+        // hostnames, and other daemon metadata out of the page.
+        "_acpmux/move_targets": .object([
+            "targets": .list(.object([
+                "id": .string, "label": .string, "kind": .string,
+                "status": .string, "reason": .string, "room": .number,
+            ])),
+            "pick": .string,
         ]),
         // Reconnect returns the same safe peer state needed by the offline copy's banner. The
         // relay derives transport from `url` and drops the endpoint and all other metadata.

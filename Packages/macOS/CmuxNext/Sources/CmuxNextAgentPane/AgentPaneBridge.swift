@@ -35,6 +35,13 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
            let view {
             return replyHandler(view.popup(method, params: body["params"] as? [String: Any] ?? [:]), nil)
         }
+        if let body = message.body as? [String: Any], let method = body["method"] as? String,
+           AgentProjectPaletteRequest.methods.contains(method), let view {
+            let params = body["params"].flatMap { JSONValue(foundation: $0) } ?? .null
+            let person = method == "projectPalette.show" && view.model.transport.gestures.consume(within: 1)
+            let result = view.projectPalette(method, params: params, person: person)
+            return replyHandler(AgentPaneReply.success(result.foundationObject), nil)
+        }
         // The page's flicker detector (``AgentPageFlickerLog``): short words and numbers for the
         // ring file, answered at once and not logged here.
         if let body = message.body as? [String: Any], body["method"] as? String == AgentPageFlickerLog.method, let view {
@@ -108,7 +115,15 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
         guard request == .ready else { return await model.respond(to: request) }
         AgentPaneLaunchTimings.shared.mark("agent_pane.handshake_start")
         defer { AgentPaneLaunchTimings.shared.mark("agent_pane.handshake_end") }
-        return await model.respond(to: request)
+        let reply = await model.respond(to: request)
+        // A tab took this page before its handshake, so the page can be one that did not hear the take's event. The reply has the
+        // tab's context too, but a page that drew from the context of its document takes only a missing folder and
+        // missing actions from a reply: it would keep the context of the tab that had it before. The page listens
+        // for the event before it sends `ready`, so the take's call runs again here, one time (it clears the mark).
+        if model.newTabAdoptUnheard, model.hasHandshake, !model.newTabPrepared, let page = model.newTab {
+            view?.adoptNewTab(page)
+        }
+        return reply
     }
 
     private func isTrusted(_ message: WKScriptMessage) -> Bool {
@@ -124,21 +139,26 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
         // customization were first pushed; push them again so they land. The New Tab page's chats
         // and closed items are set when the view is made, before the page loads (cx-uw104).
         if request == .ready {
+            view.dismissProjectPalette()
             logger.info("agent pane ready accepted")
             view.refreshQuestionKeyBinding()
             view.applyTheme(force: true)
+            view.applyLanguage() // either host's document (the old host's too)
             // This document has no composer state, even when the native value has not changed.
             view.deliver([.composer(view.model.composer)], scripts: [view.model.composer.pageScript])
             view.applyShortcuts()
             view.applyPreviewFeatures()
+            view.applyLiveTree()
             AgentPaneSessionStatus.push(to: view)
             AgentPaneSuggestedTasks.shared.push(to: view)
+            view.replayExperiments()
             view.model.remoteControl?.push(to: view)
             view.applyEditedFiles()
             if view.pageEvents == nil { view.model.sidebarPreviewVariant.replay(to: view) }
             view.replayCustomization()
             AgentPaneToolCard.replay(to: view)
             AgentPaneComputerUsePreview.replay(to: view)
+            view.model.computerUse?.push(to: view)
             AgentPaneDeviceChat.push(view.deviceChats, to: view)
             AgentPaneClosedItem.push(view.recentlyClosed, to: view)
             AgentPaneNowPlaying.shared.push(to: view)

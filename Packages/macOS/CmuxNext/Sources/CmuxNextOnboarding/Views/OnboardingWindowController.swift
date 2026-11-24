@@ -21,8 +21,14 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "onboarding")
     /// Called once when the window has closed.
     public var onClose: (() -> Void)?
+    /// The run that opens (or brings forward) the window is not the person's own (an agent's
+    /// `cmux action run palette.computerUse.setup`): ``present()`` orders it in front of cmux's
+    /// windows without the keys, and while another app is active it bounces cmux's Dock icon once
+    /// instead of taking the focus. The presenter sets it on every show.
+    public var presentsQuietly = false
     /// `activeLook`: the app's ``ActiveLookScope``, for the window's backdrop (nil follows the key state).
-    public init(model: OnboardingModel, activeLook: ActiveLookScope?) {
+    /// `signIn`: the Agents step's in-place sign-in, else the services' sign-in source's (nil: the step as before).
+    public init(model: OnboardingModel, activeLook: ActiveLookScope?, signIn: OnboardingSignIn? = nil) {
         self.model = model
         let size = model.step.windowSize
         let window = OnboardingWindow(
@@ -36,6 +42,7 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
         case .agents: OnboardingStrings.agentsTitle
         case .importData: OnboardingStrings.importTitle
         case .computerUse: OnboardingStrings.computerUseTitle
+        case .makeItYours: OnboardingStrings.makeItYoursTitle
         }
         window.isMovableByWindowBackground = true
         window.isReleasedWhenClosed = false
@@ -46,7 +53,7 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
         window.contentMinSize = size
         window.contentMaxSize = size
         window.identifier = NSUserInterfaceItemIdentifier("cmux.onboarding")
-        let provider = OnboardingPageProvider(model: model)
+        let provider = OnboardingPageProvider(model: model, signIn: signIn ?? model.services.agentSignIns?.onboardingSignIn)
         page = PageWebView(descriptor: .onboarding, routes: [PageRoute(prefix: "cmux.onboarding.", provider: provider)])
         super.init(window: window)
         window.delegate = self
@@ -96,10 +103,26 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
             page.whenPainted { [weak self] in self?.reveal() }
             revealDeadline.schedule(after: Self.revealLimit) { @MainActor [weak self] in self?.reveal() }
         }
-        WindowPlacement.present(window)
+        WindowPlacement.present(window, intent: Self.intent(quietly: presentsQuietly))
+        if Self.asksForAttention(quietly: presentsQuietly, appIsActive: NSApp.isActive, noActivate: WindowPlacement.noActivate) {
+            NSApp.requestUserAttention(.informationalRequest)
+        }
         leaveCloseButtonUncovered()
         page.focusPage()
         model.stepDidAppear()
+    }
+
+    /// How the window is ordered in: the person's own run presents it (key and front); any other
+    /// run brings it in front of cmux's windows without the keys, so the app or terminal the
+    /// person is typing in keeps them.
+    nonisolated static func intent(quietly: Bool) -> WindowActivation.Intent {
+        quietly ? .bringForward : .present
+    }
+
+    /// Whether a quiet open bounces the Dock icon: only while another app is active (cmux in front
+    /// already shows the window) and never in a no-activate launch (an agent's screenshot run).
+    nonisolated static func asksForAttention(quietly: Bool, appIsActive: Bool, noActivate: Bool) -> Bool {
+        quietly && !appIsActive && !noActivate
     }
 
     /// Shows the transparent window (the page painted, or the limit passed); once.

@@ -53,11 +53,13 @@ final class OmniboxSuggestionPanel {
             rows[suggestions.count...].forEach { $0.removeFromSuperview() }
             rows.removeLast(count - suggestions.count)
         }
+        let details = SuggestionRowView.shownDetails(suggestions)
         for (index, suggestion) in suggestions.enumerated() {
             if index < rows.count {
-                rows[index].show(suggestion)
+                rows[index].show(suggestion, detail: details[index])
             } else {
                 let row = SuggestionRowView(suggestion: suggestion, faviconSource: faviconSource)
+                row.show(suggestion, detail: details[index])
                 rowViewsMade += 1
                 row.onClick = { [weak self] flags in self?.onPick?(index, flags) }
                 row.onPointer = { [weak self] inside, pointer in

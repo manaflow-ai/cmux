@@ -271,14 +271,11 @@ export function ExportButtons({ rows, chartVisible = true }: { rows: Row[]; char
       <button type="button" onClick={() => save(csv, "chart-data.csv", "text/csv")}>
         Export CSV
       </button>
-      <button
-        type="button"
-        disabled={!chartVisible || !rows.length}
-        title={!chartVisible ? "Show the chart to export SVG" : undefined}
-        onClick={exportChart}
-      >
+      <button type="button" disabled={!chartVisible || !rows.length} onClick={exportChart}>
         Export SVG
       </button>
+      {/* Why Export SVG is off, as text: a disabled button gets no hover. */}
+      {!chartVisible && <span className="tc-export-why">Show the chart to export SVG</span>}
       <output aria-live="polite">{status}</output>
     </div>
   );

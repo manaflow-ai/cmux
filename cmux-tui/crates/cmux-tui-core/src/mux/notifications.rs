@@ -3,6 +3,9 @@
 use super::*;
 use cmux_json::JsonSet as _;
 
+mod staged;
+pub(super) use staged::StagedNotification;
+
 impl Mux {
     pub fn surface_notification(&self, surface: SurfaceId) -> Option<SurfaceNotification> {
         let state = self.state.lock().unwrap();
@@ -360,150 +363,18 @@ impl Mux {
         source: NotificationSource,
         desktop: bool,
     ) -> anyhow::Result<Option<u64>> {
-        const OPERATION: &str = "notification.create";
-        let terminal_id = surface.and_then(|surface| {
-            let state = self.state.lock().unwrap();
-            state
-                .surfaces
-                .get(&surface)
-                .or_else(|| state.terminal_runtime_by_id(surface))
-                .and_then(|surface| surface.terminal_public_id().cloned())
-        });
-        // The fingerprint names the subtitle only when one was given, so a key
-        // minted before subtitles existed (an agent-hook retry across an
-        // upgrade) still matches its stored receipt.
-        let mut fingerprint = serde_json::json!({
-            "operation": OPERATION,
-            "origin": "durable-notification",
-            "title": title,
-            "body": body,
-            "level": level.as_str(),
-            "terminal_id": terminal_id,
-        });
-        if let Some(subtitle) = &subtitle {
-            fingerprint.set("subtitle", serde_json::json!(subtitle));
-        }
-        let committed = |outcome: ResourceEffectOutcome| match outcome {
-            ResourceEffectOutcome::Success(_) => Ok(None),
-            ResourceEffectOutcome::Failure(error) => Err(anyhow::Error::new(error)),
-        };
-        let preparation = match self.lookup_resource_effect(
+        let staged = self.stage_durable_notification(
+            actor,
             idempotency_key,
-            OPERATION,
-            &fingerprint,
-        )? {
-            Some(preparation) => preparation,
-            None => {
-                let intent = serde_json::json!({
-                    "notification_id": NotificationPublicId::random().map_err(anyhow::Error::new)?,
-                    "title": title,
-                    "subtitle": subtitle,
-                    "body": body,
-                    "level": level.as_str(),
-                    "terminal_id": terminal_id,
-                    "created_at_ms": now_ms(),
-                    "source": source.as_str(),
-                    "desktop": desktop,
-                });
-                self.prepare_resource_effect(
-                    &WorkspaceMutation::new(idempotency_key, "resource-api", actor.clone())?,
-                    OPERATION,
-                    &fingerprint,
-                    &intent,
-                    None,
-                    None,
-                )?
-            }
-        };
-        let intent = match preparation {
-            ResourceEffectPreparation::Committed { outcome, .. } => {
-                return committed(outcome);
-            }
-            ResourceEffectPreparation::Indeterminate => {
-                // The post may or may not have happened before a crash. A
-                // notification is advisory, so the caller proceeds without it
-                // rather than retrying the same key forever; the agent-hook
-                // fold in particular must still commit its report and fence.
-                self.report_internal_diagnostic("notification effect indeterminate, skipped");
-                return Ok(None);
-            }
-            ResourceEffectPreparation::Execute { .. } => {
-                self.mark_resource_effect_executing(idempotency_key, OPERATION, &fingerprint)?
-            }
-        };
-        let notification_id: NotificationPublicId =
-            serde_json::from_value(intent["notification_id"].clone())
-                .context("stored notification intent has an invalid identity")?;
-        let created_at_ms = intent
-            .get("created_at_ms")
-            .and_then(Value::as_u64)
-            .context("stored notification intent has an invalid timestamp")?;
-        // An intent prepared by a daemon without sources has none; the
-        // producer retrying it now names it.
-        let source = intent
-            .get("source")
-            .and_then(Value::as_str)
-            .and_then(NotificationSource::parse)
-            .unwrap_or(source);
-        // An intent from before `desktop` existed was a desktop notification.
-        let desktop = intent.get("desktop").and_then(Value::as_bool).unwrap_or(true);
-        let numeric_id = self.post_resource_notification(
-            notification_id.clone(),
-            title.clone(),
-            subtitle.clone(),
-            body.clone(),
-            level,
-            surface,
-            terminal_id.clone(),
-            None,
-            created_at_ms,
-            source,
-            desktop,
-            false,
-        );
-        let session_id = self.workspace_registry.lock().unwrap().session_id().clone();
-        let notification = ResourceNotification {
-            id: notification_id.clone(),
             title,
             subtitle,
             body,
             level,
-            terminal_id,
-            workspace_id: None,
-            created_at_ms,
-            source,
             surface,
+            source,
             desktop,
-            reply: false,
-        };
-        let value = self.created_notification_value(&notification, &session_id);
-        let outcome = ResourceEffectOutcome::Success(value.clone());
-        let deltas = serde_json::json!([{
-            "kind":"upsert",
-            "sequence":0,
-            "resource":"notification",
-            "id":notification_id,
-            "value":value,
-        }]);
-        if let Err(error) = self.commit_notification_effect(
-            actor,
-            idempotency_key,
-            &fingerprint,
-            &outcome,
-            &deltas,
-            &notification,
-            numeric_id,
-        ) {
-            self.report_resource_effect_indeterminate(
-                idempotency_key,
-                OPERATION,
-                &format!("the outcome commit failed: {error:#}"),
-            );
-            let _ = self.mark_resource_effect_indeterminate(idempotency_key);
-            return Err(error.context("notification effect commit failed"));
-        }
-        self.prune_evicted_notification_reads();
-        Ok(Some(numeric_id))
+        )?;
+        staged.map(|staged| self.commit_staged_notification(staged)).transpose()
     }
 
     /// Delete durable read marks for evicted notifications that the committed
@@ -777,7 +648,7 @@ impl Mux {
                     posts.remove(id);
                 }
             }
-            let unread = feed.items().iter().filter(|item| item.is_unread()).collect::<Vec<_>>();
+            let unread = feed.items().filter(|item| item.is_unread()).collect::<Vec<_>>();
             let terminal_unread = |terminal: &TerminalPublicId| {
                 unread
                     .iter()

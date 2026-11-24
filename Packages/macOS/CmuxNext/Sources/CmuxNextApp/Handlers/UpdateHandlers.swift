@@ -9,7 +9,8 @@ import Foundation
 enum UpdateHandlers {
     static func bind(into registry: ActionRegistry, updater: UpdaterService, openWhatsNew: @escaping @MainActor () -> Bool = { false },
                      whatsNewUnavailable: @escaping @MainActor () -> String? = { nil },
-                     stateDirectories: @escaping @MainActor () -> [URL?] = { [nil] }) {
+                     stateDirectories: @escaping @MainActor () -> [URL?] = { [nil] },
+                     openLink: @escaping @MainActor (URL) -> Void = { _ in }) {
         // The What's New top page (WHATS-NEW-AFTER-UPDATE): palette, Help menu, CLI.
         registry.bind("updates.whatsNew", unavailable: whatsNewUnavailable, invoke: { _ in _ = openWhatsNew() })
         // announcements.enabled through the one setting path (palette.toggleSetting).
@@ -26,6 +27,7 @@ enum UpdateHandlers {
             guard let registry, registry.isCapturingWork else { return }
             registry.track(result: result(updater.checkAnswer()))
         })
+        UpdateStatusAction.bind(into: registry, updater: updater)
         for id: ActionID in ["palette.applyUpdateIfAvailable", "palette.attemptUpdate"] {
             registry.bind(id, unavailable: { updater.installUnavailableReason }, invoke: { [weak registry] _ in
                 // Taken before the request: only a phase the request reached answers a CLI run.
@@ -36,6 +38,14 @@ enum UpdateHandlers {
                 registry.track(result: result(updater.installAnswer(after: baseline)))
             })
         }
+        // The update cards' Hide and right-click choices (UPDATE-CARD-CLOSE): the card's menu runs this
+        // action, and the palette offers it only while such a card shows (a disabled row is not listed).
+        registry.bindEffect("updates.snooze", isEnabled: { updater.showsUpdateCloseMenu }, effect: { invocation in
+            guard let option = invocation["option"]?.stringValue.flatMap(UpdateCardCloseOption.init(rawValue:)) else { return .done }
+            updater.closeUpdateCard(option)
+            return .done
+        })
+        bindNoticeRows(into: registry, updater: updater, openLink: openLink)
         // The ring return's rollback check reads the same stores as updates.rollback.
         updater.pulledWatch.stateDirectories = stateDirectories
         // Drop back (destructive: every entrypoint confirms; the CLI passes --confirm).
@@ -64,17 +74,57 @@ enum UpdateHandlers {
         // task-owner: the action run; ends with `answer`.
         Task {
             switch await answer.value {
-            case .answered(let fields):
-                .success(fields.mapValues { field in
-                    switch field {
-                    case .string(let text): .string(text)
-                    case .bool(let flag): .bool(flag)
-                    case .double(let number): .double(number)
-                    }
-                })
+            case .answered(let fields): .success(UpdateStatusAction.values(fields))
             case .refused(let reason): .failure(ActionWorkFailure(refusal: .unavailable, reason: reason))
             case .failed(let message): .failure(ActionWorkFailure(message))
             }
         }
+    }
+}
+
+/// Palette rows of the sidebar's notice card, which runs these actions itself (``SidebarCardFeed/noticeAction``),
+/// so the card's button and the palette row run one handler:
+/// - `updates.cancelDownload`, `updates.showDetails`, `updates.releaseNotes`: the update status's Cancel, Details and
+///   Release Notes buttons.
+/// - `tips.muteDay`, `tips.muteWeek`: the tip card's x menu rows.
+/// The palette offers each only while the notice card shows its button (a disabled row is not listed).
+extension UpdateHandlers {
+    /// The update status's buttons that are palette rows, by their card action.
+    static let noticeRows: [(ActionID, UpdateCardAction)] = [
+        ("updates.cancelDownload", .cancelDownload), ("updates.showDetails", .details), ("updates.releaseNotes", .releaseNotes),
+    ]
+    /// The tip card's x menu rows that are palette rows, by their menu option.
+    static let tipRows: [(ActionID, TipMenuOption)] = [("tips.muteDay", .muteDay), ("tips.muteWeek", .muteWeek)]
+
+    /// `openLink` opens the found update's release notes (a browser tab, like the card's link).
+    static func bindNoticeRows(into registry: ActionRegistry, updater: UpdaterService, openLink: @escaping @MainActor (URL) -> Void) {
+        for (id, action) in noticeRows {
+            registry.bindEffect(id, isEnabled: { noticeShows(action, updater: updater) }, effect: { _ in
+                if action == .releaseNotes {
+                    if let url = updater.cardReleaseNotesURL { openLink(url) }
+                } else {
+                    updater.performCardAction(action)
+                }
+                return .done
+            })
+        }
+        for (id, option) in tipRows {
+            registry.bindEffect(id, isEnabled: { tipMenuShows(option, updater: updater) }, effect: { _ in
+                if let tip = updater.tip { updater.tipCardAction(tip.id, option.rawValue) }
+                return .done
+            })
+        }
+    }
+
+    /// Whether the sidebar's notice card is the update status with `action`'s button (or its trailing control).
+    static func noticeShows(_ action: UpdateCardAction, updater: UpdaterService) -> Bool {
+        guard let notice = SidebarCardFeed.noticeCard(updater, registry: nil), notice.id == SidebarCardFeed.updateCardID else { return false }
+        return notice.actions.contains { $0.id == action.rawValue } || notice.trailing?.id == action.rawValue
+    }
+
+    /// Whether the sidebar's notice card is a tip whose x menu has `option`.
+    static func tipMenuShows(_ option: TipMenuOption, updater: UpdaterService) -> Bool {
+        guard let notice = SidebarCardFeed.noticeCard(updater, registry: nil), notice.id.hasPrefix(SidebarCardFeed.tipPrefix) else { return false }
+        return notice.dismissMenu.contains { $0.id == option.rawValue }
     }
 }
