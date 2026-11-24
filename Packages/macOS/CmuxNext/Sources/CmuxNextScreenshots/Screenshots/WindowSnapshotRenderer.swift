@@ -12,7 +12,8 @@ package import WebKit
 /// Page capture also reports the number of WebKit and Chromium pages captured and failed, and docked
 /// DevTools without a page image.
 @MainActor
-package enum WindowSnapshotRenderer {
+package struct WindowSnapshotRenderer {
+    package init() {}
     package static func captureNative(window: NSWindow, kind: String, path: String) async -> JSONValue {
         do {
             // The window with its child windows and the app's menus, cards and popovers over it,
