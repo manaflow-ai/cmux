@@ -1,5 +1,6 @@
 // In every build: DEBUG mock mode and the App Review demo account (server-flagged,
 // AppStore.loadReviewDemo) use it. A live account never does (TerminalSessionChoice).
+import CmuxMobileLinkFFI
 import CmuxMobileTransport
 import Foundation
 
@@ -122,8 +123,30 @@ public final class MockTerminalSession: TerminalSession {
     public var remoteRows: Int? { macGrid?.rows }
     public var remoteColumns: Int? { macGrid?.columns }
 
+    /// The rows a full-screen app scrolled away, kept from its output as a
+    /// projecting session keeps them (``TerminalTUIReader``'s demo and bench).
+    private lazy var transcriptKeeper = TerminalProjection(hostCols: UInt32(clamping: columns), hostRows: UInt32(clamping: rows))
+
+    public var tuiTranscriptRowsAbove: Int { Int(transcriptKeeper.transcriptRowsAbove()) }
+
+    public func tuiTranscript() -> TerminalTUITranscript? {
+        transcriptKeeper.transcriptPaint().map {
+            TerminalTUITranscript(bytes: $0.bytes, rows: Int($0.rows), screenTop: Int($0.screenTop))
+        }
+    }
+
     public func start(_ handler: @escaping @MainActor (TerminalSessionEvent) -> Void) {
-        self.handler = handler
+        self.handler = { [weak self] event in
+            if let self {
+                switch event {
+                case .output(let data): _ = self.transcriptKeeper.feed(bytes: data, paint: false)
+                case .hostGrid(let columns, let rows):
+                    self.transcriptKeeper.setHostGrid(cols: UInt32(clamping: columns), rows: UInt32(clamping: rows))
+                default: break
+                }
+            }
+            handler(event)
+        }
         handler(.title("zsh — cmux-next"))
         let intro = playsIntro
         if instantIntro { paced = false }
@@ -197,6 +220,7 @@ public final class MockTerminalSession: TerminalSession {
         guard columns > 0, rows > 0, columns != self.columns || rows != self.rows else { return }
         self.columns = columns
         self.rows = rows
+        transcriptKeeper.setHostGrid(cols: UInt32(clamping: columns), rows: UInt32(clamping: rows))
         switch program {
         case .shell: break
         case .htop(let tick): drawHtop(tick: tick)

@@ -220,6 +220,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private let tuiScroll = TerminalTUIScrollController()
     /// Leo, 2026-11-23: a full-screen app's row jumps while the finger scrolls it.
     let tuiSmoother = TerminalTUISmoother()
+    /// A plain scroll over the app's history the phone keeps (Leo, 2026-11-24).
+    let tuiReader = TerminalTUIReader()
     /// Every pan's frame times, to the Mac (`phone-frames`), in every build.
     private lazy var panFrames: TerminalPanFrameRecorder = {
         let recorder = TerminalPanFrameRecorder()
@@ -3309,7 +3311,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             scrollButtonVisibility = JumpToBottomVisibility()
             setScrollButton(visible: false)
         } else {
-            // The app's screen is gone: its selection and fling go with it.
+            // The app's screen is gone: its selection, fling and reader go with it.
+            tuiReader.close()
             tuiSelection.clear()
             tuiScroll.stopMomentum()
             tuiSmoother.reset()
@@ -3716,6 +3719,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     // MARK: Keyboard
 
     @objc private func tuiTapped(_ tap: UITapGestureRecognizer) {
+        // A tap on the reader stops its scroll, as on any scroll view; it
+        // never clicks the app, whose rows are not the ones under it.
+        if tuiReader.isOpen { return }
         // A tap makes this phone the active device (Prefer the active device).
         model.session.noteInteraction()
         // A tap that ends a selection only ends it, as in the shell.
@@ -4278,8 +4284,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private func installTUIScroll() {
         tuiScroll.isEnabled = { [weak self] in
             guard let self else { return false }
-            return model.isTUI && surface.superview === tuiHost
+            // The reader scrolls itself while it is open.
+            return model.isTUI && surface.superview === tuiHost && !tuiReader.isOpen
         }
+        tuiScroll.readerOpens = { [weak self] in self?.openTUIReader() ?? false }
+        tuiScroll.readerMoved = { [weak self] y in self?.tuiReader.dragMoved(translationY: y) }
+        tuiScroll.readerEnded = { [weak self] velocity in self?.tuiReader.dragEnded(velocityY: velocity) }
         tuiScroll.selectionOwns = { [weak self] touch in
             guard let self else { return false }
             if tuiSelection.isPressing { return true }
@@ -4305,6 +4315,30 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             return (surface, cell.height, scale, max(tuiRows, feedHostRows ?? 0))
         }
         tuiScroll.install(in: tuiClip, surface: surface, tap: tuiTap)
+    }
+
+    /// Opens the reader of the app's history over its area, at the bottom
+    /// (it looks like the live screen), when the phone keeps rows above the
+    /// app's screen and the area shows the app's grid as it is.
+    private func openTUIReader() -> Bool {
+        guard model.isTUI, surface.superview === tuiHost, cell.height > 0, tuiRowShift == 0, tuiHeaderRows == 0,
+              !tuiReader.isOpen, model.session.tuiTranscriptRowsAbove > 0,
+              let transcript = model.session.tuiTranscript() else { return false }
+        let area = tuiHost.convert(tuiHost.bounds, to: tuiClip).intersection(tuiAreaClip.frame)
+        guard area.height >= cell.height else { return false }
+        tuiSelection.clear()
+        tuiReader.open(transcript, in: tuiClip, frame: area, surfaceX: surface.frame.minX,
+                       width: surface.bounds.width, cellHeight: cell.height,
+                       themeMacID: surface.themeMacID, background: terminalBackground)
+        tuiReader.dragBegan()
+        return true
+    }
+
+    /// DEBUG demo: opens the reader and flings it toward older rows, through
+    /// the same path as a finger's drag and release.
+    func tuiReaderFling(velocity: CGFloat) {
+        guard tuiReader.isOpen || openTUIReader() else { return }
+        tuiReader.demoFling(velocity: velocity)
     }
 
     /// While a long press selects, the page does not scroll under the finger.
