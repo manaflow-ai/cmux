@@ -687,6 +687,10 @@ cmux settings get [<path>]
 cmux settings set <path> <value> [--confirm]
 cmux settings reset <path> [--confirm]
 cmux settings unset <path> [--confirm]
+cmux settings history
+cmux settings undo
+cmux settings restore <revision>
+cmux settings reset --group <section>|<section.group>
 cmux events [--after <seq>] [--name <n>]... [--category <c>]... [--no-heartbeats]
             [--timeout <duration>] [--until <name>|<prefix>*] [--match <path>=<value>]...
 ```
@@ -697,6 +701,17 @@ cmux events [--after <seq>] [--name <n>]... [--category <c>]... [--no-heartbeats
 Mac on a native sheet and waits for the answer with no client deadline; a
 declined sheet prints "declined in cmux" and exits 1. `--` ends the options:
 `cmux settings set <path> -- --confirm` sets the string "--confirm".
+`settings history` lists the last 100 changes of the settings file, newest
+first, whoever made them (the Settings page, the palette, the CLI, MCP agents,
+a hand edit: origin `file`): revision, time, origin and changed keys.
+`settings undo` takes back the newest change not yet undone, so repeated undo
+walks back one change at a time; `settings restore <revision>` puts the file
+back to its text just before that change. Both are changes of their own, so an
+undo takes them back too. `settings reset --group <g>` resets every setting of
+a Settings section (`appearance`) or of one group in it (`appearance.sidebar`)
+in one change; an unknown group lists the groups. These go to the daemon; a
+change that touches a key only the person may change is refused for them
+(`settings.agent_refused`).
 `events` streams JSON lines until interrupted, or until `--timeout` (exit 124,
 with a last `{"type":"timeout","timed_out":true}` line in JSON modes); with
 `--until`/`--match` it prints the first matching event and exits 0.
