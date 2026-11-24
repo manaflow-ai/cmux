@@ -171,7 +171,10 @@ public nonisolated struct ImportCardDeck: Sendable {
         switch job.kind {
         case .claudeCode, .codex: return ImportSuggestionStrings.doneChats
         case .iterm2: return ImportSuggestionStrings.doneTheme
-        case .cmuxClassic: return job.opened.map(ImportSuggestionStrings.importedSessions) ?? ImportSuggestionStrings.doneClassic
+        case .cmuxClassic:
+            // An accepted settings import can succeed without opening a workspace.
+            if job.opened == 0 { return ImportSuggestionStrings.done }
+            return job.opened.map(ImportSuggestionStrings.importedSessions) ?? ImportSuggestionStrings.doneClassic
         case .conductor: return ImportSuggestionStrings.doneConductor
         case .ghostty: return ImportSuggestionStrings.doneNothing
         case .browser:

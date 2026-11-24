@@ -21,7 +21,7 @@ flag and ends with examples.
 | Agents in the ACP Registry | `cmux agent harness registry` |
 | The guide for integrating a harness | `cmux agent harness guide` |
 
-Profiles live in `~/.config/cmux/harnesses/<id>.toml`.
+On macOS, NEXT profiles live in `~/.config/cmux-next/harnesses/<id>.toml`. Other systems use `~/.config/cmux/harnesses/<id>.toml`. Both honor `XDG_CONFIG_HOME`.
 
 ## Presets and defaults
 

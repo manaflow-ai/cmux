@@ -7,8 +7,8 @@ public import Foundation
 /// makes; the app asks the person and makes the workspaces. Both operations
 /// are the verified app's only (user or app origin).
 public struct ClassicImportClient: Sendable {
-    /// Advertised in identify by a daemon that answers both operations.
-    public static let capability = "classic-import-v1"
+    /// Advertised by daemons that support metadata-only probes before consent.
+    public static let capability = DaemonCapability.classicImportProbe.rawValue
 
     public let connection: DaemonConnection
     /// This app's bundle id: the daemon keeps the ledger under it and prefers its classic channel.
@@ -33,7 +33,7 @@ public struct ClassicImportClient: Sendable {
         let params: [String: JSONValue] = ["bundle_id": .string(bundleID), "mode": .string(mode.rawValue), "consented": .bool(consented)]
         return try await connection.resourceRequest({ id in
             ResourceRequestEnvelope(id: id, operation: "classic_import.plan", params: params, idempotencyKey: nil)
-        }, as: ClassicImportReply.self, requiring: DaemonCapability.classicImportProbe.rawValue)
+        }, as: ClassicImportReply.self, requiring: Self.capability)
     }
 
     /// `classic_import.record`: one ledger step, replayed by its idempotency key.
@@ -46,7 +46,7 @@ public struct ClassicImportClient: Sendable {
         return try await connection.resourceRequest({ id in
             ResourceRequestEnvelope(id: id, operation: "classic_import.record", params: params,
                                     idempotencyKey: UUID().uuidString.lowercased())
-        }, as: ResourceMutationResult<ClassicImportRecordResult>.self, requiring: DaemonCapability.classicImportProbe.rawValue).value
+        }, as: ResourceMutationResult<ClassicImportRecordResult>.self, requiring: Self.capability).value
     }
 }
 
@@ -115,6 +115,8 @@ public struct ClassicImportReply: Decodable, Sendable {
     public var ledger: String
     /// A known Classic input exists. Probing never opens it.
     public var available: Bool
+    /// The last accepted import finished and its restored workspaces are still here.
+    public var alreadyImported: Bool
     public var observed: String?
     /// The accepted plan found settings and no saved workspaces.
     public var settingsOnly: Bool
@@ -132,13 +134,14 @@ public struct ClassicImportReply: Decodable, Sendable {
     public var classicRunning: Bool
 
     enum CodingKeys: String, CodingKey {
-        case ledger, available, observed, settingsOnly = "settings_only", decision, source, backups, error, plan, preview, classicRunning = "classic_running"
+        case ledger, available, alreadyImported = "already_imported", observed, settingsOnly = "settings_only", decision, source, backups, error, plan, preview, classicRunning = "classic_running"
     }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         ledger = try container.decode(String.self, forKey: .ledger)
         available = try container.decodeIfPresent(Bool.self, forKey: .available) ?? false
+        alreadyImported = try container.decodeIfPresent(Bool.self, forKey: .alreadyImported) ?? false
         observed = try container.decodeIfPresent(String.self, forKey: .observed)
         settingsOnly = try container.decodeIfPresent(Bool.self, forKey: .settingsOnly) ?? false
         decision = try container.decodeIfPresent(Decision.self, forKey: .decision)
@@ -201,8 +204,7 @@ public struct ClassicImportReply: Decodable, Sendable {
     }
 }
 
-/// What the confirmation shows: the daemon's preview of the exact plan, the classic
-/// app it reads and when that saved, and whether that app is still open.
+/// The consent prompt has no counts. Detailed previews describe a decoded save.
 public struct ClassicImportPreview: Equatable, Sendable {
     public var counts: ClassicImportReply.Preview?
     /// The classic bundle id whose save this imports.

@@ -643,6 +643,7 @@ impl Customize {
         // The theme the settings name: missing, keys it may not set, and keys
         // it takes over from the settings file.
         let Some(root) = settings.as_ref() else { return };
+        self.settings_harnesses(root, out);
         let Some(name) = theme_file::name_in(root) else { return };
         let source = theme_file::source(&roots.config_dir, name, None);
         let theme_path = theme_file::path(&roots.config_dir, name);
@@ -787,7 +788,7 @@ impl Customize {
 }
 
 /// Top-level files cmux or its tools read, or that hold credentials: never named stray, and
-/// never opened unless the doctor reads them for what they set (cmux-tui.json, cmux.json, ...).
+/// never opened unless the doctor reads them for what they set (cmux-tui.json, cmux-next.json, ...).
 pub(super) const KNOWN_TOP_FILES: &[&str] = &[
     "cmux-next.json",
     "cmux.json",

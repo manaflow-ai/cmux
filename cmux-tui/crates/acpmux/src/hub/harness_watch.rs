@@ -325,9 +325,7 @@ impl HarnessWatcher {
 #[cfg(target_os = "linux")]
 fn followed_targets(sources: &ProfileSources) -> Vec<crate::quiet_dirs::Target> {
     use crate::quiet_dirs::Target;
-    let mut targets: Vec<Target> = sources.managed.iter().cloned().map(Target::Dir).collect();
-    let user = sources.user_dir.iter().chain(sources.person_dir.iter());
-    targets.extend(user.cloned().map(Target::Dir));
+    let mut targets: Vec<Target> = sources.folders().cloned().map(Target::Dir).collect();
     targets.extend(sources.cmux_json.iter().cloned().map(Target::File));
     targets
 }
@@ -347,12 +345,8 @@ fn disarm_dir(watcher: &mut notify::RecommendedWatcher, dir: &Path) {
 /// (`cmux harness add` creates the user folder there) and cmux.json's folder.
 #[cfg(not(target_os = "linux"))]
 fn source_folders(sources: &ProfileSources) -> Vec<PathBuf> {
-    let mut folders: Vec<PathBuf> = sources.managed.clone();
-    if let Some(user) = &sources.user_dir {
-        folders.push(user.clone());
-        folders.extend(user.parent().map(Path::to_path_buf));
-    }
-    folders.extend(sources.person_dir.iter().cloned());
+    let mut folders: Vec<PathBuf> = sources.folders().cloned().collect();
+    folders.extend(sources.user_dir.as_deref().and_then(Path::parent).map(Path::to_path_buf));
     folders.extend(sources.cmux_json.as_deref().and_then(Path::parent).map(Path::to_path_buf));
     folders
 }
@@ -450,6 +444,7 @@ fn real_sources(sources: &ProfileSources) -> ProfileSources {
         managed: sources.managed.iter().map(|p| real(p)).collect(),
         user_dir: sources.user_dir.as_deref().map(real),
         person_dir: sources.person_dir.as_deref().map(real),
+        imported_dir: sources.imported_dir.as_deref().map(real),
         cmux_json: sources.cmux_json.as_deref().map(real),
     }
 }
@@ -463,6 +458,7 @@ fn followed(path: &Path, sources: &ProfileSources) -> bool {
         managed: sources.managed.iter().map(|p| resolve(p).0).collect(),
         user_dir: sources.user_dir.as_deref().map(|p| resolve(p).0),
         person_dir: sources.person_dir.as_deref().map(|p| resolve(p).0),
+        imported_dir: sources.imported_dir.as_deref().map(|p| resolve(p).0),
         cmux_json: sources.cmux_json.as_deref().map(|p| resolve(p).0),
     };
     relevant(path, &now)

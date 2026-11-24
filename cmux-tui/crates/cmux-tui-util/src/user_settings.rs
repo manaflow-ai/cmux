@@ -17,23 +17,17 @@ pub const CONFIG_OVERRIDE: &str = "CMUX_NEXT_CONFIG_FILE";
 
 /// The app's settings file (`CmuxConfigFile.defaultURL`), under the home.
 const NEXT_FILE: &str = ".config/cmux/cmux-next.json";
-/// Classic cmux's file, which the app copies to [`NEXT_FILE`] at its first
-/// launch.
-const CLASSIC_FILE: &str = ".config/cmux/cmux.json";
 
 /// The settings file the app reads and writes: `CMUX_NEXT_CONFIG_FILE`,
-/// else `<home>/.config/cmux/cmux-next.json`; while that file does not exist
-/// yet (the app never ran), classic `cmux.json`, which the app would seed it
-/// from.
+/// else `<home>/.config/cmux/cmux-next.json`. Classic is imported by the app
+/// only after the person consents.
 pub fn config_path() -> PathBuf {
     let env = |name: &str| std::env::var_os(name).filter(|value| !value.is_empty());
     if env(CONFIG_OVERRIDE).is_some() {
         return path_from(env);
     }
     let home = crate::platform::home_dir().unwrap_or_default();
-    let next = home.join(NEXT_FILE);
-    let classic = home.join(CLASSIC_FILE);
-    if !next.exists() && classic.exists() { classic } else { next }
+    home.join(NEXT_FILE)
 }
 
 /// `CMUX_NEXT_CONFIG_FILE` (a leading `~` is the home), else the app's file

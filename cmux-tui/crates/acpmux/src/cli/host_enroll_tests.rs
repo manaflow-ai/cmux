@@ -793,7 +793,7 @@ fn the_harness_scripts_copy_owner_only_and_catch_a_writable_profile() {
     let fixed = harness(&sh, "box", &ids, &local, true);
     assert_eq!(fixed.state, StepState::Fixed, "{fixed:?}");
     assert_eq!(fixed.detail, "pi copied (missing)");
-    let dir = home.join(".config/cmux/harnesses");
+    let dir = cmux_config::harness_paths::user(&home.join(".config"));
     let file = dir.join("pi.toml");
     let remote_home = home.to_string_lossy();
     assert_eq!(
@@ -1283,7 +1283,7 @@ fn harness_local_copies_every_profile_this_mac_has() {
     let fixed = harness(&sh, "box", &ids, &local, true);
     assert_eq!(fixed.state, StepState::Fixed, "{fixed:?}");
     assert_eq!(fixed.detail, "pi copied (missing); zed copied (missing)");
-    assert!(home.join(".config/cmux/harnesses/zed.toml").is_file());
+    assert!(cmux_config::harness_paths::user(&home.join(".config")).join("zed.toml").is_file());
     let none = Local { harness_dir: None, home: None };
     let skipped = harness(&sh, "box", &ids, &none, true);
     assert_eq!(skipped.state, StepState::Skip);

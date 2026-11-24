@@ -1,6 +1,6 @@
 //! Where the settings file lives (Swift `CmuxConfigFile.defaultURL` and
-//! `prepareDefaultURL`): `~/.config/cmux/cmux-next.json`, seeded once from
-//! classic cmux's `cmux.json`.
+//! `prepareDefaultURL`): `~/.config/cmux/cmux-next.json`. Classic cmux's
+//! settings are imported by the app only after the person consents.
 
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -31,22 +31,14 @@ pub fn config_path_from(env: impl Fn(&str) -> Option<OsString>) -> PathBuf {
 }
 
 const NEXT_FILE: &str = ".config/cmux/cmux-next.json";
-const CLASSIC_FILE: &str = ".config/cmux/cmux.json";
-
-/// The file a missing settings file starts from: classic cmux's
-/// `cmux.json`, like the app's first launch copies it. `None` when
-/// `CMUX_NEXT_CONFIG_FILE` names the file (an override is never seeded from
-/// the user's files).
+/// Classic cmux is never a Rust settings fallback. The app copies it after consent.
 pub fn seed_path() -> Option<PathBuf> {
-    seed_path_from(|name| std::env::var_os(name).filter(|value| !value.is_empty()))
+    None
 }
 
-/// `seed_path` with an injected environment.
-pub fn seed_path_from(env: impl Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
-    if env(CONFIG_OVERRIDE).is_some_and(|value| !value.is_empty()) {
-        return None;
-    }
-    env("HOME").map(|home| PathBuf::from(home).join(CLASSIC_FILE))
+/// Retained for callers while Classic import moves behind the app's consent boundary.
+pub fn seed_path_from(_env: impl Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
+    None
 }
 
 /// keybindings.json: beside the settings file, so `CMUX_NEXT_CONFIG_FILE`

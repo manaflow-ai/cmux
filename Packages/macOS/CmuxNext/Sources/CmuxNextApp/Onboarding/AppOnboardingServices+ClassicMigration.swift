@@ -146,8 +146,11 @@ extension AppOnboardingServices {
         do {
             reply = try await client.planAfterConsent(mode)
             // A damaged settings source can be retried independently of saved workspaces.
-            do { try await client.record(.settings) } catch { settingsError = error }
-            do { try await owner.importClassicSettings?() } catch { settingsError = settingsError ?? error }
+            do {
+                // The Swift settings merge uses the inline harness profiles this snapshot produces.
+                try await client.record(.settings)
+                try await owner.importClassicSettings?()
+            } catch { settingsError = error }
             if let error = reply.error { throw ClassicMigrationFailure.daemon(error) }
         } catch {
             // The next launch must still know this tree was empty when first seen.

@@ -42,7 +42,7 @@ public actor CmuxConfigFile {
 
     /// Returns NEXT's settings URL, creating an empty settings file when it does not exist.
     /// Classic settings are never read during launch. They are imported only by
-    /// ``SettingsController.importClassicConfig(marker:classicURL:)`` after the person confirms.
+    /// ``SettingsController.importClassicConfig(marker:classicURL:environment:)`` after the person confirms.
     public static func prepareDefaultURL(
         home: URL = FileManager.default.homeDirectoryForCurrentUser,
         environment: [String: String] = ProcessInfo.processInfo.environment,
@@ -90,11 +90,7 @@ public actor CmuxConfigFile {
         if let root = BuildStatePaths.current.classicImportDirectory {
             return root.appending(path: ".config/cmux/cmux.json")
         }
-        if let xdg = environment["XDG_CONFIG_HOME"], !xdg.isEmpty {
-            return URL(fileURLWithPath: (xdg as NSString).expandingTildeInPath)
-                .appending(path: "cmux/cmux.json")
-        }
-        home.appending(path: ".config/cmux/cmux.json")
+        return home.appending(path: ".config/cmux/cmux.json")
     }
 
     /// The app's settings file at launch: ``prepareDefaultURL(home:environment:fileManager:)``, or

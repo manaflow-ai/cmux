@@ -109,8 +109,10 @@ enum OnboardingHandlers {
             openSettings: { route in try? services.settingsWindow.show(section: nil, route: route) },
             importClassic: { progress in try await importClassic(services, in: nil, progress: progress)?.opened },
             importConductor: { progress in try await ConductorImport(host: services).run(progress: progress) },
-            classicAvailable: {
-                (try? await AppOnboardingServices(owner: services.onboarding).classicImportClient().probe(.manual).available) == true
+            classicAvailability: {
+                guard let reply = try? await AppOnboardingServices(owner: services.onboarding).classicImportClient().probe(.manual),
+                      reply.available else { return .unavailable }
+                return reply.alreadyImported ? .alreadyImported : .available
             })
     }
 

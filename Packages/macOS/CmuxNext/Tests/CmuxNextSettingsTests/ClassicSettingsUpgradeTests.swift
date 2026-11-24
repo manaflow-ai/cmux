@@ -200,6 +200,32 @@ import Testing
         #expect(try await settings.file.value(at: ["nested", "classic"]) == .bool(true))
     }
 
+    @Test func importsTheHarnessSnapshotWithOrWithoutClassicSettings() async throws {
+        for hasClassicFile in [false, true] {
+            let home = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: home) }
+            let next = try CmuxConfigFile.prepareDefaultURL(home: home, environment: [:])
+            let dir = next.deletingLastPathComponent()
+            let classic = dir.appending(path: "cmux.json")
+            if hasClassicFile {
+                try Data(#"{"agents":{"harnesses":{"fromXDG":{"icon":"classic.svg"}}}}"#.utf8).write(to: classic)
+            }
+            let snapshot = dir.appending(path: "classic-harnesses/profiles.json")
+            try FileManager.default.createDirectory(at: snapshot.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(#"{"fromXDG":{"icon":"owned.svg"},"mine":{"command":"old"}}"#.utf8).write(to: snapshot)
+            try Data(#"{"agents":{"harnesses":{"mine":{"command":"next"}}}}"#.utf8).write(to: next)
+            let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []),
+                                              design: DesignSettings(), fileURL: next,
+                                              managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
+            let suite = "cn-classic-profiles-\(UUID().uuidString)"
+            let marker = try #require(UserDefaults(testSuiteName: suite))
+            defer { marker.removePersistentDomain(forName: suite) }
+            try await settings.importClassicConfig(marker: marker, classicURL: classic)
+            #expect(try await settings.file.value(at: ["agents", "harnesses", "fromXDG", "icon"]) == .string("owned.svg"))
+            #expect(try await settings.file.value(at: ["agents", "harnesses", "mine", "command"]) == .string("next"))
+        }
+    }
+
     @Test func importMarkerMakesTheConfirmedReadIdempotent() async throws {
         let home = FileManager.default.temporaryDirectory.appending(path: "cn-classic-settings-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: home) }

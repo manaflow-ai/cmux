@@ -15306,6 +15306,14 @@
           },
           "description": "The metadata-only check found a potential Classic import at a known path."
         },
+        "already_imported": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "The last accepted import finished with the same observed files and its workspaces are still open."
+        },
         "observed": {
           "required": false,
           "type": {
