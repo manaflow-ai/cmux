@@ -262,14 +262,6 @@ extension AgentPaneView {
                defaultValue: "This chat runs on another cmux install's agent service. Approve its requests in that app.",
                bundle: .localizedModule)
     }
-
-    /// Shown while the pane's connection did not prove the person to its acpmux: what the person
-    /// types would reach the agent as an unverified sender's until the identity reconnects.
-    static var personUnprovenMessage: String {
-        String(localized: "agentPane.personUnproven.message",
-               defaultValue: "Not verified as you. Reconnecting your identity to the agent service…",
-               bundle: .localizedModule)
-    }
 }
 
 extension AgentPaneHostError {
