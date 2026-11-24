@@ -110,17 +110,16 @@ public nonisolated struct GitHubPullRequestDetails: Equatable, Sendable {
             closingIssuesReferences(first: 10) { nodes { number title url state } } } } }
         """
 
-    /// The `gh api graphql` arguments for `link`; owner and name go as raw strings (`-f`), so
-    /// neither is read as a file.
-    static func arguments(for link: GitHubLink) -> [String] {
+    /// The query's variables for `link`.
+    static func variables(for link: GitHubLink) -> [String: any Sendable] {
         let parts = link.repository.split(separator: "/").map(String.init)
-        return ["api", "graphql", "--hostname", "github.com", "-f", "owner=\(parts.first ?? "")", "-f", "name=\(parts.last ?? "")",
-                "-F", "number=\(link.number)", "-f", "query=\(query)"]
+        return ["owner": parts.first ?? "", "name": parts.last ?? "", "number": link.number]
     }
 
-    /// Reads `link`'s details with the user's gh; nil when gh is missing, fails or answers no pull request.
+    /// Reads `link`'s details through acpmux (the cmux GitHub App, or the person's gh); nil when
+    /// neither answers or GitHub has no such pull request.
     @concurrent public static func read(_ link: GitHubLink) async -> GitHubPullRequestDetails? {
-        guard let data = await AgentPaneGitPullRequest.pageRead(arguments(for: link)) else { return nil }
+        guard let data = await AgentPaneGitPullRequest.pageRead(link.repository, query: query, variables: variables(for: link)) else { return nil }
         return parse(data)
     }
 
