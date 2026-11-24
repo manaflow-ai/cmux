@@ -3346,6 +3346,9 @@ async fn dispatch_request_with_identity(
         | method::MUX_ROUTE_TEST
         | method::MUX_ROUTE_DEFAULT_SET
         | method::MUX_CHAT_ROUTE_SET => {
+            if m == method::MUX_ROUTE_TEST && params["listModels"] == true && !conn.is_person() {
+                return Err(conn.person_only("checking a model connection"));
+            }
             let reply = heap(|| super::routes::handle(hub, conn.origin, m, &params)).await;
             if reply.is_ok() && super::connections::changes_connections(m) {
                 super::connections::announce_later(hub);
@@ -3361,6 +3364,17 @@ async fn dispatch_request_with_identity(
                 super::connections::announce_later(hub);
             }
             reply
+        }
+        method::MUX_CONNECTIONS_GROK_HOOK => {
+            let caller = conn
+                .caller()
+                .filter(|_| conn.origin == Origin::Local)
+                .ok_or_else(|| conn.person_only("reading Grok Build access"))?;
+            let id = params
+                .get("id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| RpcError::invalid_params("a route id is required"))?;
+            hub.grok_hook_credential(caller, id).await
         }
         name if super::connections::METHODS.contains(&name) => {
             // A connection's token goes to the person's app, never to an agent acpmux runs: only a
@@ -4685,10 +4699,19 @@ async fn agent_credentials_update(
         .and_then(Value::as_str)
         .filter(|id| !id.is_empty())
         .ok_or_else(|| RpcError::invalid_params("sessionId is required"))?;
-    if params.as_object().is_some_and(|o| o.keys().any(|k| k != "sessionId" && k != "env")) {
-        return Err(RpcError::invalid_params("agent/credentials.update takes sessionId and env"));
+    if params.as_object().is_some_and(|o| o.keys().any(|k| !matches!(k.as_str(), "sessionId" | "env" | "endpoint"))) {
+        return Err(RpcError::invalid_params("agent/credentials.update takes sessionId, env, and endpoint"));
     }
-    let env = params.get("env").cloned().unwrap_or(Value::Null);
-    let credential = crate::agent_credentials::AgentCredential::parse(&json!({"env": env}))?;
+    let Some(env) = params.get("env") else {
+        return hub.credential_status(id).await;
+    };
+    if env.as_object().is_some_and(|env| env.is_empty()) {
+        return hub.revoke_credential(id).await;
+    }
+    let mut wire = json!({"env": env});
+    if let Some(endpoint) = params.get("endpoint") {
+        wire["endpoint"] = endpoint.clone();
+    }
+    let credential = crate::agent_credentials::AgentCredential::parse_delivery(&wire)?;
     hub.update_credential(id, credential).await
 }

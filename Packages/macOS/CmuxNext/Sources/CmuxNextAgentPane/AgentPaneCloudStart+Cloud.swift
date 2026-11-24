@@ -95,16 +95,21 @@ extension AgentPaneCloudStart {
 }
 
 extension AgentPaneCloudStart {
-    /// The page's reply when this start's machine gave its agent no model and the start carried no connection
-    /// (`CloudMachineRoute.NeedsConnection`, cmux#45773): nothing signs the agent in, so the person is asked to set it up.
-    /// Claude and Codex show Set up Cloud for their family (its Set up Claude, Connect ChatGPT or key), which starts the
-    /// chat again once a connection serves; a team shared key that reached the unrouted machine is no longer chosen
-    /// (``CloudSetup/unrouted(harness:model:account:)``). Only an agent Cloud cannot set up ends with `message`, no Retry.
+    /// Offer setup only after the machine reports no usable sign-in and the local connection
+    /// list confirms an addable connection is missing.
     @MainActor public func needsConnectionReply(_ message: String, setup: CloudSetup) async -> [String: Any] {
-        let card = await setup.unrouted(harness: harness, model: model, account: account)
-        guard let family = card?.family ?? CloudSetup.family(of: harness) else {
-            return AgentPaneReply.failure(code: "cloud_start_failed", message: message, details: nil, retryable: false, origin: "native")
+        let unrouted = await setup.unrouted(harness: harness, model: model, account: account)
+        let choice = if let unrouted {
+            CloudSetup.Choice.setup(family: unrouted.family, model: unrouted.model)
+        } else {
+            await setup.choose(harness: harness, model: model, account: account)
         }
-        return AgentPaneReply.failure(code: "cloud_setup_required", message: "cloud_setup_required", details: ["family": family, "model": card?.model ?? model ?? ""], retryable: false, origin: "native")
+        guard case .setup(let family, let model) = choice else {
+            return AgentPaneReply.failure(code: "cloud_start_failed", message: message, details: nil, retryable: true, origin: "native")
+        }
+        if !CloudSetup.setupFamilies.contains(family), await setup.launchConnection(family)?.endpointProfile != true {
+            return AgentPaneReply.failure(code: "cloud_start_failed", message: message, details: nil, retryable: true, origin: "native")
+        }
+        return AgentPaneReply.failure(code: "cloud_setup_required", message: "cloud_setup_required", details: ["family": family, "model": model ?? ""], retryable: false, origin: "native")
     }
 }

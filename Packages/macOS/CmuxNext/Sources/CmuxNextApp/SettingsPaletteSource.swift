@@ -2,6 +2,7 @@ import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextPalette
 import CmuxNextSettings
+import CmuxNextSettingsWindow
 import Foundation
 import os
 
@@ -19,6 +20,7 @@ final class SettingsPaletteSource: PaletteSettingsSource {
     private let themeColors: @MainActor () -> [ThemeRGB]
     /// Every Ghostty theme and its swatch strip, for theme settings (R98).
     private let themes: ThemeCatalog?
+    private let openSetting: @MainActor (String) -> Void
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "palette.settings")
     /// Values committed whose write has not landed, by setting id: the rows show them at once
     /// (nil: the default). Each write's token, so only the latest write of a row clears it.
@@ -28,10 +30,12 @@ final class SettingsPaletteSource: PaletteSettingsSource {
     /// The palette's page reload (`observeChanges`).
     private var onChange: (@MainActor () -> Void)?
 
-    init(settings: SettingsController, themes: ThemeCatalog? = nil, themeColors: @escaping @MainActor () -> [ThemeRGB]) {
+    init(settings: SettingsController, themes: ThemeCatalog? = nil, openSetting: @escaping @MainActor (String) -> Void = { _ in },
+         themeColors: @escaping @MainActor () -> [ThemeRGB]) {
         self.settings = settings
         self.themes = themes
         self.themeColors = themeColors
+        self.openSetting = openSetting
     }
 
     /// What the rows are built from. The loaded settings, managed keys and theme files change only in a
@@ -70,6 +74,19 @@ final class SettingsPaletteSource: PaletteSettingsSource {
         built = (inputs, rows)
         rowBuilds += 1
         return rows
+    }
+
+    var navigationItems: [PaletteItem] {
+        let key = "card.cloudModels"
+        let title = SettingsDeepLink.cloudModelsTitle
+        var item = PaletteItem(
+            id: key, title: title, symbol: "cloud", section: SettingsPaletteProvider.section,
+            keywords: ["settings", "cloud models", "Claude", "ChatGPT", "API key", "endpoint"],
+            primary: PaletteCommand(id: "open", title: title, symbol: "return",
+                                    effect: .perform { [openSetting] in openSetting(key) })
+        )
+        item.hidesWhenQueryEmpty = true
+        return [item]
     }
 
     func observeChanges(_ onChange: @escaping @MainActor () -> Void) {

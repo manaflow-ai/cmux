@@ -16,6 +16,8 @@ use tokio::process::Child;
 use tokio::sync::{Mutex, mpsc, oneshot};
 
 mod command;
+#[cfg(unix)]
+pub(crate) mod copilot_auth;
 pub(crate) mod foreign_login;
 pub(crate) mod leader_exit;
 #[cfg(unix)]
@@ -24,8 +26,10 @@ pub(crate) mod session_tmp;
 /// `harness_command_ready`.
 #[cfg(test)]
 pub(crate) use command::harness_command;
+#[cfg(unix)]
+pub(crate) use command::CopilotKeychainLocked;
 pub(crate) use command::{
-    REMOTE_ENV_POLICY_ID, REMOTE_ENV_POLICY_KEY, command_env, command_env_cleared, explicit_env,
+    CopilotReconnect, REMOTE_ENV_POLICY_ID, REMOTE_ENV_POLICY_KEY, command_env, command_env_cleared, explicit_env,
     harness_command_ready, host_environment, pinned_preview_format, preview_format,
     resolved_profile_env,
 };
@@ -913,6 +917,7 @@ struct CodexLink {
 /// A started agent's process (or, in the simulation, its in-process stand-in) and its pipes:
 /// what `ChildAgent::spawn_with` runs its reader and writer on.
 struct Spawned {
+    scratch: Option<tempfile::TempDir>,
     child: Option<Child>,
     pid: Option<u32>,
     /// The exit event of `child`, opened while it is unreaped.
@@ -941,7 +946,8 @@ impl Spawned {
         command_line: Option<(String, Vec<String>)>,
         session: Option<(&str, &str)>,
     ) -> Result<Self> {
-        let mut cmd = harness_command_ready(name, profile, cwd, command_line, session).await?;
+        let (mut cmd, scratch) =
+            harness_command_ready(name, profile, cwd, command_line, session).await?;
         // Its MCP configs are read before it starts, never after (`hub/idle_census.rs`).
         let launch = crate::sidecar_census::LaunchServers::read(
             &Launch::of(&cmd, cwd),
@@ -996,6 +1002,7 @@ impl Spawned {
         let stdout = child.stdout.take().context("agent stdout")?;
         let stderr = child.stderr.take().context("agent stderr")?;
         Ok(Self {
+            scratch,
             child: Some(child),
             pid,
             exit,
@@ -1018,6 +1025,7 @@ impl Spawned {
     #[cfg(feature = "sim")]
     fn in_process(pipes: crate::sim_agent::Pipes) -> Self {
         Self {
+            scratch: None,
             child: None,
             pid: None,
             exit: None,
@@ -1110,6 +1118,7 @@ impl ChildAgent {
         #[cfg(not(feature = "sim"))]
         let spawned = Spawned::child(name, profile, cwd, command_line, session).await?;
         let Spawned {
+            scratch,
             child,
             pid,
             exit,
@@ -1208,13 +1217,22 @@ impl ChildAgent {
             agent.codex_lines(first.server, None).await;
         }
 
+        let launch_key: Option<Arc<str>> = profile
+            .env
+            .get(crate::agent_credentials::MARKER)
+            .filter(|name| crate::agent_credentials::NAMES.contains(&name.as_str()))
+            .and_then(|name| profile.env.get(name))
+            .or_else(|| profile.env.get(crate::agent_credentials::COPILOT_TOKEN))
+            .map(|key| Arc::from(key.as_str()));
         let stderr_done = {
             let inbound = inbound.clone();
             let generation = agent.generation;
+            let launch_key = launch_key.clone();
             tokio::spawn(async move {
                 // Lossy: a line that is not UTF-8 never ends the pipe (`lossy_lines`).
                 let mut lines = crate::lossy_lines::LossyLines::new(BufReader::new(stderr));
                 while let Ok(Some(line)) = lines.next_line().await {
+                    let line = crate::agent_credentials::redact_line(line, launch_key.as_deref());
                     let _ = inbound
                         .send(Inbound::Stderr(line, None, Some((generation, StderrPipe::Stderr))))
                         .await;
@@ -1279,7 +1297,9 @@ impl ChildAgent {
                         }
                     };
                     let line = match next {
-                        Ok(Some(l)) => l,
+                        Ok(Some(line)) => {
+                            crate::agent_credentials::redact_line(line, launch_key.as_deref())
+                        }
                         _ => break,
                     };
                     if line.trim().is_empty() {
@@ -1456,6 +1476,7 @@ impl ChildAgent {
                 }
                 drop(p);
                 let code = agent_for_exit.wait_exit().await;
+                drop(scratch);
                 if let Some(stop) = agent_for_exit.writer_stop.get() {
                     stop.agent_ended().await;
                 }

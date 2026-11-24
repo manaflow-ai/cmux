@@ -58,6 +58,8 @@ fn spec(dir: &Path, session: &str) -> SpawnSpec {
         orphan_exit: None,
         prompt_suggestions_managed: None,
         holder: None,
+        copilot_scratch: None,
+        local_chatgpt_expiry: None,
     }
 }
 

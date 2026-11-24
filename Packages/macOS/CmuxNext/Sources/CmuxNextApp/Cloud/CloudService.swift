@@ -273,6 +273,14 @@ final class CloudService {
         installIDs.preload(localStore: machines.local.store)
         auth.start(); changes.start(); changes.startPush(machineAPI.statePush(baseURL: configuration.relayAPIBaseURL()), connection: { [machines] in machines.local.connection }) { [weak self] record in if let self, let session = machines.session(record.id) { apply(record, to: session, read: beginRecordRead(machineID: record.id)) } }
         startCredentialProvider()
+        // task-owner: observers; redeliver in-memory Copilot credentials when a guest reconnects.
+        observers.append(Task { [weak self] in
+            for await _ in ObservationStream({ [weak self] in
+                self?.machines.cloud.map { $0.daemon.liveIdentity == nil ? nil : $0.daemon.store.connectionEpoch }
+            }) {
+                self?.agentCredentials.credentialConnectionsChanged()
+            }
+        })
         if linkEvents == nil {
             // `cloud.link.changed` arrives on the local daemon as an app server event.
             let machines = machines
@@ -685,9 +693,8 @@ final class CloudService {
     /// create goes out at once on a paid plan (a person's create at the cap gets the cap card, ``CloudMachineCap``; ``agentCreatePolicy`` or the legacy opt-in `cloud.askBeforeAgentCreate` asks first) (``CloudMachineCreateFlow``); `askedBy` names the agent chat that asked.
     /// `request`: `cloud new-machine`'s size and idle pause, sent with the create. A server that did
     /// not store the idle pause gets it through `PUT /api/vm/{id}/idle-pause` right after.
-    /// `proceed` runs once the server answered, before anything else about the new machine (its
-    /// idle pause, joining this Mac's list, connecting): its throw (the account that asked is no
-    /// longer signed in) leaves it out.
+    /// `proceed` checks that the same account still owns the request before a create or a pause
+    /// at the cap, and after the server answers before the machine joins this Mac's list.
     func createMachine(name: String?, creation: CloudMachineCreation? = nil, startedByPerson: Bool, ownCreate: Bool = false, capCard: Bool = true, askedBy: String? = nil,
                        request: CloudMachineRequest = CloudMachineRequest(),
                        onAppServerSent: (@MainActor @Sendable (String, CloudCreateRoute) async throws -> Void)? = nil,
@@ -720,8 +727,14 @@ final class CloudService {
         var machine = try await CloudMachineCap.creating(person: startedByPerson && capCard, cap: { [weak self] error in
             guard case CloudMachineCreateFlow.Failure.upgradeRequired(let reason) = error else { return CloudMachineCap.refusal(error) }
             return self.map { CloudMachineCap.plan(freePlan: reason == .freePlan, pauseFrees: reason == .pool, machines: $0.machines.cloud.map(\.machine), user: $0.auth.user?.id) }
-        }, choose: { [weak self] in await self?.chooseAtCap?($0) },
-                                                         pause: { [weak self] in try await self?.pauseMachine($0) }) { again in
+        }, choose: { [weak self] cap in
+            guard (try? proceed()) != nil else { return nil }
+            return await self?.chooseAtCap?(cap)
+        }, pause: { [weak self] in
+            try proceed()
+            try await self?.pauseMachine($0)
+        }) { again in
+            try proceed()
             var request = request // after a Pause, a new key: the first one's stored answer is the refusal
             if again { request.idempotencyKey = UUID().uuidString }
             return try await appServerCreate(name: name, startedByPerson: startedByPerson, ownCreate: ownCreate && startedByPerson, asksFirst: asksFirst, askedBy: askedBy, environment: request.environment, creation: creation, request: request, onSent: onSent, persistSent: onAppServerSent)
@@ -803,7 +816,12 @@ final class CloudService {
     /// (the device hub signs this Mac out of its sessions at once).
     var willSignOut: [@MainActor () -> Void] = [{ AgentPaneTailCache.shared.clear() }]
 
+    private(set) var isSigningOut = false
+
     func signOut() async {
+        guard !isSigningOut else { return }
+        isSigningOut = true
+        defer { isSigningOut = false }
         signedOutCreation.cancel()
         // Start-session asks and runs end now, not after the link and install cleanup below.
         startSessionRuns.forgetAll()

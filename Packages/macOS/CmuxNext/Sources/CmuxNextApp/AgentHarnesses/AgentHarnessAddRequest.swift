@@ -17,6 +17,10 @@ nonisolated struct AgentHarnessAddRequest: Equatable {
     var model: String?
     var apiKey: String?
     var replace = false
+    var editEndpoint: String?
+    var endpointPreset: String?
+    var servesCloud: Bool?
+    var validateEndpoint: Bool = false
 
     /// Nil when it names nothing to start: no command, registry agent or example.
     var isComplete: Bool { [command, registry, example].contains { !($0 ?? "").isEmpty } }
@@ -38,9 +42,13 @@ nonisolated struct AgentHarnessAddRequest: Equatable {
             params["example"] = example
             if let baseURL, !baseURL.isEmpty { params["baseUrl"] = baseURL }
             if let model, !model.isEmpty { params["model"] = model }
+            if let endpointPreset { params["endpointPreset"] = endpointPreset }
+            if let servesCloud { params["servesCloud"] = servesCloud }
+            if validateEndpoint { params["validateEndpoint"] = true }
             if let apiKey, !apiKey.isEmpty { params["apiKey"] = apiKey }
         }
         if replace { params["replace"] = true }
+        if let editEndpoint { params["editEndpoint"] = editEndpoint }
         return params
     }
 

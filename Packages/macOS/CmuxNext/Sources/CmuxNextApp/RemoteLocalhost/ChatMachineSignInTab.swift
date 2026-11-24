@@ -1,4 +1,5 @@
 import CmuxNextBrowser
+import CmuxNextDaemonService
 import CmuxNextRemoteLocalhostService
 import Foundation
 
@@ -21,9 +22,19 @@ enum ChatMachineSignInTab {
     static func opener(for url: URL, agentTab key: String, from pane: PaneController) -> (@MainActor () -> Bool)? {
         let services = pane.services
         guard let (tab, _) = services.locateTab(key, onMachine: pane.daemon.machineID),
-              let daemon = try? services.machines.agentDaemon(forTab: tab),
-              case .machine = services.remoteLocalhost.route(daemon: daemon, workspace: nil, engine: .cef),
-              services.cache.browserTabs.cefUnavailable() == nil else { return nil }
+              let daemon = try? services.machines.agentDaemon(forTab: tab) else { return nil }
+        return opener(for: url, daemon: daemon, from: pane)
+    }
+
+    static func isAvailable(on daemon: DaemonService, services: AppServices) -> Bool {
+        guard case .machine = services.remoteLocalhost.route(daemon: daemon, workspace: nil, engine: .cef) else { return false }
+        return services.cache.browserTabs.cefUnavailable() == nil
+    }
+
+    /// Opens the chat-machine browser in a workspace tab.
+    static func opener(for url: URL, daemon: DaemonService, from pane: PaneController) -> (@MainActor () -> Bool)? {
+        let services = pane.services
+        guard isAvailable(on: daemon, services: services) else { return nil }
         let machine = daemon.machineID
         return { [weak pane] in
             guard pane != nil else { return false }

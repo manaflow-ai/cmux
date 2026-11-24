@@ -1590,15 +1590,27 @@ impl Hub {
                 "machine environment changed; login env refresh failed",
             ));
         }
-        let cmd = crate::agent::harness_command_ready(
+        let (cmd, mut scratch) = crate::agent::harness_command_ready(
             &meta.harness,
             profile,
             &meta.cwd,
-            command_line,
+            command_line.clone(),
             Some((&session.id, &meta.name)),
         )
         .await
-        .map_err(internal)?;
+        .map_err(|error| {
+            #[cfg(unix)]
+            if error.is::<crate::agent::CopilotKeychainLocked>() {
+                return RpcError::invalid_params(error.to_string())
+                    .with_data(serde_json::json!({"reason": "subscription.keychain_locked"}));
+            }
+            if error.is::<crate::agent::CopilotReconnect>() {
+                crate::server::connections::announce_later(self);
+                return RpcError::invalid_params(error.to_string())
+                    .with_data(serde_json::json!({"reason": "subscription.reauth_required"}));
+            }
+            internal(error)
+        })?;
         self.record_preview_format(session, crate::agent::pinned_preview_format(&cmd));
         let std_cmd = cmd.as_std();
         let hosts = crate::agent_host::hosts_dir();
@@ -1630,6 +1642,17 @@ impl Hub {
             orphan_exit: None,
             prompt_suggestions_managed: crate::claude_stdio::prompt_suggestions::managed(),
             holder: None,
+            copilot_scratch: scratch
+                .as_ref()
+                .zip(profile.env.get(crate::agent_credentials::COPILOT_TOKEN))
+                .map(|(dir, token)| crate::agent_host::CopilotScratch {
+                    path: dir.path().to_owned(),
+                    redaction: token.clone(),
+                }),
+            local_chatgpt_expiry: profile
+                .env
+                .get(crate::chatgpt::LOCAL_EXPIRY_ENV)
+                .and_then(|v| v.parse().ok()),
         };
         // The agent holder (`agent_host/custody.rs`): a harness that speaks ACP itself keeps its
         // turn through a host crash. A translated one still has its translator in the host.
@@ -1653,7 +1676,12 @@ impl Hub {
             child
         };
         let first = match self.start_hosted(session, meta, &launcher, &spec, tap.clone()).await {
-            Ok(child) => return Ok(launched(child)),
+            Ok(child) => {
+                if let Some(dir) = scratch {
+                    dir.keep();
+                }
+                return Ok(launched(child));
+            }
             Err(e) => e,
         };
         // A host that started but did not answer (a wedged or dead host: its hello missed the
@@ -1665,8 +1693,36 @@ impl Hub {
             return Err(internal(first.error));
         }
         tracing::warn!(session = %session.id, "agent host did not answer ({:#}); starting a fresh host", first.error);
+        if scratch.is_some() {
+            let (_, next) = crate::agent::harness_command_ready(
+                &meta.harness,
+                profile,
+                &meta.cwd,
+                command_line,
+                Some((&session.id, &meta.name)),
+            )
+            .await
+            .map_err(internal)?;
+            let dir = next
+                .as_ref()
+                .ok_or_else(|| RpcError::internal("missing GitHub Copilot launch folder"))?;
+            if let Some(launch) = spec.copilot_scratch.as_mut() {
+                launch.path = dir.path().to_owned();
+            }
+            if let Some((_, data_home)) =
+                spec.env.iter_mut().find(|(name, _)| name == "XDG_DATA_HOME")
+            {
+                *data_home = dir.path().to_string_lossy().into_owned();
+            }
+            scratch = next;
+        }
         match self.start_hosted(session, meta, &launcher, &spec, tap).await {
-            Ok(child) => Ok(launched(child)),
+            Ok(child) => {
+                if let Some(dir) = scratch {
+                    dir.keep();
+                }
+                Ok(launched(child))
+            }
             Err(second) => {
                 if let Some(failed) = &second.started {
                     let _ = self.end_unanswered_host(session, failed, &second.error).await;

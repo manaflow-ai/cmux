@@ -1746,6 +1746,57 @@ fn a_new_chat_signs_its_agent_in_on_this_machine_without_a_session() {
     fake.no_frame();
 }
 
+#[test]
+fn settings_claude_login_routes_only_to_owner_cloud() {
+    let fake = FakeAcpmux::start("settings-claude");
+    let mux = mux_with(&fake, "asa-settings-claude");
+    mux.set_agent_start_host(Arc::new(|| AgentStartHost::OwnerCloud));
+    let mut owner = Client::connect(&mux, "settings-claude");
+    let start = json!({"cmd":"agent-session-login-settings","surface":0,"op":"start",
+                       "agent":"claude", "vm_kind":"owner"});
+    for (frame, method, params) in [
+        (
+            start.clone(),
+            "_acpmux/agent_login/start",
+            json!({"agent":"claude","reuseExisting":true}),
+        ),
+        (
+            json!({"cmd":"agent-session-login-settings","surface":0,"op":"finish",
+                "login_id":"login_1","vm_kind":"owner"}),
+            "_acpmux/agent_login/finish",
+            json!({"loginId":"login_1"}),
+        ),
+        (
+            json!({"cmd":"agent-session-login-settings","surface":0,"op":"cancel",
+                "login_id":"login_1","vm_kind":"owner"}),
+            "_acpmux/agent_login/cancel",
+            json!({"loginId":"login_1"}),
+        ),
+    ] {
+        let reply = owner.request(frame);
+        assert_eq!(reply["ok"], true, "{reply}");
+        let sent = fake.frame();
+        assert_eq!(sent["method"], method);
+        assert_eq!(sent["params"], params);
+    }
+    let mut no_owner = start.clone();
+    no_owner.as_object_mut().unwrap().remove("vm_kind");
+    assert_eq!(owner.request(no_owner)["data"]["refused"]["reason"], "shared_machine");
+    let mut other_agent = start.clone();
+    other_agent["agent"] = json!("codex");
+    assert_code(&owner.request(other_agent), "agent_session.bad_request");
+    let mut phone = Client::connect(&mux, "settings-claude-phone");
+    assert_eq!(
+        phone.request(json!({"cmd":"set-client-info","kind":"ios","capabilities":[agent_session_attach::CLOUD_MOBILE_CHAT_CAPABILITY]}))["ok"],
+        true
+    );
+    // A paired phone never reaches the handler: the remote relay denies this command by default.
+    assert_code(&phone.request(start.clone()), "remote_denied");
+    mux.set_agent_start_host(Arc::new(|| AgentStartHost::TeamVm));
+    assert_eq!(owner.request(start)["data"]["refused"]["reason"], "shared_machine");
+    fake.no_frame();
+}
+
 /// On a Cloud VM a session-less sign-in runs only on the caller's `vm_kind: "owner"`, as a start
 /// does; a teammate's proxied link never signs this machine's agent in.
 #[test]

@@ -2083,6 +2083,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/agent_login/status",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/agent_login/logout",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/agent_login/start",
       "params": {
         "$ref": "#/types/AgentLoginStartParams"
@@ -2369,7 +2381,19 @@
     },
     {
       "kind": "request",
-      "name": "_acpmux/connections/chatgpt.token",
+      "name": "_acpmux/connections/chatgpt.device.begin",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/chatgpt.device.wait",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/chatgpt.device.cancel",
       "params": true,
       "result": true
     },
@@ -2381,7 +2405,31 @@
     },
     {
       "kind": "request",
-      "name": "_acpmux/connections/claude_token.add",
+      "name": "_acpmux/connections/subscription.begin",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/subscription.wait",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/subscription.cancel",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/grok.hook",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/chatgpt.token",
       "params": true,
       "result": true
     },
@@ -3059,6 +3107,7 @@
           "$ref": "#/types/RequestMeta"
         },
         "agent": true,
+        "reuseExisting": true,
         "sessionId": true
       },
       "type": "object"

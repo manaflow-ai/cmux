@@ -1,3 +1,4 @@
+import CmuxNextAccounts
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextChiefPetWiring
@@ -406,8 +407,12 @@ extension AgentTabStore {
         tabs.shareOp = { [weak services] key, op, session in guard let services else { return nil }; return await AgentShareActions.pane(op, session: session, tab: key, host: services) }
         // A Cloud chat's model credential, read as the person from this Mac's acpmux (model-connections.md Revision 2).
         services.cloud.agentCredentials.read = { [weak services] id in
-            guard let services, let reply = await QuitAgents.environment(services)?.connectionCredential(id: id) else { throw CloudAgentCredentials.Failure.unavailable(connection: id) }
-            return reply
+            guard let services, let environment = await QuitAgents.environment(services) else { throw CloudAgentCredentials.Failure.unavailable(connection: id) }
+            return try await environment.connectionCredential(id: id)
+        }
+        services.cloud.agentCredentials.readForModel = { [weak services] id, model in
+            guard let services, let environment = await QuitAgents.environment(services) else { throw CloudAgentCredentials.Failure.unavailable(connection: id) }
+            return try await environment.connectionCredential(id: id, model: model)
         }
         tabs.cloudCredentials = services.cloud.agentCredentials; services.cloud.agentCredentials.setup = services.cloud.setup // a start no Cloud start chose for (the CLI's) takes Cloud first use's pick
         tabs.remoteHostScoped = { [weak services, weak tabs] key in
@@ -443,9 +448,7 @@ extension AgentTabStore {
                 let timelines = services.cloud.sendTimelines, timedMachine = daemon.machineID, timedTab = key.key
                 host.cloudSendMark = { step, phases in timelines.mark(step, machine: timedMachine, tab: timedTab, phases: phases) }
             }
-            // A Cloud machine never signs its agents in on itself: they reach models through its edge,
-            // and the machine holds no provider login, so its chats offer no on-machine sign-in.
-            host.servesLogin = host.cloudMachineID == nil && daemon.supports(DaemonCapability.agentSessionLogin.rawValue)
+            host.servesLogin = daemon.supports(DaemonCapability.agentSessionLogin.rawValue)
             (host.cloudAccount, host.personName) = host.cloudMachineID == nil ? (nil, nil) : (services.cloud.account, services.cloud.auth.user?.displayName)
             // A chat on one of the account's Cloud machines names each turn's hand-off (not behind Labs)
             // once the machine list loaded for the account signed in now (never a previous team's).
@@ -458,6 +461,18 @@ extension AgentTabStore {
             // it is sent, through any daemon (the app link's own answer).
             let links = services.machines.session(daemon.machineID).map { CloudMachineLinks(appLink: $0.appLink) }
             host.ownerLink = links?.ownerLink
+            if let ownerLink = links?.ownerLink {
+                host.claudeSignedIn = { [weak services] in
+                    guard await ownerLink() != nil, let services, let environment = await QuitAgents.environment(services) else { return }
+                    await SettingsModels.retireLegacyClaudeConnections(environment: environment)
+                }
+            }
+            if host.cloudMachineID != nil, let ownerLink = links?.ownerLink {
+                host.restoreCloudCredential = { [weak tabs] surface in
+                    await tabs?.restoreModelConnection(tab: key.key, machine: key.machine, surface: surface, ownerLink: ownerLink,
+                                                       reconnect: reconnect, endpoint: endpoint)
+                }
+            }
             // A start its older daemon refused updates the machine and tries once more on the link it brought back (the owner's machine only).
             if let cloudMachineID = host.cloudMachineID, let ownerLink = links?.ownerLink, let session = services.machines.session(daemon.machineID) {
                 host.updateMachine = { [weak services, weak session] in

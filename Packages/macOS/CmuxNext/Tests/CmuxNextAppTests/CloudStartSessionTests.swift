@@ -73,6 +73,18 @@ struct CloudStartSessionTests {
         #expect(kept?.message.hasPrefix(failure.message) == true && kept?.message.contains("kill-machine --target machine:vm-chat-1") == true, "\(String(describing: kept))")
     }
 
+    @Test func reportedRunnersRequireTheLiveCredentialCapability() {
+        #expect(CloudMachineSession.confirmedCredentialHarnesses(identity: nil, subscription: false) == nil)
+        var identity = DaemonIdentity(capabilities: ["agent-session-start-endpoint-harness:opencode"], generation: "runner-test")
+        #expect(CloudMachineSession.confirmedCredentialHarnesses(identity: identity, subscription: false) == nil)
+        #expect(CloudMachineSession.confirmedCredentialHarnesses(identity: identity, subscription: true) == nil)
+        identity.capabilities.append(AgentSessionAttachClient.startEndpointCredentialsCapability)
+        #expect(CloudMachineSession.confirmedCredentialHarnesses(identity: identity, subscription: false) == ["opencode"])
+        #expect(CloudMachineSession.confirmedCredentialHarnesses(identity: identity, subscription: true) == nil)
+        identity.capabilities.append(AgentSessionAttachClient.startSubscriptionCredentialsCapability)
+        #expect(CloudMachineSession.confirmedCredentialHarnesses(identity: identity, subscription: true) == ["opencode"])
+    }
+
     @Test func itIsACLIVerbAndAnMCPToolThatWaitsForThePerson() throws {
         let descriptor = try #require(Self.fixture().services.registry.descriptor(for: CloudStartSession.action))
         let text = try #require(descriptor.description, "no description for cmux action describe and MCP")

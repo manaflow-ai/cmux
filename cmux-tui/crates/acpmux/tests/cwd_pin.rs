@@ -102,6 +102,8 @@ async fn a_pinned_hosted_harness_never_execs_in_a_swapped_folder() {
         orphan_exit: None,
         prompt_suggestions_managed: None,
         holder: None,
+        copilot_scratch: None,
+        local_chatgpt_expiry: None,
     };
     let launcher = HostLauncher { exe: daemon_env::bin().into(), prefix: Vec::new() };
     let started = link::spawn(&launcher, &spec).await;

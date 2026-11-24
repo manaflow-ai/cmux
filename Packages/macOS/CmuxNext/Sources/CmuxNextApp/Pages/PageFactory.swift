@@ -163,8 +163,9 @@ struct PageFactory {
     /// The React Settings page (R82) on `route` (`#/settings/<section>?focus=<key>`). Its namespace
     /// goes to `SettingsPageProvider` (interim owner; the daemon relay once the config actor
     /// serves `settings.*`), `cmux.app.` to the native ops.
-    func settingsPage(route: String?) -> PageWebView? {
+    func settingsPage(route: String?) -> SettingsSignInPane? {
         guard let settings = services.settings else { return nil }
+        let signInPane = SettingsSignInPane(services: services)
         let provider = SettingsPageProvider(settings: settings, domains: { [weak services] in
             ["themes": services?.themes.catalog.names ?? [], "font_families": SettingsPageDomains.fontFamilies, "sounds": SettingsPageDomains.sounds, "recent_fonts": services?.settings?.recentFonts.families ?? []]
         }, hostLists: { [weak services] in services?.settingsWindow.pageHostLists() ?? .null }, wideningGate: services.wideningGate)
@@ -197,10 +198,48 @@ struct PageFactory {
         (provider.accountsState, provider.accountsRun) = services.accounts.github.accountsPage(services.accounts.model, agentKeys: services.accounts.agentKeys, signIn: harnesses)
         provider.harnessesState = { harnesses.state }
         provider.harnessesRun = { params, context in try await harnesses.run(params, context: context) }
-        let models = SettingsModels.live(environment: { [weak services] in services.flatMap(QuitAgents.environment) }, harnesses: harnesses, settings: settings,
-                                              activeTeam: { [weak services] in services?.accounts.activeTeam }, agentKeys: services.accounts.agentKeys,
-                                              policy: services.accounts.modelsPolicy)
-        models.onConnections = { [weak services] in services?.cloud.setup.connectionsChanged() } // a chat waiting on Set up Cloud checks again
+        var returnFromModelSignIn: [String: @MainActor () -> Void] = [:]
+        let models = SettingsModels.live(
+            environment: { [weak services] in
+                guard let host = services?.agentTabs.host as? AcpmuxHost else { return nil }
+                return try? await host.readyEnvironment()
+            },
+            settings: settings, activeTeam: { [weak services] in services?.accounts.activeTeam },
+            agentKeys: services.accounts.agentKeys, policy: services.accounts.modelsPolicy,
+            openSignInPage: { [weak services, weak native] url, owner in
+                guard let services else { return false }
+                returnFromModelSignIn.removeValue(forKey: owner)?()
+                returnFromModelSignIn[owner] = services.linkOpener.openSignInPage(url, beside: native?.anchor())
+                return true
+            },
+            closeSignInPage: { owner in returnFromModelSignIn.removeValue(forKey: owner)?() }
+        )
+        models.cloudClaudeLogin = { [weak services, weak signInPane] preferred in
+            guard let services else { return .connectable }
+            return SettingsCloudClaudeLogin(services: services, signInPane: signInPane).state(preferred: preferred)
+        }
+        models.prepareCloudClaudeLogin = { [weak services, weak signInPane] in
+            guard let services else { throw PageError.closed }
+            return try await SettingsCloudClaudeLogin(services: services, signInPane: signInPane).prepare()
+        }
+        models.observeCloudClaudeAccount { [weak services] in
+            services.flatMap { SettingsCloudClaudeLogin.account(in: $0) }
+        }
+        models.onConnections = { [weak services] in
+            services?.cloud.setup.connectionsChanged()
+            services?.cloud.agentCredentials.credentialConnectionsChanged()
+        }
+        models.cloudRunnerConnectWait = CloudStartSession.connectWait
+        models.cloudUnlinkedMachines = { [weak services] in
+            guard let services else { return [] }
+            return Set(services.cloud.listedMachineIDs.filter { services.machines.session($0)?.daemon.liveIdentity == nil })
+        }
+        models.cloudHarnesses = { [weak services] subscription, offline in
+            guard let services else { return ([], false) }
+            let candidates = services.cloud.listedMachineIDs.subtracting(offline)
+            let confirmed = candidates.compactMap { services.machines.session($0)?.credentialHarnesses(subscription: subscription) }
+            return (Set(confirmed.flatMap { $0 }), confirmed.count < candidates.count)
+        }
         provider.models = models
         let cloud = services.cloud
         let environments = CloudEnvironmentsSettings(
@@ -350,19 +389,21 @@ struct PageFactory {
                                                           iconPNG: { [weak services] icon in
                                                               await SettingsIconAssets.png(icon, owner: services?.machines.local)
                                                           })
-        let page = services.pageHostPool.claim(.settings, routes: routes, route: route, options: Self.settingsEngineOptions,
+        guard let page = services.pageHostPool.claim(.settings, routes: routes, route: route, options: Self.settingsEngineOptions,
                                                surface: .settings,
                                                dynamicResources: dynamicResources,
                                                window: services.windows.active?.window, focus: false)
             ?? PageWebView(descriptor: .settings, routes: routes, route: route, options: Self.settingsEngineOptions,
-                           surface: .settings, dynamicResources: dynamicResources)
+                           surface: .settings, dynamicResources: dynamicResources) else { return nil }
         native.anchor = { [weak page] in page }
+        signInPane.install(page)
+        page.onOpenExternal = { [weak signInPane] url in signInPane?.openExternal(url) }
         // An image or movie dropped on Settings becomes the background (cx-t2x.8).
-        page?.fileDrop = PageFileDrop(accepts: { url in BackdropUserImages.isImage(url) }) { [weak provider] url in
+        page.fileDrop = PageFileDrop(accepts: { url in BackdropUserImages.isImage(url) }) { [weak provider] url in
             // task-owner: one short copy and settings write per drop; a failed one changes nothing
             Task { try? await provider?.useBackdropImage(url) }
         }
-        return page
+        return signInPane
     }
 
     /// The routes of `page`: its namespaces to the daemon relay, `cmux.app.` to the native ops

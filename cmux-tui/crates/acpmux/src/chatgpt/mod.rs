@@ -14,11 +14,13 @@
 //! left, one refresh per account at a time. `remove` revokes the refresh token. No token reaches
 //! a log line or an error message.
 //!
+//! Cloud Settings starts a device code through `begin_device` and uses the same account store.
 //! Every OAuth URL comes from [`Endpoints`], so tests run the whole flow against a local server.
 
 mod import;
+mod device;
 mod jwt;
-mod oauth;
+pub(crate) mod oauth;
 pub(crate) mod store;
 #[cfg(test)]
 mod tests;
@@ -36,6 +38,7 @@ pub(crate) use import::codex_auth as import_codex_auth;
 #[cfg(test)]
 pub(crate) use import::test_auth_json as import_test_auth;
 pub use import::{ENV as CI_IMPORT_ENV, enabled as ci_import_enabled};
+pub use device::DeviceBegun;
 pub use oauth::Endpoints;
 
 /// Codex's OAuth client (the one `codex login` signs in with).
@@ -54,6 +57,8 @@ pub const REFRESH_SCOPES: &str = "openid profile email";
 pub const CODEX_BACKEND: &str = "https://chatgpt.com/backend-api/codex";
 /// How long an access token must still be good for `token` to hand it out unrefreshed.
 pub const REFRESH_MARGIN_SECS: i64 = 300;
+/// Spawn metadata for a token obtained from this daemon's ChatGPT store.
+pub(crate) const LOCAL_EXPIRY_ENV: &str = "ACPMUX_LOCAL_CHATGPT_EXPIRY";
 /// How long a token `_acpmux/connections/credential` hands a Cloud machine must still be good for.
 pub const CREDENTIAL_MARGIN_SECS: i64 = 600;
 /// How long a sign-in waits for its callback.
@@ -73,11 +78,17 @@ fn sign_in_scope() -> &'static cmux_scope::Scope {
 pub struct Failure {
     pub code: String,
     pub message: String,
+    accounts: Option<(String, String)>,
 }
 
 impl Failure {
     pub(crate) fn new(code: &str, message: impl Into<String>) -> Self {
-        Self { code: code.to_owned(), message: message.into() }
+        Self { code: code.to_owned(), message: message.into(), accounts: None }
+    }
+
+    fn wrong_account(actual: String, expected: String) -> Self {
+        Self { code: "different_account".into(), message: "ChatGPT approved a different account".into(),
+            accounts: Some((actual, expected)) }
     }
 }
 
@@ -101,15 +112,23 @@ pub enum Status {
     /// Signed in: the connection's route id.
     Done(String),
     Failed(String),
+    WrongAccount { actual: String, expected: String },
     Cancelled,
 }
 
 impl Status {
+    fn failed(failure: Failure) -> Self {
+        match failure.accounts {
+            Some((actual, expected)) => Self::WrongAccount { actual, expected },
+            None => Self::Failed(failure.code),
+        }
+    }
+
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Pending => "pending",
             Self::Done(_) => "done",
-            Self::Failed(_) => "failed",
+            Self::Failed(_) | Self::WrongAccount { .. } => "failed",
             Self::Cancelled => "cancelled",
         }
     }
@@ -118,6 +137,8 @@ impl Status {
 struct Attempt {
     status: watch::Sender<Status>,
     task: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    device_cancel: Option<watch::Sender<bool>>,
+    device_request: Option<(PathBuf, Option<String>, DeviceBegun)>,
     started: Instant,
 }
 
@@ -132,7 +153,9 @@ pub struct Begun {
 pub struct Service {
     oauth: oauth::Client,
     attempts: Mutex<HashMap<String, Arc<Attempt>>>,
+    device_begin: tokio::sync::Mutex<()>,
     refreshing: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    pending_writes: Mutex<HashMap<(PathBuf, String), PendingWrite>>,
 }
 
 impl Default for Service {
@@ -141,7 +164,13 @@ impl Default for Service {
     }
 }
 
-fn now_unix() -> i64 {
+#[derive(Clone)]
+struct PendingWrite {
+    previous: store::Record,
+    current: store::Record,
+}
+
+pub(crate) fn now_unix() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
@@ -150,6 +179,19 @@ fn now_unix() -> i64 {
 
 fn io(code: &str) -> impl Fn(std::io::Error) -> Failure + '_ {
     move |e| Failure::new(code, e.to_string())
+}
+
+fn store_failure(error: crate::subscription_store::Error) -> Failure {
+    Failure::new(error.code(), error.message())
+}
+
+async fn store_work<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, crate::subscription_store::Error> + Send + 'static,
+) -> Result<T, Failure> {
+    tokio::task::spawn_blocking(work)
+        .await
+        .map_err(|_| Failure::new("storage", "subscription storage worker stopped"))?
+        .map_err(store_failure)
 }
 
 /// Whether route `id` in `dir` is a Sign in with ChatGPT connection.
@@ -162,7 +204,9 @@ impl Service {
         Self {
             oauth: oauth::Client::new(endpoints),
             attempts: Mutex::new(HashMap::new()),
+            device_begin: tokio::sync::Mutex::new(()),
             refreshing: Mutex::new(HashMap::new()),
+            pending_writes: Mutex::new(HashMap::new()),
         }
     }
 
@@ -183,7 +227,7 @@ impl Service {
         // record is this acpmux's; another build or the retired token-sharing client wrote it) reads
         // signed out, and signing in again there signs in on that route (cmux#45774).
         let prior = match &reauth {
-            Some(id) => match store::read(&places.home, id).map_err(io("storage"))? {
+            Some(id) => match store::metadata(&places.home, id) {
                 Some(record) => Some(record),
                 None if is_chatgpt_route(places.routes.as_deref(), id) => None,
                 None => {
@@ -199,7 +243,7 @@ impl Service {
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .iter()
-            .filter(|(_, a)| *a.status.borrow() == Status::Pending)
+            .filter(|(_, a)| a.device_cancel.is_none() && *a.status.borrow() == Status::Pending)
             .map(|(id, _)| id.clone())
             .collect();
         for id in pending_ids {
@@ -227,7 +271,13 @@ impl Service {
         let attempt = oauth::random_token(18)?;
         self.prune();
         let (status, _) = watch::channel(Status::Pending);
-        let entry = Arc::new(Attempt { status, task: Mutex::new(None), started: Instant::now() });
+        let entry = Arc::new(Attempt {
+            status,
+            task: Mutex::new(None),
+            device_cancel: None,
+            device_request: None,
+            started: Instant::now(),
+        });
         self.attempts
             .lock()
             .unwrap_or_else(|p| p.into_inner())
@@ -244,7 +294,7 @@ impl Service {
                 Ok(Ok(id)) => Status::Done(id),
                 Ok(Err(failure)) => {
                     tracing::info!(code = %failure.code, "ChatGPT sign-in failed: {}", failure.message);
-                    Status::Failed(failure.code)
+                    Status::failed(failure)
                 }
                 Err(_) => Status::Failed("timeout".into()),
             };
@@ -262,18 +312,32 @@ impl Service {
         });
     }
 
-    fn attempt(&self, id: &str) -> Result<Arc<Attempt>, Failure> {
+    fn attempt(&self, id: &str, device: bool) -> Result<Arc<Attempt>, Failure> {
         self.attempts
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .get(id)
+            .filter(|entry| entry.device_cancel.is_some() == device)
             .cloned()
             .ok_or_else(|| Failure::new("unknown_attempt", "no such sign-in attempt"))
     }
 
     /// The attempt's status once it is no longer pending, or after `timeout`.
     pub async fn wait(&self, attempt: &str, timeout: Duration) -> Result<Status, Failure> {
-        let mut rx = self.attempt(attempt)?.status.subscribe();
+        self.wait_for(attempt, timeout, false).await
+    }
+
+    pub async fn wait_device(&self, attempt: &str, timeout: Duration) -> Result<Status, Failure> {
+        self.wait_for(attempt, timeout, true).await
+    }
+
+    async fn wait_for(
+        &self,
+        attempt: &str,
+        timeout: Duration,
+        device: bool,
+    ) -> Result<Status, Failure> {
+        let mut rx = self.attempt(attempt, device)?.status.subscribe();
         let _ = tokio::time::timeout(timeout, rx.wait_for(|s| *s != Status::Pending)).await;
         let status = rx.borrow().clone();
         Ok(status)
@@ -281,7 +345,7 @@ impl Service {
 
     /// Ends a pending attempt; its listener is closed when this returns.
     pub async fn cancel(&self, attempt: &str) -> Result<Status, Failure> {
-        let entry = self.attempt(attempt)?;
+        let entry = self.attempt(attempt, false)?;
         let current = entry.status.borrow().clone();
         if current != Status::Pending {
             return Ok(current);
@@ -321,30 +385,85 @@ impl Service {
     ) -> Result<(String, i64), Failure> {
         let lock = self.lock_for(id);
         let _one = lock.lock().await;
-        let mut record = store::read(home, id)
-            .map_err(io("storage"))?
-            .ok_or_else(|| Failure::new("not_found", format!("no ChatGPT sign-in {id:?}")))?;
-        if !record.signed_in() {
-            return Err(Failure::new("signed_out", "sign in with ChatGPT again"));
-        }
-        if !record.access_token.is_empty() && record.expires_at - now_unix() > margin {
-            return Ok((record.access_token, record.expires_at));
-        }
-        match self.oauth.refresh(&record).await {
-            Ok(fresh) => {
-                fresh.apply(&mut record, now_unix());
-                store::write(home, id, &record).map_err(io("storage"))?;
-                Ok((record.access_token, record.expires_at))
-            }
-            Err(failure) => {
-                if failure.code == "reauth_required" {
-                    // The refresh token is dead: the account shows signed out until a reauth.
-                    record.clear_tokens();
-                    store::write(home, id, &record).map_err(io("storage"))?;
+        let key = (home.to_owned(), id.to_owned());
+        let read = || async {
+            let (home, id) = key.clone();
+            store_work(move || store::read(&home, &id))
+                .await?
+                .ok_or_else(|| Failure::new("signed_out", "sign in with ChatGPT again"))
+        };
+        let mut observed = read().await;
+        loop {
+            let pending = self.pending_writes.lock().unwrap_or_else(|p| p.into_inner()).get(&key).cloned();
+            if let Some(pending) = pending {
+                let _save = self.oauth.save_slot().await;
+                observed = read().await;
+                match &observed {
+                    Ok(stored) if stored == &pending.previous || stored == &pending.current => {
+                        if let Err(error) = self.persist(&key, &pending.current, _save).await {
+                            return live_token(pending.current).ok_or(error);
+                        }
+                        self.pending_writes.lock().unwrap_or_else(|p| p.into_inner()).remove(&key);
+                        if let Some(token) = live_token(pending.current.clone()) {
+                            return Ok(token);
+                        }
+                        observed = Ok(pending.current);
+                    }
+                    Err(error) if error.code != "signed_out" => {
+                        return live_token(pending.current).ok_or_else(|| error.clone());
+                    }
+                    _ => {}
                 }
-                Err(failure)
+                self.pending_writes.lock().unwrap_or_else(|p| p.into_inner()).remove(&key);
+            }
+            let record = observed?;
+            if !record.signed_in() {
+                return Err(Failure::new("signed_out", "sign in with ChatGPT again"));
+            }
+            if !record.access_token.is_empty() && record.expires_at.saturating_sub(now_unix()) > margin {
+                return Ok((record.access_token, record.expires_at));
+            }
+            match self.oauth.refresh(&record).await {
+                Ok(fresh) => {
+                    let mut current = record.clone();
+                    fresh.apply(&mut current, now_unix());
+                    // Save the rotated grant before the next await. A cancelled caller
+                    // cannot remove it before a later request retries the pending write.
+                    self.pending_writes.lock().unwrap_or_else(|p| p.into_inner()).insert(
+                        key.clone(), PendingWrite { previous: record.clone(), current },
+                    );
+                    observed = Ok(record);
+                }
+                Err(failure) => {
+                    let _save = self.oauth.save_slot().await;
+                    let current = read().await?;
+                    if current != record {
+                        // An interactive sign-in finished while the refresh was in flight.
+                        observed = Ok(current);
+                        continue;
+                    }
+                    if failure.code == "reauth_required" {
+                        let mut cleared = record;
+                        cleared.clear_tokens();
+                        self.persist(&key, &cleared, _save).await?;
+                        return Err(failure);
+                    }
+                    return live_token(record).ok_or(failure);
+                }
             }
         }
+    }
+
+    async fn persist(
+        &self, key: &(PathBuf, String), record: &store::Record,
+        save: tokio::sync::OwnedMutexGuard<()>,
+    ) -> Result<(), Failure> {
+        let (home, id) = key.clone();
+        let record = record.clone();
+        store_work(move || {
+            let _save = save;
+            store::write(&home, &id, &record)
+        }).await
     }
 
     /// Signs account `id` out: revokes its refresh token (best effort: a revocation that fails
@@ -353,10 +472,22 @@ impl Service {
     pub async fn remove(&self, home: &Path, id: &str) -> Result<bool, Failure> {
         let lock = self.lock_for(id);
         let _one = lock.lock().await;
-        let Some(record) = store::read(home, id).map_err(io("storage"))? else {
-            return Ok(false);
-        };
-        let revoked = if record.signed_in() {
+        let _save = self.oauth.save_slot().await;
+        let key = (home.to_owned(), id.to_owned());
+        let (path, route) = key.clone();
+        let stored = store_work(move || store::read(&path, &route)).await.ok().flatten();
+        let record = stored.map(|stored| {
+            self.pending_writes.lock().unwrap_or_else(|p| p.into_inner()).get(&key)
+                .filter(|pending| pending.previous == stored || pending.current == stored)
+                .map_or(stored, |pending| pending.current.clone())
+        });
+        let (path, route) = key.clone();
+        store_work(move || {
+            let _save = _save;
+            store::delete(&path, &route)
+        }).await?;
+        self.pending_writes.lock().unwrap_or_else(|p| p.into_inner()).remove(&key);
+        let revoked = if let Some(record) = record.filter(store::Record::signed_in) {
             match self.oauth.revoke(&record).await {
                 Ok(()) => true,
                 Err(failure) => {
@@ -367,7 +498,11 @@ impl Service {
         } else {
             false
         };
-        store::delete(home, id).map_err(io("storage"))?;
         Ok(revoked)
     }
+}
+
+fn live_token(record: store::Record) -> Option<(String, i64)> {
+    (!record.access_token.is_empty() && record.expires_at > now_unix())
+        .then_some((record.access_token, record.expires_at))
 }

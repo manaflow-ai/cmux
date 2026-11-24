@@ -48,9 +48,11 @@ use agent_session_link::{AcpmuxLink, Inbound, LinkError};
 pub use agent_session_start::{
     AGENT_SESSION_PREWARM_CAPABILITY, AGENT_SESSION_START_CAPABILITY,
     AGENT_SESSION_START_CODEX_CREDENTIALS_CAPABILITY, AGENT_SESSION_START_CREDENTIALS_CAPABILITY,
+    AGENT_SESSION_START_ENDPOINT_CREDENTIALS_CAPABILITY,
     AGENT_SESSION_START_KEYED_REASON_CAPABILITY, AGENT_SESSION_START_MODE_CAPABILITY,
     AGENT_SESSION_START_MODEL_CAPABILITY, AGENT_SESSION_START_NO_CWD_CAPABILITY,
     AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY, AGENT_SESSION_START_PERMISSION_MODE_CAPABILITY,
+    AGENT_SESSION_START_SUBSCRIPTION_CREDENTIALS_CAPABILITY,
     AGENT_SESSION_START_VM_KIND_CAPABILITY, AcpmuxStarter, AgentStartHost, AgentStartHostSource,
 };
 pub use agent_session_trust::{
@@ -101,6 +103,8 @@ pub const AGENT_SESSION_SHARE_EVENTS_CAPABILITY: &str = "agent-session-share-eve
 /// carrier, the same host check (`vm_kind: "owner"` on a Cloud VM), never a teammate or link guest.
 /// A daemon without it answers such a step `agent_session.not_attached`.
 pub const AGENT_SESSION_LOGIN_MACHINE_CAPABILITY: &str = "agent-session-login-machine-v1";
+/// Settings can sign Claude Code in on an owner Cloud machine without opening a chat.
+pub const AGENT_SESSION_LOGIN_SETTINGS_CAPABILITY: &str = "agent-session-login-settings-v1";
 /// Owner-only context inventory and cmux-added overrides on the attached session.
 pub const AGENT_SESSION_CONTEXT_CAPABILITY: &str = "agent-session-context-v1";
 /// `agent-session-btw`: the composer's `/btw <question>` on a Cloud chat, as acpmux's inline
@@ -665,6 +669,9 @@ fn login_request(session: Option<&str>, params: LoginParams) -> Option<(String, 
     };
     let (mut body, timeout) = match params.op.as_str() {
         "start" => (json!({"agent": agent()?}), CALL_TIMEOUT * 6),
+        "status" | "logout" if agent() == Some("claude") => {
+            (json!({"agent": "claude"}), CALL_TIMEOUT * 6)
+        }
         "finish" => {
             let login_id = text(&params.login_id)?;
             let body = match &params.code {
@@ -866,6 +873,9 @@ pub(crate) enum Refusal {
     UntrustedFolder,
     /// `agent-session-start`: this daemon runs on a team VM.
     TeamVmBlocked,
+    /// A personal model credential can be delivered only to the owner's own VM.
+    PersonalConnectionOnTeamVm,
+    ConnectionKeyRefused,
     /// `agent-session-start`: a Cloud VM daemon that cannot tell its kind.
     HostUnverified,
     /// `agent-session-trust`: a folder above the home folder.
@@ -915,6 +925,8 @@ impl Refusal {
             Self::NotAsking => "agent_session.not_asking",
             Self::UntrustedFolder => "agent_session.untrusted_folder",
             Self::TeamVmBlocked => "agent_session.team_vm_blocked",
+            Self::PersonalConnectionOnTeamVm => "agent_session.personal_connection_on_team_vm",
+            Self::ConnectionKeyRefused => "agent_session.connection_key_refused",
             Self::HostUnverified => "agent_session.host_unverified",
             Self::AboveHome => "agent_session.above_home",
             Self::HomeUnconfirmed => "agent_session.home_unconfirmed",
@@ -950,6 +962,8 @@ impl Refusal {
             Self::NotAsking => "this agent has no mode that asks before each action",
             Self::UntrustedFolder => "the folder is not trusted on this machine",
             Self::TeamVmBlocked => "agent chats cannot be started remotely on a team VM",
+            Self::PersonalConnectionOnTeamVm => "Personal connections run only on your own Cloud machine.",
+            Self::ConnectionKeyRefused => "The connection key was refused. Replace it in Settings > Models.",
             Self::HostUnverified => {
                 "this machine cannot tell whether it is a team VM, so it starts no remote chat"
             }
@@ -1045,6 +1059,29 @@ pub(super) fn try_handle(
     if cmd == "agent-session-folders" {
         return Some(folders(mux, client, id, object, writer));
     }
+    if cmd == "agent-session-login-settings" {
+        let Ok(params) = serde_json::from_value::<LoginParams>(Value::Object(object)) else {
+            return Some(refuse(writer, id, Refusal::BadRequest));
+        };
+        if author.is_some() || !mux.agent_carrier_allowed(client) || phone_sign_in(mux, client) {
+            return Some(refuse(writer, id, Refusal::NotTrusted));
+        }
+        let vm_kind = agent_session_start::vm_word(&params.vm_kind);
+        if vm_kind != Some("owner") || !mux.control_clients.agent_sessions.starts.owner_cloud(true)
+        {
+            return Some(ok(writer, id, json!({"refused": {"reason": "shared_machine"}})));
+        }
+        if let Err(refusal) = mux.agent_host_gate(client, vm_kind) {
+            return Some(refuse(writer, id, refusal));
+        }
+        if params.key.is_some() || !settings_login_step(&params) {
+            return Some(refuse(writer, id, Refusal::BadRequest));
+        }
+        let Some(socket) = mux.control_clients.agent_sessions.socket() else {
+            return Some(refuse(writer, id, Refusal::Unavailable));
+        };
+        return Some(run_machine_login(mux, id, socket, params, true, writer));
+    }
     let Some(command) = AgentSessionCommand::parse(&cmd, Value::Object(object)) else {
         return Some(refuse(writer, id, Refusal::BadRequest));
     };
@@ -1055,6 +1092,22 @@ pub(super) fn try_handle(
     let member = author.as_ref().is_some_and(proxy::is_member) && mux.is_native_team_member(client);
     if !mux.agent_carrier_allowed(client) && !mux.cloud_mobile_client(client) && !member {
         return Some(refuse(writer, id, Refusal::NotTrusted));
+    }
+    if let AgentSessionCommand::Login(params) = &command
+        && mux.control_clients.agent_sessions.starts.on_cloud_vm()
+    {
+        if phone_sign_in(mux, client) || !mux.agent_carrier_allowed(client) || author.is_some() {
+            return Some(refuse(writer, id, Refusal::NotTrusted));
+        }
+        if !mux.control_clients.agent_sessions.starts.owner_cloud(true) {
+            return Some(ok(writer, id, json!({"refused": {"reason": "shared_machine"}})));
+        }
+        if mux.is_remote_client(client)
+            && !(settings_login_step(params)
+                || (params.op == "api_key" && params.agent.as_deref() == Some("claude")))
+        {
+            return Some(refuse(writer, id, Refusal::BadRequest));
+        }
     }
     let sessions = &mux.control_clients.agent_sessions;
     let Some(socket) = sessions.socket() else {
@@ -1119,9 +1172,39 @@ fn machine_login(
     {
         return refuse(writer, id, refusal);
     }
-    let Some((method, body, timeout)) = login_request(None, params) else {
+    if matches!(params.op.as_str(), "status" | "logout") {
+        return refuse(writer, id, Refusal::BadRequest);
+    }
+    run_machine_login(mux, id, socket, params, false, writer)
+}
+
+fn phone_sign_in(mux: &Mux, client: u64) -> bool {
+    mux.cloud_mobile_client(client)
+        || mux.control_clients.supports_capability(client, CLOUD_MOBILE_CHAT_CAPABILITY)
+}
+
+fn settings_login_step(params: &LoginParams) -> bool {
+    match params.op.as_str() {
+        "start" | "status" | "logout" => params.agent.as_deref() == Some("claude"),
+        "finish" | "cancel" => params.agent.is_none(),
+        _ => false,
+    }
+}
+
+fn run_machine_login(
+    mux: &Arc<Mux>,
+    id: Option<Value>,
+    socket: PathBuf,
+    params: LoginParams,
+    from_settings: bool,
+    writer: &MessageWriter,
+) -> bool {
+    let Some((method, mut body, timeout)) = login_request(None, params) else {
         return refuse(writer, id, Refusal::BadRequest);
     };
+    if from_settings && method == "_acpmux/agent_login/start" {
+        body["reuseExisting"] = json!(true);
+    }
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
     let worker_id = id.clone();
@@ -1197,7 +1280,8 @@ fn start(
 #[serde(deny_unknown_fields)]
 struct CredentialsParams {
     surface: SurfaceId,
-    env: std::collections::BTreeMap<String, String>,
+    env: Option<std::collections::BTreeMap<String, String>>,
+    endpoint: Option<agent_session_start::StartEndpoint>,
     #[serde(default, deserialize_with = "crate::server::command_args::present_nullable")]
     vm_kind: Option<Option<String>>,
 }
@@ -1209,12 +1293,13 @@ fn credentials(
     params: serde_json::Map<String, Value>,
     writer: &MessageWriter,
 ) -> bool {
-    let CredentialsParams { surface, env, vm_kind } = match bad_field::decode(params) {
+    let CredentialsParams { surface, env, endpoint, vm_kind } = match bad_field::decode(params) {
         Ok(params) => params,
         Err(field) => return bad_field::refuse_field(writer, id, field.as_deref()),
     };
-    let credential = agent_session_start::StartCredentials { env };
-    if !credential.valid() {
+    let credential = env.map(|env| agent_session_start::StartCredentials { env, endpoint, connection: None });
+    // An empty environment is the owner withdrawing a credential from this tab.
+    if credential.as_ref().is_some_and(|c| !c.env.is_empty() && !c.valid()) {
         return bad_field::refuse_field(writer, id, Some("env"));
     }
     if !mux.agent_carrier_allowed(client) {
@@ -1243,7 +1328,8 @@ fn credentials(
     let spawned =
         std::thread::Builder::new().name("mux-agent-credentials".into()).spawn(move || {
             let answer = agent_session_start::connect(&worker_mux, &socket).and_then(|link| {
-                let params = json!({"sessionId": session, "env": credential.env});
+                let mut params = credential.as_ref().map_or_else(|| json!({}), |c| c.wire());
+                params["sessionId"] = json!(session);
                 // A restart waits for the agent's new process (spawn, initialize, resume).
                 let reply = link.call("agent/credentials.update", params, CREDENTIALS_TIMEOUT);
                 link.close();
@@ -1251,8 +1337,9 @@ fn credentials(
             });
             match answer {
                 Ok(reply) => {
-                    let restart = reply.get("restart").cloned().unwrap_or(Value::Null);
-                    ok(&worker_writer, worker_id, json!({"surface": surface, "restart": restart}))
+                    let mut reply = reply.as_object().cloned().unwrap_or_default();
+                    reply.insert("surface".into(), json!(surface));
+                    ok(&worker_writer, worker_id, Value::Object(reply))
                 }
                 Err(refusal) => refuse(&worker_writer, worker_id, refusal),
             };
@@ -2242,6 +2329,10 @@ impl Mux {
     /// acpmux socket path; without a starter a start needs acpmux running).
     pub(crate) fn serves_agent_session_start(&self) -> bool {
         self.serves_agent_session_attach()
+    }
+
+    pub(super) fn endpoint_start_harnesses(&self) -> &[&'static str] {
+        self.control_clients.agent_sessions.starts.endpoint_harnesses()
     }
 
     /// True when `agent-session-start` starts any agent here on the

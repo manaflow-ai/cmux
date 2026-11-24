@@ -9,6 +9,19 @@ import Testing
 @MainActor
 @Suite
 struct CloudAgentCredentialRefresherTests {
+    @Test func endpointReplyNamesTheMachineModelAndRedactsValues() throws {
+        let data = Data(#"""
+        {"family":"opencode","kind":"endpoint","harness":"opencode","model":"byo/org/second","env":{"CMUX_BYO_API_KEY":"fixture-secret"},
+        "endpoint":{"kind":"openai","baseUrl":"https://provider.example","models":["first","org/second"]}}
+        """#.utf8)
+        let credential = try #require(CloudAgentCredential(connectionID: "custom", reply: data))
+        #expect(credential.harness == "opencode")
+        #expect(credential.model == "byo/org/second")
+        #expect(!credential.debugDescription.contains("fixture-secret"))
+        #expect(!credential.debugDescription.contains("provider.example"))
+        #expect(Mirror(reflecting: credential).children.allSatisfy { $0.label != "endpoint" && $0.label != "env" })
+    }
+
     nonisolated static let base = Date(timeIntervalSince1970: 1_800_000_000)
 
     /// This Mac's acpmux as the test drives it: each read answers the next token, expiring an hour later.
@@ -99,8 +112,8 @@ struct CloudAgentCredentialRefresherTests {
     @Test func aTokenThatDoesNotExpireIsNotTracked() {
         let clock = ManualClock(), acpmux = Acpmux(clock: clock)
         let refresher = make(clock, acpmux)
-        let claude = CloudAgentCredential(connectionID: "c", family: "claude", kind: "claude-token",
-                                          env: ["CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-x"], expiresAt: nil)
+        let claude = CloudAgentCredential(connectionID: "c", family: "claude", kind: "api-key",
+                                          env: ["ANTHROPIC_API_KEY": "sk-ant-api03-x"], expiresAt: nil)
         #expect(refresher.track(claude, push: Machine().push) == nil)
         #expect(refresher.trackedCount == 0 && clock.sleeperCount == 0)
     }
@@ -125,6 +138,26 @@ struct CloudAgentCredentialRefresherTests {
         try await clock.waitForSleeper()
         #expect(machine.pushes.count == 2)
         #expect(clock.sleeperDeadlines.first.map { $0.offset > .seconds(3_120 + 600) } == true, "on the new token's schedule")
+    }
+
+    @Test func aRefusedRefreshNotifiesTheChatAndStopsRetrying() async throws {
+        let clock = ManualClock(), acpmux = Acpmux(clock: clock), machine = Machine()
+        let wall = Wall()
+        var notices = 0
+        var reads = 0
+        let refresher = CloudAgentCredentialRefresher(clock: clock,
+            now: { Self.base.addingTimeInterval(wall.offset) },
+            read: { _ in
+                reads += 1
+                throw CloudAgentCredentials.Failure.refused(reason: "chatgpt.reauth_required")
+            })
+        refresher.track(try started(acpmux), onReauth: { notices += 1 }, push: machine.push)
+        wall.offset = 3_000
+        await refresher.refresh("conn-1")
+        await refresher.refresh("conn-1")
+        #expect(reads == 1 && notices == 1)
+        #expect(refresher.trackedCount == 0)
+        #expect(machine.pushes.isEmpty)
     }
 
     @Test func aChatThatIsGoneIsNoLongerRefreshed() async throws {
@@ -155,13 +188,13 @@ struct CloudAgentCredentialRefresherTests {
         var asked: [String] = []
         let credentials = CloudAgentCredentials { id in
             asked.append(id)
-            return Data(#"{"family":"claude","kind":"claude-token","env":{"CLAUDE_CODE_OAUTH_TOKEN":"sk-ant-oat01-abc"},"expires_at":null}"#.utf8)
+            return Data(#"{"family":"claude","kind":"api-key","env":{"ANTHROPIC_API_KEY":"sk-ant-api03-abc"},"expires_at":null}"#.utf8)
         }
         #expect(try await credentials.launchCredential(chat: "tab-1", machine: "m1") == nil, "no choice: the machine's own route")
         credentials.use(connection: "route-claude", chat: "tab-1", machine: "m1")
         let launch = try #require(try await credentials.launchCredential(chat: "tab-1", machine: "m1"))
         #expect(asked == ["route-claude"])
-        #expect(launch.env == ["CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-abc"] && launch.family == "claude" && !launch.refreshes)
+        #expect(launch.env == ["ANTHROPIC_API_KEY": "sk-ant-api03-abc"] && launch.family == "claude" && !launch.refreshes)
         #expect(!String(describing: launch).contains("sk-ant") && !String(reflecting: launch).contains("sk-ant"))
         var dumped = ""
         dump(launch, to: &dumped)
@@ -189,15 +222,15 @@ struct CloudAgentCredentialRefresherTests {
         let credentials = CloudAgentCredentials { id in
             asked.append(id)
             if unreadable { return Data(#"{"error":"nope"}"#.utf8) }
-            return Data(#"{"family":"claude","kind":"claude-token","env":{"CLAUDE_CODE_OAUTH_TOKEN":"sk-ant-oat01-abc"},"expires_at":null}"#.utf8)
+            return Data(#"{"family":"claude","kind":"api-key","env":{"ANTHROPIC_API_KEY":"sk-ant-api03-abc"},"expires_at":null}"#.utf8)
         }
         #expect(try await credentials.launchCredential(chat: "cli-tab", machine: "m1", harness: "claude") == nil, "no rule set: the machine's own route")
         credentials.setup = CloudSetup(read: {
             CloudSetup.Snapshot(personal: [CloudSetup.Connection(id: "claude-login", families: ["claude"], servesCloud: false),
-                                           CloudSetup.Connection(id: "claude-token", families: ["claude"])], organization: nil)
+                                           CloudSetup.Connection(id: "anthropic-key", families: ["claude"])], organization: nil)
         })
         let launch = try #require(try await credentials.launchCredential(chat: "cli-tab", machine: "m1", harness: "claude", model: "opus"))
-        #expect(asked == ["claude-token"] && launch.env.keys.sorted() == ["CLAUDE_CODE_OAUTH_TOKEN"])
+        #expect(asked == ["anthropic-key"] && launch.env.keys.sorted() == ["ANTHROPIC_API_KEY"])
         #expect(try await credentials.launchCredential(chat: "cli-tab", machine: "m1", harness: "codex") == nil && asked.count == 1, "nothing serves codex: no read")
         unreadable = true
         #expect(try await credentials.launchCredential(chat: "cli-tab", machine: "m1", harness: "claude") == nil, "an unreadable pick is the machine's own route")
@@ -206,6 +239,44 @@ struct CloudAgentCredentialRefresherTests {
         credentials.use(connection: "route-claude", chat: "cli-tab", machine: "m1")
         _ = try await credentials.launchCredential(chat: "cli-tab", machine: "m1", harness: "claude")
         #expect(asked.last == "route-claude")
+    }
+
+    @Test func copilotRedeliversReplacementAndRevokesOnlyAfterAConfirmedRemoval() async throws {
+        let machine = Machine()
+        var listed: Set<String>? = ["copilot"]
+        var grant = "fixture-first"
+        let credentials = CloudAgentCredentials { _ in
+            try JSONSerialization.data(withJSONObject: ["family": "github-copilot", "kind": "copilot-plan",
+                                                       "env": ["CMUX_COPILOT_GITHUB_TOKEN": grant]])
+        }
+        credentials.readCredentialConnections = { listed }
+        let first = try await credentials.credential(forConnection: "copilot")
+        credentials.started(chat: "chat", machine: "guest", on: first, push: machine.push)
+        await credentials.keySync?.value
+        #expect(machine.pushes == [first.env])
+
+        listed = nil
+        credentials.credentialConnectionsChanged()
+        await credentials.keySync?.value
+        #expect(machine.pushes == [first.env])
+
+        listed = ["copilot"]
+        grant = "fixture-replacement"
+        credentials.credentialConnectionsChanged()
+        await credentials.keySync?.value
+        #expect(machine.pushes.last?["CMUX_COPILOT_GITHUB_TOKEN"] == grant)
+
+        listed = []
+        machine.answer = .failed
+        credentials.credentialConnectionsChanged()
+        await credentials.keySync?.value
+        #expect(machine.pushes.last == [:])
+        machine.answer = .delivered
+        credentials.credentialConnectionsChanged()
+        await credentials.keySync?.value
+        #expect(machine.pushes.count == 4 && machine.pushes.last == [:])
+        credentials.credentialConnectionsChanged()
+        #expect(credentials.keySync == nil)
     }
 
     /// The Cloud start hands its choice to the launch: a `.connection` names its id, every other choice
@@ -219,6 +290,5 @@ struct CloudAgentCredentialRefresherTests {
         #expect(credentials.connection(chat: "tab-9", machine: "m1") == "route-claude" && credentials.connection(chat: "planned", machine: "m1") == nil)
         credentials.move(chat: "none", to: "tab-9", machine: "m1")
         #expect(credentials.connection(chat: "tab-9", machine: "m1") == "route-claude", "no choice to move leaves the tab's own")
-        #expect(CloudSetup.Action.setUpClaude.settingsRow == "claude" && CloudSetup.Action.addKey.settingsRow == "apiKey" && CloudSetup.Action.openSettings.settingsRow == nil)
     }
 }

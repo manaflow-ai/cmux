@@ -56,12 +56,16 @@ final class ChiefBackendPageRoute: PageProvider {
         request.id = backend.id
         request.displayName = backend.name
         request.replace = backend.replace
+        request.editEndpoint = backend.editEndpoint
+        request.servesCloud = backend.servesCloud
         switch backend.kind {
         case .command(let command, let args):
             request.command = command
             request.args = args
         case .endpoint(let example, let baseURL, let model, let apiKey):
             request.example = example
+            request.endpointPreset = backend.endpointPreset
+            request.validateEndpoint = backend.validateEndpoint
             request.baseURL = baseURL
             request.model = model
             request.apiKey = apiKey
@@ -81,15 +85,37 @@ nonisolated struct BroughtChiefBackend: Equatable {
     var id, name: String
     var kind: Kind
     var replace = false
+    var editEndpoint: String?
+    var endpointPreset: String?
+    var servesCloud: Bool?
+    var validateEndpoint: Bool
 
     init(_ params: JSONValue) throws {
         let text = { (key: String) in params[key]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "" }
         name = text("name")
         guard !name.isEmpty else { throw PageError.invalidParams("name is required") }
-        id = Self.id(for: text("id").isEmpty ? name : text("id"))
+        let explicitID = text("id")
+        editEndpoint = params["edit"]?.stringValue
+        endpointPreset = params["preset"]?.stringValue
+        servesCloud = params["servesCloud"]?.boolValue
+        validateEndpoint = params["validateEndpoint"]?.boolValue ?? false
+        if params["edit"] != nil {
+            let isLetterOrDigit: (UInt8) -> Bool = { (97...122).contains($0) || (48...57).contains($0) }
+            guard let editEndpoint, editEndpoint.utf8.count == 64,
+                  editEndpoint.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }),
+                  let first = explicitID.utf8.first, isLetterOrDigit(first), explicitID.utf8.count <= 40,
+                  explicitID.utf8.allSatisfy({ isLetterOrDigit($0) || $0 == 45 }),
+                  params["replace"]?.stringValue == explicitID else {
+                throw PageError.invalidParams("edit needs an existing endpoint id")
+            }
+            id = explicitID
+        } else {
+            id = Self.id(for: explicitID.isEmpty ? name : explicitID)
+        }
         replace = params["replace"]?.stringValue == id
         switch text("kind") {
         case "command":
+            guard editEndpoint == nil else { throw PageError.invalidParams("edit needs an endpoint") }
             guard !text("command").isEmpty else { throw PageError.invalidParams("command is required") }
             kind = .command(text("command"), args: params["args"]?.arrayValue?.compactMap(\.stringValue) ?? [])
         case let example where example == "anthropic-endpoint" || example == "openai-endpoint":

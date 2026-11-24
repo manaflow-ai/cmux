@@ -1,3 +1,4 @@
+public import CmuxNextCloud
 import CmuxNextDictation
 public import CmuxNextDesign
 public import CmuxNextSettings
@@ -194,6 +195,12 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// up Claude, Add an API key, Open Settings), on its click. Runs that way in, waits for a
     /// connection serving `family`, and keeps the click for the start `key` like `cloud.signIn`.
     case cloudSetUp(key: String, action: String, family: String)
+    /// `cloud.setup.state`: per family a Cloud chat runs, whether a connection serves it now (``CloudSetup/served()``),
+    /// so a new chat's model picker shows Connect before any send. A read: no gesture, no secret.
+    case cloudSetupState(machine: String?)
+    /// `cloud.connect {family}`: the picker's Connect row opens Settings > Cloud > Cloud models on its click.
+    /// Unlike `cloud.setUp` it belongs to no start: it keeps no click and waits for nothing.
+    case cloudConnect(family: String)
     /// `cloud.signInCancel {expired?}`: the page stopped waiting on a `cloud.signIn` (it left Cloud,
     /// or its deadline passed); that sign-in keeps no click. `expired` also ends the browser sign-in.
     case cloudSignInCancel(expired: Bool)

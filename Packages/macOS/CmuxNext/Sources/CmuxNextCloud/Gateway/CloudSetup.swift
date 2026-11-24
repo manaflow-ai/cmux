@@ -8,8 +8,8 @@ import os
 /// the chat's Set up Cloud card, which starts the chat by itself once one appears (``waitUntilServed(family:)``).
 /// With none of those, a team in inference gateway mode whose gateway is online (``gateway``) serves the chat too.
 ///
-/// What it reads and how it connects are seams the App fills (``read``, ``run``): the Settings >
-/// Models ops own the connections; this holds only the rule and the wait. Every change to the
+/// What it reads and how it connects are seams the App fills (``read``, ``run``): the Settings > Cloud >
+/// Cloud models ops own the connections; this holds only the rule and the wait. Every change to the
 /// connections (an op that finished, `cmux.settings.models.changed`, acpmux's
 /// `_acpmux/connections.changed`) calls ``connectionsChanged()``.
 @MainActor
@@ -22,17 +22,53 @@ public final class CloudSetup {
         public var signedIn: Bool
         public var enabled: Bool
         public var servesCloud: Bool
+        public var canServeCloud: Bool
+        public var endpointProfile: Bool
+        public var endpointCredentials: Bool
+        public var launchHarness: String?
+        public var subscriptionCredentials: Bool
+        public var kind: String?
 
-        public init(id: String, families: [String], signedIn: Bool = true, enabled: Bool = true, servesCloud: Bool = true) {
+        public init(id: String, families: [String], signedIn: Bool = true, enabled: Bool = true, servesCloud: Bool = true, canServeCloud: Bool? = nil,
+                    endpointProfile: Bool = false, endpointCredentials: Bool = false, launchHarness: String? = nil, subscriptionCredentials: Bool = false, kind: String? = nil) {
             (self.id, self.families, self.signedIn, self.enabled, self.servesCloud) = (id, families, signedIn, enabled, servesCloud)
+            self.canServeCloud = canServeCloud ?? servesCloud
+            (self.endpointProfile, self.endpointCredentials) = (endpointProfile, endpointCredentials)
+            self.launchHarness = launchHarness
+            self.subscriptionCredentials = subscriptionCredentials
+            self.kind = kind
         }
 
         /// A `Connection` object of `_acpmux/connections`; nil for anything without an id.
         public init?(json: [String: Any]) {
-            guard let id = json["id"] as? String, !id.isEmpty else { return nil }
-            self.init(id: id, families: (json["families"] as? [Any])?.compactMap { $0 as? String } ?? [],
+            guard let id = json["id"] as? String, !id.isEmpty, json["kind"] as? String != "claude-token" else { return nil }
+            self.init(id: id, families: json["cloud_families"] as? [String] ?? json["families"] as? [String] ?? [],
                       signedIn: json["signed_in"] as? Bool ?? true, enabled: json["enabled"] as? Bool ?? true,
-                      servesCloud: json["serves_cloud"] as? Bool ?? true)
+                      servesCloud: json["serves_cloud"] as? Bool ?? true,
+                      canServeCloud: json["can_serve_cloud"] as? Bool,
+                      endpointProfile: json["kind"] as? String == "endpoint",
+                      endpointCredentials: json["endpoint_credentials"] as? Bool == true, launchHarness: json["launch_harness"] as? String,
+                      subscriptionCredentials: ["grok-plan", "copilot-plan"].contains(json["kind"] as? String ?? ""),
+                      kind: json["kind"] as? String)
+        }
+    }
+
+    /// Why a family with a known readiness answer has no usable Cloud connection.
+    public enum ConnectionReason: String, Sendable {
+        case none, signedOut, off, cloudOff
+    }
+
+    /// Picker readiness, including reasons only for families known to be disconnected.
+    public struct Readiness: Sendable {
+        public var families: [String: Bool]
+        public var reasons: [String: ConnectionReason]
+        public var servedHarnesses: [String]
+        public var pendingHarnesses: [String]
+        public var unavailableEndpointHarnesses: [String]
+
+        public init(families: [String: Bool] = [:], reasons: [String: ConnectionReason] = [:], servedHarnesses: [String] = [], pendingHarnesses: [String] = [], unavailableEndpointHarnesses: [String] = []) {
+            (self.families, self.reasons) = (families, reasons)
+            (self.servedHarnesses, self.pendingHarnesses, self.unavailableEndpointHarnesses) = (servedHarnesses, pendingHarnesses, unavailableEndpointHarnesses)
         }
     }
 
@@ -54,9 +90,8 @@ public final class CloudSetup {
 
         /// The connection a Cloud chat on `family` uses (Revision 2): the picker's `account` when it
         /// serves Cloud for that family, else the first enabled Cloud-serving one of that family in
-        /// the daemon's order, else the organization's shared key. With this Mac's connections unread
-        /// (no daemon, an acpmux before `_acpmux/connections`) and no shared key the answer is
-        /// ``Choice/fallback``: the chat starts as before.
+        /// the daemon's order, else the organization's shared key. When this Mac's connections
+        /// are unread and there is no shared key, ``Choice/fallback`` represents unknown readiness.
         public func choice(family: String, model: String?, account: String?) -> Choice {
             if let personal {
                 let serving = personal.filter { $0.enabled && $0.signedIn && $0.servesCloud && $0.families.contains(family) }
@@ -74,6 +109,14 @@ public final class CloudSetup {
             case .fallback: nil
             }
         }
+
+        fileprivate func connectionReason(for family: String) -> ConnectionReason {
+            let matching = personal?.filter { $0.families.contains(family) } ?? []
+            if matching.contains(where: { $0.canServeCloud && !$0.servesCloud && $0.enabled && $0.signedIn }) { return .cloudOff }
+            if matching.contains(where: { $0.servesCloud && $0.enabled && !$0.signedIn }) { return .signedOut }
+            if matching.contains(where: { $0.servesCloud && !$0.enabled }) { return .off }
+            return .none
+        }
     }
 
     /// The connection one Cloud start runs on (``choose(harness:model:account:)``).
@@ -88,8 +131,7 @@ public final class CloudSetup {
         case gateway(family: String)
         /// Nothing serves `family`: the chat shows Set up Cloud naming `model`, and nothing starts.
         case setup(family: String, model: String?)
-        /// Nothing to choose (an agent Cloud does not serve, or connections that could not be read):
-        /// the chat starts as before, on the machine's own path.
+        /// The snapshot has unknown readiness.
         case fallback
 
         /// This Mac's connection whose credential the chat's agent launch carries; nil for every other choice.
@@ -102,8 +144,11 @@ public final class CloudSetup {
     /// The families a Cloud chat runs (the picker's agent, as the gateway names them).
     public nonisolated static let families = ["claude", "codex"]
 
-    /// The family of the picker's agent (`claude`, `codex`, or a harness profile named after one);
-    /// nil for an agent Cloud's gateway does not serve, which the rule never holds back.
+    public nonisolated static let setupFamilies = families + nativeHarnesses.keys.sorted()
+
+    private nonisolated static let nativeHarnesses = ["gemini": "gemini", "grok": "grok", "github-copilot": "opencode", "openrouter": "opencode"]
+
+    /// The gateway family of the picker's Claude or Codex profile.
     public nonisolated static func family(of harness: String?) -> String? {
         let name = (harness ?? "claude").lowercased()
         return families.first { name == $0 || name.hasPrefix($0 + "-") || name.hasPrefix($0 + ":") }
@@ -111,22 +156,22 @@ public final class CloudSetup {
 
     /// The decision for one start.
     public enum Decision: Equatable, Sendable {
-        /// A connection serves the picker's model (or nothing could be read): start with no prompt.
+        /// A connection serves the picker's model.
         case start
         /// Nothing serves `family`: the chat shows Set up Cloud naming `model`.
         case setup(family: String, model: String?)
     }
 
-    /// The card's ways in (`cloud.setUp {action}`), the Settings > Models ops they run.
+    /// The setup actions accepted by `cloud.setUp`. Each opens its family in Settings > Cloud > Cloud models.
     public enum Action: String, Sendable, CaseIterable {
         case connectChatGPT, setUpClaude, addKey, openSettings
 
-        /// The Settings > Cloud row this action opens on (Models for Cloud); nil opens the page.
+        /// Legacy row identifiers understood by existing Settings links.
         public var settingsRow: String? {
             switch self {
-            case .setUpClaude: "claude"
-            case .connectChatGPT: "chatgpt"
-            case .addKey: "apiKey"
+            case .connectChatGPT: "cloud.chatgpt"
+            case .setUpClaude: "cloud.claude"
+            case .addKey: "cloud.apiKey"
             case .openSettings: nil
             }
         }
@@ -139,14 +184,27 @@ public final class CloudSetup {
         }
     }
 
-    /// Reads what serves Cloud now; nil leaves every start as it was.
+    /// Cloud setup also accepts named harness profiles such as `providers/deepseek`.
+    public nonisolated static func isSetupFamily(_ value: String) -> Bool {
+        (1...128).contains(value.utf8.count)
+            && value.split(separator: "/", omittingEmptySubsequences: false).allSatisfy { isConnectionID(String($0)) }
+    }
+
+    /// Reads what serves Cloud now.
     public var read: (@MainActor () async -> Snapshot)?
     /// The families the inference gateway of the team the start's machines are made in (the install's own) serves now (`cmux inference gateway status`'s `serves`), nil
     /// when unread. Read only when nothing else serves the chat, so a start that has a connection pays nothing for it.
     public var gateway: (@MainActor () async -> Set<String>?)?
-    /// Runs one of the card's ways in (Settings > Models' `cmux.settings.models.run` actions
-    /// `connectChatGPT`, `claudeSetupToken`; `addKey` and `openSettings` open Settings > Models).
-    public var run: (@MainActor (Action) async -> Void)?
+    /// Opens Settings > Cloud > Cloud models for the card's action and family while the send waits.
+    public var run: (@MainActor (Action, String) async -> Void)?
+    /// Reads confirmed endpoint harnesses on a machine named by the picker.
+    public var machineHarnesses: (@MainActor (String) -> Set<String>?)?
+    /// Reads confirmed runners that accept subscription credentials.
+    public var machineSubscriptionHarnesses: (@MainActor (String) -> Set<String>?)?
+    /// The owner's Claude chat can start before Claude Code has a login on its machine.
+    public var canSignInToClaudeOnMachine: (@MainActor (String?) async -> Bool)?
+    /// Opens Settings > Cloud > Cloud models for the family selected in the picker.
+    public var openConnectionSettings: (@MainActor (String) -> Void)?
 
     /// One wait's wake: fired once, by a change or by its task's cancel, whichever comes first.
     private final class Wake: Sendable {
@@ -175,7 +233,7 @@ public final class CloudSetup {
     /// Bumped by every ``connectionsChanged()``: a wait whose read began before one reads again.
     private var changes = 0
 
-    public init(read: (@MainActor () async -> Snapshot)? = nil, run: (@MainActor (Action) async -> Void)? = nil) {
+    public init(read: (@MainActor () async -> Snapshot)? = nil, run: (@MainActor (Action, String) async -> Void)? = nil) {
         (self.read, self.run) = (read, run)
     }
 
@@ -183,10 +241,25 @@ public final class CloudSetup {
     /// (app-to-machine credential delivery) reads ``Choice/connection(id:family:)``'s credential and
     /// sends it with the agent launch; ``Choice/setup(family:model:)`` shows the card instead.
     public func choose(harness: String?, model: String?, account: String?) async -> Choice {
-        guard let family = Self.family(of: harness), let read else { return .fallback }
-        let choice = await routed(read()).choice(family: family, model: model, account: account)
+        let snapshot = routed(await read?() ?? .init(personal: nil, organization: nil))
+        if let profile = snapshot.personal?.first(where: { $0.endpointProfile && $0.id == harness }) {
+            guard snapshot.serves(profile.id) == true else { return .setup(family: profile.id, model: model) }
+            return snapshot.choice(family: profile.id, model: model, account: profile.id)
+        }
+        let name = harness ?? "claude"
+        let normalized = name.lowercased()
+        guard let family = Self.family(of: harness) ?? (Self.nativeHarnesses[normalized] == nil ? nil : normalized)
+        else { return .fallback }
+        let choice = snapshot.choice(family: family, model: model, account: account)
         guard case .setup = choice, await gatewayServes(family) else { return choice }
         return .gateway(family: family)
+    }
+
+    /// Whether the chosen connection needs the endpoint credential capability.
+    public func launchConnection(_ connection: String?) async -> Connection? {
+        guard let connection, let read else { return nil }
+        let snapshot = await read()
+        return snapshot.personal?.first(where: { $0.id == connection })
     }
 
     /// Whether the gateway of the team the machine is made in serves `family` now (``gateway``); false when it is unread, or when a start on it
@@ -234,6 +307,68 @@ public final class CloudSetup {
         return snapshot
     }
 
+    /// Per family a Cloud chat runs (``families``), whether a connection serves it now, from the same read a start
+    /// makes (``Snapshot/serves(_:)``, without unrouted organization keys). A family the read could not decide is
+    /// left out: "not served" needs both this Mac's connections and the team's keys read (a team key read that was
+    /// still loading must not show Connect for a family the team serves). With no reader the answer is empty, and
+    /// the picker shows nothing (`cloud.setup.state`).
+    public func served(machine: String? = nil) async -> Readiness {
+        guard let read else { return .init() }
+        let snapshot = routed(await read())
+        let nativeClaude = if snapshot.serves("claude") == true { false }
+            else { await canSignInToClaudeOnMachine?(machine) == true }
+        let profiles = snapshot.personal?.filter(\.endpointProfile) ?? []
+        let usable = profiles.filter { $0.enabled && $0.signedIn && $0.servesCloud }
+        let endpointRunners = machine.flatMap { machineHarnesses?($0) }
+        let subscriptionRunners = machine.flatMap { machineSubscriptionHarnesses?($0) }
+        func runners(for connection: Connection?) -> Set<String>? {
+            connection?.subscriptionCredentials == true ? subscriptionRunners : endpointRunners
+        }
+        func chosenConnection(_ family: String) -> Connection? {
+            guard let id = snapshot.choice(family: family, model: nil, account: nil).connectionID else { return nil }
+            return snapshot.personal?.first { $0.id == id }
+        }
+        let configured = usable.compactMap { row in row.launchHarness.map { (id: row.id, runner: $0, confirmed: runners(for: row)) } }
+            + Self.nativeHarnesses.filter { snapshot.serves($0.key) == true }
+                .map { (id: $0.key, runner: $0.value, confirmed: runners(for: chosenConnection($0.key))) }
+        let served = Array(Set(configured.filter { $0.confirmed?.contains($0.runner) == true }.map(\.id))).sorted()
+        let pending = Array(Set(configured.filter { $0.confirmed == nil }.map(\.id))).sorted()
+        let unavailable = (profiles.map(\.id) + configured.map(\.id)).filter { !served.contains($0) && !pending.contains($0) }
+        let gatewayCandidates = Self.families.filter { snapshot.serves($0) == false && !unroutedGateway.contains($0) }
+        let gatewayFamilies = gatewayCandidates.isEmpty ? nil : await gateway?()
+        return (Self.families + Self.nativeHarnesses.keys.sorted()).reduce(into: Readiness(servedHarnesses: served, pendingHarnesses: pending, unavailableEndpointHarnesses: Array(Set(unavailable)).sorted())) { state, family in
+            let connection = chosenConnection(family)
+            let confirmed = runners(for: connection)
+            if let runner = Self.nativeHarnesses[family] {
+                guard confirmed?.contains(runner) == true else { return }
+                if let serves = snapshot.serves(family) {
+                    state.families[family] = serves
+                    if !serves { state.reasons[family] = snapshot.connectionReason(for: family) }
+                }
+                return
+            }
+            if let connection,
+               connection.endpointCredentials, confirmed?.contains(connection.launchHarness ?? family) != true {
+                if confirmed == nil { state.pendingHarnesses.append(family) }
+                else { state.unavailableEndpointHarnesses.append(family) }
+                return
+            }
+            if gatewayFamilies?.contains(family) == true && gatewayCandidates.contains(family) {
+                state.families[family] = true
+                return
+            }
+            guard let serves = snapshot.serves(family), serves || snapshot.organization != nil else { return }
+            if family == "claude", !serves, nativeClaude { return }
+            state.families[family] = serves
+            if !serves { state.reasons[family] = snapshot.connectionReason(for: family) }
+        }
+    }
+
+    /// The picker's Connect shows the family's Settings destination.
+    public func connect(family: String) {
+        openConnectionSettings?(family)
+    }
+
     /// The decision for a start on `harness` and `model` (``choose(harness:model:account:)``).
     public func decide(harness: String?, model: String?) async -> Decision {
         guard let refused = await refusal(harness: harness, model: model) else { return .start }
@@ -272,7 +407,7 @@ public final class CloudSetup {
     /// Waits until a connection serves `family`, checking at each ``connectionsChanged()``; false
     /// when the waiting task is cancelled (the page withdrew, the pane closed).
     public func waitUntilServed(family: String) async -> Bool {
-        guard let read else { return true } // nothing to read: every start goes as before
+        guard let read else { return false }
         guard !Task.isCancelled else { return false }
         let seen = changes
         if await routed(read()).serves(family) != false { return true }
@@ -295,7 +430,7 @@ public final class CloudSetup {
 
     /// Runs the card's `action`, then waits for a connection serving `family` (``waitUntilServed(family:)``).
     public func setUp(_ action: Action, family: String) async -> Bool {
-        await run?(action)
+        await run?(action, family)
         connectionsChanged()
         return await waitUntilServed(family: family)
     }

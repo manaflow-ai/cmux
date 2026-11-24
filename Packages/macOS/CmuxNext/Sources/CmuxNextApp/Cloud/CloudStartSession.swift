@@ -253,7 +253,17 @@ struct CloudStartSession {
         let copy: (chat: String, trusted: Bool)? = try await RemoteApprovalPreparations.owned({ [services] in await services.cloud.restartWithApprovalsIfIdle(session, made ? .daemonSaidSafe : .checkStatus) { account == services.cloud.account } }) {
             let folder = try await copiedIfAsked(request, to: session, account: account); steps.done("copy"); return folder // before the session starts in it
         }, cwd = copy?.chat ?? request.cwd
-        try still(name); steps.done("approvals"); let credential = await services.cloud.setup.choose(harness: agent, model: request.model, account: nil).connectionID; if credential != nil { await CloudOutdatedMachine.updateBeforeUsingCapability(holds: { session.daemon.supports(AgentSessionAttachClient.credentialsCapability(harness: agent)) }, update: { [services] in await CloudMachineUpdates.updateNow(id, services: services) }) } // remote approvals on (an idle daemon only), awaited on every exit: the gate is never released under them; then, as the composer's start, an older daemon that would drop the owner's model credential is updated first
+        try still(name)
+        steps.done("approvals")
+        let choice = await services.cloud.setup.choose(harness: agent, model: request.model, account: nil)
+        if let connection = await services.cloud.setup.launchConnection(choice.connectionID) {
+            let capability = AgentSessionAttachClient.credentialsCapability(harness: agent, endpoint: connection.endpointCredentials,
+                                                                                 subscription: connection.subscriptionCredentials)
+            await CloudOutdatedMachine.updateBeforeUsingCapability(
+                holds: { session.daemon.supports(capability) },
+                update: { [services] in await CloudMachineUpdates.updateNow(id, services: services) }
+            )
+        }
         guard let host = AgentTabStore.registryHost(of: session.daemon) else {
             throw ActionFailure(message: CloudStartSessionStrings.notConnected(name, id: id, agent: agent))
         }
@@ -369,6 +379,7 @@ struct CloudStartSession {
         if let refusal = error as? AgentRemoteStartRefusal {
             switch refusal.code {
             case AgentRemoteStartRefusal.folderNeededCode, "agent_session.home_unconfirmed", "agent_session.above_home": return CloudStartSessionStrings.needsFolder(name, id: id, agent: agent)
+            case AgentRemoteStartRefusal.connectionKeyRefusedCode: return refusal.userMessage
             case let code where CloudStartSessionStrings.namedRefusals.contains(code): return CloudStartSessionStrings.namedRefusal(code, name, id: id, agent: agent, agentName: refusal.agentName ?? agent.chiefHarnessName, expired: refusal.signInExpired, harness: refusal.harness ?? agent) // never "its agent didn't (agent_session.refused)" (hq#11225)
             default:
                 return CloudStartSessionStrings.agentFailed(name, id: id, agent: agent, reason: CloudStartCore.reason(refusal.userMessage))
@@ -438,16 +449,26 @@ struct CloudStartSession {
     /// The machine connected with its store's id: a paused one resumes, a new one comes up. Nothing
     /// here waits on a client snapshot (hq#4381): the machine's own acpmux keeps its sessions.
     private func connected(_ session: CloudMachineSession, _ request: Request, account: [String?], byPerson: Bool) async throws {
-        let failure = { ActionFailure(message: CloudStartSessionStrings.notConnected(session.machine.title, id: session.machineID, agent: request.agent)) }
+        try await connected(session, byPerson: byPerson, checking: {
+            try Self.checked(account, now: services.cloud.account, request.asked(machine: session.machine.title))
+        }, failure: ActionFailure(message: CloudStartSessionStrings.notConnected(session.machine.title, id: session.machineID, agent: request.agent)))
+    }
+
+    /// Prepares the same live daemon link for a Cloud chat or Settings sign-in.
+    func connected(_ session: CloudMachineSession, byPerson: Bool, checking check: () throws -> Void,
+                   failure: @autoclosure () -> any Error) async throws {
         let steps = CloudStartSteps(logger: services.cloud.logger)
+        try check()
         // A machine that is resuming is waited for (within the start's own connect wait), never refused at once.
         try await CloudHandlers.requireAttachableState(session, waitingOutResume: Self.connectWait)
+        try check()
         steps.done("connect.ready") // a resuming machine's resume
         if session.daemon.connection == nil {
             await session.refreshIfMaybePaused()
+            try check()
             try await CloudHandlers.requireAttachableState(session, waitingOutResume: Self.connectWait)
             // The resume or connect below changes the machine: only for the account that asked.
-            try Self.checked(account, now: services.cloud.account, request.asked(machine: session.machine.title))
+            try check()
             let origin: CloudLinkOrigin = byPerson ? .user : .script
             if session.machine.status == .paused { session.attach(origin: origin) } else { session.connect(origin: origin) }
             steps.done("connect.resume") // a paused machine's state read and its resume or connect asked
@@ -459,7 +480,7 @@ struct CloudStartSession {
         } && session.linkHeld()
         steps.done("connect.link") // the relay link up and held
         // A sign-out, team switch or cancellation during the wait is that, not a machine that didn't connect.
-        try Self.checked(account, now: services.cloud.account, request.asked(machine: session.machine.title))
+        try check()
         guard up else { throw failure() }
     }
 

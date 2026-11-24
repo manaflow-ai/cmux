@@ -169,6 +169,7 @@ async fn start_adopted(spec: &SpawnSpec, adopt: Adopt) -> Result<Started> {
         host_level: HOST_LEVEL,
         // A replacement host is the holder of the harness it took over.
         holder: Some(true),
+        local_chatgpt_expiry: spec.local_chatgpt_expiry,
     };
     write_record_atomic(&record_path(&spec.hosts_dir, &spec.session_id), &record)?;
     cleanup.paths.clear();
@@ -256,6 +257,7 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
         claude_translator: spec.translator.is_some(),
         host_level: HOST_LEVEL,
         holder: Some(holder.is_some()),
+        local_chatgpt_expiry: spec.local_chatgpt_expiry,
     };
     if let Err(e) = write_record_atomic(&record_path(&spec.hosts_dir, &spec.session_id), &record) {
         if let Some(pg) = child.id() {
@@ -417,6 +419,7 @@ struct Retained {
 struct State {
     record: HostRecord,
     spec: SpawnSpec,
+    launch_key_index: Option<usize>,
     /// Retained entries as their encoded frames: encoded once in `push`, sent as is
     /// (live and on resume), weighed by their size.
     entries: VecDeque<Retained>,
@@ -703,13 +706,22 @@ impl Started {
         {
             let tx = events_tx.clone();
             let alive = leader_alive.clone();
+            let scratch = spec.copilot_scratch.as_ref().map(|scratch| scratch.path.clone());
+            let session = spec.session_id.clone();
+            let home = spec.hosts_dir.parent().map(Path::to_owned);
             tokio::spawn(async move {
+                let clean = || {
+                    if let (Some(path), Some(home)) = (&scratch, &home) {
+                        crate::agent::copilot_auth::remove_host_launch(home, &session, path);
+                    }
+                };
                 let mut child = match exit {
                     HarnessExit::Child(child) => child,
                     // No child of this host: its exit status is not known here, and its leader
                     // is reaped by another, so its group is not proven ours once it exited.
                     HarnessExit::Watch(watch) => {
                         watch.exited().await;
+                        clean();
                         alive.store(false, std::sync::atomic::Ordering::SeqCst);
                         let _ = tx.send(Event::Exited(None)).await;
                         return;
@@ -727,6 +739,7 @@ impl Started {
                     unsafe { libc::killpg(pg, libc::SIGKILL) };
                 }
                 let code = child.wait().await.ok().and_then(|s| s.code());
+                clean();
                 // Reaped: from here the group id may be freed; nobody may
                 // signal it on the strength of the leader being alive.
                 alive.store(false, std::sync::atomic::Ordering::SeqCst);
@@ -809,6 +822,7 @@ impl Started {
         let (start_h, start_out_id) = resumed_at.map_or((0, 0), |a| (a.last_h, a.max_out_id));
         let mut state = State {
             record,
+            launch_key_index: spec.launch_key_index(),
             spec,
             entries: VecDeque::new(),
             weight: 0,
@@ -1072,6 +1086,55 @@ fn over_frame_limit_note(h: u64) -> Entry {
     Entry::Err { line: format!("[entry {h} over the frame limit dropped]") }
 }
 
+fn redact_launch_key(entry: &mut Entry, key: &str) {
+    fn redact_text(text: &mut String, key: &str) {
+        if text.contains(key) {
+            *text = text.replace(key, "[redacted]");
+        }
+    }
+
+    fn redact_json(value: &mut Value, key: &str) {
+        match value {
+            Value::String(text) => redact_text(text, key),
+            Value::Array(items) => items.iter_mut().for_each(|item| redact_json(item, key)),
+            Value::Object(fields) => {
+                if fields.keys().any(|name| name.contains(key)) {
+                    *fields = std::mem::take(fields)
+                        .into_iter()
+                        .map(|(name, value)| {
+                            (crate::agent_credentials::redact_line(name, Some(key)), value)
+                        })
+                        .collect();
+                }
+                fields.values_mut().for_each(|value| redact_json(value, key));
+            }
+            _ => {}
+        }
+    }
+
+    match entry {
+        Entry::Tap { msg, .. } | Entry::In { msg } => redact_json(msg, key),
+        Entry::Err { line } => redact_text(line, key),
+        Entry::Exit { .. } => {}
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn endpoint_launch_credentials_are_redacted_from_host_entries() {
+    let token = "fixture-provider-key";
+    let mut line = Entry::Err { line: format!("provider refused {token}") };
+    let mut event = Entry::In {
+        msg: serde_json::json!({"params": {"text": token, token: "provider metadata"}}),
+    };
+    for entry in [&mut line, &mut event] {
+        redact_launch_key(entry, token);
+        let json = serde_json::to_string(entry).unwrap();
+        assert!(!json.contains(token));
+        assert!(json.contains("[redacted]"));
+    }
+}
+
 impl State {
     /// Note the processes under this host before its harness group is
     /// ended, while the harness still parents what it moved out of it.
@@ -1106,7 +1169,10 @@ impl State {
     }
 
     /// [`Self::push`], carrying ring offset `o` (`custody.rs`).
-    fn push_at(&mut self, entry: Entry, o: Option<u64>) {
+    fn push_at(&mut self, mut entry: Entry, o: Option<u64>) {
+        if let Some(key) = self.spec.launch_key(self.launch_key_index) {
+            redact_launch_key(&mut entry, key);
+        }
         self.orphan.note_entry(&entry);
         let h = self.next_h + 1;
         // One serialization per entry: the bytes are sent and kept (perf100: the entry was

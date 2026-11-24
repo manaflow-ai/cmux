@@ -131,9 +131,24 @@ pub const AGENT_SESSION_START_CREDENTIALS_CAPABILITY: &str = "agent-session-star
 pub const AGENT_SESSION_START_CODEX_CREDENTIALS_CAPABILITY: &str =
     "agent-session-start-codex-credentials-v1";
 
+/// Supports the Revision 3 endpoint launch credential.
+pub const AGENT_SESSION_START_ENDPOINT_CREDENTIALS_CAPABILITY: &str =
+    "agent-session-start-endpoint-credentials-v1";
+
+/// The owner link carries SuperGrok and GitHub Copilot credentials.
+pub const AGENT_SESSION_START_SUBSCRIPTION_CREDENTIALS_CAPABILITY: &str =
+    "agent-session-start-subscription-credentials-v1";
+
+pub(in crate::server) const CREDENTIAL_REATTACH_CAPABILITY: &str = "agent-session-credential-reattach-v1";
+
 /// The names a credential may set (acpmux `agent_credentials::NAMES`).
-const CREDENTIAL_NAMES: [&str; 4] =
-    ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "CMUX_CHATGPT_ACCESS_TOKEN"];
+const CREDENTIAL_NAMES: &[&str] = &[
+    "ANTHROPIC_API_KEY",
+    "OPENAI_API_KEY",
+    "CMUX_CHATGPT_ACCESS_TOKEN",
+    "CMUX_GROK_PLAN_ACCESS_TOKEN",
+    "CMUX_COPILOT_GITHUB_TOKEN",
+];
 const MAX_CREDENTIAL_BYTES: usize = 16 * 1024;
 
 /// A launch credential as the caller sends it. Never printed: no `Debug`.
@@ -141,21 +156,62 @@ const MAX_CREDENTIAL_BYTES: usize = 16 * 1024;
 #[serde(deny_unknown_fields)]
 pub(super) struct StartCredentials {
     pub(super) env: std::collections::BTreeMap<String, String>,
+    pub(super) endpoint: Option<StartEndpoint>,
+    pub(super) connection: Option<String>,
+}
+
+/// Endpoint metadata, bounded here and checked by acpmux before launch.
+#[derive(Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(super) struct StartEndpoint {
+    kind: EndpointKind,
+    base_url: String,
+    models: Vec<String>,
+}
+
+#[derive(Deserialize, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+enum EndpointKind {
+    Anthropic,
+    OpenAi,
 }
 
 impl StartCredentials {
-    /// One known name, a token-shaped value (acpmux checks the same again).
     pub(super) fn valid(&self) -> bool {
-        self.env.len() == 1
+        self.connection.as_deref().is_none_or(|id| {
+            (1..=64).contains(&id.len())
+                && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+                && !self.env.values().any(|value| id == value.as_str() || (value.len() >= 6 && id.contains(value.as_str())))
+        }) && self.env.len() == 1
             && self.env.iter().all(|(name, value)| {
-                CREDENTIAL_NAMES.contains(&name.as_str())
+                let known = match &self.endpoint {
+                    None => {
+                        CREDENTIAL_NAMES.contains(&name.as_str())
+                            || matches!(name.as_str(), "GEMINI_API_KEY" | "GOOGLE_API_KEY" | "XAI_API_KEY")
+                    }
+                    Some(endpoint) => {
+                        let expected = match endpoint.kind {
+                            EndpointKind::Anthropic => "ANTHROPIC_AUTH_TOKEN",
+                            EndpointKind::OpenAi => "CMUX_BYO_API_KEY",
+                        };
+                        name == expected
+                            && endpoint.base_url.starts_with("https://")
+                            && endpoint.base_url.len() <= 2048
+                            && (1..=100).contains(&endpoint.models.len())
+                            && endpoint.models.iter().all(|model| (1..=200).contains(&model.len()))
+                    }
+                };
+                known
                     && (1..=MAX_CREDENTIAL_BYTES).contains(&value.len())
                     && value.bytes().all(|b| b.is_ascii_alphanumeric() || b"-._~+/=:".contains(&b))
             })
     }
 
     pub(super) fn wire(&self) -> Value {
-        json!({"env": self.env})
+        let mut wire = json!({"env": self.env});
+        if let Some(endpoint) = &self.endpoint { wire["endpoint"] = json!(endpoint); }
+        if let Some(connection) = &self.connection { wire["connection"] = json!(connection); }
+        wire
     }
 }
 
@@ -243,9 +299,32 @@ pub type AgentStartHostSource = Arc<dyn Fn() -> AgentStartHost + Send + Sync>;
 pub(crate) struct AgentSessionStarts {
     starter: Mutex<Option<AcpmuxStarter>>,
     host: Mutex<Option<AgentStartHostSource>>,
+    endpoint_harnesses: std::sync::OnceLock<Vec<&'static str>>,
     /// One acpmux start at a time; the others connect after it.
     start_lock: Mutex<()>,
     starting: Mutex<HashSet<SurfaceId>>,
+}
+
+fn installed_endpoint_harnesses() -> Vec<&'static str> {
+    use std::os::unix::fs::PermissionsExt;
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    [
+        ("claude", "agent-session-start-endpoint-harness:claude"),
+        ("opencode", "agent-session-start-endpoint-harness:opencode"),
+        ("gemini", "agent-session-start-endpoint-harness:gemini"),
+        ("grok", "agent-session-start-endpoint-harness:grok"),
+    ]
+    .into_iter()
+    .filter_map(|(harness, capability)| {
+        std::env::split_paths(&path)
+            .any(|dir| {
+                std::fs::metadata(dir.join(harness)).is_ok_and(|metadata| {
+                    metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
+                })
+            })
+            .then_some(capability)
+    })
+    .collect()
 }
 
 impl AgentSessionStarts {
@@ -254,7 +333,14 @@ impl AgentSessionStarts {
     }
 
     pub(crate) fn set_host(&self, host: AgentStartHostSource) {
+        if matches!(host(), AgentStartHost::OwnerCloud | AgentStartHost::UnknownCloud) {
+            self.endpoint_harnesses.get_or_init(installed_endpoint_harnesses);
+        }
         *self.host.lock().unwrap_or_else(|e| e.into_inner()) = Some(host);
+    }
+
+    pub(super) fn endpoint_harnesses(&self) -> &[&'static str] {
+        self.endpoint_harnesses.get().map_or(&[], Vec::as_slice)
     }
 
     /// Ok on an allowed host; the refusal otherwise (also when unset). The
@@ -290,6 +376,11 @@ impl AgentSessionStarts {
                 source.map(|read| read()),
                 Some(AgentStartHost::OwnerCloud | AgentStartHost::UnknownCloud)
             )
+    }
+
+    fn is_team_vm(&self) -> bool {
+        let source = self.host.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        matches!(source.map(|read| read()), Some(AgentStartHost::TeamVm))
     }
 
     /// Whether this machine is a Cloud VM of any kind (a team VM included), as
@@ -437,14 +528,22 @@ impl StartParams {
                 && instance.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.:-".contains(&b))
         });
         let model_ok = self.model.as_deref().is_none_or(|model| {
-            (1..=200).contains(&model.len())
+            let id =
+                match self.credentials.as_ref().and_then(|credential| credential.endpoint.as_ref())
+                {
+                    Some(endpoint) if matches!(endpoint.kind, EndpointKind::OpenAi) => {
+                        model.strip_prefix("byo/").unwrap_or(model)
+                    }
+                    _ => model,
+                };
+            (1..=200).contains(&id.len())
                 && !model.starts_with('-')
                 && !model.chars().any(|c| c.is_whitespace() || c.is_control())
                 && !model.contains(['{', '}', '$', '"', '\\', '\''])
         });
         let permission_mode_ok =
             self.permission_mode.as_deref().is_none_or(|mode| PERMISSION_MODES.contains(&mode));
-        let mode_ok = self.mode.as_deref().is_none_or(|mode| {
+        let mode_ok = permission_mode_ok && self.mode.as_deref().is_none_or(|mode| {
             (1..=64).contains(&mode.len())
                 && mode.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
         });
@@ -480,6 +579,9 @@ pub(super) fn start(
 ) -> bool {
     if let Some(field) = params.invalid_field() {
         return super::bad_field::refuse_field(writer, id, Some(field));
+    }
+    if params.credentials.is_some() && mux.control_clients.agent_sessions.starts.is_team_vm() {
+        return refuse(writer, id, Refusal::PersonalConnectionOnTeamVm);
     }
     if let Err(refusal) = mux.agent_host_gate(client, vm_word(&params.vm_kind)) {
         return refuse(writer, id, refusal);
@@ -824,6 +926,13 @@ impl StartRefused {
                 facts.insert("errorKind", json!(kind));
             }
             return Self(Refusal::SignInRequired, Some(facts));
+        }
+        if let LinkError::Rpc(_, data) = &error
+            && data.get("reason").and_then(Value::as_str) == Some("credentials.key_refused")
+            && let Some(provider) = data.get("provider").and_then(Value::as_str)
+                .filter(|name| matches!(*name, "Anthropic" | "OpenAI" | "Gemini" | "Vertex AI" | "xAI" | "OpenAI-compatible"))
+        {
+            return Self(Refusal::ConnectionKeyRefused, Some(json!({"reason": "credentials.key_refused", "provider": provider})));
         }
         // A route the agent's profile binds that cannot serve it here (acpmux `route.*` from
         // `apply_route`): the cmux router harness on a Cloud machine, which runs no signed-in

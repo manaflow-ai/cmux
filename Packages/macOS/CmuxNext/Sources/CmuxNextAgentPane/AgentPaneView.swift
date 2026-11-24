@@ -84,6 +84,7 @@ public final class AgentPaneView: NSView {
     var runsOnOtherInstall = false
     /// "Remote approvals are off" (cx-0q7o), and the restart the chat's machine offers.
     var remoteApprovalsNotice: AgentPaneNotice?
+    var modelConnectionNotice: AgentPaneNotice?
     var remoteApprovals: AgentPaneRemoteApprovals?
     /// Why the notice says a peer of this Mac's daemon did not count this Mac's allow (peer-route
     /// approvals); nil for no notice or another one.

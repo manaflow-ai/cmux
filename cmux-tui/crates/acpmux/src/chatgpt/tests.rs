@@ -1,6 +1,6 @@
 //! Sign in with ChatGPT against a local fake of the OAuth server (`Endpoints::at`).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -32,6 +32,37 @@ struct Fake {
     revoke_forms: Vec<HashMap<String, String>>,
     /// The content type of each token request, in order.
     token_types: Vec<String>,
+    device_replies: VecDeque<(StatusCode, Value)>,
+    device_polls: Vec<tokio::time::Instant>,
+    refresh_gate: Option<Arc<Gate>>,
+    device_poll_gate: Option<Arc<Gate>>,
+}
+
+#[derive(Default)]
+struct Gate {
+    entered: tokio::sync::Notify,
+    release: tokio::sync::Notify,
+}
+
+#[derive(Clone, Default)]
+struct Traces(Arc<Mutex<Vec<u8>>>);
+
+impl std::io::Write for Traces {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl Gate {
+    async fn hold(&self) {
+        self.entered.notify_one();
+        self.release.notified().await;
+    }
 }
 
 impl Default for Fake {
@@ -45,6 +76,10 @@ impl Default for Fake {
             token_forms: Vec::new(),
             revoke_forms: Vec::new(),
             token_types: Vec::new(),
+            device_replies: VecDeque::new(),
+            device_polls: Vec::new(),
+            refresh_gate: None,
+            device_poll_gate: None,
         }
     }
 }
@@ -101,6 +136,32 @@ async fn jwks(State(app): State<App>) -> Json<Value> {
     Json(json!({"keys": [jwk(&app.key)]}))
 }
 
+async fn user_code(Json(body): Json<Value>) -> (StatusCode, Json<Value>) {
+    assert!(body == json!({"client_id": super::CODEX_CLIENT_ID}));
+    (
+        StatusCode::OK,
+        Json(json!({
+            "device_auth_id": "mock-device-id", "usercode": "MOCK-1234", "interval": "1",
+        })),
+    )
+}
+
+async fn device_poll(State(app): State<App>, Json(body): Json<Value>) -> (StatusCode, Json<Value>) {
+    assert!(body == json!({"device_auth_id": "mock-device-id", "user_code": "MOCK-1234"}));
+    let (gate, (status, body)) = {
+        let mut state = app.state.lock().unwrap();
+        state.device_polls.push(tokio::time::Instant::now());
+        (
+            state.device_poll_gate.clone(),
+            state.device_replies.pop_front().unwrap_or((StatusCode::FORBIDDEN, Value::Null)),
+        )
+    };
+    if let Some(gate) = gate {
+        gate.hold().await;
+    }
+    (status, Json(body))
+}
+
 /// The token endpoint: a form (the code exchange) or a JSON body (Codex's refresh).
 async fn token(
     State(app): State<App>,
@@ -152,7 +213,13 @@ async fn token(
                         "scope": "openid profile email offline_access", "token_type": "Bearer"})),
         );
     }
-    let failure = app.state.lock().unwrap().refresh_error.clone();
+    let (gate, failure) = {
+        let state = app.state.lock().unwrap();
+        (state.refresh_gate.clone(), state.refresh_error.clone())
+    };
+    if let Some(gate) = gate {
+        gate.hold().await;
+    }
     if let Some((status, body)) = failure {
         return (StatusCode::from_u16(status).unwrap(), Json(body));
     }
@@ -194,6 +261,8 @@ async fn server() -> Server {
         .route("/jwks", get(jwks))
         .route("/oauth/token", post(token))
         .route("/oauth/revoke", post(revoke))
+        .route("/api/accounts/deviceauth/usercode", post(user_code))
+        .route("/api/accounts/deviceauth/token", post(device_poll))
         .with_state(app);
     tokio::spawn(async move {
         let _ = axum::serve(listener, router).await;
@@ -223,6 +292,187 @@ async fn setup() -> Setup {
 
 fn query(url: &str) -> HashMap<String, String> {
     reqwest::Url::parse(url).expect("url").query_pairs().into_owned().collect()
+}
+
+fn device_approved() -> (StatusCode, Value) {
+    (
+        StatusCode::OK,
+        json!({
+            "authorization_code": "mock-authorization",
+            "code_challenge": challenge("mock-verifier"),
+            "code_verifier": "mock-verifier",
+        }),
+    )
+}
+
+#[tokio::test]
+async fn chatgpt_device_waits_backs_off_and_uses_the_browser_store() {
+    let traces = Traces::default();
+    let writer = traces.clone();
+    let _subscriber = tracing::subscriber::set_default(
+        tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::TRACE)
+            .with_writer(move || writer.clone())
+            .finish(),
+    );
+    let s = setup().await;
+    s.fake.state.lock().unwrap().device_replies = VecDeque::from([
+        (StatusCode::FORBIDDEN, Value::Null),
+        (StatusCode::TOO_MANY_REQUESTS, json!({"error": "slow_down"})),
+        device_approved(),
+        device_approved(),
+    ]);
+    let begun = s.service.begin_device(s.places.clone(), None, |_| {}).await.ok().expect("begin");
+    assert!(begun.user_code == "MOCK-1234");
+    assert_eq!(begun.verification_url, format!("{}/codex/device", s.fake.base));
+    assert_eq!(begun.interval, 1);
+    assert!((now() + 895..=now() + 900).contains(&begun.expires_at));
+    assert_eq!(
+        s.service.wait_device(&begun.attempt, Duration::ZERO).await.unwrap(),
+        Status::Pending
+    );
+    // Browser callers cannot wait on, or cancel, a device attempt even with its id.
+    assert!(s.service.wait(&begun.attempt, Duration::ZERO).await.is_err());
+    assert!(s.service.cancel(&begun.attempt).await.is_err());
+    let outcome = s.service.wait_device(&begun.attempt, Duration::from_secs(20)).await.unwrap();
+    let Status::Done(id) = outcome else { panic!("device sign-in failed: {outcome:?}") };
+    {
+        let fake = s.fake.state.lock().unwrap();
+        assert_eq!(fake.device_polls.len(), 3);
+        assert!(fake.device_polls[1] - fake.device_polls[0] >= Duration::from_secs(1));
+        assert!(fake.device_polls[2] - fake.device_polls[1] >= Duration::from_secs(6));
+        let form = fake.token_forms.last().expect("exchange form");
+        assert_eq!(form["grant_type"], "authorization_code");
+        assert_eq!(form["redirect_uri"], format!("{}/deviceauth/callback", s.fake.base));
+        assert!(form["code"] == "mock-authorization" && form["code_verifier"] == "mock-verifier");
+    }
+    let device = store::read(&s.places.home, &id).unwrap().expect("stored sign-in");
+    let browser = setup().await;
+    let (status, _) = sign_in(&browser, &[("code", "mock-browser-code")]).await;
+    assert_eq!(status, Status::Done(id.clone()));
+    let browser_record = store::read(&browser.places.home, &id).unwrap().expect("stored sign-in");
+    assert!(device.access_token == browser_record.access_token);
+    assert!(device.refresh_token == browser_record.refresh_token);
+    assert_eq!(device.client_id, browser_record.client_id);
+    assert_eq!(device.email, browser_record.email);
+    assert_eq!(
+        routes::find(s.places.routes.as_deref(), &id).unwrap().file.kind,
+        RouteKind::ChatgptPlan
+    );
+    let repeat = s.service.begin_device(s.places.clone(), None, |_| {}).await.ok().expect("begin");
+    assert_eq!(
+        s.service.wait_device(&repeat.attempt, Duration::from_secs(5)).await.unwrap(),
+        Status::Failed("already_signed_in".into())
+    );
+    let debug = format!("{device:?}");
+    let traces = traces.0.lock().unwrap();
+    let logged = String::from_utf8_lossy(&traces);
+    for secret in [
+        "MOCK-1234",
+        "mock-device-id",
+        "mock-authorization",
+        "mock-verifier",
+        "access-0",
+        "refresh-0",
+    ] {
+        assert!(!logged.contains(secret) && !debug.contains(secret));
+    }
+}
+
+#[tokio::test]
+async fn chatgpt_device_denied_and_expired_replies_are_sanitized() {
+    let s = setup().await;
+    for (response, expected) in
+        [("authorization_declined", "access_denied"), ("expired_token", "expired_token")]
+    {
+        s.fake.state.lock().unwrap().device_replies.push_back((
+            StatusCode::UNAUTHORIZED,
+            json!({"error": response, "error_description": "mock-authorization"}),
+        ));
+        let begun =
+            s.service.begin_device(s.places.clone(), None, |_| {}).await.ok().expect("begin");
+        assert_eq!(
+            s.service.wait_device(&begun.attempt, Duration::from_secs(5)).await.unwrap(),
+            Status::Failed(expected.into())
+        );
+    }
+    assert!(store::all(&s.places.home).is_empty());
+}
+
+#[tokio::test]
+async fn chatgpt_device_cancel_and_deadline_stop_polling() {
+    let s = setup().await;
+    let begun = s.service.begin_device(s.places.clone(), None, |_| {}).await.ok().expect("begin");
+    assert_eq!(s.service.cancel_device(&begun.attempt).await.unwrap(), Status::Cancelled);
+    assert_eq!(
+        s.service.wait_device(&begun.attempt, Duration::ZERO).await.unwrap(),
+        Status::Cancelled
+    );
+    let begun = s.service.begin_device(s.places.clone(), None, |_| {}).await.ok().expect("begin");
+    tokio::time::pause();
+    tokio::time::advance(super::ATTEMPT_TTL).await;
+    assert_eq!(
+        s.service.wait_device(&begun.attempt, Duration::from_secs(1)).await.unwrap(),
+        Status::Failed("expired_token".into())
+    );
+    assert!(s.fake.state.lock().unwrap().device_polls.is_empty());
+    assert!(store::all(&s.places.home).is_empty());
+}
+
+#[tokio::test]
+async fn chatgpt_device_cancel_discards_an_in_flight_approval() {
+    let s = setup().await;
+    let gate = Arc::new(Gate::default());
+    {
+        let mut fake = s.fake.state.lock().unwrap();
+        fake.device_poll_gate = Some(gate.clone());
+        fake.device_replies.push_back(device_approved());
+    }
+    let begun = s.service.begin_device(s.places.clone(), None, |_| {}).await.ok().expect("begin");
+    tokio::time::timeout(Duration::from_secs(5), gate.entered.notified())
+        .await
+        .expect("poll entered");
+    assert_eq!(s.service.cancel_device(&begun.attempt).await.unwrap(), Status::Cancelled);
+    gate.release.notify_one();
+    assert!(s.fake.state.lock().unwrap().token_forms.is_empty());
+    assert!(store::all(&s.places.home).is_empty());
+}
+
+#[tokio::test]
+async fn chatgpt_device_reauth_wins_over_a_stale_refresh_failure() {
+    let s = setup().await;
+    let (status, _) = sign_in(&s, &[("code", "mock-browser-code")]).await;
+    let Status::Done(id) = status else { panic!("browser sign-in failed: {status:?}") };
+    let mut initial = store::read(&s.places.home, &id).unwrap().expect("stored sign-in");
+    initial.expires_at = 0;
+    store::write(&s.places.home, &id, &initial).unwrap();
+    let gate = Arc::new(Gate::default());
+    {
+        let mut fake = s.fake.state.lock().unwrap();
+        fake.refresh_gate = Some(gate.clone());
+        fake.refresh_error = Some((401, json!({"error": "invalid_grant"})));
+        fake.device_replies.push_back(device_approved());
+    }
+    let (service, home, route) = (s.service.clone(), s.places.home.clone(), id.clone());
+    let refresh = tokio::spawn(async move { service.token(&home, &route).await });
+    tokio::time::timeout(Duration::from_secs(5), gate.entered.notified())
+        .await
+        .expect("refresh entered");
+    let begun = s
+        .service
+        .begin_device(s.places.clone(), Some(id.clone()), |_| {})
+        .await
+        .ok()
+        .expect("begin");
+    assert_eq!(
+        s.service.wait_device(&begun.attempt, Duration::from_secs(5)).await.unwrap(),
+        Status::Done(id.clone())
+    );
+    gate.release.notify_one();
+    let (_, expiry) = refresh.await.unwrap().expect("the new sign-in wins");
+    let current = store::read(&s.places.home, &id).unwrap().expect("stored sign-in");
+    assert!(current.signed_in());
+    assert_eq!(current.expires_at, expiry);
 }
 
 /// Begins a sign-in, then calls its callback with `extra` (and the right state unless `extra`
@@ -472,8 +722,7 @@ async fn a_dead_refresh_token_signs_the_account_out() {
     sign_in(&s, &[("code", "c1")]).await;
     expire(&s);
     s.fake.state.lock().unwrap().refresh_error = Some((503, json!({"error": "unavailable"})));
-    let failure = s.service.token(&s.places.home, "chatgpt").await.unwrap_err();
-    assert_eq!(failure.code, "refresh_failed");
+    assert!(s.service.token(&s.places.home, "chatgpt").await.is_ok_and(|(token, _)| token == "access-0"));
     assert!(store::read(&s.places.home, "chatgpt").unwrap().unwrap().signed_in());
 }
 
@@ -487,6 +736,24 @@ async fn remove_revokes_the_refresh_token() {
     assert_eq!(revoked[0]["token_type_hint"], "refresh_token");
     assert_eq!(revoked[0]["client_id"], super::CODEX_CLIENT_ID);
     assert!(store::read(&s.places.home, "chatgpt").unwrap().is_none());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn chatgpt_remove_discards_unreadable_keychain_index() {
+    let s = setup().await;
+    sign_in(&s, &[("code", "c1")]).await;
+    let home = &s.places.home;
+    let id = "chatgpt";
+    let store = crate::subscription_store::Store::new(home, id);
+    store.refuse_test_item(id, crate::subscription_store::Error::KeychainOtherBuild);
+    assert!(matches!(
+        store::read(home, id),
+        Err(crate::subscription_store::Error::KeychainOtherBuild)
+    ));
+
+    assert!(!s.service.remove(home, id).await.unwrap());
+    assert!(store.metadata(id).is_none());
+    assert!(s.fake.state.lock().unwrap().revoke_forms.is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -613,6 +880,8 @@ async fn signing_in_again_on_a_route_with_no_sign_in_here_takes_that_route() {
         openai_base_url: Some("https://api.openai.com/v1".into()),
         auth: None,
         secret: None,
+        claude_token_expires_at: None,
+        cloud_enabled: None,
         headers: Default::default(),
         health_url: None,
         fallback: vec![],
@@ -640,4 +909,43 @@ async fn signing_in_again_on_a_route_with_no_sign_in_here_takes_that_route() {
         let failure = s.service.begin(s.places.clone(), Some(id.into()), |_| {}).await.err();
         assert_eq!(failure.map(|f| f.code), Some("not_found".into()), "{id}");
     }
+}
+
+#[tokio::test]
+async fn chatgpt_device_joins_the_attempt_and_recovers_from_a_server_error() {
+    let s = setup().await;
+    s.fake.state.lock().unwrap().device_replies =
+        VecDeque::from([(StatusCode::SERVICE_UNAVAILABLE, Value::Null), device_approved()]);
+    let first = s.service.begin_device(s.places.clone(), None, |_| {}).await.unwrap();
+    let joined = s.service.begin_device(s.places.clone(), None, |_| {}).await.unwrap();
+
+    assert_eq!(first.attempt, joined.attempt);
+    assert!(matches!(
+        s.service.wait_device(&joined.attempt, Duration::from_secs(10)).await.unwrap(),
+        Status::Done(_)
+    ));
+    let fake = s.fake.state.lock().unwrap();
+    assert_eq!(fake.device_polls.len(), 2);
+    assert!(fake.device_polls[1] - fake.device_polls[0] >= Duration::from_secs(2));
+}
+
+#[tokio::test]
+async fn chatgpt_reconnect_rejects_another_account_and_add_another_accepts_it() {
+    let s = setup().await;
+    let (status, _) = sign_in(&s, &[("code", "first")]).await;
+    assert_eq!(status, Status::Done("chatgpt".into()));
+    {
+        let mut account = store::read(&s.places.home, "chatgpt").unwrap().unwrap();
+        account.sub = "fixture-other-subject".into();
+        account.email = Some("prior@example.com".into());
+        store::write(&s.places.home, "chatgpt", &account).unwrap();
+    }
+    let (status, _) = sign_in_again(&s, Some("chatgpt"), &[("code", "reconnect")]).await;
+    assert_eq!(status, Status::WrongAccount {
+        actual: "alex@example.com".into(), expected: "prior@example.com".into(),
+    });
+    assert_eq!(store::all(&s.places.home).len(), 1);
+    let (status, _) = sign_in(&s, &[("code", "add")]).await;
+    assert_eq!(status, Status::Done("chatgpt-2".into()));
+    assert_eq!(store::all(&s.places.home).len(), 2);
 }

@@ -135,8 +135,19 @@ public final class RemoteLocalhostService {
             daemon = machines.daemon(forTab: tab)
         }
         // An Open Desktop page has no route into its Cloud machine here: a blank page, never this Mac.
-        guard Self.desktopMachine(url: url, tabIsLocal: daemon.isLocal) == nil,
-              let registryID = daemon.isLocal ? debugSocket : daemon.store.registryID else { return nil }
+        guard Self.desktopMachine(url: url, tabIsLocal: daemon.isLocal) == nil else { return nil }
+        return await derivedConfiguration(configuration, daemon: daemon, name: name)
+    }
+
+    /// Gives an embedded chat-machine callback page the same derived store as a workspace tab.
+    package func chatMachineCallbackConfiguration(_ base: BrowserTabConfiguration, daemon: DaemonService) async -> BrowserTabConfiguration? {
+        guard !daemon.isLocal, machines.daemon(machine: daemon.machineID) === daemon,
+              case .machine(let name) = route(daemon: daemon, workspace: nil, engine: .cef) else { return nil }
+        return await derivedConfiguration(base, daemon: daemon, name: name)
+    }
+
+    private func derivedConfiguration(_ base: BrowserTabConfiguration, daemon: DaemonService, name: String) async -> BrowserTabConfiguration? {
+        guard let registryID = daemon.isLocal ? debugSocket : daemon.store.registryID else { return nil }
         let key = Self.machineKey(registryID: registryID)
         let opener = DaemonLoopbackOpener(client: daemon.isLocal ? debugClient(registryID) : client(for: daemon))
         let port: UInt16
@@ -146,6 +157,7 @@ public final class RemoteLocalhostService {
             logger.error("remote-localhost proxy for \(name, privacy: .public) failed: \(String(describing: error), privacy: .public)")
             return nil
         }
+        var configuration = base
         configuration.machineStore = BrowserMachineStore(machineKey: key, machineName: name, proxyPort: port)
         configuration.navigationGuard = .loopbackOnly
         return configuration

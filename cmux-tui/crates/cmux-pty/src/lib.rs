@@ -276,6 +276,12 @@ pub fn open(size: PtySize) -> anyhow::Result<PtyPair> {
     Ok(PtyPair { master, slave })
 }
 
+/// Allocate a configured PTY with both descriptors opened close-on-exec.
+#[cfg(unix)]
+pub fn open_unix_files(size: PtySize) -> anyhow::Result<(File, File)> {
+    macos::open_files(size)
+}
+
 /// Wrap an inherited PTY master, for example one received from a process
 /// that held it, as a master of a session this process did not spawn. Its
 /// writer never sends end-of-file to that session when dropped.

@@ -323,6 +323,10 @@ impl Hub {
             .clone()
             .filter(|_| profile.kind == crate::config::HarnessKind::ClaudeStdio)
             .filter(|e| crate::claude_stdio::takes_effort_at_spawn(e));
+        meta.credential_connection = credential.as_ref().and_then(|c| c.connection().map(str::to_owned));
+        if meta.credential_connection.is_some() {
+            meta.credential_model = model.clone();
+        }
         meta.workspace_id = workspace_id;
         meta.additional_directories =
             super::additional_dirs::without_cwd(additional_directories, &meta.cwd);
@@ -1549,7 +1553,12 @@ impl Hub {
                 // `initialize` ("agent process closed (grok): Authentication required"): typed
                 // the same as a `session/new` auth_required, so the start names it (hq#11225).
                 let mut e = Self::explain_start_failure(session, e).await;
-                crate::recovery::start_sign_in(&mut e, &meta.harness);
+                if !session.credential.lock().unwrap_or_else(|p| p.into_inner()).as_ref()
+                    .and_then(crate::agent_credentials::AgentCredential::key_provider)
+                    .is_some_and(|provider| crate::recovery::start_connection_key(&mut e, provider))
+                {
+                    crate::recovery::start_sign_in(&mut e, &meta.harness);
+                }
                 return Err(e);
             }
         };
@@ -1734,7 +1743,12 @@ impl Hub {
                     // An agent with no sign-in answers with ACP's auth_required: typed, so the
                     // start names the agent and its sign-in, not a bare refusal (hq#11225).
                     let mut e = Self::explain_start_failure(session, e).await;
+                    if !session.credential.lock().unwrap_or_else(|p| p.into_inner()).as_ref()
+                    .and_then(crate::agent_credentials::AgentCredential::key_provider)
+                    .is_some_and(|provider| crate::recovery::start_connection_key(&mut e, provider))
+                {
                     crate::recovery::start_sign_in(&mut e, &meta.harness);
+                }
                     return Err(e);
                 }
             };

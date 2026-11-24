@@ -213,6 +213,7 @@ extension CEFTab {
     // MARK: Scripts
 
     public func evaluate(_ script: String, world: BrowserScriptWorld, gesture: BrowserScriptGesture) async throws -> BrowserJSValue {
+        guard allowsAppScripts else { throw BrowserTabError.unsupported("App scripts are disabled in this tab") }
         guard let browserID, !isClosed else { throw BrowserTabError.closed }
         // `runtime` is `unowned`, so it is read once here, while it is known alive, and held for the
         // calls below: an isolated-world evaluate is four round trips, and re-reading it after one

@@ -34,7 +34,11 @@ final class InternalPageView: TitleRowHostView, PaneKeyResizeHeld {
     init(key: String, page: InternalPageID, content: NSView, topBar: NSView? = nil) {
         self.key = key
         self.page = page
-        self.content = content
+        if let settingsPage = (content as? SettingsSignInPane)?.settingsPage {
+            self.content = settingsPage
+        } else {
+            self.content = content
+        }
         self.topBar = topBar
         super.init(frame: .zero)
         content.translatesAutoresizingMaskIntoConstraints = false

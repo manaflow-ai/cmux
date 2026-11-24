@@ -268,7 +268,7 @@ fn need<'a>(params: &'a Value, key: &str) -> Result<&'a str, RpcError> {
 async fn accounts(hub: &Hub) -> Result<Vec<Value>, RpcError> {
     let (dir, state) = routes::places(&*hub.config.read().await);
     tokio::task::spawn_blocking(move || {
-        super::accounts::list(dir.as_deref(), &routes::bindings(&state))
+        super::accounts::list(dir.as_deref(), &state, &routes::bindings(&state))
     })
     .await
     .map_err(|e| RpcError::internal(e.to_string()))

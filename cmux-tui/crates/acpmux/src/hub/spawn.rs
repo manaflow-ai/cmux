@@ -255,6 +255,10 @@ impl Hub {
         defaults_env: &std::collections::BTreeMap<String, String>,
         credential: Option<&crate::agent_credentials::AgentCredential>,
     ) -> Result<(HarnessProfile, Option<String>, Option<std::path::PathBuf>), RpcError> {
+        if meta.credential_connection.is_some() && credential.is_none() {
+            return Err(RpcError::invalid_params("This chat needs its model connection from your Mac.")
+                .with_data(serde_json::json!({"reason": "credentials.needed"})));
+        }
         let mut p = profile.clone();
         let mut digest = None;
         for (k, v) in defaults_env {
@@ -382,25 +386,58 @@ impl Hub {
         // The workspace picks the computer use display (agent_displays.rs);
         // `agent/command.rs` removes the key before the harness starts.
         crate::agent_displays::mark(&mut p.env, meta.workspace_id.as_deref());
-        // The bound route last: it owns the provider variables (routes.rs).
-        let account_home = self.apply_route(meta, forking, profile, &mut p.env).await?;
         p.argv = self.resolved_launcher_argv(p.argv);
+        p.env.remove(crate::chatgpt::LOCAL_EXPIRY_ENV);
+        #[cfg(unix)]
+        for key in
+            [crate::agent::copilot_auth::ROUTE_ENV, crate::agent::copilot_auth::ROUTE_HOME_ENV]
+        {
+            p.env.remove(key);
+        }
         // Only `apply` marks an agent as launched on the owner's credential: a marker a profile,
         // preset or request env set would have its own login read back after a restart as one.
-        p.env.remove(crate::agent_credentials::MARKER);
+        for marker in [crate::agent_credentials::MARKER, crate::agent_credentials::ENDPOINT_MARKER]
+        {
+            p.env.remove(marker);
+        }
+        p.env.remove(crate::agent::REMOTE_ENV_POLICY_KEY);
+        if meta.remote_origin {
+            p.env.insert(crate::agent::REMOTE_ENV_POLICY_KEY.into(), "1".into());
+        }
         // The owner's Cloud credential: straight to the provider, no coderouter route
         // (`agent_credentials.rs`). Its names only are logged, never a value.
-        let direct = credential.is_some_and(|c| {
+        let direct = if let Some(c) = credential {
             let family = crate::config::derive_family(&meta.harness, &p);
+            if (c.has_anthropic_endpoint() || c.uses_anthropic_key())
+                && family == "claude"
+                && crate::claude_cloud_auth::managed_provider_override(&self.vm_marker_root())
+            {
+                return Err(RpcError::invalid_params(
+                    "managed provider settings prevent this endpoint launch",
+                )
+                .with_data(serde_json::json!({"reason": "credentials.endpoint_unavailable"})));
+            }
+            c.check_endpoint_destination(&family).await?;
             let applied = crate::agent_credentials::apply(c, &family, &mut p.argv, &mut p.env);
             let names: Vec<&str> = c.names().collect();
             if applied {
                 tracing::info!(session = %meta.id, ?names, "agent launches on the owner's credential");
+            } else if meta.credential_connection.is_some() {
+                return Err(RpcError::invalid_params("This model connection does not serve the chat's agent.")
+                    .with_data(serde_json::json!({"reason": "credentials.family"})));
             } else {
                 tracing::warn!(session = %meta.id, %family, ?names, "a credential of another family: the agent keeps this machine's route");
             }
             applied
-        });
+        } else {
+            false
+        };
+        // The bound route owns the provider variables if the credential did not apply.
+        let account_home = if direct {
+            None
+        } else {
+            self.apply_route(meta, forking, profile, &mut p.env).await?
+        };
         // Codex on a cmux Cloud machine: the image's own-or-team rule, as its launcher applies it
         // (codex_cloud_auth.rs). A bound route or the owner's credential owns the provider instead.
         if !direct
@@ -688,7 +725,8 @@ impl Hub {
             &crate::config::derive_family(&meta.harness, &p),
         )
         .filter(|provider| {
-            !p.env.contains_key(crate::routes::NAME_KEY)
+            !direct
+                && !p.env.contains_key(crate::routes::NAME_KEY)
                 && crate::provider_cloud_auth::launches_itself(*provider, &p.argv)
                 && crate::codex_cloud_auth::owner_cloud_image_at(&root)
         });
@@ -725,7 +763,6 @@ impl Hub {
                 }
             }
         }
-        p.env.remove(crate::agent::REMOTE_ENV_POLICY_KEY);
         if meta.remote_origin {
             // Validate every executable after expansion and launcher
             // substitution. The Codex bridge replaces argv0 with CODEX_PATH
@@ -742,7 +779,6 @@ impl Hub {
                 super::resolve::fix_remote_executable(&mut p)?;
                 super::resolve::refuse_remote_cwd_executable(&p.argv[0], &meta.cwd)?;
             }
-            p.env.insert(crate::agent::REMOTE_ENV_POLICY_KEY.into(), "1".into());
         }
         // After expansion: the path is acpmux's own, never expanded.
         if let Some(file) = prompt_file {
@@ -890,3 +926,7 @@ mod codex_cloud_tests;
 #[cfg(all(test, unix, not(target_os = "macos")))]
 #[path = "spawn_codex_signed_out_tests.rs"]
 mod codex_signed_out_tests;
+
+#[cfg(test)]
+#[path = "spawn_route_tests.rs"]
+mod route_tests;

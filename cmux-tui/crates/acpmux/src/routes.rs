@@ -91,6 +91,8 @@ fn builtin_routes() -> Vec<Route> {
             openai_base_url: None,
             auth: None,
             secret: None,
+            claude_token_expires_at: None,
+            cloud_enabled: None,
             headers: BTreeMap::new(),
             health_url: None,
             fallback: vec![],
@@ -115,6 +117,8 @@ fn builtin_routes() -> Vec<Route> {
                 openai_base_url: None,
                 auth: None,
                 secret: None,
+                claude_token_expires_at: None,
+                cloud_enabled: None,
                 headers: BTreeMap::new(),
                 health_url: None,
                 fallback: vec![],
@@ -152,13 +156,17 @@ pub enum RouteKind {
     CustomAnthropic,
     CustomOpenai,
     /// Sign in with ChatGPT (`crate::chatgpt`): a ChatGPT plan's OAuth login this daemon holds
-    /// and refreshes in `<acpmux home>/chatgpt/<id>.json`. Served only through the inference
-    /// gateway (`_acpmux/connections/chatgpt.token`); a local spawn never runs on it.
+    /// and refreshes in `<acpmux home>/chatgpt/<id>.json`.
     ChatgptPlan,
     /// Claude Code's long-lived token from `claude setup-token`, as a secret reference
-    /// (`_acpmux/connections/claude_token.add`). Delivered to a Cloud machine's agent as
-    /// `CLAUDE_CODE_OAUTH_TOKEN` (`_acpmux/connections/credential`); a local spawn never runs on it.
+    /// Legacy route kept until the person signs in with Claude Code.
     ClaudeToken,
+    /// xAI device sign-in managed by acpmux.
+    GrokPlan,
+    /// GitHub device sign-in managed by acpmux and consumed by OpenCode.
+    CopilotPlan,
+    /// Kimi Code device sign-in managed by acpmux and consumed by OpenCode.
+    KimiPlan,
 }
 
 impl RouteKind {
@@ -173,6 +181,9 @@ impl RouteKind {
         Self::CustomOpenai,
         Self::ChatgptPlan,
         Self::ClaudeToken,
+        Self::GrokPlan,
+        Self::CopilotPlan,
+        Self::KimiPlan,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -187,6 +198,9 @@ impl RouteKind {
             Self::CustomOpenai => "custom-openai",
             Self::ChatgptPlan => "chatgpt-plan",
             Self::ClaudeToken => "claude-token",
+            Self::GrokPlan => "grok-plan",
+            Self::CopilotPlan => "copilot-plan",
+            Self::KimiPlan => "kimi-plan",
         }
     }
 
@@ -202,7 +216,12 @@ impl RouteKind {
     /// The auth a preset of this kind starts with.
     fn default_auth(self) -> Auth {
         match self {
-            Self::DirectSubscription | Self::ChatgptPlan | Self::ClaudeToken => Auth::Subscription,
+            Self::DirectSubscription
+            | Self::ChatgptPlan
+            | Self::ClaudeToken
+            | Self::GrokPlan
+            | Self::CopilotPlan
+            | Self::KimiPlan => Auth::Subscription,
             Self::DirectApiKey => Auth::ApiKey,
             Self::LocalCoderouter | Self::CmuxRouter => Auth::Bearer,
             Self::Subrouter | Self::Cliproxyapi | Self::CustomAnthropic | Self::CustomOpenai => {
@@ -237,6 +256,10 @@ impl Auth {
     }
 }
 
+fn cloud_enabled_is_default(value: &Option<bool>) -> bool {
+    *value != Some(false)
+}
+
 /// One route file. Field names are the TOML keys.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -259,6 +282,12 @@ pub struct RouteFile {
     /// never the secret itself.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub secret: Option<String>,
+    /// Unix seconds, recorded when this Mac captures a Claude setup token.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claude_token_expires_at: Option<u64>,
+    /// Whether a key may be delivered to a Cloud chat. The default keeps its existing eligibility.
+    #[serde(default, skip_serializing_if = "cloud_enabled_is_default")]
+    pub cloud_enabled: Option<bool>,
     /// Extra request headers (Claude Code: ANTHROPIC_CUSTOM_HEADERS). A
     /// secret-looking header's value must be a reference.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -294,7 +323,7 @@ pub struct RouteFile {
 }
 
 /// The providers an API-key connection may name (`_acpmux/connections/key.add`).
-pub const PROVIDERS: &[&str] = &["anthropic", "openai", "openrouter", "google", "xai"];
+pub const PROVIDERS: &[&str] = &["anthropic", "openai", "openrouter", "google", "vertex-express", "xai"];
 
 impl RouteFile {
     /// The provider this route pays: its own `provider`, a ChatGPT plan's OpenAI, else its
@@ -333,8 +362,41 @@ impl Route {
         uses_relay(&self.file)
     }
 
+    /// Native key route for a provider whose harness does not read OpenAI variables.
+    pub(crate) fn native_key_provider(&self) -> Option<crate::provider_cloud_auth::Provider> {
+        use crate::provider_cloud_auth::Provider;
+        match (self.file.kind, self.file.provider()) {
+            (RouteKind::DirectApiKey, "google" | "vertex-express") => Some(Provider::Gemini),
+            (RouteKind::DirectApiKey, "xai") => Some(Provider::Grok),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn is_openrouter(&self) -> bool {
+        self.file.kind == RouteKind::DirectApiKey
+            && self.file.provider() == "openrouter"
+            && self.file.openai_base_url.as_deref() == Some("https://openrouter.ai/api/v1")
+            && self.file.headers.is_empty()
+            && self.file.secret.is_some()
+    }
+
     /// Whether it serves `family`.
     pub fn serves(&self, family: &str) -> bool {
+        // Existing xAI route files were written for Codex. They can also serve the native CLI
+        // without rewriting the user's routes or their existing Codex bindings.
+        if self.native_key_provider().is_some_and(|provider| provider.name() == family) {
+            return true;
+        }
+        if family == "openrouter" {
+            return self.is_openrouter();
+        }
+        if let Some(provider) = crate::subscriptions::Provider::for_kind(self.file.kind) {
+            return provider.family() == family;
+        }
+        if self.file.kind == RouteKind::ChatgptPlan {
+            return crate::agent_credentials::Family::of_harness(family)
+                == Some(crate::agent_credentials::Family::Codex);
+        }
         if !self.file.families.is_empty() {
             return self.file.families.iter().any(|f| f == family || f == "*");
         }
@@ -500,6 +562,16 @@ fn valid_url(url: &str) -> bool {
 
 /// Checks a route file before it is written or used.
 pub fn validate(file: &RouteFile) -> Result<(), RouteError> {
+    if file.kind == RouteKind::ClaudeToken {
+        return Err(RouteError::BadParams(
+            "claude-token routes are no longer supported. Sign in with Claude Code in Settings > Models."
+                .into(),
+        ));
+    }
+    validate_contents(file)
+}
+
+fn validate_contents(file: &RouteFile) -> Result<(), RouteError> {
     for url in
         [&file.anthropic_base_url, &file.openai_base_url, &file.health_url].into_iter().flatten()
     {
@@ -563,11 +635,22 @@ pub fn validate(file: &RouteFile) -> Result<(), RouteError> {
     }
     if let Some(p) = &file.provider
         && !PROVIDERS.contains(&p.as_str())
+        && crate::subscriptions::Provider::for_kind(file.kind)
+            .is_none_or(|provider| provider.name() != p.as_str())
     {
         return Err(RouteError::BadParams(format!(
             "unknown provider {p:?}: one of {}",
             PROVIDERS.join(", ")
         )));
+    }
+    if crate::subscriptions::Provider::for_kind(file.kind).is_some_and(|provider| {
+        file.secret.is_some()
+            || !file.headers.is_empty()
+            || file.families.as_slice() != [provider.family()]
+    }) {
+        return Err(RouteError::BadParams(
+            "a subscription route holds only the provider's harness family".into(),
+        ));
     }
     if file.kind == RouteKind::ChatgptPlan && (file.secret.is_some() || !file.headers.is_empty()) {
         return Err(RouteError::BadParams(
@@ -575,14 +658,28 @@ pub fn validate(file: &RouteFile) -> Result<(), RouteError> {
                 .into(),
         ));
     }
-    if file.kind == RouteKind::ClaudeToken
-        && (file.secret.is_none() || file.families.as_slice() != ["claude"])
-    {
-        return Err(RouteError::BadParams(
-            "a claude-token route serves claude and needs secret (keychain:ITEM)".into(),
-        ));
-    }
     crate::route_account::validate(file)
+}
+
+fn is_legacy_claude_token(id: &str, file: &RouteFile) -> bool {
+    // Older releases wrote this shape. Keep these rows visible for removal
+    // after Claude Code sign-in. env_for_on never resolves their secret.
+    file.kind == RouteKind::ClaudeToken
+        && (id == "claude-token"
+            || id.strip_prefix("claude-token-")
+                .and_then(|suffix| suffix.parse::<u16>().ok())
+                .is_some_and(|suffix| (2..1000).contains(&suffix) && id == format!("claude-token-{suffix}")))
+        && file.provider.as_deref() == Some("anthropic")
+        && file.families.as_slice() == ["claude"]
+        && file.notes.as_deref() == Some("claude setup-token: served to Cloud machines' Claude agents")
+        && file.secret.as_deref().is_some_and(|secret| {
+            secret.strip_prefix("keychain:cmux-model-key/claude-token-")
+                .is_some_and(|account| account.len() == 8 && account.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        })
+        && file.auth.is_none()
+        && file.headers.is_empty()
+        && file.anthropic_base_url.is_none()
+        && file.openai_base_url.is_none()
 }
 
 /// Every route in `dir`, sorted by id, and the problems of the files that do
@@ -608,7 +705,14 @@ pub fn load(dir: Option<&Path>) -> (Vec<Route>, Vec<String>) {
         let parsed = std::fs::read_to_string(&path)
             .map_err(|e| e.to_string())
             .and_then(|t| toml::from_str::<RouteFile>(&t).map_err(|e| e.to_string()))
-            .and_then(|f| validate(&f).map(|()| f).map_err(|e| e.to_string()));
+            .and_then(|f| {
+                let result = if is_legacy_claude_token(&id, &f) {
+                    validate_contents(&f)
+                } else {
+                    validate(&f)
+                };
+                result.map(|()| f).map_err(|e| e.to_string())
+            });
         match parsed {
             Ok(file) => routes.push(Route { id, file, path }),
             Err(e) => problems.push(format!("{}: {e}", path.display())),
@@ -677,6 +781,8 @@ pub fn file_from_json(params: &Value) -> Result<RouteFile, RouteError> {
         openai_base_url: text("openaiBaseUrl"),
         auth,
         secret: text("secret"),
+        claude_token_expires_at: None,
+        cloud_enabled: None,
         headers,
         health_url: text("healthUrl"),
         fallback: strings("fallback"),
@@ -705,6 +811,39 @@ fn write_file(path: &Path, file: &RouteFile) -> Result<(), RouteError> {
     crate::home_fs::rename(&tmp, path).map_err(|e| RouteError::Failed(e.to_string()))
 }
 
+// Dev and release daemons can write the same route folder.
+fn lock_route_files(dir: Option<&Path>) -> Result<cmux_file_lock::FileLock, RouteError> {
+    let dir = dir.ok_or_else(|| RouteError::Failed("no cmux config folder".into()))?;
+    let path = dir.join(".route-write.lock");
+    let failed = |e: std::io::Error| RouteError::Failed(e.to_string());
+    crate::config::refuse_lost_home(&path).map_err(|e| RouteError::Failed(e.to_string()))?;
+    crate::home_fs::create_dirs(dir).map_err(failed)?;
+    let file = crate::home_fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(path)
+        .map_err(failed)?;
+    cmux_file_lock::FileLock::take(file, cmux_file_lock::Kind::Exclusive).map_err(failed)
+}
+
+/// Apply an edit to the latest file. An edit of a removed route fails at the read.
+pub(crate) fn edit<R>(
+    dir: Option<&Path>,
+    id: &str,
+    change: impl FnOnce(&mut RouteFile) -> Result<R, RouteError>,
+) -> Result<(Route, R), RouteError> {
+    let _guard = lock_route_files(dir)?;
+    let mut file = find(dir, id)?.file;
+    let legacy_secret = file.secret.clone().filter(|_| is_legacy_claude_token(id, &file));
+    let result = change(&mut file)?;
+    let keep_legacy = legacy_secret.is_some()
+        && legacy_secret == file.secret
+        && is_legacy_claude_token(id, &file);
+    let route = write_route(dir, id, &file, true, keep_legacy)?;
+    Ok((route, result))
+}
+
 /// Write a new route (`replace`: over an existing one).
 pub fn add(
     dir: Option<&Path>,
@@ -712,12 +851,37 @@ pub fn add(
     file: &RouteFile,
     replace: bool,
 ) -> Result<Route, RouteError> {
+    let _guard = lock_route_files(dir)?;
+    if replace
+        && file.kind == RouteKind::DirectApiKey
+        && file.cloud_enabled.is_none()
+        && let Ok(previous) = find(dir, id)
+        && previous.file.kind == RouteKind::DirectApiKey
+    {
+        let mut file = file.clone();
+        file.cloud_enabled = previous.file.cloud_enabled;
+        return write_route(dir, id, &file, true, false);
+    }
+    write_route(dir, id, file, replace, false)
+}
+
+fn write_route(
+    dir: Option<&Path>,
+    id: &str,
+    file: &RouteFile,
+    replace: bool,
+    keep_legacy: bool,
+) -> Result<Route, RouteError> {
     if !valid_id(id) {
         return Err(RouteError::BadParams(format!(
             "{id:?} is not a route id (lowercase letters, digits and -)"
         )));
     }
-    validate(file)?;
+    if keep_legacy {
+        validate_contents(file)?;
+    } else {
+        validate(file)?;
+    }
     let dir = dir.ok_or_else(|| RouteError::Failed("no cmux config folder".into()))?;
     let path = dir.join(format!("{id}.toml"));
     if path.exists() && !replace {
@@ -730,6 +894,7 @@ pub fn add(
 
 /// Move a route to the backup folder; the backup's name restores it.
 pub fn remove(dir: Option<&Path>, home: &Path, id: &str) -> Result<String, RouteError> {
+    let _guard = lock_route_files(dir)?;
     let route = find(dir, id)?;
     let backups = backups_dir(home);
     // Not under a lost home (`config::refuse_lost_home`): it may be another daemon's now.
@@ -743,9 +908,8 @@ pub fn remove(dir: Option<&Path>, home: &Path, id: &str) -> Result<String, Route
         .map(|d| d.as_millis())
         .unwrap_or(0);
     let name = format!("{id}.{stamp}.toml");
-    if id.starts_with(ONE_RUN_PREFIX) {
-        // A one-run route (cmux-hand's gateway route) leaves no backup: it
-        // names only a token file that is removed with it.
+    if id.starts_with(ONE_RUN_PREFIX) || route.file.kind == RouteKind::ClaudeToken {
+        // Token routes leave no backup after their credential is removed.
         crate::home_fs::remove_file(&route.path).map_err(|e| RouteError::Failed(e.to_string()))?;
     } else {
         crate::home_fs::rename(&route.path, backups.join(&name))
@@ -774,6 +938,7 @@ pub fn remove(dir: Option<&Path>, home: &Path, id: &str) -> Result<String, Route
 pub const ONE_RUN_PREFIX: &str = "cmux-gateway-";
 
 pub fn restore(dir: Option<&Path>, home: &Path, backup: &str) -> Result<Route, RouteError> {
+    let _guard = lock_route_files(dir)?;
     if backup.contains('/') || backup.contains("..") || !backup.ends_with(".toml") {
         return Err(RouteError::BadParams("backup is a name _acpmux/route/remove returned".into()));
     }
@@ -820,6 +985,21 @@ pub struct Bindings {
 }
 
 static BINDINGS_LOCK: Mutex<()> = Mutex::new(());
+
+pub(crate) fn automatic_connection(
+    dir: Option<&Path>,
+    bindings: &Bindings,
+    family: &str,
+) -> Option<String> {
+    load(dir)
+        .0
+        .into_iter()
+        .filter(|route| !route.file.disabled && route.serves(family))
+        .min_by_key(|route| {
+            bindings.connection_order.iter().position(|id| id == &route.id).unwrap_or(usize::MAX)
+        })
+        .map(|route| route.id)
+}
 
 pub fn bindings(home: &Path) -> Bindings {
     std::fs::read_to_string(bindings_path(home))
@@ -1071,12 +1251,6 @@ pub fn env_for_on(
     home: &Path,
     gateway: Option<&str>,
 ) -> Result<RouteEnv, RouteError> {
-    if matches!(route.file.kind, RouteKind::ChatgptPlan | RouteKind::ClaudeToken) {
-        return Err(RouteError::Unavailable(format!(
-            "route {} is a Cloud connection: its credential goes to a Cloud machine's agent, not a chat on this Mac",
-            route.id
-        )));
-    }
     if !route.serves(family) {
         return Err(RouteError::BadParams(format!(
             "route {} does not serve the {family} harness",
@@ -1087,6 +1261,38 @@ pub fn env_for_on(
         set: BTreeMap::new(),
         unset: SCRUBBED.iter().map(|k| (*k).to_owned()).collect(),
     };
+    if route.file.kind == RouteKind::ClaudeToken {
+        // Existing bindings can use the machine's own login during migration.
+        return Ok(RouteEnv::default());
+    }
+    if matches!(
+        route.file.kind,
+        RouteKind::ChatgptPlan | RouteKind::GrokPlan | RouteKind::CopilotPlan | RouteKind::KimiPlan
+    ) {
+        out.unset.extend(crate::agent_credentials::UNSET.iter().map(|key| (*key).to_owned()));
+        return Ok(out);
+    }
+    if family == "openrouter" {
+        out.unset.extend(crate::agent_credentials::UNSET.iter().map(|key| (*key).to_owned()));
+        if let Some(secret) = &route.file.secret {
+            out.set.insert("OPENROUTER_API_KEY".into(), reference_value(secret));
+        }
+        return Ok(out);
+    }
+    if let Some(provider) = route.native_key_provider().filter(|provider| provider.name() == family)
+    {
+        out.unset.extend(provider.direct_env().map(str::to_owned));
+        if let Some(reference) = &route.file.secret {
+            let vertex = route.file.provider() == "vertex-express";
+            let key = if vertex { crate::agent_credentials::VERTEX_EXPRESS_KEY } else { provider.api_key() };
+            out.set.insert(key.into(), reference_value(reference));
+            if provider == crate::provider_cloud_auth::Provider::Gemini {
+                out.set.extend(crate::provider_cloud_auth::gemini_key_env(vertex)
+                    .into_iter().map(|(key, value)| (key.to_owned(), value.to_owned())));
+            }
+        }
+        return Ok(out);
+    }
     let anthropic = is_anthropic_family(family);
     let (mut base, mut secret_value): (Option<String>, Option<String>) = (
         if anthropic {
@@ -1149,6 +1355,17 @@ pub fn env_for_on(
             .collect();
         out.set.insert("ANTHROPIC_CUSTOM_HEADERS".into(), lines.join("\n"));
     }
+    if !anthropic {
+        for (header, variable) in [
+            ("OpenAI-Organization", "OPENAI_ORGANIZATION"),
+            ("OpenAI-Project", "OPENAI_PROJECT"),
+        ] {
+            if let Some((_, value)) = route.file.headers.iter().find(|(name, _)| name.eq_ignore_ascii_case(header)) {
+                let value = if is_reference(value) { reference_value(value) } else { value.clone() };
+                out.set.insert(variable.into(), value);
+            }
+        }
+    }
     crate::route_account::set_env(route, family, &mut out.set);
     Ok(out)
 }
@@ -1189,4 +1406,63 @@ pub(crate) fn resolve_reference(value: &str) -> Result<String, String> {
         return crate::config::profiles::keychain_lookup(service, account);
     }
     Ok(value.to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn retired_claude_token_routes_are_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let error = file_from_json(&json!({
+            "kind": "claude-token",
+            "families": ["claude"],
+            "secret": "keychain:fixture",
+        }))
+        .unwrap_err();
+        assert!(error.to_string().contains("Sign in with Claude Code in Settings > Models."));
+
+        std::fs::write(
+            dir.path().join("claude-token.toml"),
+            "kind = \"claude-token\"\nfamilies = [\"claude\"]\nsecret = \"keychain:fixture\"\n",
+        )
+        .unwrap();
+        let (routes, problems) = load(Some(dir.path()));
+        assert!(routes.is_empty());
+        assert_eq!(problems.len(), 1);
+        assert!(problems[0].contains("Sign in with Claude Code in Settings > Models."));
+    }
+
+    #[test]
+    fn replacing_direct_api_key_preserves_cloud_opt_out() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path();
+        let mut file = file_from_json(&json!({
+            "kind": "direct-api-key",
+            "families": ["claude"],
+            "secret": "env:ROUTES_TEST_KEY",
+        }))
+        .unwrap();
+        file.cloud_enabled = Some(false);
+        add(Some(path), "work-key", &file, false).unwrap();
+
+        let replacement = file_from_json(&json!({
+            "kind": "direct-api-key",
+            "families": ["claude"],
+            "secret": "env:WORK_REPLACEMENT_KEY",
+            "replace": true,
+        }))
+        .unwrap();
+        add(Some(path), "work-key", &replacement, true).unwrap();
+        let saved = find(Some(path), "work-key").unwrap().file;
+        assert_eq!(saved.cloud_enabled, Some(false));
+        assert_eq!(saved.secret.as_deref(), Some("env:WORK_REPLACEMENT_KEY"));
+
+        for cloud_enabled in [None, Some(true)] {
+            file.cloud_enabled = cloud_enabled;
+            let route = add(Some(path), "default-key", &file, true).unwrap();
+            assert!(!std::fs::read_to_string(route.path).unwrap().contains("cloud_enabled"));
+        }
+    }
 }

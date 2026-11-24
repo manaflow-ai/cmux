@@ -55,20 +55,28 @@ extension SettingsModels {
     /// (`chatgpt.wait`, a long poll the loop calls again while pending). `id`: an existing
     /// chatgpt-plan connection to sign in again.
     func connectChatGPT(id: String?) async throws -> JSONValue {
-        let environment = try requireDaemonEnvironment()
+        let environment = try await requireDaemonEnvironment()
         if let attempt = chatgptAttempt { await endAttempt(attempt, environment) }
         var params: [String: any Sendable] = [:]
         if let id, !id.isEmpty { params["id"] = id }
         let reply = try JSONValue.parse(try await daemon(environment, .chatgptBegin, params))
         // Only OpenAI's own sign-in page: the daemon's answer never opens anything else.
         guard let attempt = reply["attempt"]?.stringValue, !attempt.isEmpty,
-              let url = reply["url"]?.stringValue.flatMap(URL.init(string:)), url.scheme == "https", url.host == "auth.openai.com" else {
+              let url = reply["url"]?.stringValue.flatMap(URL.init(string:)), url.scheme == "https", url.host == "auth.openai.com",
+              url.port == nil, url.user == nil, url.password == nil else {
             // An attempt it did start ends here, with its callback listener.
             if let attempt = reply["attempt"]?.stringValue, !attempt.isEmpty { await endAttempt(attempt, environment) }
             throw PageError(code: "cmux.models.chatgpt_bad_reply", message: "acpmux did not start a ChatGPT sign-in")
         }
         setChatGPT(attempt: attempt, error: nil)
-        openSignIn(url)
+        do {
+            try await openSignIn(url, owner: "chatgpt:\(attempt)")
+        } catch {
+            await endAttempt(attempt, environment)
+            finish(attempt, error: nil)
+            throw error
+        }
+        guard chatgptAttempt == attempt else { return .object([:]) }
         // task-owner: SettingsModels.chatgptTask: one attempt's wait loop; a new attempt or Cancel replaces it.
         replaceChatGPTTask(Task { [weak self] in await self?.awaitChatGPT(attempt, environment) })
         return ["attempt": .string(attempt)]
@@ -117,7 +125,7 @@ extension SettingsModels {
         guard let attempt = chatgptAttempt else { return }
         replaceChatGPTTask(nil)
         finish(attempt, error: nil)
-        if let environment = environment() { await endAttempt(attempt, environment) }
+        if let environment = await environment() { await endAttempt(attempt, environment) }
     }
 
     /// acpmux's own error name (`chatgpt.unknown_attempt`) for a call it answered with an error; nil when
@@ -134,29 +142,24 @@ extension SettingsModels {
     private func finish(_ attempt: String, error: String?) {
         guard chatgptAttempt == attempt else { return }
         setChatGPT(attempt: nil, error: error)
+        dismissSignInPage?("chatgpt:\(attempt)")
     }
 
-    /// Add an API key: into the Keychain first, then `connections/key.add` with its reference only.
-    /// A refused add takes the stored item back out.
-    func addKey(provider: String, key: String, label: String?) async throws {
+    /// Save an API key in the Keychain and send its reference to the connection owner.
+    /// A refused write removes the newly saved item.
+    func addKey(provider: String, key: String, label: String?, replacing: String?, servesCloud: Bool?) async throws {
         guard Self.providers.contains(provider) else { throw PageError.invalidParams("addKey needs a known provider") }
         let key = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard Self.isOneWord(key) else { throw PageError.invalidParams("addKey needs a key of printable characters with no spaces") }
-        try await addSecret(key, store: provider, method: .connectionsKeyAdd, params: ["provider": provider], label: label)
+        guard Self.isModelAPIKey(key) else { throw PageError.invalidParams("addKey needs a valid API key") }
+        var params: [String: any Sendable] = ["provider": provider]
+        if let replacing { params["replace"] = replacing }
+        else if let servesCloud { params["servesCloud"] = servesCloud }
+        try await addSecret(key, store: provider, method: .connectionsKeyAdd, params: params, label: label)
     }
 
-    /// Add a Claude setup token (`claude setup-token`'s `sk-ant-oat…`, pasted after the terminal tab ran
-    /// it): into the Keychain first, then `connections/claude_token.add` with its reference only. The
-    /// pasted value itself is never trimmed into shape: a token with whitespace inside is refused.
-    func addClaudeToken(_ token: String, label: String?) async throws {
-        let token = token.trimmingCharacters(in: .newlines)
-        guard token.hasPrefix(Self.claudeTokenPrefix), Self.isOneWord(token) else {
-            throw PageError.invalidParams("addClaudeToken needs the sk-ant-oat token claude setup-token printed, with no spaces")
-        }
-        try await addSecret(token, store: "claude-token", method: .claudeTokenAdd, params: [:], label: label)
+    nonisolated static func isModelAPIKey(_ key: String) -> Bool {
+        isOneWord(key) && !key.hasPrefix("sk-ant-oat")
     }
-
-    nonisolated static let claudeTokenPrefix = "sk-ant-oat"
 
     /// One line of printable characters with no spaces, as a key or token is; the Keychain line must not break.
     nonisolated static func isOneWord(_ secret: String) -> Bool {
@@ -166,16 +169,20 @@ extension SettingsModels {
     /// SECRET into the Keychain (as STORE), then METHOD with its reference only; a refused add takes it back out.
     private func addSecret(_ secret: String, store: String, method: AcpmuxHarnessMethod,
                            params base: [String: any Sendable], label: String?) async throws {
-        let environment = try requireDaemonEnvironment()
+        let environment = try await requireDaemonEnvironment()
         let reference = try await storeKey(secret, provider: store)
         var params = base
         params["secret"] = reference
         if let label = label?.trimmingCharacters(in: .whitespacesAndNewlines), !label.isEmpty { params["label"] = String(label.prefix(128)) }
         do {
-            let reply = try JSONValue.parse(try await daemon(environment, method, params))
+            let reply = try JSONValue.parse(try await daemon(environment, method, params,
+                                                           rollbackKeychainReference: reference))
             if reply["connections"] != nil { apply(reply) } else { await refresh() }
+            if let previous = reply["replaced_secret"]?.stringValue { await deleteKey(previous) }
         } catch {
-            await deleteKey(reference)
+            // A disconnected socket can lose a successful reply. Refresh the
+            // route mirror and keep its Keychain item unless the daemon refused.
+            await refresh()
             throw error
         }
     }
@@ -199,18 +206,5 @@ extension SettingsModels {
     /// A Claude setup token (`sk-ant-oat…`) or a sign-in file is a subscription; anything else an API key.
     nonisolated static func kind(of key: String) -> String {
         key.hasPrefix("sk-ant-oat") || key.hasPrefix("{") ? "oauth" : "api_key"
-    }
-}
-
-extension SettingsHarnesses {
-    /// Settings > Models' Sign in to Claude: the Claude account sign-in Settings > Agents runs. The CLI's
-    /// own login when it is signed out, else a new Claude account in a login folder of its own.
-    func connectClaude(context: PageCallContext?) async throws {
-        if accounts == nil, let environment = environment() { await readAccounts(environment, generation: generation) }
-        if let login = accounts?.first(where: { $0.family == "claude" && $0.builtin }), !login.signedIn {
-            _ = try await run(["action": "accountSignIn", "account": .string(login.id)], context: context)
-        } else {
-            _ = try await run(["action": "accountAdd", "family": "claude"], context: context)
-        }
     }
 }

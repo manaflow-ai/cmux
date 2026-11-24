@@ -276,9 +276,15 @@ impl Hub {
         };
         let profile = self.spawn_profile_for(meta, &profile, &defaults.env).await?;
         let at = Some((session.id.as_str(), meta.name.as_str()));
-        let cmd = crate::agent::harness_command_ready(&meta.harness, &profile, &meta.cwd, None, at)
-            .await
-            .map_err(|e| RpcError::internal(format!("{e:#}")))?;
+        let (cmd, scratch) =
+            crate::agent::harness_command_ready(&meta.harness, &profile, &meta.cwd, None, at)
+                .await
+                .map_err(|e| RpcError::internal(format!("{e:#}")))?;
+        if scratch.is_some() {
+            return Err(RpcError::invalid_params(
+                "GitHub Copilot credentials require an agent launch",
+            ));
+        }
         Ok(crate::agent::command_env(&cmd).into_iter().collect())
     }
 

@@ -148,6 +148,18 @@ pub fn says_connection_dropped(message: &str) -> bool {
             && (m.contains("handshake") || m.contains("closed") || m.contains("disconnect")))
 }
 
+/// A provider denied access to the selected model.
+pub(crate) fn model_not_available(message: &str) -> bool {
+    let text = message.to_ascii_lowercase();
+    ["model_not_found", "model not found"].into_iter().any(|phrase| text.contains(phrase))
+        || ["no access", "does not have access", "do not have access"].into_iter().any(|denial| {
+            text.split_once(denial).is_some_and(|(_, tail)| {
+                tail.starts_with(" to model") || tail.starts_with(" to the model")
+            })
+        })
+        || text.contains("model") && text.contains("does not exist or you do not have access")
+}
+
 /// Does an agent error say the request itself was refused: a bad request (HTTP 400, 413 or
 /// 422, `invalid_request_error`), a refused permission (403, `permission_error`, a rejected
 /// tool use) or a missing resource (404)? Sending it again fails the same way, whatever words

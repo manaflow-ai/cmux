@@ -349,6 +349,8 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         harness: d.agent.into(),
         harness_argv: d.profile.argv.clone(),
         spawn_argv: None,
+        credential_connection: None,
+        credential_model: None,
         launch_digest: None,
         family: Some(d.family.to_owned()),
         preset: d.preset,

@@ -36,6 +36,8 @@ pub(super) const METHODS: &[&str] = &[
     method::MUX_AGENT_LOGIN_FINISH,
     method::MUX_AGENT_LOGIN_CANCEL,
     method::MUX_AGENT_LOGIN_API_KEY,
+    method::MUX_AGENT_LOGIN_STATUS,
+    method::MUX_AGENT_LOGIN_LOGOUT,
 ];
 
 /// `error.data.reason` when a caller that is not the person's own asks.
@@ -206,11 +208,50 @@ async fn signed_in(
         tracing::warn!(agent = agent.name(), error = %e, "agent login: record the own sign-in choice");
     }
     hub.login_changed(agent.name(), store, route.as_deref()).await?;
-    let Some(key) = text(params, "sessionId") else { return Ok(false) };
+    if cfg!(target_os = "macos") && matches!(agent, Agent::Grok | Agent::Cursor) {
+        super::connections::announce_later(hub);
+    }
+    let Some(key) = text(params, "sessionId") else {
+        return if agent == Agent::Claude {
+            restart_claude_account(hub, store).await
+        } else {
+            Ok(false)
+        };
+    };
     let session = hub.resolve(key)?;
+    if agent == Agent::Claude {
+        hub.retire_claude_credential(&session).await;
+    }
     let ids = std::collections::BTreeSet::from([session.id.clone()]);
     let done = hub.restart_harnesses(None, Some(&ids)).await;
     Ok(done.now > 0)
+}
+
+/// Restart only the plain Claude account being changed. Explicit provider routes keep their own credentials.
+async fn restart_claude_account(hub: &Arc<Hub>, store: &Path) -> Result<bool, RpcError> {
+    hub.login_changed("claude", store, None).await?;
+    let mut ids = std::collections::BTreeSet::new();
+    for session in hub.sessions() {
+        if let Ok((profile, route)) = hub.login_profile(&session, "claude").await
+            && (route.is_none() || is_legacy_claude_route(hub, route.as_deref()).await)
+        {
+            let config = hub.config.read().await;
+            if cli_for(&config, Agent::Claude, Some(profile))
+                .is_some_and(|cli| cli.store(Agent::Claude) == store)
+            {
+                hub.retire_claude_credential(&session).await;
+                ids.insert(session.id.clone());
+            }
+        }
+    }
+    Ok(hub.restart_harnesses(None, Some(&ids)).await.now > 0)
+}
+
+async fn is_legacy_claude_route(hub: &Hub, route: Option<&str>) -> bool {
+    let Some(route) = route else { return false };
+    let (dir, _) = crate::routes::places(&*hub.config.read().await);
+    crate::routes::find(dir.as_deref(), route)
+        .is_ok_and(|route| route.file.kind == crate::routes::RouteKind::ClaudeToken)
 }
 
 /// The chat's agent uses cmux's gateway here (module docs): the image's own check first, then
@@ -278,7 +319,26 @@ pub(super) async fn handle(
         let restarted = use_gateway(hub, agent, text(params, "sessionId")).await?;
         return Ok(json!({"gateway": true, "restarted": restarted}));
     }
+    if m != method::MUX_AGENT_LOGIN_CANCEL {
+        machine(hub).refuse_shared().map_err(error)?;
+    }
     match m {
+        method::MUX_AGENT_LOGIN_STATUS | method::MUX_AGENT_LOGIN_LOGOUT => {
+            let agent = agent_of(params)?;
+            if agent != Agent::Claude || params.get("sessionId").is_some() {
+                return Err(error(LoginError::new(
+                    reason::UNSUPPORTED,
+                    "expected Claude's machine login",
+                )));
+            }
+            let (cli, _) = cli(hub, agent, params).await?;
+            if m == method::MUX_AGENT_LOGIN_STATUS {
+                return login::claude_status(&machine(hub), &cli).await.map_err(error);
+            }
+            login::claude_logout(&machine(hub), &cli).await.map_err(error)?;
+            restart_claude_account(hub, &cli.store(agent)).await?;
+            Ok(json!({"signedIn": false}))
+        }
         method::MUX_AGENT_LOGIN_START => {
             let agent = agent_of(params)?;
             // A key-only agent (Gemini, OpenCode) has no sign-in page: say so before looking for
@@ -290,6 +350,18 @@ pub(super) async fn handle(
                 )));
             }
             let (cli, _) = cli(hub, agent, params).await?;
+            let mut api_key = None;
+            if agent == Agent::Claude
+                && text(params, "sessionId").is_none()
+                && params["reuseExisting"] == true
+            {
+                let status = login::claude_status(&machine(hub), &cli).await.map_err(error)?;
+                if status["signedIn"] == true {
+                    signed_in(hub, agent, params, &cli.store(agent)).await?;
+                    return Ok(status);
+                }
+                api_key = status["apiKey"].as_bool();
+            }
             let s = login::start(&machine(hub), &cli, agent).await.map_err(error)?;
             let mut reply = json!({
                 "loginId": s.login_id,
@@ -298,6 +370,9 @@ pub(super) async fn handle(
                 "expiresAtMs": s.expires_at_ms,
             });
             if let Some(obj) = reply.as_object_mut() {
+                if let Some(api_key) = api_key {
+                    obj.insert("apiKey".into(), json!(api_key));
+                }
                 if let Some(code) = s.user_code {
                     obj.insert("userCode".into(), json!(code));
                 }
@@ -322,7 +397,9 @@ pub(super) async fn handle(
             let restarted = done.signed_in
                 && done.fresh
                 && signed_in(hub, done.agent, params, &done.store).await?;
-            Ok(json!({"signedIn": done.signed_in, "restarted": restarted}))
+            Ok(
+                json!({"signedIn": done.signed_in, "restarted": restarted, "agent": done.agent.name()}),
+            )
         }
         method::MUX_AGENT_LOGIN_CANCEL => {
             let id = text(params, "loginId").ok_or_else(|| {

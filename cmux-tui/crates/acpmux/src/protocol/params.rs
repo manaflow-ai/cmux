@@ -189,7 +189,7 @@ keyed! {
     /// `_acpmux/agent_login/finish`.
     AgentLoginFinishParams: ["loginId", "code", "sessionId"];
     /// `_acpmux/agent_login/start`.
-    AgentLoginStartParams: ["agent", "sessionId"];
+    AgentLoginStartParams: ["agent", "sessionId", "reuseExisting"];
     /// `_acpmux/agent_pair_resume`.
     AgentPairResumeParams: ["sessionId", "peerSessionId"];
     /// `_acpmux/app_reply`.

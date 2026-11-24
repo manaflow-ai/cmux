@@ -205,11 +205,12 @@ pub(super) async fn handle(
                     .map_err(rpc_error)?;
             }
             // `*`: the endpoint's own model list, read with the key this add brings or the stored one.
-            admin::fetch_endpoint_models(
+            admin::prepare_endpoint_models(
                 &mut p,
                 key.as_deref().map(String::as_str),
                 &sources,
                 profiles::keychain_lookup,
+                params.get("validateEndpoint").and_then(Value::as_bool).unwrap_or(false),
             )
             .await
             .map_err(rpc_error)?;

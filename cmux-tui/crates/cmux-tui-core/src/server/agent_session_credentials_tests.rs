@@ -10,7 +10,7 @@ use super::*;
 use crate::server::AgentStartHost;
 use serde_json::{Value, json};
 
-const TOKEN: &str = "sk-ant-oat01-owner-token";
+const TOKEN: &str = "sk-ant-api03-owner-key";
 
 struct Chat {
     _mux: Arc<Mux>,
@@ -80,7 +80,25 @@ impl Chat {
 }
 
 fn env(token: &str) -> Value {
-    json!({"env": {"CLAUDE_CODE_OAUTH_TOKEN": token}})
+    json!({"env": {"ANTHROPIC_API_KEY": token}})
+}
+
+#[test]
+fn endpoint_launch_credentials_reach_acpmux_only_from_the_owner() {
+    let credential = json!({"env": {"ANTHROPIC_AUTH_TOKEN": TOKEN}, "endpoint": {
+        "kind": "anthropic", "baseUrl": "https://provider.example/v1", "models": ["m"]
+    }});
+    let mut owner = connect("endpoint-owner", AgentStartHost::OwnerCloud, false);
+    let started = owner.start(credential.clone(), json!("owner"));
+    assert_eq!(started["ok"], json!(true));
+    assert!(!started.to_string().contains(TOKEN));
+    let sent = owner.sent("session/new");
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0]["params"]["_meta"]["acpmux"]["credentials"], credential);
+
+    let mut phone = connect("endpoint-phone", AgentStartHost::OwnerCloud, true);
+    assert_eq!(phone.start(credential, json!("owner"))["ok"], json!(false));
+    assert!(phone.sent("session/new").is_empty());
 }
 
 #[test]
@@ -105,16 +123,50 @@ fn a_credential_is_refused_anywhere_but_the_owners_own_cloud_vm() {
         let mut chat = connect(label, host, phone);
         let refused = chat.start(env(TOKEN), vm_kind);
         assert_eq!(refused["ok"], json!(false), "{label}: {refused}");
+        if host == AgentStartHost::TeamVm {
+            assert_code(&refused, "agent_session.personal_connection_on_team_vm");
+        }
         assert!(chat.sent("session/new").is_empty(), "{label}: no agent starts");
     }
+}
+
+#[test]
+fn the_owners_start_and_reattach_use_the_named_connection() {
+    let mut chat = connect("cred-restore", AgentStartHost::OwnerCloud, false);
+    let mut credential = env(TOKEN);
+    credential["connection"] = json!("anthropic-personal");
+    assert_eq!(chat.start(credential.clone(), json!("owner"))["ok"], json!(true));
+    let sent = chat.sent("session/new");
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0]["params"]["_meta"]["acpmux"]["credentials"], credential);
+
+    let status = chat.client.request(json!({"cmd": "agent-session-credentials",
+        "surface": chat.surface, "vm_kind": "owner"}));
+    assert_eq!(status["ok"], json!(true));
+    assert!(!status.to_string().contains(TOKEN));
+    let sent = chat.sent("agent/credentials.update");
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0]["params"], json!({"sessionId": SESSION}));
+}
+
+#[test]
+fn a_legacy_claude_token_cannot_be_delivered_to_a_new_chat() {
+    let mut chat = connect("cred-legacy-claude", AgentStartHost::OwnerCloud, false);
+    let legacy = json!({"env": {"CLAUDE_CODE_OAUTH_TOKEN": "fixture"}});
+    assert_code(&chat.start(legacy, json!("owner")), "agent_session.bad_request");
+    assert!(chat.sent("session/new").is_empty());
 }
 
 #[test]
 fn a_malformed_credential_is_a_bad_request() {
     for credentials in [
         json!({"env": {"PATH": "/evil"}}),
-        json!({"env": {"CLAUDE_CODE_OAUTH_TOKEN": "a b"}}),
-        json!({"env": {"CLAUDE_CODE_OAUTH_TOKEN": "x"}, "file": "/tmp/x"}),
+        json!({"env": {"CMUX_BYO_API_KEY": "fixture"}}),
+        json!({"env": {"CMUX_BYO_API_KEY": "fixture"}, "endpoint": {
+            "kind": "anthropic", "baseUrl": "https://provider.example/v1", "models": ["m"]
+        }}),
+        json!({"env": {"ANTHROPIC_API_KEY": "a b"}}),
+        json!({"env": {"ANTHROPIC_API_KEY": "x"}, "file": "/tmp/x"}),
     ] {
         let mut chat = connect("cred-bad", AgentStartHost::OwnerCloud, false);
         assert_code(&chat.start(credentials, json!("owner")), "agent_session.bad_request");
@@ -129,7 +181,7 @@ fn the_owners_refresh_reaches_the_tabs_own_session_only_from_the_owner() {
     let _ = chat.sent("session/new");
     let refresh = |vm_kind: Value, surface: u64| {
         let mut frame = json!({"cmd":"agent-session-credentials","surface":surface,
-            "env":{"CLAUDE_CODE_OAUTH_TOKEN":"sk-ant-oat01-new"}});
+            "env":{"ANTHROPIC_API_KEY":"sk-ant-api03-new"}});
         if !vm_kind.is_null() {
             frame["vm_kind"] = vm_kind;
         }
@@ -141,7 +193,7 @@ fn the_owners_refresh_reaches_the_tabs_own_session_only_from_the_owner() {
     let updates = chat.sent("agent/credentials.update");
     assert_eq!(updates.len(), 1);
     assert_eq!(updates[0]["params"]["sessionId"], json!(SESSION), "the tab's own session");
-    assert_eq!(updates[0]["params"]["env"]["CLAUDE_CODE_OAUTH_TOKEN"], json!("sk-ant-oat01-new"));
+    assert_eq!(updates[0]["params"]["env"]["ANTHROPIC_API_KEY"], json!("sk-ant-api03-new"));
     // Without the owner word, or for a tab with no session here, nothing reaches acpmux.
     let refused = chat.client.request(refresh(Value::Null, chat.surface));
     assert_eq!(refused["ok"], json!(false), "{refused}");
@@ -150,6 +202,21 @@ fn the_owners_refresh_reaches_the_tabs_own_session_only_from_the_owner() {
         "agent_session.unknown_tab",
     );
     assert!(chat.sent("agent/credentials.update").is_empty());
+}
+
+#[test]
+fn the_owners_copilot_revocation_reaches_only_the_tabs_session() {
+    let mut chat = connect("cred-copilot-remove", AgentStartHost::OwnerCloud, false);
+    assert_eq!(chat.start(env(TOKEN), json!("owner"))["ok"], json!(true));
+    let _ = chat.sent("session/new");
+    let mut revoke = json!({"cmd":"agent-session-credentials","surface":chat.surface,"env":{}});
+    assert_eq!(chat.client.request(revoke.clone())["ok"], json!(false));
+    assert!(chat.sent("agent/credentials.update").is_empty());
+    revoke["vm_kind"] = json!("owner");
+    assert_eq!(chat.client.request(revoke)["ok"], json!(true));
+    let updates = chat.sent("agent/credentials.update");
+    assert_eq!(updates.len(), 1);
+    assert_eq!(updates[0]["params"], json!({"sessionId":SESSION,"env":{}}));
 }
 
 impl Chat {

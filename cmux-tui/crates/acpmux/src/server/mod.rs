@@ -2946,7 +2946,7 @@ mod account_sign_in;
 mod accounts;
 #[cfg(test)]
 mod attach_latency_bench;
-mod connections;
+pub(crate) mod connections;
 mod mcp_connect;
 mod routes;
 mod secrets;

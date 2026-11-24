@@ -1,3 +1,4 @@
+import CmuxNextCloud
 import CmuxNextCloudUI
 import Foundation
 import Testing
@@ -14,6 +15,7 @@ import Testing
         var confirms = 0
         var answerYes = true
         var available = true
+        var listFailure: CloudAppOpFailure?
         let listJSON = Data("""
         {"environments": [{"id": "env_00000000000000000001", "name": "web", "repo": "octo/paint", "setup_script": "bun install", "status": "failed",
           "env": [{"name": "NODE_ENV", "value": "development"}, {"name": "OPENAI_API_KEY", "secret": "openai"}],
@@ -24,7 +26,11 @@ import Testing
     private func model(_ b: Backend) -> CloudEnvironmentsSettings {
         CloudEnvironmentsSettings(
             available: { b.available },
-            list: { b.lists += 1; return b.listJSON },
+            list: {
+                b.lists += 1
+                if let failure = b.listFailure { throw failure }
+                return b.listJSON
+            },
             save: { args in b.raw.append(args) },
             approvedCall: { op, id, confirm in
                 guard await confirm() else { return false }
@@ -93,5 +99,18 @@ import Testing
         #expect(!m.state.available)
         #expect(b.lists == 0, "nothing reaches the app server on the classic path")
         #expect(await m.run(.init(action: .save, name: "x")).error != nil)
+    }
+
+    @Test func unsupportedListIsDistinctFromATemporaryFailure() async {
+        let b = Backend()
+        let m = model(b)
+        b.listFailure = CloudAppOpFailure(code: "cmux.cloud.upstream_error", message: "cloud.environment.list is not available yet")
+        #expect(await m.run(.init(action: .refresh)).error == nil)
+        #expect(m.state.unsupported && !m.state.available)
+        #expect(m.state.error == nil)
+
+        b.listFailure = CloudAppOpFailure(code: "cmux.cloud.upstream_error", message: "request timed out")
+        #expect(await m.run(.init(action: .refresh)).error != nil)
+        #expect(!m.state.unsupported && m.state.available)
     }
 }

@@ -59,6 +59,7 @@ extension AppControl {
 #if DEBUG || CMUX_BENCH_HOOKS
 enum DebugPages {
     /// Hidden pages `call` made (kept alive for later calls).
+    @MainActor private static var settingsPanes: [SettingsSignInPane] = []
     @MainActor private static var made: [PageWebView] = []
 
     @MainActor
@@ -158,9 +159,11 @@ enum DebugPages {
         }
         guard let services else { return ["error": "no app services"] }
         let factory = PageFactory(services: services)
+        let settings = id == PageDescriptor.settings.id ? factory.settingsPage(route: route) : nil
+        if let settings { Self.settingsPanes.append(settings) }
         let made = switch id {
         case PageDescriptor.feed.id: factory.feedWebPage(route: route ?? "#/needs-you")
-        case PageDescriptor.settings.id: factory.settingsPage(route: route)
+        case PageDescriptor.settings.id: settings?.settingsPage
         default: factory.cloudWebPage()
         }
         guard let made else { return ["error": .string("no \(id) page: its resources are missing")] }

@@ -12,6 +12,7 @@
     "agent-session-folders-v1",
     "agent-session-fork-v1",
     "agent-session-login-machine-v1",
+    "agent-session-login-settings-v1",
     "agent-session-login-v1",
     "agent-session-member-v1",
     "agent-session-observe-v1",

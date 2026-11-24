@@ -907,6 +907,7 @@ impl Hub {
         if !no_queue {
             self.hold_retry_start(session, &prompt_id).await;
         }
+        self.refresh_local_chatgpt_between_turns(session).await;
         if session.cancels.load(Ordering::SeqCst) != cancels {
             // A continuation or retry of a cut turn is refused as one Stop overtook
             // (`auto_resume.stopped`): its callers answer `retry.stopped` and record the skip.
@@ -1971,6 +1972,25 @@ impl Hub {
         // person's terminal signs in, and the fix (`claude_auth.rs`).
         let mut signed_out = false;
         let cloud_host = result.is_err() && self.config.read().await.cloud_host;
+        let claude_cloud_token_rejected = cloud_host
+            && result.as_ref().err().is_some_and(|error| {
+                let rejected = error.code == 401
+                    || crate::turn_errors::has_status(&error.message, "401")
+                    || crate::claude_auth::is_revoked_token(&error.message)
+                    || crate::claude_auth::is_expired_credential(&error.message);
+                rejected
+                    && !crate::turn_errors::says_unreachable(&error.message)
+                    && session
+                        .credential
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner())
+                        .as_ref()
+                        .is_some_and(|credential| {
+                            credential
+                                .names()
+                                .any(|name| name == crate::agent_credentials::CLAUDE_OAUTH)
+                        })
+            });
         // On a Cloud machine, the card's third way in: cmux's gateway, when the image says the
         // machine's team has an account for Claude there (`agent_login::Machine::gateway_access`).
         // Asked only for a sign-in failure it explains.
@@ -2156,6 +2176,16 @@ impl Hub {
                             o.extend(info.clone());
                         }
                         o.extend(crate::recovery::fields(e));
+                        if claude_cloud_token_rejected {
+                            o.insert("errorCode".into(), json!("claude_cloud_token_rejected"));
+                        } else if crate::turn_errors::model_not_available(&e.message) {
+                            o.insert("errorCode".into(), json!("model_not_found"));
+                        } else if turn == 1 && crate::turn_errors::has_status(&e.message.to_ascii_lowercase(), "403")
+                            && session.launch_env.lock().unwrap_or_else(|p| p.into_inner()).as_ref()
+                                .is_some_and(|env| env.contains_key(crate::subscriptions::grok_hook::COMMAND))
+                        {
+                            o.insert("errorCode".into(), json!("subscription.no_supergrok_access"));
+                        }
                         if let Some(to) = carried_to() {
                             o.insert("carriedTo".into(), to);
                         }
@@ -2938,6 +2968,22 @@ impl Hub {
         self.inbox_closed(session);
         // A lane link either end of which closes is retired (`lane_reports.rs`).
         self.lane_retire(&session.id);
+        #[cfg(unix)]
+        if let Ok(_spawn) = session.spawn_lock.try_lock() {
+            crate::agent::copilot_auth::remove_session(&session.id);
+        } else {
+            // A starting agent ends on the stop count and releases its launch directory.
+            crate::agent::copilot_auth::remove_legacy_session(&session.id);
+        }
+        {
+            let mut credential = session.credential.lock().unwrap_or_else(|e| e.into_inner());
+            if credential
+                .as_ref()
+                .is_some_and(|c| c.family() == crate::agent_credentials::Family::Copilot)
+            {
+                *credential = None;
+            }
+        }
         // The session's Claude Code MCP config holds the helper token.
         crate::agent_tools::remove_mcp_config(&crate::config::home(), &session.id);
         // A stop frees its temporary folder (`closed_tmp.rs`); a purge removes it below.

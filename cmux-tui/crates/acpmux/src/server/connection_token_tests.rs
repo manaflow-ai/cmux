@@ -111,3 +111,46 @@ async fn only_the_person_reads_a_connection_token() {
         );
     }
 }
+
+#[tokio::test]
+async fn chatgpt_device_rpc_requires_person_proof() {
+    let hub = hub();
+    for method in [
+        method::MUX_CONNECTIONS_CHATGPT_DEVICE_BEGIN,
+        method::MUX_CONNECTIONS_CHATGPT_DEVICE_WAIT,
+        method::MUX_CONNECTIONS_CHATGPT_DEVICE_CANCEL,
+    ] {
+        for who in [Who::ProvenCaller, Who::UnprovenCaller, Who::Bare] {
+            let mut rpc = Rpc::connect(&hub, &who).await;
+            let reply = rpc.call(method, json!({})).await;
+            assert_eq!(reply["error"]["data"]["reason"], crate::hub::person::REASON);
+        }
+    }
+    let mut rpc = Rpc::connect(&hub, &Who::Person).await;
+    for method in
+        [method::MUX_CONNECTIONS_CHATGPT_DEVICE_WAIT, method::MUX_CONNECTIONS_CHATGPT_DEVICE_CANCEL]
+    {
+        let reply = rpc.call(method, json!({"attempt": "no-such-attempt"})).await;
+        assert_eq!(reply["error"]["data"]["reason"], "chatgpt.unknown_attempt");
+    }
+}
+
+#[tokio::test]
+async fn subscription_device_methods_require_person_proof() {
+    let hub = hub();
+    for method in [
+        method::MUX_CONNECTIONS_SUBSCRIPTION_BEGIN,
+        method::MUX_CONNECTIONS_SUBSCRIPTION_WAIT,
+        method::MUX_CONNECTIONS_SUBSCRIPTION_CANCEL,
+    ] {
+        for who in [Who::ProvenCaller, Who::UnprovenCaller, Who::Bare] {
+            let mut rpc = Rpc::connect(&hub, &who).await;
+            let reply = rpc.call(method, json!({})).await;
+            assert_eq!(reply["error"]["data"]["reason"], crate::hub::person::REASON);
+        }
+        let mut rpc = Rpc::connect(&hub, &Who::Person).await;
+        let reply = rpc.call(method, json!({})).await;
+        assert_ne!(reply["error"]["data"]["reason"], crate::hub::person::REASON);
+        assert!(reply["error"].is_object());
+    }
+}

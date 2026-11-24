@@ -150,30 +150,64 @@ extension DeepLink {
         return settingsRoutes[url.path.lowercased()]
     }
 
-    /// The Settings page place a settings link opens: `cmux://settings/models` is Settings > Models
-    /// (`#/settings/models`), `cmux://settings/models/add` its Add a Connection
-    /// (`#/settings/models?focus=models.add`). `cmux://settings/cloud` is Settings > Cloud, and
-    /// `cmux://settings/cloud/claude`, `/cloud/chatgpt` and `/cloud/api-key` open it on that row of
-    /// Models for Cloud (``cloudRoute(row:)``). Nil for any other URL.
+    /// The Settings page a link opens, including older links to Cloud setup.
     public static func settingsRoute(for url: URL, linkScheme: String) -> String? {
         guard let scheme = url.scheme?.lowercased(), scheme == chiefScheme || scheme == linkScheme.lowercased(),
               url.host?.lowercased() == "settings" else { return nil }
-        switch url.path.lowercased() {
-        case "/models", "/models/": return "#/settings/models"
-        case "/models/add", "/models/add/": return "#/settings/models?focus=models.add"
-        case "/cloud", "/cloud/": return cloudRoute(row: nil)
-        case "/cloud/claude", "/cloud/claude/": return cloudRoute(row: "claude")
-        case "/cloud/chatgpt", "/cloud/chatgpt/": return cloudRoute(row: "chatgpt")
-        case "/cloud/api-key", "/cloud/api-key/": return cloudRoute(row: "apiKey")
+        let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        let provider = query.first { $0.name == "provider" }?.value
+        let focus = query.first { $0.name == "focus" }?.value
+        let fromSend = query.first { $0.name == "fromSend" }?.value == "1"
+        let path = url.path.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        switch path {
+        case "models", "models/add", "cloud", "cloud/models", "cloud/models/add", "cloud/api-key":
+            if let focus, let route = modelSettingsRoute(focus: focus, fromSend: fromSend) { return route }
+            if let provider, !provider.isEmpty {
+                if path == "models/add" || (path == "models" && ["ollama", "lm-studio"].contains(provider)) {
+                    return modelSettingsRoute(focus: "models.add." + provider)
+                }
+                return cloudModelConnectionsRoute(family: provider, fromSend: fromSend)
+            }
+            switch path {
+            case "models": return "#/settings/models"
+            case "models/add": return modelSettingsRoute(focus: "models.add")
+            case "cloud": return "#/settings/cloud"
+            case "cloud/models": return modelSettingsRoute(focus: "card.cloudModels")
+            default: return modelSettingsRoute(focus: "cloudModels.add")
+            }
+        case "cloud/claude": return cloudModelConnectionsRoute(family: "claude", fromSend: fromSend)
+        case "cloud/chatgpt": return cloudModelConnectionsRoute(family: "chatgpt", fromSend: fromSend)
         default: return nil
         }
     }
 
-    /// Settings > Cloud (`#/settings/cloud`), opened on a row of its Models for Cloud card
-    /// (`claude`, `chatgpt`, `apiKey`: `?focus=cloud.<row>`) when one is named.
-    public static func cloudRoute(row: String?) -> String {
-        row.map { "#/settings/cloud?focus=cloud.\($0)" } ?? "#/settings/cloud"
+    /// Settings anchors opened through the app action, CLI, MCP, or older Cloud setup links.
+    public static func modelSettingsRoute(focus: String, fromSend: Bool = false) -> String? {
+        let focus = focus.trimmingCharacters(in: .whitespacesAndNewlines)
+        if focus.hasPrefix("models.add.") || ["models.add", "claude-login", "codex-login", "gemini-login"].contains(focus) {
+            let encoded = focus.addingPercentEncoding(withAllowedCharacters: .alphanumerics.union(CharacterSet(charactersIn: ".-"))) ?? ""
+            return "#/settings/models?focus=\(encoded)&open=\(UUID().uuidString)"
+        }
+        return switch focus {
+        case "cloud.claude":
+            cloudModelConnectionsRoute(family: "claude", fromSend: fromSend)
+        case "cloud.chatgpt":
+            cloudModelConnectionsRoute(family: "chatgpt", fromSend: fromSend)
+        case "cloud.apiKey", "cloudModels.add":
+            "#/settings/cloud?focus=cloudModels.add&open=\(UUID().uuidString)"
+        case "cloudModels", "card.cloudModels":
+            "#/settings/cloud?focus=card.cloudModels&open=\(UUID().uuidString)"
+        default: nil
+        }
     }
+
+    /// Cloud models opens the form on every click. A held send gets its own confirmation.
+    public static func cloudModelConnectionsRoute(family: String, fromSend: Bool = false) -> String {
+        let provider = family.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""
+        let route = "#/settings/cloud?focus=card.cloudModels&provider=\(provider)&open=\(UUID().uuidString)"
+        return fromSend ? route + "&fromSend=1" : route
+    }
+
     /// The settings link path that turns Start Agent from Any App on.
     public static let startAgentFromAnyAppPath = "/start-agent-from-any-app"
 

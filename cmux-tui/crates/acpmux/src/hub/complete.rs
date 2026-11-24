@@ -312,11 +312,12 @@ impl Hub {
             dir.write_private(file, req.prompt.as_bytes())
                 .map_err(|e| failed(format!("the prompt file: {e}")))?;
         }
+        let copilot_token = env.get(crate::agent_credentials::COPILOT_TOKEN).cloned();
         let mut spawn = profile.clone();
         spawn.env = env;
         // The harness's own command line rules: login env, nested-agent and
         // caller markers scrubbed, profile secrets resolved, route unsets.
-        let mut cmd = crate::agent::harness_command_ready(
+        let (mut cmd, scratch) = crate::agent::harness_command_ready(
             name,
             &spawn,
             &cwd,
@@ -326,17 +327,40 @@ impl Hub {
         .await
         .map_err(|e| failed(format!("{e:#}")))?;
         for (key, value) in &inv.env_set {
-            cmd.env(key, value);
+            if scratch.is_some() && key == "OPENCODE_CONFIG_CONTENT" {
+                // Keep the Copilot provider selection and add the completion's tool restrictions.
+                let current =
+                    crate::agent::command_env(&cmd).into_iter().find(|(name, _)| name == key);
+                let mut config: Value =
+                    current.and_then(|(_, value)| serde_json::from_str(&value).ok()).ok_or_else(
+                        || failed("missing GitHub Copilot provider configuration".into()),
+                    )?;
+                let isolated: Value = serde_json::from_str(value)
+                    .map_err(|_| failed("invalid OpenCode completion configuration".into()))?;
+                config["agent"] = isolated["agent"].clone();
+                cmd.env(key, config.to_string());
+            } else {
+                cmd.env(key, value);
+            }
         }
         for key in &inv.env_remove {
             cmd.env_remove(key);
         }
         let input = inv.stdin_prompt.then_some(req.prompt.as_bytes());
         let left = deadline.saturating_duration_since(tokio::time::Instant::now());
-        let out = run::run(cmd, input, left).await.map_err(|e| match e {
+        let mut out = run::run(cmd, input, left).await.map_err(|e| match e {
             RunError::Timeout => timed_out(),
             RunError::Spawn(why) => failed(format!("cannot start {}: {why}", inv.program)),
         })?;
+        if let Some(token) = copilot_token.as_deref().filter(|token| !token.is_empty()) {
+            for bytes in [&mut out.stdout, &mut out.stderr] {
+                *bytes = crate::agent_credentials::redact_line(
+                    String::from_utf8_lossy(bytes).into_owned(),
+                    Some(token),
+                )
+                .into_bytes();
+            }
+        }
         let answer = match &inv.output_file {
             Some(file) => run::read_file_capped(file, complete::OUTPUT_CAP).await,
             None => out.stdout.clone(),

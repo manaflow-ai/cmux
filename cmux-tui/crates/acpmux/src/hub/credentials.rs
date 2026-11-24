@@ -47,35 +47,39 @@ impl Hub {
             && session.credential.lock().unwrap_or_else(|e| e.into_inner()).is_some()
     }
 
+    /// Move an existing Cloud chat off a delivered Claude token after its own account is ready.
+    pub(crate) async fn retire_claude_credential(&self, session: &Session) {
+        let _spawn = session.spawn_lock.lock().await;
+        let mut held = session.credential.lock().unwrap_or_else(|e| e.into_inner());
+        if held.as_ref().is_some_and(AgentCredential::has_legacy_claude_token) {
+            *held = None;
+        }
+    }
+
     /// Sets `credential` on session `id` (its exact id, a session of this daemon) and restarts its
     /// live agent on it. A credential of another family than the session's harness is refused.
     pub(crate) async fn update_credential(
         self: &Arc<Self>,
         id: &str,
-        credential: AgentCredential,
+        mut credential: AgentCredential,
     ) -> Result<Value, RpcError> {
-        let session = self.session_get(id).ok_or_else(|| {
-            RpcError::not_found("no such session on this machine")
-                .with_data(json!({"reason": "credentials.no_session"}))
-        })?;
-        let meta = session.meta();
-        let family = {
-            let cfg = self.config.read().await;
-            cfg.harnesses
-                .get(&meta.harness)
-                .map(|p| crate::config::derive_family(&meta.harness, p))
-                .or_else(|| cfg.family(&meta.harness))
-                .unwrap_or_else(|| meta.harness.clone())
-        };
+        let (session, family) = self.credential_session(id).await?;
         if Family::of_harness(&family) != Some(credential.family()) {
             return Err(RpcError::invalid_params(
                 "this credential does not serve this chat's agent",
             )
             .with_data(json!({"reason": "credentials.family"})));
         }
+        let connection = session.meta().credential_connection;
+        credential.keep_connection(connection.as_deref());
         let changed = {
+            let _spawn = session.spawn_lock.lock().await;
             let mut held = session.credential.lock().unwrap_or_else(|e| e.into_inner());
             let changed = held.as_ref() != Some(&credential);
+            #[cfg(unix)]
+            if changed && credential.family() == Family::Copilot {
+                crate::agent::copilot_auth::remove_session(&session.id);
+            }
             *held = Some(credential);
             changed
         };
@@ -96,6 +100,52 @@ impl Hub {
             "none"
         };
         Ok(json!({"sessionId": session.id, "restart": restart}))
+    }
+
+    /// Name and presence of an owner's stored launch connection, for reattachment.
+    pub(crate) async fn credential_status(&self, id: &str) -> Result<Value, RpcError> {
+        let (session, _) = self.credential_session(id).await?;
+        let meta = session.meta();
+        let held = session.credential.lock().unwrap_or_else(|e| e.into_inner()).is_some();
+        let model = meta.credential_model.clone().or_else(|| super::model_options::current_model(&meta));
+        Ok(json!({"connection": meta.credential_connection, "held": held,
+            "model": model, "harness": meta.harness}))
+    }
+
+    /// The Cloud owner withdrew a delivered model credential.
+    pub(crate) async fn revoke_credential(self: &Arc<Self>, id: &str) -> Result<Value, RpcError> {
+        let (session, _family) = self.credential_session(id).await?;
+        let _spawn = session.spawn_lock.lock().await;
+        let removed = session.credential.lock().unwrap_or_else(|e| e.into_inner()).take();
+        if removed.is_none() && session.meta().credential_connection.is_none() {
+            return Ok(json!({"sessionId": session.id, "restart": "none"}));
+        }
+        #[cfg(unix)]
+        if Family::of_harness(&_family) == Some(Family::Copilot) {
+            crate::agent::copilot_auth::remove_session(&session.id);
+        }
+        self.detach_child(&session).await;
+        Ok(json!({"sessionId": session.id, "restart": "none"}))
+    }
+
+    async fn credential_session(&self, id: &str) -> Result<(Arc<Session>, String), RpcError> {
+        let session =
+            self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned().ok_or_else(
+                || {
+                    RpcError::not_found("no such session on this machine")
+                        .with_data(json!({"reason": "credentials.no_session"}))
+                },
+            )?;
+        let meta = session.meta();
+        let family = {
+            let cfg = self.config.read().await;
+            cfg.harnesses
+                .get(&meta.harness)
+                .map(|p| crate::config::derive_family(&meta.harness, p))
+                .or_else(|| cfg.family(&meta.harness))
+                .unwrap_or_else(|| meta.harness.clone())
+        };
+        Ok((session, family))
     }
 }
 
@@ -274,6 +324,29 @@ mod tests {
         assert_eq!(launched(&session).get(CLAUDE_OAUTH).map(String::as_str), Some(FIRST));
         assert!(!only_here(&session));
         assert!(!written(&hub, &session.id).contains(FIRST), "still never written down");
+    }
+
+    #[tokio::test]
+    async fn a_named_cloud_connection_refuses_respawn_until_the_owner_redelivers() {
+        let hub = hub();
+        let credential = AgentCredential::parse(&json!({
+            "env": {CLAUDE_OAUTH: FIRST}, "connection": "personal-models"
+        })).unwrap();
+        let session = hub.new_session(NewRequest {
+            cwd: Some(std::env::temp_dir()), credential: Some(credential.clone()), ..NewRequest::default()
+        }).await.unwrap();
+        hub.child_for(&session).await.unwrap();
+        let status = hub.credential_status(&session.id).await.unwrap();
+        assert_eq!(status["connection"], "personal-models");
+        assert_eq!(status["held"], true);
+        assert!(!written(&hub, &session.id).contains(FIRST));
+
+        hub.revoke_credential(&session.id).await.unwrap();
+        let error = hub.child_for(&session).await.err().expect("missing grant blocks launch");
+        assert_eq!(error.data.unwrap()["reason"], "credentials.needed");
+
+        hub.update_credential(&session.id, credential).await.unwrap();
+        hub.child_for(&session).await.unwrap();
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

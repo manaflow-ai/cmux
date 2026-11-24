@@ -434,7 +434,7 @@ extension AgentPaneModel {
     }
 
     /// `cloud.setUp {key, action, family}`: the Set up Cloud card's button, on its click. Runs that way
-    /// in (Settings > Models' own op), waits for a connection serving `family` and keeps the click for
+    /// in (Settings > Cloud > Cloud models at the family's form), waits for a connection serving `family` and keeps the click for
     /// the page's one send again of start `key` (`cloud.startChat {..., signedIn: true}`), as
     /// `cloud.signIn` does: the chat starts with no retyping once one appears. `cloud.signInCancel`
     /// withdraws it (the page left Cloud, or gave up).
@@ -455,6 +455,53 @@ extension AgentPaneModel {
         }
         keepCloudSignInGrant(key, generation: generation)
         return AgentPaneReply.success(["ready": true])
+    }
+
+    /// Cloud first use through `setup` (the app's one ``CloudSetup``): Set up Cloud's ways in (``onCloudSetUp``), the
+    /// model picker's served families (``onCloudServed``) and its Connect (``onCloudConnect``). nil: no Cloud here, all refuse.
+    /// Written out with their types: Xcode 26.6 could not type the `map` form.
+    public func useCloudSetup(_ setup: CloudSetup?) {
+        guard let setup else {
+            (onCloudSetUp, onCloudServed, onCloudConnect) = (nil, nil, nil)
+            return
+        }
+        onCloudSetUp = { @MainActor (action: CloudSetup.Action, family: String) async -> Bool in await setup.setUp(action, family: family) }
+        onCloudServed = { await setup.served(machine: $0) }
+        onCloudConnect = { @MainActor (family: String) -> Void in setup.connect(family: family) }
+    }
+
+    /// Opens Settings > Cloud > Cloud models for the named family. The picker reads `cloud.setup.state` again when reopened.
+    func connectCloud(family: String) async -> [String: Any] {
+        guard let onCloudConnect else { return Self.unsupported("cloud.connect") }
+        if chatIsElsewhere {
+            guard family == "claude", let mayRecoverCloudConnection, let tab = tabKey(),
+                  let session = sessionId else { return Self.unsupported("cloud.connect") }
+            guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
+            guard await mayRecoverCloudConnection(tab), tab == tabKey(), session == sessionId else {
+                return Self.unsupported("cloud.connect")
+            }
+        } else {
+            guard onCloudStartChat != nil else { return Self.unsupported("cloud.connect") }
+            guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
+        }
+        onCloudConnect(family)
+        return AgentPaneReply.success()
+    }
+
+    /// Cloud launch support and credential readiness are independent. Only readiness can be unknown
+    /// for an individual supported family.
+    /// Only a new chat's page asks for this state.
+    func cloudSetupState(machine: String?) async -> [String: Any] {
+        guard let onCloudServed, onCloudStartChat != nil, !chatIsElsewhere else { return Self.unsupported("cloud.setup.state") }
+        let state = await onCloudServed(machine)
+        return AgentPaneReply.success([
+            "families": state.families,
+            "runnableFamilies": Array(Set(CloudSetup.families).union(state.families.keys)).sorted(),
+            "servedHarnesses": state.servedHarnesses,
+            "pendingHarnesses": state.pendingHarnesses,
+            "unavailableEndpointHarnesses": state.unavailableEndpointHarnesses,
+            "reasons": state.reasons.mapValues(\.rawValue),
+        ])
     }
 
     /// `cloud.signInCancel {expired?}`: the page stopped waiting on a `cloud.signIn` (it left Cloud, or

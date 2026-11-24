@@ -420,9 +420,19 @@ extension AgentPaneRequest {
         case "cloud.setUp":
             // The start's key, one of the card's ways in and the family it waits for (CloudSetup).
             if let key = params?["key"] as? String, UUID(uuidString: key) != nil, let action = params?["action"] as? String,
-               CloudSetup.Action(rawValue: action) != nil, let family = params?["family"] as? String, CloudSetup.families.contains(family) {
+               CloudSetup.Action(rawValue: action) != nil, let family = params?["family"] as? String, CloudSetup.isSetupFamily(family) {
                 self = .cloudSetUp(key: key, action: action, family: family)
             } else { self = .unsupported(method) }
+        case "cloud.setup.state":
+            let machine = (params?["machine"] as? String).flatMap { CloudSetup.isConnectionID($0) ? $0 : nil }
+            self = .cloudSetupState(machine: machine)
+        case "cloud.connect":
+            // The picker lists catalog families even when the Cloud gateway cannot run them yet.
+            if let family = params?["family"] as? String, CloudSetup.isConnectionID(family) {
+                self = .cloudConnect(family: family)
+            } else {
+                self = .unsupported(method)
+            }
         case "cloud.startChat": self = AgentPaneCloudStart(params: params).map(Self.cloudStartChat) ?? .unsupported(method)
         case "cloud.repickChat": self = AgentPaneCloudRepick(params: params).map(Self.cloudRepickChat) ?? .unsupported(method)
         case "cloud.answerStart": self = AgentPaneCloudAnswer(params: params).map(Self.cloudAnswerStart) ?? .unsupported(method)

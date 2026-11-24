@@ -2,7 +2,7 @@
 //! exchange, refresh and revocation, and the OpenID configuration's JWKS.
 
 use std::collections::HashMap;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use base64::Engine as _;
@@ -109,7 +109,7 @@ pub(crate) struct Pending {
 }
 
 impl Pending {
-    pub fn new(port: u16, reauth: Option<String>, prior: Option<&Record>) -> Result<Self, Failure> {
+    pub fn new(port: u16, reauth: Option<String>, prior: Option<&store::Metadata>) -> Result<Self, Failure> {
         Ok(Self {
             state: random_token(24)?,
             nonce: random_token(24)?,
@@ -170,11 +170,12 @@ pub(crate) struct Client {
     pub endpoints: Endpoints,
     http: OnceLock<reqwest::Client>,
     keys: tokio::sync::Mutex<Option<Keys>>,
+    saving: Arc<tokio::sync::Mutex<()>>,
 }
 
 /// The OAuth `error` code of an answer, only when it is a plain code (never echoed text).
 /// Read where Codex reads it: `error` as a string, `error.code`, or a top-level `code`.
-fn error_code(body: &Value) -> Option<&str> {
+pub(super) fn error_code(body: &Value) -> Option<&str> {
     fn plain(v: Option<&Value>) -> Option<&str> {
         v.and_then(Value::as_str)
             .filter(|c| c.len() <= 64 && c.bytes().all(|b| b.is_ascii_lowercase() || b == b'_'))
@@ -186,7 +187,12 @@ fn error_code(body: &Value) -> Option<&str> {
 
 impl Client {
     pub fn new(endpoints: Endpoints) -> Self {
-        Self { endpoints, http: OnceLock::new(), keys: tokio::sync::Mutex::new(None) }
+        Self {
+            endpoints,
+            http: OnceLock::new(),
+            keys: tokio::sync::Mutex::new(None),
+            saving: Arc::default(),
+        }
     }
 
     fn http(&self) -> &reqwest::Client {
@@ -241,7 +247,7 @@ impl Client {
         Ok((status, serde_json::from_slice(&body).unwrap_or(Value::Null)))
     }
 
-    async fn post_json(&self, url: &str, body: &Value) -> Result<(u16, Value), Failure> {
+    pub(super) async fn post_json(&self, url: &str, body: &Value) -> Result<(u16, Value), Failure> {
         let answer = self
             .http()
             .post(url)
@@ -266,7 +272,9 @@ impl Client {
             .await
             .map_err(|e| Failure::new("network", e.to_string()))?;
         if !answer.status().is_success() {
-            return Err(Failure::new("discovery_failed", format!("{url}: {}", answer.status())));
+            let status = answer.status();
+            let code = if status.is_server_error() { "network" } else { "discovery_failed" };
+            return Err(Failure::new(code, format!("OpenID discovery received HTTP {status}")));
         }
         answer.json().await.map_err(|e| Failure::new("discovery_failed", e.to_string()))
     }
@@ -390,46 +398,81 @@ impl Client {
             .get("code")
             .filter(|c| !c.is_empty())
             .ok_or_else(|| Failure::new("no_code", "the callback carried no code"))?;
-        let client_id = self.endpoints.client_id.clone();
+        let sign_in = self
+            .exchange(code, &pending.verifier, &pending.redirect_uri, Some(&pending.nonce))
+            .await?;
+        let guard = self.save_slot().await;
+        self.save_sign_in(places.clone(), pending.reauth.clone(), sign_in, false, guard).await
+    }
+
+    pub(super) async fn exchange(
+        &self,
+        code: &str,
+        verifier: &str,
+        redirect_uri: &str,
+        nonce: Option<&str>,
+    ) -> Result<VerifiedSignIn, Failure> {
+        let client_id = self.endpoints.client_id.as_str();
         let (status, body) = self
             .post_form(
                 &self.endpoints.token_url,
                 &[
                     ("grant_type", "authorization_code"),
-                    ("client_id", client_id.as_str()),
-                    ("code", code.as_str()),
-                    ("code_verifier", pending.verifier.as_str()),
-                    ("redirect_uri", pending.redirect_uri.as_str()),
+                    ("client_id", client_id),
+                    ("code", code),
+                    ("code_verifier", verifier),
+                    ("redirect_uri", redirect_uri),
                 ],
             )
             .await?;
         if !(200..300).contains(&status) {
-            let why = error_code(&body).unwrap_or("no error code");
-            return Err(Failure::new("token_exchange_failed", format!("{status} {why}")));
+            let reason = error_code(&body);
+            let code = match reason {
+                Some("access_denied" | "authorization_declined") => "access_denied",
+                Some("expired_token") => "expired_token",
+                _ if status >= 500 => "network",
+                _ => "token_exchange_failed",
+            };
+            return Err(Failure::new(code, format!("HTTP {status}")));
         }
         let answer: TokenAnswer = serde_json::from_value(body).map_err(|_| {
             Failure::new("token_exchange_failed", "the token answer has no access_token")
         })?;
         let id_token = answer
             .id_token
-            .clone()
+            .as_deref()
             .filter(|t| !t.is_empty())
             .ok_or_else(|| Failure::new("invalid_id_token", "no ID token"))?;
-        let claims = self.verify_id_token(&id_token, &client_id, Some(&pending.nonce)).await?;
+        let claims = self.verify_id_token(id_token, client_id, nonce).await?;
         if claims.account.is_none() {
             // An API-only OpenAI account: no ChatGPT plan for Codex to run on.
             return Err(Failure::new("no_chatgpt_account", "the sign-in names no ChatGPT account"));
         }
-        let refresh = answer.refresh_token.clone().filter(|r| !r.is_empty());
-        if refresh.is_none() {
+        if answer.refresh_token.as_deref().is_none_or(str::is_empty) {
             return Err(Failure::new("token_exchange_failed", "no refresh token"));
         }
-        let places = places.clone();
-        let reauth = pending.reauth.clone();
-        let now = super::now_unix();
-        tokio::task::spawn_blocking(move || save(&places, reauth, &client_id, claims, answer, now))
-            .await
-            .map_err(|e| Failure::new("internal", e.to_string()))?
+        Ok(VerifiedSignIn { claims, answer })
+    }
+
+    pub(super) async fn save_slot(&self) -> tokio::sync::OwnedMutexGuard<()> {
+        self.saving.clone().lock_owned().await
+    }
+
+    pub(super) async fn save_sign_in(
+        &self,
+        places: Places,
+        reauth: Option<String>,
+        sign_in: VerifiedSignIn,
+        reject_existing: bool,
+        guard: tokio::sync::OwnedMutexGuard<()>,
+    ) -> Result<String, Failure> {
+        let client_id = self.endpoints.client_id.clone();
+        tokio::task::spawn_blocking(move || {
+            let _guard = guard;
+            save(&places, reauth, &client_id, sign_in, reject_existing)
+        })
+        .await
+        .map_err(|e| Failure::new("internal", e.to_string()))?
     }
 
     /// A refresh of `record`'s tokens: Codex's own refresh request (a JSON body).
@@ -488,35 +531,53 @@ impl Client {
     }
 }
 
+pub(super) struct VerifiedSignIn {
+    claims: jwt::Claims,
+    answer: TokenAnswer,
+}
+
 /// Writes the account's record and its `chatgpt-plan` route; the route id.
+pub(super) fn save_import(
+    places: &Places,
+    client_id: &str,
+    claims: jwt::Claims,
+    answer: TokenAnswer,
+) -> Result<String, Failure> {
+    save(places, None, client_id, VerifiedSignIn { claims, answer }, false)
+}
+
 pub(super) fn save(
     places: &Places,
     reauth: Option<String>,
     client_id: &str,
-    claims: jwt::Claims,
-    answer: TokenAnswer,
-    now: i64,
+    sign_in: VerifiedSignIn,
+    reject_existing: bool,
 ) -> Result<String, Failure> {
-    let storage = |e: std::io::Error| Failure::new("storage", e.to_string());
     let dir = places.routes.as_deref();
     let records = store::all(&places.home);
-    let same = |r: &Record| r.client_id == client_id && r.sub == claims.sub;
-    let id = records
-        .iter()
-        .find(|(_, r)| same(r))
-        .map(|(id, _)| id.clone())
-        .or_else(|| {
-            // A reauth of the same person whose client id changed keeps its connection.
-            reauth
-                .clone()
-                .filter(|id| records.iter().any(|(rid, r)| rid == id && r.sub == claims.sub))
+    let VerifiedSignIn { claims, answer } = sign_in;
+    if let Some((_, expected)) = records.iter().find(|(id, _)| Some(id) == reauth.as_ref())
+        && expected.sub != claims.sub
+    {
+        return Err(Failure::wrong_account(
+            claims.email.clone().unwrap_or_else(|| "another ChatGPT account".into()),
+            expected.email.clone().unwrap_or_else(|| "the connected ChatGPT account".into()),
+        ));
+    }
+    let same = |r: &store::Metadata| r.client_id == client_id && r.sub == claims.sub;
+    if reject_existing
+        && records.iter().any(|(id, r)| {
+            same(r)
+                && r.signed_in()
+                && reauth.as_ref() != Some(id)
+                && super::is_chatgpt_route(dir, id)
         })
-        .or_else(|| {
-            // A reauth of a ChatGPT route this home holds no sign-in for takes that route (`begin`).
-            reauth.filter(|id| {
-                !records.iter().any(|(rid, _)| rid == id) && super::is_chatgpt_route(dir, id)
-            })
-        })
+    {
+        return Err(Failure::new("already_signed_in", "this ChatGPT account is connected"));
+    }
+    let id = reauth
+        .filter(|id| super::is_chatgpt_route(dir, id))
+        .or_else(|| records.iter().find(|(_, r)| same(r)).map(|(id, _)| id.clone()))
         .unwrap_or_else(|| {
             let taken = |id: &str| {
                 records.iter().any(|(rid, _)| rid == id) || routes::find(dir, id).is_ok()
@@ -533,8 +594,8 @@ pub(super) fn save(
         plan: claims.plan,
         ..Record::default()
     };
-    answer.apply(&mut record, now);
-    store::write(&places.home, &id, &record).map_err(storage)?;
+    answer.apply(&mut record, super::now_unix());
+    store::write(&places.home, &id, &record).map_err(super::store_failure)?;
     let disabled = routes::find(dir, &id)
         .ok()
         .filter(|r| r.file.kind == RouteKind::ChatgptPlan)
@@ -550,6 +611,8 @@ pub(super) fn save(
         openai_base_url: Some(CODEX_BACKEND.to_owned()),
         auth: None,
         secret: None,
+        claude_token_expires_at: None,
+        cloud_enabled: None,
         headers: Default::default(),
         health_url: None,
         fallback: vec![],
@@ -560,12 +623,17 @@ pub(super) fn save(
         disabled,
         provider: Some("openai".into()),
     };
-    routes::add(dir, &id, &file, true).map_err(|e| Failure::new("storage", e.to_string()))?;
+    if let Err(error) = routes::add(dir, &id, &file, true) {
+        if !records.iter().any(|(previous, _)| previous == &id) {
+            let _ = store::delete(&places.home, &id);
+        }
+        return Err(Failure::new("storage", error.to_string()));
+    }
     Ok(id)
 }
 
 /// The request target of an HTTP request line (`GET /auth/callback?... HTTP/1.1`).
-async fn read_target(stream: &mut tokio::net::TcpStream) -> Option<String> {
+pub(crate) async fn read_target(stream: &mut tokio::net::TcpStream) -> Option<String> {
     let mut buf = Vec::with_capacity(1024);
     let mut chunk = [0u8; 1024];
     while !buf.windows(4).any(|w| w == b"\r\n\r\n") {
@@ -583,7 +651,7 @@ async fn read_target(stream: &mut tokio::net::TcpStream) -> Option<String> {
     }
 }
 
-async fn respond(
+pub(crate) async fn respond(
     stream: &mut tokio::net::TcpStream,
     status: &str,
     text: &str,

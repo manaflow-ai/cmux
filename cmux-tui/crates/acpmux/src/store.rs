@@ -337,6 +337,12 @@ pub struct SessionMeta {
     /// it (`harness_argv` is the creation's). None before any start (#23322, review 36).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spawn_argv: Option<Vec<String>>,
+    /// The owner's selected Cloud model connection ID. The credential stays in memory.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential_connection: Option<String>,
+    /// Model selected at launch with the delivered connection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential_model: Option<String>,
     /// `HarnessProfile::launch_digest` of the profile its agent last started from: a profile
     /// reload that changes it respawns the agent at its turn end, on the same conversation
     /// (`hub/profile_respawn.rs`). Kept on disk, so an agent host the next daemon adopts is

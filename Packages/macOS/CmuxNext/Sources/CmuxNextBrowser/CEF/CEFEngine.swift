@@ -101,6 +101,15 @@ public final class CEFEngine: BrowserEngine {
         return CEFStartSteps.shared.makeTab { makeReadyTab(configuration) }
     }
 
+    /// A profile tab for a provider's sign-in page. A runtime that installs cmux's own document
+    /// scripts in the renderer (fork API 29+) keeps them, as every cmux browser tab does; older
+    /// runtimes leave them out of this tab.
+    package func makeSignInTab(_ configuration: BrowserTabConfiguration) async throws -> CEFTab {
+        adoptStores()
+        try await CEFRuntime.shared.start(layout: layout)
+        return CEFStartSteps.shared.makeTab { makeReadyTab(configuration, allowsAppScripts: false) }
+    }
+
     /// `makeTab` for a tab the user opens (not a sign-in window): also writes
     /// the recent-use record the launch warm start reads (`noteTabOpened`).
     public func makeUserTab(_ configuration: BrowserTabConfiguration) async throws -> any BrowserTab {
@@ -385,7 +394,7 @@ public final class CEFEngine: BrowserEngine {
         CEFRuntime.shared.adopt(earlyLoad: earlyLoad)
     }
 
-    private func makeReadyTab(_ configuration: BrowserTabConfiguration) -> CEFTab {
+    private func makeReadyTab(_ configuration: BrowserTabConfiguration, allowsAppScripts: Bool = true) -> CEFTab {
         let runtime = CEFRuntime.shared
         runtime.adopt(stores: stores, signInCallbacks: signInCallbacks)
         let pane = configuration.pane ?? BrowserPaneID(rawValue: CEFPaneHost.ownTabPrefix + configuration.id.rawValue)
@@ -393,6 +402,7 @@ public final class CEFEngine: BrowserEngine {
                              offTheRecord: stores.offTheRecord.isOffTheRecord(configuration.profile))
         let host = runtime.host(for: key, lifecycleTrace: lifecycleTrace, contextMenus: contextMenus)
         let tab = CEFTab(id: configuration.id, profile: configuration.profile, host: host, runtime: runtime)
+        tab.allowsAppScripts = allowsAppScripts
         tab.machineStore = configuration.machineStore
         tab.navigationGuard = configuration.navigationGuard
         host.add(tab)

@@ -1,19 +1,21 @@
-//! What Sign in with ChatGPT keeps on disk, under `<acpmux home>/chatgpt/` (owner-only files,
-//! each written atomically: a temporary file in the same folder, then a rename):
-//!
-//! - `<route id>.json`: one signed-in ChatGPT account, keyed by (client id, `sub`): its tokens,
-//!   their expiry and granted scopes. A record of another client (the token-sharing protocol's
-//!   `oaiapp_...` registrations before cmux#45774) reads as signed out: sign in again. A token never leaves these files except through
-//!   `_acpmux/connections/chatgpt.token`.
+//! ChatGPT subscription records live in the login Keychain on macOS. The
+//! owner-only files in `<acpmux home>/chatgpt/` carry the account metadata and
+//! Keychain references. Other platforms retain their owner-only JSON records.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
 use super::CODEX_CLIENT_ID;
+use crate::subscription_store::{Error, Store};
 
-pub(crate) fn dir(home: &Path) -> PathBuf {
-    home.join("chatgpt")
+#[cfg(test)]
+pub(crate) fn dir(home: &Path) -> std::path::PathBuf {
+    store(home).directory()
+}
+
+fn store(home: &Path) -> Store<'_> {
+    Store::new(home, "chatgpt")
 }
 
 /// One signed-in account. Not `Debug`: its tokens must never reach a log line.
@@ -80,53 +82,56 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     Ok(())
 }
 
-fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> std::io::Result<Option<T>> {
-    match std::fs::read(path) {
-        Ok(bytes) => serde_json::from_slice(&bytes)
-            .map(Some)
-            .map_err(|e| std::io::Error::other(format!("{}: {e}", path.display()))),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(e),
+pub(crate) fn read(home: &Path, id: &str) -> Result<Option<Record>, Error> {
+    store(home).read(id)
+}
+
+pub(crate) fn write(home: &Path, id: &str, record: &Record) -> Result<(), Error> {
+    store(home).write(id, record)
+}
+
+pub(crate) fn delete(home: &Path, id: &str) -> Result<(), Error> {
+    store(home).delete(id)
+}
+
+#[derive(Deserialize)]
+pub(crate) struct Metadata {
+    pub client_id: String,
+    pub sub: String,
+    pub email: Option<String>,
+    pub plan: Option<String>,
+    signed_in: bool,
+}
+
+impl Metadata {
+    pub(crate) fn signed_in(&self) -> bool {
+        self.client_id == CODEX_CLIENT_ID && self.signed_in
     }
 }
 
-fn record_path(home: &Path, id: &str) -> PathBuf {
-    dir(home).join(format!("{id}.json"))
+pub(crate) fn migrate_all(home: &Path) {
+    store(home).migrate_all::<Record>();
 }
 
-pub(crate) fn read(home: &Path, id: &str) -> std::io::Result<Option<Record>> {
-    if !crate::routes::is_route_id(id) || id == "host" {
-        return Ok(None);
-    }
-    read_json(&record_path(home, id))
+pub(crate) fn available(home: &Path, id: &str) -> Result<bool, Error> {
+    store(home).available::<Record>(id)
 }
 
-pub(crate) fn write(home: &Path, id: &str, record: &Record) -> std::io::Result<()> {
-    if !crate::routes::is_route_id(id) || id == "host" {
-        return Err(std::io::Error::other("not a route id"));
-    }
-    write_atomic(&record_path(home, id), &serde_json::to_vec_pretty(record).unwrap_or_default())
+pub(crate) fn metadata(home: &Path, id: &str) -> Option<Metadata> {
+    serde_json::from_value(store(home).metadata(id)?).ok()
 }
 
-pub(crate) fn delete(home: &Path, id: &str) -> std::io::Result<()> {
-    match crate::home_fs::remove_file(record_path(home, id)) {
-        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
-        _ => Ok(()),
-    }
-}
-
-/// Every record by its route id, sorted.
-pub(crate) fn all(home: &Path) -> Vec<(String, Record)> {
-    let Ok(entries) = std::fs::read_dir(dir(home)) else { return Vec::new() };
-    let mut out: Vec<(String, Record)> = entries
-        .filter_map(|e| e.ok().map(|e| e.path()))
-        .filter(|p| p.extension().is_some_and(|x| x == "json"))
-        .filter_map(|p| {
-            let id = p.file_stem()?.to_str()?.to_owned();
-            if id == "host" || !crate::routes::is_route_id(&id) {
+/// Every account by its route id, sorted. Listing never asks the Keychain for tokens.
+pub(crate) fn all(home: &Path) -> Vec<(String, Metadata)> {
+    let Ok(entries) = std::fs::read_dir(store(home).directory()) else { return Vec::new() };
+    let mut out: Vec<_> = entries
+        .filter_map(|entry| {
+            let path = entry.ok()?.path();
+            let id = path.file_stem()?.to_str()?;
+            if path.extension()? != "json" {
                 return None;
             }
-            read_json::<Record>(&p).ok().flatten().map(|r| (id, r))
+            metadata(home, id).map(|record| (id.to_owned(), record))
         })
         .collect();
     out.sort_by(|a, b| a.0.cmp(&b.0));

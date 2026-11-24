@@ -269,6 +269,46 @@ fn managed_credential(path: &Path) -> bool {
         || HELPERS.iter().any(|h| settings.get(*h).is_some_and(on))
 }
 
+/// Managed provider settings outrank the endpoint's launch environment.
+pub(crate) fn managed_provider_override(root: &Path) -> bool {
+    managed_credential(&root.join(MANAGED_SETTINGS))
+}
+
+/// Keep the endpoint credential's launch independent of file and profile settings.
+pub(crate) fn isolate_endpoint_settings(argv: &mut Vec<String>) {
+    let Some((program, args)) = argv.split_first() else { return };
+    let mut isolated = vec![program.clone(), "--setting-sources".to_owned(), String::new()];
+    let (args, _) = settings_args(args);
+    let mut words = args.into_iter();
+    while let Some(word) = words.next() {
+        if word == "--setting-sources" {
+            words.next();
+        } else if word == "--" {
+            isolated.push(word);
+            isolated.extend(words);
+            break;
+        } else if !word.starts_with("--setting-sources=") {
+            isolated.push(word);
+        }
+    }
+    *argv = isolated;
+}
+
+/// The key itself stays in the process environment. The last settings overlay
+/// pins the official origin and disables competing credential sources.
+pub(crate) fn isolate_api_key_settings(argv: &mut Vec<String>) {
+    isolate_endpoint_settings(argv);
+    let at = argv.iter().position(|arg| arg == "--").unwrap_or(argv.len());
+    argv.splice(at..at, ["--settings".to_owned(), api_key_settings(None)]);
+}
+
+pub(crate) fn api_key_settings(settings: Option<&Map<String, Value>>) -> String {
+    team_settings(settings, &[
+        ("ANTHROPIC_BASE_URL".to_owned(), "https://api.anthropic.com".to_owned()),
+        ("CLAUDE_CODE_USE_BEDROCK".to_owned(), String::new()),
+    ], "")
+}
+
 /// The credentials and provider switches team mode must not keep, as the image's launcher clears
 /// them for a shared machine (`agent-auth.sh`): a personal token next to the pair would be sent to
 /// the team's endpoint (`ANTHROPIC_AUTH_TOKEN` outranks `ANTHROPIC_API_KEY`), and a provider switch

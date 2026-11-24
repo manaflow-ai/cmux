@@ -503,6 +503,20 @@ pub const SIGN_IN_REQUIRED: &str = "agent.sign_in_required";
 /// usable sign-in (cursor-agent's "Authentication required").
 pub const ACP_AUTH_REQUIRED: i64 = -32000;
 
+/// Reports a delivered API key refusal as a connection problem. The provider
+/// name comes from the credential type, and raw provider details are dropped.
+pub(crate) fn start_connection_key(e: &mut RpcError, provider: &str) -> bool {
+    let detail = e.message.to_ascii_lowercase();
+    if crate::turn_errors::says_unreachable(&detail) || crate::turn_errors::model_not_available(&detail)
+        || !(says_api_key(&detail) || ["401", "403"].iter().any(|status| crate::turn_errors::has_status(&detail, status)))
+    {
+        return false;
+    }
+    e.message = format!("Your {provider} key was refused. Replace it in Settings > Models.");
+    e.data = Some(json!({"reason": "credentials.key_refused", "provider": provider}));
+    true
+}
+
 /// Type `e`, the agent's own answer to `session/new` for `harness`, as a missing or expired
 /// sign-in when it is one: ACP's `auth_required`, a sign-in failure [`auth_kind`] knows, or an
 /// agent's own "API key missing" or "Authentication required". It gains `reason`

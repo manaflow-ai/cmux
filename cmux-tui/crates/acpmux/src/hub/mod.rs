@@ -1440,6 +1440,7 @@ pub struct Hub {
     pub(super) git_watch: git_watch::GitWatchState,
     pub catalog: Arc<crate::catalog::CatalogService>,
     /// Sign in with ChatGPT: its attempts and per-account refresh locks (`crate::chatgpt`).
+    pub(crate) subscriptions: Arc<crate::subscriptions::Service>,
     pub chatgpt: Arc<crate::chatgpt::Service>,
     /// Agent CLI health (`harness_health`, `hub/health_view.rs`).
     pub health: Arc<crate::harness_health::HealthService>,
@@ -1854,6 +1855,7 @@ impl Hub {
             settings_changes: tokio::sync::watch::channel(0).0,
             git_watch: Default::default(),
             catalog: Arc::new(crate::catalog::CatalogService::new()),
+            subscriptions: Arc::default(),
             chatgpt: Arc::new(crate::chatgpt::Service::default()),
             health: Arc::new(crate::harness_health::HealthService::new()),
             web_token: WebToken::new(String::new()),
@@ -3472,6 +3474,11 @@ impl Hub {
         let stored = |id: &str| {
             known.contains(id) || self.store.session_path(id).is_some_and(|d| d.exists())
         };
+        // The index is still loading and new spawns have yet to be released. A durable host
+        // can outlive this process, so keep its launch files until it exits.
+        if let Some(live) = Self::read_live_host_sessions() {
+            crate::agent::copilot_auth::sweep_inactive(&live);
+        }
         let stale = crate::agent::session_tmp::stale_for_daemon(&stored, &|id| closed.contains(id));
         if stale.is_empty() {
             return;

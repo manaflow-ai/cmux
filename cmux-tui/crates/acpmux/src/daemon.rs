@@ -683,6 +683,11 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             transport.yield_to_link(&home(), LINK_HANDOFF_EVERY, SHUTDOWN_BUDGET).await;
         });
     }
+    // Migrate legacy grants once per start, including grants without a route.
+    let (_, subscription_home) = crate::routes::places(&config);
+    drop(tokio::task::spawn_blocking(move || {
+        crate::subscription_store::migrate_legacy(&subscription_home);
+    }));
     // Serve before reading session metadata or logs. Exact-id chat reads load on demand.
     let hub = Hub::new_loading_with_wireguard(config, store, mailbox, wireguard.clone());
     if let Some(v2) = v2.as_ref() {

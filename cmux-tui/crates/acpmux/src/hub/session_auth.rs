@@ -375,8 +375,12 @@ impl Hub {
         let bindings = routes::bindings(&state);
         let route = route_of(&bindings, dir.as_deref(), &meta, family, &profile.env)
             .map_err(|e| RpcError::invalid_params(e.to_string()))?;
-        if route.as_ref().is_some_and(|(r, _)| r.file.kind != routes::RouteKind::DirectSubscription)
-        {
+        if route.as_ref().is_some_and(|(r, _)| {
+            !matches!(
+                r.file.kind,
+                routes::RouteKind::DirectSubscription | routes::RouteKind::ClaudeToken
+            )
+        }) {
             return Err(RpcError::invalid_params(
                 "this chat uses a provider route; sign in to that route",
             ));

@@ -4,6 +4,7 @@ import CmuxNextCloud
 import CmuxNextCloudCredentials
 import CmuxNextCloudUI
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import Foundation
 
 /// Which Cloud machine a `cloud.startChat` send runs on is cmux-tui's call (`cmux link start-chat
@@ -120,11 +121,44 @@ extension CloudStartChat {
             try await pinned
             timeline?.mark("machine.connect")
             let machineID = session.machineID
-            // The chat's agent reaches a model: the machine's edge, its own sign-in there (a `claude setup-token` token), or the chat's own connection with its launch.
-            try await CloudMachineRoute(api: cloud.machineAPI, machineID: machineID, start: { @MainActor [invocation] in try await CloudWait.startStopped(status: { session.machine.shownStatus }, within: CloudStartSession.connectWait, read: { await session.refresher?($0) }) { do { try await session.resumer?(machineID, CloudHandlers.connectOrigin(for: invocation)) } catch where !CloudMachineRoute.keepsItsError(error) && CloudMachineCreation.proRefusal(error) == nil { throw CloudMove.Failure(message: CloudMoveStrings.moveFailed(CloudStrings.errorText(error)), retry: .move(machineID: machineID)) } }; _ = try await CloudMove.connected(session, invocation) }).prepare(serves: { services.agentTabs.holdsTabs(session.daemon) && session.daemon.supports(AgentSessionAttachClient.credentialsCapability(harness: start.harness)) }, carriesConnection: connection != nil, family: CloudSetup.family(of: start.harness), ahead: cloud.spareReadiness.takeRouteReport(machineID, scope: cloud.account, instance: AcpmuxRemotePersonKeys.shared.instance(machine: machineID)).flatMap { session.machine.status == .running && session.machine.pendingChange == nil ? $0 : nil }) { @MainActor [services] in _ = await CloudMachineUpdates.updateNow(machineID, services: services) } // checked first: updated only when it lacks what a start uses; its first exec starts a machine that does not run (cmux#47638)
+            // The chat's agent reaches a model: the machine's edge, its own sign-in there, or the chat's own connection with its launch.
+            let launchConnection = await cloud.setup.launchConnection(connection)
+            let endpoint = launchConnection?.endpointCredentials == true
+            let subscription = launchConnection?.subscriptionCredentials == true
+            let capability = AgentSessionAttachClient.credentialsCapability(harness: start.harness, endpoint: endpoint,
+                                                                                      subscription: subscription)
+            if endpoint {
+                try await CloudOutdatedMachine.requireCapability(
+                    holds: { services.agentTabs.holdsTabs(session.daemon) && session.daemon.supports(capability) },
+                    lacks: { !session.daemon.supports(capability) },
+                    update: { await CloudMachineUpdates.updateNow(machineID, services: services) },
+                    missing: CloudMove.Failure(message: CloudMachineRoute.tooOld, retry: .move(machineID: machineID))
+                )
+            }
+            try Self.requireEndpointHarness(start.harness == "openrouter" && connection != nil ? "opencode" : launchConnection?.launchHarness, on: session, subscription: subscription)
+            // An owner Claude chat can open its sign-in card before Claude Code has an account.
+            let ownerLink = CloudMachineLinks(appLink: session.appLink).ownerLink
+            if connection == nil, CloudSetup.family(of: start.harness) == "claude",
+               session.daemon.supports(DaemonCapability.agentSessionLoginMachine.rawValue),
+               await ownerLink() != nil {
+                return (session, plan)
+            }
+            try await CloudMachineRoute(api: cloud.machineAPI, machineID: machineID, start: { @MainActor [invocation] in try await CloudWait.startStopped(status: { session.machine.shownStatus }, within: CloudStartSession.connectWait, read: { await session.refresher?($0) }) { do { try await session.resumer?(machineID, CloudHandlers.connectOrigin(for: invocation)) } catch where !CloudMachineRoute.keepsItsError(error) && CloudMachineCreation.proRefusal(error) == nil { throw CloudMove.Failure(message: CloudMoveStrings.moveFailed(CloudStrings.errorText(error)), retry: .move(machineID: machineID)) } }; _ = try await CloudMove.connected(session, invocation) }).prepare(serves: {
+                services.agentTabs.holdsTabs(session.daemon) && (connection == nil || session.daemon.supports(capability))
+            }, carriesConnection: connection != nil,
+                family: endpoint ? (start.harness ?? "claude") : CloudSetup.family(of: start.harness),
+                ahead: cloud.spareReadiness.takeRouteReport(machineID, scope: cloud.account, instance: AcpmuxRemotePersonKeys.shared.instance(machine: machineID)).flatMap { session.machine.status == .running && session.machine.pendingChange == nil ? $0 : nil },
+                requiresCredentialCapability: endpoint) { @MainActor [services] in _ = await CloudMachineUpdates.updateNow(machineID, services: services) } // checked first: updated only when it lacks what a start uses
             timeline?.mark("machine.route")
             return (session, plan)
         }
+    }
+
+    /// A current daemon can report that an endpoint's runner is missing from this machine.
+    static func requireEndpointHarness(_ harness: String?, on session: CloudMachineSession, subscription: Bool) throws {
+        guard let harness, let installed = session.credentialHarnesses(subscription: subscription), !installed.contains(harness) else { return }
+        let refusal = AgentRemoteStartRefusal(code: AgentRemoteStartRefusal.harnessMissingCode, machine: session.machine.title)
+        throw CloudMove.Failure(message: refusal.userMessage)
     }
 
     /// `answer`, or its error as the person reads it (``CloudMoveStrings/checked(_:)``).

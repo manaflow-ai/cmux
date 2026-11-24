@@ -8373,5 +8373,70 @@
         ]
       }
     }
+  },
+  "settingsWindow.models.dialog.apiToken": {
+    "source": "API token",
+    "identityLocales": {
+      "bs": "The Bosnian UI uses the loanword token with the invariant API abbreviation."
+    }
+  },
+  "settingsWindow.models.dialog.region": {
+    "source": "Region",
+    "identityLocales": {
+      "de": "Region is the standard regional selection label in this locale.",
+      "nb": "Region is the standard regional selection label in this locale.",
+      "pl": "Region is the standard regional selection label in this locale."
+    }
+  },
+  "settingsWindow.models.dialog.region.europe": {
+    "source": "Europe",
+    "identityLocales": {
+      "fr": "Europe is the French name for the continent."
+    }
+  },
+  "settingsWindow.models.dialog.region.global": {
+    "source": "Global",
+    "identityLocales": {
+      "de": "Global is the local spelling for this global scope label.",
+      "es": "Global is the local spelling for this global scope label.",
+      "pt-BR": "Global is the local spelling for this global scope label."
+    }
+  },
+  "settingsWindow.models.dialog.region.international": {
+    "source": "International",
+    "identityLocales": {
+      "de": "International is the local spelling and any provider domain keeps its original form.",
+      "fr": "International is the local spelling and any provider domain keeps its original form."
+    }
+  },
+  "settingsWindow.models.dialog.region.kimiGlobal": {
+    "source": "International (kimi.ai)",
+    "identityLocales": {
+      "de": "International is the local spelling and any provider domain keeps its original form.",
+      "fr": "International is the local spelling and any provider domain keeps its original form."
+    }
+  },
+  "settingsWindow.models.dialog.region.minimaxGlobal": {
+    "source": "International (minimax.io)",
+    "identityLocales": {
+      "de": "International is the local spelling and any provider domain keeps its original form.",
+      "fr": "International is the local spelling and any provider domain keeps its original form."
+    }
+  },
+  "settingsWindow.models.dialog.region.singapore": {
+    "source": "Singapore",
+    "identityLocales": {
+      "da": "Singapore is the local spelling of this region.",
+      "it": "Singapore is the local spelling of this region.",
+      "nb": "Singapore is the local spelling of this region.",
+      "vi": "Singapore is the local spelling of this region."
+    }
+  },
+  "settingsWindow.models.dialog.region.zaiGlobal": {
+    "source": "International (z.ai)",
+    "identityLocales": {
+      "de": "International is the local spelling and any provider domain keeps its original form.",
+      "fr": "International is the local spelling and any provider domain keeps its original form."
+    }
   }
 }

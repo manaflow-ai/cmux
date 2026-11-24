@@ -26,6 +26,7 @@ extension CEFPaneHost {
         let tab = CEFTab(id: id, profile: key.profile, host: host, runtime: runtime)
         tab.machineStore = opener?.machineStore
         tab.navigationGuard = opener?.navigationGuard ?? .none
+        tab.allowsAppScripts = opener?.allowsAppScripts ?? true
         tab.awaitsWindowMove = true
         tab.popupOpenerHost = self
         host.add(tab)
@@ -64,6 +65,7 @@ extension CEFPaneHost {
             let blank = CEFTab(id: .random(), profile: key.profile, host: self, runtime: runtime)
             blank.machineStore = tab.machineStore
             blank.navigationGuard = tab.navigationGuard
+            blank.allowsAppScripts = tab.allowsAppScripts
             placeholder = blank
             add(blank)
             ensureCreated(blank)

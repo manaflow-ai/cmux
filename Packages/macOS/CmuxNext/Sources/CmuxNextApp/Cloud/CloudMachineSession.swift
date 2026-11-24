@@ -19,6 +19,25 @@ final class CloudMachineSession {
     var sizePick: CloudSizePick?
     @ObservationIgnored var answeredAt: ContinuousClock.Instant? // when a create's or spare claim's answer gave ``machine``; nil for a list's
     let daemon: DaemonService
+    /// Endpoint runners the live daemon connection reports installed. Not a secret: the credential itself goes only
+    /// over the owner link, which the start checks and the machine's daemon enforces.
+    var endpointHarnesses: Set<String>? {
+        credentialHarnesses(subscription: false)
+    }
+
+    func credentialHarnesses(subscription: Bool) -> Set<String>? {
+        Self.confirmedCredentialHarnesses(identity: daemon.liveIdentity, subscription: subscription)
+    }
+
+    nonisolated static func confirmedCredentialHarnesses(identity: DaemonIdentity?, subscription: Bool) -> Set<String>? {
+        let capability = AgentSessionAttachClient.credentialsCapability(harness: nil, endpoint: true, subscription: subscription)
+        guard let identity, identity.supports(capability) else { return nil }
+        let prefix = "agent-session-start-endpoint-harness:"
+        return Set(identity.capabilities.compactMap { value in
+            value.hasPrefix(prefix) ? String(value.dropFirst(prefix.count)) : nil
+        })
+    }
+
     @ObservationIgnored let appLink: CloudLinkSession
     /// A workspace close already said this machine is kept (it says so once, not on every close).
     @ObservationIgnored var toldKeptOnClose = false

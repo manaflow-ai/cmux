@@ -71,6 +71,11 @@ public struct SettingsDeepLink: Equatable, Sendable {
     /// Settings has that name (the caller reports it).
     public var anchor: SettingsAnchor? { setting.flatMap { SettingsAnchor(key: $0) } }
 
+    /// The localized Cloud model destination shared with the web Settings page.
+    public static var cloudModelsTitle: String {
+        String(localized: "settingsWindow.cloud.models.title", defaultValue: "Cloud models", bundle: .module)
+    }
+
     private static func text(_ value: ActionValue?) -> String? {
         guard let text = value?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
         return text

@@ -834,6 +834,8 @@ pub mod method {
     pub const MUX_AGENT_LOGIN_START: &str = "_acpmux/agent_login/start";
     pub const MUX_AGENT_LOGIN_FINISH: &str = "_acpmux/agent_login/finish";
     pub const MUX_AGENT_LOGIN_CANCEL: &str = "_acpmux/agent_login/cancel";
+    pub const MUX_AGENT_LOGIN_STATUS: &str = "_acpmux/agent_login/status";
+    pub const MUX_AGENT_LOGIN_LOGOUT: &str = "_acpmux/agent_login/logout";
     pub const MUX_AGENT_LOGIN_API_KEY: &str = "_acpmux/agent_login/api_key";
     /// Local socket only: bounded, cached inventory snapshots; no health control.
     pub const MUX_HARNESS_INVENTORY_WATCH: &str = "_acpmux/harness/inventory/watch";
@@ -897,10 +899,18 @@ pub mod method {
     pub const MUX_CONNECTIONS_CHATGPT_BEGIN: &str = "_acpmux/connections/chatgpt.begin";
     pub const MUX_CONNECTIONS_CHATGPT_WAIT: &str = "_acpmux/connections/chatgpt.wait";
     pub const MUX_CONNECTIONS_CHATGPT_CANCEL: &str = "_acpmux/connections/chatgpt.cancel";
+    pub const MUX_CONNECTIONS_CHATGPT_DEVICE_BEGIN: &str =
+        "_acpmux/connections/chatgpt.device.begin";
+    pub const MUX_CONNECTIONS_CHATGPT_DEVICE_WAIT: &str = "_acpmux/connections/chatgpt.device.wait";
+    pub const MUX_CONNECTIONS_CHATGPT_DEVICE_CANCEL: &str =
+        "_acpmux/connections/chatgpt.device.cancel";
+    pub const MUX_CONNECTIONS_SUBSCRIPTION_BEGIN: &str = "_acpmux/connections/subscription.begin";
+    pub const MUX_CONNECTIONS_SUBSCRIPTION_WAIT: &str = "_acpmux/connections/subscription.wait";
+    pub const MUX_CONNECTIONS_SUBSCRIPTION_CANCEL: &str = "_acpmux/connections/subscription.cancel";
+    pub const MUX_CONNECTIONS_GROK_HOOK: &str = "_acpmux/connections/grok.hook";
     pub const MUX_CONNECTIONS_CHATGPT_TOKEN: &str = "_acpmux/connections/chatgpt.token";
     /// CI only: a Codex auth.json as a `chatgpt-plan` connection, local socket and an env switch.
     pub const MUX_CONNECTIONS_CHATGPT_IMPORT: &str = "_acpmux/connections/chatgpt.import";
-    pub const MUX_CONNECTIONS_CLAUDE_TOKEN_ADD: &str = "_acpmux/connections/claude_token.add";
     /// A Cloud-serving connection's credential for one machine agent launch (Revision 2).
     pub const MUX_CONNECTIONS_CREDENTIAL: &str = "_acpmux/connections/credential";
     /// Sent to watching unix-socket and local-app connections with the `ConnectionsState`.

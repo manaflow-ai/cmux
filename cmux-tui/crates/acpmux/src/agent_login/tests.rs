@@ -103,6 +103,41 @@ fn dir(tag: &str) -> PathBuf {
     d
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn claude_status_exposes_presence_and_key_precedence_only() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = tempfile::tempdir().unwrap();
+    let program = root.path().join("claude");
+    let store = root.path().join(".claude");
+    std::fs::create_dir(&store).unwrap();
+    std::fs::write(store.join("settings.json"), br#"{"env":{"ANTHROPIC_API_KEY":"fixture"}} "#)
+        .unwrap();
+    std::fs::write(
+        &program,
+        r#"#!/bin/sh
+[ "$*" = "auth status --json" ] || exit 10
+printf '%s
+' '{"loggedIn":true,"authMethod":"claude.ai","email":"fixture@example.com"}'
+"#,
+    )
+    .unwrap();
+    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let cli = Cli {
+        program: program.to_string_lossy().into_owned(),
+        globals: Vec::new(),
+        env: BTreeMap::from([("CLAUDE_CONFIG_DIR".into(), store.to_string_lossy().into_owned())]),
+    };
+    let machine = Machine { root: root.path().to_owned(), home: root.path().to_owned() };
+    assert_eq!(
+        claude_status(&machine, &cli).await.unwrap(),
+        serde_json::json!({"signedIn": true, "apiKey": true})
+    );
+    std::fs::create_dir_all(root.path().join("etc/cmux")).unwrap();
+    std::fs::write(root.path().join("etc/cmux/vm-kind"), "team").unwrap();
+    assert_eq!(claude_status(&machine, &cli).await.unwrap_err().reason, reason::SHARED_MACHINE);
+}
+
 #[test]
 fn shared_machine_by_vm_kind() {
     let root = dir("kind");
@@ -645,9 +680,51 @@ fn gemini_and_grok_signed_in() {
     assert!(!signed_in_at(Agent::Grok, &store));
     std::fs::write(store.join("auth.json"), " \n").unwrap();
     assert!(!signed_in_at(Agent::Grok, &store));
-    std::fs::write(store.join("auth.json"), r#"{"x":1}"#).unwrap();
+    for signed_out in [
+        "{}",
+        r#"{"x":1}"#,
+        r#"{"https://auth.x.ai::fixture":{"refresh_token":""}}"#,
+        r#"{"https://auth.x.ai::fixture":{"refresh_token":null}}"#,
+    ] {
+        std::fs::write(store.join("auth.json"), signed_out).unwrap();
+        assert!(!signed_in_at(Agent::Grok, &store));
+    }
+    std::fs::write(
+        store.join("auth.json"),
+        r#"{"https://auth.x.ai::fixture":{"refresh_token":"r"}}"#,
+    )
+    .unwrap();
     assert!(signed_in_at(Agent::Grok, &store));
     let _ = std::fs::remove_dir_all(&store);
+}
+
+#[test]
+fn cursor_probe_cache_expires_and_can_be_refreshed_at_login() {
+    use std::time::Instant;
+
+    let cache = CursorProbeCache(StdMutex::new(None));
+    let start = Instant::now();
+    assert!(!cache.check(false, || start, || false));
+    let before_expiry = start + Duration::from_secs(29);
+    assert!(!cache.check(false, || before_expiry, || panic!("probed before expiry")));
+    let expiry = start + Duration::from_secs(30);
+    assert!(cache.check(false, || expiry, || true));
+    assert!(!cache.check(true, || expiry, || false));
+    assert!(!cache.check(false, || expiry, || panic!("did not cache the refreshed result")));
+}
+
+#[cfg(unix)]
+#[test]
+fn cursor_probe_times_out_a_stalled_child() {
+    let now = std::time::Instant::now();
+    let mut child = std::process::Command::new("/bin/sh");
+    child.args(["-c", "exec sleep 30"]);
+    assert!(!probe_status(&mut child, Duration::from_millis(30)));
+    assert!(now.elapsed() < Duration::from_secs(3));
+    assert!(probe_status(
+        std::process::Command::new("/bin/sh").args(["-c", "exit 0"]),
+        Duration::from_secs(1)
+    ));
 }
 
 #[tokio::test]

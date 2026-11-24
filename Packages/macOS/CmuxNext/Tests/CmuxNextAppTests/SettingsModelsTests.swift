@@ -1,14 +1,17 @@
 @testable import CmuxNextAccounts
 @testable import CmuxNextAgentPane
+@testable import CmuxNextApp
+import CmuxNextCloud
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
+import Observation
 import os
 import Testing
 
 /// Settings > Models (cmux-tui/docs/model-connections.md): the page's state composed from acpmux's
 /// `_acpmux/connections`, each run's daemon call, a pasted API key reaching acpmux only as a Keychain
-/// reference, a Claude setup token the same way, and Sign in with ChatGPT's wait loop from pending to done.
+/// reference, Claude Code login on the intended machine, and ChatGPT device approval.
 @MainActor struct SettingsModelsTests {
     struct Call: Sendable, Equatable {
         let method: String
@@ -20,8 +23,13 @@ import Testing
         let calls = OSAllocatedUnfairLock<[Call]>(initialState: [])
         /// `chatgpt.wait` answers in order; the last repeats.
         let waits = OSAllocatedUnfairLock<[String]>(initialState: [])
+        let claudeSignedIn = OSAllocatedUnfairLock(initialState: false)
+        let claudeFinishFails = OSAllocatedUnfairLock(initialState: false)
+        let committedClaudeToken = OSAllocatedUnfairLock(initialState: false)
+        let refuseKeyCheck = OSAllocatedUnfairLock(initialState: false)
         let refuseKeyAdd = OSAllocatedUnfairLock(initialState: false)
         let beginURL = OSAllocatedUnfairLock(initialState: "https://auth.openai.com/oauth/authorize?client_id=app_EMoamEEZ73f0CkXaXp7hrann")
+        let nativeProvider = OSAllocatedUnfairLock<String?>(initialState: nil)
         let signedInPlan = OSAllocatedUnfairLock(initialState: false)
         /// `chatgpt.wait` fails: acpmux's error name, or "" for a daemon that does not answer.
         let waitFailure = OSAllocatedUnfairLock<String?>(initialState: nil)
@@ -42,7 +50,6 @@ import Testing
     }
 
     @MainActor final class Opened { var urls: [URL] = [] }
-    @MainActor final class Typed { var lines: [String] = [] }
 
     /// `models.spreadUsage` as the settings writer holds it.
     @MainActor final class Setting {
@@ -71,13 +78,16 @@ import Testing
       "signed_in":true,"enabled":true,"default_for":["claude"],"serves_cloud":true}],"spread":true}
     """.utf8)
 
-    private func make(daemon: Daemon, keys: Keys = Keys(), opened: Opened = Opened(), harnesses: SettingsHarnesses? = nil,
+    private func make(daemon: Daemon, keys: Keys = Keys(), opened: Opened = Opened(),
+                      waitForReady: @escaping @MainActor () async -> Void = {},
+                      waitForDevice: @escaping @Sendable () async -> Data = { Data(#"{"status":"cancelled"}"#.utf8) },
                       spread: (read: @MainActor () -> Bool, write: @MainActor (Bool) async throws -> Void)? = nil) -> SettingsModels {
         let directory = FileManager.default.temporaryDirectory.appending(path: "cn-models-\(UUID().uuidString)")
         let environment = AcpmuxEnvironment(executable: directory.appending(path: "acpmux"), home: directory,
                                             socketPath: directory.appending(path: "a.sock").path, daemonArguments: [], childEnvironment: [:])
+        let deviceExpiry = Int(Date.now.timeIntervalSince1970) + 900
         return SettingsModels(
-            environment: { environment },
+            environment: { await waitForReady(); return environment },
             call: { _, method, params in
                 let flat = params.compactMapValues { value -> String? in
                     if let text = value as? String { return text }
@@ -87,16 +97,47 @@ import Testing
                 }
                 daemon.calls.withLock { $0.append(Call(method: method.rawValue, params: flat)) }
                 switch method {
+                case .connections where daemon.committedClaudeToken.withLock({ $0 }):
+                    return Self.claudeToken
+                case .connections where daemon.nativeProvider.withLock({ $0 != nil }):
+                    let provider = daemon.nativeProvider.withLock { $0 ?? "cursor" }
+                    return Data(#"{"connections":[{"id":"\#(provider)-native-login","kind":"native-login","provider":"\#(provider)","signed_in":true,"enabled":true,"serves_cloud":false}]}"#.utf8)
                 case .connections, .connectionsSpreadSet, .connectionsOrderSet:
                     return Self.connections(plan: daemon.signedInPlan.withLock { $0 }, spread: flat["on"].map { $0 == "true" } ?? true)
-                case .claudeTokenAdd:
-                    if daemon.refuseKeyAdd.withLock({ $0 }) { throw AcpmuxRPCError(code: -32602, name: "connections.bad_secret", message: "refused") }
-                    return Self.claudeToken
+                case .claudeLoginStatus:
+                    let signedIn = daemon.claudeSignedIn.withLock { $0 }
+                    return Data(#"{"signedIn":\#(signedIn),"apiKey":false}"#.utf8)
+                case .claudeLoginStart:
+                    if daemon.claudeSignedIn.withLock({ $0 }) { return Data(#"{"signedIn":true,"apiKey":false}"#.utf8) }
+                    return Data(#"{"loginId":"native-login","callbackPort":1234,"autoUrl":"https://claude.ai/oauth/authorize?redirect_uri=http%3A%2F%2Flocalhost%3A1234%2Fcallback"}"#.utf8)
+                case .claudeLoginFinish:
+                    if daemon.claudeFinishFails.withLock({ $0 }) {
+                        throw AcpmuxRPCError(code: -32000, name: "expired", message: "expired")
+                    }
+                    return Data(#"{"signedIn":true}"#.utf8)
+                case .connectionsRemove:
+                    daemon.committedClaudeToken.withLock { $0 = false }
+                    return Data(#"{"connections":[],"replaced_secret":"keychain:cmux-model-key/claude-token-test"}"#.utf8)
+                case .routeTest:
+                    let response = daemon.refuseKeyCheck.withLock { $0 }
+                        ? #"{"failure":"The provider refused the key (HTTP 401)."}"#
+                        : #"{"models":["fixture-model"]}"#
+                    return Data(response.utf8)
                 case .connectionsKeyAdd:
                     if daemon.refuseKeyAdd.withLock({ $0 }) { throw AcpmuxRPCError(code: -32602, name: "connections.bad_secret", message: "refused") }
                     return Self.connections(plan: false)
                 case .chatgptBegin:
                     return Data(#"{"attempt":"att-1","url":"\#(daemon.beginURL.withLock { $0 })"}"#.utf8)
+                case .chatgptDeviceBegin:
+                    return Data(#"{"attempt":"device-attempt","user_code":"MOCK-1234","verification_url":"https://auth.openai.com/codex/device","expires_at":\#(deviceExpiry),"interval":5}"#.utf8)
+                case .chatgptDeviceWait:
+                    let reply = await waitForDevice()
+                    if (try? JSONValue.parse(reply))?["status"] == "done" {
+                        daemon.signedInPlan.withLock { $0 = true }
+                    }
+                    return reply
+                case .chatgptDeviceCancel:
+                    return Data(#"{"status":"cancelled"}"#.utf8)
                 case .chatgptWait:
                     if let failure = daemon.waitFailure.withLock({ $0 }) {
                         if failure.isEmpty { throw NoAnswer() }
@@ -111,13 +152,178 @@ import Testing
             },
             keys: keys,
             openURL: { opened.urls.append($0) },
-            harnesses: harnesses,
             spreadSetting: spread?.read,
             writeSpreadSetting: spread?.write)
     }
 
     private var click: PageCallContext {
         PageCallContext(page: "cmux.settings", origin: "page", confirmed: false, opid: "op", userGesture: true, gestureEvent: 1)
+    }
+
+    @Test(arguments: [false, true])
+    func macClaudeLoginRemovesTheLegacyKeyOnlyAfterApproval(fails: Bool) async throws {
+        let daemon = Daemon()
+        let keys = Keys()
+        let opened = Opened()
+        let models = make(daemon: daemon, keys: keys, opened: opened)
+        daemon.committedClaudeToken.withLock { $0 = true }
+        daemon.claudeFinishFails.withLock { $0 = fails }
+        _ = await models.loadedState()
+        _ = try await models.run(["action": "connectClaude", "replace": "claude-token-1"], context: click)
+        await models.claudeLoginTasks[.mac]?.value
+
+        let calls = daemon.calls.withLock { $0 }
+        #expect(opened.urls.first?.host == "claude.ai")
+        #expect(calls.contains(Call(method: "_acpmux/agent_login/finish", params: ["loginId": "native-login"])))
+        #expect(calls.contains(Call(method: "_acpmux/connections/remove", params: ["id": "claude-token-1"])) == !fails)
+        #expect(keys.stored.withLock { $0 }.isEmpty)
+        #expect(keys.deleted.withLock { $0 } == (fails ? [] : ["keychain:cmux-model-key/claude-token-test"]))
+        #expect(models.state["claudeLogin"]?["phase"]?.stringValue == (fails ? "failed" : "connected"))
+        #expect(!models.state.compactText.contains("native-login"))
+        #expect(!models.state.compactText.contains("redirect_uri"))
+    }
+
+    @Test func anExistingClaudeSignInOpensNoBrowserAndCanSignOut() async throws {
+        let daemon = Daemon()
+        daemon.claudeSignedIn.withLock { $0 = true }
+        let opened = Opened()
+        let models = make(daemon: daemon, opened: opened)
+        _ = try await models.run(["action": "connectClaude"], context: click)
+        await models.claudeLoginTasks[.mac]?.value
+        #expect(opened.urls.isEmpty)
+        #expect(models.state["claudeLogin"]?["phase"] == "connected")
+        _ = try await models.run(["action": "signOutClaude"], context: click)
+        #expect(daemon.calls.withLock { $0 }.contains(Call(method: "_acpmux/agent_login/logout", params: ["agent": "claude"])))
+        #expect(models.state["claudeLogin"]?["phase"] == "idle")
+    }
+
+    @Test func cloudClaudeLoginStaysOnItsSelectedMachine() async throws {
+        let daemon = Daemon()
+        let opened = Opened()
+        let models = make(daemon: daemon, opened: opened)
+        var presented: [String] = []
+        var dismissed: [String] = []
+        models.dismissSignInPage = { dismissed.append($0) }
+        let machine = SettingsModels.CloudClaudeMachine(id: "owner", request: { op, fields in
+            daemon.calls.withLock { $0.append(Call(method: op, params: fields)) }
+            switch op {
+            case "status": return Data(#"{"signedIn":false}"#.utf8)
+            case "start": return Data(#"{"loginId":"cloud-id","callbackPort":1234,"autoUrl":"https://claude.ai/oauth/authorize?redirect_uri=http%3A%2F%2Flocalhost%3A1234%2Fcallback"}"#.utf8)
+            default: return Data(#"{"signedIn":true}"#.utf8)
+            }
+        }, openCallback: { url, owner in
+            opened.urls.append(url)
+            presented.append(owner)
+            return true
+        })
+        let other = SettingsModels.CloudClaudeMachine(id: "other", request: { _, _ in throw NoAnswer() },
+                                                      openCallback: { _, _ in false })
+        var ready = false
+        models.cloudClaudeLogin = { preferred in
+            guard ready else { return .connectable }
+            return .ready(preferred == machine.id ? machine : other)
+        }
+        models.prepareCloudClaudeLogin = {
+            ready = true
+            return machine
+        }
+        #expect(models.state["cloudClaudeLogin"]?["phase"] == "idle")
+        _ = try await models.run(["action": "connectClaude", "cloud": true], context: click)
+        #expect(models.state["cloudClaudeLogin"]?["phase"] == "preparing")
+        await models.claudeLoginTasks[.cloud]?.value
+        #expect(opened.urls.first?.host == "claude.ai")
+        #expect(daemon.calls.withLock { $0 }.contains(Call(method: "finish", params: ["loginId": "cloud-id"])))
+        #expect(models.state["cloudClaudeLogin"]?["phase"] == "connected")
+        #expect(presented.count == 1)
+        #expect(dismissed == presented)
+        #expect(!models.state.compactText.contains("cloud-id"))
+    }
+
+    @Test func cloudClaudeMachinePickPrefersReadyThenPausedOrOfflineThenCreate() {
+        typealias Candidate = SettingsCloudClaudeLogin.Candidate
+        let owner = "user_owner"
+        func candidate(_ id: String, status: CloudMachine.Status = .running, creator: String = "user_owner",
+                       linked: Bool, supportsLogin: Bool = false) -> Candidate {
+            var record = CloudMachine(id: id, status: status)
+            record.createdBy = creator
+            record.team = "team-1"
+            return Candidate(record: record, status: status, linked: linked, supportsLogin: supportsLogin)
+        }
+        let shared = candidate("a-shared", creator: "user_colleague", linked: true, supportsLogin: true)
+        let paused = candidate("b-paused", status: .paused, linked: false)
+        let offline = candidate("c-offline", linked: false)
+        let outdated = candidate("d-outdated", linked: true)
+        let ready = candidate("e-ready", linked: true, supportsLogin: true)
+        let later = candidate("f-ready", linked: true, supportsLogin: true)
+
+        #expect(SettingsCloudClaudeLogin.pickMachine([later, shared, paused, ready], owner: owner, personal: false) == .ready(ready.record.id))
+        #expect(SettingsCloudClaudeLogin.pickMachine([later, ready], owner: owner, personal: false, preferred: later.record.id) == .ready(later.record.id))
+        #expect(SettingsCloudClaudeLogin.pickMachine([offline, outdated, shared, paused], owner: owner, personal: false) == .link(paused.record.id))
+        #expect(SettingsCloudClaudeLogin.pickMachine([offline], owner: owner, personal: true) == .link(offline.record.id))
+        #expect(SettingsCloudClaudeLogin.pickMachine([outdated], owner: owner, personal: true) == .link(outdated.record.id))
+        let unnamed = candidate("g-unnamed", creator: "", linked: true, supportsLogin: true)
+        #expect(SettingsCloudClaudeLogin.pickMachine([shared, unnamed], owner: owner, personal: false) == .ready(unnamed.record.id))
+        #expect(SettingsCloudClaudeLogin.pickMachine([], owner: owner, personal: true) == .create)
+        #expect(SettingsCloudClaudeLogin.pickMachine([shared], owner: owner, personal: false) == .create)
+    }
+
+    @Observable private final class CloudAccount {
+        var scope: [String?]? = ["user", "first-team"]
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func cancellingCloudClaudePreparationStopsTheWait(teamChanged: Bool) async throws {
+        let models = make(daemon: Daemon())
+        let account = CloudAccount()
+        let (started, reportStarted) = AsyncStream<Void>.makeStream()
+        let (waiting, releaseWait) = AsyncStream<Void>.makeStream()
+        models.observeCloudClaudeAccount { account.scope }
+        models.cloudClaudeLogin = { _ in .connectable }
+        models.prepareCloudClaudeLogin = {
+            reportStarted.finish()
+            for await _ in waiting {}
+            try Task.checkCancellation()
+            return nil
+        }
+        defer { releaseWait.finish() }
+        _ = try await models.run(["action": "connectClaude", "cloud": true], context: click)
+        for await _ in started {}
+        let task = try #require(models.claudeLoginTasks[.cloud])
+        if teamChanged {
+            account.scope = ["user", "second-team"]
+        } else {
+            _ = try await models.run(["action": "cancelClaudeLogin", "cloud": true], context: click)
+        }
+        await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            releaseWait.finish()
+        }
+        #expect(task.isCancelled)
+        #expect(models.state["cloudClaudeLogin"]?["phase"] == "idle")
+    }
+
+    @Test func firstSettingsReadWaitsForDaemonReadiness() async throws {
+        let (started, reading) = AsyncStream<Void>.makeStream()
+        let (ready, listening) = AsyncStream<Void>.makeStream()
+        let daemon = Daemon()
+        daemon.signedInPlan.withLock { $0 = true }
+        let models = make(daemon: daemon, waitForReady: {
+            reading.finish()
+            for await _ in ready {}
+        })
+        async let firstState = models.loadedState()
+        for await _ in started {}
+        #expect(daemon.calls.withLock { $0.isEmpty })
+        listening.finish()
+
+        let state = await firstState
+        let personal = try #require(state["personal"])
+        #expect(personal["available"] == .bool(true))
+        let plan = try #require(personal["connections"]?.arrayValue?.last)
+        #expect(plan["id"] == .string("chatgpt-1"))
+        #expect(plan["canCheckAccess"] == .bool(false))
+        #expect(daemon.calls.withLock { $0.map(\.method) } == [AcpmuxHarnessMethod.connections.rawValue])
     }
 
     @Test func stateComposesAcpmuxConnectionsAsThePageDrawsThem() async throws {
@@ -175,6 +381,30 @@ import Testing
         #expect(keys.deleted.withLock { $0 }.isEmpty)
     }
 
+    @Test(arguments: [false, true])
+    func verifyAndAddKeyUsesOneGestureAndDoesNotStoreARefusedKey(refused: Bool) async throws {
+        let daemon = Daemon()
+        daemon.refuseKeyCheck.withLock { $0 = refused }
+        let keys = Keys()
+        let models = make(daemon: daemon, keys: keys)
+        let key = "sk-ant-api03-fixture"
+        let result = try await models.run([
+            "action": "addKey", "provider": "anthropic", "key": .string(key), "verifyAccess": true,
+        ], context: click)
+        let calls = daemon.calls.withLock { $0 }
+        #expect(calls.first?.params == ["provider": "anthropic", "apiKey": key, "listModels": "true"])
+        #expect(calls.first?.method == AcpmuxHarnessMethod.routeTest.rawValue)
+        #expect(keys.stored.withLock { $0 }.isEmpty == refused)
+        if refused {
+            #expect(result["failure"] == "The provider refused the key (HTTP 401).")
+            #expect(calls.count == 1)
+        } else {
+            #expect(result["failure"] == nil)
+            let add = try #require(calls.first { $0.method == AcpmuxHarnessMethod.connectionsKeyAdd.rawValue })
+            #expect(add.params == ["provider": "anthropic", "secret": "keychain:cmux-model-key/anthropic-test"])
+        }
+    }
+
     @Test func aRefusedKeyAddTakesTheKeychainItemBackOut() async throws {
         let daemon = Daemon()
         daemon.refuseKeyAdd.withLock { $0 = true }
@@ -200,11 +430,142 @@ import Testing
         let models = make(daemon: daemon, keys: keys)
         let script = PageCallContext(page: "cmux.settings", origin: "page", confirmed: false, opid: "op", userGesture: false, gestureEvent: nil)
         for action: JSONValue in [["action": "addKey", "provider": "openai", "key": "sk-0123456789"], ["action": "spread", "on": false],
-                                  ["action": "connectChatGPT"], ["action": "order", "ids": ["codex-login"]]] {
+                                  ["action": "connectChatGPT"], ["action": "connectChatGPTDevice"],
+                                  ["action": "openChatGPTDevice"], ["action": "cancelChatGPTDevice"],
+                                  ["action": "order", "ids": ["codex-login"]]] {
             await #expect(throws: PageError.self) { _ = try await models.run(action, context: script) }
         }
         #expect(keys.stored.withLock { $0 }.isEmpty)
         #expect(daemon.calls.withLock { $0 }.isEmpty)
+    }
+
+    @Test(arguments: ["grok", "cursor"])
+    func nativeSubscriptionReflectsAnExistingLogin(provider: String) async throws {
+        let daemon = Daemon()
+        daemon.nativeProvider.withLock { $0 = provider }
+        let models = make(daemon: daemon)
+
+        let state = await models.loadedState()
+        let listed = try #require(state["personal"]?["connections"]?.arrayValue?.first)
+        #expect(listed["id"]?.stringValue == "\(provider)-native-login")
+        #expect(listed["kind"] == "native-login")
+        #expect(listed["provider"]?.stringValue == provider)
+        #expect(listed["signedIn"] == .bool(true))
+        #expect(listed["servesCloud"] == .bool(false))
+        #expect(daemon.calls.withLock { $0.map(\.method) } == [AcpmuxHarnessMethod.connections.rawValue])
+
+        _ = try await models.run(["action": "order", "ids": ["codex-login"]], context: click)
+        let afterOrder = try #require(models.state["personal"]?["connections"]?.arrayValue)
+        #expect(afterOrder.contains(listed))
+        #expect(daemon.calls.withLock { $0.map(\.method) } == [
+            AcpmuxHarnessMethod.connections.rawValue, AcpmuxHarnessMethod.connectionsOrderSet.rawValue
+        ])
+
+        daemon.nativeProvider.withLock { $0 = nil }
+        await models.refresh()
+        let afterLogout = try #require(models.state["personal"]?["connections"]?.arrayValue)
+        #expect(!afterLogout.contains { $0["id"]?.stringValue == "\(provider)-native-login" })
+    }
+
+    @Test(arguments: [false, true])
+    func deviceSignInOpensOnlyOnClickAndClearsItsCode(cancel: Bool) async throws {
+        let daemon = Daemon()
+        let opened = Opened()
+        let keys = Keys()
+        let (entered, onWait) = AsyncStream<Void>.makeStream()
+        let (outcomes, finish) = AsyncStream<Data>.makeStream()
+        let models = make(daemon: daemon, keys: keys, opened: opened, waitForDevice: {
+            onWait.yield(())
+            var next = outcomes.makeAsyncIterator()
+            return await next.next() ?? Data()
+        })
+        _ = try await models.run(["action": "connectChatGPTDevice"], context: click)
+        let task = models.chatgptDeviceTask
+        var wait = entered.makeAsyncIterator()
+        _ = await wait.next()
+        #expect(models.state["chatgptDevice"]?["phase"] == "waiting")
+        #expect(models.state["chatgptDevice"]?["attempt"] == nil)
+        #expect(opened.urls.isEmpty)
+        _ = try await models.run(["action": "openChatGPTDevice"], context: click)
+        #expect(opened.urls.map(\.absoluteString) == ["https://auth.openai.com/codex/device"])
+        if cancel {
+            _ = try await models.run(["action": "cancelChatGPTDevice"], context: click)
+            #expect(daemon.calls.withLock { $0 }.last == Call(method: AcpmuxHarnessMethod.chatgptDeviceCancel.rawValue, params: ["attempt": "device-attempt"]))
+        }
+        finish.yield(Data((cancel ? #"{"status":"cancelled"}"# : #"{"status":"done","connection":{"id":"chatgpt-1"}}"#).utf8))
+        await task?.value
+        let expected: JSONValue = cancel ? ["phase": "idle"] : ["phase": "connected", "id": "chatgpt-1"]
+        #expect(models.state["chatgptDevice"] == expected)
+        #expect(models.connections.contains { $0["kind"] == "chatgpt-plan" } == !cancel)
+        #expect(keys.stored.withLock { $0 }.isEmpty)
+    }
+
+    @Test func aDeviceConnectClickCanOpenTheBrowserOnceTheCodeArrives() async throws {
+        let opened = Opened()
+        let (entered, onWait) = AsyncStream<Void>.makeStream()
+        let (outcomes, finish) = AsyncStream<Data>.makeStream()
+        defer { finish.finish() }
+        let models = make(daemon: Daemon(), opened: opened, waitForDevice: {
+            onWait.yield(())
+            var next = outcomes.makeAsyncIterator()
+            return await next.next() ?? Data()
+        })
+        _ = try await models.run(["action": "connectChatGPTDevice", "openBrowser": true], context: click)
+        let task = models.chatgptDeviceTask
+        var wait = entered.makeAsyncIterator()
+        _ = await wait.next()
+        #expect(models.state["chatgptDevice"]?["phase"] == "waiting")
+        #expect(opened.urls.map(\.absoluteString) == ["https://auth.openai.com/codex/device"])
+        finish.yield(Data(#"{"status":"cancelled"}"#.utf8))
+        await task?.value
+    }
+
+    @Test func deviceRetryCanStartBeforeTheCancelledWaitReplies() async throws {
+        let daemon = Daemon()
+        let (entered, onWait) = AsyncStream<Int>.makeStream()
+        let replies = OSAllocatedUnfairLock<[Int: CheckedContinuation<Data, Never>]>(initialState: [:])
+        let waiting = OSAllocatedUnfairLock(initialState: 0)
+        defer {
+            let remaining = replies.withLock { buffer in
+                let pending = Array(buffer.values)
+                buffer.removeAll()
+                return pending
+            }
+            for reply in remaining { reply.resume(returning: Data()) }
+        }
+        let models = make(daemon: daemon, waitForDevice: {
+            let number = waiting.withLock { count in count += 1; return count }
+            return await withCheckedContinuation { reply in
+                replies.withLock { $0[number] = reply }
+                onWait.yield(number)
+            }
+        })
+        _ = try await models.run(["action": "connectChatGPTDevice"], context: click)
+        let cancelled = models.chatgptDeviceTask
+        var call = entered.makeAsyncIterator()
+        #expect(await call.next() == 1)
+        _ = try await models.run(["action": "cancelChatGPTDevice"], context: click)
+        _ = try await models.run(["action": "connectChatGPTDevice"], context: click)
+        let phase = models.state["chatgptDevice"]?["phase"]?.stringValue
+        try #require(phase == "starting" || phase == "waiting")
+        #expect(await call.next() == 2)
+        let retry = models.chatgptDeviceTask
+        replies.withLock { $0.removeValue(forKey: 1) }?.resume(returning: Data(#"{"status":"failed","error":"access_denied"}"#.utf8))
+        await cancelled?.value
+        #expect(models.state["chatgptDevice"]?["phase"] == "waiting")
+        replies.withLock { $0.removeValue(forKey: 2) }?.resume(returning: Data(#"{"status":"failed","error":"expired_token"}"#.utf8))
+        await retry?.value
+        #expect(models.state["chatgptDevice"] == ["phase": "failed", "error": "expired_token"])
+    }
+
+    @Test(arguments: ["expired_token", "access_denied", "network", "already_signed_in"])
+    func deviceSignInPublishesTypedFailures(code: String) async throws {
+        let models = make(daemon: Daemon(), waitForDevice: {
+            Data(#"{"status":"failed","error":"\#(code)"}"#.utf8)
+        })
+        _ = try await models.run(["action": "connectChatGPTDevice"], context: click)
+        await models.chatgptDeviceTask?.value
+        #expect(models.state["chatgptDevice"] == ["phase": "failed", "error": .string(code)])
     }
 
     @Test func chatGPTSignInGoesFromPendingToDone() async throws {
@@ -251,56 +612,6 @@ import Testing
 
     @Test func theKeychainLineQuotesItsWords() {
         #expect(KeychainModelKeyStore.quoted(#"a"b\c"#) == #""a\"b\\c""#)
-    }
-
-    @Test func addClaudeTokenPassesOnlyTheKeychainReference() async throws {
-        let daemon = Daemon()
-        let keys = Keys()
-        let models = make(daemon: daemon, keys: keys)
-        let token = "sk-ant-oat01-THE-RAW-TOKEN-0123456789"
-        _ = try await models.run(["action": "addClaudeToken", "token": .string(token + "\n"), "label": "Max"], context: click)
-        #expect(keys.stored.withLock { $0 } == ["keychain:cmux-model-key/claude-token-test": token])
-        let add = try #require(daemon.calls.withLock { $0 }.first { $0.method == "_acpmux/connections/claude_token.add" })
-        #expect(add.params == ["secret": "keychain:cmux-model-key/claude-token-test", "label": "Max"])
-        #expect(!daemon.calls.withLock { $0 }.contains { $0.params.values.contains { $0.contains("THE-RAW-TOKEN") } })
-        #expect(!models.state.compactText.contains("THE-RAW-TOKEN"))
-        // acpmux's answer shows at once: a claude-token connection of Anthropic that serves Cloud.
-        let row = try #require(models.state["personal"]?["connections"]?.arrayValue?.first)
-        #expect(row["kind"] == "claude-token")
-        #expect(row["provider"] == "anthropic")
-        #expect(row["servesCloud"] == .bool(true))
-    }
-
-    @Test func aClaudeTokenNeedsItsPrefixAndNoWhitespace() async throws {
-        let daemon = Daemon()
-        let keys = Keys()
-        let models = make(daemon: daemon, keys: keys)
-        for token in ["sk-ant-api03-not-a-setup-token", "sk-ant-oat01-two words", "sk-ant-oat01-a\tb", " sk-ant-oat01-lead", ""] {
-            await #expect(throws: PageError.self) {
-                _ = try await models.run(["action": "addClaudeToken", "token": .string(token)], context: click)
-            }
-        }
-        #expect(keys.stored.withLock { $0 }.isEmpty)
-        #expect(daemon.calls.withLock { $0 }.isEmpty)
-        // A refused add takes the Keychain item back out.
-        daemon.refuseKeyAdd.withLock { $0 = true }
-        await #expect(throws: PageError.self) {
-            _ = try await models.run(["action": "addClaudeToken", "token": "sk-ant-oat01-abc"], context: click)
-        }
-        #expect(keys.deleted.withLock { $0 } == ["keychain:cmux-model-key/claude-token-test"])
-    }
-
-    @Test func claudeSetupTokenOpensATerminalTabRunningIt() async throws {
-        let daemon = Daemon()
-        let typed = Typed()
-        let harnesses = SettingsHarnesses(environment: { nil }, openTerminal: { line in typed.lines.append(line); return true })
-        let models = make(daemon: daemon, harnesses: harnesses)
-        _ = try await models.run(["action": "claudeSetupToken"], context: click)
-        #expect(typed.lines == ["claude setup-token"])
-        // Only from the person's own gesture.
-        let script = PageCallContext(page: "cmux.settings", origin: "page", confirmed: false, opid: "op", userGesture: false, gestureEvent: nil)
-        await #expect(throws: PageError.self) { _ = try await models.run(["action": "claudeSetupToken"], context: script) }
-        #expect(typed.lines.count == 1)
     }
 
     @Test func orgKeyNeedsAnExplicitKeyOrNull() async throws {

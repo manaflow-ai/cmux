@@ -14,6 +14,7 @@ struct CloudSetupTests {
         var snapshot: CloudSetup.Snapshot
         var reads = 0
         var ran: [CloudSetup.Action] = []
+        var opened: [String] = []
         init(_ snapshot: CloudSetup.Snapshot) { self.snapshot = snapshot }
     }
 
@@ -21,7 +22,55 @@ struct CloudSetupTests {
         CloudSetup(read: {
             connections.reads += 1
             return connections.snapshot
-        }, run: { connections.ran.append($0) })
+        }, run: { action, family in
+            connections.ran.append(action)
+            connections.opened.append(family)
+        })
+    }
+
+    @Test func allowsNativeClaudeSignInBeforeTheFirstCloudChat() async {
+        let setup = CloudSetup(read: { .init(personal: [], organization: []) })
+        setup.canSignInToClaudeOnMachine = { $0 == nil || $0 == "owner" }
+        #expect(await setup.served().families["claude"] == nil)
+        #expect(await setup.served(machine: "owner").families["claude"] == nil)
+        #expect(await setup.served(machine: "team").families["claude"] == false)
+        #expect(CloudSetup.Connection(json: ["id": "claude-token", "kind": "claude-token", "serves_cloud": true]) == nil)
+    }
+
+    @Test func exactEndpointReadinessAndStartUseTheSameConnection() async {
+        let connections = Connections(.init(personal: [
+            .init(id: "deepseek", families: ["deepseek"], endpointProfile: true, endpointCredentials: true, launchHarness: "opencode"),
+            .init(id: "claude-local", families: ["claude-local"], servesCloud: false, endpointProfile: true),
+        ], organization: ["claude"]))
+        let rule = setup(connections)
+        #expect(await rule.choose(harness: "deepseek", model: "byo/model", account: nil) == .connection(id: "deepseek", family: "deepseek"))
+        #expect(await rule.choose(harness: "claude-local", model: nil, account: nil) == .setup(family: "claude-local", model: nil))
+        #expect(await rule.launchConnection("deepseek")?.endpointCredentials == true)
+        let unknown = await rule.served()
+        #expect(unknown.servedHarnesses.isEmpty)
+        #expect(unknown.pendingHarnesses == ["deepseek"])
+        rule.machineHarnesses = { $0 == "current" ? ["opencode"] : [] }
+        let served = await rule.served(machine: "current")
+        #expect(served.servedHarnesses == ["deepseek"])
+        #expect(served.unavailableEndpointHarnesses == ["claude-local"])
+        let missing = await rule.served(machine: "current-without-opencode")
+        #expect(missing.pendingHarnesses.isEmpty)
+        #expect(missing.unavailableEndpointHarnesses == ["claude-local", "deepseek"])
+    }
+
+    @Test func aSubscriptionRunnerStaysPendingUntilTheMachineAcceptsItsCredential() async {
+        let rule = setup(Connections(.init(personal: [
+            .init(id: "copilot", families: ["github-copilot"], endpointCredentials: true, launchHarness: "opencode", subscriptionCredentials: true),
+            .init(id: "openrouter", families: ["openrouter"], endpointCredentials: true, launchHarness: "opencode"),
+        ], organization: [])))
+        rule.machineHarnesses = { _ in ["opencode"] }
+        let pending = await rule.served(machine: "cloud")
+        #expect(pending.pendingHarnesses == ["github-copilot"])
+        #expect(pending.servedHarnesses == ["openrouter"])
+        rule.machineSubscriptionHarnesses = { _ in ["opencode"] }
+        let ready = await rule.served(machine: "cloud")
+        #expect(ready.pendingHarnesses.isEmpty)
+        #expect(ready.servedHarnesses == ["github-copilot", "openrouter"])
     }
 
     @Test func aPersonalConnectionServingTheFamilyStarts() async {
@@ -68,13 +117,13 @@ struct CloudSetupTests {
     }
 
     /// cmux#45773: a start whose machine gave its agent no model shows Set up Cloud only when it ran on the team's key and
-    /// the next choice is that card; with this Mac's connections unread, or a connection of its own, it answers nil.
+    /// the next choice is that card. Without an organization route, this recovery path is unused.
     @Test func anUnroutedStartShowsSetUpCloudOnlyForTheTeamsKey() async {
         let rule = setup(Connections(.init(personal: [], organization: ["claude"])))
         let card = await rule.unrouted(harness: "claude", model: "opus", account: nil)
         #expect(card?.family == "claude" && card?.model == "opus")
         #expect(rule.unroutedOrganization == ["claude"])
-        #expect(await setup(Connections(.init(personal: nil, organization: ["claude"]))).unrouted(harness: "claude", model: nil, account: nil) == nil)
+        #expect(await setup(Connections(.init(personal: nil, organization: ["claude"]))).unrouted(harness: "claude", model: nil, account: nil)?.family == "claude")
         #expect(await setup(Connections(.init(personal: [], organization: nil))).unrouted(harness: "claude", model: nil, account: nil) == nil)
         #expect(await rule.unrouted(harness: "gemini", model: nil, account: nil) == nil)
     }
@@ -95,7 +144,7 @@ struct CloudSetupTests {
         #expect(await rule.choose(harness: "claude", model: nil, account: "claude-login") == .connection(id: "claude-token:2", family: "claude"))
         #expect(await rule.choose(harness: "claude", model: nil, account: "chatgpt-plan:1") == .connection(id: "claude-token:2", family: "claude"))
         #expect(await rule.choose(harness: "codex-work", model: nil, account: nil) == .connection(id: "chatgpt-plan:1", family: "codex"))
-        #expect(await rule.choose(harness: "opencode", model: nil, account: nil) == .fallback)
+        #expect(await rule.choose(harness: "opencode", model: nil, account: nil) == .setup(family: "opencode", model: nil))
         #expect(await setup(Connections(.init(personal: [login], organization: []))).choose(harness: "claude", model: "m", account: "claude-login")
             == .setup(family: "claude", model: "m"))
         #expect(CloudSetup.isConnectionID("chatgpt-plan:1") && !CloudSetup.isConnectionID("a b") && !CloudSetup.isConnectionID(""))
@@ -140,15 +189,99 @@ struct CloudSetupTests {
         #expect(gatewayReads == 0)
     }
 
-    /// An acpmux that predates `_acpmux/connections` (no daemon either) keeps every start as it was.
-    @Test func unreadConnectionsStartAsBefore() async {
+    /// CMUX-662: the picker's Connect rows read the same answer a start would get, per family, before any send.
+    @Test func servedAnswersEachFamilyAsAStartWouldDecideIt() async {
+        let claude = CloudSetup.Connection(id: "claude-login", families: ["claude"])
+        let connections = Connections(.init(personal: [claude], organization: []))
+        #expect(await setup(connections).served().families == ["claude": true, "codex": false])
+        // The team's shared key serves Codex, until a start finds it unrouted.
+        connections.snapshot = .init(personal: [], organization: ["codex"])
+        let teamKey = setup(connections)
+        #expect(await teamKey.served().families == ["claude": false, "codex": true])
+        teamKey.organizationUnrouted("codex")
+        #expect(await teamKey.served().families == ["claude": false, "codex": false])
+        // Unread connections and no team key decide nothing: no family is named.
+        connections.snapshot = .init(personal: nil, organization: nil)
+        #expect(await setup(connections).served().families.isEmpty)
+        #expect(await CloudSetup().served().families.isEmpty)
+        // The team's keys unread (still loading): "not served" is unknown, so it names only what serves.
+        connections.snapshot = .init(personal: [claude], organization: nil)
+        #expect(await setup(connections).served().families == ["claude": true])
+    }
+
+    @Test func readinessExplainsKnownMissingConnections() async {
+        let local = CloudSetup.Connection(id: "claude-login", families: ["claude"], servesCloud: false)
+        let off = CloudSetup.Connection(id: "claude-token", families: ["claude"], signedIn: false, enabled: false)
+        let signedOut = CloudSetup.Connection(id: "chatgpt-plan", families: ["claude", "codex"], signedIn: false)
+        let connections = Connections(.init(personal: [local], organization: []))
+        let rule = setup(connections)
+        let signedOutOfCloud = await rule.served()
+        #expect(signedOutOfCloud.families == ["claude": false, "codex": false])
+        #expect(signedOutOfCloud.reasons == ["claude": CloudSetup.ConnectionReason.none, "codex": .none])
+
+        connections.snapshot.personal = [local, off]
+        let disabled = await rule.served()
+        #expect(disabled.reasons == ["claude": .off, "codex": .none])
+
+        connections.snapshot.personal = [local, off, signedOut]
+        let expired = await rule.served()
+        #expect(expired.reasons == ["claude": .signedOut, "codex": .signedOut])
+
+        connections.snapshot.organization = nil
+        let loading = await rule.served()
+        #expect(loading.families.isEmpty && loading.reasons.isEmpty)
+        connections.snapshot.organization = ["claude"]
+        let team = await rule.served()
+        #expect(team.families == ["claude": true, "codex": false])
+        #expect(team.reasons == ["codex": .signedOut])
+    }
+
+    @Test func readinessExplainsAnEligibleConnectionWithCloudTurnedOff() async throws {
+        let key = try #require(CloudSetup.Connection(json: [
+            "id": "anthropic-key", "families": ["claude"], "can_serve_cloud": true,
+            "serves_cloud": false, "signed_in": true, "enabled": true,
+        ]))
+        let connections = Connections(.init(personal: [key], organization: []))
+        let rule = setup(connections)
+        let readiness = await rule.served()
+        #expect(readiness.families["claude"] == false)
+        #expect(readiness.reasons["claude"] == .cloudOff)
+        connections.snapshot.personal = []
+        #expect(await rule.served().reasons["claude"] == CloudSetup.ConnectionReason.none)
+    }
+
+    @Test func pickerConnectOpensSettingsForTheSelectedFamily() {
+        let connections = Connections(.init(personal: [], organization: []))
+        let setup = setup(connections)
+        var opened: [String] = []
+        setup.openConnectionSettings = { opened.append($0) }
+        setup.connect(family: "codex")
+        setup.connect(family: "gemini")
+        #expect(opened == ["codex", "gemini"])
+        #expect(connections.ran.isEmpty)
+    }
+
+    @Test(arguments: CloudSetup.setupFamilies)
+    func onlyConfirmedMissingConnectionsAskForSetup(family: String) async {
         let connections = Connections(.init(personal: nil, organization: []))
-        #expect(await setup(connections).decide(harness: "claude", model: nil) == .start)
-        #expect(await CloudSetup().decide(harness: "claude", model: nil) == .start)
-        #expect(await setup(connections).choose(harness: "claude", model: nil, account: nil) == .fallback)
-        // An agent the gateway does not serve is never held back.
+        let rule = setup(connections)
+        let required = CloudSetup.Choice.setup(family: family, model: "fixture/model")
+        #expect(await rule.choose(harness: family, model: "fixture/model", account: nil) == .fallback)
+        #expect(await CloudSetup().choose(harness: family, model: "fixture/model", account: nil) == .fallback)
+        connections.snapshot.personal = []
+        #expect(await rule.choose(harness: family, model: "fixture/model", account: nil) == required)
+        connections.snapshot.personal = [.init(id: "connected", families: [family])]
+        #expect(await rule.choose(harness: family, model: "fixture/model", account: nil) == .connection(id: "connected", family: family))
+    }
+
+    @Test func otherHarnessProfilesAlsoRequireAConnection() async {
         let none = Connections(.init(personal: [], organization: []))
-        #expect(await setup(none).decide(harness: "opencode", model: nil) == .start)
+        let rule = setup(none)
+        let family = "providers/custom"
+        #expect(await rule.decide(harness: family, model: nil) == .setup(family: family, model: nil))
+        #expect(CloudSetup.isSetupFamily(family) && !CloudSetup.isSetupFamily("providers//custom"))
+        none.snapshot.personal = [.init(id: "custom", families: [family])]
+        #expect(await rule.choose(harness: family, model: nil, account: nil) == .connection(id: "custom", family: family))
     }
 
     @Test func familiesOfThePickersAgent() {
@@ -174,6 +307,7 @@ struct CloudSetupTests {
         while connections.reads < 1 { await Task.yield() }
         await Task.yield()
         #expect(connections.ran == [.connectChatGPT])
+        #expect(connections.opened == ["codex"])
         connections.snapshot.personal = [.init(id: "chatgpt-plan:1", families: ["codex"])]
         rule.connectionsChanged()
         #expect(await ready.value)

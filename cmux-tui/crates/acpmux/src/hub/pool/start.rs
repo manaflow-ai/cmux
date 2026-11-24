@@ -98,7 +98,7 @@ impl Hub {
             draft.remote_origin || crate::login_env::machine_env_fresh_before_spawn().await,
             "machine environment changed; login env refresh failed"
         );
-        let cmd = crate::agent::harness_command_ready(
+        let (cmd, scratch) = crate::agent::harness_command_ready(
             &draft.harness,
             profile,
             &draft.cwd,
@@ -106,6 +106,7 @@ impl Hub {
             Some((&session_id, &name)),
         )
         .await?;
+        anyhow::ensure!(scratch.is_none(), "GitHub Copilot needs a dedicated launch");
         let preview = crate::agent::pinned_preview_format(&cmd);
         let std_cmd = cmd.as_std();
         let dir = pool_dir();
@@ -138,6 +139,8 @@ impl Hub {
             orphan_exit: None,
             prompt_suggestions_managed: crate::claude_stdio::prompt_suggestions::managed(),
             holder: None,
+            copilot_scratch: None,
+            local_chatgpt_expiry: None,
         };
         // The agent holder (`agent_host/custody.rs`), as for a session's own host.
         #[cfg(unix)]

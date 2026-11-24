@@ -101,6 +101,9 @@ CONDITIONAL = {
     "agent-session-start-owner-cloud-v1": "only on a cmux Cloud VM with no team evidence (cmux-tui-core server/capabilities.rs serves_owner_cloud_start)",
     "agent-session-start-credentials-v1": "only on a cmux Cloud VM with no team evidence, beside agent-session-start-owner-cloud-v1 (cmux-tui-core server/capabilities.rs serves_owner_cloud_start)",
     "agent-session-start-codex-credentials-v1": "only on a cmux Cloud VM with no team evidence, beside agent-session-start-credentials-v1 (cmux-tui-core server/capabilities.rs serves_owner_cloud_start); the app updates a machine without it before a Codex start carries a credential (cmux#45774)",
+    "agent-session-start-endpoint-credentials-v1": "only on a cmux Cloud VM with no team evidence, beside agent-session-start-credentials-v1 (cmux-tui-core server/capabilities.rs serves_owner_cloud_start); the app updates a machine without it before a start carries an endpoint credential (cmux-tui docs/model-connections.md Revision 3)",
+    "agent-session-start-subscription-credentials-v1": "only on an owner Cloud VM beside agent-session-start-credentials-v1 (cmux-tui-core server/capabilities.rs serves_owner_cloud_start)",
+    "agent-session-credential-reattach-v1": "only on an owner Cloud VM beside agent-session-start-credentials-v1 (cmux-tui-core server/capabilities.rs serves_owner_cloud_start); a respawn there waits for the owner's Mac to deliver the credential again on reattach",
     "agent-session-prewarm-v1": "only on a cmux Cloud VM with no team evidence, beside agent-session-start-owner-cloud-v1 (cmux-tui-core server/capabilities.rs serves_owner_cloud_start); the app warms a Cloud send's agent only where it is served (cmux#45953)",
 }
 
