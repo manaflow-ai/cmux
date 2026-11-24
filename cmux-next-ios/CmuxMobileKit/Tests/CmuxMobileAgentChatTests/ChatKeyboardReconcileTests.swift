@@ -12,6 +12,10 @@ import CmuxMobileSupport
 @MainActor
 @Suite(.serialized) struct ChatKeyboardReconcileTests {
     @Test func aDetachedHideReturnsTheChatDockToTheBottom() throws {
+        #if DEBUG
+        let previousStall = ChatTranscriptController.layoutGuideStallsForTesting
+        defer { ChatTranscriptController.layoutGuideStallsForTesting = previousStall }
+        #endif
         let center = NotificationCenter()
         let tracker = MobileKeyboardFrameTracker(notificationCenter: center)
         tracker.keyboardOwnerPresent = { false }
@@ -22,13 +26,26 @@ import CmuxMobileSupport
             empty: AnyView(EmptyView()), dock: AnyView(Color.clear.frame(height: 96)), jump: nil,
             keyboardTracker: tracker
         )
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        // Package tests can run without a window scene.
+        let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+        let window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
         window.rootViewController = controller
         window.makeKeyAndVisible()
         controller.view.layoutIfNeeded()
         defer { window.isHidden = true }
 
-        let shown = CGRect(x: 0, y: 500, width: 402, height: 374)
+        let bounds = controller.view.bounds
+        let inView = CGRect(x: 0, y: bounds.maxY - 374, width: bounds.width, height: 374)
+        let shown = controller.view.convert(inView, to: window.screen.coordinateSpace)
+        // Preconditions for the notified fallback, with their values: the guide rests full width
+        // at the bottom (no real keyboard), and the posted frame reads back where it was built.
+        let guide = controller.view.keyboardLayoutGuide.layoutFrame
+        #expect(guide.width >= bounds.width - 1 && guide.minY > inView.minY + 40,
+                "guide at rest: \(guide) in \(bounds), scene=\(scene != nil)")
+        let back = controller.view.convert(shown, from: window.screen.coordinateSpace)
+        #expect(abs(back.minY - inView.minY) < 1 && abs(back.width - inView.width) < 1,
+                "posted frame reads back: \(back) from \(shown), built \(inView)")
         let userInfo: [AnyHashable: Any] = [
             UIResponder.keyboardFrameEndUserInfoKey: NSValue(cgRect: shown),
             UIResponder.keyboardAnimationDurationUserInfoKey: 0.0,
@@ -42,8 +59,23 @@ import CmuxMobileSupport
             NotificationCenter.default.post(name: UIResponder.keyboardWillChangeFrameNotification, object: nil, userInfo: userInfo)
         }
         controller.view.layoutIfNeeded()
-        let dock = try #require(controller.view.subviews.compactMap { $0 as? PassthroughView }.first)
-        #expect(dock.frame.maxY < controller.view.bounds.maxY - 100, "the shown keyboard lifts the stale dock")
+        let docks = controller.view.subviews.compactMap { $0 as? PassthroughView }
+        let dock = try #require(docks.first)
+        var shownMessage = "the shown keyboard lifts the stale dock"
+        #if DEBUG
+        let pins = controller.keyboardPinsForTesting
+        let frames = docks.map { "\($0.accessibilityIdentifier ?? "nil")=\($0.frame)" }
+        let diagnostic = """
+        KEYBOARDRECONCILE windowAttached=\(controller.view.window === window) bounds=\(bounds) \
+        screenFrame=\(shown) converted=\(back) guideBefore=\(guide) guideAfter=\(controller.view.keyboardLayoutGuide.layoutFrame) \
+        docks=\(frames) notifiedKeyboardTop=\(String(describing: pins.notifiedTop)) \
+        layoutGuideStallsBefore=\(previousStall) layoutGuideStalls=\(ChatTranscriptController.layoutGuideStallsForTesting) \
+        keyboardPin=\(String(describing: pins.keyboard)) fallbackPin=\(String(describing: pins.fallback))
+        """
+        print(diagnostic)
+        shownMessage += " — " + diagnostic
+        #endif
+        #expect(dock.frame.maxY < controller.view.bounds.maxY - 100, "\(shownMessage)")
         #expect(tracker.isShown)
         // The controller is detached when the tracker learns the hide. Its
         // own keyboard observer cannot consume a notification it never got.

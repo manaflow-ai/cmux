@@ -134,6 +134,15 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     private var foldHoldCap: Task<Void, Never>?
     static let foldHoldCapSeconds: Double = 1.5
     #if DEBUG
+    static var layoutGuideStallsForTesting: Bool {
+        get { layoutGuideStalls }
+        set { layoutGuideStalls = newValue }
+    }
+
+    var keyboardPinsForTesting: (notifiedTop: CGFloat?, keyboard: Bool?, fallback: Bool?) {
+        (notifiedKeyboardTop?.constant, keyboardPin?.isActive, fallbackPin?.isActive)
+    }
+
     private var trace: ChatKeyboardTrace?
     #endif
 
