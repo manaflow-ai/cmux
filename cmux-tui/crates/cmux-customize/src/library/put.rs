@@ -108,6 +108,71 @@ impl Customize {
         })
     }
 
+    /// `library_set_on` for a caller that holds the store lock. An entry
+    /// that is gone already is no change.
+    pub(crate) fn library_set_on_locked(
+        &self,
+        name: &str,
+        on: bool,
+        label: &str,
+        origin: &str,
+        now_ms: u64,
+    ) -> Result<Changed, Error> {
+        self.library_change_locked(label, origin, now_ms, |library| {
+            if let Some(entry) = library.entries.iter_mut().find(|e| e.name() == name) {
+                entry.on = on;
+            }
+            Ok(())
+        })
+    }
+
+    /// Puts the entries `order` names (top first) in that order among the
+    /// places they hold now; every other entry keeps its place. For a
+    /// caller that holds the store lock.
+    pub(crate) fn library_reorder_locked(
+        &self,
+        order: &[String],
+        label: &str,
+        origin: &str,
+        now_ms: u64,
+    ) -> Result<Changed, Error> {
+        self.library_change_locked(label, origin, now_ms, |library| {
+            let rank = |name: &str| order.iter().position(|named| named == name);
+            let mut held: Vec<_> = library
+                .entries
+                .iter()
+                .filter(|entry| rank(entry.name()).is_some())
+                .cloned()
+                .collect();
+            held.sort_by_key(|entry| rank(entry.name()));
+            let slots = library.entries.iter_mut().filter(|entry| rank(entry.name()).is_some());
+            for (slot, entry) in slots.zip(held) {
+                *slot = entry;
+            }
+            Ok(())
+        })
+    }
+
+    /// Moves entry `name` to index `at` (0 is the top), for a caller that
+    /// holds the store lock: an update keeps its setup's place.
+    pub(crate) fn library_move_locked(
+        &self,
+        name: &str,
+        at: usize,
+        label: &str,
+        origin: &str,
+        now_ms: u64,
+    ) -> Result<Changed, Error> {
+        self.library_change_locked(label, origin, now_ms, |library| {
+            if let Some(from) = library.entries.iter().position(|e| e.name() == name) {
+                let entry = library.entries.remove(from);
+                let to = at.min(library.entries.len());
+                library.entries.insert(to, entry);
+            }
+            Ok(())
+        })
+    }
+
     /// The library file as it is now (`None`: there is none), to write back
     /// with [`Customize::library_write_back`] when a change made of several
     /// steps fails after one of them. Its entries and the base under them
@@ -134,5 +199,54 @@ impl Customize {
             },
         }
         Ok(())
+    }
+
+    /// The file paths entry `name`'s profile holds (`None`: no such entry).
+    pub(crate) fn library_entry_files(&self, name: &str) -> Result<Option<Vec<String>>, Error> {
+        Ok(self
+            .read_library()?
+            .entries
+            .iter()
+            .find(|entry| entry.name() == name)
+            .map(|entry| entry.profile.files.keys().cloned().collect()))
+    }
+
+    /// The value entry `name`'s profile gives setting `key` (`None`: no such
+    /// entry, or it does not set it).
+    pub(crate) fn library_entry_setting(
+        &self,
+        name: &str,
+        key: &str,
+    ) -> Result<Option<serde_json::Value>, Error> {
+        Ok(self
+            .read_library()?
+            .entries
+            .iter()
+            .find(|entry| entry.name() == name)
+            .and_then(|entry| entry.profile.settings.get(key).cloned()))
+    }
+
+    /// Sets `key` to `value` inside entry `name`'s own profile, for a caller
+    /// that holds the store lock: the entry's layer carries it, so turning
+    /// the entry off (or removing it) takes it off with the rest. One
+    /// applied generation, as any toggle.
+    pub(crate) fn library_entry_set_locked(
+        &self,
+        name: &str,
+        key: &str,
+        value: serde_json::Value,
+        label: &str,
+        origin: &str,
+        now_ms: u64,
+    ) -> Result<Changed, Error> {
+        self.library_change_locked(label, origin, now_ms, |library| {
+            let entry = library
+                .entries
+                .iter_mut()
+                .find(|entry| entry.name() == name)
+                .ok_or_else(|| Error::Library(format!("there is no library entry {name}")))?;
+            entry.profile.settings.insert(key.to_owned(), value);
+            Ok(())
+        })
     }
 }

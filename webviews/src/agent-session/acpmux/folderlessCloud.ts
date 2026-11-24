@@ -122,15 +122,14 @@ export function startedCloudFolderName(
 }
 
 /// What the folder chip opens:
-/// - `localFolders`: this Mac's folders and Add folder… (a new chat that starts here, or a Cloud
-///   start not sent yet, whose picked folder the start copies to the machine: cloudRun.ts
-///   `cloudStartFolder`, `newTabProjectPick`);
+/// - `localFolders`: this Mac's folders and Add folder… for a new chat here.
+/// - `cloudSources`: a new Cloud chat's repositories and Cloud machine folders.
 /// - `chatFolders`: the folders the chat's own machine has (its sessions' folders and the folder
 ///   list its host gave for it, `machineFolders`), with Add folder… only on this Mac, whose folder
 ///   panel lists this Mac's folders;
 /// - `label`: no menu, the folder as a plain label: a started chat with nothing to open, or a Cloud
 ///   start that is out (the folder went with the start; nothing picked now could change it).
-export type FolderMenuKind = "localFolders" | "chatFolders" | "label";
+export type FolderMenuKind = "localFolders" | "cloudSources" | "chatFolders" | "label";
 
 export function folderMenu({
   cloudStartOut,
@@ -154,6 +153,7 @@ export function folderMenu({
   cloudMachine: boolean;
 }): { kind: FolderMenuKind; addFolder: boolean } {
   if (cloudStartOut) return { kind: "label", addFolder: false };
+  if (!readOnly && cloudMachine) return { kind: "cloudSources", addFolder: false };
   if (!readOnly && onThisMac && localChoices) return { kind: "localFolders", addFolder: true };
   if (readOnly && !newChats) return { kind: "label", addFolder: false };
   return { kind: "chatFolders", addFolder: newChats && onThisMac && !cloudMachine };
