@@ -965,7 +965,6 @@ CmuxNextAgentPane	extension	AgentPaneTunables	0	LOGIC	100	0	Packages/macOS/CmuxN
 CmuxNextAgentPane	extension	AgentPaneTunables	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTunables+NewTabWidgets.swift	Debug-settings tunable key and default
 CmuxNextAgentPane	extension	AgentPaneTunables	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTunables+OutsideChats.swift	Debug-settings tunable key and default
 CmuxNextAgentPane	extension	AgentPaneTunables	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTunables+PointerInspector.swift	Debug-settings tunable key and default
-CmuxNextAgentPane	extension	AgentPaneTunables	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTunables+SubagentTray.swift	Debug-settings tunable key and default
 CmuxNextAgentPane	extension	AgentPaneTunables	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTunables+SuggestedTasks.swift	Debug-settings tunable key and default
 CmuxNextAgentPane	extension	AgentPaneTunables	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTunables+SystemDictation.swift	Debug-settings tunable key and default
 CmuxNextAgentPane	enum	AgentPaneHarnessPlacement	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTunables.swift	from enum AgentPaneTopStripStyle:8: Debug-settings tunable choices and defaults
@@ -2514,11 +2513,6 @@ CmuxNextApp	extension	PageDescriptor	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sour
 CmuxNextApp	extension	PageFactory	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/HomeChannelsPage.swift	from extension InternalPageID:11: channels page descriptor/host
 CmuxNextApp	enum	HomeChannelsPageTab	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/HomeChannelsPageTab.swift	from enum HomeChannelsPageTab:8: channels page tab
 CmuxNextApp	enum	HomeChannelsStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/HomeChannelsPageTab.swift	from enum HomeChannelsPageTab:8: channels page tab
-CmuxNextApp	class	MobilePairingPageService	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/MobilePairing/MobilePairingPage.swift	from extension PageDescriptor:5: mobile pairing page descriptor
-CmuxNextApp	extension	InternalPageID	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/MobilePairing/MobilePairingPage.swift	from extension PageDescriptor:5: mobile pairing page descriptor
-CmuxNextApp	extension	PageDescriptor	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/MobilePairing/MobilePairingPage.swift	mobile pairing page descriptor
-CmuxNextApp	class	MobilePairingPageProvider	0	MIXED	0	60	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/MobilePairing/MobilePairingPageProvider.swift	from class MobilePairingPageProvider:27: page ops relaying phone host status and pairing answers; hand-written op names (:28-31)
-CmuxNextApp	struct	MobilePairingStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/MobilePairing/MobilePairingStrings.swift	localized string table (bundle resources)
 CmuxNextApp	class	PageConnectionWatch	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/PageConnectionWatch.swift	from class PageConnectionWatch:10: page connection watch
 CmuxNextApp	struct	PageFactory	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/PageFactory.swift	from struct PageFactory:25: page factory composition wiring
 CmuxNextApp	class	AppPageNativeProvider	0	MIXED	0	40	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/PageProviders.swift	from class AppPageNativeProvider:13: native provider forwarding confirmed namespace ops to owner providers
@@ -8501,8 +8495,6 @@ CmuxNextMobile	enum	MobileHostEvent	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sourc
 CmuxNextMobile	struct	MobileHostLaunch	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostLaunch.swift	child launch environment and executable for hostd
 CmuxNextMobile	struct	MobileHostMacIdentity	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostMacIdentity.swift	Mac identity key custody and proof
 CmuxNextMobile	struct	MobileHostMacIdentityStore	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostMacIdentity.swift	from struct MobileHostMacIdentity:14: Mac identity key custody and proof
-CmuxNextMobile	struct	MobileHostPairInvite	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostPairInvite.swift	from struct MobileHostPairTokens:14: pair token mint, 300 s life, burn, revoke rule
-CmuxNextMobile	struct	MobileHostPairTokens	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostPairInvite.swift	pair token mint, 300 s life, burn, revoke rule
 CmuxNextMobile	struct	MobileHostPairPrompts	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostPairPrompts.swift	pair prompt quiet period rule per account
 CmuxNextMobile	class	MobileHostPairedDevicesFile	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostPairedDevices.swift	from struct MobileHostPairRequest:10: paired devices model, pair request, keys, lists
 CmuxNextMobile	class	MobileHostPairedQuitWatch	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostPairedDevices.swift	from struct MobileHostPairRequest:10: paired devices model, pair request, keys, lists
@@ -9154,7 +9146,6 @@ CmuxNextPhone	struct	SurfaceFrameFeed	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sou
 CmuxNextPhone	class	CloudDesktopSurfaceSources	0	MIXED	85	15	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/CloudDesktopSurfaceSources.swift	tab-key parse (copies hostd cloud_desktop_of), refusal codes, per-tab sources, liveness watch LOGIC; refusal codes and tab key repeat hostd MIRROR (#31795); F14
 CmuxNextPhone	let	logger	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/CloudDesktopSurfaceSources.swift	os.Logger
 CmuxNextPhoneAccess	class	CloudHostReplicaFollower	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhoneAccess/CloudHostReplicaFollower.swift	from class CloudHostReplicaFollower:21: follows settings, reconciles wanted cloud host replica state per daemon/account
-CmuxNextPhoneAccess	enum	MobilePairingState	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhoneAccess/MobilePairingState.swift	mobile pairing step state machine
 CmuxNextPhoneAccess	struct	PhoneAccessLeftovers	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhoneAccess/PhoneAccessLeftovers.swift	UserDefaults cleanup of the removed Phone Access listener's flag, platform plumbing
 CmuxNextPopups	class	BrowserPopupWindow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPopups/BrowserPopupWindow.swift	NSWindow for browser popup
 CmuxNextPopups	enum	BrowserPopupWindowGeometry	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPopups/BrowserPopupWindowGeometry.swift	popup window size rules (Chrome AdjustToFit)
