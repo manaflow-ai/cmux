@@ -504,15 +504,18 @@ fn dispatch_command(
             cmd_panes::set_ratio(mux, actor, pane, dir, ratio)
         }
         Command::SetSplitRatio { split, ratio, transaction } => {
+            super::input_qos::note_drag(writer, transaction.is_some());
             cmd_panes::set_split_ratio(mux, client, actor, split, ratio, transaction)
         }
         Command::SetDividerVisible { split, visible, transaction } => {
             cmd_panes::set_divider_visible(mux, actor, split, visible, transaction)
         }
         Command::SetViewportPaneWidth { pane, width, transaction } => {
+            super::input_qos::note_drag(writer, transaction.is_some());
             cmd_panes::set_viewport_pane_width(mux, client, actor, pane, width, transaction)
         }
         Command::SetLayoutSizes { values, transaction } => {
+            super::input_qos::note_drag(writer, true);
             cmd_panes::set_layout_sizes(mux, client, actor, values, transaction)
         }
         Command::SetColumnDock { pane, dock, edge, mode, role, permanent, pinned, transaction } => {

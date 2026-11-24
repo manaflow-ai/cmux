@@ -123,6 +123,7 @@ members = [
     "crates/cmux-server",
     "crates/cmux-host",
     "crates/cmux-motion",
+    "crates/cmux-interactivity",
     "crates/cmux-wallpaper",
     "crates/cmux-config",
     "crates/cmux-customize",
@@ -268,6 +269,7 @@ default-members = [
     "crates/cmux-server",
     "crates/cmux-host",
     "crates/cmux-motion",
+    "crates/cmux-interactivity",
     "crates/cmux-wallpaper",
     "crates/cmux-config",
     "crates/cmux-customize",
@@ -375,6 +377,7 @@ cmux-signed-envelope = { path = "crates/cmux-signed-envelope" }
 cmux-web-pieces = { path = "crates/cmux-web-pieces" }
 cmux-projection = { path = "crates/cmux-projection" }
 cmux-deadline = { path = "crates/cmux-deadline" }
+cmux-interactivity = { path = "crates/cmux-interactivity" }
 cmux-worktree-care = { path = "crates/cmux-worktree-care" }
 cmux-conductor-import = { path = "crates/cmux-conductor-import" }
 cmux-browser-import = { path = "crates/cmux-browser-import" }
