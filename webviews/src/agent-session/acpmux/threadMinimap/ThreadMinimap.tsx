@@ -530,8 +530,6 @@ function ThreadMinimapView({
   /// The list's offset as the rail last set it or its scroll event reported it, so a commit reads no
   /// layout to place the list (reading `scrollTop` right after a commit lays out the whole transcript).
   const listOffset = useRef(0);
-  /// The chat the rail's list was last placed for: a switch places it in the next frame (the offset effect).
-  const placedSession = useRef<string | undefined>(undefined);
   /// A wheel over the rail means the person is browsing its history. Keep their offset until a tick
   /// click takes them back to the transcript; transcript scrolling must not snap the rail beneath them.
   /// Held for the session it was taken in: the transcript is reused across chats, and another chat's
@@ -1420,17 +1418,16 @@ function ThreadMinimapView({
       setListTop(next);
       followPointer(node);
     };
-    // A chat switch: the transcript's rows mounted in this commit and nothing has laid them out yet, so the
+    // In the next frame's callback, before that frame paints, never in the commit. A chat switch or a
+    // rail click mounts the transcript's rows in this commit and nothing has laid them out yet, so the
     // offset write here was the commit's first forced style and layout of the whole new chat, and the
     // transcript's anchor pass laid it out again after its own writes (bench/settled-page.bench.ts
-    // chat_switch: 45 ms of a 190 ms switch). In the next frame's callback, before that frame paints, the
-    // page is laid out once by then and the write only moves the list: the rail is placed in the first frame.
-    if (placedSession.current !== sessionId) {
-      placedSession.current = sessionId;
-      const frame = requestAnimationFrame(place);
-      return () => cancelAnimationFrame(frame);
-    }
-    place();
+    // chat_switch: 45 ms of a 190 ms switch). A rail click commits many times a frame while its pages
+    // arrive, and each commit paid that layout here (bench/chat-fast-scroll.bench.ts rail_click_paint).
+    // In the frame the page is laid out once by then and the write only moves the list; a commit that
+    // moves the band again before that frame replaces the pending place, so the list moves once a frame.
+    const frame = requestAnimationFrame(place);
+    return () => cancelAnimationFrame(frame);
   }, [
     shown,
     onScreen.first,
