@@ -505,6 +505,25 @@ jobs:
             echo "No base revision for this event; conventions diff skipped."
           fi
 
+      # Leo, 2026-11-24: "wer need to chase all these placeholders doen and prevent them".
+      # Fails a change that adds a spinner, skeleton or "Loading…" line to the iPhone app;
+      # only added lines count (cmux-next-ios/design/placeholder-inventory.md lists the rest).
+      - name: Validate no new iOS loading placeholders
+        if: ${{ !cancelled() && matrix.group == 'preflight' }}
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+        run: |
+          set -euo pipefail
+          python3 tests/test_ci_ios_loading_placeholders.py
+          if [ -n "${BASE_SHA:-}" ]; then
+            if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+              git fetch --no-tags --depth=1 origin "$BASE_SHA"
+            fi
+            python3 scripts/ci/check-ios-loading-placeholders.py "$BASE_SHA"
+          else
+            echo "No base revision for this event; placeholder check skipped."
+          fi
+
       - name: Validate reload shared DerivedData default
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
         run: ./tests/test_reload_shared_derived_data.sh
