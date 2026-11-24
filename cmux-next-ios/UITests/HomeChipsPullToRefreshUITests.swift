@@ -152,11 +152,13 @@ final class HomeChipsPullToRefreshUITests: XCTestCase {
         return element.exists ? "readout: \(element.value as? String ?? "?")" : "readout: missing (the probe never found the list)"
     }
 
-    /// From just under the toolbar to the bottom of the screen, slowly, then let go.
+    /// From the top of the list to the bottom of the screen, slowly, then let go.
     @MainActor
     private func fullPull(_ app: XCUIApplication) {
-        let top = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.13))
-        let bottom = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.97))
+        // In the list (the pinned grid's gap between tiles), not on the bars: a drag that starts
+        // on the toolbar or the search field barely moves the list.
+        let top = app.coordinate(withNormalizedOffset: CGVector(dx: 0.33, dy: 0.25))
+        let bottom = app.coordinate(withNormalizedOffset: CGVector(dx: 0.33, dy: 0.995))
         top.press(forDuration: 0.1, thenDragTo: bottom, withVelocity: .slow, thenHoldForDuration: 0.3)
     }
 
