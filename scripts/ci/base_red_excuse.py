@@ -254,7 +254,7 @@ def once_key(name: str, args: tuple, kwargs: dict) -> tuple | None:
     if name in ("json", "blob"):
         return (name, repr(args), repr(sorted(kwargs.items())))
     if name == "run" and args and isinstance(args[0], list) and args[0][:2] == ["api", "graphql"]:
-        return ("graphql", repr(args[0]))
+        return ("graphql", kwargs.get("repo"), repr(args[0]))
     return None
 
 
@@ -563,17 +563,17 @@ def conditional_read(args: list[str], root: Path) -> str | None:
 class GitHub(_evidence.GitHub):
     """GitHub client for red attribution, including logs of finished jobs in live runs."""
 
-    def run(self, args: list[str]) -> str:
+    def run(self, args: list[str], *, repo: str | None = None) -> str:
         """gh ARGS' output; a read is read once per judgement (JUDGEMENT_READS), whatever asked it."""
         if not gh_read(args):
-            return _evidence.GitHub.run(self, args)
-        return read_once(("gh", *args), lambda: self.read_conditional(args))
+            return _evidence.GitHub.run(self, args, repo=repo)
+        return read_once(("gh", repo, *args), lambda: self.read_conditional(args, repo))
 
-    def read_conditional(self, args: list[str]) -> str:
+    def read_conditional(self, args: list[str], repo: str | None = None) -> str:
         """gh ARGS (a read): conditional first when the caller named an ETag folder (etags_root), else plain."""
         root = etags_root()
         said = conditional_read(args, root) if root is not None else None
-        return said if said is not None else _evidence.GitHub.run(self, args)
+        return said if said is not None else _evidence.GitHub.run(self, args, repo=repo)
 
     def log(self, repo: str, job: dict) -> str:
         # `gh run view --log` waits for every job in the run. The Actions job
@@ -3955,6 +3955,91 @@ SAME_TREE_SUFFIX = " (same-tree)"
 # dispatched run's head_sha is the feat-cmux-next tip, not the PR head, so its red is never compared by the run: it is
 # the PR's own at that base (a merger reruns one at a stale base), never a base red (cmux#38640, 2026-11-09).
 FAST_GATES_STATUS = "cmux-next/fast-gates"
+# The controller's required-checks pool posts its verdicts as commit statuses (manaflow-checks[bot]); a failed one says
+# "failed on the cmux pool (exit 1); rerun: POST /v1/required-checks/rerun?head=<sha>". cmux#49885 at 8b11f0c2
+# (2026-11-22): 'clippy (changed cmux-tui packages)' failed there while its Actions twin of the same name was skipped by
+# path routing, so this script judged the skipped twin and said "re-run it": an Actions rerun comes back skipped, and
+# nothing moved until a person POSTed the pool's rerun by hand. Leo: "should've been caught and fixed faster. hell,
+# maybe even should've been automatic...". A pool red is never judged by its Actions twin: it is refused with the
+# base's newest status of the same context beside it and the pool's own rerun as the next step (land-judge's
+# pool_rerun_note makes that POST once per head). Its description names no failure, so the base sharing it excuses
+# nothing.
+POOL_RERUN = re.compile(r"\brerun: POST /v1/required-checks/rerun\?head=(?P<head>[0-9a-fA-F]{7,40})\b")
+POOL_CONTROLLER_DEFAULT = "http://100.89.225.106:18765"  # scripts/ci/expected_wait.py DEFAULT_CONTROLLER
+
+
+def pool_controller() -> str:
+    """The controller a pool rerun goes to: CMUX_CI_CONTROLLER, else POOL_CONTROLLER_DEFAULT."""
+    base = (os.environ.get("CMUX_CI_CONTROLLER") or "").strip()
+    return (base if base.startswith(("http://", "https://")) else POOL_CONTROLLER_DEFAULT).rstrip("/")
+
+
+def pool_status_refusal(repo: str, base: str | None, sha: str, name: str, state: str, description: str, github,
+                        evidence: "Evidence | None" = None) -> str:
+    """The refusal of required-checks pool status NAME red at SHA: the base's newest status of NAME (or why it is
+    unread) and the pool's rerun, never an Actions rerun."""
+    seen = ""
+    if base:
+        try:
+            for commit in (evidence or Evidence(repo, base, github)).status_commits():
+                statuses = github.json(f"repos/{repo}/commits/{commit}/status?per_page=100").get("statuses") or []
+                if (found := next((s for s in statuses if s.get("context") == name), None)) is not None:
+                    seen = (f"; base {commit[:12]} has it {found.get('state')}: "
+                            f"{found.get('description') or 'no description'}")
+                    break
+            else:
+                seen = f"; no recent {base} commit has a status '{name}'"
+        except (Refused, RuntimeError, OSError, ValueError, AttributeError) as why:
+            seen = f"; its {base} status is unread ({str(why)[:160]})"
+    return (f"'{name}': the required-checks pool's status is {state} at {sha[:12]} ({description}){seen}. It is "
+            "the pool's verdict, not an Actions job's (an Actions rerun of its twin comes back skipped), and its "
+            f"description names no failure to compare with the base: rerun the pool: POST {pool_controller()}"
+            f"/v1/required-checks/rerun?head={sha}")
+
+# cmux-tui-artifacts.yml's darwin-fallback-plan posts `cmux-tui/linux-cross` = failure when the Linux cross build of
+# the macOS targets ended badly, and the same run then rebuilds those targets on a Mac (build-darwin-fallback). Its
+# own comment says the status "blocks nothing (no ruleset requires cmux-tui/linux-cross)" and names the failed step
+# so the cross build gets fixed: it is a notice, not a verdict. Nothing posts it on a base commit and no job carries
+# its name, so every comparison path refused it, and cmux#52253 at 5f1fbbacaa51 (2026-11-24) was unlandable for a red
+# whose writer had already covered it. It is excused only on the proof of the cover: the fallback built the targets
+# in that run. A fallback that failed is its own red at the head and refuses on its own.
+LINUX_CROSS_STATUS = "cmux-tui/linux-cross"
+LINUX_CROSS_COVERED = re.compile(r"^linux-cross: failed at .+, covered by macOS fallback$")
+LINUX_CROSS_FALLBACK = "build-darwin-fallback / build "
+LINUX_CROSS_RUN = re.compile(r"/actions/runs/(\d+)")
+
+
+def linux_cross_covered(repo: str, sha: str, name: str, state: str, status: dict, github) -> str:
+    """The audit line excusing the `cmux-tui/linux-cross` notice on SHA when the macOS fallback it names covered the
+    targets in the run its target_url points at, else Refused. A build job is covered when it succeeded; one that is
+    skipped built nothing and is not a cover on its own."""
+    description = str(status.get("description") or "")
+    run = LINUX_CROSS_RUN.search(str(status.get("target_url") or ""))
+    if run is None:
+        raise Refused(f"'{name}': a {state} notice ({description}) whose target_url names no run of {repo}: "
+                      "nothing proves the macOS fallback covered it")
+    jobs = [job for job in last_real_jobs(repo, int(run[1]), github)
+            if str(job.get("name") or "").startswith(LINUX_CROSS_FALLBACK)]
+    if not jobs:
+        raise Refused(f"'{name}': a {state} notice ({description}), and run {run[1]} has no "
+                      f"'{LINUX_CROSS_FALLBACK}...' job: the macOS fallback never ran, so nothing covered the cross "
+                      "build; re-run the run")
+    unfinished = [job for job in jobs if job.get("status") != "completed"]
+    if unfinished:
+        raise Refused(f"'{name}': a {state} notice ({description}), and the macOS fallback has not finished in run "
+                      f"{run[1]}: {', '.join(sorted(str(job.get('name')) for job in unfinished))}")
+    red = [job for job in jobs if job.get("conclusion") not in ("success", "skipped")]
+    if red:
+        raise Refused(f"'{name}': a {state} notice ({description}), and the macOS fallback did not cover it in run "
+                      f"{run[1]}: " + ", ".join(f"{job.get('name')} is {job.get('conclusion')}"
+                                                for job in sorted(red, key=lambda job: str(job.get("name")))))
+    built = [job for job in jobs if job.get("conclusion") == "success"]
+    if not built:
+        raise Refused(f"'{name}': a {state} notice ({description}), and every macOS fallback job in run {run[1]} was "
+                      "skipped: nothing was rebuilt, so nothing covered the cross build")
+    return (f"excused '{name}': a notice, not a verdict (\"{description}\"); no ruleset requires it and the macOS "
+            f"fallback covered it in run {run[1]}: "
+            + ", ".join(f"{job.get('name')} succeeded" for job in sorted(built, key=lambda job: str(job.get("name")))))
 
 
 # The controller's required-checks pool posts its verdicts as commit statuses (manaflow-checks[bot]); a failed one says
@@ -4012,6 +4097,9 @@ def status_job(repo: str, sha: str, name: str, github, base: str | None = None,
         raise Refused(f"'{name}': {state} at base {tested[1][:12] if tested else '(none named)'}"
                       f"{f' (run {run[1]})' if run else ''} is the pull request's own: the fast gates ran on it merged "
                       "with that base, never a base red; fix it, or dispatch them again on the tip if that base is stale")
+    if (name == LINUX_CROSS_STATUS and state in ("failure", "error")
+            and LINUX_CROSS_COVERED.match(status.get("description") or "")):
+        return linux_cross_covered(repo, sha, name, state, status, github)
     if name == COMPILE_PASS_STATUS and base and state in ("failure", "error"):
         description = status.get("description") or ""
         if COMPILE_STATUS_NO_VERDICT.match(description):
@@ -4026,6 +4114,10 @@ def status_job(repo: str, sha: str, name: str, github, base: str | None = None,
             return f"ignored '{name}': it gave no compile verdict, but {proof} compiled {sha} and passed"
         # Its target_url is the source run, with no job of this name (inherited_compile_red).
         return inherited_compile_red(repo, base, sha, name, github, evidence)
+    if state in ("failure", "error") and (pool := POOL_RERUN.search(status.get("description") or "")) \
+            and sha.lower().startswith(pool["head"].lower()):
+        raise Refused(pool_status_refusal(repo, base, sha, name, state, status.get("description") or "", github,
+                                          evidence))
     url = status.get("target_url") or ""
     match = re.fullmatch(r"https://github\.com/" + re.escape(repo) + r"/actions/runs/(\d+)(?:/job/\d+)?/?", url)
     if match:
@@ -4542,9 +4634,12 @@ class SuiteChecks:
     def read(self, suites: dict[str, str], name: str) -> None:
         self.known.update(((suite, name), None) for suite in suites)
         if not self.rooted:
+            # Suite IDs name no repository: gh must use their repository even in a judge started from another
+            # checkout. On cmuxterm-hq#22832 the unscoped read spent the jobs budget on twelve empty base runs.
             query = SUITE_CHECKS_QUERY.format(ids=", ".join(json.dumps(suite) for suite in suites))
             try:
-                found = json.loads(self.github.run(["api", "graphql", "-f", f"query={query}", "-f", f"name={name}"]))
+                found = json.loads(self.github.run(["api", "graphql", "-f", f"query={query}", "-f", f"name={name}"],
+                                                   repo=self.repo))
             except Refused as why:
                 if "root field nodes is refused" not in str(why):
                     return  # read over REST instead, as before
@@ -5727,7 +5822,6 @@ GUARD_WORKFLOWS = {
         "coalesce": "the window gate (base-coalesce.yml): decides whether a push runs the guards, reads no tree",
         "pinned-asset-store": "reads the pinned asset store over the network, not the tree",
         "nightly-guards": "calls ci-guards.yml, whose jobs are classified there (GUARD_JOB_SUFFIXES)",
-        "signing-runner-variables": "reads the repository's runner variables, not the tree",
         "ci-guard-group": "judged step by step against the base by its own rule (GUARD_GROUP_JOB)",
         "release-notary": "skipped on a pull request (its `if:`): it judges a push to the branch on its own "
                           "(guards_new_reds.py --tip), so no pull request's red is its",
