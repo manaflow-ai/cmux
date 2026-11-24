@@ -1180,6 +1180,7 @@ fn closes_chat(params: &Value) -> bool {
 /// What the chat's change from `before` reads and posts; then the watch knows `next`.
 fn apply(mux: &Arc<Mux>, before: Option<&Chat>, mut next: Chat, chats: &mut HashMap<String, Chat>) {
     next.notified_turn = before.and_then(|chat| chat.notified_turn.clone());
+    next.notified_lost = before.is_some_and(|chat| chat.notified_lost);
     next.keep_asks(before);
     let waited = before.is_some_and(|chat| chat.indicator == "input");
     let read = before.is_some_and(|chat| chat.unread) && !next.unread;
@@ -1229,6 +1230,9 @@ struct Chat {
     last_seq: u64,
     /// The asks of its current wait, by group (asks grouped on one card) or permission id.
     asks: HashSet<String>,
+    /// A lost transition already posted its one notice. A later failed summary can describe
+    /// the same dead turn, so it must not post a second notice.
+    notified_lost: bool,
     /// The list position this row came with ([`ListCursor`]): a push of a lower one is older
     /// than it. 0 when acpmux names none.
     list_seq: u64,
@@ -1297,6 +1301,7 @@ impl Chat {
             last_error,
             works_below: summary["subagentsWorkingSince"].is_u64(),
             notified_turn: None,
+            notified_lost: false,
             last_message: summary["lastMessage"]["text"].as_str().unwrap_or_default().to_owned(),
             last_seq: summary["lastSeq"].as_u64().unwrap_or(0),
             asks: HashSet::new(),
@@ -1373,10 +1378,13 @@ impl Chat {
         };
         // Work it started past its turn ended in this change.
         let below_ended = before.is_some_and(|chat| chat.works_below) && !self.works_below;
+        let lost_was_notified =
+            before.is_some_and(|chat| chat.indicator == "lost" && chat.notified_lost);
         if let Some((turn, status)) = &self.last_turn
             && !self.works_below
             && (self.unread || below_ended || ended_now(turn))
             && self.notified_turn.as_ref() != Some(turn)
+            && !lost_was_notified
         {
             self.notified_turn = Some(turn.clone());
             match status.as_str() {
@@ -1426,6 +1434,11 @@ impl Chat {
                 restated: before.is_none(),
                 failure: None,
             });
+        }
+        if self.indicator == "lost" && was != "lost" {
+            self.notified_lost = true;
+        } else if self.indicator != "lost" {
+            self.notified_lost = false;
         }
         if self.indicator == "lost" && was != "lost" && !failed_turn_was_notified {
             notices.push(Notice {

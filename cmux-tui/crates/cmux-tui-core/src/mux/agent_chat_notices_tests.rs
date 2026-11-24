@@ -625,6 +625,7 @@ fn posted(changes: &[Value]) -> Vec<Notice> {
     for change in changes.iter().flat_map(|change| [change, change]) {
         let mut next = Chat::of(change).expect("a local chat");
         next.notified_turn = before.as_ref().and_then(|chat| chat.notified_turn.clone());
+        next.notified_lost = before.as_ref().is_some_and(|chat| chat.notified_lost);
         next.keep_asks(before.as_ref());
         notices.extend(next.notices(before.as_ref()));
         before = Some(next);
@@ -730,6 +731,16 @@ fn a_failed_turn_says_why_it_failed() {
     assert_eq!(notices[0].title, "Review hit a rate limit");
     assert_eq!(notices[0].subtitle.as_deref(), Some("rate_limit"));
     assert_eq!(notices[0].body, "You've hit your usage limit");
+}
+
+#[test]
+fn a_lost_notice_suppresses_the_later_failed_summary() {
+    let lost = summary("lost", 10, false, None, false);
+    let failed = summary("done", 12, false, Some(("t1", "failed")), false);
+    let notices = posted(&[lost, failed]);
+    assert_eq!(notices.len(), 1);
+    assert_eq!(notices[0].key, "lost-10");
+    assert!(notices[0].title.ends_with("stopped responding"));
 }
 
 #[test]
