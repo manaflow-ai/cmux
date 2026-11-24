@@ -3318,6 +3318,26 @@ CMUX_JOURNEY_START`;
 
 /** The guest's own cmux-tui (cloud_start_chat.rs GUEST_PRELUDE): the build the machine's acpmux runs. */
 const GUEST = 'export HOME="${HOME:-/home/cmux}"; cd "$HOME" 2>/dev/null || cd /; c=cmux-tui; [ -x "$HOME/.cmux/bin/cmux-tui" ] && c="$HOME/.cmux/bin/cmux-tui"; ';
+/**
+ * A guest command timed on the guest: its own run, apart from the exec route's trip to the machine and back, which a
+ * person's app never takes (it talks to acpmux over the carrier). The time is printed on its own line after the
+ * command, so a heredoc's terminator stays alone on its line.
+ */
+export function guestTimed(command: string): string {
+  return `__cmux_t0=$(date +%s%N)\n${command}\necho "@@guest_ms $(( ($(date +%s%N) - __cmux_t0) / 1000000 ))"`;
+}
+
+/** The ms guestTimed printed, or null. */
+export function guestMs(stdout: string): number | null {
+  const m = /@@guest_ms (\d+)/.exec(stdout);
+  return m ? Number(m[1]) : null;
+}
+
+/** "; on the guest N ms (the rest is the exec route)" for a step's detail, or "" with no time. */
+export function guestDetail(ms: number | null): string {
+  return ms === null ? "" : `; on the guest ${ms} ms (the rest is the exec route)`;
+}
+
 const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 
 /**
@@ -5088,9 +5108,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }
       throw new Error(`no reply within ${chatBudget / 1000} s; last: ${last.slice(-300)}`);
     };
-    const send = async (text: string) => {
-      const r = await exec(`${GUEST}printf '%s' ${shq(text)} | "$c" acp send --no-wait ${shq(session)} - 2>&1; echo "@@exit $?"`, 60_000);
+    const send = async (text: string): Promise<number | null> => {
+      const r = await exec(guestTimed(`${GUEST}printf '%s' ${shq(text)} | "$c" acp send --no-wait ${shq(session)} - 2>&1; echo "@@exit $?"`), 60_000);
       if (!/@@exit 0/.test(r.stdout)) throw new Error(r.stdout.slice(-400) || r.stderr.slice(-400));
+      return guestMs(r.stdout);
     };
     // The model requests the stub logged for real turns (streamed, not a title or topic side request).
     const stubTurns = async (): Promise<any[]> => {
@@ -5161,7 +5182,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       await J.step(`start agent (${agent})`, async () => {
         if (launchCredential) {
           // The first prompt follows session/new on the same acpmux link, as the app's first send does.
-          const r = await exec(`${GUEST}${launchCredentialStartProgram(session, agent, "CLAUDE_CODE_OAUTH_TOKEN", login, prompt)}`, 120_000);
+          const r = await exec(guestTimed(`${GUEST}${launchCredentialStartProgram(session, agent, "CLAUDE_CODE_OAUTH_TOKEN", login, prompt)}`), 120_000);
           const id = /@@session (\S+)/.exec(r.stdout)?.[1];
           if (!id) throw new Error(scrub(r.stdout.slice(-400) || r.stderr.slice(-400), [login]));
           J.firstText.mark("session_ready");
@@ -5170,7 +5191,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           // One exec carries both: send and sent fall at its return, after session_ready, as the trace's spans read them.
           J.firstText.mark("send");
           J.firstText.mark("sent");
-          return { value: null, detail: `session ${session}, on the person's model connection (its launch credential); its first prompt went with the start` };
+          return { value: null, detail: `session ${session}, on the person's model connection (its launch credential); its first prompt went with the start${guestDetail(guestMs(r.stdout))}` };
         }
         const r = await exec(`${GUEST}"$c" acp ensure ${shq(session)} -m ${shq(agent)} --json 2>&1; echo "@@exit $?"`, 120_000);
         if (!/@@exit 0/.test(r.stdout)) throw new Error(r.stdout.slice(-400) || r.stderr.slice(-400));
@@ -5181,9 +5202,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       await J.step("send chat", async () => {
         if (promptedWithStart) return { value: null, detail: `${prompt.slice(0, 80)} (went with the agent's start, on its link)` };
         J.firstText.mark("send");
-        await send(prompt);
+        const onGuest = await send(prompt);
         J.firstText.mark("sent");
-        return { value: null, detail: prompt.slice(0, 80) };
+        return { value: null, detail: `${prompt.slice(0, 80)}${guestDetail(onGuest)}` };
       });
       await J.step("reply", async () => {
         const last = await awaitReply().catch(async (e: Error) => {
