@@ -4906,6 +4906,18 @@ class TabManager: ObservableObject {
         focusHistoryNavigation.navigateToLastFocused()
     }
 
+    /// Toggles focus back to the surface it most recently left.
+    @discardableResult
+    func navigateToLastFocusedSurface() -> Bool {
+        focusHistoryNavigation.navigateToLastFocusedSurface()
+    }
+
+    /// Toggles focus back to the workspace it most recently left.
+    @discardableResult
+    func navigateToLastFocusedWorkspace() -> Bool {
+        focusHistoryNavigation.navigateToLastFocusedWorkspace()
+    }
+
     var canNavigateBack: Bool {
         focusHistoryNavigation.canNavigateBack
     }

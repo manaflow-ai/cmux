@@ -76,6 +76,7 @@ public struct BrowserImportBrowserDescriptor: Hashable, Sendable {
             dataRootRelativePaths: ["Library/Safari"],
             dataArtifactRelativePaths: [
                 "Library/Safari/History.db",
+                "Library/Containers/com.apple.Safari/Data/Library/Cookies/Cookies.binarycookies",
                 "Library/Cookies/Cookies.binarycookies",
             ],
             supportsDataOnlyDetection: true

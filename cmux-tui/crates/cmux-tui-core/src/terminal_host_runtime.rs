@@ -1581,9 +1581,11 @@ mod unix {
                             !remaining.is_zero(),
                             "terminal host did not apply Kitty graphics limits before adoption"
                         );
-                        reader
-                            .set_read_timeout(Some(remaining.max(Duration::from_millis(1))))
-                            .context("set terminal-host Kitty quota adoption timeout")?;
+                        set_link_read_timeout(
+                            reader,
+                            Some(remaining.max(Duration::from_millis(1))),
+                        )
+                        .context("set terminal-host Kitty quota adoption timeout")?;
                         let frame = read_frame(reader, MAX_FRAME_PAYLOAD)
                             .map_err(protocol_io_error)?
                             .ok_or_else(|| {
@@ -1615,8 +1617,7 @@ mod unix {
                         return Ok(());
                     }
                 })();
-                let restored = reader
-                    .set_read_timeout(previous_timeout)
+                let restored = set_link_read_timeout(reader, previous_timeout)
                     .context("restore terminal-host timeout after Kitty quota adoption");
                 response.and(restored)
             })();
@@ -8947,6 +8948,38 @@ mod unix {
             drop(attachment);
             drop(lease);
             let _ = fs::remove_dir_all(root);
+        }
+
+        #[test]
+        fn adoption_quota_reconfiguration_survives_a_host_that_closed_after_its_ack() {
+            let (mut attachment, mut host_writer_end) = input_ack_surface_fixture();
+            let limits = KittyGraphicsLimits {
+                image_bytes: 4_000,
+                inflight_bytes: 4_000,
+                images: 40,
+                placements: 80,
+            };
+            // The host's ack is already queued and the host has ended, so its side
+            // of the link is closed: macOS refuses SO_RCVTIMEO on the daemon's
+            // side with EINVAL. A separate pair keeps the request write deterministic.
+            let (reader, mut host_reader_end) = UnixStream::pair().unwrap();
+            let mut payload = Vec::new();
+            encode_kitty_graphics_limits(&mut payload, limits).unwrap();
+            let mut ack = Frame::new(MessageKind::KittyGraphicsLimitsAck, payload);
+            ack.version = PROTOCOL_VERSION;
+            ack.request_id = 2;
+            write_frame(&mut host_reader_end, &ack).unwrap();
+            drop(host_reader_end);
+            attachment.reader = Some(reader);
+
+            attachment
+                .reconfigure_kitty_graphics_for_adoption(limits)
+                .expect("an acknowledged adoption stands after the host closed its link");
+
+            let request =
+                read_required_frame(&mut host_writer_end, "Kitty limits request").unwrap();
+            assert_eq!(request.kind, MessageKind::SetKittyGraphicsLimits);
+            assert_eq!(request.request_id, 2);
         }
 
         #[test]

@@ -2,6 +2,7 @@ import {
   GO_CHECKOUT_URL,
   MAX_CHECKOUT_URL,
   NEXT_MAX_CHECKOUT_PATH,
+  NEXT_PLUS_CHECKOUT_PATH,
   NEXT_PRO_CHECKOUT_PATH,
   PRO_CHECKOUT_URL,
   TEAM_CHECKOUT_URL,
@@ -28,6 +29,7 @@ export function personalCheckoutHref(plan: "go" | "pro" | "max", returnTo: strin
 }
 
 const NEXT_CHECKOUT_PATH: Readonly<Record<NextPlanId, string>> = {
+  next_plus: NEXT_PLUS_CHECKOUT_PATH,
   next_pro: NEXT_PRO_CHECKOUT_PATH,
   next_max: NEXT_MAX_CHECKOUT_PATH,
 };

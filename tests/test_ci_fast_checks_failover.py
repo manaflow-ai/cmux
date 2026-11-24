@@ -24,7 +24,8 @@ from pathlib import Path
 
 import yaml
 
-from test_ci_fork_runner_routing import evaluate_runs_on, parse_expression, runner_label_errors
+from test_ci_fork_runner_routing import (FAST_CHECKS_ADMISSION_EXPRESSION, evaluate_runs_on, parse_expression,
+                                         runner_label_errors)
 
 WORKFLOW = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "fast-checks.yml"
 POOL = "cmux-fleet-linux-x64"
@@ -62,7 +63,7 @@ class FastChecksFailoverTests(unittest.TestCase):
                           if selector.startswith("${{") else selector)
                 # Only the smallest measured Blacksmith size: a picker's re-run
                 # route is never 16 or 32 vCPU.
-                expected = requested if requested == "blacksmith-8vcpu-ubuntu-2404" else "ubuntu-24.04"
+                expected = requested if requested == "blacksmith-8vcpu-ubuntu-2404" else "blacksmith-2vcpu-ubuntu-2404"
                 self.assertEqual(actual, expected)
 
     def test_admission_guard_keeps_the_overflow_set_exact(self) -> None:
@@ -70,16 +71,16 @@ class FastChecksFailoverTests(unittest.TestCase):
         self.assertEqual(runner_label_errors(selector), [])
         for unsafe in (
             selector.replace("blacksmith-8vcpu-ubuntu-2404", POOL),
-            selector.replace("'ubuntu-24.04'", "'self-hosted'"),
+            selector.replace("'blacksmith-2vcpu-ubuntu-2404'", "'self-hosted'"),
+            selector.replace("'blacksmith-2vcpu-ubuntu-2404'", "'ubuntu-24.04'"),
             selector.replace("contains(", "startsWith("),
             selector.replace("&& inputs.runner", "&& inputs.other_runner"),
-            # A picker's re-run route is the smallest measured size only.
-            selector.replace('"blacksmith-8vcpu-ubuntu-2404"',
-                             '"blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"'),
-            selector.replace('"blacksmith-8vcpu-ubuntu-2404"', '"blacksmith-32vcpu-ubuntu-2404"'),
         ):
             with self.subTest(selector=unsafe):
                 self.assertNotEqual(runner_label_errors(unsafe), [])
+        # A picker's re-run route is the smallest measured size only. With a Blacksmith default the structural check
+        # accepts any Blacksmith list, so the size set is pinned by the exact expression.
+        self.assertEqual(selector, FAST_CHECKS_ADMISSION_EXPRESSION)
 
     def run_fast_checks_script(self, command: str, source: str | None = None) -> tuple[subprocess.CompletedProcess[str], dict | None]:
         workflow = WORKFLOW.read_text(encoding="utf-8")
@@ -129,27 +130,21 @@ class FastChecksFailoverTests(unittest.TestCase):
                                    + function + "\ncheck_no_github_hosted_runners"],
                                   env=env, capture_output=True, text=True)
 
-    def test_main_hosted_guard_accepts_light_admission(self) -> None:
+    def test_main_hosted_guard_accepts_admission(self) -> None:
         result = self.run_hosted_guard()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-    def test_main_hosted_guard_rejects_copied_admission_exception(self) -> None:
-        result = self.run_hosted_guard(extra_job="\n  unrelated:\n    runs-on: ubuntu-24.04 # github-hosted-required: light read-only runner admission\n    steps: []\n")
-        self.assertNotEqual(result.returncode, 0, result.stdout)
-        self.assertIn("FAIL:", result.stdout)
-
-    def test_main_hosted_guard_rejects_release_admission(self) -> None:
-        result = self.run_hosted_guard(admission_change=("  admit:\n", "  admit:\n    environment: release\n"))
-        self.assertNotEqual(result.returncode, 0, result.stdout)
-        self.assertIn("FAIL:", result.stdout)
-
-    def test_main_hosted_guard_rejects_privileged_or_macos_admission(self) -> None:
-        for before, after in (
-            (" || 'ubuntu-24.04' }} #", " || 'macos-26' }} #"),
-            ("    permissions:\n      contents: read", "    permissions:\n      contents: write"),
+    def test_main_hosted_guard_rejects_hosted_admission(self) -> None:
+        # Leo, 2026-11-19: "Fuck GitHub." No admission route, and no copy of the old one, is GitHub-hosted.
+        old = ("\n  unrelated:\n    runs-on: ubuntu-24.04 # github-hosted-required: light read-only runner"
+               " admission\n    steps: []\n")
+        for extra, change in (
+            (old, None),
+            ("", (" || 'blacksmith-2vcpu-ubuntu-2404' }}", " || 'ubuntu-24.04' }}")),
+            ("", (" || 'blacksmith-2vcpu-ubuntu-2404' }}", " || 'macos-26' }}")),
         ):
-            with self.subTest(change=after):
-                result = self.run_hosted_guard(admission_change=(before, after))
+            with self.subTest(change=change or extra):
+                result = self.run_hosted_guard(extra_job=extra, admission_change=change)
                 self.assertNotEqual(result.returncode, 0, result.stdout)
                 self.assertIn("FAIL:", result.stdout)
 
