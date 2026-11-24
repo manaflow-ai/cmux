@@ -21,11 +21,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use serde_json::value::RawValue;
 
-pub use accepts::{Accepted, accepts, aliased, effective_value, is_hex_color};
+pub use accepts::{Accepted, accepts, aliased, effective_value, is_hex_color, is_search_template};
 pub use aliases::{choice_alias, choice_aliases};
 pub use backdrop::normalize_backdrop;
 pub use backdrop::{
-    RECENTS_CAP, is_selection as is_background, previous_background, recents_of, record_recent,
+    RECENTS_CAP, is_location as is_backdrop_location, is_memory as is_backdrop_memory,
+    is_picture as is_backdrop_picture, is_recents as is_backdrop_recents,
+    is_schedule as is_backdrop_schedule, is_selection as is_background, previous_background,
+    recents_of, record_recent,
 };
 pub use build_defaults::{BUILD_DEFAULTS_ENV, build_defaults_from};
 pub use chat_roots::chat_root_is_valid;
@@ -197,6 +200,10 @@ pub enum DomainKind {
     /// `tabs.newTabApp`: an id an app manifest may have
     /// (`app_id::is_valid_app_id`, the manifest schema's pattern; Swift `NewTabAppSetting.isValidID`).
     AppId,
+    /// `sidebar.sections.hidden` / `order`: distinct section ids of 1 to 128
+    /// characters, at most 256 (cmux-layout-reducer `sidebar_section_customization`;
+    /// Swift `SidebarSectionIDsSetting.accepts`).
+    SidebarSectionIds,
     /// `sidebar.workspaceRow.lines`: a row layout the sidebar row reducer
     /// draws as written (`cmux_layout_reducer::sidebar_row_layout`, `sidebar_rows`).
     SidebarRowLines,
@@ -487,6 +494,7 @@ fn row(raw: Value, text: RowText) -> Result<Row, String> {
             Validation::Domain(DomainKind::SidebarRowLinesByAgent)
         }
         "domain:transcript_tokens" => Validation::Domain(DomainKind::TranscriptTokens),
+        "domain:sidebar_section_ids" => Validation::Domain(DomainKind::SidebarSectionIds),
         "domain:hosts" => Validation::Domain(DomainKind::Hosts),
         other => return Err(format!("{}: unknown validation {other}", parsed.key)),
     };

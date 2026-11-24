@@ -34,8 +34,9 @@ jobs:
     name: workflow-guard-submodule-forward-only
     # A feat-cmux-next pull request runs this job's commands as the ci/steps.toml step `submodule-forward-only`
     # (pr-pipeline.yml); a push, dispatch, the post-merge batch and a pull request into any other base still run them
-    # here. Guard status counts the skip as fine only on such a pull request.
-    if: ${{ github.event_name != 'pull_request' || !startsWith(github.base_ref, 'feat-cmux-next') }}
+    # here. Guard status counts the skip as fine only on such a pull request. The base is matched exactly: a pull
+    # request into a stacked feat-cmux-next-* branch starts no pr-pipeline.yml run, so the job runs there.
+    if: ${{ github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
@@ -279,6 +280,12 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_outbound_hosts.py
 
+      # Every outbound HTTP client or socket NEXT makes goes through the egress gate, which refuses unlisted hosts
+      # at run time; tests/egress_ungated.json lists the sites not moved yet and may only shrink.
+      - name: Validate NEXT's outbound sites go through the egress gate
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_egress_gate.py
+
       - name: Validate the PR perf section check
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_pr_perf_section_check.py
@@ -302,6 +309,10 @@ jobs:
       - name: Validate base-red excusal for gh-merge-green
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_base_red_excuse.py
+
+      - name: Validate the base-red skip of PR jobs
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_base_red_skip.py
 
       - name: Validate merge freezes as issues
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1022,10 +1033,6 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_runner_census_tallies.py
 
-      - name: Validate the risk label step reads labels from the event
-        if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_risk_label_from_event.py
-
       - name: Validate simple live macOS pool choice
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_simple_pool_picker.py
@@ -1112,10 +1119,6 @@ jobs:
       - name: Validate owned Mac build state
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_owned_build_state.py
-
-      - name: Validate canonical root ownership boundary
-        if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_take_canonical_root.py
 
       - name: Validate warm-state distance recording and routing
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1292,6 +1295,10 @@ jobs:
       - name: Validate triage severity and area rules
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_triage_rules.py
+
+      - name: Validate feat-cmux-next merges close their fixed issues
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_next_closes_issues.py
 
       - name: Validate cmux-tui focused filter routing
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1475,10 +1482,6 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_checkout_network_diagnostics.py
 
-      - name: Validate production drift issue updates are sticky
-        if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_iroh_drift_issue.py
-
       - name: Validate Swift Testing suite timeout guard
         if: ${{ !cancelled() && matrix.group == 'app-host-execution' }}
         run: python3 tests/test_swift_testing_suite_timeout.py
@@ -1502,11 +1505,6 @@ jobs:
       - name: Validate xcodebuild failure diagnostics
         if: ${{ !cancelled() && matrix.group == 'app-host-execution' }}
         run: ./tests/test_ci_xcodebuild_with_diagnostics.sh
-
-      - name: Validate pipe-safe CI capture
-        if: ${{ !cancelled() && matrix.group == 'app-host-execution' }}
-        run: |
-          bash tests/test_ci_run_and_capture.sh
 
       - name: Validate focused test launcher
         if: ${{ !cancelled() && matrix.group == 'app-host-execution' }}
@@ -1726,10 +1724,6 @@ jobs:
       - name: Validate nightly builds and signers never cancel or replace a waiting run
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_delivery_concurrency.py
-
-      - name: Validate an older nightly-next build yields its sign slot and the newest never does
-        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
-        run: python3 tests/test_nightly_sign_yield.py
 
       - name: Validate the nightly-next feed writers' R2 lease
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}

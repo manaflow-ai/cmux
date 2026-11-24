@@ -117,7 +117,7 @@ fi
 if [[ -n "$fallback" && "${fallback_source:-}" =~ ^[0-9a-f]{40}$ ]]; then
   began=$SECONDS
   git cat-file -e "$fallback_source^{commit}" 2>/dev/null \
-    || timeout 90 git fetch -q --no-tags --depth=1 origin "$fallback_source" 2>/dev/null || true
+    || bash scripts/ci/timeout.sh 90 git fetch -q --no-tags --depth=1 origin "$fallback_source" 2>/dev/null || true
   covers_rc=0
   covers="$(python3 scripts/ci/nightly_fallback_covers.py --app-commit "$TIP_SHA" --client-commit "$fallback_source" 2>/dev/null)" || covers_rc=$?
   missing="$(sed -n 's/^missing=//p' <<<"$covers" | head -1)"

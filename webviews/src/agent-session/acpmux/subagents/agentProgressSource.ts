@@ -57,6 +57,7 @@ export class AgentProgressStore {
       agent.state,
       agent.action,
       agent.actionShell,
+      agent.actionKind,
       agent.endedAt,
       agent.agentId,
       agent.harness,
