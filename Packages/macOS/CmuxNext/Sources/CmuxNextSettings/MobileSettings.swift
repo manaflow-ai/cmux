@@ -1,8 +1,9 @@
 /// `mobile.*` in cmux.json: phones reaching this Mac. `allowIPhoneConnections`
-/// (off by default) lets the app run its cmux iPhone host while an
+/// (on by default since 2026-11-20, cmux#13742) lets the app run its cmux iPhone host while an
 /// account is signed in, so the cmux app on the same account's iPhone
-/// can open this Mac's workspaces, terminals and agent chats. Only the
-/// person turns it on (agent policy `userOnly`).
+/// can open this Mac's workspaces, terminals and agent chats once the person allowed that phone.
+/// `autoApprovePhones` (off by default) skips that Allow for the account's own phones. Only the
+/// person changes either (agent policy `userOnly`).
 ///
 /// `terminalSizing` and `terminalSizingOrder` are this Mac's terminal sizing
 /// policy (cmux-next-ios/PROTOCOL.md "Terminal sizing policy"): which viewer's
@@ -11,6 +12,8 @@
 /// the daemon (`set-host-size-policy`), and this page shows the mode.
 public nonisolated struct MobileSettings: Sendable, Equatable {
     public var allowIPhoneConnections = MobileSettings.allowIPhoneConnectionsDefault
+    /// A new phone of the signed-in account pairs without the "Allow … to connect?" prompt.
+    public var autoApprovePhones = MobileSettings.autoApprovePhonesDefault
     /// How a terminal shown on several devices is sized (`MobileTerminalSizing`).
     public var terminalSizing = MobileSettings.terminalSizingDefault
     /// Device tokens, highest first: `mac` (this Mac's own views) or `device:<id>`.
@@ -22,6 +25,7 @@ public nonisolated struct MobileSettings: Sendable, Equatable {
         var settings = Self()
         guard var reader = ConfigFieldReader(root, at: ["mobile"], diagnostics: &diagnostics) else { return settings }
         if let value = reader.bool("allowIPhoneConnections") { settings.allowIPhoneConnections = value }
+        if let value = reader.bool("autoApprovePhones") { settings.autoApprovePhones = value }
         if let value = reader.choice("terminalSizing", MobileTerminalSizing.self) { settings.terminalSizing = value }
         diagnostics = reader.diagnostics
         if case .array(let items) = root.value(at: terminalSizingOrderPath) {

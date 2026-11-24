@@ -35,6 +35,13 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
            let view {
             return replyHandler(view.popup(method, params: body["params"] as? [String: Any] ?? [:]), nil)
         }
+        if let body = message.body as? [String: Any], let method = body["method"] as? String,
+           AgentProjectPaletteRequest.methods.contains(method), let view {
+            let params = body["params"].flatMap { JSONValue(foundation: $0) } ?? .null
+            let person = method == "projectPalette.show" && view.model.transport.gestures.consume(within: 1)
+            let result = view.projectPalette(method, params: params, person: person)
+            return replyHandler(AgentPaneReply.success(result.foundationObject), nil)
+        }
         // The page's flicker detector (``AgentPageFlickerLog``): short words and numbers for the
         // ring file, answered at once and not logged here.
         if let body = message.body as? [String: Any], body["method"] as? String == AgentPageFlickerLog.method, let view {
@@ -132,6 +139,7 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
         // customization were first pushed; push them again so they land. The New Tab page's chats
         // and closed items are set when the view is made, before the page loads (cx-uw104).
         if request == .ready {
+            view.dismissProjectPalette()
             logger.info("agent pane ready accepted")
             view.refreshQuestionKeyBinding()
             view.applyTheme(force: true)
@@ -150,6 +158,7 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
             view.replayCustomization()
             AgentPaneToolCard.replay(to: view)
             AgentPaneComputerUsePreview.replay(to: view)
+            view.model.computerUse?.push(to: view)
             AgentPaneDeviceChat.push(view.deviceChats, to: view)
             AgentPaneClosedItem.push(view.recentlyClosed, to: view)
             AgentPaneNowPlaying.shared.push(to: view)
