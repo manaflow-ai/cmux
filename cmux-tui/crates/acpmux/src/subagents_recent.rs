@@ -62,7 +62,7 @@ pub struct RecentSubagent {
 }
 
 /// A subagent event's state as a list says it; None for an event without one.
-fn listed_state(event: &Value) -> Option<&'static str> {
+pub(super) fn listed_state(event: &Value) -> Option<&'static str> {
     match event.get("state").and_then(Value::as_str)? {
         "running" => Some("running"),
         "completed" => Some("done"),
@@ -74,7 +74,7 @@ fn listed_state(event: &Value) -> Option<&'static str> {
 
 /// A name or task as a list shows it: its secrets masked before the cut, one line, and cut as
 /// `subagentNames` labels are (`note_running`); None when nothing is left.
-fn listed_title(text: &str) -> Option<String> {
+pub(super) fn listed_title(text: &str) -> Option<String> {
     let line = crate::secret_scan::mask(text).split_whitespace().collect::<Vec<_>>().join(" ");
     (!line.is_empty()).then(|| super::truncate_label(&line))
 }

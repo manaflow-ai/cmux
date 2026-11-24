@@ -265,8 +265,9 @@ export async function primeSentImages(attachments: readonly ComposerAttachment[]
 export function withSentShapes<
   Image extends { id: string; mimeType: string; name?: string; width?: number; height?: number; src?: string },
 >(named: readonly Image[], sent: readonly { mimeType: string; name?: string; src?: string }[] | undefined): Image[] {
-  if (!sent?.length) return [...named];
-  return matchSentImages(named, sent).map((match, index) => {
+  // A queued send has no pane row left to pair with (`sent` is undefined or empty), but its bytes
+  // are primed by id at send: the id match still gives the echo its bytes and shape.
+  return matchSentImages(named, sent ?? []).map((match, index) => {
     const image = named[index]!;
     if (!match) return image;
     const size = image.width && image.height ? undefined : knownImageSize(match.src);
