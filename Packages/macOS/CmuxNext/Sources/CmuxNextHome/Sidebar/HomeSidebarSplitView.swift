@@ -78,8 +78,61 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
         }
     }
 
-    /// The Chats button: shows or folds the conversation list.
-    @objc private func toggleList() { showsList.toggle() }
+    /// The Chats button: shows or folds the conversation list. In a narrow column (``isCompact``) it is
+    /// iPhone Messages' back button: the full-width list takes the chat's place.
+    @objc private func toggleList() {
+        if isCompact {
+            compactShowsChat.toggle()
+            return
+        }
+        showsList.toggle()
+    }
+
+    /// Below this width the page is iPhone Messages (Leo, 2026-11-24: a split pane makes the Chief as
+    /// narrow as a phone): the list or the chat fills the column, never both. Wider, it is the
+    /// Mac layout again, on the same conversation.
+    public static let compactWidth: CGFloat = 480
+
+    /// The column is narrower than ``compactWidth``.
+    public private(set) var isCompact = false
+
+    /// In a narrow column, whether the chat shows (pushed over the list) rather than the full-width list.
+    /// Starts on the chat, as the wide page opens on the Chief's chat.
+    public var compactShowsChat = true {
+        didSet {
+            guard compactShowsChat != oldValue else { return }
+            needsLayout = true
+            layoutSubtreeIfNeeded()
+        }
+    }
+
+    /// A conversation opened from the list (a click, Return): in a narrow column the chat slides in.
+    public func conversationOpened() {
+        if isCompact { compactShowsChat = true }
+    }
+
+    /// Lays the narrow column out: one of list and chat, full width. True while compact.
+    private func layOutCompact() -> Bool {
+        let compact = bounds.width < Self.compactWidth
+        if compact != isCompact {
+            isCompact = compact
+            // Narrowing keeps what is on screen: the chat stays open.
+            if compact { compactShowsChat = true }
+            if !compact { chatColumn.isHidden = false }
+            placed = false
+        }
+        guard compact else { return false }
+        let showList = !compactShowsChat
+        chatColumn.chats.isOn = false
+        if list.isHidden == showList || chatColumn.isHidden != showList {
+            list.isHidden = !showList
+            chatColumn.isHidden = showList
+            adjustSubviews()
+            super.layout()
+            updateChatCompose()
+        }
+        return true
+    }
 
     /// Zero while the list is folded (a hidden subview keeps its last frame).
     public var sidebarWidth: CGFloat { list.isHidden ? 0 : list.frame.width }
@@ -119,6 +172,7 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
         guard bounds.width > 0 else { return }
         // The page may have moved under or out from under the traffic lights (the window's sidebar).
         list.updateWindowControlsAvoidance()
+        if layOutCompact() { return }
         if foldLoneConversation() { return }
         // One rule on every size change (live resize, split drag, fullscreen, a dock that
         // shrank): the list shows the saved width as far as this width allows, so it shrinks to
@@ -225,13 +279,16 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
     }
 
     public func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
-        clamp(.greatestFiniteMagnitude)
+        if isCompact { return bounds.width }
+        return clamp(.greatestFiniteMagnitude)
     }
 
     public func splitView(_ splitView: NSSplitView, canCollapseSubview subview: NSView) -> Bool { false }
 
     /// The folded list's divider takes no width either: the chat spans the split.
-    public func splitView(_ splitView: NSSplitView, shouldHideDividerAt dividerIndex: Int) -> Bool { list.isHidden }
+    public func splitView(_ splitView: NSSplitView, shouldHideDividerAt dividerIndex: Int) -> Bool {
+        list.isHidden || chatColumn.isHidden
+    }
 
     public func splitView(_ splitView: NSSplitView, shouldAdjustSizeOfSubview view: NSView) -> Bool {
         // A window resize goes to the transcript; the sidebar keeps its width.
@@ -247,7 +304,7 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
         // Every width change (a drag too, which runs no layout pass) moves compose to or from the chat.
         updateChatCompose()
         // Only the user's drag is kept (AppKit names the divider it moved).
-        guard placed, !placing, notification.userInfo?["NSSplitViewDividerIndex"] != nil else { return }
+        guard placed, !placing, !isCompact, notification.userInfo?["NSSplitViewDividerIndex"] != nil else { return }
         widths.save(sidebarWidth, window: windowKey())
     }
 }

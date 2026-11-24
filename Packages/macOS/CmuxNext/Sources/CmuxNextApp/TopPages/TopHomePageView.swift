@@ -98,6 +98,8 @@ final class TopHomePageView: NSView {
         list.onOpen = { [weak self] id in
             if id != HomeSidebarView.draftRowID { sidebar.setMarkedUnread(false, id) }
             self?.open(id)
+            // A narrow column (iPhone Messages): the chat slides in over the list.
+            self?.split.conversationOpened()
         }
         // The list redraws in the same turn, so a dropped tile lands from where it was drawn.
         // The New Message row is no conversation: it never pins or takes a mark.
