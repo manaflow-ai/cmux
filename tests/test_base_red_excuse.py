@@ -10892,6 +10892,20 @@ class FailingStepLogOnly(unittest.TestCase):
                      "_one_to_one_starts", "_aligned_starts", "_live_red", "_line_time"):
             self.assertIs(getattr(excuse, name), getattr(excuse.steps_log, name), name)
 
+    def test_a_job_of_only_set_up_and_complete_job_is_unplaced_not_a_crash(self):
+        # Land refused cmux#52785 ("base_red_excuse.py exit 1"): a job with just "Set up job" and "Complete job" and a
+        # log with no step header made _one_to_one_starts return [] (0 headers for 0 printing steps), and step_owners
+        # took starts[0] of it: IndexError. An unplaceable log is AMBIGUOUS on every line.
+        steps = [{"number": 1, "name": "Set up job", "status": "completed", "conclusion": "failure",
+                  "started_at": "2026-11-10T12:00:00Z", "completed_at": "2026-11-10T12:00:02Z"},
+                 {"number": 2, "name": "Complete job", "status": "completed", "conclusion": "success",
+                  "started_at": "2026-11-10T12:00:02Z", "completed_at": "2026-11-10T12:00:02Z"}]
+        log = "\n".join(f"job\tUNKNOWN STEP\t2026-11-10T12:00:01.0000000Z {text}"
+                        for text in ("Current runner version: '2.338.2'", "##[error]The runner lost contact"))
+        owned = excuse.step_owners({"steps": steps}, log, **UNKNOWN)
+        self.assertEqual([status for _, _, status in owned], [excuse.AMBIGUOUS] * 2)
+        self.assertIn("lost contact", excuse.failed_steps_log({"steps": steps}, log, **UNKNOWN))
+
     def adjacent_steps(self):
         # The strings step starts in the second the license step ends: GitHub rounds both to 12:00:12, so a line
         # stamped 12:00:12.5 is in both steps' [started_at, completed_at + 1s) windows.
