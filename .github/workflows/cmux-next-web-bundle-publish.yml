@@ -259,12 +259,15 @@ jobs:
             title="$(git log -1 --format=%s "$head")"
             label="$REF"
           fi
-          base="${BASE:-$(git rev-parse HEAD)}"
-          git cat-file -e "$base^{commit}" 2>/dev/null || git fetch -q --filter=blob:none origin "$base"
           # The layer is the change's own diff on the app's commit, nothing else. Merging the head
           # would also bring every commit between that commit and where it branched off, so the
           # diff from its branch point is applied instead.
           git fetch -q --filter=blob:none origin "+refs/heads/$base_ref:refs/remotes/pr/base"
+          # Checkout's HEAD can be older than this fetch when feat-cmux-next advances while a
+          # runner is starting. Default to the fetched tip so the diff is applied to the same
+          # base used to calculate its fork.
+          base="${BASE:-$(git rev-parse refs/remotes/pr/base)}"
+          git cat-file -e "$base^{commit}" 2>/dev/null || git fetch -q --filter=blob:none origin "$base"
           fork="$(git merge-base refs/remotes/pr/base "$head")"
           git -c advice.detachedHead=false checkout -q --detach "$base"
           if ! git diff --binary "$fork" "$head" | git apply -q --3way --index; then

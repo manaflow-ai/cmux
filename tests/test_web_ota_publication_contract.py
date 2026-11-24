@@ -147,6 +147,17 @@ class WebOTAPublicationContractTests(unittest.TestCase):
         self.assertIn('grep -qx "$head" <<<"$tips"', fallback)
         self.assertIn("exit 1", fallback)
 
+    def test_layer_defaults_to_the_fetched_base_tip(self):
+        workflow = WORKFLOW.read_text()
+        step = workflow.split("      - name: Apply the pull request or ref onto its base\n", 1)[1].split("\n      - ", 1)[0]
+        fetch = 'git fetch -q --filter=blob:none origin "+refs/heads/$base_ref:refs/remotes/pr/base"'
+        default = 'base="${BASE:-$(git rev-parse refs/remotes/pr/base)}"'
+        self.assertIn(fetch, step)
+        self.assertIn(default, step)
+        self.assertEqual(step.count(fetch), 1)
+        self.assertLess(step.index(fetch), step.index(default))
+        self.assertNotIn('base="${BASE:-$(git rev-parse HEAD)}"', step)
+
     def test_pushes_do_not_queue_behind_each_other(self):
         # One concurrency group for every push made each merge wait for the run before it
         # (2026-11-22: up to 15 min behind a run whose runner hook stalled).
