@@ -93,6 +93,14 @@ const OPEN_BYTES: u64 = 128 * 1024;
 const TOOL_OUTPUT_MAX_BYTES: u64 = 64 * 1024;
 const WATCH_LIMIT: u64 = 100;
 
+/// `PAIRMATRIX_HOST_OS` (scripts/measure/transport-pair-matrix.sh sets it), else this build's OS.
+fn host_os() -> String {
+    std::env::var("PAIRMATRIX_HOST_OS")
+        .ok()
+        .filter(|os| !os.is_empty())
+        .unwrap_or_else(|| std::env::consts::OS.to_owned())
+}
+
 fn ms(duration: Duration) -> f64 {
     (duration.as_secs_f64() * 10_000.0).round() / 10.0
 }
@@ -799,7 +807,7 @@ impl Cell<'_> {
     fn emit(&self, metric: &str, value: Option<f64>, error: Option<&str>) {
         let mut line = json!({"pair": PAIR, "path": self.path.name(), "condition": self.label, "load": self.load,
                               "metric": metric, "value": value, "run": self.run, "seed": self.seed,
-                              "host_os": std::env::consts::OS, "rig": RIG, "profile": self.profile});
+                              "host_os": host_os(), "rig": RIG, "profile": self.profile});
         if let Some(error) = error {
             line["error"] = json!(error);
         }
