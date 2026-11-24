@@ -173,12 +173,14 @@ class LiveOwedOps:
         return renderer_pids(self._owned())
 
     def daemon_pid(self) -> int:
-        daemons = [pid for pid, (kind, cmd) in self._owned().items()
-                   if kind.startswith("acpmux-daemon") and " acp daemon run" not in cmd]
-        if len(daemons) != 1:
-            raise RuntimeError(f"the app runs {len(daemons)} acpmux daemons of its own (want 1: its acpmux, not "
-                               "one inside cmux-tui)")
-        return daemons[0]
+        """The daemon that serves the app's socket (its own `_acpmux/status` pid): the app also runs Chief's
+        acpmux and others (3 on cmux20-bench, 2026-11-24), so a process name alone does not tell which."""
+        pid = (self._rpc("_acpmux/status", {}, timeout=10) or {}).get("pid")
+        kind = self._owned().get(pid, ("", ""))
+        if not isinstance(pid, int) or not kind[0].startswith("acpmux-daemon") or " acp daemon run" in kind[1]:
+            raise RuntimeError(f"the app's acpmux socket is served by pid {pid!r} ({kind[0] or 'not the app'}'s), "
+                               "not an acpmux daemon of the app's own")
+        return pid
 
     def signal(self, pids, number):
         for pid in pids:
@@ -198,14 +200,10 @@ class LiveOwedOps:
         while time.monotonic() < deadline:
             try:
                 pid = self.daemon_pid()
-            except RuntimeError:
+            except (OSError, RuntimeError):
                 pid = None
             if pid and pid != old:
-                try:
-                    if (self._rpc("_acpmux/status", {}, timeout=10) or {}).get("pid") == pid:
-                        return pid
-                except (OSError, RuntimeError):
-                    pass
+                return pid
             time.sleep(1)  # test script: the app starts its daemon again when a page reconnects
         return None
 
