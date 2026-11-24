@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "9ecdaee36d7fc67945eda3d1e7581981480a833bb420c8cb6c6d398fb010d85d",
+  "catalog_sha256": "680cce2c42a88a1c7a0b51f9ffa12011e4e9ce0340f125e413282192d52f9a92",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -419,6 +419,15 @@
       "class": "read"
     },
     "git.push": {
+      "class": "mutation"
+    },
+    "git.review.comment": {
+      "class": "mutation"
+    },
+    "git.review.post": {
+      "class": "mutation"
+    },
+    "git.review.start": {
       "class": "mutation"
     },
     "git.status": {

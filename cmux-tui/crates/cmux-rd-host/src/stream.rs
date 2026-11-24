@@ -35,6 +35,11 @@ pub struct SessionCfg {
     /// or none is the whole X screen). macOS picks through `display` itself.
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub display_pick: Option<String>,
+    /// Linux X11: share this one window (an X window id) instead of a display; it wins over
+    /// `display_pick`. The session ends when the window is closed or resized. macOS and the
+    /// Wayland portal refuse a session that names one.
+    #[cfg_attr(not(any(target_os = "linux", target_os = "macos")), allow(dead_code))]
+    pub window: Option<u32>,
     pub max_fps: u32,
     /// `--encode-profile`: standard (default) or ultra (the engine marks every frame with it).
     pub encode_profile: cmux_rd_core::profile::EncodeProfile,
