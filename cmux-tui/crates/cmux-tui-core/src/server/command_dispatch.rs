@@ -987,6 +987,7 @@ fn dispatch_command(
         Command::RenameWorkspace { request, mutation } => {
             cmd_workspaces::rename_workspace(mux, client, request, mutation)
         }
+        Command::ReleaseWorkspaceNames {} => cmd_workspaces::release_workspace_names(mux, actor),
         Command::RenameProviderManagedWorkspace { workspace, key, name, authority } => {
             cmd_workspaces::rename_provider_managed_workspace(
                 mux, actor, workspace, key, name, authority,
