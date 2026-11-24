@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import QuartzCore
 
 /// Window frame sync (fork API 32, `cmux_browser_resize_fence`; plans/cmux-next/cef-layer-hosting-DESIGN.md, FRAME OWNER
@@ -9,6 +10,10 @@ import QuartzCore
 ///
 /// One fence per window per run-loop turn; every hosted page resized in that turn joins it. The process's one set of
 /// open fences is ``CEFRuntime/resizeFences``; each ``CEFLayerHosting`` is handed it.
+///
+/// The window's attached overlay panel (``WindowOverlayHost``: the focus rings, dims and drop zones while a page window
+/// shows) is a context of its own: its commit of the turn is fenced too and goes with the window's, so a ring moved
+/// with the divider shows in the frame that shows the pane and the page instead of a frame or more ahead of them.
 @MainActor
 final class CEFResizeFences {
     /// Asks the fork to take `port` for one page; true when it did (its `done` then comes once, on the main thread).
@@ -18,15 +23,28 @@ final class CEFResizeFences {
     private var current: [ObjectIdentifier: CEFResizeFence] = [:]
     private let clock: any Clock<Duration>
     private let makePort: @MainActor (CALayer) -> mach_port_t?
+    private let companions: @MainActor (NSWindow) -> [CALayer]
 
     /// - Parameters:
     ///   - clock: runs this app's deadline of each fence.
     ///   - makePort: the fence of the window of a layer (`-[CAContext createFencePort]` by default; tests pass a port
     ///     of their own).
+    ///   - companions: a layer of each other context that shows with the window and is fenced with it (the attached
+    ///     overlay panel by default).
     init(clock: any Clock<Duration> = ContinuousClock(),
-         makePort: @escaping @MainActor (CALayer) -> mach_port_t? = { CEFResizeFence.createFencePort(layer: $0) }) {
+         makePort: @escaping @MainActor (CALayer) -> mach_port_t? = { CEFResizeFence.createFencePort(layer: $0) },
+         companions: @escaping @MainActor (NSWindow) -> [CALayer] = { CEFResizeFences.overlayPanelLayers(of: $0) }) {
         self.clock = clock
         self.makePort = makePort
+        self.companions = companions
+    }
+
+    /// The root layer of `window`'s overlay panel while it is attached and shows (the layout planes move there while a
+    /// page window shows): its commits are the panel's own context's, which the window's fence does not hold.
+    static func overlayPanelLayers(of window: NSWindow) -> [CALayer] {
+        guard let host = WindowOverlayHost.existingHost(for: window), host.isPanelAttached, host.panel.isVisible,
+              let layer = host.panel.contentView?.layer else { return [] }
+        return [layer]
     }
 
     /// Joins one page resized in this turn to `window`'s fence for this turn (made on first use).
@@ -43,6 +61,7 @@ final class CEFResizeFences {
         } else {
             guard let port = makePort(layer) else { return false }
             fence = CEFResizeFence(port: port)
+            fence.companions = companions(window).compactMap { makePort($0) }
             current[key] = fence
             CEFHostView.trackerStats.resizeFences += 1
             // After this turn no page joins; a fence nobody joined goes at once.
@@ -80,6 +99,8 @@ final class CEFResizeFences {
 @MainActor
 final class CEFResizeFence {
     fileprivate var port: mach_port_t
+    /// The fences of the contexts that show with the window (its overlay panel), dropped with its own.
+    fileprivate var companions: [mach_port_t] = []
     fileprivate var outstanding = 0
     fileprivate var sealed = false
     fileprivate var deadline: Task<Void, Never>?
@@ -97,6 +118,8 @@ final class CEFResizeFence {
         guard port != mach_port_t(MACH_PORT_NULL) else { return }
         mach_port_deallocate(mach_task_self_, port)
         port = mach_port_t(MACH_PORT_NULL)
+        for companion in companions { mach_port_deallocate(mach_task_self_, companion) }
+        companions = []
         outstanding = 0
         deadline?.cancel()
         deadline = nil

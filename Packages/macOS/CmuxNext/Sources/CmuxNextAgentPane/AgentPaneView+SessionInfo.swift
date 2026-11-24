@@ -222,7 +222,9 @@ extension AgentPaneView {
     /// the "act as me" pill uncovered, so they show and take clicks.
     func applyNativeRects() {
         guard let page else { return }
-        // The row's holes are the view's; the page may lie elsewhere for a while (held away), so they go where it is now.
+        // The row's holes are the view's, at its size now; the page may lie elsewhere for a while (held away), so they
+        // go where it is now.
+        model.tabRow.resolveHoles(in: bounds, flipped: isFlipped)
         var rects = model.tabRow.holes.map { page.convert($0, from: self) }
         if let badge = actAsMePill.badge, !badge.isHidden, !badge.bounds.isEmpty {
             rects.append(page.convert(badge.bounds, from: badge))

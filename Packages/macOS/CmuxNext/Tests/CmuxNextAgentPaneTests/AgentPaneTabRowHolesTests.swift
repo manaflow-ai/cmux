@@ -161,6 +161,30 @@ struct AgentPaneTabRowHolesTests {
         ])
     }
 
+    /// Leo (2026-11-24): "i want all our resizing at any cpu to be able to happen in lockstep. the agent pane,
+    /// chromium, terminal, the relevant ui elements like the top right buttons." A divider drag lays the chat out
+    /// before its pane offers the row again: the holes the page window gets in that layout are already at the new
+    /// width, so the frame's one page update is right, and the pane's offer after it changes nothing.
+    @Test func theHolesFollowAResizeBeforeThePaneOffersTheRowAgain() async throws {
+        let (view, page) = try await chromiumChat()
+        view.model.tabRow.report(width: 120)
+        AgentPaneTabRow.offer(points: 36, trailingInset: 60, to: view)
+        view.frame = NSRect(x: 0, y: 0, width: 1000, height: 600)
+        view.layoutSubtreeIfNeeded()
+        let tools = try #require(view.model.tabRow.sharedWidth(zoom: view.webView.pageZoom))
+        let room: CGFloat = 1000 - 60
+        let span = min(tools, room / 2)
+        let resized = holes(page, in: view)
+        #expect(resized == [
+            CGRect(x: 0, y: 0, width: room - span, height: 36),
+            CGRect(x: room - span, y: 0, width: span, height: 1),
+            CGRect(x: 940, y: 0, width: 60, height: 36),
+        ])
+        let rects = page.occlusionRects
+        AgentPaneTabRow.offer(points: 36, trailingInset: 60, to: view)
+        #expect(page.occlusionRects == rects, "the offer after the layout moved the holes again")
+    }
+
     /// Leo (2026-11-03): "there is clearly a rectangle that is just covering up the glass at the rim of
     /// the top of the app". Where the row meets the window's top edge, the page window over the
     /// chat's tools drew a flat gray 1 pt line (rgb 69,71,70 in every theme) in place of the window's

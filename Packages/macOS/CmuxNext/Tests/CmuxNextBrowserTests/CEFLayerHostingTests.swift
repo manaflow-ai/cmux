@@ -501,7 +501,7 @@ private final class LiveResizeWindow: NSWindow {
         return refs
     }
 
-    func makeHosted(_ enabled: Bool = true) -> (CEFLayerHosting, NSView, NSWindow) {
+    func makeHosted(_ enabled: Bool = true, companions: [CALayer] = []) -> (CEFLayerHosting, NSView, NSWindow) {
         let window = NSWindow(contentRect: NSRect(x: -4000, y: -4000, width: 400, height: 300),
                               styleMask: .borderless, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -513,7 +513,8 @@ private final class LiveResizeWindow: NSWindow {
         let hosting = CEFLayerHosting(isEnabled: { enabled }, schedule: { $0() },
                                       makePage: { CEFHostedPageView(frame: $0, makeLayerHost: { _ in CALayer() }) },
                                       refreshIntervals: { [1.0 / 60] },
-                                      resizeFences: CEFResizeFences(clock: clock, makePort: { _ in ports.make() }))
+                                      resizeFences: CEFResizeFences(clock: clock, makePort: { _ in ports.make() },
+                                                                    companions: { _ in companions }))
         hosting.view = view
         hosting.pageWindowCreated(browser: 3, fork: fork.fork)
         return (hosting, view, window)
@@ -667,5 +668,39 @@ private final class LiveResizeWindow: NSWindow {
         #expect(sendRights(port) == 1)
         endTurn()
         #expect(sendRights(port) == 0)
+    }
+
+    /// The overlay panel (focus rings, dims) is a context of its own: the turn's fence of the window fences it too, and
+    /// both go together when the pages report, so a ring moved with the divider does not show ahead of the pane.
+    @Test func theOverlayPanelIsFencedWithTheWindowAndGoesWithIt() throws {
+        let (hosting, _, window) = makeHosted(companions: [CALayer()])
+        defer { window.close() }
+        hosting.paneResizeDrag(active: true)
+        hosting.pageViewResized()
+        hosting.pageViewResized()
+        #expect(ports.made.count == 2, "the window and its panel each take one fence per turn")
+        let fence = try #require(fork.fences.first)
+        let panel = try #require(ports.made.last)
+        #expect(panel != fence.port)
+        #expect(fork.fences.allSatisfy { $0.port == fence.port }, "a page was handed the panel's fence")
+        endTurn()
+        #expect(sendRights(panel) == 1, "the panel's fence went before the pages reported")
+        for done in fork.dones { done(true) }
+        #expect(sendRights(fence.port) == 0)
+        #expect(sendRights(panel) == 0, "the panel's fence outlived the window's")
+    }
+
+    /// A page that never reports holds the panel no longer than the window: its fence goes at the same deadline.
+    @Test func theOverlayPanelsFenceGoesAtTheWindowsDeadline() async throws {
+        let (hosting, _, window) = makeHosted(companions: [CALayer()])
+        defer { window.close() }
+        hosting.paneResizeDrag(active: true)
+        hosting.pageViewResized()
+        let panel = try #require(ports.made.last)
+        endTurn()
+        try await clock.waitForSleeper()
+        clock.advance(by: .milliseconds(40))
+        for _ in 0..<50 where sendRights(panel) != 0 { await Task.yield() }
+        #expect(sendRights(panel) == 0)
     }
 }
