@@ -479,7 +479,9 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
     const card = panelCard(page, "npm run dev");
     await card.waitFor({ timeout: 5_000 });
     expect(
-      await page.locator('.acpmux-bg__section[data-section="finished"] > button').getAttribute("aria-expanded"),
+      await page
+        .locator('.acpmux-bg__section[data-section="finished"] .acpmux-bg__section-head')
+        .getAttribute("aria-expanded"),
     ).toBe("true");
     expect(await card.getAttribute("data-open")).toBe("true");
     expect(await card.getAttribute("data-focused")).toBe("true");
