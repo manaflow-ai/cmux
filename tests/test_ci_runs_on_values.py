@@ -55,6 +55,16 @@ class Expressions(unittest.TestCase):
         # A bracket key is read whole: names allow no hyphen, so 'X-FALLBACK' reads no variable, not X.
         self.assertEqual(self.bad("vars['CI_IOS_INTERNAL_RUNNER-FALLBACK'] || 'macos-26'"), [])
 
+    def test_a_vars_property_of_another_value_reads_no_variable(self) -> None:
+        # Only the vars context names a repository variable; `.vars` after another value is that value's property.
+        nested = "fromJSON('{\"vars\":{\"CI_IOS_INTERNAL_RUNNER\":\"ubuntu-latest\"}}')"
+        self.assertEqual(self.bad(f"{nested}.vars['CI_IOS_INTERNAL_RUNNER'] || 'macos-26'"), [])
+        self.assertEqual(self.bad(f"{nested} . vars.CI_IOS_INTERNAL_RUNNER || 'macos-26'"), [])
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "w.yml").write_text("jobs:\n  a:\n    runs-on: ${{ " + nested + ".vars.NEW_ONE || 'x' }}\n",
+                                          encoding="utf-8")
+            self.assertEqual(check.read_variables([("b", Path(tmp))]), set())
+
     def test_a_pool_value_passes(self) -> None:
         self.assertEqual(self.bad("vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404'",
                                   LINUX_RUNNER="blacksmith-4vcpu-ubuntu-2404"), [])
