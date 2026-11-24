@@ -3,7 +3,7 @@ import { afterAll, beforeAll, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
 import { turnView } from "./turns";
 beforeAll(() => {
-  globalThis.cmuxExperiments = { "claude-turn-fold": "runs" };
+  delete globalThis.cmuxExperiments;
 });
 afterAll(() => {
   delete globalThis.cmuxExperiments;
@@ -47,14 +47,36 @@ const dump = (name: string, rows: AcpmuxRow[]) =>
     JSON.stringify(
       turnView(rows, new Set(), { agentFamily: "claude", now: START + 900_000 })
         .filter((r) => r.kind !== "date")
-        .map((r) => `${r.kind}:${r.id}${r.backgroundRun ? JSON.stringify(r.backgroundRun) : ""}`),
+        .map(
+          (r) =>
+            `${r.kind}:${r.id}${r.foldOpen ? "(open)" : ""}${r.backgroundRun ? "[" + r.backgroundRun.rows.length + " f" + r.backgroundRun.failed + "]" : ""}`,
+        ),
     ),
   );
+const before = (burst: AcpmuxRow[]): AcpmuxRow[] => {
+  const r = steered([]);
+  r.splice(4, 0, ...burst.map((b) => ({ ...b, at: START + 200_000 + b.at - START - 400_000 })));
+  return r;
+};
 test("probe", () => {
+  dump("B5failed", before(Array.from({ length: 5 }, (_, i) => ended(i, "failed"))));
+  dump(
+    "Bmixed",
+    before([ended(0, "completed"), ended(1, "failed"), ended(2, "completed"), ended(3, "failed"), ended(4, "failed")]),
+  );
+  dump(
+    "Bmixed2",
+    before([ended(0, "completed"), ended(1, "failed"), ended(3, "failed"), ended(4, "failed"), ended(2, "completed")]),
+  );
+  dump("5disc", steered(Array.from({ length: 5 }, (_, i) => ended(i, "disconnected"))));
   dump("5failed", steered(Array.from({ length: 5 }, (_, i) => ended(i, "failed"))));
   dump(
     "mixed",
     steered([ended(0, "completed"), ended(1, "failed"), ended(2, "completed"), ended(3, "failed"), ended(4, "failed")]),
+  );
+  dump(
+    "mixed2",
+    steered([ended(0, "completed"), ended(1, "failed"), ended(3, "failed"), ended(4, "failed"), ended(2, "completed")]),
   );
   dump("1failed", steered([ended(0, "failed")]));
   dump("steerbetween", [
