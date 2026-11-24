@@ -150,19 +150,23 @@ def checked_verdict(api: Callable[..., object], repo: str, build: str, verdict: 
     run = api(f"repos/{repo}/actions/runs/{canary_run}")
     if not isinstance(run, dict) or run.get("path") != CANARY_WORKFLOW or (run.get("repository") or {}).get("full_name") != repo:
         raise TrainError(f"run {canary_run} is not a {CANARY_WORKFLOW} run of {repo}")
+    doc = verdict_document(build, verdict, commit, f"https://github.com/{repo}/actions/runs/{canary_run}", now, repo)
     if verdict == "pass":
         if run.get("event") != "schedule":
             raise TrainError(f"a pass needs a scheduled canary run; run {canary_run} is a {run.get('event')} run")
         jobs = api(f"repos/{repo}/actions/runs/{canary_run}/jobs?filter=latest&per_page=100")
         names = [j for j in (jobs or {}).get("jobs", []) if j.get("name") == f"canary {build}"]  # type: ignore[union-attr]
-        if not any(j.get("status") == "completed" and j.get("conclusion") == "success" for j in names):
+        producer = next((j for j in names if j.get("status") == "completed" and j.get("conclusion") == "success"), None)
+        if producer is None:
             raise TrainError(f"run {canary_run} has no successful `canary {build}` job, so no pass")
         # The canary job also succeeds when it skipped (a build that predates
         # the canary); the run's own verdict job carries the real verdict in
         # its name (nightly-next-canary.yml job `verdict`).
         if not any(j.get("name") == f"verdict pass {build}" for j in (jobs or {}).get("jobs", [])):  # type: ignore[union-attr]
             raise TrainError(f"run {canary_run} recorded no pass for build {build}")
-    return verdict_document(build, verdict, commit, f"https://github.com/{repo}/actions/runs/{canary_run}", now, repo)
+        if producer.get("run_attempt"):
+            doc["canaryAttempt"] = producer["run_attempt"]
+    return doc
 
 
 FEED_ITEM = re.compile(r"<item>.*?</item>", re.S)
@@ -180,7 +184,15 @@ def feed_builds(feed_xml: str) -> list[str]:
 
 def last_good(feed_xml: str, fetch: Callable[[str], bytes | None], verdicts_url: str = VERDICTS) -> dict | None:
     """The newest feed build whose verdict is pass: {"build", "commit"}."""
-    for build in feed_builds(feed_xml):
+    doc = passing_verdict(feed_builds(feed_xml), fetch, verdicts_url)
+    if doc:
+        return {"build": doc["build"], "commit": doc["commit"], "source": "verdict"}
+    return None
+
+
+def passing_verdict(builds: Iterable[str], fetch: Callable[[str], bytes | None], verdicts_url: str = VERDICTS) -> dict | None:
+    """The first passing verdict document in BUILDS (newest first)."""
+    for build in builds:
         body = fetch(f"{verdicts_url}/{build}.json")
         if body is None:
             continue
@@ -188,8 +200,8 @@ def last_good(feed_xml: str, fetch: Callable[[str], bytes | None], verdicts_url:
             doc = json.loads(body)
         except ValueError:
             continue
-        if doc.get("build") == build and doc.get("verdict") == "pass" and SHA_RE.match(str(doc.get("commit", ""))):
-            return {"build": build, "commit": doc["commit"], "source": "verdict"}
+        if isinstance(doc, dict) and doc.get("build") == build and doc.get("verdict") == "pass" and SHA_RE.match(str(doc.get("commit", ""))):
+            return doc
     return None
 
 

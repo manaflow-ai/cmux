@@ -161,8 +161,9 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
               more: tray.querySelector(".acpmux-running-tray__finished") !== null,
             };
           });
-          // One row at every width: the header's time follows its counts, never a second line.
-          expect(pinned.head.height).toBeCloseTo(28 * interfaceScale, 1);
+          // One row at every width: the header's time follows its counts, never a second line. The
+          // header is the `roomy` 34px row since ec1f23e06ae (#48542, trayHeadHeight.experiment.ts).
+          expect(pinned.head.height).toBeCloseTo(34 * interfaceScale, 1);
           expect(pinned.more).toBe(false);
           expect(pinned.head.top).toBeGreaterThanOrEqual(pinned.trayTop - 0.5);
           expect(pinned.head.bottom).toBeLessThanOrEqual(pinned.trayBottom + 0.5);
