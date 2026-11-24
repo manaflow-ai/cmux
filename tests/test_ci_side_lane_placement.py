@@ -1104,7 +1104,8 @@ class LightRerunRoute(unittest.TestCase):
         jobs = CmuxNextWiring().workflow()["jobs"]
         place = next(step for step in jobs["macos-placement"]["steps"] if step.get("id") == "place")
         literal = re.findall(r"'([a-z -]+)'", place["env"]["LIGHT_FIT_JOBS"])
-        self.assertEqual(set(literal[-1].split()), measured)
+        # A pull request's fast tier is pr-pipeline.yml's `mac` job (note-556): the PR-only list names the rest.
+        self.assertEqual(set(literal[-1].split()), measured - {"fast-tier"})
         # Exactly these jobs read light_jobs on the attempt their placement ran (the rescue moves only them).
         rerun_clause = re.compile(r"needs\.macos-placement\.outputs\.placed_attempt == format\('\{0\}', "
                                   r"github\.run_attempt\) && contains\(needs\.macos-placement\.outputs\.light_jobs, "
@@ -2432,7 +2433,8 @@ class CmuxNextWiring(unittest.TestCase):
                 self.assertFalse(str(evaluate(runs_on, context)).startswith("glaeda-"), (name, why))
             # A skipped placement leaves the Mac jobs running (!cancelled()) and its empty output keeps the label.
             gate = jobs[name]["if"].replace("always() && ", "").replace("!cancelled() && ", "")
-            self.assertTrue(evaluate(gate, self.context()))
+            # A pull request's Swift canary is pr-pipeline.yml's `mac` job (note-556): it runs here off the PR only.
+            self.assertEqual(evaluate(gate, self.context()), name != "swift-canary", name)
             # A PR with no placement output takes the static owned side fallback;
             # display/session labels are only considered for non-PR pushes.
             self.assertEqual(evaluate(runs_on, dict(self.context(), needs={})), SIDE)
