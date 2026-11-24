@@ -114,6 +114,8 @@ extension CEFTab {
                 "granted: page window out of the window"
             } else if keyWindows.keyWindow() === pageWindow {
                 "granted"
+            } else if keyWindows.keyWindow() == nil {
+                "granted: no key window"
             } else {
                 "granted: another window is key"
             }
