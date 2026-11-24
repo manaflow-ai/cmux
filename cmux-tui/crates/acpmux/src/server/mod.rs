@@ -56,6 +56,24 @@ pub struct SubOpts {
     /// Follows the chat's transcript rows (`_acpmux/rows` `follow`): each live record's row
     /// changes go out as `_acpmux/rows_patch` (`rows/serve.rs`).
     pub rows: Option<Arc<crate::rows::Following>>,
+    /// Attached with `omitTimeBreakdown: true` (the phone, which draws no breakdown): the chat's
+    /// `_acpmux/session_changed` rows to this connection leave `timeBreakdown` out too, as the
+    /// attach reply does (`requests/time_breakdown_gate.rs`). A full row of a long chat is mostly
+    /// that field (32 KiB of 36 KiB at 3,000 records, the time-away bench).
+    pub omit_time_breakdown: bool,
+}
+
+/// Whether `conn` attached `session_id` asking for no `timeBreakdown` (`SubOpts`).
+fn omits_time_breakdown(conn: &Conn, session_id: &str) -> bool {
+    conn.subs.lock_or_recover().get(session_id).is_some_and(|o| o.omit_time_breakdown)
+}
+
+/// `row` with no `timeBreakdown`.
+fn without_time_breakdown(mut row: Value) -> Value {
+    if let Some(map) = row.as_object_mut() {
+        map.remove("timeBreakdown");
+    }
+    row
 }
 
 /// Which of one chat's `_acpmux/message` records a connection has heard, so each reaches it once.
@@ -2494,7 +2512,11 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             && let Ok(s) = hub.resolve(&ev.session_id)
         {
             let full = attached || conn.watch_tools.load(Ordering::SeqCst);
-            let session = if full { hub.session_summary(&s) } else { hub.session_list_summary(&s) };
+            let mut session =
+                if full { hub.session_summary(&s) } else { hub.session_list_summary(&s) };
+            if attached && omits_time_breakdown(conn, &ev.session_id) {
+                session = without_time_breakdown(session);
+            }
             let notice = json!({"sessionId": ev.session_id, "kind": ev.record.kind, "recordKind": ev.record.kind, "seq": s.meta().last_seq, "listSeq": ev.list_seq});
             // A patch names the row it builds on, so it is never replaced in the queue.
             if session_patch::send_row(conn, &ev.session_id, full, &session, notice) {
@@ -2707,12 +2729,24 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         // Built once per record, by the first watcher that sends it, and shared by the others
         // (`HubEvent::row`): with many watchers, each built the whole row again.
         let full = attached || conn.watch_tools.load(Ordering::SeqCst);
-        let [list_row, full_row] = &ev.row.cells;
-        let row = if full { full_row } else { list_row };
-        let summary = row.get_or_build(|| {
-            let s = hub.resolve(&ev.session_id).ok()?;
-            Some(if full { hub.session_summary(&s) } else { hub.session_list_summary(&s) })
-        });
+        let lean = attached && omits_time_breakdown(conn, &ev.session_id);
+        let [list_row, full_row, lean_row] = &ev.row.cells;
+        let summary = if lean {
+            // The full row less its breakdown, built once per record from the shared full row.
+            lean_row.get_or_build(|| {
+                let whole = full_row.get_or_build(|| {
+                    let s = hub.resolve(&ev.session_id).ok()?;
+                    Some(hub.session_summary(&s))
+                })?;
+                Some(without_time_breakdown((*whole).clone()))
+            })
+        } else {
+            let row = if full { full_row } else { list_row };
+            row.get_or_build(|| {
+                let s = hub.resolve(&ev.session_id).ok()?;
+                Some(if full { hub.session_summary(&s) } else { hub.session_list_summary(&s) })
+            })
+        };
         if let Some(summary) = summary {
             let notice = json!({"sessionId": ev.session_id, "kind": kind, "recordKind": rec.kind, "seq": rec.seq, "listSeq": ev.list_seq});
             if !session_patch::send_row(conn, &ev.session_id, full, &summary, notice) {
@@ -3003,3 +3037,6 @@ mod chat_window_activity_tests;
 #[cfg(test)]
 #[path = "fanout_interest_tests.rs"]
 mod fanout_interest_tests;
+#[cfg(test)]
+#[path = "omit_time_breakdown_rows_tests.rs"]
+mod omit_time_breakdown_rows_tests;
