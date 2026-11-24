@@ -8273,7 +8273,11 @@ class WsCheckPerTest(unittest.TestCase):
         self.gh.statuses[self.gh.TIP][0]["description"] = "fleet rule lints: tools/x.py: names a host"
         with self.assertRaisesRegex(excuse.Refused, r"1 failure\(s\) not on main: .*test_other"):
             self.judge()
-        # Readable, the same older red excuses it.
+        # A newer run that never reported (cut before its WS_CHECK_RESULT, as main's often are) never finished: the
+        # older red is main's latest finished verdict (lw#10075's main 36e3dd7f).
+        self.gh.statuses[self.gh.TIP][0]["description"] = "no WS_CHECK_RESULT line: the checks did not report"
+        self.assertIn("a per-suite base red", "\n".join(self.judge()))
+        # No status at all, the same.
         del self.gh.statuses[self.gh.TIP]
         self.assertIn("a per-suite base red", "\n".join(self.judge()))
 
@@ -16289,6 +16293,8 @@ SCANNERS = {
     "base_red_excuse._sub_shas": lambda f: excuse._sub_shas(f.log, []),
     "base_red_excuse.mask_shas": lambda f: excuse.mask_shas(f.log),
     "base_red_excuse.normalise_error": lambda f: excuse.normalise_error(f.log),
+    # A ws-check head's new failure lines, looked through for a path the PR changes (at most COMPARE_FILES_CAP).
+    "base_red_excuse.ws_check_names_paths": lambda f: excuse.ws_check_names_paths(f.lines, ["tools/guards.py"] * 50),
     # A workflow `if:` is the head's own text: its parsers are timed on the log, nested parentheses and all.
     "base_red_excuse._top_level": lambda f: (excuse._top_level(f.log, "||"), excuse._top_level(f.log, "&&")),
     "base_red_excuse._unwrapped": lambda f: excuse._unwrapped("(" * len(f.lines) + f.log + ")" * len(f.lines)),

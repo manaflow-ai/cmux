@@ -8044,6 +8044,9 @@ def ws_check_base_verdict(repo: str, commit: str, github) -> tuple[str, dict]:
 # same suite and this PR changes none of that suite's files (ws_check_suite_touched), the way an Actions job red on the
 # base is the base's. A step not split into suites (a lint, a whole-step test) is still read per test and per line:
 # its new offender is the head's own. Unreadable main verdict or PR diff: no per-suite excuse (fail closed).
+WS_CHECK_UNREPORTED = "no WS_CHECK_RESULT line: the checks did not report"  # tools/ws-check's words for a cut run
+
+
 def ws_check_test_suite(test: str) -> str:
     """The suite a ws_check_verdict test name carries ("[test_x.py] test_a (...)" -> "test_x.py"), "" when none."""
     return test[1:test.index("] ")] if test.startswith("[") and "] " in test else ""
@@ -8098,7 +8101,9 @@ def ws_check_red(repo: str, base: str, sha: str, github, evidence: "Evidence | N
                       "compare with" + (f" ({len(unreadable)} unreadable, first {unreadable[0]})" if unreadable else ""))
     tip, tip_kind, tip_verdict = newest
     tested = f"{base} {tip[:12]} ({tip_verdict['url'] or 'no run'})"
-    tip_fresh = not unreadable  # no newer base verdict went unread: the tip is main's latest finished verdict
+    # The tip is main's latest finished verdict unless a newer one finished but went unread (fail closed); a run that
+    # never reported (timed out before its WS_CHECK_RESULT) never finished, so it hides nothing.
+    tip_fresh = all(WS_CHECK_UNREPORTED in why for why in unreadable)
 
     def has(verdict: dict, unit) -> bool:
         step, kind, item = unit
@@ -8264,7 +8269,8 @@ def ws_check_red(repo: str, base: str, sha: str, github, evidence: "Evidence | N
             found = {hit[0] for line in red["lines"] if (hit := on((step, "line", line))) is not None}
             suited = sorted({suite for line in red["lines"] if on((step, "line", line)) is None
                              for suite in red.get("line_suites", {}).get(line, ())})
-            lines.append(f"excused '{WS_CHECK}' {label}: its {len(red['lines'])} line(s) are red on {base} "
+            strict = sum(on((step, "line", line)) is not None for line in red["lines"])
+            lines.append(f"excused '{WS_CHECK}' {label}: its {strict} line(s) are red on {base} "
                          f"{', '.join(sorted(commit[:12] for commit in found)) or tip[:12]} too"
                          + (" (the merge-base's included)" if at_merge_base and at_merge_base[0][0] in found else "")
                          + (f"; the rest are {suite_said(step, suited)}" if suited else ""))
