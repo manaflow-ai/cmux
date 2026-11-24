@@ -1,0 +1,28 @@
+.type-grid-gallery {
+  display: grid;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-4);
+  color: var(--cmux-text, CanvasText);
+  font-family: var(--font-ui);
+}
+
+.type-grid-gallery-step > span {
+  display: block;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, CanvasText 16%, transparent);
+}
+
+.type-grid-gallery-wrap {
+  margin: 0;
+  max-width: 320px;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+
+.type-grid-gallery-row {
+  display: flex;
+  align-items: center;
+  height: var(--grid-row, 28px);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, CanvasText 16%, transparent);
+}

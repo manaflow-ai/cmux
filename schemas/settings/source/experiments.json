@@ -84,6 +84,31 @@
           ]
         },
         {
+          "key": "experiments.typeGrid",
+          "note": "Design C1 (cmuxterm-hq docs/design/design-system-decisions/C-type-fonts-spacing-rows.md): every web type step's line height becomes round4(1.45 x size) on the 4 grid: caption 11/16, detail 12/16, body 13/20, field 14/20, title 15/20, heading 20/28 (today 11/14, 12/16, 13/18, 14/18, 15/20, 20/26). <html data-type-grid> (webviews ui/typeGrid.ts) overrides the --text-<step>--line-height tokens in ui/typeGrid.css; sizes, weights, fonts and the reading content's line height (agentPane.display.font.lineHeight) are unchanged. Web only: native TypeScale is not switched by this row. Off by default; off keeps today's line heights.",
+          "title": {
+            "key": "settings.experiments.typeGrid",
+            "text": "Grid Line Heights"
+          },
+          "help": {
+            "key": "settings.experiments.typeGrid.help",
+            "text": "Interface text gets line heights on the 4-point grid: 13-point text sits on 20 points instead of 18."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "type",
+            "typography",
+            "line height",
+            "leading",
+            "grid",
+            "spacing"
+          ]
+        },
+        {
           "key": "experiments.agentBadges",
           "note": "Taste build 5 (2026-11-19): agent counts and status on the tab strip and the sidebar, drawn natively (CmuxNextTabs TabCell+CountPill, CmuxNextSidebar WorkspaceRowView+AgentPill; DesignSettings.agentBadges). An agent chat tab shows a neutral count pill (unread plus a pending approval) in a slot always as wide as \"99+\", so no tab moves; a sidebar row shows one tinted status pill (Running, Needs approval, Done) in a slot as wide as the widest label. Off by default; off keeps today's marks.",
           "title": {

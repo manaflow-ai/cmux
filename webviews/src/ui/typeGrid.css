@@ -1,0 +1,35 @@
+/* Grid line heights (experiments.typeGrid, off by default; ui/typeGrid.ts sets data-type-grid on <html>).
+   Design C1 (cmuxterm-hq docs/design/design-system-decisions/C-type-fonts-spacing-rows.md): every
+   line height is round4(1.45 x size) on the 4 grid: caption 11/16, detail 12/16, body 13/20,
+   field 14/20, title 15/20, heading 20/28 (today 11/14, 12/16, 13/18, 14/18, 15/20, 20/26).
+   Each scope that sets the line height tokens (desktop.css's generated :root, pageDensity.css,
+   the transcript and the composer) gets the grid value at its own scale; webviews/test/type-grid.test.ts
+   fails when a scope sets one that this file does not override. Only line heights move. */
+:root[data-type-grid] {
+  --text-caption--line-height: calc(16px * var(--cmux-interface-scale, 1));
+  --text-detail--line-height: calc(16px * var(--cmux-interface-scale, 1));
+  --text-body--line-height: calc(20px * var(--cmux-interface-scale, 1));
+  --text-field--line-height: calc(20px * var(--cmux-interface-scale, 1));
+  --text-title--line-height: calc(20px * var(--cmux-interface-scale, 1));
+  --text-heading--line-height: calc(28px * var(--cmux-interface-scale, 1));
+}
+:root[data-type-grid][data-page-density] {
+  --text-caption--line-height: calc(16px * var(--page-density-text));
+  --text-detail--line-height: calc(16px * var(--page-density-text));
+  --text-body--line-height: calc(20px * var(--page-density-text));
+  --text-field--line-height: calc(20px * var(--page-density-text));
+  --text-title--line-height: calc(20px * var(--page-density-text));
+  --text-heading--line-height: calc(28px * var(--page-density-text));
+}
+:root[data-type-grid] .acpmux-scroll {
+  --text-caption--line-height: calc(16px * var(--cv-text-scale));
+  --text-detail--line-height: calc(16px * var(--cv-text-scale));
+  --text-body--line-height: calc(20px * var(--cv-text-scale));
+  --text-title--line-height: calc(20px * var(--cv-text-scale));
+}
+:root[data-type-grid] :is(.acpmux-composer, .nt-composer, .nt-popover, .nt-create) {
+  --text-caption--line-height: calc(16px * var(--acpmux-density-text));
+  --text-detail--line-height: calc(16px * var(--acpmux-density-text));
+  --text-body--line-height: calc(20px * var(--acpmux-density-text));
+  --text-title--line-height: calc(20px * var(--acpmux-density-text));
+}

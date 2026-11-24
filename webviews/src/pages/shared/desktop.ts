@@ -9,6 +9,8 @@ import "../../ui/glass/glass.css";
 import "../../ui/wave.css";
 // TOOLTIP REFRESH: the opt-in look of every tooltip and hover card (experiments.hoverLook), after the glass.
 import "../../ui/hoverLook.css";
+// GRID LINE HEIGHTS: the opt-in 4-grid line heights of design C1 (experiments.typeGrid), after desktop.css.
+import "../../ui/typeGrid.css";
 import { parseComputedColor } from "../../backdrop";
 import { experimentArm } from "../../experiments/experiment";
 import { installScrollers } from "../../scrollers";
@@ -18,6 +20,7 @@ import { installPageGlassBlur } from "../../ui/glass/pageGlassBlur";
 import { installSpinnerClock } from "../../ui/spinnerClock";
 import { installTooltips } from "../../ui/titleTooltips";
 import { installHoverLook } from "../../ui/hoverLook";
+import { installTypeGrid } from "../../ui/typeGrid";
 import { installWave } from "../../ui/wave";
 import { installPageLoops } from "../../ui/pageLoops";
 import { installAdaptiveSelection } from "../../ui/adaptiveSelection";
@@ -79,6 +82,8 @@ export function installDesktopLayer(doc: Document = document): void {
   root.setAttribute(GLASS_UNDERLAY_ATTRIBUTE, experimentArm(chromiumGlassUnderlay));
   // TOOLTIP REFRESH: data-hover-look follows experiments.hoverLook (off by default; ui/hoverLook.ts).
   installHoverLook(doc);
+  // GRID LINE HEIGHTS: data-type-grid follows experiments.typeGrid (off by default; ui/typeGrid.ts).
+  installTypeGrid(doc);
   const view = doc.defaultView;
   if (!view) return;
   // IME-KEYS: keys an input method is using never reach page handlers (imeKeys.ts).
