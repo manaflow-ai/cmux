@@ -1629,6 +1629,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         attachTask = nil
         retryTask?.cancel()
         retryTask = nil
+        cardsTask?.cancel()
+        cardsTask = nil
         failures = 0
         attached = false
         attaching = false
@@ -1707,6 +1709,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     isolated deinit {
         attachTask?.cancel()
         retryTask?.cancel()
+        cardsTask?.cancel()
         gapTask?.cancel()
         earlierTask?.cancel()
         earlierRetryTask?.cancel()
@@ -1767,9 +1770,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         /// A catch-up from kept records found more than one page since them: nothing was read past
         /// the attach reply, and the chat opens on its newest page instead (``dropKept()``).
         var keptTooOld = false
-        /// Sudo-card records newer than the reply's `lastSeq`, read after an early page that
-        /// lacked them: applied among the held live records, in seq order.
-        var late: [JSONValue] = []
+        /// An early page from a Mac that serves sudo cards but ignored `alsoKinds` (it lacks
+        /// them): the page is drawn at once, and this follow-up reads them behind it.
+        var cardsFollowUp: CardsFollowUp?
     }
 
     /// The next catch-up of attach `generation`, or nil when it is no longer current.
@@ -1879,37 +1882,14 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 out.result = reply
                 if let early, hub.earlyPageLacksElevation(early) {
                     // The Mac serves sudo cards but ignored `alsoKinds`: its page and stream
-                    // carry the chat's kinds only. Attach again with the sudo-card kinds from the
-                    // page's end (it widens the stream and reads only what came after the page),
-                    // and read the sudo-card records since the page's start, both in one round
-                    // trip; the page is kept, not read again. (A hold attach cannot do it: it
-                    // refuses "transcript" in its kinds.)
-                    let boundary = stateSeq(reply)
+                    // carry the chat's kinds only. The page is drawn now; the sudo cards are
+                    // read behind it (`runCardsFollowUp`), not the page again.
                     var widen = params
                     for key in ["beforeSeq", "maxBytes", "toolOutputMaxBytes", "settled"] {
                         widen.removeValue(forKey: key)
                     }
-                    widen["afterSeq"] = .number(Double(boundary))
                     let first = (reply["events"]?.arrayValue ?? []).first?["seq"]?.numberValue ?? 1
-                    async let widened = request("_acpmux/attach", widen)
-                    async let cards = request("_acpmux/events", [
-                        "sessionId": .string(read.sessionID), "afterSeq": .number(max(0, first - 1)),
-                        "limit": .number(Double(pageSize)), "kinds": .array(elevationKinds),
-                    ])
-                    let after = (try await widened)["events"]?.arrayValue ?? []
-                    let records = (try await cards)["events"]?.arrayValue ?? []
-                    let seq = { (r: JSONValue) in Int(r["seq"]?.numberValue ?? 0) }
-                    let inPage = records.filter { seq($0) <= boundary }
-                    out.late = (records + after).filter { seq($0) > boundary }
-                    if !inPage.isEmpty, var events = reply["events"]?.arrayValue {
-                        events = (events + inPage).enumerated()
-                            .sorted { (seq($0.element), $0.offset) < (seq($1.element), $1.offset) }
-                            .map(\.element)
-                        if case .object(var object) = reply {
-                            object["events"] = .array(events)
-                            out.result = .object(object)
-                        }
-                    }
+                    out.cardsFollowUp = CardsFollowUp(widen: widen, firstSeq: Int(first), boundary: stateSeq(reply))
                 }
             } else {
                 out.result = try await request("_acpmux/attach", params)
@@ -2035,15 +2015,76 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         // Its history is here: a later load of it reads "Loading chat…", not "Starting…".
         hub?.forgetStartedHere(sessionID)
         keptRestored = false
-        let seq = { (r: JSONValue) in Int(r["seq"]?.numberValue ?? 0) }
-        let pending = pages.late.isEmpty ? held : (held + pages.late).enumerated()
-            .sorted { (seq($0.element), $0.offset) < (seq($1.element), $1.offset) }.map(\.element)
+        let pending = held
         held = []
         for record in pending { apply(record: record) }
+        if let followUp = pages.cardsFollowUp { runCardsFollowUp(followUp, generation) }
         startGapFill()
         emit(.historyLoading(false))
         saveKept()
         return false
+    }
+
+    // MARK: Sudo cards behind an older Mac's early page
+
+    /// What an early page that lacked the sudo cards still needs: an attach again with every kind
+    /// from the page's end (`widen`, its `afterSeq` set when it is sent), which widens the stream
+    /// and reads only what came after, and the sudo-card records since the page's first one.
+    struct CardsFollowUp {
+        var widen: [String: JSONValue]
+        let firstSeq: Int
+        let boundary: Int
+    }
+
+    /// Reads `followUp` behind the drawn page, both requests in one round trip, then applies what
+    /// came. Sudo-card records are only the chat's open card (`AgentChatStore` `pendingElevation`),
+    /// never a transcript item, so ones inside the page (seq at or below `lastSeq`) are replayed
+    /// in seq order without moving `lastSeq`; the attach's newer records go through
+    /// ``apply(record:)``. A read that fails or comes stale attaches again from `lastSeq`.
+    private func runCardsFollowUp(_ followUp: CardsFollowUp, _ generation: Int) {
+        guard let hub else { return }
+        var widen = followUp.widen
+        widen["afterSeq"] = .number(Double(max(followUp.boundary, lastSeq)))
+        let cardsParams: [String: JSONValue] = [
+            "sessionId": .string(sessionID), "afterSeq": .number(Double(max(0, followUp.firstSeq - 1))),
+            "limit": .number(Double(Self.pageSize)), "kinds": .array(Self.elevationKinds),
+        ]
+        cardsTask?.cancel()
+        cardsTask = Task { [weak self] in
+            do {
+                async let widened = hub.request("_acpmux/attach", .object(widen), timeout: Self.pageTimeout)
+                async let cards = hub.request("_acpmux/events", .object(cardsParams), timeout: Self.pageTimeout)
+                let after = (try await widened)["events"]?.arrayValue ?? []
+                let records = (try await cards)["events"]?.arrayValue ?? []
+                guard let self, !Task.isCancelled, self.generation == generation else { return }
+                self.cardsTask = nil
+                self.applyCards(records, after: after)
+            } catch {
+                guard let self, !Task.isCancelled, self.generation == generation else { return }
+                self.cardsTask = nil
+                self.linkUp()
+            }
+        }
+    }
+
+    private var cardsTask: Task<Void, Never>?
+
+    /// The follow-up's records: sudo cards inside what is drawn replayed in seq order, then the
+    /// re-attach's newer records applied as any page's are.
+    private func applyCards(_ cards: [JSONValue], after: [JSONValue]) {
+        let seq = { (r: JSONValue) in Int(r["seq"]?.numberValue ?? 0) }
+        let drawn = lastSeq
+        var seen: Set<Int> = []
+        for record in cards.sorted(by: { seq($0) < seq($1) }) where seq(record) <= drawn {
+            guard seen.insert(seq(record)).inserted else { continue }
+            for event in records.map(record) { emit(event) }
+        }
+        // Newer ones: the re-attach's records (every kind), and any card past it.
+        var newer: [JSONValue] = []
+        for record in after + cards where seq(record) > drawn && seen.insert(seq(record)).inserted {
+            newer.append(record)
+        }
+        for record in newer.sorted(by: { seq($0) < seq($1) }) { apply(record: record) }
     }
 
     // MARK: Reconnect gap (tail-first)
