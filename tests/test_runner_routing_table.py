@@ -594,7 +594,8 @@ class RoutingTableTests(unittest.TestCase):
         document = json.loads((ROOT / ".github" / "runners.json").read_text(encoding="utf-8"))
         for fleet in document["fleets"].values():
             for key in ("linux", "linux_16", "linux_32"):
-                self.assertIn("ubuntu", fleet[key])
+                # An Ubuntu image, or the one owned Linux label (Ubuntu VMs) the `owned` fleet names.
+                self.assertTrue("ubuntu" in fleet[key] or fleet[key] == "cmux-linux", fleet[key])
 
 
 if __name__ == "__main__":

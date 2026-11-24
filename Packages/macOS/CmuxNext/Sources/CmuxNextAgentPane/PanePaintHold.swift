@@ -23,6 +23,20 @@ extension PaneFirstPaintGated {
     public func standInUntilPainted() -> Bool { false }
 }
 
+/// Content that draws in a window of its own over its view (a Chromium page). A hold's alpha does not hide such a
+/// window, so the hold has it hidden, and a hidden Chromium page draws no frame: one that waits to draw again at a new
+/// size (a chat or New Tab page moved to another pane) never answered, and its pane showed the tab before it until
+/// the hold's limit, 500 ms (Leo 2026-11-22: "panes moving back and forth between splits ... slow ... jitters").
+/// It draws out of sight for the hold instead, and comes back in the transaction that ends the hold.
+@MainActor
+public protocol PanePaintHoldUnseen: AnyObject {
+    /// A hold made this content unseen until it painted. True when it now draws out of sight; the hold then calls
+    /// ``endDrawingUnseen()`` when it ends. False: it stays as it is (nothing of its own to draw, or held already).
+    func drawUnseenForPaintHold() -> Bool
+    /// The hold ended: back in place, in the caller's transaction.
+    func endDrawingUnseen()
+}
+
 /// The outgoing view a container (a pane, or the window's content area
 /// under a top page) keeps on screen while the incoming one, above it and
 /// invisible, has not painted.
@@ -64,6 +78,15 @@ public final class PanePaintHold {
     private var place: KeptPlace?
     /// Work that waits for the kept view to stop showing (``afterHold(of:_:)``); it outlives a hand-off to the next hold.
     private var afterEnd: [() -> Void] = []
+    /// Brings back the incoming view that draws out of sight for this hold (``PanePaintHoldUnseen``).
+    private var unseen: (() -> Void)?
+
+    /// The incoming view that drew out of sight is back in place.
+    private func showUnseen() {
+        let back = unseen
+        unseen = nil
+        back?()
+    }
 
     private struct KeptPlace {
         weak var view: NSView?
@@ -116,6 +139,12 @@ public final class PanePaintHold {
             host.addSubview(incoming, positioned: .above, relativeTo: outgoing)
         }
         incoming.alphaValue = 0
+        showUnseen() // a hold that this one replaces
+        // The incoming view itself, which its container judged to wait for its frame (``holds(_:replacing:)``): a page
+        // inside a larger view that a hold keeps unseen (a workspace) stays hidden in place, as before.
+        if let content = incoming as? any PanePaintHoldUnseen, content.drawUnseenForPaintHold() {
+            unseen = { [weak content] in content?.endDrawingUnseen() }
+        }
         PageWebView.syncChromiumVisibility(in: incoming)
         #if DEBUG || CMUX_BENCH_HOOKS
         ChatOpenTrace.shared.mark(.holdBegin, view: incoming)
@@ -182,6 +211,7 @@ public final class PanePaintHold {
         deadline.cancel()
         release = nil
         ended = nil
+        showUnseen()
         if let incoming {
             remove(incoming)
             // Page views are reused: one shown later must not stay invisible.
@@ -206,6 +236,7 @@ public final class PanePaintHold {
         CATransaction.setDisableActions(true)
         releasePlace()
         if let outgoing { release?(outgoing) }
+        showUnseen()
         incoming?.alphaValue = 1
         if let incoming { PageWebView.syncChromiumVisibility(in: incoming) }
         if let outgoing { PageWebView.syncChromiumVisibility(in: outgoing) }

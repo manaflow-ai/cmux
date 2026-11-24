@@ -45,6 +45,7 @@ REPO = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 from bench_launch import BenchApp, LaunchError  # noqa: E402
 import stress_load  # noqa: E402
+from state_wait import StateWaitTimeout, wait_stable, wait_until  # noqa: E402
 
 VERSION = 1
 ANGLES = ("cpu", "chats", "scale", "cli", "memory")
@@ -116,13 +117,32 @@ def rpc(method, params=None, timeout=30):
     return reply.get("result") if reply.get("ok") else {"error": reply.get("error")}
 
 
+def surface_panes(text=False):
+    surfaces = rpc("debug.surfaces", {"text": True} if text else None) or {}
+    return [p for w in (surfaces.get("windows") or []) if isinstance(w, dict) for p in (w.get("panes") or [])]
+
+
+def layout_signature():
+    """The shown panes: id, kind, tab, focus and frame (what an action changes)."""
+    return json.dumps([(p.get("pane"), p.get("kind"), p.get("selected_tab"), p.get("focused"), p.get("frame"))
+                       for p in surface_panes()], sort_keys=True)
+
+
 def action(name, args=None, settle=0.0, target=None, timeout=60):
+    """settle (the old fixed wait, s): wait for the action to change the shown panes, then for them to hold still."""
     params = {"action": name, "args": args or {}, "focus": True, "origin": "script"}
     if target:
         params["target"] = target
+    before = layout_signature() if settle else None
     reply = rpc("action.run", params, timeout=timeout)
     if settle:
-        time.sleep(settle)  # test harness: the layout settles before the next step
+        if not wait_until(lambda: layout_signature() != before, f"{name} to change the panes",
+                          timeout=max(5.0, settle * 4), raise_on_timeout=False):
+            note(f"{name}: the shown panes did not change")
+        try:
+            wait_stable(layout_signature, f"the panes after {name}", timeout=max(10.0, settle * 6), interval=0.05, reads=4)
+        except StateWaitTimeout as error:
+            note(str(error))
     return reply
 
 
@@ -366,10 +386,25 @@ class Cpu(Angle):
     def start(self):
         procs = opts.cpu_procs or os.cpu_count() or 8
         seconds = opts.window + 60
-        self.children.append(stress_load.start_cpu(procs, opts.cpu_threads, seconds))
+        child = stress_load.start_cpu(procs, opts.cpu_threads, seconds)
+        self.children.append(child)
         self.load.update(procs=procs, threads_each=opts.cpu_threads, runnable_threads=procs * opts.cpu_threads,
                          cores=os.cpu_count())
-        time.sleep(3)  # the load ramps before the window
+        # The load ramps before the window: the loader names its workers (its first stdout line), then every
+        # worker has spun for a while (0.3 s of CPU each).
+        started = {}
+        reader = threading.Thread(target=lambda: started.update(line=child.stdout.readline()), daemon=True)
+        reader.start()
+        reader.join(timeout=30)
+        try:
+            pids = json.loads(started.get("line") or "{}").get("pids") or []
+        except ValueError:
+            pids = []
+        if not pids:
+            self.notes.append("the cpu load never listed its workers within 30 s")
+        elif not wait_until(lambda: all((cpu_seconds(pid) or 0) >= 0.3 for pid in pids), "the cpu workers to spin",
+                            timeout=30, interval=0.2, raise_on_timeout=False):
+            self.notes.append("the cpu workers had not all spun 0.3 s of CPU within 30 s")
         self.load["load_avg_at_start"] = round(os.getloadavg()[0], 2)
 
 
@@ -407,7 +442,10 @@ class Chats(Angle):
                 period=3.0))
         for pump in self.pumps:
             pump.start()
-        time.sleep(1)  # the streams run before the window
+        # The streams run before the window: each pump's first stream call came back.
+        if not wait_until(lambda: all(pump.calls >= 1 for pump in self.pumps), "each chat stream's first call",
+                          timeout=30, raise_on_timeout=False):
+            self.notes.append("a chat stream's first call had not come back within 30 s")
 
 
 class Scale(Angle):
@@ -457,7 +495,10 @@ class CliFlood(Angle):
         else:
             self.notes.append("scripts/stress-cli-socket-api.py is not in this checkout: socket threads only")
         self.load.update(socket_clients=opts.cli_clients, api_script=os.path.exists(script))
-        time.sleep(1)
+        # The flood runs before the window: each socket client's first call came back.
+        if not wait_until(lambda: all(pump.calls >= 1 for pump in self.pumps), "each socket client's first call",
+                          timeout=30, raise_on_timeout=False):
+            self.notes.append("a socket client's first call had not come back within 30 s")
 
     def stop(self):
         child = self.children[0] if self.children else None
@@ -537,7 +578,19 @@ def run_angle(name):
         cli("workspace", "create", "--name", "typing", "--focus", "--shell", "exec /bin/zsh -f")
         ws, panes = wait(lambda: (lambda r: r if r[0] else None)(named_workspace("typing")), 20) or (None, [])
         typing = (ws, panes[0].get("id") if panes else None)
-        time.sleep(2)  # the prompt draws
+        # The prompt draws: the pane showing a typing tab ends in zsh -f's prompt.
+        tabs = {t.get("id") for p in panes[:1] for t in p.get("tabs") or []}
+
+        def prompt_drawn():
+            for shown in surface_panes(text=True):
+                if shown.get("selected_tab") in tabs:
+                    text = shown.get("text") or (shown.get("surface") or {}).get("text") or ""
+                    lines = [line for line in text.splitlines() if line.strip()]
+                    return bool(lines) and lines[-1].rstrip().endswith(("%", "#"))
+            return False
+        if not wait_until(prompt_drawn, "zsh -f's prompt in the typing pane", timeout=20, interval=0.1,
+                          raise_on_timeout=False):
+            note(f"{name}: the typing pane showed no zsh prompt within 20 s")
         entry["baseline"] = measure(pid, typing, opts.window)
         note(f"{name} baseline: {summary_line(entry['baseline'])}")
         stressor.setup()

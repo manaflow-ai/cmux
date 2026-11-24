@@ -129,5 +129,17 @@ await requireBrowserLane("gallery-background-browser.test.ts", async () => {
           expect(alpha(seen.glassFill)).toBeLessThan(1);
           expect(seen.errors).toEqual([]);
         });
+
+    // The shell's default (env.ts SHELL_DEFAULT_BACKGROUND): the bundled painting, a JPEG, under the same tint.
+    test("painting: clear page, tint over the bundled painting", async () => {
+      const seen = await look({ background: "painting" });
+      expect(seen.ready).toBe("1");
+      expect(seen.background).toBe("painting");
+      expect(seen.seeThrough).toBe(true);
+      expect(alpha(seen.surface)).toBe(0);
+      expect(seen.rootImage).toMatch(/^linear-gradient\(rgba\([^)]*\), rgba\([^)]*\)\), url\("data:image\/jpeg/);
+      expect(seen.backdropImage).toStartWith("data:image/jpeg");
+      expect(seen.errors).toEqual([]);
+    });
   });
 });

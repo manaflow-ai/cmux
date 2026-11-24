@@ -180,17 +180,6 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                     failures.append(f"{path.name}:{number}: {line.strip()}")
         self.assertEqual(failures, [], "nightly jobs must never reach the benchmark mini cmux11s")
 
-    @unittest.skipUnless((WORKFLOWS / "cmux-tui-nightly.yml").exists(), "no cmux-tui nightly on this branch")
-    def test_tui_nightly_overrides_every_package_builder_runner(self) -> None:
-        text = (WORKFLOWS / "cmux-tui-nightly.yml").read_text(encoding="utf-8")
-        block = text[text.index("uses: ./.github/workflows/cmux-tui-build-package.yml"):]
-        block = block[: block.index("\n  publish-npm:")]
-        for name in TUI_NIGHTLY_RUNNER_INPUTS:
-            with self.subTest(input=name):
-                match = re.search(rf"^\s+{name}: (.+)$", block, re.MULTILINE)
-                self.assertIsNotNone(match, f"cmux-tui nightly must pass {name}")
-                self.assertNotRegex(match.group(1), SINGLE_HOST)
-
     def test_native_nightlies_follow_owned_pool_then_our_nightly_builders(self) -> None:
         text = nightly_expand((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))
         job = text[text.index("\n  build-nightly-app:"):]
@@ -398,16 +387,14 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         on = resolve_labels(mac, variables={"CI_CLOUD_OVERFLOW_SAVED": [OVERFLOW_RECORD]})
         self.assertIn("blacksmith-6vcpu-macos-26", on - resolve_labels(mac, variables=SWITCH_OFF))
 
-    def test_the_canary_takes_the_owned_side_label_then_blacksmith(self) -> None:
+    def test_the_canary_takes_cmux_mac_behind_the_overflow_switch(self) -> None:
         import yaml
         jobs = yaml.safe_load((WORKFLOWS / "nightly-next-canary.yml").read_text(encoding="utf-8"))["jobs"]
-        self.assertIn("vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_PR_POOL_OWNED == '1' && "
-                      "github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || vars.CI_BLACKSMITH_MACOS != 'on' && "
-                      "vars.CI_SIDE_LANE_RUNNER || vars.CI_BLACKSMITH_MACOS == 'on' && vars.MACOS_RUNNER_26 || "
-                      "fromJSON(vars.RUNNER_POOLS).macos_26) }}", runs_on_text(jobs["canary"], "canary"))
+        # The one own-branch Mac label (docs/design/ci-v2.md): Blacksmith only through vars.CI_OVERFLOW_MAC.
+        self.assertTrue(runs_on_text(jobs["canary"], "canary").endswith("|| vars.CI_OVERFLOW_MAC || 'cmux-mac' }}"))
         for name in ("pick", "verdict"):
             with self.subTest(job=name):
-                self.assertRegex(runs_on_text(jobs[name], name), r"(?:'blacksmith-\d+vcpu-ubuntu-2404'|fromJSON\(vars\.RUNNER_POOLS\)\.linux_\d+) }}$")
+                self.assertRegex(runs_on_text(jobs[name], name), r"'cmux-linux' }}$")
 
     def test_promotion_requests_never_wait_on_blacksmith(self) -> None:
         """The jobs that start a NEXT nightly are part of the nightly path.

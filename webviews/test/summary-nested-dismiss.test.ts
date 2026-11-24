@@ -10,6 +10,12 @@ import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserL
 await requireBrowserLane("summary-nested-dismiss.test.ts", async () => {
   setDefaultTimeout(120_000);
   const { createServer } = await import("vite");
+  // Each engine is probed while the file registers its tests: one that cannot launch skips there
+  // (probeEngineOrSkip registers a describe.skip, which bun refuses inside a hook).
+  const engines: (typeof chromium)[] = [];
+  for (const engine of [chromium, webkit])
+    if (await probeEngineOrSkip("summary nested dismissal", engine.name(), engine)) engines.push(engine);
+  if (engines.length === 0) return;
   const browsers = new Map<string, Browser>();
   let vite: Awaited<ReturnType<typeof createServer>>;
   const entry = "agent-pane.summary-card";
@@ -24,10 +30,7 @@ await requireBrowserLane("summary-nested-dismiss.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    for (const engine of [chromium, webkit]) {
-      if (await probeEngineOrSkip("summary nested dismissal", engine.name(), engine))
-        browsers.set(engine.name(), await engine.launch({ headless: true }));
-    }
+    for (const engine of engines) browsers.set(engine.name(), await engine.launch({ headless: true }));
     expect(browsers.size).toBeGreaterThan(0);
     await warmGalleryFrame(vite, entry, { browser: browsers.values().next().value, params: { variant } });
   });
