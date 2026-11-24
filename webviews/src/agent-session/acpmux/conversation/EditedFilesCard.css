@@ -91,19 +91,10 @@ div.acpmux-edited {
   margin-inline-start: var(--ds-space-2);
 }
 
-/* A narrow card (the chat beside a page, #47831's air-blue capture): Undo, Open preview and View changes
-   took the whole head, the title shrank to nothing and its text drew under Undo. The title now clips to its
-   own box with an ellipsis; Undo's label folds to its glyph by cardFit.css's widths. The container is the head,
-   not the card, so the card's popups and rows keep their containing block. */
-.acpmux-edited .acpmux-edited-head {
-  container: acpmux-edited-head / inline-size;
-}
+/* A narrow card (the chat beside a page, #47831's air-blue capture): the title clips to its own box with an
+   ellipsis, and Undo folds under it, then to its glyph, by cardFit.css's widths. Those query the card (.cv-fit),
+   so the head is no container of its own: as one, it was the narrower box the card's widths read. */
 .acpmux-edited .acpmux-edited-title > * {
   max-width: 100%;
   min-width: 0;
-}
-@container acpmux-edited-head (max-width: 520px) {
-  .acpmux-edited .acpmux-edited-actions {
-    gap: var(--ds-space-2);
-  }
 }
