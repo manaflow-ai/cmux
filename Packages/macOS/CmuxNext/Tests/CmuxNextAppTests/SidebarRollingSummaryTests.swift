@@ -25,6 +25,8 @@ import Testing
         #expect(alone.summary == "Done." && alone.nextAction == nil)
         #expect(AgentChatDetail.of(summary: ["rollingSummary": ["text": "  "]]) == nil)
         #expect(AgentChatDetail.of(summary: ["sessionId": "chat-2"]) == nil)
+        // Messages queued behind the turn (acpmux `queued`): Auto counts them as work.
+        #expect(AgentChatDetail.of(summary: ["queued": 2])?.queued == 2)
     }
 
     private func workspace(summary: String?, next: String?, lastMessage: String? = "I finished the adapter.") -> SidebarWorkspace {

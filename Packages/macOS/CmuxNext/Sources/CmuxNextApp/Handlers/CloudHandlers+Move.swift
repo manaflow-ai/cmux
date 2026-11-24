@@ -185,7 +185,7 @@ extension CloudPlaceClaims {
 extension CloudPlaceFlows.Cargo {
     @MainActor static func read(tab: TabModel, session: String, services: AppServices, invocation: ActionInvocation? = nil) -> CloudPlaceFlows.Cargo {
         var cargo = Self()
-        if let ref = tab.agentSession { cargo.turnRunning = AgentTurnStateStore.shared.state(for: ref) == .working }
+        if let ref = tab.agentSession { cargo.turnRunning = AgentTurnStateStore.shared.state(for: ref) == .working; cargo.queued = AgentTurnStateStore.shared.detail(for: ref)?.queued }
         // Both moves run the agent move with a FrozenSync, which carries a running turn to where it lands; no turn, no carry.
         cargo.continuesTurn = cargo.turnRunning
         cargo.branch = tab.gitBranch
@@ -221,7 +221,7 @@ extension AppServices: CloudPlaceHost {
                         || onCloud && cloud.movedChats.entry(host: record.host, session: session) != nil else { continue }
                     found.append(CloudPlaceChat(id: tab.id, session: session, title: tab.titleText, onCloud: onCloud, turnRunning: CloudPlaceFlows.Cargo.read(tab: tab, session: session, services: self).turnRunning,
                                                 turnStartedAtMs: AgentTurnStateStore.shared.detail(for: record)?.turnStartedAtMs.map(Double.init),
-                                                moving: cloud.place.isMoving(session) || cloud.movingBack.contains(tab.id)))
+                                                moving: cloud.place.isMoving(session) || cloud.movingBack.contains(tab.id), queued: AgentTurnStateStore.shared.detail(for: record)?.queued ?? 0))
                 }
             }
         }

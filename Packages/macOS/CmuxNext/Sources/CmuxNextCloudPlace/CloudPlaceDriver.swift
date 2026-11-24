@@ -4,10 +4,11 @@ public import Foundation
 
 /// One chat as the place controls see it, read by the app (``CloudPlaceHost``).
 public struct CloudPlaceChat: Sendable {
-    public var id: String, session: String, title: String, onCloud: Bool, turnRunning: Bool, turnStartedAtMs: Double?, moving: Bool
-    public init(id: String, session: String, title: String = "", onCloud: Bool, turnRunning: Bool, turnStartedAtMs: Double?, moving: Bool) {
+    /// `queued`: messages waiting behind the turn, which Auto counts as work.
+    public var id: String, session: String, title: String, onCloud: Bool, turnRunning: Bool, turnStartedAtMs: Double?, moving: Bool, queued: Int
+    public init(id: String, session: String, title: String = "", onCloud: Bool, turnRunning: Bool, turnStartedAtMs: Double?, moving: Bool, queued: Int = 0) {
         self.id = id; self.session = session; self.title = title; self.onCloud = onCloud; self.turnRunning = turnRunning
-        self.turnStartedAtMs = turnStartedAtMs; self.moving = moving
+        self.turnStartedAtMs = turnStartedAtMs; self.moving = moving; self.queued = queued
     }
 }
 
@@ -202,7 +203,7 @@ public final class CloudPlaceDriver {
             let turnMs = chat.turnRunning ? chat.turnStartedAtMs.map { UInt64(max(0, Date().timeIntervalSince1970 * 1000 - $0)) } ?? 0 : 0
             let ended = turnEnded[chat.session]
             let ask = CloudAutoSignals.Chat(at: chat.onCloud ? "cloud" : "local", movedByAuto: place.autoMoved.contains(chat.session),
-                                            turnRunning: chat.turnRunning, turnMs: turnMs, queued: 0,
+                                            turnRunning: chat.turnRunning, turnMs: turnMs, queued: chat.queued,
                                             idleMs: chat.turnRunning ? 0 : ended.map { nowMs &- $0 } ?? now.idleMs ?? 0,
                                             moving: chat.moving || place.isMoving(chat.session))
             guard let answer = signals.decide(ask, signals: now) else { continue }
