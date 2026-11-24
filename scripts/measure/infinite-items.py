@@ -802,6 +802,13 @@ def run_count(args, count):
             s.update(day=number, turns=turns, seconds=spent)
             result["samples"].append(s)
             log(f"N={count} day {number} ({spent} s, {turns} turns): {json.dumps(s['total'])}")
+        # --tail-windows K: K more idle windows after the last day, back to back, so a cost that is the day's
+        # aftermath (it decays) reads apart from one that stays (an idle item's standing cost).
+        for k in range(1, args.tail_windows + 1):
+            t = idle_window(run.top, args.window, run.disks)
+            result.setdefault("tail", []).append(t)
+            woke = {role: r.get("thread_wakeups", {}) for role, r in t["roles"].items() if r.get("wakeups_per_s")}
+            log(f"N={count} tail {k}: {json.dumps(t['total'])} woke={json.dumps(woke)} disk={json.dumps(t['disk'])}")
     finally:
         result["errors"] = run.errors
         run.stop()
@@ -917,8 +924,12 @@ def main():
     p.add_argument("--park-idle", action="store_true",
                    help="park every tab of the run's workspaces after the open and each day (park-tabs), as the app's "
                         "freeing tier does to hibernated workspaces when workspaces.freeing is on (off by default)")
+    p.add_argument("--tail-windows", type=int, default=0,
+                   help="idle windows sampled back to back after the last day (INFINITE tail lines)")
     p.add_argument("--out")
     args = p.parse_args()
+    # Binaries given relative to the caller's folder still resolve once the daemons run elsewhere.
+    args.acpmux, args.tui = os.path.abspath(args.acpmux), os.path.abspath(args.tui)
     global ARGS
     ARGS = args
     for path in (args.acpmux, args.tui):
