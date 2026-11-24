@@ -145,6 +145,7 @@ if args[:1] == ['move'] and args[2:4] == ['--to', 'vm:m-fake']:
         sys.exit(1)
     done = subprocess.run([{bin}, '--json', 'session', 'move', args[1], '--machine', 'target',
                            '--carry-changes', '--cwd', {arrive}], capture_output=True, text=True)
+    sys.stdout.write(done.stdout)
     sys.stderr.write(done.stderr)
     sys.exit(done.returncode)
 if args[:2] == ['cloud', 'pause-machine']:
