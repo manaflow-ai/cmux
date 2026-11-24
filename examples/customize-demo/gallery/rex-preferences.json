@@ -1,0 +1,20 @@
+{
+  "cmuxProfile": 1,
+  "name": "setup-manaflow-ai-rex-preferences",
+  "description": "Background banners, an unread Dock count, agent activity on tabs, larger sidebar rows and 13-point terminal text.",
+  "created_ms": 0,
+  "settings": {
+    "notifications.desktop": "whenInactive",
+    "notifications.dockBadge": true,
+    "appearance.statusIndicator.showAgentWorkingOnTabs": true,
+    "notifications.attention.showOnTab": true,
+    "sidebar.textSize": "large",
+    "terminal.fontSize": 13
+  },
+  "files": {},
+  "x-setup": {
+    "id": "manaflow-ai/rex-preferences",
+    "name": "Rex Preferences",
+    "source": "looks/rex/preferences"
+  }
+}

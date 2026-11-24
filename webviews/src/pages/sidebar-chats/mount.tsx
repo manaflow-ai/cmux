@@ -69,6 +69,8 @@ export function mountSidebarChats(
   // Whether a slice from `surface` (null: the old wire, which names none) may window a block of `part`.
   const windows = (surface: string | null, part: SidebarChatsBlock["part"]) =>
     surface === null ? !generic.has(sliceSurface(part)) : surface === sliceSurface(part);
+  // A slice naming a block not drawn yet; it windows only a block with exactly its revision, if that comes next.
+  let early: SidebarChatsSlice | null = null;
   let cancelReady: (() => void) | null = null;
 
   const send = (op: string, params: Record<string, unknown>) => {

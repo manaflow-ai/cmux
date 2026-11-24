@@ -1,5 +1,6 @@
 public import CmuxNextDaemon
 import Foundation
+import Observation
 import os
 
 /// The store's records (``AgentTurnStateStore/sessions``): only the watch's writes make one, a read of
@@ -21,16 +22,22 @@ extension AgentTurnStateStore {
         let record = Session()
         record.lastWrite = writes
         sessions[session] = record
-        recordsMade &+= 1
+        // Only the readers that waited for this session hear it (``awaited``), never every record-less reader.
+        if let signal = awaited.removeValue(forKey: session) { signal.made &+= 1 }
         if sessions.count > recordCap { dropIdleRecords() }
         return record
     }
 
-    /// The record of `session` for a read; nil when there is none, after observing
-    /// ``recordsMade`` so the reader reads again once the watch writes one.
+    /// The record of `session` for a read; nil when there is none, after observing that session's own signal
+    /// (``awaited``) so the reader reads again once the watch writes it, and on no other session's first write.
     func existing(_ session: String) -> Session? {
         if let record = sessions[session] { return record }
-        _ = recordsMade
+        let signal = awaited[session] ?? {
+            let made = AgentTurnRecordSignal()
+            awaited[session] = made
+            return made
+        }()
+        _ = signal.made
         return nil
     }
 
@@ -57,6 +64,7 @@ extension AgentTurnStateStore {
     private func forget(_ id: String) {
         guard let record = sessions.removeValue(forKey: id) else { return }
         if record.state != nil {
+            if record.state == .working { workingSessions -= 1 } // the count stays this Mac's working records
             record.state = nil
             stateRevision &+= 1
         }
@@ -65,6 +73,10 @@ extension AgentTurnStateStore {
         if record.title != nil { record.title = nil }
         if record.generatedTitle != nil { record.generatedTitle = nil }
         if record.sessionName != nil { record.sessionName = nil }
+        if record.identity != nil {
+            record.identity = nil
+            record.iconArt = nil
+        }
         if record.detail != nil { record.detail = nil }
         if !record.peers.isEmpty { record.peers = [:] }
     }
@@ -124,6 +136,22 @@ extension AgentTurnStateStore {
     /// The chat's real title, excluding its session name and first prompt.
     public func generatedTitle(for ref: AgentSessionRef) -> String? { local(ref)?.generatedTitle }
 
+    /// The name given to the session `ref` shows (acpmux `displayName`); nil when none was, or off this Mac.
+    public func displayName(for ref: AgentSessionRef) -> String? { local(ref)?.identity?.displayName }
+
+    /// The name that session had just before its current one (the newest of `formerNames`).
+    public func formerName(for ref: AgentSessionRef) -> String? { local(ref)?.identity?.formerName }
+
+    /// The icon that session set for itself, drawn once per icon (``HarnessIconArtwork/art(_:)``, the harness
+    /// icons' drawing); nil when it set none or cannot be drawn.
+    func iconArt(for ref: AgentSessionRef) -> HarnessIconLookup.Art? {
+        guard let record = local(ref), let spec = record.identity?.icon else { return nil }
+        if let drawn = record.iconArt { return drawn }
+        let drawn = HarnessIconArtwork.art(spec)
+        record.iconArt = .some(drawn)
+        return drawn
+    }
+
     /// Whether the chat an agent chat tab shows has its notifications muted; nil when
     /// the chat is not on this Mac (its acpmux runs elsewhere) or not known yet.
     public func isMuted(_ ref: AgentSessionRef) -> Bool? { local(ref)?.muted }
@@ -134,6 +162,12 @@ extension AgentTurnStateStore.Session {
     /// nothing a reader sees.
     var isBlank: Bool {
         state == nil && peers.isEmpty && lastMessage == nil && !muted && title == nil && generatedTitle == nil
-            && sessionName == nil && detail == nil && startedBy == nil && timeline.events.isEmpty
+            && sessionName == nil && identity == nil && detail == nil && startedBy == nil && timeline.events.isEmpty
     }
+}
+
+/// Fires when one session gets its first record (``AgentTurnStateStore/awaited``).
+@Observable @MainActor
+final class AgentTurnRecordSignal {
+    var made: UInt64 = 0
 }

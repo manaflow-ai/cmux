@@ -45,8 +45,10 @@ private struct NoFiles: FileReading {
     func exists(_ url: URL) -> Bool { false }
 }
 
-private struct NoKeychain: KeychainProbing {
-    func hasGenericPassword(service: String) -> Bool { false }
+/// No Keychain item exists (a capture, and the App's fixture mode).
+public struct NoKeychain: KeychainProbing {
+    public init() {}
+    public func hasGenericPassword(service: String) -> Bool { false }
 }
 
 /// Provider detection must not probe a developer's loopback model servers.

@@ -24,6 +24,7 @@ cockpit, tiling, right-handed, focus, ide), start from
 | Idea | Place | Built on | Today |
 |---|---|---|---|
 | The time, the date and the weather | sidebar section | `cmux.timer`, `cmux.net.fetch` (Open-Meteo, no key) | Template `clock-weather` |
+| Widget cards in three sizes: clock, weather, calendar (your next events), to-do list | sidebar section, one per widget | `cmux.time.zone`, `cmux.net.fetch`, `cmux.system_calendar.events`, `cmux.storage` | Example `examples/extensions/widgets` (install.sh adds all four) |
 | Design links: Figma, FigJam, Linear, Notion, opened in a cmux tab beside the code | sidebar section | `cmux.storage`, `openBrowser` | Template `design-links` |
 | Buttons for the commands I run all day | sidebar section | `cmux.actions.run("cmuxConfig.<name>")` | Template `command-button` |
 | A scratch checklist | pane + sidebar row | `cmux.pane/1`, `cmux.storage` | Template `pane` |
@@ -43,7 +44,7 @@ cockpit, tiling, right-handed, focus, ide), start from
 | My agent chats as threads, needs-you first | sidebar section | `agent_chat.list`, `agent_chat.changed` | Template `threads` |
 | The tabs of the workspace I am in | sidebar section | `cmux.events.on("tab.changed")` | Template `sidebar-section` |
 | CI status of my branch, deploy status, on-call | sidebar section | `cmux.net.fetch` with `net:<host>`, `cmux.timer.every` | Buildable now |
-| Calendar: next meeting and a Join button | sidebar section | `cmux.net.fetch`, `openBrowser` | Buildable now (needs the person's own token) |
+| Calendar: my next events from the calendars on this Mac | sidebar section | `cmux.system_calendar.events`, `cmux.system_calendar.request_access` (scope `system_calendar:read`) | Example `examples/extensions/widget-calendar` |
 | Linear or Jira issues assigned to me | sidebar section | `cmux.net.fetch` | Buildable now |
 | A card under an agent's tool call (PR, deploy, poll) | agent chat, under the call | `cmux.chat.widget/1` (`options.tools` names the tools it answers) | Example `examples/extensions/pr-card`; the transcript drawing lands separately |
 

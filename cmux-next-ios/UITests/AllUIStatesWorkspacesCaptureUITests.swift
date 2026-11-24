@@ -14,7 +14,7 @@ final class AllUIStatesWorkspacesCaptureUITests: UIStateCaptureCase {
 
     @MainActor
     private static func openGrid(_ app: XCUIApplication) -> String? {
-        steps([{ openCmux(app) }, { pause(1.5); return tap(app.buttons["Tabs"].firstMatch, "Tabs button") }])
+        steps([{ openCmux(app) }, { tap(app.buttons["Tabs"].firstMatch, "Tabs button") }])
     }
 
     @MainActor
@@ -25,7 +25,7 @@ final class AllUIStatesWorkspacesCaptureUITests: UIStateCaptureCase {
             Scene(group: g, id: "list-scrolled", args: Self.list) { app in C.scrollDown(app, times: 2) },
             Scene(group: g, id: "list-compact", args: Self.list + ["-cmuxMobile.settings.compactWorkspaceList", "YES"]),
             Scene(group: g, id: "list-bare-rows", args: Self.list, env: ["CMUX_MOBILE_MOCK_BARE_ROWS": "1"]),
-            Scene(group: g, id: "list-200-rows", args: Self.list, env: ["CMUX_MOBILE_LIST_SCREEN": "workspaces", "CMUX_MOBILE_LIST_COUNT": "200", "CMUX_MOBILE_LIST_PASSES": "0"], settle: 4),
+            Scene(group: g, id: "list-200-rows", args: Self.list, env: ["CMUX_MOBILE_LIST_SCREEN": "workspaces", "CMUX_MOBILE_LIST_COUNT": "200", "CMUX_MOBILE_LIST_PASSES": "0"]),
             Scene(group: g, id: "offline-fold-expanded", args: Self.list) { app in
                 C.steps([{ C.scrollDown(app, times: 2) }, { C.tap(C.any(app, "workspaces.fold.mbp"), "offline Mac fold") }])
             },
@@ -48,22 +48,45 @@ final class AllUIStatesWorkspacesCaptureUITests: UIStateCaptureCase {
                 app.swipeDown()
                 return C.steps([{ C.showKeyboard(app, field: app.searchFields.firstMatch, "search field") }, { app.typeText("zzqqxx"); return nil }])
             },
-            Scene(group: g, id: "first-launch-loading", args: ["-cmux-mobile-demo", "retry-first-launch"], settle: 3),
-            Scene(group: g, id: "first-launch-offline", args: ["-cmux-mobile-demo", "retry-first-launch-offline"], settle: 3),
-            Scene(group: g, id: "first-launch-failed-offline", args: ["-cmux-mobile-demo", "retry-first-launch-failed"], settle: 3),
-            Scene(group: g, id: "load-failed-retry", args: ["-cmux-mobile-demo", "retry-workspaces"], settle: 3),
-            Scene(group: g, id: "refresh-failed-last-known", args: ["-cmux-mobile-demo", "retry-refresh-failed"], settle: 3),
-            Scene(group: g, id: "connect-mac", args: ["-cmux-mobile-demo", "connect-mac"], settle: 2.5),
-            Scene(group: g, id: "connect-mac-no-account", args: ["-cmux-mobile-demo", "connect-mac-no-account"], settle: 3),
-            Scene(group: g, id: "connect-mac-elsewhere", args: ["-cmux-mobile-demo", "connect-mac-elsewhere"], settle: 0,
+            Scene(group: g, id: "first-launch-loading", args: ["-cmux-mobile-demo", "retry-first-launch"]),
+            Scene(group: g, id: "first-launch-offline", args: ["-cmux-mobile-demo", "retry-first-launch-offline"]),
+            Scene(group: g, id: "first-launch-failed-offline", args: ["-cmux-mobile-demo", "retry-first-launch-failed"]),
+            Scene(group: g, id: "load-failed-retry", args: ["-cmux-mobile-demo", "retry-workspaces"]),
+            Scene(group: g, id: "refresh-failed-last-known", args: ["-cmux-mobile-demo", "retry-refresh-failed"]),
+            // keep: the connect-mac demo's first step; it moves on at about 6 s.
+            Scene(group: g, id: "connect-mac", args: ["-cmux-mobile-demo", "connect-mac"], ready: .clock(2.5)),
+            Scene(group: g, id: "connect-mac-no-account", args: ["-cmux-mobile-demo", "connect-mac-no-account"]),
+            Scene(group: g, id: "connect-mac-elsewhere", args: ["-cmux-mobile-demo", "connect-mac-elsewhere"],
                   frames: [("connect-mac-other-team", 3.5), ("switched-team", 8.5)]),
             Scene(group: g, id: "new-workspace-menu", args: Self.list) { app in
                 C.longPress(C.any(app, "workspaces.new"), "New Workspace button")
             },
+            // Its submenus (2026-11-18 reorganize): each folder list once, behind one row.
+            Scene(group: g, id: "new-workspace-menu-live-mac", args: Self.list + ["-cmux-mobile-agent-chats"]) { app in
+                C.longPress(C.any(app, "workspaces.new"), "New Workspace button")
+            },
+            Scene(group: g, id: "new-workspace-menu-agent-chat", args: Self.list + ["-cmux-mobile-agent-chats"]) { app in
+                C.steps([
+                    { C.longPress(C.any(app, "workspaces.new"), "New Workspace button") },
+                    { C.tap(C.any(app, "workspaces.newAgentChatOn"), "New Agent Chat") },
+                ])
+            },
+            Scene(group: g, id: "new-workspace-menu-open-recent", args: Self.list) { app in
+                C.steps([
+                    { C.longPress(C.any(app, "workspaces.new"), "New Workspace button") },
+                    { C.tap(C.any(app, "workspaces.openRecent"), "Open Recent") },
+                ])
+            },
+            Scene(group: g, id: "new-workspace-menu-agent-workspace", args: Self.list) { app in
+                C.steps([
+                    { C.longPress(C.any(app, "workspaces.new"), "New Workspace button") },
+                    { C.tap(C.any(app, "workspaces.newAgentWorkspace"), "New Agent Workspace") },
+                ])
+            },
             Scene(group: g, id: "new-workspace-creating", args: Self.list + ["-cmux-mobile-mock-create-delay", "60"]) { app in
                 C.tap(C.any(app, "workspaces.new"), "New Workspace button")
             },
-            Scene(group: g, id: "workspace-new-demo", args: ["-cmux-mobile-demo", "workspace-new"], settle: 0,
+            Scene(group: g, id: "workspace-new-demo", args: ["-cmux-mobile-demo", "workspace-new"],
                   frames: [("new-workspace-pushed", 4.5), ("new-menu-held", 8.5), ("refused-toast", 22.5)]),
             Scene(group: g, id: "open-folder-alert", args: Self.list) { app in
                 C.steps([
@@ -133,9 +156,10 @@ final class AllUIStatesWorkspacesCaptureUITests: UIStateCaptureCase {
     func testWorkspacePage() {
         let g = "6 Workspace page and tabs"
         capture([
-            Scene(group: g, id: "agent-tab", args: ["-cmux-mobile-demo", "kbd-tab"], settle: 5),
+            Scene(group: g, id: "agent-tab", args: ["-cmux-mobile-demo", "kbd-tab"]),
             Scene(group: g, id: "tabs-grid", args: Self.list) { app in Self.openGrid(app) },
-            Scene(group: g, id: "tabs-grid-terminal-cards", args: ["-cmux-mobile-demo", "ws-terminal-card"], settle: 14),
+            // keep: a moment inside the ws-terminal-card demo, which runs about 16 s.
+            Scene(group: g, id: "tabs-grid-terminal-cards", args: ["-cmux-mobile-demo", "ws-terminal-card"], ready: .clock(14)),
             Scene(group: g, id: "card-context-menu", args: Self.list) { app in
                 C.steps([{ Self.openGrid(app) }, { C.longPress(app.buttons.matching(NSPredicate(format: "label ENDSWITH ', tab'")).firstMatch, "a tab card") }])
             },
@@ -159,30 +183,32 @@ final class AllUIStatesWorkspacesCaptureUITests: UIStateCaptureCase {
             },
             Scene(group: g, id: "refused-tab-toast", args: Self.list + ["-cmux-mobile-toast-demo"]) { app in Self.openCmux(app) },
             Scene(group: g, id: "page-menu", args: Self.list) { app in
-                C.steps([{ Self.openCmux(app) }, { C.pause(1.5); return C.tap(app.buttons["Page Menu"].firstMatch, "Page Menu") }])
+                C.steps([{ Self.openCmux(app) }, { C.tap(app.buttons["Page Menu"].firstMatch, "Page Menu") }])
             },
             Scene(group: g, id: "rename-tab-alert", args: Self.list) { app in
-                C.steps([{ Self.openCmux(app) }, { C.pause(1.5); return C.tap(app.buttons["Page Menu"].firstMatch, "Page Menu") },
+                C.steps([{ Self.openCmux(app) }, { C.tap(app.buttons["Page Menu"].firstMatch, "Page Menu") },
                          { C.tap(C.label(app, contains: "Rename Tab"), "Rename Tab…") }])
             },
             Scene(group: g, id: "move-tab-sheet", args: Self.list) { app in
-                C.steps([{ Self.openCmux(app) }, { C.pause(1.5); return C.tap(app.buttons["Page Menu"].firstMatch, "Page Menu") },
+                C.steps([{ Self.openCmux(app) }, { C.tap(app.buttons["Page Menu"].firstMatch, "Page Menu") },
                          { C.tap(C.label(app, contains: "Move Tab to Workspace"), "Move Tab to Workspace…") }])
             },
             Scene(group: g, id: "command-palette", args: Self.list) { app in
-                C.steps([{ Self.openCmux(app) }, { C.pause(1.5); return C.tap(app.buttons["Page Menu"].firstMatch, "Page Menu") },
+                C.steps([{ Self.openCmux(app) }, { C.tap(app.buttons["Page Menu"].firstMatch, "Page Menu") },
                          { C.tap(C.label(app, contains: "Command Palette"), "Command Palette…") }])
             },
-            Scene(group: g, id: "workspaces-reopen-demo", args: ["-cmux-mobile-demo", "workspaces-reopen"], settle: 0,
+            Scene(group: g, id: "workspaces-reopen-demo", args: ["-cmux-mobile-demo", "workspaces-reopen"],
                   frames: [("reopened-last-tab", 4.5), ("grid-open", 7.0)]),
-            Scene(group: g, id: "workspaces-tour", args: ["-cmux-mobile-demo", "workspaces"], settle: 0,
+            Scene(group: g, id: "workspaces-tour", args: ["-cmux-mobile-demo", "workspaces"],
                   frames: [("chat-sending", 7.0), ("chat-answered", 11.5), ("grid-from-chat", 13.5), ("browser-docs-tab", 21.0)]),
-            Scene(group: g, id: "new-claude-workspace-empty", args: ["-cmux-mobile-demo", "kbd-empty"], settle: 6),
-            Scene(group: g, id: "new-workspace-creating-pushed", args: ["-cmux-mobile-demo", "kbd-new", "-cmux-mobile-mock-create-delay", "60"], settle: 4),
+            Scene(group: g, id: "new-claude-workspace-empty", args: ["-cmux-mobile-demo", "kbd-empty"]),
+            Scene(group: g, id: "new-workspace-creating-pushed", args: ["-cmux-mobile-demo", "kbd-new", "-cmux-mobile-mock-create-delay", "60"]),
+            // keep: the toast shows for a while then goes; no marker for its moment.
             Scene(group: g, id: "deep-link-unknown-toast", args: ["-cmux-mobile-tab", "home", "-cmux-mobile-no-restore"],
-                  env: ["CMUX_MOBILE_OPEN_URL": "cmux://tab/tab_ffffffffffffffffffffffffffffffff"], settle: 4),
+                  env: ["CMUX_MOBILE_OPEN_URL": "cmux://tab/tab_ffffffffffffffffffffffffffffffff"], ready: .clock(4)),
+            // keep: the deep link opens on the app's launch clock, with no marker.
             Scene(group: g, id: "deep-link-tab", args: ["-cmux-mobile-tab", "home", "-cmux-mobile-no-restore"],
-                  env: ["CMUX_MOBILE_OPEN_URL": "cmux-dev://workspace/ws_00000000000000000000000000000002"], settle: 5),
+                  env: ["CMUX_MOBILE_OPEN_URL": "cmux-dev://workspace/ws_00000000000000000000000000000002"], ready: .clock(5)),
         ])
     }
 }
