@@ -53,6 +53,9 @@ jobs:
       tool: ${{ steps.plan.outputs.tool }}
       web: ${{ steps.plan.outputs.web }}
       base: ${{ steps.plan.outputs.base }}
+      # The base's web byte counts from its published bundles (R2), when feat-cmux-next's own push already built
+      # them; empty on a miss, and web-base builds the base as before.
+      base_bytes: ${{ steps.base-bytes.outputs.bytes }}
     steps:
       # Blobless and sparse to the paths web-bundle-key.py reads (the same list web-base uses): the
       # plan reads git objects and the web inputs only, and a full checkout of both commits was most
@@ -101,12 +104,44 @@ jobs:
           else
             echo "web=true" >> "$GITHUB_OUTPUT"
           fi
+          # The base's source key, as cmux-next.yml's web-bundles job computes it on the feat-cmux-next push
+          # that publishes the bundles under it (cmux-next-web-bundles-v1-<key>, R2 namespace `any`).
+          echo "base_key=$(python3 -I "$RUNNER_TEMP/base/scripts/cmux-next/web-bundle-key.py" "$RUNNER_TEMP/base" --source)" >> "$GITHUB_OUTPUT"
+
+      # The base is a feat-cmux-next commit, and its push run already built and published its web bundles: read
+      # them instead of building the base again on every pull request head (6,626 runner-min a day on
+      # 2026-11-22..23 for web-base, 4.9 min each; 8 of 12 sampled base commits were in R2). Only feat-cmux-next
+      # pushes write that store (environment next-cache-writer). A miss or any failure leaves base_bytes empty.
+      - name: The base's published web bundles
+        id: base-bundles
+        if: ${{ steps.plan.outputs.web == 'true' && steps.plan.outputs.base_key != '' && (vars.CMUX_SIZE_BUDGET_BASE_FROM_R2 || '1') != '0' }}
+        continue-on-error: true
+        timeout-minutes: 4
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          CI_CACHE_R2_NAMESPACE: any
+        with:
+          backend: r2
+          path: ${{ runner.temp }}/base-web
+          key: cmux-next-web-bundles-v1-${{ steps.plan.outputs.base_key }}
+
+      - name: The base's web bytes from them
+        id: base-bytes
+        if: ${{ steps.base-bundles.outputs.cache-hit == 'true' }}
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          # The base's counter, as web-base runs it on its own build.
+          bytes="$(python3 -I "$RUNNER_TEMP/base/scripts/cmux-next/bundle-size-pr.py" web-bytes "$RUNNER_TEMP/base-web")"
+          echo "bytes=$bytes" >> "$GITHUB_OUTPUT"
 
   # The two web builds: each in its own job, from its own commit, handing over only byte counts.
   web-base:
     name: cmux-next size budget (web, base)
     needs: plan
-    if: ${{ needs.plan.outputs.tool == 'true' && needs.plan.outputs.web == 'true' }}
+    # Only when plan found no published bundles of the base.
+    if: ${{ needs.plan.outputs.tool == 'true' && needs.plan.outputs.web == 'true' && needs.plan.outputs.base_bytes == '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 20
     permissions:
@@ -262,7 +297,8 @@ jobs:
           WEB: ${{ needs.plan.outputs.web }}
           WEB_BASE_RESULT: ${{ needs.web-base.result }}
           WEB_HEAD_RESULT: ${{ needs.web-head.result }}
-          WEB_BASE: ${{ needs.web-base.outputs.bytes }}
+          WEB_BASE: ${{ needs.plan.outputs.base_bytes || needs.web-base.outputs.bytes }}
+          WEB_BASE_FROM_PLAN: ${{ needs.plan.outputs.base_bytes != '' }}
           WEB_HEAD: ${{ needs.web-head.outputs.bytes }}
           BODY: ${{ github.event.pull_request.body }}
         run: |
@@ -271,6 +307,8 @@ jobs:
             echo "The base has no size budget yet; nothing to check."
             exit 0
           fi
+          # The base's counts came from plan (its published bundles) when web-base was skipped for them.
+          [[ "$WEB_BASE_FROM_PLAN" == true && "$WEB_BASE_RESULT" == skipped ]] && WEB_BASE_RESULT=success
           if [[ "$WEB" == true && ( "$WEB_BASE_RESULT" != success || "$WEB_HEAD_RESULT" != success ) ]]; then
             echo "::error title=Bundle size not measured::a web build failed (base: $WEB_BASE_RESULT, head: $WEB_HEAD_RESULT)"
             exit 2

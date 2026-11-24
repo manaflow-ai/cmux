@@ -9,6 +9,8 @@ name: chat-open perf report
 
 on:
   pull_request:
+    # ready_for_review: a draft head waits (the draft cheap tier, scripts/ci/head_tier.py), so readying it measures.
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - "webviews/src/agent-session/**"
       - "webviews/bench/**"
@@ -21,11 +23,6 @@ on:
 
 permissions:
   contents: read
-
-concurrency:
-  group: chat-open-perf-report-${{ github.event.pull_request.number || github.ref }}
-  # A pull request measures only its newest head. A branch keeps the running push and the newest one waiting.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
@@ -40,10 +37,57 @@ env:
   OPENS: "2"
 
 jobs:
+  # CI cut (goal ci-runner-min-per-day-10k; Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time,
+  # period."): 18.0k runner-min on 11-23T18..11-24T18, 1,349 of 1,380 runs on pull requests, 2.3 runs a PR. The
+  # `paths` filter reads the whole pull request's diff, so every later push of a PR that once touched the chat pane
+  # measured again, though most of those pushes changed nothing measured. This job asks GitHub for the push's own
+  # files (one compare call, no checkout) and measures only when the push changed a measured path; otherwise the
+  # previous head's report stands for this one. A draft head waits for ready_for_review. Every other event measures.
+  changed:
+    name: chat-open perf report (does this push change the chat pane?)
+    if: ${{ github.event_name == 'pull_request' && format('{0}', vars.CMUX_CHAT_OPEN_PR_REPORT) != 'off' && !github.event.pull_request.draft }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    timeout-minutes: 3
+    outputs:
+      measure: ${{ steps.push.outputs.measure }}
+    steps:
+      - name: The push's own files
+        id: push
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTION: ${{ github.event.action }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -uo pipefail
+          # Only a push (synchronize) has a previous head to reuse; opened, reopened and ready_for_review measure.
+          if [[ "$ACTION" != synchronize || ! "$BEFORE" =~ ^[0-9a-f]{40}$ || ! "$AFTER" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "measure=true" >> "$GITHUB_OUTPUT"; echo "$ACTION: measure"; exit 0
+          fi
+          # Files changed from merge-base(before, after) to after: a base merged in counts its own files, a force push
+          # every file since the fork point, so this errs toward measuring. 300 files is the API's page; at it, measure.
+          if ! files="$(gh api "repos/$GITHUB_REPOSITORY/compare/$BEFORE...$AFTER" --jq '.files[].filename')"; then
+            echo "measure=true" >> "$GITHUB_OUTPUT"; echo "compare failed: measure"; exit 0
+          fi
+          n="$(printf '%s\n' "$files" | grep -c . || true)"
+          if (( n >= 300 )) || printf '%s\n' "$files" | grep -Eq '^(webviews/src/agent-session/|webviews/bench/|\.github/workflows/chat-open-perf-report\.yml$)'; then
+            echo "measure=true" >> "$GITHUB_OUTPUT"; echo "the push changes a measured path ($n files): measure"
+          else
+            echo "measure=false" >> "$GITHUB_OUTPUT"
+            echo "the push changes no measured path ($n files): the previous head's report stands"
+            echo "No chat-pane change since ${BEFORE:0:12}: that head's chat-open report stands for ${AFTER:0:12}." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   report:
     name: chat-open p50/p95 (report only)
+    needs: changed
     # vars.CMUX_CHAT_OPEN_PR_REPORT = 'off' skips the pull request run (the nightly-next push still measures it); unset keeps it.
-    if: ${{ github.event_name != 'pull_request' || format('{0}', vars.CMUX_CHAT_OPEN_PR_REPORT) != 'off' }}
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changed.outputs.measure == 'true') }}
+    # On the measuring job, not the workflow: a push that measures nothing never cancels the head still being measured.
+    concurrency:
+      group: chat-open-perf-report-${{ github.event.pull_request.number || github.ref }}
+      # A pull request measures only its newest head. A branch keeps the running push and the newest one waiting.
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     # The Linux pool ci-web.yml uses; base and head run in this one job, so on one runner.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 75
@@ -185,6 +229,31 @@ jobs:
               out.append(f"**The bench crashed or did not finish (status {status}).** The check passes anyway; "
                          "the log is in the step above and the `chat-open-perf` artifact.")
           series = []
+          # A side with no rows: name its first error from the per-open logs (a head that does not build, a page
+          # that never attaches), so the summary and NOW say why instead of "crashed or did not run".
+          ansi = re.compile(r"\x1b\[[0-9;]*m")
+          for side, label in (("before", "base"), ("after", "head")):
+              if any((side, f) in rows for f in ("small", "god")):
+                  continue
+              first = ""
+              for name in sorted(os.listdir(f"{tmp}/chat-open/logs")) if os.path.isdir(f"{tmp}/chat-open/logs") else []:
+                  if not name.startswith(side + "-"):
+                      continue
+                  try:
+                      lines = [ansi.sub("", l).strip() for l in open(f"{tmp}/chat-open/logs/{name}", errors="replace")]
+                  except OSError:
+                      continue
+                  hits = [l for l in lines if re.search(r"\b\w*Error\b:|\berror:|\bTimeout\b", l)]
+                  # The most specific line: one naming a source file, else the first error line.
+                  first = next((l for l in hits if re.search(r"\.(tsx?|jsx?|mjs):", l)), hits[0] if hits else "")
+                  if first:
+                      first = re.sub(r"/home/runner/work/[^/]+/[^/]+/", "", first)[:300]
+                      break
+              if first:
+                  out.append(f"**No {label} rows:** `{first}`")
+                  series.append({"series": f"chat_open.error.{label}@{klass}", "runner_class": klass,
+                                 "side": label, "error": first, "base_sha": base, "head_sha": head,
+                                 "event": os.environ.get("GITHUB_EVENT_NAME"), "ref": os.environ.get("GITHUB_REF")})
           if rows:
               out += ["", "| fixture | n | base p50 | head p50 | p50 delta | base p95 | head p95 | p95 delta | reads as |",
                       "|---|---|---|---|---|---|---|---|---|"]

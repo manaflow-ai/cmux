@@ -4,12 +4,10 @@ name: CI compile attribution
 # author and merger with the exact compiler errors, and fix forward (or open a
 # revert). Nothing here gates or slows a merge: it all happens after one.
 #
-# The compile itself is seed-derived-data.yml, which already builds every
-# push's app-host test product (the app and cmuxTests, build-for-testing) on
-# the trusted warm minis and Blacksmith. Its first seed job whose Build fails
-# dispatches this workflow at once; its completion, and each
-# main-compile-probe.yml completion, runs it again. Every run re-derives the
-# state from main's head, so a missed or duplicate trigger is harmless.
+# The compile is main-compile-probe.yml (this branch's copy of
+# seed-derived-data.yml went in #53395: it cannot fire off main); each of its
+# completions runs this. Every run re-derives the state from main's head, so a
+# missed or duplicate trigger is harmless.
 #
 #   analyze   read-only: the newest known compile, and where each of its
 #             errors first appeared (scripts/ci/main_compile_attribution.py)
@@ -23,7 +21,7 @@ name: CI compile attribution
 #             of a confirmed culprit, labeled compile-revert, for a person.
 on:
   workflow_run:
-    workflows: ["Seed DerivedData", "Main compile probe"]
+    workflows: ["Main compile probe"]
     types: [completed]
     branches: [main]
   workflow_dispatch:
@@ -41,7 +39,7 @@ on:
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
   BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
-  SOURCE_WORKFLOW_PATHS: .github/workflows/seed-derived-data.yml .github/workflows/main-compile-probe.yml
+  SOURCE_WORKFLOW_PATHS: .github/workflows/main-compile-probe.yml
 
 permissions: {}
 
@@ -57,7 +55,7 @@ jobs:
     environment:
       name: ci-attribution-agent
       deployment: false
-    if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.head_branch == 'main' && contains(fromJSON('["push","workflow_dispatch"]'), github.event.workflow_run.event) && contains(fromJSON('[".github/workflows/seed-derived-data.yml",".github/workflows/main-compile-probe.yml"]'), github.event.workflow_run.path)) }}
+    if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.head_branch == 'main' && contains(fromJSON('["push","workflow_dispatch"]'), github.event.workflow_run.event) && github.event.workflow_run.path == '.github/workflows/main-compile-probe.yml') }}
     # Analysis only reads trusted main history and the Actions/PR APIs. It
     # needs no secret or write token, so use the shared Linux runner pool.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
