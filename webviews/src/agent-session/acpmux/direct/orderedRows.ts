@@ -504,6 +504,17 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     return from;
   }
 
+  /// The rows `spanningFrom` finds, each with its place: a shed that keeps some of them across its cut (direct.ts
+  /// `shedOlderHeld`) moves the cut back only for the others. O(changes from `seq` on).
+  spanningRows(seq: number): Map<string, number> {
+    const rows = new Map<string, number>();
+    for (let index = this.changeSeqs.length - 1; index >= 0 && this.changeSeqs[index]! >= seq; index -= 1) {
+      const order = this.changeOrders[index]!;
+      if (order < seq) rows.set(this.changeIds[index]!, order);
+    }
+    return rows;
+  }
+
   /// A full rebuild folds every record again from the start, noting each change again.
   forgetChanges(): void {
     this.changeSeqs = [];
