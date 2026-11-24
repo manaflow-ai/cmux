@@ -59,6 +59,8 @@ export interface Env {
   /** JSON {userId: {email, verified}} (primary project), {"<projectId>:<userId>": ...} for the others. */
   readonly STACK_TEST_EMAILS?: string
   readonly STACK_TEST_JWKS?: string
+  /** JSON [{urls, username?, credential?}]: lab STUN/TURN appended to GET /v1/ice (netlab). */
+  readonly STACK_TEST_ICE_SERVERS?: string
   /** JSON {userId: [teamId]} for primary-project users, {"<projectId>:<userId>": [teamId]} for the others; replaces Stack membership calls. */
   readonly STACK_TEST_TEAMS?: string
   /** A fake MySQL connection: the store is the MySQL store on it instead of the memory store (test/schema-probe.test.ts). */
