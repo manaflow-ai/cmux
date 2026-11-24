@@ -59,6 +59,14 @@ impl Gate {
         }
     }
 
+    /// When the gate lets its next probe go, while shut.
+    pub fn reopens_at(&self) -> Option<Instant> {
+        if !self.shut() {
+            return None;
+        }
+        *self.until.lock_or_recover()
+    }
+
     /// A post failed in a way that passes: shut it for the next window, or `retry_after` when the
     /// hub asked for longer.
     pub fn failed(&self, retry_after: Option<Duration>) {
@@ -131,6 +139,20 @@ mod tests {
         assert!(!gate.shut());
         assert!(opened.now_or_never().is_some(), "opening it wakes the waits armed before");
         assert!((0..10).all(|_| gate.may_try_at(at(10_001))));
+    }
+
+    #[tokio::test]
+    async fn an_answer_after_failing_wakes_every_send_waiting_behind_it() {
+        let gate = Gate::default();
+        gate.failed(Some(Duration::from_secs(30)));
+        assert!(gate.reopens_at().is_some());
+        let mut waits: Vec<_> = (0..20).map(|_| Box::pin(gate.opened.notified())).collect();
+        for w in &mut waits {
+            w.as_mut().enable();
+        }
+        gate.answered();
+        assert!(gate.reopens_at().is_none());
+        assert!(waits.into_iter().all(|w| w.now_or_never().is_some()));
     }
 
     #[test]
