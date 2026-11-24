@@ -3,6 +3,17 @@
 // filled by `format`. strings.test.ts checks that every key has every required language.
 
 export const L = {
+  surge: "surge.title",
+  surgeDuration: "surge.duration",
+  surgeMinutes: "surge.minutes",
+  surgeMachineMinutes: "surge.machineMinutes",
+  surgePlacement: "surge.placement",
+  surgeSlot: "surge.slot",
+  surgeCreated: "surge.created",
+  surgeQueued: "surge.queued",
+  surgeRefused: "surge.refused",
+  surgePreview: "surge.preview",
+  surgeStart: "surge.start",
   envNetworkPending: "environment.networkPending",
   envTitle: "environment.title",
   envDefaultLocked: "environment.defaultLocked",

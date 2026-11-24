@@ -518,6 +518,59 @@ export const CloudSnapshotDelete = cloudMutation(
   true
 )
 
+export const SURGE_REQUEST_CAP = 8
+export const SurgeRequest = Schema.Struct({
+  count: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: SURGE_REQUEST_CAP })),
+  ttl_seconds: Schema.Int.check(Schema.isBetween({ minimum: 300, maximum: 3600 })),
+})
+export type SurgeRequest = typeof SurgeRequest.Type
+
+const SurgePreview = Schema.Struct({
+  ...SurgeRequest.fields,
+  provider: Schema.NullOr(Schema.String),
+  available: Schema.Boolean,
+  reason: Schema.String,
+  estimated_cost_usd: Schema.NullOr(Schema.Number),
+}).annotate({ identifier: "CloudSurgePreview" })
+
+const SurgeSlot = Schema.Struct({
+  index: Schema.Int,
+  status: Schema.Literals(["created", "queued", "refused"]),
+  machine_id: Schema.NullOr(MachineId),
+  provider: Schema.NullOr(Schema.String),
+  reason: Schema.String,
+  retryable: Schema.Boolean,
+}).annotate({ identifier: "CloudSurgeSlot" })
+export type SurgeSlot = typeof SurgeSlot.Type
+
+const SurgeReceipt = Schema.Struct({
+  ...SurgeRequest.fields,
+  slots: Schema.Array(SurgeSlot),
+}).annotate({ identifier: "CloudSurgeReceipt" })
+
+export const CloudSurgePreview = cloudRead(
+  "cloud.surge.preview",
+  SurgeRequest,
+  SurgePreview,
+  [],
+  "Estimate a bounded Cloud capacity burst at the current running list rate and report whether the team can request it.",
+  "cloud surge preview",
+)
+
+export const CloudSurgeCreate = {
+  ...cloudMutation(
+    "cloud.surge.create",
+    "money",
+    SurgeRequest,
+    SurgeReceipt,
+    ["cloud.surge.unavailable", "cloud.surge.capacity"],
+    "Request an expiring burst through the team's Cloud provider. Each slot reports whether its create was accepted.",
+    "cloud surge create",
+    true,
+  ),
+  principals: ["session"] as const,
+}
+
 export const CloudPlanGet = cloudRead("cloud.plan.get", Schema.Struct({}), CloudPlan, [], "The team's plan: limits and usage this period. Read from the billing owner, never from a request.", "cloud plan get")
 export const CloudBillingCheckout = cloudMutation(
   "cloud.billing.checkout",
@@ -636,6 +689,8 @@ export const cloudMachineOps = [
   CloudSnapshotRestore,
   CloudSnapshotDelete,
   CloudPlanGet,
+  CloudSurgePreview,
+  CloudSurgeCreate,
   CloudBillingCheckout,
   CloudShellOpen,
   CloudMigrationStatus,
