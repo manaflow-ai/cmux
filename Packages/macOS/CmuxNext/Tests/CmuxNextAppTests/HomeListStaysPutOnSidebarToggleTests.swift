@@ -40,7 +40,7 @@ import Testing
         window.contentView = root
         split.frame = root.bounds
         root.addSubview(split)
-        split.setWidth(320)
+        split.setWidth(HomeSidebarWidth.standard)
         TrafficLightsLine.apply(in: window)
         settle(home, split)
         let hidden = frames(window, home)

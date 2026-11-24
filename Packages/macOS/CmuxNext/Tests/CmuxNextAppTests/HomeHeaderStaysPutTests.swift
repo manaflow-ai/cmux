@@ -37,7 +37,7 @@ import Testing
         window.titlebarAppearsTransparent = true
         defer { window.close() }
         window.contentView = split
-        split.setWidth(320)
+        split.setWidth(HomeSidebarWidth.standard)
         // As the root view's layout does: the lights on the top row's line, then Home lays out under them.
         TrafficLightsLine.apply(in: window)
         settle(home, split)
@@ -106,7 +106,7 @@ import Testing
         window.titlebarAppearsTransparent = true
         defer { window.close() }
         window.contentView = split
-        split.setWidth(320)
+        split.setWidth(HomeSidebarWidth.standard)
         TrafficLightsLine.apply(in: window)
         settle(home, split)
         let rest = home.header

@@ -55,7 +55,7 @@ import Testing
         window.contentView = split
         window.nameStandardWindowButtons() // as `install(kind:)` does for every cmux window
         split.layoutSubtreeIfNeeded()
-        split.setWidth(320)
+        split.setWidth(HomeSidebarWidth.standard)
         split.layoutSubtreeIfNeeded()
         home.list.headerView.needsLayout = true
         home.list.headerView.layoutSubtreeIfNeeded()
