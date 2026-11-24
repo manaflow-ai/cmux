@@ -167,13 +167,10 @@ pub fn sleep_seconds(command: &str) -> Option<f64> {
 
 /// One GNU sleep duration: digits with at most one `.`, then at most one of `s m h d`.
 fn duration(word: &str) -> Option<f64> {
-    let (number, unit) = match word.as_bytes().last()? {
-        b's' => (&word[..word.len() - 1], 1.0),
-        b'm' => (&word[..word.len() - 1], 60.0),
-        b'h' => (&word[..word.len() - 1], 3600.0),
-        b'd' => (&word[..word.len() - 1], 86_400.0),
-        _ => (word, 1.0),
-    };
+    let (number, unit) = [('s', 1.0), ('m', 60.0), ('h', 3600.0), ('d', 86_400.0)]
+        .into_iter()
+        .find_map(|(suffix, unit)| word.strip_suffix(suffix).map(|number| (number, unit)))
+        .unwrap_or((word, 1.0));
     let plain = !number.is_empty()
         && number.bytes().all(|b| b.is_ascii_digit() || b == b'.')
         && number.bytes().filter(|b| *b == b'.').count() <= 1
