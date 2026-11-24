@@ -1,6 +1,7 @@
 // The fenced code card's styles inside Pierre's shadow root (HighlightedCode.tsx draws the card), kept
 // out of the component module so it hot-swaps.
 import { diffUnsafeCSS } from "../diffTheme";
+import { MORE_RIGHT } from "./sideways";
 
 /// Pierre's line height: a line of the card's body.
 const LINE_HEIGHT = 20;
@@ -23,6 +24,11 @@ pre, code, [data-code], [data-content], [data-line] { background: transparent !i
    it replaces is (StreamingCode.tsx), and the text under a closing fence does not move. */
 pre[data-file] { display: flow-root; }
 [data-code] { margin-bottom: calc(-1 * var(--diffs-scrollbar-gutter, 0px)); }
+/* With a look that sets --cv-code-edge-fade (conversation.css :root, style-tokens.json), a line
+   running past the card's right edge fades out there while more of it lies past (sideways.ts,
+   HighlightedCode.tsx watches the box), never a hard cut that reads as the line's end (a 720px
+   column, examples/looks/paper). With none, --cv-code-edge-mask is unset and the edge stays hard. */
+[data-code][${MORE_RIGHT}] { mask-image: var(--cv-code-edge-mask); }
 `;
 
 /// An unlabeled card's first line keeps room after its end for the actions floating over its corner

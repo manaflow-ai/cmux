@@ -18,6 +18,32 @@ pub(crate) fn open_registry_database(path: &Path) -> anyhow::Result<Connection> 
     open_registry_database_with_flags(path, OpenFlags::default()).map(registry_connection::hooked)
 }
 
+/// Resets the WAL of `connection`'s database to zero bytes after a delete
+/// a person asked for. With `secure_delete` on, the database file zeroes
+/// what a delete frees, but the WAL keeps every committed page version,
+/// the deleted text included, until the WAL is reset: an ordinary
+/// (passive) checkpoint copies pages back and leaves the old frames in the
+/// file. Never waits for another connection: false when one blocked it, and
+/// the caller tries again later. `busy_timeout` is restored to `restore`.
+pub(crate) fn truncate_wal_after_delete(
+    connection: &Connection,
+    restore: std::time::Duration,
+) -> anyhow::Result<bool> {
+    connection.busy_timeout(std::time::Duration::ZERO)?;
+    let result =
+        connection.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| row.get::<_, i64>(0));
+    connection.busy_timeout(restore)?;
+    match result {
+        Ok(busy) => Ok(busy == 0),
+        Err(rusqlite::Error::SqliteFailure(error, _))
+            if error.code == rusqlite::ErrorCode::DatabaseBusy =>
+        {
+            Ok(false)
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
 pub(crate) fn open_registry_database_read_only(path: &Path) -> anyhow::Result<Connection> {
     open_registry_database_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
 }

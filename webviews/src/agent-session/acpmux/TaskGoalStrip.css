@@ -114,7 +114,7 @@
   --acpmux-goal-line: 18px;
   --acpmux-goal-inset: var(--acpmux-tray-inset, var(--acpmux-composer-inset, 8px));
   --acpmux-goal-actions: calc(3 * var(--ds-control-icon) + 2 * var(--ds-space-1));
-  --acpmux-goal-radius: var(--acpmux-composer-radius, 11px);
+  --acpmux-goal-radius: var(--cmux-composer-hat-radius, var(--acpmux-composer-radius, 11px));
   /* The reference, frame-stepped: opens in about 200 ms on an ease-out quad, closes in about 110 ms
      on an ease-out cubic, no overshoot. Both scale with the motion token, so the motion gate's 0 ms
      and the app's animation speed apply. */

@@ -1,11 +1,12 @@
-/* A look's working dots on Jump to latest (JumpDots.tsx; agentPane.display.thinking.jumpButton "dots", off
-   by default), measured from Claude's desktop app at 10 fps: three dots in the accent, 2.4 px, one cycle
-   every 1350 ms. The ends rest big (1.35x) and spread (6.6 px from the middle) while the middle is
-   small; then, eased in and out, the ends draw in to 4.9 px and shrink (0.9x) as the middle swells
-   (1.25x), and back. Size and place move together; colour and opacity never change. The arrow takes the
-   cell back on hover and keyboard focus, and the dots go with the agent's work. Reduce Motion, the
-   static status look and the motion gate hold the dots still and even; a hidden page pauses them
-   (desktop.css); the button off screen (no `data-shown`) runs nothing. */
+/* A look's working dots on the live line and Jump to latest (agentPane.display.thinking.jumpButton "dots", off
+   by default), after Claude's desktop app: three dots in the accent, 2.4 px, that keep changing shape in
+   three stages per cycle (1800 ms; --cv-jump-dots-period). First a big middle (1.35x) between two small
+   ends (0.85x) drawn in to 4.9 px; then the ends grow (1.35x) and spread to 6.6 px while the middle shrinks
+   (0.85x); then all three pull back to even dots (1x, 5.6 px); then the big middle returns. Each stage holds
+   briefly and the moves between them ease in and out. Size and place move together; colour and opacity
+   never change. The arrow takes the cell back on hover and keyboard focus. Reduce Motion, the static status
+   look and the motion gate hold the dots still and even; a hidden page pauses them (desktop.css); the
+   button off screen (no `data-shown`) runs nothing. */
 .cv-jump-dots {
   --cv-jump-dot: 2.4px;
   position: relative;
@@ -29,139 +30,75 @@
 .cv-jump-dots__dot[data-dot="end"] {
   transform: translateX(5.6px);
 }
+.cv-jump-dots[data-inline] {
+  flex: 0 0 auto;
+  align-self: center;
+  margin-inline-end: var(--grid-gap);
+}
 .acpmux-jump-latest[data-working-dots]:not(:hover, :focus-visible) .acpmux-jump-latest__arrow,
 .acpmux-jump-latest[data-working-dots]:is(:hover, :focus-visible) .cv-jump-dots {
   opacity: 0;
 }
 @keyframes cv-jump-dots-start {
-  0% {
-    transform: translateX(-6.6px) scale(1.35);
-  }
-  25% {
-    transform: translateX(-6.6px) scale(1.35);
-  }
-  28% {
-    transform: translateX(-6.38px) scale(1.292);
-  }
-  31% {
-    transform: translateX(-5.75px) scale(1.125);
-  }
-  34% {
-    transform: translateX(-5.12px) scale(0.958);
-  }
-  37% {
-    transform: translateX(-4.9px) scale(0.9);
-  }
-  70% {
-    transform: translateX(-4.9px) scale(0.9);
-  }
-  73.75% {
-    transform: translateX(-5.12px) scale(0.958);
-  }
-  77.5% {
-    transform: translateX(-5.75px) scale(1.125);
-  }
-  81.25% {
-    transform: translateX(-6.38px) scale(1.292);
-  }
-  85% {
-    transform: translateX(-6.6px) scale(1.35);
-  }
+  0%,
+  8%,
   100% {
+    transform: translateX(-4.9px) scale(0.85);
+  }
+  33%,
+  41% {
     transform: translateX(-6.6px) scale(1.35);
+  }
+  67%,
+  75% {
+    transform: translateX(-5.6px) scale(1);
   }
 }
 @keyframes cv-jump-dots-middle {
-  0% {
-    transform: scale(1);
-  }
-  25% {
-    transform: scale(1);
-  }
-  28% {
-    transform: scale(1.032);
-  }
-  31% {
-    transform: scale(1.125);
-  }
-  34% {
-    transform: scale(1.218);
-  }
-  37% {
-    transform: scale(1.25);
-  }
-  70% {
-    transform: scale(1.25);
-  }
-  73.75% {
-    transform: scale(1.218);
-  }
-  77.5% {
-    transform: scale(1.125);
-  }
-  81.25% {
-    transform: scale(1.032);
-  }
-  85% {
-    transform: scale(1);
-  }
+  0%,
+  8%,
   100% {
+    transform: scale(1.35);
+  }
+  33%,
+  41% {
+    transform: scale(0.85);
+  }
+  67%,
+  75% {
     transform: scale(1);
   }
 }
 @keyframes cv-jump-dots-end {
-  0% {
-    transform: translateX(6.6px) scale(1.35);
-  }
-  25% {
-    transform: translateX(6.6px) scale(1.35);
-  }
-  28% {
-    transform: translateX(6.38px) scale(1.292);
-  }
-  31% {
-    transform: translateX(5.75px) scale(1.125);
-  }
-  34% {
-    transform: translateX(5.12px) scale(0.958);
-  }
-  37% {
-    transform: translateX(4.9px) scale(0.9);
-  }
-  70% {
-    transform: translateX(4.9px) scale(0.9);
-  }
-  73.75% {
-    transform: translateX(5.12px) scale(0.958);
-  }
-  77.5% {
-    transform: translateX(5.75px) scale(1.125);
-  }
-  81.25% {
-    transform: translateX(6.38px) scale(1.292);
-  }
-  85% {
-    transform: translateX(6.6px) scale(1.35);
-  }
+  0%,
+  8%,
   100% {
+    transform: translateX(4.9px) scale(0.85);
+  }
+  33%,
+  41% {
     transform: translateX(6.6px) scale(1.35);
+  }
+  67%,
+  75% {
+    transform: translateX(5.6px) scale(1);
   }
 }
 @media (prefers-reduced-motion: no-preference) {
-  /* motion-allow: a look's opt-in working mark; runs only while the button shows and the agent works. */
+  /* motion-allow: a look's opt-in working mark; runs only while the line or the shown button says the agent works. */
   :root:not([data-status-indicators="static"], [data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"])
-    .acpmux-jump-latest[data-shown]
+    :is(.cv-jump-dots[data-inline], .acpmux-jump-latest[data-shown] .cv-jump-dots) {
     .cv-jump-dots__dot[data-dot="start"] {
-    animation: cv-jump-dots-start var(--cv-jump-dots-period, 1350ms) linear infinite;
-  }
-  :root:not([data-status-indicators="static"], [data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"])
-    .acpmux-jump-latest[data-shown]
+      animation: cv-jump-dots-start var(--cv-jump-dots-period, 1800ms) var(--cmux-breath-ease) infinite var(--cv-jump-dot-play-state, running);
+    }
     .cv-jump-dots__dot[data-dot="middle"] {
-    animation: cv-jump-dots-middle var(--cv-jump-dots-period, 1350ms) linear infinite;
-  }
-  :root:not([data-status-indicators="static"], [data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"])
-    .acpmux-jump-latest[data-shown]
+      animation: cv-jump-dots-middle var(--cv-jump-dots-period, 1800ms) var(--cmux-breath-ease) infinite var(--cv-jump-dot-play-state, running);
+    }
     .cv-jump-dots__dot[data-dot="end"] {
-    animation: cv-jump-dots-end var(--cv-jump-dots-period, 1350ms) linear infinite;
+      animation: cv-jump-dots-end var(--cv-jump-dots-period, 1800ms) var(--cmux-breath-ease) infinite var(--cv-jump-dot-play-state, running);
+    }
+  }
+  .acpmux-jump-latest[data-working-dots]:is(:hover, :focus-visible) {
+    --cv-jump-dot-play-state: paused;
   }
 }

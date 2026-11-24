@@ -4,7 +4,8 @@
 import { useRef, useState, useSyncExternalStore, type KeyboardEvent, type MouseEvent } from "react";
 import { PageMenu, type PageMenuItem } from "../shared/PageMenu";
 import type { Strings } from "../shared/i18n";
-import { useLasting } from "../../ui/lasting";
+import { ConnectionChip } from "../../ui/ConnectionChip";
+import { useConnectionQuiet } from "../../ui/lasting";
 import { CookieBackupsPanel } from "./CookieBackups";
 import { KindIcon } from "./KindIcon";
 import {
@@ -52,10 +53,10 @@ export function HistoryPage({
   // Even when two native menus open before the first reply, each owns its own actions.
   const menuSession = useRef(0);
   const { t, language } = strings;
-  // A lost history owner shows nothing until it lasts past the grace (a launch, a daemon restart:
-  // the store re-reads once the link is back); then the disconnected line.
+  // A lost history owner keeps the rows it had and says so only once it lasts (a launch, a daemon
+  // restart: the store re-reads once the link is back), as a corner mark that takes no room.
   const down = snap.connection === "disconnected";
-  const downLasting = useLasting(down);
+  const downLasting = useConnectionQuiet(down);
   const flat = flatten(snap.groups);
 
   const open = (entry: HistoryEntry | undefined, newTab = false) => {
@@ -124,6 +125,13 @@ export function HistoryPage({
       run: () => store.setGrouping(grouping),
     }));
 
+  const rangeItems = (): PageMenuItem[] =>
+    HISTORY_RANGES.map((range) => ({
+      id: range,
+      label: t(RangeLabel[range]),
+      run: () => store.setRange(range),
+    }));
+
   const clearItems = (): PageMenuItem[] =>
     HISTORY_RANGES.map((range) => ({
       id: range,
@@ -138,6 +146,15 @@ export function HistoryPage({
         <div className="history-title-row">
           <h1 className="history-title">{t("page.title")}</h1>
           <div className="history-title-actions">
+            {/* How far back the list reaches; the search's `since:` and `before:` narrow it further. */}
+            <button
+              type="button"
+              className={`history-menu-button history-range${snap.range === "all" ? "" : " selected"}`}
+              disabled={snap.connection === "disconnected"}
+              onClick={(event) => headerMenu(event, rangeItems())}
+            >
+              {t(RangeLabel[snap.range])}
+            </button>
             <button
               type="button"
               className="history-menu-button"
@@ -195,8 +212,10 @@ export function HistoryPage({
       {snap.pending && !down && snap.groups.length > 0 ? (
         <output className="history-pending">{t("page.stillLoading")}</output>
       ) : null}
-      {down && !downLasting ? null : down ? (
-        <output className="history-empty">{t("page.disconnected")}</output>
+      {downLasting ? <ConnectionChip text={t("page.disconnected")} /> : null}
+      {down && snap.groups.length === 0 ? (
+        // Nothing read yet and the link is down: blank, and no false "No history" either.
+        <div className="history-empty" />
       ) : snap.groups.length === 0 && snap.pending ? (
         // A list that is not complete is never "No history": the page says so (a status region, as the
         // line above the rows is) and asks again by itself.
