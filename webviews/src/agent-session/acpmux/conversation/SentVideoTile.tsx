@@ -217,6 +217,8 @@ function Poster({ video, width, height }: { video: SentVideo; width: number; hei
   const { promptImage } = useContext(TurnActionsContext);
   const image = video.poster!;
   const shown = useStableImage(image.src ? { src: image.src } : { id: image.id, read: promptImage }, video);
+  // A poster never read (imageEntries.ts IMAGE_READ_MS) leaves the tile its plain slot with the play
+  // glyph: the video still plays; only its picture is missing.
   if (shown.src === undefined)
     return (
       <span
