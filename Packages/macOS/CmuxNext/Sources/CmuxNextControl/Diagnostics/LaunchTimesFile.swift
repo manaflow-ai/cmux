@@ -248,7 +248,7 @@ public nonisolated struct LaunchTimesRecord: Codable, Equatable, Sendable {
         "dfl.daemon_cloud_updater", "dfl.first_window_hooks", "dfl.home_history",
         "launch_snapshot_applied", "launch_snapshot_shown", "window.make_start", "window.init_done", "window.ordered_front",
         "dfl.windows", "did_finish_launching_end", "window.restore_wait_start", "window.restore_wait_end",
-        "frame.commit_start", "daemon_snapshot_loaded", "connecting_view_shown", "connecting_view_left", "workspace_content_shown",
+        "frame.commit_start", "window.display_done", "window.flush_done", "frame.window_update", "frame.window_expose", "frame.occlusion_visible", "frame.loop_1", "frame.loop_2", "frame.loop_3", "frame.loop_4", "daemon_snapshot_loaded", "connecting_view_shown", "connecting_view_left", "workspace_content_shown",
         "sidebar_rows_shown", "first_window_flushed", "agent_pane.launch_image_shown",
         "first_terminal_surface_created", "first_terminal_content", "first_terminal_content_applied", "first_terminal_frame",
         "cef.initialize_start", "chromium_page.make_start", "chromium_page.browser_created", "home.page_host_made",

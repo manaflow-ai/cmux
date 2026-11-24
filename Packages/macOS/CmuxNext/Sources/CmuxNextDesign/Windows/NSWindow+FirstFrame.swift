@@ -15,13 +15,16 @@ extension NSWindow {
     /// services.windows.controllers.first?.window?.commitFirstFrameNow()
     /// ```
     ///
+    /// - Parameter mark: Called with `window.display_done` after the display pass and `window.flush_done` after the flush (launch marks, RFD 0134).
     /// - Returns: Whether a frame was committed: false when the window is not on screen (one waiting for content).
     @discardableResult
-    public func commitFirstFrameNow() -> Bool {
+    public func commitFirstFrameNow(mark: (String) -> Void = { _ in }) -> Bool {
         guard isVisible else { return false }
         displayIfNeeded()
+        mark("window.display_done")
         // perf-gate-ok: once per launch, the launch window's first frame; the run loop would commit the same frame later.
         CATransaction.flush()
+        mark("window.flush_done")
         return true
     }
 }

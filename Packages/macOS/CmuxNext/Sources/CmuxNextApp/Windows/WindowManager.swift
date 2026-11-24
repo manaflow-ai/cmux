@@ -500,6 +500,7 @@ final class WindowManager {
             // A restored window shown alone comes forward without key; the order keeps its saved place.
             let kept = keepsOrder
             keepsOrder = restacks
+            if controllers.count == 1 { LaunchFrameMarks.arm(window) } // marks only (RFD 0134 row 4)
             WindowActivation.show(window, restacks ? .bringForward : behind ? .presentBehind : .present); DebugTimings.markLaunch("window.ordered_front")
             keepsOrder = kept
         }
