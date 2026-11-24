@@ -464,6 +464,8 @@ pub struct Peer {
     session_resume_link: AtomicU64,
     /// The peer lists `session-messages-v1`: its prompt acceptances name the message they kept.
     session_messages: AtomicBool,
+    /// The peer serves agent byte channels (`server/channels.rs`, `agent-channels-v1`).
+    agent_channels: AtomicBool,
     /// The peer lists `personStop` (`server/requests/person_stop.rs`).
     pub(crate) person_stop: AtomicBool,
     /// The peer token was held back: the transport is plain `ws://` to a

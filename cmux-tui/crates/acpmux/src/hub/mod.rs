@@ -1168,6 +1168,8 @@ pub struct Hub {
     pub(super) usage_limits: StdMutex<crate::config::UsageLimits>,
     /// The links of Macs that lend this machine their GitHub login (`github_owner.rs`).
     pub(super) github_owners: github_owner::Owners,
+    /// Agent byte channels: listeners and open channels (`server/channels.rs`).
+    pub(crate) channels: crate::server::channels::Channels,
     /// The cmux sign-in the app lends for App tokens (`github_app_token.rs`).
     pub(crate) github_app: Arc<crate::github_app_token::AppLease>,
     /// Each peer session's events as this daemon saw them, kept on disk
@@ -1728,6 +1730,7 @@ impl Hub {
             peer_notice_projection_hook: StdMutex::new(None),
             peer_config_gen: std::sync::atomic::AtomicU64::new(0),
             github_owners: Default::default(),
+            channels: Default::default(),
             github_app: Default::default(),
             peer_snapshots,
             peer_notices,

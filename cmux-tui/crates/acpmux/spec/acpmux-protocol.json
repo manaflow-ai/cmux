@@ -2703,6 +2703,54 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/channel/listen",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/channel/unlisten",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/channel/open",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "client_notification",
+      "name": "_acpmux/channel/send",
+      "params": true
+    },
+    {
+      "kind": "client_notification",
+      "name": "_acpmux/channel/close",
+      "params": true
+    },
+    {
+      "kind": "client_notification",
+      "name": "_acpmux/channel/connect",
+      "params": true
+    },
+    {
+      "kind": "notification",
+      "name": "_acpmux/channel/opened",
+      "params": true
+    },
+    {
+      "kind": "notification",
+      "name": "_acpmux/channel/data",
+      "params": true
+    },
+    {
+      "kind": "notification",
+      "name": "_acpmux/channel/closed",
+      "params": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/pair_redeem",
       "params": true,
       "result": true
