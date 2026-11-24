@@ -56,9 +56,10 @@ export const BENCHES: readonly Bench[] = [
     args: ["500", "500", "3"],
     timeoutMs: 30_000,
   },
-  // chat-open takes about 36 s on the perf runner (2026-11-12).
-  { name: "chat-open", file: "chat-open.bench.ts", args: ["3", "300"], timeoutMs: 105_000 },
-  { name: "chat-switch", file: "chat-switch.bench.ts", args: ["3", "300"], timeoutMs: 255_000 },
+  // chat-open takes about 36 s on the perf runner (2026-11-12). The nightly interaction-latency cmux-linux runner took
+  // 95 s for chat-open and 256 s for chat-switch on 2026-11-23, at their old 105 s and 255 s timeouts.
+  { name: "chat-open", file: "chat-open.bench.ts", args: ["3", "300"], timeoutMs: 200_000 },
+  { name: "chat-switch", file: "chat-switch.bench.ts", args: ["3", "300"], timeoutMs: 450_000 },
   // settled_page.score_max (NOW settled_page_score_max, cmuxterm-hq goals/settled-page-ceiling.md). The in-page
   // transitions only until first-load-after-restart.bench.ts has its BOUND mode; about 3 min on a 32-core VM, its own
   // part so it never pushes the suite past its cap.
@@ -85,12 +86,13 @@ export const BENCHES: readonly Bench[] = [
     timeoutMs: 900_000,
     ownPart: true,
   },
-  // thread-rail-jump takes 24 to 29 s on the perf runner (2026-11-12).
+  // thread-rail-jump takes 24 to 29 s on the perf runner (2026-11-12), 51 s on a lane VM and over 90 s on the nightly
+  // interaction-latency cmux-linux runner, which timed it out at 90 s on every nightly from 2026-11-22.
   {
     name: "thread-rail-jump",
     file: "thread-rail-jump.bench.ts",
     args: ["1000", "5"],
-    timeoutMs: 90_000,
+    timeoutMs: 240_000,
   },
   // ui-stability takes 130 to 134 s on a fast-checks runner (about 225 s on the perf runner) once its Chromium launches.
   { name: "ui-stability", file: "ui-stability.bench.ts", args: ["2"], timeoutMs: 360_000 },
@@ -108,8 +110,9 @@ export const BENCHES: readonly Bench[] = [
     file: "transcript-replay.bench.ts",
     args: ["--turns", "600"],
     // 93 to 99 s on a fast-checks runner (about 165 s on the perf runner, where 150 s timed it out on every tip
-    // measurement since 2026-11-12), the same before #40642 and #41096 (94 s at 842118ab39d9).
-    timeoutMs: 300_000,
+    // measurement since 2026-11-12), the same before #40642 and #41096 (94 s at 842118ab39d9). The nightly
+    // interaction-latency cmux-linux runner timed it out at 300 s from 2026-11-22.
+    timeoutMs: 600_000,
   },
   // 50 tool calls landing in a running turn on the wall clock, as an agent sends them: frame gaps, long tasks, a
   // record's arrival to its paint, task ms per call and layout shift.
@@ -117,7 +120,8 @@ export const BENCHES: readonly Bench[] = [
     name: "tool-call-burst",
     file: "tool-call-burst.bench.ts",
     args: ["--rounds", "3"],
-    timeoutMs: 120_000,
+    // 118 s of 120 on the nightly interaction-latency cmux-linux runner (2026-11-23).
+    timeoutMs: 240_000,
   },
   // 500 chats on the History page and 500 live chats (one per workspace) on the New Tab page: scroll frame work,
   // React per frame, mount and a row's press to its paint.
@@ -125,7 +129,8 @@ export const BENCHES: readonly Bench[] = [
     name: "all-chats-list",
     file: "all-chats-list.bench.ts",
     args: ["3", "500"],
-    timeoutMs: 90_000,
+    // 59 s on a lane VM; over 90 s on the nightly interaction-latency cmux-linux runner from 2026-11-22.
+    timeoutMs: 240_000,
   },
   // One session's status, unread, title or cost changing at 100, 1,000 and 3,000 listed sessions: the cost per change
   // and its growth, which should be none. perf-cron.py's web-ui-scale part (about 90 s on a lane VM).
