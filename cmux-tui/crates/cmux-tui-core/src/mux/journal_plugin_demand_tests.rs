@@ -106,3 +106,24 @@ fn a_command_terminal_running_a_program_is_one() {
     // The test process's own pid is no terminal: no foreground group, so no program.
     assert_eq!(running_program(std::process::id()), None);
 }
+
+#[test]
+fn a_tap_delivers_while_open_and_counts_a_full_queue() {
+    let tap = DemandTap::default();
+    // Closed: a send goes nowhere.
+    tap.send(Wake::All);
+    let (open, wakes) = tap.open();
+    assert!(demand_tapped());
+    tap.send(Wake::Agent);
+    assert!(matches!(wakes.try_recv(), Ok(Wake::Agent)));
+    for _ in 0..TAP_CAPACITY {
+        tap.send(Wake::All);
+    }
+    assert!(!open.take_missed());
+    tap.send(Wake::All);
+    assert!(open.take_missed());
+    assert!(!open.take_missed());
+    drop(open);
+    tap.send(Wake::Agent);
+    assert_eq!(wakes.try_iter().count(), TAP_CAPACITY);
+}
