@@ -31,7 +31,10 @@ cmux-netwatch.workspace = true
 cmux-remote-protocol.workspace = true
 # The signed Linux release file an unbundled build's pin comes from (ssh_artifacts).
 cmux-signed-envelope.workspace = true
-cmux-tui-core.workspace = true
+# The terminal host's wire and keepalive, and accept backoff, without cmux-tui-core: a
+# cmux-tui-core edit then rebuilds neither this crate nor acpmux (its hub carrier uses it).
+cmux-terminal-host-protocol.workspace = true
+cmux-tui-util.workspace = true
 cmux-unix-socket.workspace = true
 cmux-wg = { workspace = true, optional = true }
 diffy.workspace = true
