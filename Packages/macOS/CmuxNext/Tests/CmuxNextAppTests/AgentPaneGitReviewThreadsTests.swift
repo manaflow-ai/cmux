@@ -13,7 +13,7 @@ struct AgentPaneGitReviewThreadsTests {
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
     }
 
-    private static let graphQL = """
+    nonisolated private static let graphQL = """
         {"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[
          {"isResolved":false,"isOutdated":false,"path":"a.txt","line":2,"diffSide":"RIGHT","comments":{"nodes":[
           {"author":{"login":"reviewer"},"body":"Say three here?","url":"https://github.com/o/r/pull/7#discussion_r1"},
@@ -23,7 +23,7 @@ struct AgentPaneGitReviewThreadsTests {
         """
 
     /// What the fake GitHub was asked, op and path or query.
-    final class Asked: @unchecked Sendable {
+    nonisolated final class Asked: @unchecked Sendable {
         private let lock = NSLock()
         private var values: [String] = []
 

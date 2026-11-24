@@ -194,7 +194,7 @@ struct AgentPaneGitPullRequestTests {
         #expect(rig.calls.isEmpty)
     }
 
-    final class Asked: @unchecked Sendable {
+    nonisolated final class Asked: @unchecked Sendable {
         private let lock = NSLock()
         private var values: [String] = []
 

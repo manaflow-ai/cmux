@@ -16,7 +16,7 @@ struct AgentPaneGitMergeTests {
     }
 
     /// The fake GitHub: the pull request it answers, and what it was asked.
-    final class GitHub: @unchecked Sendable {
+    nonisolated final class GitHub: @unchecked Sendable {
         private let lock = NSLock()
         private var shown = ""
         private var asked: [String] = []
