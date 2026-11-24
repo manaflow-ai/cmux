@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import Foundation
 
 /// The pull request of a folder's checked-out branch, found through acpmux (``AgentPaneGitHub``)
@@ -93,7 +94,12 @@ extension AgentPaneGitPullRequest {
               let link = URL(string: form) else {
             return .refused(repo.ok ? mergeChangedMessage : repo.refusal)
         }
-        guard await MainActor.run(body: { NSWorkspace.shared.open(link) }) else { return .opened(url: form, number: nil) }
+        guard await openInBrowser(link) else { return .opened(url: form, number: nil) }
         return .formOpened(url: form)
+    }
+
+    /// Opens `link` off the main thread; whether it opened.
+    @MainActor private static func openInBrowser(_ link: URL) async -> Bool {
+        await withCheckedContinuation { done in NSWorkspace.shared.openInBackground(link) { done.resume(returning: $0) } }
     }
 }

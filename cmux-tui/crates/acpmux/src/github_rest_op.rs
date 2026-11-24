@@ -157,48 +157,94 @@ enum Gh {
 
 /// The call as `gh api` with the person's keyring login (no token from this daemon's env).
 async fn run_gh(plan: &Plan, gh: &str) -> Gh {
-    use tokio::io::AsyncWriteExt;
-    let mut cmd = tokio::process::Command::new(gh);
-    cmd.args(rest::gh_args(plan));
-    crate::github_broker::login_env(cmd.as_std_mut(), None);
-    cmd.stdin(if plan.body.is_some() {
-        std::process::Stdio::piped()
-    } else {
-        std::process::Stdio::null()
-    })
-    .stdout(std::process::Stdio::piped())
-    .stderr(std::process::Stdio::piped())
-    .kill_on_drop(true);
+    let (plan, gh) = (plan.clone(), gh.to_owned());
+    match tokio::task::spawn_blocking(move || run_gh_blocking(&plan, &gh)).await {
+        Ok(ran) => ran,
+        Err(e) => Gh::Failed(RpcError::internal(format!("lost gh: {e}"))),
+    }
+}
+
+/// `gh api` with its answer and its words in unnamed files (no pipe to drain while it runs), its
+/// body on stdin from another; past `TIMEOUT` it is ended (`cmux_process::Child` drop).
+fn run_gh_blocking(plan: &Plan, gh: &str) -> Gh {
+    use std::io::{Read, Seek, Write};
+    let failed = |e: std::io::Error| Gh::Failed(RpcError::internal(format!("gh: {e}")));
+    let files = (|| {
+        Ok::<_, std::io::Error>((
+            tempfile::tempfile()?,
+            tempfile::tempfile()?,
+            tempfile::tempfile()?,
+        ))
+    })();
+    let (mut input, mut out, mut err) = match files {
+        Ok(files) => files,
+        Err(e) => return failed(e),
+    };
+    let mut cmd = cmux_process::Command::new(gh);
+    cmd.args(rest::gh_args(plan)).envs(crate::github_broker::LOGIN_SET);
+    for name in crate::github_broker::LOGIN_REMOVED {
+        cmd.env_remove(name);
+    }
+    match &plan.body {
+        Some(body) => {
+            if let Err(e) =
+                input.write_all(body.to_string().as_bytes()).and_then(|()| input.rewind())
+            {
+                return failed(e);
+            }
+            cmd.stdin(input);
+        }
+        None => {
+            cmd.stdin(cmux_process::Stdio::null());
+        }
+    }
+    let (Ok(stdout), Ok(stderr)) = (out.try_clone(), err.try_clone()) else {
+        return Gh::Failed(RpcError::internal("gh: no answer file"));
+    };
+    cmd.stdout(stdout).stderr(stderr);
     let mut child = match cmd.spawn() {
         Ok(child) => child,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Gh::Unusable,
         Err(e) => return Gh::Failed(RpcError::internal(format!("could not start gh: {e}"))),
     };
-    if let (Some(body), Some(mut stdin)) = (&plan.body, child.stdin.take()) {
-        let _ = stdin.write_all(body.to_string().as_bytes()).await;
-    }
-    let run = child.wait_with_output();
-    let out = match tokio::time::timeout(rest::TIMEOUT, run).await {
-        Ok(Ok(out)) => out,
-        Ok(Err(e)) => return Gh::Failed(RpcError::internal(format!("lost gh: {e}"))),
-        Err(_) => {
+    let status = match child.wait_timeout(rest::TIMEOUT) {
+        Ok(Some(status)) => status,
+        Ok(None) => {
             return Gh::Failed(RpcError::internal(format!(
                 "gh did not finish within {}s",
                 rest::TIMEOUT.as_secs()
             )));
         }
+        Err(e) => return failed(e),
     };
-    let stderr = String::from_utf8_lossy(&out.stderr);
+    let mut words = Vec::new();
+    if let Err(e) = err.rewind().and_then(|()| (&mut err).take(64 * 1024).read_to_end(&mut words)) {
+        return failed(e);
+    }
+    let stderr = String::from_utf8_lossy(&words);
     // gh's exit 4: it has no login (`gh auth login` was never run, or it ran out).
-    if out.status.code() == Some(4) || stderr.contains("gh auth login") {
+    if status.code() == Some(4) || stderr.contains("gh auth login") {
         return Gh::Unusable;
     }
-    if plan.tail.is_none() && out.stdout.len() > rest::BODY_MAX {
+    let mut body = Vec::new();
+    let cap = rest::BODY_MAX as u64 + 1;
+    // A tail is read from where it starts (a store that ignored the Range sent all of it).
+    let start = match plan.tail {
+        Some(t) => out.seek(std::io::SeekFrom::End(0)).map(|len| len.saturating_sub(t)),
+        None => Ok(0),
+    };
+    if let Err(e) = start
+        .and_then(|at| out.seek(std::io::SeekFrom::Start(at)))
+        .and_then(|_| (&mut out).take(cap).read_to_end(&mut body))
+    {
+        return failed(e);
+    }
+    if plan.tail.is_none() && body.len() > rest::BODY_MAX {
         return Gh::Failed(RpcError::internal("GitHub's answer is too long to read here"));
     }
-    let body = rest::keep_tail(out.stdout, plan.tail);
-    let status = if out.status.success() { Some(200) } else { rest::gh_status(&stderr) };
-    Gh::Ran(Answer { status, ok: out.status.success(), body })
+    let body = rest::keep_tail(body, plan.tail);
+    let answer_status = if status.success() { Some(200) } else { rest::gh_status(&stderr) };
+    Gh::Ran(Answer { status: answer_status, ok: status.success(), body })
 }
 
 #[cfg(test)]

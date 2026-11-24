@@ -1,11 +1,11 @@
+import CmuxNextCompat
 import Foundation
 
 /// The app's own GitHub calls (the pull request page, its checks, merge and re-run, the PR chip's
 /// merge and review threads, Create PR's lookups): each is one acpmux `_acpmux/github_rest` op
 /// (acpmux `github_rest_op.rs`, op table cmux-host `github_rest.rs`). The daemon runs it with a
 /// cmux GitHub App token minted for that one repository when the person is signed in to cmux, else
-/// with their own `gh`; neither needs a `gh` login here. This is only the wire: the app sets
-/// ``transport`` at launch (CmuxNextApp, over its person-proven acpmux line).
+/// with their own `gh`; neither needs a `gh` login here. This is only the wire.
 public nonisolated enum AgentPaneGitHub {
     /// One op's answer.
     public struct Answer: Equatable, Sendable {
@@ -50,19 +50,33 @@ public nonisolated enum AgentPaneGitHub {
         public var refusal: String { message.flatMap { $0.isEmpty ? nil : $0 } ?? AgentPaneGitHub.unreachableMessage }
     }
 
-    /// One `_acpmux/github_rest` call with `params` (`{op, repo, ...}`); set by the app.
-    public typealias Transport = @MainActor (_ params: [String: any Sendable]) async -> Answer
-
-    @MainActor public static var transport: Transport?
-
-    /// Runs `params` through ``transport``; an answer with `ok: false` when there is none.
+    /// Runs `params` (`{op, repo, ...}`) as one `_acpmux/github_rest` call on this app's acpmux,
+    /// over a line acpmux took the person proof of (the daemon mints with the sign-in the app lent
+    /// it, CmuxNextHomeEngine GitHubAppLease); an answer with `ok: false` when there is none.
     public static func call(_ params: [String: any Sendable]) async -> Answer {
-        await callOnMain(params)
+        guard let environment = await AcpmuxEnvironment.resolvedApp(build: BuildIdentity(bundle: .main), mock: false) else {
+            return Answer(ok: false, message: unreachableMessage)
+        }
+        return await call(params, on: environment)
     }
 
-    @MainActor private static func callOnMain(_ params: [String: any Sendable]) async -> Answer {
-        guard let transport else { return Answer(ok: false, message: unreachableMessage) }
-        return await transport(params)
+    @MainActor private static func call(_ params: [String: any Sendable], on environment: AcpmuxEnvironment) async -> Answer {
+        guard let line = await AcpmuxPersonLine.open(environment) else { return Answer(ok: false, message: unreachableMessage) }
+        defer { line.close() }
+        guard line.isPerson else { return Answer(ok: false, message: unreachableMessage) }
+        guard let reply = await line.call("_acpmux/github_rest", plain(params)) else {
+            return Answer(ok: false, message: line.lastError.flatMap { $0.isEmpty ? nil : $0 } ?? unreachableMessage,
+                          reason: line.lastErrorReason)
+        }
+        return Answer(reply: reply)
+    }
+
+    /// `params` with plain JSON values (nested objects too), for the line's JSON encoding.
+    private static func plain(_ params: [String: any Sendable]) -> [String: Any] {
+        params.mapValues { value -> Any in
+            if let nested = value as? [String: any Sendable] { return plain(nested) }
+            return value
+        }
     }
 
     /// A read-only GraphQL query on `repository` (`owner/name`) with `variables`.

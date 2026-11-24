@@ -271,30 +271,6 @@ import os
         return await line.call("_acpmux/github_app_lease", params)
     }
 
-    /// One `_acpmux/github_rest` call (the app's own GitHub reads and writes, ``AgentPaneGitHub``):
-    /// over a line acpmux took the person proof of, like the lend, since the daemon mints with the
-    /// sign-in lent to it.
-    public static func rest(_ environment: AcpmuxEnvironment?, _ params: [String: any Sendable]) async -> AgentPaneGitHub.Answer {
-        guard let environment, let line = await AcpmuxPersonLine.open(environment) else {
-            return AgentPaneGitHub.Answer(ok: false, message: AgentPaneGitHub.unreachableMessage)
-        }
-        defer { line.close() }
-        guard line.isPerson else { return AgentPaneGitHub.Answer(ok: false, message: AgentPaneGitHub.unreachableMessage) }
-        guard let reply = await line.call("_acpmux/github_rest", plain(params)) else {
-            return AgentPaneGitHub.Answer(ok: false, message: line.lastError.flatMap { $0.isEmpty ? nil : $0 } ?? AgentPaneGitHub.unreachableMessage,
-                                          reason: line.lastErrorReason)
-        }
-        return AgentPaneGitHub.Answer(reply: reply)
-    }
-
-    /// `params` with plain JSON values (nested objects too), for the line's JSON encoding.
-    private static func plain(_ params: [String: any Sendable]) -> [String: Any] {
-        params.mapValues { value -> Any in
-            if let nested = value as? [String: any Sendable] { return plain(nested) }
-            return value
-        }
-    }
-
     private enum Failure: Error {
         case noTeam
         case noDaemon
