@@ -270,5 +270,6 @@ public nonisolated enum TabTunables {
             + [separators.descriptor, pinnedDivider.descriptor, separatorOpacity.descriptor, restingControlOpacity.descriptor, crowdedControls.descriptor,
                crowdedControlOpacity.descriptor, groupJoinHysteresis.descriptor, autoscrollGain.descriptor,
                hoverPreviews.descriptor, hoverCardEntrance.descriptor, hoverCardRetarget.descriptor, loadingAnimation.descriptor, busyUnreadMark.descriptor, statusMarkPlacement.descriptor, trailingButtons.descriptor, chevronOnHover.descriptor] + VerticalTabTunables.all
+            + GooTunables.all // the gooey tabs' knobs, a section per level (plans/cmux-next/gooey-tabs.md, "Knobs")
     }
 }

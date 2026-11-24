@@ -49,6 +49,20 @@ pub fn here(settings: Option<&str>) -> &'static str {
     if crate::agent_tools::agents_get_cmux(settings) { "on" } else { "off" }
 }
 
+/// [`here`] for the forwarded request `params`: `off` when its harness (`_meta.acpmux.harness`,
+/// `harness` or `agent`) is an agent the person switched off on this Mac (cmux#49395).
+pub fn here_for(settings: Option<&str>, params: &Value) -> &'static str {
+    let harness = ["/_meta/acpmux/harness", "/harness", "/agent"]
+        .iter()
+        .find_map(|pointer| params.pointer(pointer).and_then(Value::as_str));
+    let agent = harness.and_then(crate::agent_tools::switch_agent);
+    if agent.is_some_and(|agent| crate::agent_tools::agent_switched_off(settings, agent)) {
+        "off"
+    } else {
+        here(settings)
+    }
+}
+
 /// Stamps a `session/new` this daemon forwards to a peer with `answer` (this daemon's, [`here`]),
 /// over whatever its caller sent.
 pub fn stamp(params: &mut Value, answer: &str) {
@@ -71,6 +85,20 @@ pub fn inherited(
 mod tests {
     use super::*;
     use crate::server::ConnAuth;
+
+    #[test]
+    fn a_forwarded_chat_of_a_switched_off_agent_carries_off() {
+        let settings = Some(r#"{"agents": {"cmuxMcp": "on", "cmuxMcpCodex": false}}"#);
+        let codex = json!({"_meta": {"acpmux": {"harness": "codex-acp"}}});
+        assert_eq!(here_for(settings, &codex), "off");
+        assert_eq!(here_for(settings, &json!({"harness": "claude"})), "on");
+        assert_eq!(here_for(settings, &json!({})), "on", "no harness: the answer");
+        assert_eq!(here_for(Some("{}"), &codex), "on", "on by default");
+        assert_eq!(
+            here_for(Some(r#"{"agents": {"cmuxMcp": "off"}}"#), &json!({"harness": "claude"})),
+            "off"
+        );
+    }
 
     #[test]
     fn only_a_peer_daemon_brings_an_answer() {

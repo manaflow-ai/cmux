@@ -1397,7 +1397,13 @@ async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout
     let mut network = initial.network.subscribe();
     network.borrow_and_update();
     drop(initial);
+    let mut route = RouteSource::default();
     loop {
+        // Where the link's route leaves from, read before the wait: a change that kills the
+        // address is compared with the address as it was.
+        if let Some(connection) = weak.upgrade() {
+            route.refresh(&connection).await;
+        }
         let network_moved = tokio::select! {
             biased;
             _ = close_state.changed() => return,
@@ -1420,6 +1426,13 @@ async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout
         }
         let observed = connection.last_received();
         let generation = connection.session.read().await.generation();
+        if route.is_gone() {
+            // The address this link was dialed from is no longer ours: the kernel drops what it
+            // sends, so no probe could be answered. Redial now instead of waiting one out.
+            route.forget();
+            let _ = connection.recover(generation).await;
+            continue;
+        }
         // After a network change the old route may be gone with a write stuck on it: the
         // probe queues behind that write and never goes out. Waiting the full answer window
         // for it held a blocked link up to 4 s past the change; give it the short one.
@@ -1433,7 +1446,9 @@ async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout
             Bytes::new(),
             FrameFlags::HEARTBEAT_REQUEST,
         );
-        let Ok(send_result) = probe_by(send, &mut deadline, &mut network, &mut close_state).await
+        let Ok(send_result) =
+            probe_by(send, &mut deadline, &mut network, &mut close_state, &|| route.is_gone())
+                .await
         else {
             return;
         };
@@ -1441,12 +1456,16 @@ async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout
             Some(Ok(_)) => {}
             Some(Err(_)) => continue,
             None => {
+                route.forget_if_gone();
                 let _ = connection.recover(generation).await;
                 continue;
             }
         }
         let answer = connection.probe_liveness(generation, observed);
-        let Ok(live) = probe_by(answer, &mut deadline, &mut network, &mut close_state).await else {
+        let Ok(live) =
+            probe_by(answer, &mut deadline, &mut network, &mut close_state, &|| route.is_gone())
+                .await
+        else {
             return;
         };
         let live = live.unwrap_or(false);
@@ -1456,8 +1475,56 @@ async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout
             continue;
         }
         if !live && connection.last_received() <= observed {
+            route.forget_if_gone();
             let _ = connection.recover(generation).await;
         }
+    }
+}
+
+/// The local address the link's route leaves from, as the heartbeat last saw it.
+#[derive(Default)]
+struct RouteSource {
+    /// The route's host and what it resolved to: resolved once per host, not per beat.
+    remote: Option<(String, Option<std::net::IpAddr>)>,
+    source: Option<std::net::IpAddr>,
+}
+
+impl RouteSource {
+    async fn refresh(&mut self, connection: &ClientConnection) {
+        if self.is_gone() {
+            // Keep the address that went away until the heartbeat has acted on it.
+            return;
+        }
+        let group = connection.group.read().await.clone();
+        let host = group.transport_snapshot().await.selected_path.and_then(|path| path.remote);
+        let Some(host) = host else {
+            self.source = None;
+            return;
+        };
+        let address = match &self.remote {
+            Some((known, address)) if *known == host => *address,
+            _ => {
+                let address = crate::route_source::resolve_host(&host).await;
+                self.remote = Some((host, address));
+                address
+            }
+        };
+        self.source = address.and_then(crate::route_source::source_toward);
+    }
+
+    fn forget(&mut self) {
+        self.source = None;
+    }
+
+    /// The probe failed: a source that is gone is acted on by this redial, so it is not kept.
+    fn forget_if_gone(&mut self) {
+        if self.is_gone() {
+            self.forget();
+        }
+    }
+
+    fn is_gone(&self) -> bool {
+        self.source.is_some_and(crate::route_source::address_is_gone)
     }
 }
 
@@ -1470,6 +1537,7 @@ async fn probe_by<T>(
     deadline: &mut tokio::time::Instant,
     network: &mut watch::Receiver<u64>,
     close_state: &mut watch::Receiver<CloseState>,
+    route_gone: &(dyn Fn() -> bool + Sync),
 ) -> Result<Option<T>, ()> {
     tokio::pin!(phase);
     loop {
@@ -1478,7 +1546,9 @@ async fn probe_by<T>(
             result = tokio::time::timeout_at(*deadline, phase.as_mut()) => return Ok(result.ok()),
             _ = close_state.changed() => return Err(()),
             Ok(()) = network.changed() => {
-                let short = tokio::time::Instant::now() + NETWORK_CHANGE_PROBE_TIMEOUT;
+                // A route whose address is gone cannot answer: end the probe now.
+                let wait = if route_gone() { Duration::ZERO } else { NETWORK_CHANGE_PROBE_TIMEOUT };
+                let short = tokio::time::Instant::now() + wait;
                 *deadline = (*deadline).min(short);
             }
         }
@@ -1629,8 +1699,15 @@ async fn authenticate_one(
         LinkHandshakeResponse::Ready(ready) => ready,
         LinkHandshakeResponse::Rejected(LinkRejected {
             rejected: LinkRejection::SessionUnavailable,
+            ..
         }) => {
             return Err(ConnectionError::SessionUnavailable);
+        }
+        LinkHandshakeResponse::Rejected(LinkRejected {
+            rejected: LinkRejection::TooManyClients,
+            limit,
+        }) => {
+            return Err(ConnectionError::DaemonAtCapacity { limit });
         }
     };
     if ready.session != config.session || ready.generation != context.generation {
@@ -1656,14 +1733,30 @@ enum LinkHandshakeResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct LinkRejected {
+pub(crate) struct LinkRejected {
     rejected: LinkRejection,
+    /// The daemon's client limit, with [`LinkRejection::TooManyClients`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    limit: Option<usize>,
+}
+
+impl LinkRejected {
+    pub(crate) fn session_unavailable() -> Self {
+        Self { rejected: LinkRejection::SessionUnavailable, limit: None }
+    }
+
+    pub(crate) fn too_many_clients(limit: usize) -> Self {
+        Self { rejected: LinkRejection::TooManyClients, limit: Some(limit) }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub(crate) enum LinkRejection {
+enum LinkRejection {
     SessionUnavailable,
+    /// The daemon already serves its limit of logical client sessions. A
+    /// slot frees when one of them ends, so the client retries with backoff.
+    TooManyClients,
 }
 
 pub(crate) async fn send_link_ready(
@@ -1680,9 +1773,9 @@ pub(crate) async fn send_link_ready(
 
 pub(crate) async fn send_link_rejection(
     link: &dyn FrameLink,
-    rejection: LinkRejection,
+    rejection: LinkRejected,
 ) -> Result<(), ConnectionError> {
-    let payload = serde_json::to_vec(&LinkRejected { rejected: rejection })
+    let payload = serde_json::to_vec(&rejection)
         .map_err(|error| ConnectionError::Protocol(error.to_string()))?;
     link.send(Bytes::from(payload)).await?;
     Ok(())
@@ -1724,6 +1817,12 @@ pub enum ConnectionError {
     /// it. Not retryable: nothing can resume it, so the caller should stop
     /// redialing and offer a new session.
     SessionUnavailable,
+    /// The daemon refused a new session because it already serves its limit
+    /// of logical client sessions (`limit`, when the daemon named it).
+    /// Retryable: a slot frees when another client disconnects.
+    DaemonAtCapacity {
+        limit: Option<usize>,
+    },
 }
 
 impl ConnectionError {
@@ -1743,7 +1842,8 @@ impl ConnectionError {
             ))
             | Self::Session(SessionError::LinkMessage(_))
             | Self::Session(SessionError::SchedulerClosed)
-            | Self::ReconnectAttemptTimedOut { .. } => true,
+            | Self::ReconnectAttemptTimedOut { .. }
+            | Self::DaemonAtCapacity { .. } => true,
             _ => false,
         }
     }
@@ -1787,6 +1887,15 @@ impl fmt::Display for ConnectionError {
             Self::SessionUnavailable => formatter.write_str(
                 "daemon no longer has the requested logical session (it expired or was closed)",
             ),
+            Self::DaemonAtCapacity { limit: Some(limit) } => write!(
+                formatter,
+                "too many connected clients: the daemon serves its limit of {limit}; \
+                 close other clients or raise the daemon's open-file limit"
+            ),
+            Self::DaemonAtCapacity { limit: None } => formatter.write_str(
+                "too many connected clients: the daemon serves its limit; \
+                 close other clients or raise the daemon's open-file limit",
+            ),
         }
     }
 }
@@ -1827,5 +1936,114 @@ impl From<LinkError> for ConnectionError {
 impl From<SessionError> for ConnectionError {
     fn from(error: SessionError) -> Self {
         Self::Session(error)
+    }
+}
+
+#[cfg(test)]
+mod route_source_tests {
+    use std::net::{IpAddr, Ipv4Addr};
+
+    use std::time::Duration;
+
+    use tokio::sync::watch;
+
+    use super::{CloseState, RouteSource, probe_by};
+
+    fn route_from(source: Option<IpAddr>) -> RouteSource {
+        RouteSource { remote: None, source }
+    }
+
+    #[test]
+    fn a_route_from_an_unassigned_address_is_gone_until_forgotten() {
+        // TEST-NET-1 is never assigned to an interface: the address a link dialed from after
+        // the kernel dropped it looks the same to the check.
+        let mut route = route_from(Some(IpAddr::from(Ipv4Addr::new(192, 0, 2, 77))));
+        assert!(route.is_gone());
+        route.forget();
+        assert!(!route.is_gone());
+    }
+
+    #[test]
+    fn a_route_from_a_live_address_or_an_unknown_one_is_not_gone() {
+        assert!(!route_from(Some(IpAddr::from(Ipv4Addr::LOCALHOST))).is_gone());
+        assert!(!route_from(None).is_gone());
+    }
+
+    /// A probe waiting on a route whose address went away ends at the change, not after the
+    /// two seconds a probe on a route that may have survived gets.
+    #[tokio::test(start_paused = true)]
+    async fn a_probe_ends_at_a_network_change_that_took_its_address() {
+        let (network_tx, mut network) = watch::channel(0_u64);
+        let (_close_tx, mut close_state) = watch::channel(CloseState::Pending);
+        let mut deadline = tokio::time::Instant::now() + Duration::from_secs(4);
+        network_tx.send_modify(|generation| *generation += 1);
+        let started = tokio::time::Instant::now();
+        let ended = probe_by(
+            std::future::pending::<()>(),
+            &mut deadline,
+            &mut network,
+            &mut close_state,
+            &|| true,
+        )
+        .await;
+        assert!(matches!(ended, Ok(None)));
+        assert!(started.elapsed() < Duration::from_millis(50));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_probe_on_a_route_that_may_have_survived_gets_the_short_window() {
+        let (network_tx, mut network) = watch::channel(0_u64);
+        let (_close_tx, mut close_state) = watch::channel(CloseState::Pending);
+        let mut deadline = tokio::time::Instant::now() + Duration::from_secs(4);
+        network_tx.send_modify(|generation| *generation += 1);
+        let started = tokio::time::Instant::now();
+        let ended = probe_by(
+            std::future::pending::<()>(),
+            &mut deadline,
+            &mut network,
+            &mut close_state,
+            &|| false,
+        )
+        .await;
+        assert!(matches!(ended, Ok(None)));
+        assert_eq!(started.elapsed(), Duration::from_secs(2));
+    }
+}
+
+#[cfg(test)]
+mod link_rejection_tests {
+    use super::*;
+
+    #[test]
+    fn session_unavailable_keeps_its_wire_form() {
+        // Clients from before the capacity rejection parse this exact form.
+        assert_eq!(
+            serde_json::to_string(&LinkRejected::session_unavailable()).unwrap(),
+            r#"{"rejected":"session-unavailable"}"#
+        );
+    }
+
+    #[test]
+    fn too_many_clients_carries_the_limit_and_parses_as_a_rejection() {
+        let encoded = serde_json::to_vec(&LinkRejected::too_many_clients(64)).unwrap();
+        assert_eq!(encoded, br#"{"rejected":"too-many-clients","limit":64}"#);
+        let decoded: LinkHandshakeResponse = serde_json::from_slice(&encoded).unwrap();
+        assert!(matches!(
+            decoded,
+            LinkHandshakeResponse::Rejected(LinkRejected {
+                rejected: LinkRejection::TooManyClients,
+                limit: Some(64),
+            })
+        ));
+    }
+
+    #[test]
+    fn daemon_at_capacity_is_retryable_and_says_why() {
+        let error = ConnectionError::DaemonAtCapacity { limit: Some(64) };
+        assert!(error.is_retryable_carrier_failure());
+        let message = error.to_string();
+        assert!(message.contains("too many connected clients"), "{message}");
+        assert!(message.contains("64"), "{message}");
+        assert!(!message.contains("expired"), "{message}");
     }
 }

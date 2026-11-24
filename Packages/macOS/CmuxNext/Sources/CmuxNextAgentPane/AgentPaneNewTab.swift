@@ -1,4 +1,5 @@
 import CmuxNextDesign
+public import CmuxNextSettings
 public import Foundation
 
 /// The kinds the new tab page offers in its Terminal | Browser | Agent switch.
@@ -57,9 +58,11 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// snapshot already reads a retired value (composer, cards, default, threads, console) as
     /// "minimal", and the web page maps one to Minimal too. nil follows `layout`. The page validates it.
     public var template: String?
-    /// The extension that draws the whole page (`tabs.newTabApp`, an app id with `cmux.newtab/1`); nil
-    /// draws cmux's own page. The page draws its own too when that app is missing, hidden or fails.
+    /// The extension that draws over the composer (`tabs.newTabApp`, an app id with `cmux.newtab/1`);
+    /// nil draws no extension. It never replaces the page; one that is missing, hidden or fails draws nothing.
     public var app: String?
+    /// The New Tab clock over the composer (`tabs.newTabClock.*`); nil draws none (the default).
+    public var clock: AgentPaneNewTabClock?
     /// The agent last picked.
     public var lastAgent: String?
     /// The harness and model picked last, anywhere and per folder; nil when none was.
@@ -86,6 +89,11 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// true: the page lists only its own connection's chats, not the store every page shares
     /// (another machine's page, ``warmedOnThisMac(_:)``); nil shares it.
     public var privateChatLists: Bool?
+    /// true: the page's chats start on another machine (it opened beside an SSH or Cloud machine's tab, whose daemon
+    /// is not this Mac's: ``warmedOnThisMac(_:)``); nil: on this Mac. On the first frame, before the page's own
+    /// connection says so: a send that names `@computer-use` decides on that machine, never on this Mac's Computer Use
+    /// Setup (review round 3 of #48024).
+    public var startsRemote: Bool?
     /// false: Show All Chats on New Tab is off (`sidebar.showChats`): the page lists the recent
     /// chats only, never All chats; nil lists All chats where the template does.
     public var allChats: Bool?
@@ -118,11 +126,25 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
 }
 
 extension AgentPaneNewTab {
-    /// The page drawn by `app`'s `cmux.newtab/1` (`tabs.newTabApp`); nil draws cmux's own page.
+    /// The page with `app`'s `cmux.newtab/1` over its composer (`tabs.newTabApp`); nil draws none.
     public func showingApp(_ app: String?) -> AgentPaneNewTab {
         var page = self
         page.app = app
         return page
+    }
+
+    /// The page with the New Tab clock over its composer (`tabs.newTabClock.*`); nil draws none.
+    public func showingClock(_ clock: AgentPaneNewTabClock?) -> AgentPaneNewTab {
+        var page = self
+        page.clock = clock
+        return page
+    }
+
+    /// The page with the clock `setting` asks for (`tabs.newTabClock.*`); nil (off, the default) draws none.
+    public func showingClock(_ setting: NewTabClockSetting?) -> AgentPaneNewTab {
+        showingClock(setting.map {
+            AgentPaneNewTabClock(font: $0.font.rawValue, weight: $0.weight.rawValue, color: $0.color.rawValue, date: $0.date)
+        })
     }
 
     /// The page with Integrate a harness off when it was dismissed for good.
@@ -156,7 +178,25 @@ extension AgentPaneNewTab {
         page.omnibar.workspaces = lists.workspaces
         return page
     }
+}
 
+/// The New Tab clock's look as the page reads it (`newTab.clock`, webviews newtab/NewTabClock.tsx
+/// `readClockStyle`): the setting's choice values, which the page validates.
+public nonisolated struct AgentPaneNewTabClock: Codable, Sendable, Equatable {
+    public var font: String
+    public var weight: String
+    public var color: String
+    public var date: Bool
+
+    public init(font: String, weight: String, color: String, date: Bool) {
+        self.font = font
+        self.weight = weight
+        self.color = color
+        self.date = date
+    }
+}
+
+extension AgentPaneNewTab {
     /// The newest chats a local page posted (`newTab.warm`), for the next page's ``warm``.
     @MainActor public internal(set) static var warmed: String?
     /// The largest `newTab.warm` the host keeps.
@@ -175,6 +215,7 @@ extension AgentPaneNewTab {
             // Another machine's page lists its own chats, never the ones this Mac's pages share
             // (webviews newtab/chatStore.ts), not even before its handshake names its origin.
             page.privateChatLists = true
+            page.startsRemote = true
         }
         return page
     }

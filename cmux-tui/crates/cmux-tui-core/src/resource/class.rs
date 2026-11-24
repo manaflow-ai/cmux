@@ -116,6 +116,7 @@ impl ResourceOperation {
                 | Self::SidebarLayoutGet
                 | Self::SidebarGet
                 | Self::ProjectList
+                | Self::ProjectActionsList
                 | Self::PaletteUsageGet
                 | Self::PaletteRank
                 | Self::ThemeSchemeConvert

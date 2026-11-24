@@ -3,6 +3,8 @@ import type { Translate } from "../i18n";
 import { AgentIdentity } from "./AgentIdentity";
 import { SUBAGENT_FALLBACK } from "./agentIdentityModel";
 import { agentTone } from "./agentTones";
+import { PHASE_DWELL_MS } from "./hatStep";
+import { useDwell } from "./HatStepSlot";
 import { endedInFailure, type TrayItem } from "./runningTray";
 import { STATE_LABEL } from "./subagentGroupModel";
 import { subagentTaskLabel } from "./subsessions";
@@ -135,10 +137,14 @@ export function HatFaces({
   onOpenSession?: (sessionId: string) => void;
 }) {
   const cap = narrow ? FACE_CAP_NARROW : FACE_CAP;
-  const rest = arm === "fan" ? Math.min(cap, size + (faces.length - 1) * FACE_FAN_STEP) : cap;
-  const layout = faceLayout(faces.length, size, rest);
+  // How many icons the row is laid out for is held as the header's words are (hatStep.ts, 1.6 s), so
+  // twenty subagents joining at once widen the row once, not twenty times, and the words after it glide
+  // to their new place once (SubagentTray `useGlide`). The icons drawn are always the newest list's.
+  const count = Math.min(faces.length, useDwell(faces.length, PHASE_DWELL_MS));
+  const rest = arm === "fan" ? Math.min(cap, size + (count - 1) * FACE_FAN_STEP) : cap;
+  const layout = faceLayout(count, size, rest);
   // The fan spreads to the spread arm's layout on hover, drawn over the header so nothing moves.
-  const open = arm === "fan" ? faceLayout(faces.length, size, FACE_CAP) : layout;
+  const open = arm === "fan" ? faceLayout(count, size, FACE_CAP) : layout;
   const shown = faces.slice(0, layout.shown);
   const click = (face: HatFace) => (event: MouseEvent) => {
     event.stopPropagation();

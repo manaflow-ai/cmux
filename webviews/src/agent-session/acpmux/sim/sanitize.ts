@@ -9,7 +9,7 @@
 // Kept verbatim: only short enum-like values under the keys the reducer branches on (`kind`,
 // `status`, `sessionUpdate`, `state`, ...). Dropped: the agent's own stdin (`out` records) and the
 // harness's per-token noise, which the pane never reads.
-import type { EventRecord } from "../direct";
+import type { EventRecord } from "../eventRecord";
 import { SIM_SESSION, SIM_START } from "./script";
 
 /** Keys whose short, enum-like string values stay as they are: the reducer branches on them. */
@@ -64,6 +64,9 @@ const DROP_KINDS = new Set([
   "config",
   "created",
 ]);
+
+/** The record kinds a fixture leaves out (`--drift` does not count them as missing). */
+export const DROPPED: ReadonlySet<string> = DROP_KINDS;
 
 const WORDS =
   "the a and to of in it is for on that this with as at by from run test file fix read check build line call step part note".split(
@@ -136,9 +139,10 @@ function scrub(value: unknown, key: string | undefined): unknown {
     // session by id after `acp:`.
     if (key === "from" && value === "fromAgent") return value;
     // An id's word parts are its kind (`bg-done-`, `call-`, `toolu_`): only the parts with a digit (the
-    // unique part) are replaced.
+    // unique part) are replaced. An id holding a path or spaces (a hook's `/home/…/hooks.json:exec-…`)
+    // is text: every word of it is replaced.
     if (key === "sessionId") return SIM_SESSION;
-    if (key && /id$/i.test(key) && value.length <= 120)
+    if (key && /id$/i.test(key) && value.length <= 120 && !/[/\\\s~]/.test(value))
       return value.replace(/[\p{L}\p{N}]+/gu, (token) => (/\d/.test(token) ? standIn(token) : token));
     return scrubText(value.length > MAX_TEXT && key !== "text" ? value.slice(0, MAX_TEXT) : value);
   }

@@ -10191,6 +10191,10 @@
     "request:list-terminals": {},
     "request:list-workspace-groups": {},
     "request:list-workspaces": {
+      "/after": {
+        "ty": "uint64",
+        "nullable": true
+      },
       "/known": {
         "ty": "object",
         "nullable": true
@@ -11464,6 +11468,7 @@
       }
     },
     "request:ping": {},
+    "request:process-census": {},
     "request:process-info": {
       "/surface": {
         "ty": "uint64",
@@ -12980,6 +12985,41 @@
     "request:terminal-events": {
       "/after_revision": {
         "ty": "uint64"
+      }
+    },
+    "request:terminal-find": {
+      "/before": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/case_sensitive": {
+        "ty": "boolean"
+      },
+      "/epoch": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/max_matches": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/page_rows": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/query": {
+        "ty": "string",
+        "required": true
+      },
+      "/regex": {
+        "ty": "boolean"
+      },
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/whole_word": {
+        "ty": "boolean"
       }
     },
     "request:terminal-history": {
@@ -18665,6 +18705,9 @@
       "/data/generation": {
         "ty": "string"
       },
+      "/data/next": {
+        "ty": "uint64"
+      },
       "/data/pane_revision": {
         "ty": "uint64"
       },
@@ -19906,6 +19949,12 @@
       },
       "/data/version": {
         "ty": "string",
+        "required": true
+      }
+    },
+    "response:process-census": {
+      "/data": {
+        "ty": "json",
         "required": true
       }
     },
@@ -22722,6 +22771,12 @@
       },
       "/data/terminal_revision": {
         "ty": "uint64",
+        "required": true
+      }
+    },
+    "response:terminal-find": {
+      "/data": {
+        "ty": "json",
         "required": true
       }
     },

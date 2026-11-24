@@ -69,18 +69,15 @@ async fn an_agent_that_dies_mid_turn_is_restarted_on_its_conversation_and_its_qu
     assert_eq!(summary["status"], "ready", "{summary}");
 }
 
-/// The person's messages steered into a turn whose agent process then died before it read them
-/// reach the agent after the crash, each once: the continuation carries them. Claude Code holds
-/// a steer until its next tool step, so a crash before that step took it with the process, and
-/// the resumed conversation never had it. Three crashes in a row, eight steers into each.
 /// Leo, 2026-11-21: "i dont think 429 should just cause a process to just exit on its own, this
 /// is pretty weird". An agent that prints its account's 429 and quits between turns, with no
 /// Stop, close or idle exit asking, is logged `exited` with why (`rate_limit` and the line), never
-/// `stopped`; the chat stays open under its name, and the next prompt resumes the same
-/// conversation.
+/// `stopped`; the chat stays open under its name, held until the reset (`rate_hold.rs`
+/// `hold_at_exit`), and the next prompt runs after it on the same conversation.
 #[tokio::test]
 async fn an_agent_that_quits_on_a_429_between_turns_is_exited_with_why_and_resumes() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![300, 300]);
     let id = new_session(&mut c, "quit-429").await;
     let sid = agent_sid(&hub, &id);
     assert!(sid.is_some());
@@ -98,13 +95,21 @@ async fn an_agent_that_quits_on_a_429_between_turns_is_exited_with_why_and_resum
     assert!(records(&hub, &id, "stopped").is_empty(), "{:?}", kinds(&hub, &id));
     assert_ne!(status(&hub, &id), "closed");
     assert_eq!(hub.resolve("quit-429").unwrap().id, id, "it keeps its name");
-    // The next prompt starts the harness again on the same conversation.
+    // The next prompt runs after the reset, on the same conversation.
     c.request(method::SESSION_PROMPT, prompt(&id, "hello again", Some("p-2"))).await.unwrap();
+    let until = records(&hub, &id, "rate_limit_held")[0]["until"].as_u64().unwrap();
+    let started = hub.events(&id, 0, 10_000).unwrap();
+    let second = started.iter().filter(|e| e.kind == "turn_started").nth(1).unwrap();
+    assert!(second.at >= until, "it ran after the reset: {} < {until}", second.at);
     assert!(kinds(&hub, &id).iter().any(|k| k == "resumed"), "{:?}", kinds(&hub, &id));
     assert_eq!(agent_sid(&hub, &id), sid);
     assert_eq!(status(&hub, &id), "ready");
 }
 
+/// The person's messages steered into a turn whose agent process then died before it read them
+/// reach the agent after the crash, each once: the continuation carries them. Claude Code holds
+/// a steer until its next tool step, so a crash before that step took it with the process, and
+/// the resumed conversation never had it. Three crashes in a row, eight steers into each.
 #[tokio::test]
 async fn steers_an_agent_died_before_reading_reach_it_after_the_crash() {
     const ROUNDS: usize = 3;

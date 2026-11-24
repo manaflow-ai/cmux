@@ -31,6 +31,11 @@ pub struct ChatSettings {
     /// Session recap (`agents.chats.sessionRecap`): a Claude chat the person comes back to after
     /// 5+ minutes away shows a short recap of where it stands (`hub/away_recap.rs`).
     pub session_recap: bool,
+    /// Write to a chat a terminal runs (`agents.chats.terminalChatWritable`, off by default): a
+    /// chat handed to a cmux terminal (`acpmux resume-here`) stays writable, its prompts going
+    /// into that terminal's harness (`hub/release_to_watch.rs`, `hub/bridge.rs`). Off, such a
+    /// chat is a View Only watch.
+    pub terminal_chat_writable: bool,
 }
 
 impl Default for ChatSettings {
@@ -41,6 +46,7 @@ impl Default for ChatSettings {
             roots: Vec::new(),
             managed_roots: Vec::new(),
             session_recap: true,
+            terminal_chat_writable: false,
         }
     }
 }
@@ -58,9 +64,14 @@ impl ChatSettings {
     /// The most roots one message may carry.
     pub const MAX_ROOTS: usize = 256;
 
-    /// `{enabled?, discovery?, roots?, managedRoots?, sessionRecap?}`; a missing field keeps its
-    /// default.
+    /// `{enabled?, discovery?, roots?, managedRoots?, sessionRecap?, terminalChatWritable?}`; a
+    /// missing field keeps its default.
     pub fn from_params(params: &Value) -> Result<Self, String> {
+        let flag_or = |key: &str, default: bool| match params.get(key) {
+            None | Some(Value::Null) => Ok(default),
+            Some(Value::Bool(on)) => Ok(*on),
+            Some(_) => Err(format!("{key} must be true or false")),
+        };
         let flag = |key: &str| match params.get(key) {
             None | Some(Value::Null) => Ok(true),
             Some(Value::Bool(on)) => Ok(*on),
@@ -91,6 +102,7 @@ impl ChatSettings {
             roots: paths("roots")?,
             managed_roots: paths("managedRoots")?,
             session_recap: flag("sessionRecap")?,
+            terminal_chat_writable: flag_or("terminalChatWritable", false)?,
         })
     }
 
@@ -247,6 +259,21 @@ pub fn probe(path: &Path) -> Vec<RootSpec> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `terminalChatWritable` is off unless the app's push says on, and a saved file without it
+    /// (an older daemon's) reads as off.
+    #[test]
+    fn terminal_chat_writable_is_off_unless_pushed_on() {
+        let none = ChatSettings::from_params(&serde_json::json!({})).unwrap();
+        assert!(!none.terminal_chat_writable);
+        let on = ChatSettings::from_params(&serde_json::json!({"terminalChatWritable": true}));
+        assert!(on.unwrap().terminal_chat_writable);
+        assert!(
+            ChatSettings::from_params(&serde_json::json!({"terminalChatWritable": 1})).is_err()
+        );
+        let old: ChatSettings = serde_json::from_str(r#"{"enabled":true}"#).unwrap();
+        assert!(!old.terminal_chat_writable);
+    }
 
     /// Two pushes of the chat settings may save at once (an off push still ending agents and an
     /// unset push after it): every save succeeds, and the file holds one of them whole.

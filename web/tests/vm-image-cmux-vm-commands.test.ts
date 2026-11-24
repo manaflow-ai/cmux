@@ -6,7 +6,7 @@ import path from "node:path";
 import { aptUpdateCommand } from "../scripts/cmux-vm-image/apt-update";
 import * as bake from "../scripts/cmux-vm-image/bake";
 import { cmuxTuiSourceFromLock, GUEST_DIR } from "../scripts/cmux-vm-image/bake";
-import { aptDebFetchCommand, aptLocalInstallCommand, aptPins, CURRENT_BIN, profileCommand, programInstallCommand, readInputsLock, storeEntry } from "../scripts/cmux-vm-image/lock";
+import { aptDebFetchCommand, aptLocalInstallCommand, aptPins, CURRENT_BIN, profileCommand, programInstallCommand, readInputsLock, storeEntry, UBUNTU_ARCHIVE } from "../scripts/cmux-vm-image/lock";
 import { imageLeftoversCommand, programChecksCommand, programProblems, rolesOffFontsOnCommand, secretScanCommand, storeCommandPathSnippet } from "../scripts/cmux-vm-image/smoke";
 import { daemonHoldCommand, daemonUptimeProblems, forcedRebindCommand } from "../scripts/cmux-vm-image/daemon-uptime";
 import { GH_SHIM } from "../scripts/cmux-vm-image/github-auth";
@@ -230,6 +230,18 @@ describe("cmux VM image apt index", () => {
     expect(bake.STORE_FETCH_ATTEMPTS).toBe(6);
   });
 
+  // Image roll 45126299464 (2026-11-23): the bake and smoke passed, and the sbom step hit the guest's 5-minute exec
+  // cap (status 124) because syft's 29 MB download from GitHub releases ran at about 100 KB/s. syft now downloads in
+  // its own resumed step, run again like a store program, before the scan.
+  test("syft downloads in its own resumed step: a whole file is kept, a partial one continues, a bad one is removed", async () => {
+    const syft = lock.tools.syft;
+    const command = bake.syftFetchCommand(syft, "/tmp/cmux-out-syft");
+    expect(command).toContain(`test "$(stat -c %s /tmp/cmux-out-syft/syft.tgz 2>/dev/null)" = ${syft.size} || curl -fsSL --retry 3 -C - -o /tmp/cmux-out-syft/syft.tgz `);
+    expect(command).toContain(`${syft.sha256} /tmp/cmux-out-syft/syft.tgz | sha256sum -c --quiet - || { rm -f /tmp/cmux-out-syft/syft.tgz; false; }`);
+    expect(command).toContain("tar -xzf /tmp/cmux-out-syft/syft.tgz -C /tmp/cmux-out-syft syft");
+    await bashSyntax(command);
+  });
+
   // Bake run 43932356313 (2026-11-16): the snapshot's index update hit its cap, the archive fallback had replaced
   // ca-certificates 20260816ubuntu0.24.04.1 with .2, and the system layer failed with "apt index has no size".
   test("the Ubuntu closure is fetched by content (archive, then the dated snapshot) and installed with no index", async () => {
@@ -271,7 +283,7 @@ describe("cmux VM image apt index", () => {
       mkdirSync(path.join(dir, "mirror/pool/main/x/x"), { recursive: true });
       writeFileSync(path.join(dir, "mirror/pool/main/x/x/x_1_all.deb"), body);
       const run = async (snapshot: string, debs = { "x=1": deb }) => {
-        const command = aptDebFetchCommand(debs, ["x=1"], snapshot, path.join(dir, "out")).replace("http://archive.ubuntu.com/ubuntu/", `file://${dir}/no-archive/`);
+        const command = aptDebFetchCommand(debs, ["x=1"], snapshot, path.join(dir, "out")).replaceAll(UBUNTU_ARCHIVE, `file://${dir}/no-archive/`);
         return runChild("sh", ["-c", command], { timeout: 20_000, env: { PATH: "/usr/bin:/bin" } });
       };
       const fetched = await run(`file://${dir}/mirror/`);

@@ -90,6 +90,11 @@ public nonisolated enum CornerFlush: String, Sendable, CaseIterable, TunableChoi
 
     public var isOn: Bool { self != .off }
 
+    /// Whether the sidebar's selected row flares into the card as the selected tab does: under `flush-goo` on a block
+    /// `appearance.tabShape` (rounded keeps every row a capsule). Leo, 2026-11-18: "the "gooey" is each tab looking
+    /// like it's morphing into the visible pane", the vertical ones in the sidebar too.
+    @MainActor public static var sidebarRowFlows: Bool { current == .goo && DesignSettings.shared.tabShape.runsIntoCard }
+
     /// The radius of the concave fillets where the selected tab meets the card (`flush-goo`); 0 for
     /// every other value.
     @MainActor public var feetRadius: CGFloat { self == .goo ? Metrics.scale(8) : 0 }
@@ -138,13 +143,26 @@ public protocol TabStripCorner: AnyObject {
     func selectedFolderPath(in target: CALayer) -> CGPath?
 }
 
+/// What the sidebar tells the window root about its selected row under `flush-goo` (``CornerFlush/sidebarRowFlows``)
+/// (``CornerFlushChrome/sidebarDidChange(_:)``), as a strip does about its selected tab (``TabStripCorner``).
+@MainActor
+public protocol SidebarSelectionCorner: AnyObject {
+    /// The selected row's fill in window coordinates while it shows whole in the sidebar's viewport, else nil.
+    var selectedRowFrameInWindow: CGRect? { get }
+    /// Whether the selected row runs into the card: the chrome cut its shape out of the shade, so the row paints the
+    /// content's fill (``Palette/folderTabFill``) with no corner on the card's side. Called on every redraw.
+    func setSelectionRunsIntoCard(_ runs: Bool)
+}
+
 extension Metrics {
     /// What reshapes the main pane's chrome beside its numbers (`WindowRootView.observeMainPane`):
     /// floating panes, the flush corner and the card's radius in a titled window, which rounds from the
     /// tabs (``mainPaneRoundsFromTabs``), so a density change reshapes it too.
     public static var chromeShapeKey: CGFloat {
         let shape = CGFloat((floatingPanes ? 1 : 0) + 2 * (CornerFlush.allCases.firstIndex(of: CornerFlush.current) ?? 0))
-        return shape + 16 * mainPaneCornerRadius(windowCornerRadius: standardWindowCornerRadius)
+        // `appearance.tabShape` (rounded keeps the selected tab a pill on a toned row): 0 or 1/4, under the corner's 16.
+        let tabShape = CGFloat(TabShape.allCases.firstIndex(of: DesignSettings.shared.tabShape) ?? 0) / 4
+        return shape + tabShape + 16 * mainPaneCornerRadius(windowCornerRadius: standardWindowCornerRadius)
     }
 }
 
@@ -158,6 +176,9 @@ public final class CornerFlushChrome: NSView {
     /// Every tab strip of this window that reported (``stripDidChange(_:)``), weakly; a workspace's strips
     /// report while hidden too.
     private let strips = NSHashTable<AnyObject>.weakObjects()
+    /// The window's sidebar list, once it reported (``sidebarDidChange(_:)``): under `flush-goo` its
+    /// selected row runs into the card as the selected tab does (``sidebarHole(card:radius:in:)``).
+    private weak var sidebar: (any SidebarSelectionCorner & NSView)?
     /// What the wedges were last drawn for (``apply``), so a strip's report redraws them alone.
     /// `card` is the content's whole frame; the card below the tab row is its top less a strip.
     private var drawn: (card: CGRect, radius: CGFloat, alpha: CGFloat)?
@@ -202,6 +223,28 @@ public final class CornerFlushChrome: NSView {
         return false
     }
 
+    /// The sidebar's selected row moved, changed or scrolled (``CornerFlush/sidebarRowFlows``): its window's shade cuts the
+    /// row's shape out in this same pass, so the flare moves with the selection, as a strip's folder tab does
+    /// (``stripDidChange(_:)``). False when no window root holds the chrome yet; the sidebar reports again on its
+    /// next layout.
+    @discardableResult
+    public static func sidebarDidChange(_ sidebar: any SidebarSelectionCorner & NSView) -> Bool {
+        var view = sidebar.superview
+        while let ancestor = view {
+            if let chrome = ancestor.subviews.lazy.compactMap({ $0 as? CornerFlushChrome }).first {
+                chrome.sidebar = sidebar
+                if chrome.isHidden {
+                    sidebar.setSelectionRunsIntoCard(false)
+                } else {
+                    chrome.redraw()
+                }
+                return true
+            }
+            view = ancestor.superview
+        }
+        return false
+    }
+
     /// The card top inset in `root` that centers the top row's pills on the traffic lights' line, where
     /// the sidebar's `+` sits too; nil when the flush corner is off or the tabs are at the bottom. It
     /// may be negative: the strip's own top padding then sits above the window.
@@ -236,6 +279,7 @@ public final class CornerFlushChrome: NSView {
         guard on, Metrics.mainPaneChromeShadeBase(isDark: isDark) > 0, radius > 0, superview === root else {
             isHidden = true
             markTopRow(card: nil, in: root)
+            sidebar?.setSelectionRunsIntoCard(false)
             shade.update(card: card, radius: radius, alpha: alpha)
             return
         }
@@ -263,7 +307,9 @@ public final class CornerFlushChrome: NSView {
             wedges.path = nil
             markTopRow(card: nil, in: root)
             if let content { Self.roundBottomOnly(content, false) }
-            shade?.update(card: drawn.card, radius: drawn.radius, alpha: drawn.alpha)
+            // The sidebar's gooey row still runs into the card, the whole content, rounded on every corner.
+            let row = drawn.alpha >= Metrics.folderTabMinimumShade ? sidebarHole(card: drawn.card, radius: drawn.radius, in: root) : nil
+            shade?.update(card: drawn.card, radius: drawn.radius, alpha: drawn.alpha, folders: row.map { [$0] } ?? [])
             return
         }
         // Under the least shade that sets the content apart (a title area contrast near 0: the tab row in the
@@ -273,6 +319,7 @@ public final class CornerFlushChrome: NSView {
         guard drawn.alpha >= Metrics.folderTabMinimumShade else {
             wedges.path = nil
             markTopRow(card: nil, in: root)
+            sidebar?.setSelectionRunsIntoCard(false)
             if let content { Self.roundBottomOnly(content, false) }
             let edge = tabRowEdge(card: card, in: root)
             shade?.update(card: drawn.card, radius: drawn.radius, alpha: drawn.alpha,
@@ -287,8 +334,11 @@ public final class CornerFlushChrome: NSView {
         wedges.fillColor = NSColor.black.withAlphaComponent(drawn.alpha).cgColor
         // Each wedge shades its corner once, including over transparent content.
         let edge = tabRowEdge(card: card, in: root)
+        // `appearance.tabShape` rounded: the selected tabs stay capsules on the toned row, so no folder is cut out.
+        let tabFolders = DesignSettings.shared.tabShape.runsIntoCard ? folderHoles(card: card, in: root) : []
+        let row = sidebarHole(card: card, radius: drawn.radius, in: root)
         shade?.update(card: card, radius: drawn.radius, alpha: drawn.alpha, squareTopCorners: true,
-                      folders: folderHoles(card: card, in: root),
+                      folders: tabFolders + (row.map { [$0] } ?? []),
                       dividers: Self.dividerSegments(Self.dividerLine(card: edge, radius: drawn.radius, squareLeading: square),
                                                      leaving: toolbarPanes(card: edge, in: root)))
     }
@@ -365,6 +415,57 @@ public final class CornerFlushChrome: NSView {
         return holes
     }
 
+    /// The sidebar's selected row under ``CornerFlush/sidebarRowFlows``, in the shade's coordinates: its fill out to the
+    /// card's edge and the fillets that meet the card (``sidebarFolderPath(row:card:cardRadius:rowRadius:feet:)``), and
+    /// tells the sidebar whether its row runs into the card. Only over a sidebar on the content's surface
+    /// (`appearance.sidebarSurface` same), where the shade under it shows; nil otherwise. O(1).
+    private func sidebarHole(card: CGRect, radius: CGFloat, in root: NSView) -> CGPath? {
+        guard let sidebar else { return nil }
+        guard CornerFlush.sidebarRowFlows, DesignSettings.shared.sidebarSurface == .same,
+              sidebar.window === root.window, !sidebar.isHiddenOrHasHiddenAncestor, let target = shade,
+              let frame = sidebar.selectedRowFrameInWindow,
+              let path = Self.sidebarFolderPath(row: root.convert(frame, from: nil), card: card, cardRadius: radius,
+                                                rowRadius: Metrics.tabCornerRadius, feet: CornerFlush.goo.feetRadius) else {
+            sidebar.setSelectionRunsIntoCard(false)
+            return nil
+        }
+        sidebar.setSelectionRunsIntoCard(true)
+        let o = target.convert(CGPoint.zero, from: root)
+        let x = target.convert(CGPoint(x: 1, y: 0), from: root), y = target.convert(CGPoint(x: 0, y: 1), from: root)
+        var map = CGAffineTransform(a: x.x - o.x, b: x.y - o.y, c: y.x - o.x, d: y.y - o.y, tx: o.x, ty: o.y)
+        return path.copy(using: &map) ?? path
+    }
+
+    /// The gooey sidebar row's shape in the window root's unflipped coordinates (maxY is the top): the row, rounded on
+    /// the side away from the card, out to the card's edge on the side it faces (a point past it, so no seam shows),
+    /// and at that edge a concave fillet above and below, tangent to the row and to the card, as the folder tab's feet
+    /// meet the card's top (``feetRadius``). nil when the row does not sit beside the card, or when it or its fillets
+    /// would reach the card's rounded corners (a row under the tab row or at the bottom keeps its own fill).
+    public static func sidebarFolderPath(row: CGRect, card: CGRect, cardRadius: CGFloat, rowRadius: CGFloat,
+                                         feet r: CGFloat) -> CGPath? {
+        guard !row.isEmpty, !card.isEmpty, row.minY - r >= card.minY + cardRadius, row.maxY + r <= card.maxY - cardRadius
+        else { return nil }
+        let left: Bool
+        if row.maxX <= card.minX + 0.5 { left = true } else if row.minX >= card.maxX - 0.5 { left = false } else { return nil }
+        let edge = left ? card.minX : card.maxX
+        let body = left ? CGRect(x: row.minX, y: row.minY, width: edge + 1 - row.minX, height: row.height)
+            : CGRect(x: edge - 1, y: row.minY, width: row.maxX - edge + 1, height: row.height)
+        let corner = min(rowRadius, body.height / 2, body.width / 2)
+        // Rounded on the far side only: the rounded rect, and a square half on the card's side.
+        let square = left ? CGRect(x: body.midX, y: body.minY, width: body.width / 2, height: body.height)
+            : CGRect(x: body.minX, y: body.minY, width: body.width / 2, height: body.height)
+        var path = CGPath(roundedRect: body, cornerWidth: corner, cornerHeight: corner, transform: nil)
+            .union(CGPath(rect: square, transform: nil))
+        guard r > 0 else { return path }
+        let x = left ? edge - r : edge, center = left ? edge - r : edge + r
+        for (y, centerY) in [(row.maxY, row.maxY + r), (row.minY - r, row.minY - r)] {
+            let foot = CGPath(rect: CGRect(x: x, y: y, width: r, height: r), transform: nil)
+                .subtracting(CGPath(ellipseIn: CGRect(x: center - r, y: centerY - r, width: 2 * r, height: 2 * r), transform: nil))
+            path = path.union(foot)
+        }
+        return path
+    }
+
     /// Whether the window's tab row is whole: some shown pane's strip sits on the card's top, and every
     /// shown pane that reaches above it (a pane in the top row, a canvas pane panned up) shows its strip
     /// right there. A pane that hid its strip (vertical tabs, a hidden tab bar) or whose strip left the
@@ -393,7 +494,8 @@ public final class CornerFlushChrome: NSView {
         }
         for case let strip as (any TabStripCorner & NSView) in strips.allObjects where strip.window === root.window {
             let onTop = card.map { !strip.isHidden && abs(root.convert(strip.cornerFrameInWindow, from: nil).minY - $0.maxY) < 2 } ?? false
-            strip.setRunsIntoCard(onTop)
+            // `appearance.tabShape` rounded keeps the top row's selected tab a capsule on its toned row.
+            strip.setRunsIntoCard(onTop && DesignSettings.shared.tabShape.runsIntoCard)
             strip.setTonedInCard(card != nil && !onTop && !strip.isHidden)
             for case let area as PaneContentAreaView in strip.superview?.subviews ?? [] {
                 area.setChromeClip(card: onTop ? clip : nil, radius: radius, in: root)

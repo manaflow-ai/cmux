@@ -8010,6 +8010,138 @@
         }
       }
     },
+    "cloud.link.failedNoDetail": {
+      "comment": "A Cloud link failed and its answer carried only a server code, which stays in the log.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not connect to the Cloud machine. Click Connect to try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud マシンに接続できませんでした。もう一度試すには［接続］をクリックしてください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر الاتصال بجهاز Cloud. انقر على اتصال للمحاولة مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Povezivanje s Cloud mašinom nije uspjelo. Kliknite Poveži da pokušate ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke forbinde til Cloud-maskinen. Klik på Forbind for at prøve igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Verbindung zur Cloud-Maschine nicht möglich. Klicke auf „Verbinden“, um es erneut zu versuchen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se pudo conectar a la máquina de Cloud. Haz clic en Conectar para intentarlo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossible de se connecter à la machine Cloud. Cliquez sur Se connecter pour réessayer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile connettersi alla macchina Cloud. Fai clic su Connetti per riprovare."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចភ្ជាប់ទៅម៉ាស៊ីន Cloud បានទេ។ ចុច ភ្ជាប់ ដើម្បីព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud 기기에 연결할 수 없습니다. 다시 시도하려면 연결을 클릭하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke koble til Cloud-maskinen. Klikk Koble til for å prøve igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie można połączyć się z maszyną Cloud. Kliknij Połącz, aby spróbować ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível conectar à máquina Cloud. Clique em Conectar para tentar novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось подключиться к машине Cloud. Нажмите «Подключить», чтобы повторить попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เชื่อมต่อกับเครื่อง Cloud ไม่ได้ คลิก เชื่อมต่อ เพื่อลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud makinesine bağlanılamadı. Yeniden denemek için Bağlan'a tıklayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося підключитися до машини Cloud. Натисніть «Підключити», щоб спробувати знову."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể kết nối với máy Cloud. Nhấp vào Kết nối để thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法连接到 Cloud 机器。点按“连接”以重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法連線到 Cloud 機器。按一下「連線」以重試。"
+          }
+        }
+      }
+    },
     "cloud.compat.limitedUpdate": {
       "extractionState": "manual",
       "localizations": {
@@ -10375,7 +10507,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your plan has no Cloud machines. The Go is $10 a month and includes machines; Pro is $50 a month."
+            "value": "Your plan has no Cloud machines. Go is $10 a month and includes machines; Pro is $50 a month."
           }
         },
         "ja": {

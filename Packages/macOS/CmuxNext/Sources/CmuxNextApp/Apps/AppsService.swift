@@ -21,6 +21,7 @@ final class AppsService {
     unowned let services: AppServices
     let transport: DaemonAppsTransport
     let client: AppsClient
+    let overlays: AppOverlayPresenter // app overlays (`presentation.overlay`), opened by the person only
     /// The control router once the socket starts (the CodeRouter page's ops run on it).
     private(set) var controlRouter: ControlRouter?
     /// The React CodeRouter page tab (Debug Settings `coderouter.surface = web`), registered on first open.
@@ -40,10 +41,11 @@ final class AppsService {
     private var machineCatalog: MachineCatalogPublisher?
     init(services: AppServices) {
         self.services = services
-        transport = DaemonAppsTransport(daemon: services.daemon, feeds: [.agentChats(), .systemCalendar(SystemCalendarChanges())], inventoryRoutes: { [weak machines = services.machines] in
+        transport = DaemonAppsTransport(daemon: services.daemon, feeds: [.agentChats(), .systemCalendar(SystemCalendarChanges()), .media { [weak services] in services?.cache.pageRequests.sidebarSources.nowPlaying }], inventoryRoutes: { [weak machines = services.machines] in
             machines?.agentInventoryWatchRoutes() ?? []
         })
         client = AppsClient(transport: transport)
+        overlays = AppOverlayPresenter(client: client)
     }
 
     /// Turning apps off (DisabledFeatures) makes the supervisor unreachable
@@ -73,7 +75,7 @@ final class AppsService {
         let memory = AgentMemorySearchHandler(enabled: { [weak services] in
             services?.settings?.snapshot.agentMemoryEnabled ?? false
         }, index: BundledAgentMemoryIndex.bundled())
-        transport.provider.attach(AppHostCapabilities([CodeRouterAppOps(control: control), ActionAppOps(control: actionControl), inventory, memory, ToastAppOps.inMainWindow(), AgentChatAppOps.sidebarChats(), PageAppOps(control: control, appControl: actionControl), CalendarAppOps()]))
+        transport.provider.attach(AppHostCapabilities([CodeRouterAppOps(control: control), ActionAppOps(control: actionControl), inventory, memory, ToastAppOps.inMainWindow(), AgentChatAppOps.sidebarChats(), PageAppOps(control: control, appControl: actionControl), CalendarAppOps(), MediaAppOps.card({ [weak services] in services?.cache.pageRequests.sidebarSources.nowPlaying }, perform: { [weak services] in services?.cache.pageRequests.sidebarSources.perform($0) })]))
         if machineCatalog == nil {
             machineCatalog = MachineCatalogPublisher { [weak machines = services.machines] in
                 machines?.catalogSource()

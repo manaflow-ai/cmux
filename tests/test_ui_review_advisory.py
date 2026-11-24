@@ -112,7 +112,41 @@ class UiReviewAdvisoryTests(unittest.TestCase):
                 check=False,
             )
             self.assertEqual(result.returncode, 0)
-            self.assertIn("Try: `scripts/cmux-next/try-pr.sh 4321`", result.stdout)
+            self.assertIn("Try: `cmux app try 4321`", result.stdout)
+
+    def test_with_try_line_adds_only_to_a_ui_change_without_one(self):
+        ui = [{"filename": "webviews/src/chat/Composer.tsx"}]
+        added = module.with_try_line("## Summary\nA fix.\n", ui, "50041")
+        self.assertTrue(added.startswith("## Summary\nA fix.\n\n"))
+        self.assertIn("Try: `cmux app try 50041`", added)
+        self.assertIn(module.ADDED_MARK, added)
+        self.assertRegex(added, module.TRY)
+        # Adding is idempotent: the line it wrote counts as present.
+        self.assertIsNone(module.with_try_line(added, ui, "50041"))
+        self.assertIsNone(module.with_try_line("A fix.", [{"filename": "docs/ui.md"}], "1"))
+        self.assertIsNone(module.with_try_line("Try: none, iOS only", ui, "1"))
+        self.assertIsNone(module.with_try_line("Open it with `cmux app try 9`.", ui, "9"))
+        self.assertIn("Try: `cmux app try 7`", module.with_try_line(None, ui, "7"))
+
+    def test_add_try_line_reads_the_live_body_and_keeps_an_edit(self):
+        ui = [{"filename": "webviews/src/chat/Composer.tsx"}]
+        calls = []
+
+        def fake_gh(*args, stdin=None):
+            calls.append((args, stdin))
+            return json.dumps({"body": "edited since the event"}) if args[-1] == "repos/o/r/pulls/5" else "{}"
+
+        original = module.gh
+        module.gh = fake_gh
+        try:
+            self.assertEqual(module.add_try_line("o/r", "5", ui, "Try: none, x"), "try line: not needed")
+            self.assertEqual(calls, [])
+            self.assertIn("added", module.add_try_line("o/r", "5", ui, "old body"))
+            written = json.loads(calls[-1][1])["body"]
+            self.assertTrue(written.startswith("edited since the event"))
+            self.assertIn("Try: `cmux app try 5`", written)
+        finally:
+            module.gh = original
 
     def test_template_carries_the_try_line(self):
         template = (ROOT / ".github/pull_request_template.md").read_text()

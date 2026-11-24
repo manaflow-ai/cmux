@@ -115,8 +115,8 @@ final class MacScreenPageService: InternalPageProvider {
         pages.prepareOpen(key, record: record, byPerson: byPerson)
         guard let services else { return key }
         let window = services.windowController(showing: pane)
-        var onCreated: (@MainActor (SurfaceID) -> Void)?
-        if let created { onCreated = { _ in created() } }
+        let made = pages.whenCreated(key, focus: focus, then: created)
+        let onCreated: (@MainActor (SurfaceID) -> Void)? = if let made { { (_: SurfaceID) in made() } } else { nil }
         if let window, services.pages.openStoreTab(.macScreen, in: pane, window: window, focus: focus, key: key,
                                                    created: onCreated) != nil {
             return key
@@ -125,7 +125,7 @@ final class MacScreenPageService: InternalPageProvider {
                             window: window, key: key)
         pane.apply(pane.snapshot())
         if focus { services.pages.reveal(key, in: pane) }
-        created?()
+        made?()
         return key
     }
 
@@ -196,9 +196,9 @@ extension AppServices {
     }
 
     var cmuxRemoteActions: CmuxRemoteActionEnvironment {
-        CmuxRemoteActionEnvironment(remote: cmuxRemote, screenHost: macScreenPages.hubHost, hub: { [weak self] in self?.macScreenPages.hub },
-                                    window: { [weak self] in self?.windows.active?.window },
-                                    openDevices: { [weak self] in try? self?.settingsWindow.show(section: nil, route: "devices") }, shareConsent: .setting { [weak self] in self?.settings })
+        CmuxRemoteActionEnvironment(remote: cmuxRemote, screenHost: macScreenPages.hubHost, hub: { [weak self] in self?.macScreenPages.hub }, window: { [weak self] in self?.windows.active?.window },
+                                    openDevices: { [weak self] in try? self?.settingsWindow.show(section: nil, route: "devices") }, shareConsent: .setting({ [weak self] in self?.settings },
+                                    ownJoin: CmuxRemoteOwnJoin(last: { [weak self] in self?.joinConsent.ownsJoin(self?.cloud.auth) ?? false }, now: { [weak self] in await self?.joinConsent.readOwnJoin(self?.cloud.auth) ?? false })))
     }
 
     /// cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen
