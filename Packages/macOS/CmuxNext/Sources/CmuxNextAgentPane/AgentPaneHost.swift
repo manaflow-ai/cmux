@@ -72,7 +72,7 @@ extension AgentPaneHostProviding {
     public func restartAcpmux(owner: AcpmuxSocketOwner) async -> Bool { false }
 
     /// Hosts without a daemon have no answers to tell.
-    public func acpmuxAnswers() -> AsyncStream<Void>? { nil }
+    public nonisolated func acpmuxAnswers() -> AsyncStream<Void>? { nil }
 
     /// Hosts without a daemon have none to restart.
     public func restartOutdatedAcpmux(sessionId: String?) async -> String? { nil }
