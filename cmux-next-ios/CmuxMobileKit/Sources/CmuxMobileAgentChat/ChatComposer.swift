@@ -111,10 +111,7 @@ struct ChatComposer: View {
             CameraPicker { image in
                 if let data = image.jpegData(compressionQuality: AgentImageOptimizer.jpegQuality) {
                     let name = "Camera \(Date().formatted(date: .omitted, time: .shortened))"
-                    Task {
-                        let optimized = await AgentImageOptimizer.optimizeAsync(data)
-                        attachments.append(AgentAttachment(kind: .image, name: name, data: optimized))
-                    }
+                    appendOptimizedImage(data, name: name)
                 }
             }
             .ignoresSafeArea()
@@ -186,42 +183,43 @@ struct ChatComposer: View {
                 let suffix = index > 0 ? " \(index + 1)" : ""
                 return (name: "Pasted image \(stamp)\(suffix)", data: image.data)
             }
-            Task {
-                var optimized: [AgentAttachment] = []
-                optimized.reserveCapacity(images.count)
-                for image in images {
-                    let data = await AgentImageOptimizer.optimizeAsync(image.data)
-                    optimized.append(AgentAttachment(kind: .image, name: image.name, data: data))
-                }
-                attachments.append(contentsOf: optimized)
-            }
+            for image in images { appendOptimizedImage(image.data, name: image.name) }
         } else if board.composerHoldsFileData {
             // A file copied in Files is its bytes on the pasteboard, not a path.
             let providers = board.itemProviders
             Task {
                 let pasted = await ComposerPastedFiles.load(providers)
-                var attachmentsToAdd: [AgentAttachment] = []
-                attachmentsToAdd.reserveCapacity(pasted.files.count)
                 for file in pasted.files {
                     let image = file.type.conforms(to: .image) ? file.data.flatMap { UIImage(data: $0) } : nil
-                    let data: Data?
                     if image == nil {
-                        data = file.data
+                        attachments.append(AgentAttachment(kind: .file, name: file.name, data: file.data,
+                                                           fileURL: file.fileURL, byteCount: file.byteCount))
                     } else if let original = file.data {
-                        data = await AgentImageOptimizer.optimizeAsync(original)
+                        appendOptimizedImage(original, name: file.name, fileURL: file.fileURL, byteCount: file.byteCount)
                     } else {
-                        data = nil
+                        attachments.append(AgentAttachment(kind: .image, name: file.name, fileURL: file.fileURL,
+                                                           byteCount: file.byteCount))
                     }
-                    attachmentsToAdd.append(AgentAttachment(kind: image == nil ? .file : .image, name: file.name,
-                                                           data: data, fileURL: file.fileURL, byteCount: data?.count ?? file.byteCount))
                 }
-                attachments += attachmentsToAdd
                 if let name = pasted.unreadable.first { store.clientError = "Couldn't read \(name)." }
             }
         } else if let urls = board.urls?.filter(\.isFileURL), !urls.isEmpty {
             let (files, refused) = Self.readFiles(urls)
             attachments += files
             if let refused { store.clientError = refused }
+        }
+    }
+
+    private func appendOptimizedImage(_ data: Data, name: String, fileURL: URL? = nil, byteCount: Int? = nil) {
+        let id = UUID().uuidString
+        attachments.append(AgentAttachment(id: id, kind: .image, name: name, data: data,
+                                           fileURL: fileURL, byteCount: byteCount ?? data.count))
+        Task {
+            let optimized = await AgentImageOptimizer.optimizeAsync(data)
+            guard let index = attachments.firstIndex(where: { $0.id == id }) else { return }
+            attachments[index].data = optimized
+            attachments[index].byteCount = optimized.count
+            attachments[index].name = AgentImageOptimizer.filename(attachments[index].name, for: optimized)
         }
     }
 
@@ -795,9 +793,7 @@ struct ChatComposer: View {
                 continue
             }
             guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
-            let optimized = await AgentImageOptimizer.optimizeAsync(data)
-            let attachment = AgentAttachment(kind: .image, name: "Photo", data: optimized)
-            attachments.append(attachment)
+            appendOptimizedImage(data, name: "Photo")
         }
         photoItems = []
     }
