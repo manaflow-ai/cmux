@@ -19,9 +19,6 @@
 mod bundle;
 mod copy;
 mod folder;
-#[cfg(test)]
-mod folder_tests;
-mod reconcile;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
