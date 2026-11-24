@@ -168,6 +168,8 @@ async fn a_50_mb_chat_starts_on_a_second_daemon_from_its_tail_and_its_history_fo
 struct Freeze {
     prompts: usize,
     log_bytes: u64,
+    /// The bytes the freeze carried: the files of the begin's bundle.
+    carried: u64,
     prepare_ms: u128,
     begin_ms: u128,
     receive_ms: u128,
@@ -214,6 +216,8 @@ async fn timed_freeze(prompts: usize) -> Freeze {
                            "afterSeq": prepared["afterSeq"]});
     let begin = src.request("_acpmux/transfer_begin", begin_ask).await.unwrap();
     let begin_ms = at.elapsed().as_millis();
+    let carried: u64 =
+        begin["files"].as_array().unwrap().iter().map(|f| f["size"].as_u64().unwrap()).sum();
     let at = std::time::Instant::now();
     let receive = json!({"manifest": begin, "stageId": stage_id});
     let received = dst.request("_acpmux/transfer_receive", receive).await.unwrap();
@@ -244,6 +248,7 @@ async fn timed_freeze(prompts: usize) -> Freeze {
     Freeze {
         prompts,
         log_bytes,
+        carried,
         prepare_ms,
         begin_ms,
         receive_ms,
@@ -256,18 +261,25 @@ async fn timed_freeze(prompts: usize) -> Freeze {
 }
 
 /// The freeze (begin to commit) of a history-later move does not grow with the log: a log 20
-/// times larger freezes for about as long. Prints both.
+/// times larger carries about as many bytes through the freeze. Prints both freezes' times.
+///
+/// It asserts what the freeze carried, not how long it took: the times are those of a test
+/// binary whose other tests (the 50 MB move beside it among them) load the same machine, and a
+/// bound on them failed once under that load (1775 ms for a 66 MB log against 55 ms for 3.3 MB)
+/// and passed at the same code (24 ms against 16 ms). What the freeze carries is what would make
+/// it grow.
 #[tokio::test]
 async fn the_freeze_of_a_history_later_move_does_not_grow_with_the_log() {
     let small = timed_freeze(4).await;
     let large = timed_freeze(80).await;
     for f in [&small, &large] {
         eprintln!(
-            "freeze of a {:.1} MB log ({} prompts): begin {} ms, receive {} ms, finish {} ms, \
+            "freeze of a {:.1} MB log ({} prompts), {} bytes carried: begin {} ms, receive {} ms, finish {} ms, \
              commit {} ms, total {} ms; prepare {} ms (its background pack {} ms); after the \
              commit, history export {} ms, export through its stage {} ms",
             f.log_bytes as f64 / 1048576.0,
             f.prompts,
+            f.carried,
             f.begin_ms,
             f.receive_ms,
             f.finish_ms,
@@ -280,14 +292,13 @@ async fn the_freeze_of_a_history_later_move_does_not_grow_with_the_log() {
         );
     }
     assert!(large.log_bytes > 20 * small.log_bytes, "the large log is not much larger");
-    // A constant cost with room for a busy machine: a few times the small freeze and a floor.
-    let bound = (small.total() * 4).max(small.total() + 150);
+    // The last turn alone, whatever the log behind it: the same few KB for both.
     assert!(
-        large.total() <= bound,
-        "the freeze grew with the log: {} ms for {} bytes, {} ms for {} bytes",
-        small.total(),
+        large.carried <= small.carried * 2 && large.carried * 20 < large.log_bytes,
+        "the freeze grew with the log: {} bytes carried of {} bytes, {} of {} bytes",
+        small.carried,
         small.log_bytes,
-        large.total(),
+        large.carried,
         large.log_bytes,
     );
 }
