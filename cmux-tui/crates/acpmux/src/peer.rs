@@ -89,6 +89,9 @@ mod handshake_tests;
 #[path = "peer_hub_behind_tests.rs"]
 mod hub_behind_tests;
 #[cfg(test)]
+#[path = "peer_link_quality_tests.rs"]
+mod link_quality_tests;
+#[cfg(test)]
 #[path = "peer_liveness_tests.rs"]
 mod liveness_tests;
 #[cfg(test)]

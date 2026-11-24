@@ -30,6 +30,10 @@ pub struct LinkTimings {
     pub ping_misses: u32,
     /// `ACPMUX_PEER_PING_SECS` was set: the silence budget stays `silence_budget()`.
     pub fixed_silence: bool,
+    /// The checks of a silent link scale with its measured round trip
+    /// (`peer_link_quality::probe_wait`, `silence_floor`): on in every daemon. Off, they keep the
+    /// fixed constants, which the link-quality tests measure against.
+    pub rtt_adaptive: bool,
     /// The link is dropped when one send cannot go out for this long (a peer that stops
     /// reading). Longer than the silence budget: a large frame on a slow uplink takes a while.
     // timeout: a peer that never reads would hold every queued write; a dead transport is
@@ -64,6 +68,7 @@ impl Default for LinkTimings {
             ping_every: Duration::from_secs(2),
             ping_misses: 3,
             fixed_silence: false,
+            rtt_adaptive: true,
             send: Duration::from_secs(80),
             stable_after: Duration::from_secs(60),
             request: Duration::from_secs(600),

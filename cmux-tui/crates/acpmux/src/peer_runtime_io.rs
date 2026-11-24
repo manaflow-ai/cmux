@@ -1101,16 +1101,17 @@ impl Peer {
                 _ = self.stop_signal.notified() => break Ok(LinkEnd::Stopped),
                 _ = wake_check.tick() => check_wake!(),
                 _ = tokio::time::sleep_until(wake_probe.unwrap_or_else(tokio::time::Instant::now)), if wake_probe.is_some() => {
+                    let probe = self.probe_wait();
                     // A request's probe on a link still reading bytes (a large frame on its way, the
-                    // pong queued behind it) is moving: wait another `NETWORK_PROBE`, not drop it.
-                    if request_probe && heard.as_ref().is_some_and(|h| h.silent() < network::NETWORK_PROBE) {
-                        wake_probe = Some(tokio::time::Instant::now() + network::NETWORK_PROBE);
+                    // pong queued behind it) is moving: wait another probe, not drop it.
+                    if request_probe && heard.as_ref().is_some_and(|h| h.silent() < probe) {
+                        wake_probe = Some(tokio::time::Instant::now() + probe);
                         continue;
                     }
                     // This daemon did not read for part of the probe's wait: the answer may be
                     // in, unread. The probe waits its whole time from when reading resumed.
-                    if reader.reading() < network::NETWORK_PROBE {
-                        wake_probe = Some(tokio::time::Instant::now() + network::NETWORK_PROBE - reader.reading());
+                    if reader.reading() < probe {
+                        wake_probe = Some(tokio::time::Instant::now() + probe - reader.reading());
                         continue;
                     }
                     if request_probe {
@@ -1123,9 +1124,11 @@ impl Peer {
                 }
                 // This computer's network changed (`peer_network.rs`): the link may ride a route that
                 // is gone. A ping goes out at once and the link is dropped and redialed when nothing
-                // answers within `NETWORK_PROBE`, not after the whole silence budget.
+                // answers within `NETWORK_PROBE` (longer on a slow link: `Peer::probe_wait`), not after
+                // the whole silence budget.
                 () = self.network_changed() => {
-                    let deadline = tokio::time::Instant::now() + network::NETWORK_PROBE;
+                    let probe = self.probe_wait();
+                    let deadline = tokio::time::Instant::now() + probe;
                     if wake_probe.is_none_or(|probe| probe > deadline) {
                         tracing::info!(peer = %self.name, "this computer's network changed; checking the link");
                         match tokio::time::timeout_at(deadline, sink.send(Frame::Ping(Vec::new().into()))).await {
@@ -1134,11 +1137,11 @@ impl Peer {
                                 request_probe = false;
                                 probe_cause = Some(format!(
                                     "no answer {}s after this computer's network changed",
-                                    network::NETWORK_PROBE.as_secs()
+                                    probe.as_secs()
                                 ));
                             }
                             Ok(Err(e)) => break Err(e.to_string()),
-                            Err(_) => break Err(stopped_reading(network::NETWORK_PROBE)),
+                            Err(_) => break Err(stopped_reading(probe)),
                         }
                     }
                 }
@@ -1205,6 +1208,8 @@ impl Peer {
                         tracing::info!(peer = %self.name, "silence budget {}s (was {}s; longest wait for an answer {}ms)", silence.as_secs(), was.as_secs(), gap.as_millis());
                     }
                     let silent = heard.as_ref().map_or(last_frame.elapsed(), |h| h.silent().min(last_frame.elapsed())).min(reader.reading());
+                    // Not under what the link's round trip asks for (`peer_link_quality.rs`).
+                    let silence = self.silence_for(silence);
                     if silent >= silence {
                         self.with_silence(|b| b.dropped(now));
                         break Err(format!("peer stopped answering ({}s without a frame)", silent.as_secs()));
@@ -1483,24 +1488,25 @@ impl Peer {
                     // A request on a link silent for a ping interval: a network gone without a
                     // reset takes the write into the kernel's buffer and answers nothing. A ping
                     // goes out with it and the link is dropped and redialed when nothing answers
-                    // within `NETWORK_PROBE`, not after the whole silence budget. Not for a peer
-                    // that proved slow (`SilenceBudget::may_probe`).
+                    // within `NETWORK_PROBE` (scaled to the link's round trip: `Peer::probe_wait`), not
+                    // after the whole silence budget. Not for a peer that proved slow (`SilenceBudget::may_probe`).
                     if wake_probe.is_none() && silent >= timings.ping_every && self.with_silence(|b| b.may_probe()) {
-                        let deadline = tokio::time::Instant::now() + network::NETWORK_PROBE;
+                        let probe = self.probe_wait();
+                        let deadline = tokio::time::Instant::now() + probe;
                         match tokio::time::timeout_at(deadline, sink.send(Frame::Ping(Vec::new().into()))).await {
                             Ok(Ok(())) => {
                                 wake_probe = Some(deadline);
                                 request_probe = true;
                                 probe_cause = Some(format!(
                                     "no answer {}s after a request on a link silent {}s",
-                                    network::NETWORK_PROBE.as_secs(),
+                                    probe.as_secs(),
                                     silent.as_secs()
                                 ));
                             }
                             Ok(Err(e)) => break Err(e.to_string()),
                             Err(_) => {
                                 self.with_silence(SilenceBudget::probe_dropped);
-                                break Err(stopped_reading(network::NETWORK_PROBE));
+                                break Err(stopped_reading(probe));
                             }
                         }
                     }
