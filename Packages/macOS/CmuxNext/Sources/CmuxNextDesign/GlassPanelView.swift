@@ -484,7 +484,8 @@ public final class ActiveLookScope {
 /// where it sits (`debug.layers` with `glass_census`: `start` resets and counts, `stop` stops). Off by default: one
 /// flag read per glass layout.
 @MainActor
-public enum GlassLayoutCensus {
+public struct GlassLayoutCensus {
+    public init() {}
     private final class Box {
         weak var view: NSView?
         var count = 0
