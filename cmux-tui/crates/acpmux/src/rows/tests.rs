@@ -136,6 +136,28 @@ fn a_segment_id_seen_again_after_a_restart_starts_its_own_row() {
     assert_eq!(table.rows()[1].text, "one");
 }
 
+/// Text between turns logged before cmux#48659 reused `-.<boot>.1` for replies an hour apart. Each
+/// reply's row is named by its segment and its message, so a page holding only the later reply
+/// names it as the whole log does: the earlier reply, once its page is read, never takes its id.
+#[test]
+fn replies_between_turns_that_share_a_segment_keep_their_ids_in_any_page() {
+    let log = [
+        chunk(1, "The reviewer returned FIX", Some("msg_old"), Some("-.b.1")),
+        mux(2, "user_message", json!({"promptId": "p", "turnId": "t", "text": "go"})),
+        chunk(3, "working", Some("msg_t"), Some("t.b.1")),
+        mux(4, "turn_end", json!({"turnId": "t", "stopReason": "end_turn"})),
+        chunk(5, "The review is FIX", Some("msg_new"), Some("-.b.1")),
+    ];
+    let whole = RowTable::fold(&log);
+    let tail = RowTable::fold(&log[2..]);
+    let id_of = |table: &RowTable, text: &str| {
+        table.rows().iter().find(|r| r.text == text).map(|r| r.head.id.clone()).unwrap()
+    };
+    assert_eq!(id_of(&whole, "The reviewer returned FIX"), "reply:-.b.1~msg_old");
+    assert_eq!(id_of(&whole, "The review is FIX"), "reply:-.b.1~msg_new");
+    assert_eq!(id_of(&tail, "The review is FIX"), id_of(&whole, "The review is FIX"));
+}
+
 #[test]
 fn a_steer_that_runs_as_the_next_prompt_keeps_its_row_where_it_is() {
     let log = [

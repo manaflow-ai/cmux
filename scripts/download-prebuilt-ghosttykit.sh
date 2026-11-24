@@ -22,6 +22,9 @@ independently of build caches. --print-release prints the release tag and
 archive name for GHOSTTY_SHA (or the submodule) and exits, without reading the
 checksums (scripts/cmux-next/ghosttykit-checksum.sh pins them from it).
 
+GHOSTTYKIT_VERIFY_BY_DIGEST=1 makes --verify-only accept the release asset's
+published sha256 digest when it equals the pin, without downloading.
+
 GHOSTTYKIT_ARCHIVE_CACHE_DIR, when set, keeps each verified archive there under
 its pinned sha256 and reuses it instead of downloading again. --verify-only
 never reads or writes it.
@@ -173,6 +176,28 @@ fetch_via_release_api() {
   curl --fail --show-error --location --connect-timeout "$DOWNLOAD_CONNECT_TIMEOUT" --max-time "$DOWNLOAD_MAX_TIME" \
     -H 'Accept: application/octet-stream' -o "$ARCHIVE_PATH" "$asset_url"
 }
+
+# --verify-only with GHOSTTYKIT_VERIFY_BY_DIGEST=1 asks the release-assets API for the asset's
+# sha256 (GitHub computes it at upload) and stops when it equals the pin: the published bytes are
+# the pinned bytes, without downloading 123 MB. On 2026-11-23 a runner holding about 100 KB/s
+# spent 17 min on that download and failed (job 137831575500). Any other answer (no digest, a
+# different one, an API error) falls through to the download and full check below; a PR that
+# changes the pin, which runs no Mac job to unpack it, leaves the variable unset.
+if [ "$VERIFY_ONLY" -eq 1 ] && [ "${GHOSTTYKIT_VERIFY_BY_DIGEST:-0}" = 1 ] &&
+   [[ "$DOWNLOAD_URL" =~ ^https://github\.com/([^/]+)/([^/]+)/releases/download/([^/]+)/([^/]+)$ ]]; then
+  digest_auth=()
+  [ -n "${GITHUB_TOKEN:-}" ] && digest_auth=(-H "Authorization: Bearer $GITHUB_TOKEN")
+  published_digest="$(curl --fail --silent --show-error --location --connect-timeout "$DOWNLOAD_CONNECT_TIMEOUT" \
+    --max-time 60 "${digest_auth[@]}" -H 'Accept: application/vnd.github+json' \
+    "https://api.github.com/repos/${BASH_REMATCH[1]}/${BASH_REMATCH[2]}/releases/tags/${BASH_REMATCH[3]}" \
+    | python3 -c 'import json, sys; print(next((a.get("digest") or "" for a in json.load(sys.stdin)["assets"] if a["name"] == sys.argv[1]), ""))' "${BASH_REMATCH[4]}" \
+    2>/dev/null || true)"
+  if [ "$published_digest" = "sha256:$EXPECTED_SHA256" ]; then
+    echo "Verified $ARCHIVE_NAME for ghostty $GHOSTTY_SHA (release asset digest equals the pinned sha256)"
+    exit 0
+  fi
+  echo "Release asset digest '${published_digest:-none}' is not sha256:$EXPECTED_SHA256; downloading to check" >&2
+fi
 
 # Each attempt is its own curl process so --continue-at resumes from the bytes
 # already on disk; curl's built-in --retry starts the file over.

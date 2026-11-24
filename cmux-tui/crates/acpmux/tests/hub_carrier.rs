@@ -545,7 +545,9 @@ async fn hub_carrier_a_dial_to_a_machine_whose_carrier_is_off_says_so_fast() {
         key_a,
         Timings { peer_join: Duration::from_millis(800), ..Timings::default() },
     );
-    // B never serves: no carrier registered its slot.
+    // B never serves: even a failed open counts as a dial attempt.
+    let links = acpmux::gauges::links();
+    let kept_before = links.hub_kept_dials.load(Ordering::Relaxed);
     let started = std::time::Instant::now();
     let said =
         match dialer.dial_service(&public(&key_b), CircuitService::CmuxTui { port: 7781 }).await {
@@ -555,13 +557,12 @@ async fn hub_carrier_a_dial_to_a_machine_whose_carrier_is_off_says_so_fast() {
     assert!(started.elapsed() < Duration::from_secs(5), "the dial waited {:?}", started.elapsed());
     assert!(said.contains("hub carrier is off"), "{said}");
     assert!(said.contains("carrier.not_serving"), "{said}");
+    assert!(links.hub_kept_dials.load(Ordering::Relaxed) > kept_before);
     // The hub's own 404 (`machine.not_found`: FixedTickets knows no such machine) ends at once
     // too, on its own terminal reason: it is no relay wait at all.
     let started = std::time::Instant::now();
-    let said = match dialer
-        .dial_service(&public(&random_key()), CircuitService::CmuxTui { port: 7781 })
-        .await
-    {
+    let unknown = public(&random_key());
+    let said = match dialer.dial_service(&unknown, CircuitService::CmuxTui { port: 7781 }).await {
         Ok(_) => panic!("a dial reached a machine the hub does not know"),
         Err(said) => said,
     };
@@ -569,6 +570,10 @@ async fn hub_carrier_a_dial_to_a_machine_whose_carrier_is_off_says_so_fast() {
     assert!(said.ends_with("(machine.not_joined)"), "{said}");
     // The hub scopes the ticket to the caller's team: the words name it, not the far carrier.
     assert!(said.contains("another of your teams"), "{said}");
+
+    let plain_before = links.hub_plain_dials.load(Ordering::Relaxed);
+    assert!(dialer.dial(&unknown).await.is_err());
+    assert!(links.hub_plain_dials.load(Ordering::Relaxed) > plain_before);
 }
 
 /// The node key is WireGuard's static key and the carrier's Noise static key; the acpmux owner
@@ -2907,6 +2912,12 @@ async fn hub_carrier_later_dials_to_a_machine_ride_its_kept_circuit_as_streams()
     echo(&mut first, b"one\n").await;
     echo(&mut second, b"two\n").await;
     assert_eq!(fixture.a.kept_streams(&fixture.b_key), Some(2));
+    // `gauges.links` counts them, both ends of each (other tests in this process add theirs).
+    let links = acpmux::gauges::links().status();
+    assert!(links["keptStreamsOpen"].as_u64().unwrap() >= 4, "{links}");
+    assert!(links["hubKeptOpen"].as_u64().unwrap() >= 2, "{links}");
+    assert!(links["hubKeptDials"].as_u64().unwrap() >= 1, "{links}");
+    assert!(links["keptStreamOpens"].as_u64().unwrap() >= opens + 2, "{links}");
 
     // A half close: the far side reads the end, closes, and the stream ends; the other lives on.
     first.shutdown().await.unwrap();
