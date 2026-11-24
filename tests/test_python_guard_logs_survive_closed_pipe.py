@@ -23,7 +23,7 @@ Two detectors:
   statement, so a script's closing `try: ... finally:` that kills is one cleanup path. A three-statement window
   (cmux#41855) missed a log nested under an `if` and longer cleanup paths; this rule has nothing to miss by distance.
 
-Not in CI (tests/test-execution.d/other.toml: manual; no new CI tests, Lawrence 2026-10-23): run
+Not in CI (tests/test-execution.d/other.toml: manual; no new CI tests, Lawrence 2026-10-23, lifted 2026-11-18): run
 `python3 -I tests/test_python_guard_logs_survive_closed_pipe.py` after adding or changing a script that prints right
 before it stops a process (about 20 s; needs python3 and ps).
 """
@@ -215,7 +215,15 @@ class Fixture(unittest.TestCase):
                                 start_new_session=True)
         self.addCleanup(proc.wait)
         self.kill_at_cleanup(proc.pid)
-        time.sleep(0.3)  # until bash has exec'd sleep under the bundle path
+        # Until bash has exec'd sleep under the bundle path, as ps reads its command (10 s at most).
+        deadline = time.monotonic() + 10
+        while True:
+            command = subprocess.run(["ps", "-o", "command=", "-p", str(proc.pid)], capture_output=True, text=True).stdout
+            if command.startswith(f"{self.app}/Contents/MacOS/cmux-helper"):
+                break
+            self.assertIsNone(proc.poll(), f"the leftover exited ({proc.returncode}) before it exec'd sleep")
+            self.assertLess(time.monotonic(), deadline, f"pid {proc.pid} never exec'd sleep under the bundle path: {command!r}")
+            time.sleep(0.02)
         return proc.pid
 
     def run_cleanup(self, script: str, state: dict) -> None:

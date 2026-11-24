@@ -43,7 +43,7 @@ enum DebugNewTabBench {
         }
         if case .object(var fields) = result {
             let opening = services.newTabSpares.openings.count > before ? services.newTabSpares.openings.last : nil
-            fields["opening"] = opening.map { .object(["spare": .bool($0.spare), "refit": .bool($0.refit), "ms": .number($0.milliseconds)]) } ?? .null
+            fields["opening"] = opening.map { .object(["spare": .bool($0.spare), "idle": .bool($0.idle), "refit": .bool($0.refit), "ms": .number($0.milliseconds)]) } ?? .null
             result = .object(fields)
         }
         return result
@@ -101,7 +101,7 @@ enum DebugNewTabBench {
         return .object([
             "key_ms": .number(keyMilliseconds),
             "visible_ms": visible.map { .number($0) } ?? .null,
-            "main_thread_spans_ms": .number(spans.reduce(0) { $0 + $1.milliseconds }),
+            "main_thread_spans_ms": .number(BenchSpanSum(spans.map { (name: $0.name, milliseconds: $0.milliseconds) }).mainThread),
             "spans": .array(spans.map { .object(["name": .string($0.name), "at": .number($0.start), "ms": .number($0.milliseconds)]) }),
             "frames": stats,
         ])

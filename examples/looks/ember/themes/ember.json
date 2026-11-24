@@ -1,0 +1,159 @@
+// Ember: a floating command-surface look, Dark (the default). Dark glass: a near-black window
+// (#141414) that floats over the desktop, the sidebar a lighter inset panel (#1B1B1B) with neutral
+// gray selected rows (#363636), white titles over gray secondary lines, and one warm coral red
+// (#FF6363) kept for focus and the few marks that need it. Compact 32 px rows in a 260 px sidebar,
+// large soft corners, quick spring motion.
+{
+  "name": "Ember",
+  "description": "A floating command-surface look, Dark: dark glass, a lighter inset sidebar, neutral gray selection, one coral red.",
+
+  "appearance.theme": "Builtin Dark",
+  "appearance.appTheme": "followTerminal",
+  // background: the window (#141414, sampled). foreground: titles (#FFFFFF, sampled).
+  // selection: the selected row's gray (#363636, sampled) lightened to #757575, where the black
+  // selected text Builtin Dark draws reads. accent: the coral red (#FF6363, sampled #FD6262).
+  "colors": { "background": "#141414", "foreground": "#ffffff", "selection": "#757575", "accent": "#ff6363" },
+  // Selection, focus and Send in neutral gray, as the launcher marks its selected row; the coral stays
+  // the theme color that links and the few red marks mix from.
+  "appearance.accent": "neutral",
+  // The terminal: the page and ink above, the cursor in the accent, the selection, and all sixteen
+  // ANSI colors at a warm, lively chroma, each solved in OKLCH over the page (5.5:1, the bright
+  // ones 8.5:1; 0 the raised black 2:1; 8, the dim gray, 3.4:1).
+  "ghostty": [
+    "background = #141414",
+    "foreground = #ffffff",
+    "cursor-color = #ff6363",
+    "cursor-text = #141414",
+    "selection-background = #757575",
+    "selection-foreground = #ffffff",
+    "palette = 0=#44484e",
+    "palette = 1=#df685e",
+    "palette = 2=#30a054",
+    "palette = 3=#ac8806",
+    "palette = 4=#548ce7",
+    "palette = 5=#c46dbe",
+    "palette = 6=#089ca4",
+    "palette = 7=#ffffff",
+    "palette = 8=#666b71",
+    "palette = 9=#ff937c",
+    "palette = 10=#1ec97a",
+    "palette = 11=#d7ab03",
+    "palette = 12=#8daffe",
+    "palette = 13=#fa89e1",
+    "palette = 14=#0dc2d5",
+    "palette = 15=#e6e8eb"
+  ],
+
+  // Glass: dark glass. The window is translucent over a blurred desktop; the sidebar lets more
+  // of it through than the reading surface does.
+  "appearance.background": "none",
+  "appearance.backgroundBlur": "glass",
+  "appearance.backgroundOpacity": 0.7,
+  "appearance.glassTransparency": 0.3,
+  "appearance.wallpaperTint": false,
+  "appearance.fontSmoothing": "antialiased",
+
+  // Layout: floating surfaces: every pane a rounded card on the window with one even gap and no
+  // borders, the title area in the content's one color (the title and model line sit right on it).
+  "appearance.chromeStyle": "floating",
+  "appearance.borders": "none",
+  "appearance.titleAreaTone": "oneColor",
+  "appearance.focusIndicator": "tabs",
+  "appearance.density": "cozy",
+  // Pending cmux#46780: the header's grouped buttons and chips are capsules.
+  // "appearance.tabShape": "rounded",
+  // Pending cmux#46516: the selected row is a neutral gray fill, not a colored one.
+  // "appearance.selection": "neutral",
+
+  // Proportions, measured on the captures (2x): a 44 pt title area (traffic lights to the first
+  // row), a 260 pt sidebar with 32 pt rows (64 px pitch), 13 pt chrome text, a 32 pt tab strip
+  // with 13 pt titles, an 8 pt gap around the floating panels, 1 pt dividers.
+  "appearance.metrics.titlebarHeight": 44,
+  "appearance.metrics.sidebarWidth": 260,
+  "appearance.metrics.sidebarRowHeight": 32,
+  "appearance.metrics.chromeFontSize": 13,
+  "appearance.metrics.tabStripHeight": 32,
+  "appearance.metrics.tabFontSize": 13,
+  "appearance.metrics.tabMaxWidth": 240,
+  "appearance.metrics.tabMinActiveWidth": 140,
+  "appearance.metrics.tabMinInactiveWidth": 96,
+  "appearance.metrics.columnGap": 8,
+  "appearance.metrics.dividerThickness": 1,
+
+  // The sidebar: the lighter inset panel (#1B1B1B, sampled) at 86% over the glass, no edge line,
+  // muted grouping labels ("Yesterday", "This Week").
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#1b1b1b",
+  "appearance.surfaces.sidebar.opacity": 0.86,
+  "sidebar.style": "standard",
+  "sidebar.border": false,
+  "sidebar.sectionLook": "quiet",
+
+  // The reading surface: the window's #141414, nearly opaque so long text stays crisp; the header
+  // in the same tone; the browser bar and docks on the sidebar's lighter step (#1B1B1B), the prompt
+  // field's (#222222) one more step up by the chat itself.
+  "appearance.surfaces.agentPane.color": "#141414",
+  "appearance.surfaces.agentPane.opacity": 0.96,
+  "appearance.surfaces.tabBar.color": "#141414",
+  "appearance.surfaces.tabBar.opacity": 0.96,
+  "appearance.surfaces.browserChrome.color": "#1b1b1b",
+  "appearance.surfaces.browserChrome.opacity": 1,
+  "appearance.surfaces.docks.color": "#1b1b1b",
+  "appearance.surfaces.docks.opacity": 1,
+  "appearance.surfaces.editor.color": "#141414",
+  "appearance.surfaces.editor.opacity": 1,
+  "appearance.surfaces.diff.color": "#141414",
+  "appearance.surfaces.diff.opacity": 1,
+  "appearance.surfaces.markdown.color": "#141414",
+  "appearance.surfaces.markdown.opacity": 1,
+  "appearance.surfaces.splitDivider.color": "#2a2a2a",
+  "appearance.surfaces.splitDivider.opacity": 1,
+
+  // Settings: its settings window's graphite (#1C1C1E) behind rounded group panels; the other pages
+  // on the window's tone.
+  "appearance.surfaces.settings.color": "#1c1c1e",
+  "appearance.surfaces.settings.opacity": 1,
+  "appearance.surfaces.internalPage.color": "#141414",
+  "appearance.surfaces.internalPage.opacity": 1,
+  "appearance.surfaces.newTabPage.color": "#141414",
+  "appearance.surfaces.newTabPage.opacity": 1,
+  "appearance.surfaces.home.color": "#141414",
+  "appearance.surfaces.home.opacity": 1,
+
+  // Status: a small pulsing dot; nothing spins in a launcher.
+  "appearance.statusIndicator.style": "dot",
+  "appearance.statusIndicator.animation": "animated",
+  "appearance.statusIndicator.showAgentWorkingOnTabs": true,
+
+  // The address field is the launcher's search bar: dark glass tinted by the window.
+  "browser.omnibar.glass": "regular",
+  "browser.omnibar.glassTint": "background",
+  "browser.omnibar.glassTintStrength": 0.5,
+
+  // Motion: a surface that appears on a hotkey: the fast speed and a quick, barely springy settle.
+  "ui.animationSpeed": "fast",
+  "appearance.colorTransition.enabled": true,
+  "appearance.colorTransition.curve": "spring",
+  "appearance.colorTransition.springResponse": 0.3,
+  "appearance.colorTransition.springDamping": 0.9,
+  "appearance.colorTransition.colorSpace": "oklab",
+  "appearance.colorTransition.reduceMotion": "crossfade",
+
+  // The terminal face: SF Mono, the system's monospaced face, as a launcher's script output uses.
+  "terminal.fontFamily": "SF Mono",
+  "terminal.fontSize": 13
+
+  // Pending cmux#46861 (layout and proportions): 32 pt list rows with 44 pt two-line rows, a 10 pt inset so the selected row floats as a rounded capsule, grouped 28 pt header buttons on a 8 pt corner, no header hairline, a roomy prompt field. Uncomment once your build has it.
+  // "appearance.metrics.sidebarRowHeightWithSubtitle": 44,
+  // "appearance.metrics.sidebarRowInset": 10,
+  // "appearance.metrics.sidebarRowPadding": 10,
+  // "appearance.metrics.sidebarRowGap": 2,
+  // "appearance.metrics.toolbarButtonSize": 28,
+  // "appearance.metrics.toolbarButtonGap": 2,
+  // "appearance.metrics.toolbarButtonCornerRadius": 8,
+  // "appearance.metrics.toolbarButtonActiveFill": 0.1,
+  // "appearance.metrics.headerDivider": 0,
+  // "appearance.metrics.composerPadding": 12,
+  // "appearance.metrics.composerMinHeight": 44,
+  // "appearance.metrics.spacingScale": 1,
+}

@@ -93,10 +93,13 @@ does not re-publish it while it is still the newest nightly. Pulling the only st
 needs `allow_empty`.
 
 No job uses an M6 mini. Owned macOS jobs take `CI_SIDE_LANE_RUNNER` (std class, M4 Pro) and fail
-on any other chip. Signing stays on Blacksmith, like the nightly's.
+on any other chip. Stable's signing job runs on a hosted macOS runner; the nightly's never does (see
+[landing](landing.md#ci-runners-and-nightlies)).
 
-The repository rule against new CI gates (CLAUDE.md, Lawrence 2026-10-23) is about push, pull
-request and nightly paths. This workflow adds nothing to them: it runs only on its schedule, a
+The repository rule against new CI gates (Lawrence 2026-10-23, lifted 2026-11-18) was about push, pull
+request and nightly paths. Lawrence's separate perf decision still stands: no perf run blocks or slows a push,
+a pull request merge or a nightly ([perf-lead.md](../../plans/cmux-next/perf-lead.md) F9), so the `perf-budgets`
+`--gate` step stays off them. This workflow adds nothing to them: it runs only on its schedule, a
 dispatch, or a push to `stable-next-dry-run`.
 
 ## Slack

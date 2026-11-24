@@ -1,0 +1,457 @@
+{
+ "about": "Outbound sites in cmux NEXT that do not go through the egress gate. Only shrinks; tests/test_egress_gate.py keeps it exact.",
+ "ungated": 165,
+ "file_count": 144,
+ "by_language": {
+  "rs": 87,
+  "swift": 78
+ },
+ "files": {
+  "Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AccountDeletionClient.swift": {
+   "urlsession-shared": 1
+  },
+  "Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/EmailVerificationRecoveryClient.swift": {
+   "urlsession-shared": 1
+  },
+  "Packages/Shared/CmuxDeviceHub/Sources/CmuxDeviceHub/DeviceHubClient.swift": {
+   "urlsession": 1
+  },
+  "Packages/Shared/CmuxDeviceHub/Sources/CmuxDeviceHub/DeviceHubSocket.swift": {
+   "websocket-task": 1
+  },
+  "Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Wire/URLSessionHomeWireTransport.swift": {
+   "urlsession": 1,
+   "websocket-task": 1
+  },
+  "Packages/Shared/CmuxIrohTransport/Sources/CmuxIrohTransport/CmxConnectivityInvalidationSubscriber.swift": {
+   "websocket-task": 1
+  },
+  "Packages/Shared/CmuxIrxTransport/Sources/CmuxIrxTransport/ControlPlane/IrxControlPlaneClient.swift": {
+   "urlsession-shared": 1,
+   "websocket-task": 1
+  },
+  "Packages/Shared/CmuxIrxTransport/Sources/CmuxIrxTransport/Tunnel/IrxTunnelTCPConnector.swift": {
+   "nwconnection": 1
+  },
+  "Packages/Shared/CmuxIrxTransport/Sources/CmuxIrxTransport/V2/V2URLSessionSocket.swift": {
+   "websocket-task": 1
+  },
+  "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Cmux/HomeTablePictures.swift": {
+   "urlsession": 1
+  },
+  "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/catalyst/LinkGuard.swift": {
+   "urlsession": 1
+  },
+  "Packages/Shared/CmuxVNC/Sources/CmuxVNC/Transport/RFBTransport.swift": {
+   "nwconnection": 1
+  },
+  "Packages/Shared/CmuxVNCWebRTC/Sources/CmuxVNCWebRTC/SignalSocket.swift": {
+   "urlsession": 1,
+   "websocket-task": 1
+  },
+  "Packages/Shared/CmuxVNCWebRTC/Sources/CmuxVNCWebRTC/TicketSignaling.swift": {
+   "websocket-task": 1
+  },
+  "Packages/Shared/CmuxVNCWebRTC/Sources/CmuxVNCWebRTC/VNCWebRTCHost.swift": {
+   "nwconnection": 1
+  },
+  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxEnvironment+Harnesses.swift": {
+   "nwconnection": 1
+  },
+  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxInstallCanary.swift": {
+   "nwconnection": 1
+  },
+  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneSocket.swift": {
+   "urlsession": 1,
+   "websocket-task": 1
+  },
+  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxStatusClient.swift": {
+   "nwconnection": 1
+  },
+  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneOwnerAvatars.swift": {
+   "urlsession": 1
+  },
+  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/LocalRouterClient.swift": {
+   "nwconnection": 2
+  },
+  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl+VMAgentKey.swift": {
+   "urlsession-shared": 1
+  },
+  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/IconAssets/IconAssetStore.swift": {
+   "urlsession": 1
+  },
+  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/SidebarAccount.swift": {
+   "urlsession-shared": 1
+  },
+  "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Omnibox/Suggest/OmniboxRemoteFetch.swift": {
+   "urlsession": 1,
+   "urlsession-shared": 1
+  },
+  "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/WebKit/CertificateProbeResult.swift": {
+   "urlsession": 1
+  },
+  "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserCore/ReactGrab/ReactGrabScriptLoader.swift": {
+   "urlsession-shared": 1
+  },
+  "Packages/macOS/CmuxNext/Sources/CmuxNextChiefViews/ChiefViewsPageProvider.swift": {
+   "urlsession-shared": 1
+  },
+  "Packages/macOS/CmuxNext/Sources/CmuxNextChromiumRuntime/URLSessionChromiumRuntimeDownloader.swift": {
+   "urlsession": 1
+  },
+  "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/CloudAPIClient.swift": {
+   "urlsession": 1
+  },
+  "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/CloudConnectHedge.swift": {
+   "urlsession": 1
+  },
+  "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/CloudGitHubCloneToken.swift": {
+   "urlsession-shared": 1
+  },
+  "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/CloudMachineStatePush.swift": {
+   "websocket-task": 1
+  },
+  "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/CloudOwnerAPIClient.swift": {
+   "urlsession": 1
+  },
+  "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Bootstrap/CloudPersonCreate.swift": {
+   "urlsession": 1
+  },
+  "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Identity/InstallHTTPTransport.swift": {
+   "urlsession": 1
+  },
+  "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudMachineWire.swift": {
+   "urlsession-shared": 2,
+   "websocket-task": 1
+  },
+  "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArtDownloads.swift": {
+   "urlsession-shared": 1
+  },
+  "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropUserImages+Import.swift": {
+   "urlsession": 1
+  },
+  "Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/MuseumArtSearch.swift": {
+   "urlsession-shared": 1
+  },
+  "Packages/macOS/CmuxNext/Sources/CmuxNextDevices/DeviceHubClient.swift": {
+   "urlsession": 1
+  },
+  "Packages/macOS/CmuxNext/Sources/CmuxNextDevices/DeviceHubSocket.swift": {
+   "websocket-task": 1
+  },
+  "Packages/macOS/CmuxNext/Sources/CmuxNextDictation/VoiceRoom/VoiceRoomWebSocketEvents.swift": {
+   "websocket-task": 1
+  },
+  "Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/URLSessionHangReportTransport.swift": {
+   "urlsession": 1
+  },
+  "Packages/macOS/CmuxNext/Sources/CmuxNextHostedChief/HostedChiefCopy.swift": {
+   "urlsession-shared": 1
+  },
+  "Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/MacScreenSession.swift": {
+   "nwconnection": 1
+  },
+  "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostDeviceDirectory.swift": {
+   "urlsession-shared": 1
+  },
+  "Packages/macOS/CmuxNext/Sources/CmuxNextPages/ArtifactsPageProvider.swift": {
+   "urlsession": 1
+  },
+  "Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageDevServer.swift": {
+   "urlsession-shared": 1
+  },
+  "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteFetch/RemoteFetchPinnedTransport.swift": {
+   "nwconnection": 1
+  },
+  "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteLocalhost/CloudProxyLoopbackOpener.swift": {
+   "nwconnection": 1
+  },
+  "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteLocalhost/ProxyConnection.swift": {
+   "nwconnection": 1
+  },
+  "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteView/Transport/RemoteRdLoopbackCarrier.swift": {
+   "nwconnection": 1
+  },
+  "Packages/macOS/CmuxNext/Sources/CmuxNextServer/Model/PairInviteService+Cloud.swift": {
+   "urlsession-shared": 1,
+   "websocket-task": 1
+  },
+  "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/PulledBuildWatch.swift": {
+   "urlsession-shared": 1
+  },
+  "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/ReleasePushListener.swift": {
+   "urlsession": 1,
+   "websocket-task": 1
+  },
+  "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/UpdateProber.swift": {
+   "urlsession": 1
+  },
+  "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/WebUpdates/WebUpdater.swift": {
+   "urlsession-shared": 2
+  },
+  "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAuth/CmuxMobileAuthModel.swift": {
+   "urlsession": 1,
+   "urlsession-shared": 2
+  },
+  "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileChief/ChiefCloudBackend.swift": {
+   "websocket-task": 1
+  },
+  "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileChief/ChiefReplicaBackend.swift": {
+   "websocket-task": 1
+  },
+  "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/ConnectivityIncidentReporter.swift": {
+   "urlsession": 1
+  },
+  "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/PresenceListener.swift": {
+   "urlsession-shared": 1,
+   "websocket-task": 1
+  },
+  "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileModel/AccountDeletionCheck.swift": {
+   "urlsession-shared": 1
+  },
+  "cmux-next-ios/rust/crates/cmux-mobile-host/src/auth.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-next-ios/rust/crates/cmux-mobile-host/src/services.rs": {
+   "ws-connect": 1
+  },
+  "cmux-next-ios/rust/crates/cmux-mobile-link/src/api.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-next-ios/rust/crates/cmux-mobile-link/src/signaling.rs": {
+   "ws-connect": 1
+  },
+  "cmux-tui/crates/acpmux/src/acpmux_mcp_artifacts.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/acpmux/src/artifacts_sync.rs": {
+   "client-builder": 1
+  },
+  "cmux-tui/crates/acpmux/src/byo_endpoint.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/acpmux/src/catalog/feed.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/acpmux/src/catalog/fetch.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/acpmux/src/chatgpt/oauth.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/acpmux/src/cli/ci_wait.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/acpmux/src/cli/cloud_join.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/acpmux/src/cli/host_self_update.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/acpmux/src/cli/icon_input.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/acpmux/src/cli/trigger.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/acpmux/src/cli/uniichat_agent.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/acpmux/src/cli/uniichat_login.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/acpmux/src/cloud_rewind.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/acpmux/src/deps/remote.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/acpmux/src/github_app_token.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/acpmux/src/github_mcp.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/acpmux/src/github_status.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/acpmux/src/hand/pair.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/acpmux/src/harness_health/latest.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/acpmux/src/harness_install.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/acpmux/src/hosted_mcp.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/acpmux/src/hub/mcp_probe.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/acpmux/src/install_share.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/acpmux/src/machine_wake.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/acpmux/src/managed_codex.rs": {
+   "reqwest-get": 1
+  },
+  "cmux-tui/crates/acpmux/src/mesh_http.rs": {
+   "reqwest-client": 2
+  },
+  "cmux-tui/crates/acpmux/src/provider_cloud_auth.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/acpmux/src/registry.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/acpmux/src/route_probe.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/acpmux/src/server/chats/team_audit.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/acpmux/src/server/trigger_chat.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/chatmux-relay/src/journal_forwarder.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/chatmux-relay/src/main.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/chatmux-relay/src/pairing.rs": {
+   "ws-connect": 1
+  },
+  "cmux-tui/crates/chatmux-relay/src/session.rs": {
+   "ws-connect": 1
+  },
+  "cmux-tui/crates/cmux-cloud-client/src/lib.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/cmux-cloud-environment/src/client_config.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/cmux-coderouter/src/lib.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/cmux-projection/src/peers.rs": {
+   "reqwest-client": 2
+  },
+  "cmux-tui/crates/cmux-server/src/cloud_http_transport.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/cmux-server/src/pairing/network.rs": {
+   "reqwest-client": 1,
+   "ws-connect": 1
+  },
+  "cmux-tui/crates/cmux-server/src/store/fetch.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/cmux-session-cloud/src/store.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/cmux-stack-auth/src/wire.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/cmux-tailnet/src/localapi.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/cmux-tui-core/src/apps/community.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/cmux-tui-core/src/apps/egress.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/cmux-tui-core/src/blob_fetch.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/cmux-tui-core/src/language_packs.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/cmux-tui-core/src/server/agent_session_share_room.rs": {
+   "reqwest-client": 1,
+   "ws-connect": 1
+  },
+  "cmux-tui/crates/cmux-tui/src/carrier/adopt.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/cmux-tui/src/carrier/answer.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/cmux-tui/src/carrier/tunnel.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/cmux-tui/src/cli/app/web_pieces.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/cmux-tui/src/cli/cloud_client_session.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/cmux-tui/src/cli/cloud_hands/socket.rs": {
+   "ws-connect": 1
+  },
+  "cmux-tui/crates/cmux-tui/src/cli/cloud_journey.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/cmux-tui/src/cli/customize/pr.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/cmux-tui/src/cli/ext/share.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/cmux-tui/src/cli/hub.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/cmux-tui/src/cli/inference_gateway.rs": {
+   "reqwest-client": 1,
+   "ws-connect": 1
+  },
+  "cmux-tui/crates/cmux-tui/src/cli/inference_gateway_admin.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/cmux-tui/src/cli/inference_setup.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/cmux-tui/src/cli/key_broker.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/cmux-tui/src/cli/machine_join.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/cmux-tui/src/cloud_conversations_backend.rs": {
+   "reqwest-client": 2,
+   "ws-connect": 1
+  },
+  "cmux-tui/crates/cmux-tui/src/coderouter_usage.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/cmux-tui/src/devices/setup/verbs.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/cmux-tui/src/link/sync_cli/store.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/cmux-tui/src/owner_start/background_checks.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/cmux-tui/src/owner_start/crash_forward.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/cmux-tui/src/remote_cli/acpmux_peer.rs": {
+   "ws-connect": 1
+  },
+  "cmux-tui/crates/cmux-vm-pool/src/http.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/cmux-weft/src/admin.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/cmux-weft/src/client/relay_pool.rs": {
+   "ws-connect": 1
+  }
+ }
+}

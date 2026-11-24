@@ -4,7 +4,7 @@ import { FileTree, useFileTree } from "@pierre/trees/react";
 import { preparePresortedFileTreeInput } from "@pierre/trees";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type SidebarCommentEntry } from "../comments/annotations";
-import { CommentsSidebarSection } from "../comments/CommentsSection";
+import { CommentsSidebarSection, type CommentsReview } from "../comments/CommentsSection";
 import { type DiffCommentLabels } from "../comments/labels";
 import type { CommentsSendState } from "../comments/types";
 import { type DiffItem, type FileTreeSource } from "../diff-stream";
@@ -38,6 +38,8 @@ import type { DiffViewerLabelResolver } from "../labels";
 import { type AppAction, type AppState } from "./state";
 import { LoadingFileList } from "./Loading";
 import { useSyncedRef } from "./useSyncedRef";
+import { RESIZE_HANDLE_PROPS } from "../scrollers";
+import { diffChromeRows, FILE_TREE_ITEM_HEIGHT, useDiffDensityScale } from "./density";
 
 export function FilesSidebarBackdrop({
   label,
@@ -97,6 +99,7 @@ export function filteredFileTreeSource(
 export function FilesSidebar({
   commentEntries,
   commentLabels,
+  commentsReview,
   commentsSendState,
   dispatch,
   hasDraft,
@@ -114,6 +117,8 @@ export function FilesSidebar({
 }: {
   commentEntries: SidebarCommentEntry[];
   commentLabels: DiffCommentLabels;
+  /** A review worktree's pull request and its Post to GitHub; absent for an ordinary worktree. */
+  commentsReview?: CommentsReview;
   commentsSendState?: CommentsSendState;
   dispatch: React.Dispatch<AppAction>;
   hasDraft: boolean;
@@ -132,6 +137,7 @@ export function FilesSidebar({
 }) {
   const filter = state.fileFilter;
   const filterActive = isDiffFileFilterActive(filter);
+  const itemHeight = diffChromeRows(useDiffDensityScale()).treeItem;
   useFileFilterFocus(state.fileSearchOpen, state.fileSearchRequest);
   // Viewed marks by tree path so the tree row decorations can look them up.
   const viewedStateByPath = new Map<string, ViewedFileState>();
@@ -163,6 +169,7 @@ export function FilesSidebar({
     >
       <button
         id="files-resize-handle"
+        {...RESIZE_HANDLE_PROPS}
         aria-label={label("files")}
         type="button"
         tabIndex={0}
@@ -219,7 +226,10 @@ export function FilesSidebar({
       </div>
       <div id="file-list">
         {treeSource && (visibleItemCount > 0 || !filterActive) ? (
+          // A new row height is a new tree: its virtualizer takes the height once (diff-viewer/density.ts).
           <PierreFileTree
+            key={itemHeight}
+            itemHeight={itemHeight}
             label={label}
             onActivateItem={onActivateItem}
             onSelectItem={onSelectItem}
@@ -243,12 +253,14 @@ export function FilesSidebar({
         onSelect={onSelectComment}
         onSend={onSendComments}
         sendState={commentsSendState}
+        {...commentsReview}
       />
     </aside>
   );
 }
 
 function PierreFileTree({
+  itemHeight,
   label,
   onActivateItem,
   onSelectItem,
@@ -257,6 +269,8 @@ function PierreFileTree({
   source,
   viewedStateByPath,
 }: {
+  /** A row's height at the app density (diff-viewer/density.ts). */
+  itemHeight: number;
   label: DiffViewerLabelResolver;
   /** A plain click (or Enter/Space) on a file row: the shared file activation. */
   onActivateItem: (itemId: string) => void;
@@ -313,10 +327,10 @@ function PierreFileTree({
     id: "cmux-diff-file-tree",
     initialExpansion: "open",
     initialSelectedPaths: selectedPath ? [selectedPath] : [],
-    initialVisibleRowCount: getInitialFileTreeRowCount(),
+    initialVisibleRowCount: getInitialFileTreeRowCount(itemHeight),
     // The sidebar's own filter field (FilesSidebar) is the one search; the
-    // rows are the classic viewer's 29 px (screenshot 5.20.26).
-    itemHeight: FILE_TREE_ITEM_HEIGHT,
+    // rows are the classic viewer's 29 px (screenshot 5.20.26) at the default density.
+    itemHeight,
     overscan: 12,
     preparedInput: initialPreparedInput,
     search: false,
@@ -450,6 +464,7 @@ function PierreFileTree({
         ) : null}
         <FileTree model={model} style={{ height: "100%" }} renderContextMenu={() => null} />
         <MenuPopup
+          atPointer
           className="file-tree-context-menu"
           label={
             contextMenu && viewedStateByPath.get(contextMenu.path) === "viewed"
@@ -545,15 +560,14 @@ function usePierreFileTreeSelection(
   }, [model, selectedPath, syncing]);
 }
 
-const FILE_TREE_ITEM_HEIGHT = 29;
 const FILE_TREE_FONT_FAMILY = '-apple-system, BlinkMacSystemFont, system-ui, "Helvetica Neue", Arial, sans-serif';
 
-export function getInitialFileTreeRowCount(): number {
+export function getInitialFileTreeRowCount(itemHeight = FILE_TREE_ITEM_HEIGHT): number {
   const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
   if (!Number.isFinite(viewportHeight) || viewportHeight <= 0) {
     return 25;
   }
-  return Math.min(96, Math.max(25, Math.ceil(viewportHeight / FILE_TREE_ITEM_HEIGHT)));
+  return Math.min(96, Math.max(25, Math.ceil(viewportHeight / itemHeight)));
 }
 
 const CHANGE_TITLE_KEYS = {

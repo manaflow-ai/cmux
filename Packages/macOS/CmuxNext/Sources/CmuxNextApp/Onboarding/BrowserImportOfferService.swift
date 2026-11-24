@@ -6,14 +6,13 @@ import CmuxNextImportCards
 import CmuxNextSettings
 import Foundation
 
-/// The Import Cookies banner (Lawrence 2026-10-31). The first time in a launch
-/// that a person's browser tab finishes a page that asks to sign in (a password
-/// or user name field; Lawrence 2026-11-09), a glass card at its bottom
-/// offers to import cookies from the most used browser on this Mac. Import
+/// The Import Cookies banner (Lawrence 2026-10-31). The first time that a person's browser tab on a profile finishes a
+/// page that asks to sign in (a password or user name field; Lawrence 2026-11-09), a glass card at its bottom
+/// offers to import sign-ins (cookies) from the most used browser on this Mac. Import
 /// opens Import from Browser with cookies checked, into the tab's profile;
-/// nothing is read before that click. Not Now closes it for this launch; Don't
+/// nothing (no keychain) is read before that click. Not Now keeps it away 30 days; Don't
 /// Show Again turns `browser.import.cookieBanner` off (``CookieBannerSwitch``);
-/// imported cookies end it (`BrowserImportOfferState`). It reads no browser
+/// imported cookies end it; it offers itself once per profile (`BrowserImportOfferState`). It reads no browser
 /// data itself: the installed browsers come from Launch Services. Automation launches (`CMUX_NEXT_NO_ACTIVATE`)
 /// never see it unless `CMUX_NEXT_BROWSER_IMPORT_OFFER=1`.
 @MainActor
@@ -53,7 +52,7 @@ final class BrowserImportOfferService {
     private var enabled: Bool {
         // `browser.import.enabled` or `browser.import.cookieBanner` off: no offer, whatever the launch.
         guard isOffered else { return false }
-        return enabledOverride ?? (ProcessInfo.processInfo.environment[Self.forceKey] == "1" || services?.environment.noActivate == false)
+        return enabledOverride ?? BrowserImportOfferState.launchOffers(noActivate: services?.environment.noActivate, bundleID: Bundle.main.bundleIdentifier, forced: ProcessInfo.processInfo.environment[Self.forceKey] == "1")
     }
 
     /// Wires a new browser page's chrome (`TabContentCache.onBrowserEntryCreated`).
@@ -66,21 +65,12 @@ final class BrowserImportOfferService {
 
     private func pageFinished(in entry: BrowserEntry) {
         guard enabled, !shownThisLaunch, entry.state.hasKeyboard, state.offers(page(entry)) else { return }  // never over a terminal or chat
-        // task-owner: one bounded read of the finished page's DOM (no gesture, isolated world); then the offer or nothing
+        // task-owner: one bounded read of the page's DOM (``BrowserSignInProbe``: isolated world, ends within 4 s); then the offer or nothing
         Task { [weak self, weak entry] in  // inherits this @MainActor method's isolation
-            guard let entry else { return }
-            let answer = try? await entry.tab.evaluate(Self.signInProbe, world: .isolated, gesture: .cmux)
-            guard let self, answer == .bool(true) else { return }  // no sign-in form (or no answer): no banner
+            guard let entry, await BrowserSignInProbe().asksSignIn(entry.tab), let self else { return }  // no sign-in form: no banner
             self.offerAfterSignInCheck(in: entry)
         }
     }
-
-    /// Whether the page shows a sign-in form: a password field, or a field the page marks for a user name
-    /// or a passkey (Lawrence 2026-11-09: the banner shows only where a sign-in would come over).
-    static let signInProbe = """
-        !!document.querySelector('input[type=password], input[autocomplete~="current-password"], \
-        input[autocomplete~="username"], input[autocomplete~="webauthn"]')
-        """
 
     private func offerAfterSignInCheck(in entry: BrowserEntry) {
         guard enabled, !shownThisLaunch, entry.state.hasKeyboard, state.offers(page(entry)) else { return }
@@ -94,9 +84,9 @@ final class BrowserImportOfferService {
     private func page(_ entry: BrowserEntry) -> BrowserImportOfferPage {
         let tab = entry.tab
         // No services (a test): an empty incognito set's answer, not off the record.
-        let personal = !(services?.browserStores.offTheRecord.isOffTheRecord(tab.profileID) ?? false) && !tab.isAgentDriven
-            && BrowserProfileRecord.wireID(for: tab.profileID) != AgentBrowserProfile.id
-        return BrowserImportOfferPage(isPersonal: personal, showsOtherNotice: entry.state.noticeText != nil)
+        let profile = BrowserProfileRecord.wireID(for: tab.profileID)
+        let personal = !(services?.browserStores.offTheRecord.isOffTheRecord(tab.profileID) ?? false) && !tab.isAgentDriven && profile != AgentBrowserProfile.id
+        return BrowserImportOfferPage(isPersonal: personal, showsOtherNotice: entry.state.noticeText != nil, profile: profile)
     }
 
     /// Shows the card on `chrome` (also `debug.browser_import_offer show`, which skips the checks).
@@ -108,6 +98,7 @@ final class BrowserImportOfferService {
                                              importTitle: BrowserImportOfferStrings.importData, notNowTitle: BrowserImportOfferStrings.notNow,
                                              neverTitle: BrowserImportOfferStrings.dontShowAgain)
         let target = BrowserProfileRecord.wireID(for: chrome.tab.profileID)
+        update { $0.recordShown(on: target) }  // it never offers itself on this profile again, answered or not
         // A window toast (a recovered draft, an undo) sits at the bottom too: the card rises above it
         // instead of waiting (an inactive window keeps its toasts, so waiting could last the launch).
         let toast = chrome.window.map { !CmuxToastCenter.shared.toasts(in: $0).isEmpty } ?? false
@@ -118,7 +109,7 @@ final class BrowserImportOfferService {
     /// Import brings the data into it.
     func answer(_ choice: BrowserCookieImportChoice, profile: String? = nil) {
         switch choice {
-        case .notNow: break  // closed for this launch only: the next launch offers it again
+        case .notNow: update { $0.recordNotNow() }  // kept: no card for 30 days, also after a relaunch
         case .never: bannerWrite = banner?.set(false) ?? bannerWrite
         case .importCookies:
             // A card left from before browser import was turned off opens and detects nothing.
@@ -142,6 +133,7 @@ final class BrowserImportOfferService {
     func showNow() {
         guard !state.imported else { return }
         bannerWrite = banner?.set(true) ?? bannerWrite
+        update { $0.askAgain() }  // asked for: an earlier Not Now or showing no longer holds it back
         shownThisLaunch = false
         guard let entry = services?.cache.browsers.values.sorted(by: { $0.state.hasKeyboard && !$1.state.hasKeyboard }).first(where: { $0.chrome.map { $0.window != nil && !$0.isHiddenOrHasHiddenAncestor } == true }),
               services?.browserImportEnabled == true, page(entry).isPersonal else { return }

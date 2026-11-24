@@ -22,54 +22,54 @@ import os from "node:os";
 import { chromium, type Browser } from "playwright";
 import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 
-/** Init script (self-contained): counts transcript renders inside input events and observer callbacks. */
-function syncRenderProbe() {
-  const w = window as unknown as {
-    __wrapProbe: { on: boolean; inInput: number; inObserver: number; outside: number };
-    cmuxAcpmuxDebug?: { renders(): Record<string, number> };
-  };
-  const probe = { on: false, inInput: 0, inObserver: 0, outside: 0 };
-  w.__wrapProbe = probe;
-  // renders() hands back the counts since its last call and starts again from zero.
-  const take = () => (probe.on ? (w.cmuxAcpmuxDebug?.renders().transcript ?? 0) : 0);
-  const Native = window.ResizeObserver;
-  window.ResizeObserver = class extends Native {
-    constructor(callback: ResizeObserverCallback) {
-      super((entries, observer) => {
-        probe.outside += take();
-        try {
-          callback(entries, observer);
-        } finally {
-          probe.inObserver += take();
-          // And what the callback's own microtasks render, before the next observer.
-          queueMicrotask(() => (probe.inObserver += take()));
-        }
-      });
-    }
-  };
-  // From before the browser edits the text (beforeinput, capture: the first listener) to after every
-  // listener of its input event and their microtasks (bubble on window: the last).
-  let open = false;
-  window.addEventListener(
-    "beforeinput",
-    () => {
-      probe.outside += take();
-      open = true;
-    },
-    true,
-  );
-  window.addEventListener("input", () => {
-    if (!open) return;
-    queueMicrotask(() => {
-      probe.inInput += take();
-      open = false;
-    });
-  });
-}
-
 await requireBrowserLane("composer-wrap-one-owner.test.ts", async () => {
   if (!(await probeEngineOrSkip("composer-wrap-one-owner", "chromium", chromium))) return;
   setDefaultTimeout(280_000);
+
+  /** Init script (self-contained): counts transcript renders inside input events and observer callbacks. */
+  function syncRenderProbe() {
+    const w = window as unknown as {
+      __wrapProbe: { on: boolean; inInput: number; inObserver: number; outside: number };
+      cmuxAcpmuxDebug?: { renders(): Record<string, number> };
+    };
+    const probe = { on: false, inInput: 0, inObserver: 0, outside: 0 };
+    w.__wrapProbe = probe;
+    // renders() hands back the counts since its last call and starts again from zero.
+    const take = () => (probe.on ? (w.cmuxAcpmuxDebug?.renders().transcript ?? 0) : 0);
+    const Native = window.ResizeObserver;
+    window.ResizeObserver = class extends Native {
+      constructor(callback: ResizeObserverCallback) {
+        super((entries, observer) => {
+          probe.outside += take();
+          try {
+            callback(entries, observer);
+          } finally {
+            probe.inObserver += take();
+            // And what the callback's own microtasks render, before the next observer.
+            queueMicrotask(() => (probe.inObserver += take()));
+          }
+        });
+      }
+    };
+    // From before the browser edits the text (beforeinput, capture: the first listener) to after every
+    // listener of its input event and their microtasks (bubble on window: the last).
+    let open = false;
+    window.addEventListener(
+      "beforeinput",
+      () => {
+        probe.outside += take();
+        open = true;
+      },
+      true,
+    );
+    window.addEventListener("input", () => {
+      if (!open) return;
+      queueMicrotask(() => {
+        probe.inInput += take();
+        open = false;
+      });
+    });
+  }
   const webviews = path.resolve(import.meta.dir, "..");
   const PROMPT = ".acpmux-composer-prompt[contenteditable='true'], .acpmux-composer-prompt [contenteditable='true']";
   const out = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "composer-wrap-one-owner-"));
@@ -112,12 +112,17 @@ await requireBrowserLane("composer-wrap-one-owner.test.ts", async () => {
     const prompt = page.locator(PROMPT).first();
     await prompt.waitFor({ timeout: 30_000 });
     await prompt.click();
-    const settled = () =>
-      page.evaluate(() => new Promise<void>((done) => setTimeout(() => requestAnimationFrame(() => done()), 900)));
+    const waitForGrowth = async () => {
+      // The field's ResizeObserver can start growth after the last key.
+      await page.evaluate(
+        () => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))),
+      );
+      await page.waitForFunction(() => document.querySelector(".acpmux-md-field")?.getAnimations().length === 0);
+    };
     // The first keys load the composer's lazy parts (emoji data, the mention index).
     for (const key of "warm") await page.keyboard.press(key);
     for (let i = 0; i < 4; i += 1) await page.keyboard.press("Backspace");
-    await settled();
+    await waitForGrowth();
     /** The latest row's bottom against the composer's top, and the prompt's text height. */
     const read = () =>
       page.evaluate((selector) => {
@@ -138,20 +143,23 @@ await requireBrowserLane("composer-wrap-one-owner.test.ts", async () => {
       w.__wrapProbe.on = true;
       w.__wrapWatch = w.cmuxAcpmuxDebug.layoutWatch({ ms: 9000, tolerance: 1 });
     });
-    await page.waitForTimeout(300);
+    await page.evaluate(
+      () => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))),
+    );
     // Words typed until the draft has wrapped twice (a third line), a fast typist's pace.
     const words = "the quick brown fox jumps over the lazy dog ";
     let lines = 0;
     let last = rest.text;
     for (let i = 0; i < 600 && lines < 2; i += 1) {
       await page.keyboard.press(words[i % words.length] === " " ? "Space" : words[i % words.length]!);
+      // fixed-wait: simulate the 25 ms interval between a fast typist's keys.
       await page.waitForTimeout(25);
       const now = (await read()).text;
       if (now > last + 4) lines += 1;
       last = now;
     }
     expect(lines).toBe(2);
-    await settled();
+    await waitForGrowth();
     const after = await read();
     const report = (await page.evaluate(async () => {
       const w = window as any;

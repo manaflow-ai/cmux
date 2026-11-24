@@ -5,15 +5,14 @@ import { installKeyboard, runPageCommand } from "../keyboard";
 import { parseLocation, sectionHref } from "../router";
 import { homes, shownSection } from "../categories";
 import { rowsByKey } from "../schema";
-import { t } from "../strings";
 import { filterRows } from "../search";
 import { managedOf, valueOf } from "../store";
 import { ReadOnlyNotice } from "./ReadOnlyBanner";
 import { SearchField } from "./SearchField";
 import { TryOnSlot } from "./TryOnBar";
+import { DoctorNoticeSlot } from "./CustomizeDoctorCard";
 import { SearchResults } from "./SearchResults";
 import { SectionList } from "./SectionList";
-import { personalizationPartOf } from "./PersonalizationCard";
 import { ScrollArea } from "../../../ui/ScrollArea";
 import { whenPageShown } from "../../shared/paintGate";
 
@@ -72,11 +71,7 @@ export function SettingsApp() {
   const reveal = useCallback(
     (key: string) => {
       const row = rowsByKey.get(key);
-      // A key Personalization draws opens its part there: no other page draws it.
-      const part = personalizationPartOf(key);
-      // Personalization opens the part that draws the key, and the key's row takes focus there.
-      if (part) go("personalization", key);
-      else if (row) go(homes.get(key)?.category ?? row.section, key);
+      if (row) go(homes.get(key)?.category ?? row.section, key);
     },
     [go],
   );
@@ -136,26 +131,28 @@ export function SettingsApp() {
   };
 
   return (
-    <div className="settings" ref={keyboardRef} data-section-switched={switched ? "" : undefined}>
+    <div
+      className="settings"
+      ref={keyboardRef}
+      data-section-switched={switched ? "" : undefined}
+      data-page-shown={pageShown ? "" : undefined}
+    >
       <aside className="sidebar">
-        <h2 className="sidebar-title">{t("settingsPage.title")}</h2>
         <SearchField query={query} onQuery={setQuery} onSubmit={submit} />
-        {/* The categories scroll under the title and search in the app's own thin scrollbar, the one
-            the New Tab page's folder menu draws (Lucas 2026-11-11), never WebKit's. */}
+        {/* The categories scroll under the search in the app's own thin scrollbar, the one the New Tab
+            page's folder menu draws (Lucas 2026-11-11), never WebKit's. No title above the search and
+            no notice under the list (Lawrence 2026-11-23: "remove settings header ... remove this
+            thing"): the window already says Settings, and Personalization's card holds the doctor's
+            findings. */}
         <ScrollArea fade className="sidebar-scroll" viewportClassName="sidebar-scroll-viewport">
           <SectionList current={searching ? null : section} onSelect={select} />
         </ScrollArea>
       </aside>
       <main className="content" ref={content}>
-        <div className="scroll-edge" aria-hidden="true">
-          <span />
-          <span />
-          <span />
-          <span />
-        </div>
         <div className="column">
           <ReadOnlyNotice connected={state.connected} loaded={state.loaded} readable={state.readable} />
           <TryOnSlot />
+          <DoctorNoticeSlot place="banner" />
           {searching ? <SearchResults query={shownQuery} /> : <Outlet />}
         </div>
       </main>

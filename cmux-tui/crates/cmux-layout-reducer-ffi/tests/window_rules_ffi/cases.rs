@@ -864,6 +864,21 @@ fn toggle_terminal_and_chat_approval_answers_over_the_channel() {
     assert_eq!(body, json!({"keys": null}));
 }
 
+#[test]
+fn restore_order_makes_the_front_window_now_and_the_others_later() {
+    let (code, body) = call_json(
+        c"window_restore_order",
+        &json!({"windows": [
+            {"id": "front", "open": true, "made": true},
+            {"id": "closed", "open": false, "made": false},
+            {"id": "second", "open": true, "made": false},
+            {"id": "third", "open": true, "made": false}
+        ], "adopted": "front"}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"front": "front", "later": ["second", "third"]}));
+}
+
 /// cmuxterm-hq#12660: the app's facts after the live tree applied, the snapshot's standing back.
 #[test]
 fn launch_snapshot_verdict_names_another_sessions_snapshot_stale() {
@@ -881,4 +896,69 @@ fn launch_snapshot_verdict_names_another_sessions_snapshot_stale() {
     let own = json!({"snapshotSession": "s1", "liveSession": "s1", "shown": "w1", "listed": ["w1"], "live": ["w1"]});
     assert_eq!(call_json(c"window_launch_snapshot_verdict", &own).1, json!({"verdict": "current"}));
     assert_eq!(call(c"window_launch_snapshot_verdict", b"[").0, ERR_INVALID);
+}
+
+/// Leo ask-b7aac8d3f9: a relaunch lands on the last workspace and tab, a first launch on Home.
+#[test]
+fn launch_landing_reopens_the_last_workspace_and_tab() {
+    let kept = json!({"last": {"kind": "workspace", "workspace": "w2", "pane": "p1", "tab": "t3"},
+                      "workspaceLive": true, "tab": "ended"});
+    assert_eq!(
+        call_json(c"window_launch_landing", &kept),
+        (OK, json!({"kind": "workspace", "workspace": "w2", "pane": "p1", "tab": "t3"}))
+    );
+    assert_eq!(
+        call_json(c"window_launch_landing", &json!({})).1,
+        json!({"kind": "home", "why": "firstLaunch"})
+    );
+    assert_eq!(
+        call_json(c"window_launch_landing", &json!({"last": {"kind": "home"}})).1,
+        json!({"kind": "home", "why": "lastWasHome"})
+    );
+    assert_eq!(call(c"window_launch_landing", b"[").0, ERR_INVALID);
+}
+
+/// Open in Editor: the table the app reads, and the pick with the person's `editor.default`.
+#[test]
+fn editors_table_and_pick_answer_the_app() {
+    let (code, body) = call_json(c"window_editors_table", &json!({}));
+    assert_eq!(code, OK);
+    let first = &body["editors"][0];
+    assert_eq!(first["id"], "vscode");
+    assert_eq!(first["bundleIds"][0], "com.microsoft.VSCode");
+    assert_eq!(first["remoteScheme"], "vscode");
+    assert_eq!(
+        call_json(
+            c"window_editors_pick",
+            &json!({"installed": ["zed", "vscode"], "configured": "zed"})
+        ),
+        (OK, json!({"default": "zed", "ordered": ["zed", "vscode"]}))
+    );
+    assert_eq!(
+        call_json(
+            c"window_editors_pick",
+            &json!({"installed": ["zed", "vscode"], "configured": null})
+        ),
+        (OK, json!({"default": "vscode", "ordered": ["vscode", "zed"]}))
+    );
+    assert_eq!(
+        call_json(c"window_editors_pick", &json!({"installed": [], "configured": "nova"})),
+        (OK, json!({"default": null, "ordered": []}))
+    );
+}
+
+/// Leo ask-b7aac8d3f9: a fresh launch lands on Home, a New Tab workspace when no saved window is open, and waits
+/// while Home is not ensured yet.
+#[test]
+fn launch_fresh_landing_answers_home_new_tab_or_wait() {
+    let empty = json!({"emptyTree": true, "homeEnsured": true});
+    assert_eq!(call_json(c"window_launch_fresh_landing", &empty), (OK, json!({"kind": "home"})));
+    let none_open = json!({"noSavedWindowOpen": true, "homeEnsured": true});
+    assert_eq!(call_json(c"window_launch_fresh_landing", &none_open).1, json!({"kind": "newTab"}));
+    let waiting = json!({"emptyTree": true, "homeNotEnsuredYet": true});
+    assert_eq!(
+        call_json(c"window_launch_fresh_landing", &waiting).1,
+        json!({"kind": "waitForHome"})
+    );
+    assert_eq!(call(c"window_launch_fresh_landing", b"[").0, ERR_INVALID);
 }
