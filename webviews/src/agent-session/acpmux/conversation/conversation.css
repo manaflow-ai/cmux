@@ -4202,7 +4202,11 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 1;
-  padding-block: calc((var(--cv-tool-row-height) - var(--cv-thought-pitch)) / 2);
+  /* `overflow: hidden` clips at the padding edge, so centring the line with padding left the
+     second line's top half showing under the first (Lawrence, 2026-11-24). Margins centre it
+     instead, and the line box is exactly one pitch tall, so the clip sits at its bottom. */
+  line-height: var(--cv-thought-pitch);
+  margin-block: calc((var(--cv-tool-row-height) - var(--cv-thought-pitch)) / 2);
   color: var(--cv-text-muted);
   white-space: normal;
   overflow-wrap: anywhere;
@@ -9272,19 +9276,37 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
 :root[data-transcript-timestamps="always"] :is(.cv-user__time, .cv-turn-time) {
   opacity: 1;
 }
+/* At rest the row carries --cv-footer-at-rest and its children's rule asks for it: a `:has()` before
+   a subject that names nothing (`> :not(.cv-user__time)`) put "every element" in the restyle list
+   Chromium keeps for all of the page's `:has()` rules, so a prompt rail hover or click restyled the
+   whole pane (test/css-invalidation-scope.test.ts; bench/thread-rail-jump.bench.ts
+   RAIL_BENCH_RESTYLE=1). The children's selectors are the same, less the `:has()`, at the same
+   specificity. */
 :root[data-transcript-timestamps="always"]
   .cv-user:not(:hover, :focus-within, :has([data-popup-open]))
   .cv-user__actions:not(.cv-user__actions--versions)
-  .cv-message-footer-row
-  > :not(.cv-user__time) {
-  opacity: 0;
-}
+  .cv-message-footer-row,
 :root[data-transcript-timestamps="always"]
   .acpmux-assistant:not(:hover, :focus-visible, :has([data-popup-open]))
   .cv-reply-actions:not(:focus-within)
-  .cv-message-footer-row
-  > :not(.cv-turn-time) {
-  opacity: 0;
+  .cv-message-footer-row {
+  --cv-footer-at-rest: 1;
+}
+@container style(--cv-footer-at-rest: 1) {
+  :root[data-transcript-timestamps="always"]
+    .cv-user:not(:hover, :focus-within)
+    .cv-user__actions:not(.cv-user__actions--versions)
+    .cv-message-footer-row
+    > :not(.cv-user__time) {
+    opacity: 0;
+  }
+  :root[data-transcript-timestamps="always"]
+    .acpmux-assistant:not(:hover, :focus-visible)
+    .cv-reply-actions:not(:focus-within)
+    .cv-message-footer-row
+    > :not(.cv-turn-time) {
+    opacity: 0;
+  }
 }
 /* timestamps off: no time, its space kept so the buttons never move. A waiting prompt's state is
    not a time and stays. */

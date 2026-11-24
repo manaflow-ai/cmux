@@ -679,9 +679,15 @@
 .ui-popup[data-menu-states] .ui-menu-item:is([data-disabled], :disabled):has(.ui-menu-reason) {
   padding-block: var(--grid-half-step);
   opacity: 1;
+  --ui-menu-reason-row: 1;
 }
-.ui-popup[data-menu-states] .ui-menu-item:is([data-disabled], :disabled):has(.ui-menu-reason) > :not(.ui-menu-text) {
-  opacity: 0.45;
+/* The row's children ask for the row's custom property, not for its `:has()`: a `:has()` before a
+   subject that names nothing (`> :not(.ui-menu-text)`) made Chromium restyle every element of the
+   page on any `:has()` change (test/css-invalidation-scope.test.ts). */
+@container style(--ui-menu-reason-row: 1) {
+  .ui-popup[data-menu-states] .ui-menu-item:is([data-disabled], :disabled) > :not(.ui-menu-text) {
+    opacity: 0.45;
+  }
 }
 .ui-popup[data-menu-states] .ui-menu-async {
   display: inline-flex;

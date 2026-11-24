@@ -138,7 +138,7 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
               placeholder={t(searchRecording ? "keybindings.page.recordingPlaceholder" : "keybindings.page.search")}
               aria-label={t(searchRecording ? "keybindings.page.recordingKeys" : "keybindings.page.search")}
               value={snap.text}
-              disabled={disconnected}
+              // Search and Conflicts Only filter the list on screen: live while the link comes back (Leo, 2026-11-24 11:57Z).
               // While it records the app takes every key, and the field takes no text of its own; it
               // stays editable so its clear button (the native one) clears the recorded keys.
               onBeforeInput={searchRecording ? (event) => event.preventDefault() : undefined}
@@ -175,7 +175,6 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
             type="button"
             className={`keys-toggle keys-conflicts-only${snap.conflictsOnly ? " on" : ""}`}
             aria-pressed={snap.conflictsOnly}
-            disabled={disconnected}
             onClick={() => store.setConflictsOnly(!snap.conflictsOnly)}
           >
             {t("keybindings.page.conflictsOnly")}

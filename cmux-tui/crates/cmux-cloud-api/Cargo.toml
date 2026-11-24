@@ -29,6 +29,8 @@ zeroize.workspace = true
 [dev-dependencies]
 # Paused time: the preview deadline tests run in no wall time.
 tokio = { workspace = true, features = ["test-util"] }
+# Seeded-secret tests: gated clients send to a local capture server.
+cmux-egress = { workspace = true, features = ["capture"] }
 
 [lints]
 workspace = true

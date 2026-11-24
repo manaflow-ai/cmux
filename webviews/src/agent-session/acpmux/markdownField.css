@@ -9,7 +9,10 @@
      thirty lines or 60% of the pane, which reached about 55% of his pane. One token, shared by every
      composer field (styles.css --acpmux-composer-max-height); short panes still give up height
      (bottomStack.css). */
-  max-height: min(var(--acpmux-composer-max-height, calc(384px * var(--cmux-interface-scale, 1))), 50vh);
+  --acpmux-md-max-height: min(var(--acpmux-composer-max-height, calc(384px * var(--cmux-interface-scale, 1))), 50vh);
+  /* The attachment strip above the prompt takes its height out of this one (composerAttachments.css
+     --acpmux-attach-band), so adding an attachment never makes a capped card taller. */
+  max-height: calc(var(--acpmux-md-max-height) - var(--acpmux-attach-band, 0px));
   overflow-y: auto;
   /* A long draft scrolls in this box alone (Leo 2026-10-20: reaching the top or the bottom must
      not shift anything): no chaining into the transcript, no bounce. */
