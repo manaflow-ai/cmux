@@ -55,7 +55,7 @@ pub const SETTING_COMPACT: &str = "agents.coldWake.compact";
 /// or an unreadable file is the default, on; compacting first needs batching on.
 pub(crate) fn settings(doc: Option<&Value>) -> (bool, bool) {
     let get = |key: &str| {
-        doc.and_then(|d| crate::user_settings::value(d, key)).and_then(Value::as_bool).unwrap_or(true)
+        doc.and_then(|d| crate::user_settings::value(d, key)).and_then(|v| v.as_bool()).unwrap_or(true)
     };
     let enabled = get(SETTING_ENABLED);
     (enabled, enabled && get(SETTING_COMPACT))

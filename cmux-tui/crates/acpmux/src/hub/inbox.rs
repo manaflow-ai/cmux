@@ -1768,9 +1768,6 @@ impl Hub {
                             // flush or the next notice.
                             let waking = new.iter().filter(|i| wakes(&meta, i)).map(|i| i.at).min();
                             let flush = oldest.saturating_add(FLUSH_MS);
-                            if fyi_only {
-                                inbox.held_by_person = false;
-                            }
                             // A blocker or a fire notice wakes after the burst window; anything
                             // else that wakes a chat whose prompt cache lapsed waits for its cold
                             // batch (`cold_wake.rs`), and goes in with what else came meanwhile.
@@ -1778,6 +1775,9 @@ impl Hub {
                                 i.fire
                                     || matches!(i.class, PromptClass::Block | PromptClass::Question)
                             });
+                            if fyi_only {
+                                inbox.held_by_person = false;
+                            }
                             let cold = if blocker || waking.is_none() {
                                 None
                             } else {
