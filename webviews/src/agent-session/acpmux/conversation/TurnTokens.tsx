@@ -12,28 +12,44 @@ import { usePaneLanguage, useT } from "../i18n";
 import type { TurnTokenSplit } from "../model";
 import { uncachedTokens } from "../tokenSplit";
 import { formatDuration } from "./turns";
+import { Clock, clockSizerAcrossUnits } from "../../../ui/Typography";
 import { compactTokens, workingTokens, hasTokens, tokenDetail } from "./turnTokensModel";
+import { WithFacts } from "../chips/FactsHoverCard";
 /// The tokens' span (no separator before it). `split` wins over `total` when both are known.
 export function TurnTokens({ total, split }: { total?: number; split?: TurnTokenSplit }) {
   const t = useT();
   const language = usePaneLanguage();
   if (hasTokens(split))
     return (
-      <span className="cv-worked__tokens is-split" title={tokenDetail(t, language, split)}>
-        <span className="cv-worked__tokens-part">
-          {t("turn.tokens.out", { tokens: compactTokens(language, split.output) })}
-        </span>
-        <span className="cv-worked__tokens-part">
-          {t("turn.tokens.in", { tokens: compactTokens(language, uncachedTokens(split)) })}
-        </span>
-      </span>
+      <WithFacts facts={[{ value: tokenDetail(t, language, split) }]}>
+        {(facts) => (
+          <span {...facts} className="cv-worked__tokens is-split">
+            <span className="cv-worked__tokens-part">
+              {t("turn.tokens.out", { tokens: compactTokens(language, split.output) })}
+            </span>
+            <span className="cv-worked__tokens-part">
+              {t("turn.tokens.in", { tokens: compactTokens(language, uncachedTokens(split)) })}
+            </span>
+          </span>
+        )}
+      </WithFacts>
     );
   if (!total) return null;
   return <span className="cv-worked__tokens">{workingTokens(t, language, total)}</span>;
 }
 
 /// A translated turn label split around its duration, so the words keep their place in every language.
-export function TimedLabel({ text, time }: { text: (time: string) => string; time: number }): ReactNode {
+export function TimedLabel({
+  text,
+  time,
+  ticking = false,
+}: {
+  text: (time: string) => string;
+  time: number;
+  /// A running clock: its time holds the widest width of its shape (ui/Typography.tsx `Clock`), so
+  /// a tick never moves what follows it on the line.
+  ticking?: boolean;
+}): ReactNode {
   const shown = formatDuration(time);
   const marker = "\u0000";
   const [before, after] = text(marker).split(marker);
@@ -41,7 +57,18 @@ export function TimedLabel({ text, time }: { text: (time: string) => string; tim
   return (
     <>
       {before}
-      <span className="cv-worked__label-time">{shown}</span>
+      {ticking ? (
+        // Nothing after the time on the line's words ("Working for 59s"): its box holds the minutes'
+        // width from the start, so the turn into "1m 0s" moves nothing after it either. Words after
+        // the time ("{time} 作業中") keep to its shape's width, never a gap before them.
+        <Clock
+          text={shown}
+          className="cv-worked__label-time"
+          size={after.trim() ? undefined : clockSizerAcrossUnits(shown)}
+        />
+      ) : (
+        <span className="cv-worked__label-time">{shown}</span>
+      )}
       {after}
     </>
   );

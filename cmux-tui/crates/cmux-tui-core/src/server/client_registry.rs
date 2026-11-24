@@ -368,6 +368,8 @@ pub(crate) struct ClientRegistry {
     pub(super) origin_clock: crate::request_origin::OriginClock,
     pub(crate) browser_host: crate::browser_host::BrowserHostSupervisor,
     pub(crate) remote_host: crate::remote_host::RemoteHostSupervisor,
+    /// Agent tickets and the agent share's auto-off (remote_host/agent_share.rs).
+    pub(crate) remote_agents: Arc<crate::remote_host::agent_share::AgentShare>,
     /// The Linux and Windows Computer Use worker (computer_use_host.rs).
     pub(crate) computer_use: crate::computer_use_host::ComputerUseHost,
     pub(super) app_trust: app_trust::AppTrust,
@@ -449,6 +451,7 @@ impl ClientRegistry {
             origin_clock: Default::default(),
             browser_host: Default::default(),
             remote_host: Default::default(),
+            remote_agents: Default::default(),
             computer_use: Default::default(),
             app_trust: app_trust::AppTrust::default(),
             page_listener: Mutex::new(None),
@@ -761,6 +764,7 @@ impl ClientRegistry {
                     || capability == OPEN_DEVICE_KINDS_CAPABILITY
                     || capability == TERMINAL_COLOR_OVERRIDES_CAPABILITY
                     || capability == TERMINAL_PENDING_SEQUENCE_CAPABILITY
+                    || capability == super::TERMINAL_RESUME_CAPABILITY
                     // `output` at most once per frame (server/attach_output_coalesce.rs).
                     || capability == super::ATTACH_OUTPUT_COALESCE_CAPABILITY
                     // Agent CLI terminals as cell deltas (server/agent_cli_hybrid.rs).
@@ -1085,6 +1089,28 @@ impl ClientRegistry {
         Ok(owner)
     }
 
+    /// Every connected client except `requesting_client` and this owner's
+    /// own journal plugin (the bundled screen detector, which connects back
+    /// at start and stays: no person uses the daemon through it, as
+    /// [`Self::user_client_count`] counts), oldest first (`shutdown-daemon`
+    /// with `if_idle`, stop_if_idle.rs).
+    pub(super) fn other_clients(
+        &self,
+        requesting_client: u64,
+    ) -> Vec<super::stop_if_idle::BusyClient> {
+        let state = self.state.lock().recover_poison();
+        state
+            .clients
+            .iter()
+            .filter(|(client, record)| **client != requesting_client && !record.owner_plugin)
+            .map(|(client, record)| super::stop_if_idle::BusyClient {
+                client: *client,
+                name: record.name.clone(),
+                kind: record.kind.clone(),
+            })
+            .collect()
+    }
+
     pub(crate) fn begin_daemon_handoff(
         &self,
         requesting_client: u64,
@@ -1132,12 +1158,32 @@ impl ClientRegistry {
         }
     }
 
-    pub(crate) fn cancel_daemon_handoff(&self, requesting_client: u64) {
+    /// Releases `requesting_client`'s pending reservation. True when it
+    /// held one.
+    pub(crate) fn cancel_daemon_handoff(&self, requesting_client: u64) -> bool {
         let mut state = self.state.lock().recover_poison();
         if state.daemon_handoff == Some(DaemonHandoffReservation::Pending(requesting_client)) {
             state.daemon_handoff = None;
             state.daemon_handoff_restart = None;
+            return true;
         }
+        false
+    }
+
+    /// Whether `client` holds the pending daemon handoff reservation.
+    pub(crate) fn daemon_handoff_pending_for(&self, client: u64) -> bool {
+        self.state.lock().recover_poison().daemon_handoff
+            == Some(DaemonHandoffReservation::Pending(client))
+    }
+
+    /// Whether `client` holds the daemon handoff reservation, pending or
+    /// committed.
+    pub(crate) fn daemon_handoff_held_by(&self, client: u64) -> bool {
+        matches!(
+            self.state.lock().recover_poison().daemon_handoff,
+            Some(DaemonHandoffReservation::Pending(c) | DaemonHandoffReservation::Committed(c))
+                if c == client
+        )
     }
 
     /// Records whether a replacement follows the handoff `requesting_client`

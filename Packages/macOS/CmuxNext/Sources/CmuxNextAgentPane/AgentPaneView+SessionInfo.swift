@@ -175,9 +175,9 @@ extension AgentPaneView {
     /// behind each one where they overlap and is whole again when they close.
     func applySessionInfoOverlays() {
         guard let panel = model.sessionInfo.panel else { return }
-        let zoom = max(0.25, CGFloat(uiPointerPageZoom))
         let page = page?.frame ?? webView.frame
         panel.holes = model.sessionInfo.overlays.compactMap { overlay in
+            let zoom = pageBoxZoom(overlay.zoom)
             let pane = Self.sessionInfoOverlayRect(overlay.rect, page: page, zoom: zoom, flipped: isFlipped)
             let rect = panel.convert(pane, from: self)
             return rect.intersects(panel.bounds) ? AgentPaneSessionInfoOverlay(rect: rect, radius: overlay.radius * zoom) : nil

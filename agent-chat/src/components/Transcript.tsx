@@ -8,7 +8,7 @@ import { activityIndicatorState, activityTailKey } from "../activity";
 import { ChatMarkdown, MarkdownCodeBlock } from "../ChatMarkdown";
 import { useActivityStartedAt, useTicker } from "../hooks/useTicker";
 import { useVirtualTurns } from "../hooks/useVirtualTurns";
-import { Check, Chevron, CopyIcon, EllipsisIcon, PinwheelSpinner } from "./icons";
+import { Check, Chevron, CopyIcon, EllipsisIcon, Spinner } from "./icons";
 import { HintTooltip } from "./Tooltips";
 import { activityRowHoverTitle, activityRowLabel, compactTurnGroups, groupTurns, summarizeTurnActivity, type TurnGroup } from "../turns";
 import { agentMessageFoldedByDefault } from "./agentMessageFormat";
@@ -166,7 +166,7 @@ export function ToolBlock({ b, variant = TOOL_BLOCK_VARIANT, defaultOpen = false
   const [open, setOpen] = useState(defaultOpen);
   const hasOutput = Boolean(b.out);
   const mark = b.status === "running"
-    ? <PinwheelSpinner size={12} />
+    ? <Spinner size={12} />
     : <span className={"tool-dot " + (b.status === "fail" ? "fail" : "ok")} />;
   const label = variant === "oneliner"
     ? <>{mark}<span className="name">{b.name}</span>{b.detail ? <span className="detail" title={toolDetailHoverTitle(b.detail)}>({b.detail})</span> : null}<span className="tool-time tabular-nums"> · 1.2s</span></>
@@ -269,13 +269,13 @@ export function TurnActions({
                 {stats ? <div className="turn-menu-stats tabular-nums">{stats}</div> : null}
                 {actions.fork && !actions.handoff ? (
                   <button className="turn-menu-item" type="button" disabled={forkPending} onClick={onFork}>
-                    {forkPending ? <PinwheelSpinner size={11} /> : null}
+                    {forkPending ? <Spinner size={11} /> : null}
                     <span>{agentChatText("continueNewChat")}</span>
                   </button>
                 ) : null}
                 {actions.handoff && onHandoff ? (
                   <button className="turn-menu-item" type="button" disabled={handoffPending} onClick={onHandoff}>
-                    {handoffPending ? <PinwheelSpinner size={11} /> : null}
+                    {handoffPending ? <Spinner size={11} /> : null}
                     <span>{agentChatText("continueElsewhere")}</span>
                   </button>
                 ) : null}

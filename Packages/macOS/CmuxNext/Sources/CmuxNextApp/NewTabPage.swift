@@ -126,7 +126,7 @@ enum NewTabPage {
             lastAgent: services.newTabChoices.agent, lastPicks: services.newTabChoices.picks,
             home: machine.home,
             template: services.settings?.snapshot.newTabTemplate?.rawValue
-        ).showingApp(services.settings?.snapshot.newTabApp).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).listingAllChats(showsAllChats(services))
+        ).showingApp(services.settings?.snapshot.newTabApp).showingClock(services.settings?.snapshot.newTabClock).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).listingAllChats(showsAllChats(services))
             .startingIn(machine.remoteFolders == nil ? services.newTabChoices.startedProject : nil)
             .warmedOnThisMac(machine.remoteFolders == nil)
     }
@@ -139,7 +139,7 @@ enum NewTabPage {
             layout: NewTabTunables.layout.value.pageLayout, lastAgent: services.newTabChoices.agent,
             lastPicks: services.newTabChoices.picks, home: NSHomeDirectory(),
             template: services.settings?.snapshot.newTabTemplate?.rawValue
-        ).showingApp(services.settings?.snapshot.newTabApp).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).listingAllChats(showsAllChats(services))
+        ).showingApp(services.settings?.snapshot.newTabApp).showingClock(services.settings?.snapshot.newTabClock).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).listingAllChats(showsAllChats(services))
             .startingIn(services.newTabChoices.startedProject).warmedOnThisMac()
     }
 
@@ -262,28 +262,5 @@ extension PaneController {
         // `open` focuses the field of a New Tab page already showing, else opens one. In a pane
         // of another machine it is the same page; nothing starts there before a send (cx-k21v).
         NewTabPage.open(in: self, seed: nil, reusingShown: true)
-    }
-}
-
-extension AgentPaneNewTab {
-    /// The page with Integrate a harness off when it was dismissed for good.
-    func dismissingHarnessHint(_ dismissed: Bool) -> AgentPaneNewTab {
-        var page = self
-        page.harnessHintDismissed = dismissed ? true : nil
-        return page
-    }
-
-    /// The page with the project of the chat the person last picked and started, if any.
-    func startingIn(_ startedProject: String?) -> AgentPaneNewTab {
-        var page = self
-        page.startedProject = startedProject
-        return page
-    }
-
-    /// The page with All chats left out (recent chats only) when Show All Chats on New Tab is off.
-    func listingAllChats(_ shown: Bool) -> AgentPaneNewTab {
-        var page = self
-        page.allChats = shown ? nil : false
-        return page
     }
 }

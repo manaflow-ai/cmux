@@ -204,10 +204,9 @@ class SidebarItemRowView: NSView {
         let words = info.taskProgress.map { Strings.taskProgress(done: $0.done, total: $0.total) }
         let value = [unread, words].compactMap(\.self).joined(separator: ", ")
         setAccessibilityValue(value.isEmpty ? nil : value)
-        // An icon names itself (and its shortcut) in its tooltip; a tile's
-        // caption can truncate, so it keeps the full title.
-        // The profile control draws no name, so its tooltip says who it is: the email.
-        themedToolTip = info.avatar?.toolTip ?? (style.isIconOnly ? info.toolTip : style == .favorite ? info.title : nil)
+        // An icon names itself (and its shortcut) in its tooltip; an item that shows its title has none (a1315's
+        // cut 2). The profile control draws no name, so its tooltip says who it is: the email.
+        themedToolTip = info.avatar?.toolTip ?? info.tooltip ?? (style.isIconOnly ? info.toolTip : nil)
         setAccessibilityLabel(info.accessibilityTitle ?? info.title)
         applyAvatar()
         setAccessibilitySelected(info.isActive || info.isSecondarySelected)
@@ -302,8 +301,8 @@ class SidebarItemRowView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         let side = isRailButton ? SidebarStyle.railIconBox : SidebarStyle.iconBox
-        // A text-only workspace item beside its title draws no glyph (WORKSPACE-ROWS-NO-DEFAULT-ICON).
-        let bare = info.textOnly && !style.isIconOnly
+        // A text-only workspace item beside its title draws no glyph (WORKSPACE-ROWS-NO-DEFAULT-ICON), nor does the Chief row.
+        let bare = (info.textOnly || info.hidesGlyphBesideTitle) && !style.isIconOnly
         // One icon column for every row (Lawrence 2026-10-28, "home and pinned are not aligned"; #38061): a band row's
         // glyph and a pinned row's pin start their ink on the icon column's leading edge, the row inset (its inset plus
         // the pill inset) where text-only titles start (Lawrence 2026-11-09), and a title after that glyph starts at the
@@ -687,7 +686,6 @@ class SidebarItemRowView: NSView {
     }
 
     // MARK: Pointer
-
 
     /// Activates on press, as the sidebar's rows do; the pressed fill shows
     /// until release.

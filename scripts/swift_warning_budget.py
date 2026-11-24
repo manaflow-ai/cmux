@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import argparse
 import collections
+import json
+import os
 import pathlib
 import re
 import sys
@@ -179,6 +181,18 @@ def compare_budget(actual: WarningBudget, allowed: WarningBudget) -> int:
             print(f"   actual={actual_count} budget={allowed_count}")
         print("")
         print("Fix the new warnings or refresh the budget only when accepting known debt.")
+        if os.environ.get("CI_WARNINGS", "").strip().lower() == "soft":
+            # A pull request: warnings never fail its compile (Leo, 2026-11-19; scripts/ci/warnings_policy.py).
+            # Pushes, merge queues, nightly and release keep the budget an error.
+            new = sum(actual_count - allowed_count for _, _, actual_count, allowed_count in failures)
+            first_path, first_message = failures[0][0], failures[0][1]
+            print(f"::warning title=warnings (soft)::{new} Swift warning(s) over the budget did not fail this pull "
+                  f"request's compile (CI_WARNINGS=soft). Fix them here or in a follow-up. First: "
+                  f"{first_path}: {first_message[:160]}")
+            print("CI_OOPS=" + json.dumps({"class": "soft", "rule": "soft.warnings_as_errors", "fixer": None,
+                                           "count": new, "command": "swift_warning_budget.py",
+                                           "outcome": "soft_failed"}, sort_keys=True))
+            return 0
         return 1
 
     print("Swift warning budget respected.")

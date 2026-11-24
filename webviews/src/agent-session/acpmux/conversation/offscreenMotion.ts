@@ -23,8 +23,14 @@ const ROW = ".acpmux-row";
 
 type Box = { top: number; bottom: number; width: number; height: number };
 
+/// Whether `box` is wholly past one of `view`'s edges. A box of no size is exempt (a line that has
+/// mounted with no box yet), and so is a view of no height: a scroller that has not been laid out
+/// has no view to judge against, and reading it as a sliver at the top would end motion the reader is
+/// about to see.
 const misses = (box: Box, view: Box) =>
-  !(box.width === 0 && box.height === 0) && (box.bottom <= view.top + EDGE_PX || box.top >= view.bottom - EDGE_PX);
+  !(box.width === 0 && box.height === 0) &&
+  view.height !== 0 &&
+  (box.bottom <= view.top + EDGE_PX || box.top >= view.bottom - EDGE_PX);
 
 /// Whether `element`'s box misses `scroller`'s.
 export function outOfView(element: Element, scroller: Element): boolean {
@@ -121,10 +127,17 @@ export function endOffscreenMotion(scroller: HTMLElement | null | undefined): ()
       })
     : undefined;
   observer?.observe(scroller, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] });
+  // What no mutation of a class started: a transition from an inherited value, and the motions a
+  // `data-*` flip starts (the send entrance, a card's reveal). Judged exactly as the observer judges
+  // them, by the row's box as well as the element's own: a line that has mounted with no box yet
+  // reads as in view by its own box alone, and this is the only pass that sees these.
   const started = (event: Event) => {
     const target = event.target;
     if (!(target instanceof Element) || typeof target.getAnimations !== "function") return;
-    if (!outOfView(target, scroller)) return;
+    const row = target.closest(ROW);
+    if (!row || !scroller.contains(row)) return;
+    const view = scroller.getBoundingClientRect();
+    if (!misses(row.getBoundingClientRect(), view) && !misses(target.getBoundingClientRect(), view)) return;
     finishAll(cssOf(target));
   };
   scroller.addEventListener("animationstart", started, true);
