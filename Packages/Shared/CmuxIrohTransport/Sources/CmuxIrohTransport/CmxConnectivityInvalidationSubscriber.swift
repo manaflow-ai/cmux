@@ -1,5 +1,6 @@
 import CMUXMobileCore
 public import Foundation
+import CmuxEgress
 
 /// Revision-only message carried by the account connectivity channel.
 ///
@@ -173,7 +174,7 @@ public actor CmxConnectivityInvalidationSubscriber {
         }
         var request = URLRequest(url: url)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        let task = session.webSocketTask(with: request)
+        let task = Egress.webSocketTask(in: session, with: request, site: "CmuxIrohTransport.CmxConnectivityInvalidationSubscriber")
         task.maximumMessageSize = CmxConnectivityInvalidation.maximumFrameBytes
         task.resume()
         defer { task.cancel(with: .goingAway, reason: nil) }

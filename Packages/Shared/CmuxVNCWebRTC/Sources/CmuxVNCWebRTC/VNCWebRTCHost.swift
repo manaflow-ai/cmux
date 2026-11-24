@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import CmuxEgress
 
 /// The Mac side: holds the room open, answers each viewer, and pipes the
 /// viewer's `rfb` data channel to a VNC server over TCP (by default this
@@ -97,7 +98,8 @@ public final class VNCWebRTCHost: @unchecked Sendable {
 
     /// The channel opened: connect to the VNC server and pipe server bytes back.
     private func bridge(_ link: VNCPeerLink) {
-        let tcp = NWConnection(host: NWEndpoint.Host(targetHost), port: NWEndpoint.Port(rawValue: targetPort) ?? 5900, using: .tcp)
+        Egress.allowNamed(targetHost)  // The person named this host (docs/privacy.md, "Egress gate").
+        let tcp = Egress.connection(host: NWEndpoint.Host(targetHost), port: NWEndpoint.Port(rawValue: targetPort) ?? 5900, using: .tcp, site: "CmuxVNCWebRTC.VNCWebRTCHost")
         guard lock.withLock({ () -> Bool in
             guard current?.link === link else { return false }
             current?.tcp = tcp

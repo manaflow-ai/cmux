@@ -1,5 +1,6 @@
 public import CMUXAuthCore
 public import Foundation
+import CmuxEgress
 
 /// The cmux-next API Worker's routes that a person's own session calls directly, outside the op
 /// path (`ownerAPIBaseURL`; cx-kvmz): the keyed acpmux start and its person_holds check on a Cloud
@@ -257,7 +258,7 @@ public struct CloudOwnerAPIClient: Sendable {
         configuration.urlCache = nil
         configuration.httpShouldSetCookies = false
         configuration.httpCookieAcceptPolicy = .never
-        return URLSession(configuration: configuration, delegate: RefuseRedirects(), delegateQueue: nil)
+        return Egress.session(site: "CmuxNextCloud.CloudOwnerAPIClient", configuration: configuration, delegate: RefuseRedirects(), delegateQueue: nil)
     }()
 
     private final class RefuseRedirects: NSObject, URLSessionTaskDelegate, Sendable {

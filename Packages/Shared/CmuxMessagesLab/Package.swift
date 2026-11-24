@@ -21,6 +21,7 @@ let package = Package(
         .library(name: "MessagesLabSidebar", targets: ["MessagesLabSidebar"]),
     ],
     dependencies: [
+        .package(path: "../CmuxEgress"),
         .package(path: "../CmuxHomeCore"),
         .package(path: "../CmuxHomeRender"),
         .package(path: "../CmuxAgentQuestion"),
@@ -32,6 +33,7 @@ let package = Package(
             name: "MessagesLabHome",
             dependencies: [
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
+                .product(name: "CmuxEgress", package: "CmuxEgress"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),

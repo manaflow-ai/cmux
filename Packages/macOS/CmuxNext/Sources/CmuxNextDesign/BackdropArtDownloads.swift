@@ -1,5 +1,6 @@
 import CryptoKit
 public import Foundation
+import CmuxEgress
 
 /// Full images of the art that does not ship in the app (cx-t2x.7): fetched once from
 /// files.cmux.com by the SHA-256 the manifest records, kept in the backgrounds folder only when
@@ -7,7 +8,7 @@ public import Foundation
 public actor BackdropArtDownloads {
     /// The app's downloads, in its Application Support folder.
     public static let shared = BackdropArtDownloads(folder: defaultFolder) { url in
-        let (data, response) = try await URLSession.shared.data(from: url)
+        let (data, response) = try await Egress.shared.data(from: url)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
         return data
     }

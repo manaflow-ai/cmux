@@ -1,5 +1,6 @@
 import CryptoKit
 public import Foundation
+import CmuxEgress
 
 /// The Vite dev server every React page loads from in Debug and tagged builds, so TypeScript and
 /// CSS edits hot reload in the running app (`bun run dev:pages` in `webviews/`, then launch with
@@ -200,7 +201,7 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
 
     /// Sends `request` (``request(for:)``).
     @concurrent public static func fetch(_ request: URLRequest) async -> (Data, HTTPURLResponse)? {
-        guard let (data, response) = try? await URLSession.shared.data(for: request),
+        guard let (data, response) = try? await Egress.shared.data(for: request),
               let http = response as? HTTPURLResponse else { return nil }
         return (data, http)
     }

@@ -1,5 +1,6 @@
 public import CmuxUpdater
 public import Foundation
+import CmuxEgress
 
 /// Downloads an appcast. A seam so tests serve fixture feeds.
 nonisolated public protocol AppcastFetching: Sendable {
@@ -30,7 +31,7 @@ nonisolated public struct URLSessionAppcastFetcher: AppcastFetching {
 
     /// Tests exercise redirects through URLSession with a deterministic protocol.
     init(configuration: URLSessionConfiguration, followsRedirects: Bool) {
-        session = URLSession(configuration: configuration,
+        session = Egress.session(site: "CmuxNextUpdater.UpdateProber", configuration: configuration,
                              delegate: followsRedirects ? nil : RedirectRejectingDelegate(), delegateQueue: nil)
     }
 

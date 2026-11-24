@@ -1,5 +1,6 @@
 public import CMUXAuthCore
 public import Foundation
+import CmuxEgress
 
 /// The account's registered devices on the mobile service (`GET /v1/me/devices`,
 /// `DELETE /v1/devices/:id`, cmux-next-ios/PROTOCOL.md 0.7.0), for Settings > Mobile's
@@ -27,7 +28,7 @@ public struct MobileHostDeviceDirectory: Sendable {
 
     /// `URLSession.shared`; the status is 0 when the response is not HTTP.
     public static let urlSession: Send = { request in
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await Egress.shared.data(for: request)
         return (data, (response as? HTTPURLResponse)?.statusCode ?? 0)
     }
 

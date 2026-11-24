@@ -3,6 +3,7 @@ import AVFoundation
 import ImageIO
 import CmuxNextCompat
 import UniformTypeIdentifiers
+import CmuxEgress
 
 /// Bringing a background in (cx-t2x.8, backgrounds plan phase 3): a file is checked before it is
 /// copied, so the folder never lists a picture that will not decode or a movie macOS cannot play,
@@ -157,7 +158,8 @@ private nonisolated final class LinkDownload: NSObject, URLSessionDataDelegate, 
         configuration.timeoutIntervalForRequest = 60
         configuration.timeoutIntervalForResource = 600
         configuration.urlCache = nil
-        let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+        Egress.allowNamed(link)  // The person named this host (docs/privacy.md, "Egress gate").
+        let session = Egress.session(site: "CmuxNextDesign.BackdropUserImages+Import", configuration: configuration, delegate: self, delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -202,6 +204,7 @@ private nonisolated final class LinkDownload: NSObject, URLSessionDataDelegate, 
             task.cancel()
             return completionHandler(nil)
         }
+        Egress.allowNamed(request.url)
         completionHandler(request)
     }
 

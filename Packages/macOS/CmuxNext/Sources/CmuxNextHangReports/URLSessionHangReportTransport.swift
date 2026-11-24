@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxEgress
 
 /// Posts report bodies with an ephemeral session: no cookies, no cache, no credentials, fixed
 /// headers (``fixedHeaders``: the user agent, and `Accept-Language: en` instead of the person's
@@ -34,7 +35,7 @@ public nonisolated struct URLSessionHangReportTransport: HangReportTransport {
         configuration.timeoutIntervalForRequest = 30
         configuration.httpAdditionalHeaders = Self.fixedHeaders
         if !protocolClasses.isEmpty { configuration.protocolClasses = protocolClasses + (configuration.protocolClasses ?? []) }
-        session = URLSession(configuration: configuration)
+        session = Egress.session(site: "CmuxNextHangReports.URLSessionHangReportTransport", configuration: configuration)
     }
 
     /// Posts one body; see ``HangReportTransportResult``.

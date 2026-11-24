@@ -1,6 +1,7 @@
 import Darwin
 public import Foundation
 import Network
+import CmuxEgress
 
 /// One outbound TCP connection the tunnel relays to. Every call suspends
 /// until the operation is done, which is what bounds the relay's memory:
@@ -127,7 +128,7 @@ final class IrxTunnelNWChannel: IrxTunnelByteChannel, @unchecked Sendable {
         tcp.noDelay = true
         let parameters = NWParameters(tls: nil, tcp: tcp)
         parameters.preferNoProxies = true
-        let connection = NWConnection(host: host, port: port, using: parameters)
+        let connection = Egress.connection(host: host, port: port, using: parameters, site: "CmuxIrxTransport.IrxTunnelTCPConnector")
         let outcome = IrxTunnelConnectOutcome()
         // The deadline: whichever of state change, deadline, or cancellation
         // settles the outcome first wins; the others are no-ops.

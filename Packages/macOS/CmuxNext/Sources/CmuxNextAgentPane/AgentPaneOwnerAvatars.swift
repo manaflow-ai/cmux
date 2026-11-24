@@ -1,5 +1,6 @@
 import CmuxNextCompat
 import Foundation
+import CmuxEgress
 
 /// A GitHub owner's avatar for a project with no icon file of its own (`project.icon`): a repository
 /// whose `origin` is on GitHub draws its organization's or user's picture instead of letters.
@@ -90,7 +91,7 @@ actor AgentPaneOwnerAvatars {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = timeout
         configuration.timeoutIntervalForResource = timeout
-        let session = URLSession(configuration: configuration)
+        let session = Egress.session(site: "CmuxNextAgentPane.AgentPaneOwnerAvatars", configuration: configuration)
         defer { session.finishTasksAndInvalidate() }
         guard let (data, response) = try? await session.data(from: url),
               (response as? HTTPURLResponse)?.statusCode == 200,

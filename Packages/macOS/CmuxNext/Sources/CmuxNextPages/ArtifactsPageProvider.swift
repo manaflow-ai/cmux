@@ -1,6 +1,7 @@
 import CmuxNextCompat
 public import CmuxNextSettings
 public import Foundation
+import CmuxEgress
 
 public extension PageDescriptor {
     /// The Artifacts page (webviews/src/pages/artifacts): the account's synced artifacts and
@@ -186,7 +187,7 @@ public final class ArtifactsPageProvider: PageProvider {
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.httpShouldSetCookies = false
         configuration.httpCookieAcceptPolicy = .never
-        return URLSession(configuration: configuration, delegate: RefuseRedirects(), delegateQueue: nil)
+        return Egress.session(site: "CmuxNextPages.ArtifactsPageProvider", configuration: configuration, delegate: RefuseRedirects(), delegateQueue: nil)
     }
 
     /// `read`'s URL under `base`, whose own path (a deployment under a prefix) is kept. Each query

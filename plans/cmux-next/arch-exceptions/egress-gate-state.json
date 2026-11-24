@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-24",
+  "row": "global_mutable_statics",
+  "allow": 2,
+  "why": "The egress gate's state (mode, person-named hosts, once-per-host log set) is read by EgressURLProtocol.canInit(with:), a class method URLSession's loader calls on a URLProtocol subclass the system instantiates itself, and by URLProtocol.registerClass for URLSession.shared: there is no init to inject into. The Rust twin (cmux-tui/crates/cmux-egress) is process-wide for the same reason. It is one lock (OSAllocatedUnfairLock on Apple platforms, Synchronization.Mutex on Linux), counted once per #if branch.",
+  "author": "egress-gate-swift lane (claude opus)",
+  "owner": "egress-gate-swift lane (goal privacy-runtime-egress-enforced)",
+  "receipt": "Review (claude opus subagent a8fe4e9bc45341953): SHIP at ed65797bc7c8d9a111843b053364e2174f2bb981",
+  "expiry": "2026-12-24"
+}

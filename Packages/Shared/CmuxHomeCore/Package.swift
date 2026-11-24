@@ -17,6 +17,7 @@ let package = Package(
         .library(name: "CmuxHomeCore", targets: ["CmuxHomeCore"]),
     ],
     dependencies: [
+        .package(path: "../CmuxEgress"),
         // Agent questions (plans/cmux-next/agent-questions.md): the `question` part's model.
         .package(path: "../CmuxAgentQuestion"),
         // The cloud build space a dev build's requests carry (`CMUXBuildSpace`, `X-Cmux-Build-Space`).
@@ -28,6 +29,7 @@ let package = Package(
             dependencies: [
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                 .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
+                .product(name: "CmuxEgress", package: "CmuxEgress"),
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),

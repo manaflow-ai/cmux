@@ -1,6 +1,7 @@
 public import CMUXAuthCore
 import CmuxNextCloud
 public import Foundation
+import CmuxEgress
 
 /// "Pair Another Machine…" over the cmux cloud: `server.pair.invite` (origin user) through the API
 /// Worker as the signed-in user, and the invite's watch socket (`GET /v1/pair/invite/wait?invite=CODE`,
@@ -98,7 +99,7 @@ extension PairInviteService {
     /// it closed (``PairInviteFrame/expired`` at the code's expiry, else ``PairInviteFrame/lost``).
     /// Event driven: each turn awaits the next frame; a closed socket throws and ends it.
     nonisolated private static func watch(_ request: URLRequest, invite: PairInvite, into continuation: AsyncStream<PairInviteFrame>.Continuation) async {
-        let task = URLSession.shared.webSocketTask(with: request)
+        let task = Egress.webSocketTask(in: Egress.shared, with: request, site: "CmuxNextServer.PairInviteService+Cloud")
         task.maximumMessageSize = 64 << 10
         task.resume()
         defer {

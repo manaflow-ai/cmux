@@ -1,5 +1,6 @@
 package import CryptoKit
 public import Foundation
+import CmuxEgress
 
 /// Fetches the pinned react-grab release once per run and checks its SHA-256 before handing it out.
 ///
@@ -64,6 +65,6 @@ public actor ReactGrabScriptLoader: ReactGrabScriptSource {
     /// The default `fetch`: the URL's bytes through `URLSession.shared` (a named function, not
     /// an async closure default argument; cx-bsue).
     public nonisolated static func download(_ url: URL) async throws -> Data {
-        try await URLSession.shared.data(from: url).0
+        try await Egress.shared.data(from: url).0
     }
 }

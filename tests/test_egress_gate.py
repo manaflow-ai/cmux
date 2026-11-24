@@ -36,10 +36,12 @@ from test_outbound_hosts import DOC, SCAN, listed  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 UNGATED = ROOT / "tests" / "egress_ungated.json"
-# The gate's own sources: the only place a raw client may be made (Rust: cmux-egress; Swift next).
-GATES: tuple[str, ...] = ("cmux-tui/crates/cmux-egress/",)
+# The gate's own sources: the only place a raw client may be made (Rust: cmux-egress; Swift: CmuxEgress).
+GATES: tuple[str, ...] = ("cmux-tui/crates/cmux-egress/", "Packages/Shared/CmuxEgress/")
 # The `connects` hosts the Rust gate lets through, generated from docs/privacy.md (--write).
 GATE_HOSTS = ROOT / "cmux-tui" / "crates" / "cmux-egress" / "hosts.txt"
+# The same list for the Swift gate, as a Swift source file (--write).
+SWIFT_GATE_HOSTS = ROOT / "Packages" / "Shared" / "CmuxEgress" / "Sources" / "CmuxEgress" / "EgressHosts.swift"
 FORMS = {
     ".rs": {
         "reqwest-client": r"reqwest::(?:blocking::)?Client(?:Builder)?::(?:new|builder)\(",
@@ -52,7 +54,7 @@ FORMS = {
         "urlsession": r"\bURLSession\((?:configuration|\))",
         "urlsession-shared": r"\bURLSession\.shared\b",
         "nwconnection": r"\bNWConnection\(",
-        "websocket-task": r"\.webSocketTask\(",
+        "websocket-task": r"(?<!\bEgress)\.webSocketTask\(",
     },
 }
 COMPILED = {ext: re.compile("|".join(f"(?P<{k.replace('-', '_')}>{v})" for k, v in forms.items()))
@@ -116,6 +118,15 @@ def gate_hosts_text(doc: str) -> str:
             "python3 tests/test_egress_gate.py --write\n" + "".join(f"{h}\n" for h in hosts))
 
 
+def swift_gate_hosts_text(doc: str) -> str:
+    rows, _ = listed(doc)
+    hosts = sorted(h for h, (kind, _) in rows.items() if kind == "connects")
+    return ("// docs/privacy.md's `connects` hosts: what the egress gate lets through. Generated: "
+            "python3 tests/test_egress_gate.py --write\n\n"
+            "enum EgressHosts {\n    static let listed: [String] = [\n"
+            + "".join(f"        {json.dumps(h)},\n" for h in hosts) + "    ]\n}\n")
+
+
 def summary(files: dict[str, dict[str, int]]) -> dict:
     by_lang: dict[str, int] = {}
     for rel, forms in files.items():
@@ -126,6 +137,7 @@ def summary(files: dict[str, dict[str, int]]) -> dict:
 
 def write(found: dict[str, dict[str, int]]) -> None:
     GATE_HOSTS.write_text(gate_hosts_text(DOC.read_text()))
+    SWIFT_GATE_HOSTS.write_text(swift_gate_hosts_text(DOC.read_text()))
     UNGATED.write_text(json.dumps({
         "about": "Outbound sites in cmux NEXT that do not go through the egress gate. Only shrinks; "
                  "tests/test_egress_gate.py keeps it exact.",
@@ -140,6 +152,8 @@ class EgressGate(unittest.TestCase):
     def test_the_gate_lets_through_exactly_the_doc_hosts(self):
         self.assertEqual(GATE_HOSTS.read_text(), gate_hosts_text(DOC.read_text()),
                          "cmux-egress/hosts.txt differs from docs/privacy.md's connects rows: run --write")
+        self.assertEqual(SWIFT_GATE_HOSTS.read_text(), swift_gate_hosts_text(DOC.read_text()),
+                         "CmuxEgress/EgressHosts.swift differs from docs/privacy.md's connects rows: run --write")
 
     def test_the_counts_are_the_sum(self):
         data = json.loads(UNGATED.read_text())
@@ -154,7 +168,7 @@ class Matcher(unittest.TestCase):
         self.assertEqual(sites_in(rs, "cmux-tui/crates/x/src/a.rs"),
                          {"reqwest-client": 2, "client-builder": 1, "reqwest-get": 1, "ws-connect": 1})
         sw = ('let s = URLSession(configuration: c)\nURLSession.shared.data(for: r)\nNWConnection(to: e, using: p)\n'
-              'session.webSocketTask(with: u)\n')
+              'session.webSocketTask(with: u)\nEgress.webSocketTask(in: s, with: u, site: "x")\n')
         self.assertEqual(sites_in(sw, "Packages/macOS/CmuxNext/Sources/X/A.swift"),
                          {"urlsession": 1, "urlsession-shared": 1, "nwconnection": 1, "websocket-task": 1})
 

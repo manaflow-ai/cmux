@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import CmuxEgress
 
 /// The canary chat connection of cmux NEXT NIGHTLY's install check (RFD 0028, item 6). After an
 /// update installs, the updater asks whether a chat can still open on this build: the page's
@@ -54,7 +55,7 @@ public nonisolated struct AcpmuxInstallCanary {
         if let refusal = relayRefusal() { return .refused(refusal, retryable: false) }
         let connection: NWConnection
         do {
-            connection = NWConnection(to: try AcpmuxStatusClient.unixEndpoint(socketPath), using: .tcp)
+            connection = Egress.connection(to: try AcpmuxStatusClient.unixEndpoint(socketPath), using: .tcp, site: "CmuxNextAgentPane.AcpmuxInstallCanary")
         } catch {
             return .inconclusive(String(describing: error))
         }

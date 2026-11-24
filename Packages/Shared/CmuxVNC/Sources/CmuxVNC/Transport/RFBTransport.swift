@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import CmuxEgress
 
 /// A byte stream to an RFB server. `NetworkRFBTransport` is TCP; an app can
 /// supply another carrier (a tunnel, a test pipe).
@@ -26,7 +27,8 @@ public final class NetworkRFBTransport: RFBTransport {
         tcp.noDelay = true
         tcp.connectionTimeout = 15
         let parameters = NWParameters(tls: nil, tcp: tcp)
-        connection = NWConnection(host: NWEndpoint.Host(host), port: NWEndpoint.Port(rawValue: port) ?? 5900, using: parameters)
+        Egress.allowNamed(host)  // The person named this host (docs/privacy.md, "Egress gate").
+        connection = Egress.connection(host: NWEndpoint.Host(host), port: NWEndpoint.Port(rawValue: port) ?? 5900, using: parameters, site: "CmuxVNC.RFBTransport")
     }
 
     public func open() async throws {

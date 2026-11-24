@@ -1,4 +1,5 @@
 import Foundation
+import CmuxEgress
 
 /// The release push (Leo 2026-10-26: "if the nightly is post, I just want it. Just give it to me.
 /// Don't wait... there should be some sort of hook, so you can just do the thing."). The scheduled
@@ -220,8 +221,8 @@ nonisolated final class LiveReleasePushSocket: ReleasePushSocket {
     init(url: URL) {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.waitsForConnectivity = false
-        session = URLSession(configuration: configuration)
-        socket = session.webSocketTask(with: url)
+        session = Egress.session(site: "CmuxNextUpdater.ReleasePushListener", configuration: configuration)
+        socket = Egress.webSocketTask(in: session, with: url, site: "CmuxNextUpdater.ReleasePushListener")
         socket.resume()
     }
 
