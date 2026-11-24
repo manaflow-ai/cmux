@@ -58,7 +58,7 @@ struct HomeNarrowSidebarTests {
     /// Leo, 2026-10-19: "the search completley disappeared when you coulve probably still fit it...
     /// and/or just turned it to an icon. the filter button also just disappeared." The avatar-only
     /// list keeps the Unread filter and shows search as a circle; compose stays the chat's.
-    @Test(arguments: [84, 100, 140, 187] as [CGFloat])
+    @Test(arguments: [100, 120, 140, 187] as [CGFloat])
     func theAvatarListShowsTheSearchIconAndFilterButNoCompose(_ width: CGFloat) throws {
         let p = try page(listWidth: width)
         defer { p.close() }
@@ -74,7 +74,7 @@ struct HomeNarrowSidebarTests {
                 "the search field shows in the \(width) pt list")
     }
 
-    @Test(arguments: [84, 140] as [CGFloat])
+    @Test(arguments: [100, 140] as [CGFloat])
     func theChatShowsComposeAtItsTopLeft(_ width: CGFloat) throws {
         let p = try page(listWidth: width)
         defer { p.close() }

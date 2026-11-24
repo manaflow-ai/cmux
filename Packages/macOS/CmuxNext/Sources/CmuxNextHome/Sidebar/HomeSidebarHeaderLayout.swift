@@ -113,24 +113,28 @@ public struct HomeSidebarHeaderLayout: Equatable, Sendable {
         // Messages' header under the lights: the search field on its own row below them.
         let underLights = windowControls.map { ($0.maxY + Self.rowGap).rounded(.up) }
         if compact {
+            // One row as tall as the open field, open or closed: the circles sit centred in it, so
+            // opening the search moves nothing under it (the user, 2026-11-23: "make the height not
+            // shift"). Under the lights the row is under them; full screen, centred in the band.
             buttonsCovered = searchOpen
-            let rowY = underLights ?? y
+            let fieldHeight = metrics.searchHeight
+            let rowY = underLights ?? ((Self.band - fieldHeight) / 2).rounded()
+            if underLights != nil { listTop = max(Self.band, rowY + fieldHeight + Self.rowGap) }
             if searchOpen {
                 filter = .zero
-                search = CGRect(x: Self.inset, y: rowY, width: max(0, width - 2 * Self.inset), height: metrics.searchHeight)
-                if underLights != nil { listTop = max(Self.band, search.maxY + Self.rowGap) }
+                search = CGRect(x: Self.inset, y: rowY, width: max(0, width - 2 * Self.inset), height: fieldHeight)
                 return
             }
             search = CGRect(x: Self.inset, y: y, width: 0, height: 0)
+            let circleY = Self.pixel(rowY + (fieldHeight - side) / 2)
             let pair = 2 * side + Self.gap
             if width >= pair + 2 * Self.edge {
                 let x = ((width - pair) / 2).rounded()
-                searchIcon = CGRect(x: x, y: rowY, width: side, height: side)
-                filter = CGRect(x: searchIcon.maxX + Self.gap, y: rowY, width: side, height: side)
+                searchIcon = CGRect(x: x, y: circleY, width: side, height: side)
+                filter = CGRect(x: searchIcon.maxX + Self.gap, y: circleY, width: side, height: side)
             } else {
-                filter = CGRect(x: ((width - side) / 2).rounded(), y: rowY, width: side, height: side)
+                filter = CGRect(x: ((width - side) / 2).rounded(), y: circleY, width: side, height: side)
             }
-            if underLights != nil { listTop = max(Self.band, filter.maxY + Self.rowGap) }
             return
         }
         buttonsCovered = false

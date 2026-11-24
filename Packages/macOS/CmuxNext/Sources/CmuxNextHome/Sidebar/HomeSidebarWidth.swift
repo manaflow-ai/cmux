@@ -6,10 +6,10 @@ public import Foundation
 /// width (the docked column, `column.update`) takes this value over when the
 /// daemon owns the column. It also keeps whether the list shows at all (``listShown``).
 public struct HomeSidebarWidth: Sendable {
-    /// MessagesLab's `SidebarController.minimumWidth` and `preferredWidth` (76 and 320) plus the
+    /// MessagesLab's `SidebarController.minimumWidth` and `preferredWidth` (92 and 320) plus the
     /// panel's 8 pt inset from the column's left (`HomeSidebarView.panelInset`): HomeSidebarView
     /// reads them from the list.
-    public static let minimum: CGFloat = 84
+    public static let minimum: CGFloat = 100
     public static let standard: CGFloat = 328
 
     /// The narrowest the transcript beside the list gets while the list can still shrink: about
