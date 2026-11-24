@@ -17,7 +17,7 @@ import { useT } from "../i18n";
 import { LedgerScreen } from "../ledger/LedgerScreen";
 import { QueueScreen } from "../queue/QueueScreen";
 import { createQueueCache } from "../queue/useQueue";
-import { createLedgerCache } from "../ledger/LedgerScreen";
+import { createLedgerCache } from "../ledger/ledgerCache";
 import { teamAudit } from "../teamAudit/teamAudit.experiment";
 import { TeamAuditScreen } from "../teamAudit/TeamAuditScreen";
 import { AllChatsList } from "./AllChatsList";

@@ -37,14 +37,6 @@ export function useCardFont(
   return { style: Object.fromEntries(variables) as CSSProperties, caption };
 }
 
-/// The caption under the card, once measured.
-export const CardFontCaption = ({ caption }: { caption?: string }) =>
-  caption ? (
-    <p className="acpmux-muted" data-gallery-card-heights>
-      {caption}
-    </p>
-  ) : null;
-
 /// The stage waits for the caption: the face loaded and the card measured.
 export const fontMeasured: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector("[data-gallery-card-heights]"));

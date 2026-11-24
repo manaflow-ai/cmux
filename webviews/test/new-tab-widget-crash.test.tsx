@@ -88,7 +88,7 @@ test("a tile that throws while it draws leaves the composer and the other tiles 
   console.error = () => {};
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
-  const { NewTabWidgetsHost } = await import("../src/agent-session/acpmux/newtab/NewTabWidgets");
+  const { NewTabWidgetsHost } = await import("../src/agent-session/acpmux/newtab/newTabWidgetsHost");
   const widgets = new MockWidgetsHost(placed);
   const root: Root = createRoot(host);
   try {

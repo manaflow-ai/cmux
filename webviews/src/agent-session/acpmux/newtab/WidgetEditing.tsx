@@ -9,6 +9,7 @@ import { focusRoute } from "../../../ui/focusRoute";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../../ui/Menu";
 import { Icon } from "../icons/Icon";
 import { useNt } from "./strings";
+import { useSizeName } from "./useSizeName";
 import { droppedCell, movedCell } from "./widgetEditingModel";
 
 /// How edit mode offers a resize: Apple's size menu (badge), a corner that steps to the next size
@@ -16,16 +17,6 @@ import { droppedCell, movedCell } from "./widgetEditingModel";
 export type WidgetEditLook = "badge" | "corner" | "chips";
 
 const GRID_DRAG_TYPE = "application/x-cmux-grid-widget";
-
-export function useSizeName(): (size: WidgetSize) => string {
-  const nt = useNt();
-  return (size) =>
-    size === "small"
-      ? nt("widgets.size.small")
-      : size === "medium"
-        ? nt("widgets.size.medium")
-        : nt("widgets.size.large");
-}
 
 export function GridWidgetFrame({
   id,

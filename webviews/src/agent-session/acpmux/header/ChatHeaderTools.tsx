@@ -22,7 +22,8 @@ import {
   useIconArrivals,
   type HeaderMotionStyle,
 } from "./headerMotion";
-import { HeaderToolPreview, PREVIEW_INTENT_DELAY, type HeaderToolPreviewTarget } from "./HeaderToolPreview";
+import { HeaderToolPreview, type HeaderToolPreviewTarget } from "./HeaderToolPreview";
+import { PREVIEW_INTENT_DELAY } from "./headerToolPreviewPlacement";
 import { motionMode } from "../../../ui/motion/motionMode";
 import { menuLetter, type MenuTyping } from "./menuLetters";
 import { HEADER_ACTIONS } from "./headerActions";

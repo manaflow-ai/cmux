@@ -5,7 +5,7 @@
 // its name. Return and Escape hand the keyboard back to the prompt. And the refusal above the card
 // when acpmux makes no folder.
 import "./newProject.css";
-import { translate, useT } from "../i18n";
+import { useT } from "../i18n";
 import { projectNameTyping } from "./newProject";
 
 export function NewProjectName({
@@ -47,13 +47,6 @@ export function NewProjectName({
       />
     </span>
   );
-}
-
-/// New Project on a Mac whose cmux can't make projects: the one refusal the notice words itself.
-export class NewProjectUnsupported extends Error {
-  constructor() {
-    super(translate("project.new.unavailable"));
-  }
 }
 
 /// New Project's refusal: plain words (the prompt stays in the field to send again) and Dismiss.

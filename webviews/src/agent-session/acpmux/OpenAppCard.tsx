@@ -71,4 +71,3 @@ export function OpenAppCard({ enabled = true, ports: suppliedPorts, onOpen }: Pr
     </div>
   );
 }
-

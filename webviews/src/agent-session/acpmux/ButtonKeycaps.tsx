@@ -27,4 +27,3 @@ export function ShortcutKeycaps({ shortcut }: { shortcut: string | undefined }) 
     </span>
   );
 }
-

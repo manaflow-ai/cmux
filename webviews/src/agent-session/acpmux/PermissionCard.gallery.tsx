@@ -14,7 +14,8 @@ import type { Play } from "../../gallery/play";
 import type { ChatUiFont } from "./chatUiFont";
 import type { AcpmuxPermission } from "./model";
 import { PermissionCard } from "./PermissionCard";
-import { CardFontCaption, fontMeasured, PAIRED_UI_FONTS, useCardFont } from "./permissions/cardFontGallery";
+import { CardFontCaption } from "./permissions/CardFontCaption";
+import { fontMeasured, PAIRED_UI_FONTS, useCardFont } from "./permissions/cardFontGallery";
 import { SHORTCUT_ACTIONS, ShortcutsContext } from "./shortcuts";
 
 type ScopeStyle = "under" | "labelled" | "front";

@@ -83,7 +83,7 @@ import { DeleteChatDialog } from "../header/DeleteChatDialog";
 import { readChatMini } from "../header/miniRow";
 import { ToastLayer } from "../ToastLayer";
 import { SubagentClockContext } from "../subagents/subagentGroupModel";
-import { NewProjectUnsupported } from "../newtab/NewProjectName";
+import { NewProjectUnsupported } from "../newtab/newProjectUnsupported";
 import { newWorktree, cloneRepository } from "../startFolderModel";
 import { LiveChatChoice } from "../LiveChatChoice";
 import { WatchBanner } from "../WatchBanner";

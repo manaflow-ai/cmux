@@ -730,7 +730,7 @@ export { NewTabComposerChips, ChatComposerChips } from "./pane/ComposerChips";
 import { DefaultComposerChips } from "./pane/ComposerChips";
 import { drawPaneComposer } from "./pane/PaneComposer";
 import { drawPaneBody } from "./pane/PaneBody";
-import { preloadNewTabWhenIdle } from "./newtab/lazyNewTab";
+import { preloadNewTabWhenIdle } from "./newtab/newTabLoader";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
 /// packages, which a New Tab page never shows, so the page's first script parses without them.

@@ -1,15 +1,12 @@
 import { Fragment, type ReactNode } from "react";
-import { useT } from "../i18n";
 import { appHref, safeHref } from "../model";
 import { needsYouListOff, needsYouTarget, openNeedsYou } from "../needsYou/links";
-import { ImageIcon } from "./icons";
 import { MathInline } from "./Math";
 import { codeSpans } from "../slashCommands";
 import { ForeignFileRef, PathChip, SiblingFileChip, UrlChip } from "../chips/LinkChips";
 import { isBareFileName, ReplyFoldersContext } from "../chips/replyFolders";
 import { SoftBroken } from "./softBreaks";
 import { codePath, foreignFileId, isTemplatePath, linkPath, pathName, lineOf } from "../chips/paths";
-import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
 import { StartedSessionChip } from "../started/StartedSessionCard";
 import { CmuxLinkChip } from "../chips/CmuxLinkChip";
 import { cmuxLinkTarget } from "./cmuxLinks";
@@ -19,18 +16,20 @@ import { animateScroll } from "../threadMinimap/scrollMotion";
 import { SessionRefCode } from "./SessionRef";
 import { agentRef } from "./sessionRefs";
 import { JUMP_CURVE, jumpDuration } from "../threadMinimap/model";
-import {
-  INLINE_IMAGE,
-  MAX_DATA_URL_LENGTH,
-  OVERSIZED_DATA_URL,
-  DATA_REF,
-  capDataUrls,
-  linkKind,
-  linkIcon,
-  INLINE_RE,
-} from "./markdownModel";
+import { capDataUrls, linkKind, INLINE_RE } from "./markdownModel";
+import { ArxivMark, GitHubMark, Globe } from "./icons";
+import { FileKindIcon } from "../chips/FileKindIcon";
 import { proseText } from "./proseText";
+import { InlineImage } from "./InlineImage";
 import type { ClaimCheck } from "../model";
+
+const linkIcon = (href: string) => {
+  const kind = linkKind(href);
+  if (kind === "github") return <GitHubMark size={14} className="cv-link__icon cv-link__icon--gh" />;
+  if (kind === "citation") return <ArxivMark size={16} className="cv-link__icon" />;
+  if (kind === "file") return <FileKindIcon path={href} className="cv-link__icon" />;
+  return <Globe size={16} className="cv-link__icon" />;
+};
 
 /* ---------------- Inline ---------------- */
 
@@ -116,7 +115,7 @@ const NO_FOLDERS: readonly string[] = [];
 
 /// A link's label: inline Markdown, whose file names are its text, never chips of their own inside
 /// the link's chip.
-function linkLabel(source: string, opts: InlineOptions): ReactNode {
+export function linkLabel(source: string, opts: InlineOptions): ReactNode {
   return <ReplyFoldersContext.Provider value={NO_FOLDERS}>{renderInline(source, opts)}</ReplyFoldersContext.Provider>;
 }
 
@@ -322,57 +321,4 @@ function nearest(note: HTMLElement, scroller: HTMLElement): number {
 function noteScroll(): ScrollBehavior {
   const reduce = isAgentMotionOff() || globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
   return reduce ? "auto" : "smooth";
-}
-
-/// `![alt](src)`: a data URL image draws inline, and a click opens it in the image viewer; a web
-/// image the pane cannot load draws as a link to it, named by its alt text or file name.
-export function InlineImage({ source, opts }: { source: string; opts: InlineOptions }) {
-  const [, alt = "", written = ""] = source.match(/^!\[([^\]]*)\]\((.+)\)$/) ?? [];
-  const src = written.startsWith(DATA_REF) ? (opts.dataRefs?.[Number(written.slice(DATA_REF.length))] ?? "") : written;
-  if (opts.overBudget?.has(src)) return <OversizedImage alt={alt} opts={opts} />;
-  if (src === OVERSIZED_DATA_URL || (INLINE_IMAGE.test(src) && src.length > MAX_DATA_URL_LENGTH))
-    return <OversizedImage alt={alt} opts={opts} />;
-  if (INLINE_IMAGE.test(src)) return <OpenableImage src={src} alt={alt} thumb />;
-  // An image only its provider opens (`sediment://…`) is named as that, never a broken image.
-  const foreign = foreignFileId(src);
-  if (foreign) return <ForeignFileRef id={foreign} />;
-  const name = alt || src.split(/[?#]/)[0]!.split("/").filter(Boolean).at(-1) || src;
-  const labelOpts = {
-    ...opts,
-    githubRepository: undefined,
-    linkGithubReferences: false,
-    started: undefined,
-    claims: undefined,
-  };
-  const href = safeHref(src);
-  const fallback = !href ? (
-    <span className="cv-link is-image">
-      <ImageIcon size={16} className="cv-link__icon" />
-      {linkLabel(name, labelOpts)}
-    </span>
-  ) : (
-    <a className="cv-link is-image" href={href} rel="noreferrer">
-      <ImageIcon size={16} className="cv-link__icon" />
-      {linkLabel(name, labelOpts)}
-    </a>
-  );
-  // A file inside the session's folders, or a web image, loads through the host (D5).
-  return <ReplyImage src={src} alt={alt} fallback={fallback} thumb />;
-}
-
-/// A data URL image over MAX_DATA_URL_LENGTH: its alt text (or "Image too large to show") with the
-/// image mark, never the URL itself.
-function OversizedImage({ alt, opts }: { alt: string; opts: InlineOptions }) {
-  const t = useT();
-  return (
-    <span
-      className="cv-link is-image"
-      /* tooltip-allow: why the image does not show */ title={t("markdown.imageTooLarge")}
-    >
-      <ImageIcon size={16} className="cv-link__icon" />
-      {alt
-        ? renderInline(alt, { ...opts, githubRepository: undefined, linkGithubReferences: false, claims: undefined })
-        : t("markdown.imageTooLarge")}
-    </span>
-  );
 }

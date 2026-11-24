@@ -137,9 +137,10 @@ src/agent-session/acpmux/subagents/SubagentDoneLine.tsx	1
 src/agent-session/acpmux/subagents/subagentEscape.ts	1
 src/agent-session/acpmux/subagents/SubagentTray.tsx	2
 src/agent-session/acpmux/subagents/subsessions.ts	1
+src/agent-session/acpmux/subagents/trayGlide.ts	1
 src/agent-session/acpmux/subagents/TrayLineDetail.tsx	1
 src/agent-session/acpmux/subagents/trayLinger.ts	1
-src/agent-session/acpmux/subagents/trayMotion.tsx	2
+src/agent-session/acpmux/subagents/trayMotion.tsx	1
 src/agent-session/acpmux/subagents/trayMotionModel.ts	1
 src/agent-session/acpmux/summary/heldWhileScrolling.ts	1
 src/agent-session/acpmux/summary/useWorkflowTranscript.ts	1

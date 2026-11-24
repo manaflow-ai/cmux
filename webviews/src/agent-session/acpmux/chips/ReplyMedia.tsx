@@ -12,15 +12,7 @@
 // follows `agentPane.images.remote` like a web image: a placeholder with its site and Load
 // (click, the default), its link only (never), or at once (always). The host fetches it under
 // its network rules and plays a checked copy.
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type CSSProperties,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Dialog } from "../../../ui/Dialog";
 
 import { belowTabRowStyle, useTabRow } from "../header/tabRow";

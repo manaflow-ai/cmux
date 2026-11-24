@@ -163,7 +163,7 @@ function usePaneRoom(shell: HTMLElement | null | undefined, live: boolean, besid
 /// and what it lists. Its own component, so its enter and exit phases, a drag step and a fold draw the panel
 /// alone, not the chat pane that calls useSessionInfo (one Session Info open drew that pane five
 /// times in a frame).
-const SessionInfoPresence = memo(function SessionInfoPresence({
+export const SessionInfoPresence = memo(function SessionInfoPresence({
   chat,
   shown,
   snapshot,
