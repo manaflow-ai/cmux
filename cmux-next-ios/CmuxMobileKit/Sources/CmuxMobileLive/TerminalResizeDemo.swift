@@ -23,6 +23,9 @@ import SwiftUI
 ///   Mac replays its own grid to the hidden page) and comes back (claimed again).
 /// - `done.<claims>.<releases>`: the `resize-surface` and
 ///   `release-surface-size` requests the Mac saw.
+///
+/// `debug.resize-demo.claim` is the last grid the phone asked the Mac for
+/// (`<cols>x<rows>`), as it changes: a UI test turns the phone and reads it.
 public struct TerminalResizeDemoRoot: View {
     @State private var demo = TerminalResizeDemo()
 
@@ -42,7 +45,15 @@ public struct TerminalResizeDemoRoot: View {
                 .allowsHitTesting(false)
                 .accessibilityIdentifier("debug.resize-demo")
         }
+        .overlay(alignment: .topTrailing) {
+            Text(demo.claim)
+                .font(.system(size: 2))
+                .foregroundStyle(.clear)
+                .allowsHitTesting(false)
+                .accessibilityIdentifier("debug.resize-demo.claim")
+        }
         .task { await demo.run() }
+        .task { await demo.followClaims() }
     }
 }
 
@@ -51,6 +62,8 @@ final class TerminalResizeDemo {
     let model: TerminalModel
     let host: TerminalTabHost
     private(set) var step = "start"
+    /// The last grid the phone asked the Mac for.
+    private(set) var claim = "none"
     @ObservationIgnored private let mac: ResizeDemoMac
 
     init() {
@@ -68,6 +81,17 @@ final class TerminalResizeDemo {
     private func mark(_ label: String) {
         step = label
         NSLog("[resize-demo] %@", label)
+    }
+
+    /// The Mac's record of the phone's grid, for `debug.resize-demo.claim`.
+    func followClaims() async {
+        let clock = ContinuousClock()
+        while !Task.isCancelled {
+            let asked = mac.phoneGrid.map { "\($0.columns)x\($0.rows)" } ?? "none"
+            if asked != claim { claim = asked }
+            // A DEBUG demo's probe refresh, not a synchronization wait.
+            try? await clock.sleep(for: .milliseconds(100))
+        }
     }
 
     func run() async {
@@ -101,6 +125,8 @@ final class ResizeDemoMac: @unchecked Sendable {
     private var releaseCount = 0
 
     var claims: Int { lock.withLock { claimCount } }
+    /// The last grid the phone attached or claimed at.
+    var phoneGrid: (columns: Int, rows: Int)? { lock.withLock { phone } }
     /// Each request the Mac saw, for the UI test's record.
     var journal: String { lock.withLock { log.joined(separator: ",") } }
     private var log: [String] = []
