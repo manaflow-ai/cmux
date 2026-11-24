@@ -1,0 +1,6 @@
+{
+  "envs": [["dark", "none"], ["light", "none"]],
+  "shots": [
+    { "name": "live-spot", "entry": "agent-pane.live-spot-shimmer", "variant": "plain", "width": 760, "height": 1080, "deviceScaleFactor": 2, "arms": { "now": "" } }
+  ]
+}
