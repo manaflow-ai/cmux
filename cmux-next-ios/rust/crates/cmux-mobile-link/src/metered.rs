@@ -69,6 +69,7 @@ pub struct Gate {
     pub consent: bool,
     pub waiting: bool,
     pub deferred: bool,
+    pub revision: u64,
 }
 
 static CONSTRAINED: AtomicBool = AtomicBool::new(false);
@@ -77,8 +78,6 @@ static CONSENT: AtomicBool = AtomicBool::new(false);
 static DEFERRED: AtomicBool = AtomicBool::new(false);
 /// Bytes queued on consent channels across this process's links (held or about to go).
 static QUEUED: AtomicU64 = AtomicU64::new(0);
-/// Monotonic cursor for genuine gate events.
-static REVISION: AtomicU64 = AtomicU64::new(0);
 static GATE: LazyLock<watch::Sender<Gate>> = LazyLock::new(|| watch::channel(Gate::default()).0);
 
 /// Whether the phone is metered now.
@@ -93,16 +92,14 @@ pub fn bulk_allowed() -> bool {
 
 /// The gate now, with the bytes waiting.
 pub fn state() -> MeteredBulk {
-    let metered = is_metered();
-    let consent = CONSENT.load(Ordering::Acquire);
-    let allowed = !metered || consent;
-    let waiting_bytes = if allowed { 0 } else { QUEUED.load(Ordering::Acquire) };
+    let gate = GATE.borrow();
+    let waiting_bytes = if gate.waiting { QUEUED.load(Ordering::Acquire) } else { 0 };
     MeteredBulk {
-        metered,
-        consent,
+        metered: gate.metered,
+        consent: gate.consent,
         waiting_bytes,
-        deferred: DEFERRED.load(Ordering::Acquire) && metered && waiting_bytes > 0,
-        revision: REVISION.load(Ordering::Acquire),
+        deferred: gate.deferred && waiting_bytes > 0,
+        revision: gate.revision,
     }
 }
 
@@ -148,22 +145,24 @@ pub(crate) fn refresh() {
 }
 
 fn publish() {
-    if (!is_metered() || QUEUED.load(Ordering::Acquire) == 0) && DEFERRED.load(Ordering::Acquire) {
-        DEFERRED.store(false, Ordering::Release);
-    }
-    let now = state();
-    let gate = Gate {
-        metered: now.metered,
-        consent: now.consent,
-        waiting: now.waiting_bytes > 0,
-        deferred: now.deferred,
-    };
     GATE.send_if_modified(|old| {
-        if *old == gate {
+        let metered = is_metered();
+        let consent = CONSENT.load(Ordering::Acquire);
+        let queued = QUEUED.load(Ordering::Acquire);
+        let waiting = metered && !consent && queued > 0;
+        if (!metered || queued == 0) && DEFERRED.load(Ordering::Acquire) {
+            DEFERRED.store(false, Ordering::Release);
+        }
+        let deferred = DEFERRED.load(Ordering::Acquire) && waiting;
+        if old.metered == metered
+            && old.consent == consent
+            && old.waiting == waiting
+            && old.deferred == deferred
+        {
             return false;
         }
-        *old = gate;
-        REVISION.fetch_add(1, Ordering::AcqRel);
+        let revision = old.revision.saturating_add(1);
+        *old = Gate { metered, consent, waiting, deferred, revision };
         true
     });
 }

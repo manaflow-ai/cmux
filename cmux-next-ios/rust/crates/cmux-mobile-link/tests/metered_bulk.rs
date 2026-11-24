@@ -147,7 +147,15 @@ async fn leaving_cell_releases_and_a_cancel_sends_nothing() {
         cancel_tx
     });
     tokio::time::sleep(Duration::from_millis(300)).await;
-    held.await.unwrap().close("cancelled", "cancelled").await;
+    let cancel_tx = held.await.unwrap();
+    let pending = metered::state();
+    assert!(pending.waiting_bytes > 0 && !pending.deferred);
+    metered::defer_metered_bulk();
+    let deferred = metered::state();
+    assert!(deferred.deferred && !deferred.consent && deferred.revision > pending.revision);
+    metered::set_constrained_path(true);
+    assert_eq!(metered::state(), deferred, "a repeat path update must not prompt again");
+    cancel_tx.close("cancelled", "cancelled").await;
     drop(cancel_rx);
     assert_eq!(metered::state().waiting_bytes, 0, "the cancel dropped the held bytes");
 
@@ -155,6 +163,7 @@ async fn leaving_cell_releases_and_a_cancel_sends_nothing() {
     let uploading = tokio::spawn(async move { upload.send(Bytes::from(vec![2u8; 512 * 1024])).await });
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert_eq!(*received.borrow(), 0);
+    assert!(!metered::state().deferred, "a new batch gets its own prompt");
     metered::set_metered_bulk_consent(true);
     assert!(metered::state().consent);
     metered::set_metered_bulk_consent(false);
