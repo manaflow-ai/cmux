@@ -204,6 +204,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     /// DEBUG mock mode (Settings → Developer → Mock): tabs with no live
     /// session run the scripted mock. Ignored outside DEBUG builds.
     var mockDataEnabled = false
+    /// The App Review demo account (its terminals open ready for typing).
+    var reviewDemo = false
     /// The workspace's Mac, for the connecting placeholder's label.
     var macName: (@MainActor (Workspace) -> String?)?
     /// Opens Connected Devices for a live terminal of a Mac (its session, its Mac).
@@ -247,7 +249,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         // A live tab never builds the mock: without a session it shows the
         // honest connecting placeholder (TerminalSessionChoice).
         let mock = mockDataEnabled && live == nil && sessionProvider == nil
-        let session = TerminalSessionChoice.session(live: live, mockDataEnabled: mock, macName: macName?(workspace), programName: tab.title)
+        let session = TerminalSessionChoice.session(live: live, mockDataEnabled: mock, reviewDemo: mock && reviewDemo,
+                                                    macName: macName?(workspace), programName: tab.title)
         let artifacts = live == nil ? nil : artifactSourceProvider?(tab, workspace.macID)
         let model = TerminalModel(
             session: session,
