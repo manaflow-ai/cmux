@@ -76,7 +76,7 @@ final class DaemonPaletteUsageStore: PaletteUsageStore {
         let home = override.flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
             ?? BuildStatePaths.current.classicImportDirectory ?? FileManager.default.homeDirectoryForCurrentUser
         let preferences = home.appending(path: "Library/Preferences")
-        let snapshot = try PaletteUsageWire.history(JSONEncoder().encode(try await client.get()))
+        let snapshot = try PaletteUsageWire.history(try await client.get())
         var firstFailure: (any Error)?
         for former in await PaletteUsageLegacyHistory.read(preferences: preferences, excluding: snapshot.imported) {
             do {
@@ -110,7 +110,7 @@ final class DaemonPaletteUsageStore: PaletteUsageStore {
     private func fetchOnce() async {
         guard case .daemon(let client, let id) = owner else { return }
         do {
-            let snapshot = try PaletteUsageWire.history(JSONEncoder().encode(try await client.get()))
+            let snapshot = try PaletteUsageWire.history(try await client.get())
             fetchedFrom = id
             guard snapshot.revision >= revision else { return }
             revision = snapshot.revision

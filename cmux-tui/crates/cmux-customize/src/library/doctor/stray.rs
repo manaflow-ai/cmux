@@ -52,7 +52,7 @@ impl Customize {
     pub(super) fn stray_findings(&self, out: &mut Found) {
         let config = self.roots().config_dir.clone();
         self.daemon_config(&config, out);
-        harness_profiles(&self.roots().harness_dir, self, out);
+        harness_profiles(&config.join("harnesses"), self, out);
         self.json_file(
             &config.join("host-budget.json"),
             "host-budget.json changes the host pressure warning",

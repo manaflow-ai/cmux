@@ -90,7 +90,6 @@ async fn a_hunk_is_summarized_once_and_kept_by_its_content() {
         user_dir: Some(root.join("config").join("harnesses")),
         cmux_json: None,
         person_dir: None,
-        imported_dir: None,
     };
     std::fs::write(root.join("home").join("config.json"), "{}").unwrap();
     let mut cfg = Config::load_from_with(&root.join("home").join("config.json"), &sources).unwrap();

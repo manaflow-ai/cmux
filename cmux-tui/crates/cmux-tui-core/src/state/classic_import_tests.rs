@@ -156,7 +156,6 @@ fn settings_presence_is_probeable_without_decoding_a_classic_session() {
     let mut places = home.places();
     places.config_home = home.0.join("classic-xdg");
     places.settings_directory = home.0.join("next-settings/cmux");
-    places.harness_destination = home.0.join("next-settings/harnesses");
     let classic = places.config_home.join("cmux");
     std::fs::create_dir_all(&classic).unwrap();
     // This is intentionally not valid session JSON. The metadata-only probe must
@@ -176,13 +175,11 @@ fn settings_presence_is_probeable_without_decoding_a_classic_session() {
 #[cfg(unix)]
 #[test]
 fn consented_settings_record_imports_sidecars_once_then_finish_marks_observed() {
-    use std::os::unix::fs::PermissionsExt;
     let mux = Mux::new_for_test("classic-import-settings-record", SurfaceOptions::default());
     let home = home(false);
     let mut places = home.places();
     places.config_home = home.0.join("classic-xdg");
     places.settings_directory = home.0.join("next-settings/cmux");
-    places.harness_destination = home.0.join("next-settings/harnesses");
 
     // Ghostty's source is in Classic Application Support. The ledger directory
     // is present because a real import would have loaded it before recording.
@@ -192,18 +189,12 @@ fn consented_settings_record_imports_sidecars_once_then_finish_marks_observed() 
     std::fs::write(&ghostty, b"font-size = 17\n").unwrap();
 
     let classic = places.config_home.join("cmux");
-    let harnesses = classic.join("harnesses");
-    std::fs::create_dir_all(&harnesses).unwrap();
-    std::fs::write(harnesses.join("mine.toml"), "command = 'run'\n").unwrap();
-    std::fs::set_permissions(harnesses.join("mine.toml"), std::fs::Permissions::from_mode(0o600))
-        .unwrap();
+    std::fs::create_dir_all(&classic).unwrap();
     std::fs::write(
         classic.join("cmux.json"),
         br#"{"agents":{"harnesses":{"inline":{"command":"launch"}}}}"#,
     )
     .unwrap();
-    std::fs::create_dir_all(&places.harness_destination).unwrap();
-    std::fs::write(places.harness_destination.join("edited.toml"), "command = 'next'\n").unwrap();
 
     let probe = mux.classic_import_probe(Some(&places), BUNDLE, Mode::Manual).unwrap();
     assert_eq!(probe["available"], true, "{probe}");
@@ -218,14 +209,6 @@ fn consented_settings_record_imports_sidecars_once_then_finish_marks_observed() 
         std::fs::read_to_string(places.settings_directory.join("classic-ghostty/config.ghostty"))
             .unwrap(),
         "font-size = 17\n"
-    );
-    assert_eq!(
-        std::fs::read_to_string(places.harness_destination.join("mine.toml")).unwrap(),
-        "command = 'run'\n"
-    );
-    assert_eq!(
-        std::fs::read_to_string(places.harness_destination.join("edited.toml")).unwrap(),
-        "command = 'next'\n"
     );
     assert!(places.settings_directory.join("classic-harnesses/profiles.json").is_file());
 
@@ -965,10 +948,6 @@ fn dev_build_own_classic_import_never_reads_the_persons_classic() {
     .expect("places");
     assert_eq!(places.config_home, own.join(".config"));
     assert_eq!(places.settings_directory, settings.parent().unwrap());
-    assert_eq!(
-        places.harness_destination,
-        settings.parent().unwrap().join("classic-harness-files")
-    );
     let empty = mux.classic_import_plan(Some(&places), BUNDLE, Mode::Manual, false).unwrap();
     assert_eq!(
         empty["source"],

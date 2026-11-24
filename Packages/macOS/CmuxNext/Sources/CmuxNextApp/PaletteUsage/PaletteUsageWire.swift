@@ -1,8 +1,10 @@
-package import Foundation
+import CmuxNextDaemon
+import CmuxNextPalette
+import Foundation
 
 /// Decodes the daemon's `palette-usage-v1` values into the palette's
 /// history mirror. Values are the daemon's; nothing here computes a score.
-nonisolated package enum PaletteUsageWire {
+nonisolated enum PaletteUsageWire {
     /// One `PaletteUsageRow` / `PaletteUsagePick` (decimal fields are strings).
     private struct Row: Decodable {
         var key: String
@@ -28,8 +30,16 @@ nonisolated package enum PaletteUsageWire {
         var hidden: [String]?
     }
 
-    private static func date(_ milliseconds: String) -> Date {
+    static func date(_ milliseconds: String) -> Date {
         Date(timeIntervalSince1970: (Double(milliseconds) ?? 0) / 1000)
+    }
+
+    static func milliseconds(_ date: Date) -> String {
+        String(UInt64(max(0, date.timeIntervalSince1970 * 1000)))
+    }
+
+    private static func decode<T: Decodable>(_ type: T.Type, _ value: JSONValue) throws -> T {
+        try JSONDecoder().decode(type, from: JSONEncoder().encode(value))
     }
 
     private static func pick(_ pick: Pick) -> FrecencyStore.Pick {
@@ -37,8 +47,8 @@ nonisolated package enum PaletteUsageWire {
     }
 
     /// `PaletteUsageSnapshot` -> the whole mirror, its revision and the imported sources.
-    package static func history(_ data: Data) throws -> (history: FrecencyStore, revision: UInt64, imported: Set<String>) {
-        let snapshot = try JSONDecoder().decode(Snapshot.self, from: data)
+    static func history(_ value: JSONValue) throws -> (history: FrecencyStore, revision: UInt64, imported: Set<String>) {
+        let snapshot = try decode(Snapshot.self, value)
         var history = FrecencyStore()
         history.replace(
             entries: Dictionary(snapshot.entries.map { ($0.key, FrecencyStore.Entry(score: $0.score, lastUsed: date($0.last_used_ms))) },

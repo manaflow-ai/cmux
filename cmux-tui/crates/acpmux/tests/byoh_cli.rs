@@ -136,7 +136,7 @@ fn a_user_adds_a_sample_acp_harness_checks_it_and_chats_with_it() {
         user.run(&["--json", "harness", "add", "sample", "--command", agent.to_str().unwrap()]);
     assert!(out.status.success(), "add failed: {}", text(&out));
     let added: Value = serde_json::from_slice(&out.stdout).unwrap();
-    let file = cmux_config::harness_paths::user(&user.root.join("xdg")).join("sample.toml");
+    let file = user.root.join("xdg").join("cmux").join("harnesses").join("sample.toml");
     assert_eq!(added["path"], json!(file), "{added}");
     assert_eq!(added["daemonReloaded"], json!(true), "{added}");
     assert!(added["diagnostics"].as_array().is_some_and(Vec::is_empty), "{added}");
@@ -196,7 +196,7 @@ fn doctor_names_the_exact_fix_when_the_program_cannot_start() {
     assert_eq!(command["status"], "fail", "{report}");
     let detail = command["detail"].as_str().unwrap();
     assert!(detail.contains("no file") && detail.contains("no-such-agent"), "{report}");
-    let profile = cmux_config::harness_paths::user(&user.root.join("xdg")).join("gone.toml");
+    let profile = user.root.join("xdg").join("cmux").join("harnesses").join("gone.toml");
     assert!(
         command["fix"].as_str().unwrap().contains(&profile.display().to_string()),
         "the fix does not name the profile file: {report}"
@@ -206,7 +206,7 @@ fn doctor_names_the_exact_fix_when_the_program_cannot_start() {
 #[test]
 fn byo_endpoint_cli_adds_an_endpoint_profile_with_keychain_refs() {
     let user = User::new("byoe");
-    let dir = cmux_config::harness_paths::user(&user.root.join("xdg"));
+    let dir = user.root.join("xdg").join("cmux").join("harnesses");
 
     // Anthropic-compatible: Claude Code with the endpoint, the model and a
     // Keychain reference for the token.
@@ -349,7 +349,7 @@ fn a_custom_harness_gets_the_icon_it_sets_or_a_smart_default() {
     let mut user = User::new("icon");
     user.start_daemon();
     let agent = user.agent("sample-acp", 0o755);
-    let dir = cmux_config::harness_paths::user(&user.root.join("xdg"));
+    let dir = user.root.join("xdg").join("cmux").join("harnesses");
     let path = agent.to_str().unwrap();
 
     // Set at add time: an emoji.
@@ -445,7 +445,7 @@ fn byo_endpoint_cli_refuses_an_id_another_source_has() {
             .to_string(),
     )
     .unwrap();
-    let dir = cmux_config::harness_paths::user(&user.root.join("xdg"));
+    let dir = user.root.join("xdg").join("cmux").join("harnesses");
     for force in [false, true] {
         let mut args = vec![
             "harness",

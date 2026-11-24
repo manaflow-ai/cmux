@@ -16,7 +16,6 @@ cmux-file-lock.workspace = true
 serde = { workspace = true }
 serde_json = { workspace = true }
 tempfile = "3"
-toml_edit.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }

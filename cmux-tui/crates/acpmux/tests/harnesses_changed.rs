@@ -76,7 +76,6 @@ async fn a_new_profile_file_reaches_watchers_as_harnesses_changed() {
         user_dir: Some(user.clone()),
         cmux_json: Some(root.join("config").join("cmux.json")),
         person_dir: None,
-        imported_dir: None,
     };
     write(&root.join("home").join("config.json"), "{}");
     let mut cfg = Config::load_from_with(&root.join("home").join("config.json"), &sources).unwrap();
@@ -154,14 +153,12 @@ async fn a_profile_in_folders_made_after_the_start_reaches_watchers() {
     // No `.config` under this home, and no `etc` under the root.
     let config = root.join("home").join(".config").join("cmux");
     let user = config.join("harnesses");
-    let imported = cmux_config::harness_paths::isolated(&config);
     let managed = root.join("etc").join("cmux").join("harnesses");
     let sources = ProfileSources {
         managed: vec![managed.clone()],
         user_dir: Some(user.clone()),
         cmux_json: Some(config.join("cmux.json")),
         person_dir: None,
-        imported_dir: Some(imported.clone()),
     };
     write(&root.join("config").join("config.json"), "{}");
     let mut cfg =
@@ -209,14 +206,6 @@ async fn a_profile_in_folders_made_after_the_start_reaches_watchers() {
     note_where(&mut rx, changed, wait, |n| names(n).iter().any(|h| h == "latecompany"))
         .await
         .expect("no harnesses_changed after the managed folder's whole path was made");
-    std::fs::create_dir_all(&imported).unwrap();
-    write(
-        &imported.join("accepted.toml"),
-        "schema = 1\nid = \"accepted\"\nname = \"Accepted Classic harness\"\ncommand = \"/bin/echo\"\n",
-    );
-    note_where(&mut rx, changed, wait, |n| names(n).iter().any(|h| h == "accepted"))
-        .await
-        .expect("no harnesses_changed after the isolated import created its profiles");
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -235,7 +224,6 @@ async fn a_folder_on_the_way_with_no_profile_does_not_reload_the_catalog() {
         user_dir: Some(user.clone()),
         cmux_json: Some(config.join("cmux.json")),
         person_dir: None,
-        imported_dir: None,
     };
     write(&root.join("config").join("config.json"), "{}");
     let mut cfg =
