@@ -82,3 +82,15 @@ struct AppleAerialsCatalogTests {
     #expect(cache.rows(for: catalog) == catalog.pageRows)
     #expect(cache.builds == 1)
 }
+
+@Test func motionBackgroundsSwitchInvalidatesTheCachedPickerRows() {
+    var cache = BackdropCatalogPageRowsCache()
+    let catalog = BackdropCatalog(bundledOnly: ())
+    let original = cache.rows(for: catalog)
+    let withLive = cache.rows(for: catalog, includingLiveWallpapers: true)
+    let liveRows = withLive.arrayValue?.filter { $0["live"]?.boolValue == true } ?? []
+    #expect(!liveRows.isEmpty)
+    #expect(original.arrayValue?.contains { $0["live"]?.boolValue == true } == false)
+    #expect(cache.rows(for: catalog, includingLiveWallpapers: false) == original)
+    #expect(cache.builds == 3)
+}

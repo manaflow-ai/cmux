@@ -11,6 +11,25 @@
       "note": "Settings > Advanced > Experiments: taste prototypes, each behind its own switch, all off by default.",
       "rows": [
         {
+          "key": "experiments.motionBackgrounds",
+          "title": {
+            "key": "settings.experiments.motionBackgrounds",
+            "text": "Motion Backgrounds"
+          },
+          "help": {
+            "key": "settings.experiments.motionBackgrounds.help",
+            "text": "Choose a live wallpaper in Appearance. Turning this off stops playback and keeps your wallpaper selection."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "wallpaper",
+            "motion",
+            "background",
+            "Block Matrix"
+          ]
+        },
+        {
           "key": "experiments.glassToolbarGroups",
           "note": "Taste prototype: the agent chat header's buttons draw as round glass buttons, related actions share one glass capsule, with a search chip and shortcut keycaps (webviews useExperimentSwitch(\"glassToolbarGroups\")). Off by default; off keeps today's header.",
           "title": {

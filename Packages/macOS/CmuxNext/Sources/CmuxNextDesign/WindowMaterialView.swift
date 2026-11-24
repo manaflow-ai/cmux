@@ -110,6 +110,10 @@ public final class WindowMaterialView: NSView {
     private(set) var artImage: NSImage?
     /// A video wallpaper plays over the art (pages get no still of it, `glassSource`).
     private(set) var showsVideo = false
+    /// A live wallpaper (`live:<id>`) runs in place of the art (`BackdropLiveView`).
+    private(set) var liveView: BackdropLiveView?
+    /// A live wallpaper shows (pages get no still of it, `glassSource`).
+    var showsLive: Bool { liveView != nil }
     /// A living wallpaper draws over the art (pages get no still of it, `glassSource`).
     private(set) var showsShader = false
     /// The web views lensing this backdrop, told when what they draw changes (`glassSource`).
@@ -337,6 +341,7 @@ public final class WindowMaterialView: NSView {
         // the desktop as read now): its picture, aerial or frame of the time, placed as macOS does.
         let desktop = followsDesktop ? wallpaper.shown(on: window?.screen) : nil
         let shown = desktop?.selection(dark: dark) ?? picked
+        let pictured = shown?.liveID == nil ? shown : nil
         applyArtFit(desktop)
         loadedDesktopScreen = followsDesktop ? window?.screen.flatMap(DesktopWallpaperWatch.displayID) : nil
         if followsDesktop { wallpaper.desktopIsShown() }
@@ -358,15 +363,15 @@ public final class WindowMaterialView: NSView {
             // none shown, decoded art shows at once, else an earlier launch's snapshot shows in this
             // first frame and the full image replaces it; without one the theme's colors until the
             // art, decoded off the main actor, fades in.
-            let ready = shown.flatMap { images.cached($0, texture: texture, dark: dark, desktop: desktopEntry) }
-            let keeps = shown != nil && artImage != nil && !hidesArt
+            let ready = pictured.flatMap { images.cached($0, texture: texture, dark: dark, desktop: desktopEntry) }
+            let keeps = pictured != nil && artImage != nil && !hidesArt
             if keeps { if let ready { crossfadeArt(to: ready) } } else {
-                showArt(ready ?? (hidesArt ? nil : shown.flatMap { images.preview($0, texture: texture, dark: dark) }))
+                showArt(ready ?? (hidesArt ? nil : pictured.flatMap { images.preview($0, texture: texture, dark: dark) }))
             }
-            if let shown, ready == nil {
+            if let pictured, ready == nil {
                 let fades = artImage == nil
                 artLoad = Task { [weak self, images] in
-                    let image = await images.image(shown, texture: texture, dark: dark, desktop: desktopEntry)
+                    let image = await images.image(pictured, texture: texture, dark: dark, desktop: desktopEntry)
                     guard !Task.isCancelled, let self else { return }
                     guard let image else { if keeps { self.showArt(nil) }; return }
                     self.crossfadeArt(to: image)
@@ -377,6 +382,8 @@ public final class WindowMaterialView: NSView {
         artView.isHidden = hidesArt || artImage == nil
         showsVideo = !hidesArt && shown?.isVideo == true
         videoView.show(showsVideo ? shown?.resolvedImageURL(dark: dark) : nil)
+        let liveWallpaper = !hidesArt && DesignSettings.shared.motionBackgrounds ? (shown?.liveID).flatMap(LiveWallpaper.named) : nil
+        showLiveWallpaper(liveWallpaper)
         let shader = hidesArt ? nil : shown?.shader
         showsShader = shader != nil
         shaderView.show(shader, dark: dark)
@@ -385,6 +392,7 @@ public final class WindowMaterialView: NSView {
         artOpacity = Float(backdrop.artOpacity)
         if artView.layer?.opacity != artOpacity { artView.layer?.opacity = artOpacity }
         if videoView.layer?.opacity != artOpacity { videoView.layer?.opacity = artOpacity }
+        if let layer = liveView?.layer, layer.opacity != artOpacity { layer.opacity = artOpacity }
         if shaderView.layer?.opacity != artOpacity { shaderView.layer?.opacity = artOpacity }
         if backdrop.material != material {
             material = backdrop.material
@@ -456,13 +464,38 @@ public final class WindowMaterialView: NSView {
         // alone. A CIAffineClamp before it (an infinite extent) filled only the bottom left at 2x,
         // as it did on the still (scripts/measure/frosted-art-2x.sh, cmux#51381). The views run past
         // the clip instead, so the blur's edges read the picture and its fading rim is cut off.
+        applyLiveBlur(radius, to: videoView)
+        applyLiveBlur(radius, to: shaderView)
+        if let liveView { applyLiveBlur(radius, to: liveView) }
+    }
+
+    private func applyLiveBlur(_ radius: Int, to view: NSView) {
         let reach = Self.liveBlurReach(radius)
-        for view in [videoView as NSView, shaderView as NSView] {
-            if radius > 0 { view.layerUsesCoreImageFilters = true }
-            view.frame = liveArtClip.bounds.insetBy(dx: -reach, dy: -reach)
-            view.layer?.filters = radius > 0
-                ? [CIFilter(name: "CIGaussianBlur", parameters: [kCIInputRadiusKey: radius])].compactMap { $0 } : nil
+        if radius > 0 { view.layerUsesCoreImageFilters = true }
+        view.frame = liveArtClip.bounds.insetBy(dx: -reach, dy: -reach)
+        view.layer?.filters = radius > 0
+            ? [CIFilter(name: "CIGaussianBlur", parameters: [kCIInputRadiusKey: radius])].compactMap { $0 } : nil
+    }
+
+    private func showLiveWallpaper(_ wallpaper: LiveWallpaper?) {
+        guard let wallpaper else {
+            liveView?.show(nil)
+            liveView?.removeFromSuperview()
+            liveView = nil
+            return
         }
+        let view: BackdropLiveView
+        if let liveView {
+            view = liveView
+        } else {
+            view = BackdropLiveView(frame: liveArtClip.bounds, programs: images.livePrograms)
+            view.autoresizingMask = [.width, .height]
+            liveArtClip.addSubview(view, positioned: .below, relativeTo: shaderView)
+            applyLiveBlur(artBlurRadius, to: view)
+            liveView = view
+        }
+        view.show(wallpaper)
+        view.themeDidChange()
     }
 
     /// How far a blurred video or living wallpaper runs past each edge, in points: three times the

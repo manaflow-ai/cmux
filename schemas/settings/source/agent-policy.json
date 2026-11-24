@@ -283,6 +283,7 @@
         "appearance.backgroundBlur",
         "appearance.inactiveWindowDim",
         "appearance.wallpaperTint",
+        "appearance.liveWallpaperFrameRate",
         "appearance.terminalCellBackgrounds",
         "appearance.background",
         "appearance.backgroundRotation",
@@ -522,6 +523,7 @@
         "experiments.hoverLook",
         "experiments.agentBadges",
         "experiments.agentBadgesBeam",
+        "experiments.motionBackgrounds",
         "experiments.menuStyleV2",
         "experiments.menuRowStates",
         "experiments.toastsV2"

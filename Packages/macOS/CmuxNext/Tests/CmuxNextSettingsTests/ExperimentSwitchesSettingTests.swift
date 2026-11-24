@@ -9,6 +9,11 @@ struct ExperimentSwitchesSettingTests {
         return CmuxConfigSnapshot.parse(root, validDensities: [], validMetrics: []).experimentSwitches
     }
 
+    @Test func motionBackgroundsRequiresAnExplicitOptIn() {
+        #expect(switches(nil)["motionBackgrounds"] == false)
+        #expect(switches(.object(["motionBackgrounds": .bool(true)]))["motionBackgrounds"] == true)
+    }
+
     @Test func glassToolbarGroupsIsOffByDefault() {
         #expect(switches(nil)["glassToolbarGroups"] == false)
     }

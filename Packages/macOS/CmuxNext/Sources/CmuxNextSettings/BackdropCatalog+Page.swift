@@ -2,11 +2,14 @@ public import CmuxNextDesign
 
 public extension BackdropCatalog {
     /// The Settings page's wallpaper grid rows. Each carries its picker collection (an art
-    /// collection, "Your images", "Apple Wallpapers", Moving wallpapers), and the page groups the
-    /// grid by it; a video says so, and a macOS still whether its full picture is downloaded and
+    /// collection, "Your images", "Apple Wallpapers", Moving wallpapers, Live wallpapers), and the page
+    /// groups the grid by it; a video or a live wallpaper says so, and a macOS still whether its full picture is downloaded and
     /// whether it is dynamic.
-    var pageRows: JSONValue {
-        .array(choices.map { choice -> JSONValue in
+    var pageRows: JSONValue { pageRows(includingLiveWallpapers: false) }
+
+    func pageRows(includingLiveWallpapers: Bool) -> JSONValue {
+        let visible = includingLiveWallpapers ? choices + LiveWallpaper.choices : choices
+        return .array(visible.map { choice -> JSONValue in
             let title = choice.title(aerialNames: aerialNames)
             var row: [String: JSONValue] = ["id": .string(choice.id), "title": .string(title),
                                             "attribution": .string(choice.attribution(title: title))]
@@ -14,7 +17,10 @@ public extension BackdropCatalog {
                 row["collection"] = .string(collection.id)
                 row["collection_title"] = .string(collection.title)
             }
-            if choice.isVideo {
+            if choice.liveID != nil {
+                // A live wallpaper: its thumbnail is its still, drawn on the GPU.
+                row["live"] = .bool(true)
+            } else if choice.isVideo {
                 row["video"] = .bool(true)
                 // An aerial macOS lists but has not downloaded: a cloud tile that opens the Wallpaper pane.
                 if case .system(let path) = choice, pendingVideoPaths.contains(path) { row["downloaded"] = .bool(false) }
@@ -33,16 +39,18 @@ public extension BackdropCatalog {
 /// every wallpaper label on each read was a sizeable idle cost.
 public struct BackdropCatalogPageRowsCache: Sendable {
     private var catalog: BackdropCatalog?
+    private var includesLiveWallpapers = false
     private var cached: JSONValue?
     /// Number of projections built; useful to assert the cache's stop condition.
     public private(set) var builds = 0
 
     public init() {}
 
-    public mutating func rows(for catalog: BackdropCatalog) -> JSONValue {
-        if self.catalog != catalog {
+    public mutating func rows(for catalog: BackdropCatalog, includingLiveWallpapers: Bool = false) -> JSONValue {
+        if self.catalog != catalog || includesLiveWallpapers != includingLiveWallpapers {
+            includesLiveWallpapers = includingLiveWallpapers
             self.catalog = catalog
-            cached = catalog.pageRows
+            cached = catalog.pageRows(includingLiveWallpapers: includingLiveWallpapers)
             builds += 1
         }
         return cached ?? .array([])

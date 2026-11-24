@@ -162,6 +162,12 @@ public final class DesignSettings {
             BackdropImageStore.shared.desktop.tintEnabled = wallpaperTint
         }
     }
+    /// Whether Settings offers the first-party live wallpapers and windows play them.
+    public var motionBackgrounds: Bool { experiment("motionBackgrounds") }
+
+    /// `appearance.liveWallpaperFrameRate`: the most frames per second a live wallpaper draws (15, 30 or
+    /// 60; ``BackdropLiveView``). A running wallpaper reads it on its next frame; a held one when it runs again.
+    public var liveWallpaperFrameRate = 30
     /// `appearance.backgroundPlacement`: where each picture lies, by picture id; a picture with no
     /// entry is centered and fills (today's look). Every window and pane backdrop observes it
     /// (`WindowMaterialView.observePlacement`).
