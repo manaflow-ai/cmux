@@ -1586,7 +1586,8 @@ fn with_caller(method: &str, mut params: Value) -> (Value, bool) {
 
 /// An app from before `caller` refuses it as an unknown param (its
 /// `browser.open_split` takes no unknown params): the request is sent again
-/// without it, so a newer CLI still opens the tab there.
+/// without it, so a newer CLI still opens the tab there. (Newer daemons ignore an unknown
+/// param instead of refusing it; this fallback stays for the older builds that refuse.)
 fn refused_caller(response: &Result<Value, Value>) -> bool {
     let Err(error) = response else { return false };
     error_code(error) == Some("invalid_params")
