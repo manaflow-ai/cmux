@@ -43,6 +43,9 @@ export type IntakeEvents = {
   progress?(index: number, done: number): void;
   /// Image `index`, already a chip, has its original saved at `path` (the agent reads it there).
   original?(index: number, path: string, name: string): void;
+  /// File `index`, already a chip (a picture on disk staged as its path before its preview was
+  /// made), is `attachment` now: its preview, or a link where none could be made. Same chip, filled.
+  replaced?(index: number, attachment: ComposerAttachment): void;
   /// Image `index`, already a chip, could not have its original saved, and why: the chip still
   /// sends its preview. Never for an original whose chip was sent or removed (`cancelled`).
   originalFailed?(index: number, error: IntakeError): void;
@@ -96,21 +99,50 @@ export async function intakeFiles(
   // image to be decoded, and a send waits only for the image itself.
   // A video's tile shape, from its header (a few small reads, at most VIDEO_HEADER_WAIT_MS): its chip
   // keeps the box its loading tile showed, square when the header gave none.
+  // A picture on disk is a sendable chip the moment the host names its path, whatever its size:
+  // until its preview is made it goes as that path (the agent reads the file there), and the
+  // preview fills the same chip when it comes (`replaced`). Neither waits for the other: a preview
+  // made before the path answer is the chip at once, and the path joins it (`original`) (Leo,
+  // 2026-11-17: "IT'S A FUCKING FILE PATH ON A DISK. WHY THE FUCK IS IT TAKING ANY TIME AT ALL??").
+  const early: boolean[] = [];
   const prepared = files.map(async (file, index) => {
     const videoShape = isVideoName(file.name) ? ((await videoShapeOf(file)) ?? 1) : undefined;
-    const result = isImageFile(file)
-      ? await readAttachment(file, options.allowImages).catch(() => undefined)
-      : undefined;
+    const picture = isImageFile(file);
+    const reading = picture ? readAttachment(file, options.allowImages).catch(() => undefined) : undefined;
+    let staged = false;
+    const pathKnown =
+      picture && options.allowImages
+        ? known.then((paths) => {
+            const path = paths?.[index];
+            if (!path || path.folder || staged) return path;
+            staged = early[index] = true;
+            const chip = pathImage(file, path.path);
+            images[index] = chip;
+            events.ready?.(index, chip);
+            return path;
+          })
+        : undefined;
+    const result = await reading;
     const image = result && !("reason" in result) ? result : undefined;
     if (image) {
-      const path = (await known)?.[index];
-      if (path) {
-        image.originalPath = path.path;
-        image.originalName = file.name;
+      if (early[index]) {
+        const chip = images[index]!;
+        image.originalPath = chip.originalPath;
+        image.originalName = chip.originalName;
+        images[index] = image;
+        events.replaced?.(index, image);
+      } else {
+        staged = true;
+        images[index] = image;
+        events.ready?.(index, image);
+        const path = await pathKnown;
+        if (path && !path.folder) {
+          image.originalPath = path.path;
+          image.originalName = file.name;
+          events.original?.(index, path.path, file.name);
+        }
       }
-      images[index] = image;
-      events.ready?.(index, image);
-    }
+    } else if (early[index]) images[index] = undefined;
     return { result, image, ...(videoShape ? { videoShape } : {}) };
   });
   /// What each file becomes once its own preview is made (a link, or its failure): never awaited
@@ -123,13 +155,18 @@ export async function intakeFiles(
       const path = (await known)?.[index];
       if (path) {
         once(index, ({ image, videoShape }) => {
-          if (!image)
-            link(index, {
-              ...linkAttachment(path.path, path.folder),
-              mimeType: file.type || "application/octet-stream",
-              size: file.size,
-              ...(videoShape ? { videoShape } : {}),
-            });
+          if (image) return;
+          const chip: ComposerAttachment = {
+            ...linkAttachment(path.path, path.folder),
+            mimeType: file.type || "application/octet-stream",
+            size: file.size,
+            ...(videoShape ? { videoShape } : {}),
+          };
+          // A picture staged as its path that would not decode stays a link to it.
+          if (early[index]) {
+            links[index] = chip;
+            events.replaced?.(index, chip);
+          } else link(index, chip);
         });
       } else if (options.upload) {
         // WebKit exposes folders as unreadable zero-byte Files. Do not let one prevent real files
@@ -215,6 +252,20 @@ export async function intakeFiles(
   await Promise.all([...prepared, ...outcomes]);
   const attachments = [...images, ...links].filter((chip): chip is ComposerAttachment => Boolean(chip));
   return { attachments, ...(error ? { error } : {}) };
+}
+
+/// A picture on disk as its chip before its preview is made: an image that goes as its path
+/// (attachments.ts attachmentBlocks: a link to `originalPath`), with no bytes read.
+export function pathImage(file: File, path: string): ComposerAttachment {
+  return {
+    id: crypto.randomUUID(),
+    kind: "image",
+    name: file.name || "image",
+    mimeType: file.type || "application/octet-stream",
+    size: file.size,
+    originalPath: path,
+    originalName: file.name || "image",
+  };
 }
 
 /// The host's record of where the files of the person's last `kind` (a drop on the page or a paste)

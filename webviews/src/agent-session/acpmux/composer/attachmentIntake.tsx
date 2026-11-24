@@ -438,8 +438,15 @@ function AttachmentChipPreview({
     : pasted
       ? t(ATTACHMENT_LABELS.pastedText)
       : attachment.name;
+  const look = usePasteLoadingLook();
   useEffect(() => {
-    if (!image || !attachment.data || keptThumbOf(attachment.id)) return;
+    if (!image || !attachment.data) return;
+    // A picture staged as its path drew its loading tile's picture: its preview's thumbnail now.
+    const kept = keptThumbOf(attachment.id);
+    if (kept) {
+      setThumb(kept);
+      return;
+    }
     let live = true;
     void thumbnail({ mimeType: attachment.mimeType, data: attachment.data }).then((made) => {
       if (live) setThumb(made);
@@ -490,6 +497,27 @@ function AttachmentChipPreview({
       {chip}
     </ContextMenu>
   );
+  // A picture on disk staged as its path (intakeFiles.ts pathImage): it sends as that path now, and
+  // looks as its loading tile did (its shape and own picture) until its preview fills it.
+  if (attachment.kind === "image" && !attachment.data && attachment.originalPath) {
+    const shape = imageShape(thumb);
+    return menu(
+      undefined,
+      <div
+        className={`acpmux-attachment acpmux-attachment-image acpmux-attachment-pending ${PASTE_LOADING_CLASS}`}
+        data-paste-look={look}
+        data-path-image=""
+        aria-label={name}
+        {...(shape ? { "data-sized": "" } : {})}
+        {...(thumb ? { "data-instant": "" } : {})}
+        style={{ ...shape, ...(thumb ? { backgroundImage: `url("${thumb.url}")` } : {}) }}
+        /* tooltip-allow: the file it goes as */ title={attachment.originalPath}
+      >
+        <PasteLoadingMark look={look} size={16} className="acpmux-attachment-spinner" />
+        {remove}
+      </div>,
+    );
+  }
   if (image && source) {
     const img = (
       <img

@@ -612,9 +612,17 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       return true;
     };
     const ready = (index: number, read: ComposerAttachment): void => {
+      // A picture staged as its path keeps the picture its loading tile showed until its preview
+      // fills it (intakeFiles.ts pathImage).
+      const tile =
+        read.kind === "image" && !read.data
+          ? pendingRef.current.find((chip) => chip.id === shown[index]!.id)
+          : undefined;
       if (!settle(index)) return;
       const thumb = keptThumb(read.id);
       if (thumb) keepThumb(shown[index]!.id, thumb);
+      else if (tile?.preview && tile.size)
+        keepThumb(shown[index]!.id, { url: tile.preview, width: tile.size.width, height: tile.size.height });
       const attachment = sourced(index, { ...read, id: shown[index]!.id });
       made[index] = attachment.id;
       // The composer moved to another chat meanwhile: the chip is the chat's it was pasted in.
@@ -744,6 +752,21 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
               chips.some((chip) => chip.id === id && chip.progress !== progress)
                 ? chips.map((chip) => (chip.id === id ? { ...chip, progress } : chip))
                 : chips,
+            );
+          },
+          // A picture sent as its path before its preview came (or taken out) is left as it went.
+          replaced: (index, read) => {
+            const id = made[index];
+            if (!id) return;
+            const thumb = keptThumb(read.id);
+            if (thumb) keepThumb(id, thumb);
+            setAttachments((staged) =>
+              staged.map((chip) => {
+                if (chip.id !== id) return chip;
+                const { originalPath: _path, originalName: _name, ...rest } = chip;
+                const base = read.kind === "image" ? chip : rest;
+                return { ...base, ...read, id, ...(chip.source ? { source: chip.source } : {}) };
+              }),
             );
           },
           original: (index, path, name) => {
