@@ -1492,7 +1492,7 @@ async fn dispatch_request_with_identity(
                 // The daemon run decision proofs bind (`hub/person.rs`).
                 "personInstance": hub.person.instance(),
                 "extensions": extensions, "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::fork_through::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", crate::config::chief_builtins::BRAIN_PRESETS_FEATURE, "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::journal_restore::PAGES_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::agent_login::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, crate::hub::pause::FEATURE, crate::hub::session_hold::FEATURE, crate::hub::release_to_watch::FEATURE, SESSION_RESUME_FEATURE, workflow_dispatch::FEATURE, crate::peer::HANDSHAKE_PIPELINE_FEATURE, super::dual_requests::FEATURE, crate::hub::require_asking::FEATURE, crate::hub::create_key::FEATURE, crate::sender_token::FEATURE, crate::hub::register::AUTO_FEATURE, crate::request_cancel::FEATURE, super::fork_through::RETARGET_FEATURE, crate::hub::fork_subagent::FEATURE], "trustGate": true}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", crate::config::chief_builtins::BRAIN_PRESETS_FEATURE, "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::file_uploads::window::FEATURE, crate::hub::journal_restore::PAGES_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::agent_login::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, crate::hub::pause::FEATURE, crate::hub::session_hold::FEATURE, crate::hub::release_to_watch::FEATURE, SESSION_RESUME_FEATURE, workflow_dispatch::FEATURE, crate::peer::HANDSHAKE_PIPELINE_FEATURE, super::dual_requests::FEATURE, crate::hub::require_asking::FEATURE, crate::hub::create_key::FEATURE, crate::sender_token::FEATURE, crate::hub::register::AUTO_FEATURE, crate::request_cancel::FEATURE, super::fork_through::RETARGET_FEATURE, crate::hub::fork_subagent::FEATURE], "trustGate": true}}
             });
             // This link carries the v2 list stream (`link_v2.rs`): the one change `peers` makes
             // to what v1 sends a link.
@@ -2824,6 +2824,17 @@ async fn dispatch_request_with_identity(
             Ok(json!({"warmed": warmed}))
         }
         method::MUX_PREWARM => {
+            // A Cloud machine's first home chat folder, warm before the chat exists
+            // (`hub/pool/reserved.rs`): this machine's own socket only.
+            if params.get("reserveHome").and_then(Value::as_bool) == Some(true) {
+                if conn.origin != Origin::Local {
+                    return Err(RpcError::invalid_params(
+                        "reserveHome is asked on this machine's own socket only",
+                    ));
+                }
+                let wait = params.get("wait").and_then(Value::as_bool) == Some(true);
+                return heap(|| hub.reserve_home_warm(wait)).await;
+            }
             let s = |k: &str| params.get(k).and_then(Value::as_str).map(str::to_owned);
             // A Cloud chat's coming start (cmux#45953): its owner credential, from this machine's
             // own socket only, as `session/new` takes one; never from an agent's connection.
@@ -2886,6 +2897,7 @@ async fn dispatch_request_with_identity(
             Ok(json!({"policy":policy.to_string()}))
         }
         "_acpmux/peers" => Ok(json!({"peers": hub.peers()})),
+        "_acpmux/host_overload" => Ok(crate::host_overload::current().to_json()),
         "_acpmux/host_health" => Ok(super::peer_status::host_health(hub, conn.origin).await),
         "_acpmux/peer_status" => super::peer_status::peer_status(hub, conn.origin, &params).await,
         super::vm_host::METHOD => super::vm_host::handle(hub, conn, &params).await,
@@ -4030,6 +4042,16 @@ async fn dispatch_request_with_identity(
                 hub.respond_choice(&s, pid, choice, answered_by, answerer, control).await?;
                 return Ok(json!({}));
             }
+            // "Fork first" (`fork_risky.rs`): only the person spends a fork, and only to allow.
+            let fork_first = params.get("forkFirst").and_then(Value::as_bool) == Some(true);
+            let checkpoint = if fork_first {
+                if !conn.is_person() {
+                    return Err(RpcError::invalid_params(crate::hub::person::REASON));
+                }
+                Some(hub.fork_before_answer(&s, pid, option.as_deref()).await?)
+            } else {
+                None
+            };
             // The paired machine that answers, for D13 (`Hub::local_claude_refusal`).
             let device = super::remote_guard::sending_device(conn, &params);
             answerer.device = device.as_deref();
@@ -4044,7 +4066,7 @@ async fn dispatch_request_with_identity(
                 control,
             )
             .await?;
-            Ok(json!({}))
+            Ok(checkpoint.map_or_else(|| json!({}), |c| json!({"forkCheckpoint": c})))
         }
         method::MUX_SET_POLICY => {
             // The chat a proved raise was checked for (`hub/person/policy_grant.rs`).

@@ -1336,7 +1336,12 @@ impl Hub {
                     agent_host_incarnation: agent_host_incarnation.map(str::to_owned),
                 },
             );
-            self.append(session,"mux","permission_request",json!({"permissionId":permission_id,"decisionNonce":decision_nonce,"personInstance":self.person.instance(),"request":request,"groupId":grouping.as_ref().map(|(id,_)|id),"turnId":turn_id,"agentRequestId":agent_request_id,"remoteFloor":floored}));
+            let mut asked = json!({"permissionId":permission_id,"decisionNonce":decision_nonce,"personInstance":self.person.instance(),"request":request,"groupId":grouping.as_ref().map(|(id,_)|id),"turnId":turn_id,"agentRequestId":agent_request_id,"remoteFloor":floored});
+            // A risky step on a Cloud machine offers "Fork first" (`fork_risky.rs`).
+            if let Some(offer) = crate::fork_risky::offer_here(&request, &permission_id) {
+                asked.set("forkOffer", offer);
+            }
+            self.append(session, "mux", "permission_request", asked);
             self.background_attention(session);
             self.set_waiting(session, super::WaitReason::of_request(&request));
             (rx, prev, grouping, permission_id)
@@ -2251,5 +2256,48 @@ async fn next_inbound(
             }
             () = recheck => {}
         }
+    }
+}
+
+impl Hub {
+    /// "Fork first" on a risky step's prompt (`fork_risky.rs`): fork this machine under the
+    /// prompt's offer and log `fork_checkpoint`, before the answer lets the step run. The prompt
+    /// must still wait and still carry an offer; a fork that fails leaves it waiting.
+    pub(crate) async fn fork_before_answer(
+        &self,
+        session: &Session,
+        permission_id: &str,
+        option: Option<&str>,
+    ) -> Result<Value, RpcError> {
+        let request = {
+            let state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
+            state.pending.get(permission_id).map(|p| p.request.clone())
+        }
+        .ok_or_else(|| RpcError::invalid_params("that request no longer waits"))?;
+        let options = request["options"].as_array().map_or(&[][..], Vec::as_slice);
+        if !option.and_then(|o| option_kind(options, o)).is_some_and(|k| k.starts_with("allow")) {
+            return Err(RpcError::invalid_params("forkFirst goes with an allow"));
+        }
+        let offer = crate::fork_risky::offer_here(&request, permission_id).ok_or_else(|| {
+            RpcError::invalid_params(
+                "no fork offer for this request (cloud.autoCloud off, not a Cloud machine, or not a risky step)",
+            )
+        })?;
+        let machines =
+            crate::placement::sub_fork::CloudMachines::from_env(|k| std::env::var(k).ok())
+                .map_err(|e| RpcError::new(-32000, format!("cannot fork this machine: {e}")))?;
+        let record =
+            crate::fork_risky::fork_first(&machines, &offer, permission_id).await.map_err(|e| {
+                self.append(
+                    session,
+                    "mux",
+                    "fork_checkpoint_failed",
+                    json!({"permissionId": permission_id, "offer": offer, "error": e}),
+                );
+                RpcError::new(-32000, format!("the fork failed, the step still waits: {e}"))
+            })?;
+        tracing::info!(session = %session.id, fork = %record["fork"], ms = %record["forkMs"], "forked before a risky step");
+        self.append(session, "mux", "fork_checkpoint", record.clone());
+        Ok(record)
     }
 }
