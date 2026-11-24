@@ -75,6 +75,10 @@ pub const FAMILIES: &[&str] = &[
     // `page.follow`): reader-mode extraction and link hints, run as page
     // scripts in the app's WebKit or CEF tab, which the daemon cannot reach.
     "page",
+    // What plays in cmux (`media.get`) and its transport (`media.control`), answered by the Mac
+    // app from the Now Playing card's sources; `apps-provider-changed {family: media}` tells
+    // `media.changed` subscribers when it changes.
+    "media",
     // The person's system calendar on the Mac (`system_calendar.events`,
     // `system_calendar.request_access`), read through EventKit in the Mac app, which
     // holds the calendar permission; the daemon has none. Not `calendar.*`,

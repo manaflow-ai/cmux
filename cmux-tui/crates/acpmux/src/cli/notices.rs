@@ -68,7 +68,7 @@ pub async fn run(args: NoticesArgs, json_out: bool) -> Result<()> {
     } else {
         for event in notices {
             let text = event.pointer("/msg/text").and_then(Value::as_str).unwrap_or_default();
-            println!("{}  {}", event["seq"], text);
+            println!("{}  {}", event.get("seq").unwrap_or(&Value::Null), text);
         }
     }
     Ok(())

@@ -95,6 +95,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let setAccessibility: @convention(c) (Int32, Int32) -> Void
     /// Chromium's print preview over the page; 0 when the browser is gone.
     let printPage: @convention(c) (Int32) -> Int32
+    /// `cmux_shim_page_command` (`cmux_shim_page_command_t`): nil on a shim without it.
+    let pageCommand: (@convention(c) (Int32, Int32) -> Int32)?
     let find: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, Int32, Int32, Int32) -> Void
     let stopFinding: @convention(c) (Int32, Int32) -> Void
     let close: @convention(c) (Int32) -> Void
@@ -397,6 +399,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         setAudioMuted = r.optional("cmux_shim_set_audio_muted")
         setAccessibility = try r("cmux_shim_set_accessibility")
         printPage = try r("cmux_shim_print")
+        pageCommand = r.optional("cmux_shim_page_command")
         find = try r("cmux_shim_find")
         stopFinding = try r("cmux_shim_stop_finding")
         close = try r("cmux_shim_close")

@@ -2,7 +2,7 @@ import { INFERENCE_PERSONAL_PLAN_IDS, INFERENCE_TEAM_PLAN_IDS } from "@cmux/prot
 import { readStackTeam } from "../cloud-vm-plan.ts"
 import type { TeamState } from "../domains/team.ts"
 import { memberLimit } from "../domains/team-ai-limit.ts"
-import { chiefAddonId, nextPlanId, type StackServer } from "../stack-server.ts"
+import { chiefAddonId, nextPlanId, planTime, type StackServer } from "../stack-server.ts"
 
 /**
  * The paid-plan gate of the model router (cx-ds09i): a signed-in caller's team must hold a paid
@@ -28,9 +28,10 @@ export const FAILURE_BACKOFF_MS = 60_000
 
 /** `user_limit_usd`: the caller's monthly AI limit in this team (personal, else team default, else 200; team-ai-limit.ts). */
 /** `plan`: the plan id the sign-in service holds (go, pro, max, founders, team), or null (cx-y79zh S5: the included-amount stop). */
-/** `next_plan`: the record's cmux NEXT plan (cmuxNextPlan: next_plus, next_pro or next_max), or null; for the Cloud service only, it never changes `paid` or the limit. */
+/** `next_plan`: the record's cmux NEXT plan (cmuxNextPlan: next_plus, next_pro, next_max, or an entry plan next_intro or next_taste), or null; for the Cloud service only, it never changes `paid` or the limit. */
 /** `chief_addon`: the record's Cloud Chief add-on (cmuxChiefAddon: M, L or XL), or null (the included Chief); for the Cloud service only, it never changes `paid` or the limit. */
-export type PlanAnswer = { readonly ok: true; readonly paid: boolean; readonly user_limit_usd: number; readonly plan?: string | null; readonly next_plan?: string | null; readonly chief_addon?: string | null } | { readonly ok: false; readonly reason: "unavailable" }
+/** `next_plan_started_at`, `next_plan_ends_at`: the NEXT plan's term (cmuxNextPlanStartedAt, cmuxNextPlanEndsAt; ISO times, planTime), or null; for the Cloud service only, which enforces the term (RFD 0052). */
+export type PlanAnswer = { readonly ok: true; readonly paid: boolean; readonly user_limit_usd: number; readonly plan?: string | null; readonly next_plan?: string | null; readonly chief_addon?: string | null; readonly next_plan_started_at?: string | null; readonly next_plan_ends_at?: string | null } | { readonly ok: false; readonly reason: "unavailable" }
 
 const tableReady = new WeakSet<SqlStorage>()
 const ensure = (sql: SqlStorage) => {
@@ -41,19 +42,25 @@ const ensure = (sql: SqlStorage) => {
   if (!columns.some((c) => c.name === "next_plan")) sql.exec(`ALTER TABLE inference_plan ADD COLUMN next_plan TEXT`)
   // The record's cmuxChiefAddon; NULL (no add-on) for a copy stored before it was read.
   if (!columns.some((c) => c.name === "chief_addon")) sql.exec(`ALTER TABLE inference_plan ADD COLUMN chief_addon TEXT`)
+  // The NEXT plan's term (cmuxNextPlanStartedAt, cmuxNextPlanEndsAt); NULL (no term) for a copy stored before it was read.
+  if (!columns.some((c) => c.name === "next_plan_started_at")) sql.exec(`ALTER TABLE inference_plan ADD COLUMN next_plan_started_at TEXT`)
+  if (!columns.some((c) => c.name === "next_plan_ends_at")) sql.exec(`ALTER TABLE inference_plan ADD COLUMN next_plan_ends_at TEXT`)
   tableReady.add(sql)
 }
 
-/** What one record read holds: `plan` (cmuxPlan), `next_plan` (cmuxNextPlan) and `chief_addon` (cmuxChiefAddon; absent is none). */
-export type PlanRead = { readonly plan: string | null; readonly next_plan: string | null; readonly chief_addon?: string | null }
+/**
+ * What one record read holds: `plan` (cmuxPlan), `next_plan` (cmuxNextPlan), `chief_addon` (cmuxChiefAddon) and the
+ * NEXT plan's term `next_plan_started_at` and `next_plan_ends_at` (cmuxNextPlanStartedAt, cmuxNextPlanEndsAt); absent is none.
+ */
+export type PlanRead = { readonly plan: string | null; readonly next_plan: string | null; readonly chief_addon?: string | null; readonly next_plan_started_at?: string | null; readonly next_plan_ends_at?: string | null }
 
 /**
  * Stores what Stack answered at `at` (null = no plan). A read that started before a newer write
  * (a webhook delivery) never overwrites it.
  */
-export const storePlan = (sql: SqlStorage, plan: string | null, at: number, nextPlan: string | null = null, chiefAddon: string | null = null) => {
+export const storePlan = (sql: SqlStorage, plan: string | null, at: number, nextPlan: string | null = null, chiefAddon: string | null = null, nextPlanStartedAt: string | null = null, nextPlanEndsAt: string | null = null) => {
   ensure(sql)
-  sql.exec(`INSERT INTO inference_plan (id, plan, checked_at, failed_at, next_plan, chief_addon) VALUES (1, ?, ?, NULL, ?, ?) ON CONFLICT (id) DO UPDATE SET plan = excluded.plan, checked_at = excluded.checked_at, failed_at = NULL, next_plan = excluded.next_plan, chief_addon = excluded.chief_addon WHERE excluded.checked_at >= inference_plan.checked_at`, plan, at, nextPlanId(nextPlan), chiefAddonId(chiefAddon))
+  sql.exec(`INSERT INTO inference_plan (id, plan, checked_at, failed_at, next_plan, chief_addon, next_plan_started_at, next_plan_ends_at) VALUES (1, ?, ?, NULL, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET plan = excluded.plan, checked_at = excluded.checked_at, failed_at = NULL, next_plan = excluded.next_plan, chief_addon = excluded.chief_addon, next_plan_started_at = excluded.next_plan_started_at, next_plan_ends_at = excluded.next_plan_ends_at WHERE excluded.checked_at >= inference_plan.checked_at`, plan, at, nextPlanId(nextPlan), chiefAddonId(chiefAddon), planTime(nextPlanStartedAt), planTime(nextPlanEndsAt))
 }
 
 /**
@@ -62,10 +69,10 @@ export const storePlan = (sql: SqlStorage, plan: string | null, at: number, next
  */
 export const readPlan = async (sql: SqlStorage, now: number, read: () => Promise<PlanRead>): Promise<({ ok: true } & Required<PlanRead>) | { ok: false }> => {
   ensure(sql)
-  const row = sql.exec<{ plan: string | null; next_plan: string | null; chief_addon: string | null; checked_at: number; failed_at: number | null }>(`SELECT plan, next_plan, chief_addon, checked_at, failed_at FROM inference_plan WHERE id = 1`).toArray()[0]
+  const row = sql.exec<{ plan: string | null; next_plan: string | null; chief_addon: string | null; next_plan_started_at: string | null; next_plan_ends_at: string | null; checked_at: number; failed_at: number | null }>(`SELECT plan, next_plan, chief_addon, next_plan_started_at, next_plan_ends_at, checked_at, failed_at FROM inference_plan WHERE id = 1`).toArray()[0]
   const age = row ? now - Number(row.checked_at) : Infinity
-  // The copy's answer; a copy from before next_plan (or chief_addon) was stored has NULL there (no NEXT plan, no add-on).
-  const copy = row ? { ok: true as const, plan: row.plan, next_plan: nextPlanId(row.next_plan), chief_addon: chiefAddonId(row.chief_addon) } : undefined
+  // The copy's answer; a copy from before next_plan (or chief_addon, or the term) was stored has NULL there (no NEXT plan, no add-on, no term).
+  const copy = row ? { ok: true as const, plan: row.plan, next_plan: nextPlanId(row.next_plan), chief_addon: chiefAddonId(row.chief_addon), next_plan_started_at: planTime(row.next_plan_started_at), next_plan_ends_at: planTime(row.next_plan_ends_at) } : undefined
   if (copy && age < (copy.plan === null ? UNPAID_FRESH_MS : PLAN_FRESH_MS)) return copy
   // Stack failed a moment ago: answer from the stale copy (or unavailable) without waiting on Stack again.
   if (row && copy && row.failed_at !== null && now - Number(row.failed_at) < FAILURE_BACKOFF_MS) return age < PLAN_STALE_MS ? copy : { ok: false }
@@ -73,8 +80,10 @@ export const readPlan = async (sql: SqlStorage, now: number, read: () => Promise
     const r = await read()
     const next_plan = nextPlanId(r.next_plan)
     const chief_addon = chiefAddonId(r.chief_addon)
-    storePlan(sql, r.plan, now, next_plan, chief_addon)
-    return { ok: true, plan: r.plan, next_plan, chief_addon }
+    const next_plan_started_at = planTime(r.next_plan_started_at)
+    const next_plan_ends_at = planTime(r.next_plan_ends_at)
+    storePlan(sql, r.plan, now, next_plan, chief_addon, next_plan_started_at, next_plan_ends_at)
+    return { ok: true, plan: r.plan, next_plan, chief_addon, next_plan_started_at, next_plan_ends_at }
   } catch (e) {
     console.warn(JSON.stringify({ msg: "inference.plan.read_failed", error: String(e).slice(0, 160), stale: Boolean(row) }))
     if (row) sql.exec(`UPDATE inference_plan SET failed_at = ? WHERE id = 1`, now)
@@ -136,8 +145,10 @@ const hasGrantTable = (sql: SqlStorage) => sql.exec<{ n: number }>(`SELECT COUNT
 export const inferencePlanOf = async (sql: SqlStorage, state: TeamState | null, entity: string, stack: StackServer | undefined, stackUser: string | undefined, user: string, now = Date.now(), testGrants = false): Promise<PlanAnswer> => {
   const answer = await sourcePlanOf(sql, state, entity, stack, stackUser, user, now)
   const granted = testGrants && !(answer.ok && answer.paid) ? testPlanGrant(sql) : null
-  // The grant stands in for cmuxPlan only; the record's cmux NEXT plan (next_plan) and Chief add-on (chief_addon) are kept as read.
-  return granted === null ? answer : { ok: true, paid: true, user_limit_usd: memberLimit(state, user).limit_usd, plan: granted, next_plan: answer.ok ? (answer.next_plan ?? null) : null, chief_addon: answer.ok ? (answer.chief_addon ?? null) : null }
+  // The grant stands in for cmuxPlan only; the record's cmux NEXT plan (next_plan, with its term) and Chief add-on (chief_addon) are kept as read.
+  if (granted === null) return answer
+  const read = answer.ok ? answer : undefined
+  return { ok: true, paid: true, user_limit_usd: memberLimit(state, user).limit_usd, plan: granted, next_plan: read?.next_plan ?? null, chief_addon: read?.chief_addon ?? null, next_plan_started_at: read?.next_plan_started_at ?? null, next_plan_ends_at: read?.next_plan_ends_at ?? null }
 }
 
 const sourcePlanOf = async (sql: SqlStorage, state: TeamState | null, entity: string, stack: StackServer | undefined, stackUser: string | undefined, user: string, now: number): Promise<PlanAnswer> => {
@@ -152,24 +163,24 @@ const sourcePlanOf = async (sql: SqlStorage, state: TeamState | null, entity: st
     // A personal team may not be mirrored here yet; the Worker checked the id is the caller's own.
     if (team && (team.id !== entity || team.kind !== "personal")) return { ok: true, paid: false, user_limit_usd: limit }
     const r = await read(async (s) => {
-      // One read of the owner's user record for every field; a server without getUserPlans has no next_plan or chief_addon.
+      // One read of the owner's user record for every field; a server without getUserPlans has no next_plan, chief_addon or term.
       if (s.getUserPlans) {
         const plans = await s.getUserPlans(stackUser)
-        return plans === "user_gone" ? { plan: null, next_plan: null, chief_addon: null } : plans
+        return plans === "user_gone" ? { plan: null, next_plan: null, chief_addon: null, next_plan_started_at: null, next_plan_ends_at: null } : plans
       }
       const plan = await s.getUserPlan(stackUser)
-      return { plan: plan === "user_gone" ? null : plan, next_plan: null, chief_addon: null }
+      return { plan: plan === "user_gone" ? null : plan, next_plan: null, chief_addon: null, next_plan_started_at: null, next_plan_ends_at: null }
     })
-    return r.ok ? { ok: true, paid: personalPlanPaid(r.plan), user_limit_usd: limit, plan: r.plan, next_plan: r.next_plan, chief_addon: r.chief_addon } : { ok: false, reason: "unavailable" }
+    return r.ok ? { ok: true, paid: personalPlanPaid(r.plan), user_limit_usd: limit, plan: r.plan, next_plan: r.next_plan, chief_addon: r.chief_addon, next_plan_started_at: r.next_plan_started_at, next_plan_ends_at: r.next_plan_ends_at } : { ok: false, reason: "unavailable" }
   }
   if (!team || team.id !== entity || team.deleted_at !== undefined || team.kind !== "stack" || !team.stack_team) return { ok: true, paid: false, user_limit_usd: limit }
   const stackTeam = team.stack_team
   // The one shared-team read (cloud-vm-plan.ts readStackTeam): the grant it sees also refreshes the grant copy a delete carries.
   const r = await read(async (s) => {
     const t = await readStackTeam(sql, s, stackTeam, now)
-    return { plan: t?.plan ?? null, next_plan: t?.next_plan ?? null, chief_addon: t?.chief_addon ?? null }
+    return { plan: t?.plan ?? null, next_plan: t?.next_plan ?? null, chief_addon: t?.chief_addon ?? null, next_plan_started_at: t?.next_plan_started_at ?? null, next_plan_ends_at: t?.next_plan_ends_at ?? null }
   })
-  return r.ok ? { ok: true, paid: teamPlanPaid(r.plan), user_limit_usd: limit, plan: r.plan, next_plan: r.next_plan, chief_addon: r.chief_addon } : { ok: false, reason: "unavailable" }
+  return r.ok ? { ok: true, paid: teamPlanPaid(r.plan), user_limit_usd: limit, plan: r.plan, next_plan: r.next_plan, chief_addon: r.chief_addon, next_plan_started_at: r.next_plan_started_at, next_plan_ends_at: r.next_plan_ends_at } : { ok: false, reason: "unavailable" }
 }
 
 /** The stored plan copy, without a Stack read (team.ai_limit.get's team line); null when there is none yet. */

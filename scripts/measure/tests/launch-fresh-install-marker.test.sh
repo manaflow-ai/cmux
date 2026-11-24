@@ -32,6 +32,7 @@ run_main() {
       [[ -n "$LF_EXPECTED_DIALOGS_DIR" && -d "$LF_EXPECTED_DIALOGS_DIR" ]] && cat "$LF_EXPECTED_DIALOGS_DIR"/*.json >>"$LF_SEEN.json" 2>/dev/null
       [[ "$1" == "$LF_FAIL_AT" ]] && exit 7
       # A row still running (an interruptible wait, as a TERM finds a job mid-launch).
+      # sleep-ok: the held row must stay running until the test TERMs it; 30 s is only its upper bound.
       [[ -n "$LF_HOLD" ]] && { sleep 30 & echo $! >"$LF_SEEN.sleep"; wait $!; }
       echo "{\"row\": \"$1\", \"rep\": $2, \"mode\": \"first\"}" >>"$OUT/runs.jsonl"
     }

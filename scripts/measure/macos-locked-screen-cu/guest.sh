@@ -91,7 +91,11 @@ round() {  # PHASE
   "$P" mcp-result "$O/$ph-cua-key.json" "$O/$ph-cua-key.png" | tagged "$ph-cua-press_key"
   mcp_call click "{\"pid\":$TE,\"window_id\":$WID,\"x\":200,\"y\":200}" >"$O/$ph-cua-click.json"
   "$P" mcp-result "$O/$ph-cua-click.json" "$O/$ph-cua-click.png" | tagged "$ph-cua-click"
-  sleep 1
+  # Wait (5 s at most: a route may not land while locked) until the document has Cua Driver's text.
+  for _ in $(seq 50); do
+    "$P" ax-text "$TE" | grep -q "cua-$ph" && break
+    sleep 0.1
+  done
   "$P" ax-text "$TE" | tagged "$ph"
   mcp_call get_window_state "{\"pid\":$TE,\"window_id\":$WID}" >"$O/$ph-cua-state.json"
   "$P" mcp-result "$O/$ph-cua-state.json" "$O/$ph-cua-state.png" | tagged "$ph-cua-get_window_state"
@@ -104,30 +108,54 @@ round A-unlocked
 
 "$P" vdisplay $((LATE + 3600)) >"$O/vdisplay.jsonl" 2>"$O/vdisplay.err" &
 VPID=$!
-sleep 4
+# The display exists once vdisplay prints its id (or an error) as its first line.
+for _ in $(seq 200); do
+  [[ -s "$O/vdisplay.jsonl" ]] && break
+  kill -0 "$VPID" 2>/dev/null || break
+  sleep 0.1
+done
+[[ -s "$O/vdisplay.jsonl" ]] || note vdisplay "vdisplay printed nothing in 20 s"
 VDID=$(head -1 "$O/vdisplay.jsonl" | sed -n 's/.*"display_id":\([0-9]*\).*/\1/p')
 note vdisplay "vdisplay pid $VPID id ${VDID:-none}"
 head -1 "$O/vdisplay.jsonl" | tagged vdisplay
 if [[ -n "$VDID" && "$VDID" != 0 ]]; then
-  "$P" move-window "$TE" $(( $("$P" display-x "$VDID") + 100 )) 100 | tagged vdisplay
-  sleep 2
+  VX=$("$P" display-x "$VDID")
+  "$P" move-window "$TE" $(( VX + 100 )) 100 | tagged vdisplay
+  # Wait until the window server has the window on the virtual display (its X where the move put it).
+  win_x() { "$P" windows "$TE" | grep -o "\"bounds\":{[^}]*},\"id\":$WID," | sed -n 's/.*"X":\(-\{0,1\}[0-9]*\).*/\1/p'; }
+  for _ in $(seq 100); do
+    x=$(win_x); [[ -n "$x" ]] && (( x - VX - 100 <= 50 && VX + 100 - x <= 50 )) && break
+    sleep 0.1
+  done
+  x=$(win_x); [[ -n "$x" ]] && (( x - VX - 100 <= 50 && VX + 100 - x <= 50 )) || note vdisplay "window $WID not on the virtual display 10 s after the move (x ${x:-none})"
   round A2-unlocked-virtual
 else
   VDID=""
 fi
 
 "$P" lock | tagged lock
-sleep 3
+# Wait until the session reports the screen locked (best-effort: round B runs either way).
+for _ in $(seq 200); do
+  "$P" state | grep -Eq '"locked":(true|1)' && break
+  sleep 0.1
+done
+"$P" state | grep -Eq '"locked":(true|1)' || note lock "session not locked 20 s after lock"
 round B-locked
 
 note C-locked-late "waiting $LATE s locked"
-sleep "$LATE"
+sleep "$LATE"  # sleep-ok: the round measures after LATE seconds locked (the displays may sleep by then)
 round C-locked-late
 
 # Fast user switching to the login window: this session leaves the console, as a second login
 # session in the background would be.
 "$P" switch-out | tagged switch-out
-sleep 5
+# Wait until this session is off the console (best-effort: round D runs either way).
+off_console() { "$P" state | grep -Eq '"on_console":(false|0)|"session":"none"'; }
+for _ in $(seq 300); do
+  off_console && break
+  sleep 0.1
+done
+off_console || note switch-out "session still on the console 30 s after switch-out"
 round D-off-console
 
 kill "$VPID" 2>/dev/null

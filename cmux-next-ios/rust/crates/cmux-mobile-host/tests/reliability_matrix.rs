@@ -276,7 +276,7 @@ async fn daemon_client(stream: tokio::net::UnixStream, state: Arc<DaemonState>) 
         let mut answer = json!({"id": request["id"], "ok": true, "data": request});
         match request["cmd"].as_str() {
             Some("list-workspaces") => {
-                answer["data"] = workspace_tree(state.workspaces.load(Ordering::Relaxed))
+                answer["data"] = workspace_tree(state.workspaces.load(Ordering::Relaxed));
             }
             Some("list-personal") => answer["data"] = json!({"groups": [], "workspaces": []}),
             Some("send") => {
@@ -362,6 +362,7 @@ impl Rig {
                         session_id: "matrix-session".into(),
                         video: None,
                         session_exposure: None,
+                        route: None,
                         path: None,
                     },
                     Arc::new(LinkAuth::default()),

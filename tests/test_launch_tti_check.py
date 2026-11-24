@@ -106,6 +106,21 @@ class InAppPathTests(unittest.TestCase):
         [why] = tti.round_failures("terminal", "in_app", row, marks, 30)
         self.assertIn("probe_no_key_window", why)
 
+    def test_probe_that_took_the_front_is_measured_and_named(self):
+        # A background runner's launch is never key at the first frame: the probe took the front as a Dock launch.
+        for mark, focus in (("terminal.probe_app_inactive", "app_inactive"),
+                            ("terminal.probe_window_not_key", "window_not_key")):
+            marks = {**self.MARKS, mark: 640.5}
+            row = {"post_access": False, "input": "in_app", **tti.in_app_terminal_reading(marks)}
+            self.assertEqual([], tti.round_failures("terminal", "in_app", row, marks, 30))
+            self.assertEqual(focus, tti.probe_focus(marks))
+            self.assertIn(mark, tti.KEPT_MARKS)
+
+    def test_probe_focus_reads_key_none_and_absent(self):
+        self.assertEqual("key", tti.probe_focus({"terminal.probe_key_typed": 641.0}))
+        self.assertEqual("none", tti.probe_focus({"terminal.probe_no_key_window": 641.0}))
+        self.assertIsNone(tti.probe_focus({"first_window_frame_committed": 640.0}))
+
     def test_chat_without_the_composer_mark_fails_nothing_on_either_path(self):
         for path in ("posted", "in_app"):
             row = {"post_access": path == "posted", "input_ms": None, "no_mark": True}
@@ -127,6 +142,36 @@ class InputMarkTests(unittest.TestCase):
             self.assertFalse(tti.bundle_has_input_mark(app))
             (pages / "composer-chunk.js").write_bytes(b"x.post(\"pane.inputEchoed\")")
             self.assertTrue(tti.bundle_has_input_mark(app))
+
+
+class KeptMarksTests(unittest.TestCase):
+    """A round's line carries the steps between the first frame and the chat drawn, so a late stage can be split."""
+
+    def test_chromium_page_and_chat_marks_are_kept_beside_the_named_ones(self):
+        marks = {"main_start": 50.0, "first_window_frame_committed": 900.0, "cef.initialize_start": 910.0,
+                 "cef.step.framework_mapped": 905.0, "cef.ready": 1200.0, "chromium_page.browser_created": 1300.0,
+                 "first_page.navigation_start": 1320.0, "agent_pane.handshake_start": 1400.0,
+                 "agent_pane.painted": 1600.0, "daemon_connected": 700.0, "unrelated.mark": 5.0}
+        kept = tti.kept_marks(marks)
+        self.assertNotIn("unrelated.mark", kept)
+        for name in set(marks) - {"unrelated.mark"}:
+            self.assertEqual(marks[name], kept[name])
+
+    def test_the_prefixed_marks_are_capped_in_launch_order_and_named_ones_always_fit(self):
+        marks = {f"cef.step.s{i:03d}": float(1000 - i) for i in range(tti.KEPT_MARKS_MAX + 30)}
+        marks.update({"main_start": 50.0, "agent_pane.painted": 1600.0})
+        kept = tti.kept_marks(marks)
+        self.assertEqual(tti.KEPT_MARKS_MAX, len(kept))
+        self.assertIn("main_start", kept)
+        self.assertIn("agent_pane.painted", kept)
+        # The earliest prefixed marks win the room left.
+        latest_kept = max(v for k, v in kept.items() if k.startswith("cef.step."))
+        dropped = [v for k, v in marks.items() if k.startswith("cef.step.") and k not in kept]
+        self.assertTrue(all(v >= latest_kept for v in dropped))
+
+    def test_load_reads_a_number_or_nothing(self):
+        value = tti.load_1m()
+        self.assertTrue(value is None or value >= 0)
 
 
 if __name__ == "__main__":
