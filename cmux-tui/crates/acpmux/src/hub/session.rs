@@ -257,6 +257,14 @@ pub struct Session {
     pub(super) asks_in_flight: std::sync::atomic::AtomicUsize,
     pub(super) asks_landed: Notify,
     pub(super) rehydrate: AtomicBool,
+    /// The turn being started is a continuation a move at a tool boundary left
+    /// (`restart_resume.rs` `Cut::MoveAtBoundary`): a Claude process started for it may resume
+    /// the cut turn by itself (`claude_stdio/resume_cut.rs`). Set and cleared by `turns.rs`
+    /// around the start, under the turn lock.
+    pub(super) resume_cut_ask: AtomicBool,
+    /// The process just started does resume the cut turn: `turns.rs` takes it and sends the
+    /// continuation as a carried prompt, which writes nothing. Written by every Claude start.
+    pub(super) resumed_cut: AtomicBool,
     /// What the rehydrated transcript's note tells the agent, when not the restore's own: a fork
     /// onto another harness says it was forked from the chat (`fork.rs` `Retarget`). Taken with
     /// `rehydrate`.
@@ -482,6 +490,11 @@ pub struct Session {
     /// The running turn's tool calls that have not ended (`stalled_turn.rs`): a turn quiet
     /// inside one gets longer before it counts as stalled.
     pub(super) open_tools: StdMutex<std::collections::HashSet<String>>,
+    /// The session's own tool calls whose live updates logged no end, bounded (`hub/tap.rs`): a
+    /// load's replay of one's end is the only replayed record kept of a tool call
+    /// (`unread_records.rs`), as a cut turn's continuation counts it ended (`restart_resume.rs`).
+    /// Unlike [`Self::open_tools`], a new agent for the turn keeps them.
+    pub(super) unclosed_tools: StdMutex<std::collections::HashSet<String>>,
     /// Bounded completed tool attempts used to identify a repeated failing call
     /// (`loop_detector.rs`).
     pub(super) loop_detector: StdMutex<super::loop_detector::LoopDetector>,

@@ -39,6 +39,7 @@ pub use prompt_coach::CoachRewriter;
 mod message_events;
 pub use agent_pairs::PairGuard;
 mod aside;
+pub(crate) mod ask_choices;
 mod asks_below;
 mod atomic_json;
 pub use crate::build_info::{build, install_build, version_line};
@@ -452,7 +453,12 @@ mod subsession_send;
 pub mod subsessions;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
 pub use subsession_send::Delivery;
+mod background_cause;
+pub mod background_turn;
+#[cfg(test)]
+mod background_turn_end_tests;
 mod drafts;
+mod goal_tools;
 pub(crate) mod history_search;
 pub(crate) mod open_delivery;
 pub(crate) mod outbox;
@@ -461,9 +467,14 @@ mod outbox_open_tests;
 #[cfg(test)]
 pub(crate) mod outbox_oracle;
 pub(crate) mod pause;
+pub mod plan_build;
+#[cfg(test)]
+mod refused_append_tests;
 pub(crate) mod release_to_watch;
 mod restore_point;
 pub mod rules;
+#[cfg(feature = "sim")]
+mod sim_startup;
 pub(crate) mod stop_if_idle;
 #[cfg(test)]
 mod stop_settles_tests;
@@ -478,28 +489,17 @@ pub mod transfer_pull;
 mod transfer_watch;
 #[cfg(test)]
 mod translator_queue_tests;
+#[cfg(all(test, unix))]
+mod trigger_quiet_tests;
 mod trust_wait;
 mod turn_attestation;
 mod turn_git;
 pub(crate) mod turn_shots;
 mod turn_usage;
-mod usage_view;
-pub(crate) use usage_view::READ_WAIT as USAGE_READ_WAIT;
-mod background_cause;
-pub mod background_turn;
-#[cfg(test)]
-mod background_turn_end_tests;
-mod goal_tools;
-pub mod plan_build;
-#[cfg(test)]
-mod refused_append_tests;
-#[cfg(feature = "sim")]
-mod sim_startup;
-#[cfg(all(test, unix))]
-mod trigger_quiet_tests;
 mod turns;
 #[cfg(test)]
 mod turns_copy_stop_tests;
+mod usage_view;
 pub(crate) mod usage_warnings;
 #[cfg(test)]
 mod usage_warnings_tests;
@@ -2241,6 +2241,8 @@ impl Hub {
             asks_in_flight: std::sync::atomic::AtomicUsize::new(0),
             asks_landed: Notify::new(),
             rehydrate: AtomicBool::new(false),
+            resume_cut_ask: AtomicBool::new(false),
+            resumed_cut: AtomicBool::new(false),
             rehydrate_note: StdMutex::new(None),
             forum_retell: AtomicBool::new(false),
             forum_retold: std::sync::Mutex::default(),
@@ -2309,6 +2311,7 @@ impl Hub {
             heard_at: std::sync::atomic::AtomicI64::new(0),
             stalled_recheck: AtomicU64::new(0),
             open_tools: StdMutex::new(Default::default()),
+            unclosed_tools: StdMutex::new(Default::default()),
             loop_detector: StdMutex::new(Default::default()),
             harness_sandbox_calls: StdMutex::new(Default::default()),
             stalled_counted: StdMutex::new(None),
