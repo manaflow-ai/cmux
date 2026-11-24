@@ -1429,6 +1429,16 @@ async fn bg_chat_once(
         cursor = events.last().copied();
     }
     let took = start.elapsed();
+    if std::env::var_os("NETCOND_DEBUG").is_some() {
+        // What came down, by message type, against the shaper's count.
+        let tapped = link.tap.take();
+        let total: u64 = tapped.down.values().map(|(_, b)| b).sum();
+        eprintln!(
+            "netcond-debug {phase} down: {total} bytes read, {} on the wire, {:?}",
+            shaper.counters().down_bytes,
+            tapped.down
+        );
+    }
     if held < last {
         return Err(format!("the phone holds {held}, the host {last}"));
     }
