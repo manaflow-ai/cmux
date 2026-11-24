@@ -1133,6 +1133,17 @@ export class AcpmuxDirectClient {
   // daemon-backed method that cheap and refuses `_acpmux/peers` as `remote.unsupported`) keeps the
   // older bound: its socket is given up only after this long with no frame while a request waits.
   private static readonly DAEMON_LIVENESS_GRACE_MS = 120_000;
+  // A live daemon may still have lost one request (a frame dropped between the page and it, a
+  // reply that never left): the socket proves the daemon, never the request, so such a request
+  // waited for good (session/new, set_model, a fork, a chat open with frames trickling). Every
+  // this long while a sent request waits, the page asks the daemon which of its requests it still
+  // runs (`checkRequests`, acpmux `server/in_flight.rs`). Running is alive however slow; one the
+  // daemon read but neither runs nor answered, on two answers in a row, is lost, and the page
+  // gives the socket up so the reconnect and the prompt journal recover it.
+  private static readonly REQUEST_CHECK_MS = 10_000;
+  private static readonly REQUEST_LOST_CHECKS = 2;
+  // Answered by the daemon but its reply not here yet (a turn's reply goes after its last events).
+  private static readonly REQUEST_ANSWERED_CHECKS = 3;
   /// Coalesces the snapshots of acpmux events that land within one display frame: a fast stream
   /// sends several deltas per frame, and each snapshot re-renders the transcript. The page that
   /// draws the transcript sets it (main.tsx: ``nextFrame``); unset, each event snapshots at once.
@@ -1179,6 +1190,8 @@ export class AcpmuxDirectClient {
       since: number;
       /// What it asked: a reply to `_acpmux/status`, which the bridge answers, proves no daemon.
       method: string;
+      /// When it last went on the wire (`checkRequests`); unset while it waits for a slot.
+      sentAt?: number;
     }
   >();
   /// Since when the daemon on an open socket has owed a sign of life: a liveness probe out and
@@ -1204,6 +1217,16 @@ export class AcpmuxDirectClient {
   /// The host refused the probe on the current socket (a remote wire): `DAEMON_LIVENESS_GRACE_MS`.
   private daemonProbeRefused = false;
   private daemonLivenessTimer?: ReturnType<typeof setTimeout>;
+  /// The `_acpmux/request_state` question out on the current socket (`checkRequests`): its id,
+  /// when it went, and the requests it asks about (sent at least `REQUEST_CHECK_MS` before it).
+  private requestCheck?: { id: number; at: number; asked: Set<number | string> };
+  /// When the daemon last answered that question on this socket.
+  private requestCheckedAt = 0;
+  /// The socket's host or daemon cannot answer the question (an older build, a remote wire).
+  private requestCheckOff = false;
+  private requestCheckTimer?: ReturnType<typeof setTimeout>;
+  /// Checks in a row in which the daemon did not run a request the page still waits on.
+  private requestStrikes = new Map<number | string, number>();
   /// The daemon's count of this connection's work requests: a page never sends past it
   /// (requestBudget.ts). Reset with the connection.
   private budget = new RequestBudget();
@@ -2493,6 +2516,7 @@ export class AcpmuxDirectClient {
         this.daemonProvedAt = this.daemonLastFrameAt;
         this.daemonProbe = undefined;
         this.daemonProbeRefused = false;
+        this.resetRequestCheck();
         this.wire.lifecycle("open");
         resolve(socket);
       };
@@ -3772,11 +3796,16 @@ export class AcpmuxDirectClient {
         this.probeAnswered(message);
         return;
       }
+      if (!stale && this.requestCheck?.id === message.id) {
+        this.requestStateAnswered(message);
+        return;
+      }
       const request = this.pending.get(message.id);
       const busy = (message.error?.data as { reason?: unknown } | undefined)?.reason === "connection.busy";
       if (request && busy && request.retryable) {
         // The daemon's count and this page's drifted: the request goes again later, never at once.
         request.busy += 1;
+        request.sentAt = undefined;
         this.markWaiting(request);
         // The daemon's own refusal proves it alive, even if an earlier probe is still held.
         // Clear that probe's deadline and waiting state just as its own answer would.
@@ -4164,6 +4193,30 @@ export class AcpmuxDirectClient {
         done?.(false);
       },
     );
+  }
+
+  /// A Stop whose turn still runs past `stallTiming.stopMs`: the stall check reads whether the pane
+  /// missed the end. When it missed nothing, the turn really runs on, and the likeliest cause is
+  /// that `session/cancel`, a notification nothing answers, never reached acpmux: no escalation ran.
+  /// The pane sends it once more, so acpmux's own bound (cancel again at 10 s, end the turn at 15 s)
+  /// ends the turn; before, "Stopping" stayed for good and a second Stop click did nothing (it is
+  /// deduplicated against the first).
+  private checkStopStall(sessionId: string): void {
+    const stopFrom = this.stoppingAfterSeq;
+    this.checkStall(sessionId, "stop", (missed) => {
+      if (missed || this.stoppingAfterSeq !== stopFrom || !this.workingNow()) return;
+      if (this.selectedSessionId !== sessionId) return;
+      const socket = this.socket;
+      if (this.closed || socket?.readyState !== WebSocket.OPEN) return;
+      const text = JSON.stringify({ jsonrpc: "2.0", method: "session/cancel", params: { sessionId } });
+      this.wire.lifecycle("stop again", { sessionId, message: "the turn still runs after Stop; cancelling again" });
+      this.wire.sent(text, "session/cancel");
+      try {
+        socket.send(text);
+      } catch {
+        // The socket went: its close takes the lost path, which ends Stop.
+      }
+    });
   }
 
   /// The stall check proved socket `socket` no longer carries the chat's events: the pane gives up on
@@ -4658,8 +4711,7 @@ export class AcpmuxDirectClient {
     this.markSeen(sessionId);
     const owed = this.stopStallOwed;
     this.stopStallOwed = undefined;
-    if (owed === sessionId && this.stoppingAfterSeq !== undefined && this.workingNow())
-      this.checkStall(sessionId, "stop");
+    if (owed === sessionId && this.stoppingAfterSeq !== undefined && this.workingNow()) this.checkStopStall(sessionId);
   };
 
   private stopAttention?: () => void;
@@ -5715,6 +5767,12 @@ export class AcpmuxDirectClient {
         if (maySend && !maySend()) throw staleContinuation();
         this.wire.sent(text, method, id);
         socket.send(text);
+        const entry = this.pending.get(id);
+        if (entry) {
+          entry.sentAt = Date.now();
+          this.requestStrikes.delete(id);
+          this.armRequestCheck();
+        }
       } catch (error) {
         const request = this.pending.get(id);
         this.noteRequestSettled(id);
@@ -5913,6 +5971,138 @@ export class AcpmuxDirectClient {
     this.daemonLivenessTimer = undefined;
     if (this.waitingRequests > 0) this.armDaemonLiveness();
     if (wasWaiting && this.daemonWaitingSince === undefined) this.emit("daemon resumed");
+  }
+
+  /// Whether the daemon is to account for `entry` (`checkRequests`): sent, and not one the app's
+  /// bridge answers itself.
+  private checkable(entry: { sentAt?: number; method: string }): boolean {
+    return entry.sentAt !== undefined && entry.method !== "_acpmux/status";
+  }
+
+  private resetRequestCheck(): void {
+    this.requestCheck = undefined;
+    this.requestCheckedAt = 0;
+    this.requestCheckOff = false;
+    this.requestStrikes.clear();
+    if (this.requestCheckTimer !== undefined) clearTimeout(this.requestCheckTimer);
+    this.requestCheckTimer = undefined;
+  }
+
+  /// One timer at a time: due `REQUEST_CHECK_MS` after the oldest sent request (or the last
+  /// answer), or, with a question out, `DAEMON_PROBE_ANSWER_MS` after the daemon's last sign.
+  private armRequestCheck(): void {
+    if (this.requestCheckTimer !== undefined || this.requestCheckOff || this.closed || this.daemonUnprobed()) return;
+    let due: number;
+    if (this.requestCheck) {
+      due = Math.max(this.requestCheck.at, this.daemonFrameAt) + AcpmuxDirectClient.DAEMON_PROBE_ANSWER_MS;
+    } else {
+      let oldest = Number.POSITIVE_INFINITY;
+      for (const entry of this.pending.values()) {
+        if (this.checkable(entry) && entry.sentAt! < oldest) oldest = entry.sentAt!;
+      }
+      if (oldest === Number.POSITIVE_INFINITY) return;
+      due = Math.max(oldest, this.requestCheckedAt) + AcpmuxDirectClient.REQUEST_CHECK_MS;
+    }
+    this.requestCheckTimer = setTimeout(
+      () => {
+        this.requestCheckTimer = undefined;
+        this.checkRequests();
+      },
+      Math.max(0, due - Date.now()),
+    );
+  }
+
+  /// Asks the daemon, outside the request budget, which requests of this connection it runs
+  /// (`_acpmux/request_state`: answered in order with the requests read before it, so every request
+  /// sent before the question is either running, answered, or lost). With the question out and
+  /// unanswered, the daemon's own frames say it is slow, not gone; none at all for
+  /// `DAEMON_PROBE_ANSWER_MS` gives the socket up like an unanswered probe.
+  private checkRequests(): void {
+    const socket = this.socket;
+    if (this.closed || this.requestCheckOff || !socket || socket.readyState !== WebSocket.OPEN) return;
+    const now = Date.now();
+    const out = this.requestCheck;
+    if (out) {
+      if (now - Math.max(out.at, this.daemonFrameAt) >= AcpmuxDirectClient.DAEMON_PROBE_ANSWER_MS) {
+        this.requestCheck = undefined;
+        return this.daemonGone(socket, now);
+      }
+      return this.armRequestCheck();
+    }
+    const asked = new Set<number | string>();
+    for (const [id, entry] of this.pending) {
+      if (this.checkable(entry) && now - entry.sentAt! >= AcpmuxDirectClient.REQUEST_CHECK_MS) asked.add(id);
+    }
+    for (const id of this.requestStrikes.keys()) if (!this.pending.has(id)) this.requestStrikes.delete(id);
+    if (asked.size === 0 || !this.browserMaySend()) {
+      this.requestCheckedAt = now;
+      return this.armRequestCheck();
+    }
+    const id = this.nextRequest++;
+    const method = "_acpmux/request_state";
+    const text = JSON.stringify({ jsonrpc: "2.0", id, method, params: {} });
+    this.requestCheck = { id, at: now, asked };
+    try {
+      this.wire.sent(text, method, id);
+      socket.send(text);
+    } catch {
+      // A send that throws: the answer bound gives the socket up, as for the probe.
+    }
+    this.armRequestCheck();
+  }
+
+  /// The daemon's answer: `running` and `answered` in this page's ids, and, through the app's
+  /// relay, `relayed`: the requests it wrote to the daemon before the question, the only ones the
+  /// answer speaks for (one the host still holds, a confirmation sheet, is never judged). An error
+  /// (an older daemon or host, a remote wire) turns the check off for this socket.
+  private requestStateAnswered(message: Reply): void {
+    const check = this.requestCheck;
+    this.requestCheck = undefined;
+    if (this.requestCheckTimer !== undefined) clearTimeout(this.requestCheckTimer);
+    this.requestCheckTimer = undefined;
+    if (!check) return;
+    this.requestCheckedAt = Date.now();
+    const result = message.result as { running?: unknown; answered?: unknown; relayed?: unknown } | undefined;
+    if (message.error || !result || !Array.isArray(result.running) || !Array.isArray(result.answered)) {
+      this.requestCheckOff = true;
+      this.wire.lifecycle("request check off", { code: String((message.error?.data as { code?: unknown })?.code) });
+      return;
+    }
+    const running = new Set(result.running);
+    const answered = new Set(result.answered);
+    const relayed = Array.isArray(result.relayed) ? new Set(result.relayed) : undefined;
+    const lost: { id: number | string; method: string }[] = [];
+    for (const id of check.asked) {
+      const entry = this.pending.get(id);
+      if (!entry || entry.sentAt === undefined) {
+        this.requestStrikes.delete(id);
+        continue;
+      }
+      if ((relayed && !relayed.has(id)) || running.has(id)) {
+        this.requestStrikes.delete(id);
+        continue;
+      }
+      const strikes = (this.requestStrikes.get(id) ?? 0) + 1;
+      this.requestStrikes.set(id, strikes);
+      const limit = answered.has(id)
+        ? AcpmuxDirectClient.REQUEST_ANSWERED_CHECKS
+        : AcpmuxDirectClient.REQUEST_LOST_CHECKS;
+      if (strikes >= limit) lost.push({ id, method: entry.method });
+    }
+    const socket = this.socket;
+    if (lost.length > 0 && socket) {
+      this.wire.lifecycle("request lost", {
+        requests: lost.map((request) => `${request.method}#${request.id}`).join(","),
+      });
+      this.connectionEnded(socket, "request lost");
+      try {
+        socket.close();
+      } catch {
+        // Already closing: the pane has left it either way.
+      }
+      return;
+    }
+    this.armRequestCheck();
   }
 
   /// Asks the daemon on `socket` one cheap question, outside the request budget: its own answer,
@@ -9859,6 +10049,8 @@ export class AcpmuxDirectClient {
             : {}),
         });
         if (optimisticRowId) this.rows.adoptEventOrder(durableRowId);
+        // A steer sits where the person sent it, not where acpmux heard it (`keepSentPlace`).
+        if (steer === "waiting") this.rows.keepSentPlace(durableRowId);
         if (fallbackPromptId) {
           const attachments = this.optimisticPromptAttachments.get(fallbackPromptId);
           if (attachments?.length) this.retryAttachments.set(durableRowId, attachments);
@@ -12748,7 +12940,7 @@ export class AcpmuxDirectClient {
       this.stopStallTimer = setTimeout(() => {
         this.stopStallTimer = undefined;
         if (this.stoppingAfterSeq === undefined || !this.workingNow()) return;
-        if (pageShown()) this.checkStall(sessionId, "stop");
+        if (pageShown()) this.checkStopStall(sessionId);
         else this.stopStallOwed = sessionId;
       }, stallTiming.stopMs);
       this.emit();
@@ -16786,6 +16978,7 @@ export class AcpmuxDirectClient {
     this.daemonProbe = undefined;
     if (this.daemonLivenessTimer !== undefined) clearTimeout(this.daemonLivenessTimer);
     this.daemonLivenessTimer = undefined;
+    this.resetRequestCheck();
   }
 }
 
