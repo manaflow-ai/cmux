@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextFocusUI
 @testable import CmuxNextTerminal
 import CmuxNextWakeupsTestSupport
@@ -86,48 +87,41 @@ struct TerminalStartingAttachTests {
         for _ in 0..<count { await Task.yield() }
     }
 
-    @Test func theMarkShowsAfterOneSecondAndTheWordsWithCloseAfterTen() async throws {
-        #expect(TerminalStatusBanner.revealDelay(for: .starting, stall: nil) == 1)
-        #expect(TerminalStatusBanner.overdueDelay(for: .starting, stall: nil) == 10)
-        let starting = try #require(TerminalStatusBanner.text(for: .starting), "a starting pane has no words")
+    /// A pane that still starts draws nothing over its frame until the shared bound
+    /// (``NoticeTiming/connectionQuiet``), no mark first; then one line with Close (Leo, 2026-11-22: "entire
+    /// classes of bullshit fucking error/status bullshit. fuck em. remove them all.").
+    @Test func nothingShowsUnderTheBoundThenTheWordsWithClose() async throws {
+        let bound = TerminalStatusBanner.quietDelay
+        #expect(bound == CFTimeInterval(NoticeTiming.connectionQuiet.components.seconds))
+        #expect(TerminalStatusBanner.revealDelay(for: .starting, stall: nil) == bound)
+        #expect(TerminalStatusBanner.overdueDelay(for: .starting, stall: nil) == bound)
         let overdue = try #require(TerminalStatusBanner.overdueText(for: .starting), "a pane that still starts has no later words")
-        #expect(overdue != starting)
 
         let clock = ManualClock()
         let host = TerminalHostView(clock: clock)
         var closes = 0
         host.onCloseStarting = { closes += 1 }
         host.showStatus(.starting)
-        #expect(host.statusText == nil, "the label shows before its second")
+        #expect(host.statusText == nil, "the label shows before the bound")
         try await clock.waitForSleeper()
-        clock.advance(by: .milliseconds(900))
+        clock.advance(by: .seconds(bound) - .milliseconds(100))
         await Self.turns()
-        #expect(host.statusText == nil, "the label shows 0.9 s after the start")
+        #expect(host.statusText == nil, "the label shows under the bound: \(host.statusText ?? "")")
+        #expect(Self.banner(in: host) == nil, "a label view was built under the bound")
         #expect(clock.sleeperCount == 1)
 
-        // 1 s: the mark, with the words as its accessibility label and no Close.
+        // The bound: the words, with Close, never the in-between mark.
         clock.advance(by: .milliseconds(100))
-        let shown1 = await Self.shows(starting, in: host)
-        #expect(shown1, "1 s after the start the label shows \(host.statusText ?? "nothing")")
-        #expect(Self.banner(in: host)?.showsMark == true, "the label of the first seconds is the in-between mark")
-        #expect(host.startingCloseTitle == nil, "Close shows before the words")
-        #expect(!host.pressStartingClose())
-
-        // The words come 10 s after the START of the status (9 s after the mark), not after the mark.
-        try await clock.waitForSleeper()
-        #expect(clock.sleeperDeadlines.map { clock.now.duration(to: $0) } == [.seconds(9)])
-        clock.advance(by: .milliseconds(8_900))
-        await Self.turns()
-        #expect(host.statusText == starting, "9.9 s after the start the label shows \(host.statusText ?? "nothing")")
-        clock.advance(by: .milliseconds(100))
-        let shown2 = await Self.shows(overdue, in: host)
-        #expect(shown2, "10 s after the start the label shows \(host.statusText ?? "nothing")")
+        let shown = await Self.shows(overdue, in: host)
+        #expect(shown, "at the bound the label shows \(host.statusText ?? "nothing")")
         #expect(Self.banner(in: host)?.showsMark == false, "the later words show as words")
         #expect(host.startingCloseTitle == TerminalStatusBanner.closeTitle(), "the later words offer no Close")
         #expect(host.startingCloseTitle?.isEmpty == false)
+        await Self.turns()
+        #expect(clock.sleeperCount == 0, "a timer still waits once the words show")
 
-        // Close calls the pane's close once for each press. Nothing was rolled back at 10 s: the
-        // pane still starts, and its first replay takes the label away with its Close.
+        // Close calls the pane's close once for each press. Nothing was rolled back: the pane still
+        // starts, and its first replay takes the label away with its Close.
         #expect(host.pressStartingClose())
         #expect(closes == 1)
         host.showStatus(.starting)
@@ -154,21 +148,16 @@ struct TerminalStartingAttachTests {
         #expect(clock.sleeperCount == 0, "a timer of the cleared status still waits")
     }
 
-    /// A status that comes after the 10 s deadline, before the woken task ran, says the later
-    /// words then; the deadline does not start again.
+    /// A status that comes after the bound, before the woken task ran, says the later words then;
+    /// the deadline does not start again.
     @Test func aStatusAfterTheDeadlineSaysTheLaterWordsAtOnce() async throws {
-        let starting = try #require(TerminalStatusBanner.text(for: .starting), "a starting pane has no words")
         let overdue = try #require(TerminalStatusBanner.overdueText(for: .starting), "a pane that still starts has no later words")
         let clock = ManualClock()
         let host = TerminalHostView(clock: clock)
         host.onCloseStarting = {}
         host.showStatus(.starting)
         try await clock.waitForSleeper()
-        clock.advance(by: .seconds(1))
-        let shown3 = await Self.shows(starting, in: host)
-        #expect(shown3)
-        try await clock.waitForSleeper()
-        clock.advance(by: .seconds(9))
+        clock.advance(by: .seconds(TerminalStatusBanner.quietDelay))
         // No suspension since the advance: the woken task has not run on the main actor yet.
         host.showStatus(.starting)
         #expect(host.statusText == overdue, "the deadline passed: the label says \(host.statusText ?? "nothing")")
@@ -186,13 +175,9 @@ struct TerminalStartingAttachTests {
         let host = TerminalHostView(clock: clock)
         host.showStatus(.starting)
         try await clock.waitForSleeper()
-        clock.advance(by: .seconds(1))
-        let shown4 = await Self.shows(TerminalStatusBanner.text(for: .starting), in: host)
-        #expect(shown4)
-        try await clock.waitForSleeper()
-        clock.advance(by: .seconds(9))
-        let shown5 = await Self.shows(overdue, in: host)
-        #expect(shown5)
+        clock.advance(by: .seconds(TerminalStatusBanner.quietDelay))
+        let shown = await Self.shows(overdue, in: host)
+        #expect(shown)
         #expect(host.startingCloseTitle == nil)
         #expect(!host.pressStartingClose())
     }

@@ -224,36 +224,35 @@ final class TerminalStatusBanner: NSView {
         return revealDelay(for: status, stall: stall) != nil
     }
 
-    /// "Restoring…" shows only after `restoringRevealDelay`, so an attach
-    /// that answers at once (the usual case) never flashes the label.
-    static let restoringRevealDelay: CFTimeInterval = 0.5
-    /// "Reconnecting…" and "Reconnecting to the shell…" show only after
-    /// `reconnectingRevealDelay`: a version handoff marks every tab adopting
-    /// while the new daemon takes its host back (a slow host costs up to 1 s
-    /// of connect retries and 2 s of handshake, after up to 2 s waiting for
-    /// the owner to say ready), and a dropped view re-attaches at once. Those
-    /// clear within it and never show; one that lasts still shows, and the
-    /// stopped states show at once. The shared connection quiet time
-    /// (``QuietHold/connectionDelay``, 10 s), the bound the app waits out for
-    /// the same daemon everywhere else (its startup deadline, its drop
-    /// grace, the sidebar's "Connecting…" hold): a restart or a short drop
-    /// the person can do nothing about marks no pane (Leo, 2026-11-14: "i
-    /// also want all our connectivity stuff to shut the f*** up"). It was 5 s.
-    static let reconnectingRevealDelay: CFTimeInterval = QuietHold.connectionDelaySeconds
+    /// The one quiet time of every state here the person can do nothing about: the shared bound
+    /// (``NoticeTiming/connectionQuiet``, `schemas/notice-timing/notice-timing.json`). Under it the pane
+    /// draws nothing over its last frame (Leo, 2026-11-14: "i also want all our connectivity stuff to
+    /// shut the f*** up"; 2026-11-22: "entire classes of bullshit fucking error/status bullshit. fuck em.
+    /// remove them all.").
+    static let quietDelay = CFTimeInterval(NoticeTiming.connectionQuiet.components.seconds)
+    /// "Restoring…" shows only after `restoringRevealDelay`, the shared bound: an attach or a launch
+    /// restore that answers within it never marks the pane.
+    static let restoringRevealDelay: CFTimeInterval = quietDelay
+    /// "Reconnecting…" and "Reconnecting to the shell…" show only after `reconnectingRevealDelay`, the
+    /// shared bound: a version handoff marks every tab adopting while the new daemon takes its host back,
+    /// and a dropped view re-attaches at once. Those clear within it and never show; one that lasts still
+    /// shows, and the stopped states show at once. The daemon's startup deadline, its drop grace and the
+    /// sidebar's "Connecting…" hold wait the same bound.
+    static let reconnectingRevealDelay: CFTimeInterval = quietDelay
     /// "Disconnected: …" over the last frame shows only after `disconnectedRevealDelay`, the same
-    /// shared quiet time: a daemon restart drops every pane's link, a hidden pane's drop or quiet
+    /// shared bound: a daemon restart drops every pane's link, a hidden pane's drop or quiet
     /// re-attaches that ran out still heal on a click, a key or the link back, so a drop that heals
-    /// within it never flashes the label on every pane. It was 1.5 s. A state the app knows is final
+    /// within it never flashes the label on every pane. A state the app knows is final
     /// shows at once (``revealDelay(for:stall:)`` returns nil): the terminal exited (its shell, its host
     /// lost, the session shut down), an administrator turned the link off, or the daemon gave up on the
     /// shell (a lost link, another build).
-    static let disconnectedRevealDelay: CFTimeInterval = QuietHold.connectionDelaySeconds
-    /// A new pane's "Starting…" mark shows only after `startingRevealDelay`: the daemon confirms a
-    /// split or a tab well within it, so the usual one never shows a mark.
-    static let startingRevealDelay: CFTimeInterval = 1
-    /// A pane that still starts this long after it began says so in words, with Close
-    /// (``overdueText(for:stall:strings:)``). Nothing is rolled back: the pane stays and still waits.
-    static let startingOverdueDelay: CFTimeInterval = 10
+    static let disconnectedRevealDelay: CFTimeInterval = quietDelay
+    /// A new pane that still starts shows nothing until the shared bound; then it says so in words, with
+    /// Close (``overdueText(for:stall:strings:)``), never a mark first. Nothing is rolled back: the pane
+    /// stays and still waits.
+    static let startingRevealDelay: CFTimeInterval = quietDelay
+    /// When a pane that still starts says so in words, with Close: the shared bound.
+    static let startingOverdueDelay: CFTimeInterval = quietDelay
 
     /// How long the label for `status` (with the daemon's `stall`) waits
     /// before it fades in; nil shows it at once. Only transient states wait.
@@ -373,11 +372,9 @@ final class TerminalStatusBanner: NSView {
         case .reconnecting:
             return strings.text("terminal.link.stall.reconnecting", defaultValue: "Reconnecting to the shell…")
         case .linkLost:
-            // The shell may still run and the daemon keeps retrying; the
-            // Recover button above the label rehosts it at once.
-            let reason = strings.text("terminal.link.stall.linkLostRetrying", defaultValue: "cmux lost its link to the shell")
-            let retrying = strings.text("terminal.link.stall.retryingHint", defaultValue: "Still retrying")
-            return "\(reason) · \(retrying)"
+            // The shell may still run and the daemon keeps retrying by itself, unsaid; the
+            // Recover button above the label rehosts it at once: one line with its one button.
+            return strings.text("terminal.link.stall.linkLostRetrying", defaultValue: "cmux lost its link to the shell")
         case .otherBuild:
             let reason = strings.text("terminal.link.stall.otherBuild", defaultValue: "Terminal stopped: another cmux build owns its shell")
             return "\(reason) · \(close)"

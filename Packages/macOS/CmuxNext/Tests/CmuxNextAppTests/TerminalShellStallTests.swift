@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextSidebar
 @testable import CmuxNextTerminal
 import CmuxNextWakeups
@@ -53,7 +54,7 @@ import Testing
         // The shell may still run and the daemon keeps retrying: no
         // "Close the tab to end it" dead end (Oct 30, an ssh tab).
         push(store, state: "failed")
-        #expect(label(store) == "cmux lost its link to the shell · Still retrying")
+        #expect(label(store) == "cmux lost its link to the shell")
         push(store, state: "unadoptable")
         #expect(label(store) == "Terminal stopped: another cmux build owns its shell · Close the tab to end it")
 
@@ -120,7 +121,7 @@ import Testing
         show()
         push(store, state: "failed")
         show()
-        #expect(view.statusText == "cmux lost its link to the shell · Still retrying")
+        #expect(view.statusText == "cmux lost its link to the shell")
         #expect(!view.statusLabelWaits)
 
         // A dropped view's "Reconnecting…" waits too; its "Disconnected" waits the same delay
@@ -219,11 +220,17 @@ import Testing
     }
 
     /// Every connection label waits one shared quiet time instead of picking its own: the terminal's
-    /// Reconnecting and Disconnected and the sidebar's Connecting.
+    /// Restoring, Starting, Reconnecting and Disconnected and the sidebar's Connecting, all the shared bound
+    /// (``NoticeTiming/connectionQuiet``).
     @Test func connectionLabelsShareOneQuietTime() {
-        #expect(QuietHold.connectionDelay == .seconds(10))
-        #expect(TerminalStatusBanner.disconnectedRevealDelay == QuietHold.connectionDelaySeconds)
-        #expect(TerminalStatusBanner.reconnectingRevealDelay == QuietHold.connectionDelaySeconds)
+        let bound = CFTimeInterval(NoticeTiming.connectionQuiet.components.seconds)
+        #expect(QuietHold.connectionDelay == NoticeTiming.connectionQuiet)
+        #expect(TerminalStatusBanner.quietDelay == bound)
+        #expect(TerminalStatusBanner.restoringRevealDelay == bound)
+        #expect(TerminalStatusBanner.startingRevealDelay == bound)
+        #expect(TerminalStatusBanner.startingOverdueDelay == bound)
+        #expect(TerminalStatusBanner.disconnectedRevealDelay == bound)
+        #expect(TerminalStatusBanner.reconnectingRevealDelay == bound)
         #expect(SidebarPlaceholderGrace.connectingDelay == QuietHold.connectionDelay)
     }
 

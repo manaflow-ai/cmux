@@ -36,6 +36,23 @@ struct DaemonUnavailableScreenTests {
         }
     }
 
+    /// While cmux starts (under the startup deadline, the shared bound) the window says nothing: no
+    /// "Starting cmux…" (Leo, 2026-11-22: "entire classes of bullshit fucking error/status bullshit. fuck em.
+    /// remove them all."). Past it the failure says one line with its buttons.
+    @Test func startingSaysNothingUntilTheFailureWithItsButtons() {
+        _ = NSApplication.shared
+        let view = DaemonConnectingView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
+        #expect(view.titleText.isEmpty)
+        #expect((view.accessibilityLabel() ?? "").isEmpty)
+        #expect(buttons(in: view).allSatisfy(\.isHidden))
+        view.apply(.unavailable(.connectFailed(path: "/tmp/cmux-501/tui.sock", errno: ECONNREFUSED)))
+        #expect(view.titleText == DaemonRecoveryStrings.serviceUnavailable)
+        #expect(view.accessibilityLabel() == DaemonRecoveryStrings.serviceUnavailable, "a retrying line came back")
+        #expect(buttons(in: view).contains { !$0.isHidden })
+        view.apply(.connected)
+        #expect(view.titleText.isEmpty)
+    }
+
     @Test func offersOneAction() {
         let actions = buttons(in: screen(.connectFailed(path: "/tmp/cmux-501/tui.sock", errno: ECONNREFUSED)))
             .filter { !$0.isHidden }
