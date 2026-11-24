@@ -211,7 +211,8 @@ async fn begin_with(
         begin_params.set("afterSeq", json!(staged.after_seq));
     }
     if let Some(bound) = turn_bound.filter(|_| after_turn) {
-        begin_params.set("afterTurnTimeoutMs", json!(bound.as_millis() as u64));
+        begin_params
+            .set("afterTurnTimeoutMs", json!(u64::try_from(bound.as_millis()).unwrap_or(u64::MAX)));
     }
     let begin = src.call("_acpmux/transfer_begin", begin_params, Wait::Turn, true).await?;
     let transfer_id = field(&begin, "transferId").as_str().unwrap_or_default().to_owned();
