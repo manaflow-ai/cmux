@@ -10,6 +10,7 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::deny().keep(&[
     "CMUX_HISTORY_BROWSER_BUN",
     "CMUX_HISTORY_PACKED_PAGES",
     "CMUX_CHROME_HEADLESS_SHELL",
+    "FAST_CHECKS_OUT", // Optional CI artifact directory for the two synthetic transcript screenshots.
 ]);
 
 use acpmux::chats::ChatSources;

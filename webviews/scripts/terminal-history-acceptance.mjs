@@ -54,7 +54,7 @@ const origin = Bun.serve({
   async fetch(request) {
     const resource = new URL(request.url).pathname;
     if (resource === "/favicon.ico") return new Response(null, { status: 204 });
-    const file = path.resolve(pages, "." + (resource === "/" ? "/terminal-history/index.html" : resource));
+    const file = path.resolve(pages, "." + resource);
     if (!file.startsWith(path.resolve(pages) + "/")) return new Response(null, { status: 404 });
     try {
       const bytes = await readFile(file).catch(async (error) => {
@@ -77,6 +77,7 @@ const origin = Bun.serve({
 const browser = await launchBrowser();
 try {
   const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
+  const evidence = process.env.FAST_CHECKS_OUT;
   const errors = [];
   page.on("pageerror", (err) => {
     errors.push(err.message);
@@ -138,13 +139,28 @@ try {
     },
     { newestText },
   );
-  await page.goto(origin.url.href, { waitUntil: "domcontentloaded" });
-  await page.waitForFunction(() => Number.isFinite(window.historyVisible));
+  await page.goto(new URL("terminal-history/index.html", origin.url).href, { waitUntil: "domcontentloaded" });
+  await page
+    .waitForFunction(() => Number.isFinite(window.historyVisible), undefined, { timeout: 5000 })
+    .catch(async (error) => {
+      const view = await page.evaluate(() => {
+        const el = document.querySelector(".terminal-history-scroll");
+        return {
+          rows: document.querySelectorAll("article").length,
+          scrollTop: el?.scrollTop,
+          clientHeight: el?.clientHeight,
+          scrollHeight: el?.scrollHeight,
+          error: document.querySelector("[role=alert]")?.textContent,
+        };
+      });
+      throw new Error(`Latest turn did not become visible: ${JSON.stringify(view)}`, { cause: error });
+    });
   const metrics = await page.evaluate(() => ({
     navigation_to_visible_ms: window.historyVisible,
     first_request_to_visible_ms: window.historyVisible - window.historyFirstRequest,
   }));
   console.log("terminal_history_visible_600mib", JSON.stringify(metrics));
+  if (evidence) await page.screenshot({ path: path.join(evidence, "terminal-history-latest.png") });
 
   const tool = page.locator("article details").last();
   assert.equal(await tool.evaluate((el) => el.open), false);
@@ -169,7 +185,8 @@ try {
             if (ordinal(first()) >= n || !Number.isFinite(ordinal(first()))) return;
             observer.disconnect();
             clearTimeout(deadline);
-            requestAnimationFrame(resolve);
+            // Let layout restore the existing row before the next scroll gesture.
+            requestAnimationFrame(() => requestAnimationFrame(resolve));
           });
           const deadline = setTimeout(() => {
             observer.disconnect();
@@ -227,6 +244,7 @@ try {
     "terminal_history_find_600mib",
     JSON.stringify({ query_to_day_one_visible_ms: performance.now() - started }),
   );
+  if (evidence) await page.screenshot({ path: path.join(evidence, "terminal-history-day-one.png") });
   assert.deepEqual(errors, []);
   assert.ok(metrics.navigation_to_visible_ms < 200, "packed navigation through visible latest turn exceeded 200 ms");
 } finally {
