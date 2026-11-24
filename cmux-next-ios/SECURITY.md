@@ -58,7 +58,7 @@ allowlist gets a local `forbidden` error line and never reaches the daemon.
 | --- | --- |
 | Executes commands or opens content on local objects? | Yes, by design, and only in these bounded forms. `send` and `send-key` type into a terminal the person already sees in their own workspaces: the phone is a remote keyboard for the owner. `create-terminal`, `new-tab`, `new-pane`, `split`, `new-screen` and `new-workspace` start the person's default shell. Their parameters are limited to size and placement fields (`creation_fields`), so `argv`, `command`, `cwd`, `env` and any other field are refused. The browser commands (`new-browser-tab`, `browser-navigate`, `browser-key`, `browser-insert-text`, `browser-mouse`, ...) drive the Mac's cmux browser tabs. A URL the phone opens must be `http(s)://` or `about:blank` (test `browser_tabs_open_web_pages_only`), so `file:`, `javascript:` and app schemes are refused. This narrowing is in the Rust policy only; the Swift mirror keeps the same command list. There is no `run`, `respawn-*` or `eval` command. |
 | Mutates or destroys objects the session does not own? | The phone's session is the owner's whole daemon, the same set of workspaces the person sees on the Mac, so close, rename, move and select act on the person's own objects. There is no per-object scoping beyond that, and none is needed while admission is same-user only. Frontend projections are the exception: reads and writes are limited to `scope: personal`, `subject_key: ios-device:<phone deviceId>`, so a phone cannot overwrite the Mac's own projection or another phone's. |
-| Reads local state the remote should not see? | It reads what the owner's Mac shows: terminal screens and scrollback, process info, listening ports, machine usage. All of that is the owner's own data on the owner's own device. Settings, credentials, keychain, the control socket and other users' sessions cannot be reached. When the app supervises hostd, a phone that names a session gets only the app's own one (`forbidden` otherwise), so it never reaches another channel's or tag's daemon in the same socket folder. |
+| Reads local state the remote should not see? | It reads what the owner's Mac shows: terminal screens and scrollback, process info, listening ports, machine usage. All of that is the owner's own data on the owner's own device. `terminal-find` searches the same scrollback `read-scrollback` returns, so it reads nothing more; its regex is linear-time with a 2 MiB compiled-size cap, and it holds the terminal for one 512-row chunk at a time, so a phone's query cannot stall the terminal. Settings, credentials, keychain, the control socket and other users' sessions cannot be reached. When the app supervises hostd, a phone that names a session gets only the app's own one (`forbidden` otherwise), so it never reaches another channel's or tag's daemon in the same socket folder. |
 
 - **Rule 3 (command-bearing parameters):** refused on every creation command
   through the per-command field allowlist (test
@@ -1163,6 +1163,12 @@ person's devices that this Mac already paired can now answer it (`src/pair_reque
   waiting prompt with the same keys, only while the answering device is still on its paired list,
   through the same path as the person's Allow or Don't Allow (`IPhoneHostService.answerFromPairedDevice`).
   The answer is recorded in Activity.
+- **On the phone** (`MacPairRequests`, decisions in cmux-mobile-link-ffi `pair_requests.rs`): a
+  linked Mac whose hostd lists `pair-requests-v1` is listed on link open, on foreground, every 3 s
+  while an "Allow on this phone" card shows and every 10 s for 5 minutes after, then not until
+  the next foreground. The card shows the asking device's name and the 16-hex fingerprint in groups
+  of four; Allow and Don't Allow send `answer` with that fingerprint. The phone's channel args are
+  strings, so hostd takes `allow` as `true`/`false` or `"true"`/`"false"` and nothing else.
 - Not changed: the first device of an account still needs the Mac's Allow (or a pairing code),
   and nothing approves with account credentials alone.
 
