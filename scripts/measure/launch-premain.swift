@@ -1,15 +1,23 @@
 // What a cmux NEXT launch pays before `main` (CMUX-629): the probe scripts/measure/launch-premain.sh runs per launch.
 //
-//   launch-premain open APP HOME_ROOT LABEL RUN_S [quit|term]
+//   launch-premain open APP HOME_ROOT LABEL RUN_S [quit|term|settle]
 //                                                   open APP through LaunchServices (as the Dock does), wait for its
 //                                                   first on-screen window, keep it RUN_S seconds, then quit it the
 //                                                   way Cmd-Q does (NSRunningApplication.terminate; SIGTERM after 20 s),
-//                                                   or with term end it with SIGTERM ("Quit, keep sessions")
-//   launch-premain exec APP HOME_ROOT LABEL [HOLD]  exec APP's executable directly and stop it at its `main_start`
+//                                                   or with term end it with SIGTERM ("Quit, keep sessions"); settle
+//                                                   ends it as term does, at its window_usable mark or RUN_S seconds
+//                                                   past its window, whichever comes first, and adds the settle fields
+//   launch-premain exec APP HOME_ROOT LABEL [HOLD] [settle=S]
+//                                                   exec APP's executable directly and stop it at its `main_start`
 //                                                   mark; with HOLD, start it suspended, print `LP-PID <pid>`, and let
-//                                                   it run once the file HOLD exists (a sampler attaches meanwhile)
+//                                                   it run once the file HOLD exists (a sampler attaches meanwhile);
+//                                                   with settle=S, after the readings at main let it run on to its
+//                                                   window and its window_usable mark (or S seconds past the window),
+//                                                   then SIGTERM, with the settle fields
 //   launch-premain stub FILE LABEL                  exec FILE --version and time it to exit (killed at 5 s)
 //   launch-premain resident FILE                    print FILE's resident fraction and page counts
+//   launch-premain spawn FILE LABEL                 posix_spawn FILE started suspended, time the call (the kernel's
+//                                                   exec of the image, its policy check included), then kill it
 //
 // Each launch prints one `LP-RUN <json>` line. main_start is the app's own mark, in ms from its process start
 // (sysctl p_starttime). At the mark (in exec mode with the process stopped there; in open mode as the mark arrives,
@@ -18,6 +26,11 @@
 // in), before the launch and at main; pages_touched is the difference in pages. On a build whose executable is a stub
 // and whose code is Contents/Frameworks/CmuxNextApp.framework (cmux#44204), fw_resident_before, fw_resident_at_main
 // and fw_pages_touched say the same of the framework's binary.
+//
+// The settle fields (open ... settle, exec ... settle=S), ms from process start like main_start:
+// first_window_frame_committed, launch_shell.committed (null on a build that has no such mark), window_usable,
+// window_on_screen, and settle: window_usable, or window_on_screen + 6000 when the app marked none by the end
+// (settle_by says which: window_usable, window+6s, or none with no window). settle_wait_s is the RUN_S or S it waited.
 import AppKit
 import Darwin
 
@@ -107,6 +120,23 @@ func frameworkAtMain(_ path: String?, before: Resident?) {
 
 var retained: [AnyObject] = []
 
+// The marks after main a settled launch reports, by name.
+let settleMarks: Set<String> = ["first_window_frame_committed", "launch_shell.committed", "window_usable"]
+
+// The settle fields from the marks seen and the window (ms from process start), as the header says.
+func settleFields(_ marks: [String: Double], window: Double?, waited: Double) -> [String: Any] {
+    var fields: [String: Any] = ["settle_wait_s": waited]
+    for name in settleMarks { fields[name] = json(marks[name]) }
+    if let usable = marks["window_usable"] {
+        fields["settle"] = usable; fields["settle_by"] = "window_usable"
+    } else if let window {
+        fields["settle"] = round1(window + 6000); fields["settle_by"] = "window+6s"
+    } else {
+        fields["settle"] = NSNull(); fields["settle_by"] = "none"
+    }
+    return fields
+}
+
 // The marks FIFO, opened read-write first: the app's nonblocking open for writing finds a reader, and with the
 // probe as a writer too a read never sees end of file, so the read source fires only on data (read-only, it fires
 // without end while no writer is open, a busy core on the Mac being measured). `onMark` runs on the main queue for
@@ -182,6 +212,20 @@ case "resident":
     guard let r = resident(args[2]) else { print("LP-RESIDENT none"); exit(1) }
     print("LP-RESIDENT \(round1(r.fraction * 1000) / 1000) \(r.resident) \(r.pages)")
 
+case "spawn":
+    guard args.count >= 4 else { usage() }
+    var pid: pid_t = 0, attr: posix_spawnattr_t? = nil
+    posix_spawnattr_init(&attr)
+    posix_spawnattr_setflags(&attr, Int16(POSIX_SPAWN_START_SUSPENDED))
+    let argv: [UnsafeMutablePointer<CChar>?] = [strdup(args[2]), nil]
+    let started = now()
+    let rc = posix_spawn(&pid, args[2], nil, &attr, argv, environ)
+    let spawnMs = now() - started
+    if rc == 0 { kill(pid, SIGKILL); kill(pid, SIGCONT); var status: Int32 = 0; waitpid(pid, &status, 0) }
+    var spawned: [String: Any] = ["label": args[3], "mode": "spawn", "file": (args[2] as NSString).lastPathComponent, "spawn_ms": round1(spawnMs)]
+    if rc != 0 { spawned["error"] = "spawn \(rc)" }
+    emit(spawned)
+
 case "stub":
     guard args.count >= 4 else { usage() }
     let before = resident(args[2]), sysBefore = systemPageins(), started = now()
@@ -202,18 +246,27 @@ case "stub":
 case "exec":
     guard args.count >= 5 else { usage() }
     let app = URL(fileURLWithPath: args[2]), homeRoot = URL(fileURLWithPath: args[3]), label = args[4]
-    let hold = args.count > 5 ? args[5] : nil
+    let extra = Array(args.dropFirst(5))
+    let settleArg = extra.first { $0.hasPrefix("settle=") }
+    let settleFor = settleArg.map { Double($0.dropFirst("settle=".count)) ?? -1 }
+    if let settleFor, settleFor <= 0 { usage() }
+    let hold = extra.first { !$0.hasPrefix("settle=") }
     let exe = executable(app), before = resident(exe)
     let fw = codeFramework(app), fwBefore = fw.flatMap(resident)
+    var later: [String: Double] = [:], stoppedMs: Double?
     let fifo = marksFIFO(homeRoot) { name, ms in
+        if settleMarks.contains(name) { later[name] = ms }
         guard name == "main_start", mainAt == nil else { return }
         kill(child, SIGSTOP) // stopped at main: rusage and residency below are the pre-main ones
+        let stopped = now()
         mainAt = ms
         row = usage(child)
         let atMain = resident(exe)
         row["resident_at_main"] = fraction(atMain)
         if let atMain, let before { row["pages_touched"] = atMain.resident - before.resident }
         frameworkAtMain(fw, before: fwBefore)
+        // settle=S: on from main; every later mark includes the time it was stopped (stopped_at_main_ms).
+        if settleFor != nil { stoppedMs = round1(now() - stopped); kill(child, SIGCONT) }
     }
     let env = environment(homeRoot, fifo: fifo).map { strdup("\($0.key)=\($0.value)") } + [nil]
     let argv: [UnsafeMutablePointer<CChar>?] = [strdup(exe), nil]
@@ -229,36 +282,66 @@ case "exec":
     posix_spawn_file_actions_addopen(&actions, 2, appLog, O_WRONLY | O_CREAT | O_APPEND, 0o644)
     let sysBefore = systemPageins(), requested = now()
     guard posix_spawn(&child, exe, &actions, &attr, argv, env) == 0 else { emit(["label": label, "error": "spawn"]); exit(1) }
+    // posix_spawn returns once the kernel has activated the new image (the code signature and the system's policy
+    // check of the executable included); dyld, the frameworks it links and initializers run after, in the child.
+    // Started suspended, spawn_ms is the exec alone and resume_to_main is dyld, the linked frameworks and
+    // initializers up to main.
+    let spawned = now()
+    var resumed: Double?
     if let hold {
         print("LP-PID \(child)"); fflush(stdout)
         let waitFrom = now()
         while access(hold, F_OK) != 0, now() - waitFrom < 30_000 { usleep(2000) }
         kill(child, SIGCONT)
+        resumed = now()
     }
     let start = processStart(child)
     spin { mainAt != nil || now() - requested > 30_000 }
     let sysPageins = systemPageins() - sysBefore
-    kill(child, SIGKILL); kill(child, SIGCONT)
+    var execWindow: Double?
+    if let settleFor, mainAt != nil {
+        spin {
+            if execWindow == nil, ownWindowOnScreen(child) { execWindow = now() }
+            return execWindow != nil || now() - requested > 30_000
+        }
+        spin { later["window_usable"] != nil || now() - (execWindow ?? requested) >= settleFor * 1000 }
+        kill(child, SIGTERM)
+        let sent = now()
+        var reaped: Int32 = 0
+        spin { waitpid(child, &reaped, WNOHANG) == child || now() - sent > 10_000 }
+        if kill(child, 0) == 0 { kill(child, SIGKILL) }
+    } else {
+        kill(child, SIGKILL); kill(child, SIGCONT)
+    }
     var status: Int32 = 0; waitpid(child, &status, 0)
     let fields: [String: Any] = ["label": label, "mode": "exec", "pid": Int(child), "main_start": json(mainAt), "system_pageins": sysPageins,
                                  "resident_before": fraction(before), "held": hold != nil,
-                                 "request_to_start": json(start.map { round1($0 - requested) })]
+                                 "request_to_start": json(start.map { round1($0 - requested) }),
+                                 "spawn_ms": round1(spawned - requested),
+                                 "resume_to_main": json(resumed.flatMap { r in start.flatMap { s in mainAt.map { round1(s + $0 - r) } } })]
     row.merge(fields) { $1 }
     if fw != nil { row["fw_resident_before"] = fraction(fwBefore) }
+    if let settleFor {
+        let windowMs = execWindow.flatMap { w in start.map { round1(w - $0) } }
+        row.merge(settleFields(later, window: windowMs, waited: settleFor)) { $1 }
+        row["window_on_screen"] = json(windowMs)
+        row["stopped_at_main_ms"] = json(stoppedMs)
+    }
     if mainAt == nil { row["error"] = "no main_start in 30 s" }
     emit(row)
     exit(mainAt == nil ? 1 : 0)
 
 case "open":
     guard args.count >= 6, let runFor = Double(args[5]) else { usage() }
-    let endWithTerm = args.count > 6 && args[6] == "term"
+    let settle = args.count > 6 && args[6] == "settle"
+    let endWithTerm = settle || (args.count > 6 && args[6] == "term")
     let app = URL(fileURLWithPath: args[2]), homeRoot = URL(fileURLWithPath: args[3]), label = args[4]
     let exe = executable(app), before = resident(exe)
     let fw = codeFramework(app), fwBefore = fw.flatMap(resident)
     // The marks after main a measured launch reports (launch-reboot.sh), as launch-ready.swift keeps them.
     var later: [String: Double] = [:]
     let fifo = marksFIFO(homeRoot) { name, ms in
-        if name == "first_window_frame_committed" || name == "window_usable" { later[name] = ms }
+        if settleMarks.contains(name) { later[name] = ms }
         guard name == "main_start", mainAt == nil else { return }
         mainAt = ms
         if running == nil { running = runningCopy(app) }
@@ -288,7 +371,7 @@ case "open":
     }
     var quit = "none"
     if let target = running {
-        spin { now() - (window ?? requested) >= runFor * 1000 }
+        spin { (settle && later["window_usable"] != nil) || now() - (window ?? requested) >= runFor * 1000 }
         if endWithTerm { kill(target.processIdentifier, SIGTERM); quit = "term" } else { target.terminate(); quit = "terminate" }
         let sent = now()
         spin { target.isTerminated || kill(target.processIdentifier, 0) != 0 || now() - sent > 20_000 }
@@ -306,6 +389,7 @@ case "open":
                                  "first_window_frame_committed": json(later["first_window_frame_committed"]),
                                  "window_usable": json(later["window_usable"])]
     row.merge(fields) { $1 }
+    if settle { row.merge(settleFields(later, window: window.flatMap { w in start.map { round1(w - $0) } }, waited: runFor)) { $1 } }
     if fw != nil { row["fw_resident_before"] = fraction(fwBefore) }
     if let failure { row["error"] = failure } else if window == nil { row["error"] = "no window in 30 s" }
     emit(row)
@@ -334,9 +418,13 @@ case "first":
         CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
     }
     func owner(_ info: [String: Any]) -> String { info[kCGWindowOwnerName as String] as? String ?? "?" }
+    func windowID(_ info: [String: Any]) -> Int { info[kCGWindowNumber as String] as? Int ?? -1 }
+    // CoreServicesUIAgent windows already on screen before the request (a prompt an earlier launch left unanswered)
+    // are not this launch's prompt: only a window that came after the request is.
+    let agentBefore = Set(onScreen().filter { owner($0) == "CoreServicesUIAgent" }.map(windowID))
     func agentWindow(_ list: [[String: Any]]) -> (pid: Int32, id: Int)? {
-        for info in list where owner(info) == "CoreServicesUIAgent" {
-            if let pid = info[kCGWindowOwnerPID as String] as? Int32, let id = info[kCGWindowNumber as String] as? Int { return (pid, id) }
+        for info in list where owner(info) == "CoreServicesUIAgent" && !agentBefore.contains(windowID(info)) {
+            if let pid = info[kCGWindowOwnerPID as String] as? Int32 { return (pid, windowID(info)) }
         }
         return nil
     }
@@ -398,7 +486,8 @@ case "first":
         "prompt": since(prompt), "prompt_gone": since(promptGone), "pressed": since(pressed), "press": press,
         "start": since(start), "main": fromRequest("main_start"), "window": since(window), "usable": fromRequest("window_usable"),
         "main_start": json(mainAt), "translocated": path.contains("/AppTranslocation/"), "ran_from": path,
-        "marks": marks.mapValues(round1), "new_window_owners": newOwners,
+        "marks": marks.mapValues(round1), "new_window_owners": newOwners, "prompts_before": agentBefore.count,
+        "prompt_left": agentWindow(onScreen()) != nil,
     ]
     row.merge(fields) { $1 }
     if let failure { row["error"] = failure } else if window == nil { row["error"] = "no window in 60 s" }

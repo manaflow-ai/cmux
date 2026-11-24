@@ -23,7 +23,7 @@ The grammar is the Mac's (`Packages/macOS/CmuxNext/Sources/CmuxNextActions/DeepL
 - **Agent links.** As on the Mac (`DeepLink.agentTabs`), an agent link opens the chat bound to the session first. Otherwise it opens a terminal whose agent reports that session under the link's harness, then one whose agent names no known harness. It never opens a terminal running another harness.
 - **Nightly's legacy links.** `workspace/<uuid>` links are not opened: the phone has no stable id to match them by.
 - **Launch restore.** A link decides where the app opens, so the launch restore of the last workspace is dropped. After that it shows "Couldn't find that link on your Macs." and stays on the current screen.
-- **Safety.** A link is an address: it never creates, starts or runs anything. Every query parameter except `message` is ignored. The `cmux://auth-callback` sign-in callback and the `cmux-next://pair` pairing code are not links.
+- **Safety.** A link is an address: it never creates, starts or runs anything. Every query parameter except `message` is ignored. The `cmux://auth-callback` sign-in callback is not a link. The app no longer registers `cmux-next://`: the Mac's pairing code for this phone is retired (2026-11-20), and a phone signed in to the Mac's account pairs on its own.
 
 ## Universal links: the server change still needed
 

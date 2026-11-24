@@ -1,0 +1,29 @@
+# Cache saves that a lane branch or pull request can run, as `file: job: step`, from before
+# tests/test_ci_no_run_scoped_cache_keys.py's per-ref rule (2026-11-18). Each saves a copy per ref that
+# only that ref reads again. Shrink this list (limit the save to a feat-cmux-next push); never grow it.
+ci-web.yml: webviews-test-durations: Save the duration manifest
+cmux-next-degenerate-lab.yml: lab: Save tonight's marker
+cmux-next-perf-budgets.yml: blacksmith-mac: Save the warm cache
+cmux-next-web.yml: coalesce: Record this push as the last covered one
+cmux-next.yml: cmux-scheme-compile: Save the DEV compile cache (Blacksmith)
+cmux-next.yml: web-bundles: Cache the web bundles under this source key
+cmux-tui-sdks.yml: conformance: Save the headless cmux-tui build
+first-user-journey-ios.yml: journey: Save the framework for later runs
+ios-reliability-matrix.yml: ios: Save the framework for later runs
+nightly-next-canary.yml: verdict: Save the checked marker
+nightly-next-launch-smoke.yml: record: Save the smoked marker
+nightly.yml: build-nightly-app: Restore the acpmux and OptChat Chief dependency builds (cmux-next)
+nightly.yml: build-nightly-app: Save Swift packages
+nightly.yml: build-nightly-app: Save Xcode compilation cache
+nightly.yml: build-nightly-app: Save the OptChat Chief cache
+nightly.yml: build-nightly-ghostty-cli-helper: Cache Zig packages
+nightly.yml: build-nightly-ghostty-cli-helper: Cache the Ghostty CLI helper
+nightly.yml: nightly-next-one: Cache Zig packages
+nightly.yml: nightly-next-one: Cache the Ghostty CLI helper
+nightly.yml: nightly-next-one: Save the OptChat Chief cache
+nightly.yml: refresh-compilation-cache: Save Swift packages
+nightly.yml: refresh-compilation-cache: Save Xcode compilation cache
+nightly.yml: refresh-test-compilation-cache: Save DerivedData seed
+nightly.yml: refresh-test-compilation-cache: Save Swift packages
+pr-checks.yml: advisory: Restore this pull request's Swift facts cache
+reload-build.yml: build: Save DerivedData cache

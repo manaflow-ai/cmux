@@ -30,7 +30,10 @@ export type SettingKind =
   // `{sound, volume, events}`. Set from the sidebar menus, the palette and the CLI; never a row.
   | "sound_rules"
   // Ordered choices (`row.choices`) or free-text tokens (`browser.urlsToAlwaysOpenExternally`).
-  | "string_list";
+  | "string_list"
+  // A nested value of the row's `shape`, a JSON Schema (`sidebar.workspaceRow.lines`: lists of token
+  // lists). The daemon checks it and says where a value went wrong (`accepted.problems`).
+  | "json";
 
 export type NumberUnit = "points" | "milliseconds" | "seconds" | "minutes" | "days" | "count" | "fraction";
 
@@ -55,6 +58,8 @@ export type SchemaRow = {
   range?: NumberRange;
   /** choice_or_url: the member that holds the address (`selfHosted`). */
   url_key?: string;
+  /** json: the value's JSON Schema (draft 2020-12; cmux-config schema/shape.rs checks it). */
+  shape?: { type: "array" | "object" } & Record<string, unknown>;
   default: unknown;
   default_label: LocalizedText | null;
   /** What a list row's empty field shows; null or absent shows none (a host list: its host example). */
@@ -98,7 +103,8 @@ export type PageCategory = {
 
 /** A titled run of categories in the page's sidebar (Swift `SettingsPageLayout.SidebarSection`);
  * the lead run (General, Updates) has a null title. */
-export type PageSidebarSection = { id: string; title: LocalizedText | null; categories: string[] };
+/** A sidebar section of the export; `collapsed` (More) is drawn closed until opened. */
+export type PageSidebarSection = { id: string; title: LocalizedText | null; collapsed?: boolean; categories: string[] };
 
 export type PageLayout = {
   default_category: string;

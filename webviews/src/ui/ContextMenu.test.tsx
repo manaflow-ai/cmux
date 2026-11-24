@@ -363,3 +363,82 @@ test("a right-click on the page's own menu stays in the menu, also under asChild
   );
   expect(document.querySelector(".ui-context-menu")).toBeNull();
 });
+
+// Press-drag-release on the right-click menu (Lawrence via Leo, 2026-11-17: "so he click and hold on
+// the context menu start and then it goes over and then release should go"). A Mac sends contextmenu
+// on the press; with the button still held, dragging onto a row and releasing runs it.
+function heldRightPress(target: HTMLElement) {
+  return act(async () => {
+    target.dispatchEvent(
+      new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        clientX: 40,
+        clientY: 60,
+        button: 2,
+        buttons: 2,
+      }),
+    );
+    await Promise.resolve();
+  });
+}
+
+function mousePointer(target: EventTarget, type: string, x: number, y: number) {
+  const event = new MouseEvent(type, { bubbles: true, cancelable: true, button: 2, clientX: x, clientY: y });
+  Object.defineProperties(event, { pointerId: { value: 1 }, pointerType: { value: "mouse" } });
+  act(() => {
+    target.dispatchEvent(event);
+  });
+}
+
+function pointAt(element: () => Element | null) {
+  (document as Document & { elementFromPoint(x: number, y: number): Element | null }).elementFromPoint = () =>
+    element();
+}
+
+const menuRow = (label: string) =>
+  [...document.querySelectorAll<HTMLElement>('.ui-context-menu [role^="menuitem"]')].find(
+    (row) => row.getAttribute("aria-label") === label || row.textContent === label,
+  ) ?? null;
+
+test("a held right-press dragged onto a page-drawn row and released runs it", async () => {
+  const ran: string[] = [];
+  const target = render(items(ran));
+  await heldRightPress(target);
+  expect(document.querySelector(".ui-context-menu")).not.toBeNull();
+  pointAt(() => menuRow("Close"));
+  mousePointer(document.body, "pointermove", 60, 120);
+  mousePointer(document.body, "pointerup", 60, 120);
+  expect(ran).toEqual(["close"]);
+  expect(document.querySelector(".ui-context-menu")).toBeNull();
+});
+
+test("a quick right-click release leaves the page-drawn menu open; a disabled row never runs", async () => {
+  const ran: string[] = [];
+  const target = render(items(ran));
+  await heldRightPress(target);
+  pointAt(() => target);
+  mousePointer(target, "pointerup", 40, 60);
+  expect(document.querySelector(".ui-context-menu")).not.toBeNull();
+  expect(ran).toEqual([]);
+  await heldRightPress(target);
+  pointAt(() => menuRow("Copy"));
+  mousePointer(document.body, "pointermove", 60, 90);
+  mousePointer(document.body, "pointerup", 60, 90);
+  expect(ran).toEqual([]);
+});
+
+test("a held right-press dragged off the menu and released after the click time closes it", async () => {
+  const ran: string[] = [];
+  const target = render(items(ran));
+  await heldRightPress(target);
+  await act(async () => {
+    // fixed-wait: the release must come after PRESS_CLICK_MS (150 ms) on the wall clock (pressRelease.ts uses Date.now())
+    await new Promise((resolve) => setTimeout(resolve, 180));
+  });
+  pointAt(() => document.body);
+  mousePointer(document.body, "pointermove", 400, 400);
+  mousePointer(document.body, "pointerup", 400, 400);
+  expect(ran).toEqual([]);
+  expect(document.querySelector(".ui-context-menu")).toBeNull();
+});

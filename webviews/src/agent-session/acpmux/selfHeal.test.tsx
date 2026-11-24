@@ -13,6 +13,10 @@ import { RECONNECT_LINE_AFTER_MS, hostRecoveryLine, readHostRestoring } from "./
 import type { AcpmuxSnapshot } from "./model";
 import { stallTiming } from "./stallLog";
 import { settleReact } from "../../../test/support/domTeardown";
+// Loaded before the file starts, as the app loads it: the module installs the old host's
+// `cmuxAcpmuxComputerUseState` hook on globalThis when it first loads, and a first load inside a
+// test reads as a leaked global (test/support/leakDetector.ts).
+import "./computerUse/computerUseState";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 // The page's timers are the test's fake ones (the client's reconnect uses `window.setTimeout`).
@@ -317,9 +321,10 @@ test("the host's restore status reads as a quiet line with its elapsed time", ()
   expect(readHostRestoring(undefined, 5)).toBeUndefined();
   const restoring = { waitedMs: 12_000, at: 1_000 };
   expect(hostRecoveryLine({ restoring, now: 4_000 })).toEqual({ kind: "restoring", waitedMs: 15_000 });
-  expect(renderToStaticMarkup(<HostRecoveringLine restoring={restoring} now={4_000} />)).toContain(
-    "Restoring sessions… 0:15",
-  );
+  // The time is its own clock element (HostError.tsx `ClockedWords`): the line's text, tags aside.
+  expect(
+    renderToStaticMarkup(<HostRecoveringLine restoring={restoring} now={4_000} />).replace(/<[^>]+>/g, ""),
+  ).toContain("Restoring sessions… 0:15");
   // A lost link says nothing for its first moment, and leaves the line to the failure past 25 s.
   expect(hostRecoveryLine({ relinkingSince: 0, now: 500 })).toBeUndefined();
   expect(hostRecoveryLine({ relinkingSince: 0, now: 12_000 })).toEqual({ kind: "reconnecting" });

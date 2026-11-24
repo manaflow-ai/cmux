@@ -143,7 +143,7 @@ What failed before (tried live with Linear and Slack, 2026-11-18):
 | Gap | Before | Now |
 |---|---|---|
 | Where connections live | per Chief home (`<optchat root>/mcp/servers.json`): a server one Chief connected was unknown to every other Chief, to its subagents' Chief after a move, and to cmux's own connect card | one store per build in its acpmux home (`<acpmux home>/mcp/servers/<name>.json`, secrets `secrets/<name>.json` 0600), path and record shape defined once in `cmux-mcp-connect::shared`; each hub reloads it on every action, so a server added, signed in or removed anywhere shows at once everywhere. An older `servers.json` moves over on first load |
-| cmux connect card -> Chief | the acpmux card (`connect_mcp_server`, still behind `CMUX_MCP_CONNECT_PREVIEW=1`) kept nothing after approval | an approved remote server (scope other than "this chat") is kept in the store, `connected` or `needs sign-in`, a typed key only in its 0600 secrets file; the Chief's `mcp signin` finishes the sign-in |
+| cmux connect card -> Chief | the acpmux card (`connect_mcp_server`, then behind `CMUX_MCP_CONNECT_PREVIEW=1`) kept nothing after approval | an approved remote server is kept in the store, `connected` or `needs sign-in`, a typed key only in its 0600 secrets file; the Chief's `mcp signin` finishes the sign-in |
 | Subagents | `mcp add` refused for every subagent ("only the Chief adds") | a subagent adds a known service by name (registry URL exactly, verified, no headers, env, name or replace) and signs in to a verified one; custom URLs, commands, keys and removal stay the Chief's |
 | Slack | `mcp.slack.com` has no dynamic client registration: "the server's sign-in takes no new apps" | the registry carries cmux's own Slack app ("cmux MCP", Manaflow workspace, PKCE on so it is a public client with no secret, redirect `http://localhost:3118/callback`, comma-joined scopes, and Agents > "Enable Slack MCP Server" on: without it a signed-in token gets HTTP 400 "App is not enabled for Slack MCP server access"); the hub uses a registered client when the registry names one |
 | Token life | refresh only when the stored expiry was near; a token with no expiry or revoked early sent the person back to sign in; two Chiefs could spend one refresh token | a 401 with a refresh token in the store refreshes once before asking for a sign-in; refreshes take a machine-wide lock per server |
@@ -151,11 +151,15 @@ What failed before (tried live with Linear and Slack, 2026-11-18):
 
 Proven live 2026-11-18 with the branch's optchat-chief on this Mac: Linear (DCR client, 70 tools, `list_teams` answered) and Slack (cmux MCP app, PKCE token with no secret, 27 tools, `slack_search_users` answered), both in `~/.acpmux/mcp` with tokens only in the 0600 secrets files.
 
-Still open: cmux agents other than the Chief do not run stored servers yet (the acpmux proxy, design
-step 2b-ii of mcp-connect-DESIGN.md, so `connect_mcp_server` stays behind its preview flag); Settings has no
-MCP Servers page; the Slack app is internal to the Manaflow workspace (people in other workspaces
-need it published in the Slack Marketplace); scopes are machine-wide (a card's scope is recorded, not
-enforced per Chief); the Cloud Chief has no hub.
+Then (a1229, same day):
+
+| Gap | Before | Now |
+|---|---|---|
+| Agents other than the Chief | could not use a stored server, so `connect_mcp_server` stayed behind `CMUX_MCP_CONNECT_PREVIEW=1` | every chat cmux starts gets one tool, `mcp_servers` (acpmux's `cmux-mcp` upstream of `cmux mcp serve`: `optchat-chief integrations serve`, the same hub on the same store, the chat's viewer from `CMUX_AGENT_SESSION` and `ACPMUX_SESSION_NAME`). It lists, describes, calls, runs code against and signs in to the servers it may use; it never adds, removes or subscribes. The card has no preview flag any more. Off with `agents.mcpServers.enabled: false` in cmux.json |
+| Scope | recorded, not enforced; "this chat" kept nothing | the card keeps every scope with its owner (`scope`, `owner` in the record) and one rule, `cmux_mcp_connect::shared::visible`, decides who sees it: `chat` that chat (owner its session id), `chief` that Chief (owner its home id) and the chats it runs (`optchat-sub-<home id>-...`), `allChiefs` every Chief, `agents`/`everywhere`/none every chat and Chief; the person (CLI, Settings) sees all. "This Chief" from a chat no Chief runs is kept as "this chat" (fail closed). A Chief's hub filters on load and on every reload, never writes or overwrites a server it does not see, and keeps `scope`/`owner` when it updates a record |
+| Settings | no page | Settings > AI > MCP Servers: every saved server, who has it, its state and tool count, Sign In (the service's page opens in a cmux tab, the row waits) and Remove (asks once more; gone for every agent with its sign-in). The app runs `optchat-chief integrations --json list|signin|remove`; the CLI owns the store |
+
+Limits: the scope is a rule between the person's own agents on one Mac, not a wall: every agent runs as the same user and could read the store's files. `everywhere` means every agent on this Mac until servers sync between machines. An agent's sign-in waits 10 minutes (the `cmux mcp serve` upstream stops after 10 quiet minutes), the Chief's and Settings' 20. A later card for the same name that this chat does not see replaces its scope (the person's latest choice). Still open: the Slack app is internal to the Manaflow workspace (people in other workspaces need it published in the Slack Marketplace); the Cloud Chief has no hub.
 
 ## 3. Verification
 

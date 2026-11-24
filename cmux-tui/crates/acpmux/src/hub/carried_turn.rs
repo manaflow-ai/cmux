@@ -336,7 +336,7 @@ impl Hub {
             self.arm_turn_cap(session, &turn.turn_id);
         }
         self.recovered_floor(session, turn.control);
-        self.set_status(session, SessionStatus::Running);
+        self.set_status(session, NotWaiting::Running);
         let (hub, session, child) = (self.clone(), session.clone(), child.clone());
         // A recovered turn is not continued (`auto_resume.rs`).
         self.scope.spawn_named(
@@ -348,7 +348,7 @@ impl Hub {
     /// As a recovered turn (`hosts.rs` `recover_work`): a Web turn in an agent the sandbox did
     /// not start, or in a mode only a machine's Full-access setting allows, does not go on.
     pub(super) fn recovered_floor(&self, session: &Session, control: Control) {
-        session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
+        session.floor.mark_last_turn(control == Control::Web, None);
         if control == Control::Web && session.floor.unsandboxed.load(Ordering::SeqCst) {
             self.remote_floor_cancel(session, "remote.unsandboxed_agent");
         }
@@ -382,7 +382,7 @@ impl Hub {
         self.lane_turn_on(session, continues.reports);
         self.lane_turn_asked(session, continues.asked.as_ref());
         if turn.control == Control::Web {
-            session.floor.last_turn_web.store(true, Ordering::SeqCst);
+            session.floor.mark_last_turn(true, turn.device.clone());
         }
         let msg = json!({
             "prompt": turn.prompt_preview,
@@ -395,6 +395,8 @@ impl Hub {
             "cloudMobile": session.floor.cloud_mobile_turn.load(Ordering::SeqCst),
             "trigger": turn.trigger,
             "carried": {"fromTurnId": from, "promptIds": c.prompt_ids},
+            // The paired device that drove it, read back after a restart (`hosts.rs`).
+            "device": turn.device.as_deref().filter(|_| turn.control == Control::Web),
         });
         if turn.trigger {
             self.start_trigger_background(session, &turn.turn_id);
@@ -430,7 +432,7 @@ impl Hub {
         let stops = session.stops.load(Ordering::SeqCst);
         loop {
             self.hold_stalled_count(&session);
-            self.set_status(&session, SessionStatus::Running);
+            self.set_status(&session, NotWaiting::Running);
             self.watch_silent_turn(&session, &turn.turn_id).await;
             // Debug builds only: `ACPMUX_TEST_CARRY_HOLD_MS` holds a carried turn before its
             // prompt goes out, so a test can restart the daemon there
@@ -490,6 +492,7 @@ impl Hub {
                             agent_error.as_deref(),
                             &e.message,
                         ),
+                        slash: None,
                     })
                 }
                 _ => None,

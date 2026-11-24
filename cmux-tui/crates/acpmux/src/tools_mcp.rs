@@ -15,7 +15,8 @@
 //!
 //! The same loop ([`serve`]) runs each server's own process with one server in it, and the
 //! bridge and guest servers (`acpmux_mcp_bridge.rs`, `acpmux_mcp_guest.rs`) through
-//! `secret_mcp::serve_as`.
+//! `secret_mcp::serve_as`. The daemon's gateway (`mcp_gateway.rs`) answers with the same
+//! [`answer`] for a chat over HTTP, its servers reading their env from `tool_env.rs`.
 
 use crate::client::Client;
 use crate::secret_mcp::error_result;
@@ -43,6 +44,40 @@ pub const SERVERS: [(&str, &str); 5] = [
     (crate::forum_mcp::SERVER_NAME, "forum-mcp"),
     (crate::acpmux_mcp_names::SERVER_NAME, "acpmux-mcp"),
 ];
+
+static MCP_CLIENT: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+
+/// Keep the `clientInfo` of this MCP server's `initialize`: one client per server process
+/// (moved from `sender_harness.rs`, which reads it as [`mcp_client`]).
+pub fn note_mcp_client(params: &Value) {
+    if let Some(info) = params.get("clientInfo").filter(|i| i.is_object()) {
+        let _ = MCP_CLIENT.set(info.clone());
+    }
+}
+
+/// The `clientInfo` [`note_mcp_client`] kept, if any.
+pub fn mcp_client() -> Option<&'static Value> {
+    MCP_CLIENT.get()
+}
+
+/// A server env key: `1` when the harness already has the server's instructions in its system
+/// prompt (a Claude Code chat acpmux starts, `agent_tools::AgentTools::instructions_in_prompt`).
+/// `initialize` then gives none, so the chat never reads them twice: Claude Code puts MCP
+/// instructions after its last cached system block, so each new chat wrote them to the prompt
+/// cache again, while the appended system prompt is the prefix every chat shares.
+pub const INSTRUCTIONS_IN_PROMPT_ENV: &str = "ACPMUX_MCP_INSTRUCTIONS_IN_PROMPT";
+
+/// The instructions server `name` of [`SERVERS`] gives at `initialize` with the env
+/// [`crate::tool_env`] reads (the acpmux server's depend on its tool allowlist), whatever
+/// [`INSTRUCTIONS_IN_PROMPT_ENV`] says. None for a server without any, or not one of these.
+pub(crate) fn instructions_of(name: &str) -> Option<String> {
+    match name {
+        crate::offer_mcp::SERVER_NAME => Some(crate::offer_mcp::INSTRUCTIONS.to_owned()),
+        crate::subsession_mcp::SERVER_NAME => Some(crate::subsession_mcp::instructions()),
+        crate::acpmux_mcp_names::SERVER_NAME => crate::acpmux_mcp::env_instructions(),
+        _ => None,
+    }
+}
 
 /// Whether server `name` run as `args` is one of [`SERVERS`] as acpmux runs it: its own
 /// command word last.
@@ -87,18 +122,62 @@ where
 /// `server/mod.rs` `REQUEST_WORK_LIMIT`), so a card that waits for the person holds no other
 /// call.
 #[derive(Default)]
-pub(crate) struct Daemon(tokio::sync::Mutex<Option<Arc<Client>>>);
+pub(crate) struct Daemon {
+    held: tokio::sync::Mutex<Option<Arc<Client>>>,
+    /// The socket it dials; none: this process's daemon (`daemon::connect`).
+    socket: Option<std::path::PathBuf>,
+}
 
 impl Daemon {
+    /// The daemon at `socket`, dialed as is: the gateway's own (`mcp_gateway.rs`).
+    pub(crate) fn at(socket: std::path::PathBuf) -> Self {
+        Self { held: Default::default(), socket: Some(socket) }
+    }
+
+    /// The connection, made now if there is none. It names its caller by the session and
+    /// caller token [`crate::tool_env`] reads where it is made.
     pub(crate) async fn client(&self) -> Result<Arc<Client>> {
-        let mut held = self.0.lock().await;
+        let mut held = self.held.lock().await;
         if let Some(client) = held.as_ref().filter(|client| !client.is_closed()) {
             return Ok(client.clone());
         }
-        let client = crate::daemon::connect(false).await?;
+        let client = match &self.socket {
+            Some(socket) => Client::connect(socket).await?,
+            None => crate::daemon::connect(false).await?,
+        };
         *held = Some(client.clone());
         Ok(client)
     }
+
+    /// Drops the connection when no call holds it, so an idle chat holds none.
+    pub(crate) fn release(&self) {
+        if let Ok(mut held) = self.held.try_lock()
+            && held.as_ref().is_some_and(|client| Arc::strong_count(client) == 1)
+        {
+            *held = None;
+        }
+    }
+}
+
+/// The makers of [`SERVERS`], in its order.
+pub(crate) const MAKERS: [fn(&Arc<Daemon>) -> Result<Served>; 5] = [
+    crate::secret_mcp::served,
+    crate::offer_mcp::served,
+    crate::subsession_mcp::served,
+    crate::forum_mcp::served,
+    crate::acpmux_mcp::served,
+];
+
+/// Every server of [`SERVERS`] whose session the env ([`crate::tool_env`]) names, on `daemon`.
+/// One it does not name (the secret tools without the card) is not asked for: `cmux mcp serve`
+/// asks only for the servers acpmux gave it.
+pub(crate) fn servers(daemon: &Arc<Daemon>) -> Vec<Served> {
+    MAKERS
+        .iter()
+        .filter_map(|make| {
+            make(daemon).map_err(|e| tracing::debug!("tools-mcp: a server is left out: {e:#}")).ok()
+        })
+        .collect()
 }
 
 /// Server `name` for the session in env `session_env`: `tools/call` is
@@ -115,7 +194,11 @@ where
     F: Fn(Arc<Client>, String, Value) -> Fut + Clone + Send + 'static,
     Fut: Future<Output = Value> + Send + 'static,
 {
-    let session = std::env::var(session_env).map_err(|_| anyhow!("{session_env} is not set"))?;
+    let session =
+        crate::tool_env::var(session_env).ok_or_else(|| anyhow!("{session_env} is not set"))?;
+    // Already in the harness's system prompt: said once ([`INSTRUCTIONS_IN_PROMPT_ENV`]).
+    let instructions = instructions
+        .filter(|_| crate::tool_env::var(INSTRUCTIONS_IN_PROMPT_ENV).as_deref() != Some("1"));
     let daemon = daemon.clone();
     let call = boxed(move |session, params| {
         let (daemon, call) = (daemon.clone(), call.clone());
@@ -182,51 +265,25 @@ pub(crate) async fn serve(servers: Vec<Served>) -> Result<()> {
             Err(e) => break Err(e.into()),
         };
         let Ok(message) = serde_json::from_str::<Value>(&line) else { continue };
-        let Some(id) = message.get("id").cloned() else { continue }; // a notification
-        let verb = message["method"].as_str().unwrap_or_default().to_owned();
-        if verb == "ping" {
-            let _ = tx.send(response(&id, json!({}))).await;
-            continue;
+        if message.get("id").is_some()
+            && message.get("method").and_then(Value::as_str) == Some("initialize")
+        {
+            // One client per server process (the daemon's gateway notes none).
+            note_mcp_client(message.get("params").unwrap_or(&Value::Null));
         }
-        if !matches!(verb.as_str(), "initialize" | "tools/list" | "tools/call") {
-            let error = json!({"code": -32601, "message": format!("method not found: {verb}")});
-            let _ = tx.send(json!({"jsonrpc": "2.0", "id": id, "error": error})).await;
-            continue;
-        }
-        let mut params = message.get("params").cloned().unwrap_or(Value::Null);
-        let served = match pick(&servers, &mut params) {
-            Ok(served) => served,
-            Err(message) => {
-                let error = json!({"code": -32602, "message": message});
-                let _ = tx.send(json!({"jsonrpc": "2.0", "id": id, "error": error})).await;
-                continue;
+        match answer(&servers, &message) {
+            Answer::None => {}
+            Answer::Now(reply) => {
+                let _ = tx.send(reply).await;
             }
-        };
-        let reply = match verb.as_str() {
-            "initialize" => {
-                crate::sender_harness::note_mcp_client(&params);
-                let mut reply = json!({
-                    "protocolVersion": crate::secret_mcp::protocol_version(&params),
-                    "capabilities": {"tools": {}},
-                    "serverInfo": {"name": served.name, "version": env!("CARGO_PKG_VERSION")},
-                });
-                if let Some(text) = &served.instructions {
-                    reply.set("instructions", json!(text));
-                }
-                reply
-            }
-            "tools/list" => json!({"tools": served.tools}),
-            _ => {
+            Answer::Call(call) => {
                 // A card waits on the person: the next request is read meanwhile.
-                let (tx, call) = (tx.clone(), (served.call)(served.session.clone(), params));
+                let tx = tx.clone();
                 tasks.spawn_until_cancelled("tools-mcp-call", async move {
-                    let result = call.await;
-                    let _ = tx.send(response(&id, result)).await;
+                    let _ = tx.send(call.await).await;
                 });
-                continue;
             }
-        };
-        let _ = tx.send(response(&id, reply)).await;
+        }
     };
     // The agent closed the pipe: no one reads an answer still on its way, and
     // ending here drops the calls' daemon connection with it.
@@ -234,6 +291,63 @@ pub(crate) async fn serve(servers: Vec<Served>) -> Result<()> {
     // Every task stops at the cancellation (`spawn_until_cancelled`): none is left to report.
     let _ = tasks.close(std::time::Duration::ZERO).await;
     ended
+}
+
+/// What a message gets back from [`answer`].
+pub(crate) enum Answer {
+    /// Nothing: a notification.
+    None,
+    /// This JSON-RPC message.
+    Now(Value),
+    /// The JSON-RPC message this call ends in.
+    Call(CallFuture),
+}
+
+/// The answer of `servers` to JSON-RPC `message`: `initialize` answers the server it names
+/// ([`SERVER_META`]) with its name and instructions, `tools/list` its tools, `tools/call` runs its
+/// tool for its session.
+pub(crate) fn answer(servers: &[Served], message: &Value) -> Answer {
+    let Some(id) = message.get("id").cloned() else { return Answer::None };
+    let verb = message["method"].as_str().unwrap_or_default();
+    let error = |code: i64, text: String| {
+        Answer::Now(json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": text}}))
+    };
+    if verb == "ping" {
+        return Answer::Now(response(&id, json!({})));
+    }
+    if !matches!(verb, "initialize" | "tools/list" | "tools/call") {
+        return error(-32601, format!("method not found: {verb}"));
+    }
+    let mut params = message.get("params").cloned().unwrap_or(Value::Null);
+    let served = match pick(servers, &mut params) {
+        Ok(served) => served,
+        Err(text) => return error(-32602, text),
+    };
+    match verb {
+        "initialize" => {
+            let mut reply = json!({
+                "protocolVersion": crate::secret_mcp::protocol_version(&params),
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": served.name, "version": env!("CARGO_PKG_VERSION")},
+            });
+            if let Some(text) = &served.instructions {
+                reply.set("instructions", json!(text));
+            }
+            Answer::Now(response(&id, reply))
+        }
+        "tools/list" => Answer::Now(response(&id, json!({"tools": served.tools}))),
+        _ => {
+            // An argument under another name than the schema's (`session` for `name`) is
+            // read as the schema's, and the result says so (`mcp_args.rs`).
+            let renamed = crate::mcp_args::normalize(&served.tools, &mut params);
+            let call = (served.call)(served.session.clone(), params);
+            Answer::Call(Box::pin(async move {
+                let mut result = call.await;
+                crate::mcp_args::tell(&mut result, &renamed);
+                response(&id, result)
+            }))
+        }
+    }
 }
 
 fn response(id: &Value, result: Value) -> Value {
@@ -271,6 +385,48 @@ mod tests {
         // A process of one server needs no name.
         let one = [server("cmux-forum")];
         assert_eq!(pick(&one, &mut json!({})).unwrap().name, "cmux-forum");
+    }
+
+    /// A server whose instructions are already in the harness's system prompt gives none at
+    /// `initialize`; otherwise it gives exactly what that prompt would carry (`instructions_of`).
+    #[test]
+    fn a_server_leaves_out_instructions_already_in_the_system_prompt() {
+        let env = |flag: bool| {
+            let mut env: std::collections::HashMap<String, String> = [
+                crate::offer_mcp::SESSION_ENV,
+                crate::subsession_mcp::SESSION_ENV,
+                crate::acpmux_mcp_names::SESSION_ENV,
+            ]
+            .into_iter()
+            .map(|k| (k.to_owned(), "s".to_owned()))
+            .collect();
+            if flag {
+                env.insert(INSTRUCTIONS_IN_PROMPT_ENV.to_owned(), "1".to_owned());
+            }
+            env
+        };
+        let makers: [fn(&Arc<Daemon>) -> Result<Served>; 2] =
+            [crate::offer_mcp::served, crate::subsession_mcp::served];
+        for make in makers {
+            let given = crate::tool_env::sync_scope(env(false), || {
+                let served = make(&Arc::default()).unwrap();
+                (served.instructions, instructions_of(served.name))
+            });
+            assert!(given.0.is_some());
+            assert_eq!(given.0, given.1);
+            let left_out =
+                crate::tool_env::sync_scope(env(true), || make(&Arc::default()).unwrap());
+            assert_eq!(left_out.instructions, None, "{}", left_out.name);
+        }
+        // The acpmux server's follow its tool allowlist: none without the tools they name.
+        let only_send = std::collections::HashMap::from([(
+            crate::agent_tools::MCP_TOOLS_ENV.to_owned(),
+            "acpmux_send".to_owned(),
+        )]);
+        let name = crate::acpmux_mcp_names::SERVER_NAME;
+        assert_eq!(crate::tool_env::sync_scope(only_send, || instructions_of(name)), None);
+        let all = crate::tool_env::sync_scope(Default::default(), || instructions_of(name));
+        assert!(all.is_some_and(|t| t.contains("bg_start")));
     }
 
     #[test]

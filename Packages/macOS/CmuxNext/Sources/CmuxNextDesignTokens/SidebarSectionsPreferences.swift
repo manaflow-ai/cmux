@@ -131,6 +131,14 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// age such as `3d`) on the name's line. Off by default (Lawrence 2026-10-19: "By default in the
     /// sidebar, we should never show timestamps"); the hover card keeps its times either way.
     public var showTimestamps = false
+    /// `sidebar.settleFinished`: an agent chat whose last turn finished and that the person has read folds into a
+    /// "Settled (N)" row at the end of its list until its next turn, question or failure (the rule is Rust's,
+    /// `cmux-layout-reducer` `settle`). Off by default; the Studio look turns it on.
+    public var settleFinished = false
+    /// `sidebar.showAutomaticSessions`: sessions no person started and no chat's subagent (a script, an automation, a
+    /// launcher; the daemon records `created_by` kind `script`) draw in place. Off by default: they fold into an
+    /// "Automatic (N)" row at the end of their list (the rule is Rust's, `cmux-layout-reducer` `automatic`).
+    public var showAutomaticSessions = false
     /// `sidebar.showColors`: the sidebar draws workspace and group colors. Off draws none (a
     /// workspace's swatch goes, its symbol or emoji stays; a group draws as one with no color)
     /// and keeps every stored color (Lawrence 2026-10-22: "need to be able to remove all
@@ -151,8 +159,7 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// `sidebar.groupHeader.unreadCount`: a collapsed group's header shows its members' unread
     /// total on the right. Off by default, as ``groupHeaderMemberCount``.
     public var groupHeaderUnreadCount = false
-    /// `sidebar.groupHeader.background`: a group header's background is glass, solid, or (the default, `auto`)
-    /// glass where the sidebar is see-through and solid where it is opaque. It always shows (Lawrence 2026-11-05).
+    /// `sidebar.groupHeader.background`: Automatic draws a visible header band and a rail beside the members.
     public var groupHeaderBackground: SidebarGroupBackgroundStyle = .auto
     /// `sidebar.groupPalette` (``GroupPalette``): where group colors come from, and whether a new group takes the
     /// palette's next color. Pure glass by default: a new group has no color until a person picks one.
@@ -188,6 +195,9 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     public var sessionTree = false
     /// `sidebar.style`: the standard sidebar (default) or the thin rail.
     public var style: SidebarLayoutStyle = .standard
+    /// `sidebar.nav`: the nav block a look puts at the top of the sidebar, one plain row per cmux action
+    /// (Codex's New chat, Search, Pull requests). Empty by default: no block, today's sidebar.
+    public var nav: [SidebarNavRow] = []
 
     public init(look: String = "quiet", topBandMaxShare: Double = 1.0 / 3.0, bottomBandMaxShare: Double = 0.25,
                 pinnedBandsScroll: Bool = true) {
@@ -201,4 +211,31 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     public static let shareRange: ClosedRange<Double> = 0.1...0.9
     /// The two shares together leave at least this much for the list.
     public static let maxShareSum = 0.8
+}
+
+/// Settings > Advanced > Experiments, `experiments.agentBadges` and `experiments.agentBadgesBeam` (taste build 5,
+/// 2026-11-19): agent counts and status on the tab strip and the sidebar. `off` (the default) is the shipped tabs and
+/// rows. `pills`: a tab shows a neutral count pill (unread agent messages plus pending approvals) in a slot its width
+/// always reserves, so no tab moves as the count comes and goes, and a sidebar row shows one tinted status pill
+/// (Running, Needs approval, Done). `beam`: `pills`, plus a thin light that travels along the edge of a row whose agent
+/// is running.
+public nonisolated enum AgentBadgesExperiment: String, Hashable, Sendable, CaseIterable {
+    case off
+    case pills
+    case beam
+
+    /// The arm the two switches pick (`CmuxConfigSnapshot.experimentSwitches`, keyed by the path's last part): the
+    /// beam switch does nothing while Agent Badges is off.
+    public init(switches: [String: Bool]) {
+        guard switches["agentBadges"] == true else {
+            self = .off
+            return
+        }
+        self = switches["agentBadgesBeam"] == true ? .beam : .pills
+    }
+
+    /// Whether tabs and rows draw the pills.
+    public var showsPills: Bool { self != .off }
+    /// Whether a running row draws the edge beam.
+    public var showsBeam: Bool { self == .beam }
 }

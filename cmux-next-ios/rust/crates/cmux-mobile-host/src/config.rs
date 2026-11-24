@@ -4,6 +4,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
+use cmux_mobile_link::BuildSpace;
 
 use crate::auth::{DEFAULT_STACK_API, DEFAULT_STACK_PROJECT, TokenSource};
 use crate::control::{AcpmuxEndpoint, Supplied};
@@ -89,6 +90,11 @@ pub fn chief_socket(tui_socket_dir: &Path) -> PathBuf {
 #[derive(Debug, Clone)]
 pub struct HostConfig {
     pub base_url: String,
+    /// `CMUX_BUILD_SPACE` (or `CMUX_MOBILE_BUILD_SPACE`): a dev build's
+    /// `dev:<slug>`, sent as `x-cmux-build-space` on every request to the
+    /// service; `None` (nightly, stable) sends no header. A malformed value
+    /// fails [`HostConfig::from_env`] ([`build_space_in`]).
+    pub build_space: Option<BuildSpace>,
     pub team_id: String,
     pub device_id: String,
     pub device_name: String,
@@ -109,6 +115,15 @@ pub struct HostConfig {
     pub exclude_cgnat: bool,
     pub session_exposure: Option<tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
     pub services: ServiceConfig,
+}
+
+/// The build space `var` (an environment lookup) names, by the one rule every
+/// Rust cloud client shares (`cmux_build_space::resolve`): `CMUX_BUILD_SPACE`,
+/// or the older `CMUX_MOBILE_BUILD_SPACE`. Unset is no space unless the
+/// launcher's `CMUX_BUNDLE_ID` names a tagged dev build; a blank, malformed or
+/// unusable value is an error, so the host never starts in nightly's space.
+pub fn build_space_in(var: impl Fn(&str) -> Option<String>) -> Result<Option<BuildSpace>> {
+    Ok(cmux_build_space::resolve(var)?)
 }
 
 fn env(name: &str) -> Option<String> {
@@ -339,6 +354,7 @@ impl HostConfig {
     pub fn from_env(supplied: Option<Supplied>) -> Result<Self> {
         let base_url = env("CMUX_MOBILE_BASE_URL").context("CMUX_MOBILE_BASE_URL is required")?;
         let team_id = env("CMUX_MOBILE_TEAM_ID").context("CMUX_MOBILE_TEAM_ID is required")?;
+        let build_space = build_space_in(|name| std::env::var(name).ok())?;
         let tokens = if let Some(supplied) = &supplied {
             TokenSource::Supplied(supplied.token.clone())
         } else if let Some(refresh_token) = env_or_file("CMUX_MOBILE_REFRESH_TOKEN")? {
@@ -418,6 +434,7 @@ impl HostConfig {
             .unwrap_or_default();
         Ok(Self {
             base_url,
+            build_space,
             team_id,
             device_id,
             device_name: env("CMUX_MOBILE_DEVICE_NAME").unwrap_or_else(hostname),

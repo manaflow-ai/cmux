@@ -75,7 +75,7 @@ fn compaction_failed(hub: &Hub, session: &Session, turn: &str) -> bool {
 
 impl Hub {
     /// Whether `session`'s harness can compact its chat: Claude Code, which takes `/compact`.
-    pub(super) async fn can_compact(&self, session: &Session) -> bool {
+    pub(in crate::hub) async fn can_compact(&self, session: &Session) -> bool {
         let harness = session.meta().harness;
         let config = self.config.read().await;
         config
@@ -92,10 +92,25 @@ impl Hub {
         cut: CutTurn<'_>,
         attempt: usize,
     ) {
-        if super::super::turn_errors::resume_cause(cut.error, cut.error) == Some("context") {
+        let cause = super::super::turn_errors::resume_cause(cut.error, cut.error);
+        let rate = (cause == Some("rate_limit")).then(|| cut.turn_id.to_owned());
+        // The first turn after a rate limit's reset does not send a context past the line again
+        // (`rate_hold.rs`): it compacts first, where the harness can.
+        if cause == Some("context")
+            || (rate.is_some()
+                && self.context_past_compact_line(session)
+                && self.can_compact(session).await)
+        {
             self.compact_first(session, cut, attempt).await;
         } else {
             self.auto_resume(session, cut, attempt).await;
+        }
+        // Whatever the attempt did, the hold it was due for is over: a fold or a continuation
+        // ended it, a skip did not. A compaction's continuation that still waits ends it itself.
+        if let Some(cut_turn) = rate
+            && !self.continuation_pending(session)
+        {
+            self.lift_rate_hold_of(session, &cut_turn, "reset");
         }
     }
 
@@ -158,6 +173,7 @@ impl Hub {
                         trust_gate: step.trust_gate,
                         error: &step.error,
                         not_before: None,
+                        slash: None,
                     };
                     hub.auto_resume(&session, cut, step.attempt).await;
                 });
@@ -186,13 +202,16 @@ impl Hub {
         }
         let (root, cut_turn) = (cut.prompt_id, cut.turn_id);
         let skipped = |why: &str| json!({"promptId": root, "attempt": attempt, "turnId": cut_turn, "skipped": why});
+        // A rate limit's compaction runs ahead of what the hold queued (`rate_hold.rs`).
+        let held_by_rate = Self::rate_held(session)
+            && super::super::turn_errors::resume_cause(cut.error, cut.error) == Some("rate_limit");
         if let Err(why) = self.fire_pending(session, cut_turn) {
             self.append_retry(session, "auto_resume_skipped", skipped(why));
             return;
         }
         let why = if session.status() == SessionStatus::Closed || session.moving().is_some() {
             Some("closed")
-        } else if !super::still_cut(session, cut_turn) {
+        } else if !super::still_cut_by(session, cut_turn, held_by_rate) {
             Some("superseded")
         } else if !self.can_compact(session).await {
             Some("cannot_compact")

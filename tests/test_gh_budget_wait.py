@@ -171,6 +171,39 @@ class WrapperTests(unittest.TestCase):
         self.assertIn("the next try goes out on GH_TOKEN_SPARE now", result.stderr)
         self.assertEqual(h.waited(), 0)
 
+    def test_a_refused_spare_moves_to_the_next_pool_before_any_wait(self) -> None:
+        # Run 45060092627 (2026-11-22 19:22Z): the hot verify dispatch's github.token hour read 0 left and the job
+        # failed. Each App installation has its own hour, so a refused pool hands the call to the next one.
+        h = self.harness(refusals=3, GH_BUDGET_WAIT_MAX_SECONDS="0", GH_TOKEN="workflow", SPARE="pool3",
+                         GH_TOKEN_SPARE="bot", GH_TOKEN_SPARES="pool3 pool4")
+        result = h.gh("workflow", "run", "cmux-next-hot-verify.yml")
+        self.assertEqual(result.returncode, 0, result)
+        self.assertEqual(h.calls(), ["call workflow run cmux-next-hot-verify.yml",
+                                     "call workflow run cmux-next-hot-verify.yml",
+                                     "spare call workflow run cmux-next-hot-verify.yml"])
+        self.assertIn("the next try goes out on GH_TOKEN_SPARES pool 2 now", result.stderr)
+        self.assertEqual(h.waited(), 0)
+
+    def test_every_pool_refused_waits_then_rotates_again(self) -> None:
+        h = self.harness(refusals=3, GH_BUDGET_WAIT_MAX_SECONDS="1", GH_TOKEN="workflow", GH_TOKEN_SPARE="bot",
+                         GH_TOKEN_SPARES="pool3")
+        result = h.gh("api", "x")
+        self.assertEqual(result.returncode, 0, result)
+        self.assertEqual(h.calls(), ["call api x", "call api x", "call api x", "rate_limit", "call api x"])
+        self.assertEqual(h.waited(), 1)
+
+    def test_the_hot_verify_dispatch_goes_out_with_a_spare_pool(self) -> None:
+        # The dispatch is the plan job's last step since #51558 (the hand-off job is gone).
+        text = (ROOT / ".github" / "workflows" / "cmux-next-hot-verify.yml").read_text()
+        hand_off = text[text.index("  plan:\n"):text.index("\n  target:\n")]
+        self.assertIn("bash scripts/ci/gh_budget_wait.sh --install", hand_off)
+        self.assertIn("GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}", hand_off)
+        self.assertIn("continue-on-error: true", hand_off)
+        wait = int(re.search(r"GH_BUDGET_WAIT_MAX_SECONDS: (\d+)", hand_off).group(1))
+        timeout = int(re.search(r"timeout-minutes: (\d+)", hand_off).group(1))
+        self.assertGreaterEqual(wait, 3600, "a reset can be an hour away")
+        self.assertGreater(timeout * 60, wait, "the job must outlive its longest wait")
+
     def test_a_refused_spare_token_waits_as_before(self) -> None:
         h = self.harness(refusals=2, GH_BUDGET_WAIT_MAX_SECONDS="1", GH_TOKEN="workflow", GH_TOKEN_SPARE="bot")
         result = h.gh("api", "x")
@@ -405,10 +438,10 @@ PUBLISH_PATH = (
     "find-nightly-next-recovery", "recover-nightly-next-notarization", "publish-nightly", "publish-nightly-next-github", "keep-published-dsyms",
     "generate-nightly-deltas", "republish-nightly-deltas", "published-in", "sign-release-notes",
     "publish-release-notes", "publish-nightly-reel", "build-nightly-app",
-    # The dispatches: run 42726398544's sign dispatch failed on "HTTP 403: API rate limit exceeded for
+    # The dispatches: run 42726398544's dispatch failed on "HTTP 403: API rate limit exceeded for
     # installation" and nothing published for two hours (2026-11-10). A refused dispatch did nothing on
     # GitHub's side, so waiting and trying it again never starts a second run.
-    "dispatch-nightly-next-sign", "dispatch-published-in", "retry-nightly-next", "wake-nightly-next-tick",
+    "dispatch-published-in", "retry-nightly-next", "wake-nightly-next-tick",
 )
 # A dispatch that must never wait through a rate limit, so its job is not on the publish path: nightly-next-one's
 # tick ask right before notarization (docs/ci/nightly-workflow-notes.md#note-26). Waiting would hold the build; a
@@ -464,6 +497,10 @@ SHARED_TOKEN_ONLY = {
     # not actions, so it cannot dispatch; its key stays off the nightly mini; and the same call inside
     # nightly-next-one reaches the tick while that job still holds the slot, so the tick promotes nothing.
     ("wake-nightly-next-tick", "Ask main's nightly-next tick"),
+    # The loop's retry of a commit whose nightly-next-one left the slot before nightly-next moved: a workflow
+    # dispatch like retry-nightly-next's, for the same reason (the release App cannot dispatch). Its nightly-next
+    # read is git ls-remote.
+    ("wake-nightly-next-tick", "Retry the commit that left the slot unless nightly-next moved"),
     ("prepare-nightly-variant-primary", "Reuse a successful primary preparation"),
     ("prepare-nightly-variant-primary", "Download signing inputs (parallel)"),
     ("prepare-nightly-variant-primary", "Verify shipped libintl has its source"),

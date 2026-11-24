@@ -1,7 +1,7 @@
 // The Set Up cmux page's one view: the React card in its shipped look, sized to by the host.
 import { useCallback, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
-import { cardStrings } from "../home-messages/cards/strings";
-import { SetupCard } from "../home-messages/cards/setup/SetupCard";
+import { cardStrings } from "./strings";
+import { SetupCard } from "./SetupCard";
 import { SETUP_OPS } from "./ops";
 import type { SetupCardStore } from "./store";
 
