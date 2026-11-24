@@ -25,8 +25,9 @@ let package = Package(
     targets: [
         .target(
             name: "CmuxIrohTransport",
-            dependencies: [
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CMUXMobileCore",
+                .product(name: "CmuxEgress", package: "CmuxEgress"),
                 .product(name: "IrohLib", package: "iroh-ffi"),
             ],
             swiftSettings: [
@@ -40,9 +41,9 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxIrohTransportTests",
-            dependencies: [
-                "CmuxIrohTransport",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CMUXMobileCore",
+                "CmuxIrohTransport",
                 .product(name: "IrohLib", package: "iroh-ffi"),
             ],
             swiftSettings: [
@@ -53,8 +54,3 @@ let package = Package(
         ),
     ]
 )
-
-// The egress gate (docs/privacy.md, "Egress gate"): the targets that open connections make them through CmuxEgress.
-for target in package.targets where ["CmuxIrohTransport"].contains(target.name) {
-    target.dependencies.append(.product(name: "CmuxEgress", package: "CmuxEgress"))
-}

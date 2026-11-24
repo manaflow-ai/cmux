@@ -1,5 +1,4 @@
-import CmuxEgress
-import AppKit
+import CmuxEgress; import AppKit
 import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextDesign

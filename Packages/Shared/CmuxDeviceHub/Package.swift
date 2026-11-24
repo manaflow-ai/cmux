@@ -28,12 +28,7 @@ let package = Package(
         .package(path: "../CmuxEgress"),
     ],
     targets: [
-        .target(name: "CmuxDeviceHub", swiftSettings: swiftSettings),
+        .target(name: "CmuxDeviceHub", dependencies: [.product(name: "CmuxEgress", package: "CmuxEgress")], swiftSettings: swiftSettings),
         .testTarget(name: "CmuxDeviceHubTests", dependencies: ["CmuxDeviceHub"], swiftSettings: swiftSettings),
     ]
 )
-
-// The egress gate (docs/privacy.md, "Egress gate"): the targets that open connections make them through CmuxEgress.
-for target in package.targets where ["CmuxDeviceHub"].contains(target.name) {
-    target.dependencies.append(.product(name: "CmuxEgress", package: "CmuxEgress"))
-}

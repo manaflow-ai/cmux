@@ -22,8 +22,9 @@ let package = Package(
     targets: [
         .target(
             name: "CmuxAuthRuntime",
-            dependencies: [
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CMUXAuthCore",
+                .product(name: "CmuxEgress", package: "CmuxEgress"),
                 .product(name: "StackAuth", package: "stack-auth-swift-sdk-prerelease"),
             ],
             swiftSettings: [
@@ -35,7 +36,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxAuthRuntimeTests",
-            dependencies: [
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxAuthRuntime",
                 .product(name: "StackAuth", package: "stack-auth-swift-sdk-prerelease"),
             ],
@@ -46,8 +47,3 @@ let package = Package(
         ),
     ]
 )
-
-// The egress gate (docs/privacy.md, "Egress gate"): the targets that open connections make them through CmuxEgress.
-for target in package.targets where ["CmuxAuthRuntime"].contains(target.name) {
-    target.dependencies.append(.product(name: "CmuxEgress", package: "CmuxEgress"))
-}
