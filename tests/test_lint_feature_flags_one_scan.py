@@ -42,7 +42,9 @@ class FlagLinterOneScanTests(unittest.TestCase):
             self.linter.main(["--today", "2026-06-01", "--base", "HEAD"])
         flags, _ = self.linter.collect_flags()
         self.assertGreater(len(flags), 1)
-        self.assertEqual(len(grep_calls(run)), 1)
+        # The registry discovery is one search whatever the flag count; the key searches must be one too.
+        key_searches = [c for c in grep_calls(run) if self.linter.FLAG_DECLARATION not in c.args[0]]
+        self.assertEqual(len(key_searches), 1)
 
     def test_files_per_key_match_a_search_per_key(self):
         with tempfile.TemporaryDirectory() as tmp:
