@@ -1342,6 +1342,60 @@
           }
         },
         {
+          "key": "sidebar.groupBarShape",
+          "name": "groupBarShape",
+          "title": {
+            "key": "settings.sidebar.groupBarShape",
+            "text": "Group Bar Shape"
+          },
+          "help": {
+            "key": "settings.sidebar.groupBarShape.help",
+            "text": "The shape of the bar beside a group's workspaces."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "rounded",
+              "title": {
+                "key": "settings.choice.groupBarShapeRounded",
+                "text": "Rounded"
+              }
+            },
+            {
+              "value": "tapered",
+              "title": {
+                "key": "settings.choice.groupBarShapeTapered",
+                "text": "Tapered"
+              }
+            }
+          ],
+          "default": "tapered",
+          "keywords": [
+            "sidebar",
+            "group",
+            "groups",
+            "bar",
+            "rail",
+            "line",
+            "shape",
+            "taper",
+            "tapered",
+            "cut",
+            "katana",
+            "rounded",
+            "capsule"
+          ],
+          "swift_enum": {
+            "name": "SidebarGroupBarShape",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          }
+        },
+        {
           "key": "sidebar.groupPalette",
           "name": "groupPalette",
           "title": {

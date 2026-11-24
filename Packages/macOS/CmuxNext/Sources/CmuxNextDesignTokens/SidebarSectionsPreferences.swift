@@ -163,6 +163,10 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// 2026-11-20, groups as plain folders with every thread in the one list), as glass, solid, or `auto` (glass where
     /// the sidebar is see-through and solid where it is opaque), or as a plain section heading.
     public var groupHeaderBackground: SidebarGroupBackgroundStyle = .folder
+    /// `sidebar.groupBarShape`: the shape of the bar beside a group's members. Tapered, Leo's tip, is the default
+    /// (2026-10-23, the katana of #42553: "I LIKE THE CUT ... JUST MAKE THE CUT THE TAPER ON THE BAR"); Rounded is
+    /// Lawrence's even capsule (2026-11-17), kept as an option.
+    public var groupBarShape: SidebarGroupBarShape = .tapered
     /// `sidebar.groupPalette` (``GroupPalette``): where group colors come from, and whether a new group takes the
     /// palette's next color. Pure glass by default: a new group has no color until a person picks one.
     public var groupPalette: GroupPalette = .glass

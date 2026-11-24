@@ -359,6 +359,8 @@ final class GroupLineView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
+        // `sidebar.groupBarShape`: Leo's tapered tip (the default) or Lawrence's even capsule; a joined rail stays square on top.
+        let shape = DesignSettings.shared.sidebarSections.groupBarShape, joined = Self.joinsBar
         if isBlock {
             // A rounded block with the rows' own corner; the light fades over its first two rows.
             layer?.cornerRadius = SidebarStyle.rowCornerRadius
@@ -374,27 +376,27 @@ final class GroupLineView: NSView {
             if let rail {
                 blockRail.frame = rail
                 blockRail.cornerRadius = SidebarGroupLineShape.cornerRadius(width: rail.width)
-                blockRail.maskedCorners = SidebarGroupLineShape.capCorners(flipped: layer?.contentsAreFlipped() == true, joined: Self.joinsBar)
+                blockRail.maskedCorners = SidebarGroupLineShape.capCorners(flipped: layer?.contentsAreFlipped() == true, joined: joined, shape: shape)
                 blockRailShape.frame = blockRail.bounds
-                blockRailShape.path = SidebarGroupLineShape.body(width: rail.width, height: rail.height)
+                blockRailShape.path = SidebarGroupLineShape.body(width: rail.width, height: rail.height, shape: shape, joined: joined)
             }
             return
         }
         // The clipping layer owns both caps, so they follow the presentation bounds through a fold; rounding the
         // oversized body instead would clip the bottom cap off the visible rail (`SidebarGroupLineShape`).
         layer?.cornerRadius = SidebarGroupLineShape.cornerRadius(width: bounds.width)
-        layer?.maskedCorners = SidebarGroupLineShape.capCorners(flipped: layer?.contentsAreFlipped() == true, joined: Self.joinsBar)
+        layer?.maskedCorners = SidebarGroupLineShape.capCorners(flipped: layer?.contentsAreFlipped() == true, joined: joined, shape: shape)
         let height = max(bounds.height, railShape.frame.height, Self.shapeCoverageHeight)
         railShape.frame = CGRect(x: 0, y: 0, width: bounds.width, height: height)
-        railShape.path = SidebarGroupLineShape.body(width: bounds.width, height: height)
+        railShape.path = SidebarGroupLineShape.body(width: bounds.width, height: height, shape: shape, joined: joined)
     }
 
     /// Reads `sidebar.groupHeader`, `sidebar.groupPalette` (and the Wallpaper palette's color), `sidebar.noColorGroup` and
-    /// `sidebar.groupGlass` and repaints once when either changes; one
+    /// `sidebar.groupGlass` and `sidebar.groupBarShape`, and repaints once when either changes; one
     /// observation at a time.
     private func observedLook() -> (style: SidebarGroupHeaderStyle, palette: GroupPalette, noColor: SidebarNoColorGroupLook, glass: SidebarGroupGlass) {
         let read = {
-            _ = (SidebarTunables.groupChromeShapeOn, DesignSettings.shared.groupWallpaperTint)
+            _ = (SidebarTunables.groupChromeShapeOn, DesignSettings.shared.groupWallpaperTint, DesignSettings.shared.sidebarSections.groupBarShape)
             return (SidebarGroupHeaderStyle.tunable.value, DesignSettings.shared.sidebarSections.groupPalette, SidebarNoColorGroupLook.tunable.value,
                     SidebarGroupGlass.tunable.value)
         }
