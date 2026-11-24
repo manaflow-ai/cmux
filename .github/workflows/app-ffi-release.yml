@@ -50,6 +50,7 @@ on:
       - "cmux-tui/crates/cmux-action-catalog/**"
       - "cmux-tui/crates/cmux-agent-pane-policy/**"
       - "cmux-tui/crates/cmux-bookmarks-core/**"
+      - "cmux-tui/crates/cmux-build-space/**"
       - "cmux-tui/crates/cmux-cloud-config/**"
       - "cmux-tui/crates/cmux-cloud-environment/**"
       - "cmux-tui/crates/cmux-cloud-handlers/**"
@@ -66,6 +67,7 @@ on:
       # cmux-auth-coordinator's harness dev-depends on it (check-app-ffi-pin.sh --list-inputs).
       - "cmux-tui/crates/cmux-stack-auth/**"
       - "cmux-tui/crates/cmux-launch-image/**"
+      - "cmux-tui/crates/cmux-pane-pictures/**"
       - "cmux-tui/crates/cmux-focus-core/**"
       - "cmux-tui/crates/cmux-imessage/**"
       - "cmux-tui/crates/cmux-launch-record/**"

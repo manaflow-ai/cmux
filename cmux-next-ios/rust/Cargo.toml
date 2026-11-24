@@ -19,6 +19,8 @@ redundant_clone = "warn"
 [workspace.dependencies]
 cmux-mobile-link = { path = "crates/cmux-mobile-link" }
 # The build space value and its fail-closed rule, shared with the Mac's other Rust cloud clients.
+# Braid's racer and last-good route (RFD 0164): the signaling dial (signal_dial.rs).
+cmux-braid-path = { path = "../../cmux-tui/crates/cmux-braid-path" }
 cmux-build-space = { path = "../../cmux-tui/crates/cmux-build-space" }
 # The sign-in and session reducer, in the phone's process (the Mac links it through cmux-app-ffi).
 cmux-auth-coordinator = { path = "../../cmux-tui/crates/cmux-auth-coordinator" }

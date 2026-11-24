@@ -178,7 +178,7 @@ extension DeepLink {
         row.map { "#/settings/cloud?focus=cloud.\($0)" } ?? "#/settings/cloud"
     }
     /// The settings link path that turns Start Agent from Any App on.
-    public static let startAgentFromAnyAppPath = "/start-agent-from-any-app"
+    public nonisolated static let startAgentFromAnyAppPath = "/start-agent-from-any-app"
 
     /// Every settings link path the app runs, and what it runs: the one list. Home draws a link only
     /// for a path it renders (MessagesLabHome's `URL.homeSettingsLinkPaths`), so a path added here and
