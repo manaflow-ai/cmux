@@ -6780,6 +6780,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     requestAnimationFrame(() =>
       setTimeout(() => {
         if (settledNow) document.documentElement.dataset.acpmuxSettledDrawn = "true";
+        if (first && newTabNow.current === undefined) acpmuxPerf.markLaunch("rowsDrawn");
+        if (settledNow) acpmuxPerf.markLaunch("settledDrawn");
         // When the host is told the page shows the chat, beside the report itself: the flicker log's
         // first-load record counts what moved after it apart, what the reader saw (firstLoadWatch.ts
         // `seen`); what moved before it was still under the host's cover.
