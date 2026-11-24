@@ -272,10 +272,14 @@ describe("one subtle elevation scale", () => {
     layers(value).flatMap((layer) => {
       const call = tokenCall(layer);
       if (!call) return [];
-      const [, name] = call;
+      const [, name, fallback] = call;
       if ((ELEVATIONS as readonly string[]).includes(name)) return [name];
       if (seen.includes(name)) return [];
-      return (definitions.get(name) ?? []).slice(0, 1).flatMap((definition) => steps(definition, [...seen, name]));
+      // A token no sheet defines (a look's --menu-shadow, set only by a look's stylesheet) casts its
+      // fallback, today's step.
+      const defined = definitions.get(name) ?? [];
+      if (!defined.length) return fallback ? steps(fallback, seen) : [];
+      return defined.slice(0, 1).flatMap((definition) => steps(definition, [...seen, name]));
     });
 
   for (const [file, selector, token] of surfaces) {

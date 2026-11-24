@@ -12,6 +12,7 @@ import type { RetryState } from "./retryState";
 import { cloudHost, listed, type AcpmuxSessionEntry, type SessionWaiting } from "../sessionList";
 import { replacedSince, sessionIndex } from "../sessionIndex";
 import { resolveSenderIdentity, type SenderIdentity, type SenderReference } from "../senderIdentity";
+import type { HarnessIconSpec } from "../../shared/harnessIcons";
 
 /// What a sub-session is doing: its turn runs, it waits on the person (a permission or a question),
 /// its turn failed or its agent went away, or it is done until it is sent more.
@@ -102,6 +103,19 @@ export function subsessionName(
   return session.name === session.sessionId || OPAQUE_ID.test(session.name) ? undefined : session.name;
 }
 
+/// Whether anything names the subagent (its task, its name, what it was asked, its kind), so a line
+/// can show it by more than the generic "Subagent" or its raw id. A start line names only these, and
+/// counts the rest (runningTray.ts `startedLine`).
+export function subagentNamed(agent: {
+  id: string;
+  name: string;
+  task?: string;
+  kind?: string;
+  prompt?: string;
+}): boolean {
+  return (namedBy(agent, firstLine(agent.task)) ?? namedBy(agent, agent.name) ?? fallbackName(agent)) !== undefined;
+}
+
 /// `text` when it names the subagent: not empty and not one of its raw ids.
 function namedBy(agent: { id: string; name: string }, text: string | undefined): string | undefined {
   if (!text) return undefined;
@@ -122,10 +136,14 @@ const firstLine = (text: string | undefined) =>
     .find(Boolean);
 
 /// What a sub-session waiting on the person waits for, in one line: a question (and its first
-/// prompt, which the line cuts when there is no room) or a tool's permission. Only the person
-/// answers it, in its chat (person proof): its parent's agent cannot, so the line says where.
+/// prompt, which the line cuts when there is no room), a tool's permission, a secret, a command to
+/// run as root or an MCP server to connect. Only the person answers it, in its chat (person proof):
+/// its parent's agent cannot, so the line says where.
 export function waitingLine(t: Translate, waiting: SessionWaiting): string {
   if (waiting.on === "permission") return t("subsession.waitingPermission");
+  if (waiting.on === "secret") return t("subsession.waitingSecret");
+  if (waiting.on === "elevation") return t("subsession.waitingElevation");
+  if (waiting.on === "mcpConnect") return t("subsession.waitingMcpConnect");
   const line = t("subsession.waitingQuestion");
   return waiting.prompt ? `${line} · ${waiting.prompt}` : line;
 }
@@ -194,6 +212,9 @@ export function subsessionInfo(entry: AcpmuxSessionEntry): SubsessionInfo {
 function nameFields(entry: AcpmuxSessionEntry): string {
   return JSON.stringify([
     entry.name,
+    entry.displayName,
+    entry.formerNames,
+    iconKey(entry.icon),
     entry.shortName,
     entry.peer,
     entry.harness,
@@ -210,6 +231,25 @@ function nameFields(entry: AcpmuxSessionEntry): string {
     cloudHost(entry) ?? "",
     listed(entry),
   ]);
+}
+
+/// What tells a chat's icon from another (an image's own bytes stand in by length and tail, so a
+/// favicon's base64 is not copied into every key).
+function iconKey(icon: AcpmuxSessionEntry["icon"]): string | undefined {
+  if (!icon) return undefined;
+  switch (icon.kind) {
+    case "image":
+      return `image:${icon.mime}:${icon.data.length}:${icon.data.slice(-24)}`;
+    case "brand":
+      return `brand:${icon.brand}`;
+    case "symbol":
+      return `symbol:${icon.name}:${icon.text}:${icon.hue}`;
+    case "emoji":
+    case "monogram":
+      return `${icon.kind}:${icon.text}`;
+    case "glyph":
+      return `glyph:${icon.name}`;
+  }
 }
 
 /// A sub-session's row in the summary card: `depth` 0 for one this chat started, 1 for one that
@@ -260,6 +300,8 @@ type NameRow = {
   sig: string;
   /// The names it answers to (``nameLabels``), and whether it counts as archived for them.
   labels: readonly string[];
+  /// Its former names (acpmux `formerNames`, "fka"): each names it only where no chat has it now.
+  formers: readonly string[];
   archived: boolean;
   harness?: string;
   host?: string;
@@ -271,8 +313,9 @@ type NameRow = {
   key: string;
 };
 
-/// The names a listed chat answers to: its name, its short name, and a peer chat's bare name (listed
-/// as `<peer>/<name>`, it may sign a message with the bare one).
+/// The names a listed chat answers to: its name, the name it was given ("Mango", acpmux `displayName`,
+/// which signs its messages too), its short name, and a peer chat's bare name (listed as
+/// `<peer>/<name>`, it may sign a message with the bare one).
 function nameLabels(entry: AcpmuxSessionEntry): string[] {
   const labels: string[] = [];
   const add = (name: string | undefined) => {
@@ -280,9 +323,20 @@ function nameLabels(entry: AcpmuxSessionEntry): string[] {
     if (label && !labels.includes(label)) labels.push(label);
   };
   add(entry.name);
+  add(entry.displayName);
   add(entry.shortName);
   const name = entry.name?.trim();
   add(entry.peer && name?.startsWith(`${entry.peer}/`) ? name.slice(entry.peer.length + 1) : undefined);
+  return labels;
+}
+
+/// A listed chat's former names, trimmed, each once.
+function formerLabels(entry: AcpmuxSessionEntry): string[] {
+  const labels: string[] = [];
+  for (const former of entry.formerNames ?? []) {
+    const label = former.trim();
+    if (label && !labels.includes(label)) labels.push(label);
+  }
   return labels;
 }
 
@@ -313,6 +367,9 @@ function nameRow(entry: AcpmuxSessionEntry, sig: string, before: NameRow | undef
     place,
     machine?.name,
     entry.name,
+    entry.displayName,
+    entry.formerNames,
+    iconKey(entry.icon),
     entry.shortName,
     entry.peer,
     entry.host,
@@ -325,6 +382,7 @@ function nameRow(entry: AcpmuxSessionEntry, sig: string, before: NameRow | undef
     entry,
     sig,
     labels: nameLabels(entry),
+    formers: formerLabels(entry),
     archived: Boolean(entry.archived),
     ...(entry.harness && { harness: entry.harness }),
     ...(host && { host }),
@@ -369,6 +427,8 @@ export class SubsessionStore {
   /// session twice, which ``setWhole`` reads.
   private rows: Map<string, NameRow> | undefined;
   private candidates = new Map<string, { live: Set<string>; archived: Set<string> }>();
+  /// The chats each former name was once theirs; read for a name only when no chat has it now.
+  private formerCandidates = new Map<string, { live: Set<string>; archived: Set<string> }>();
   /// For a list that names a session twice (``setWhole``): what the index read of each entry, and
   /// the index's whole content, which says whether a name reader is told.
   private nameFrom = new Map<string, AcpmuxSessionEntry>();
@@ -418,6 +478,13 @@ export class SubsessionStore {
         if (!matches.live.size && !matches.archived.size) this.candidates.delete(label);
         touched.add(label);
       }
+      for (const label of row.formers) {
+        const matches = this.formerCandidates.get(label);
+        if (!matches) continue;
+        (row.archived ? matches.archived : matches.live).delete(id);
+        if (!matches.live.size && !matches.archived.size) this.formerCandidates.delete(label);
+        touched.add(label);
+      }
       this.harnesses.delete(id);
       this.hosts.delete(id);
       this.runs.delete(id);
@@ -429,6 +496,12 @@ export class SubsessionStore {
       for (const label of row.labels) {
         let matches = this.candidates.get(label);
         if (!matches) this.candidates.set(label, (matches = { live: new Set(), archived: new Set() }));
+        (row.archived ? matches.archived : matches.live).add(id);
+        touched.add(label);
+      }
+      for (const label of row.formers) {
+        let matches = this.formerCandidates.get(label);
+        if (!matches) this.formerCandidates.set(label, (matches = { live: new Set(), archived: new Set() }));
         (row.archived ? matches.archived : matches.live).add(id);
         touched.add(label);
       }
@@ -485,9 +558,10 @@ export class SubsessionStore {
     for (const [host, { from, to }] of moves) this.moveMachines(host, from, to);
     // A name resolves only when it identifies exactly one live session (across peers two live chats
     // can share one, and opening the first would show the wrong chat); archived chats are a fallback
-    // when no live session uses it. All aliases of one session count once.
+    // when no live session uses it. All aliases of one session count once. A former name counts only
+    // where no listed chat has it as a name now.
     for (const label of touched) {
-      const matches = this.candidates.get(label);
+      const matches = this.candidates.get(label) ?? this.formerCandidates.get(label);
       const active = matches && (matches.live.size ? matches.live : matches.archived);
       const id = active?.size === 1 ? active.values().next().value! : undefined;
       if (id === this.named.get(label)) continue;
@@ -575,6 +649,7 @@ export class SubsessionStore {
     }
     this.rows = new Map();
     this.candidates = new Map();
+    this.formerCandidates = new Map();
     this.named = new Map();
     this.harnesses = new Map();
     this.hosts = new Map();
@@ -639,6 +714,8 @@ export class SubsessionStore {
       };
       for (const entry of sessions) {
         addName(entry.name, entry);
+        // The name it was given ("Mango", acpmux `displayName`) signs its messages too.
+        addName(entry.displayName, entry);
         addName(entry.shortName, entry);
         // A peer chat may be listed as `<peer>/<name>` but sign a message with the
         // bare name. The bare alias is safe only when unique across listed chats.
@@ -646,6 +723,10 @@ export class SubsessionStore {
         const bare = entry.peer && name?.startsWith(`${entry.peer}/`) ? name.slice(entry.peer.length + 1) : undefined;
         addName(bare, entry);
       }
+      // A former name (acpmux `formerNames`, "fka") still names its chat where no chat has it now.
+      const current = new Set(candidates.keys());
+      for (const entry of sessions)
+        for (const former of entry.formerNames ?? []) if (!current.has(former.trim())) addName(former, entry);
       for (const [name, matches] of candidates) {
         const active = matches.live.size ? matches.live : matches.archived;
         if (active.size === 1) named.set(name, active.values().next().value!);
@@ -690,17 +771,35 @@ export class SubsessionStore {
         [...ids].sort(),
         [...sessions]
           .sort((a, b) => (a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0))
-          .map(({ sessionId, name, shortName, peer, harness, host, hostKind, startedBy, spawnedBy }) => [
-            sessionId,
-            name,
-            shortName,
-            peer,
-            harness,
-            host,
-            hostKind,
-            startedBy,
-            spawnedBy,
-          ]),
+          .map(
+            ({
+              sessionId,
+              name,
+              displayName,
+              formerNames,
+              icon,
+              shortName,
+              peer,
+              harness,
+              host,
+              hostKind,
+              startedBy,
+              spawnedBy,
+            }) => [
+              sessionId,
+              name,
+              displayName,
+              formerNames,
+              iconKey(icon),
+              shortName,
+              peer,
+              harness,
+              host,
+              hostKind,
+              startedBy,
+              spawnedBy,
+            ],
+          ),
       ]);
       const renamed = namedKey !== this.namedKey;
       this.named = named;
@@ -861,7 +960,15 @@ export function useSenderPlace(sessionId: string | undefined): SenderPlace | und
 export function useSenderChat(
   name: string,
   sessionId: string | undefined,
-): { sessionId?: string; harness?: string; host?: string; run?: SenderRun } {
+): {
+  sessionId?: string;
+  harness?: string;
+  host?: string;
+  run?: SenderRun;
+  /// The name it was given (acpmux `displayName`) and the icon it set: a sender line shows them first.
+  displayName?: string;
+  icon?: HarnessIconSpec;
+} {
   const store = useContext(SubsessionContext)?.store ?? EMPTY;
   // `name` may be the chat's id itself (a sender acpmux proved, incomingMessage.ts `lookup`).
   const readId = () => sessionId ?? (store.has(name.trim()) ? name.trim() : store.find(name));
@@ -872,7 +979,18 @@ export function useSenderChat(
   const host = useSyncExternalStore(store.subscribeNames, readHost, readHost);
   const readRun = () => (id ? store.run(id) : undefined);
   const run = useSyncExternalStore(store.subscribeNames, readRun, readRun);
-  return { ...(id && { sessionId: id }), ...(harness && { harness }), ...(host && { host }), ...(run && { run }) };
+  const readEntry = () => (id ? store.sender(id) : undefined);
+  const entry = useSyncExternalStore(store.subscribeNames, readEntry, readEntry);
+  const displayName = entry?.displayName;
+  const icon = entry?.icon;
+  return {
+    ...(id && { sessionId: id }),
+    ...(harness && { harness }),
+    ...(host && { host }),
+    ...(run && { run }),
+    ...(displayName && { displayName }),
+    ...(icon && { icon }),
+  };
 }
 
 /// The listed chats on machine `host`, live while the component shows.
@@ -892,11 +1010,16 @@ export function useSenderIdentity(sender: SenderReference, viewerSessionId?: str
   return useMemo(
     () =>
       resolveSenderIdentity(
-        { name: sender.name, sessionId: sender.sessionId, relation: sender.relation },
+        {
+          name: sender.name,
+          sessionId: sender.sessionId,
+          relation: sender.relation,
+          ...(sender.displayName && { displayName: sender.displayName }),
+        },
         entry,
         viewerSessionId,
       ),
-    [sender.name, sender.sessionId, sender.relation, entry, viewerSessionId],
+    [sender.name, sender.sessionId, sender.relation, sender.displayName, entry, viewerSessionId],
   );
 }
 

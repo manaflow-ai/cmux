@@ -186,6 +186,7 @@ fn runtime_workers(args: &[OsString]) -> Option<usize> {
 /// these futures on the stack the daemon gives them.
 pub const WORKER_STACK_BYTES: usize = 8 << 20;
 
+#[cfg(test)]
 fn runtime(args: &[OsString]) -> std::io::Result<tokio::runtime::Runtime> {
     runtime_with(crate::daemon_priority::is_daemon_run(args), runtime_workers(args))
 }
@@ -327,6 +328,8 @@ async fn async_main(parsed: Parsed) -> Result<()> {
     let command = cli.command;
     match command {
         Some(Command::Gh { args }) => crate::cli::gh_shim::run(args).await,
+        Some(Command::PrWait(args)) => crate::cli::pr_wait::run(args, json_out).await,
+        Some(Command::Ci(ci)) => crate::cli::ci_wait::run(ci, json_out).await,
         // Before anything that reads or writes the home: this runs as root.
         #[cfg(target_os = "linux")]
         Some(Command::DaemonEnroll { person_key_fd }) => {
@@ -559,6 +562,13 @@ async fn async_main(parsed: Parsed) -> Result<()> {
         Some(Command::Forum(cmd)) => {
             let json_out = cli.json;
             match crate::cli::forum::run(cmd, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
+        Some(Command::Trigger(cmd)) => {
+            let json_out = cli.json;
+            match crate::cli::trigger::run(cmd, json_out).await {
                 Ok(()) => Ok(()),
                 Err(e) => errors::exit_with(&e, json_out),
             }

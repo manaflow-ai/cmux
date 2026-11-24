@@ -6552,6 +6552,24 @@
         }
       }
     },
+    "tabs.hoverCard.formerlyKnownAs": {
+      "comment": "An agent chat's given name, then the name it had before it was renamed (fka: formerly known as).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ — fka %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ — 旧名 %2$@"
+          }
+        }
+      }
+    },
     "tabs.browserProfile": {
       "extractionState": "manual",
       "localizations": {

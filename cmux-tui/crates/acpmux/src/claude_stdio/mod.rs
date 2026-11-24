@@ -315,6 +315,8 @@ mod hook_callback;
 #[cfg(test)]
 mod hook_callback_tests;
 mod inbound;
+#[cfg(test)]
+mod initialize_tests;
 // What the log keeps of Claude's raw assistant and user lines (`logged_bodies.rs`).
 mod logged_bodies;
 pub use logged_bodies::{PROMPT_BODY_KEPT_UNDER, leave_out_bodies, leave_out_prompt_bodies};
@@ -344,6 +346,9 @@ mod result_images_tests;
 // A prompt Claude Code queued behind a turn of its own (`queued_prompt_tests.rs`).
 #[cfg(test)]
 mod queued_prompt_tests;
+pub mod resume_cut;
+#[cfg(test)]
+mod resume_cut_tests;
 #[cfg(test)]
 mod steer_now_tests;
 // Claude's background shells, a workflow agent's under its agent (`background_shells.rs`).
@@ -452,11 +457,13 @@ pub const STEER_NO_TURN: &str = "steer: no turn is running";
 /// (`MUX_STEER_WITHDRAW`, `steer_withdraw.rs`).
 pub const STEER_WITHDRAWN: &str = "steer: withdrawn before the agent read it";
 
-/// What the hub's request becomes: lines for claude's stdin, or an
-/// immediate ACP reply when claude need not be asked.
+/// What the hub's request becomes: lines for claude's stdin, an immediate ACP
+/// reply when claude need not be asked, or both: lines written, then answered
+/// at once without waiting on Claude Code's answer (`initialize`).
 pub enum Outbound {
     Lines(Vec<Value>),
     Reply(Message),
+    LinesThenReply(Vec<Value>, Message),
 }
 
 #[derive(Debug, Clone)]
@@ -768,7 +775,6 @@ pub struct Translator {
 
 #[derive(Debug, Clone)]
 enum Pending {
-    Initialize,
     NewOrLoad,
     Prompt,
     /// A setting change, applied to the cached value once claude accepts it.

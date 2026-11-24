@@ -12,7 +12,11 @@
 import { AcpmuxDirectClient, type EventRecord } from "../direct";
 import { turnViewFrom, type TurnView } from "../conversation/turns";
 import { layoutConversation, type AcpmuxRow, type AcpmuxSnapshot, type ConversationLayout } from "../model";
-import { ROW_GAP_LOOKS, TRANSCRIPT_BLOCK_GAP, TRANSCRIPT_TURN_GAP } from "../transcriptGrid";
+import { acpmuxSendCall } from "../conversation/acpmuxSends";
+import { MARK_STEP, ROW_GAP_LOOKS, TRANSCRIPT_BLOCK_GAP, TRANSCRIPT_TURN_GAP, transcriptGap } from "../transcriptGrid";
+import { STARTED_LINE_NAMES, withSubagentLines, type DoneLineCache } from "../subagents/runningTray";
+import { SUBAGENT_STARTED } from "../subagents/subagentRows";
+import { subagentNamed } from "../subagents/subsessions";
 import type { SimScenario, SimStep } from "./script";
 
 /** One drawn row as a probe sees it. */
@@ -31,9 +35,23 @@ export type RowProbe = {
   opens?: boolean;
   /** The opening row is another agent's line (a notice or message), not the person's prompt. */
   received?: boolean;
+  /** Another agent's message the turn received after its opening row (`received`), or a send to one (`sent`): an
+   *  activity row, which stands `toolGap` (ST-02). */
+  message?: "received" | "sent";
+  /** The gap a tool row would stand in this row's place, under the same drawn row (transcriptGrid.ts transcriptGap
+   *  over MARK_STEP). Set on `message` rows. */
+  toolGap?: number;
   /** The row is the turn's header ("Working for" / "Worked for"), or, before it has one, its first row under the prompt. */
   head?: boolean;
   text?: string;
+  /** A "Worked for" line's or a turn footer's status: `completed`, `failed`, `cancelled`. */
+  status?: string;
+  /** The turn footer carries the turn's error. */
+  error?: boolean;
+  /** The calls in the row that still read as running (pending or in progress, not a background shell). */
+  running?: number;
+  /** The calls the row holds. */
+  calls?: number;
   /** Browser lane only: the row's measured top, bottom and the visible gap over it. */
   top?: number;
   bottom?: number;
@@ -57,7 +75,18 @@ export type FoldEvent = {
 };
 
 export type Violation = {
-  rule: "a-turn-gap" | "a-head-gap" | "b-mid-turn-fold" | "b-mid-turn-shrink" | "c-rerender";
+  rule:
+    | "a-turn-gap"
+    | "a-head-gap"
+    | "b-mid-turn-fold"
+    | "b-mid-turn-shrink"
+    | "c-rerender"
+    | "d-blank"
+    | "d-shift"
+    | "d-started-pill"
+    | "d-started-lines"
+    | "d-action-only"
+    | "d-steer-order";
   step: number;
   at: number;
   label: string;
@@ -87,6 +116,41 @@ export type StepTrace = {
   rows?: RowProbe[];
 };
 
+/// A layout shift a reader following the chat sees: rows drawn at both steps above the reader's anchor
+/// (the lowest such row that is not a live line) moved relative to it, because a row between them came,
+/// went, folded or changed height. Rows arriving under the anchor and text streaming into it are no
+/// shift (CLS-style: only unexpected moves of drawn content).
+export type ShiftEvent = {
+  step: number;
+  at: number;
+  label: string;
+  /// `turn-end`: the turn's end records (turn_end, turn_result, status ready) caused it; `mid-turn`: anything else.
+  phase: "turn-end" | "mid-turn";
+  /// Drawn rows (not live lines) whose top moved.
+  moved: number;
+  /// The largest move of one of them (px).
+  px: number;
+  /// How much shorter the chat got (px): what a follow pinned to the bottom moves every row above down by.
+  back: number;
+  /// The first row that changed over them: `+kind id` came, `-kind id` went, `~kind id` changed height.
+  cause: string;
+};
+
+/// A row drawn for less than a second (FLASH_MS) of virtual time: it came and went before a reader
+/// could read it.
+export type FlashEvent = {
+  id: string;
+  kind: string;
+  shownMs: number;
+  step: number;
+  at: number;
+  label: string;
+  phase: "turn-end" | "mid-turn";
+};
+
+/// Rows drawn for less than this read as a flash (Leo, 2026-11-22: "sub-second in and out bullshit").
+export const FLASH_MS = 1_000;
+
 export type SimOptions = {
   /** Width the layout places rows at. */
   width?: number;
@@ -112,6 +176,9 @@ export type SimResult = {
   wallMs: number;
   violations: Violation[];
   folds: FoldEvent[];
+  /// Layout shifts and sub-second rows (ShiftEvent, FlashEvent).
+  shifts: ShiftEvent[];
+  flashes: FlashEvent[];
   traces: StepTrace[];
 };
 
@@ -124,6 +191,11 @@ const foldOf = (row: AcpmuxRow): string => {
   return "";
 };
 const opensTurn = (row: AcpmuxRow) => row.kind === "user" && row.incoming?.kind !== "hidden";
+/// A tool run whose every call sends another agent a message (`acpmux send`): its "Sent to" line.
+const isSendRow = (row: AcpmuxRow) =>
+  row.kind === "activity" &&
+  (row.items ?? []).some((item) => item.tool) &&
+  (row.items ?? []).every((item) => !item.tool || acpmuxSendCall(item.tool) !== undefined);
 const isHeader = (row: AcpmuxRow) => row.kind === "worked" || (row.kind === "working" && row.below !== true);
 const textOf = (row: AcpmuxRow) => (typeof row.text === "string" ? row.text.slice(0, 80) : undefined);
 
@@ -173,14 +245,25 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
   const violations: Violation[] = [];
   const allFolds: FoldEvent[] = [];
   const cache = new Map();
+  // The subagent lines the running tray puts in the transcript (App.tsx `withSubagentLines`, on by
+  // default): each turn's "started working" line and each subagent's end line.
+  const subagentLines: DoneLineCache = new Map();
+  // (d) each drawn row's top at the step before, and whether the chat drew any row yet.
+  const tops = new Map<string, number>();
+  let drewRows = false;
   // The browser lane: each row's drawn height at the last measured step, to see a row collapse.
   const drawnHeights = new Map<string, number>();
   // The open folds, one object for the whole run as App.tsx keeps its `folds` state: a fresh set each
   // step reads as a fold change, and the turn view then shapes every turn again (no reuse).
-  const folds = new Set<string>();
+  let folds = new Set<string>();
 
   let current: { rows: readonly AcpmuxRow[]; layout: ConversationLayout } | undefined;
   let shaped = 0;
+  // Churn: the last checked rows' layout, and since when (virtual ms) each drawn row has been drawn.
+  let prevLayout: ConversationLayout | undefined;
+  const drawnSince = new Map<string, number>();
+  const shifts: ShiftEvent[] = [];
+  const flashes: FlashEvent[] = [];
   /** Folds step `index`'s record (or reader action) and shapes and places the rows: the rows to draw. */
   const advance = (index: number): readonly AcpmuxRow[] | undefined => {
     const step = scenario.steps[index]!;
@@ -203,14 +286,15 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
         workingSince = undefined;
       }
       client.seekReplay(step.seq);
-    }
+    } else if ("open" in step.reader) folds = new Set([...folds, step.reader.open]); // App.tsx sets a new `folds`
+
     const snap = snapshot;
     if (!snap) {
       current = undefined;
       return undefined;
     }
     const view = turnViewFrom(
-      snap.rows,
+      withSubagentLines(snap.rows, subagentLines) as AcpmuxRow[],
       folds,
       {
         now: step.at,
@@ -261,6 +345,21 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
       if (isLive(row)) probe.live = true;
       if (opensTurn(row)) probe.opens = true;
       if (opensTurn(row) && (row.incoming || row.received)) probe.received = true;
+      // Another agent's line under a row of its own turn (a message steered in mid-turn, or the message that opened a
+      // finished turn drawn under that turn's "Worked for"), or a send: an activity row (ST-02).
+      const message =
+        row.kind === "user" && (row.incoming || row.received) && prevDrawn?.turn === own
+          ? "received"
+          : isSendRow(row)
+            ? "sent"
+            : undefined;
+      if (message) {
+        probe.message = message;
+        let aboveAt = at - 1;
+        while (aboveAt >= 0 && layout.heights[aboveAt] === 0) aboveAt -= 1;
+        if (aboveAt >= 0 && layout.marks)
+          probe.toolGap = transcriptGap(layout.marks[aboveAt]!, MARK_STEP) * (layout.scale ?? 1);
+      }
       // The turn's head: its header line, or the first row under its opening row.
       if (!headAt.has(own) && ((prevDrawn?.opens && prevDrawn.turn === own) || isHeader(row))) {
         probe.head = true;
@@ -268,6 +367,16 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
       }
       const words = textOf(row);
       if (words) probe.text = words;
+      if ((row.kind === "worked" || row.kind === "turnSummary") && row.status) probe.status = row.status;
+      if (row.kind === "turnSummary" && row.error) probe.error = true;
+      const calls = (row.items ?? []).filter((item) => item.tool);
+      if (calls.length) {
+        probe.calls = calls.length;
+        const running = calls.filter(
+          (item) => (item.tool!.status === "pending" || item.tool!.status === "in_progress") && !item.tool!.background,
+        ).length;
+        if (running) probe.running = running;
+      }
       const box = measured?.[at];
       if (box) {
         probe.top = box.top;
@@ -401,6 +510,62 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
       }
     }
 
+    // (d) what Leo saw from 22:05 to 22:11Z on 2026-11-22 (test/fixtures/chat-sim/leo-2205-subagent-burst.ndjson):
+    // "ENTIRE THING FUCKING BLANKED AND FUCKING SHIFTED AND PLAYED SOME BULLSHIT ANIMATIONS WHEN YOU
+    // STARTED A SUBAGENT"; "WHY DID IT FUCKING DISPLAY NOTHING THEN COPY BUTTONS THEN YOU SENT SHIT THEN
+    // MY STEER WENT UNDER IT".
+    if (rows.length > 0) drewRows = true;
+    else if (drewRows) flag("d-blank", "", "the chat drew no row after it drew some");
+    const ownTurn = (row: AcpmuxRow) => rowTurn.get(row.id) ?? 0;
+    const lines = new Map<string, string>();
+    for (let at = 0; at < rows.length; at += 1) {
+      const row = rows[at]!;
+      const live = isLive(row) || LIVE_KINDS.has(row.kind);
+      // A settled row (two or more turns back, not live) stands where it stood: nothing above it moved.
+      const top = layout.tops[at]!;
+      const was = tops.get(row.id);
+      if (!live && was !== undefined && Math.abs(was - top) > 0.5 && ownTurn(row) < turn - 1)
+        flag("d-shift", row.id, `${row.kind} of turn ${ownTurn(row)} moved ${Math.round(top - was)}px`);
+      if (row.kind !== SUBAGENT_STARTED) continue;
+      // A start line names at most STARTED_LINE_NAMES subagents, each named, each one this pane saw start.
+      const agents = row.subagents ?? [];
+      const named = agents.slice(0, row.startedNamed ?? agents.length);
+      if (named.length > STARTED_LINE_NAMES)
+        flag("d-started-pill", row.id, `names ${named.length} subagents (want <= ${STARTED_LINE_NAMES})`);
+      for (const agent of agents)
+        if (!subagentNamed(agent) || agent.startUnseen)
+          flag(
+            "d-started-pill",
+            row.id,
+            `${agent.startUnseen ? "a subagent whose start it never read" : "an unnamed subagent"}`,
+          );
+      // One start line a turn.
+      const key = `${ownTurn(row)}\u0000${row.inBackground ?? ""}`;
+      const other = lines.get(key);
+      if (other !== undefined)
+        flag("d-started-lines", row.id, `a second start line in turn ${ownTurn(row)} (first ${other})`);
+      else lines.set(key, row.id);
+    }
+    tops.clear();
+    for (let at = 0; at < rows.length; at += 1) tops.set(rows[at]!.id, layout.tops[at]!);
+    // A steer stands where it was sent: no row of its turn that came after it is drawn over it.
+    for (let at = 0; at < rows.length; at += 1) {
+      const steer = rows[at]!;
+      if (steer.kind !== "user" || steer.steer === undefined) continue;
+      for (let above = 0; above < at; above += 1) {
+        const row = rows[above]!;
+        if (isLive(row) || LIVE_KINDS.has(row.kind) || ownTurn(row) !== ownTurn(steer)) continue;
+        if (row.at > steer.at + 1)
+          flag("d-steer-order", steer.id, `${row.kind} ${row.id} (+${row.at - steer.at} ms after it) drawn over it`);
+      }
+    }
+    // A turn that ended draws more than its prompt and its action row.
+    if (step.type === "event" && bySeq.get(step.seq)?.kind === "turn_result") {
+      const own = rows.filter((row) => ownTurn(row) === turn);
+      if (own.length > 0 && own.every((row) => row.kind === "user" || row.kind === "turnSummary"))
+        flag("d-action-only", own.at(-1)!.id, `turn ${turn} ended with only its prompt and action row`);
+    }
+
     // (c) rows above the newest change rebuilt with nothing of their own changed (same id, version and fold).
     const rerendered: string[] = [];
     const before = new Map<string, AcpmuxRow>();
@@ -418,6 +583,89 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
         rerendered.push(row.id);
     }
     for (const id of rerendered) flag("c-rerender", id, "rebuilt above the newest change, two or more turns back");
+    // (d) churn: layout shifts of drawn rows and rows drawn under a second (ShiftEvent, FlashEvent).
+    {
+      const phase: ShiftEvent["phase"] = /^(turn_end|turn_result|status ready)$/.test(step.label)
+        ? "turn-end"
+        : "mid-turn";
+      const drawnAt = (lay: ConversationLayout | undefined, at: number) => (lay ? (lay.heights[at] ?? 0) > 0 : false);
+      const was = new Map<string, { top: number; height: number; kind: string }>();
+      for (let at = stable; at < prevRows.length; at += 1)
+        if (drawnAt(prevLayout, at))
+          was.set(prevRows[at]!.id, {
+            top: prevLayout!.tops[at]!,
+            height: prevLayout!.heights[at]!,
+            kind: prevRows[at]!.kind,
+          });
+      let moved = 0;
+      let px = 0;
+      let cause = "";
+      const seen = new Set<string>();
+      // The reader's anchor: the lowest row drawn at both steps that is not a live line. A row above it
+      // that moved relative to it is a shift; rows streaming or arriving below it are not.
+      let anchorAt = -1;
+      for (let at = rows.length - 1; at >= stable && anchorAt < 0; at -= 1) {
+        const row = rows[at]!;
+        if (
+          drawnAt(layout, at) &&
+          was.has(row.id) &&
+          !isLive(row) &&
+          !LIVE_KINDS.has(row.kind) &&
+          !row.id.startsWith("nextStep-")
+        )
+          anchorAt = at;
+      }
+      const anchorShift = anchorAt >= 0 ? layout.tops[anchorAt]! - was.get(rows[anchorAt]!.id)!.top : 0;
+      for (let at = stable; at < rows.length; at += 1) {
+        const row = rows[at]!;
+        if (!drawnAt(layout, at)) continue;
+        seen.add(row.id);
+        const before = was.get(row.id);
+        if (!before) {
+          if (!drawnSince.has(row.id)) drawnSince.set(row.id, step.at);
+          if (!cause && at < anchorAt) cause = `+${row.kind} ${row.id}`;
+          continue;
+        }
+        const height = layout.heights[at]!;
+        if (!cause && Math.abs(height - before.height) > 0.5 && at < anchorAt) cause = `~${row.kind} ${row.id}`;
+        if (at >= anchorAt || isLive(row) || LIVE_KINDS.has(row.kind)) continue;
+        const delta = Math.abs(layout.tops[at]! - before.top - anchorShift);
+        if (delta > 0.5) {
+          moved += 1;
+          px = Math.max(px, delta);
+        }
+      }
+      for (const [id, before] of was) {
+        if (seen.has(id)) continue;
+        const since = drawnSince.get(id);
+        drawnSince.delete(id);
+        if (!cause) cause = `-${before.kind} ${id}`;
+        if (since !== undefined && step.at - since < FLASH_MS)
+          flashes.push({
+            id,
+            kind: before.kind,
+            shownMs: step.at - since,
+            step: index,
+            at: step.at - first,
+            label: step.label,
+            phase,
+          });
+      }
+      const back = prevLayout ? Math.max(0, prevLayout.totalHeight - layout.totalHeight) : 0;
+      if (moved > 0)
+        shifts.push({
+          step: index,
+          at: step.at - first,
+          label: step.label,
+          phase,
+          moved,
+          px: Math.round(px),
+          back: Math.round(back),
+          cause,
+        });
+      prevLayout = layout;
+    }
+
     const probes =
       rows.length <= rowsUpTo
         ? probeAt
@@ -457,6 +705,8 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
     wallMs: Math.round(performance.now() - started),
     violations,
     folds: allFolds,
+    shifts,
+    flashes,
     traces: options.onStep ? [] : traces,
   });
   /** Whether the agent is working at the step `advance` last made (the browser lane draws it). */
@@ -494,8 +744,11 @@ export async function runSimulationAsync(
   return sim.result();
 }
 
-/// A prompt that starts a turn: the person's, or another agent's message; not the inbox's notice of threads.
+/// A prompt that starts a turn: the person's, or another agent's message; not the inbox's notice of threads, nor a
+/// message steered into the running turn.
 function isTurnPrompt(event: EventRecord): boolean {
+  // A message steered into the running turn (`steer: true`) joins that turn (direct.ts startsTurn).
+  if (event.msg?.steer === true) return false;
   const kind = event.msg?._meta?.provenance?.kind;
   return kind !== "inbox_notice" && kind !== "agent_digest";
 }
@@ -513,4 +766,22 @@ export function summarize(result: SimResult): string {
   const siblings = [...sibling].map(([kind, count]) => `${kind}=${count}`).join(" ") || "none";
   // l10n-allow: simulator report for a terminal, not shipped UI
   return `${result.scenario}: ${result.steps} steps, ${result.rows} rows drawn (${result.recordRows} before folding), ${Math.round(result.virtualMs / 1000)} s simulated in ${result.wallMs} ms; violations ${rules}; mid-turn sibling folds ${siblings}`;
+}
+
+/// Shifts and flashes per minute of churn (virtual time), split by phase: the numbers the PR quotes.
+export function churnSummary(result: SimResult): string {
+  const minutes = Math.max(result.virtualMs, 1) / 60_000;
+  const rate = (count: number) => (count / minutes).toFixed(2);
+  const mid = result.shifts.filter((shift) => shift.phase === "mid-turn").length;
+  const end = result.shifts.length - mid;
+  const flashMid = result.flashes.filter((flash) => flash.phase === "mid-turn").length;
+  const kinds = new Map<string, number>();
+  for (const flash of result.flashes) kinds.set(flash.kind, (kinds.get(flash.kind) ?? 0) + 1);
+  const causes = new Map<string, number>();
+  for (const shift of result.shifts) {
+    const key = shift.cause.replace(/ .*/, "") || "(shorter)";
+    causes.set(key, (causes.get(key) ?? 0) + 1);
+  }
+  const list = (map: Map<string, number>) => [...map].map(([key, count]) => `${key}=${count}`).join(" ") || "none";
+  return `${result.scenario}: ${minutes.toFixed(2)} min; shifts ${result.shifts.length} (${rate(result.shifts.length)}/min; mid-turn ${mid}, turn-end ${end}; by cause ${list(causes)}); sub-second rows ${result.flashes.length} (${rate(result.flashes.length)}/min; mid-turn ${flashMid}; by kind ${list(kinds)})`;
 }

@@ -1,7 +1,6 @@
 import { SCROLLER_FADE_ATTRIBUTE } from "../../scrollers";
 import { guardedStylesheet } from "../../surfaces/stylesheetGuard";
 import { applyAgentTheme } from "../shared/theme";
-import { configureSubagentTray } from "./subagents/runningTray";
 import { configureSubagentTrayPlacement } from "./subagents/subagentTrayPlacement";
 import { configureSelectionReply } from "./conversation/selectionReplyModel";
 import { configureToolRunLook } from "./toolRunLook";
@@ -27,7 +26,6 @@ export function applyPaneTheme(theme: Record<string, unknown>): void {
   configureNoticeLook(theme.noticeLook);
   configureNoticeBodyLook(theme.noticeBodyLook);
   configureTurnActionsPlacement(theme.turnActionsPlacement);
-  configureSubagentTray(theme.subagentTray);
   configureSubagentTrayPlacement(theme.subagentTrayPlacement);
   configureSelectionReply(theme.selectionReply);
 }
