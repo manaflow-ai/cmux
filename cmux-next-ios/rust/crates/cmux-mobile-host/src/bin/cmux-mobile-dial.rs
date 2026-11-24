@@ -4,6 +4,7 @@
 //!            [--transport webrtc|wireguard]... [--relay-only] [--block-udp]
 //!            [--drop-wireguard] [--proxy-only]
 //!            [--exclude-cgnat] [--bytes N] [--daemon] [--pings N] [--no-turn]
+//!            [--no-turn-prewarm]
 //!
 //! Prints one JSON line per transport: connect time, path, RTT, echo
 //! throughput, and the daemon `identify` answer.
@@ -20,6 +21,16 @@
 //! to TURN over TLS; `--proxy-only` blocks UDP and lets TURN over TLS out only
 //! through the system's proxy (`CMUX_MOBILE_DEV_PROXY=http://host:port` sets
 //! one). PROTOCOL.md "Corporate networks".
+//!
+//! As the app does, `GET /v1/ice` runs beside the signaling socket's open
+//! (the device registration, which the app does at sign-in, comes first and
+//! is not timed), and once ICE answers a WireGuard dial's TURN allocation
+//! starts beside the rest of the open (`EarlyTurn`, as a redial's does beside
+//! its reconnect). `--no-turn-prewarm` leaves the allocation to the dial.
+//! `ice_fetch_ms` is `/v1/ice`'s time and `connect_ms` the time from its
+//! answer to link up, so `ice_fetch_ms + connect_ms` stays the link up time
+//! (now with ICE and signaling overlapped); `timings` count from the start of
+//! both.
 
 use std::time::{Duration, Instant};
 
@@ -47,6 +58,7 @@ struct Args {
     daemon: bool,
     pings: usize,
     stock_ice_waits: bool,
+    no_turn_prewarm: bool,
 }
 
 fn parse() -> Result<Args> {
@@ -57,7 +69,7 @@ fn parse() -> Result<Args> {
     let (mut stock_ice_waits, mut block_udp) = (false, false);
     let (mut drop_wireguard, mut proxy_only) = (false, false);
     let (mut bytes, mut pings) = (10 * 1024 * 1024, 20);
-    let mut no_input_lane = false;
+    let (mut no_input_lane, mut no_turn_prewarm) = (false, false);
     while let Some(arg) = args.next() {
         let mut value = || args.next().with_context(|| format!("{arg} needs a value"));
         match arg.as_str() {
@@ -79,6 +91,7 @@ fn parse() -> Result<Args> {
             "--exclude-cgnat" => exclude_cgnat = true,
             "--no-turn" => no_turn = true,
             "--no-input-lane" => no_input_lane = true,
+            "--no-turn-prewarm" => no_turn_prewarm = true,
             "--daemon" => daemon = true,
             "--stock-ice-waits" => stock_ice_waits = true,
             other => bail!("unknown argument {other}"),
@@ -106,6 +119,7 @@ fn parse() -> Result<Args> {
         daemon,
         pings,
         stock_ice_waits,
+        no_turn_prewarm,
     })
 }
 
@@ -115,18 +129,9 @@ fn millis(duration: Duration) -> f64 {
 
 async fn run(args: &Args, kind: TransportKind) -> Result<serde_json::Value> {
     let api = ApiClient::new(&args.base_url, &args.token);
-    let ice_started = Instant::now();
-    let mut ice_servers = api.ice().await.map(|c| c.ice_servers).unwrap_or_default();
-    let ice_fetch = ice_started.elapsed();
-    if args.no_turn {
-        for server in &mut ice_servers {
-            server.urls.retain(|url| !url.starts_with("turn:") && !url.starts_with("turns:"));
-        }
-        ice_servers.retain(|server| !server.urls.is_empty());
-    }
-    let turn_urls = cmux_mobile_link::dial::turn_url_count(&ice_servers);
     let device = uuid::Uuid::new_v4().to_string();
-    // The backend admits a signaling socket only for a registered device.
+    // The backend admits a signaling socket only for a registered device. The
+    // app registers at sign-in, not per dial: not timed.
     api.register_device(&cmux_mobile_link::api::DeviceRegistration {
         device_id: device.clone(),
         kind: "phone".into(),
@@ -140,11 +145,7 @@ async fn run(args: &Args, kind: TransportKind) -> Result<serde_json::Value> {
     .context("POST /v1/devices")?;
     let started = Instant::now();
     let timeline = cmux_mobile_link::Timeline::starting_at(started);
-    let signaling = SignalingClient::connect(&args.base_url, &args.token, &args.team, &device).await?;
-    let signaled = started.elapsed();
-    timeline.mark("signaling_open");
-    let options = DialOptions {
-        ice_servers,
+    let mut options = DialOptions {
         exclude_cgnat: args.exclude_cgnat,
         relay_only: args.relay_only,
         block_udp: args.block_udp || args.proxy_only,
@@ -155,9 +156,49 @@ async fn run(args: &Args, kind: TransportKind) -> Result<serde_json::Value> {
         stock_ice_waits: args.stock_ice_waits,
         ..DialOptions::default()
     };
-    let connected =
-        cmux_mobile_link::dial::connect(&signaling, &args.mac, kind, &options, LinkConfig::default()).await?;
-    let connect = started.elapsed();
+    // `/v1/ice` beside the signaling socket's open, as the app does; the TURN
+    // allocation starts once ICE answers.
+    let ice = async {
+        let mut ice_servers = api.ice().await.map(|c| c.ice_servers).unwrap_or_default();
+        let ice_fetch = started.elapsed();
+        timeline.mark("ice_answered");
+        if args.no_turn {
+            for server in &mut ice_servers {
+                server.urls.retain(|url| !url.starts_with("turn:") && !url.starts_with("turns:"));
+            }
+            ice_servers.retain(|server| !server.urls.is_empty());
+        }
+        let early = if args.no_turn_prewarm {
+            None
+        } else {
+            cmux_mobile_link::dial::EarlyTurn::for_dial(
+                kind,
+                &DialOptions { ice_servers: ice_servers.clone(), ..options.clone() },
+            )
+        };
+        (ice_servers, ice_fetch, early)
+    };
+    let signaling = async {
+        let signaling = SignalingClient::connect(&args.base_url, &args.token, &args.team, &device).await;
+        let signaled = started.elapsed();
+        timeline.mark("signaling_open");
+        signaling.map(|signaling| (signaling, signaled))
+    };
+    let ((ice_servers, ice_fetch, early), signaling) = tokio::join!(ice, signaling);
+    let (signaling, signaled) = signaling?;
+    let turn_urls = cmux_mobile_link::dial::turn_url_count(&ice_servers);
+    options.ice_servers = ice_servers;
+    let connected = cmux_mobile_link::dial::connect_with_early_turn(
+        &signaling,
+        &args.mac,
+        kind,
+        &options,
+        LinkConfig::default(),
+        early,
+    )
+    .await?;
+    // From ICE's answer, so that ice_fetch_ms + connect_ms is the link up time.
+    let connect = started.elapsed().saturating_sub(ice_fetch);
     let link = &connected.link;
     // The app's first request: a `daemon` channel and its first answer.
     let first_daemon = if args.daemon {
@@ -240,6 +281,8 @@ async fn run(args: &Args, kind: TransportKind) -> Result<serde_json::Value> {
         "relay_only": args.relay_only,
         "block_udp": args.block_udp,
         "no_turn": args.no_turn,
+        "turn_prewarm": !args.no_turn_prewarm,
+        "ice_beside_signaling": true,
         "path": path,
         "ice_fetch_ms": millis(ice_fetch),
         "signaling_ms": millis(signaled),

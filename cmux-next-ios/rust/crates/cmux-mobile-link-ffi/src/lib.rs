@@ -1836,12 +1836,9 @@ async fn dial(
         }
         Ok::<_, CmuxMobileError>((socket, reused))
     };
-    let (ice_servers, socket) =
-        tokio::join!(pool.ice_servers(&request.base_url, &request.token, timeline), socket);
-    let (socket, reused) = socket?;
-    let ice_servers = without_turn_if_asked(ice_servers);
-    let options = DialOptions {
-        ice_servers,
+    let mut options = DialOptions {
+        // Filled in once `/v1/ice` answers, below.
+        ice_servers: Vec::new(),
         // cmux's WebSocket relay, on the service the phone signs in and signals
         // through: the last way to the Mac (PROTOCOL.md "WebSocket relay").
         // CMUX_MOBILE_DEV_NO_RELAY=1 (simulator) dials without it.
@@ -1881,7 +1878,22 @@ async fn dial(
         timeline: timeline.clone(),
         ..DialOptions::default()
     };
-    let attempt = dial_on(&socket, request, &options, reused).await;
+    // Once ICE answers, a WireGuard dial's TURN allocation starts
+    // (`EarlyTurn`, as a redial's does beside its reconnect), beside the rest
+    // of the socket's open, instead of after it inside the dial.
+    let ice = async {
+        let ice_servers =
+            without_turn_if_asked(pool.ice_servers(&request.base_url, &request.token, timeline).await);
+        let early = cmux_mobile_link::dial::EarlyTurn::for_dial(
+            request.transport.into(),
+            &DialOptions { ice_servers: ice_servers.clone(), ..options.clone() },
+        );
+        (ice_servers, early)
+    };
+    let ((ice_servers, early), socket) = tokio::join!(ice, socket);
+    let (socket, reused) = socket?;
+    options.ice_servers = ice_servers;
+    let attempt = dial_on(&socket, request, &options, reused, early).await;
     match attempt {
         Ok(connected) => Ok((connected, socket)),
         Err(Attempt::Stale) => {
@@ -1984,21 +1996,24 @@ async fn fail(pool: &Warm, socket: &Arc<WarmSocket>, error: DialError) -> CmuxMo
     error.into()
 }
 
-/// Dial on `socket`. A reused socket is probed while the dial runs: when it
-/// does not answer within `STALE_PROBE`, the dial is abandoned as stale
-/// instead of waiting out its whole timeout.
+/// Dial on `socket`, taking `early`, the TURN allocation started when ICE
+/// answered. A reused socket is probed while the dial runs: when it does not
+/// answer within `STALE_PROBE`, the dial is abandoned as stale instead of
+/// waiting out its whole timeout.
 async fn dial_on(
     socket: &Arc<WarmSocket>,
     request: &ConnectRequest,
     options: &DialOptions,
     probe: bool,
+    early: Option<cmux_mobile_link::dial::EarlyTurn>,
 ) -> Result<cmux_mobile_link::Connected, Attempt> {
-    let dial = cmux_mobile_link::dial::connect(
+    let dial = cmux_mobile_link::dial::connect_with_early_turn(
         &socket.client,
         &request.mac_device_id,
         request.transport.into(),
         options,
         if options.aligned_keepalives { LinkConfig::aligned() } else { LinkConfig::default() },
+        early,
     );
     if !probe {
         return dial.await.map_err(Attempt::Failed);
