@@ -41,7 +41,8 @@ struct HomeSidebarHeaderTests {
 
     /// The view follows the layout: the field and the quiet buttons on one row, the field's
     /// bezel and AppKit focus ring off, and no fill on a button at rest.
-    @Test(arguments: [180, 260, 320] as [CGFloat])
+    /// The view's width: the list is 8 pt narrower (the panel's inset), and under 180 pt it is avatars only.
+    @Test(arguments: [188, 260, 320] as [CGFloat])
     func theViewDrawsTheRow(_ width: CGFloat) throws {
         let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: width, height: 600))
         home.layoutSubtreeIfNeeded()
