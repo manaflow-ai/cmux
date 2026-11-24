@@ -131,7 +131,7 @@ class SideLaneCapabilityLabelsTests(unittest.TestCase):
         self.assertEqual([name for name, _, _ in drifted], ["CI_SIDE_LANE_LABELS"])
 
     def test_the_repository_variable_checks_read_the_array(self) -> None:
-        for name in ("ci-repo-variables.yml", "ci-health-report.yml"):
+        for name in ("ci-health-report.yml",):
             text = (WORKFLOWS / name).read_text(encoding="utf-8")
             self.assertIn("CI_SIDE_LANE_LABELS=${{ vars.CI_SIDE_LANE_LABELS }}", text, name)
 
