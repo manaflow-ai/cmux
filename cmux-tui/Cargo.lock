@@ -38,6 +38,7 @@ dependencies = [
  "cmux-device-kind",
  "cmux-embed",
  "cmux-fault",
+ "cmux-felt",
  "cmux-file-lock",
  "cmux-git",
  "cmux-host",
