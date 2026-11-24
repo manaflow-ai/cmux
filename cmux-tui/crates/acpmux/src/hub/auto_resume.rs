@@ -662,7 +662,9 @@ impl Hub {
                 return;
             }
             let delays = if context { compact_first::waits(&delays) } else { delays };
-            let Some(&delay) = delays.get(done) else {
+            // A move's continuation is no failed attempt and uses up no wait (`restart_resume.rs`).
+            let moves = if done == 0 { 0 } else { hub.moves_behind(&session, &root) };
+            let Some(&delay) = delays.get(done.saturating_sub(moves)) else {
                 let ours = hub.take_pending(&session, &turn_id);
                 if done > 0 {
                     let msg = json!({"promptId": root, "attempts": done, "turnId": turn_id, "reason": reason.as_str()});
@@ -778,6 +780,16 @@ impl Hub {
     /// turn held, so a held agent message's own retry waits for it (`digest.rs`).
     pub(super) fn continuation_pending(&self, session: &Session) -> bool {
         is_pending(session.auto_resume.lock().as_ref())
+    }
+
+    /// Whether no continuation is pending but one whose wait is the chat's rate-limit hold
+    /// (`rate_hold.rs` `wait_rate_hold`): a chat held past its idle period may then hibernate
+    /// (`sleeps_through_hold`). One deciding, firing or waiting for any other reason keeps it.
+    pub(super) fn continuation_waits_on_hold(&self, session: &Session) -> bool {
+        match session.auto_resume.lock().as_ref() {
+            Some(Mark::Waiting { retry: Some(r), .. }) => r.reason == RetryReason::RateLimit,
+            mark => !is_pending(mark),
+        }
     }
 
     /// Whether the chat's continuation is only a rate-limit retry waiting for the reset of a chat
@@ -1164,6 +1176,25 @@ impl Hub {
     #[cfg(test)]
     pub(super) fn stopped_for_test(&self, session: &Session, turn: &str) -> bool {
         matches!(session.auto_resume.lock().as_ref(), Some(Mark::Stopped(t)) if t == turn)
+    }
+
+    /// Tests only: a continuation of `turn` waits, for `reason`'s wait.
+    #[cfg(test)]
+    pub(super) fn set_waiting_for_test(&self, session: &Session, turn: &str, reason: RetryReason) {
+        let retry = RetrySummary {
+            attempt: 1,
+            of: 4,
+            reason,
+            next_at: u64::MAX,
+            prompt_id: format!("p-{turn}"),
+            turn_id: turn.to_owned(),
+        };
+        let wake = Wake(Arc::new(Notify::new()));
+        session.auto_resume.lock().replace(Mark::Waiting {
+            turn: turn.to_owned(),
+            retry: Some(retry),
+            _wake: wake,
+        });
     }
 
     #[cfg(test)]
