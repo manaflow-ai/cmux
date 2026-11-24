@@ -10,9 +10,10 @@ import UIKit
 /// thread (`FeedListController`) and kept until the key changes, so a row
 /// that scrolls in only places its reused views (verify/feed-perf-20261022.md).
 ///
-/// The metrics are the SwiftUI cell's (`git show 2ad7671e9166:cmux-next-ios/
-/// CmuxMobileKit/Sources/CmuxMobileFeed/FeedCell.swift`): 16 pt sides, 12 pt
-/// top and bottom, a 40 pt avatar, a column 12 pt after it with 8 pt between parts.
+/// Compact, as a Threads post (#51332): 16 pt sides, 10 pt top and bottom, a 32 pt avatar, a
+/// column 10 pt after it with 4 pt between parts, text two sizes under the reader's (`compact`),
+/// and only what is signal: the ask or failure as a headline, the reply's first lines, the pull
+/// request on one line, icon-only actions. The person's own prompt is not drawn.
 struct FeedRowLayout: @unchecked Sendable {
     let key: FeedRowKey
     /// The row's height, its divider included.
@@ -193,12 +194,25 @@ struct FeedRowLayout: @unchecked Sendable {
 
 extension FeedRowLayout {
     static func make(_ key: FeedRowKey, styles: NativeTextStyles, scale: CGFloat) -> FeedRowLayout {
-        var builder = FeedRowBuilder(key: key, styles: styles, scale: scale)
+        var builder = FeedRowBuilder(key: key, styles: compact(styles), scale: scale)
         return builder.build()
     }
 
     /// The column's width for a row `width` points wide.
-    static func columnWidth(rowWidth: CGFloat) -> CGFloat { max(rowWidth - 16 - 40 - 12 - 16, 1) }
+    static func columnWidth(rowWidth: CGFloat) -> CGFloat { max(rowWidth - 16 - avatarSize - 10 - 16, 1) }
+
+    static let avatarSize: CGFloat = 32
+
+    /// The reader's text size, two steps smaller: a card is a glance, not the chat.
+    static func compact(_ styles: NativeTextStyles) -> NativeTextStyles {
+        let order: [UIContentSizeCategory] = [
+            .extraSmall, .small, .medium, .large, .extraLarge, .extraExtraLarge, .extraExtraExtraLarge,
+            .accessibilityMedium, .accessibilityLarge, .accessibilityExtraLarge, .accessibilityExtraExtraLarge,
+            .accessibilityExtraExtraExtraLarge,
+        ]
+        guard let index = order.firstIndex(of: styles.category) else { return NativeTextStyles(category: .small) }
+        return NativeTextStyles(category: order[max(0, index - 2)])
+    }
 }
 
 /// Symbols inline with text (SwiftUI `Label`): the symbol at the text's size, then a space.
@@ -227,9 +241,9 @@ private struct FeedRowBuilder {
     let styles: NativeTextStyles
     let scale: CGFloat
     let width: CGFloat
-    let columnX: CGFloat = 16 + 40 + 12
+    let columnX: CGFloat = 16 + FeedRowLayout.avatarSize + 10
     let columnWidth: CGFloat
-    var y: CGFloat = 12
+    var y: CGFloat = 10
     var first = true
 
     init(key: FeedRowKey, styles: NativeTextStyles, scale: CGFloat) {
@@ -251,9 +265,9 @@ private struct FeedRowBuilder {
         return NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: color, .paragraphStyle: paragraph])
     }
 
-    /// The column's next part, `height` tall, 8 pt after the previous one (a VStack's spacing).
+    /// The column's next part, `height` tall, 4 pt after the previous one.
     mutating func place(_ height: CGFloat, extra: CGFloat = 0) -> CGFloat {
-        if !first { y += 8 }
+        if !first { y += 4 }
         first = false
         let top = y
         y += height + extra
@@ -262,14 +276,15 @@ private struct FeedRowBuilder {
 
     mutating func build() -> FeedRowLayout {
         let subheadline = styles.font(.subheadline)
-        let headerHeight = styles.isAccessibilitySize ? ceil(subheadline.lineHeight) * 2 + 2 : max(ceil(subheadline.lineHeight), 20)
+        let headerHeight = styles.isAccessibilitySize ? ceil(subheadline.lineHeight) * 2 + 2 : max(ceil(subheadline.lineHeight), 18)
         let headerTop = place(headerHeight)
         let header = CGRect(x: columnX, y: headerTop, width: columnWidth - 44 + 10, height: headerHeight)
-        // The 44 pt "…" target, 12 pt above and below the line, 10 pt into the side padding.
-        let menu = CGRect(x: columnX + columnWidth - 44 + 10, y: headerTop - 12, width: 44, height: 44)
+        // The 44 pt "…" target, centered on the line, 10 pt into the side padding.
+        let menu = CGRect(x: columnX + columnWidth - 44 + 10, y: headerTop + (headerHeight - 44) / 2, width: 44, height: 44)
 
         let headline = headlineLayout()
-        let quote = item.quote.map { quoteLayout($0) }
+        // The person's own prompt is theirs already: not signal on a card.
+        let quote: FeedRowLayout.Quote? = nil
         let pull = pullLayout()
         let body = bodyLayout()
         let answer = answerLayout()
@@ -278,67 +293,38 @@ private struct FeedRowBuilder {
         let sending = item.opensTerminal ? item.pending.map { sendingLayout($0) } : nil
         let failure = state.replyFailure.map { failureLayout($0) }
         let composer = state.replying ? composerFrame() : nil
-        // The footer: a 44 pt row drawn 6 pt into its neighbors (32 pt of rhythm).
-        let footerTop = place(32)
-        let footer = CGRect(x: columnX, y: footerTop - 6, width: columnWidth - 8, height: 44)
+        // The footer: icons in a 36 pt row drawn 8 pt into its neighbors (20 pt of rhythm).
+        let footerTop = place(20)
+        let footer = CGRect(x: columnX - 8, y: footerTop - 8, width: columnWidth, height: 36)
 
-        let columnHeight = y - 12
-        let contentBottom = 12 + max(40, columnHeight) + 12
+        let avatar = FeedRowLayout.avatarSize
+        let columnHeight = y - 10
+        let contentBottom = 10 + max(avatar, columnHeight) + 10
         let divider = 1 / max(scale, 1)
         return FeedRowLayout(
             key: key, height: contentBottom + divider, dividerY: contentBottom,
-            column: CGRect(x: columnX, y: 12, width: columnWidth, height: columnHeight),
-            avatar: CGRect(x: 16, y: 12, width: 40, height: 40),
+            column: CGRect(x: columnX, y: 10, width: columnWidth, height: columnHeight),
+            avatar: CGRect(x: 16, y: 10, width: avatar, height: avatar),
             header: header, menuButton: menu, quote: quote, chip: nil, headline: headline, pull: pull, body: body, answer: answer,
             error: error, replies: replies, replySending: sending, replyFailure: failure, composer: composer, footer: footer,
             footerHasReply: item.takesReply, footerReplyEnabled: !(item.opensTerminal && item.pending != nil),
             footerHasPull: item.pullRequest != nil, footerHasMerge: item.takesReply && { if case .merge = item.decision { true } else { false } }(),
-            threadAbove: key.thread.joinsAbove ? CGRect(x: 16 + 19, y: 0, width: 2, height: 12 - 4) : nil,
-            threadBelow: key.thread.joinsBelow ? CGRect(x: 16 + 19, y: 12 + 40 + 4, width: 2, height: max(0, contentBottom + divider - 56)) : nil
-        )
-    }
-
-    // MARK: Quote bubble
-
-    mutating func quoteLayout(_ quote: FeedItem.Quote) -> FeedRowLayout.Quote {
-        let outgoing = quote.author == .you
-        let captionFont = styles.font(.caption2, weight: .semibold)
-        let caption = symbolText(outgoing ? "arrowshape.turn.up.left.fill" : "sparkle", outgoing ? "You" : "Asked you",
-                                 font: captionFont, color: .tertiaryLabel, symbolWeight: .semibold, symbolSize: 9, gap: 4)
-        // The caption's line is the text's (an HStack of a 9 pt symbol and caption2 text).
-        let captionSize = CGSize(width: nativeTextSize(caption, width: columnWidth - 24).width, height: ceil(captionFont.lineHeight))
-        let text = attributed(quote.text, styles.font(.subheadline), .secondaryLabel)
-        // The person's prompt is context: two lines for a finished turn, three for an ask.
-        let maxLines = state.quoteExpanded ? 0 : (item.needsYou ? 3 : 2)
-        let bubbleMax = columnWidth - 28
-        let textSize = nativeTextSize(text, width: bubbleMax - 24, maxLines: maxLines)
-        let bubbleWidth = min(textSize.width + 24, bubbleMax)
-        let bubbleHeight = textSize.height + 16
-        let threadHeight: CGFloat = outgoing ? 0 : 12 - 4
-        let total = captionSize.height + 3 + bubbleHeight + (outgoing ? 10 : 6) + threadHeight - 4
-        let top = place(total)
-        let captionX = outgoing ? columnX + columnWidth - 12 - captionSize.width : columnX + 12
-        let bubbleX = outgoing ? columnX + columnWidth - bubbleWidth : columnX
-        let bubbleY = top + captionSize.height + 3
-        let bubble = CGRect(x: bubbleX, y: bubbleY, width: bubbleWidth, height: bubbleHeight)
-        return FeedRowLayout.Quote(
-            frame: CGRect(x: columnX, y: top, width: columnWidth, height: total), outgoing: outgoing,
-            caption: caption, captionFrame: CGRect(x: captionX, y: top, width: captionSize.width, height: captionSize.height),
-            bubble: bubble, text: text, textFrame: bubble.insetBy(dx: 12, dy: 8), maxLines: maxLines,
-            thread: outgoing ? nil : CGRect(x: columnX, y: bubble.maxY + 6 - 4, width: 14, height: 12)
+            threadAbove: key.thread.joinsAbove ? CGRect(x: 16 + avatar / 2 - 1, y: 0, width: 2, height: 10 - 4) : nil,
+            threadBelow: key.thread.joinsBelow
+                ? CGRect(x: 16 + avatar / 2 - 1, y: 10 + avatar + 4, width: 2, height: max(0, contentBottom + divider - 14 - avatar)) : nil
         )
     }
 
     // MARK: Headline
 
-    /// "Needs your OK: Run git push" (warning dot), "Failed" (danger), "Merged PR #123" (success),
-    /// "PR #123 open", "Finished": at most two lines of semibold subheadline.
+    /// "Needs your OK: Run git push" (warning dot) or "Failed" (danger): at most two lines of
+    /// semibold subheadline, only when it is signal. A finished reply leads with its own words,
+    /// and a pull request's state is on its own line.
     mutating func headlineLayout() -> FeedRowLayout.Headline {
-        let dot: UIColor? = if item.needsYou { .cmuxMobileWarning }
-            else if item.kind == .failed { .cmuxMobileDanger }
-            else if item.pullRequest?.isMerged == true { .cmuxMobileSuccess }
-            else if item.pullRequest?.checks == .failing { .cmuxMobileDanger }
-            else { nil }
+        guard item.needsYou || item.kind == .failed else {
+            return FeedRowLayout.Headline(text: NSAttributedString(), frame: .zero, dot: nil, dotFrame: nil)
+        }
+        let dot: UIColor? = item.needsYou ? .cmuxMobileWarning : .cmuxMobileDanger
         let font = styles.font(.subheadline, weight: .semibold)
         let text = attributed(item.headline, font, .label)
         let inset: CGFloat = dot != nil ? 7 + 6 : 0
@@ -357,11 +343,11 @@ private struct FeedRowBuilder {
     /// "✕ 2 checks failing"), and "Dev build feed-threads" when the reply names one.
     mutating func pullLayout() -> FeedRowLayout.PullCard? {
         guard let pull = item.pullRequest else { return nil }
-        let inner = columnWidth - 24
+        let inner = columnWidth - 20
         let titleText = [ "#\(pull.number)", pull.title ?? pull.repository ].filter { !$0.isEmpty }.joined(separator: " ")
-        let title = symbolText("arrow.triangle.pull", titleText, font: styles.font(.subheadline, weight: .medium), color: .label,
-                               symbolSize: 13, gap: 6)
-        let titleSize = nativeTextSize(title, width: inner, maxLines: 2)
+        let title = symbolText("arrow.triangle.pull", titleText, font: styles.font(.footnote, weight: .medium), color: .label,
+                               symbolSize: 11, gap: 5)
+        let titleSize = nativeTextSize(title, width: inner, maxLines: 1)
         let (symbol, color): (String, UIColor) = switch (pull.state, pull.checks) {
         case (.merged, _): ("checkmark.seal.fill", .cmuxMobileSuccess)
         case (.closed, _): ("xmark.circle", .secondaryLabel)
@@ -370,23 +356,21 @@ private struct FeedRowBuilder {
         case (_, .passing): pull.mergeable == false ? ("exclamationmark.triangle.fill", .cmuxMobileWarning) : ("checkmark.circle.fill", .cmuxMobileSuccess)
         default: ("circle.dashed", .secondaryLabel)
         }
-        let state = symbolText(symbol, pull.stateText, font: styles.font(.footnote), color: color, symbolSize: 12, gap: 5)
-        let stateSize = nativeTextSize(state, width: inner)
-        var height = 10 + titleSize.height + 4 + stateSize.height + 10
-        var build: NSAttributedString?
-        var buildSize = CGSize.zero
+        // The state and the dev build share one caption line: "✓ Ready to merge · 🔨 feed-threads".
+        let state = NSMutableAttributedString(attributedString: symbolText(symbol, pull.stateText, font: styles.font(.caption1),
+                                                                           color: color, symbolSize: 10, gap: 4))
         if let tag = item.devBuild {
-            build = symbolText("hammer", "Dev build \(tag)", font: styles.font(.footnote), color: .secondaryLabel, symbolSize: 12, gap: 5)
-            buildSize = nativeTextSize(build ?? NSAttributedString(), width: inner)
-            height += 4 + buildSize.height
+            state.append(NSAttributedString(string: "  ·  ", attributes: [.font: styles.font(.caption1), .foregroundColor: UIColor.tertiaryLabel]))
+            state.append(symbolText("hammer", tag, font: styles.font(.caption1), color: .secondaryLabel, symbolSize: 10, gap: 4))
         }
+        let stateSize = nativeTextSize(state, width: inner, maxLines: 1)
+        let height = 7 + titleSize.height + 2 + stateSize.height + 7
         let top = place(height)
-        let titleFrame = CGRect(x: 12, y: 10, width: inner, height: titleSize.height)
-        let stateFrame = CGRect(x: 12, y: titleFrame.maxY + 4, width: inner, height: stateSize.height)
+        let titleFrame = CGRect(x: 10, y: 7, width: inner, height: titleSize.height)
+        let stateFrame = CGRect(x: 10, y: titleFrame.maxY + 2, width: inner, height: stateSize.height)
         return FeedRowLayout.PullCard(
             frame: CGRect(x: columnX, y: top, width: columnWidth, height: height), url: pull.url, title: title,
-            titleFrame: titleFrame, state: state, stateFrame: stateFrame, build: build,
-            buildFrame: build.map { _ in CGRect(x: 12, y: stateFrame.maxY + 4, width: inner, height: buildSize.height) }
+            titleFrame: titleFrame, state: state, stateFrame: stateFrame, build: nil, buildFrame: nil
         )
     }
 
@@ -421,8 +405,8 @@ private struct FeedRowBuilder {
     // MARK: Body
 
     mutating func bodyLayout() -> FeedRowLayout.Body {
-        // About six lines: the headline says what happened; Show more reads the rest.
-        let cap = styles.scaled(150, relativeTo: .body)
+        // Three lines (two under an ask, whose card says the rest); Show more reads on.
+        let cap = ceil(styles.font(.body).lineHeight) * (item.needsYou ? 2 : 3) + 2
         let content: FeedRowLayout.BodyContent
         let full: CGFloat
         let plain = FeedPlainText(item.markdown)
@@ -445,15 +429,15 @@ private struct FeedRowBuilder {
                 full = native.height
             }
         }
-        let overflowing = full > cap + 28
+        let overflowing = full > cap + 4
         let shown = state.expanded || !overflowing ? full : cap
         let top = place(shown)
         var showMore: (NSAttributedString, CGRect)?
         if overflowing {
-            // VStack spacing 6, then the 44 pt button drawn 8 pt into its neighbors (28 pt).
-            y += 6 + 28
-            showMore = (attributed(state.expanded ? "Show less" : "Show more", styles.font(.subheadline, weight: .semibold)),
-                        CGRect(x: columnX, y: top + shown + 6 - 8, width: columnWidth, height: 44))
+            // A 36 pt button drawn 9 pt into its neighbors (18 pt of rhythm).
+            y += 2 + 18
+            showMore = (attributed(state.expanded ? "Show less" : "Show more", styles.font(.footnote, weight: .semibold), .secondaryLabel),
+                        CGRect(x: columnX, y: top + shown + 2 - 9, width: columnWidth, height: 36))
         }
         return FeedRowLayout.Body(content: content, frame: CGRect(x: columnX, y: top, width: columnWidth, height: shown),
                                   fullHeight: full, overflowing: overflowing, showMore: showMore)
@@ -470,7 +454,7 @@ private struct FeedRowBuilder {
 
     func capsule(_ id: String, _ title: NSAttributedString, kind: FeedRowLayout.CapsuleButton.Kind, x: CGFloat, y: CGFloat, width: CGFloat,
                  enabled: Bool = true) -> FeedRowLayout.CapsuleButton {
-        FeedRowLayout.CapsuleButton(id: id, title: title, frame: CGRect(x: x, y: y, width: width, height: 44), kind: kind, enabled: enabled)
+        FeedRowLayout.CapsuleButton(id: id, title: title, frame: CGRect(x: x, y: y, width: width, height: 34), kind: kind, enabled: enabled)
     }
 
     func capsuleColor(_ kind: FeedRowLayout.CapsuleButton.Kind, enabled: Bool = true) -> UIColor {
@@ -497,10 +481,10 @@ private struct FeedRowBuilder {
             let card = questionLayout(question)
             // A terminal agent's question: answered here, or in its terminal.
             guard item.opensTerminal, question.isPending, item.resolution == nil else { return .question(card, openTerminal: nil) }
-            let font = styles.font(.headline)
+            let font = styles.font(.subheadline, weight: .semibold)
             let title = symbolText("terminal", "Open in Terminal", font: font, color: capsuleColor(.secondary))
             let width = min(columnWidth, nativeTextSize(title, width: columnWidth).width + 24)
-            let top = place(44)
+            let top = place(34)
             var button = capsule("terminal", title, kind: .secondary, x: columnX, y: top, width: width)
             button.opensTerminal = true
             return .question(card, openTerminal: button)
@@ -508,9 +492,9 @@ private struct FeedRowBuilder {
             if let resolution = item.resolution { return secondaryLine("checkmark.circle", resolution) }
             // A Mac Feed request opens its page from the row (its link is in the text), not a terminal.
             if item.link != nil { return .none }
-            let font = styles.font(.headline)
+            let font = styles.font(.subheadline, weight: .semibold)
             let title = symbolText("terminal", "Answer in Terminal", font: font, color: capsuleColor(.primary))
-            let top = place(44)
+            let top = place(34)
             var button = capsule("terminal", title, kind: .primary, x: columnX, y: top, width: columnWidth)
             button.opensTerminal = true
             return .terminal(button)
@@ -530,15 +514,15 @@ private struct FeedRowBuilder {
             var partTop: CGFloat?
             if let command = request.toolCall.command {
                 let built = commandCard(command)
-                partTop = place(built.frame.height + 8 + 44)
+                partTop = place(built.frame.height + 6 + 34)
                 card = built
                 card?.frame.origin = CGPoint(x: columnX, y: partTop ?? 0)
             }
-            let buttonsTop = partTop.map { $0 + (card?.frame.height ?? 0) + 8 } ?? place(44)
+            let buttonsTop = partTop.map { $0 + (card?.frame.height ?? 0) + 6 } ?? place(34)
             let options = request.phoneOptions
             let count = CGFloat(max(options.count, 1))
             let each = (columnWidth - 8 * (count - 1)) / count
-            let font = styles.font(.headline)
+            let font = styles.font(.subheadline, weight: .semibold)
             let buttons = options.enumerated().map { index, option in
                 let kind: FeedRowLayout.CapsuleButton.Kind = option.kind == .allowOnce ? .primary : (option.isAllow ? .secondary : .destructive)
                 let title = attributed(Self.feedTitle(option), font, capsuleColor(kind), alignment: .center)
@@ -587,8 +571,8 @@ private struct FeedRowBuilder {
         let cardState = state.question ?? AgentQuestionCardState(question: question)
         let item = cardState.item
         let count = question.items.count
-        let inner = columnWidth - 32
-        var cy: CGFloat = 16
+        let inner = columnWidth - 24
+        var cy: CGFloat = 10
         var card = FeedRowLayout.QuestionCard(frame: .zero, prompt: NSAttributedString(), promptFrame: .zero, options: [], buttons: [])
         if count > 1 {
             let pagerText = attributed("\(cardState.activeItem + 1) of \(count)", UIFont.monospacedDigitSystemFont(ofSize: styles.font(.footnote).pointSize, weight: .regular), .secondaryLabel)
@@ -601,60 +585,56 @@ private struct FeedRowBuilder {
                 let size = nativeTextSize(text, width: inner - pagerSize.width - 8)
                 rowHeight = max(rowHeight, size.height)
                 card.header = text
-                card.headerFrame = CGRect(x: 16, y: cy + (rowHeight - size.height) / 2, width: size.width, height: size.height)
+                card.headerFrame = CGRect(x: 12, y: cy + (rowHeight - size.height) / 2, width: size.width, height: size.height)
             }
             card.pager = pagerText
-            card.pagerFrame = CGRect(x: 16 + inner - pagerSize.width, y: cy + (rowHeight - pagerSize.height) / 2, width: pagerSize.width, height: pagerSize.height)
-            cy += rowHeight + 12
+            card.pagerFrame = CGRect(x: 12 + inner - pagerSize.width, y: cy + (rowHeight - pagerSize.height) / 2, width: pagerSize.width, height: pagerSize.height)
+            cy += rowHeight + 6
         }
-        card.prompt = attributed(item.prompt, styles.font(.headline))
-        let promptSize = nativeTextSize(card.prompt, width: inner)
-        card.promptFrame = CGRect(x: 16, y: cy, width: inner, height: promptSize.height)
-        cy += promptSize.height + 12
+        // One question: the headline ("Asks: …") already says it.
+        if count > 1 || self.item.headline != "Asks: \(item.prompt)" {
+            card.prompt = attributed(item.prompt, styles.font(.subheadline, weight: .semibold))
+            let promptSize = nativeTextSize(card.prompt, width: inner)
+            card.promptFrame = CGRect(x: 12, y: cy, width: inner, height: promptSize.height)
+            cy += promptSize.height + 6
+        }
         if item.multiSelect {
-            let hint = attributed("Choose any", styles.font(.footnote), .secondaryLabel)
+            let hint = attributed("Choose any", styles.font(.caption1), .secondaryLabel)
             let size = nativeTextSize(hint, width: inner)
             card.hint = hint
-            card.hintFrame = CGRect(x: 16, y: cy, width: inner, height: size.height)
-            cy += size.height + 12
+            card.hintFrame = CGRect(x: 12, y: cy, width: inner, height: size.height)
+            cy += size.height + 6
         }
         for (index, option) in item.options.enumerated() {
             let chosen = cardState.isChosen(option, in: item)
-            let label = attributed(option.label, styles.font(.body))
-            let textWidth = inner - 28 - 8 - 20
-            let labelSize = nativeTextSize(label, width: textWidth)
-            var detail: NSAttributedString?
-            var detailSize = CGSize.zero
-            if let text = option.detail {
-                detail = attributed(text, styles.font(.footnote), .secondaryLabel)
-                detailSize = nativeTextSize(detail ?? NSAttributedString(), width: textWidth)
-            }
-            let textHeight = labelSize.height + (detail != nil ? 2 + detailSize.height : 0)
-            let height = max(48, textHeight + 20)
-            let textTop = (height - textHeight) / 2
+            // The option's label only: its detail is in the chat.
+            let label = attributed(option.label, styles.font(.subheadline))
+            let textWidth = inner - 10 - 8 - 20
+            let labelSize = nativeTextSize(label, width: textWidth, maxLines: 2)
+            let height = max(34, labelSize.height + 12)
             card.options.append(FeedRowLayout.OptionRow(
-                row: index, frame: CGRect(x: 16, y: cy, width: inner, height: height), label: label,
-                labelFrame: CGRect(x: 14, y: textTop, width: textWidth, height: labelSize.height), detail: detail,
-                detailFrame: detail.map { _ in CGRect(x: 14, y: textTop + labelSize.height + 2, width: textWidth, height: detailSize.height) },
+                row: index, frame: CGRect(x: 12, y: cy, width: inner, height: height), label: label,
+                labelFrame: CGRect(x: 10, y: (height - labelSize.height) / 2, width: textWidth, height: labelSize.height), detail: nil,
+                detailFrame: nil,
                 symbol: item.multiSelect ? (chosen ? "checkmark.square.fill" : "square") : (chosen ? "checkmark.circle.fill" : "circle"),
-                symbolFrame: CGRect(x: inner - 14 - 24, y: (height - 24) / 2, width: 24, height: 24), chosen: chosen
+                symbolFrame: CGRect(x: inner - 10 - 20, y: (height - 20) / 2, width: 20, height: 20), chosen: chosen
             ))
-            cy += height + 6
+            cy += height + 4
         }
         if item.allowsOther {
             let draft = cardState.otherDrafts[item.id] ?? ""
             let editing = cardState.editingOther || !draft.isEmpty
-            card.other = (CGRect(x: 16, y: cy, width: inner, height: 48), editing, draft, item.options.count)
-            cy += 48 + 6
+            card.other = (CGRect(x: 12, y: cy, width: inner, height: 34), editing, draft, item.options.count)
+            cy += 34 + 4
         }
-        cy += 12 - 6
+        cy += 6 - 4
         // Back · Next · Answer (SPEC 6.6): Answer on the last page or once every item is answered.
-        let font = styles.font(.headline)
-        var trailing = 16 + inner
+        let font = styles.font(.subheadline, weight: .semibold)
+        var trailing = 12 + inner
         let needsNext = item.multiSelect || cardState.editingOther || !(cardState.otherDrafts[item.id] ?? "").isEmpty
         if cardState.activeItem == count - 1 || cardState.canSubmit {
             let title = attributed("Answer", font, capsuleColor(.primary, enabled: cardState.canSubmit), alignment: .center)
-            let width = nativeTextSize(title, width: inner).width + 40
+            let width = nativeTextSize(title, width: inner).width + 28
             trailing -= width
             card.buttons.append(capsule("answer", title, kind: .primary, x: trailing, y: cy, width: width, enabled: cardState.canSubmit))
             trailing -= 8
@@ -662,13 +642,13 @@ private struct FeedRowBuilder {
         if cardState.activeItem < count - 1, needsNext {
             let enabled = cardState.answer.selections[item.id]?.isEmpty == false
             let title = attributed("Next", font, capsuleColor(.secondary, enabled: enabled), alignment: .center)
-            let width = nativeTextSize(title, width: inner).width + 40
+            let width = nativeTextSize(title, width: inner).width + 28
             trailing -= width
             card.buttons.append(capsule("next", title, kind: .secondary, x: trailing, y: cy, width: width, enabled: enabled))
         }
-        if cardState.activeItem > 0 { card.back = CGRect(x: 16, y: cy, width: 60, height: 44) }
-        if !card.buttons.isEmpty || card.back != nil { cy += 44 }
-        cy += 16
+        if cardState.activeItem > 0 { card.back = CGRect(x: 12, y: cy, width: 60, height: 34) }
+        if !card.buttons.isEmpty || card.back != nil { cy += 34 }
+        cy += 10
         let top = place(cy)
         card.frame = CGRect(x: columnX, y: top, width: columnWidth, height: cy)
         return card

@@ -215,7 +215,7 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
         headline.accessibilityIdentifier = "feed.row.headline"
         row.addSubview(headline)
         avatar.backgroundColor = .cmuxMobileSurfaceRaised
-        avatar.layer.cornerRadius = 20
+        avatar.layer.cornerRadius = FeedRowLayout.avatarSize / 2
         avatar.isAccessibilityElement = false
         avatarGlyph.contentMode = .center
         avatarGlyph.tintColor = .label
@@ -358,10 +358,10 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
         if let frame = layout.threadAbove { threadAbove.frame = frame }
         if let frame = layout.threadBelow { threadBelow.frame = CGRect(x: frame.minX, y: frame.minY, width: frame.width, height: max(0, layout.height - frame.minY)) }
         avatarGlyph.image = UIImage(systemName: Self.avatarSymbol(item.harness),
-                                    withConfiguration: UIImage.SymbolConfiguration(pointSize: 40 * 0.42, weight: .medium))
+                                    withConfiguration: UIImage.SymbolConfiguration(pointSize: FeedRowLayout.avatarSize * 0.42, weight: .medium))
         unread.isHidden = item.isRead
         unread.accessibilityElementsHidden = item.isRead
-        unread.frame = CGRect(x: layout.avatar.maxX - 9 + 2, y: layout.avatar.minY - 2, width: 9, height: 9)
+        unread.frame = CGRect(x: layout.avatar.maxX - 9 + 1, y: layout.avatar.minY - 1, width: 9, height: 9)
         unread.layer.borderColor = UIColor.cmuxMobileBackground.resolvedColor(with: traitCollection).cgColor
 
         applyHeader(layout)
@@ -420,7 +420,7 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
     private func applyHeader(_ layout: FeedRowLayout) {
         timeDrawnAt = CACurrentMediaTime()
         let item = current ?? layout.key.item
-        let styles = NativeTextStyles(category: traitCollection.preferredContentSizeCategory)
+        let styles = FeedRowLayout.compact(NativeTextStyles(category: traitCollection.preferredContentSizeCategory))
         let font = styles.font(.subheadline)
         let semibold = styles.font(.subheadline, weight: .semibold)
         let stamp = Self.relativeTime(item.createdAt, now: Date())
@@ -676,9 +676,10 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
     }
 
     private func applyFooter(_ layout: FeedRowLayout) {
-        let styles = NativeTextStyles(category: traitCollection.preferredContentSizeCategory)
+        let styles = FeedRowLayout.compact(NativeTextStyles(category: traitCollection.preferredContentSizeCategory))
         let font = styles.font(.footnote)
-        // Reply, Open, the pull request, and Merge once it is ready (Copy and Share are in the menu).
+        // Icons only, as a Threads post: Reply, Open, the pull request, and Merge once it is ready
+        // (each with its VoiceOver label; Copy and Share are in the menu).
         let entries: [(Int, String, String)] = (layout.footerHasReply ? [(0, "bubble.left", "Reply")] : [])
             + [(1, "arrow.up.right.square", "Open")]
             + (layout.footerHasPull ? [(2, "arrow.triangle.pull", "PR")] : [])
@@ -686,18 +687,17 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
         var widths: [CGFloat] = []
         for (tag, symbol, title) in entries {
             let button = footerButtons[tag]
-            let text = Self.footerTitle(symbol: symbol, title: title, font: font)
+            let text = Self.footerTitle(symbol: symbol, title: tag == 3 ? title : "", font: font)
             if button.attributedTitle(for: .normal) !== text { button.setAttributedTitle(text, for: .normal) }
-            widths.append(max(44, ceil(text.size().width) + 4))
+            widths.append(max(36, ceil(text.size().width) + 16))
         }
         // One terminal reply at a time: a second would interleave with the first.
         footerButtons[0].isEnabled = layout.footerReplyEnabled
         footerButtons[0].alpha = layout.footerReplyEnabled ? 1 : 0.4
         for button in footerButtons { button.isHidden = true }
-        // HStack with a Spacer between each button: the first at the leading edge, the last at the trailing one.
+        // Leading, 8 pt apart.
         let frame = layout.footer
-        let gaps = CGFloat(max(entries.count - 1, 1))
-        let spacing = max(0, (frame.width - widths.reduce(0, +)) / gaps)
+        let spacing: CGFloat = 8
         var x = frame.minX
         for (index, entry) in entries.enumerated() {
             let button = footerButtons[entry.0]
@@ -771,13 +771,15 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
         let key = "\(symbol)|\(title)|\(font.pointSize)"
         if let hit = footerTitles[key] { return hit }
         let text = NSMutableAttributedString()
-        if let image = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 15))?
+        if let image = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 16))?
             .withTintColor(.secondaryLabel, renderingMode: .alwaysOriginal) {
             let attachment = NSTextAttachment(image: image)
             attachment.bounds = CGRect(x: 0, y: (font.capHeight - image.size.height) / 2, width: image.size.width, height: image.size.height)
             text.append(NSAttributedString(attachment: attachment))
         }
-        text.append(NSAttributedString(string: " " + title, attributes: [.font: font, .foregroundColor: UIColor.secondaryLabel]))
+        if !title.isEmpty {
+            text.append(NSAttributedString(string: " " + title, attributes: [.font: font, .foregroundColor: UIColor.secondaryLabel]))
+        }
         footerTitles[key] = text
         return text
     }
@@ -962,7 +964,7 @@ final class FeedPullCardView: UIView {
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .cmuxMobileFill
-        layer.cornerRadius = 12
+        layer.cornerRadius = 10
         layer.cornerCurve = .continuous
         title.numberOfLines = 2
         title.lineBreakMode = .byTruncatingTail
@@ -1201,14 +1203,14 @@ final class FeedQuestionCardView: UIView, UITextFieldDelegate {
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .cmuxMobileCard
-        layer.cornerRadius = 20
+        layer.cornerRadius = 14
         layer.cornerCurve = .continuous
         clipsToBounds = true
         prompt.numberOfLines = 0
         hint.numberOfLines = 0
         for view in [header, pager, prompt, hint] { addSubview(view) }
         other.backgroundColor = .cmuxMobileFill
-        other.layer.cornerRadius = 14
+        other.layer.cornerRadius = 10
         other.layer.cornerCurve = .continuous
         other.contentHorizontalAlignment = .fill
         other.addAction(UIAction { [weak self] _ in
@@ -1221,7 +1223,7 @@ final class FeedQuestionCardView: UIView, UITextFieldDelegate {
         otherIcon.isUserInteractionEnabled = false
         other.addSubview(otherIcon)
         otherField.backgroundColor = .cmuxMobileFillSelected
-        otherField.layer.cornerRadius = 14
+        otherField.layer.cornerRadius = 10
         otherField.placeholder = "Other…"
         otherField.returnKeyType = .done
         otherField.leftView = UIView(frame: CGRect(x: 0, y: 0, width: 14, height: 1))
@@ -1295,11 +1297,11 @@ final class FeedQuestionCardView: UIView, UITextFieldDelegate {
                 other.isHidden = false
                 other.frame = entry.frame
                 let title = NSMutableAttributedString(string: "Other…", attributes: [.foregroundColor: UIColor.secondaryLabel,
-                                                                                    .font: UIFont.preferredFont(forTextStyle: .body)])
+                                                                                    .font: UIFont.preferredFont(forTextStyle: .subheadline)])
                 other.setAttributedTitle(title, for: .normal)
-                other.contentEdgeInsets = UIEdgeInsets(top: 0, left: 14, bottom: 0, right: 14)
-                otherIcon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(textStyle: .body)
-                otherIcon.frame = CGRect(x: entry.frame.width - 14 - 24, y: (entry.frame.height - 24) / 2, width: 24, height: 24)
+                other.contentEdgeInsets = UIEdgeInsets(top: 0, left: 10, bottom: 0, right: 10)
+                otherIcon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(textStyle: .subheadline)
+                otherIcon.frame = CGRect(x: entry.frame.width - 10 - 20, y: (entry.frame.height - 20) / 2, width: 20, height: 20)
             }
         }
         back.isHidden = card.back == nil
@@ -1337,7 +1339,7 @@ final class FeedOptionRow: UIControl {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        layer.cornerRadius = 14
+        layer.cornerRadius = 10
         layer.cornerCurve = .continuous
         label.numberOfLines = 0
         detail.numberOfLines = 0
@@ -1363,7 +1365,7 @@ final class FeedOptionRow: UIControl {
         detail.isHidden = option.detail == nil
         detail.attributedText = option.detail
         if let frame = option.detailFrame { detail.frame = frame }
-        symbol.image = UIImage(systemName: option.symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 20))
+        symbol.image = UIImage(systemName: option.symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 17))
         symbol.tintColor = option.chosen ? .label : .secondaryLabel
         symbol.frame = option.symbolFrame
         accessibilityLabel = option.label.string
