@@ -469,9 +469,9 @@ export function ComposerBox({
           <Slot slot={composerCaretSlot} props={{ empty: !/\S/.test(field.value) }} />
         </ContextMenu>
         {vimMode && (
-          <span className="acpmux-vim-mode" data-vim-mode={vimMode} role="status" aria-live="off">
+          <output className="acpmux-vim-mode" data-vim-mode={vimMode} aria-live="off">
             {vimMode === "normal" ? "NORMAL" : "INSERT"}
-          </span>
+          </output>
         )}
         {/* The button row: a right-click here shows a control hidden from its own (composerChrome.tsx). */}
         <ChromeArea className="acpmux-chrome-area" items={chromeItems}>
