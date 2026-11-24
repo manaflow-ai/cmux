@@ -11,6 +11,7 @@
 //! acpmux's fixed text. The far `acpmux` may be off a non-login PATH: `$HOME/.local/bin/acpmux`
 //! is tried first, then `acpmux`.
 
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -21,6 +22,11 @@ pub(crate) const LS_DEADLINE: Duration = Duration::from_secs(8);
 
 /// The `via` of a row read over ssh.
 pub(crate) const VIA: &str = "ssh";
+
+/// One ssh helper per destination while concurrent list callers ask for the same down peer.
+/// A completed read leaves no entry, so a later list gets a fresh bounded read.
+static READS: OnceLock<crate::single_flight::SingleFlight<String, Result<Vec<Value>, String>>> =
+    OnceLock::new();
 
 /// The far side's listing: this machine's sessions only, as JSON.
 const SCRIPT: &str = "for a in \"$HOME/.local/bin/acpmux\" acpmux; do if command -v \"$a\" >/dev/null 2>&1; then exec \"$a\" --json ls --machine local; fi; done; echo 'acpmux: not found on this machine' >&2; exit 127";
@@ -64,13 +70,15 @@ pub(crate) async fn rows(
     }
     let deadline = deadline.min(Instant::now() + LS_DEADLINE);
     let reads = down.into_iter().map(|(name, destination)| async move {
-        let read = tokio::task::spawn_blocking({
-            let destination = destination.clone();
-            move || read(&destination, deadline)
-        })
-        .await
-        .map_err(|e| e.to_string())
-        .and_then(|r| r);
+        let read = READS
+            .get_or_init(Default::default)
+            .run(destination.clone(), || async move {
+                tokio::task::spawn_blocking(move || read(&destination, deadline))
+                    .await
+                    .map_err(|e| e.to_string())
+                    .and_then(|r| r)
+            })
+            .await;
         (name, read)
     });
     let mut answered = Vec::new();
