@@ -12,6 +12,15 @@ use crate::rpc::method;
 /// Resolve a lifecycle operation once, before sending it to the owning daemon. A name is
 /// only a lookup key; every subsequent request carries the stable id and its peer route.
 pub(crate) async fn control_id(client: &crate::client::Client, key: &str) -> Result<String> {
+    let (id, _) = control_route(client, key).await?;
+    Ok(id)
+}
+
+/// The stable id from this daemon’s own or mirrored list, and whether its row is current.
+pub(crate) async fn control_route(
+    client: &crate::client::Client,
+    key: &str,
+) -> Result<(String, bool)> {
     let query = crate::cli::orchestrate::expand_session_key(key)?;
     let reply =
         client.request(method::MUX_RESOLVE, json!({"query": query})).await.map_err(|e| {
@@ -26,7 +35,8 @@ pub(crate) async fn control_id(client: &crate::client::Client, key: &str) -> Res
     let matches = reply["matches"]
         .as_array()
         .ok_or_else(|| anyhow!("resolve returned no session matches for {query:?}"))?;
-    routed_id(one_match(&query, matches)?)
+    let card = one_match(&query, matches)?;
+    Ok((routed_id(card)?, card["stale"] != true))
 }
 
 /// The one session of `resolve`'s cards a control command acts on: the one live card, else (none
