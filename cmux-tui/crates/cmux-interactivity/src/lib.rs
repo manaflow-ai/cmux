@@ -369,6 +369,29 @@ pub fn lower_current_thread_for_life() {
     set_idle_io(thread_id());
 }
 
+/// A long-lived thread that follows the policy: [`Follower::follow`] before each unit of work sets the thread's QoS
+/// when the policy's answer for the class changed since the last call. One atomic-load check per call (plus a clock
+/// read), a system call only on a change; never put back (the thread lives by the policy).
+#[derive(Default)]
+pub struct Follower {
+    current: Option<Qos>,
+}
+
+impl Follower {
+    pub const fn new() -> Self {
+        Self { current: None }
+    }
+
+    /// Sets the calling thread to the policy's QoS for `class` now when it differs from the last one set.
+    pub fn follow(&mut self, class: WorkClass) {
+        let qos = qos_for(class);
+        if self.current != Some(qos) {
+            self.current = Some(qos);
+            apply_current_thread(qos);
+        }
+    }
+}
+
 /// The calling thread at `qos` until dropped.
 #[must_use = "the thread goes back when the guard drops"]
 pub struct Scoped {

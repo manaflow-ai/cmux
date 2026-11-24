@@ -55,6 +55,7 @@ One policy, in Rust: `cmux-tui/crates/cmux-interactivity`.
 | `cmux-git/src/run.rs:254` child git at DARWIN_BG | background always | `Maintenance` for background refreshes; a git the focused pane waits for should be `FocusedPane` (not changed) |
 | `terminal_host_runtime` terminal-host-parser, pty readers | default | per-terminal: `FocusedPane` for the focused terminal, `VisiblePane` / `BackgroundPane` otherwise. Not wired: needs the focused pane id on the parser thread; the largest remaining win for lockstep resize |
 | `journal_ingress.rs`, `journal_hooks.rs` threads | default | `AgentOutputParse` / `Sync`. Not wired |
+| `terminal_host_runtime` `terminal-host-parser` and `terminal-host-pty` threads (wired, second commit) | default | per-host `Follower`: `FocusedPane` (user-interactive) while this host process was typed into or resized within the decay, `VisiblePane` (default) otherwise. A terminal host is its own process with its own interaction state, so the daemon does not lower the other panes' hosts; a drag resizes every affected host, so all of them rise together. Automation's writes also note Typing (the host cannot tell the person's keys apart) |
 
 ### Swift (the lane owner wires; no Swift changed here)
 

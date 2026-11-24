@@ -111,3 +111,16 @@ fn scoped_guard_runs_on_any_thread_without_panicking() {
     .join()
     .unwrap();
 }
+
+#[test]
+fn follower_applies_only_on_a_change() {
+    std::thread::spawn(|| {
+        let mut follower = Follower::new();
+        follower.follow(WorkClass::VisiblePane);
+        assert_eq!(follower.current, Some(Qos::Default));
+        follower.follow(WorkClass::Input);
+        assert_eq!(follower.current, Some(Qos::UserInteractive));
+    })
+    .join()
+    .unwrap();
+}
