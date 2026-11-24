@@ -50,6 +50,7 @@ on:
       - "cmux-tui/crates/cmux-action-catalog/**"
       - "cmux-tui/crates/cmux-agent-pane-policy/**"
       - "cmux-tui/crates/cmux-bookmarks-core/**"
+      - "cmux-tui/crates/cmux-build-space/**"
       - "cmux-tui/crates/cmux-cloud-config/**"
       - "cmux-tui/crates/cmux-cloud-environment/**"
       - "cmux-tui/crates/cmux-cloud-handlers/**"
