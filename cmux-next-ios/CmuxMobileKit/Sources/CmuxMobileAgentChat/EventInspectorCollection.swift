@@ -93,9 +93,10 @@ final class EventInspectorCollection: NSObject, UICollectionViewDelegate {
         var snapshot = NSDiffableDataSourceSnapshot<Int, Int>()
         snapshot.appendSections([0])
         snapshot.appendItems(ids)
-        let kept = redraw.filter(before.contains)
+        // MUTANT (do not merge): every kept row is redrawn and counts as changed.
+        let kept = ids.filter(before.contains)
         if !kept.isEmpty { snapshot.reconfigureItems(kept) }
-        lastChanged = before.symmetricDifference(after).union(kept)
+        lastChanged = before.union(after)
         shownIDs = ids
         applies += 1
         #if DEBUG
@@ -127,7 +128,8 @@ final class EventInspectorCollection: NSObject, UICollectionViewDelegate {
         cell.accessibilityLabel = "\(event.title), \(Self.meta(event))"
         cell.accessibilityTraits = .button
         cell.accessibilityIdentifier = "chat.inspector.row"
-        cell.known = knownHeight(id, width: collectionView.bounds.width)
+        // MUTANT (do not merge): no height cache.
+        cell.known = nil
         cell.measured = { [weak self] height, width in self?.record(id, height, width) }
     }
 
