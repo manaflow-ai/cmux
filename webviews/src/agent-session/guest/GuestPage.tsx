@@ -21,7 +21,7 @@ import type { AcpmuxSnapshot } from "../acpmux/model";
 import type { GuestFeed } from "./GuestTranscript";
 import { Face, PresenceStack } from "../acpmux/multiplayer/Faces";
 import { displayName, participant, type Participant } from "../acpmux/multiplayer/participants";
-import { GuestComposer, GuestMessages } from "./GuestComposer";
+import { GuestComposer, GuestMessages, GuestQueue, runsAfterTurn } from "./GuestComposer";
 import { GuestPrompts } from "./guestPrompts";
 import { GuestSendQueue } from "./guestSendQueue";
 import {
@@ -185,10 +185,16 @@ export function InviteJoinPage({
 
 export function JoinPage({
   hasSecret,
+  signIn,
   onJoin,
 }: {
   /** False when the link lost its secret part: Join is off and the page says so. */
   hasSecret: boolean;
+  /**
+   * Where a visitor with a cmux account signs in and comes back to this same link (the room's
+   * hosted sign-in, as an invite's); none on a link that lost its secret, where it could not help.
+   */
+  signIn?: string;
   /** Redeems with the name; resolves to the error to show, or undefined once joined. */
   onJoin: (name: string) => Promise<RedeemError | undefined>;
 }) {
@@ -233,9 +239,24 @@ export function JoinPage({
           {message}
         </p>
       )}
+      {signIn && hasSecret && (
+        <p className="guest-card__detail" data-testid="guest-join-sign-in">
+          {t("guest.join.signInOffer")}{" "}
+          <a className="guest-card__link" href={signIn}>
+            {t("guest.invite.signInButton")}
+          </a>
+        </p>
+      )}
     </main>
   );
 }
+
+/**
+ * A link's sign-in: the room's hosted sign-in (the one an invite's `/i/<id>` uses), back to this
+ * `/g/<id>` with no query. The secret is not in it: the page kept it in this tab's sessionStorage
+ * (redeem.ts takeGuestLink), which the same tab finds again on its return.
+ */
+export const linkSignIn = (shareId: string) => `/g/${encodeURIComponent(shareId)}?sign_in=1`;
 
 /** The signed-in account a link guest joins as: its name and picture from the room's `whoami`. */
 export type SignedIn = { name: string; avatarUrl?: string };
@@ -439,7 +460,11 @@ export function LiveChat({
       client?.dispose();
     };
     const room = new ShareSocket(
-      { url: socketUrl, unresolved: () => prompts.held(), ...(openSocket ? { open: openSocket } : {}) },
+      {
+        url: socketUrl,
+        unresolved: () => prompts.held(),
+        ...(openSocket ? { open: openSocket } : {}),
+      },
       {
         snapshot: (next) => {
           setChat(next.chat);
@@ -518,6 +543,10 @@ export function LiveChat({
   const viewing = people
     .filter((person) => person.viewing !== false && !isMe(person.id, guestId))
     .flatMap((person) => participant(person.id, person.name) ?? []);
+  // This guest's own approved message is the "Sent" line below already.
+  const waiting = (snapshot?.queue ?? []).filter(
+    (entry) => runsAfterTurn(entry) && !(entry.author && isMe(entry.author.id, guestId)),
+  );
   return (
     // Faces and chips ask no owner's avatar service (GuestTranscript's boundary does the same).
     <AvatarContext.Provider value={undefined}>
@@ -569,6 +598,7 @@ export function LiveChat({
           </output>
         )}
         <div className="guest-live__dock">
+          <GuestQueue queue={waiting} owner={owner} />
           <GuestMessages prompts={mine} me={me} owner={ownerName} />
           {/* Only a `talk` guest sends; no role (an answer that named none) or `view` watches. */}
           {role === "talk" ? (
@@ -710,7 +740,8 @@ export function GuestPage({
   // Nothing until the room says who this is (at most WHOAMI_WAIT_MS), so the join never swaps.
   if (!guestId && !who) return <main className="guest-card" aria-busy="true" />;
   if (!guestId && who?.signedIn) return <JoinAsPage account={who} editing={editName} onJoin={join} />;
-  if (!guestId) return <JoinPage hasSecret={!!secret} onJoin={join} />;
+  if (!guestId)
+    return <JoinPage hasSecret={!!secret} signIn={whoami ? linkSignIn(shareId) : undefined} onJoin={join} />;
   return (
     <LiveChat
       guestId={guestId}
