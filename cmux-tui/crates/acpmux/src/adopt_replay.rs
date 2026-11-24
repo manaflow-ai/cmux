@@ -162,16 +162,14 @@ impl Fold {
         if kinds {
             self.last = ItemLine::Annotated;
         }
-        if let Some((tool, item)) = crate::adopt_tools::codex_tool(record, at) {
-            self.tool_items = self.tool_items || item;
-            if self.tools && (item || !self.tool_items) {
-                // With the turns that are being read: event messages, else items.
+        if let Some(step) = codex_tool_step(record, at, &mut self.tool_items) {
+            if self.tools {
                 let into = if self.current || self.turns_seen() > 0 {
                     &mut self.turns
                 } else {
                     &mut self.items
                 };
-                add_limited(into, tool.map_or_else(Step::ToolResult, Step::Tool), at, answer_limit);
+                add_limited(into, step, at, answer_limit);
             }
         } else if let Some(step) = codex_step(record) {
             add_limited(&mut self.turns, step, at, answer_limit);
@@ -425,6 +423,13 @@ pub(crate) fn from_person(record: &Value) -> bool {
         None | Some(Value::Null) => true,
         Some(kind) => kind.as_str() == Some("human"),
     }
+}
+
+/// Read legacy tool events until the first current item-completed tool update.
+fn codex_tool_step(record: &Value, at: Option<u64>, tool_items: &mut bool) -> Option<Step> {
+    let (tool, item) = crate::adopt_tools::codex_tool(record, at)?;
+    *tool_items |= item;
+    (item || !*tool_items).then(|| tool.map_or_else(Step::ToolResult, Step::Tool))
 }
 
 /// Codex rollouts: `{"type":"event_msg","payload":{"type":"user_message"|"agent_message","message":...}}`.

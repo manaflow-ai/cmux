@@ -185,7 +185,7 @@ pub(super) fn scan_page(
             let line_start = memchr::memrchr(b'\n', before).map_or(0, |i| i + 1);
             let offset = pos + line_start as u64;
             whole = true;
-            if let Some(record) = before.get(line_start..).and_then(parse) {
+            if let Some(record) = before.get(line_start..).and_then(&parse) {
                 let prompt = classify(&record);
                 // A legacy Codex turn may have both an event prompt and a response-item prompt.
                 // Read through its mirror before publishing a cursor between logical turns.
