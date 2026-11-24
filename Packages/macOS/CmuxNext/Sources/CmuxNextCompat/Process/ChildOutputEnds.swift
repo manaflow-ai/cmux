@@ -27,6 +27,8 @@ public struct ChildOutputEnds {
         let (seconds, attoseconds) = grace.components
         let nanos = max(0, Int(seconds) * 1_000_000_000 + Int(attoseconds / 1_000_000_000))
         // The shared utility queue: the close is a few syscalls and holds no state of its own.
+        // concurrency-allow: a one-shot deadline per exited child on the shared utility queue, never the main thread;
+        // CmuxNextCompat sits below CmuxNextWakeups, so DemandTimer is out of reach here
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + .nanoseconds(nanos)) {
             closeNow(reading: reading)
             closed?()
