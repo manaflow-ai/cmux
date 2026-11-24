@@ -119,8 +119,10 @@ impl WsShutdown {
 /// shutdown would stop the copy too: there only the drop applies, and a retry waits in the
 /// listener's queue for the next image's first accept.
 pub(super) fn close_admission(listener: tokio::net::TcpListener) {
+    // A listener handed to the next daemon (`daemon/listener_handover.rs`) is that daemon's too:
+    // a shutdown would stop its queue as well. Its connects wait for the next daemon instead.
     #[cfg(target_os = "linux")]
-    if !crate::daemon::keeps_listeners() {
+    if !crate::daemon::keeps_listeners() && !crate::daemon::listener_handover::handed_to_live() {
         use std::os::fd::AsRawFd;
         // SAFETY: shutdown on the listener's own descriptor, open for the whole call.
         unsafe { libc::shutdown(listener.as_raw_fd(), libc::SHUT_RD) };

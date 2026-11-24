@@ -32,6 +32,9 @@ impl Hub {
         self.watch_orphans();
         self.store_load.ready.send_replace(true);
         tracing::debug!(target: crate::daemon::HANDOFF_TIMING, "handoff timing: store loaded");
+        // Closed sessions' temporary folders, now and every hour (`closed_tmp.rs`).
+        #[cfg(unix)]
+        self.sweep_closed_tmps();
         self.bg_notify_resume_in_background();
     }
 

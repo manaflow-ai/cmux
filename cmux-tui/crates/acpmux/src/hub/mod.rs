@@ -6,6 +6,8 @@
 
 // A reply's checkable claims against the turn's runs (`claim_checks`).
 mod claim_check;
+#[cfg(unix)]
+mod closed_tmp;
 mod control_asks;
 
 mod account_usage;
@@ -231,6 +233,7 @@ pub use model_options::{
 mod earned_access;
 #[cfg_attr(not(test), allow(dead_code))]
 mod earned_events;
+mod hybrid_hold;
 pub mod ledger;
 mod list_order;
 mod model_alias;
@@ -2337,6 +2340,7 @@ impl Hub {
             credential: StdMutex::new(None),
             route_switch: AtomicBool::new(false),
             profile_respawn: AtomicBool::new(false),
+            respawn_when_quiet: AtomicBool::new(false),
             ending: StdMutex::new(None),
             detaching: AtomicBool::new(false),
             inbound_tx,

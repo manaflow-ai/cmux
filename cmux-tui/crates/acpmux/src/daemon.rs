@@ -61,6 +61,8 @@ pub use connect::{
 };
 mod handover;
 mod home_watch;
+#[cfg(unix)]
+pub(crate) mod listener_handover;
 mod managed_unit;
 use managed_unit::managed_unit_connect_with;
 mod notify;
@@ -444,11 +446,25 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // Bind before durable startup work, so clients can connect independently of journal replay.
     // Requests wait for the hub and launch tokens; agent spawns wait for `finish_startup`.
     // A restart's exec in place keeps the listener, whose backlog held the dials meanwhile: no
-    // stale-socket removal, no bind.
+    // stale-socket removal, no bind. A take-over serves the listeners the daemon it took over
+    // from handed it (`daemon/listener_handover.rs`): the same sockets, whose queues never closed.
     #[cfg(unix)]
-    let unix_listener = match handed.unix(&socket_path()) {
-        Some(listener) => listener,
-        None => crate::server::bind_unix(&socket_path()).await?,
+    let taken_over = listener_handover::take_received();
+    #[cfg(unix)]
+    let unix_listener = match (handed.unix(&socket_path()), taken_over.unix) {
+        (Some(listener), _) => listener,
+        (None, Some(l))
+            if listener_handover::serves_path(&l, &socket_path())
+                && socket_path().exists()
+                && l.set_nonblocking(true).is_ok() =>
+        {
+            tracing::info!(
+                "serving {} handed over by the previous daemon",
+                socket_path().display()
+            );
+            tokio::net::UnixListener::from_std(l)?
+        }
+        _ => crate::server::bind_unix(&socket_path()).await?,
     };
     #[cfg(not(unix))]
     let unix_listener = crate::server::bind_unix(&socket_path()).await?;
@@ -576,14 +592,39 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // A restart's exec in place keeps the WebSocket listener too, when it is at the address this
     // start would bind; one that is not is closed and the address bound as usual.
     #[cfg(unix)]
-    let handed_ws = match &ws {
+    let exec_ws = match &ws {
         Some((listen, _)) => handed.ws(listen).await,
         None => None,
     };
-    #[cfg(not(unix))]
-    let handed_ws: Option<tokio::net::TcpListener> = None;
     #[cfg(unix)]
     drop(handed);
+    // A take-over's handed web listener, when it is bound where this start would bind (and the
+    // address still passes the listener rule above); otherwise closed before the bind below.
+    #[cfg(unix)]
+    let taken_ws = taken_over.ws.and_then(|l| {
+        let (listen, _) = ws.as_ref()?;
+        let want: std::net::SocketAddr = listen.parse().ok()?;
+        let bound = l.local_addr().ok()?;
+        if bound != want || want.port() == 0 || l.set_nonblocking(true).is_err() {
+            return None;
+        }
+        tokio::net::TcpListener::from_std(l).ok()
+    });
+    #[cfg(unix)]
+    let handed_ws = match (exec_ws, taken_ws) {
+        (Some(kept), _) => Some(kept),
+        (None, Some(l)) => {
+            if let Some((listen, _)) = &ws {
+                tracing::info!(
+                    "web + websocket serving {listen} handed over by the previous daemon"
+                );
+            }
+            Some(l)
+        }
+        (None, None) => None,
+    };
+    #[cfg(not(unix))]
+    let handed_ws: Option<tokio::net::TcpListener> = None;
     let ws_listener = match (&ws, handed_ws) {
         (Some((_, token)), Some(kept)) => Some((kept, token.clone())),
         // cx-fcaq: a taken explicit `--listen` stops the daemon (the caller asked for that
@@ -933,6 +974,15 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // A re-bound socket's listener takes the old one's place (`daemon/socket_rebind.rs`).
     #[cfg(unix)]
     let (rebound_tx, rebound_rx) = tokio::sync::mpsc::channel(1);
+    // Copies to hand a take-over start (`daemon/listener_handover.rs`).
+    #[cfg(unix)]
+    {
+        use std::os::fd::AsFd as _;
+        listener_handover::offer(
+            unix_listener.as_fd(),
+            ws_listener.as_ref().map(|(l, _)| l.as_fd()),
+        );
+    }
     #[cfg(unix)]
     let unix =
         tokio::spawn(socket_rebind::serve(hub.clone(), unix_listener, rebound_rx, v2.clone()));
@@ -1265,6 +1315,10 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
                                     "{why}; bound it again ({rebinds} of {})",
                                     socket_rebind::MAX_REBINDS
                                 );
+                                {
+                                    use std::os::fd::AsFd as _;
+                                    listener_handover::offer_unix(listener.as_fd());
+                                }
                                 let _ = rebound_tx.send(listener).await;
                                 home_gone = tokio::spawn(home_watch::watch(
                                     held_home.clone(),
@@ -1329,13 +1383,23 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         }
     };
     // A restart that execs in place ends the accept loop when its stop begins (below).
-    let unix_accepts = unix.abort_handle();
+    let unix_accept = unix.abort_handle();
     tokio::select! {
         r = unix => { r??; }
         _ = shutdown => {}
     }
     tracing::info!("shutting down");
     tracing::debug!(target: HANDOFF_TIMING, "handoff timing: stop");
+    // Handed its listeners to the daemon that takes over (`daemon/listener_handover.rs`): it
+    // stops accepting now, so every connect from here on waits in the queue the new daemon
+    // serves; the connections it has are answered (`shutdown_drain`) and closed as a restart
+    // (WebSocket 1012: redial now).
+    #[cfg(unix)]
+    if listener_handover::handed_to_live() {
+        unix_accept.abort();
+        hub.restart_requested.store(true, std::sync::atomic::Ordering::SeqCst);
+        tracing::info!("listeners handed over: stopped accepting; the next daemon serves them");
+    }
     let shutdown_started = tokio::time::Instant::now();
     // Whether this stop execs in place is decided now, for the whole stop (`daemon/handoff.rs`).
     // Then it stops accepting at once: new dials wait in the backlog of the listener it keeps for
@@ -1346,7 +1410,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     #[cfg(not(unix))]
     let handing_off = false;
     if handing_off {
-        unix_accepts.abort();
+        unix_accept.abort();
         tracing::info!("restart: an exec in place; the listeners stay open for the next image");
     }
     // First: the cmux link stops sending peers here before admission closes or the listener is
@@ -1442,7 +1506,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     if handing_off {
         handoff::keep_socket_ours(socket_ours);
     }
-    if socket_ours && !handing_off {
+    if socket_ours && !handing_off && !socket_handed() {
         // The home watch runs on through the shutdown: this removal is not a loss.
         home_watch::release_socket();
         let _ = crate::home_fs::remove_file(socket_path());
@@ -1664,10 +1728,19 @@ impl Drop for BoundSocketCleanup {
     }
 }
 
+/// The socket file is the next daemon's: this one handed it the listener
+/// (`daemon/listener_handover.rs`), so it stays.
+fn socket_handed() -> bool {
+    #[cfg(unix)]
+    return listener_handover::handed_to_live();
+    #[cfg(not(unix))]
+    false
+}
+
 /// A startup that fails after the bind removes the socket only while it is still the one this
 /// daemon bound: one replaced since is another daemon's. Off Unix there is no identity to read.
 fn remove_bound_socket(bound: Option<&home_watch::Owned>) {
-    if bound.map_or(!cfg!(unix), |s| s.lost().is_none()) {
+    if bound.map_or(!cfg!(unix), |s| s.lost().is_none()) && !socket_handed() {
         let _ = crate::home_fs::remove_file(socket_path());
     }
 }
@@ -1866,12 +1939,30 @@ async fn take_over_holder(socket: &std::path::Path) -> Option<Option<u32>> {
         return Some(pid);
     }
     tracing::info!(pid, "another daemon of this home serves its socket; asking it to hand over");
-    let _ = client
-        .request(
-            crate::rpc::method::MUX_SHUTDOWN,
-            serde_json::json!({"reason": "handover: another daemon of this home starts"}),
-        )
-        .await;
+    // Its listeners too, by descriptor, so the listen queue never closes
+    // (`daemon/listener_handover.rs`). A daemon from before this ignores the key and stops.
+    #[cfg(unix)]
+    let side = listener_handover::Side::open(&home());
+    #[cfg_attr(not(unix), allow(unused_mut))]
+    let mut params = serde_json::json!({"reason": "handover: another daemon of this home starts"});
+    #[cfg(unix)]
+    if let Some(side) = &side {
+        params[listener_handover::PARAM] = serde_json::json!(side.path());
+    }
+    let answer = client.request(crate::rpc::method::MUX_SHUTDOWN, params).await;
+    #[cfg(unix)]
+    if let (Some(side), Ok(answer)) = (side, &answer) {
+        let kinds: Vec<String> = answer
+            .get(listener_handover::ANSWER)
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|k| k.as_str().map(str::to_owned))
+            .collect();
+        let _ = tokio::task::spawn_blocking(move || side.receive(&kinds, pid)).await;
+    }
+    #[cfg(not(unix))]
+    let _ = answer;
     Some(pid)
 }
 
