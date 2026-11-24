@@ -773,7 +773,6 @@ struct HandshakeRepeat {
 /// The roaming side of the tunnel (`roam.rs`) changes the carriers through
 /// [`Control`] messages, which the underlay applies before its next send or
 /// receive.
-
 struct HybridUnderlay {
     socket: UdpSocket,
     options: DialOptions,
@@ -984,6 +983,13 @@ impl HybridUnderlay {
     fn retarget_turn(&mut self) {
         self.turn_targets =
             if self.turn.is_some() { turn_targets(&self.peer_endpoints, &self.options) } else { Vec::new() };
+        // The peer's relayed addresses go first: they are the ones its
+        // answer to us comes from, and the first to need a permission.
+        let relayed = &self.labels.peer_relayed;
+        self.turn_targets.sort_by_key(|addr| !relayed.contains(addr));
+        if let Some(turn) = &self.turn {
+            turn.permit(&self.turn_targets);
+        }
     }
 
     /// Apply the roaming side's changes, then bring the selector's paths in
@@ -1160,6 +1166,7 @@ impl HybridUnderlay {
                     if !relayed.is_empty() {
                         self.labels.peer_relayed = addresses(&relayed);
                         self.labels.peer_relayed_tls = addresses(&relayed_tls);
+                        self.retarget_turn();
                     }
                     self.publish_path();
                 }
