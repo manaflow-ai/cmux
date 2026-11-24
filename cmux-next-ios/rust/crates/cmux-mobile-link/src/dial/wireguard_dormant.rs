@@ -56,6 +56,8 @@ const PHONE_MARGIN: Duration = Duration::from_secs(10);
 /// The transport hold outlasts the bound a little (the tunnel is dropped at
 /// the bound anyway).
 const HOLD_MARGIN: Duration = Duration::from_secs(5);
+/// How often a dormant tunnel looks for the peer's `bye`.
+const BYE_CHECK: Duration = Duration::from_millis(250);
 /// The most dormant tunnels one side keeps (each peer has at most one: a
 /// newer one replaces it). The oldest goes first.
 pub const MAX_DORMANT: usize = 8;
@@ -91,6 +93,16 @@ fn waiting() -> &'static Mutex<HashMap<u64, Dialed>> {
 }
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
+
+/// A shorter bound for tests (0: [`DORMANT_HOLD`]).
+static HOLD_FOR_TESTS: AtomicU64 = AtomicU64::new(0);
+
+/// Tests: tunnels that go dormant from now on keep for `hold` (`None`: the
+/// real [`DORMANT_HOLD`]).
+#[doc(hidden)]
+pub fn set_hold_for_tests(hold: Option<Duration>) {
+    HOLD_FOR_TESTS.store(hold.map_or(0, |hold| hold.as_millis().max(1) as u64), Ordering::Relaxed);
+}
 
 /// What a side knows to start a keeper.
 pub(super) struct KeeperSpec {
@@ -154,7 +166,11 @@ impl Keeper {
     }
 
     fn hold(&self) -> Duration {
-        if self.dialer { DORMANT_HOLD - PHONE_MARGIN } else { DORMANT_HOLD }
+        let bound = match HOLD_FOR_TESTS.load(Ordering::Relaxed) {
+            0 => DORMANT_HOLD,
+            millis => Duration::from_millis(millis),
+        };
+        if self.dialer { bound.saturating_sub(PHONE_MARGIN.min(bound / 10)) } else { bound }
     }
 
     /// A link ended (`reason`, `None` when no link ever ran on the lease).
@@ -180,11 +196,24 @@ impl Keeper {
         let hold = self.hold();
         let weak = Arc::downgrade(self);
         let timer = tokio::spawn(async move {
-            tokio::time::sleep(hold).await;
+            // Ends at the bound, or once the peer's `bye` dropped the tunnel
+            // (its link closed on purpose after this side saw it end).
+            let bound = tokio::time::Instant::now() + hold;
+            loop {
+                let now = tokio::time::Instant::now();
+                if now >= bound {
+                    break;
+                }
+                tokio::time::sleep((bound - now).min(BYE_CHECK)).await;
+                let Some(keeper) = weak.upgrade() else { return };
+                if keeper.session.net().is_err() {
+                    break;
+                }
+            }
             if let Some(keeper) = weak.upgrade()
                 && unlist(keeper.id).is_some()
             {
-                tracing::info!(session = keeper.session.id(), "dormant tunnel reached its bound");
+                tracing::info!(session = keeper.session.id(), "dormant tunnel ended (bound or bye)");
                 keeper.close();
             }
         });
@@ -433,6 +462,12 @@ pub fn forget_all() -> usize {
         keeper.close();
     }
     count
+}
+
+/// Whether a dormant tunnel with `peer_device` is kept (the Mac's side: a
+/// phone's device id).
+pub fn keeps(peer_device: &str) -> bool {
+    lock(dormant()).iter().any(|keeper| !keeper.dialer && keeper.peer_device == peer_device)
 }
 
 /// How many dormant tunnels this side keeps now.
