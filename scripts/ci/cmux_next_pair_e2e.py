@@ -61,7 +61,7 @@ import build_names  # noqa: E402
 from tag_teardown import TagTeardown  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from cmux_next_cloud_pair_proof import allowlist_public_cloud_artifact, read_proof, run_cloud_leg  # noqa: E402
-from cmux_next_pair_share_host import TaggedShareHost  # noqa: E402
+from cmux_next_pair_share_host import TaggedShareHost, share_without_asking_off  # noqa: E402
 from cmux_next_pair_share_phone import PairInputProbe, PairSharePhone  # noqa: E402
 
 sys.path.insert(0, os.path.join(ROOT, "cmux-next-ios/scripts"))
@@ -584,8 +584,8 @@ def run_pair(a, note, share):
             try:
                 target = host.prepare()
                 setting = rpc("settings.get", {"path": "macScreen.shareWithoutAsking"})
-                if setting.get("value") is not False:
-                    raise RuntimeError("the Mac did not report Share This Mac Without Asking off")
+                if not share_without_asking_off(setting):
+                    raise RuntimeError(f"the Mac did not report Share This Mac Without Asking off: {setting!r}")
                 with PairInputProbe(rig) as probe_input:
                     share_env = dict(phone_env, SIMCTL_CHILD_CMUX_PAIR_E2E_SHARE_RECEIPT="1")
                     phone = PairSharePhone(simctl, a.udid, a.bundle_id, share_env,

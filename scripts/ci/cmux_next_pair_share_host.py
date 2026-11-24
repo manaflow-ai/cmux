@@ -7,6 +7,19 @@ import subprocess
 import time
 
 
+def share_without_asking_off(reply):
+    """Whether the Mac's `settings.get macScreen.shareWithoutAsking` reply says off.
+
+    An explicit `false` is off. So is a key the settings file does not set (`exists: false`, `value: null`),
+    since the setting's default is off. Anything else (`true`, an error, a reply with no `exists`) is not.
+    """
+    if not isinstance(reply, dict) or "error" in reply:
+        return False
+    if reply.get("value") is False:
+        return True
+    return reply.get("exists") is False and reply.get("value") is None
+
+
 class TaggedShareHost:
     def __init__(self, mac_app, env):
         self.cli = Path(mac_app) / "Contents/Resources/bin/acpmux"

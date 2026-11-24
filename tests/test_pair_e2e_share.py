@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts/ci"))
-from cmux_next_pair_share_host import TaggedShareHost
+from cmux_next_pair_share_host import TaggedShareHost, share_without_asking_off
 from cmux_next_pair_share_phone import PairSharePhone
 from cmux_next_screen_sharing_proof import positive_fps
 
@@ -91,3 +91,17 @@ class RdViewerTests(unittest.TestCase):
         self.assertTrue(positive_fps(phone.stats()))
         self.assertIs(phone.screen_view(), view)
 
+
+class ShareWithoutAskingOffTests(unittest.TestCase):
+    def test_an_unset_key_reads_as_the_default_off(self):
+        self.assertTrue(share_without_asking_off({"path": ["macScreen", "shareWithoutAsking"], "exists": False,
+                                                  "value": None, "file": "/rig/cmux.json"}))
+
+    def test_an_explicit_false_is_off(self):
+        self.assertTrue(share_without_asking_off({"exists": True, "value": False}))
+
+    def test_on_an_error_or_an_unknown_reply_is_not_off(self):
+        for reply in ({"exists": True, "value": True}, {"error": "settings are not available"},
+                      {"value": None}, {"exists": True, "value": None}, None):
+            with self.subTest(reply=reply):
+                self.assertFalse(share_without_asking_off(reply))
