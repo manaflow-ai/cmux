@@ -2,7 +2,8 @@ public import CmuxNextAgentPane
 import CmuxNextDaemonService
 public import CmuxNextPages
 public import CmuxNextSettings
-import Foundation
+import CmuxNextWakeups
+public import Foundation
 
 /// Settings > Server > This Mac on Your Tailnet: relays the page's `cmux.settings.tailnet.state`, `.start`,
 /// `.login` and `.logout` to acpmux's `_acpmux/tailnet/<verb>` (cmux-tui acpmux tailnet/embedded.rs) and
@@ -73,13 +74,13 @@ public final class SettingsTailnet: PageProvider {
             for port in params["servePorts"]?.arrayValue?.compactMap(\.stringValue) ?? [] where !port.isEmpty { arguments += ["--serve", port] }
             if params["switch"]?.boolValue == true { arguments.append("--switch") }
         }
-        let result = try await ProcessRunner.run(executable: binary, arguments: arguments, environment: nil, stdin: stdin,
-                                                 timeout: .seconds(240), outputTailBytes: 64 * 1024, clock: ContinuousClock())
-        let lines = String(decoding: result.stdout, as: UTF8.self).split(separator: "\n")
+        let request = ProcessRequest(binary, arguments, input: stdin, errorOutput: .separate, timeout: .seconds(240))
+        let result = try await AsyncProcess().run(request)
+        let lines = String(decoding: result.output, as: UTF8.self).split(separator: "\n")
         if let line = lines.last(where: { (line: Substring) -> Bool in !line.allSatisfy { (character: Character) -> Bool in character.isWhitespace } }), let answer = try? JSONValue.parse(Data(line.utf8)) {
             return answer
         }
-        let detail = String(decoding: result.stderr, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        let detail = String(decoding: result.errorOutput, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         return ["ok": .bool(false), "error": .string(detail.isEmpty ? "The tailnet command failed (exit \(result.status))." : detail)]
     }
 }
