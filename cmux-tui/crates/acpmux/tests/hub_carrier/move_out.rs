@@ -1,10 +1,10 @@
 //! A driver reaches the holder through mesh control; the target gets every page over the relay.
 use super::*;
 use acpmux::mesh::{
-    Ack, ControlHook, Heartbeat, HeartbeatReply, HubError, InMessage, MeshHub, OutMessage, Receipt,
+    Ack, Heartbeat, HeartbeatReply, HubError, InMessage, MeshHub, OutMessage, Receipt,
 };
 use acpmux::mesh_http::MeshControlFrom;
-use acpmux::server::mesh_relay::MeshControlHook;
+use acpmux::server::mesh_relay::{ControlHook, MeshControlHook};
 use acpmux::transfer_service::{CarrierDial, ConfiguredTransferGate};
 use futures::future::BoxFuture;
 use std::path::Path;
