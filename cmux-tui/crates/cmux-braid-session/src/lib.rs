@@ -271,7 +271,7 @@ mod tests {
         assert!(ticket.dormant_resumable(2_000 + 149_999));
         assert!(!ticket.dormant_resumable(2_000 + 150_000));
         // No hold (an older writer, or a peer without it): the full dial.
-        let plain = ResumeTicket { dormant_hold_ms: None, ..ticket.clone() };
+        let plain = ResumeTicket { dormant_hold_ms: None, ..ticket };
         assert!(!plain.dormant_resumable(2_001));
         let text = String::from_utf8(plain.encode()).unwrap();
         assert!(!text.contains("dormant_hold_ms"), "{text}");
