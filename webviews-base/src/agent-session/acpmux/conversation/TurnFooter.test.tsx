@@ -1,0 +1,304 @@
+// l10n-allow-file: test fixture replies, not shipped UI.
+// A turn's footer under its answer (TurnRows.tsx TurnFooter). Leo, 2026-10-21, on a footer reading
+// "Worked for 0s · pin · now" that took a full line: "IF WE 0 SECONDS THEN IT DOESNT NEED TO TAKE
+// UP SPACE". A turn under a second says no "Worked for", and a footer left with only its hover
+// controls (Pin, Fork) takes no line: the row is its turn gap alone. The row draws no time at its
+// end, so no "Worked for" tooltip (Lawrence and Lucas, 2026-11-11 standup: no time on hover).
+import { expect, test } from "bun:test";
+import { renderToStaticMarkup } from "react-dom/server";
+import type { AcpmuxRow } from "../model";
+import { layoutConversation } from "../model";
+import { translate, type Translate } from "../i18n";
+import { footerLabel, isEmptyFooter, turnView } from "./turns";
+import {
+  MARK_FOOTER_ROW,
+  MARK_STEP,
+  MARK_WORKED,
+  TRANSCRIPT_FOOTER_CONTROL,
+  TRANSCRIPT_FOOTER_GAP,
+  rowMark,
+  transcriptGap,
+} from "../transcriptGrid";
+import { TurnFooter } from "./TurnRows";
+
+const t: Translate = (key, values) => translate(key, values, "en");
+
+const footer = (fields: Partial<AcpmuxRow>): AcpmuxRow => ({
+  id: "summary",
+  version: 1,
+  at: 1_000,
+  kind: "turnSummary",
+  status: "completed",
+  ...fields,
+});
+
+test("a turn under a second says no Worked for", () => {
+  for (const durationMs of [0, 1, 999]) {
+    const row = footer({ durationMs });
+    expect(footerLabel(t, row)).toBeUndefined();
+    expect(renderToStaticMarkup(<TurnFooter row={row} />)).not.toContain("Worked for");
+  }
+});
+
+test("a 5 s turn draws no Worked for and no time in its footer row, never in front of the buttons", () => {
+  // Leo, 2026-11-02: "this should not be placed in front of the copy/whatever buttons. those buttons
+  // should always just be there left aligned". Lawrence, 2026-11-11 standup: "when I hover, the time
+  // shows up on the right, which I don't think is good".
+  const row = footer({
+    durationMs: 5_000,
+    text: "Done.",
+    tokens: { output: 359, input: 1_000, cacheRead: 327_800, cacheWrite: 0 },
+  });
+  expect(footerLabel(t, row)).toBe("Worked for 5s");
+  const markup = renderToStaticMarkup(<TurnFooter row={row} />);
+  expect(markup).not.toContain("cv-turn-summary");
+  expect(markup).toMatch(/<span class="cv-message-footer-row cv-turn-footer-row"><span class="cv-turn-action-group">/);
+  // No time at the row's end, so no tooltip with Worked for and the token rows.
+  expect(markup).not.toContain("cv-turn-time");
+  expect(markup).not.toContain("data-tooltip-detail");
+  expect(markup).not.toContain("Worked for");
+});
+
+// Leo, 2026-11-02, on "Worked for" drawn in front of Copy: "this should not be placed in front of
+// the copy/whatever buttons. those buttons should always just be there left aligned". The time and
+// its Worked for tooltip are gone (Lawrence and Lucas, 2026-11-11 standup: no time on hover).
+test("the buttons lead the footer row, with no time or Worked for after them", () => {
+  const markup = renderToStaticMarkup(<TurnFooter row={footer({ durationMs: 5_000, text: "Done." })} />);
+  const group = markup.indexOf("cv-turn-action-group");
+  expect(group).toBeGreaterThan(-1);
+  expect(markup.indexOf("Copy")).toBeGreaterThan(group);
+  expect(markup).not.toContain("cv-turn-time");
+  expect(markup).not.toContain("Worked for");
+});
+
+test("a turn stopped within a second still says it stopped", () => {
+  expect(footerLabel(t, footer({ durationMs: 400, status: "cancelled" }))).toBe("You stopped after 0s");
+});
+
+test("a turn whose work folds under Worked for says nothing in its footer", () => {
+  expect(footerLabel(t, footer({ durationMs: 5_000, folded: true }))).toBeUndefined();
+});
+
+test("a footer with only hover controls is empty; one with an answer or a failure is not", () => {
+  expect(isEmptyFooter(footer({ durationMs: 0 }))).toBe(true);
+  expect(isEmptyFooter(footer({ durationMs: 5_000, folded: true }))).toBe(true);
+  expect(isEmptyFooter(footer({ durationMs: 0, text: "Done." }))).toBe(false);
+  // Its Worked for is the time's tooltip now, so it no longer keeps the line.
+  expect(isEmptyFooter(footer({ durationMs: 5_000 }))).toBe(true);
+  expect(isEmptyFooter(footer({ durationMs: 0, status: "failed", error: "boom" }))).toBe(false);
+  expect(renderToStaticMarkup(<TurnFooter row={footer({ durationMs: 0 })} />)).toContain("cv-turn-actions--empty");
+  expect(renderToStaticMarkup(<TurnFooter row={footer({ durationMs: 0, text: "Done." })} />)).not.toContain(
+    "cv-turn-actions--empty",
+  );
+});
+
+const prompt = (id: string): AcpmuxRow => ({ id, version: 1, at: 0, kind: "user", text: "Next" });
+
+test("an empty footer adds no line; a footer with an answer is its 32 line of buttons", () => {
+  // An empty footer's hover controls lie over the gap: no height, between two prompts or at the end.
+  expect(layoutConversation([prompt("p"), footer({ durationMs: 0 }), prompt("q")], 720).heights[1]).toBe(0);
+  expect(layoutConversation([prompt("p"), footer({ durationMs: 0 })], 720).heights[1]).toBe(0);
+  // A footer with an answer to copy is a row of its own, ChatGPT's 32 buttons (design/transcript-spacing.md).
+  expect(layoutConversation([prompt("p"), footer({ durationMs: 0, text: "Done." }), prompt("q")], 720).heights[1]).toBe(
+    TRANSCRIPT_FOOTER_CONTROL,
+  );
+});
+
+// Leo, 2026-11-02: "this spacing would be good + the latest copy buttons auto showing when the turn
+// is done like chatgpt". The chat's last turn that spoke and then ended on a run of commands drew an
+// empty footer: no buttons, a blank band where they go. Its row is a real 32 line now, 8 under the
+// run, whose Copy copies the turn; an earlier such turn keeps its hover-only footer.
+test("the chat's last turn that ended on work has a row of its own, 8 under the run", () => {
+  const rows = [
+    { id: "p", version: 1, at: 0, kind: "user", text: "Check what's installed" },
+    { id: "a", version: 1, at: 1, kind: "assistant", text: "I'll check the installed apps." },
+    {
+      id: "w",
+      version: 1,
+      at: 2,
+      kind: "activity",
+      items: [
+        { kind: "tool", text: "", tool: { toolCallId: "t1", title: "ls", kind: "execute", status: "completed" } },
+      ],
+    },
+    { id: "s", version: 1, at: 3, kind: "turnSummary", status: "completed", durationMs: 5_000, toolCount: 1 },
+  ] as AcpmuxRow[];
+  const drawn = turnView(rows, new Set(), { agentFamily: "claude", now: 10_000 });
+  const at = drawn.findIndex((row) => row.kind === "turnSummary");
+  const last = drawn[at]!;
+  expect(last.text).toBeUndefined();
+  expect(last.turnCopy?.length).toBeGreaterThan(0);
+  expect(isEmptyFooter(last)).toBe(false);
+  expect(rowMark(last)).toBe(MARK_FOOTER_ROW);
+  expect(renderToStaticMarkup(<TurnFooter row={last} />)).not.toContain("cv-turn-actions--empty");
+  const layout = layoutConversation(drawn, 720);
+  expect(layout.heights[at]).toBe(TRANSCRIPT_FOOTER_CONTROL);
+  const above = at - 1;
+  // The run folds under "Worked for": its own 8 under its rule stands in for the 8, as over a reply
+  // (transcriptGrid.ts MARK_WORKED), so the stack adds no gap; under an open run's last line, the 8.
+  expect(drawn[above]!.kind).toBe("worked");
+  expect(layout.tops[at]! - (layout.tops[above]! + layout.heights[above]!)).toBe(0);
+  expect(transcriptGap(MARK_WORKED, MARK_FOOTER_ROW)).toBe(0);
+  expect(transcriptGap(MARK_STEP, MARK_FOOTER_ROW)).toBe(TRANSCRIPT_FOOTER_GAP);
+  // Once a prompt follows, the turn keeps its row: it never collapses and shifts the transcript (Leo,
+  // 2026-11-14: "the copy sometimes disappears entirely? which causes big shifts").
+  const later = turnView(
+    [...rows, { id: "q", version: 1, at: 4, kind: "user", text: "Next" } as AcpmuxRow],
+    new Set(),
+    {
+      agentFamily: "claude",
+      now: 10_000,
+    },
+  );
+  const kept = later.findIndex((row) => row.kind === "turnSummary");
+  expect(isEmptyFooter(later[kept]!)).toBe(false);
+  expect(layoutConversation(later, 720).heights[kept]).toBe(TRANSCRIPT_FOOTER_CONTROL);
+});
+
+// Leo, 2026-11-14: "the copy sometimes disappears entirely? which causes big shifts. it happens often
+// when scrolling up and stuff loads". A finished turn paged in from history without its prompt (the
+// page starts mid-turn) drew acpmux's bare summary, which has no answer, so its action row was
+// missing until the older page brought the prompt and the row appeared, pushing everything below.
+test("a finished turn paged in without its prompt has its action row, at the height it has live", () => {
+  const work = (id: string, at: number) =>
+    ({
+      id,
+      version: 1,
+      at,
+      kind: "activity",
+      items: [{ kind: "tool", text: "", tool: { id, title: "ls", kind: "execute", status: "completed" } }],
+    }) as AcpmuxRow;
+  const reply = (id: string, at: number, text: string) =>
+    ({ id, version: 1, at, kind: "assistant", text }) as AcpmuxRow;
+  const summary = (id: string, at: number) =>
+    ({ id, version: 1, at, kind: "turnSummary", status: "completed", durationMs: 5_000, toolCount: 1 }) as AcpmuxRow;
+  const next = { id: "q", version: 1, at: 100, kind: "user", text: "Next" } as AcpmuxRow;
+  const options = { agentFamily: "claude" as const, now: 10_000 };
+  for (const body of [
+    // Ends on its answer.
+    [reply("a", 2, "Looking."), work("w", 3), reply("b", 4, "All set."), summary("s", 5)],
+    // Spoke, then ended on work.
+    [reply("a", 2, "I'll check the installed apps."), work("w", 3), summary("s", 5)],
+  ]) {
+    const whole = [{ id: "p", version: 1, at: 1, kind: "user", text: "Check" } as AcpmuxRow, ...body, next];
+    // The page starts after the prompt: the turn's rows and the next prompt, its own prompt not yet in.
+    const paged = [...body, next];
+    const footerHeight = (rows: AcpmuxRow[]) => {
+      const drawn = turnView(rows, new Set(), options);
+      const at = drawn.findIndex((row) => row.id === "s");
+      const markup = renderToStaticMarkup(<TurnFooter row={drawn[at]!} />);
+      expect(markup).toContain("cv-turn-actions");
+      expect(markup).not.toContain("cv-turn-actions--empty");
+      expect(markup).toContain("cv-turn-footer-row");
+      return layoutConversation(drawn, 720).heights[at];
+    };
+    expect(footerHeight(paged)).toBe(TRANSCRIPT_FOOTER_CONTROL);
+    expect(footerHeight(paged)).toBe(footerHeight(whole));
+  }
+});
+
+test("the retry hint only marks a completed edit with a known non-empty patch", () => {
+  const prompt = { id: "p", version: 1, at: 0, kind: "user", text: "Update the file" } as AcpmuxRow;
+  const summary = { id: "s", version: 1, at: 3, kind: "turnSummary", status: "completed" } as AcpmuxRow;
+  const edit = (
+    status: string,
+    oldText?: string,
+    newText = "after",
+    fragment?: true,
+    canonical?: string,
+    path = "/repo/file.ts",
+  ): AcpmuxRow => ({
+    id: `edit-${status}-${oldText ?? "unknown"}`,
+    version: 1,
+    at: 2,
+    kind: "activity",
+    items: [
+      {
+        kind: "tool",
+        text: "",
+        tool: {
+          id: "tool",
+          title: "Edit file.ts",
+          kind: "edit",
+          status,
+          diffs: [
+            {
+              path,
+              ...(oldText === undefined ? {} : { oldText }),
+              newText,
+              ...(fragment && { fragment }),
+              ...(canonical && { canonical }),
+            },
+          ],
+        },
+      },
+    ],
+  });
+  const changed = turnView([prompt, edit("completed", "before"), summary], new Set(), { now: 10_000 }).find(
+    (row) => row.kind === "turnSummary",
+  );
+  expect(changed?.changedFiles).toBe(true);
+
+  for (const row of [
+    turnView([prompt, edit("completed", "same", "same"), summary], new Set()).find(
+      (item) => item.kind === "turnSummary",
+    ),
+    turnView([prompt, edit("failed", "before"), summary], new Set()).find((item) => item.kind === "turnSummary"),
+    turnView([prompt, edit("pending", "before"), summary], new Set()).find((item) => item.kind === "turnSummary"),
+    turnView([prompt, edit("completed", undefined, "new file"), summary], new Set()).find(
+      (item) => item.kind === "turnSummary",
+    ),
+    turnView(
+      [prompt, edit("completed", "before", "after"), edit("completed", "after", "before"), summary],
+      new Set(),
+    ).find((item) => item.kind === "turnSummary"),
+    turnView(
+      [prompt, edit("completed", "before", "after"), edit("completed", undefined, "before"), summary],
+      new Set(),
+    ).find((item) => item.kind === "turnSummary"),
+    turnView(
+      [prompt, edit("completed", undefined, "after"), edit("completed", "after", "before"), summary],
+      new Set(),
+    ).find((item) => item.kind === "turnSummary"),
+    turnView(
+      [prompt, edit("completed", "before", "after"), edit("completed", "after", "before", true), summary],
+      new Set(),
+    ).find((item) => item.kind === "turnSummary"),
+    turnView(
+      [
+        prompt,
+        edit("completed", "before", "after", undefined, undefined, "file.ts"),
+        edit("completed", "after", "before", undefined, "/repo/file.ts", "file.ts"),
+        summary,
+      ],
+      new Set(),
+    ).find((item) => item.kind === "turnSummary"),
+    turnView([prompt, edit("completed", undefined, "partial", true), summary], new Set()).find(
+      (item) => item.kind === "turnSummary",
+    ),
+  ])
+    expect(row?.changedFiles).toBeUndefined();
+});
+
+test("a work-only turn that said nothing has nothing to copy and stays empty; one that spoke keeps its row", () => {
+  expect(isEmptyFooter(footer({ retryable: true }))).toBe(true);
+  expect(isEmptyFooter(footer({}))).toBe(true);
+  expect(isEmptyFooter(footer({ retryable: true, turnCopy: [{ text: "I'll check." }] }))).toBe(false);
+  // Not the chat's last turn any more: the row stays, so nothing above it moves.
+  expect(isEmptyFooter(footer({ turnCopy: [{ text: "I'll check." }] }))).toBe(false);
+  expect(rowMark(footer({ turnCopy: [{ text: "I'll check." }] }))).toBe(MARK_FOOTER_ROW);
+});
+
+test("a finished plan line stands the reply's 8 over its footer row, as a final reply does", async () => {
+  const grid = await import("../transcriptGrid");
+  const plan = { kind: "plan", plan: [{ content: "Ship", status: "completed" }], turnEnded: true };
+  expect(grid.rowMark(plan)).toBe(grid.MARK_PLAN_LINE);
+  expect(grid.transcriptGap(grid.MARK_PLAN_LINE, grid.MARK_FOOTER_ROW)).toBe(
+    grid.transcriptGap(grid.MARK_MESSAGE, grid.MARK_FOOTER_ROW),
+  );
+  // A running turn's pinned list is any other row.
+  expect(grid.rowMark({ ...plan, turnEnded: false })).toBe(grid.MARK_OTHER);
+  expect(grid.transcriptGap(grid.MARK_MESSAGE, grid.MARK_PLAN_LINE)).toBe(
+    grid.transcriptGap(grid.MARK_MESSAGE, grid.MARK_OTHER),
+  );
+});

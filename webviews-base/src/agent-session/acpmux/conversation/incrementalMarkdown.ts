@@ -1,0 +1,212 @@
+// Incremental parsing of a streaming agent message. A delta only appends text, so every block
+// before the last safe boundary is final: it is parsed once, keeps its object (so a memoized block
+// never renders again) and its key. Only the tail after that boundary is parsed again.
+import { type MdBlock, parseMarkdown } from "./markdownModel";
+import { fenceStep } from "./fenceRule";
+import { safeTail } from "./safeTail";
+
+export type KeyedBlock = { key: string; block: MdBlock };
+
+/// A finished message's parse, by its text: a row that mounts again (scrolled back into view, a
+/// fling passing over it, a chat reopened) reads the blocks it drew last time instead of parsing
+/// its whole text again on the frame that shows it. Least recently used out past the caps (entries,
+/// and characters of text held, so a few huge replies cannot pin megabytes).
+type WholeParse = {
+  closed: readonly KeyedBlock[];
+  closedEnd: number;
+  tail: KeyedBlock[];
+  closedFences: number;
+  fenceOpen: boolean;
+};
+const WHOLE_PARSES_CAP = 2048;
+const WHOLE_PARSES_CHARS = 2_000_000;
+const wholeParses = new Map<string, WholeParse>();
+let wholeChars = 0;
+const wholeKey = (source: string, messageAt: number | undefined) => `${messageAt ?? ""}\u0000${source}`;
+
+const LIST_START = /^(\s*)([-*+]|\d+[.)])\s+/;
+const DISPLAY_OPEN = /^\s*\\\[/;
+const DISPLAY_CLOSE = /\\\]\s*$/;
+/// A line opening a `$$` display that does not close on it (Markdown.tsx displayMath).
+const DOLLARS_OPEN = /^\s*\$\$(?!.*\$\$)/;
+const DOLLARS_CLOSE = /\$\$/;
+
+/**
+ * Parses a growing Markdown text the way `parseMarkdown` parses it whole. A boundary is the start
+ * of a complete line that follows a blank line, outside a code fence and an open `\[` or `$$` display, and
+ * starts a block on its own (no indent, no list marker that would continue the list above). The
+ * parser never joins blocks across such a line, so the text before it parses the same alone.
+ * A block's key is its index in the message: blocks only ever append, and the blocks before a
+ * boundary never change, so a block keeps its key from the first frame it shows to its last.
+ */
+export class IncrementalMarkdown {
+  private source = "";
+  private streaming = false;
+  private messageAt?: number;
+  /// Replaced, never changed in place, when blocks close: the same array until the next one does,
+  /// so a caller can keep what it drew from it (Markdown's closed blocks).
+  private closed: readonly KeyedBlock[] = [];
+  private closedEnd = 0;
+  private tail: KeyedBlock[] = [];
+  /// Counts the times the closed blocks were dropped or replaced by another text's: within one
+  /// generation the closed text only grows, so a scan of it (replyScan.ts) only adds to what it read.
+  private generation = 0;
+  /// The fence lines before `closedEnd`, counted as `fenceLines` counts them. It can be odd: a
+  /// fence line inside a `$$` display counts here but does not open a fence for the boundary.
+  private closedFences = 0;
+  /// The source has an odd number of fence lines: its last block is a fence still arriving.
+  fenceOpen = false;
+  /// The characters the last update parsed (for tests and the debug perf report).
+  lastParsedLength = 0;
+
+  /// How many of the blocks the last update returned are closed: they lie before the last safe
+  /// boundary, keep their objects and never parse again. The rest (the tail) is the open part.
+  get closedCount(): number {
+    return this.closed.length;
+  }
+
+  /// `streaming`: the tail draws only what is safe to draw half-written (safeTail.ts).
+  update(source: string, options: { streaming?: boolean; messageAt?: number } = {}): KeyedBlock[] {
+    this.advance(source, options);
+    return [...this.closed, ...this.tail];
+  }
+
+  /// The blocks before the last boundary, which never change again in this generation.
+  get closedBlocks(): readonly KeyedBlock[] {
+    return this.closed;
+  }
+
+  /// The blocks after it, parsed again on every update.
+  get tailBlocks(): readonly KeyedBlock[] {
+    return this.tail;
+  }
+
+  /// Where the closed blocks' text ends in the source, and the generation they belong to.
+  get closedState(): { end: number; generation: number } {
+    return { end: this.closedEnd, generation: this.generation };
+  }
+
+  /// `update` without joining the blocks into one list (Markdown reads them closed and tail apart).
+  advance(source: string, options: { streaming?: boolean; messageAt?: number } = {}): void {
+    const streaming = options.streaming ?? false;
+    const messageAt = options.messageAt;
+    if (source === this.source && streaming === this.streaming && messageAt === this.messageAt) return;
+    // A parser that has drawn nothing yet, given a finished text it parsed before: the same blocks.
+    const fresh = this.source === "" && this.closedEnd === 0 && !streaming && source !== "";
+    if (fresh) {
+      const key = wholeKey(source, messageAt);
+      const known = wholeParses.get(key);
+      if (known) {
+        wholeParses.delete(key);
+        wholeParses.set(key, known);
+        this.streaming = false;
+        this.messageAt = messageAt;
+        this.source = source;
+        this.lastParsedLength = 0;
+        this.generation += 1;
+        this.closed = known.closed;
+        this.closedEnd = known.closedEnd;
+        this.tail = known.tail;
+        this.closedFences = known.closedFences;
+        this.fenceOpen = known.fenceOpen;
+        return;
+      }
+    }
+    this.streaming = streaming;
+    if (messageAt !== this.messageAt || !source.startsWith(this.source.slice(0, this.closedEnd))) this.reset();
+    this.messageAt = messageAt;
+    this.source = source;
+    this.lastParsedLength = 0;
+    const boundary = lastBlockBoundary(source, this.closedEnd);
+    if (boundary > this.closedEnd) {
+      const closing = source.slice(this.closedEnd, boundary);
+      this.closed = [...this.closed, ...this.parse(closing, this.closed.length)];
+      this.closedFences += fenceLines(closing);
+      this.closedEnd = boundary;
+    }
+    const rest = source.slice(this.closedEnd);
+    // A boundary starts a line with a non-space character, so no fence line spans it and the
+    // count of the whole source is the closed count plus the tail's.
+    this.fenceOpen = (this.closedFences + fenceLines(rest)) % 2 === 1;
+    // `parse` already keeps each tail block's object when it draws the same.
+    this.tail = this.parse(streaming ? safeTail(rest) : rest, this.closed.length);
+    if (fresh) {
+      const key = wholeKey(source, messageAt);
+      wholeParses.set(key, {
+        closed: this.closed,
+        closedEnd: this.closedEnd,
+        tail: this.tail,
+        closedFences: this.closedFences,
+        fenceOpen: this.fenceOpen,
+      });
+      wholeChars += key.length;
+      while (wholeParses.size > WHOLE_PARSES_CAP || (wholeChars > WHOLE_PARSES_CHARS && wholeParses.size > 1)) {
+        const oldest = wholeParses.keys().next().value!;
+        wholeParses.delete(oldest);
+        wholeChars -= oldest.length;
+      }
+    }
+  }
+
+  private reset(): void {
+    this.generation += 1;
+    this.source = "";
+    this.messageAt = undefined;
+    this.closed = [];
+    this.closedEnd = 0;
+    this.tail = [];
+    this.closedFences = 0;
+  }
+
+  private parse(text: string, first: number): KeyedBlock[] {
+    this.lastParsedLength += text.length;
+    return parseMarkdown(text, { messageAt: this.messageAt }).map((block, index) => {
+      const key = String(first + index);
+      // A tail block that closes now keeps the object it had, so it does not render again.
+      const open = this.tail.find((entry) => entry.key === key);
+      return open && sameBlock(open.block, block) ? open : { key, block };
+    });
+  }
+}
+
+/// The last block boundary of `source` after `from` (itself a boundary, or 0), or `from` when
+/// there is none: the start of a complete line after a blank line, outside a code fence and an
+/// open `\[` or `$$` display, that starts a block on its own. Text before it parses the same alone, in
+/// this renderer and in the estimator's lexer.
+export function lastBlockBoundary(source: string, from: number): number {
+  let boundary = from;
+  let fenced = 0;
+  let display = false;
+  let closer = DISPLAY_CLOSE;
+  // The closed end always follows a blank line.
+  let previousBlank = true;
+  let start = from;
+  while (start < source.length) {
+    const newline = source.indexOf("\n", start);
+    if (newline < 0) break; // The last line is still streaming.
+    const line = source.slice(start, newline).replace(/\r$/, "");
+    if (start > from && previousBlank && fenced === 0 && !display && /^\S/.test(line) && !LIST_START.test(line))
+      boundary = start;
+    if (!display && fenceStep(fenced, line) !== fenced) fenced = fenceStep(fenced, line);
+    else if (fenced === 0) {
+      if (display) display = !closer.test(line);
+      else if (DOLLARS_OPEN.test(line)) [display, closer] = [true, DOLLARS_CLOSE];
+      else if (DISPLAY_OPEN.test(line))
+        [display, closer] = [!DISPLAY_CLOSE.test(line.replace(DISPLAY_OPEN, "")), DISPLAY_CLOSE];
+    }
+    previousBlank = !line.trim();
+    start = newline + 1;
+  }
+  return boundary;
+}
+
+const FENCE_LINES = /^\s*```/gm;
+/// The fence lines of `text`, counted the way Markdown counts them for an open fence.
+export function fenceLines(text: string): number {
+  return text.match(FENCE_LINES)?.length ?? 0;
+}
+
+/// Whether two parsed blocks draw the same (blocks are plain data).
+function sameBlock(a: MdBlock, b: MdBlock): boolean {
+  return a === b || JSON.stringify(a) === JSON.stringify(b);
+}
