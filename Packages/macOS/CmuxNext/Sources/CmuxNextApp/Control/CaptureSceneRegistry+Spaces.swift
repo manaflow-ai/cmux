@@ -53,8 +53,9 @@ extension CaptureSceneRegistry {
                 windows.controller(for: windowID)?.window != nil
                     && windows.registry.members(of: windowID).contains(workspace.rawValue)
                     && original.sidebar.model.activeProfileID != key
-                    && original.sidebar.model.profiles.contains { $0.id == key }
-                    && !sidebar.shortcutHintSpaceFrames.isEmpty
+                    && original.sidebar.model.profiles.last?.id == key
+                    && SpaceSwitcherStyle.tunable.value.marksOtherWindows
+                    && sidebar.shortcutHintSpaceFrames.contains { $0.digit == min(original.sidebar.model.profiles.count, 9) }
                     && sidebar.spaceWindowMarks.elsewhere[key]?.windowID == windowID
             }, start: .now, window: 100, deadline: 8_000)
             _ = frames.stop()
@@ -76,12 +77,16 @@ extension CaptureSceneRegistry {
         } catch {
             result = .object(["error": .string("creating capture workspace: \(error)")])
         }
-        do {
-            if createdWorkspace { _ = try await connection.closeWorkspace(workspace, endTerminals: true) }
-            if let other = windows.controller(for: windowID) { windows.closeProgrammatically(other) }
-            _ = try await connection.deleteProfile(profile)
-        } catch {
-            return .object(["error": .string("cleaning up spaces-switcher: \(error)"), "snapshot": result])
+        var cleanupErrors: [String] = []
+        if createdWorkspace {
+            do { _ = try await connection.closeWorkspace(workspace, endTerminals: true) }
+            catch { cleanupErrors.append("workspace: \(error)") }
+        }
+        if let other = windows.controller(for: windowID) { windows.closeProgrammatically(other) }
+        do { _ = try await connection.deleteProfile(profile) }
+        catch { cleanupErrors.append("Space: \(error)") }
+        if !cleanupErrors.isEmpty {
+            return .object(["error": .string(cleanupErrors.joined(separator: ", ")), "snapshot": result])
         }
         return result
     }
