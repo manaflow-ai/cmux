@@ -1,3 +1,4 @@
+import type { AutoLook } from "./autoWhereModel";
 import type { CloudEnvironmentPick } from "./cloudEnvironmentChoice";
 import type { StringKey } from "./i18n";
 
@@ -18,7 +19,13 @@ export type RunModeRows = {
   environment?: CloudEnvironmentPick;
   /// false: Cloud alone, with no Sandboxed face (a new chat whose empty local session already opened).
   sandbox?: false;
+  /// Auto (autoWhereModel.ts): the Where menu's first row; picked, Send asks this machine's daemon where
+  /// the chat runs. The mode stays what it was until the daemon answers. None: no Auto row.
+  auto?: AutoRow;
 };
+
+/// The Auto row's state for a new chat: whether it is the pick, its pick, and how it draws.
+export type AutoRow = { picked: boolean; onPick(on: boolean): void; look: AutoLook };
 
 /// The parts of a receipt the chat shows; every field may be missing from an older server.
 export type SandboxReceipt = {

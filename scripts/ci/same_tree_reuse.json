@@ -408,9 +408,6 @@
    "ios-simulator-build": "its outputs feed later jobs; a skipped run leaves them empty; needed by ios-tests: a skip would skip them or read as no verdict; reads secrets; checks out ${{ needs.detect-ios-changes.outputs.target_sha }}, not the run's commit",
    "ios-tests": "below break-even: 21 runs, 1 min on the last 52 merged PRs, 0 on an already-green merge tree; a ~2 s receipt write per green run costs more than reuse saves"
   },
-  "web-complexity-trusted.yml": {
-   "complexity": "reads pull request metadata or the base (github.event.before, github.event.pull_request.base.sha, github.event.pull_request.head.sha), not only the tree; checks out ${{ env.TRUSTED_SHA }}, not the run's commit"
-  },
   "web-complexity.yml": {
    "complexity": "reads pull request metadata or the base (github.event.before, github.event.pull_request.base.sha), not only the tree"
   },

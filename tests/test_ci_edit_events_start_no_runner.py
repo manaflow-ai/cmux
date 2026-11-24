@@ -84,8 +84,6 @@ EDIT_READS: dict[tuple[str, str], tuple[frozenset[str], str]] = {
     ("pr-checks.yml", "pull_request"): (frozenset({"body"}), "its advisory job's PR size step reads the `Size:` "
         "line and UI review its section (the pick step runs only what the edit moved); none of its steps fails a "
         "pull request"),
-    ("web-complexity-trusted.yml", "pull_request_target"): (ALL, "keeps its context literal and evaluates "
-        "the real verdict on every event; a skip under its name would read as a pass"),
 }
 
 # A comment event whose jobs may start on any comment or review, and why.
