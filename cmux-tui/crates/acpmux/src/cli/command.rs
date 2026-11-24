@@ -19,7 +19,8 @@ pub struct AppOpenArgs {
 /// `session move` (and its flat spelling `move-sessions`): which chats move, and where.
 #[derive(Args, Debug, Clone, PartialEq, Eq)]
 pub struct MoveSessionsArgs {
-    /// The chats to move (ids or names); none with --all-idle.
+    /// The chats to move (ids or names). Use HOST/CHAT for a chat on another hub machine,
+    /// with --machine local to bring it here. Omit with --all-idle.
     #[arg(required_unless_present = "all_idle")]
     pub sessions: Vec<String>,
     /// The machine to move them to, or `auto`: `machine pick`'s choice among your machines
@@ -997,6 +998,9 @@ pub enum Command {
         #[arg(long, default_value_t = 20)]
         top: usize,
     },
+    /// `daemon felt`: the felt-latency histograms (the net graph).
+    #[command(hide = true)]
+    DaemonFelt,
     /// `daemon prune`: clear dead daemons' records (a dry run unless `apply`).
     #[command(hide = true)]
     DaemonPrune {
@@ -1796,6 +1800,10 @@ pub enum DaemonCmd {
         #[arg(long, default_value_t = 20)]
         top: usize,
     },
+    /// The felt-latency histograms of the running daemon (the net graph): p50, p90 and p99 of what a
+    /// person feels (a prompt's send to ack, a typed key's echo) over the last minute and since
+    /// start. Numbers and names only.
+    Felt,
     /// Restart the daemon, preserving hosted sessions so they resume on startup.
     Restart,
     /// Clear what dead daemons left: for the shared home and each per-build home, the socket and
@@ -2031,6 +2039,7 @@ pub fn flatten(c: Command) -> Command {
             }
             DaemonCmd::Restart => Command::DaemonRestart,
             DaemonCmd::Stats { by, since, top } => Command::DaemonStats { by, since, top },
+            DaemonCmd::Felt => Command::DaemonFelt,
             DaemonCmd::Prune { apply } => Command::DaemonPrune { apply },
             DaemonCmd::Service { action } => Command::DaemonService { action },
             DaemonCmd::Config { show_token, set } => Command::Config { show_token, set },
