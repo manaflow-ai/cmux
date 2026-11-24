@@ -258,6 +258,7 @@ fn shape(via_turn: bool, from: &SocketAddr, len: usize, direction: Option<Direct
         return None;
     }
     DELIVERED.fetch_add(1, Ordering::Relaxed);
+    tracing::trace!(%from, len, via_turn, ?direction, "shaper delivers a datagram");
     let arrive = left + Duration::from_micros(air.profile.rtt_ms * 500) + Duration::from_millis(jitter);
     // Never zero: zero means "deliver now, unordered" to the hook's caller.
     Some((arrive - now).max(Duration::from_micros(1)))
