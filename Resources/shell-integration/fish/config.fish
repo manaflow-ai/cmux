@@ -21,6 +21,7 @@ if test "$_cmux_integration_enabled" != 0
     set -g _CMUX_TTY_NAME ""
     set -g _CMUX_TTY_REPORTED 0
     set -g _CMUX_PWD_LAST_PWD ""
+    set -g _CMUX_GIT_HEAD_LAST ""
     set -g _CMUX_TMUX_PULL_SIGNATURE ""
     set -g _CMUX_TMUX_PUSH_SIGNATURE ""
     # Keep CMUX_SOCKET_CAPABILITY inherited; tmux's global environment is
@@ -673,12 +674,38 @@ if test "$_cmux_integration_enabled" != 0
         _cmux_ports_kick command
     end
 
+    # Reads .git/HEAD directly (following a worktree's .git file) so the prompt
+    # never spawns git. Empty when not in a repo.
+    function _cmux_git_head
+        test "$CMUX_NO_GIT_WATCH" = 1; and return 0
+        set -l dir "$PWD"
+        while true
+            if test -f "$dir/.git"
+                set -l gitdir (string replace -r '^gitdir: ' '' -- (head -n 1 "$dir/.git"))
+                test -f "$gitdir/HEAD"; and cat "$gitdir/HEAD"
+                return 0
+            else if test -d "$dir/.git"
+                test -f "$dir/.git/HEAD"; and cat "$dir/.git/HEAD"
+                return 0
+            end
+            test "$dir" = /; and return 0
+            set dir (dirname "$dir")
+        end
+    end
+
     function _cmux_prompt --on-event fish_prompt
         _cmux_tmux_sync_cmux_environment
         _cmux_reset_terminal_keyboard_protocols
         _cmux_report_tty_once
         _cmux_report_shell_activity_state prompt
         set -l pwd "$PWD"
+        # A checkout in the same directory changes HEAD without changing $PWD.
+        # Force a re-report so the app re-reads the branch and PR.
+        set -l git_head (_cmux_git_head)
+        if test "$git_head" != "$_CMUX_GIT_HEAD_LAST"
+            set -g _CMUX_GIT_HEAD_LAST "$git_head"
+            set -g _CMUX_PWD_LAST_PWD ""
+        end
         if test "$pwd" != "$_CMUX_PWD_LAST_PWD"
             if _cmux_socket_is_unix
                 if test -n "$CMUX_TAB_ID"; and test -n "$CMUX_PANEL_ID"
