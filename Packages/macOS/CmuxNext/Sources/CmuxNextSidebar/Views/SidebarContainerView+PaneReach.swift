@@ -25,8 +25,11 @@ extension SidebarContainerView {
     /// the one between the sidebar and the transcript disappears"). `rootY` is in the container's
     /// superview coordinates, which is also where the main-pane card frame is reported.
     public func updateResizeLine(cardMaxY rootY: CGFloat) {
-        // Full height unless the card's edge is the seam (``Metrics/cardEdgeIsSidebarSeam``: the default folder tab
-        // keeps the line) and the chrome is unshaded (#41935: a separate sidebar surface keeps it too).
+        // Debug `sidebar.cornerMorph`: the tint parts sidebar and content, and the line would cut the joins.
+        guard !cornerMorphHidesLine else {
+            handle.lineMinY = .greatestFiniteMagnitude
+            return
+        }
         guard Metrics.cardEdgeIsSidebarSeam, DesignSettings.shared.sidebarSurface != .separate else {
             handle.lineMinY = 0
             return
