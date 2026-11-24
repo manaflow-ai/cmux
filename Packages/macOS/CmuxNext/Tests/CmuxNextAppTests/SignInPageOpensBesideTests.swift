@@ -157,13 +157,13 @@ struct SignInPageOpensBesideTests {
     @Test func aTabIsStillTheSignInsOnlyOnItsHostsOverHTTPS() throws {
         let hosts = ["claude.com", "claude.ai", "platform.claude.com"]
         for still in ["https://claude.ai/login", "https://CLAUDE.AI/oauth/authorize?x=1", "https://platform.claude.com/oauth/code/callback"] {
-            #expect(SignInPage.still(try #require(URL(string: still)), on: hosts), "\(still)")
+            #expect(SignInPageHosts.still(try #require(URL(string: still)), on: hosts), "\(still)")
         }
         for gone in ["https://github.com/login/device", "https://claude.ai.example.com/login", "http://claude.ai/login",
                      "https://user@claude.ai/login", "https://claude.ai:8443/login", "http://localhost:54545/callback", "about:blank"] {
-            #expect(!SignInPage.still(try #require(URL(string: gone)), on: hosts), "\(gone)")
+            #expect(!SignInPageHosts.still(try #require(URL(string: gone)), on: hosts), "\(gone)")
         }
-        #expect(!SignInPage.still(try #require(URL(string: "https://claude.ai/login")), on: []))
+        #expect(!SignInPageHosts.still(try #require(URL(string: "https://claude.ai/login")), on: []))
     }
 
     /// The tab `open` made, once the daemon lists it.

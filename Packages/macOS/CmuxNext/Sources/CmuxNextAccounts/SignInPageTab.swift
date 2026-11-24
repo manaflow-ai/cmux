@@ -39,13 +39,13 @@ public final class SignInPageTab<Surface> {
     private func closeIfStill() {
         guard let surface, !hosts.isEmpty else { return }
         self.surface = nil
-        if let page = shown(surface), !SignInPage.still(page, on: hosts) { return }
+        if let page = shown(surface), !SignInPageHosts.still(page, on: hosts) { return }
         close(surface)
     }
 }
 
 /// The rule for a sign-in's page, apart from any tab.
-public enum SignInPage {
+public enum SignInPageHosts {
     /// Whether a tab showing `shown` is still on the sign-in's page: an https page, no user or port, on one of `hosts`.
     public static func still(_ shown: URL, on hosts: [String]) -> Bool {
         guard shown.scheme?.lowercased() == "https", shown.user == nil, shown.password == nil, shown.port == nil,
