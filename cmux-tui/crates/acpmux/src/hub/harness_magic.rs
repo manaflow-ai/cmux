@@ -59,6 +59,7 @@ pub(crate) fn enabled_in(
 }
 
 /// Whether `feature` is on now (the settings file read at each call, as every daemon setting is).
+#[allow(dead_code)] // the features' own seam; the first feature to land calls it
 pub(crate) fn enabled(feature: &str) -> bool {
     let doc = match crate::user_settings::read() {
         crate::user_settings::Settings::Parsed(doc) => Some(doc),
