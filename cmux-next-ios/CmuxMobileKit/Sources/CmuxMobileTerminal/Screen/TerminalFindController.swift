@@ -86,8 +86,8 @@ final class TerminalFindController: NSObject, @MainActor UIFindInteractionDelega
         if isActive { snapshotStale = true }
     }
 
-    /// A search of the redrawn screen is due (``screenRedrawn()``).
-    private var redrawSearchPending = false
+    /// One search of the redrawn screen per main-queue turn (``screenRedrawn()``).
+    private lazy var redrawSearch = TerminalTurnCoalescer(schedule: TerminalMainQueue.schedule)
 
     /// A full-screen app drew its screen again (output, its scroll): its rows have no
     /// scrollback numbering to keep, so the matches are found again on the new screen and the
@@ -95,12 +95,9 @@ final class TerminalFindController: NSObject, @MainActor UIFindInteractionDelega
     /// 2026-11-24: "sometimes the highlights in terminal just float and dont move when i
     /// scroll?"). One search per main-queue turn at most, near the selected match, without scrolling.
     func screenRedrawn() {
-        guard isActive, !query.isEmpty, !redrawSearchPending else { return }
-        redrawSearchPending = true
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            redrawSearchPending = false
-            guard isActive, !query.isEmpty else { return }
+        guard isActive, !query.isEmpty else { return }
+        redrawSearch.request { [weak self] in
+            guard let self, isActive, !query.isEmpty else { return }
             snapshot = nil
             search(query, revealing: false, nearRow: results.selectedMatch?.row)
         }

@@ -44,7 +44,7 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
             guard selection != oldValue else { return }
             if followsRows {
                 captureRows()
-                lostSince = nil
+                lostGrace.reset()
             }
             redraw()
             selectionChanged(selection)
@@ -163,26 +163,30 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
     /// A screen drawn in more than one batch (cleared, then drawn again) can lack the text for
     /// a moment: the highlight hides, and ends only when the text is still gone
     /// ``lostGrace`` later.
-    func followRows() { follow(graceOver: false) }
-
-    private func follow(graceOver: Bool) {
+    func followRows() {
         guard followsRows, let current = selection, !selectedRows.isEmpty else { return }
         let rows = documentRows()
         guard !rows.isEmpty, current.start.row > rows.lowerBound || current.end.row < rows.upperBound - 1 else { return }
         let screen = rows.map { rowText($0) ?? "" }
-        let wasLost = lostSince != nil
         switch TerminalRowFollow.follow(selected: selectedRows, above: rowAbove, below: rowBelow,
                                         firstRow: current.start.row - rows.lowerBound, screen: screen) {
         case .gone:
-            textLost(graceOver: graceOver)
+            switch lostGrace.lost(lookAgain: { [weak self] in self?.followRows() }) {
+            case .hide:
+                menu?.dismissMenu()
+                redraw()
+            case .wait:
+                break
+            case .end:
+                clear()
+            }
         case .rewritten:
             // The same rows, new text (htop, a spinner, a streamed line, Copy Mode's cursor
             // cell): the selection stays and follows the rows' new text from here on.
-            lostSince = nil
+            if lostGrace.reset() { redraw() }
             captureRows()
-            if wasLost { redraw() }
         case .moved(let delta):
-            lostSince = nil
+            let wasLost = lostGrace.reset()
             if delta == 0 {
                 // Rows around it may have changed: read them again so a later rewrite in place
                 // is told from a scroll by the rows as they are now.
@@ -194,32 +198,13 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
         }
     }
 
-    /// How long a followed selection's text may be off the screen before the selection ends.
-    static let lostGrace: CFTimeInterval = 0.5
-    /// When the followed text was last found missing (nil: it is on the screen).
-    private var lostSince: CFTimeInterval?
-
-    /// `graceOver`: the look again ``lostGrace`` after the text went missing, which ends the
-    /// selection when it is still gone, whatever the clocks read.
-    private func textLost(graceOver: Bool) {
-        guard let since = lostSince else {
-            let now = CACurrentMediaTime()
-            lostSince = now
-            menu?.dismissMenu()
-            redraw()
-            // No more output may come: look again once the grace is over.
-            DispatchQueue.main.asyncAfter(deadline: .now() + Self.lostGrace) { [weak self] in
-                guard let self, lostSince == now else { return }
-                follow(graceOver: true)
-            }
-            return
-        }
-        if graceOver || CACurrentMediaTime() - since >= Self.lostGrace { clear() }
-    }
+    /// A followed selection whose text left the screen hides, and ends when it is still gone
+    /// ``TerminalLostTextGrace/grace`` later.
+    private lazy var lostGrace = TerminalLostTextGrace(now: { CACurrentMediaTime() }, schedule: TerminalMainQueue.schedule)
 
     /// Re-lays the highlight (the document or the cell size changed).
     func redraw() {
-        guard let selection, isEnabled(), lostSince == nil else {
+        guard let selection, isEnabled(), !lostGrace.isLost else {
             highlight.isHidden = true
             startHandle.isHidden = true
             endHandle.isHidden = true

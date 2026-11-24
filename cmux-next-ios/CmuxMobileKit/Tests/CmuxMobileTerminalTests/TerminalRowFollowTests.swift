@@ -67,4 +67,23 @@ import Testing
         #expect(TerminalRowFollow.follow(selected: ["two"], above: "", below: nil, firstRow: 1,
                                          screen: ["", "seven"]) == .gone)
     }
+
+    @Test func aRepeatedRowFollowsTheCopyItsNeighboursVouchFor() {
+        // A one-row selection on a "---" rule: the screen scrolled up by three, and another
+        // rule came to where it was (the nearest copy, the wrong one).
+        let before = ["x", "a", "---", "b", "y", "---", "z"]
+        let after = ["b", "y", "---", "z", "q", "---", "w"]
+        #expect(TerminalRowFollow.delta(selected: [before[5]], firstRow: 5, screen: after) == 0)
+        #expect(TerminalRowFollow.follow(selected: [before[5]], above: before[4], below: before[6],
+                                         firstRow: 5, screen: after) == .moved(-3))
+        // Its neighbours are gone and the copies look alike: gone, not a guess.
+        #expect(TerminalRowFollow.follow(selected: ["│"], above: "x", below: "y", firstRow: 1,
+                                         screen: ["│", "│", "│"]) == .gone)
+        // Nothing around it to tell copies apart, and one in place: it stays.
+        #expect(TerminalRowFollow.follow(selected: ["│"], above: "", below: nil, firstRow: 1,
+                                         screen: ["│", "│", "│"]) == .moved(0))
+        // Copies whose neighbours do not tell them apart, none in place: gone.
+        #expect(TerminalRowFollow.follow(selected: ["│"], above: "x", below: "x", firstRow: 0,
+                                         screen: ["x", "│", "x", "│", "x"]) == .gone)
+    }
 }

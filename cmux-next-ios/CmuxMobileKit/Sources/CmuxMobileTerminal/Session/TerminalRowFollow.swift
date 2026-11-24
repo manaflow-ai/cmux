@@ -41,28 +41,42 @@ public enum TerminalRowFollow {
         case gone
     }
 
-    /// ``delta(selected:firstRow:screen:)``, and when the text is not on the screen, whether it
-    /// was rewritten in place: `above` and `below` (the rows just outside the highlight when it
-    /// was read; nil past the screen's edge) still read the same where they were, and the
-    /// rows themselves are not blank now. Blank neighbours tell nothing; with no neighbour
-    /// with text to go by, or rows that went blank (a screen cleared before it is drawn
-    /// again), the text counts as gone, so a highlight never stays over text it cannot vouch for.
+    /// Where a highlight's rows went on the redrawn screen. `above` and `below` are the rows
+    /// just outside it as they read when it was read (nil past the screen's edge).
+    ///
+    /// - Its text is on the screen once: ``Outcome/moved(_:)`` there.
+    /// - On several rows (a lone "│" or "---" row repeats): the copy whose neighbours still
+    ///   read the same, or the one in place among those; with no single answer it is
+    ///   ``Outcome/gone``, never a guess that puts the highlight on another copy.
+    /// - Not on the screen: ``Outcome/rewritten`` when its rows were rewritten where they are
+    ///   (they are not blank, and the neighbours with text still read the same where they
+    ///   were), else ``Outcome/gone``. With no neighbour with text to go by, or rows that went
+    ///   blank (a screen cleared before it is drawn again), it is gone.
     public static func follow(selected: [String], above: String?, below: String?,
                               firstRow: Int, screen: [String]) -> Outcome {
-        if let moved = delta(selected: selected, firstRow: firstRow, screen: screen) { return .moved(moved) }
+        let wanted = selected.map(trimmed)
         let rows = screen.map(trimmed)
-        let span = firstRow..<(firstRow + selected.count)
-        guard span.lowerBound >= 0, span.upperBound <= rows.count,
-              rows[span].contains(where: { !$0.isEmpty }) else { return .gone }
-        var vouched = false
-        for (row, text) in [(firstRow - 1, above), (firstRow + selected.count, below)] {
-            guard let text else { continue }
-            let wanted = trimmed(text)
-            guard !wanted.isEmpty else { continue }
-            guard rows.indices.contains(row), rows[row] == wanted else { return .gone }
-            vouched = true
+        let span = wanted.count
+        guard span > 0, span <= rows.count else { return .gone }
+        guard wanted.contains(where: { !$0.isEmpty }) else { return .moved(0) }
+        let neighbours = [(-1, above.map(trimmed)), (span, below.map(trimmed))]
+            .compactMap { offset, text in text.flatMap { $0.isEmpty ? nil : (offset, $0) } }
+        /// The neighbours with text read the same around `top`.
+        func vouched(_ top: Int) -> Bool {
+            neighbours.allSatisfy { offset, text in rows.indices.contains(top + offset) && rows[top + offset] == text }
         }
-        return vouched ? .rewritten : .gone
+        let tops = (0...(rows.count - span)).filter { matches(wanted, at: $0, in: rows) }
+        if tops.count == 1 { return .moved(tops[0] - firstRow) }
+        if tops.count > 1 {
+            let sure = tops.filter(vouched)
+            if sure.count == 1 { return .moved(sure[0] - firstRow) }
+            if sure.contains(firstRow) || (sure.isEmpty && neighbours.isEmpty && tops.contains(firstRow)) { return .moved(0) }
+            return .gone
+        }
+        guard firstRow >= 0, firstRow + span <= rows.count,
+              rows[firstRow..<(firstRow + span)].contains(where: { !$0.isEmpty }),
+              !neighbours.isEmpty, vouched(firstRow) else { return .gone }
+        return .rewritten
     }
 
     private static func matches(_ wanted: [String], at top: Int, in rows: [String]) -> Bool {
