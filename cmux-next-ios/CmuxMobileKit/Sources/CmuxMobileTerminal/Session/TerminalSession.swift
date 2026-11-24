@@ -16,6 +16,11 @@ public enum TerminalSessionEvent: Sendable, Equatable {
     /// Keys typed while the terminal was unreachable were dropped, not sent
     /// late (a command must never run long after it was typed).
     case inputNotSent(bytes: Int)
+    /// Keys the person typed while the terminal was not attached wait for the attach: `bytes`
+    /// of them, 0 once none do (they went, were dropped, or were discarded). The screen says
+    /// keys are pending and offers to discard them (``TerminalSession/discardHeldInput()``):
+    /// they are typed into whatever the terminal shows after the attach.
+    case inputHeld(bytes: Int)
     /// The Mac's terminal has this grid from here on in the byte stream
     /// (`vt-state`, `resized`): the bytes after it are drawn for it, so the
     /// screen resizes its mirror (columns) and places it (rows) at exactly
@@ -127,6 +132,9 @@ public enum TerminalConnectionState: Sendable, Equatable {
 
     /// Said once keys typed during an outage were dropped (``TerminalSessionEvent/inputNotSent(bytes:)``).
     public static let inputNotSentNotice = "Keys typed while your Mac was unreachable were not sent."
+    /// Said while keys typed before the attach wait for it (``TerminalSessionEvent/inputHeld(bytes:)``),
+    /// beside Discard.
+    public static let inputHeldNotice = "Keys you typed go when the terminal reconnects."
     /// Said when the composer's message did not reach the Mac's terminal (its text is back in the composer).
     public static let composerSendNotSentNotice = "Your message was not sent."
     /// Said when the composer's message may have reached the Mac's terminal but its answer never
@@ -169,6 +177,14 @@ public protocol TerminalSession: AnyObject {
     /// answer came in time: it may have been typed, so the text stays out of
     /// the composer (a second Send would type it twice).
     func sendPasteAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void, maybeSent: @escaping @MainActor () -> Void) -> Bool
+    /// The composer's Send of a one-line draft to a full-screen program:
+    /// `text` typed and Return, in one request to where the terminal runs
+    /// (a Mac daemon's `send {text, submit:true}` with `send-typed-submit-v1`),
+    /// never the text and a separate Return a link blip can split. Returns
+    /// false when this session cannot: the screen then types through its
+    /// mirror. `notSent` and `maybeSent` as for
+    /// ``sendPasteAndSubmit(_:notSent:maybeSent:)``.
+    func sendTypedAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void, maybeSent: @escaping @MainActor () -> Void) -> Bool
     /// The screen's grid in cells: what a TUI should draw (rows between the
     /// toolbar and the composer with the keyboard down).
     func resize(columns: Int, rows: Int)
@@ -249,6 +265,9 @@ public protocol TerminalSession: AnyObject {
     /// Stamped redraws the screen painted (`[seq, received, painted]`, epoch ms), for a
     /// session with a Mac to join with its stamps (`phone-frames` `paint`). Others ignore it.
     func reportPaint(_ samples: [TerminalPaintTally.Sample])
+    /// Drops the keys held for the attach (``TerminalSessionEvent/inputHeld(bytes:)``), at the
+    /// person's word: none is sent. Sessions that hold no keys ignore it.
+    func discardHeldInput()
 }
 
 extension TerminalSession {
@@ -257,6 +276,9 @@ extension TerminalSession {
 
     /// Sessions with no Mac daemon paste through the screen's mirror.
     public func sendPasteAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void, maybeSent: @escaping @MainActor () -> Void) -> Bool { false }
+
+    /// Sessions with no Mac daemon type through the screen's mirror.
+    public func sendTypedAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void, maybeSent: @escaping @MainActor () -> Void) -> Bool { false }
 
     /// Rows of the remote screen this session mirrors, when it mirrors one
     /// (a terminal on the Mac). The screen then maps the remote primary
@@ -296,6 +318,8 @@ extension TerminalSession {
     public func reportScrollFrames(_ pan: TerminalPanFrames) {}
 
     public func reportPaint(_ samples: [TerminalPaintTally.Sample]) {}
+
+    public func discardHeldInput() {}
 
     public var hostGridOwnerName: String? { nil }
 }
