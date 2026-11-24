@@ -4,8 +4,8 @@
 // queues the message for then on the local owner (scheduled.ts). The same picker changes the time
 // of a message already scheduled.
 import { useState } from "react";
-import { intl } from "../../ui/intl";
 import { Popover, type UiAnchor } from "../../ui/Popover";
+import { intl } from "../../ui/intl";
 import type { Strings } from "../shared/i18n";
 
 /** Where the composer puts Send Later: a clock button among its tools, or a segment on Send. */
