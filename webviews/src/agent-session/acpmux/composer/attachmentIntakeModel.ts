@@ -25,6 +25,7 @@ import { attachSources } from "./attachmentSources";
 import { retryUploadLater, UPLOAD_AUTO_RETRIES } from "./uploadRetry";
 import { type DropOverlayState, HIDDEN_DROP, landDropOverlay, stepDropOverlay } from "./dropOverlayState";
 import { isVideoName, useVideoInfo } from "./videoAttachments";
+import { draftShapeOf, localDraftShape, type LocalDraftShape } from "./draftMediaShape";
 import { videoShapeOf } from "./videoShape";
 
 export const ATTACHMENT_LABELS = {
@@ -132,6 +133,7 @@ export function appendAttachments(
 /// spinner on the attachment rather than this placeholder that doesn't do anything... I can't even
 /// cancel these").
 export type PendingAttachment = {
+  [localDraftShape]?: LocalDraftShape;
   id: string;
   name: string;
   image: boolean;
@@ -454,14 +456,18 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     // In the paste's or drop's own task, so React draws them before the next frame.
     const shown: PendingAttachment[] = files.map((file) => {
       const video = isVideoName(file.name);
-      const image = isImageFile(file) && (video || !linkImages);
+      const image = isImageFile(file) && (lookup || video || !linkImages);
       return {
         id: again ?? crypto.randomUUID(),
         name: file.name,
         image,
         ...(!image && !video && !isMadeFile(file) ? { fileSize: file.size } : {}),
         ...(video ? { video: true } : {}),
-        ...(!lookup && !isMadeFile(file) && (image || video) ? { sizing: true } : {}),
+        ...(!isMadeFile(file) && (image || video)
+          ? lookup
+            ? { [localDraftShape]: draftShapeOf(file, video) }
+            : { sizing: true }
+          : {}),
         scope: batch.scope,
       };
     });
@@ -592,7 +598,14 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       if (!settle(index)) return;
       const thumb = keptThumb(read.id);
       if (thumb) keepThumb(shown[index]!.id, thumb);
-      const attachment = sourced(index, { ...read, id: shown[index]!.id });
+      const tile = shown[index]!;
+      const attachment = sourced(index, {
+        ...read,
+        id: tile.id,
+        ...(tile[localDraftShape] && (read.kind === "image" || read.kind === "link")
+          ? { [localDraftShape]: tile[localDraftShape] }
+          : {}),
+      });
       made[index] = attachment.id;
       // The composer moved to another chat meanwhile: the chip is the chat's it was pasted in.
       const now = live.current.options;
@@ -676,6 +689,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         settled,
         {
           allowImages: current.allowImages,
+          deduplicateImages: lookup && (kind === "paste" || kind === "drop"),
           ...(dropped && paths ? { localPaths: (batch: File[]) => paths(dropped, batch, gestureAt) } : {}),
           ...(uploads && current.upload ? { upload: current.upload } : {}),
           // A file not yet a chip: its tile's x. One already a chip (an image whose original still

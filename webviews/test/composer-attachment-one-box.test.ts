@@ -114,7 +114,13 @@ await requireBrowserLane("composer-attachment-one-box.test.ts", async () => {
         webkit: {
           messageHandlers: {
             agentSession: {
-              postMessage: async ({ method, params }: { method: string; params?: { names?: string[] } }) => {
+              postMessage: async ({
+                method,
+                params,
+              }: {
+                method: string;
+                params?: { names?: string[]; src?: string };
+              }) => {
                 const name = method.replace(/^cmux\.agent\./, "");
                 if (name === "chat.attach.dropped") {
                   const names = params?.names ?? [];
@@ -127,6 +133,17 @@ await requireBrowserLane("composer-attachment-one-box.test.ts", async () => {
                       })),
                     },
                   };
+                }
+                if (name === "image.load" && params?.src) {
+                  const file = (window as ProbeWindow).__files?.[params.src.split("/").at(-1)!];
+                  if (!file) return { ok: false };
+                  const src = await new Promise<string>((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(String(reader.result));
+                    reader.onerror = () => reject(reader.error);
+                    reader.readAsDataURL(file);
+                  });
+                  return { ok: true, value: { src } };
                 }
                 if (name === "video.info") {
                   const src = poster();

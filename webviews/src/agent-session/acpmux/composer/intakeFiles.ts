@@ -23,6 +23,8 @@ export type IntakeOptions = {
   allowImages: boolean;
   /// The host knows a local drop's paths, matched by position. Never used for another machine.
   localPaths?(files: File[]): Promise<KnownPaths | undefined>;
+  /// A drop or paste may expose a clipboard image twice. Each explicit file pick is kept.
+  deduplicateImages?: boolean;
   /// Session storage owns transport limits and chunking; intake imposes no file or batch cap.
   upload?(files: File[], cancelled?: UploadCancelled, progress?: UploadProgressReport): Promise<UploadResult>;
   /// Whether the person cancelled file `index` (its tile's ×): it is left out of the upload.
@@ -81,7 +83,7 @@ export async function intakeFiles(
   const items = options.localPaths ? await settleWithin(options.localPaths(files), LOCAL_PATHS_DEADLINE_MS) : undefined;
   const known = items && items.length !== files.length ? alignPaths(files, items) : items;
   const images: (ComposerAttachment | undefined)[] = [];
-  const links: (ComposerAttachment | undefined)[] = [];
+  const links: ComposerAttachment[] = [];
   let error: IntakeError | undefined;
   const fail = (index: number, reason: IntakeError) => {
     error ??= reason;
@@ -92,9 +94,17 @@ export async function intakeFiles(
     events.ready?.(index, chip);
   };
   // Publish native links before reading anything, even when siblings have only clipboard bytes.
+  const imagePaths = new Set<string>();
   files.forEach((file, index) => {
     const path = known?.[index];
     if (path) {
+      if (options.deduplicateImages && !path.folder && isImageFile(file)) {
+        if (imagePaths.has(path.path)) {
+          events.duplicate?.(index);
+          return;
+        }
+        imagePaths.add(path.path);
+      }
       link(index, {
         ...linkAttachment(path.path, path.folder),
         ...(!path.folder && linkedImagePath({ path: path.path, mimeType: file.type })
@@ -108,7 +118,8 @@ export async function intakeFiles(
   // Clipboard tools may hand the browser two copies of a screenshot. Distinct native paths
   // identify distinct files even when the contents match.
   const pathless = files.filter((_, index) => !known?.[index]);
-  const unique = options.localPaths ? filesOnce(pathless) : pathless;
+  if (pathless.length === 0) return { attachments: links.filter(Boolean) };
+  const unique = options.deduplicateImages ? filesOnce(pathless) : pathless;
   const kept = Array.isArray(unique) ? unique : await unique;
   let next = 0;
   const skip = files.map((file, index) => {

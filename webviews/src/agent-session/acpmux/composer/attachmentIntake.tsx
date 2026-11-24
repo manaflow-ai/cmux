@@ -16,6 +16,7 @@ import { usePaneLanguage, useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import { pasteLines, pasteName } from "../conversation/promptCollapse";
 import { keptThumb, localImagePreview } from "./imagePool";
+import { localDraftShape, useDraftRatio } from "./draftMediaShape";
 import type { Thumb } from "./imageWork";
 import { useStripReorder } from "./stripReorder";
 
@@ -184,6 +185,8 @@ export function PendingChip({
 }) {
   const t = useT();
   const look = usePasteLoadingLook();
+  const ratio = useDraftRatio(chip[localDraftShape]);
+  if (ratio === 0) return null;
   const name = chip.image ? imageLabel(t, { name: chip.name }) : chip.name;
   const remove = onCancel && (
     <button
@@ -228,7 +231,9 @@ export function PendingChip({
     );
   }
   // A video, like an image, loads in the tile its poster will fill.
-  const shape = chip.image ? imageShape(chip.size) : videoShapeStyle(chip.videoShape);
+  const shape = chip.image
+    ? imageShape(ratio ? { width: ratio, height: 1 } : chip.size)
+    : videoShapeStyle(ratio ?? chip.videoShape);
   const style =
     shape || chip.preview
       ? { ...shape, ...(chip.preview ? { backgroundImage: `url("${chip.preview}")` } : {}) }
@@ -241,7 +246,7 @@ export function PendingChip({
       <div
         className="acpmux-attachment acpmux-attachment-image acpmux-attachment-failed"
         aria-label={name}
-        {...(chip.video ? { "data-video-shape": "", style: videoShapeStyle(chip.videoShape) } : {})}
+        {...(chip.video ? { "data-video-shape": "", style: videoShapeStyle(ratio ?? chip.videoShape) } : {})}
         /* tooltip-allow: the tile shows no reason; the tooltip says why it failed */ title={chip.failed}
       >
         {chip.image ? (
@@ -529,11 +534,15 @@ function AttachmentChipPreview({
           } else if (source) openImage(source, name, path);
         }
       : undefined;
+  const ratio = useDraftRatio(attachment[localDraftShape]);
+  if (ratio === 0) return null;
+  const localShape = ratio ? { width: `clamp(48px, var(--acpmux-attach-height) * ${ratio}, 128px)` } : undefined;
   if (path && !pathPreview && (!drawn || fresh)) {
     return menu(
       open,
       <div
         className="acpmux-attachment acpmux-attachment-image"
+        style={localShape}
         /* tooltip-allow: the image tile shows its glyph while its preview loads */ title={withSourceLabel(name, from)}
       >
         {open ? (
@@ -559,7 +568,7 @@ function AttachmentChipPreview({
         // A drag moves the chip along the strip (stripReorder.ts), never the picture out as a file.
         draggable={false}
         // Its thumbnail's shape before it decodes, so the chip is its final width from its first frame.
-        style={imageShape(displayedThumb)}
+        style={localShape ?? imageShape(displayedThumb)}
         src={displayedThumb?.url ?? source}
         onError={() => setBroken(true)}
         onLoad={(event) => {
@@ -574,6 +583,7 @@ function AttachmentChipPreview({
       open,
       <div
         className="acpmux-attachment acpmux-attachment-image"
+        style={localShape}
         /* tooltip-allow: an image thumbnail shows no name */ title={withSourceLabel(name, from)}
       >
         {open ? (
@@ -681,7 +691,7 @@ function AttachmentChipPreview({
             name={attachment.name}
             title={withSourceLabel(attachment.name, from)}
             video={attachment.video}
-            shape={chipVideoRatio(attachment)}
+            shape={ratio ?? chipVideoRatio(attachment)}
             remove={remove}
             onPlay={play}
             unplayable={videoPlayer.unplayable}

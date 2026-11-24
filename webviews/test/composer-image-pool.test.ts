@@ -3,7 +3,7 @@
 // replaced never ends its successor.
 import { afterEach, expect, test } from "bun:test";
 
-type Posted = { id: number; kind: string };
+type Posted = { id: number; kind: string; file?: Blob };
 const made: FakeWorker[] = [];
 class FakeWorker {
   onmessage: ((event: { data: unknown }) => void) | null = null;

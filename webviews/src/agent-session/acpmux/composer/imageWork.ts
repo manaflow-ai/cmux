@@ -32,7 +32,10 @@ const JPEG_SCAN_BYTES = 16 * 1024 * 1024;
 /// A PNG, GIF, JPEG or WebP's size from its header, without decoding it: `known` with no size when
 /// it is one of those but its size cannot be read (it is then not decoded either); undefined for
 /// another type.
-export async function imageSize(file: Blob): Promise<{ known: true; width?: number; height?: number } | undefined> {
+export async function imageSize(
+  file: Blob,
+  cancelled?: () => boolean,
+): Promise<{ known: true; width?: number; height?: number } | undefined> {
   const bytes = new Uint8Array(await file.slice(0, 64).arrayBuffer());
   const view = new DataView(bytes.buffer);
   const at = (offset: number, ...sig: number[]) => sig.every((byte, index) => bytes[offset + index] === byte);
@@ -56,16 +59,16 @@ export async function imageSize(file: Blob): Promise<{ known: true; width?: numb
       return { known: true, width: view.getUint16(26, true) & 0x3fff, height: view.getUint16(28, true) & 0x3fff };
     return { known: true };
   }
-  if (at(0, 0xff, 0xd8)) return { known: true, ...(await jpegSize(file)) };
+  if (at(0, 0xff, 0xd8)) return { known: true, ...(await jpegSize(file, cancelled)) };
   return undefined;
 }
 
 /// A JPEG's size from its frame header (SOF0..SOF15 but DHT, JPG and DAC), segment by segment from
 /// the file (reading only each segment's head), within JPEG_SCAN_BYTES.
-async function jpegSize(file: Blob): Promise<{ width: number; height: number } | undefined> {
+async function jpegSize(file: Blob, cancelled?: () => boolean): Promise<{ width: number; height: number } | undefined> {
   let offset = 2;
   const end = Math.min(file.size, JPEG_SCAN_BYTES);
-  while (offset + 9 <= end) {
+  while (offset + 9 <= end && !cancelled?.()) {
     const head = new Uint8Array(await file.slice(offset, offset + 9).arrayBuffer());
     if (head.length < 4 || head[0] !== 0xff) return undefined;
     const marker = head[1]!;

@@ -8,6 +8,27 @@ import { uploadToMachine } from "../src/agent-session/acpmux/cloudUploads";
 import { intakeFiles, LOCAL_PATHS_DEADLINE_MS } from "../src/agent-session/acpmux/composer/intakeFiles";
 import { fitPromptBudget } from "../src/agent-session/acpmux/promptBudget";
 
+test("two clipboard items for the same native screenshot produce one path without reading either file", async () => {
+  const files = [new File([], "image.png", { type: "image/png" }), new File([], "image.png", { type: "image/png" })];
+  for (const file of files)
+    file.arrayBuffer = () => {
+      throw new Error("read clipboard bytes");
+    };
+  const path = "/tmp/image.png";
+  const duplicates: number[] = [];
+  const result = await intakeFiles(
+    files,
+    {
+      allowImages: true,
+      deduplicateImages: true,
+      localPaths: async () => files.map(() => ({ path, folder: false })),
+    },
+    { duplicate: (at) => duplicates.push(at) },
+  );
+  expect(duplicates).toEqual([1]);
+  expect(result.attachments.map((chip) => chip.path)).toEqual([path]);
+});
+
 const g = globalThis as Record<string, unknown>;
 function imageEngine() {
   g.createImageBitmap = async () => ({ width: 40, height: 30, close() {} });

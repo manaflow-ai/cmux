@@ -604,6 +604,25 @@ test("attachment intake wires local link deduplication through its hook state", 
   expect(held.map((chip) => chip.path)).toEqual(["/Users/you/assets"]);
 });
 
+test("a picker keeps both selected images when their bytes match and the host has no paths", async () => {
+  const uploads: string[][] = [];
+  await openComposer([], {
+    localPaths: async () => undefined,
+    upload: async (files) => {
+      uploads.push(files.map((file) => file.name));
+      return { paths: files.map((file) => `/saved/${file.name}`) };
+    },
+  });
+  const names = ["first.png", "second.png"];
+  const input = host.querySelector<HTMLInputElement>("input.acpmux-attach-input")!;
+  Object.defineProperty(input, "files", { value: names.map((name) => new File([PNG], name, { type: "image/png" })) });
+  await act(async () => {
+    input.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  });
+  await until(() => uploads.length > 0, "the picked files' upload");
+  expect(uploads).toEqual([names]);
+});
+
 test("a file chosen in + > Attach files asks the host where it came from, and its chip keeps the answer", async () => {
   const asked: unknown[] = [];
   const shot = { name: "Screenshot", bundleId: "com.apple.screenshot.launcher" };
