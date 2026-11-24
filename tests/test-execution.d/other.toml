@@ -322,6 +322,10 @@ path = "tests/test_hosted_queue_wait.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_hot_verify_pr_read.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_hung_test_watchdog.py"
 lane = "linux-guard"
 

@@ -13,7 +13,36 @@ KIND="${KIND:-head}" ATTEMPT="${ATTEMPT:-0}" EVENT_AT="${EVENT_AT:-}"
 [[ "$KIND" =~ ^(head|merge)$ ]] || { echo "::error::kind takes head or merge"; exit 1; }
 [[ "$ATTEMPT" =~ ^[01]$ ]] || { echo "::error::attempt takes 0 or 1"; exit 1; }
 [[ "$EVENT_AT" =~ ^[0-9]{0,11}$ ]] || EVENT_AT=""
-info="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq '[.head.repo.full_name, .head.sha, .base.ref, .state, .draft, (.merged_at // "-"), (.merge_commit_sha // "-")] | @tsv')"
+rest_jq='[.head.repo.full_name, .head.sha, .base.ref, .state, .draft, (.merged_at // "-"), (.merge_commit_sha // "-")] | @tsv'
+# The read used to wait out a spent REST hour on a held runner (gh_budget_wait.sh is gh in this job): 2026-11-23
+# 22Z..11-24 22Z, this step held "post the look" and "check the pull request" about 10,000 runner-minutes, up to
+# 2,548 s a job (job 138587116931). So: one REST try that never waits; on a rate-limit refusal one GraphQL read, a
+# separate hourly budget, of the same fields (as cmux-next-fast-gates.yml's dispatch read); and only if that fails
+# too, the old REST read that waits for the reset. Each step fails open to the next, so no answer differs from before.
+# shellcheck disable=SC2016 # the GraphQL query's own $variables, not the shell's
+pr_query='query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      state isDraft mergedAt headRefOid baseRefName headRepository { nameWithOwner } mergeCommit { oid }
+    }
+  }
+}'
+graphql_jq='.data.repository.pullRequest | select(. != null and .headRefOid != null and .baseRefName != null)
+  | [(.headRepository.nameWithOwner // ""), .headRefOid, .baseRefName,
+     (if .state == "OPEN" then "open" else "closed" end), (.isDraft | tostring),
+     (.mergedAt // "-"), (.mergeCommit.oid // "-")] | @tsv'
+pr_read_errors="$(mktemp)"
+if info="$(GH_BUDGET_WAIT_ATTEMPTS=1 gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq "$rest_jq" 2>"$pr_read_errors")"; then
+  :
+elif grep -qiE 'rate limit|HTTP 429' "$pr_read_errors" &&
+  info="$(GH_BUDGET_WAIT_ATTEMPTS=1 gh api graphql -F owner="${GITHUB_REPOSITORY%%/*}" \
+    -F name="${GITHUB_REPOSITORY#*/}" -F number="$PR" -f query="$pr_query" --jq "$graphql_jq")" && [[ -n "$info" ]]; then
+  echo "hot verify: the REST budget is spent; read #$PR over GraphQL" | tee -a "$GITHUB_STEP_SUMMARY"
+else
+  cat "$pr_read_errors" >&2
+  info="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq "$rest_jq")"
+fi
+rm -f "$pr_read_errors"
 IFS=$'\t' read -r head_repo live base_ref state draft merged_at merge_sha <<<"$info"
 ok=true
 # A merged pull request is looked at too, at its merged head: a look queued behind a busy gateway label

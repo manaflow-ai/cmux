@@ -1303,6 +1303,11 @@ jobs:
         if: ${{ success() && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-asc-developer-id-app ')) }}
         run: python3 tests/test_asc_developer_id_app.py
 
+      - name: Hot verify's pull request read skips a spent REST hour over GraphQL
+        id: tt-hot-verify-pr-read
+        if: ${{ success() && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-hot-verify-pr-read ')) }}
+        run: python3 tests/test_hot_verify_pr_read.py
+
       # Time-bomb row: suites whose fixtures carry calendar dates, with the clock set to 2101. A test
       # that reads the real clock instead of passing its own goes red here, not the day a date passes.
       - name: Fixture-date suites with the clock at 2101 (CMUX_NOW_EPOCH)
