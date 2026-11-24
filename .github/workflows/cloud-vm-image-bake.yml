@@ -259,7 +259,17 @@ jobs:
       # web/'s install was 3.4 of the run's 14 min with a cold package cache (run 41857345925). The cache holds
       # package tarballs only, no secret; this job runs on feat-cmux-next only, so only that branch writes it.
       - name: Cache Bun package cache
+        if: ${{ (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-vm-image-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+          restore-keys: |
+            bun-vm-image-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Cache Bun package cache (restore only off base branches)
+        if: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
           key: bun-vm-image-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
