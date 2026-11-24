@@ -60,7 +60,7 @@ fn manifest_signature_check() {
     assert_eq!(opened.assemble(&store, &IdScheme::Public).unwrap(), bytes);
 
     // A manifest changed after signing does not hash to the signed root.
-    let mut tampered = m.clone();
+    let mut tampered = m;
     tampered.kind = "something-else".into();
     assert!(Manifest::open(&tampered.to_json().unwrap(), &pointer.root_id().unwrap()).is_err());
 
