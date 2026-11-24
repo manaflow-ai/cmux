@@ -644,8 +644,19 @@ impl Driver {
                     if handshake && !cookie && !input.is_empty() {
                         replay = self.watchdog.on_new_session();
                     }
-                    if class == DatagramClass::WireGuardInitiation && !cookie && !input.is_empty() {
+                    let answered =
+                        class == DatagramClass::WireGuardInitiation && !cookie && !input.is_empty();
+                    if answered {
                         self.answered_at = Some(Instant::now());
+                    }
+                    // The repeated call below sends what boringtun queued while
+                    // it had no session (a persistent keepalive): with no
+                    // current session that is a new initiation, which replaces
+                    // the one the peer is answering ([`ANSWER_WAIT`]). Left
+                    // queued, it goes out once the answered session is current
+                    // (the peer's first data repeats the call).
+                    if answered && self.tunn.time_since_last_handshake().is_none() {
+                        break;
                     }
                     input = &[];
                 }
@@ -704,6 +715,15 @@ impl Driver {
         self.replay(replay);
     }
 
+    /// Whether this side answered the peer's initiation less than
+    /// [`ANSWER_WAIT`] ago and has no current session yet: anything that
+    /// makes boringtun encrypt now would start a new initiation over the one
+    /// the peer is answering.
+    pub(super) fn answering(&self, now: Instant) -> bool {
+        self.tunn.time_since_last_handshake().is_none()
+            && self.answered_at.is_some_and(|at| now.saturating_duration_since(at) < ANSWER_WAIT)
+    }
+
     /// Move what smoltcp emitted into the pacer, then encrypt and send what
     /// the pacer lets leave, until the underlay backs up. Nothing is
     /// dropped: a full pacer leaves packets in the device queue, which then
@@ -723,8 +743,7 @@ impl Driver {
         // handshake, and the pacer would time that wait as a round trip. Not
         // right after answering the peer's initiation: its data on that
         // session is on the way ([`ANSWER_WAIT`]).
-        let answering =
-            self.answered_at.is_some_and(|at| now.saturating_duration_since(at) < ANSWER_WAIT);
+        let answering = self.answering(now);
         if self.tunn.time_since_last_handshake().is_none() && self.pacer.has_queued() && !answering
         {
             self.initiate_handshake();

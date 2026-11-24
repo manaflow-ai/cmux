@@ -968,6 +968,8 @@ async fn run_control(
 /// `roam_turn_allocated`, `roam_gathered`), which keep filling in after
 /// this returns.
 pub async fn network_changed() -> Vec<(String, Timeline)> {
+    // The new network has its own proxy settings (or none): ask again.
+    crate::egress::proxy::forget_cached();
     let sessions = live();
     let roams =
         sessions.iter().map(|session| async move { (session.session_id.clone(), session.roam().await) });

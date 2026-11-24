@@ -217,6 +217,13 @@ impl Driver {
     }
 
     pub(super) fn update_timers(&mut self) {
+        // Inside the answer window with no session, boringtun's timers would
+        // queue a persistent keepalive and start an initiation over the one the
+        // peer is answering. The next tick after the window runs them, when a
+        // lost answer is retried anyway (`ANSWER_WAIT`).
+        if self.answering(Instant::now()) {
+            return;
+        }
         if let TunnResult::WriteToNetwork(packet) = self.tunn.update_timers(&mut self.scratch) {
             // A held tunnel's peer is suspended on purpose (`WgNet::hold`):
             // its keepalives, persistent or passive, would only wake its

@@ -217,52 +217,72 @@ async fn a_lost_answer_is_retried_from_this_side_after_answer_wait() {
     assert!(a.tunn.time_since_last_handshake().is_none());
 }
 
-/// The same crossing on tunnels at least one persistent keepalive old with
-/// no session (a dial that waited out a dropped first handshake). boringtun's
-/// keepalive timer finds no session and queues the empty packet; the repeat
-/// after answering the peer's initiation (`decapsulate(&[])`) drains that queue,
-/// and with no current session `encapsulate` starts a new initiation, which
-/// replaces the one the peer is answering: the livelock again, past the pacer's
-/// guard (the DPI review of #53160).
+/// Both ends hold a packet in boringtun's own queue when their initiations
+/// cross (a persistent keepalive that came due with no session: boringtun
+/// queued it and sent the initiation). After answering the peer's initiation,
+/// the repeat call (`decapsulate(&[])`) drains that queue; with no current
+/// session `encapsulate` starts a new initiation, which replaces the one the
+/// peer is answering, so its answer is refused and the two trade handshakes
+/// until the dial times out (the DPI review of #53160).
 #[tokio::test(start_paused = true)]
-async fn crossing_after_a_queued_keepalive_still_completes() {
-    let mut pair = crate::testing::config_pair("127.0.0.1:9".parse().unwrap());
-    pair.client.persistent_keepalive = Some(10);
-    pair.server.persistent_keepalive = Some(10);
+async fn a_queued_packet_does_not_replace_the_answered_initiation() {
+    let pair = crate::testing::config_pair("127.0.0.1:9".parse().unwrap());
     let a_addr: SocketAddr = "127.0.0.1:1001".parse().unwrap();
     let b_addr: SocketAddr = "127.0.0.1:1002".parse().unwrap();
     let (mut a, a_sent) = outbox_driver(pair.client);
     let (mut b, b_sent) = outbox_driver(pair.server);
-    // First initiations, lost (a network that dropped them).
-    deliver(&mut a, &[], b_addr);
-    deliver(&mut b, &[], a_addr);
-    a.initiate_handshake();
-    b.initiate_handshake();
-    let _ = (take(&a_sent), take(&b_sent));
-    // A persistent keepalive later, with no session: boringtun queues it.
-    tokio::time::advance(Duration::from_secs(11)).await;
-    a.update_timers();
-    b.update_timers();
-    let _ = (take(&a_sent), take(&b_sent));
-    // Data waits on both sides, and both initiate at once (a reassert on a
-    // new path): the initiations cross.
+    // A keepalive with no session: queued, and its initiation is the crossing one.
+    let seed = |driver: &mut Driver| match driver.tunn.encapsulate(&[], &mut driver.scratch) {
+        TunnResult::WriteToNetwork(packet) => vec![packet.to_vec()],
+        other => panic!("no initiation: {other:?}"),
+    };
+    let (a_init, b_init) = (seed(&mut a), seed(&mut b));
+    assert_eq!((initiations(&a_init), initiations(&b_init)), (1, 1));
+    // Each answers the other's initiation.
+    deliver(&mut a, &b_init, b_addr);
+    deliver(&mut b, &a_init, a_addr);
+    let (a_out, b_out) = (take(&a_sent), take(&b_sent));
+    assert_eq!(
+        (initiations(&a_out), initiations(&b_out)),
+        (0, 0),
+        "an end replaced the initiation its peer is answering"
+    );
+    // Each answer reaches the initiation it answers, and the queued packet goes.
+    deliver(&mut a, &b_out, b_addr);
+    deliver(&mut b, &a_out, a_addr);
+    assert!(a.tunn.time_since_last_handshake().is_some(), "the dialing end has no session");
+    assert!(b.tunn.time_since_last_handshake().is_some(), "the answering end has no session");
+}
+
+/// The persistent keepalive comes due inside the answer window with no
+/// session. boringtun's timers find none, queue the keepalive and start an
+/// initiation over the one the peer is answering. boringtun keeps its own
+/// clock, so this test waits a real second (the shortest keepalive).
+#[tokio::test(start_paused = true)]
+async fn a_keepalive_inside_the_answer_window_does_not_replace_the_initiation() {
+    let mut pair = crate::testing::config_pair("127.0.0.1:9".parse().unwrap());
+    pair.client.persistent_keepalive = Some(1);
+    pair.server.persistent_keepalive = Some(1);
+    let a_addr: SocketAddr = "127.0.0.1:1001".parse().unwrap();
+    let b_addr: SocketAddr = "127.0.0.1:1002".parse().unwrap();
+    let (mut a, a_sent) = outbox_driver(pair.client);
+    let (mut b, b_sent) = outbox_driver(pair.server);
+    // Data waiting on both sides, and the initiations cross.
     let (a_reply, _a_pending) = oneshot::channel();
     a.begin_connect(SocketAddr::new(pair.server_v4, 7000), a_reply);
     let (b_reply, _b_pending) = oneshot::channel();
     b.begin_connect(SocketAddr::new(pair.client_v4, 7001), b_reply);
-    a.reassert();
-    b.reassert();
     deliver(&mut a, &[], b_addr);
     deliver(&mut b, &[], a_addr);
     let (a_init, b_init) = (take(&a_sent), take(&b_sent));
-    assert!(initiations(&a_init) >= 1 && initiations(&b_init) >= 1, "no crossing to test");
-    // Each keeps only its newest initiation, so deliver just that one.
-    let newest = |sent: &[Vec<u8>]| {
-        let last = sent.iter().rposition(|d| classify(d) == DatagramClass::WireGuardInitiation);
-        sent[last.unwrap()..=last.unwrap()].to_vec()
-    };
-    deliver(&mut a, &newest(&b_init), b_addr);
-    deliver(&mut b, &newest(&a_init), a_addr);
+    assert_eq!((initiations(&a_init), initiations(&b_init)), (1, 1), "no crossing to test");
+    // Each answers the other's initiation.
+    deliver(&mut a, &b_init, b_addr);
+    deliver(&mut b, &a_init, a_addr);
+    // The keepalive comes due (boringtun's clock), and the timer tick runs.
+    std::thread::sleep(Duration::from_millis(1100));
+    a.update_timers();
+    b.update_timers();
     let (a_out, b_out) = (take(&a_sent), take(&b_sent));
     assert_eq!(
         (initiations(&a_out), initiations(&b_out)),

@@ -133,7 +133,8 @@ fn parse_url(url: &str, username: &str, credential: &str) -> Option<TurnServer> 
         _ => return None,
     };
     let (host, port) = split_host_port(host_port, if secure { 5349 } else { 3478 })?;
-    if host.is_empty() {
+    // The host may go to a proxy in `CONNECT host:port`: a name or an address only.
+    if !crate::egress::proxy::valid_connect_host(&host) {
         return None;
     }
     let address = if host.contains(':') { format!("[{host}]:{port}") } else { format!("{host}:{port}") };
@@ -966,6 +967,9 @@ mod tests {
         let (udp, stream) = turn_servers(&ice(&["turn:[2001:db8::1]", "turns:t.example"]));
         assert_eq!(udp.unwrap().address, "[2001:db8::1]:3478");
         assert_eq!(stream.unwrap().address, "t.example:5349");
+        // A host that is not a name or an address is no server.
+        assert_eq!(turn_servers(&ice(&["turns:evil.example%0d%0aX:1:443?transport=tcp"])), (None, None));
+        assert_eq!(turn_servers(&ice(&["turns:a b.example:443"])), (None, None));
         // No credentials, no TURN.
         let bare = vec![IceServer { urls: vec!["turn:t.example".into()], username: None, credential: None }];
         assert_eq!(turn_servers(&bare), (None, None));

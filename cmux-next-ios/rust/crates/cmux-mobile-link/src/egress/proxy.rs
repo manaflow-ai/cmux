@@ -478,20 +478,49 @@ pub fn auth_schemes(head: &str) -> Vec<String> {
     schemes
 }
 
-/// Forget every cached answer (stub: today's behavior keeps them 30 s).
-pub fn forget_cached() {}
-
-/// Whether `host` may go into `CONNECT host:port` (stub: today's behavior
-/// takes anything).
-pub(crate) fn valid_connect_host(_host: &str) -> bool {
-    true
+/// Forget every cached answer: the device's network changed, and its proxy
+/// settings (a PAC file, a Wi-Fi network's own proxy, none) may have too.
+pub fn forget_cached() {
+    cache().lock().unwrap_or_else(std::sync::PoisonError::into_inner).clear();
 }
 
-/// The error for a 407 (stub: today's choice).
-pub(crate) fn auth_refusal(proxy: &ProxyServer, basic: bool, _schemes: &[String]) -> EgressError {
+/// Whether `host` may go into `CONNECT host:port` and its `Host:` header: a
+/// DNS name (letters, digits, `-` and `_`, dot-separated, no label starting
+/// or ending with `-`) or an IP address, bracketed or not. A TURN URL from
+/// `/v1/ice` is the service's, but a value with a space, a line break, an `@`,
+/// a `/` or a port would change what the proxy is asked, so it never goes.
+pub(crate) fn valid_connect_host(host: &str) -> bool {
+    let bare = host.strip_prefix('[').and_then(|rest| rest.strip_suffix(']')).unwrap_or(host);
+    if bare.parse::<IpAddr>().is_ok() {
+        return true;
+    }
+    if bare != host || bare.is_empty() || bare.len() > 253 {
+        return false;
+    }
+    bare.split('.').all(|label| {
+        !label.is_empty()
+            && label.len() <= 63
+            && !label.starts_with('-')
+            && !label.ends_with('-')
+            && label.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    })
+}
+
+/// The error for a proxy's 407: which sign-in it wants and what the system's
+/// settings have for it.
+pub(crate) fn auth_refusal(proxy: &ProxyServer, basic: bool, schemes: &[String]) -> EgressError {
+    let name = proxy.to_string();
     match (&proxy.credentials, basic) {
-        (Some(_), true) => EgressError::ProxyAuthRefused { proxy: proxy.to_string() },
-        _ => EgressError::ProxyAuthMissing { proxy: proxy.to_string() },
+        (Some(credentials), true) if credentials.password.is_empty() => {
+            EgressError::ProxyPasswordMissing { proxy: name }
+        }
+        (Some(_), true) => EgressError::ProxyAuthRefused { proxy: name },
+        (None, true) => EgressError::ProxyAuthMissing { proxy: name },
+        _ => EgressError::ProxyAuthUnsupported {
+            proxy: name,
+            target: String::new(),
+            schemes: if schemes.is_empty() { "an unnamed".to_owned() } else { schemes.join(" or ") },
+        },
     }
 }
 
@@ -503,7 +532,10 @@ pub(crate) async fn http_connect(
     host: &str,
     port: u16,
 ) -> Result<TcpStream, EgressError> {
-    let target = authority(host, port);
+    if !valid_connect_host(host) {
+        return Err(EgressError::BadTarget { target: host.to_owned() });
+    }
+    let target = authority(host.trim_start_matches('[').trim_end_matches(']'), port);
     let mut request = format!(
         "CONNECT {target} HTTP/1.1\r\nHost: {target}\r\nUser-Agent: cmux-mobile-link\r\nProxy-Connection: Keep-Alive\r\n"
     );
@@ -523,14 +555,11 @@ pub(crate) async fn http_connect(
         407 => {
             let schemes = auth_schemes(&head);
             let basic = schemes.iter().any(|scheme| scheme.eq_ignore_ascii_case("basic"));
-            Err(match (&proxy.credentials, basic) {
-                (Some(_), true) => EgressError::ProxyAuthRefused { proxy: proxy.to_string() },
-                (None, true) => EgressError::ProxyAuthMissing { proxy: proxy.to_string() },
-                _ => EgressError::ProxyAuthUnsupported {
-                    proxy: proxy.to_string(),
-                    target,
-                    schemes: if schemes.is_empty() { "an unnamed".to_owned() } else { schemes.join(" or ") },
-                },
+            Err(match auth_refusal(proxy, basic, &schemes) {
+                EgressError::ProxyAuthUnsupported { proxy, schemes, .. } => {
+                    EgressError::ProxyAuthUnsupported { proxy, target, schemes }
+                }
+                other => other,
             })
         }
         _ => Err(EgressError::ProxyRefused { proxy: proxy.to_string(), target, status: status_line }),
@@ -546,6 +575,9 @@ pub(crate) async fn socks5_connect(
     host: &str,
     port: u16,
 ) -> Result<TcpStream, EgressError> {
+    if !valid_connect_host(host) {
+        return Err(EgressError::BadTarget { target: host.to_owned() });
+    }
     let target = authority(host, port);
     let io = |error: std::io::Error| EgressError::Io(format!("SOCKS proxy {proxy}: {error}"));
     let refused = |status: String| EgressError::ProxyRefused {
@@ -574,7 +606,7 @@ pub(crate) async fn socks5_connect(
             let mut answer = [0u8; 2];
             stream.read_exact(&mut answer).await.map_err(io)?;
             if answer[1] != 0x00 {
-                return Err(EgressError::ProxyAuthRefused { proxy: proxy.to_string() });
+                return Err(auth_refusal(proxy, true, &[]));
             }
         }
         ([0x05, 0xFF], None) => return Err(EgressError::ProxyAuthMissing { proxy: proxy.to_string() }),
