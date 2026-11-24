@@ -79,6 +79,8 @@ async fn exercise(kind: TransportKind, fake: FakeOptions) -> (LinkPath, u64) {
         Some(ChannelEvent::Closed(info)) => assert_eq!(info.code, "unknown_service"),
         other => panic!("unexpected {other:?}"),
     }
+    // On WireGuard the pings ride the tunnel's liveness datagrams.
+    assert_eq!(connected.link.pings_as_datagrams(), kind == TransportKind::WireGuard);
     let rtt = connected.link.ping().await.unwrap();
     assert!(rtt < Duration::from_secs(5));
     let path = *connected.path.borrow();
@@ -314,8 +316,9 @@ fn with_turn(turn: &TestTurn, options: DialOptions) -> DialOptions {
 }
 
 /// Relay only with a TURN server: WireGuard offers only its relayed address
-/// and never sends plain UDP, so the link runs through TURN over UDP (UDP
-/// is not blocked, so no TLS connection is ever opened).
+/// and never sends plain UDP, so the link runs through TURN over UDP. The
+/// dial opens its TURN-over-TLS attempt beside UDP from the start (relay
+/// first), so at most that one TLS connection opens, and UDP still wins.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn wireguard_relay_only_uses_turn() {
     let turn = TestTurn::start().await;
@@ -324,7 +327,7 @@ async fn wireguard_relay_only_uses_turn() {
     assert_eq!(run.phone, LinkPath::Turn, "{run:?}");
     assert_eq!(run.mac, Some(LinkPath::Turn), "{run:?}");
     assert!(run.changes.is_empty(), "path flapped: {run:?}");
-    assert_eq!(turn.stream_connections(), 0, "a TLS connection was opened with UDP working");
+    assert!(turn.stream_connections() <= 1, "more than the dial's one TLS attempt with UDP working");
     assert_eq!(run.binary, 0);
 }
 

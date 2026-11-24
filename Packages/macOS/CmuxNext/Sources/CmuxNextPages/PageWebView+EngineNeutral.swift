@@ -26,6 +26,9 @@ extension PageWebView {
     /// multi-megabyte base64 string) is parsed and decoded off the main actor.
     public func snapshot() async -> NSImage? {
         guard let page = chromiumSession?.page else { return try? await webView.takeSnapshot(configuration: nil) }
+        // Out of sight, the page draws for its picture (a parked spare's cover).
+        let heldAway = holdAwayDrawing()
+        defer { if heldAway { releaseAwayDrawing() } }
         guard let json = try? await page.devTools("Page.captureScreenshot", params: Self.snapshotParams),
               let data = await Self.screenshotData(json), let image = NSImage(data: data) else { return nil }
         image.size = bounds.size
@@ -102,10 +105,13 @@ extension PageWebView {
     /// (WebKit) the next presentation update the window shows. Now when the page is gone.
     public func afterNextFrame(_ body: @escaping () -> Void) {
         let wait = "await new Promise((done) => requestAnimationFrame(() => setTimeout(done, 0)));"
+        // Out of sight, the page draws for the wait (PageWebView+AwayDrawing).
+        let heldAway = holdAwayDrawing()
         // task-owner: one frame wait; ends with the page's answer (or at once when the page is gone)
         Task { @MainActor [weak self] in
             guard let self else { return body() }
             _ = await self.callPageFunction(wait)
+            defer { if heldAway { self.releaseAwayDrawing() } }
             guard self.chromiumSession == nil else { return body() }
             Self.afterPresentationUpdate(of: self.webView, body)
         }
@@ -124,10 +130,13 @@ extension PageWebView {
         await new Promise((done) => setTimeout(done, 0));
         """
         let zoom = max(pageZoom, 0.01)
+        // Out of sight, the page draws for the wait (PageWebView+AwayDrawing).
+        let heldAway = holdAwayDrawing()
         // task-owner: bounded frame wait (at most 61 frames of 50 ms); ends with the page's answer (or at once when the page is gone)
         Task { @MainActor [weak self] in
             guard let self else { return body() }
             _ = await self.callPageFunction(wait, arguments: ["width": Double(size.width) / zoom, "height": Double(size.height) / zoom])
+            defer { if heldAway { self.releaseAwayDrawing() } }
             guard self.chromiumSession == nil else { return body() }
             Self.afterPresentationUpdate(of: self.webView, body)
         }
