@@ -1018,6 +1018,31 @@ async fn reader_loop(reader: ReaderLoop) {
             }
             let control = match serde_json::from_slice::<ServiceControl>(&frame.payload) {
                 Ok(ServiceControl::Open { service, metadata }) => (service, metadata),
+                // A newer peer opening a service or control shape this side
+                // predates: refuse that one stream, keep the session.
+                Err(_) if !streams.lock().await.contains_key(&frame.stream) => {
+                    if frame.lane == Lane::Tunnel && frame.generation != *generation.borrow() {
+                        continue;
+                    }
+                    let mut closed = closed.lock().await;
+                    if closed.ids.contains(&frame.stream) {
+                        drop(closed);
+                        let _ = fatal
+                            .send(Some(format!("closed stream {} was opened again", frame.stream)));
+                        break;
+                    }
+                    closed.insert_on(frame.stream, MULTI_LANE_TERMINAL_MASK | LANE_TUNNEL_BIT);
+                    drop(closed);
+                    let reset_generation = (frame.lane == Lane::Tunnel).then_some(frame.generation);
+                    cleanup.spawn(
+                        endpoint.clone(),
+                        reset_generation,
+                        frame.lane,
+                        frame.stream,
+                        None,
+                    );
+                    continue;
+                }
                 Ok(_) | Err(_) => {
                     let _ = fatal.send(Some("invalid service open frame".into()));
                     break;

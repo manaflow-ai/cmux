@@ -3,8 +3,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use cmux_remote_protocol::{
-    Lane, OperationId, ProcessId, RequestId, RpcError, RpcEvent, RpcRequest, RpcResponse, Service,
-    ServiceControl, WorkspaceRequest, WorkspaceResponse,
+    Lane, OperationId, ProcessId, RemoteCapability, RequestId, RpcError, RpcEvent, RpcRequest,
+    RpcResponse, Service, ServiceControl, WorkspaceRequest, WorkspaceResponse,
 };
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
@@ -19,6 +19,19 @@ use crate::services::{MessageStream, ServicesError};
 /// offer a new session. Every other carrier failure keeps the code
 /// `transport`.
 pub const SESSION_UNAVAILABLE_CODE: &str = "session-unavailable";
+
+/// The code of a request refused locally, never sent: the peer's
+/// `capabilities` answer did not list a capability the request needs
+/// ([`WorkspaceRequest::required_capabilities`]). An older peer would reset
+/// the stream on a method it does not know, or drop a field it predates.
+pub const PEER_UNSUPPORTED_CODE: &str = "peer-unsupported";
+
+/// The code of a response this client could not decode (a newer peer's
+/// response or error shape). Only the request it answers fails.
+pub const UNSUPPORTED_RESPONSE_CODE: &str = "unsupported-response";
+
+/// What the peer's last `capabilities` answer listed; `None` until one arrives.
+type AdvertisedCapabilities = Arc<Mutex<Option<Arc<[RemoteCapability]>>>>;
 
 type PendingResponse = Result<RpcResponse, RpcError>;
 type RequestRegistry = Arc<Mutex<WorkspaceRequestRegistry>>;
@@ -52,6 +65,7 @@ pub struct WorkspaceClient {
     cancellation: WorkspaceRpcChannel,
     bulk: WorkspaceRpcChannel,
     dropped_cancellations: mpsc::Sender<DroppedWorkspaceRequest>,
+    advertised: AdvertisedCapabilities,
 }
 
 struct WorkspaceRpcChannel {
@@ -237,8 +251,12 @@ impl WorkspaceClient {
             connect_rpc_channel(multiplexer.clone(), RpcTrafficClass::Cancellation),
             connect_rpc_channel(multiplexer.clone(), RpcTrafficClass::Bulk),
         )?;
-        let dropped_cancellations =
-            cancellation_worker(cancellation.messages.clone(), cancellation.requests.clone());
+        let advertised = AdvertisedCapabilities::default();
+        let dropped_cancellations = cancellation_worker(
+            cancellation.messages.clone(),
+            cancellation.requests.clone(),
+            advertised.clone(),
+        );
         Ok(Arc::new(Self {
             multiplexer,
             process_input,
@@ -247,7 +265,25 @@ impl WorkspaceClient {
             cancellation,
             bulk,
             dropped_cancellations,
+            advertised,
         }))
+    }
+
+    /// The capabilities the peer advertised in the last `capabilities`
+    /// answer this client carried, or `None` before one arrived. Once known,
+    /// every request needing a capability outside this set is refused
+    /// locally with [`PEER_UNSUPPORTED_CODE`] instead of being sent.
+    pub fn advertised_capabilities(&self) -> Option<Vec<RemoteCapability>> {
+        advertised_set(&self.advertised).map(|advertised| advertised.to_vec())
+    }
+
+    /// Ask the peer for its capabilities and remember them, so later requests
+    /// it did not advertise are refused before they reach the wire.
+    pub async fn capabilities(&self) -> Result<Vec<RemoteCapability>, RpcError> {
+        match self.request(WorkspaceRequest::Capabilities).await? {
+            WorkspaceResponse::Capabilities { capabilities } => Ok(capabilities),
+            _ => Err(RpcError::new("protocol", "invalid capabilities response")),
+        }
     }
 
     pub fn multiplexer(&self) -> &Arc<ServiceMultiplexer> {
@@ -308,6 +344,9 @@ impl WorkspaceClient {
         request: WorkspaceRequest,
         timeout: Option<(u64, Duration)>,
     ) -> Result<PendingWorkspaceRequest, RpcError> {
+        require_advertised(&self.advertised, &request.required_capabilities())?;
+        let records_capabilities =
+            matches!(request, WorkspaceRequest::Capabilities).then(|| self.advertised.clone());
         let channel = self.channel(rpc_traffic_class(&request));
         let timeout_ms = timeout.map(|(milliseconds, _)| milliseconds);
         let deadline = timeout.map(|(_, duration)| tokio::time::Instant::now() + duration);
@@ -332,6 +371,7 @@ impl WorkspaceClient {
             dropped_cancellations: self.dropped_cancellations.clone(),
             origin_shutdown: channel.shutdown.clone(),
             armed: true,
+            records_capabilities,
         };
         let encoded = match serde_json::to_vec(&RpcRequest { id, timeout_ms, request }) {
             Ok(encoded) => encoded,
@@ -410,6 +450,14 @@ impl WorkspaceClient {
         after_sequence: u64,
         reserve: bool,
     ) -> Result<ProcessEventStream, RpcError> {
+        let mut required = vec![RemoteCapability::ProcessPipesV1];
+        if reserve {
+            required.push(RemoteCapability::ProcessHandlesV2);
+        }
+        if after_sequence > 0 {
+            required.push(RemoteCapability::ProcessReplayV1);
+        }
+        require_advertised(&self.advertised, &required)?;
         let metadata = BTreeMap::from([
             ("process".into(), process.to_string()),
             ("after".into(), after_sequence.to_string()),
@@ -437,6 +485,9 @@ pub struct PendingWorkspaceRequest {
     dropped_cancellations: mpsc::Sender<DroppedWorkspaceRequest>,
     origin_shutdown: watch::Sender<bool>,
     armed: bool,
+    /// Set on a `capabilities` request: its answer becomes the client's
+    /// advertised set.
+    records_capabilities: Option<AdvertisedCapabilities>,
 }
 
 impl PendingWorkspaceRequest {
@@ -456,9 +507,16 @@ impl PendingWorkspaceRequest {
             None => receiver.await,
         };
         self.disarm();
-        response
+        let result = response
             .map_err(|_| RpcError::new("transport", "workspace RPC response was canceled"))??
-            .result
+            .result;
+        if let (Some(advertised), Ok(WorkspaceResponse::Capabilities { capabilities })) =
+            (&self.records_capabilities, &result)
+        {
+            *advertised.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+                Some(capabilities.as_slice().into());
+        }
+        result
     }
 
     fn disarm(&mut self) {
@@ -549,7 +607,12 @@ async fn connect_rpc_channel(
             };
             let response = match serde_json::from_slice::<RpcResponse>(&encoded) {
                 Ok(response) => response,
-                Err(error) => break RpcError::new("transport", error.to_string()),
+                // A newer peer's response or error shape fails only the
+                // request it answers; the channel keeps serving the rest.
+                Err(error) => match undecodable_response(&encoded, error) {
+                    Ok(response) => response,
+                    Err(error) => break error,
+                },
             };
             if let Err(error) = route_response(response, &requests) {
                 failure_shutdown.send_replace(true);
@@ -587,14 +650,63 @@ fn route_response(response: RpcResponse, requests: &RequestRegistry) -> Result<(
     Err("workspace RPC response could not be matched to a request".to_string())
 }
 
+/// An undecodable response that still names its request ID becomes an
+/// [`UNSUPPORTED_RESPONSE_CODE`] failure of that request alone. Without an ID
+/// nothing can be matched, so the channel fails as before.
+fn undecodable_response(encoded: &[u8], error: serde_json::Error) -> Result<RpcResponse, RpcError> {
+    #[derive(serde::Deserialize)]
+    struct ResponseId {
+        id: RequestId,
+    }
+    match serde_json::from_slice::<ResponseId>(encoded) {
+        Ok(ResponseId { id }) => Ok(RpcResponse {
+            id,
+            result: Err(RpcError::new(
+                UNSUPPORTED_RESPONSE_CODE,
+                format!("peer sent a workspace response this client cannot decode: {error}"),
+            )),
+        }),
+        Err(_) => Err(RpcError::new("transport", error.to_string())),
+    }
+}
+
+fn advertised_set(advertised: &AdvertisedCapabilities) -> Option<Arc<[RemoteCapability]>> {
+    advertised.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+}
+
+/// Refuse locally when the peer's advertisement is known and lacks one of
+/// `required`. Before the peer answered `capabilities` nothing is known, so
+/// the request goes out as it always did.
+fn require_advertised(
+    advertised: &AdvertisedCapabilities,
+    required: &[RemoteCapability],
+) -> Result<(), RpcError> {
+    let Some(advertised) = advertised_set(advertised) else {
+        return Ok(());
+    };
+    match required.iter().find(|capability| !advertised.contains(capability)) {
+        None => Ok(()),
+        Some(missing) => Err(RpcError::new(
+            PEER_UNSUPPORTED_CODE,
+            format!("peer does not support {}", missing.wire_name()),
+        )),
+    }
+}
+
 fn cancellation_worker(
     messages: Arc<MessageStream>,
     requests: RequestRegistry,
+    advertised: AdvertisedCapabilities,
 ) -> mpsc::Sender<DroppedWorkspaceRequest> {
     let (sender, mut receiver) =
         mpsc::channel::<DroppedWorkspaceRequest>(DROPPED_CANCELLATION_QUEUE);
     tokio::spawn(async move {
         while let Some(dropped) = receiver.recv().await {
+            // A peer without request-control-v1 would reset the cancellation
+            // stream on cancel-request; its dropped request just runs out.
+            if require_advertised(&advertised, &[RemoteCapability::RequestControlV1]).is_err() {
+                continue;
+            }
             let Some(cancel_id) = request_registry(&requests).allocate() else {
                 dropped.origin_shutdown.send_replace(true);
                 while let Ok(queued) = receiver.try_recv() {
