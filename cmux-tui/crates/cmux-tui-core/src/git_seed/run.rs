@@ -147,7 +147,12 @@ const DOWNLOAD_CHUNK: usize = 1000;
 /// files), so a seed started again after a kill downloads only what the last one did
 /// not. `git backfill` would do it too, but it walks the whole history's trees first:
 /// minutes of CPU on cmux before its first blob. False when a fetch failed.
-fn download_missing(git: &Git, credential: &Credential, folder: &Path, work: &str) -> bool {
+pub(super) fn download_missing(
+    git: &Git,
+    credential: &Credential,
+    folder: &Path,
+    work: &str,
+) -> bool {
     let tree = format!("{work}^{{tree}}");
     let Ok(listing) =
         git.quiet(Some(folder), credential, &["rev-list", "--objects", "--missing=print", &tree])
