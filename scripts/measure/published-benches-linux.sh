@@ -35,13 +35,14 @@ if has build; then
   # head pays). Warm: one source file touched, the incremental rebuild an edit pays.
   cargo fetch --locked >/dev/null 2>&1 || true
   cold="$out/cold-target"
+  # A failed build prints its errors and gives no row; the other parts still run.
+  build() {
+    CARGO_TARGET_DIR="$cold" cargo build --locked --release -p acpmux --bin acpmux >"$out/build.log" 2>&1 \
+      || { echo "cargo build failed:"; grep -E -A12 '^error' "$out/build.log" | head -n 80; return 1; }
+  }
   start=$(date +%s.%N)
-  CARGO_TARGET_DIR="$cold" cargo build --locked --release -p acpmux --bin acpmux 2>&1 | tail -n 2
-  mid=$(date +%s.%N)
-  touch crates/acpmux/src/main.rs
-  CARGO_TARGET_DIR="$cold" cargo build --locked --release -p acpmux --bin acpmux 2>&1 | tail -n 2
+  if build && mid=$(date +%s.%N) && touch crates/acpmux/src/main.rs && build; then
   end=$(date +%s.%N)
-  rm -rf "$cold"
   python3 - "$start" "$mid" "$end" <<'PY'
 import json, os, socket, sys
 start, mid, end = map(float, sys.argv[1:])
@@ -51,6 +52,8 @@ print("PUBLISHED-BENCH " + json.dumps({
     "cold_s": round(mid - start, 1), "warm_s": round(end - mid, 1),
     "host": {"name": socket.gethostname(), "cpus": os.cpu_count()}}))
 PY
+  fi
+  rm -rf "$cold"
 fi | tee -a "$out/rows.log"
 
 if has resume || has fork || has soak; then
@@ -63,7 +66,9 @@ if has resume || has fork || has soak; then
     --test-threads 1 --exact "${tests[@]}" >"$out/bench.log" 2>&1 || status=$?
   grep -E '^(PUBLISHED-BENCH|test result)' "$out/bench.log" | tee -a "$out/rows.log" || true
   # A build or test failure prints its own end, so a run with no row says why.
-  if [[ "${status:-0}" != 0 ]]; then echo "published_bench exited ${status}:"; tail -n 80 "$out/bench.log"; fi
+  if [[ "${status:-0}" != 0 ]]; then
+    echo "published_bench exited ${status}:"; grep -E -A12 '^error' "$out/bench.log" | head -n 80; tail -n 40 "$out/bench.log"
+  fi
 fi
 
 if has move; then
@@ -72,7 +77,7 @@ if has move; then
   : >"$out/move.log"
   for _ in $(seq "$moves"); do
     cargo test --locked -p acpmux --release --test transfer_cli move_matrix -- --nocapture >"$out/move-run.log" 2>&1 \
-      || { echo "move_matrix failed:"; tail -n 40 "$out/move-run.log"; }
+      || { echo "move_matrix failed:"; grep -E -A12 '^error' "$out/move-run.log" | head -n 40; tail -n 30 "$out/move-run.log"; }
     grep -E '^MATRIX .* moved ' "$out/move-run.log" >>"$out/move.log" || true
   done
   python3 - "$out/move.log" <<'PY'
