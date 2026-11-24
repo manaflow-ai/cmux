@@ -748,7 +748,7 @@ async function main() {
       const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
       page.on("pageerror", (error) => console.error(error));
       await installPaintedFrames(page);
-      const url = `http://127.0.0.1:${server.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${PAPERCUT_CHAT}`;
+      const url = `http://127.0.0.1:${server.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&scheme=cmux&session=${PAPERCUT_CHAT}`;
       await page.goto(url);
       await page.getByText(`Answer ${turns}:`, { exact: false }).waitFor({ timeout: 120_000 });
       await idle(page);
@@ -961,7 +961,7 @@ async function main() {
       page.on("pageerror", (error) => console.error(error));
       await installPaintedFrames(page);
       const endpoint = `ws://127.0.0.1:${daemon.port}/?paged=1&indexDelayMs=150`;
-      const url = `http://127.0.0.1:${server.port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${PAPERCUT_CHAT}`;
+      const url = `http://127.0.0.1:${server.port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&scheme=cmux&session=${PAPERCUT_CHAT}`;
       const first = await measureFirstFrame(
         page,
         url,
@@ -979,7 +979,7 @@ async function main() {
     // index answering 150 ms after it asks (a real Mac link's round trip, not loopback's).
     if (process.env.RAIL_BENCH_UNLOADED !== "0") {
       const endpoint = `ws://127.0.0.1:${daemon.port}/?paged=1&indexDelayMs=150`;
-      const url = `http://127.0.0.1:${server.port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${PAPERCUT_CHAT}`;
+      const url = `http://127.0.0.1:${server.port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&scheme=cmux&session=${PAPERCUT_CHAT}`;
       const aimMs = Number(process.env.RAIL_BENCH_AIM_MS ?? 0);
       const aim = aimMs > 0 ? `_aim${aimMs}` : "";
       const unloaded = await measureUnloadedTickJumps(

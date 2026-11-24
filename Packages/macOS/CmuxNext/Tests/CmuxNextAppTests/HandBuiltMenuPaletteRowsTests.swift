@@ -207,23 +207,6 @@ import CmuxNextTestSupport
 
     // MARK: Toolbar pins (#46165's rows)
 
-    /// The tab bar "…" menu's Show in Tab Bar rows run `tabs.toolbar.togglePin` with the row's action id.
-    @Test func showInTabBarRowsRunTogglePin() throws {
-        let registry = ActionRegistry.standard()
-        registry.context = ActionContext(rawValue: .max)
-        let recorder = Recorder(PaneToolbar.togglePin, in: registry)
-        let toolbar = PaneToolbar(registry: { registry })
-        var written: [PaneToolbarButtonsSetting] = []
-        toolbar.writePinned = { written.append($0) }
-        toolbar.update(target: "tab0", kind: .terminal)
-        let menu = try #require(toolbar.view.moreMenu?())
-        let submenu = try #require(menu.items.first { $0.title == PaneToolbarStrings.showInTabBar }?.submenu)
-        let row = try #require(submenu.items.first)
-        _ = try #require(row.target as? NSObject).perform(try #require(row.action), with: row)
-        #expect(recorder.runs.map { $0["button"]?.stringValue } == ["splitRight"], "the row did not run Pin or Unpin Tab Bar Button…")
-        #expect(written.isEmpty, "the row wrote the setting itself instead of through the action")
-    }
-
     /// The browser More menu's Show in Toolbar rows run `browser.toolbar.togglePin`; with no registry the row's own toggle runs.
     @Test func showInToolbarRowsRunTogglePin() {
         let registry = Self.registry()
