@@ -29,7 +29,9 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use cmux_cloud_start_core::hybrid::{self, Account, Cloud, Effect, Event, Off, State};
+use cmux_cloud_start_core::hybrid::{
+    self, Account, AutoStore, Cloud, Effect, Event, Off, Refusal, State,
+};
 use cmux_cloud_start_core::{hybrid_show, hybrid_tools};
 use serde_json::{Value, json};
 
@@ -407,6 +409,12 @@ pub(super) trait Drive {
     fn next(&mut self) -> Option<Event>;
     /// The move: Ok when the chat runs on the machine, else why and whether to try again.
     fn move_chat(&mut self) -> Result<(), (String, bool)>;
+    /// What the Auto store can do for this chat, read once at the drive's start
+    /// ([`hybrid::route`]): absent, the transfer above is the move.
+    fn auto_store(&mut self) -> AutoStore;
+    /// One planned holder change `device -> vm` asked of the Auto store: its answer, as
+    /// [`Event::HolderGiven`], [`Event::HolderRefused`] or [`Event::HolderLost`].
+    fn ask_holder_move(&mut self) -> Event;
     fn pause_machine(&mut self);
     fn show(&mut self, cloud: Cloud, reason: Option<&str>);
     fn log(&mut self, line: &str);
@@ -422,7 +430,7 @@ fn done(state: &State) -> bool {
 /// The driver's loop: each event through [`hybrid::step`], each effect run. The chat here was
 /// started with its first prompt, so its turn runs. Its last state.
 pub(super) fn drive(driver: &mut dyn Drive) -> State {
-    let mut state = State::default();
+    let mut state = State { route: hybrid::route(&driver.auto_store()), ..State::default() };
     let mut queue = VecDeque::from([Event::Begin, Event::TurnStarted]);
     loop {
         let event = match queue.pop_front() {
@@ -436,7 +444,7 @@ pub(super) fn drive(driver: &mut dyn Drive) -> State {
         };
         let answer = hybrid::step(state, event, driver.now_ms());
         state = answer.state;
-        let mut moving = false;
+        let (mut moving, mut asking) = (false, false);
         for effect in answer.effects {
             match effect {
                 // The chat already started here; prompts go to the chat itself, which acpmux
@@ -445,6 +453,7 @@ pub(super) fn drive(driver: &mut dyn Drive) -> State {
                 Effect::CreateMachine => driver.create_machine(),
                 // Run once this answer's effects are (its `Show moving` first).
                 Effect::Move => moving = true,
+                Effect::AskHolderMove => asking = true,
                 Effect::PauseMachine => driver.pause_machine(),
                 Effect::Show { cloud, reason } => driver.show(cloud, reason.as_deref()),
                 Effect::Log { line } => driver.log(&line),
@@ -455,6 +464,9 @@ pub(super) fn drive(driver: &mut dyn Drive) -> State {
                 Ok(()) => Event::MoveCommitted,
                 Err((reason, again)) => Event::MoveFailed { reason, again },
             });
+        }
+        if asking {
+            queue.push_back(driver.ask_holder_move());
         }
     }
 }
@@ -773,6 +785,18 @@ impl Drive for Live {
             return Err(("no machine".to_owned(), false));
         };
         move_once(&self.global, &self.session, &machine)
+    }
+
+    /// No Auto store yet for a hybrid start: the store's planned move (`/v1/auto-sessions`,
+    /// cmux#52931) is not wired, so every start takes the transfer, as before.
+    fn auto_store(&mut self) -> AutoStore {
+        AutoStore::default()
+    }
+
+    /// Never asked while [`Live::auto_store`] is absent; were it, `auto.off` sends the chat
+    /// back to the transfer.
+    fn ask_holder_move(&mut self) -> Event {
+        Event::HolderRefused { code: Refusal::Off }
     }
 
     fn pause_machine(&mut self) {
