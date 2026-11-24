@@ -182,14 +182,27 @@ def wait(probe, seconds: float, every: float = 0.25):
 
 # ---- seed -----------------------------------------------------------------------------------
 
-def write_harness(home: str, fake_agent: str) -> None:
-    """The acpmux test agent as harness `l5fake`, a profile in the instance's own HOME (cmux reads it live)."""
+def write_harness(home: str, fake_agent: str, harness: str = HARNESS, name: str = "L5 test agent") -> None:
+    """The acpmux test agent as harness `l5fake` (or `harness`), a profile in the instance's own HOME."""
     folder = Path(home) / ".config" / "cmux" / "harnesses"
     folder.mkdir(parents=True, exist_ok=True)
-    profile = folder / f"{HARNESS}.toml"
-    profile.write_text(f'schema = 1\nid = "{HARNESS}"\nname = "L5 test agent"\nprotocol = "acp"\n'
+    profile = folder / f"{harness}.toml"
+    profile.write_text(f'schema = 1\nid = "{harness}"\nname = "{name}"\nprotocol = "acp"\n'
                        f'command = "/usr/bin/python3"\nargs = [{json.dumps(str(fake_agent))}]\n')
     profile.chmod(0o600)
+
+
+def prepare_harness(env: dict, fake_agent: str, harness: str = HARNESS, name: str = "L5 test agent") -> None:
+    """Before the launch: the harness profile, in the folder the launched app's acpmux reads.
+
+    A DEV build (a tagged bench build, bundle id com.cmuxterm.app.debug.<tag>) keeps its user harness folder in its
+    own acpmux home, not in ~/.config/cmux/harnesses (acpmux config/profiles.rs ProfileSources::current): the
+    profile written there was never seen ("unknown harness l5fake", bench build 98f93b04). A run that names its
+    config root with XDG_CONFIG_HOME gets `$XDG_CONFIG_HOME/cmux/harnesses` on every build kind, so the run sets
+    it to the instance's own HOME/.config; every launch of the run (the relaunches too) starts from this env.
+    """
+    env["XDG_CONFIG_HOME"] = str(Path(env["HOME"]) / ".config")
+    write_harness(env["HOME"], fake_agent, harness, name)
 
 
 def seed(inst: Instance, fake_agent: str, work: str, front_terminal: bool = True) -> dict:
@@ -744,7 +757,7 @@ def check(args) -> int:
         smoke.login_keychain(env)  # this smoke's own CannotRun, which its main reports (ui loads its own copy)
         # Before the launch: the app's acpmux reads the harness folder when it starts, and on a NIGHTLY
         # `cmux harness reload` after the launch did not reach it ("unknown harness l5fake", nightly 4191131679101).
-        write_harness(env["HOME"], args.fake_agent)
+        prepare_harness(env, args.fake_agent)
 
     smoke.PREPARE_HOME = prepare
     argv = ["--seconds", "1", *(["--dmg", args.dmg] if args.dmg else ["--app", args.app]), *(["--out", args.out] if args.out else [])]
