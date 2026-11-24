@@ -666,6 +666,23 @@
   -webkit-box-decoration-break: clone;
   box-decoration-break: clone;
 }
+/* Inside a selection (a drag across it, Select All) the chip is selected whole, as one character, and
+   draws as selected text does: the selection's own fill (desktop.css ::selection), square, in place of
+   the wash. The browser's highlight skips a widget, so the chip paints it (Lucas, 2026-11-24). */
+.acpmux-md .is-titled[data-title][data-selected]::after {
+  /* Selected text's highlight fills the line; an inline box's fill covers only the font's ascent and
+     descent (1.193em in the system font) and its padding. The padding takes it to the line, and an
+     inline box's block padding moves no line, so selecting reflows nothing. WebKit rounds the text's
+     highlight out to whole pixels and a fill to the nearest, so the end takes half a device pixel
+     more (a hairline's half; measured at 2x: the line's last device pixel row). */
+  padding-block: calc((var(--text-content--line-height) - 1.193em) / 2)
+    calc((var(--text-content--line-height) - 1.193em) / 2 + var(--cmux-hairline) / 2);
+  border-radius: 0;
+  background: var(
+    --cmux-selection-fill,
+    var(--cmux-text-selection, color-mix(in srgb, var(--cmux-accent, CanvasText) 28%, transparent))
+  );
+}
 /* With the icon: the wash starts under it (back by the pad and the icon), the title 4px after it,
    as chips/cmuxLinkChip.css .cv-cmux-link__icon spaces it. */
 .acpmux-md .is-titled[data-title][data-icon]::after {
