@@ -40,10 +40,10 @@ public enum Interactivity {
     }
 
     @MainActor private static var monitor: Any?
-    @MainActor private static var resizeObserver: Any?
 
-    /// Notes keys, scroll and drags (a divider, window or sidebar drag, a selection) of this app's windows,
-    /// once. The monitor reads the event type and returns the event untouched.
+    /// Notes keys, scroll and drags (a divider or sidebar drag, a selection) of this app's windows, once. A window
+    /// edge live resize reaches the Rust policy through the daemon: the layout sizes the app sends while it runs
+    /// are drag commands (`set-layout-sizes`). The monitor reads the event type and returns the event untouched.
     @MainActor
     public static func installEventMonitor() {
         guard monitor == nil else { return }
@@ -54,11 +54,6 @@ public enum Interactivity {
             default: Interactivity.note(.drag)
             }
             return event
-        }
-        // A window or sidebar live resize: every size change of a window in live resize is a drag.
-        resizeObserver = NotificationCenter.default.addObserver(forName: NSWindow.didResizeNotification, object: nil,
-                                                                queue: .main) { notification in
-            if (notification.object as? NSWindow)?.inLiveResize == true { Interactivity.note(.drag) }
         }
     }
 }
