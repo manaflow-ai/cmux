@@ -1783,6 +1783,14 @@ class WebviewsChecksGate(unittest.TestCase):
         self.assertEqual(self.module.added(merge, base), [])
         self.assertEqual(len(self.module.added(merge + "    at other (x.mjs:1:1)\n", base)), 1)
 
+    def test_a_base_frame_in_the_shared_node_modules_is_the_merges(self):
+        # The base's webviews/node_modules links to the merge's, so the base's stack names the merge's root.
+        frame = "    at async resolveConfig (file:///m/webviews/node_modules/vite/dist/node.js:42734:22)\n"
+        own = "    at x (file:///b/base/webviews/src/a.ts:1:1)\n"
+        merge = frame + own.replace("/b/base", "/m")
+        self.assertEqual(self.module.added(merge, frame + own, "/m", "/b/base"), [])
+        self.assertEqual(len(self.module.added(merge, own, "/m", "/b/base")), 1)
+
     def test_a_push_with_no_base_charges_every_red(self):
         self.findings({"typecheck": type_error("TS2307", "Cannot find module './x.json'.", "src/a.ts:4:21")}, "red")
         env = {**os.environ, "PATH": f"{self.bin}:{os.environ['PATH']}"}
