@@ -59,6 +59,8 @@ extension CEFTab {
             // A new document: the one before is gone. Its own first paint may have come first, if this is the load's first commit.
             (documentLoaded, documentPainted, committedIsErrorPage) = (false, paintBeforeCommit && !committedThisLoad, false)
             (paintBeforeCommit, committedThisLoad) = (false, true)
+            refusesDownloadsUntilGesture = false // a document committed: its own downloads ask its gate
+            if documentPainted { removeStandIn() } // its first paint came before the commit
             paintAsk?.cancel() // an answer about the document before is not this one's
             paintAsk = nil
             if !hasDocument { host.lifecycleTrace.record(id, "cef-commit real=\(PageBackground.isRealPage(committedURL)) painted=\(documentPainted)") }
@@ -86,7 +88,7 @@ extension CEFTab {
         case .loadError(_, let code, let text, let url, let chromiumInterstitial):
             clearTitleBeforeCommit()
             let error = Self.loadError(code: code, text: text, url: url, chromiumInterstitial: chromiumInterstitial)
-            if !error.isBenignInterruption { (documentLoaded, committedIsErrorPage) = (true, true) } // an error page; an aborted load (replaced) is none
+            if !error.isBenignInterruption { (documentLoaded, committedIsErrorPage) = (true, true); removeStandIn() } // an error page; an aborted load (replaced) is none
             if !hasDocument { host.lifecycleTrace.record(id, "cef-load-error code=\(code) page=\(!error.isBenignInterruption)") }
             documentMayTakeKeys()
             guard let navigation else { return }
@@ -144,8 +146,8 @@ extension CEFTab {
             emit(.takeFocus(forward: forward))
         case .renderTerminated(_, let status, let code, _):
             rendererTerminated(.cef(status: status, code: code))
-        case .renderUnresponsive: machine.apply(.unresponsiveChanged(true))
-        case .renderResponsive: machine.apply(.unresponsiveChanged(false))
+        case .renderUnresponsive: machine.apply(.unresponsiveChanged(true)); hiddenHangChanged()
+        case .renderResponsive: machine.apply(.unresponsiveChanged(false)); hiddenHangChanged()
         case .permissionPrompt, .permissionDismissed, .passwordPrompt: CEFPermissionPrompts(tab: self).handle(event)
         case .beforeUnloadDismissed: beforeUnloadDismissed()
         case .devToolsMessage(_, let json):

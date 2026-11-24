@@ -114,6 +114,21 @@ import Testing
         #expect(context.evaluateScript("observers.length").toInt32() == 0)
     }
 
+    /// https://github.com/manaflow-ai/cmux/issues/51079: a paused session keeps a hidden page from its freeze, so a
+    /// paused element the page removed while hidden (no event, no show) kept the page awake for good. The freeze
+    /// probe asks first (`cmux-media-recheck`), and the stale report goes before the probe reads it.
+    @Test func theFreezeProbesRecheckDropsAPausedElementThePageRemoved() throws {
+        let context = try Self.context()
+        context.evaluateScript("var v = video(true); media = [v]; fire('play', v); v.paused = true; fire('pause', v);")
+        #expect(Self.posts(context) == 2)
+        context.evaluateScript("fire('cmux-media-recheck', document);")
+        #expect(Self.posts(context) == 2, "a recheck with the element still there sent a report")
+        context.evaluateScript("media = []; v.isConnected = false; document.visibilityState = 'hidden'; fire('cmux-media-recheck', document);")
+        #expect(Self.posts(context) == 3)
+        #expect(context.evaluateScript("lastReport() === null").toBool())
+        #expect(Self.timers(context) == 0)
+    }
+
     /// A frame whose binding never comes (an iframe made after the last binding add) stops
     /// retrying after a bounded number of looks; the next media event tries again. Before, its
     /// 1 s retry ticker ran for the life of the page.

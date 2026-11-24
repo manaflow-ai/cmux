@@ -172,8 +172,10 @@ impl Http {
         let space = cmux_build_space::headers().map_err(|e| Failure::Transport(e.to_string()))?;
         // A black-holed SYN costs 1 s per address, then a new socket (`connect_retry`); the last
         // try connects with no connect timeout. Both clients carry the space.
+        // The API base is the person's (or the build's) setting, so the gate lets its host through.
+        cmux_egress::allow_named(base.as_str());
         let clients = cmux_cloud_client::connect_retry::Clients::build(|| {
-            reqwest::Client::builder()
+            cmux_egress::client_builder("cmux_cloud_api::http")
                 .default_headers(space.clone())
                 .redirect(reqwest::redirect::Policy::none())
                 .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
@@ -285,30 +287,6 @@ impl Http {
                 Ok(Ok(bytes)) => bytes,
             };
         Ok(Reply { status, header_code, retry_after, body })
-    }
-
-    /// A classic call (`/api/runs`, [`crate::classic_runs`]: an incognito send's Run, and one made
-    /// before the daemon ran Runs) with its JSON `body` and `idempotency_key`, if any: a 2xx body
-    /// as JSON (`null` when it has none), a refusal read by [`vm_error`].
-    pub(crate) async fn classic(
-        &self,
-        method: reqwest::Method,
-        segments: &[&str],
-        query: &[(&str, String)],
-        sent: (Option<Value>, Option<&str>),
-        timeout: Duration,
-    ) -> Result<Value, Failure> {
-        let path = path_text(segments);
-        let url = self.url(segments, query);
-        let (body, key) = sent;
-        let reply = self.send(method, url, body.map(Body::Json), key, timeout, &path).await?;
-        if !reply.ok() {
-            return Err(vm_error(reply.status, &reply.body, reply.header_code.as_deref()));
-        }
-        if reply.body.iter().all(u8::is_ascii_whitespace) {
-            return Ok(Value::Null);
-        }
-        reply.json().ok_or_else(|| Failure::Decoding(format!("{path}: the answer is not JSON")))
     }
 }
 

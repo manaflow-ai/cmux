@@ -3090,23 +3090,7 @@
         "org.keepassxc.KeePassXC",
         "1password",
         "bitwarden",
-        "com.apple.systempreferences",
-        "com.apple.Terminal",
-        "com.googlecode.iterm2",
-        "com.mitchellh.ghostty",
-        "net.kovidgoyal.kitty",
-        "com.github.wez.wezterm",
-        "org.alacritty",
-        "dev.warp.*",
-        "windowsterminal.exe",
-        "cmd.exe",
-        "powershell.exe",
-        "pwsh.exe",
-        "org.gnome.Terminal",
-        "org.gnome.Ptyxis",
-        "org.kde.konsole",
-        "com.cmuxterm.app",
-        "com.cmuxterm.app.*"
+        "com.apple.systempreferences"
       ],
       "description" : "Apps no agent may use, in any mode: an app ID, an ID prefix ending in *, or name: and the app's name.",
       "items" : {
@@ -4447,9 +4431,15 @@
       "type" : "string"
     },
     "mobile.allowIPhoneConnections" : {
-      "default" : false,
-      "description" : "The cmux app on your iPhone can open this Mac's workspaces, on the same account.",
+      "default" : true,
+      "description" : "The cmux app on your iPhone, signed in to the same account, can open this Mac's workspaces. You allow each new phone once.",
       "title" : "Allow iPhone Connections",
+      "type" : "boolean"
+    },
+    "mobile.autoApprovePhones" : {
+      "default" : false,
+      "description" : "A new phone signed in to your account connects without asking you first. Other accounts never connect.",
+      "title" : "Approve Phone Requests Automatically",
       "type" : "boolean"
     },
     "mobile.terminalSizing" : {
@@ -5289,14 +5279,17 @@
       "type" : "string"
     },
     "sidebar.groupHeader.background" : {
-      "default" : "folder",
+      "default" : "auto",
       "description" : "How a group draws. Folders shows plain folders; Sections shows plain headings.",
       "enum" : [
         "folder",
         "auto",
         "glass",
         "solid",
-        "sections"
+        "sections",
+        "chip",
+        "tree",
+        "card"
       ],
       "title" : "Group Background",
       "type" : "string"
