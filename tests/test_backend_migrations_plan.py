@@ -208,5 +208,14 @@ class TreelessProbe(unittest.TestCase):
         self.assertIn("exit 1", failed["run"])
 
 
+class GateJobName(unittest.TestCase):
+    def test_gate_name_is_static_while_no_migration_plans_still_skip_the_vm(self):
+        gate = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["gate"]
+        self.assertEqual(gate["name"], "backend migrations applied")
+        self.assertNotIn("${{", gate["name"])
+        self.assertIn("always()", gate["if"])
+        self.assertIn("needs.plan.outputs.migrations != 'true'", gate["if"])
+
+
 if __name__ == "__main__":
     unittest.main()
