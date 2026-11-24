@@ -193,7 +193,7 @@ struct CloudChatsConnecting: View {
                 VStack(spacing: 2) {
                     // placeholder-ok: a delayed connection status above the retained rows.
                     Text("Connecting to \(machine) through \(mac)…")
-                    Text("\(elapsed)s elapsed, up to \(cloudConnectBudget.components.seconds)s")
+                    Text("\(elapsed) s · up to \(cloudConnectBudget.components.seconds) s")
                         .foregroundStyle(.tertiary)
                 }
                 .font(CmuxMobileTheme.standard.type.meta)
@@ -329,9 +329,6 @@ private struct CloudMachineChatsScreen: View {
                         Button("Retry") {
                             if relay?.hub.isReady == true { listRetry += 1 } else { refresh += 1 }
                         }
-                    } else if relay?.hub.isReady != true {
-                        CloudChatsConnecting(machine: machine.name, mac: macName, since: connectingSince)
-                            .listRowSeparator(.hidden)
                     }
                     if let page {
                         if page.rows.isEmpty {
@@ -354,6 +351,11 @@ private struct CloudMachineChatsScreen: View {
                             Button("Show Older Chats") { shown += CloudChatList.pageSize }
                                 .accessibilityIdentifier("cloudChats.more")
                         }
+                    }
+                }
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    if relay?.hub.isReady != true, failure == nil {
+                        CloudChatsConnecting(machine: machine.name, mac: macName, since: connectingSince)
                     }
                 }
                 .refreshable {

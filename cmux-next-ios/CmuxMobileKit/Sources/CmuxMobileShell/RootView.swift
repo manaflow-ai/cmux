@@ -162,6 +162,7 @@ public struct RootView: View {
                         ShellView(store: store, auth: auth, settings: settings, sidebar: sidebar, live: live, options: options, kept: shellModel)
                             // The demo flag changing rebuilds the shell for the new content.
                             .id(auth.isReviewDemo)
+                            .id(accountUserID)
                     }
                 }
                 // The launch-to-Welcome swap is a cut on both sides (an
