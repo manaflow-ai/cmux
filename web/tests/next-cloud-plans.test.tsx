@@ -95,6 +95,18 @@ describe("cmux Cloud plans", () => {
   });
 });
 
+describe("agents kept running and hours", () => {
+  test("the plan table prints each plan's count beside its hours", async () => {
+    const html = await renderPage("en");
+    const table = text(html.match(/<table[^>]*data-testid="cloud-plan-table"[\s\S]*?<\/table>/)?.[0] ?? "");
+    expect(table).toContain("cmux NEXT Plus $20 /mo 3 375");
+    expect(table).toContain("cmux NEXT Pro $50 /mo 5 937.5");
+    expect(table).toContain("cmux NEXT Max $200 /mo 50 3,750");
+    expect(text(html)).toContain("Every hour after is $0.08.");
+    expect(text(await renderPage("ja"))).toContain("超えた分は 1 時間 $0.08 です。");
+  });
+});
+
 describe("the comparison block prints only measured rows", () => {
   test("today: agents at once and the unused month, in that order", async () => {
     expect(printableCompareRows().map((row) => row.id)).toEqual(["agentsAtOnce", "unusedMonth"]);

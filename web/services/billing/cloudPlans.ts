@@ -47,12 +47,25 @@ export const NEXT_PLAN_NAMES: Readonly<Record<NextPlanId, string>> = {
   next_max: "cmux NEXT Max",
 };
 
+/**
+ * How many agents each plan keeps running at once: cmuxterm-hq RFD 0135
+ * ("Onboarding", the plan table), which RFD 0078's rule follows (RFD 0076's
+ * counts). Plan copy only: the platform does not enforce these counts yet.
+ */
+export const NEXT_PLAN_KEPT_RUNNING: Readonly<Record<NextPlanId, number>> = {
+  next_plus: 3,
+  next_pro: 5,
+  next_max: 50,
+};
+
 export type CloudPlanFacts = {
   readonly id: NextPlanId;
   readonly name: string;
   readonly monthUsd: number;
   /** Awake hours of the standard machine included each month. */
   readonly includedHours: number;
+  /** Agents kept running at once. */
+  readonly keptRunning: number;
 };
 
 /** A plan's included awake hours of the standard machine. */
@@ -67,5 +80,6 @@ export function cloudPlanFacts(): readonly CloudPlanFacts[] {
     name: NEXT_PLAN_NAMES[id],
     monthUsd: NEXT_PLAN_MONTH_USD[id],
     includedHours: includedStandardMachineHours(id),
+    keptRunning: NEXT_PLAN_KEPT_RUNNING[id],
   }));
 }

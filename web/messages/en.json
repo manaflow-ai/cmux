@@ -7751,6 +7751,14 @@
     "paused": "A paused machine uses no hours",
     "models": "Model usage is not included.",
     "cta": "Download cmux",
+    "table": {
+      "title": "Agents kept running and hours",
+      "note": "Each plan keeps this many agents running at once, on the hours it includes. Every hour after is {price}.",
+      "plan": "Plan",
+      "price": "Price",
+      "keptRunning": "Agents kept running at once",
+      "hours": "Hours of your machine a month"
+    },
     "compare": {
       "title": "How it compares",
       "note": "A row appears here only once we have measured it.",

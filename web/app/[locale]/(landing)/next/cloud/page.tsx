@@ -38,6 +38,7 @@ export default async function NextCloudPlansPage({ params }: { params: Promise<{
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "nextCloudPlans" });
   const hours = new Intl.NumberFormat(locale, { maximumFractionDigits: 1 });
+  const plans = cloudPlanFacts();
 
   const card = (plan: CloudPlanFacts) => (
     <PlanCard key={plan.id} name={plan.name} price={usd(plan.monthUsd)} period={t("perMonth")}>
@@ -77,7 +78,36 @@ export default async function NextCloudPlansPage({ params }: { params: Promise<{
           {t("lede", { vcpus: NEXT_STANDARD_MACHINE_VCPUS, memory: NEXT_STANDARD_MACHINE_MEMORY_GB })}
         </p>
 
-        <div className="mt-12 grid items-stretch gap-5 md:grid-cols-3">{cloudPlanFacts().map(card)}</div>
+        <div className="mt-12 grid items-stretch gap-5 md:grid-cols-3">{plans.map(card)}</div>
+
+        <section className="mt-16" aria-labelledby="cloud-plan-table-title">
+          <h2 id="cloud-plan-table-title" className="text-lg font-medium tracking-tight">
+            {t("table.title")}
+          </h2>
+          <p className="mt-1 text-sm text-muted">{t("table.note", { price: usd(NEXT_OVERAGE_STANDARD_MACHINE_HOUR_USD, 2) })}</p>
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full min-w-[560px] border-collapse text-sm tabular-nums" data-testid="cloud-plan-table">
+              <thead>
+                <tr className="border-b border-border text-left text-muted">
+                  <th className="py-2 pr-4 font-normal">{t("table.plan")}</th>
+                  <th className="py-2 pr-4 text-right font-normal">{t("table.price")}</th>
+                  <th className="py-2 pr-4 text-right font-normal">{t("table.keptRunning")}</th>
+                  <th className="py-2 text-right font-normal">{t("table.hours")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {plans.map((plan) => (
+                  <tr key={plan.id} className="border-b border-border">
+                    <th scope="row" className="py-2 pr-4 text-left font-medium">{plan.name}</th>
+                    <td className="py-2 pr-4 text-right">{`${usd(plan.monthUsd)} ${t("perMonth")}`}</td>
+                    <td className="py-2 pr-4 text-right">{hours.format(plan.keptRunning)}</td>
+                    <td className="py-2 text-right">{hours.format(plan.includedHours)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
 
         <CloudCompareBlock t={t} />
       </main>
