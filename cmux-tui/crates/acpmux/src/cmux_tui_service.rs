@@ -217,8 +217,12 @@ pub(crate) async fn serve_pipe<R, W>(
         // The far machine's refusal keeps its own reason (`consent_required`, ...): the CLI
         // ends on one no redial cures and redials the rest (`machine.unreachable`).
         // `service: "lane-gh-broker"`: the far machine's lane-gh broker (RFD 0127 cut 2).
+        // `resume`: the far acpmux holds the pipe across this one's end (RFD 0127 cut 4,
+        // `hub_carrier_resume.rs`); the client resumes it on its next pipe.
         let service = if is_broker_pipe(&params) {
             CircuitService::LaneGhBroker
+        } else if params.get("resume").and_then(Value::as_bool) == Some(true) {
+            CircuitService::CmuxTuiResume { port }
         } else {
             CircuitService::CmuxTui { port }
         };

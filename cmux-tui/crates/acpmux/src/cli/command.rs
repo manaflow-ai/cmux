@@ -78,6 +78,12 @@ pub struct MoveSessionsArgs {
     /// frozen, and this says why.
     #[arg(long, conflicts_with_all = ["all_idle", "dry_run", "slow_ok"])]
     pub abort: bool,
+    /// With --abort: give the chat back here even though its move's target cannot say whether
+    /// it took it, once the chat was offered back (`session info` shows `move undecided`, about
+    /// ten minutes after the move's client went away). If the target did take it and comes back,
+    /// it holds a second copy.
+    #[arg(long, requires = "abort")]
+    pub take_back: bool,
     /// Start the chats on the machine from this machine's copy of them, for a machine that does
     /// not answer: their transcript (the newest records kept here) and name, in a new chat
     /// there. Name each as MACHINE/CHAT, or pass --from MACHINE. The chat on the dead machine is
@@ -807,6 +813,14 @@ pub enum Command {
     Models {
         #[arg(long)]
         refresh: bool,
+    },
+    /// A Cloud machine: make the reserved folder of its first home chat and warm an agent in it
+    /// (`hub/pool/reserved.rs`). The Cloud app runs it right after keying a spare machine.
+    #[command(name = "warm-home", hide = true)]
+    WarmHome {
+        /// Answer once the agent is ready, not when it starts.
+        #[arg(long)]
+        wait: bool,
     },
     #[command(hide = true)]
     Info {
