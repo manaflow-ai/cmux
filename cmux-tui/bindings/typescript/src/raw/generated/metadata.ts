@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR abb55ae126234c400927b6460a08f07372a7cbfe6ea243850cef730fd2d5091e. */
+/* cmux-tui mux protocol 12, IR 9778b30a69d8e2f73fc3ce095e7928dcc69670389a87ceb3d2e7aa5ba45426e7. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "abb55ae126234c400927b6460a08f07372a7cbfe6ea243850cef730fd2d5091e" as const;
+export const SDK_IR_SHA256 = "9778b30a69d8e2f73fc3ce095e7928dcc69670389a87ceb3d2e7aa5ba45426e7" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -120,6 +120,10 @@ export const COMMAND_METADATA = {
       "resume_generation": {
         "since": null,
         "capability": "terminal-resume-v1"
+      },
+      "resume_max_bytes": {
+        "since": null,
+        "capability": "terminal-resume-bounded-v1"
       },
       "resume_offset": {
         "since": null,
@@ -3021,6 +3025,10 @@ export const COMMAND_METADATA = {
         "since": 12,
         "capability": null
       },
+      "api_version": {
+        "since": 12,
+        "capability": null
+      },
       "device_id": {
         "since": 12,
         "capability": "shared-sizing-v1"
@@ -3702,6 +3710,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Consumers apply only contiguous revisions for one registry_id and generation."
+    ]
+  },
+  "terminal-find": {
+    "authority": "control",
+    "since": 7,
+    "capability": null,
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "PTY surfaces only; matches newest first, named by history marker (spec/commands.md terminal-find)."
     ]
   },
   "terminal-history": {
@@ -8097,6 +8115,17 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "uint32"
         }
       },
+      "api_version": {
+        "constraints": [
+          "The newest dated API version this daemon serves (YYYY-MM-DD; cmux-tui/spec/api-versioning.md). Only with identify {revisions: true}."
+        ],
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "app": {
         "nullable": false,
         "presence": "required",
@@ -8291,6 +8320,17 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint32"
+        }
+      },
+      "min_api_version": {
+        "constraints": [
+          "The oldest dated API version this daemon still serves for a client that pins it with set-client-info api_version. Only with identify {revisions: true}."
+        ],
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       },
       "pid": {
@@ -12982,6 +13022,34 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "SetClientInfoResult": {
+    "additional_properties": false,
+    "fields": {
+      "api_revision": {
+        "constraints": [
+          "The numbered revision behind api_version. Only when the request sent api_version."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
+      "api_version": {
+        "constraints": [
+          "The dated API version that serves this connection (YYYY-MM-DD). Only when the request sent api_version."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "SetHostSizePolicyResult": {
     "additional_properties": false,
     "fields": {
@@ -16763,6 +16831,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "string"
+          }
+        },
+        "resume_max_bytes": {
+          "capability": "terminal-resume-bounded-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
           }
         },
         "resume_offset": {
@@ -23256,7 +23334,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         },
         "revisions": {
           "constraints": [
-            "Adds api_revision, min_api_revision, crate_version, install and update_command to the reply. Off by default so strict older SDK decoders keep reading the reply."
+            "Adds api_revision, min_api_revision, api_version, min_api_version, crate_version, install and update_command to the reply. Off by default so strict older SDK decoders keep reading the reply."
           ],
           "nullable": false,
           "presence": "optional",
@@ -28552,6 +28630,19 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "uint32"
           }
         },
+        "api_version": {
+          "constraints": [
+            "A dated API version, YYYY-MM-DD (for example 2026-11-24). The daemon serves the newest revision dated on or before it and answers with api_version and api_revision; a date before min_api_version is refused; with api_revision too, both must name the same revision. Absent: unchanged behaviour. Promise: cmux-tui/spec/api-versioning.md."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
         "capabilities": {
           "constraints": [
             "Advertises additive client capabilities for this connection."
@@ -28706,7 +28797,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     },
     "result": {
       "kind": "ref",
-      "name": "EmptyResult"
+      "name": "SetClientInfoResult"
     }
   },
   "set-client-sizing": {
@@ -30646,6 +30737,100 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "TerminalEventsResult"
+    }
+  },
+  "terminal-find": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "before": {
+          "description": "Marker the page ends above (exclusive): the previous page's next_before.",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "case_sensitive": {
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "epoch": {
+          "description": "The previous page's epoch; a different one restarts at the bottom.",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "max_matches": {
+          "constraints": [
+            {
+              "maximum": 10000,
+              "minimum": 1
+            }
+          ],
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "page_rows": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "query": {
+          "description": "Empty matches nothing.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "regex": {
+          "description": "query is a Rust regex pattern, not a literal.",
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "whole_word": {
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
     }
   },
   "terminal-history": {
