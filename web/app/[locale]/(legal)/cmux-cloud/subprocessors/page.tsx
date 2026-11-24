@@ -88,7 +88,7 @@ const subprocessors: readonly Subprocessor[] = [
     group: "content",
     category: "AI model providers",
     name: "TypeSafe AI, Inc.",
-    purpose: "Runs the decision model of the Slack decision step: decides from each Slack message that cmux can see whether cmux should answer. Receives the message text and its context through Vercel AI Gateway, with zero data retention. Starts on December 24, 2026.",
+    purpose: "Runs the decision model of the Slack decision step: decides, from each Slack message that nobody addressed to cmux in a channel where cmux is a member, whether cmux should answer. Receives the message text and its context through Vercel AI Gateway, with zero data retention. Starts on December 24, 2026.",
     location: "United States",
   },
   {
@@ -285,8 +285,8 @@ export default function CmuxCloudSubprocessorsPage() {
       <ul>
         <li>
           November 24, 2026: added TypeSafe AI, Inc. (AI model provider) for
-          the Slack decision step. It starts to process personal data for cmux
-          Cloud on December 24, 2026.
+          the Slack decision step. It starts to process personal data of
+          customer teams on December 24, 2026.
         </li>
       </ul>
     </>
