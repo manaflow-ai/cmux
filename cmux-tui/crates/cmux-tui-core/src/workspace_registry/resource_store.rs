@@ -2630,6 +2630,17 @@ pub(crate) fn prune_unchanged_resource_changes(
     Ok(ResourcePatch { changes })
 }
 
+/// True when `change` (a `SetWorkspaceOrder`) names the stored live workspaces in their stored order.
+/// The projection cross-check reads it: the prune keeps an unchanged order whenever a workspace
+/// upsert is kept, and a scoped walk that knows nothing moved leaves the order out.
+pub(crate) fn workspace_order_is_stored(
+    transaction: &Transaction<'_>,
+    change: &ResourceChange,
+) -> anyhow::Result<bool> {
+    let mut workspace_rows = None;
+    resource_change_is_stored(transaction, &mut workspace_rows, change)
+}
+
 fn content_tab_panes(
     transaction: &Transaction<'_>,
     content_id: &str,
@@ -2839,6 +2850,8 @@ fn resource_change_is_stored<'t>(
             }
         }
         ResourceChange::SetWorkspaceOrder { workspace_ids } => {
+            #[cfg(test)]
+            crate::walk_counters::workspace_list_walked(workspace_ids.len());
             let mut statement = transaction.prepare(
                 "SELECT rw.public_id, w.position
                  FROM resource_workspaces rw
@@ -3188,6 +3201,8 @@ fn prepare_resource_order_slots(
     for change in &patch.changes {
         match change {
             ResourceChange::SetWorkspaceOrder { workspace_ids } => {
+                #[cfg(test)]
+                crate::walk_counters::workspace_list_walked(workspace_ids.len());
                 let desired = workspace_ids
                     .iter()
                     .enumerate()
