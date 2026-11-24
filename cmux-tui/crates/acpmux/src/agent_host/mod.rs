@@ -340,6 +340,10 @@ pub struct TranslatorSpec {
     pub recap: Option<String>,
     /// Claude's own session id when it is known at spawn.
     pub claude_session_id: Option<String>,
+    /// The process resumes a turn a move cut, by itself (`claude_stdio/resume_cut.rs`): its
+    /// translator owes that turn's prompt from the start.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub resumes_cut_turn: bool,
 }
 
 fn suggestions_default() -> bool {

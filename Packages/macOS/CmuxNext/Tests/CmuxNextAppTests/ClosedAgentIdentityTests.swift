@@ -1,6 +1,7 @@
 import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextDaemon
+import CmuxNextHistoryDaemon
 import CmuxNextHistory
 import Foundation
 import Testing
@@ -16,7 +17,7 @@ struct ClosedAgentIdentityTests {
         #expect(tab.agentSession?.harness == "codex")
 
         let history = CmuxNextHistory.ClosedItem(
-            id: "daemon:closed_1", kind: HistoryService.closedKind(item), title: "Fix the flaky upload test", machine: "local",
+            id: "daemon:closed_1", kind: DaemonClosedItem.closedKind(item), title: "Fix the flaky upload test", machine: "local",
             agentSession: .init(sessionID: tab.agentSession?.session, harness: tab.agentSession?.harness))
         #expect(history.kind == (kind == "conversation" ? .conversationTab : .browserTab))
         #expect(NewTabClosed.kind(for: history) == .agent)
@@ -68,10 +69,10 @@ struct ClosedAgentIdentityTests {
 
     @Test func closedContainersRetainTheirOwnKind() throws {
         var item = try Self.closed()
-        #expect(HistoryService.closedAgentSession(item)?.harness == "codex")
+        #expect(DaemonClosedItem.closedAgentSession(item)?.harness == "codex")
         for kind in [CmuxNextDaemon.ClosedItem.Kind.screen, .workspace, .window] {
             item.kind = kind
-            #expect(HistoryService.closedAgentSession(item) == nil)
+            #expect(DaemonClosedItem.closedAgentSession(item) == nil)
         }
     }
 
@@ -91,7 +92,7 @@ struct ClosedAgentIdentityTests {
     @Test func plainBrowserRetainsBrowserKind() throws {
         var item = try Self.closed()
         item.screens[0].tabs[0].agentSession = nil
-        let history = CmuxNextHistory.ClosedItem(id: item.id, kind: HistoryService.closedKind(item), title: "Browser", machine: "local")
+        let history = CmuxNextHistory.ClosedItem(id: item.id, kind: DaemonClosedItem.closedKind(item), title: "Browser", machine: "local")
         #expect(history.kind == .browserTab)
         #expect(NewTabClosed.kind(for: history) == .browser)
     }

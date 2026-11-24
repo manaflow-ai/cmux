@@ -13,7 +13,7 @@
 // worktree of its own, its environment, tokens, background test run and diffs its own, under three
 // ways to say whose panel it is (the head's title, the one drawn; a path; a card); one sharing the
 // chat's checkout; and the chat's panel beside them, its Subagents listing it.
-import { useState, type ComponentProps, type CSSProperties } from "react";
+import { useState, type ComponentProps } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play, PlayContext } from "../../../gallery/play";
 import { WAVE_CLASS } from "../../../ui/wave";
@@ -44,8 +44,6 @@ type Props = ComponentProps<typeof SessionInfo> & {
   /// A subagent's panel: whose it is, said the `header` way.
   scope?: Pick<SubagentScope, "agent" | "parent" | "onBack">;
   header?: SubagentHeaderVariant;
-  /// A gallery-only palette for the Context breakdown's categories (ContextSection.css tones).
-  tones?: CSSProperties;
   /// Gallery-only: a different height ceiling, for comparison with the shipped full-room one.
   ceiling?: string;
   /// Gallery-only: a different edge look, for comparison with the shipped hairline (sessionInfo.css).
@@ -136,7 +134,6 @@ function GallerySessionInfo({
   chrome = "close",
   scope,
   header = "title",
-  tones,
   ceiling,
   edge,
   grip,
@@ -149,7 +146,7 @@ function GallerySessionInfo({
   // The panel's Show more, held here so a variant starts where it says and a play can open it.
   const [more, setMore] = useState(moreAtFirst);
   return (
-    <div className="acpmux-shell" style={{ display: "flex", justifyContent: "flex-end", height: "100%", ...tones }}>
+    <div className="acpmux-shell" style={{ display: "flex", justifyContent: "flex-end", height: "100%" }}>
       {ceiling ? <style>{`.acpmux-session-info[data-placement]{max-height:${ceiling}}`}</style> : null}
       {edge ? <style>{`.acpmux-session-info[data-placement]{${edge}}`}</style> : null}
       {grip ? <style>{GRIP_LOOKS[grip]}</style> : null}
@@ -1168,9 +1165,6 @@ const breakdownProps: Props = {
   },
   sections: { ...DEFAULT_SECTIONS, environment: false, context: true, changes: false, subagents: false, tasks: false },
 };
-/// A gallery-only palette for the breakdown's used categories, largest first.
-const palette = (colors: string[]) =>
-  Object.fromEntries(colors.map((color, index) => [`--acpmux-context-tone-${index}`, color])) as CSSProperties;
 const openMcpTools: Play = async (ctx) => {
   await ctx.click({ selector: '[data-list="mcpTools"] button' });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-context-breakdown__items") !== null);
@@ -1687,7 +1681,7 @@ export default componentEntry<Props>({
       props: { ...full, sections: { ...DEFAULT_SECTIONS, context: true } },
     },
     "context-breakdown": {
-      note: "Shipped: a Claude Code chat's /context in Context, open: 43% used with 171.4k / 400k, the bar split by category in steps of the theme accent (largest first; the autocompact buffer grey; free space the track), a row per category with its tokens and share, the deferred ones dimmed with no share, then the MCP tools, Memory files and Skills folds, MCP tools open.",
+      note: "Shipped (Lucas, 2026-11-23: \"make it more identical to claude\"): a Claude Code chat's /context in Context, open, colored as Claude Code desktop's card: a 4px bar split by category (Messages blue, MCP tools orange, System prompt green, Skills yellow, the rest one grey; the autocompact buffer a darker grey; free space the track), a row per category with its tokens and share in one ink, the buffer and free space a row's height below, the deferred ones after with no share, then the MCP tools, Memory files and Skills folds with the chevron of every other Session Info fold, MCP tools open with its tools on the label column.",
       props: breakdownProps,
       play: openMcpTools,
     },
@@ -1706,24 +1700,6 @@ export default componentEntry<Props>({
         await ctx.waitFor(() => /171\.4K\s*\/\s*400K/.test(text(ctx)));
         if (/\/\s*1M/.test(text(ctx))) throw new Error("Context still reads the model's 1M window");
       },
-    },
-    "context-breakdown-hues": {
-      note: "Alternative (not shipped): each category a different hue turned from the theme accent, as Claude Code desktop colors them. Reads faster, but brings colors the theme does not have.",
-      props: {
-        ...breakdownProps,
-        tones: palette(
-          [0, 60, 150, 210, 280, 320].map((turn) => `oklch(from var(--agent-accent) l c calc(h + ${turn}))`),
-        ),
-      },
-      play: openMcpTools,
-    },
-    "context-breakdown-mono": {
-      note: "Alternative (not shipped): every used category in the full accent, told apart only by the bar's gaps and the row order. Quietest, but the bar no longer says which part is which.",
-      props: {
-        ...breakdownProps,
-        tones: palette(Array.from({ length: 6 }, () => "var(--agent-accent)")),
-      },
-      play: openMcpTools,
     },
     "changes-breakdown": {
       note: "Changes: hovering a pull request's line counts splits them into Code, Tests, Generated and Docs; its 3 failing checks dim the 2 already on base.",
