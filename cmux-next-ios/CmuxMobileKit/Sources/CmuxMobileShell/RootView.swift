@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxDeviceHub
 import CmuxMobileBilling
 import CmuxMobileAgentChat
 import CmuxMobileAuth
@@ -643,6 +644,26 @@ struct ShellView: View {
         }
         .sheet(item: $shell.editingTeam) { team in
             TeamAppearanceEditor(team: team) { shell.saveAppearance($0, for: team) }
+        }
+        // A Mac screen link: Screen Sharing, that Mac's share asked for (View Only unless the link asks for control).
+        .sheet(item: $shell.macScreenLink) { item in
+            if let service = shell.screenSharing {
+                NavigationStack {
+                    ScreenSharingPage(service: service)
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Done") { shell.macScreenLink = nil }
+                                    .accessibilityIdentifier("screenSharing.done")
+                            }
+                        }
+                        .onAppear {
+                            guard shell.macScreenLinkOpened != item.id else { return }
+                            shell.macScreenLinkOpened = item.id
+                            service.open(deviceID: item.link.device, name: item.link.name,
+                                         scope: item.link.control ? .full : .view, display: item.link.display)
+                        }
+                }
+            }
         }
         .sheet(item: $shell.connectedDevices) { item in
             TerminalConnectedDevicesSheet(live: item.live, macID: item.macID, surface: item.surface, service: shell.sizingService)
