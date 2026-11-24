@@ -513,6 +513,12 @@
    side: it may cover its own anchor, so it fits the window less the edge margins. */
 .ui-popup[data-popup-shift] { --available-height: calc(100vh - 16px); }
 
+/* A point-anchored menu can cross its pointer. Only a menu taller than the viewport scrolls. */
+.ui-popup[data-pointer-menu] {
+  box-sizing: border-box;
+  max-height: 100dvh;
+}
+
 /* Keep the popup's tint, rim and exterior shadow outside the row mask. A constrained
    flex child takes the same available content height; the shell keeps its existing padding. */
 .ui-popup.ui-glass.ui-popup-scroll-shell {
