@@ -101,7 +101,7 @@ pub struct RegisterRequest {
     /// `acpmux register --renew`, run by a Claude Code hook in every session (SessionStart,
     /// Stop): the new token for a chat already registered, after its Claude Code restarted with
     /// `--resume` that conversation, with no code. Anything else gets nothing: no code is ever
-    /// delivered for it, so a hook never wakes a session (`renewed_name`).
+    /// delivered for it, so a hook never wakes a session (`restarted_registration`).
     pub renew: bool,
 }
 
@@ -232,21 +232,28 @@ impl Hub {
         let inbox = req.socket.clone().unwrap_or_default();
         let token = req.token.clone().unwrap_or_default();
         let (started, launched_for) = prove_claude(claimed, &claude_home, &inbox).await?;
-        // A chat registered before its Claude Code restarted takes the new process's token with
-        // no code when the kernel's record of that process's launch names its conversation
-        // (`--resume ID`): the code already went once, and the takeover rule below holds it to
-        // the same proof. A hook asks this on every session's start.
-        let renewed = if req.code.is_none() && (req.auto || req.renew) {
-            self.renewed_name(claimed, launched_for.as_deref()).await
+        // A registered chat whose Claude Code restarted takes its new process in one step: the
+        // name is already this conversation's, the process it was registered to is gone, and the
+        // kernel says the caller's process was started for this conversation (`--resume ID`).
+        // Those are the proofs a takeover below asks of any registration; the code adds none.
+        // `acpmux send` asks it (`auto`), and so does the SessionStart/Stop hook (`renew`).
+        let rebind = if req.code.is_none() && (req.auto || req.renew) {
+            self.restarted_registration(claimed, launched_for.as_deref()).await
         } else {
             None
         };
-        if req.renew && renewed.is_none() {
+        if req.renew && rebind.is_none() {
             return Ok(json!({"renewed": false, "reason": NOT_RENEWABLE}));
         }
         if let Some(code) = req.code.as_deref() {
             take_code(claimed.pid, code, started, &inbox, &token, &req.name)?;
-        } else if renewed.is_none() {
+        } else if rebind.is_some() {
+            tracing::info!(
+                "register: chat of conversation {} taken over by its restarted process {} in one step",
+                claimed.session_id,
+                claimed.pid
+            );
+        } else {
             let (name, why) = if req.auto {
                 match self.auto_plan(claimed, &req.name).await {
                     auto::Plan::Reachable(name) => {
@@ -275,8 +282,10 @@ impl Hub {
                 Some(p.pid),
             ),
         };
-        // A renewal keeps the chat's own name: it is the address senders use.
-        let name = renewed.clone().unwrap_or_else(|| req.name.clone());
+        // A restarted chat keeps the name it is registered under, whatever this send asked for:
+        // it is the address senders use.
+        let rebound = rebind.is_some();
+        let name = rebind.unwrap_or_else(|| req.name.clone());
         // One registration at a time: the name check below and the rename after it are one step,
         // so two sessions registering the same name at once never both get it.
         static REGISTERING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
@@ -391,9 +400,16 @@ impl Hub {
             &session,
             "mux",
             "registered",
-            json!({"name": name, "family": family, "pid": pid, "token": token_kept}),
+            json!({"name": name, "family": family, "pid": pid, "token": token_kept, "rebound": rebound}),
         );
+        // A chat closed when its old process ended shows its conversation again
+        // (`live_chat.rs`): the registration just proved a live process runs it.
+        if watched {
+            self.revive_live_chat(&session, pid, "registered");
+        }
         let mut out = json!({
+            "registered": true,
+            "rebound": rebound,
             "sessionId": session.id,
             "name": name,
             "family": family,
@@ -402,38 +418,62 @@ impl Hub {
             "bridged": watched,
             "token": if token_kept { "registered" } else { "none" },
         });
-        if let (Some(_), Some(obj)) = (&renewed, out.as_object_mut()) {
+        if let (true, Some(obj)) = (rebound, out.as_object_mut()) {
             obj.insert("renewed".into(), json!(true));
         }
         Ok(out)
     }
-
-    /// The name of the registered chat that shows `claimed`'s conversation, when `claimed` was
-    /// launched for that conversation (`launched_for`, from the kernel's record of its launch):
-    /// such a chat takes the new process's token with no code ([`renewable`]).
-    async fn renewed_name(
+    /// The name of the registered chat of `claimed`'s conversation, when `claimed` may take it
+    /// over in one step ([`takes_over_in_one_step`]); None sends the code as before.
+    async fn restarted_registration(
         &self,
         claimed: &crate::claude_peers::Peer,
         launched_for: Option<&str>,
     ) -> Option<String> {
         let stores = super::adoption::store_families(&*self.config.read().await);
-        let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
-        let shown = super::adoption::adopted_in(&sessions, &stores, "claude", &claimed.session_id)?;
-        let name = shown.read_meta(|m| m.name.clone());
-        renewable(is_registered(&shown), launched_for, &claimed.session_id).then_some(name)
+        let shown = {
+            let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+            super::adoption::adopted_in(&sessions, &stores, "claude", &claimed.session_id)
+        }?;
+        let kept = crate::claude_peers::kept_token(&crate::config::home(), &shown.id);
+        let claude_home = self.harness_homes().claude;
+        let recorded_live = tokio::task::spawn_blocking(move || {
+            kept.is_some_and(|k| {
+                k.started.is_some()
+                    && crate::claude_peers::started_at(&claude_home, k.pid) == k.started
+            })
+        })
+        .await
+        .unwrap_or(true);
+        takes_over_in_one_step(
+            is_registered(&shown),
+            recorded_live,
+            launched_for,
+            &claimed.session_id,
+        )
+        .then(|| shown.read_meta(|m| m.name.clone()))
     }
+}
+
+/// Whether a caller proven to be Claude Code (`prove_claude`) takes its conversation's chat over
+/// with no code: the chat is `registered` (its name was proven this conversation's once), the
+/// process it is registered to no longer runs (`recorded_live`), and the kernel's record of the
+/// caller's launch names this `conversation` (`--resume ID`, which no file rewrites). Leo,
+/// 2026-11-22: "if you can't reliably communicate back and forth from the desktop app, that's a
+/// product thing we need to fix": every Claude Code restart used to leave the chat `registration
+/// stale` until its model ran `acpmux register NAME` and then the `--code` line by hand.
+pub(super) fn takes_over_in_one_step(
+    registered: bool,
+    recorded_live: bool,
+    launched_for: Option<&str>,
+    conversation: &str,
+) -> bool {
+    registered && !recorded_live && launched_for == Some(conversation)
 }
 
 /// Why `--renew` did nothing: the session is not a registered chat restarted for its own
 /// conversation. Its first registration is `acpmux register NAME`, or its first `acpmux send`.
 pub const NOT_RENEWABLE: &str = "register.not_renewable";
-
-/// Whether a chat (`registered` or not) renews to a process launched for `launched_for`, the
-/// conversation `session_id` names: only a registered chat, and only for a launch that named its
-/// own conversation. A launch that names none (a fresh `claude`, `--continue`) proves nothing.
-fn renewable(registered: bool, launched_for: Option<&str>, session_id: &str) -> bool {
-    registered && launched_for == Some(session_id)
-}
 
 /// Why a code goes to a session: `acpmux register NAME` asked, or `acpmux send` from the chat's
 /// own shell, which has no reply address until it registers (on this machine, by its host name).
@@ -687,6 +727,20 @@ mod tests {
         assert!(!asked.contains("acpmux send"), "{asked}");
     }
 
+    /// Repro (2026-11-22): desktop-leo's Claude Code restarted (now process 35713,
+    /// launched with `--resume=03214b87-...`) and its row said `registration stale ... run
+    /// acpmux register desktop-leo`, then a `--code` step. Its next automatic step takes the chat
+    /// over at once; any other caller still gets the code.
+    #[test]
+    fn a_restarted_registered_chat_is_taken_over_in_one_step() {
+        let conv = "03214b87-953d-4ecf-98ae-93d337878273";
+        assert!(takes_over_in_one_step(true, false, Some(conv), conv));
+        assert!(!takes_over_in_one_step(false, false, Some(conv), conv), "never registered");
+        assert!(!takes_over_in_one_step(true, true, Some(conv), conv), "its process still runs");
+        assert!(!takes_over_in_one_step(true, false, None, conv), "not started for it");
+        assert!(!takes_over_in_one_step(true, false, Some("other"), conv), "another one");
+    }
+
     #[test]
     fn auto_is_the_first_step_only() {
         let first =
@@ -703,10 +757,14 @@ mod tests {
     /// waited on `bridge.registration_stale` until a person ran `acpmux register` in it.
     #[test]
     fn only_a_registered_chat_resumed_for_its_own_conversation_renews() {
-        assert!(renewable(true, Some("6e0bad7d"), "6e0bad7d"));
-        assert!(!renewable(false, Some("6e0bad7d"), "6e0bad7d"), "never registered");
-        assert!(!renewable(true, None, "6e0bad7d"), "a launch that names no conversation");
-        assert!(!renewable(true, Some("other"), "6e0bad7d"), "another conversation");
+        let conv = "6e0bad7d";
+        assert!(takes_over_in_one_step(true, false, Some(conv), conv));
+        assert!(!takes_over_in_one_step(false, false, Some(conv), conv), "never registered");
+        assert!(
+            !takes_over_in_one_step(true, false, None, conv),
+            "a launch that names no conversation"
+        );
+        assert!(!takes_over_in_one_step(true, false, Some("other"), conv), "another conversation");
     }
 
     #[test]

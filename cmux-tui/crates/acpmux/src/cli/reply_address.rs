@@ -120,7 +120,7 @@ const RENEW_WAIT: Duration = Duration::from_secs(3);
 
 /// `acpmux register --renew`, from a Claude Code hook: hands the session's new token to this
 /// machine's daemon, which takes it only for a chat registered before a restart with `--resume`
-/// (`hub/register.rs` `renewed_name`), so `acpmux send NAME` reaches the restarted session with
+/// (`hub/register.rs` `restarted_registration`), so `acpmux send NAME` reaches the restarted session with
 /// no one running `register` in it (Leo, 2026-11-20: "isn't one I can message through acpmux /
 /// well figure out a way then"). Starts no daemon and delivers no code; the daemon's answer, or
 /// why there was none, for `--json`.

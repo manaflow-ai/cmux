@@ -344,6 +344,7 @@ mod shutdown;
 pub use shutdown::SHUTTING_DOWN;
 mod bridge;
 pub(crate) mod desktop_bridge;
+mod live_chat;
 pub(crate) mod register;
 mod terminal_input;
 pub(crate) use shutdown::{
