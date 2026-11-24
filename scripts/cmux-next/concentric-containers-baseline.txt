@@ -60,8 +60,6 @@ webviews/src/agent-session/acpmux/styles.css: .acpmux-host-error-card { border-r
 webviews/src/agent-session/acpmux/styles.css: .acpmux-menu-hint { border-radius: 5px }
 webviews/src/agent-session/acpmux/styles.css: .acpmux-omni-action kbd { border-radius: 4px }
 webviews/src/agent-session/acpmux/styles.css: .acpmux-open-app-card { border-radius: var(--ds-radius-xl) }
-webviews/src/agent-session/acpmux/styles.css: .acpmux-permission-card { border-radius: 12px }
-webviews/src/agent-session/acpmux/styles.css: .acpmux-permission-card.acpmux-permission-ask { border-radius: var(--grid-cards-radius) }
 webviews/src/agent-session/acpmux/styles.css: .acpmux-permission-panel .acpmux-permission-card { border-radius: 6px }
 webviews/src/agent-session/acpmux/styles.css: .acpmux-secret-card { border-radius: 12px }
 webviews/src/agent-session/acpmux/subagents/AgentCard.css: .cv-agent-card { border-radius: var(--grid-cards-radius) }
