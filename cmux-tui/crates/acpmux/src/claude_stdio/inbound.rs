@@ -593,10 +593,10 @@ impl Translator {
                         if req.get("callback_id").and_then(Value::as_str)
                             == Some(dedupe::DEDUPE_CALLBACK) =>
                     {
-                        self.dedupe_hook(&rid, &req).await;
+                        self.dedupe_hook(&rid, req).await;
                     }
                     // A registered hook fired: answered with no decision (hook_callback.rs).
-                    Some("hook_callback") => self.answer_hook_callback(&rid, &req).await,
+                    Some("hook_callback") => self.answer_hook_callback(&rid, req).await,
                     // Anything else (mcp_message) is declined with an error
                     // response, so claude does not wait on it.
                     other => self.decline_control(&rid, other.unwrap_or("?")).await,

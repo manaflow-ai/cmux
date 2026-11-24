@@ -465,7 +465,8 @@ impl Hub {
         let packed = (|| {
             anyhow::ensure!(last == through, "the log here holds no record at seq {through}");
             let params = pack::Params::default();
-            pack::pack(store, &session.id, &[lines.clone()], &params, false).map_err(pack_error)
+            pack::pack(store, &session.id, std::slice::from_ref(&lines), &params, false)
+                .map_err(pack_error)
         })();
         crate::home_fs::remove_file(&lines)?;
         let (manifest, stats) = packed?;
@@ -563,7 +564,7 @@ impl Hub {
             && manifest.lines == p.manifest.lines
             && manifest.raw_bytes == p.manifest.raw_bytes
             && manifest.segments.len() == p.manifest.segments.len();
-        same.then(|| Prepacked { manifest, ..p })
+        same.then_some(Prepacked { manifest, ..p })
     }
 
     /// `_acpmux/transfer_history {sessionId, stageId}`: the staged history becomes the live

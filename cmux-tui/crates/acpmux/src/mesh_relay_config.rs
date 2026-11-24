@@ -125,6 +125,39 @@ impl MeshControlFrom {
     }
 }
 
+impl MeshRelayConfig {
+    /// The origin without a trailing slash, when it is one the relay may use.
+    pub fn origin(&self) -> Result<String, String> {
+        let url = reqwest::Url::parse(self.url.trim())
+            .map_err(|e| format!("meshRelay.url is no URL: {e}"))?;
+        let loopback = matches!(url.host_str(), Some("127.0.0.1" | "localhost" | "[::1]"));
+        if !(url.scheme() == "https" || (url.scheme() == "http" && loopback)) {
+            return Err("meshRelay.url must be https (http only on a loopback address)".into());
+        }
+        // Nothing secret may ride in the URL: it is logged, and the token goes in a header.
+        if !url.username().is_empty() || url.password().is_some() {
+            return Err("meshRelay.url must carry no user or password".into());
+        }
+        if url.query().is_some() || url.fragment().is_some() {
+            return Err("meshRelay.url must carry no query or fragment".into());
+        }
+        if self.credential.as_deref() != Some("join")
+            && self.token_command.first().is_none_or(|p| p.trim().is_empty())
+        {
+            return Err("meshRelay.tokenCommand names no program".into());
+        }
+        let path = url.path().trim_end_matches('/');
+        Ok(format!("{}{path}", url.origin().ascii_serialization()))
+    }
+
+    /// What a log may say of the hub: its scheme, host and port, never its path.
+    pub fn shown(&self) -> String {
+        reqwest::Url::parse(self.url.trim())
+            .map(|u| u.origin().ascii_serialization())
+            .unwrap_or_default()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -167,38 +200,5 @@ mod tests {
         assert!(!default.allows(&from, Some("person"), MOVE_OUT_OP));
         let only_move_out = MeshControlFrom { ops: vec![MOVE_OUT_OP.into()], ..default };
         assert!(!only_move_out.allows(&from, Some("person"), MOVE_OUT_OP));
-    }
-}
-
-impl MeshRelayConfig {
-    /// The origin without a trailing slash, when it is one the relay may use.
-    pub fn origin(&self) -> Result<String, String> {
-        let url = reqwest::Url::parse(self.url.trim())
-            .map_err(|e| format!("meshRelay.url is no URL: {e}"))?;
-        let loopback = matches!(url.host_str(), Some("127.0.0.1" | "localhost" | "[::1]"));
-        if !(url.scheme() == "https" || (url.scheme() == "http" && loopback)) {
-            return Err("meshRelay.url must be https (http only on a loopback address)".into());
-        }
-        // Nothing secret may ride in the URL: it is logged, and the token goes in a header.
-        if !url.username().is_empty() || url.password().is_some() {
-            return Err("meshRelay.url must carry no user or password".into());
-        }
-        if url.query().is_some() || url.fragment().is_some() {
-            return Err("meshRelay.url must carry no query or fragment".into());
-        }
-        if self.credential.as_deref() != Some("join")
-            && self.token_command.first().is_none_or(|p| p.trim().is_empty())
-        {
-            return Err("meshRelay.tokenCommand names no program".into());
-        }
-        let path = url.path().trim_end_matches('/');
-        Ok(format!("{}{path}", url.origin().ascii_serialization()))
-    }
-
-    /// What a log may say of the hub: its scheme, host and port, never its path.
-    pub fn shown(&self) -> String {
-        reqwest::Url::parse(self.url.trim())
-            .map(|u| u.origin().ascii_serialization())
-            .unwrap_or_default()
     }
 }
