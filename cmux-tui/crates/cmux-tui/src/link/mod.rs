@@ -182,6 +182,12 @@ pub(crate) fn run(args: &[String]) -> i32 {
         print!("{}", help_text());
         return 0;
     }
+    // `cmux link init --help`: that action's own lines. Before, `flags` read `--help` as an
+    // unknown option and exited 2 (the Cloud and remote command matrix, cmux#48221).
+    if let Some(text) = args.first().filter(|_| asks_help(&args[1..])).and_then(|a| verb_help(a)) {
+        print!("{text}");
+        return 0;
+    }
     match run_link(args) {
         Ok(()) => 0,
         // A word or option `link` does not have: exit 2 with the help to
@@ -228,6 +234,69 @@ fn help_text() -> String {
     let text = format!("{}\n{}", catalog().remote_client.link_help, enrollment::help());
     // The cmux app's `link …` verbs too (cli/app_action_help.rs).
     crate::cli::app_action_help::append("link", &text).unwrap_or(text)
+}
+
+/// The actions [`run_link`] parses itself, each with its own `--help` ([`verb_help`]).
+const OWN_ACTIONS: &[&str] = &[
+    "init",
+    "show",
+    "peer",
+    "serve",
+    "ensure",
+    "stop",
+    "archive",
+    "status",
+    "install-agent",
+    "uninstall-agent",
+];
+
+/// `-h` or `--help` among an action's words.
+fn asks_help(rest: &[String]) -> bool {
+    rest.iter()
+        .take_while(|word| *word != "--")
+        .any(|word| matches!(word.as_str(), "-h" | "--help"))
+}
+
+/// `cmux link <action> --help`: the usage line with the action named, the action's own lines of
+/// `cmux link --help` (its entry and the lines indented under it), and the closing note every
+/// action shares. `None` for a word that is not one of [`OWN_ACTIONS`].
+fn verb_help(action: &str) -> Option<String> {
+    verb_help_from(action, catalog().remote_client.link_help, enrollment::help())
+}
+
+fn verb_help_from(action: &str, help: &str, enrollment: &str) -> Option<String> {
+    if !OWN_ACTIONS.contains(&action) {
+        return None;
+    }
+    let mut lines = help.lines();
+    // `USAGE: cmux link <init|show|…> [OPTIONS]` becomes `USAGE: cmux link init [OPTIONS]`.
+    let first = lines.next()?;
+    let usage = match (first.find('<'), first.find('>')) {
+        (Some(open), Some(close)) if open < close => {
+            format!("{}{action}{}", &first[..open], &first[close + 1..])
+        }
+        _ => first.to_owned(),
+    };
+    let mut own = String::new();
+    let mut inside = false;
+    for line in lines {
+        if let Some(entry) = line.strip_prefix("  ").filter(|entry| !entry.starts_with(' ')) {
+            let word = entry.split_whitespace().next().unwrap_or_default();
+            inside = word == action;
+        } else if !line.starts_with("   ") {
+            inside = false;
+        }
+        if inside {
+            own.push_str(line);
+            own.push('\n');
+        }
+    }
+    if own.is_empty() {
+        return None;
+    }
+    let note = help.lines().rev().find(|line| !line.trim().is_empty()).unwrap_or_default();
+    let enrollment = if action == "init" { format!("\n{enrollment}") } else { String::new() };
+    Some(format!("{usage}\n\n{own}{enrollment}\n{note}\n"))
 }
 
 fn tokio_runtime() -> anyhow::Result<tokio::runtime::Runtime> {
