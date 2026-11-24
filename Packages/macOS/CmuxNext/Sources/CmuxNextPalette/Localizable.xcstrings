@@ -3932,6 +3932,138 @@
         }
       }
     },
+    "palette.keycap.then": {
+      "comment": "Between the two strokes of a chord shortcut's keycaps: ⌘ J then S.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "then"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ثم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "zatim"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "derefter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "dann"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "luego"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "puis"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "poi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "次に"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បន្ទាប់មក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "deretter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "potem"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "depois"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "затем"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "จากนั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "sonra"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "потім"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "rồi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "然后"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "然後"
+          }
+        }
+      }
+    },
     "palette.footer.actions": {
       "extractionState": "manual",
       "localizations": {
@@ -23579,6 +23711,137 @@
           "stringUnit": {
             "state": "translated",
             "value": "在新工作區中執行「%@」"
+          }
+        }
+      }
+    },
+    "palette.hint.searchFilters": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Narrow with in:tabs, in:history, in:settings, or leave a kind out with -in:chats"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ضيّق النتائج باستخدام in:tabs أو in:history أو in:settings، أو استبعد نوعًا باستخدام -in:chats"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suzi pretragu sa in:tabs, in:history, in:settings ili izostavi vrstu sa -in:chats"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indsnævr med in:tabs, in:history, in:settings, eller udelad en type med -in:chats"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eingrenzen mit in:tabs, in:history, in:settings oder eine Art ausschließen mit -in:chats"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acota con in:tabs, in:history, in:settings, o excluye un tipo con -in:chats"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affinez avec in:tabs, in:history, in:settings, ou excluez un type avec -in:chats"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restringi con in:tabs, in:history, in:settings, oppure escludi un tipo con -in:chats"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "in:tabs、in:history、in:settings で絞り込み、-in:chats で種類を除外"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្រួមដោយ in:tabs, in:history, in:settings ឬដកប្រភេទមួយចេញដោយ -in:chats"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "in:tabs, in:history, in:settings로 좁히거나 -in:chats로 한 종류를 제외하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avgrens med in:tabs, in:history, in:settings, eller utelat en type med -in:chats"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zawęź za pomocą in:tabs, in:history, in:settings lub pomiń rodzaj za pomocą -in:chats"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refine com in:tabs, in:history, in:settings ou exclua um tipo com -in:chats"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сузьте поиск с in:tabs, in:history, in:settings или исключите вид с -in:chats"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จำกัดผลด้วย in:tabs, in:history, in:settings หรือตัดประเภทออกด้วย -in:chats"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "in:tabs, in:history, in:settings ile daraltın veya -in:chats ile bir türü çıkarın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Звузьте пошук за допомогою in:tabs, in:history, in:settings або виключіть вид за допомогою -in:chats"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thu hẹp bằng in:tabs, in:history, in:settings hoặc bỏ một loại bằng -in:chats"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用 in:tabs、in:history、in:settings 缩小范围，或用 -in:chats 排除一类"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用 in:tabs、in:history、in:settings 縮小範圍，或用 -in:chats 排除一類"
           }
         }
       }

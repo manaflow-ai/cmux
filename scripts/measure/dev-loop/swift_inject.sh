@@ -86,7 +86,14 @@ PATH="$work/shim:$PATH" DLC_STAMP_LOG="$work/stamps.log" TMPDIR="$work" \
   "$work/bin/probe" watch "$badge" -- "$package/inject.sh" --live "$live" "$badge" >"$out/watch.log" 2>&1 &
 watcher=$!
 wait_for "$out/watch.log" "^watching" 30 || die "the watcher did not start"
-sleep 1  # the stream's own setup events pass
+# The stream's own setup events pass: until watch.log has had no new "event at=" line for 0.5 s (10 s at most).
+seen=-1; quiet=0
+for ((i = 0; i < 100 && quiet < 5; i++)); do
+  now_seen="$(grep -c "^event at=" "$out/watch.log" || true)"
+  if [[ "$now_seen" == "$seen" ]]; then quiet=$((quiet + 1)); else quiet=0; seen="$now_seen"; fi
+  sleep 0.1
+done
+(( quiet >= 5 )) || die "the watcher's stream was still reporting setup events 10 s after it started (watch.log in OUT)"
 
 for ((k = 1; k <= n; k++)); do
   phase="round $k"

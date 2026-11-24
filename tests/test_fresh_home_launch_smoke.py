@@ -309,6 +309,16 @@ elif verb == "import":
 '''
 
 
+def until(condition, seconds: float = 10) -> bool:
+    """Until condition() holds (a stopped process gone, say), SECONDS at most: whether it held."""
+    deadline = time.monotonic() + seconds
+    while not condition():
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.02)
+    return True
+
+
 def write_executable(path: Path, text: str) -> None:
     path.write_text(text.replace("PYTHON", sys.executable, 1))
     path.chmod(0o755)
@@ -471,6 +481,18 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         self.assertEqual(plistlib.loads(aside.read_bytes()), {"stored": b"account defaults"})
         self.assert_cleaned_up(report)
 
+    def test_every_started_copy_has_its_updater_off_unless_asked(self):
+        """A copy of an older build must never update itself on an unattended Mac (Sparkle's installer then asks
+        for an administrator password): fresh_env sets CMUX_DISABLE_AUTO_UPDATE=1, the app's forced
+        DisableAutoUpdate (ManagedUpdatePolicy.environmentKey), unless a harness that measures a real update asks."""
+        root = Path(tempfile.mkdtemp(prefix="cmux-fresh-", dir="/tmp"))
+        try:
+            self.assertEqual(smoke.UPDATER_OFF_VARIABLE, "CMUX_DISABLE_AUTO_UPDATE")
+            self.assertEqual(smoke.fresh_env(root, root / "s.sock", 3)["CMUX_DISABLE_AUTO_UPDATE"], "1")
+            self.assertNotIn("CMUX_DISABLE_AUTO_UPDATE", smoke.fresh_env(root, root / "s.sock", 3, updater=True))
+        finally:
+            subprocess.run(["rm", "-rf", str(root)], check=False)
+
     def test_the_app_sees_an_empty_home_and_none_of_the_runner_environment(self):
         app = make_app(self.dir, "healthy")
         root = Path(tempfile.mkdtemp(prefix="cmux-fresh-", dir="/tmp"))
@@ -583,9 +605,9 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         calls = (self.defaults_dir / "calls.log").read_text().split("\n")
         self.assertEqual(calls.count(f"delete {BUNDLE}"), 4)
         self.assertEqual((self.defaults_dir / f"{BUNDLE}.plist").read_bytes(), b"account defaults")
-        time.sleep(0.2)
-        self.assertFalse(smoke.alive(arm["pid"]), "the seeded launch outlived the run")
-        self.assertFalse(smoke.alive(int(self.host_pid_path.read_text())), "the seeded launch's terminal host outlived the run")
+        self.assertTrue(until(lambda: not smoke.alive(arm["pid"])), "the seeded launch outlived the run")
+        host = int(self.host_pid_path.read_text())
+        self.assertTrue(until(lambda: not smoke.alive(host)), "the seeded launch's terminal host outlived the run")
         self.assert_cleaned_up(report)
 
     def test_the_report_keeps_the_hosts_load_for_each_arm_and_the_seeded_launchs_marks(self):
@@ -639,12 +661,12 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         # that count. Each watch polls until 2 s after its launch, so a read at its end is a larger count when
         # Home rendered before that. (On a host where Home takes longer than 2 s the 2 counts are equal and this
         # test proves nothing.) Both launches: a read at the end in the seeded launch alone is a wrong form too.
-        polls = ("import time\ncount, nap, say = [0], time.sleep, smoke.log\n"
-                 "def counted(seconds):\n    count[0] += 1\n    nap(seconds)\n"
+        polls = ("count, nap, say = [0], smoke.wait_for_marks, smoke.log\n"
+                 "def counted(fd, seconds):\n    count[0] += 1\n    nap(fd, seconds)\n"
                  "def said(message):\n"
                  "    say(message)\n"
                  "    if 'Home rendered' in message:\n        say(f'polls at Home: {count[0]}')\n"
-                 "time.sleep, smoke.log, smoke.host_load = counted, said, lambda: float(count[0])")
+                 "smoke.wait_for_marks, smoke.log, smoke.host_load = counted, said, lambda: float(count[0])")
         status, output, report, _out = self.seeded("healthy", "--seconds", "2", "--seeded-seconds", "2", setup=polls)
         self.assertEqual(status, smoke.PASS, output)
         self.assertEqual(report["arms"]["seeded"]["verdict"], "pass", output)
@@ -1762,7 +1784,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
     def test_the_detached_helper_is_stopped_by_the_runs_root(self):
         status, output, report = self.run_smoke("healthy", "--seconds", "0", "--startup-timeout", "10")
         self.assertEqual(status, smoke.PASS, output)
-        time.sleep(0.2)
+        until(lambda: smoke.pids_under(Path(report["root"])) == [])
         self.assertEqual(smoke.pids_under(Path(report["root"])), [])
 
     def test_the_apps_terminal_host_is_stopped_by_its_record(self):
@@ -1771,9 +1793,46 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         status, output, report = self.run_smoke("healthy", "--seconds", "0", "--startup-timeout", "10")
         self.assertEqual(status, smoke.PASS, output)
         host = int(self.host_pid_path.read_text())
-        time.sleep(0.2)
-        self.assertFalse(smoke.alive(host), "the app's terminal host outlived the run")
+        self.assertTrue(until(lambda: not smoke.alive(host)), "the app's terminal host outlived the run")
         self.assert_cleaned_up(report)
+
+    def earlier_root(self, bundle_id: str, lock_path: str | None) -> tuple[Path, subprocess.Popen, subprocess.Popen]:
+        """A /tmp/cmux-fresh-* root an earlier smoke was cut off in: its app copy of BUNDLE_ID, the lock it held
+        (None: a root from before the note), a process naming the root and a terminal host only its record names."""
+        root = Path(tempfile.mkdtemp(prefix="cmux-fresh-", dir="/tmp"))
+        self.addCleanup(lambda: subprocess.run(["rm", "-rf", str(root)], check=False))
+        contents = root / "app" / "Stub.app" / "Contents"
+        contents.mkdir(parents=True)
+        (contents / "Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": bundle_id,
+                                                              "CFBundleExecutable": "stub"}))
+        if lock_path is not None:
+            (root / smoke.LOCK_NOTE).write_text(lock_path)
+        daemon = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)", f"{root}/h/.cmux/bin/cmux-tui"])
+        host = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)", "__terminal-host"])
+        for process in (daemon, host):
+            self.addCleanup(process.wait)
+            self.addCleanup(lambda p=process: p.poll() is None and p.kill())
+        records = root / "h/Library/Application Support/cmux-next/tags/x/tui/terminal-hosts-0"
+        records.mkdir(parents=True)
+        (records / "a.json").write_text(json.dumps({"host_pid": host.pid}))
+        return root, daemon, host
+
+    def test_what_an_earlier_cut_off_smoke_of_the_bundle_left_running_is_stopped(self):
+        # cmux#48697: a smoke killed before its cleanup left its app's daemon holding the channel's session socket,
+        # and every later fresh launch of the build on that Mac failed to render Home
+        lock = os.path.join(str(self.dir), f"cmux-fresh-smoke-{BUNDLE}.lock")
+        stale, stale_daemon, stale_host = self.earlier_root(BUNDLE, lock)
+        _, other_lock_daemon, other_lock_host = self.earlier_root(BUNDLE, lock + ".elsewhere")
+        _, other_bundle_daemon, other_bundle_host = self.earlier_root("com.example.another-app", lock)
+        status, output, report = self.run_smoke("healthy", "--seconds", "0", "--startup-timeout", "10")
+        self.assertEqual(status, smoke.PASS, output)
+        self.assertEqual(sorted(report["stale_pids_stopped"]), sorted([stale_daemon.pid, stale_host.pid]))
+        self.assertIn(f"left under {stale}", output)
+        for process in (stale_daemon, stale_host):
+            process.wait(timeout=10)
+        # A root another lock serialized may hold a live smoke, and another bundle's processes are not ours.
+        for process in (other_lock_daemon, other_lock_host, other_bundle_daemon, other_bundle_host):
+            self.assertIsNone(process.poll(), "a process of another smoke was stopped")
 
     def test_a_recorded_pid_that_is_not_a_terminal_host_is_left_alone(self):
         with tempfile.TemporaryDirectory() as d:
@@ -1822,6 +1881,57 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         (diagnostics / "stubborn-2026-10-28-000000.ips").write_text("{}")
         self.assertEqual([p.name for p in smoke.crash_reports(diagnostics, "stub", time.time() - 5)],
                          ["stub-2026-10-28-000000.ips"])
+
+    def test_the_watch_sees_home_when_the_apps_mark_arrives_not_a_tick_later(self):
+        # The app's snapshot shows Home from the start; its first frame's mark comes 50 ms into the watch's wait.
+        # The watch must see Home as that mark arrives: a fixed 0.25 s sleep saw it about 200 ms late, which the
+        # launch's time to Home (app_launch_ms) then counted as the app's.
+        tab = {"id": "tab_1", "kind": "page", "page": smoke.HOME_PAGE}
+        snap = {"topology": {"windows": [{"visible": True, "workspace": "ws_1"}],
+                             "workspaces": [{"id": "ws_1", "screens": [{"panes": [{"selected_tab": "tab_1", "tabs": [tab]}]}]}]}}
+        process = mock.Mock(args=["/a/b/c/d/app"])
+        process.poll.return_value = None
+        marks_read, marks_write = os.pipe()
+        written = []
+
+        def write_mark_soon():
+            time.sleep(0.05)  # sleep-ok: the mark arrives 50 ms into the watch's wait, the lag the test measures
+            written.append(time.monotonic())
+            os.write(marks_write, f"{smoke.RENDER_MARK} 812.0\n".encode())
+
+        import threading
+        writer = threading.Thread(target=write_mark_soon)
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(smoke, "snapshot", return_value=snap), \
+                mock.patch.object(smoke, "log"):
+            began = time.monotonic()
+            writer.start()
+            try:
+                seen = smoke.watch(process, marks_read, Path(tmp) / "marks", Path(tmp) / "app.sock", 0, 5)
+            finally:
+                writer.join()
+                os.close(marks_read)
+                os.close(marks_write)
+        self.assertIsNotNone(seen["rendered_at"])
+        late = seen["rendered_at"] - (written[0] - began)
+        self.assertLess(late, 0.1, f"Home seen {late * 1000:.0f} ms after the app's mark")
+
+    def test_a_closed_marks_pipe_does_not_spin_the_watch(self):
+        # Every writer of the marks pipe closed it (the app ended its marks): the watch waits a tick per look, not
+        # zero (a select on a pipe at its end answers at once), and still ends at its startup timeout.
+        process = mock.Mock(args=["/a/b/c/d/app"])
+        process.poll.return_value = None
+        marks_read, marks_write = os.pipe()
+        os.close(marks_write)
+        looks = []
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(smoke, "snapshot", side_effect=lambda *_a, **_k: looks.append(1)), \
+                mock.patch.object(smoke, "log"):
+            try:
+                seen = smoke.watch(process, marks_read, Path(tmp) / "marks", Path(tmp) / "app.sock", 0, 0.6)
+            finally:
+                os.close(marks_read)
+        self.assertIsNone(seen["rendered_at"])
+        self.assertLessEqual(len(looks), 5)
 
     def test_home_must_be_selected_in_a_visible_window(self):
         tab = {"id": "tab_1", "kind": "page", "page": "home-dock"}

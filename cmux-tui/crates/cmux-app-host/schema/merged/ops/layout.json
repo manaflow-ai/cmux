@@ -1,0 +1,10 @@
+{
+  "family": "layout",
+  "ops": {
+    "layout.bulk": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "82cc57e1c9dd0e3b"
+    }
+  }
+}

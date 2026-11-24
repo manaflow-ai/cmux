@@ -1,0 +1,10 @@
+{
+  "_comment": "Hot swap out (scripts/ci/piece_swap.py; cmuxterm-hq docs/design/cmux-next-hot-swap-layers.md, 'Hot swap out'). When the post-merge batch's bisect names one first-red commit and every piece of it is in a class listed here, the revert job swaps out pieces of that commit before any whole revert: it drills down (statically by the red suite's own paths, then by halves, one probe run each) to the one piece, opens a pull request that takes back only that piece, tells the commit's PR once, and prints the whole revert as the owner's fallback command (never performed). A commit with a class not listed keeps today's whole revert pull request. Classes come from .github/change-classes.json. Lists the drill class, web-ui (webviews and the other web bundles) and rust-core (the cmux-tui and acpmux daemons and linked Rust), the classes Leo moved to merge-on-push once a drill passed on feat-cmux-next code (2026-11-22). The never classes (migrations, signing-release), published-builds, the Swift app and cloud (other) stay unlisted: their red keeps the whole revert pull request. One switch stops it: the repository variable NEXT_PIECE_SWAP=0 (no commit). Add a class to the list to turn it on for that class.",
+  "classes": [
+    "drill",
+    "web-ui",
+    "rust-core"
+  ],
+  "max_per_hour": 3,
+  "max_probes": 4
+}

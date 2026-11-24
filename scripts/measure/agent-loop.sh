@@ -54,6 +54,7 @@ bounded() {
   echo "AGENT-LOOP setup: $name"
   set -m
   "$@" & pid=$!
+  # sleep-ok: the watchdog's timeout itself (the phase's bound, then 5 s from TERM to KILL)
   ( sleep "$seconds"; kill -TERM -- "-$pid" 2>/dev/null; sleep 5; kill -KILL -- "-$pid" 2>/dev/null ) \
     </dev/null >/dev/null 2>&1 & watchdog=$!
   set +m

@@ -16,7 +16,11 @@
 //! The token is HMAC-SHA256 of the session id under a key kept with the port in
 //! `run/mcp-gateway.json` (0600). The next daemon (an app update) binds the same port and takes the
 //! same tokens, and finds each chat's launch in `run/mcp/<session>.gateway.json` (0600), so a
-//! harness it adopts keeps its tools.
+//! harness it adopts keeps its tools. A harness's config names a port, so the gateway never gives
+//! up one it advertised: it waits [`HANDOVER_WAIT`] for the daemon it replaces to let the kept
+//! port go ([`bind_kept`]) instead of taking a free one on the first `Address in use`, and when it
+//! does have to move it remembers the port it left and binds it as well, as soon as it is free, for
+//! the chats configured there (`earlier` in the record, [`bind_at`]).
 //!
 //! acpmux's own tool servers (`tools_mcp.rs` `SERVERS`) run in the daemon too, at
 //! `/mcp/<session>/tools` with the same token: each of their upstream specs in the chat's
@@ -43,13 +47,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::process::ChildStdin;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{oneshot, watch};
 
 /// A chat's server ends after this long with no request in flight; its next request starts it
 /// again. The same window as an upstream's in `cmux mcp serve` (`upstream::IDLE_STOP`).
@@ -62,6 +66,26 @@ const REAP_EVERY: Duration = Duration::from_secs(30);
 const START_TIMEOUT: Duration = Duration::from_secs(20);
 /// After its stdin closes, a server has this long to end its own children and exit.
 const STOP_GRACE: Duration = Duration::from_secs(3);
+/// How long a gateway waits for the kept port before taking a free one ([`bind_kept`]): long
+/// enough for the daemon it hands over from to let the port go.
+pub const HANDOVER_WAIT: Duration = Duration::from_secs(10);
+/// How often [`bind_kept`] tries the kept port again.
+const BIND_RETRY_EVERY: Duration = Duration::from_millis(100);
+/// How many earlier ports `run/mcp-gateway.json` remembers, for the harnesses configured at them.
+/// A chat keeps dialing the port it was configured at for as long as it lives, and a busy home
+/// holds chats from many daemon runs: on 2026-11-22 one home's live configs named 20 ports, so a
+/// bound of 8 left the oldest of them refused.
+const PORTS_REMEMBERED: usize = 24;
+/// Where a port with no kept one is derived: the IANA dynamic range, so a derived port cannot be
+/// a registered service's.
+const DERIVED_PORT_BASE: u16 = 49_152;
+const DERIVED_PORT_SPAN: u16 = 8_192;
+/// `DERIVED_PORT_SPAN - 1`. The span is a power of two, so a port is derived with a mask instead
+/// of a division or a remainder: no arithmetic that can panic in a debug build, and none that can
+/// divide by zero. `the_derived_port_mask_is_the_span` keeps the two in step.
+const DERIVED_PORT_MASK: u64 = 8_191;
+/// How many ports upward from the derived one are tried before any free port will do.
+const DERIVED_PORT_TRIES: u16 = 16;
 const MAX_HEAD: usize = 64 * 1024;
 const MAX_BODY: usize = 32 * 1024 * 1024;
 /// The id of the `initialize` the gateway replays to a server it started for a later request.
@@ -101,10 +125,70 @@ struct Kept {
 struct Listener {
     port: u16,
     key: String,
+    /// The ports earlier runs of this gateway advertised, most recent first: a harness started
+    /// then still names one in its config, so a gateway serves each of them it can bind
+    /// ([`bind_at`]). Written since 2026-11-22; an older record has none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    earlier: Vec<u16>,
+    /// The daemon that bound `port`: a successor waits for the port only while this process
+    /// still runs in this home ([`may_hand_over`]). Written since 2026-11-23; an older record has
+    /// none, and its port is waited for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    holder: Option<Holder>,
+}
+
+/// The process that holds a gateway's port, as `run/mcp-gateway.json` names it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Holder {
+    pid: u32,
+    /// When it started (`process_identity::started_ms`): a later process under the same pid is
+    /// not it.
+    started_ms: u64,
+    /// The acpmux home it served. A home copied from another one (a cloned machine, a copied
+    /// test home) carries that home's record, whose port the original's daemon holds.
+    home: PathBuf,
+}
+
+impl Holder {
+    fn of_self(home: &Path) -> Option<Self> {
+        let pid = std::process::id();
+        let started_ms = started_ms(pid)?;
+        Some(Self { pid, started_ms, home: home.to_owned() })
+    }
+}
+
+/// When `pid` started, where the platform can say (`process_identity` is Unix only). Without it
+/// no holder is recorded, so a successor waits for the kept port as before the holder existed.
+#[cfg(unix)]
+fn started_ms(pid: u32) -> Option<u64> {
+    cmux_tui_platform::process_identity::started_ms(pid)
+}
+
+#[cfg(not(unix))]
+fn started_ms(_pid: u32) -> Option<u64> {
+    None
+}
+
+/// Whether the kept port, found taken, may be the daemon this one replaces letting it go: the
+/// record's holder still runs and served this home (or the record is older and names none). Any
+/// other program holding it never lets go for this home, and waiting [`HANDOVER_WAIT`] for it
+/// only made the start miss its readiness budget (`daemon::START_BUDGET`): own-machines-e2e's
+/// clone-own-identity went red on 2026-11-22, a copied home's `daemon start` failing while the
+/// original's daemon kept its gateway port.
+fn may_hand_over(kept: &Listener, home: &Path) -> bool {
+    let Some(holder) = kept.holder.as_ref() else { return true };
+    let same_home = holder.home == home
+        || std::fs::canonicalize(&holder.home)
+            .is_ok_and(|held| std::fs::canonicalize(home).is_ok_and(|here| held == here));
+    same_home && started_ms(holder.pid) == Some(holder.started_ms)
 }
 
 pub struct Gateway {
     port: u16,
+    /// The earlier ports this gateway bound as well as `port`, all serving the same routes and
+    /// tokens.
+    recovered: Vec<u16>,
     key: Vec<u8>,
     home: PathBuf,
     /// The daemon socket the tool servers' calls go to.
@@ -142,7 +226,44 @@ struct Waiter {
     reply: oneshot::Sender<Value>,
     /// The request's `_meta.progressToken`: its `notifications/progress` go to `progress`.
     token: Option<Value>,
-    progress: Option<mpsc::UnboundedSender<Value>>,
+    progress: Option<ProgressTx>,
+}
+
+/// A request's progress: a coalescing slot holding the newest `notifications/progress` and how
+/// many came (RFD 0124 R4). A progress note says where the call is, so the newest says all the
+/// older ones did; a harness that reads its SSE stream slowly gets the newest when it reads,
+/// where an unbounded channel kept every note the server wrote meanwhile.
+type ProgressTx = watch::Sender<(u64, Option<Value>)>;
+
+/// Progress notes replaced by a newer one before their reader took them, since the daemon started.
+static PROGRESS_COALESCED: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(test)]
+fn progress_coalesced() -> u64 {
+    PROGRESS_COALESCED.load(Ordering::Relaxed)
+}
+
+/// The newest note in `rx` past the `seen`th, counting the ones it replaced.
+fn newest_progress(
+    rx: &mut watch::Receiver<(u64, Option<Value>)>,
+    seen: &mut u64,
+) -> Option<Value> {
+    let newest = rx.borrow_and_update();
+    let (count, note) = &*newest;
+    if *count <= *seen {
+        return None;
+    }
+    PROGRESS_COALESCED.fetch_add(*count - *seen - 1, Ordering::Relaxed);
+    *seen = *count;
+    note.clone()
+}
+
+/// Puts `note` in the slot, over any note not yet read.
+fn post_progress(progress: &ProgressTx, note: Value) {
+    progress.send_modify(|(count, slot)| {
+        *count += 1;
+        *slot = Some(note);
+    });
 }
 
 /// The daemon's gateway, once [`start`] bound it.
@@ -183,7 +304,14 @@ pub fn forget(home: &Path, session: &str) {
 pub async fn start(home: &Path) {
     match bind(home, IDLE_STOP, REAP_EVERY).await {
         Ok(gateway) => {
-            tracing::info!("mcp gateway on 127.0.0.1:{}", gateway.port);
+            match gateway.recovered_ports() {
+                [] => tracing::info!("mcp gateway on 127.0.0.1:{}", gateway.port),
+                ports => tracing::info!(
+                    "mcp gateway on 127.0.0.1:{}, and on {ports:?} for the chats configured there \
+                     before a restart moved it",
+                    gateway.port
+                ),
+            }
             let _ = GATEWAY.set(gateway);
         }
         Err(e) => {
@@ -195,15 +323,17 @@ pub async fn start(home: &Path) {
 /// Binds a gateway (the kept port when it is free), keeps its port and key, and serves it,
 /// stopping a chat's server after `idle` with no request, looked for every `reap_every`.
 pub async fn bind(home: &Path, idle: Duration, reap_every: Duration) -> Result<Arc<Gateway>> {
-    bind_at(home, crate::config::socket_path(), idle, reap_every).await
+    bind_at(home, crate::config::socket_path(), idle, reap_every, HANDOVER_WAIT).await
 }
 
-/// [`bind`], its tool servers' calls going to the daemon at `socket`.
+/// [`bind`], its tool servers' calls going to the daemon at `socket`, waiting `handover` for the
+/// kept port.
 pub async fn bind_at(
     home: &Path,
     socket: PathBuf,
     idle: Duration,
     reap_every: Duration,
+    handover: Duration,
 ) -> Result<Arc<Gateway>> {
     let path = home.join("run").join("mcp-gateway.json");
     let kept: Option<Listener> =
@@ -216,23 +346,54 @@ pub async fn bind_at(
             key
         }
     };
+    let mut earlier: Vec<u16> = kept.as_ref().map(|k| k.earlier.clone()).unwrap_or_default();
+    // A port held by anything but the daemon this one replaces is not waited for.
+    let handover = match kept.as_ref() {
+        Some(kept) if !may_hand_over(kept, home) => Duration::ZERO,
+        _ => handover,
+    };
     let listener = match kept.as_ref().map(|k| k.port).filter(|p| *p != 0) {
-        Some(port) => match TcpListener::bind(("127.0.0.1", port)).await {
+        Some(port) => match bind_kept(port, handover).await {
             Ok(l) => l,
             Err(e) => {
-                // A harness the next daemon adopts loses its tools until it starts again.
-                tracing::warn!("mcp gateway: port {port} is taken ({e}); taking a free one");
-                TcpListener::bind(("127.0.0.1", 0)).await?
+                // New chats get the free port; the kept one stays in `earlier`, so the harnesses
+                // configured at it reach their tools again as soon as a daemon can bind it.
+                tracing::warn!(
+                    "mcp gateway: port {port} is still taken after {handover:?} ({e}); taking a \
+                     free one and keeping {port} in run/mcp-gateway.json"
+                );
+                earlier.insert(0, port);
+                bind_derived(home).await?
             }
         },
-        None => TcpListener::bind(("127.0.0.1", 0)).await?,
+        None => bind_derived(home).await?,
     };
     let port = listener.local_addr()?.port();
-    let record = Listener { port, key: encode_hex(&key) };
+    // The record is one daemon's memory and can be short, stale or lost; the configs the daemon
+    // wrote are what the live harnesses dial. Both, so a chat whose port fell off the record is
+    // served again.
+    earlier.extend(ports_chats_are_configured_at(home));
+    let mut seen = std::collections::HashSet::new();
+    earlier.retain(|p| *p != 0 && *p != port && seen.insert(*p));
+    earlier.truncate(PORTS_REMEMBERED);
+    // Every earlier port that is free now, served with this gateway's routes and tokens.
+    let mut recovered = Vec::new();
+    let mut listeners = vec![listener];
+    for earlier in &earlier {
+        match TcpListener::bind(("127.0.0.1", *earlier)).await {
+            Ok(l) => {
+                recovered.push(*earlier);
+                listeners.push(l);
+            }
+            Err(e) => tracing::debug!("mcp gateway: earlier port {earlier} is not free ({e})"),
+        }
+    }
+    let record = Listener { port, key: encode_hex(&key), earlier, holder: Holder::of_self(home) };
     crate::agent_tools::write_private(&path, &serde_json::to_vec(&record)?)
         .context("mcp gateway: keeping the port and key")?;
     let gateway = Arc::new(Gateway {
         port,
+        recovered,
         key,
         home: home.to_owned(),
         socket,
@@ -240,9 +401,115 @@ pub async fn bind_at(
         scope: Arc::new(cmux_scope::Scope::new("mcp gateway")),
         chats: Mutex::new(HashMap::new()),
     });
-    gateway.scope.spawn_named("mcp gateway listener", serve(gateway.clone(), listener));
+    for listener in listeners {
+        gateway.scope.spawn_named("mcp gateway listener", serve(gateway.clone(), listener));
+    }
     gateway.scope.spawn_named("mcp gateway idle stop", reap(gateway.clone(), reap_every));
     Ok(gateway)
+}
+
+/// The ports this home's chats are configured at: every `http://127.0.0.1:PORT/mcp/` in the
+/// `--mcp-config` files the daemon wrote (`run/mcp/<session>.json`), newest file first. A harness
+/// only ever dials the url its config named at launch, so these are the ports where a chat gets
+/// `ECONNREFUSED` once the gateway moves — ground truth, where `run/mcp-gateway.json` is one
+/// daemon's memory of its own runs and may have been truncated, replaced or lost.
+fn ports_chats_are_configured_at(home: &Path) -> Vec<u16> {
+    let Ok(entries) = std::fs::read_dir(home.join("run").join("mcp")) else {
+        return Vec::new();
+    };
+    let mut found: Vec<(std::time::SystemTime, u16)> = Vec::new();
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        // `<session>.gateway.json` is the kept launch, which names no url.
+        if !name.ends_with(".json") || name.ends_with(".gateway.json") {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(entry.path()) else { continue };
+        let when = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+        for port in configured_ports(&text) {
+            found.push((when, port));
+        }
+    }
+    // Newest config first: the ports most likely to belong to a chat that is still running.
+    found.sort_by(|a, b| b.0.cmp(&a.0));
+    let mut seen = std::collections::HashSet::new();
+    found.into_iter().map(|(_, port)| port).filter(|p| seen.insert(*p)).collect()
+}
+
+/// Every loopback gateway port named in one config's text.
+fn configured_ports(text: &str) -> Vec<u16> {
+    const MARK: &str = "http://127.0.0.1:";
+    text.split(MARK)
+        .skip(1)
+        .filter_map(|rest| {
+            let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+            // Only this gateway's routes: another loopback server's url is not ours. `strip_prefix`
+            // rather than a slice at `digits.len()`, which is an index into `rest` this code would
+            // have to prove is a char boundary.
+            if !rest.strip_prefix(digits.as_str())?.starts_with("/mcp/") {
+                return None;
+            }
+            digits.parse().ok()
+        })
+        .collect()
+}
+
+/// A port derived from the home path, probing upward, instead of a fresh ephemeral one: with no
+/// kept port (a lost or unreadable record, a first run after a reinstall) the gateway lands on the
+/// port its predecessor landed on, which is the port the live chats are configured at.
+async fn bind_derived(home: &Path) -> std::io::Result<TcpListener> {
+    let first = derived_port(home);
+    for step in 0..DERIVED_PORT_TRIES {
+        let within_span = (u64::from(first.saturating_sub(DERIVED_PORT_BASE))
+            .saturating_add(u64::from(step)))
+            & DERIVED_PORT_MASK;
+        let port = DERIVED_PORT_BASE.saturating_add(u16::try_from(within_span).unwrap_or(0));
+        match TcpListener::bind(("127.0.0.1", port)).await {
+            Ok(listener) => return Ok(listener),
+            Err(e) => tracing::debug!("mcp gateway: derived port {port} is taken ({e})"),
+        }
+    }
+    TcpListener::bind(("127.0.0.1", 0)).await
+}
+
+/// `DERIVED_PORT_BASE + FNV-1a(home) & DERIVED_PORT_MASK`. The hash is written out here rather
+/// than taken from `DefaultHasher`, which the standard library may change between releases: this
+/// port has to be the same after an app update, not only after a restart.
+pub(crate) fn derived_port(home: &Path) -> u16 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in home.as_os_str().as_encoded_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100_0000_01b3);
+    }
+    // The mask holds the result inside the span, so neither the conversion nor the add can lose a
+    // bit: `DERIVED_PORT_BASE + DERIVED_PORT_MASK` is 57343, well inside a `u16`.
+    DERIVED_PORT_BASE.saturating_add(u16::try_from(hash & DERIVED_PORT_MASK).unwrap_or(0))
+}
+
+/// Binds the kept port, trying again until `wait` runs out. A daemon hands over to its successor:
+/// the successor starts while the daemon it replaces still holds the port and only exits a second
+/// or so later (`daemon.stops.json`, `handover: another daemon of this home starts`). Taking a
+/// free port on the first `Address in use` made every restart move the gateway, and each move
+/// stranded every live harness, whose config names the port it was started with (big-red,
+/// 2026-11-22: eight restarts, eight new ports, `ECONNREFUSED ... dialing
+/// http://127.0.0.1:41227/mcp/...` in a chat for the rest of its life).
+async fn bind_kept(port: u16, wait: Duration) -> std::io::Result<TcpListener> {
+    let deadline = Instant::now() + wait;
+    loop {
+        match TcpListener::bind(("127.0.0.1", port)).await {
+            Ok(listener) => return Ok(listener),
+            Err(e) => {
+                if Instant::now() >= deadline {
+                    return Err(e);
+                }
+                tokio::time::sleep(BIND_RETRY_EVERY).await;
+            }
+        }
+    }
 }
 
 /// A Claude Code config with each gateway server put back as the stdio launch it stands for, for
@@ -261,10 +528,18 @@ pub fn stdio_view(home: &Path, session: &str, mut config: Value) -> Value {
     else {
         return config;
     };
-    let ours = format!("http://127.0.0.1:{}/mcp/{session}", listener.port);
+    // Its current port, and the earlier ones it still serves: a config written before a restart
+    // names one of those.
+    let ours: Vec<String> = std::iter::once(listener.port)
+        .chain(listener.earlier.iter().copied())
+        .map(|port| format!("http://127.0.0.1:{port}/mcp/{session}"))
+        .collect();
     for server in servers.values_mut() {
         if server.get("type").and_then(Value::as_str) != Some("http")
-            || server.get("url").and_then(Value::as_str) != Some(ours.as_str())
+            || !server
+                .get("url")
+                .and_then(Value::as_str)
+                .is_some_and(|url| ours.iter().any(|ours| ours == url))
         {
             continue;
         }
@@ -286,6 +561,17 @@ pub fn launch_path(home: &Path, session: &str) -> PathBuf {
 impl Gateway {
     pub fn port(&self) -> u16 {
         self.port
+    }
+
+    /// The earlier ports it serves besides [`Gateway::port`], for the harnesses configured at
+    /// them before a restart moved the gateway.
+    pub fn recovered_ports(&self) -> &[u16] {
+        &self.recovered
+    }
+
+    /// Every port it serves: `port` first, then the earlier ones it took back.
+    fn ports(&self) -> impl Iterator<Item = u16> + '_ {
+        std::iter::once(self.port).chain(self.recovered.iter().copied())
     }
 
     pub fn endpoint(&self, session: &str) -> Endpoint {
@@ -588,7 +874,7 @@ impl Server {
     async fn send(
         &self,
         message: &Value,
-        progress: Option<mpsc::UnboundedSender<Value>>,
+        progress: Option<ProgressTx>,
     ) -> Result<(oneshot::Receiver<Value>, ())> {
         let id = message.get("id").map(Value::to_string).ok_or_else(|| anyhow!("no id"))?;
         let token = message.pointer("/params/_meta/progressToken").cloned();
@@ -637,7 +923,7 @@ async fn read_answers(
             if let Some(w) = waiting.values().find(|w| w.token.as_ref() == token && token.is_some())
                 && let Some(progress) = &w.progress
             {
-                let _ = progress.send(message);
+                post_progress(progress, message);
             }
             continue;
         }
@@ -720,11 +1006,14 @@ async fn connection(gateway: Arc<Gateway>, mut stream: TcpStream) {
             return;
         }
     };
+    // Any port this gateway listens on: a harness configured before a restart names an earlier
+    // one ([`bind_at`]), and its `Host` is the port it dialed.
     let host_ok = request.header("host").is_some_and(|h| {
-        let port = gateway.port;
-        h == format!("127.0.0.1:{port}")
-            || h == format!("localhost:{port}")
-            || h == format!("[::1]:{port}")
+        gateway.ports().any(|port| {
+            h == format!("127.0.0.1:{port}")
+                || h == format!("localhost:{port}")
+                || h == format!("[::1]:{port}")
+        })
     });
     if !host_ok || request.header("origin").is_some() {
         let _ = respond(&mut stream, "403 Forbidden", "text/plain", b"forbidden").await;
@@ -912,7 +1201,8 @@ async fn relay(
     streams: bool,
     stream: &mut TcpStream,
 ) -> Result<Value> {
-    let (progress_tx, mut progress_rx) = mpsc::unbounded_channel();
+    let (progress_tx, mut progress_rx) = watch::channel((0, None));
+    let mut seen = 0;
     let progress = streams.then_some(progress_tx);
     let mut tries = 0;
     let reply = loop {
@@ -936,11 +1226,13 @@ async fn relay(
         // unbiased pick could take the answer while a note still waits.
         tokio::select! {
             biased;
-            Some(note) = progress_rx.recv() => {
-                stream.write_all(&sse_event(&note)).await?;
+            Ok(()) = progress_rx.changed() => {
+                if let Some(note) = newest_progress(&mut progress_rx, &mut seen) {
+                    stream.write_all(&sse_event(&note)).await?;
+                }
             }
             answer = &mut reply => {
-                while let Ok(note) = progress_rx.try_recv() {
+                if let Some(note) = newest_progress(&mut progress_rx, &mut seen) {
                     stream.write_all(&sse_event(&note)).await?;
                 }
                 return answer.map_err(|_| anyhow!("the server ended before it answered"));

@@ -39,7 +39,7 @@ env:
 
 jobs:
   route:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       actions: write # the default branch's scheduled run starts feat-cmux-next's
@@ -110,7 +110,7 @@ jobs:
     steps:
       - name: Result paths
         run: |
-          echo "DERIVED=$RUNNER_TEMP/dd" >> "$GITHUB_ENV"
+          echo "DERIVED=${CMUX_DERIVED_DATA_SLOT:-$RUNNER_TEMP/dd}" >> "$GITHUB_ENV"
           echo "RAW=$RUNNER_TEMP/raw" >> "$GITHUB_ENV"
           echo "OUT=$RUNNER_TEMP/first-user-journey-ios" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/dd" "$RUNNER_TEMP/raw" "$RUNNER_TEMP/first-user-journey-ios"
@@ -151,6 +151,9 @@ jobs:
         if: steps.ffi.outputs.cache-hit != 'true'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-next-ios/rust
           key: first-user-journey-ios

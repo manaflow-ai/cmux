@@ -984,6 +984,29 @@
         "ty": "json"
       }
     },
+    "event:conversation-scheduled-changed": {
+      "/conversation": {
+        "ty": "string",
+        "required": true
+      },
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"conversation-scheduled-changed\""
+        ]
+      },
+      "/participant": {
+        "ty": "string",
+        "required": true
+      },
+      "/removed": {
+        "ty": "json"
+      },
+      "/scheduled": {
+        "ty": "json"
+      }
+    },
     "event:conversation-typing": {
       "/conversation": {
         "ty": "string",
@@ -7506,6 +7529,14 @@
         "ty": "uint64",
         "nullable": true
       },
+      "/resume_generation": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/resume_offset": {
+        "ty": "uint64",
+        "nullable": true
+      },
       "/rows": {
         "ty": "uint16",
         "nullable": true
@@ -8966,6 +8997,19 @@
         "ty": "string"
       }
     },
+    "request:conversation-scheduled-list": {
+      "/conversation": {
+        "ty": "string",
+        "nullable": true
+      }
+    },
+    "request:conversation-scheduled-op": {
+      "/op": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
+      }
+    },
     "request:conversation-search": {
       "/limit": {
         "ty": "uint32",
@@ -9889,12 +9933,35 @@
       }
     },
     "request:home-inbox": {
+      "/ids": {
+        "ty": "array",
+        "nullable": true
+      },
+      "/ids/*": {
+        "ty": "string"
+      },
+      "/limit": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/offset": {
+        "ty": "uint64",
+        "nullable": true
+      },
       "/owners": {
         "ty": "array",
         "nullable": true
       },
       "/owners/*": {
         "ty": "string"
+      },
+      "/scope": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/since": {
+        "ty": "uint64",
+        "nullable": true
       }
     },
     "request:identify": {
@@ -10124,6 +10191,10 @@
     "request:list-terminals": {},
     "request:list-workspace-groups": {},
     "request:list-workspaces": {
+      "/after": {
+        "ty": "uint64",
+        "nullable": true
+      },
       "/known": {
         "ty": "object",
         "nullable": true
@@ -11397,6 +11468,7 @@
       }
     },
     "request:ping": {},
+    "request:process-census": {},
     "request:process-info": {
       "/surface": {
         "ty": "uint64",
@@ -12913,6 +12985,41 @@
     "request:terminal-events": {
       "/after_revision": {
         "ty": "uint64"
+      }
+    },
+    "request:terminal-find": {
+      "/before": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/case_sensitive": {
+        "ty": "boolean"
+      },
+      "/epoch": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/max_matches": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/page_rows": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/query": {
+        "ty": "string",
+        "required": true
+      },
+      "/regex": {
+        "ty": "boolean"
+      },
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/whole_word": {
+        "ty": "boolean"
       }
     },
     "request:terminal-history": {
@@ -16046,6 +16153,33 @@
         "ty": "json"
       }
     },
+    "response:conversation-scheduled-list": {
+      "/data/scheduled": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/scheduled/*": {
+        "ty": "json"
+      }
+    },
+    "response:conversation-scheduled-op": {
+      "/data/change": {
+        "ty": "json"
+      },
+      "/data/removed": {
+        "ty": "json"
+      },
+      "/data/replayed": {
+        "ty": "boolean"
+      },
+      "/data/rev": {
+        "ty": "uint64"
+      },
+      "/data/scheduled": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "response:conversation-search": {
       "/data/hits": {
         "ty": "array",
@@ -17788,9 +17922,27 @@
         "ty": "string",
         "required": true
       },
+      "/data/full": {
+        "ty": "boolean"
+      },
       "/data/me": {
         "ty": "string",
         "required": true
+      },
+      "/data/offset": {
+        "ty": "uint64"
+      },
+      "/data/order": {
+        "ty": "string"
+      },
+      "/data/removed": {
+        "ty": "array"
+      },
+      "/data/removed/*": {
+        "ty": "string"
+      },
+      "/data/revision": {
+        "ty": "uint64"
       },
       "/data/rows": {
         "ty": "array",
@@ -17817,6 +17969,9 @@
       "/data/rows/*/id": {
         "ty": "string",
         "required": true
+      },
+      "/data/rows/*/index": {
+        "ty": "uint64"
       },
       "/data/rows/*/kind": {
         "ty": "enum",
@@ -17860,6 +18015,12 @@
       "/data/rows/*/unread": {
         "ty": "uint64",
         "required": true
+      },
+      "/data/total": {
+        "ty": "uint64"
+      },
+      "/data/window": {
+        "ty": "boolean"
       }
     },
     "response:identify": {
@@ -18543,6 +18704,9 @@
     "response:list-workspaces": {
       "/data/generation": {
         "ty": "string"
+      },
+      "/data/next": {
+        "ty": "uint64"
       },
       "/data/pane_revision": {
         "ty": "uint64"
@@ -19785,6 +19949,12 @@
       },
       "/data/version": {
         "ty": "string",
+        "required": true
+      }
+    },
+    "response:process-census": {
+      "/data": {
+        "ty": "json",
         "required": true
       }
     },
@@ -22601,6 +22771,12 @@
       },
       "/data/terminal_revision": {
         "ty": "uint64",
+        "required": true
+      }
+    },
+    "response:terminal-find": {
+      "/data": {
+        "ty": "json",
         "required": true
       }
     },

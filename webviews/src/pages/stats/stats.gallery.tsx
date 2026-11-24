@@ -16,17 +16,25 @@ type Props = {
   longestStreak?: number;
   failure?: { code: string; message: string };
   usage?: MockUsageKind;
+  /** Overrides acpmux's busy (clock) time as a share of agent time; null drops the field (an older acpmux). */
+  busyShare?: number | null;
 };
 
-function StatsGallery({ kind = "busy", range = 84, longestStreak, failure, usage = "on" }: Props) {
+function StatsGallery({ kind = "busy", range = 84, longestStreak, failure, usage = "on", busyShare }: Props) {
   // UTC, so every capture draws the same calendar wherever it runs.
   const [store] = useState(() => {
     const provider = new MockStatsProvider(kind, failure, usage);
-    if (longestStreak !== undefined) {
+    if (longestStreak !== undefined || busyShare !== undefined) {
       const call = provider.call.bind(provider);
       provider.call = async <R,>(op: string, params: unknown): Promise<R> => {
-        const summary = await call<StatsSummary>(op, params);
-        return { ...summary, streak: { ...summary.streak, longest: longestStreak } } as R;
+        let summary = await call<StatsSummary>(op, params);
+        if (longestStreak !== undefined)
+          summary = { ...summary, streak: { ...summary.streak, longest: longestStreak } };
+        if (busyShare !== undefined) {
+          const { busyMs: _dropped, ...rest } = summary;
+          summary = busyShare === null ? rest : { ...rest, busyMs: Math.round(summary.workingMs * busyShare) };
+        }
+        return summary as R;
       };
     }
     return new StatsStore(provider, () => 0);
@@ -67,6 +75,18 @@ export default componentEntry<Props>({
       props: { longestStreak: 366 },
     },
     empty: { note: "No agent has run in range yet.", props: { kind: "empty" } },
+    "payoff-many": {
+      note: "Parallel payoff with many agents at once: 7.9 hours of agent work per clock hour.",
+      props: { busyShare: 1 / 7.94 },
+    },
+    "payoff-solo": {
+      note: "Parallel payoff with one agent at a time: 1.0x, said plainly.",
+      props: { busyShare: 1 },
+    },
+    "payoff-older-acpmux": {
+      note: "An acpmux without busy time: no payoff band, the tiles as before.",
+      props: { busyShare: null },
+    },
     "usage-off": {
       note: "Usage Patterns with the setting off (the default): the section says how to turn it on.",
       props: { usage: "off" },
