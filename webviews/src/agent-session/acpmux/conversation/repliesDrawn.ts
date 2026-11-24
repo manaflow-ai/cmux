@@ -2,7 +2,7 @@
 // draws it (Leo, 2026-11-12: "I can't see the GUI coordinator talking to me right now ... you should
 // be able to detect that the messages aren't coming out from the coordinator"). The log is the
 // truth; the drawn rows are the transcript's own reducer (direct.ts) and fold (turns.ts).
-import type { EventRecord } from "../direct";
+import type { EventRecord } from "../eventRecord";
 import { replyRowKey } from "../replyRowKey";
 import type { AcpmuxRow } from "../model";
 
