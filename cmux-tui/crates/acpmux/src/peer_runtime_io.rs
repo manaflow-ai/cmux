@@ -1274,6 +1274,7 @@ impl Peer {
                             let rtt = carriers::pong_rtt(&payload);
                             if let (Some(rtt), Some(via)) = (rtt, self.serving()) {
                                 self.path_pong(via, rtt);
+                                self.link_pong(rtt);
                             }
                             // Measured on this loop's clock, from the ping's send to its pong's
                             // read: what the probe and the budget must wait for.

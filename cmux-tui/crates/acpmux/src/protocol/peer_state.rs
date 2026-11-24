@@ -133,6 +133,19 @@ pub enum DownCause {
 /// the platform's ticket mint refused or did not answer. `credential-unavailable`.
 pub const CREDENTIAL_UNAVAILABLE: &str = "credential-unavailable:";
 
+/// How the open link plays, as a game's ping bars say it (`quality`): from its smoothed round
+/// trip (`rttMs`, `peer_quality.rs`), with hysteresis so a link at a bound does not flap.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum LinkQuality {
+    /// Under 150 ms: feels local.
+    Good,
+    /// 150 to 400 ms: typing and streams lag visibly.
+    Slow,
+    /// 400 ms or more: every action waits a beat.
+    Poor,
+}
+
 /// Why a down link is `offline` and what a person does about it (`reason`): a terminal named
 /// state, so a link that cannot heal on its own never reads as still connecting (design
 /// `remote-cloud-durability.md` 4.3, handbook `connection-state-with-no-action-or-bound`).
@@ -203,9 +216,9 @@ impl OfflineReason {
 }
 
 /// `_acpmux/peer_state_changed`, to every watching connection (`_acpmux/watch`) when a peer's
-/// link changes (`link`, `carrier`, `cause`, `reason` or `nextRetryAt`), never twice for the same one: a
-/// peer that is added sends its first state, and one that is removed a last `offline` with
-/// `error: "removed"`. Listed as the `peerStateEvents` feature.
+/// link changes (`link`, `carrier`, `cause`, `reason`, `nextRetryAt` or `quality`), never
+/// twice for the same one: a peer that is added sends its first state, and one that is
+/// removed a last `offline` with `error: "removed"`. Listed as the `peerStateEvents` feature.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[schemars(transform = require_all)]
@@ -231,6 +244,13 @@ pub struct PeerStateChanged {
     /// What a person does about `reason`; null when there is none.
     #[serde(default)]
     pub action: Option<OfflineAction>,
+    /// The open link's tier from its smoothed round trip; null while no link is open or before
+    /// its first pong. A change of it is news; `rttMs` rides along.
+    #[serde(default)]
+    pub quality: Option<LinkQuality>,
+    /// The open link's smoothed round trip in ms (`peer_quality.rs`); null as `quality` is.
+    #[serde(default)]
+    pub rtt_ms: Option<u32>,
     /// The last frame from the peer, ms since the epoch.
     pub last_seen: Option<u64>,
     /// Why the link is down, when it is.
