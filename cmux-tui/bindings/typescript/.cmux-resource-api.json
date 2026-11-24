@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "a8942549a7267599945d20de21f33d1ffd0827908624d01e7b4a92ac9f95187f",
+  "catalog_sha256": "1014ca73b48e8b15ea909b07a08c33c1d455719c9bd2769c74899e3f9adb10de",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -376,6 +376,9 @@
     "diff.comments.send": {
       "class": "mutation"
     },
+    "diff.comments.thread": {
+      "class": "mutation"
+    },
     "frontend_projection.get": {
       "class": "read"
     },
@@ -419,6 +422,15 @@
       "class": "read"
     },
     "git.push": {
+      "class": "mutation"
+    },
+    "git.review.comment": {
+      "class": "mutation"
+    },
+    "git.review.post": {
+      "class": "mutation"
+    },
+    "git.review.start": {
       "class": "mutation"
     },
     "git.status": {
