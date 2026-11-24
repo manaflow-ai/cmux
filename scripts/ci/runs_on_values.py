@@ -57,8 +57,14 @@ HOST_NAME = re.compile(r"cmux\d+s?(?:-perf)?|cmuxs-mac-mini-\d+|cmux-austin-mini
 RUNNER_NAME_VARIABLES = ("CI_IOS_INTERNAL_RUNNER", "CI_NIGHTLY_NEXT_TRUSTED_RUNNER", "CI_NIGHTLY_TRUSTED_RUNNER")
 # vars.X and the bracket form vars['X'] (GitHub reads both), with any spacing between tokens. A bracket key
 # counts only whole: names allow no hyphen, so vars['X-Y'] reads no variable. The pattern also accepts
-# vars["X"], though GitHub rejects double-quoted strings, so such a workflow never loads.
-VARIABLE = re.compile(r"\bvars\s*(?:\.\s*|\[\s*['\"](?=[A-Za-z0-9_]+['\"]\s*\]))([A-Za-z0-9_]+)\b")
+# vars["X"], though GitHub rejects double-quoted strings, so such a workflow never loads. Group 1 marks a
+# `vars` reached through another value (`fromJSON(...).vars.X`): that is the value's property, not the context.
+VARIABLE = re.compile(r"(\.\s*)?\bvars\s*(?:\.\s*|\[\s*['\"](?=[A-Za-z0-9_]+['\"]\s*\]))([A-Za-z0-9_]+)\b")
+
+
+def variable_reads(text: str) -> list[str]:
+    """The repository variables `text` reads, in order."""
+    return [name for through, name in VARIABLE.findall(text) if not through]
 # A positive test of a picker's output, as one whole `&&` term: the output itself, or the output compared with
 # `==` / `!=` to a literal or to format(...) (`needs.p.outputs.trusted != 'false'`,
 # `needs.p.outputs.attempt == format('{0}', github.run_attempt)`). A negation (`!needs...`), an `||` group or an
@@ -157,7 +163,7 @@ def unguarded(expression: str, values: Mapping[str, str], falls_through: bool = 
         if len(split_top(value, "||")) > 1:
             found += unguarded(value, values, tail, guarded)
             continue
-        names = [name for name in dict.fromkeys(VARIABLE.findall(value)) if single_host(values.get(name))]
+        names = [name for name in dict.fromkeys(variable_reads(value)) if single_host(values.get(name))]
         if names and not (guarded and tail):
             found += names
     return found
@@ -193,7 +199,7 @@ def jobs(trees: Iterable[tuple[str, Path]]) -> list[tuple[str, str, str]]:
 
 def read_variables(trees: Iterable[tuple[str, Path]]) -> set[str]:
     """Every variable a runs-on in `trees` reads."""
-    return {name for _, _, text in jobs(trees) for name in VARIABLE.findall(text)}
+    return {name for _, _, text in jobs(trees) for name in variable_reads(text)}
 
 
 def problems(trees: Iterable[tuple[str, Path]], values: Mapping[str, str]) -> list[str]:
