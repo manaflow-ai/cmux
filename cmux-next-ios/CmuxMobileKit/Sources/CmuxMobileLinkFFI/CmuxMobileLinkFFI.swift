@@ -1383,6 +1383,12 @@ public protocol ComposerOutboxProtocol: AnyObject, Sendable {
     func push(text: String, submit: Bool, nowMs: UInt64)  -> UInt64
     
     /**
+     * A tap on Send of a one-line draft for a full-screen program at `now_ms`: typed, then
+     * Return, in one request (`send-typed-submit-v1`). Returns the Send's number.
+     */
+    func pushTyped(text: String, nowMs: UInt64)  -> UInt64
+    
+    /**
      * The attached daemon's `identify` capabilities. Returns whether it takes keyed Sends; until
      * a daemon that does is attached, Sends wait in the outbox.
      */
@@ -1569,6 +1575,20 @@ open func push(text: String, submit: Bool, nowMs: UInt64) -> UInt64  {
             self.uniffiCloneHandle(),
         FfiConverterString.lower(text),
         FfiConverterBool.lower(submit),
+        FfiConverterUInt64.lower(nowMs),$0
+    )
+})
+}
+    
+    /**
+     * A tap on Send of a one-line draft for a full-screen program at `now_ms`: typed, then
+     * Return, in one request (`send-typed-submit-v1`). Returns the Send's number.
+     */
+open func pushTyped(text: String, nowMs: UInt64) -> UInt64  {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_composeroutbox_push_typed(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(text),
         FfiConverterUInt64.lower(nowMs),$0
     )
 })
@@ -5403,6 +5423,115 @@ public func FfiConverterTypeMacScreenIceServer_lower(_ value: MacScreenIceServer
 
 
 /**
+ * One waiting request as a card on the phone.
+ */
+public struct PairRequestCard: Equatable, Hashable {
+    /**
+     * The asking device's id (what `answer` names).
+     */
+    public var deviceId: String
+    /**
+     * The name it asked under ("Probe iPhone"); its id when it gave none.
+     */
+    public var name: String
+    /**
+     * `phone`, `mac` or `linux`.
+     */
+    public var kind: String
+    /**
+     * The fingerprint hostd listed (lowercase hex, what `answer` sends back).
+     */
+    public var fingerprint: String
+    /**
+     * The fingerprint for the person: groups of four ("1a2b 3c4d 5e6f 7a8b").
+     */
+    public var fingerprintShown: String
+    /**
+     * How long it has waited, in whole seconds.
+     */
+    public var waitedSeconds: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The asking device's id (what `answer` names).
+         */deviceId: String, 
+        /**
+         * The name it asked under ("Probe iPhone"); its id when it gave none.
+         */name: String, 
+        /**
+         * `phone`, `mac` or `linux`.
+         */kind: String, 
+        /**
+         * The fingerprint hostd listed (lowercase hex, what `answer` sends back).
+         */fingerprint: String, 
+        /**
+         * The fingerprint for the person: groups of four ("1a2b 3c4d 5e6f 7a8b").
+         */fingerprintShown: String, 
+        /**
+         * How long it has waited, in whole seconds.
+         */waitedSeconds: UInt64) {
+        self.deviceId = deviceId
+        self.name = name
+        self.kind = kind
+        self.fingerprint = fingerprint
+        self.fingerprintShown = fingerprintShown
+        self.waitedSeconds = waitedSeconds
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension PairRequestCard: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePairRequestCard: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PairRequestCard {
+        return
+            try PairRequestCard(
+                deviceId: FfiConverterString.read(from: &buf), 
+                name: FfiConverterString.read(from: &buf), 
+                kind: FfiConverterString.read(from: &buf), 
+                fingerprint: FfiConverterString.read(from: &buf), 
+                fingerprintShown: FfiConverterString.read(from: &buf), 
+                waitedSeconds: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: PairRequestCard, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.deviceId, into: &buf)
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterString.write(value.kind, into: &buf)
+        FfiConverterString.write(value.fingerprint, into: &buf)
+        FfiConverterString.write(value.fingerprintShown, into: &buf)
+        FfiConverterUInt64.write(value.waitedSeconds, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePairRequestCard_lift(_ buf: RustBuffer) throws -> PairRequestCard {
+    return try FfiConverterTypePairRequestCard.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePairRequestCard_lower(_ value: PairRequestCard) -> RustBuffer {
+    return FfiConverterTypePairRequestCard.lower(value)
+}
+
+
+/**
  * One cell to draw. `standing`: 0 speculative (underlined), 1 confirmed
  * (plain, held until its frame), 2 erased (the cell's background only).
  */
@@ -8301,6 +8430,31 @@ fileprivate struct FfiConverterSequenceTypeMacScreenIceServer: FfiConverterRustB
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypePairRequestCard: FfiConverterRustBuffer {
+    typealias SwiftType = [PairRequestCard]
+
+    public static func write(_ value: [PairRequestCard], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypePairRequestCard.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [PairRequestCard] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [PairRequestCard]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypePairRequestCard.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypePredictedGlyph: FfiConverterRustBuffer {
     typealias SwiftType = [PredictedGlyph]
 
@@ -8445,6 +8599,32 @@ fileprivate struct FfiConverterSequenceTypeTabsEvent: FfiConverterRustBuffer {
             seq.append(try FfiConverterTypeTabsEvent.read(from: &buf))
         }
         return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterDictionaryStringString: FfiConverterRustBuffer {
+    public static func write(_ value: [String: String], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for (key, value) in value {
+            FfiConverterString.write(key, into: &buf)
+            FfiConverterString.write(value, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [String: String] {
+        let len: Int32 = try readInt(&buf)
+        var dict = [String: String]()
+        dict.reserveCapacity(Int(len))
+        for _ in 0..<len {
+            let key = try FfiConverterString.read(from: &buf)
+            let value = try FfiConverterString.read(from: &buf)
+            dict[key] = value
+        }
+        return dict
     }
 }
 private let UNIFFI_RUST_FUTURE_POLL_READY: Int8 = 0
@@ -8730,6 +8910,70 @@ public func linkOpenSide(url: String) -> LinkOpenSide  {
 })
 }
 /**
+ * The `answer` channel's args for `card`.
+ */
+public func pairRequestsAnswerArgs(card: PairRequestCard, allow: Bool) -> [String: String]  {
+    return try!  FfiConverterDictionaryStringString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_pair_requests_answer_args(
+        FfiConverterTypePairRequestCard_lower(card),
+        FfiConverterBool.lower(allow),$0
+    )
+})
+}
+/**
+ * The `list` channel's args.
+ */
+public func pairRequestsListArgs() -> [String: String]  {
+    return try!  FfiConverterDictionaryStringString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_pair_requests_list_args($0
+    )
+})
+}
+/**
+ * The cards of a `list` reply: `{"requests":[{"deviceId","name","kind","fingerprint","waitingMs"}]}`.
+ * A row without a device id or with a fingerprint that is not 8 to 64 hex digits is dropped
+ * (hostd could not take an answer to it); anything unreadable gives no cards.
+ */
+public func pairRequestsParse(reply: String) -> [PairRequestCard]  {
+    return try!  FfiConverterSequenceTypePairRequestCard.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_pair_requests_parse(
+        FfiConverterString.lower(reply),$0
+    )
+})
+}
+/**
+ * How long to wait before listing again: `shown` cards show now, and the last foreground, link
+ * open or shown card was `quiet_ms` ago. `None`: stop (the next foreground or link open lists
+ * again).
+ */
+public func pairRequestsPollDelayMs(shown: UInt32, quietMs: UInt64) -> UInt64?  {
+    return try!  FfiConverterOptionUInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_pair_requests_poll_delay_ms(
+        FfiConverterUInt32.lower(shown),
+        FfiConverterUInt64.lower(quietMs),$0
+    )
+})
+}
+/**
+ * The service name, for Swift.
+ */
+public func pairRequestsService() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_pair_requests_service($0
+    )
+})
+}
+/**
+ * Whether a Mac whose hostd lists `capabilities` serves `pair-requests`.
+ */
+public func pairRequestsSupported(capabilities: [String]) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_pair_requests_supported(
+        FfiConverterSequenceString.lower(capabilities),$0
+    )
+})
+}
+/**
  * The approval for the tap happening now, unsigned: call it only from the tap.
  */
 public func shareApprovalDraft(ask: ShareAsk)throws  -> ShareApprovalDraft  {
@@ -8917,6 +9161,24 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_link_open_side() != 2441) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_pair_requests_answer_args() != 5979) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_pair_requests_list_args() != 54786) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_pair_requests_parse() != 42023) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_pair_requests_poll_delay_ms() != 55499) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_pair_requests_service() != 63916) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_pair_requests_supported() != 49678) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_share_approval_draft() != 27332) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -9095,6 +9357,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_composeroutbox_push() != 49833) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_composeroutbox_push_typed() != 31394) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_composeroutbox_set_capabilities() != 28189) {

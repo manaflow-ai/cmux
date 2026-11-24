@@ -1,6 +1,5 @@
-import AppKit
-import CmuxNextActions
-import CmuxNextFocus
+public import AppKit
+public import CmuxNextActions
 
 /// Chords a browser owns while a page, the address bar or the find bar has
 /// the keyboard (plans/cmux-next/focus.md section 5, "Browser context").
@@ -15,7 +14,8 @@ import CmuxNextFocus
 /// Back. Chords cmux itself binds (Cmd-D split, Cmd-T new tab, Cmd-W close,
 /// Cmd-1..9 tab select) are resolved by the registry before this table is
 /// consulted, so cmux keeps them.
-enum BrowserChordTable {
+public struct BrowserChordTable {
+    public init() {}
     private static let left = Shortcut.leftArrowKey
     private static let right = Shortcut.rightArrowKey
     private static let pageUp = FunctionKeyCharacter.string(NSPageUpFunctionKey)
@@ -23,7 +23,7 @@ enum BrowserChordTable {
 
     /// The standard browser shortcuts on macOS, limited to Command and
     /// Control chords.
-    static let chromeReserved: Set<Shortcut> = {
+    public static let chromeReserved: Set<Shortcut> = {
         var set: Set<Shortcut> = [
             // Navigation: Back, Forward.
             Shortcut("["), Shortcut("]"), Shortcut(left), Shortcut(right),
@@ -60,7 +60,7 @@ enum BrowserChordTable {
     }()
 
     /// Whether `event` is a chord in `chromeReserved`.
-    static func isChromeChord(_ event: NSEvent) -> Bool {
+    public static func isChromeChord(_ event: NSEvent) -> Bool {
         shortcuts(of: event).contains { chromeReserved.contains($0) }
     }
 
@@ -69,17 +69,17 @@ enum BrowserChordTable {
     /// their chords (Cmd-[ / Cmd-] by default, or the user's rebinding) do
     /// nothing: cmux consumes them, so neither a Ghostty keybind nor the
     /// shell gets them.
-    static let browserOnlyActions: [ActionID] = ["browserBack", "browserForward"]
+    public static let browserOnlyActions: [ActionID] = ["browserBack", "browserForward"]
 
     /// Whether `event` is the effective chord of a browser-only action.
-    static func isBrowserOnlyChord(_ event: NSEvent, registry: ActionRegistry) -> Bool {
+    public static func isBrowserOnlyChord(_ event: NSEvent, registry: ActionRegistry) -> Bool {
         let chords = browserOnlyActions.compactMap(registry.effectiveShortcut(for:))
         return shortcuts(of: event).contains { chords.contains($0) }
     }
 
     /// The page-history action (`focusHistoryBack` / `focusHistoryForward`) of a browser-only
     /// chord, for a page with its own history (history.md 4.2b); nil for any other key.
-    static func pageHistoryAction(for event: NSEvent, registry: ActionRegistry) -> ActionID? {
+    public static func pageHistoryAction(for event: NSEvent, registry: ActionRegistry) -> ActionID? {
         let typed = shortcuts(of: event)
         let pairs: [(ActionID, ActionID)] = [("browserBack", "focusHistoryBack"), ("browserForward", "focusHistoryForward")]
         return pairs.first { pair in registry.effectiveShortcut(for: pair.0).map(typed.contains) ?? false }?.1
@@ -92,14 +92,5 @@ enum BrowserChordTable {
         guard event.type == .keyDown else { return [] }
         let keys = [event.charactersIgnoringModifiers, event.characters(byApplyingModifiers: [])].compactMap { $0 }
         return keys.map { Shortcut($0, modifiers: event.modifierFlags) }
-    }
-
-    /// Whether the focus target is browser content (page, address bar, find
-    /// bar, docked DevTools).
-    nonisolated static func isBrowserContext(_ resolved: FocusState.Resolved) -> Bool {
-        switch resolved {
-        case .browserPage, .addressBar, .findBar, .devTools: true
-        default: false
-        }
     }
 }
