@@ -181,6 +181,7 @@ public final class TerminalProjectingSession: TerminalSession {
     public func requestHistoryRows(_ rows: Int) { inner.requestHistoryRows(rows) }
     /// A pan's frame times go to the Mac the same way under a projection (`phone-frames`).
     public func reportScrollFrames(_ pan: TerminalPanFrames) { inner.reportScrollFrames(pan) }
+    public func discardHeldInput() { inner.discardHeldInput() }
 
     public func noteReaderRowsFromEnd(_ rows: Int) {
         projection.setReaderRowsFromEnd(rows: UInt32(clamping: max(0, rows)))

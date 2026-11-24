@@ -542,7 +542,34 @@ public final class DaemonTerminalSession: TerminalSession {
             // Held for the attach while the terminal reconnects; dropped when the reconnect
             // gives up (``expireInput()``), and the screen says so then.
             scheduleInputExpiry(after: macOffline ? Self.inputHoldLimit : Self.inputHoldCeiling)
+            reportHeldInput()
         }
+    }
+
+    /// Typed bytes the screen was last told wait for the attach (``reportHeldInput()``).
+    private var reportedHeldBytes = 0
+
+    /// Tells the screen how many typed bytes wait for the attach (`.inputHeld`), when that
+    /// changed: the composer says keys are pending and offers Discard while there are any,
+    /// since they will be typed into whatever the terminal shows after the attach.
+    private func reportHeldInput() {
+        let held = attached ? 0 : input.reduce(0) { $0 + ($1.detached && $1.typed ? $1.bytes.count : 0) }
+        guard held != reportedHeldBytes else { return }
+        reportedHeldBytes = held
+        if handler != nil, !ended { handler?(.inputHeld(bytes: held)) }
+    }
+
+    /// The person discarded the keys held for the attach: none of them is sent, and nothing
+    /// says "not sent" (they chose it). A held composer send comes back to the composer.
+    /// Typing goes on queueing for the attach. A no-op while attached.
+    public func discardHeldInput() {
+        guard !attached, !input.isEmpty else { return }
+        let bytes = input.reduce(0) { $0 + ($1.typed ? $1.bytes.count : 0) }
+        let pastes = input.compactMap(\.paste)
+        input.removeAll()
+        log.notice("surface \(self.surface, privacy: .public): \(bytes, privacy: .public) held typed bytes discarded by the person")
+        pastes.forEach(pasteWasNotSent)
+        reportHeldInput()
     }
 
     /// Checks the held keys against the hold (``expireInput()``) after `delay`.
@@ -573,6 +600,7 @@ public final class DaemonTerminalSession: TerminalSession {
         input = input.filter(\.typed).map { ($0.bytes, $0.at, true, true, $0.key, $0.paste) }
         guard !input.isEmpty else { return }
         scheduleInputExpiry(after: macOffline ? Self.inputHoldLimit : Self.inputHoldCeiling)
+        reportHeldInput()
     }
 
     /// Keys held for a detached terminal whose reconnect gave up: all queued
@@ -609,6 +637,7 @@ public final class DaemonTerminalSession: TerminalSession {
         let bytes = input.reduce(0) { $0 + ($1.typed ? $1.bytes.count : 0) }
         let pastes = input.compactMap(\.paste)
         input.removeAll()
+        reportHeldInput()
         // Only terminal replies were waiting: nothing the person typed was
         // lost, so typing goes on and the screen says nothing.
         guard bytes > 0 else { return }
@@ -1291,6 +1320,8 @@ public final class DaemonTerminalSession: TerminalSession {
             settleReclaimHold()
             refusingInput = false
             everAttached = true
+            // The held keys go now (``drainInput()``): nothing is pending any more.
+            reportHeldInput()
             handler?(.connection(.attached))
             lastError = nil
             pendingSize = nil
