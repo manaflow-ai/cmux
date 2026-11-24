@@ -21,6 +21,12 @@ environments whose deployment policy admits the refs that really release:
 - `nightly-next-train`: branch feat-cmux-next, the release App credentials
   (CMUX_RELEASE_APP_*) only, read by nightly-next-train.yml's drive job to push
   train commits once NIGHTLY_NEXT_TRAIN is on. No other signing secret enters it.
+- `billing-nightly`: branch main, the server's App Store In-App Purchase key
+  (APPLE_IAP_KEY_ID, _ISSUER_ID, _PRIVATE_KEY) and the billing health token
+  (APPLE_NOTIFICATIONS_HEALTH_TOKEN) only, read by billing-nightly.yml's
+  apple-delivery, apple-api and apple-post-release jobs. No release signing
+  secret enters it, and
+  those jobs check at run time that it admits main alone.
 
 A job without such an environment would read nothing once the repository-level
 copies are deleted, so this guard fails before that breaks a release. It also
@@ -49,6 +55,10 @@ PROMOTE_ENVIRONMENTS = {"nightly-next-promote", "release-surface-ack"}
 PROMOTE_READERS = {("nightly.yml", "promote-nightly-next"), ("nightly.yml", "promote-nightly-next-acked")}
 TRAIN_ENVIRONMENTS = {"nightly-next-train"}
 TRAIN_READERS = {("nightly-next-train.yml", "drive")}
+BILLING_NIGHTLY_ENVIRONMENTS = {"billing-nightly"}
+BILLING_NIGHTLY_SECRETS = {"APPLE_IAP_KEY_ID", "APPLE_IAP_ISSUER_ID", "APPLE_IAP_PRIVATE_KEY", "APPLE_NOTIFICATIONS_HEALTH_TOKEN"}
+BILLING_NIGHTLY_READERS = {("billing-nightly.yml", "apple-delivery"), ("billing-nightly.yml", "apple-api"),
+                           ("billing-nightly.yml", "apple-post-release")}
 
 SIGNING_SECRET = re.compile(
     r"^(APPLE_[A-Z0-9_]+"
@@ -74,6 +84,8 @@ def allowed_for(secret: str, reader: tuple[str, str] | None = None) -> set[str]:
         return RELEASE_ENVIRONMENTS | PROMOTE_ENVIRONMENTS
     if secret.startswith("CMUX_RELEASE_APP_") and reader in TRAIN_READERS:
         return TRAIN_ENVIRONMENTS
+    if secret in BILLING_NIGHTLY_SECRETS and reader in BILLING_NIGHTLY_READERS:
+        return BILLING_NIGHTLY_ENVIRONMENTS
     if secret.startswith("CONTENT_SIGNING_"):
         return CONTENT_SIGNING_ENVIRONMENTS
     if secret.startswith("CMUX_FFI_RELEASE_APP_"):

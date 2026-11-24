@@ -26,8 +26,10 @@ app-host suites CI selected for it) and skip slow unrelated lanes. Only a red th
 PR causes holds the merge; base reds, flakes and pending checks don't. If you
 merge before the judging checks finish, say on the PR what was not verified; the
 merge receipt (`merge_receipt.py`) records it and labels the PR `merged-unverified`.
-`gh-merge-green` still waits for the checks it requires; never get around it
-with `--override` or the API merge path. A
+`gh-merge-green` waits for the checks it requires. Do not stop on a stuck,
+irrelevant or known red one: waive it with `--override "<reason>"`, which posts
+the reason on the PR. It never waives a missing or running check (except a pending
+preview-deploy status the reason names), a freeze or the review receipt ([exact-head merging](../../../docs/ci-runners.md#exact-head-merging)). A
 main-regression comment on your PR (`main_regression_attribution.py`) is a
 fix-forward ask.
 

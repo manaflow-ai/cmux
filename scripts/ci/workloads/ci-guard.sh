@@ -16,6 +16,7 @@ stage start test
 python3 tests/test_ci_change_areas.py
 python3 tests/test_ci_linux_guard_routing.py
 python3 tests/test_ci_dispatch_targets_on_main.py
+python3 tests/test_ci_blacksmith_macos_switch.py
 python3 tests/test_ci_merge_queue_required_checks.py
 python3 tests/test_ci_reusable_workflow_permissions.py
 ./scripts/lint-pbxproj-test-wiring.sh

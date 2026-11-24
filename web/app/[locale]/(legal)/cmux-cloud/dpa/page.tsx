@@ -13,7 +13,7 @@ export default function CmuxCloudDpaPage() {
   return (
     <>
       <h1>cmux Cloud Data Processing Addendum</h1>
-      <p>Last updated: November 17, 2026.</p>
+      <p>Last updated: November 24, 2026.</p>
       <p>
         This Data Processing Addendum (&ldquo;DPA&rdquo;) is part of the{" "}
         <a href="https://cmux.com/terms-of-service#cmux-cloud">Terms of Service</a>{" "}
@@ -117,7 +117,9 @@ export default function CmuxCloudDpaPage() {
         models on them. For AI models, the subprocessors are the routes that the
         subprocessor page names; the provider of a model is shown with the model
         in cmux Cloud, and Customer authorizes that provider when it or its users
-        choose the model. Web search and page-reading services that agents use
+        choose the model. For the Slack decision step, Company chooses the
+        decision models; their providers are subprocessors that the
+        subprocessor page names. Web search and page-reading services that agents use
         receive only search words and addresses of public pages; Customer
         instructs Company to send these to them, and they are not
         subprocessors. Where Customer uses its own provider keys, endpoints,
@@ -250,7 +252,9 @@ export default function CmuxCloudDpaPage() {
           records; answering questions and passing on requests that participants
           type to the notetaker; transcription, writing notes, AI model processing, running
           agents and cloud machines, delivering results, and keeping or deleting
-          archive copies, as Customer and its users ask.
+          archive copies, as Customer and its users ask; and, when Customer has
+          the Slack decision step on, deciding from Slack messages in channels
+          where the cmux app is a member whether cmux should answer.
         </li>
         <li>
           Data subjects: Customer&rsquo;s users; members of Customer&rsquo;s
@@ -266,7 +270,9 @@ export default function CmuxCloudDpaPage() {
           and meeting chat messages; questions and requests typed to the
           notetaker; model call requests and answers; calendar
           event details; code and other
-          content in connected tools and cloud machines; memory.
+          content in connected tools and cloud machines, including mirror
+          copies of git repositories with their commit history (names and email
+          addresses of commit authors); memory.
         </li>
         <li>
           Special categories: Customer Personal Data can include special

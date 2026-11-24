@@ -80,6 +80,11 @@
       "message": "Ova mašina se pokreće, pauzira ili ne radi, pa to sada ne može uraditi.",
       "action": "Sačekajte trenutak i pokušajte ponovo. Provjerite status mašine pomoću cmux vm ls i prvo je nastavite ako je pauzirana."
     },
+    "hostRecovery": {
+      "title": "Host mašine se oporavlja",
+      "message": "Disk ove mašine nalazi se na Cloud hostu koji se oporavlja, pa se još ne može pokrenuti. Njeni fajlovi su sačuvani.",
+      "action": "Pokušajte ponovo za nekoliko minuta. Nemojte brisati niti ponovo kreirati mašinu: njen disk je sačuvan i vraća se s njom. Ako se ni nakon sat vremena ne pokrene, kontaktirajte podršku s ID-om praćenja."
+    },
     "networkRuleCapacity": {
       "title": "Mrežna pravila su na kapacitetu",
       "message": "Vaša mrežna politika je sačuvana, ali nije primijenjena: cmux Cloud je dostigao kapacitet mrežnih pravila.",
@@ -375,6 +380,7 @@
     "typingCodingAgents": "agente za kodiranje",
     "typingMultitasking": "multitasking",
     "subtitle": "Besplatan i otvorenog koda nativni macOS terminal izgrađen na Ghostty. Vertikalni tabovi, notifikacijski prstenovi kada agenti trebaju pažnju, podijeljeni paneli i <cliLink>CLI</cliLink> za programabilnost.",
+    "nextCallout": "Novo: isprobajte <link>cmux NEXT</link>, pregled sljedeće verzije cmux-a.",
     "features": "Funkcionalnosti",
     "faq": "Česta pitanja",
     "communitySection": "Zajednica",
@@ -979,7 +985,12 @@
         "deleteConfirmBody": "Ovo je nepovratno i briše sve podatke povezane s vašim računom.",
         "deleteAcknowledge": "Razumijem da će moj račun i njegovi podaci biti trajno izbrisani.",
         "deleteConfirm": "Izbriši račun",
-        "deleteError": "Račun nije moguće izbrisati. Pokušajte ponovo."
+        "deleteError": "Račun nije moguće izbrisati. Pokušajte ponovo.",
+        "deleteErrorPending": "Vaš račun se već briše. Pokušajte ponovo za trenutak.",
+        "deleteErrorRetryable": "Brisanje računa nije dovršeno. Provjerite vezu i pokušajte ponovo.",
+        "deleteAppStoreTitle": "Vaša App Store pretplata će se i dalje obnavljati",
+        "deleteAppStoreBody": "Brisanje vašeg cmux računa ne otkazuje vašu App Store pretplatu. Apple vam nastavlja naplaćivati dok je ne otkažete u App Storeu.",
+        "deleteAppStoreManage": "Upravljaj pretplatom u App Storeu"
       }
     },
     "teams": {
@@ -1257,7 +1268,10 @@
           "failed": "neuspjelo",
           "paused": "pauzirano",
           "destroyed": "izbrisano"
-        }
+        },
+        "wake": "Probudi",
+        "waking": "Buđenje…",
+        "wakeError": "Nije moguće probuditi ovu mašinu. Pokušajte ponovo."
       },
       "network": {
         "open": "Mreža",

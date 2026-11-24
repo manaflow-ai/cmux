@@ -580,7 +580,7 @@ describe("Iroh trust broker database behavior", () => {
           ${userId},
           ${randomUUID()},
           ${randomUUID()},
-          'dev.cmux.app.demo',
+          'dev.cmux.app.classic',
           'stable',
           'ios',
           ${"3b".repeat(32)},
@@ -602,15 +602,15 @@ describe("Iroh trust broker database behavior", () => {
       rows.map((row) => [row.clientNamespace, row.id]),
     );
 
-    const demo = await Effect.runPromise(repo.discoverySnapshot({
+    const classic = await Effect.runPromise(repo.discoverySnapshot({
       userId,
-      clientNamespace: "dev.cmux.app.demo",
-      callerBindingId: idByNamespace.get("dev.cmux.app.demo")!,
+      clientNamespace: "dev.cmux.app.classic",
+      callerBindingId: idByNamespace.get("dev.cmux.app.classic")!,
       callerPlatform: "ios",
       now: NOW,
     }));
-    expect(demo.bindings.map((row) => row.id).sort()).toEqual([
-      idByNamespace.get("dev.cmux.app.demo"),
+    expect(classic.bindings.map((row) => row.id).sort()).toEqual([
+      idByNamespace.get("dev.cmux.app.classic"),
       idByNamespace.get("mac:stable"),
     ].sort());
 

@@ -80,6 +80,11 @@
       "message": "Esta máquina se está iniciando, pausando o no está en ejecución, así que no puede hacer esto ahora.",
       "action": "Espera un momento y vuelve a intentarlo. Comprueba el estado de la máquina con cmux vm ls y reanúdala primero si está en pausa."
     },
+    "hostRecovery": {
+      "title": "Se está recuperando el host de la máquina",
+      "message": "El disco de esta máquina está en un host de Cloud que se está recuperando, así que todavía no puede iniciarse. Sus archivos se conservan.",
+      "action": "Vuelve a intentarlo en unos minutos. No elimines ni vuelvas a crear la máquina: su disco se conserva y vuelve con ella. Si después de una hora sigue sin iniciarse, contacta con soporte con el ID de traza."
+    },
     "networkRuleCapacity": {
       "title": "Reglas de red al límite",
       "message": "Tu política de red se guardó, pero no se aplicó: cmux Cloud alcanzó su capacidad de reglas de red.",
@@ -375,6 +380,7 @@
     "typingCodingAgents": "agentes de código",
     "typingMultitasking": "multitarea",
     "subtitle": "Terminal nativa de macOS open source y gratuita basada en Ghostty. Pestañas verticales, anillos de notificación cuando los agentes necesitan atención, paneles divididos y una <cliLink>CLI</cliLink> para programabilidad.",
+    "nextCallout": "Novedad: prueba <link>cmux NEXT</link>, un adelanto del próximo cmux.",
     "features": "Características",
     "faq": "FAQ",
     "communitySection": "Comunidad",
@@ -979,7 +985,12 @@
         "deleteConfirmBody": "Esta acción es irreversible y elimina todos los datos asociados a tu cuenta.",
         "deleteAcknowledge": "Entiendo que mi cuenta y sus datos se eliminarán de forma permanente.",
         "deleteConfirm": "Eliminar cuenta",
-        "deleteError": "No se pudo eliminar la cuenta. Inténtalo de nuevo."
+        "deleteError": "No se pudo eliminar la cuenta. Inténtalo de nuevo.",
+        "deleteErrorPending": "Tu cuenta ya se está eliminando. Inténtalo de nuevo en un momento.",
+        "deleteErrorRetryable": "No se pudo completar la eliminación de la cuenta. Comprueba tu conexión e inténtalo de nuevo.",
+        "deleteAppStoreTitle": "Tu suscripción de App Store se seguirá renovando",
+        "deleteAppStoreBody": "Eliminar tu cuenta de cmux no cancela tu suscripción de App Store. Apple te seguirá cobrando hasta que la canceles en App Store.",
+        "deleteAppStoreManage": "Gestionar suscripción en App Store"
       }
     },
     "teams": {
@@ -1257,7 +1268,10 @@
           "failed": "con errores",
           "paused": "en pausa",
           "destroyed": "eliminada"
-        }
+        },
+        "wake": "Reanudar",
+        "waking": "Reanudando…",
+        "wakeError": "No se pudo reanudar esta máquina. Inténtalo de nuevo."
       },
       "network": {
         "open": "Red",

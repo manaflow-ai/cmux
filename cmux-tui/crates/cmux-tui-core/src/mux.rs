@@ -2752,6 +2752,8 @@ pub struct Mux {
     resource_machine_service: OnceLock<Arc<dyn crate::ResourceMachineService>>,
     journal_kernel: Arc<crate::journal_kernel::JournalKernel>,
     journal_ingress: crate::journal_ingress::JournalIngressSender,
+    /// Terminal output, outside the journal (output_store.rs).
+    pub(crate) output_store: crate::output_store::OutputStore,
     journal_maintenance: Mutex<Option<JournalMaintenance>>,
     journal_hook_dispatcher_started: AtomicBool,
     journal_hook_runtime: Arc<crate::journal_hooks::JournalHookRuntime>,
@@ -3066,6 +3068,9 @@ impl Mux {
             crate::journal_ingress::JournalIngressSender::new(
                 registry.session_journal_database_path().is_some(),
             );
+        let output_store = crate::output_store::OutputStore::new(
+            registry.session_journal_database_path().as_deref().and_then(Path::parent),
+        );
         surface_options.browser_session_name = session.clone();
         Self::rebuild_split_screen_index(&mut state);
         let mux = Arc::new(Mux {
@@ -3185,6 +3190,7 @@ impl Mux {
             resource_machine_service: OnceLock::new(),
             journal_kernel,
             journal_ingress,
+            output_store,
             journal_maintenance: Mutex::new(None),
             journal_hook_dispatcher_started: AtomicBool::new(false),
             journal_hook_runtime: Arc::new(crate::journal_hooks::JournalHookRuntime::default()),
@@ -3245,6 +3251,7 @@ impl Mux {
             mux.record_journal_plugin_exit(plugin_id, generation);
         })));
         crate::journal_ingress::start(&mux, journal_ingress_receiver)?;
+        mux.output_store.start(&mux)?;
         mux.materialize_interrupted_resource_workspaces()?;
         mux.materialize_restored_browsers(&contents)?;
         #[cfg(unix)]
@@ -3397,17 +3404,21 @@ impl Mux {
                 registry.interrupted_resource_workspaces()?,
             )
         };
-        anyhow::ensure!(
-            recoveries.len() <= 1,
-            "multiple interrupted resource creations cannot be recovered atomically"
-        );
+        if recoveries.len() > 1 {
+            return Err(crate::workspace_registry::UnrecoverableInterruptedCreations {
+                message: "multiple interrupted resource creations cannot be recovered atomically",
+            }
+            .into());
+        }
         if staged.is_empty() {
             return Ok(());
         }
-        anyhow::ensure!(
-            staged.len() == 1,
-            "multiple interrupted workspace creations cannot be recovered atomically"
-        );
+        if staged.len() != 1 {
+            return Err(crate::workspace_registry::UnrecoverableInterruptedCreations {
+                message: "multiple interrupted workspace creations cannot be recovered atomically",
+            }
+            .into());
+        }
         let active_workspace = staged
             .last()
             .map(|(_, workspace)| workspace.id)
@@ -3828,14 +3839,16 @@ impl Mux {
     /// Complete an adopted template terminal (complete_template_adoption),
     /// retrying in the background until it succeeds or the daemon shuts down.
     /// Adoption itself has already committed, so a failure here must neither
-    /// abort startup nor leave the terminal without its public placement and
-    /// binding.
+    /// abort startup nor leave the terminal without its public placement.
+    /// The shell's binding is best-effort (complete_template_adoption).
     #[cfg(unix)]
     fn ensure_template_adoption_completed(self: &Arc<Self>, terminal_id: &str) {
         let Err(error) = self.complete_template_adoption(terminal_id) else {
             return;
         };
-        eprintln!("cmux-tui: template terminal {terminal_id} not published yet: {error:#}");
+        let error = format!("{error:#}");
+        eprintln!("cmux-tui: template terminal {terminal_id} not published yet: {error}");
+        let mut log = RetryLog::after(error);
         let mux = Arc::clone(self);
         let terminal_id = terminal_id.to_string();
         let spawned = std::thread::Builder::new()
@@ -3850,10 +3863,13 @@ impl Mux {
                     match mux.complete_template_adoption(&terminal_id) {
                         Ok(()) => break,
                         Err(error) => {
-                            eprintln!(
-                                "cmux-tui: template terminal {terminal_id} not published yet: \
-                                 {error:#}"
-                            );
+                            let error = format!("{error:#}");
+                            if let Some(attempts) = log.failed(&error) {
+                                eprintln!(
+                                    "cmux-tui: template terminal {terminal_id} not published \
+                                     yet after {attempts} retries: {error}"
+                                );
+                            }
                             delay = (delay * 2).min(Duration::from_secs(5));
                         }
                     }
@@ -3888,9 +3904,18 @@ impl Mux {
             "terminal.adopt-template",
             serde_json::json!({}),
         )?;
+        // The binding is a hint for a shell's bounded first-prompt wait, not
+        // part of the commit above: a write that fails (the supervisor's run
+        // directory is not ours to create) does not fail again on a retry, so
+        // it is reported once and the completion still succeeds.
         let bound_file = self.surface_options.lock().unwrap().template_bound_file.clone();
-        if let Some(path) = bound_file {
-            self.publish_template_binding(terminal_id, &path)?;
+        if let Some(path) = bound_file
+            && let Err(error) = self.publish_template_binding(terminal_id, &path)
+        {
+            eprintln!(
+                "cmux-tui: template terminal {terminal_id} binding not written to {}: {error:#}",
+                path.display()
+            );
         }
         Ok(())
     }
@@ -3965,8 +3990,12 @@ impl Mux {
             session_id.as_str(),
             terminal_public_id.as_str()
         );
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
+        // The supervisor's run directory (/run/cmux) is created at bake and
+        // carried by the memory snapshot; a shell that waits for this file
+        // lives in it. After a reboot it is gone, nothing waits, and the
+        // daemon (not root) could not create it under /run anyway.
+        if path.parent().is_some_and(|parent| !parent.as_os_str().is_empty() && !parent.is_dir()) {
+            return Ok(());
         }
         let temporary = path.with_extension("tmp");
         std::fs::write(&temporary, contents)?;
@@ -5833,34 +5862,33 @@ impl Mux {
         }))
     }
 
-    /// Bounded plain-text projection of one terminal's journaled output
-    /// stream. It works while the process runs and after it exits; callers
-    /// resolve exited terminals through the same durable receipt as
+    /// Bounded plain-text projection of one terminal's output stream. It
+    /// works while the process runs and after it exits; callers resolve
+    /// exited terminals through the same durable receipt as
     /// `terminal.wait_exit`.
     ///
-    /// Offsets are `terminal.output` stream byte offsets of the terminal's
-    /// most recent journal generation. A cursor before the exit snapshot's
-    /// coverage answers with the snapshot's screen projection (start_offset
-    /// 0, next_offset at the coverage end); at or past it, the window is the
-    /// retained records after the cursor, rendered through a fresh terminal,
-    /// never splitting one record and never exceeding `max_bytes` beyond the
-    /// window's first record.
+    /// Output never enters the session journal: the stream is the output
+    /// store's (output_store.rs), and offsets are byte offsets of the
+    /// terminal's current generation. The store keeps a bounded tail in
+    /// memory; a cursor older than what is kept starts at the oldest kept
+    /// byte. After a daemon restart the store has no stream for an exited
+    /// terminal; its exit snapshot (the final screen) answers instead, as it
+    /// does for a cursor before the snapshot's coverage. With neither, the
+    /// `terminal.output` records an older daemon journaled answer, until
+    /// retention removes them.
     pub(crate) fn terminal_output_read(
         &self,
         terminal_id: &TerminalPublicId,
         after: Option<u64>,
         max_bytes: u64,
     ) -> anyhow::Result<Value> {
-        // Fence asynchronous output ingress so the read observes everything
-        // the terminal emitted before this request.
-        self.flush_terminal_journal()?;
         let requested = after.unwrap_or(0);
         let surface = self
             .terminal_resource_surface(terminal_id)
             .filter(|surface| surface.kind() == SurfaceKind::Pty);
-        let (stream, snapshot, spec_geometry) = {
+        let stream = self.output_store.stream_end(terminal_id);
+        let (snapshot, spec_geometry) = {
             let registry = self.workspace_registry.lock().unwrap();
-            let stream = registry.terminal_stream_latest(terminal_id.as_str())?;
             let snapshot = registry.terminal_exit_snapshot(terminal_id.as_str())?;
             let spec_geometry = registry
                 .terminal_host_id(terminal_id)?
@@ -5873,81 +5901,170 @@ impl Mux {
                         u16::try_from(terminal.launch_spec["rows"].as_u64()?).ok()?,
                     ))
                 });
-            (stream, snapshot, spec_geometry)
+            (snapshot, spec_geometry)
         };
-        let generation = stream
-            .as_ref()
-            .map(|(generation, _)| generation.clone())
-            .or_else(|| snapshot.as_ref().map(|snapshot| snapshot.generation.clone()));
-        let Some(generation) = generation else {
-            // Nothing was ever journaled: an empty, complete stream.
-            return Ok(terminal_output_read_result(String::new(), requested, requested, true));
-        };
-        // Offsets are per journal generation. Reads serve the most recent
-        // stream; the snapshot participates only when it belongs to it.
-        let snapshot = snapshot.filter(|snapshot| snapshot.generation == generation);
-        let stream_end = stream.map(|(_, next_offset)| next_offset).unwrap_or(0);
+        // The snapshot takes part only when it belongs to the stream's
+        // generation (or there is no stream in this daemon).
+        let snapshot = snapshot.filter(|snapshot| {
+            stream.as_ref().is_none_or(|(generation, _)| snapshot.generation == generation.as_ref())
+        });
+        let stream_end = stream.as_ref().map(|(_, next_offset)| *next_offset);
         if let Some(snapshot) = &snapshot
-            && requested < snapshot.covered_through
+            && (stream_end.is_none() || requested < snapshot.covered_through)
         {
-            // The requested bytes are covered by the exit snapshot; earlier
-            // records may already be pruned, and rendering the bounded
-            // snapshot keeps the read O(snapshot) instead of O(history).
+            // At the coverage end: nothing after it. Past it (a cursor from
+            // before a restart that did not record its end): the snapshot
+            // answers from 0, below the cursor, so the client resets.
+            if stream_end.is_none() && requested == snapshot.covered_through {
+                return Ok(terminal_output_read_result(String::new(), requested, requested, true));
+            }
             let text = render_terminal_output_plain(
                 std::iter::once(snapshot.replay_bytes.as_slice()),
                 snapshot.cols,
                 snapshot.rows,
             )?;
-            let complete = snapshot.covered_through >= stream_end;
+            let complete = stream_end.is_none_or(|end| snapshot.covered_through >= end);
             return Ok(terminal_output_read_result(text, 0, snapshot.covered_through, complete));
         }
-        let window = self.workspace_registry.lock().unwrap().terminal_output_records_after(
-            terminal_id.as_str(),
-            &generation,
-            requested,
-            max_bytes,
-        )?;
-        let Some((first, last)) = window.chunks.first().zip(window.chunks.last()) else {
-            // Everything journaled so far is at or before the cursor.
-            return Ok(terminal_output_read_result(String::new(), requested, requested, true));
-        };
         let (cols, rows) = surface
             .as_ref()
             .map(|surface| surface.size())
             .or_else(|| snapshot.as_ref().map(|snapshot| (snapshot.cols, snapshot.rows)))
             .or(spec_geometry)
             .unwrap_or((80, 24));
-        let start_offset = first.stream_offset_start;
-        let next_offset = last.stream_offset_end;
-        let text = render_terminal_output_plain(
-            window.chunks.iter().map(|chunk| chunk.bytes.as_ref()),
-            cols,
-            rows,
-        )?;
-        Ok(terminal_output_read_result(text, start_offset, next_offset, !window.truncated))
+        let Some(window) = self.output_store.read_after(terminal_id, requested, max_bytes) else {
+            // Nothing was printed in this daemon and no exit snapshot exists:
+            // the records an older daemon journaled, if any.
+            return self.legacy_terminal_output_read(terminal_id, requested, max_bytes, cols, rows);
+        };
+        if window.bytes.is_empty() {
+            return Ok(terminal_output_read_result(
+                String::new(),
+                window.start_offset,
+                window.next_offset,
+                !window.truncated,
+            ));
+        }
+        let text =
+            render_terminal_output_plain(std::iter::once(window.bytes.as_slice()), cols, rows)?;
+        Ok(terminal_output_read_result(
+            text,
+            window.start_offset,
+            window.next_offset,
+            !window.truncated,
+        ))
+    }
+
+    /// `terminal.output_read` over the `terminal.output` records a daemon
+    /// that still journaled output wrote (before the output store), for its
+    /// latest generation, with the output store's window rules: a raw byte
+    /// window from the cursor of at most `max_bytes` (at least one byte),
+    /// and a cursor past the end starts at the oldest retained byte.
+    /// Nothing journaled: an empty, complete stream.
+    fn legacy_terminal_output_read(
+        &self,
+        terminal_id: &TerminalPublicId,
+        requested: u64,
+        max_bytes: u64,
+        cols: u16,
+        rows: u16,
+    ) -> anyhow::Result<Value> {
+        let (after, window) = {
+            let registry = self.workspace_registry.lock().unwrap();
+            let Some((generation, end)) = registry.terminal_stream_latest(terminal_id.as_str())?
+            else {
+                return Ok(terminal_output_read_result(String::new(), requested, requested, true));
+            };
+            let after = if requested > end { 0 } else { requested };
+            let window = registry.terminal_output_records_after(
+                terminal_id.as_str(),
+                &generation,
+                after,
+                max_bytes,
+            )?;
+            (after, window)
+        };
+        let Some(first) = window.chunks.first() else {
+            let cursor = after.min(requested);
+            return Ok(terminal_output_read_result(String::new(), cursor, cursor, true));
+        };
+        // Records come whole; the window is clipped to the cursor and the
+        // byte budget, as the output store's windows are.
+        let bytes = window.chunks.iter().flat_map(|chunk| chunk.bytes.iter().copied());
+        let start_offset = after.max(first.stream_offset_start);
+        let skip = usize::try_from(start_offset - first.stream_offset_start)?;
+        let budget = usize::try_from(max_bytes.max(1)).unwrap_or(usize::MAX);
+        let mut bytes = bytes.skip(skip);
+        let window_bytes = bytes.by_ref().take(budget).collect::<Vec<_>>();
+        let clipped = bytes.next().is_some();
+        let next_offset = start_offset + u64::try_from(window_bytes.len())?;
+        let text =
+            render_terminal_output_plain(std::iter::once(window_bytes.as_slice()), cols, rows)?;
+        Ok(terminal_output_read_result(
+            text,
+            start_offset,
+            next_offset,
+            !window.truncated && !clipped,
+        ))
+    }
+
+    /// The `terminal.output` stream end an older daemon journaled for each
+    /// terminal, by generation: the output store continues those streams
+    /// (output_store.rs). Empty when the journal cannot be read.
+    pub(crate) fn legacy_terminal_stream_ends(&self) -> HashMap<TerminalPublicId, (String, u64)> {
+        let ends = match self
+            .workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .terminal_stream_ends_latest()
+        {
+            Ok(ends) => ends,
+            Err(error) => {
+                eprintln!("cmux-tui: could not read the journaled terminal stream ends: {error:#}");
+                return HashMap::new();
+            }
+        };
+        ends.into_iter()
+            .filter_map(|(terminal_id, end)| {
+                Some((TerminalPublicId::parse(&terminal_id).ok()?, end))
+            })
+            .collect()
     }
 
     /// Best-effort capture of a terminal's final screen as one bounded,
-    /// compressed vt-replay blob. `None` whenever the runtime surface is
-    /// unavailable (dead-host reconciliation, daemon restart) or any capture
-    /// step fails; exit persistence never depends on it.
+    /// compressed vt-replay blob, with the output-store offset it covers.
+    /// `None` whenever the runtime surface is unavailable (dead-host
+    /// reconciliation, daemon restart), the generation printed nothing, the
+    /// persistence mode is `memory`, or any capture step fails; exit
+    /// persistence never depends on it.
     fn capture_terminal_exit_replay(
         &self,
         terminal_id: &str,
         generation: &str,
-    ) -> Option<(TerminalPublicId, String, crate::workspace_registry::JournalContentBlob)> {
+    ) -> Option<(TerminalPublicId, String, u64, crate::workspace_registry::JournalContentBlob)>
+    {
+        // CMUX_TUI_TERMINAL_PERSISTENCE=memory: no screen reaches the disk.
+        if self.output_store.memory_only() {
+            return None;
+        }
         let public_terminal_id =
             self.workspace_registry.lock().unwrap().terminal_resource_id(terminal_id).ok()??;
         let surface = self.terminal_resource_surface(&public_terminal_id)?;
         if surface.kind() != SurfaceKind::Pty {
             return None;
         }
-        // Fence asynchronous output ingress so the journaled stream offset
-        // recorded as the snapshot's coverage matches the captured VT state.
-        self.flush_terminal_journal().ok()?;
+        // The snapshot covers the output store's stream up to its current
+        // end; a generation that printed nothing has nothing to cover.
+        let covered_through = self
+            .output_store
+            .stream_end(&public_terminal_id)
+            .filter(|(stream_generation, end)| {
+                stream_generation.as_ref() == generation && *end > 0
+            })?
+            .1;
         let blob =
             crate::journal_checkpoint::terminal_replay_blob(&surface, &public_terminal_id).ok()?;
-        Some((public_terminal_id, generation.to_string(), blob))
+        Some((public_terminal_id, generation.to_string(), covered_through, blob))
     }
 
     pub(crate) fn subscribe_terminal_exit(
@@ -6082,11 +6199,8 @@ impl Mux {
         });
     }
 
-    /// See [`crate::journal_ingress::JournalIngressSender::terminal_lane_can_resume`].
-    pub(crate) fn terminal_journal_lane_can_resume(&self) -> bool {
-        self.journal_ingress.terminal_lane_can_resume()
-    }
-
+    /// Test-only since output went to the output store (output_store.rs).
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn try_journal_terminal_output(
         &self,
         terminal_id: Arc<TerminalPublicId>,
@@ -6151,15 +6265,6 @@ impl Mux {
         self.journal_ingress.install_nonretryable_failure_hook_for_test(entered, release);
     }
 
-    #[cfg(test)]
-    pub(crate) fn install_journal_writer_pacing_for_test(
-        &self,
-        entered: SyncSender<()>,
-        step: Receiver<()>,
-    ) {
-        self.journal_ingress.install_writer_pacing_for_test(entered, step);
-    }
-
     pub(crate) fn terminal_journal_enabled(&self) -> bool {
         self.journal_ingress.enabled()
     }
@@ -6217,6 +6322,8 @@ impl Mux {
         )
     }
 
+    /// Test-only since output went to the output store (output_store.rs).
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn try_journal_terminal_output_gap(
         &self,
         terminal_id: Arc<TerminalPublicId>,
@@ -8455,6 +8562,11 @@ impl Mux {
         }
         if let (Some(workspace_key), Some(reservation)) = (workspace_key, reservation.as_ref()) {
             let terminal_hex = reservation.terminal_id.to_hex();
+            // The incarnation is the terminal's output generation: the reader
+            // records output under it and the exit snapshot matches it. It
+            // is chosen before the reservation commits, so failing to choose
+            // one leaves no launching terminal behind.
+            let incarnation = TerminalId::random()?.to_hex();
             let launch_spec = terminal_launch_spec(&opts);
             let terminal = RegistryTerminal {
                 terminal_id: terminal_hex.clone(),
@@ -8495,11 +8607,22 @@ impl Mux {
             let surface_result = if self.test_surface_runtime {
                 Surface::spawn_for_test_at_cell_pixels(id, opts, Arc::downgrade(self), cell_pixels)
             } else {
-                Surface::spawn_at_cell_pixels(id, opts, Arc::downgrade(self), cell_pixels)
+                Surface::spawn_in_process_at_cell_pixels(
+                    id,
+                    opts,
+                    Arc::downgrade(self),
+                    &incarnation,
+                    cell_pixels,
+                )
             };
             #[cfg(not(test))]
-            let surface_result =
-                Surface::spawn_at_cell_pixels(id, opts, Arc::downgrade(self), cell_pixels);
+            let surface_result = Surface::spawn_in_process_at_cell_pixels(
+                id,
+                opts,
+                Arc::downgrade(self),
+                &incarnation,
+                cell_pixels,
+            );
             let surface = match surface_result {
                 Ok(surface) => surface,
                 Err(error) => {
@@ -8511,7 +8634,6 @@ impl Mux {
                     return Err(error);
                 }
             };
-            let incarnation = TerminalId::random()?.to_hex();
             let identity = TerminalHostIdentity {
                 terminal_id: terminal_hex.clone(),
                 incarnation: incarnation.clone(),
@@ -10416,6 +10538,16 @@ impl Mux {
     }
 
     #[cfg(test)]
+    pub(crate) fn terminal_resource_id_for_test(&self, terminal_id: &str) -> TerminalPublicId {
+        self.workspace_registry
+            .lock()
+            .unwrap()
+            .terminal_resource_id(terminal_id)
+            .unwrap()
+            .expect("a seeded terminal has a public id")
+    }
+
+    #[cfg(test)]
     pub(crate) fn set_terminal_close_failure_for_test(&self, enabled: bool) -> anyhow::Result<()> {
         self.workspace_registry.lock().unwrap().set_terminal_close_failure(enabled)
     }
@@ -10689,6 +10821,30 @@ impl Mux {
         terminal_id: &TerminalPublicId,
     ) -> Option<Arc<Surface>> {
         self.state.lock().unwrap().terminal_catalog.get(terminal_id).cloned()
+    }
+
+    /// [`Self::terminal_resource_surface`] for the output store's writer,
+    /// which also runs while the daemon stops and must not panic on a lock
+    /// poisoned by a failed operation.
+    pub(crate) fn output_store_terminal(
+        &self,
+        terminal_id: &TerminalPublicId,
+    ) -> Option<Arc<Surface>> {
+        self.state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .terminal_catalog
+            .get(terminal_id)
+            .cloned()
+    }
+
+    /// Terminals that are still in the session (the output store keeps
+    /// their files).
+    pub(crate) fn live_terminal_public_ids(&self) -> anyhow::Result<HashSet<TerminalPublicId>> {
+        self.workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .live_terminal_public_ids()
     }
 
     #[cfg(test)]
@@ -12241,6 +12397,7 @@ impl Mux {
 
     fn finalize_terminal_journal(&self, context: &str) {
         if self.journal_ingress.is_closed() {
+            self.output_store.shutdown(self);
             if let Err(error) = self.journal_ingress.close_and_join() {
                 eprintln!("cmux-tui: await session journal writer during {context}: {error:#}");
             }
@@ -12259,6 +12416,9 @@ impl Mux {
         for surface in surfaces {
             terminal_gaps.extend(surface.finish_terminal_reader(terminal_reader_deadline));
         }
+        // Readers are stopped and every terminal is still alive: write the
+        // output store's last snapshots.
+        self.output_store.shutdown(self);
         if self.journal_ingress.is_current_writer_thread() {
             if !terminal_gaps.is_empty() {
                 eprintln!(
@@ -16760,14 +16920,19 @@ impl Mux {
             self.image_pastes.close_terminal(terminal_id.as_str());
         }
         if !replayed {
-            if let Some((snapshot_terminal_id, generation, blob)) = exit_replay {
+            if let Some((snapshot_terminal_id, generation, covered_through, blob)) = exit_replay {
                 // Best-effort: a snapshot store failure must not disturb the
                 // exit latch that already committed above.
                 if let Err(error) = self
                     .workspace_registry
                     .lock()
-                    .unwrap()
-                    .put_terminal_exit_snapshot(snapshot_terminal_id.as_str(), &generation, &blob)
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .put_terminal_exit_snapshot(
+                        snapshot_terminal_id.as_str(),
+                        &generation,
+                        covered_through,
+                        &blob,
+                    )
                 {
                     eprintln!(
                         "cmux-tui: could not store the exit snapshot for terminal \
@@ -18838,6 +19003,35 @@ fn template_terminal_launch_spec() -> Value {
     serde_json::json!({"template_terminal": true})
 }
 
+/// When a background retry loop reports a failure. It retries every few
+/// seconds for as long as the failure lasts, which can be the life of the
+/// machine: logging each attempt wrote 720 journal lines an hour on Cloud
+/// machines. The first failure, any change of error, and the 2nd, 4th, 8th...
+/// failure of the same error are logged.
+#[cfg(unix)]
+struct RetryLog {
+    attempts: u64,
+    last_error: String,
+}
+
+#[cfg(unix)]
+impl RetryLog {
+    /// The log of a loop whose first attempt failed with `error`, already logged.
+    fn after(error: String) -> Self {
+        Self { attempts: 0, last_error: error }
+    }
+
+    /// Record one failed attempt; `Some(attempts so far)` when it is logged.
+    fn failed(&mut self, error: &str) -> Option<u64> {
+        self.attempts += 1;
+        let changed = self.last_error != error;
+        if changed {
+            self.last_error = error.to_string();
+        }
+        (changed || self.attempts.is_power_of_two()).then_some(self.attempts)
+    }
+}
+
 fn is_template_terminal(terminal: &RegistryTerminal) -> bool {
     terminal.launch_spec == template_terminal_launch_spec()
 }
@@ -19213,6 +19407,9 @@ fn remove_terminal_content_from_state(
     terminal_id: &TerminalPublicId,
 ) -> (Option<Arc<Surface>>, Vec<Arc<Surface>>, bool) {
     let runtime = state.terminal_catalog.remove(terminal_id);
+    if runtime.is_some() {
+        mux.output_store.forget(terminal_id);
+    }
     if let Some(runtime_id) = runtime.as_ref().and_then(|runtime| runtime.terminal_runtime_id()) {
         state.terminal_catalog_by_runtime.remove(&runtime_id);
     }
@@ -32761,7 +32958,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn output_read_serves_live_records_and_exit_snapshot_after_close_detach() {
+    fn output_read_serves_live_output_and_exit_snapshot_after_close_detach() {
         const TERMINAL: &str = "0000000000004000800000000000004e";
         const INCARNATION: &str = "1000000000004000800000000000004e";
         let root = std::env::temp_dir()
@@ -32775,22 +32972,12 @@ mod tests {
             mux.workspace_registry.lock().unwrap().terminal_resource_id(TERMINAL).unwrap().unwrap();
         let colored: &[u8] = b"output read \x1b[31mred marker\x1b[0m\r\nsecond line\r\n";
         surface.apply_stream_output_for_test(colored).unwrap();
-        {
-            let event = crate::journal_ingress::JournalIngressEvent::TerminalOutput {
-                terminal_id: Arc::new(terminal.clone()),
-                generation: INCARNATION.into(),
-                occurred_at_ms: 1,
-                bytes: colored.to_vec(),
-            };
-            mux.workspace_registry
-                .lock()
-                .unwrap()
-                .append_journal_ingress_events(&[&event])
-                .unwrap();
-        }
+        // What the hosted reader hands the output store after parsing.
+        mux.output_store.append(&terminal, &Arc::from(INCARNATION), colored);
         let total = u64::try_from(colored.len()).unwrap();
 
-        // Live: the record window renders plain text with a resumable cursor.
+        // Live: the output store's tail renders plain text with a resumable
+        // cursor.
         let live = mux.terminal_output_read(&terminal, None, 1 << 20).unwrap();
         let text = live["text"].as_str().unwrap();
         assert!(text.contains("red marker") && text.contains("second line"), "{live}");
@@ -32835,9 +33022,203 @@ mod tests {
         assert_eq!(resumed["next_offset"], total.to_string());
         assert_eq!(resumed["complete"], true);
 
+        // With only the snapshot left (a restarted daemon has no stream), a
+        // cursor past its coverage gets the snapshot from 0: a reset.
+        mux.output_store.forget_tail_for_test(&terminal);
+        assert!(mux.output_store.stream_end(&terminal).is_none());
+        let past = mux.terminal_output_read(&terminal, Some(total + 50), 1 << 20).unwrap();
+        assert!(past["text"].as_str().unwrap().contains("red marker"), "{past}");
+        assert_eq!(past["start_offset"], "0");
+        assert_eq!(past["next_offset"], total.to_string());
+        let at_end = mux.terminal_output_read(&terminal, Some(total), 1 << 20).unwrap();
+        assert_eq!((at_end["text"].as_str(), at_end["complete"].as_bool()), (Some(""), Some(true)));
+
         mux.shutdown();
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Polls `read` until it returns `Some`: a real PTY's output arrives on
+    /// its reader thread.
+    #[cfg(unix)]
+    fn eventually<T>(what: &str, mut read: impl FnMut() -> Option<T>) -> T {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            if let Some(value) = read() {
+                return value;
+            }
+            assert!(Instant::now() < deadline, "{what} did not happen");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    /// An older daemon journaled output as `terminal.output` records. With
+    /// no output-store stream and no exit snapshot, those records answer,
+    /// and the store continues their stream where the journal left it.
+    #[cfg(unix)]
+    #[test]
+    fn output_read_falls_back_to_records_an_older_daemon_journaled() {
+        const TERMINAL: &str = "0000000000004000800000000000004f";
+        const INCARNATION: &str = "1000000000004000800000000000004f";
+        let root = std::env::temp_dir()
+            .join(format!("cmux-mux-legacy-output-{}", crate::workspace_registry::new_uuid_v4()));
+        let mux = Mux::open_persistent("legacy-output", SurfaceOptions::default(), &root).unwrap();
+        let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+        mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &workspace.key).unwrap();
+        let terminal =
+            mux.workspace_registry.lock().unwrap().terminal_resource_id(TERMINAL).unwrap().unwrap();
+        let journaled: &[u8] = b"journaled \x1b[32mbefore\x1b[0m the upgrade\r\n";
+        {
+            let event = crate::journal_ingress::JournalIngressEvent::TerminalOutput {
+                terminal_id: Arc::new(terminal.clone()),
+                generation: INCARNATION.into(),
+                occurred_at_ms: 1,
+                bytes: journaled.to_vec(),
+            };
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .append_journal_ingress_events(&[&event])
+                .unwrap();
+        }
+        let total = u64::try_from(journaled.len()).unwrap();
+        assert!(mux.output_store.stream_end(&terminal).is_none());
+
+        let read = mux.terminal_output_read(&terminal, None, 1 << 20).unwrap();
+        let text = read["text"].as_str().unwrap();
+        assert!(text.contains("journaled before the upgrade"), "{read}");
+        assert_eq!(read["start_offset"], "0");
+        assert_eq!(read["next_offset"], total.to_string());
+        assert_eq!(read["complete"], true);
+        let resumed = mux.terminal_output_read(&terminal, Some(total), 1 << 20).unwrap();
+        assert_eq!(resumed["text"], "");
+        assert_eq!(resumed["complete"], true);
+
+        // A window starts at the cursor and holds at most max_bytes, also
+        // inside a record.
+        let clipped = mux.terminal_output_read(&terminal, Some(2), 7).unwrap();
+        assert_eq!(clipped["text"].as_str().unwrap().trim_end(), "urnaled", "{clipped}");
+        assert_eq!(clipped["start_offset"], "2");
+        assert_eq!(clipped["next_offset"], "9");
+        assert_eq!(clipped["complete"], false);
+        // A cursor past the end starts at the oldest retained byte.
+        let reset = mux.terminal_output_read(&terminal, Some(total + 100), 1 << 20).unwrap();
+        assert_eq!(reset["start_offset"], "0", "{reset}");
+        assert_eq!(reset["next_offset"], total.to_string());
+
+        assert_eq!(
+            mux.legacy_terminal_stream_ends().get(&terminal),
+            Some(&(INCARNATION.to_string(), total))
+        );
+        mux.shutdown();
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// An in-memory session has no journal; its terminals' readers still
+    /// hand their output to the output store, and the tail stays readable
+    /// after the process exits (memory mode stores no exit snapshot).
+    #[cfg(unix)]
+    #[test]
+    fn an_in_memory_session_reads_output_from_the_reader_also_after_exit() {
+        let mux = Mux::new(
+            format!("in-memory-output-{}", WorkspacePublicId::random().unwrap()),
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".into(),
+                    "-c".into(),
+                    "printf 'in-memory output marker\\r\\n'".into(),
+                ]),
+                ..SurfaceOptions::default()
+            },
+        );
+        assert!(mux.output_store.memory_only());
+        let surface = mux.new_workspace(Some("in-memory".into()), Some((80, 24))).unwrap();
+        let terminal = surface.terminal_public_id().cloned().expect("a resource terminal");
+        let marker = |mux: &Mux| {
+            let read = mux.terminal_output_read(&terminal, None, 1 << 20).unwrap();
+            read["text"].as_str().unwrap().contains("in-memory output marker").then_some(read)
+        };
+        eventually("the reader's output in terminal.output_read", || marker(&mux));
+
+        let exit = mux.wait_for_terminal_exit(&terminal, Some(Duration::from_secs(10))).unwrap();
+        assert_eq!(exit["state"], "exited", "{exit}");
+        eventually("the close policy's detach", || {
+            mux.terminal_resource_surface(&terminal).is_none().then_some(())
+        });
+        let after_exit = marker(&mux).expect("the tail stays readable after the exit");
+        assert_eq!(after_exit["complete"], true, "{after_exit}");
+        mux.shutdown();
+    }
+
+    /// A clear request in an alternate-screen application without a
+    /// fallback key clears nothing, so the output store keeps its tail.
+    #[test]
+    fn a_clear_that_clears_nothing_keeps_the_output_store_tail() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal = surface.terminal_public_id().cloned().expect("a resource terminal");
+        mux.output_store.append(&terminal, &Arc::from("test-generation"), b"kept output");
+        surface.apply_stream_output_for_test(b"\x1b[?1049h").unwrap();
+
+        surface.clear_history_or_encode_key_classified(None).unwrap();
+        let window = mux.output_store.read_after(&terminal, 0, 1 << 20).unwrap();
+        assert_eq!(window.bytes, b"kept output");
+        assert_eq!((window.start_offset, window.next_offset), (0, 11));
+    }
+
+    /// An in-process terminal records its output under its registry
+    /// incarnation, so the exit latch captures its snapshot.
+    #[cfg(unix)]
+    #[test]
+    fn an_in_process_terminal_records_output_under_its_incarnation() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-mux-in-process-output-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let mux = Mux::open_persistent(
+            "in-process-output",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".into(),
+                    "-c".into(),
+                    "printf 'in-process marker\\r\\n'; exec cat".into(),
+                ]),
+                ..SurfaceOptions::default()
+            },
+            &root,
+        )
+        .unwrap();
+        let surface = mux.new_workspace(Some("in-process".into()), Some((80, 24))).unwrap();
+        let identity = mux
+            .resource_terminal_host_identity(&surface)
+            .expect("a reserved in-process terminal has a registry incarnation");
+        let terminal = surface.terminal_public_id().cloned().expect("a resource terminal");
+        eventually("the reader's output in terminal.output_read", || {
+            let read = mux.terminal_output_read(&terminal, None, 1 << 20).unwrap();
+            read["text"].as_str().unwrap().contains("in-process marker").then_some(())
+        });
+        let (generation, end) = mux.output_store.stream_end(&terminal).unwrap();
+        assert_eq!(generation.as_ref(), identity.incarnation);
+
+        let exit = TerminalExit {
+            outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 0 },
+            exited_at_ms: 1_234,
+        };
+        assert!(mux.persist_terminal_exit_for_test(&terminal, &exit).unwrap());
+        let snapshot = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .terminal_exit_snapshot(terminal.as_str())
+            .unwrap()
+            .expect("the exit latch stored a snapshot");
+        assert_eq!(snapshot.generation, identity.incarnation);
+        assert_eq!(snapshot.covered_through, end);
+
+        mux.shutdown();
+        drop(mux);
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[cfg(unix)]
@@ -34497,6 +34878,18 @@ mod tests {
         assert_eq!(surface.process_id(), process_id);
         assert!(!surface.is_dead());
         mux.shutdown();
+    }
+
+    /// A retry loop that fails the same way for an hour (720 attempts at the
+    /// 5 s cap) logs 10 lines, not 720; a new error is logged at once.
+    #[cfg(unix)]
+    #[test]
+    fn retry_log_reports_a_lasting_failure_on_a_doubling_schedule() {
+        let mut log = RetryLog::after("tab slot 5".to_string());
+        let logged: Vec<u64> = (0..720).filter_map(|_| log.failed("tab slot 5")).collect();
+        assert_eq!(logged, vec![1, 2, 4, 8, 16, 32, 64, 128, 256, 512]);
+        assert_eq!(log.failed("Permission denied (os error 13)"), Some(721));
+        assert_eq!(log.failed("Permission denied (os error 13)"), None);
     }
 
     #[test]
