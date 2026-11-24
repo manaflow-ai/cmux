@@ -142,7 +142,8 @@ top, so a block copies between the two:
   edges, no motion), `phosphor` (green on black), `claude-desktop` (cream and clay),
   `charcoal` (a dark chat app), and three nature looks on the Blocks chrome: `moss`
   (deep forest green), `meadow` (sage and cream) and `lily-pond` (teal glass blocks
-  over Monet's water lilies). To ask for a look, start from the closest one:
+  over Monet's water lilies), and `minimal-sessions` (only the sidebar: one line per
+  session, its status mark first, then its name). To ask for a look, start from the closest one:
   copy it to `~/.config/cmux/themes/<name>.json` to edit it (your file of the same
   name wins over the shipped one). Steps and the undo path for people:
   [theme-recipes.md](../../docs/cmux-next/theme-recipes.md).
@@ -172,10 +173,13 @@ top, so a block copies between the two:
   `browser.omnibar.glass*`, `app.uiScale`, `terminal.fontFamily`,
   `terminal.fontSize`; the sidebar's shape, text and buttons: `sidebar.style`, `sidebar.border`,
   `sidebar.borderWidth`, `sidebar.sectionLook`, `sidebar.density`, `sidebar.textSize`,
-  `sidebar.groupHeader.background`, `sidebar.groupPalette`, `sidebar.groupGradient`,
   `sidebar.showSearchButton`, `sidebar.showProfileControl`, `sidebar.showNewWorkspaceChooser`,
-  `sidebar.controlsOnHover`, `sidebar.detailedStatusIcons`, `sidebar.showColors`,
-  `sidebar.spacesVisibility`; the top right buttons and tabs: `tabs.toolbarButtons`,
+  `sidebar.controlsOnHover`, `sidebar.spacesVisibility`; how its rows draw:
+  `sidebar.detailedStatusIcons`, `sidebar.showTimestamps`, `sidebar.showColors`,
+  `workspaceColors.indicatorStyle`, and every `sidebar.workspaceRow.<name>`, such as
+  `statusPlacement` and `lines`, but not the per-kind `sidebar.workspaceRow.<kind>.*`; its
+  grouping: `sidebar.groupBy`, `sidebar.groupHeader.*`, `sidebar.groupPalette`,
+  `sidebar.groupGradient`; the top right buttons and tabs: `tabs.toolbarButtons`,
   `tabs.plusButton`, `window.titlebarButtons`, `focus.inactiveTabStyle`; pane corners:
   `layout.paneCornerRadius`, `layout.cornerPadding`, `layout.paneBorderWidth`; the agent
   chat's text sizes and Session Info: `agentPane.display.font.*`, `agentPane.display.code.scale`,
@@ -300,6 +304,13 @@ install click.
 
 - A new view of its own (a sidebar section or a Session Info section): run `cmux ext new NAME --kind sidebar|session-info --json` in a folder, read its `DESIGN.md` (the look each kind should keep: rows with symbols, tones not colors, every state drawn, and a lead line where its DESIGN.md asks for one; a Session Info section has none, since its header leads), edit its `src/main.ts` keeping that shape, then `cmux ext dev --once --json` until ok.
   To share it from GitHub: `cmux ext new NAME --repo OWNER/REPO`, then `cmux ext publish --json` says what is left (push, `cmux ext pack` and a release, the registry PR) ([extensions.md](references/extensions.md)).
+- An extension you built (`cmux ext new`) or remixed (`cmux ext remix REF`) ends published, by
+  default: say it goes to a new public GitHub repository of theirs, then run `cmux ext share DIR --json`
+  unless they asked to keep it local (`--private` for a private one). It makes the manifest and
+  README badge theirs, adds the topic `cmux-extension` and prints the cmux.com page; give them that
+  link. Exit 7 means GitHub is not connected: the folder stays, tell them the one step it prints.
+- "Fork and customize" on a cmux.com extension page opens a chat with `cmux ext remix REF` asked:
+  run it, do what it prints (ask what to change, change it, publish as above).
   Before any widget, section or pane is done, `cmux ext shot --json` must report `design: []`: build it from the type roles, `SPACE` and components in [extension-design.md](references/extension-design.md), which also has the loop and every check's fix.
 - `implements["cmux.section/1"]` is its one sidebar section; `options.defaultRegion`
   `top`, `middle` or `bottom` (the band under the workspace list). cmux places it

@@ -223,7 +223,6 @@ pub struct JournalAuthority {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct JournalSubject {
     pub kind: String,
     pub id: String,
@@ -1159,15 +1158,10 @@ fn object(value: Value, context: &str) -> Result<Map<String, Value>> {
         .ok_or_else(|| Error::UnexpectedEnvelope(format!("{context} must be an object")))
 }
 
-fn finish(object: Map<String, Value>, context: &str) -> Result<()> {
-    if object.is_empty() {
-        Ok(())
-    } else {
-        Err(Error::UnexpectedEnvelope(format!(
-            "{context} contains unknown fields: {}",
-            object.keys().cloned().collect::<Vec<_>>().join(", ")
-        )))
-    }
+/// The fields left in `object` after the known ones were taken are ones a newer
+/// daemon added: they are ignored, not refused.
+fn finish(_object: Map<String, Value>, _context: &str) -> Result<()> {
+    Ok(())
 }
 
 fn take_required(object: &mut Map<String, Value>, key: &str) -> Result<Value> {
