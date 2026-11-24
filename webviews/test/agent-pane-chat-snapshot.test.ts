@@ -59,6 +59,18 @@ await requireBrowserLane("agent-pane-chat-snapshot.test.ts", async () => {
     ).join("");
     return `<div class="header">Chat title</div><div class="acpmux-scroll"><div class="acpmux-spacer">${rows}</div></div><div class="composer"><div class="prompt" contenteditable="true"></div><textarea></textarea></div>`;
   };
+  /// The live page's first draw of a kept tail cut inside one busy turn: its last three rows, at the
+  /// bottom of a view they do not fill (VirtualTranscript keeps a short tail at the view's end), with
+  /// the older history still to load. The view is 600 - 48 - 80 = 472 px tall.
+  const SHORT_MARKUP = () => {
+    const rows = [97, 98, 99]
+      .map(
+        (at, index) =>
+          `<article class="acpmux-row" data-row-id="r${at}" style="top:${352 + index * 40}px">row ${at}</article>`,
+      )
+      .join("");
+    return `<div class="header">Chat title</div><div class="acpmux-scroll"><div class="acpmux-spacer" style="height:472px">${rows}</div></div><div class="composer"><div class="prompt" contenteditable="true"></div><textarea></textarea></div>`;
+  };
   /// The person's theme.css, which the page adds once the host sends it (paneTheme.ts).
   const USER_CSS = "#root .header { height: 52px; }";
   const HTML_ATTRIBUTES = `data-look="roomy" style="--cmux-surface: rgb(10, 20, 30);"`;
@@ -150,7 +162,7 @@ requestAnimationFrame(() => {
   swapChatSnapshot();
   watch();
   requestAnimationFrame(() => requestAnimationFrame(() => {
-    w.afterSwap = { header: box(root.querySelector(".header")), row: box(root.querySelector('[data-row-id="r60"]')), composer: box(root.querySelector(".composer textarea")), ...(w.atEnd ? { last: box(root.querySelector('[data-row-id="r99"]')) } : {}) };
+    w.afterSwap = { header: box(root.querySelector(".header")), row: root.querySelector('[data-row-id="r60"]') ? box(root.querySelector('[data-row-id="r60"]')) : null, composer: box(root.querySelector(".composer textarea")), ...(w.atEnd ? { last: box(root.querySelector('[data-row-id="r99"]')) } : {}) };
   }));
 });
 }
@@ -209,7 +221,14 @@ requestAnimationFrame(() => {
       drawFirst = false,
       holdDraw = false,
       atEnd = false,
-    }: { holdUntil?: "bundle" | "drawn"; drawFirst?: boolean; holdDraw?: boolean; atEnd?: boolean } = {},
+      short = false,
+    }: {
+      holdUntil?: "bundle" | "drawn";
+      drawFirst?: boolean;
+      holdDraw?: boolean;
+      atEnd?: boolean;
+      short?: boolean;
+    } = {},
   ): Promise<void> {
     await page.route("http://chat.test/**", (route) => {
       const url = new URL(route.request().url());
@@ -224,7 +243,7 @@ requestAnimationFrame(() => {
       if (url.pathname === "/fixture.js")
         return route.fulfill({
           contentType: "text/javascript",
-          body: `self.liveMarkup=${JSON.stringify(MARKUP())};self.userCss=${JSON.stringify(USER_CSS)};self.drawFirst=${drawFirst};self.holdDraw=${holdDraw};self.atEnd=${atEnd};`,
+          body: `self.liveMarkup=${JSON.stringify(short ? SHORT_MARKUP() : MARKUP())};self.fullMarkup=${JSON.stringify(MARKUP())};self.userCss=${JSON.stringify(USER_CSS)};self.drawFirst=${drawFirst};self.holdDraw=${holdDraw};self.atEnd=${atEnd};`,
         });
       if (url.pathname === "/__snapshot/chat.js")
         return (
@@ -503,7 +522,7 @@ requestAnimationFrame(() => {
     expect(atBundle.row).toEqual(before.row);
     // The host hears it when the copy draws, not when the bundle starts.
     const reports = (await page.evaluate(() => (window as any).reports)) as unknown[];
-    expect(reports).toEqual([{ method: "pane.painted", params: { drewKeptTail: true }, shown: true }]);
+    expect(reports).toEqual([{ method: "pane.painted", params: { drewKeptTail: true, copy: true }, shown: true }]);
     await context.close();
   });
 
@@ -576,6 +595,82 @@ requestAnimationFrame(() => {
     expect(afterSwap.header).toEqual(atBundle.header as number[]);
     await context.close();
     await shorter.close();
+  });
+
+  test("a live page whose rows do not reach the view's top keeps the copy up until an older page fills it", async () => {
+    const context = await newContext(800, 600);
+    const before = await written(await context.newPage(), { atEnd: true });
+    const page = await context.newPage();
+    await relaunched(page, before.snapshot, "theme-1", { atEnd: true, short: true });
+    // The page drew the kept tail and asked to take over: its three rows would leave 352 px empty
+    // above them where the copy shows rows (Leo, 2026-11-22: "the top half of the chat blanked out
+    // for like 10 seconds"), so the copy stays, frame after frame.
+    const held = await page.evaluate(
+      () =>
+        new Promise<boolean[]>((resolve) => {
+          const seen: boolean[] = [];
+          const look = () => {
+            seen.push(!!document.querySelector("cmux-chat-snapshot"));
+            // raf-read: reads the DOM the frame will paint (the copy's element), no pixels, as the swap's own frame callback sets it.
+            if (seen.length < 10) requestAnimationFrame(look);
+            else resolve(seen);
+          };
+          requestAnimationFrame(look);
+        }),
+    );
+    expect(held.every(Boolean)).toBe(true);
+    // The older page lands: the rows fill the view, and the copy goes in that frame, never a frame
+    // with both or neither, and no frame of the live page shows the band.
+    const frames = await page.evaluate(
+      () =>
+        new Promise<{ host: boolean; opacity: string; band: number }[]>((resolve) => {
+          const w = window as any;
+          const root = document.getElementById("root")!;
+          const seen: { host: boolean; opacity: string; band: number }[] = [];
+          const look = () => {
+            const scroller = root.querySelector(".acpmux-scroll")!;
+            const top = Math.min(
+              ...Array.from(scroller.querySelectorAll(".acpmux-row"), (row) => row.getBoundingClientRect().top),
+            );
+            seen.push({
+              host: !!document.querySelector("cmux-chat-snapshot"),
+              opacity: root.style.opacity,
+              band: Math.max(0, top - scroller.getBoundingClientRect().top),
+            });
+            // raf-read: reads the DOM and boxes the frame will paint, no pixels, after the swap's own frame callback.
+            if (seen.length < 6) requestAnimationFrame(look);
+            else resolve(seen);
+          };
+          root.innerHTML = w.fullMarkup;
+          const scroller = root.querySelector(".acpmux-scroll")!;
+          scroller.scrollTop = scroller.scrollHeight - scroller.clientHeight;
+          // Read after the page's own frame callback for the change (its observer asks for one at the
+          // next microtask): `look` then sees what that frame paints.
+          queueMicrotask(() => requestAnimationFrame(look));
+        }),
+    );
+    for (const frame of frames) expect(frame.host ? frame.opacity === "0" : frame.opacity === "").toBe(true);
+    expect(frames[0]!.host).toBe(false);
+    for (const frame of frames) expect(frame.band).toBe(0);
+    await context.close();
+  });
+
+  test("a short chat whose copy showed the same room above its rows takes over at once", async () => {
+    const context = await newContext(800, 600);
+    const writer = await context.newPage();
+    await writer.route("http://chat.test/a.html", (route) =>
+      route.fulfill({ contentType: "text/html", body: htmlDocument(`<main id="root">${SHORT_MARKUP()}</main>`) }),
+    );
+    await writer.goto("http://chat.test/a.html");
+    await writer.addScriptTag({ content: capture });
+    const snapshot = await writer.evaluate(() => (globalThis as any).captureSnapshot(document, "theme-1"));
+    expect(snapshot).toBeDefined();
+    const page = await context.newPage();
+    await relaunched(page, snapshot, "theme-1", { short: true });
+    const frames = (await page.evaluate(() => (window as any).frames)) as { host: boolean }[];
+    expect(frames[0]!.host).toBe(true);
+    expect(frames.findIndex((frame) => !frame.host)).toBe(1);
+    await context.close();
   });
 
   test("a transcript written at its latest row draws there a tab row shorter, as the live page then does", async () => {
