@@ -11,7 +11,7 @@
 //! (Claude Code, codex-acp), so such a call and the URL it printed are remembered until it ends
 //! (`Session::pr_creates`); the URL counts only when the call completes.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
 use regex::Regex;
@@ -168,22 +168,76 @@ fn commands(script: &str) -> Vec<(String, String)> {
         .collect()
 }
 
-/// The script ends in `gh pr create`: each command before it is a `cd` or must succeed for gh to
-/// run (`git push && gh pr create`), none come after, and only `VAR=value` words or `env` precede
-/// `gh`. gh's URL is the last bare pull request URL printed, so earlier steps' output can't stand
-/// in for it (`git push` prints `/pull/new/BRANCH`, which is not one).
+/// The script ends in `gh pr create` (or a lane VM's broker form, `lane-gh call pr_create`): each
+/// command before it is a `cd` or must succeed for gh to run (`git push && gh pr create`), none
+/// come after but output filters it pipes into (`2>&1 | tail -3`), and only `VAR=value` words,
+/// `env` or `timeout [-k N] N` precede `gh`. gh's URL is the last bare pull request URL printed,
+/// so earlier steps' output can't stand in for it (`git push` prints `/pull/new/BRANCH`, which is
+/// not one); a filter hides gh's exit status, so its "already exists" URL is ruled out by the
+/// line before it (`bare_urls`).
 fn is_gh_pr_create(script: &str) -> bool {
     let commands = commands(script);
-    let Some(((last, _), before)) = commands.split_last() else {
+    let mut end = commands.len();
+    while end > 1 && commands[end - 2].1 == "|" && is_filter(&commands[end - 1].0) {
+        end -= 1;
+    }
+    let Some(((last, _), before)) = commands[..end].split_last() else {
         return false;
     };
     if !before.iter().all(|(c, sep)| c == "cd" || c.starts_with("cd ") || sep == "&&") {
         return false;
     }
-    let mut words = last.split_whitespace().skip_while(|w| {
-        *w == "env" || w.split_once('=').is_some_and(|(k, _)| !k.is_empty() && !k.starts_with('-'))
-    });
-    matches!((words.next(), words.next(), words.next()), (Some("gh"), Some("pr"), Some("create")))
+    let mut words = last.split_whitespace().peekable();
+    loop {
+        match words.peek() {
+            Some(&w)
+                if w == "env"
+                    || w.split_once('=')
+                        .is_some_and(|(k, _)| !k.is_empty() && !k.starts_with('-')) =>
+            {
+                words.next();
+            }
+            Some(&"timeout") => {
+                words.next();
+                // Its flags (`-k 5`, `--signal=KILL`, `-s KILL`), then the duration.
+                while let Some(&w) = words.peek() {
+                    words.next();
+                    if matches!(w, "-k" | "-s" | "--kill-after" | "--signal") {
+                        words.next();
+                    } else if !w.starts_with('-') {
+                        break;
+                    }
+                }
+            }
+            _ => break,
+        }
+    }
+    let first: Vec<&str> = words.take(3).collect();
+    matches!(first[..], ["gh", "pr", "create"] | ["lane-gh", "call", "pr_create"])
+}
+
+/// A command that only passes on or keeps what it reads: `tail -3`, `head`, `tee FILE`, `cat`.
+fn is_filter(command: &str) -> bool {
+    matches!(command.split_whitespace().next(), Some("tail" | "head" | "tee" | "cat"))
+}
+
+/// A tool that opens a pull request through the lane VM broker: `mcp__github__pr_create` (Claude
+/// Code's name for an MCP tool), `github.pr_create` or a bare `pr_create`.
+fn is_pr_create_tool(name: &str) -> bool {
+    name == "pr_create" || name.ends_with("__pr_create") || name.ends_with(".pr_create")
+}
+
+/// A tool that starts a background command (acpmux's `bg_start`), whose output arrives later.
+fn is_bg_start_tool(name: &str) -> bool {
+    name == "bg_start" || name.ends_with("__bg_start") || name.ends_with(".bg_start")
+}
+
+/// The tool's name: Claude Code's `_meta.claude.tool`, else its title.
+fn tool_name(update: &Value) -> Option<&str> {
+    update
+        .pointer("/_meta/claude/tool")
+        .and_then(Value::as_str)
+        .or_else(|| update.get("title").and_then(Value::as_str))
 }
 
 /// A pull request a `gh pr merge` or `gh pr close` call settled.
@@ -415,9 +469,53 @@ fn output_text(update: &Value) -> String {
     text
 }
 
+/// Every output line that is nothing but a pull request URL, in order, once each, but one gh printed
+/// because it already exists (`a pull request for branch "b" into branch "main" already exists:`
+/// on the line before, or on its own line).
+fn bare_urls(output: &str) -> Vec<String> {
+    let mut urls: Vec<String> = vec![];
+    let mut previous = "";
+    for line in output.lines().map(str::trim) {
+        if PULL_URL.is_match(line)
+            && !previous.contains("already exists")
+            && !urls.iter().any(|u| u == line)
+        {
+            urls.push(line.to_owned());
+        }
+        if !line.is_empty() {
+            previous = line;
+        }
+    }
+    urls
+}
+
 /// The pull request `gh pr create` printed: the last output line that is nothing but its URL.
-fn printed_url(output: &str) -> Option<&str> {
-    output.lines().rev().map(str::trim).find(|line| PULL_URL.is_match(line))
+fn printed_url(output: &str) -> Option<String> {
+    bare_urls(output).pop()
+}
+
+/// The pull request a broker create answered with: `{"ok": true, "status": 201, "data":
+/// {"html_url": URL, ...}}` (the MCP tool and `lane-gh call pr_create`), or the bare URL `gh pr
+/// create` prints. A refusal (`"ok": false`, a cooldown, a 409) names none.
+fn created_url(output: &str) -> Option<String> {
+    let trimmed = output.trim();
+    let answer: Option<Value> = serde_json::from_str(trimmed)
+        .ok()
+        .or_else(|| trimmed.find('{').and_then(|i| serde_json::from_str(&trimmed[i..]).ok()));
+    if let Some(answer) = answer.filter(Value::is_object) {
+        if answer.get("ok").and_then(Value::as_bool) == Some(false) {
+            return None;
+        }
+        if let Some(url) = answer
+            .pointer("/data/html_url")
+            .or_else(|| answer.get("html_url"))
+            .and_then(Value::as_str)
+            .filter(|url| PULL_URL.is_match(url))
+        {
+            return Some(url.to_owned());
+        }
+    }
+    printed_url(output)
 }
 
 /// Notes a `tool_call` or `tool_call_update` into `m`: a shell call that runs `gh pr create` is
@@ -430,30 +528,103 @@ pub(super) fn absorb(
     m: &mut SessionMeta,
     at: u64,
 ) -> Option<String> {
-    let mut calls = session.pr_creates.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(url) = track(&mut calls, update)
-        && m.pull_requests.len() < MAX_PULL_REQUESTS
-        && !m.pull_requests.contains(&url)
-    {
-        m.pull_requests.push(url.clone());
-        m.pull_request_times.insert(url.clone(), at);
-        return Some(url);
+    let mut creates = session.pr_creates.lock().unwrap_or_else(|e| e.into_inner());
+    let mut joined = None;
+    for url in follow(&mut creates, update) {
+        if m.pull_requests.len() < MAX_PULL_REQUESTS && !m.pull_requests.contains(&url) {
+            m.pull_requests.push(url.clone());
+            m.pull_request_times.insert(url.clone(), at);
+            joined.get_or_insert(url);
+        }
     }
-    None
+    joined
+}
+
+/// The pull request creates a session has running (`Session::pr_creates`; the scorecard keeps
+/// its own while it reads a log).
+#[derive(Debug, Default)]
+pub(crate) struct Creates {
+    /// A `gh pr create` call's (or a broker `pr_create`'s) id, and the URL it printed so far.
+    calls: HashMap<String, Option<String>>,
+    /// `bg_start` calls whose command opens a pull request, by tool call id.
+    launches: HashSet<String>,
+    /// Their background tasks (`bg-…`), whose output is read when a tool reads it (`bg_output`,
+    /// `run_wait`) or the task's end notice arrives (`follow_notice`).
+    tasks: HashSet<String>,
+}
+
+impl Creates {
+    pub(crate) fn clear(&mut self) {
+        self.calls.clear();
+        self.launches.clear();
+        self.tasks.clear();
+    }
+}
+
+/// Follows one tool update into `creates`: the pull request URLs it settled as opened. A
+/// `gh pr create` or broker `pr_create` call counts once it completes (`track`). A `bg_start`
+/// whose command opens one is remembered by its task id, and every bare pull request URL that
+/// task printed counts when a tool result shows its output.
+pub(crate) fn follow(creates: &mut Creates, update: &Value) -> Vec<String> {
+    let mut urls: Vec<String> = track(&mut creates.calls, update).into_iter().collect();
+    let Some(id) = update.get("toolCallId").and_then(Value::as_str) else { return urls };
+    let opens = |s: &str| s.contains("gh pr create") || s.contains("pr_create");
+    if tool_name(update).is_some_and(is_bg_start_tool) && script(update).is_some_and(|s| opens(&s))
+    {
+        creates.launches.insert(id.to_owned());
+    }
+    let completed = update.get("status").and_then(Value::as_str) == Some("completed");
+    let output = || output_text(update);
+    if completed && creates.launches.remove(id) {
+        if let Some(task) = serde_json::from_str::<Value>(output().trim())
+            .ok()
+            .and_then(|v| v.get("id").and_then(Value::as_str).map(str::to_owned))
+        {
+            creates.tasks.insert(task);
+        }
+    } else if completed && !creates.tasks.is_empty() {
+        // A `bg_output` or `run_wait` answer: `{"id": "bg-…", "text": OUTPUT, ...}`.
+        if let Ok(answer) = serde_json::from_str::<Value>(output().trim())
+            && answer.get("id").and_then(Value::as_str).is_some_and(|t| creates.tasks.contains(t))
+            && let Some(text) = answer.get("text").and_then(Value::as_str)
+        {
+            for url in bare_urls(text) {
+                if !urls.contains(&url) {
+                    urls.push(url);
+                }
+            }
+        }
+    }
+    urls
+}
+
+/// A background task's end notice (a `user_message` whose `_meta.provenance.bgTaskId` names a task
+/// `follow` remembered): the bare pull request URLs in the output lines it quotes.
+pub(crate) fn follow_notice(creates: &mut Creates, message: &Value) -> Vec<String> {
+    let Some(task) = message.pointer("/_meta/provenance/bgTaskId").and_then(Value::as_str) else {
+        return vec![];
+    };
+    if !creates.tasks.contains(task) {
+        return vec![];
+    }
+    message.get("text").and_then(Value::as_str).map(bare_urls).unwrap_or_default()
 }
 
 /// Follows one update of a `gh pr create` call in `calls` (its id, and the URL it printed so far):
 /// the URL to record once the call completes. A failed call records none, though it printed one
-/// before failing ("a pull request for branch ... already exists: URL").
+/// before failing ("a pull request for branch ... already exists: URL"). A broker `pr_create`
+/// tool call (`is_pr_create_tool`) counts the same way, with the URL its JSON answer names.
 fn track(calls: &mut HashMap<String, Option<String>>, update: &Value) -> Option<String> {
     let id = update.get("toolCallId").and_then(Value::as_str)?;
     let execute = update.get("kind").and_then(Value::as_str) == Some("execute");
-    if execute && script(update).is_some_and(|s| is_gh_pr_create(&s)) {
+    if execute && script(update).is_some_and(|s| is_gh_pr_create(&s))
+        || tool_name(update).is_some_and(is_pr_create_tool)
+    {
         calls.entry(id.to_owned()).or_default();
     }
     let printed = calls.get_mut(id)?;
-    if let Some(url) = printed_url(&output_text(update)) {
-        *printed = Some(url.to_owned());
+    if let Some(url) = created_url(&output_text(update)) {
+        *printed = Some(url);
     }
     match update.get("status").and_then(Value::as_str) {
         Some("completed") => calls.remove(id).flatten(),
@@ -482,6 +653,10 @@ mod tests {
             "gh pr create --fill &>/tmp/pr.log",
             "git push && gh pr create --fill",
             "git add -A && git commit -m 'x; y' && git push -u origin HEAD && gh pr create --fill 2>&1",
+            "gh pr create --fill | tee out",
+            "cd /w && GUARD_OVERRIDE=\"$5\" timeout 900 gh pr create -R o/r --fill 2>&1 | tail -2",
+            "timeout -k 5 --signal=KILL 60 gh pr create --fill",
+            "lane-gh call pr_create o/r '{\"head\": \"lane/x\", \"base\": \"main\"}'",
         ] {
             assert!(is_gh_pr_create(yes), "{yes}");
         }
@@ -489,7 +664,9 @@ mod tests {
             "grep -rn 'gh pr create' .",
             "echo gh pr create",
             "gh pr create --fill && gh pr view 9",
-            "gh pr create --fill | tee out",
+            "gh pr create --fill | xargs echo",
+            "timeout 900 gh pr view 9",
+            "lane-gh call pr_view o/r '{}'",
             "gh pr create --body \"$(cat body.md)\" && gh pr view 9",
             "git push; gh pr create --fill",
             "git push || gh pr create --fill",
@@ -649,13 +826,101 @@ mod tests {
     }
 
     #[test]
+    fn a_broker_pr_create_tool_counts_the_url_its_answer_names() {
+        let mut calls = std::collections::HashMap::new();
+        let start = json!({"toolCallId": "m1", "kind": "other", "title": "mcp__github__pr_create",
+            "_meta": {"claude": {"tool": "mcp__github__pr_create"}},
+            "rawInput": {"repo": "o/r", "head": "lane/x", "base": "main", "title": "t"}});
+        let done = json!({"toolCallId": "m1", "status": "completed", "content": [{"type": "content",
+            "content": {"type": "text", "text": "{\"ok\":true,\"status\":201,\"data\":{\"html_url\":\"https://github.com/o/r/pull/7\",\"number\":7,\"head\":{\"repo\":{\"html_url\":\"https://github.com/o/r\"}}}}"}}]});
+        assert_eq!(track(&mut calls, &start), None);
+        assert_eq!(track(&mut calls, &done).as_deref(), Some("https://github.com/o/r/pull/7"));
+        // A refusal (a cooldown, a 409) names none, though the tool call "completed".
+        for refused in [
+            "{\"ok\":false,\"error\":\"shared content-creation cooldown\",\"retry_after\":898}",
+            "{\"ok\":false,\"status\":409,\"error\":\"the accepted PR create changed\"}",
+        ] {
+            assert_eq!(track(&mut calls, &start), None);
+            let answer = json!({"toolCallId": "m1", "status": "completed",
+                "content": [{"type": "content", "content": {"type": "text", "text": refused}}]});
+            assert_eq!(track(&mut calls, &answer), None, "{refused}");
+        }
+        // Codex names it by its title.
+        let codex = json!({"toolCallId": "c1", "title": "github.pr_create", "status": "completed",
+            "rawOutput": {"output": "{\"ok\": true, \"data\": {\"html_url\": \"https://github.com/o/r/pull/8\"}}"}});
+        assert_eq!(track(&mut calls, &codex).as_deref(), Some("https://github.com/o/r/pull/8"));
+        assert!(calls.is_empty());
+    }
+
+    #[test]
+    fn a_shell_create_behind_timeout_and_a_pipe_counts_but_not_one_that_already_exists() {
+        let mut calls = std::collections::HashMap::new();
+        let command = "GUARD_OVERRIDE=x timeout 900 gh pr create --fill 2>&1 | tail -3";
+        let run = |stdout: &str| {
+            json!({"toolCallId": "s1", "kind": "execute", "status": "completed",
+                "rawInput": {"command": command}, "rawOutput": {"stdout": stdout}})
+        };
+        let printed = "https://github.com/o/r/pull/9\nsession-footer: added\n";
+        assert_eq!(
+            track(&mut calls, &run(printed)).as_deref(),
+            Some("https://github.com/o/r/pull/9")
+        );
+        // The pipe hides gh's exit status: the line before its URL says it was not opened here.
+        let exists = "a pull request for branch \"x\" into branch \"main\" already exists:\nhttps://github.com/o/r/pull/9\n";
+        assert_eq!(track(&mut calls, &run(exists)), None);
+        // `lane-gh call pr_create` answers with the broker's JSON.
+        let lane = json!({"toolCallId": "s2", "kind": "execute", "status": "completed",
+            "rawInput": {"command": "lane-gh call pr_create o/r '{}'"},
+            "rawOutput": {"stdout": "{\"ok\": true, \"status\": 201, \"data\": {\"html_url\": \"https://github.com/o/r/pull/10\"}}\n"}});
+        assert_eq!(track(&mut calls, &lane).as_deref(), Some("https://github.com/o/r/pull/10"));
+        assert!(calls.is_empty());
+    }
+
+    #[test]
+    fn a_background_create_counts_what_its_task_printed() {
+        let mut creates = Creates::default();
+        let start = json!({"toolCallId": "b1", "kind": "other", "title": "mcp__acpmux__bg_start",
+            "_meta": {"claude": {"tool": "mcp__acpmux__bg_start"}},
+            "rawInput": {"command": "f(){ cd $1 && timeout 900 gh pr create --fill 2>&1 | tail -2; }; f a; f b"}});
+        assert!(follow(&mut creates, &start).is_empty());
+        let started = json!({"toolCallId": "b1", "status": "completed", "content": [{"type": "content",
+            "content": {"type": "text", "text": "{\"id\":\"bg-1\",\"state\":\"running\"}"}}]});
+        assert!(follow(&mut creates, &started).is_empty());
+        // A `bg_output` answer for another task names none.
+        let other = json!({"toolCallId": "b2", "status": "completed", "content": [{"type": "content",
+            "content": {"type": "text", "text": "{\"id\":\"bg-2\",\"text\":\"https://github.com/o/r/pull/1\\n\"}"}}]});
+        assert!(follow(&mut creates, &other).is_empty());
+        let output = json!({"toolCallId": "b3", "status": "completed", "content": [{"type": "content",
+            "content": {"type": "text", "text": "{\"id\":\"bg-1\",\"state\":\"exited\",\"text\":\"https://github.com/o/r/pull/11\\na pull request for branch already exists:\\nhttps://github.com/o/r/pull/3\\nhttps://github.com/o/r/pull/12\\n\"}"}}]});
+        assert_eq!(
+            follow(&mut creates, &output),
+            ["https://github.com/o/r/pull/11", "https://github.com/o/r/pull/12"]
+        );
+        // Its end notice quotes its last lines.
+        let notice = json!({"promptId": "bg-done-bg-1", "_meta": {"provenance": {"bgTaskId": "bg-1"}},
+            "text": "[notice from acpmux] Background command finished: x (exit 0)\nTask bg-1: f...\nLast 2 lines of its output:\nhttps://github.com/o/r/pull/12\nsession-footer: added"});
+        assert_eq!(follow_notice(&mut creates, &notice), ["https://github.com/o/r/pull/12"]);
+        let unrelated = json!({"_meta": {"provenance": {"bgTaskId": "bg-9"}},
+            "text": "https://github.com/o/r/pull/13"});
+        assert!(follow_notice(&mut creates, &unrelated).is_empty());
+        // A background command that opens none is not followed.
+        let plain = json!({"toolCallId": "b4", "title": "mcp__acpmux__bg_start",
+            "rawInput": {"command": "cargo test"}});
+        follow(&mut creates, &plain);
+        assert!(!creates.launches.contains("b4"));
+    }
+
+    #[test]
     fn printed_url_is_the_last_line_that_is_only_a_pull_url() {
         let out =
             "Creating pull request for b into main in o/r\n\nhttps://github.com/o/r/pull/12\n";
-        assert_eq!(printed_url(out), Some("https://github.com/o/r/pull/12"));
+        assert_eq!(printed_url(out).as_deref(), Some("https://github.com/o/r/pull/12"));
         assert_eq!(printed_url("see https://github.com/o/r/pull/3 for more"), None);
         assert_eq!(printed_url("https://github.com/o/r/pull/3/files"), None);
         let stdout = json!({"rawOutput": {"stdout": "https://github.com/o/r/pull/4\n", "stderr": "warning"}});
-        assert_eq!(printed_url(&output_text(&stdout)), Some("https://github.com/o/r/pull/4"));
+        assert_eq!(
+            printed_url(&output_text(&stdout)).as_deref(),
+            Some("https://github.com/o/r/pull/4")
+        );
     }
 }

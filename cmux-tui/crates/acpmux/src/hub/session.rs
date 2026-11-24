@@ -593,7 +593,7 @@ pub struct Session {
     pub(super) processes: StdMutex<processes::ProcessTable>,
     /// Tool calls that run `gh pr create`, and the URL each printed so far, until they end
     /// (`pull_requests.rs`).
-    pub(super) pr_creates: StdMutex<std::collections::HashMap<String, Option<String>>>,
+    pub(super) pr_creates: StdMutex<super::pull_requests::Creates>,
     /// Tool calls that run `gh pr merge` or `gh pr close`, and what each settles, until they end
     /// (`pull_requests.rs`).
     pub(super) pr_closes:
