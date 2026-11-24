@@ -41,6 +41,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 VERSION = 1
@@ -361,30 +362,54 @@ def strace_usable() -> bool:
         return False
 
 
-def cmd_step(a: argparse.Namespace) -> int:
-    """A workflow `shell:`: run the step's script with bash as Actions would, traced into --out (merged across steps).
-    The tracer never changes a verdict: where strace cannot run, or tracing fails, the step runs untraced and its own
-    exit status is the answer."""
-    bash = ["bash", "--noprofile", "--norc", "-eo", "pipefail", a.script]
-    out = Path(a.out or os.path.join(os.environ.get("RUNNER_TEMP", tempfile.gettempdir()), "traced-inputs",
-                                     "manifest.json"))
-    if os.environ.get("TRACED_INPUTS", "1") == "0" or not strace_usable():
-        print("traced_inputs: strace unavailable or off; this step runs untraced", file=sys.stderr)
-        (out.parent / "untraced").parent.mkdir(parents=True, exist_ok=True)
-        (out.parent / "untraced").write_text("1\n")
-        return subprocess.run(bash).returncode
-    with tempfile.TemporaryDirectory(prefix="traced-step-") as raw:
-        st = subprocess.run(["strace", "-f", "-ff", "--seccomp-bpf", "-qq", "-y", "-s", "4096", "-e",
-                             f"trace={SYSCALLS}", "-e", "signal=none", "-o", os.path.join(raw, "t"), *bash])
-        try:
-            man = manifest_from_raw(Path(raw), Path(a.root).resolve(), "HEAD", [os.environ.get("GITHUB_ACTION", a.script)])
+def job_steps(workflow: Path, job: str) -> list[tuple[str, str, dict]]:
+    """(name, script, env) of every `run:` step after the job's checkout that can fail the job (not continue-on-error),
+    as the workflow file has them. A step env
+    value that is an expression is left out (this is the shadow audit, not the job)."""
+    import yaml  # PyYAML: the guard venv and the Linux runners have it.
+
+    steps = yaml.load(workflow.read_text(), Loader=yaml.BaseLoader)["jobs"][job]["steps"]
+    out, seen_checkout = [], False
+    for st in steps:
+        if str(st.get("uses", "")).startswith("actions/checkout@"):
+            seen_checkout = True
+            continue
+        if not seen_checkout or "run" not in st or str(st.get("continue-on-error", "")) == "true":
+            continue  # before the checkout (workspace cleanup), or a shadow step of its own
+        env = {k: v for k, v in (st.get("env") or {}).items() if "${{" not in str(v)}
+        out.append((st.get("name", st["run"].splitlines()[0]), st["run"], env))
+    return out
+
+
+def cmd_trace_job(a: argparse.Namespace) -> int:
+    """Trace every `run:` step of one workflow job into one manifest, then audit it against the committed list.
+    Shadow only: it never fails the workflow's verdict (the job itself ran the same steps untraced)."""
+    root = Path(a.root).resolve()
+    if not strace_usable():
+        print("traced_inputs: strace missing or ptrace refused here; no audit")
+        return 0
+    out = Path(a.out)
+    out.unlink(missing_ok=True)
+    with tempfile.TemporaryDirectory(prefix="traced-job-") as tmp:
+        for i, (name, script, env) in enumerate(job_steps(Path(a.workflow), a.job)):
+            sh = Path(tmp) / f"step{i}.sh"
+            sh.write_text(script)
+            raw = Path(tmp) / f"raw{i}"
+            raw.mkdir()
+            t0 = time.monotonic()
+            st = subprocess.run(["strace", "-f", "-ff", "--seccomp-bpf", "-qq", "-y", "-s", "4096", "-e",
+                                 f"trace={SYSCALLS}", "-e", "signal=none", "-o", str(raw / "t"), "bash", "--noprofile",
+                                 "--norc", "-eo", "pipefail", str(sh)], cwd=root, env={**os.environ, **env},
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            man = manifest_from_raw(raw, root, a.rev, [name])
             man["exit"] = st.returncode
             write_manifest(man, out, True)
-        except Exception as e:  # noqa: BLE001 - a tracer bug must never fail the check it watches
-            print(f"traced_inputs: could not record this step's reads ({type(e).__name__}: {e})", file=sys.stderr)
-            out.parent.mkdir(parents=True, exist_ok=True)
-            (out.parent / "untraced").write_text("1\n")
-    return st.returncode
+            shutil.rmtree(raw)
+            print(f"traced_inputs: step {i} exit={st.returncode} {time.monotonic() - t0:.0f}s {man['counts']} "
+                  f"git={man['git']}: {name}")
+    if not a.inputs:
+        return 0
+    return cmd_audit(argparse.Namespace(manifest=str(out), inputs=a.inputs, strict=a.strict))
 
 
 def parse_raw(raw: Path) -> Trace:
@@ -486,6 +511,38 @@ def cmd_entries(a: argparse.Namespace) -> int:
     return 0
 
 
+ROW_KIND = {"F": "blob", "E": "blob", "N": "names", "T": "tree"}
+
+
+def compact(entries: dict[str, str], idx: dict[str, tuple[str, str, str]]) -> dict[str, str]:
+    """Fold each directory the check listed and read whole (every entry a file it read, or a directory it read whole)
+    into one T (tree) entry. A tree id covers exactly what its entries keyed (names, contents, and any absent path
+    appearing), so the key is the same set of changes, in far fewer rows."""
+    children: dict[str, list[str]] = {}
+    for path in idx:
+        if path:
+            children.setdefault(path.rpartition("/")[0], []).append(path)
+    full: set[str] = set()
+    for d in sorted((p for p, v in idx.items() if v[1] == "tree" and p), key=lambda p: -p.count("/")):
+        if entries.get(d) == "N" and all(c in full if idx[c][1] == "tree" else entries.get(c) == "F"
+                                         for c in children.get(d, [])):
+            full.add(d)
+    tops = {d for d in full if not any(d.startswith(a + "/") for a in _ancestors(d) if a in full)}
+    out = {p: k for p, k in entries.items() if not any(p == t or p.startswith(t + "/") for t in _ancestors(p) | {p}
+                                                        if t in tops)}
+    out.update({t: "T" for t in tops})
+    return out
+
+
+def _ancestors(path: str) -> set[str]:
+    parts = path.split("/")
+    return {"/".join(parts[:i]) for i in range(1, len(parts))}
+
+
+def listable(path: str) -> bool:
+    return not any(c in path for c in " #") and path.isprintable() and path.isascii()
+
+
 def export_rows(man: dict, pinned: list[str]) -> list[str]:
     """The manifest as receipt_input_key rows (`* KIND PATH`): F -> blob, N -> names, E -> blob (keyed absent or
     present). A path both listed and read through is a tree only when PINNED names it (the check's own code)."""
@@ -495,13 +552,15 @@ def export_rows(man: dict, pinned: list[str]) -> list[str]:
             if kind == "N":  # the root listed: `REV:` is its tree, keyed on its names
                 rows.append("* names .")
             continue  # the root stat'ed or opened: it always exists, so it keys nothing
-        if any(c in path for c in " #") or not path.isprintable() or not path.isascii():
+        if not listable(path):
             # receipt_input_key splits on whitespace and the controller takes printable ASCII only: such a path
-            # cannot be listed, so the check is keyed on its parent directory's whole tree instead.
-            parent = path.rpartition("/")[0]
-            rows.append(f"* tree {parent}" if parent else "* tree .")
+            # cannot be listed, so the check is keyed on its nearest listable ancestor's whole tree instead.
+            parent = path
+            while parent and not listable(parent):
+                parent = parent.rpartition("/")[0]
+            rows.append(f"* tree {parent or '.'}")
             continue
-        rows.append(f"* {'names' if kind == 'N' else 'blob'} {path}")
+        rows.append(f"* {ROW_KIND[kind]} {path}")
     rows += [f"* blob {p}" for p in pinned]
     return sorted(set(rows))
 
@@ -513,6 +572,8 @@ def cmd_export(a: argparse.Namespace) -> int:
         return 2
     if man.get("git") == "L":
         print("traced_inputs: the check asks git for the path list; keyed on the root listing too", file=sys.stderr)
+    entries = man["entries"]
+    man = {**man, "entries": compact(entries, tree_index(Path(a.root), man["rev"]))}
     rows = export_rows(man, a.pin)
     if man.get("git") == "L":
         rows.append("* tree .")
@@ -607,12 +668,17 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--root", default=".")
         p.add_argument("--salt", default="")
     k.add_argument("--strict", action="store_true")
-    sp = sub.add_parser("step", help="a workflow shell: `shell: python3 scripts/ci/traced_inputs.py step {0}`")
-    sp.add_argument("script")
-    sp.add_argument("--root", default=".")
-    sp.add_argument("--out", default="")
+    tj = sub.add_parser("trace-job", help="trace every run: step of a workflow job, then audit the committed list")
+    tj.add_argument("--workflow", required=True)
+    tj.add_argument("--job", required=True)
+    tj.add_argument("--root", default=".")
+    tj.add_argument("--rev", default="HEAD")
+    tj.add_argument("--out", required=True)
+    tj.add_argument("--inputs", default="")
+    tj.add_argument("--strict", action="store_true")
     x = sub.add_parser("export")
     x.add_argument("--check", required=True)
+    x.add_argument("--root", default=".")
     x.add_argument("--manifest", required=True)
     x.add_argument("--out", required=True)
     x.add_argument("--pin", action="append", default=[], help="a file always in the key (the workflow, the list)")
@@ -633,8 +699,8 @@ def main(argv: list[str] | None = None) -> int:
         if not a.cmd:
             ap.error("trace needs a command after --")
         return cmd_trace(a)
-    if a.sub == "step":
-        return cmd_step(a)
+    if a.sub == "trace-job":
+        return cmd_trace_job(a)
     if a.sub == "parse":
         man = manifest_from_raw(Path(a.raw), Path(a.root).resolve(), a.rev, ["(parsed)"])
         write_manifest(man, Path(a.out), False)
