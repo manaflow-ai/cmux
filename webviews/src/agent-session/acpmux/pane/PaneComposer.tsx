@@ -25,7 +25,6 @@ import { cloudSendAgent, cloudStartModePick } from "../cloudModePick";
 import { rememberStartedProject } from "../newtab/startedProject";
 import { SurgeHoldRow } from "../SurgeHoldRow";
 import { surgeShows } from "../conversation/surgeHold";
-import { githubFolder } from "../githubRepos";
 import { writePersistedDraft } from "../composerDraft";
 import { Composer, type ComposerHandle, type ComposerWake, type ComposerRelay } from "../Composer";
 import type { BrowseRequest } from "../browseProject";
@@ -277,6 +276,11 @@ export type PaneComposerDeps = {
   checkedOutGitHub: { cwd: string; name: string } | undefined;
   cloningGitHub: string | undefined;
   clearProject(): void;
+  /// A GitHub repository picked with This Mac picked: the chip's choice only, checked out when Return sends.
+  deferGitHub(repo: string, candidates: string[]): void;
+  /// Return on a GitHub repository chosen with This Mac picked: starts its checkout and holds the prompt, which
+  /// goes once the checkout is the folder. False when the chip names no such repository.
+  checkOutGitHubOnSend(): boolean;
   openEmptyProject: (() => void) | undefined;
   pickSourceProject(cwd: string, peer?: string): Promise<void>;
   cloudPicked: boolean;
@@ -508,6 +512,8 @@ export function drawPaneComposer({
   checkedOutGitHub,
   cloningGitHub,
   clearProject,
+  deferGitHub,
+  checkOutGitHubOnSend,
   openEmptyProject,
   pickSourceProject,
   cloudPicked,
@@ -1045,6 +1051,8 @@ export function drawPaneComposer({
               // the message (CMUX-682). Asked first in `holdsSend`; again here for a send that waited.
               if (holdsForComputerUseSetup(text, false, computerUsePlace, false)) return false;
               setComputerUseAsked(undefined);
+              // A GitHub repository on the chip with This Mac picked: Return checks it out here first (cmux#53226).
+              if (!cloudPicked && !sandboxing && checkOutGitHubOnSend()) return false;
               if (cloudPicked) {
                 if (cloudSourceWaiting) return false;
                 const once = cloudFolderOnce.current;
@@ -1510,8 +1518,7 @@ export function drawPaneComposer({
             // there is none), then the chat's worktree of it.
             {...(freshChat && !quick
               ? {
-                  onGitHubHere: (repo: string, candidates: string[]) =>
-                    startInWorktree(githubFolder(repo), { repo, candidates }),
+                  onGitHubHere: deferGitHub,
                 }
               : {})}
             onConnect={connectMachine}
