@@ -470,10 +470,12 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         }
     }
 
-    /// Re-reads the file without discarding an unsaved TextEdit buffer.
+    /// Re-reads the file without discarding an unsaved TextEdit buffer, and
+    /// reloads local images, which can change on disk while the text stays the same.
     @discardableResult
     func reloadFromDisk() -> Task<Void, Never> {
-        loadFileContent(replacingDirtyContent: false)
+        rendererSession.reloadLocalImages()
+        return loadFileContent(replacingDirtyContent: false)
     }
 
     func attachTextView(_ textView: NSTextView) {

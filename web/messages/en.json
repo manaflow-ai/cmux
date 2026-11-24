@@ -981,6 +981,7 @@
         "current": "Current plan",
         "perMonth": "per month",
         "names": {
+          "next_plus": "cmux NEXT Plus",
           "next_pro": "cmux NEXT Pro",
           "next_max": "cmux NEXT Max"
         },
@@ -2204,6 +2205,7 @@
     "typingProgrammability": "programmability",
     "taglineStatic": "The terminal built for multitasking, organization, and programmability.",
     "subtitle": "Free and open source native macOS terminal built on Ghostty. Vertical tabs, notification rings when agents need attention, split panes, and a <cliLink>CLI</cliLink> for programmability.",
+    "nextCallout": "New: try <link>cmux NEXT</link>, a preview of the next cmux.",
     "features": "Features",
     "faq": "FAQ",
     "communitySection": "Community",
@@ -5136,8 +5138,7 @@
       "fallback": "If cmux does not open, install cmux and click Open in cmux again. cmux opens the session only if this Mac can already reach it.",
       "nameLabel": "Name: {value}",
       "hostLabel": "Host: {value}",
-      "harnessLabel": "Harness: {value}",
-      "reference": "This link names an agent session by a private reference, not by its machine or session. It does not open from this page; team members look the reference up with their own tools."
+      "harnessLabel": "Harness: {value}"
     }
   },
   "download": {
@@ -7447,6 +7448,11 @@
       "sessionsTitle": "Headless sessions and attach",
       "sessionsIntro": "Headless mode keeps the mux backend and its terminals running without a local interface. Attach from another terminal when you need the UI.",
       "sessionsBody": "The default session is main. Named sessions use separate Unix sockets. Detaching leaves a headless server running, so a later attach restores the same tree and terminal state.",
+      "serverTitle": "Keep a session running as a service",
+      "serverIntro": "cmux server install keeps the main session running as a service, so it starts again after a reboot, with no one logged in. On Linux it writes a systemd user unit and turns on lingering; on macOS it writes a LaunchAgent. It needs no sudo, and the session listens only on a Unix socket that only your account can open.",
+      "serverSsh": "To set up another machine that you reach with SSH, give it as ssh://[user@]host[:port]. cmux installs itself there with the install script, starts the service, checks that the session answers, and adds the machine to the cmux app here. It shows each command and asks before it runs it; --yes runs every step without asking. Host-key checking stays as your SSH config has it, and agent, X11 and port forwarding are off.",
+      "serverOptions": "--user starts the service when you log in and stops it when you log out, and leaves lingering as it is. --channel stable or --channel nightly picks the build that goes on the other machine. On a machine where you already are, the install script does the same with --server:",
+      "serverNote": "The service commands ship in cmux NIGHTLY builds. install stops when a cmux-server unit or LaunchAgent that cmux did not write is in the way, and uninstall leaves such a unit as it is.",
       "remoteTitle": "Remote machines",
       "remoteIntro": "Enable the machine rail to switch between the current session and configured Unix-socket or SSH targets.",
       "remoteBody": "The remote machine must already run a headless cmux session, and noninteractive SSH must find the cmux binary. cmux uses strict host-key checking and disables agent forwarding and port forwarding.",

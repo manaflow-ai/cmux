@@ -11,7 +11,8 @@ variables at the owned pools and GitHub-hosted Linux by hand.
 ci-cloud-overflow-probe.yml runs this every 10 minutes. Its `probe` jobs ask
 for each Blacksmith Linux size in PROBE_LABELS (4 and 16 vCPU), one job per
 label, and only print a line. This script, in the `watch` job on Blacksmith
-Linux (its own bounded CI_TRUSTED_RUNNER selector, 2 or 8 vCPU, never a probe size), waits for them:
+Linux (its own bounded CI_TRUSTED_RUNNER selector, 2 or 8 vCPU or the one-job GCP JIT label, never a probe
+size), waits for them:
 
 - Every probe starts within PROBE_MINUTES of being queued: Blacksmith serves.
   If this switch turned overflow off (the CI_CLOUD_OVERFLOW_SAVED record
@@ -104,8 +105,8 @@ PROBE_LABELS = ("blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404")
 HEALTH_LABELS = (*PROBE_LABELS, "blacksmith-2vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404",
                  "blacksmith-32vcpu-ubuntu-2404")
 # Where Linux overflow goes while the probed label stalls: another Blacksmith
-# Linux size, never GitHub-hosted Ubuntu. CI_TRUSTED_RUNNER's readers accept
-# only ubuntu-24.04 and the 2 and 4 vCPU labels (docs/ci-runners.md), so it
+# Linux size, never GitHub-hosted Ubuntu. Every CI_TRUSTED_RUNNER reader
+# accepts ubuntu-24.04 and the 2 and 4 vCPU labels (docs/ci-runners.md), so it
 # takes 2 vCPU.
 LINUX_FAILOVER = "blacksmith-16vcpu-ubuntu-2404"
 TRUSTED_FAILOVER = "blacksmith-2vcpu-ubuntu-2404"
@@ -113,8 +114,16 @@ TRUSTED_FAILOVER = "blacksmith-2vcpu-ubuntu-2404"
 # toward_started() can pick it, and one the bounded LINUX_RUNNER selectors accept.
 ALTERNATE_FAILOVERS = {LINUX_FAILOVER: "blacksmith-4vcpu-ubuntu-2404",
                        TRUSTED_FAILOVER: "blacksmith-4vcpu-ubuntu-2404"}
-# The only Blacksmith labels CI_TRUSTED_RUNNER's readers accept.
+# The only Blacksmith labels every CI_TRUSTED_RUNNER reader accepts.
 TRUSTED_BLACKSMITH_LABELS = frozenset({"blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404"})
+# The owned one-job GCP JIT label CI_TRUSTED_RUNNER's readers also accept (cmuxterm-hq runner_pool.py
+# JIT_ONLY_LABELS: one VM per job, deleted after it). Leo, 2026-11-19, on Blacksmith: "stop ... relying on it".
+# The CLA jobs (cla.yml, cla-policy-guard.yml) do not list it: their runner-name guard admits only GitHub-hosted
+# and Blacksmith VMs, so for them it falls back to Blacksmith 4 vCPU. No probe asks for it and Blacksmith being
+# down does not stall it, so the switch never moves CI_TRUSTED_RUNNER off it (plan_off: it is not a blacksmith-*
+# label) and keeps it where an override or a recorded value puts it (toward_started, plan_on, plan_resume).
+TRUSTED_JIT_LABELS = frozenset({"cmux-gcp-secret-jit-x64"})
+TRUSTED_ACCEPTED_LABELS = TRUSTED_BLACKSMITH_LABELS | TRUSTED_JIT_LABELS
 HOSTED_LINUX_LABEL = re.compile(r"^ubuntu-")
 LINUX_VARIABLE = "LINUX_RUNNER"
 # The merge-gating checks (CLA, backend migrations) read this; it falls back to
@@ -225,6 +234,11 @@ def linux_cloud_label(label: str | None) -> bool:
     return bool(re.fullmatch(r"blacksmith-\d+vcpu-ubuntu-\d+", str(label or "")))
 
 
+def unprobed_trusted(name: str, label: str | None) -> bool:
+    """CI_TRUSTED_RUNNER on a one-job GCP JIT label: no probe decides it, so probe health never moves it."""
+    return name == TRUSTED_VARIABLE and (label or "").strip() in TRUSTED_JIT_LABELS
+
+
 def probe_job_name(label: str) -> str:
     """The name of the probe job for one label (the workflow's matrix job name)."""
     return f"{PROBE_JOB} ({label})"
@@ -281,7 +295,7 @@ def failover_values(xcode_app_pr: str | None, overrides: str | None) -> tuple[di
                     # No job runs on GitHub-hosted Ubuntu (Leo, 2026-10-27).
                     problems.append(f"{OVERRIDES_VARIABLE} points {name} at {value.strip()}, GitHub-hosted "
                                     "Ubuntu; ignored")
-                elif name == TRUSTED_VARIABLE and value.strip() not in TRUSTED_BLACKSMITH_LABELS:
+                elif name == TRUSTED_VARIABLE and value.strip() not in TRUSTED_ACCEPTED_LABELS:
                     problems.append(f"{OVERRIDES_VARIABLE} points {name} at {value.strip()}, which its readers do "
                                     "not accept; ignored")
                 elif cloud_label(value.strip()) and not (name in LINUX_VARIABLES and linux_cloud_label(value.strip())):
@@ -378,7 +392,8 @@ def plan_on(record: Mapping[str, Any], current: Mapping[str, str | None],
             restores.append(Restore(name, before, f"stays {now or 'unset'}; its value before, {before}, is "
                                                   "GitHub-hosted, which no job runs on"))
             continue
-        if healthy is not None and name in LINUX_VARIABLES and (before or "") not in healthy:
+        if (healthy is not None and name in LINUX_VARIABLES and (before or "") not in healthy
+                and not unprobed_trusted(name, before)):
             restores.append(Restore(name, before, f"stays {now or 'unset'}; its value before, {before or 'unset'}, "
                                                   "is not a size whose probe started"))
             continue
@@ -425,7 +440,8 @@ def plan_resume(record: Mapping[str, Any], current: Mapping[str, str | None],
                 and name not in failover):
             resumes.append(Resume(name, after, "no failover now; left alone (the record still restores it)"))
             continue
-        if name in LINUX_VARIABLES and started is not None and after not in set(started):
+        if (name in LINUX_VARIABLES and started is not None and after not in set(started)
+                and not unprobed_trusted(name, after)):
             resumes.append(Resume(name, after, f"{after} did not start a probe in this run; left alone"))
             continue
         if now == before or (now is not None and now == change.get("was")):
@@ -452,7 +468,7 @@ def toward_started(failover: Mapping[str, str], started: Iterable[str]) -> dict[
     healthy = set(started)
     values = dict(failover)
     for name in LINUX_VARIABLES:
-        if name not in values or values[name] in healthy:
+        if name not in values or values[name] in healthy or unprobed_trusted(name, values[name]):
             continue
         other = next((label for label in LINUX_FAILOVER_CHAIN[name] if label in healthy), None)
         if other is None:
@@ -586,19 +602,61 @@ def stuck_job(jobs: Iterable[Mapping[str, Any]], now: dt.datetime, minutes: int,
     return min(stuck, key=lambda item: item[0])[1] if stuck else None
 
 
-REFUSED_CODES = frozenset({401, 403, 429})
+class GitHubError(RuntimeError):
+    """A refused call, with GitHub's own words: `status` is the HTTP code (None for a network error)."""
+
+    def __init__(self, message: str, status: int | None = None) -> None:
+        super().__init__(message)
+        self.status = status
+
+
+def http_error_text(error: urllib.error.HTTPError) -> str:
+    """`403: <GitHub's message>; rate limit 0 left (resource core), resets 03:12:00Z` from a refused call:
+    a bare 403 says nothing of whether the token lacks a permission or its pool is spent."""
+    parts = [str(error.code)]
+    try:
+        raw = error.read() or b""
+    except (OSError, ValueError, http.client.HTTPException):
+        raw = b""
+    message = ""
+    try:
+        body = json.loads(raw) if raw else {}
+        message = str(body.get("message") or "") if isinstance(body, dict) else ""
+    except ValueError:
+        message = raw.decode("utf-8", "replace")
+    message = " ".join(message.split())[:300]
+    if message:
+        parts[0] += f": {message}"
+    headers = error.headers
+    get = headers.get if headers is not None else (lambda _name: None)
+    remaining, resource, reset = get("x-ratelimit-remaining"), get("x-ratelimit-resource"), get("x-ratelimit-reset")
+    if remaining is not None:
+        limit = f"rate limit {remaining} left" + (f" (resource {resource})" if resource else "")
+        if reset and str(reset).isdigit():
+            limit += ", resets " + dt.datetime.fromtimestamp(int(reset), dt.timezone.utc).strftime(
+                "%H:%M:%SZ")
+        parts.append(limit)
+    if get("retry-after"):
+        parts.append(f"retry after {get('retry-after')} s")
+    if get("x-accepted-github-permissions"):
+        parts.append(f"needs {get('x-accepted-github-permissions')}")
+    return "; ".join(parts)
 
 
 class GitHub:
     """REST client. With `fallback_token`, reads go out on `token` (the watch's cmux-bot installation token,
-    whose pool is its own) and a refused read is asked once more on the fallback (the workflow token, which
-    shares the repository's 1,000/h pool with every workflow); writes always use the fallback, so who
-    cancels and re-runs a run is unchanged. Without it, everything uses `token`, as before."""
+    whose pool is its own) and writes on the fallback (the workflow token), so who cancels and re-runs a run
+    is unchanged. A refused read is not asked again on the workflow token: that token can never read a
+    variable, and its 403 hid the first refusal's cause. Without it, everything uses `token`."""
 
     def __init__(self, token: str, repo: str, fallback_token: str | None = None) -> None:
         self.repo = repo
         self.token = token
         self.fallback_token = (fallback_token or "").strip() or None
+        # path -> (ETag, body) of the last answer to a GET. The watch lists its own run's jobs every POLL_SECONDS
+        # for up to PROBE_MINUTES + 5; a conditional read of an unchanged listing answers 304, which GitHub does not
+        # count against the token's hourly pool.
+        self.etags: dict[str, tuple[str, Any]] = {}
 
     def _headers(self, token: str) -> dict[str, str]:
         return {
@@ -612,33 +670,40 @@ class GitHub:
         headers = self._headers(token)
         if data is not None:
             headers["Content-Type"] = "application/json"
+        # An ETag is per URL, not per token: a 304 answers whichever token asked.
+        cached = self.etags.get(path) if method == "GET" else None
+        if cached:
+            headers["If-None-Match"] = cached[0]
         request = urllib.request.Request(f"{API}/repos/{self.repo}{path}", data=data, headers=headers,
                                          method=method)
-        with urllib.request.urlopen(request, timeout=30) as response:
-            raw = response.read()
-            return json.loads(raw) if raw else {}
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                raw = response.read()
+                result = json.loads(raw) if raw else {}
+                etag = response.headers.get("ETag") if method == "GET" else None
+                if etag:
+                    self.etags[path] = (etag, result)
+                return result
+        except urllib.error.HTTPError as error:
+            if error.code == 304 and cached:
+                return cached[1]
+            raise
 
     def request(self, method: str, path: str, body: Any | None = None) -> Any:
         data = json.dumps(body).encode() if body is not None else None
         read = method == "GET"
         token = self.token if read or self.fallback_token is None else self.fallback_token
+        where = f"{method} {path.split('?')[0]}"
         try:
-            try:
-                return self._send(method, path, data, token)
-            except urllib.error.HTTPError as error:
-                if not (read and self.fallback_token and token != self.fallback_token
-                        and error.code in REFUSED_CODES):
-                    raise
-                # A refused GET did nothing: ask the workflow token once.
-                return self._send(method, path, data, self.fallback_token)
+            return self._send(method, path, data, token)
         except urllib.error.HTTPError as error:
-            raise RuntimeError(f"{method} {path.split('?')[0]} failed ({error.code})") from error
+            raise GitHubError(f"{where} failed ({http_error_text(error)})", error.code) from error
         except urllib.error.URLError as error:
-            raise RuntimeError(f"{method} {path.split('?')[0]} failed ({error.reason})") from error
+            raise GitHubError(f"{where} failed ({error.reason})") from error
         except (OSError, ValueError, http.client.HTTPException) as error:
             # A read timeout (TimeoutError) or a body that is not JSON: a failed call like any other, so a
             # rescue that already force-cancelled runs still re-runs the rest.
-            raise RuntimeError(f"{method} {path.split('?')[0]} failed ({type(error).__name__})") from error
+            raise GitHubError(f"{where} failed ({type(error).__name__})") from error
 
     def jobs(self, run_id: int, attempt: int | None = None) -> list[dict[str, Any]]:
         where = f"/actions/runs/{run_id}/attempts/{attempt}/jobs" if attempt else f"/actions/runs/{run_id}/jobs"
@@ -664,7 +729,7 @@ class GitHub:
         try:
             return self.request("GET", f"/actions/variables/{name}").get("value")
         except RuntimeError as error:
-            if "(404)" in str(error):
+            if getattr(error, "status", None) == 404:
                 return None
             raise
 
@@ -672,7 +737,7 @@ class GitHub:
         try:
             self.request("PATCH", f"/actions/variables/{name}", {"name": name, "value": value})
         except RuntimeError as error:
-            if "(404)" not in str(error):
+            if getattr(error, "status", None) != 404:
                 raise
             self.request("POST", "/actions/variables", {"name": name, "value": value})
 
@@ -680,7 +745,7 @@ class GitHub:
         try:
             self.request("DELETE", f"/actions/variables/{name}")
         except RuntimeError as error:
-            if "(404)" not in str(error):
+            if getattr(error, "status", None) != 404:
                 raise
 
 
