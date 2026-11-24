@@ -190,6 +190,8 @@ pub(crate) use topology_ops::split_direction_field;
 mod agent_chat_columns;
 #[cfg(unix)]
 mod agent_chat_notices;
+#[cfg(unix)]
+mod agent_failure_code;
 pub(crate) mod agent_message_pump;
 pub(crate) mod app_terminals;
 mod cell_pixels;
@@ -331,6 +333,8 @@ mod holder_late;
 mod loss_causes;
 mod orphan_hosts;
 mod pending_terminals;
+#[cfg(any(unix, windows))]
+pub mod process_census;
 mod startup_adoption_gate;
 mod startup_record;
 mod terminal_adoption;
