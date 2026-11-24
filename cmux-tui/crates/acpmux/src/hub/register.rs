@@ -204,16 +204,28 @@ impl Hub {
     ) -> Result<Value, RpcError> {
         let homes = self.harness_homes();
         let socket = req.socket.clone();
+        let renew = req.renew;
         let found = tokio::task::spawn_blocking(move || {
             // Only the caller's own processes: never past this daemon, which a desktop shell may
             // have started.
-            let ancestry = below_daemon(crate::sender_harness::ancestors(peer_pid));
+            let ancestry = crate::sender_harness::ancestors(peer_pid);
+            if renew && ancestry.is_empty() {
+                // Its reply deadline may have passed before this worker ran. Leave the token
+                // and the proof cache alone so the next hook can prove the session immediately.
+                return Ok(None);
+            }
             let live = crate::claude_peers::live(&homes.claude);
-            nearest_claude(&ancestry, &live, socket.as_deref()).map(Found::Claude)
+            nearest_claude(&below_daemon(ancestry), &live, socket.as_deref())
+                .map(|peer| Some(Found::Claude(peer)))
+                .ok_or_else(not_found)
         })
         .await
-        .map_err(|e| RpcError::internal(e.to_string()))?
-        .ok_or_else(not_found)?;
+        .map_err(|e| RpcError::internal(e.to_string()))??;
+        let Some(found) = found else {
+            return Ok(
+                json!({"renewed": null, "reason": "renewal caller unavailable", "retryable": true}),
+            );
+        };
         // A registered Claude Code chat is delivered only with its session's own token (never the
         // undocumented peer key), so a shell that has none registers nothing.
         if req.token.is_none() || req.socket.is_none() {
