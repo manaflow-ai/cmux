@@ -1,0 +1,62 @@
+/* Move to Cloud's done toast: what stayed on this Mac (MoveLanded.tsx). */
+.acpmux-move-landed-lines {
+  margin: 0;
+  padding: 0 0 0 var(--ds-space-4);
+  color: var(--ui-notice-ink-2);
+  font-size: var(--text-content);
+  overflow-wrap: anywhere;
+}
+.acpmux-move-landed-lines > li + li {
+  margin-top: var(--ds-space-1);
+}
+.acpmux-move-landed-disclosure {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  min-width: 0;
+}
+.acpmux-move-landed-disclosure .ui-disclosure-trigger {
+  align-self: flex-start;
+  padding: var(--ds-space-1) var(--ds-space-2);
+  margin-inline-start: calc(-1 * var(--ds-space-2));
+  border-radius: var(--ds-radius-md);
+  color: var(--ui-notice-ink-2);
+  background: transparent;
+}
+.acpmux-move-landed-disclosure .ui-disclosure-trigger:hover {
+  background: color-mix(in srgb, currentColor 8%, transparent);
+}
+.acpmux-move-landed-groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  min-width: 0;
+}
+.acpmux-move-landed-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+}
+.acpmux-move-landed-label {
+  color: var(--ui-notice-ink-2);
+  font-size: var(--text-small, 11px);
+  font-weight: var(--weight-emphasis, 600);
+}
+.acpmux-move-landed-paths {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-space-1);
+}
+.acpmux-move-landed-path,
+.acpmux-move-landed-more {
+  padding: 0 var(--ds-space-1);
+  border-radius: var(--ds-radius-sm);
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  font: 11.5px var(--font-mono);
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+.acpmux-move-landed-more {
+  font-family: var(--font-ui);
+  color: var(--ui-notice-ink-2);
+}

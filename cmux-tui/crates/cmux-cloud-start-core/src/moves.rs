@@ -7,6 +7,7 @@
 pub mod autosize;
 pub mod cli;
 pub mod folder;
+pub mod landed;
 pub mod ledger;
 pub mod pin;
 pub mod progress;
