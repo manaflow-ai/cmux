@@ -1594,6 +1594,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/machine_files_call",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/keys_mint",
       "params": true,
       "result": true
