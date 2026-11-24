@@ -1319,6 +1319,27 @@ pins `macKey` per Mac device id when pairing first passes, and from then on
 refuses (`mac_identity_changed`, before it signs) a Mac that proves another key
 or none. Removing the Mac forgets the pin.
 
+#### Tunnel keys in the proofs (`proofVersion` 2)
+
+On a WireGuard link, both identity proofs also cover the tunnel's two static
+public keys, as each side's own tunnel handshook with them: `dialer` (the
+phone's, or a dialing Mac's) and `answerer` (the Mac's), base64 as in `wg-init`
+and `wg-resp`.
+
+- The phone's `auth` args add `proofVersion: "2"` on a WireGuard link.
+- A Mac that supports it answers on a WireGuard link with `proofVersion: "2"` in
+  the challenge, `macSignature` over
+  `cmux-mobile-mac-identity-v2 \0 mac \0 phone \0 macNonce \0 challenge \0 dialer \0 answerer`,
+  and checks the phone's signature over
+  `cmux-mobile-link-auth-v2 \0 mac \0 phone \0 nonce \0 identityKey \0 approvalKey \0 action \0 dialer \0 answerer`
+  (refused `unpaired` otherwise).
+- The phone checks the proof over its own tunnel's keys (refused
+  `mac_identity_changed`, before it signs). Once a Mac proved v2, the phone
+  remembers it beside the pin and refuses a v1 challenge from it on a WireGuard
+  link; a v2 challenge on a link with no tunnel keys is refused too.
+- A peer that sends no `proofVersion` (an older phone, or a WebRTC link) gets
+  the v1 proofs above; an older Mac ignores it and answers v1.
+
 ### Chief question answers
 
 On the `chief` channel, a supervised hostd forwards `conversation-op` with

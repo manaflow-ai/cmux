@@ -296,6 +296,8 @@ pub struct LinkHandle {
     watcher: Mutex<Option<tokio::task::JoinHandle<()>>>,
     timeline: Timeline,
     session_id: String,
+    /// The WireGuard keys this link's tunnel handshook with (`None` on WebRTC).
+    tunnel_keys: Option<cmux_mobile_link::dial::TunnelKeys>,
     /// The WebRTC media session beside a WireGuard link, when both sides
     /// support one (cmux_mobile_link::hybrid).
     media: Option<cmux_mobile_link::hybrid::MediaManager>,
@@ -551,6 +553,16 @@ impl LinkHandle {
 
     pub fn is_closed(&self) -> bool {
         self.link.is_closed()
+    }
+
+    /// The WireGuard static public keys this link's tunnel handshook with, as `[dialer,
+    /// answerer]` (base64), or empty on a link that is not a tunnel. The phone's `auth` signs
+    /// them and checks the Mac's identity proof over them (cmux-mobile-host `pairing.rs`, v2).
+    pub fn tunnel_keys(&self) -> Vec<String> {
+        self.tunnel_keys
+            .as_ref()
+            .map(|keys| vec![keys.dialer.clone(), keys.answerer.clone()])
+            .unwrap_or_default()
     }
 
     /// Milliseconds since the link last received any frame from the Mac.
@@ -927,6 +939,7 @@ async fn connect_on(
         watcher: Mutex::new(Some(watcher)),
         timeline,
         session_id: connected.session_id,
+        tunnel_keys: connected.tunnel_keys,
         media,
     }))
 }
