@@ -2522,7 +2522,6 @@ async fn move_over_relay(precopy: bool) -> MoveRun {
             max_policy: None,
             same_user: true,
             ops: vec!["move".into()],
-            max_policy: Some(acpmux::config::PermissionPolicy::ApproveAll),
         }],
         Some(ledger.path().join("mesh-controls.json")),
     )

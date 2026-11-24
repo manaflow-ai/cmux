@@ -188,7 +188,6 @@ fn machines(relay: &str, root: &Path, state: &Path) -> Vec<Machine> {
                 max_policy: None,
                 same_user: true,
                 ops: vec!["move".into()],
-                max_policy: Some(acpmux::config::PermissionPolicy::ApproveAll),
             }],
             Some(state.join(name).join("ledger")),
         )
