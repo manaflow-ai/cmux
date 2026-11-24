@@ -56,6 +56,7 @@ final class ComposerTypingLagUITests: XCTestCase {
 
     /// The ask's complete matrix. Each cell launches the same demo and types the same
     /// 88-key sequence, so the trace's p95 is comparable across draft sizes and surfaces.
+    /// The simulator script runs this suite once with duress=off and once with duress=heavy.
     @MainActor func testLongTextMatrixAfter() throws { try matrix(wholeDraft: false) }
     @MainActor func testLongTextMatrixBefore() throws { try matrix(wholeDraft: true) }
 
@@ -63,15 +64,13 @@ final class ComposerTypingLagUITests: XCTestCase {
     private func matrix(wholeDraft: Bool) throws {
         for surface in ["chat", "terminal"] {
             for chars in [100, 1_000, 5_000, 10_000, 20_000] {
-                for lowPower in [false, true] {
-                    try matrixCell(surface: surface, chars: chars, lowPower: lowPower, wholeDraft: wholeDraft)
-                }
+                try matrixCell(surface: surface, chars: chars, wholeDraft: wholeDraft)
             }
         }
     }
 
     @MainActor
-    private func matrixCell(surface: String, chars: Int, lowPower: Bool, wholeDraft: Bool) throws {
+    private func matrixCell(surface: String, chars: Int, wholeDraft: Bool) throws {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchEnvironment["CMUX_MOBILE_INPUT_LATENCY"] = "1"
@@ -83,7 +82,6 @@ final class ComposerTypingLagUITests: XCTestCase {
         } else {
             app.launchArguments += ["-cmux-mobile-demo", "ws-terminal-composer"]
         }
-        if lowPower { app.launchArguments.append("-cmux-mobile-low-power") }
         if wholeDraft { app.launchArguments.append("-cmux-mobile-composer-measure-whole") }
         app.launch()
         let identifier = surface == "chat" ? "chat.composer.field" : Self.field
@@ -92,14 +90,41 @@ final class ComposerTypingLagUITests: XCTestCase {
         if !app.keyboards.firstMatch.exists { field.tap() }
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "keyboard for \(surface) \(chars)")
         RunLoop.current.run(until: Date().addingTimeInterval(1))
+        let initial = field.value as? String ?? ""
+        XCTAssertEqual(initial.count, chars, "\(surface) draft seed length")
         app.typeText(Self.keys)
         RunLoop.current.run(until: Date().addingTimeInterval(1.5))
+        let typed = field.value as? String ?? ""
+        XCTAssertTrue(typed.hasSuffix(Self.keys), "\(surface) \(chars) did not receive all \(Self.keys.count) keys")
         let board = summary(app)
         let commit = stats(board, "\(identifier)_key_commit")
         let cpu = stats(board, "\(identifier)_key_cpu")
         let hitches = stats(board, "\(identifier)_key_frame")
         let units = stats(board, "\(identifier)_key_layout_units")
-        print("TYPINGMATRIX {\"surface\":\"\(surface)\",\"chars\":\(chars),\"duress\":\"\(lowPower ? "heavy" : "off")\",\"before\":\(wholeDraft),\"commit_p50\":\(commit[\"p50\"] ?? -1),\"commit_p95\":\(commit[\"p95\"] ?? -1),\"cpu_p95\":\(cpu[\"p95\"] ?? -1),\"frame_p95\":\(hitches[\"p95\"] ?? -1),\"layout_units_p95\":\(units[\"p95\"] ?? -1)}")
+        XCTAssertGreaterThanOrEqual(hitches["n"] ?? 0, 50, "\(surface) \(chars) key samples")
+        let report: [String: Any] = [
+            "surface": surface,
+            "chars": chars,
+            "before": wholeDraft,
+            "keys": hitches["n"] ?? 0,
+            "glyph_p50_ms": hitches["p50"] ?? -1,
+            "glyph_p95_ms": hitches["p95"] ?? -1,
+            "commit_p50_ms": commit["p50"] ?? -1,
+            "commit_p95_ms": commit["p95"] ?? -1,
+            "cpu_p95_ms": cpu["p95"] ?? -1,
+            "layout_units_p95": units["p95"] ?? -1
+        ]
+        let data = try JSONSerialization.data(withJSONObject: report, options: [.sortedKeys])
+        print("TYPINGMATRIX \(String(decoding: data, as: UTF8.self))")
+        if let file = InputLatencyUITests.traceFile(), let text = try? String(contentsOf: file, encoding: .utf8) {
+            let log = XCTAttachment(string: text)
+            log.name = "typing-matrix-\(surface)-\(chars)-\(wholeDraft ? "before" : "after").jsonl"
+            log.lifetime = .keepAlways
+            add(log)
+            for row in text.split(separator: "\n").filter({ $0.contains(#""type":"hitch""#) }).prefix(8) {
+                print("TYPINGMATRIX_HITCH \(surface) \(chars) \(row.prefix(4_000))")
+            }
+        }
         app.terminate()
     }
 
