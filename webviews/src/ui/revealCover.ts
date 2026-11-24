@@ -7,8 +7,10 @@
 const HOST = ".ui-reveal-host, [data-reveal-host]";
 const VAR = "--ui-reveal-controls-w";
 
+const hostOf = (controls: Element) => (controls.closest(HOST) ?? controls.parentElement) as HTMLElement | null;
+
 function write(controls: Element) {
-  const host = (controls.closest(HOST) ?? controls.parentElement) as HTMLElement | null;
+  const host = hostOf(controls);
   if (!host) return;
   const width = `${Math.ceil(controls.getBoundingClientRect().width)}px`;
   if (host.style.getPropertyValue(VAR) !== width) host.style.setProperty(VAR, width);
@@ -25,10 +27,15 @@ const observe = (el: Element) => {
   observer?.observe(el);
 };
 
-/// A callback ref for a row's trailing controls: it measures them for the row's text's cover.
+/// A callback ref for a row's trailing controls: it measures them for the row's text's cover. Once
+/// they leave (a row that turns out to be a teammate's draws none) the row's text covers nothing.
 export function revealControls(el: HTMLElement | null): (() => void) | void {
   if (!el) return;
+  const host = hostOf(el);
   write(el);
   observe(el);
-  return () => observer?.unobserve(el);
+  return () => {
+    observer?.unobserve(el);
+    host?.style.removeProperty(VAR);
+  };
 }

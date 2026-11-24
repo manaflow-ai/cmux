@@ -184,10 +184,20 @@ function rowOf(list: HTMLElement | null | undefined, id: string): HTMLElement | 
 function titleWhenTruncated(event: React.PointerEvent<HTMLElement>, prompt: string) {
   const button = event.currentTarget;
   const text = button.firstElementChild ?? button;
-  // The actions that show on hover lie over the text's end (`.ui-reveal-text`): text under them is cut too.
+  // The actions that show on hover lie over the text's end (`.ui-reveal-text`): text under them is cut
+  // too. A one-line box's scrollWidth is never under its clientWidth, so a text that fits is measured
+  // by its own content's width.
   const covered = parseFloat(getComputedStyle(text).getPropertyValue("--ui-reveal-controls-w")) || 0;
-  if (text.scrollWidth > text.clientWidth - covered || text.scrollHeight > text.clientHeight + 1) button.title = prompt;
+  const cut = text.scrollWidth > text.clientWidth || (covered > 0 && contentWidth(text) > text.clientWidth - covered);
+  if (cut || text.scrollHeight > text.clientHeight + 1) button.title = prompt;
   else button.removeAttribute("title");
+}
+
+/** The width `el`'s content lays out at, whatever its box cuts. */
+function contentWidth(el: Element): number {
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  return range.getBoundingClientRect?.().width ?? 0;
 }
 
 /// Bridge failures whose request may already have reached acpmux (it answered late, the socket
@@ -1282,7 +1292,11 @@ function SystemNotes({ entries, look, t }: { entries: readonly QueuedEntry[]; lo
             <button
               type="button"
               className="acpmux-queued-text"
-              title={open.has(entry.id) ? undefined : shownText(entry, t)}
+              onPointerEnter={(event) =>
+                open.has(entry.id)
+                  ? event.currentTarget.removeAttribute("title")
+                  : titleWhenTruncated(event, shownText(entry, t))
+              }
               data-open={open.has(entry.id) ? "" : undefined}
               aria-expanded={open.has(entry.id)}
               onClick={() => toggle(entry.id)}
