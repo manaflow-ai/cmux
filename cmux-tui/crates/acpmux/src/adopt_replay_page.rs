@@ -62,6 +62,67 @@ pub fn claude_page(file: &Path, end: Option<u64>, want: usize) -> ClaudePage {
 fn claude_page_open(f: &mut File, end: Option<u64>, want: usize) -> ClaudePage {
     let len = f.metadata().map(|m| m.len()).unwrap_or(0);
     let end = end.map_or(len, |end| end.min(len));
+    read_claude_page(f, end, want).unwrap_or_default()
+}
+
+fn read_claude_page(f: &mut File, end: u64, want: usize) -> std::io::Result<ClaudePage> {
+    let raw = scan_page(f, end, want, false, parse, |record| Prompt::from(is_prompt(record)))?;
+    let RawPage { lines, start, read, has_prompt } = raw;
+    let mut turns: Vec<PastTurn> = Vec::new();
+    if !has_prompt && !lines.is_empty() {
+        // Part of one turn whose prompt is older than the page.
+        turns.push(PastTurn::default());
+    }
+    for (offset, record) in lines.into_iter().rev() {
+        if offset < start {
+            continue;
+        }
+        let at = record_time(&record);
+        if let [only] = turns.as_mut_slice()
+            && only.prompt.is_empty()
+            && only.prompt_at.is_none()
+        {
+            only.prompt_at = at;
+            only.answer_at = at;
+        }
+        for step in claude_steps(&record, at) {
+            add(&mut turns, step, at);
+        }
+    }
+    turns.retain(|t| !t.prompt.is_empty() || !t.tools.is_empty() || !t.answer.is_empty());
+    Ok(ClaudePage { turns, start, read })
+}
+
+pub(super) struct RawPage {
+    pub lines: Vec<(u64, Value)>,
+    pub start: u64,
+    pub read: u64,
+    pub has_prompt: bool,
+}
+
+#[derive(PartialEq)]
+pub(super) enum Prompt {
+    New,
+    Mirror,
+    Other,
+}
+
+impl From<bool> for Prompt {
+    fn from(is_prompt: bool) -> Self {
+        if is_prompt { Self::New } else { Self::Other }
+    }
+}
+
+/// One scanner for adopted Claude chats and terminal transcripts. Errors stay distinguishable
+/// from day one for clients using a byte cursor.
+pub(super) fn scan_page(
+    f: &mut File,
+    end: u64,
+    want: usize,
+    codex: bool,
+    parse: impl Fn(&[u8]) -> Option<Value>,
+    mut classify: impl FnMut(&Value) -> Prompt,
+) -> std::io::Result<RawPage> {
     let want = want.max(1);
     // The page's lines, newest first, with their offsets.
     let mut lines: Vec<(u64, Value)> = Vec::new();
@@ -76,23 +137,25 @@ fn claude_page_open(f: &mut File, end: Option<u64>, want: usize) -> ClaudePage {
     let mut skip = true;
     // A whole line was read (parsed or not).
     let mut whole = false;
+    let mut boundary = None;
     let start = 'scan: loop {
         if pos == 0 {
             // `head` begins the file: its line is whole.
             if let Some(record) = parse(&head) {
-                if is_prompt(&record) {
-                    oldest_prompt = Some(0);
+                match classify(&record) {
+                    Prompt::New => oldest_prompt = Some(0),
+                    Prompt::Mirror if boundary.is_some() => boundary = Some(0),
+                    _ => {}
                 }
                 lines.push((0, record));
             }
-            break 'scan 0;
+            break 'scan boundary.unwrap_or(0);
         }
         let take = CHUNK.min(pos);
         pos -= take;
         let mut buf = vec![0u8; take as usize];
-        if f.seek(SeekFrom::Start(pos)).is_err() || f.read_exact(&mut buf).is_err() {
-            return ClaudePage::default();
-        }
+        f.seek(SeekFrom::Start(pos))?;
+        f.read_exact(&mut buf)?;
         buf.extend_from_slice(&head);
         if skip {
             match memchr::memrchr(b'\n', &buf) {
@@ -123,13 +186,26 @@ fn claude_page_open(f: &mut File, end: Option<u64>, want: usize) -> ClaudePage {
             let offset = pos + line_start as u64;
             whole = true;
             if let Some(record) = before.get(line_start..).and_then(parse) {
-                let prompt = is_prompt(&record);
+                let prompt = classify(&record);
+                // A legacy Codex turn may have both an event prompt and a response-item prompt.
+                // Read through its mirror before publishing a cursor between logical turns.
+                if let Some(previous) = boundary {
+                    if prompt == Prompt::New {
+                        break 'scan previous;
+                    }
+                    if prompt == Prompt::Mirror {
+                        boundary = Some(offset);
+                    }
+                }
                 lines.push((offset, record));
-                if prompt {
+                if prompt == Prompt::New {
                     prompts += 1;
                     oldest_prompt = Some(offset);
                     if prompts >= want {
-                        break 'scan offset;
+                        if !codex {
+                            break 'scan offset;
+                        }
+                        boundary = Some(offset);
                     }
                 }
             }
@@ -141,7 +217,7 @@ fn claude_page_open(f: &mut File, end: Option<u64>, want: usize) -> ClaudePage {
         }
         let read = end - pos;
         if let Some(prompt) = oldest_prompt.filter(|_| read >= PAGE_BYTES) {
-            break 'scan prompt;
+            break 'scan boundary.unwrap_or(prompt);
         }
         if read >= PAGE_MAX_BYTES {
             // One turn bigger than a page: its newest part, from the oldest whole line read. With
@@ -149,29 +225,7 @@ fn claude_page_open(f: &mut File, end: Option<u64>, want: usize) -> ClaudePage {
             break 'scan oldest_prompt.unwrap_or(if whole { pos + head.len() as u64 } else { pos });
         }
     };
-    let mut turns: Vec<PastTurn> = Vec::new();
-    if oldest_prompt.is_none() && !lines.is_empty() {
-        // Part of one turn whose prompt is older than the page.
-        turns.push(PastTurn::default());
-    }
-    for (offset, record) in lines.into_iter().rev() {
-        if offset < start {
-            continue;
-        }
-        let at = record_time(&record);
-        if let [only] = turns.as_mut_slice()
-            && only.prompt.is_empty()
-            && only.prompt_at.is_none()
-        {
-            only.prompt_at = at;
-            only.answer_at = at;
-        }
-        for step in claude_steps(&record, at) {
-            add(&mut turns, step, at);
-        }
-    }
-    turns.retain(|t| !t.prompt.is_empty() || !t.tools.is_empty() || !t.answer.is_empty());
-    ClaudePage { turns, start, read: end - pos }
+    Ok(RawPage { lines, start, read: end - pos, has_prompt: oldest_prompt.is_some() })
 }
 
 /// The newest page of `file` that holds turns: pages that hold none (the end of a line bigger
@@ -230,7 +284,7 @@ pub(crate) fn newest_prompt_start_open(file: &mut File, want: usize) -> Option<u
 
 /// A line that can add to a turn: a `user` or `assistant` record. Others (progress, snapshots,
 /// summaries) are not parsed: neither word appears in them as a whole JSON string.
-fn parse(line: &[u8]) -> Option<Value> {
+pub(super) fn parse(line: &[u8]) -> Option<Value> {
     let finder = |needle: &[u8]| memchr::memmem::find(line, needle).is_some();
     if !finder(b"\"user\"") && !finder(b"\"assistant\"") {
         return None;
@@ -239,7 +293,7 @@ fn parse(line: &[u8]) -> Option<Value> {
 }
 
 /// Whether `record` starts a turn (the rules `claude_steps` uses).
-fn is_prompt(record: &Value) -> bool {
+pub(super) fn is_prompt(record: &Value) -> bool {
     record.get("type").and_then(Value::as_str) == Some("user")
         && claude_steps(record, None).iter().any(|s| matches!(s, Step::Prompt(_)))
 }
