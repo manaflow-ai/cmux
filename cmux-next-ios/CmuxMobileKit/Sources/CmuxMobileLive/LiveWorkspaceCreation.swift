@@ -145,7 +145,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
             do {
                 // On success the mark stays until the chat shows the task: a fast agent's reply can
                 // come before the chat's records do (live run 16). The hub's cap ends stale marks.
-                _ = try await acpmux.request("session/prompt", .object([
+                _ = try await acpmux.prompt(.object([
                     "sessionId": .string(session), "prompt": .array(blocks),
                     "_meta": .object(["acpmux": .object([
                         "promptId": .string(UUID().uuidString), "steer": .bool(false), "resend": .bool(false),

@@ -128,6 +128,9 @@ public enum AgentSessionEvent: Hashable, Sendable {
     case status(AgentSessionSummary.Status)
     /// A call the source made for the person failed (refused allow, trust gate, link down).
     case clientError(String)
+    /// A wait that passed its bound (a Stop the Mac didn't confirm, a chat that couldn't load):
+    /// what happened, and the one action that recovers it (the banner's tap sends `action`).
+    case clientErrorAction(String, actionTitle: String, action: AgentClientIntent)
     /// A prompt that never reached the agent (an attachment upload failed, the
     /// link was down): the composer gets the draft back with the reason.
     /// `promptID` is the prompt's acpmux id: sent again with it, the Mac runs it at most once.
@@ -171,6 +174,8 @@ public enum AgentClientIntent: Hashable, Sendable {
     case moveQueued(promptId: String, index: Int)
     /// Resume a paused queue (the Mac's Resume over its queue): `_acpmux/queue_edit {op: resume}`.
     case resumeQueue
+    /// Load the chat again after its attach gave up (Try again on "Couldn't load this chat").
+    case reattach
 }
 
 public struct AgentAttachment: Hashable, Sendable, Codable, Identifiable {

@@ -41,6 +41,13 @@ public final class AcpmuxHub {
     /// How long a read may go unanswered before the channel counts as stalled and is replaced.
     @ObservationIgnored var stallAfter: Duration = AcpmuxHub.defaultStallAfter
     @ObservationIgnored var steadyClock: any Clock<Duration> = ContinuousClock()
+    /// How long a prompt's turn may go with no record or session change before the hub asks the
+    /// Mac what became of it (`AcpmuxHub+Turns.swift`).
+    @ObservationIgnored var promptSilence: Duration = AcpmuxHub.defaultPromptSilence
+    /// How long a Stop may go without its turn ending before the chat re-reads the session.
+    @ObservationIgnored var stopBound: Duration = AcpmuxHub.defaultStopBound
+    /// Records and session changes seen per session: a turn whose count moves is not silent.
+    @ObservationIgnored var turnProgress: [String: Int] = [:]
     /// Callers of `waitUntilReady` (a Feed answer whose Mac's link is opening).
     @ObservationIgnored private var readyWaiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
     @ObservationIgnored private var pumpTask: Task<Void, Never>?
@@ -147,6 +154,11 @@ public final class AcpmuxHub {
     private struct WeakSource { weak var source: AcpmuxSessionSource? }
     /// A chat with an expired replay cache may still have an open reader. Keep routing
     /// to it while a new reader loads its own complete snapshot from the Mac.
+    /// Every open chat of `sessionID` reads on from its last record (a turn that ended unseen).
+    func refillSources(_ sessionID: String) {
+        for entry in sources[sessionID] ?? [] { entry.source?.refill() }
+    }
+
     private var liveSources: [AcpmuxSessionSource] {
         sources.values.flatMap { $0.compactMap(\.source) }
     }
@@ -536,11 +548,13 @@ public final class AcpmuxHub {
         switch notification.method {
         case "_acpmux/event":
             if let sessionID {
+                turnProgress[sessionID, default: 0] += 1
                 for entry in sources[sessionID] ?? [] { entry.source?.receive(record: params) }
             }
         case "_acpmux/session_changed":
             guard let value = params["session"], let session = AcpmuxSession(value) else { return }
             sessions[session.id] = session
+            turnProgress[session.id, default: 0] += 1
             toldSinceWatch.insert(session.id)
             let kind = params["recordKind"]?.stringValue ?? params["kind"]?.stringValue ?? ""
             let seq = Int(params["seq"]?.numberValue ?? 0)
@@ -861,7 +875,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 case .retryFailedTurn:
                     _ = try await hub.request("_acpmux/retry", .object(["sessionId": session]))
                 case .cancel:
-                    try await hub.notify("session/cancel", .object(["sessionId": session]))
+                    try await self.stop()
+                case .reattach:
+                    self.reattach()
                 case .respondPermission(let permissionID, let optionID):
                     try await hub.respond(sessionID: sessionID, permissionID: permissionID, optionID: optionID)
                 case .answerElevation(let ask, let password):
@@ -978,7 +994,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// A written prompt's answer (its turn's end); a link that drops first holds it again.
     private func awaitPromptReply(_ prompt: HeldPrompt, connection: AcpmuxConnection, id: Int) async {
         do {
-            _ = try await connection.reply(to: id)
+            guard let hub else { return }
+            _ = try await hub.awaitTurn(connection, id: id, sessionID: sessionID)
         } catch {
             promptFailed(prompt, error, written: true)
         }
@@ -1682,12 +1699,66 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// another attach starts (`linkUp`) or the source goes away.
     private func scheduleRetry() {
         failures += 1
+        // Bounded: a chat that keeps failing to load on a link that stays up stops trying and
+        // says so, with Try again (`.reattach`). A new link (`linkDown`) starts the count over.
+        guard failures < Self.maxAttachFailures else {
+            log.notice("attach \(self.sessionID, privacy: .public) failed \(self.failures, privacy: .public) times: giving up until Try again")
+            emit(.historyLoading(false))
+            emit(.clientErrorAction(String(localized: "Couldn't load this chat from \(summary.macName)."),
+                                    actionTitle: String(localized: "Try again"), action: .reattach))
+            return
+        }
         let delay = Self.retryDelay(afterFailures: failures)
         retryTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: delay)
             guard !Task.isCancelled else { return }
             self?.retryTask = nil
             self?.linkUp()
+        }
+    }
+
+    /// Attaches that may fail in a row before the chat stops trying (about 30 s of backoff, plus
+    /// each page's own ``pageTimeout``).
+    static let maxAttachFailures = 8
+
+    /// Try again after the attach gave up (``maxAttachFailures``): a fresh run of tries.
+    func reattach() {
+        guard !attaching, retryTask == nil else { return }
+        failures = 0
+        attached = false
+        emit(.historyLoading(true))
+        linkUp()
+    }
+
+    /// Stop, confirmed and bounded: `session/cancel` as a request (acpmux answers it once it took
+    /// the stop), then ``AcpmuxHub/stopBound`` for the turn to end, then the Mac is asked. Still
+    /// running, or no answer, the chat says so with Stop again; over, the chat reads on.
+    /// Before, Stop was a notification: nothing said whether it arrived, and a turn that went on
+    /// showed Working with no word and no bound.
+    func stop() async throws {
+        guard let hub else { return }
+        let mac = summary.macName
+        let stopAgain = { [weak self] (message: String) in
+            self?.emitLocal(.clientErrorAction(message, actionTitle: String(localized: "Stop again"), action: .cancel))
+        }
+        do {
+            _ = try await hub.request("session/cancel", .object(["sessionId": .string(sessionID)]), timeout: hub.stopBound)
+        } catch let error as AcpmuxConnection.RPCError {
+            throw error
+        } catch {
+            stopAgain(String(localized: "\(mac) didn't confirm the stop."))
+            return
+        }
+        let progress = hub.turnProgress[sessionID, default: 0]
+        try? await hub.steadyClock.sleep(for: hub.stopBound)
+        switch await hub.turnState(sessionID) {
+        case .running:
+            stopAgain(String(localized: "\(summary.agentName) is still running on \(mac)."))
+        case .ended(let lastSeq):
+            // The turn's end may not have reached this chat (a dropped notification).
+            if lastSeq > self.lastSeq, hub.turnProgress[sessionID, default: 0] == progress { refill() }
+        case .unknown:
+            stopAgain(String(localized: "\(mac) didn't confirm the stop."))
         }
     }
 
@@ -2470,7 +2541,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
     private func emit(_ event: AgentSessionEvent) {
         switch event {
-        case .clientError, .promptNotSent, .historyLoading:
+        case .clientError, .clientErrorAction, .promptNotSent, .historyLoading:
             // Not history: a later reader learns the load state from `events()` itself.
             break
         default:

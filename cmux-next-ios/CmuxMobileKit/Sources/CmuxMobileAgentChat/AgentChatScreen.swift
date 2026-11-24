@@ -831,10 +831,13 @@ public struct AgentChatBottomStack: View {
             VStack(spacing: 12) {
                 if let error = store.clientError {
                     // One symbol, no Retry: the draft is back in the composer, so Send retries it.
+                    // A bounded wait that ended here carries its one action (Stop again, Try again).
+                    let action = store.clientErrorAction
                     Button {
-                        withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { store.clientError = nil }
+                        withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { store.takeClientErrorAction() }
                     } label: {
-                        Label(error, systemImage: "exclamationmark.circle")
+                        Label(action.map { "\(error) \($0.title)" } ?? error,
+                              systemImage: action == nil ? "exclamationmark.circle" : "arrow.clockwise")
                             .font(.footnote.weight(.semibold))
                             .foregroundStyle(.primary)
                             .padding(.horizontal, 14)
@@ -843,7 +846,7 @@ public struct AgentChatBottomStack: View {
                     .buttonStyle(.cmuxPressFillCapsule)
                     .glassEffect(.regular, in: .capsule)
                     .transition(.opacity.combined(with: .offset(y: 8)))
-                    .accessibilityHint("Dismiss")
+                    .accessibilityHint(action?.title ?? "Dismiss")
                 }
                 // Pinned plan progress while a turn runs (ACP web UI parity).
                 if let progress = store.runningPlan, let entries = store.runningPlanEntries {

@@ -298,7 +298,20 @@ public final class AgentChatStore {
     }
     @ObservationIgnored private var artifactsCache: (input: ArtifactsInput, value: SessionArtifacts)?
     /// The newest refused intent, shown over the composer until the next send.
-    public var clientError: String?
+    public var clientError: String? {
+        // An action belongs to the message it came with: a new message (or none) drops it.
+        didSet { if clientError != oldValue { clientErrorAction = nil } }
+    }
+    /// The action on ``clientError`` when a bounded wait ended there (`.clientErrorAction`):
+    /// the banner's tap sends it instead of only dismissing.
+    public private(set) var clientErrorAction: (title: String, intent: AgentClientIntent)?
+
+    /// The banner's tap: its action, if it has one, and the banner goes.
+    public func takeClientErrorAction() {
+        let action = clientErrorAction
+        clientError = nil
+        if let action { source.send(action.intent) }
+    }
     /// What the chat says when the Mac refused a send for this phone's Full-access setting
     /// (acpmux `remote.full_access_required`): the mobile host asks for it only for what makes a
     /// chat act without asking first (a message to a chat in such a mode, or a switch to one).
@@ -1192,6 +1205,13 @@ public final class AgentChatStore {
             awaitsPermissionReply = false
             retryRequested = false
             clientError = message
+        case .clientErrorAction(let message, let title, let action):
+            approvingOptionID = nil
+            sendingElevation = false
+            awaitsPermissionReply = false
+            retryRequested = false
+            clientError = message
+            clientErrorAction = (title, action)
         case .promptNotSent(let text, let attachments, let promptID, let reason):
             // The transcript already showed it run: only its reply was lost.
             guard !seenPromptIDs.contains(promptID) else { break }

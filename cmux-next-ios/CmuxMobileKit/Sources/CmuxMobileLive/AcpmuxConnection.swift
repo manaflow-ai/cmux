@@ -222,6 +222,16 @@ public actor AcpmuxConnection {
         }
     }
 
+    /// Ends the wait for a submitted request without its answer: the Mac says its work is over
+    /// (a prompt whose turn ended but whose reply never came). Its ``reply(to:)`` returns null; a
+    /// late answer is ignored. The channel and every other request stay as they are.
+    func abandon(_ id: Int) {
+        submitted.remove(id)
+        writes.remove(id)
+        answered[id] = nil
+        pending.removeValue(forKey: id)?.resume(returning: .null)
+    }
+
     /// Submitted requests not yet answered to their ``reply(to:)``, and answers that came
     /// before it was called.
     private var submitted: Set<Int> = []
