@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextWakeups
+import CmuxNextDesign
 
 /// Where a Chromium focus request comes from (`cef_focus_source_t`).
 nonisolated enum CEFFocusSource: Int32, Sendable {
@@ -97,7 +98,14 @@ extension CEFTab {
                 pendingFocus = true
                 return
             }
+            let keyBefore = keyWindows.keyWindow()
             host.hostView.inTree.grantFocus { runtime.shim?.setFocus(browser, 1) }
+            // SetFocus made the page's own (headless) window key: the keys go back to the cmux window, as after a click.
+            if let owner = container.window, InTreePageFocus.takesKeysBack(from: keyWindows.keyWindow(), before: keyBefore, owner: owner) {
+                host.lifecycleTrace.record(id, "grant: keys back to the cmux window")
+                InTreePageFocus.shared.noteKeysTakenBack()
+                keyWindows.makeKey(owner)
+            }
             return
         }
         runtime.shim?.setFocus(browser, 1)

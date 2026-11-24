@@ -89,6 +89,38 @@ public final class InTreePageFocus {
         return found
     }
 
+    /// Grants after which cmux took the key window back from a window Chromium made key (`debug.focus`
+    /// `in_tree.keys_taken_back`, ``takesKeysBack(from:before:owner:)``).
+    public private(set) var keysTakenBack = 0
+
+    /// Whether, after a grant to an in-tree page shown in `owner`, `owner` takes the key window back from `key`.
+    ///
+    /// Chromium's focus call (`CefBrowserHost::SetFocus`) activates the page's own window. In tree that window is
+    /// headless: the page's view is in the cmux window, and the headless window holds no view that takes keys. Left key,
+    /// every key went there: the key router saw a window no cmux window owns and matched no cmux shortcut (Cmd-D,
+    /// Cmd-Shift-D, Cmd-Shift-Return did nothing; only menu keys such as Cmd-T ran), and the page got no keys either,
+    /// until a click made the cmux window key again (sweep-06675353 D1). A click never had this: it makes the window it
+    /// lands in key. So a grant, like a click, leaves the keys with the cmux window.
+    ///
+    /// - Parameters:
+    ///   - key: The key window after the grant.
+    ///   - before: The key window before it.
+    ///   - owner: The cmux window the page shows in.
+    /// - Returns: True when the grant made `key` key and no cmux window owns it (it is not `owner` or a child or
+    ///   sheet of it); a key window the grant did not change is never taken.
+    public static func takesKeysBack(from key: NSWindow?, before: NSWindow?, owner: NSWindow) -> Bool {
+        guard let key, key !== before else { return false }
+        var current: NSWindow? = key
+        while let window = current {
+            if window === owner { return false }
+            current = window.parent ?? window.sheetParent
+        }
+        return true
+    }
+
+    /// cmux took the key window back after a grant.
+    public func noteKeysTakenBack() { keysTakenBack += 1 }
+
     func noteAllowed() { allowed += 1 }
 
     func noteRefused(_ reason: String) {
