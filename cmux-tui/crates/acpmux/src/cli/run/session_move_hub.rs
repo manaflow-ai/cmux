@@ -63,7 +63,8 @@ pub(super) async fn run(
             .map(|o| {
                 json!({"sessionId": o.session, "name": o.name, "host": o.host, "cwd": o.cwd,
                        "moved": o.moved, "dryRun": args.dry_run, "via": "hub",
-                       "there": o.there, "error": o.error})
+                       "there": o.there, "error": o.error,
+                       "timings": o.timings.map(super::super::transfer::MoveTimings::as_json)})
             })
             .collect();
         print_json(&json!({"moves": rows, "failed": failed}));
@@ -161,7 +162,8 @@ async fn steps(
     // log's tail. A target that lost the stage refuses the move as unstaged: made again in full.
     let staged = precopy(src, &id, daemon).await;
     let moving = Moving { src, id: &id, args, home: &home, home_text: &home_text, cwd: &cwd };
-    let (sent, answer) = match moving.run(daemon, host, staged.as_ref()).await {
+    let blackout_started = std::time::Instant::now();
+    let (sent, answer, mut timings) = match moving.run(daemon, host, staged.as_ref()).await {
         Err(e) if staged.is_some() && refused_as(&e, "transfer.unstaged") => {
             moving.run(daemon, host, None).await?
         }
@@ -182,7 +184,15 @@ async fn steps(
                "epoch": field(&sent, "epoch")}),
     )
     .await?;
+    if let Some(receiver_timings) = moved.get("timings") {
+        if let Some(pages_ms) = receiver_timings.get("pagesMs").and_then(Value::as_u64) {
+            timings.transfer_ms = pages_ms;
+        }
+        timings.thaw_ms = receiver_timings.get("finishMs").and_then(Value::as_u64);
+    }
+    timings.blackout_ms = blackout_started.elapsed().as_millis() as u64;
     o.moved = true;
+    o.timings = Some(timings);
     o.cwd = moved["cwd"].as_str().map(str::to_owned);
     o.there = moved["sessionId"].as_str().map(str::to_owned);
     Ok(())
@@ -223,12 +233,13 @@ impl Moving<'_> {
         daemon: &str,
         host: &str,
         staged: Option<&Staged>,
-    ) -> Result<(Value, Value)> {
+    ) -> Result<(Value, Value, super::super::transfer::MoveTimings)> {
         let Moving { src, id, args, home, home_text, cwd } = *self;
         let (id, leave_dirty) = (id.to_owned(), args.leave_dirty);
         let to = json!({"hub": daemon, "host": host});
         let running = (args.interrupt, args.after_turn);
         use super::super::transfer as t;
+        let freeze_started = std::time::Instant::now();
         let begun = match t::begin_move(src, &id, Some(to.clone()), running, None, staged).await {
             // The target's copy diverged from what was staged: send the whole chat.
             Err(e) if staged.is_some() && t::refused_diverged(&e) => {
@@ -236,6 +247,8 @@ impl Moving<'_> {
             }
             begun => begun?,
         };
+        let freeze_ms = freeze_started.elapsed().as_millis() as u64;
+        let transfer_started = std::time::Instant::now();
         let made = async {
             // Read again now that the chat is frozen: it may have changed before the freeze.
             let checkout = checkout_unless_named(cwd, args, &Source::Here).await?;
@@ -277,7 +290,15 @@ impl Moving<'_> {
             }
         };
         match src.request("_acpmux/transfer_hub", sent.clone()).await {
-            Ok(answer) => Ok((sent, answer)),
+            Ok(answer) => Ok((
+                sent,
+                answer,
+                t::MoveTimings {
+                    freeze_ms,
+                    transfer_ms: transfer_started.elapsed().as_millis() as u64,
+                    ..t::MoveTimings::default()
+                },
+            )),
             Err(e) => {
                 let data =
                     e.downcast_ref::<crate::client::DaemonError>().and_then(|d| d.0.data.clone());
