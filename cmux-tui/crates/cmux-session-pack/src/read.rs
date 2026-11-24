@@ -260,6 +260,16 @@ impl Pack {
     /// The lines numbered in `lines` (ascending), each with its long strings left empty, so
     /// only the events chunks are read.
     pub fn skim_lines(&self, lines: &[u64]) -> Result<Vec<Vec<u8>>> {
+        self.pick_lines(lines, false)
+    }
+
+    /// The lines numbered in `lines` (ascending), whole: unlike [`Pack::read_lines`], only the
+    /// blob chunks those lines name are read, not those of the lines between them.
+    pub fn lines_at(&self, lines: &[u64]) -> Result<Vec<Vec<u8>>> {
+        self.pick_lines(lines, true)
+    }
+
+    fn pick_lines(&self, lines: &[u64], whole: bool) -> Result<Vec<Vec<u8>>> {
         let segs = &self.manifest.segments;
         let mut groups: Vec<(&Segment, Vec<u64>)> = Vec::new();
         for l in lines {
@@ -272,11 +282,12 @@ impl Pack {
         }
         let parts = par_map(&groups, |(s, ls)| {
             let e = self.events(s)?;
-            let mut skip = |_: u64, _: &mut Vec<u8>| Ok(());
+            let mut blob =
+                |n: u64, o: &mut Vec<u8>| if whole { self.push_blob(n, o) } else { Ok(()) };
             ls.iter()
                 .map(|l| {
                     let mut line = Vec::new();
-                    e.line((l - s.line) as usize, &mut skip, &mut line)?;
+                    e.line((l - s.line) as usize, &mut blob, &mut line)?;
                     Ok(line)
                 })
                 .collect::<Result<Vec<_>>>()
