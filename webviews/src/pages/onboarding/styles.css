@@ -755,6 +755,12 @@
   height: var(--onb-helper-icon);
   margin-bottom: var(--ds-space-3);
 }
+.onb-cu-helper[data-tile] {
+  /* The tile fills its picture; an app icon keeps about a tenth of its square clear on each side. */
+  box-sizing: border-box;
+  padding: calc(var(--onb-helper-icon) * 0.09);
+  object-fit: contain;
+}
 .onb-cu-head .onb-sentence {
   margin-top: var(--ds-space-1);
 }
