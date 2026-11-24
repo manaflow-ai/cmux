@@ -40,12 +40,9 @@ public actor CmuxConfigFile {
         return home.appending(path: ".config/cmux/cmux-next.json")
     }
 
-    /// Returns the next config URL and seeds it once from classic cmux's
-    /// `cmux.json` when the next file does not exist. An explicit override is
-    /// returned unchanged and is never seeded from the user's files.
-    ///
-    /// The caller supplies the home and file manager so first-launch behavior
-    /// is deterministic in tests and never depends on `$HOME`.
+    /// Returns NEXT's settings URL, creating an empty settings file when it does not exist.
+    /// Classic settings are never read during launch. They are imported only by
+    /// ``SettingsController.importClassicConfig(marker:classicURL:)`` after the person confirms.
     public static func prepareDefaultURL(
         home: URL = FileManager.default.homeDirectoryForCurrentUser,
         environment: [String: String] = ProcessInfo.processInfo.environment,
@@ -54,46 +51,50 @@ public actor CmuxConfigFile {
         try prepareLaunchFile(home: home, environment: environment, fileManager: fileManager).url
     }
 
-    /// The settings file at launch and whether this launch made it from nothing: no cmux-next.json and
-    /// no classic cmux.json, on this Mac account. Every channel shares the file, so that is the one
-    /// install-wide sign of a fresh install (a new channel on an existing install finds the file).
+    /// The settings file at launch and whether this launch created an empty NEXT file.
     public nonisolated struct LaunchFile: Sendable {
         public let url: URL
         public let createdEmpty: Bool
     }
 
-    /// ``prepareDefaultURL(home:environment:fileManager:)``, saying whether it wrote a new empty file.
+    /// Creates NEXT's own empty settings file when needed. This method deliberately does not
+    /// inspect Classic's settings file, so a normal NIGHTLY launch has no Classic content read.
     public static func prepareLaunchFile(
         home: URL = FileManager.default.homeDirectoryForCurrentUser,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default
     ) throws -> LaunchFile {
-        if let override = environment[overrideKey], !override.isEmpty {
-            return LaunchFile(url: defaultURL(home: home, environment: environment), createdEmpty: false)
-        }
-
         let next = defaultURL(home: home, environment: environment)
+        if environment[overrideKey]?.isEmpty == false {
+            return LaunchFile(url: next, createdEmpty: false)
+        }
         guard !fileManager.fileExists(atPath: next.path) else { return LaunchFile(url: next, createdEmpty: false) }
-        var createdEmpty = false
-
-        let classic = next.deletingLastPathComponent().appendingPathComponent("cmux.json")
         try fileManager.createDirectory(at: next.deletingLastPathComponent(), withIntermediateDirectories: true)
         do {
-            if fileManager.fileExists(atPath: classic.path) {
-                // Its text, never the file: a classic cmux.json symlinked into a
-                // dotfiles repo would otherwise become next's file too, and next's
-                // settings migration would rewrite classic's settings through it.
-                // concurrency-allow: first-launch seeding, as the copy it replaces; the file is small.
-                let text = try Data(contentsOf: classic.resolvingSymlinksInPath())
-                try text.write(to: next, options: .withoutOverwriting)
-            } else {
-                try Data("{}\n".utf8).write(to: next, options: .withoutOverwriting)
-                createdEmpty = true
-            }
+            try Data("{}\n".utf8).write(to: next, options: .withoutOverwriting)
+            return LaunchFile(url: next, createdEmpty: true)
         } catch CocoaError.fileWriteFileExists {
-            // Another cmux-next launch won the first-launch race. Keep its file.
+            return LaunchFile(url: next, createdEmpty: false)
         }
-        return LaunchFile(url: next, createdEmpty: createdEmpty)
+    }
+
+    /// The stable source path for an explicit Classic settings import.
+    public static func classicURL(
+        home: URL = FileManager.default.homeDirectoryForCurrentUser,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> URL {
+        if let root = environment[BuildStatePaths.classicImportDirectoryKey], !root.isEmpty {
+            return URL(fileURLWithPath: (root as NSString).expandingTildeInPath)
+                .appending(path: ".config/cmux/cmux.json")
+        }
+        if let root = BuildStatePaths.current.classicImportDirectory {
+            return root.appending(path: ".config/cmux/cmux.json")
+        }
+        if let xdg = environment["XDG_CONFIG_HOME"], !xdg.isEmpty {
+            return URL(fileURLWithPath: (xdg as NSString).expandingTildeInPath)
+                .appending(path: "cmux/cmux.json")
+        }
+        home.appending(path: ".config/cmux/cmux.json")
     }
 
     /// The app's settings file at launch: ``prepareDefaultURL(home:environment:fileManager:)``, or
