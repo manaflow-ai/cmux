@@ -9,8 +9,10 @@ import Testing
 /// field to "Search or enter address" while the card still draws the old "dlksdjf" row: two frames at full strength,
 /// then two fading. The card and the bar's card top faded out over `MotionFade.omniboxPopup` after the rows were gone
 /// from the state (d8917c9f41c3, #44449). Chromium takes its popup off at once; so does the card now.
+/// A fade runs only on a screen: a host with none (the fleet's headless test lanes) skips the suite; `cmux-ci run
+/// --display` runs it in a console session, where a skip fails the step.
 @MainActor
-@Suite(.serialized)
+@Suite(.serialized, .enabled(if: NSScreen.main != nil, "the card's fade runs only on a screen: run on a display host"))
 struct OmnibarCardClosesAtOnceTests {
     private func bar() throws -> (AddressBarView, NSWindow) {
         let bar = AddressBarView()
