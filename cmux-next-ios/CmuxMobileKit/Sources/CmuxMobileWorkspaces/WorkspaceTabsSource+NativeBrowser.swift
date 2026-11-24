@@ -27,7 +27,8 @@ extension WorkspaceTabsSource {
         guard let tab = workspaceTab(id), tab.kind == .browser, let mirror = mirrored(tab) else { return }
         let url = mirror.url ?? tab.url
         let reach = PhoneReach(url)
-        if let url, reach == .macOnly || (reach == .macLoopback && !native.canForward(macID: workspace?.macID)) {
+        let readable = url.map { BrowserPagePlacement.isMacHTMLFile($0) && native.readMacHTML != nil } ?? false
+        if let url, (reach == .macOnly && !readable) || (reach == .macLoopback && !native.canForward(macID: workspace?.macID)) {
             show("\(Self.addressLabel(url)) is on \(macName). It can only be mirrored.")
             CmuxMobileTheme.standard.haptics.error()
             return
@@ -49,6 +50,19 @@ extension WorkspaceTabsSource {
             mirror.navigate(to: carried.absoluteString)
         }
         refreshTab(tab.id)
+    }
+
+    /// A browser tab this iPhone just opened (New Browser Tab, a page's new-tab link,
+    /// Open in New Tab, a terminal's Cmd-click): placed by Settings → Browser → Open New
+    /// Pages at once, so it shows where the rule says when it comes up. Says so when the
+    /// page lands on the phone.
+    func placeNewBrowserTab(_ tab: WorkspaceTab, announce: Bool) {
+        guard tab.kind == .browser else { return }
+        let decision = native.place(tab: tab.id, macID: workspace?.macID ?? store.workspace(id: workspaceID)?.macID, url: tab.url)
+        guard let decision else { return }
+        tabsLog.info("browser placement \(tab.id, privacy: .public): \(decision.target.rawValue, privacy: .public) (\(decision.reason.rawValue, privacy: .public))")
+        refreshTab(tab.id)
+        if announce, let notice = decision.notice(macName: macName) { show(notice) }
     }
 
     /// Whether the tab can switch between the Mac's page and this iPhone's (linked to its Mac).

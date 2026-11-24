@@ -128,6 +128,48 @@ public enum FollowUpBehavior: String, CaseIterable, Identifiable, Sendable, Coda
     }
 }
 
+/// Settings → Browser → Open New Pages: where a browser page opened while linked to a Mac
+/// shows, the phone's own web view or the Mac's browser streamed. Read when a new
+/// browser tab appears (`BrowserPagePlacement`); the person's Open on iPhone /
+/// Mirror from Mac on a tab always wins over it afterwards.
+public enum BrowserOpenDefault: String, CaseIterable, Identifiable, Sendable, Codable {
+    /// The page's kind decides: a public web page or an HTML file opens on the phone; a
+    /// sign-in site, a private host or a Mac-only page streams from the Mac.
+    case automatic
+    /// On the phone whenever the phone can load it at all.
+    case phone
+    /// Always the Mac's browser, streamed (how every page opened before this setting).
+    case stream
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .automatic: String(localized: "Automatic")
+        case .phone: String(localized: "Always on iPhone")
+        case .stream: String(localized: "Always Stream from Mac")
+        }
+    }
+
+    /// The Settings root's short value.
+    public var shortTitle: String {
+        switch self {
+        case .automatic: String(localized: "Automatic")
+        case .phone: String(localized: "On iPhone")
+        case .stream: String(localized: "Stream")
+        }
+    }
+
+    public static let defaultsKey = "cmuxMobile.settings.browserOpenDefault"
+    /// An install that never chose.
+    public static let fallback: BrowserOpenDefault = .automatic
+
+    /// The saved choice (a launch argument `-cmuxMobile.settings.browserOpenDefault phone` too).
+    public static func current(_ defaults: UserDefaults = .standard) -> BrowserOpenDefault {
+        defaults.string(forKey: defaultsKey).flatMap(BrowserOpenDefault.init(rawValue:)) ?? fallback
+    }
+}
+
 /// Settings → Transport → Ultra mode: repair data sent with each group of
 /// datagrams so a lost one is rebuilt instead of waiting on a resend.
 public enum UltraConnection: String, CaseIterable, Identifiable, Sendable, Codable {
@@ -174,6 +216,9 @@ public final class SettingsStore {
     public var predictiveEcho: Bool { didSet { save(predictiveEcho, "predictiveEcho") } }
     /// Read by the terminal (`CmuxMobilePreferences.terminalFitToPhone`) when a page opens.
     public var terminalFitToPhone: Bool { didSet { save(terminalFitToPhone, "terminalFitToPhone") } }
+    /// Settings → Browser → Open New Pages. Read by the workspace tabs
+    /// (`BrowserOpenDefault.current`) through the same key when a new browser tab appears.
+    public var browserOpenDefault: BrowserOpenDefault { didSet { save(browserOpenDefault.rawValue, "browserOpenDefault") } }
     /// Read at each WireGuard dial (`FFIMacLinkDialer`) through the same key. Auto by default:
     /// Rust sends repair data only after it sees loss, capped while the network is cellular.
     public var ultra: UltraConnection { didSet { save(ultra.rawValue, "ultra") } }
@@ -227,6 +272,7 @@ public final class SettingsStore {
             ? false : defaults.bool(forKey: "cmuxMobile.settings.terminalChatToggle")
         predictiveEcho = bool("predictiveEcho", true)
         terminalFitToPhone = bool("terminalFitToPhone", false)
+        browserOpenDefault = string("browserOpenDefault").flatMap(BrowserOpenDefault.init(rawValue:)) ?? BrowserOpenDefault.fallback
         // The earlier "Ultra mode on cellular" switch: on reads as Always.
         let ultra = string("ultra").flatMap(UltraConnection.init(rawValue:))
             ?? (bool("ultraOnCellular", false) ? .always : .auto)
