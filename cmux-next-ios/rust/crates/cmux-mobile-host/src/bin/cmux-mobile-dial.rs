@@ -5,6 +5,7 @@
 //!            [--drop-wireguard] [--proxy-only]
 //!            [--exclude-cgnat] [--bytes N] [--daemon] [--pings N] [--no-turn]
 //!            [--no-turn-prewarm] [--relay] [--force-https-relay]
+//!            [--peer-hint ADDR]...
 //!
 //! Prints one JSON line per transport: connect time, path, RTT, echo
 //! throughput, and the daemon `identify` answer.
@@ -30,6 +31,10 @@
 //! `--relay-only` (TURN, UDP first) and `--block-udp` (TURN over TLS) it lets
 //! a harness force each relayed path instead of waiting for a network to
 //! block the others.
+//!
+//! `--peer-hint ADDR` (repeatable) is an address the Mac answered from before
+//! (`DialOptions::peer_addr_hints`, what the app keeps across launches): the
+//! TURN allocation permits it before the Mac answers.
 //!
 //! As the app does, `GET /v1/ice` runs beside the signaling socket's open
 //! (the device registration, which the app does at sign-in, comes first and
@@ -70,6 +75,7 @@ struct Args {
     no_turn_prewarm: bool,
     relay: bool,
     force_https_relay: bool,
+    peer_hints: Vec<std::net::SocketAddr>,
 }
 
 fn parse() -> Result<Args> {
@@ -82,6 +88,7 @@ fn parse() -> Result<Args> {
     let (mut bytes, mut pings) = (10 * 1024 * 1024, 20);
     let (mut no_input_lane, mut no_turn_prewarm) = (false, false);
     let (mut relay, mut force_https_relay) = (false, false);
+    let mut peer_hints = Vec::new();
     while let Some(arg) = args.next() {
         let mut value = || args.next().with_context(|| format!("{arg} needs a value"));
         match arg.as_str() {
@@ -108,6 +115,7 @@ fn parse() -> Result<Args> {
             "--relay" => relay = true,
             "--force-https-relay" => (relay, force_https_relay) = (true, true),
             "--stock-ice-waits" => stock_ice_waits = true,
+            "--peer-hint" => peer_hints.push(value()?.parse().context("--peer-hint takes IP:PORT")?),
             other => bail!("unknown argument {other}"),
         }
     }
@@ -136,6 +144,7 @@ fn parse() -> Result<Args> {
         no_turn_prewarm,
         relay,
         force_https_relay,
+        peer_hints,
     })
 }
 
@@ -181,6 +190,7 @@ async fn run(args: &Args, kind: TransportKind) -> Result<serde_json::Value> {
             )
         }),
         force_relay: args.force_https_relay,
+        peer_addr_hints: args.peer_hints.clone(),
         ..DialOptions::default()
     };
     // `/v1/ice` beside the signaling socket's open, as the app does; the TURN
@@ -310,6 +320,7 @@ async fn run(args: &Args, kind: TransportKind) -> Result<serde_json::Value> {
         "no_turn": args.no_turn,
         "relay": args.relay,
         "force_https_relay": args.force_https_relay,
+        "peer_hints": args.peer_hints.iter().map(|addr| addr.to_string()).collect::<Vec<_>>(),
         "turn_prewarm": !args.no_turn_prewarm,
         "ice_beside_signaling": true,
         "path": path,
