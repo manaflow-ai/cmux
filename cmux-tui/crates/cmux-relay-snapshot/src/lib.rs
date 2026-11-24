@@ -199,7 +199,7 @@ pub fn seal_with(
     out.extend_from_slice(&key_id(&source_public));
     out.extend_from_slice(&ephemeral_point);
     out.extend_from_slice(nonce);
-    let key = derive(ephemeral, viewer, &ephemeral_point, &point(viewer), &context);
+    let key = derive(ephemeral, viewer, &ephemeral_point, &point(viewer), &context)?;
     let mut aad = out.clone();
     aad.extend_from_slice(&context);
     let ciphertext = Aes256Gcm::new(&key.into())
@@ -288,7 +288,7 @@ pub fn open(
     }
     let ephemeral =
         PublicKey::from_sec1_bytes(parts.ephemeral_point).map_err(|_| Error::Malformed)?;
-    let key = derive(viewer, &ephemeral, parts.ephemeral_point, &point(&viewer_public), &context);
+    let key = derive(viewer, &ephemeral, parts.ephemeral_point, &point(&viewer_public), &context)?;
     let mut aad = envelope[..HEADER_LEN].to_vec();
     aad.extend_from_slice(&context);
     let plaintext = Aes256Gcm::new(&key.into())
@@ -340,8 +340,8 @@ fn derive(
     let mut key = [0u8; 32];
     Hkdf::<Sha256>::new(Some(&salt), shared.raw_secret_bytes().as_slice())
         .expand(context, &mut key)
-        .expect("32 bytes is a valid HKDF-SHA256 length");
-    key
+        .map_err(|_| Error::BadInput)?;
+    Ok(key)
 }
 
 #[cfg(test)]
