@@ -641,20 +641,31 @@ pub(crate) fn join_incomplete() -> Result<bool> {
 /// Update only the credential that made the request. A late response from an old
 /// replaced credential must never revoke or timestamp the replacement.
 pub(crate) fn record_auth_result(token: &str, revoked: bool, heartbeat: bool) -> Result<()> {
-    let now = crate::store::now_ms();
+    record_auth_result_at(&state_dir(), token, revoked, heartbeat, crate::store::now_ms())
+}
+
+/// [`record_auth_result`] in acpmux home `home` at `now` (epoch ms).
+fn record_auth_result_at(
+    home: &std::path::Path,
+    token: &str,
+    revoked: bool,
+    heartbeat: bool,
+    now: u64,
+) -> Result<()> {
     // A heartbeat lands every few seconds; the stored one only has to stay inside the doctor's
     // `HEARTBEAT_WITHIN_MS`. A fresh one already on disk is no change: no lock, no fsync'd
     // rewrite of the credential file (it ran every 10 s on every joined machine).
     if heartbeat
         && !revoked
-        && load()?.is_some_and(|record| {
+        && load_at(home)?.is_some_and(|record| {
             record.credential == token && !record.revoked && heartbeat_fresh(&record, now)
         })
     {
         return Ok(());
     }
-    let _lock = join_lock()?;
-    if let Some(mut record) = load()? {
+    crate::config::private_state_dir(home)?;
+    let _lock = join_lock_in(home)?;
+    if let Some(mut record) = load_at(home)? {
         if record.credential != token {
             return Ok(());
         }
@@ -668,7 +679,7 @@ pub(crate) fn record_auth_result(token: &str, revoked: bool, heartbeat: bool) ->
             changed = true;
         }
         if changed {
-            save(&record)?;
+            save_at(home, &record)?;
         }
     }
     Ok(())
@@ -1454,6 +1465,44 @@ mod tests {
         let previous =
             MeshRelayConfig { control_from: vec![narrowed.clone()], ..Default::default() };
         assert_eq!(super::joined_control_from(Some(previous)), vec![narrowed]);
+    }
+
+    /// Harness for the write loop: an idle joined daemon heartbeats every 10 s; count the
+    /// rewrites of `machine-credential.json` (a new inode per atomic replace) over 10 minutes.
+    #[test]
+    fn ten_idle_minutes_of_heartbeats_rewrite_the_credential_twenty_times_not_sixty() {
+        use std::os::unix::fs::MetadataExt as _;
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path();
+        let record = super::MachineCredential {
+            credential: "cmm_live".into(),
+            machine_id: "m".into(),
+            ..Default::default()
+        };
+        super::save_at(home, &record).unwrap();
+        let ino = || std::fs::metadata(home.join(super::CREDENTIAL_FILE)).unwrap().ino();
+        let start = 1_800_000_000_000u64;
+        let (mut last, mut writes) = (ino(), 0);
+        for beat in 0..60u64 {
+            super::record_auth_result_at(home, "cmm_live", false, true, start + beat * 10_000)
+                .unwrap();
+            let now = ino();
+            if now != last {
+                writes += 1;
+                last = now;
+            }
+        }
+        eprintln!("credential rewrites in 60 heartbeats (10 min): {writes}");
+        assert_eq!(writes, 20);
+        // Another credential's answer and a repeated revoke write nothing; the first revoke does.
+        super::record_auth_result_at(home, "cmm_old", true, true, start + 700_000).unwrap();
+        assert_eq!(ino(), last);
+        super::record_auth_result_at(home, "cmm_live", true, false, start + 700_000).unwrap();
+        let revoked = ino();
+        assert_ne!(revoked, last);
+        super::record_auth_result_at(home, "cmm_live", true, false, start + 710_000).unwrap();
+        assert_eq!(ino(), revoked);
+        assert!(super::load_at(home).unwrap().unwrap().revoked);
     }
 
     #[test]
