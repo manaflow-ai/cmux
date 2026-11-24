@@ -4,9 +4,12 @@
 //! measured time and bytes of each. One `ROUNDTRIP {...}` line per round trip per run (see
 //! pm/rtt/INVENTORY.md for the table with callers and verdicts; the rows below mirror it).
 //!
-//! A step that cannot be replayed headless prints `"ms":null` and a `"reason"`: Mac-host-local
-//! waits (cmux-mobile-host), client-side Swift waits, the link's upload and daemon channels, the
-//! Linux carrier lines and the ssh/relay peer legs are not in this crate's rig. This is the
+//! The Mac host's own waits on its acpmux (cmux-mobile-host services.rs `connect_acpmux`,
+//! `trusted_session_query`, `current_mode`) are replayed on loopback against the hub, unshaped.
+//! The Mac-Linux rows run on this hub behind the shaped link standing in for the Linux peer
+//! (each such line carries `stand_in`). A step that cannot be replayed headless prints
+//! `"ms":null` and a `"reason"`: client-side Swift waits, the link's upload and daemon channels,
+//! the Linux carrier lines and the dial race beyond the ws path are not in this crate's rig. This is the
 //! acpmux bench (no phone Link in the path); the replayed steps are the WebSocket requests the
 //! phone's `acpmux` service splices to the hub, so the shaper sits where the phone's radio does.
 //!
