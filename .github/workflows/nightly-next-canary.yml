@@ -49,6 +49,8 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
   # The one cmux NIGHTLY feed (#36287). The /next/ appcast froze on 2026-11-05; verdicts stay in /next/.
   NIGHTLY_NEXT_FEED: https://files-next.cmux.com/nightly-next/appcast-arm64.xml
   # Bumping it canaries every feed build again.
@@ -64,7 +66,7 @@ jobs:
     # included; it refuses a dispatch (which picks its own build) and a pull request's run, which keep their routes.
     # No secrets here. A value outside glaeda-nightly-* (unset included) falls back to Blacksmith; the variable
     # check (runner_label_policy.nightly_slot_reason) holds the variable to the slot labels.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.event_name == 'schedule' && startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.event_name == 'schedule' && startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -151,7 +153,7 @@ jobs:
     # vars.MACOS_RUNNER_26, then Blacksmith macOS 26. Never a GitHub-hosted Mac
     # (tests/test_ci_no_github_hosted_macos.py).
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || github.event_name == 'schedule' && startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || github.event_name == 'schedule' && (vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26') || vars.CI_PR_POOL_OWNED == '1' && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
-    timeout-minutes: 25
+    timeout-minutes: 40
     permissions:
       contents: read
     outputs:
@@ -159,12 +161,31 @@ jobs:
       # Gatekeeper, ticket or build-number check (a download error is none).
       verdict: ${{ steps.run.outputs.verdict || steps.broken.outputs.verdict }}
     env:
+      # A scheduled job's GitHub API waits stop here and fail loud (scripts/ci/gh_budget_wait.sh).
+      GH_BUDGET_WAIT_MAX_SECONDS: "900"
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       BUILD: ${{ needs.pick.outputs.build }}
       DMG_URL: ${{ needs.pick.outputs.url }}
       DMG_LENGTH: ${{ needs.pick.outputs.length }}
     steps:
+      # This commit's GitHub API wait (scripts/ci/gh_budget_wait.sh): every later gh call, and
+      # each github-script step that installs gh_budget_wait.cjs, waits through a rate limit or a
+      # GitHub 5xx under the job's GH_BUDGET_WAIT_MAX_SECONDS, then fails loud.
+      - name: Checkout the GitHub API wait
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .gh-budget-tooling
+          sparse-checkout: |
+            scripts/ci/gh_budget_wait.sh
+            scripts/ci/gh_budget_wait.cjs
+          sparse-checkout-cone-mode: false
+      - name: Wait through GitHub API rate limits and 5xx in this job
+        working-directory: ${{ github.workspace }}
+        run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -191,8 +212,16 @@ jobs:
           hdiutil attach "$RUNNER_TEMP/canary.dmg" -nobrowse -readonly -mountpoint "$mount"
           app="$(find "$mount" -maxdepth 1 -name '*.app' -type d -print -quit)"
           [ -n "$app" ] || { echo "no app in the DMG" >&2; exit 1; }
-          xcrun stapler validate "$app"
-          spctl -a -vv --type execute "$app"
+          # The app carries its own ticket (two notary rounds), or only the DMG does (one round,
+          # CMUX_STAPLE_APP_IN_DMG=false on feat-cmux-next): then Gatekeeper must still call the app
+          # notarized, which for an app with no stapled ticket is Apple's online answer.
+          assessment="$(spctl -a -vv --type execute "$app" 2>&1)" || { printf '%s\n' "$assessment"; exit 1; }
+          printf '%s\n' "$assessment"
+          if ! xcrun stapler validate "$app"; then
+            grep -Fq 'source=Notarized Developer ID' <<<"$assessment" \
+              || { echo "the app has no ticket of its own and Gatekeeper does not call it notarized" >&2; exit 1; }
+            echo "the app has no ticket of its own; Gatekeeper calls it notarized (the DMG's ticket, online)"
+          fi
           version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Contents/Info.plist")"
           [ "$version" = "$BUILD" ] || { echo "the DMG holds build $version, the feed says $BUILD" >&2; exit 1; }
           # Run what a person runs: the app copied out of the DMG. Launched from the read-only,
@@ -289,13 +318,29 @@ jobs:
     needs: [pick, canary]
     if: always() && github.event_name == 'schedule' && needs.canary.outputs.verdict != ''
     # A scheduled run's only: the pick's nightly slot.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'schedule' && startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 5
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'schedule' && startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 20
     env:
+      GH_BUDGET_WAIT_MAX_SECONDS: "900"
       BUILD: ${{ needs.pick.outputs.build }}
     permissions:
+      contents: read
       actions: write # dispatch nightly-next-verdict.yml
     steps:
+      - name: Checkout the GitHub API wait
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .gh-budget-tooling
+          sparse-checkout: |
+            scripts/ci/gh_budget_wait.sh
+            scripts/ci/gh_budget_wait.cjs
+          sparse-checkout-cone-mode: false
+      - name: Wait through GitHub API rate limits and 5xx in this job
+        working-directory: ${{ github.workspace }}
+        run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
+
       - name: Write the verdict to R2
         env:
           GH_TOKEN: ${{ github.token }}
@@ -358,12 +403,33 @@ jobs:
     needs: [pick, canary]
     if: always() && github.event_name != 'pull_request' && needs.canary.outputs.verdict == 'fail'
     # A scheduled run's on the pick's nightly slot; a dispatch's keeps Blacksmith.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'schedule' && startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 5
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'schedule' && startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 20
     permissions:
+      contents: read # check out the GitHub API wait
       actions: write # dispatch nightly-next-rollback.yml
       issues: write # the nightly-next canary failed issue
+    env:
+      # A scheduled job's GitHub API waits stop here and fail loud (scripts/ci/gh_budget_wait.sh).
+      GH_BUDGET_WAIT_MAX_SECONDS: "900"
     steps:
+      # This commit's GitHub API wait (scripts/ci/gh_budget_wait.sh): every later gh call, and
+      # each github-script step that installs gh_budget_wait.cjs, waits through a rate limit or a
+      # GitHub 5xx under the job's GH_BUDGET_WAIT_MAX_SECONDS, then fails loud.
+      - name: Checkout the GitHub API wait
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .gh-budget-tooling
+          sparse-checkout: |
+            scripts/ci/gh_budget_wait.sh
+            scripts/ci/gh_budget_wait.cjs
+          sparse-checkout-cone-mode: false
+      - name: Wait through GitHub API rate limits and 5xx in this job
+        working-directory: ${{ github.workspace }}
+        run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
+
       - name: Pull the build off the feed (enforce mode)
         id: pull
         if: needs.pick.outputs.mode == 'enforce'
@@ -387,6 +453,7 @@ jobs:
           MODE: ${{ needs.pick.outputs.mode || 'report' }}
         with:
           script: |
+            if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
             const title = 'nightly-next canary failed';
             const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             const pull = `\`gh workflow run nightly-next-rollback.yml -R manaflow-ai/cmux --ref nightly-next -f bad_build=${process.env.BUILD} -f reason="canary"\``;

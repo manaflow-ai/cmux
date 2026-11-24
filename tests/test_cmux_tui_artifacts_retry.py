@@ -53,6 +53,28 @@ class RetryPolicyTests(unittest.TestCase):
         decision = retry.decide(run(), tree_jobs(job(1, "success"), job(2, "failure")), {2: []})
         self.assertEqual(decision.action, "rerun-failed-jobs")
 
+    @staticmethod
+    def failed_at(job_id, step):
+        return {**job(job_id, "failure"), "steps": [{"name": "Set up job", "conclusion": "success"},
+                                                    {"name": step, "conclusion": "failure"}]}
+
+    def test_the_same_failure_on_two_attempts_is_not_retried_again(self):
+        previous = tree_jobs(self.failed_at(2, "cargo build"))
+        decision = retry.decide(run(run_attempt=2), tree_jobs(self.failed_at(2, "cargo build")), {2: []},
+                                previous=previous)
+        self.assertEqual(decision.action, "skip")
+        self.assertIn("failed the same way", decision.reason)
+
+    def test_a_new_failure_on_the_retry_is_retried(self):
+        previous = tree_jobs(self.failed_at(2, "upload to R2"))
+        decision = retry.decide(run(run_attempt=2), tree_jobs(self.failed_at(2, "cargo build")), {2: []},
+                                previous=previous)
+        self.assertEqual(decision.action, "rerun-failed-jobs")
+
+    def test_a_first_failure_is_retried_once(self):
+        decision = retry.decide(run(), tree_jobs(self.failed_at(2, "cargo build")), {2: []}, previous=None)
+        self.assertEqual(decision.action, "rerun-failed-jobs")
+
     def test_immutable_conflict_is_never_retried(self):
         annotations = {2: [{"title": "immutable-r2-conflict", "message": "manifest.json differs"}]}
         decision = retry.decide(run(), tree_jobs(job(2, "failure"), job(3, "failure")), {**annotations, 3: []})

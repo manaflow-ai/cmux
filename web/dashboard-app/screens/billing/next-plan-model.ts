@@ -1,4 +1,4 @@
-import { NEXT_MAX_PLAN_ID, NEXT_PLAN_OFFERS, type NextPlanId, type NextPlanOffer } from "@/services/billing/nextPlans";
+import { NEXT_PLAN_OFFERS, nextPlanRank, type NextPlanId, type NextPlanOffer } from "@/services/billing/nextPlans";
 import type { NextCloudBillingJson } from "@/services/billing/dashboardBilling";
 
 /**
@@ -7,7 +7,7 @@ import type { NextCloudBillingJson } from "@/services/billing/dashboardBilling";
  */
 export type NextPlanCardAction =
   | { readonly kind: "current" }
-  /** Checkout for a first NEXT plan, or an upgrade from NEXT Pro to Max. */
+  /** Checkout for a first NEXT plan, or an upgrade to a higher one. */
   | { readonly kind: "checkout"; readonly label: "subscribe" | "upgrade" }
   /** Its Price is not configured yet. */
   | { readonly kind: "comingSoon" }
@@ -30,7 +30,7 @@ export function nextPlanCards(next: NextCloudBillingJson): readonly NextPlanCard
 
 function nextPlanCardAction(plan: NextPlanId, next: NextCloudBillingJson): NextPlanCardAction {
   if (plan === next.planId) return { kind: "current" };
-  if (next.planId === NEXT_MAX_PLAN_ID) return { kind: "included" };
+  if (next.planId !== null && nextPlanRank(plan) < nextPlanRank(next.planId)) return { kind: "included" };
   if (!next.checkoutAvailable[plan]) return { kind: "comingSoon" };
   return { kind: "checkout", label: next.planId === null ? "subscribe" : "upgrade" };
 }

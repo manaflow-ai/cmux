@@ -1,0 +1,36 @@
+name: runner canary
+run-name: runner canary / ${{ inputs.nonce }}
+
+# No-op target of HQ's Linux-pool canary (cmuxterm-hq
+# tools/fleet-reconcilers/runner_canary.py). Every 5 minutes HQ dispatches
+# this once per label with a unique nonce, finds the run by the nonce in its
+# title, and times the job's started_at against the dispatch (60 s SLO).
+# runs-on is the raw label on purpose: the canary measures these exact pools.
+
+on:
+  workflow_dispatch:
+    inputs:
+      label:
+        description: Runner label to measure
+        type: choice
+        required: true
+        options:
+          - cmux-fleet-linux-x64
+          - cmux-freestyle-linux-x64
+          - cmux-gcp-lane-build-x64
+      nonce:
+        description: Unique id HQ finds this run by
+        type: string
+        required: true
+
+permissions: {}
+
+jobs:
+  canary:
+    runs-on: ${{ inputs.label }}
+    timeout-minutes: 5
+    steps:
+      - name: Report runner
+        env:
+          LABEL: ${{ inputs.label }}
+        run: echo "runner=${RUNNER_NAME} label=${LABEL}"
