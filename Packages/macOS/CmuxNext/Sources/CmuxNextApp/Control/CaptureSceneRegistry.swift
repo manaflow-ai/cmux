@@ -44,7 +44,11 @@ final class CaptureSceneRegistry {
         let name = params["scene"]?.stringValue ?? "main-showcase"
         // A cloud-agent-machines or cloud-machine-disconnected picture stays for the capture's
         // stills; any next render ends it.
-        await endSpacesSwitcher()
+        let spacesCleanupErrors = await endSpacesSwitcher()
+        if !spacesCleanupErrors.isEmpty {
+            return .object(["error": .string("previous spaces-switcher fixture cleanup failed"),
+                            "cleanup_errors": .array(spacesCleanupErrors.map(CmuxNextSettings.JSONValue.string))])
+        }
         endAgentCloudMachines()
         endCloudMachineDisconnected()
         guard let definition = Self.definitions.first(where: { $0.name == name }) else {

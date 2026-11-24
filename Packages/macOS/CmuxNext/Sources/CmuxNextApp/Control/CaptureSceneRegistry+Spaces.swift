@@ -9,7 +9,7 @@ import CmuxNextSettings
 import CmuxNextSidebar
 
 @MainActor
-private final class SpacesSwitcherFixture {
+final class SpacesSwitcherFixture {
     weak var original: WindowController?
     let profile: ProfileID
     let workspace: WorkspaceKey
@@ -19,43 +19,54 @@ private final class SpacesSwitcherFixture {
     let width: CGFloat
     let presentation: SidebarPresentation
 
-    init(original: WindowController, profile: ProfileID, workspace: WorkspaceKey, windowID: String,
-         showSpaces: Bool, visibility: SpacesVisibilityMode, width: CGFloat, presentation: SidebarPresentation) {
+    init(original: WindowController) {
         self.original = original
-        self.profile = profile
-        self.workspace = workspace
-        self.windowID = windowID
-        self.showSpaces = showSpaces
-        self.visibility = visibility
-        self.width = width
-        self.presentation = presentation
+        self.profile = ProfileID.generate()
+        self.workspace = WorkspaceKey.generate()
+        self.windowID = UUID().uuidString.lowercased()
+        self.showSpaces = DesignSettings.shared.sidebarSections.showSpaces
+        self.visibility = original.sidebar.container.sidebarView.spacesVisibility
+        self.width = original.sidebar.model.width
+        self.presentation = original.sidebar.model.presentation
     }
 }
 
-@MainActor private var activeSpacesSwitcherFixture: SpacesSwitcherFixture?
-
 extension CaptureSceneRegistry {
     /// Removes the previous scene's fixture after the capture driver has finished its stills.
-    func endSpacesSwitcher() async {
-        guard let fixture = activeSpacesSwitcherFixture else { return }
-        activeSpacesSwitcherFixture = nil
+    func endSpacesSwitcher() async -> [String] {
+        guard let fixture = services.spacesSwitcherFixture else { return [] }
+        var errors: [String] = []
         let daemon = services.machines.local
-        if let connection = daemon.connection,
-           daemon.store.workspace(id: fixture.workspace.rawValue) != nil
-            || services.windows.registry.members(of: fixture.windowID).contains(fixture.workspace.rawValue) {
-            _ = try? await connection.closeWorkspace(fixture.workspace, endTerminals: true)
+        let hasWorkspace = daemon.store.workspace(id: fixture.workspace.rawValue) != nil
+            || services.windows.registry.members(of: fixture.windowID).contains(fixture.workspace.rawValue)
+        if hasWorkspace {
+            if let connection = daemon.connection {
+                do { _ = try await connection.closeWorkspace(fixture.workspace, endTerminals: true) }
+                catch { errors.append("workspace: \(error)") }
+            } else {
+                errors.append("daemon disconnected while closing capture workspace")
+            }
         }
         if let other = services.windows.controller(for: fixture.windowID) {
             services.windows.closeProgrammatically(other)
         }
-        if let connection = daemon.connection {
-            _ = try? await connection.deleteProfile(fixture.profile)
+        if errors.isEmpty {
+            if let connection = daemon.connection {
+                do { _ = try await connection.deleteProfile(fixture.profile) }
+                catch { errors.append("Space: \(error)") }
+            } else {
+                errors.append("daemon disconnected while deleting capture Space")
+            }
         }
-        guard let original = fixture.original else { return }
+        // The global setting belongs to the capture invocation even if its original window was closed.
         DesignSettings.shared.sidebarSections.showSpaces = fixture.showSpaces
-        original.sidebar.container.sidebarView.spacesVisibility = fixture.visibility
-        original.sidebar.container.restore(width: fixture.width, presentation: fixture.presentation)
-        original.sidebar.container.sidebarView.renderNow()
+        if let original = fixture.original {
+            original.sidebar.container.sidebarView.spacesVisibility = fixture.visibility
+            original.sidebar.container.restore(width: fixture.width, presentation: fixture.presentation)
+            original.sidebar.container.sidebarView.renderNow()
+        }
+        if errors.isEmpty { services.spacesSwitcherFixture = nil }
+        return errors
     }
 
     /// Captures the original window after a second window owns a workspace in its own Space and the
@@ -65,23 +76,19 @@ extension CaptureSceneRegistry {
         guard let connection = daemon.connection, connection.supportsProfiles else {
             return .object(["error": .string("spaces-switcher requires a daemon with profiles")])
         }
-        let profile = ProfileID.generate()
-        let windowID = UUID().uuidString.lowercased()
-        let workspace = WorkspaceKey.generate()
+        let fixture = SpacesSwitcherFixture(original: original)
+        let profile = fixture.profile
+        let windowID = fixture.windowID
+        let workspace = fixture.workspace
         let windows = services.windows
         let sidebar = original.sidebar.container.sidebarView
         let design = DesignSettings.shared
-        let showSpaces = design.sidebarSections.showSpaces, visibility = sidebar.spacesVisibility
-        let width = original.sidebar.model.width, presentation = original.sidebar.model.presentation
-        activeSpacesSwitcherFixture = SpacesSwitcherFixture(original: original, profile: profile, workspace: workspace,
-                                                            windowID: windowID, showSpaces: showSpaces,
-                                                            visibility: visibility, width: width, presentation: presentation)
         do {
             _ = try await connection.createProfile(name: "Capture Space", id: profile, color: GroupColor.blue.rawValue)
         } catch {
-            await endSpacesSwitcher()
             return .object(["error": .string("creating capture Space: \(error)")])
         }
+        services.spacesSwitcherFixture = fixture
         design.sidebarSections.showSpaces = true
         sidebar.spacesVisibility = .always
         original.sidebar.restore(width: 300, hidden: false)
@@ -104,6 +111,7 @@ extension CaptureSceneRegistry {
                 return windows.controller(for: windowID)?.window != nil
                     && windows.registry.members(of: windowID).contains(workspace.rawValue)
                     && original.sidebar.model.activeProfileID != key
+                    && sidebar.spaceDotIsDrawn(key)
                     && (hint.map { expected in
                         sidebar.shortcutHintSpaceFrames.contains { $0.digit == expected }
                     } ?? true)
@@ -128,8 +136,18 @@ extension CaptureSceneRegistry {
         } catch {
             result = .object(["error": .string("creating capture workspace: \(error)")])
         }
-        if case .object(let report) = result, report["error"] != nil {
-            await endSpacesSwitcher()
+        if case .object(var report) = result {
+            let shouldEnd = report["error"] != nil || params["path"]?.stringValue != nil
+            if shouldEnd {
+                let cleanupErrors = await endSpacesSwitcher()
+                if !cleanupErrors.isEmpty {
+                    if report["error"] == nil { report["error"] = .string("spaces-switcher fixture cleanup failed") }
+                    report["cleanup_errors"] = .array(cleanupErrors.map(CmuxNextSettings.JSONValue.string))
+                }
+                result = .object(report)
+            }
+        } else if params["path"]?.stringValue != nil {
+            _ = await endSpacesSwitcher()
         }
         return result
     }
