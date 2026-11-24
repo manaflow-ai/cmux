@@ -30,7 +30,7 @@ pub(crate) fn prepare(args: &crate::Args) -> anyhow::Result<()> {
         let forwarder = crash_forward::start(logs);
         memory_guard::spawn(panic_log, forwarder);
         background_checks::spawn();
-        // `updates.daemon` (off by default): NIGHTLY's own daemon takes signed daemon builds live.
+        // `updates.daemon` (on by default): NIGHTLY's own daemon takes signed daemon builds live.
         #[cfg(unix)]
         crate::cli::spawn_daemon_updates(&args.session, args.socket.clone());
         // Opt-in usage patterns (cmux-usage-patterns): counts nothing until the person turns on

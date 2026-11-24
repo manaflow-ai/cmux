@@ -1,4 +1,6 @@
 import { acpmuxPerf } from "./perf";
+import { sentWords } from "./computerUse/computerUseState";
+import { runResumed, submitResumed } from "./composer/resumedSend";
 import { holdFlag, resumeOrFail, setRef } from "./heldFlag";
 import { useStableHandlers } from "./stableHandlers";
 import { chatPlace } from "./chatMachine";
@@ -51,7 +53,7 @@ import { ComposerQueue } from "./ComposerQueue";
 import { ownQueue } from "./conversation/queuedMessages";
 import { BuildIcon, ContextRing, PlanIcon } from "./ComposerPickers";
 import { type Choice } from "./composerPickerModel";
-import { SendSlot, SendSlotGlyph, StopPulse } from "./composer/SendSlotGlyph";
+import { SendSlotGlyph, SendSlot, StopPulse } from "./composer/SendSlotGlyph";
 import { useStopPresence } from "./composer/turnPresence";
 import { SendMenu } from "./composer/SendMenu";
 import { SIDE_COMMAND, sendChoiceForKey, sendMenuChoices, type SendChoice } from "./composer/sendMenuModel";
@@ -64,9 +66,7 @@ import { ComposerBox, type ComposerBoxHandle } from "./ComposerBox";
 import { MentionMenu } from "./MentionMenu";
 import { mentionAsk, useExtensionMentionPrefixes, useExtensionMentions } from "./composer/extensionMentions";
 import { markdownOffset, mentionResults, useMentionSearch } from "./mentionMenuModel";
-import { wantAllSessions } from "./sessionPages";
 import {
-  hasOtherChats,
   loadRecentMentionPaths,
   mentionInsert,
   mentionItems,
@@ -74,6 +74,8 @@ import {
   recentMentionScope,
   rememberMentionPath,
   type MentionItem,
+  mentionPath,
+  mentionWantsFiles,
 } from "./mentionItems";
 import type { ContextMenuItem } from "../../ui/ContextMenu";
 import { openChipMenu } from "./composerChipMenu";
@@ -124,6 +126,7 @@ import {
   settlePendingDraftWrites,
   useDraftActionsVersion,
   writePersistedDraft,
+  restoredPrompt,
 } from "./composerDraft";
 import { RESTORED_CHAT_EVENT, replacedRestoredDraft, restoredDraft } from "./chatSnapshot/restoredDraft";
 import type { MarkdownFieldHandle, MarkdownFieldProps } from "./MarkdownField";
@@ -168,6 +171,7 @@ import { loadRecentCommandNames, recentCommands, rememberRecentCommand } from ".
 import { openPicker } from "./pickerOpeners";
 import type { RepickMachine } from "./cloudRepick";
 import { compactingUsage } from "./usageStats";
+import { useExperimentSwitch } from "../../experiments/switches";
 import { experimentArm } from "../../experiments/experiment";
 import { promptSuggestionLook } from "./promptSuggestionLook.experiment";
 import { cloudStartComposerLook } from "./cloudStartComposer.experiment";
@@ -179,6 +183,7 @@ import "./composerClimbs.css";
 import { emojiShortcodeLook } from "./emojiShortcodeLook.experiment";
 import { EmojiMenu } from "./EmojiMenu";
 import { keepSendOrigins, noteSendOrigins } from "./conversation/sendMorph";
+import { playUnpop } from "./conversation/unpopMorph";
 import { sendTucks, tuckContent, tuckSent } from "./conversation/sendTuck";
 import { shouldScrollToBottomAfterSend } from "./sendScrollSetting";
 import { MachineLinkStatus } from "./MachineLinkStatus";
@@ -330,6 +335,18 @@ type Props = {
   /// Binds the person's current key press or click to one prompt (`transport.gesture`), for a send
   /// the composer holds until its files are ready (attachmentIntake.tsx `useSendWhenAttached`).
   onBindSendGesture?(): SendGesture | undefined;
+  /// True: the draft may not go now (`@computer-use` while Computer Use is not ready, App.tsx
+  /// `holdsForComputerUseSetup`), and the pane already opened setup or said why. Asked before anything
+  /// binds the send's key press or click (a hold for files, a side chat), so that gesture still opens
+  /// the setup page (CMUX-682).
+  /// `late`: the send resumed after a wait (files read or uploaded, dictation ended), whose key press
+  /// is long gone: hold and say why, never open setup (it would spend a key pressed since).
+  holdsSend?(text: string, late?: boolean): boolean;
+  /// Binds the person's key press or click to a prompt that goes now, ahead of files still
+  /// attaching (composer/sendBehind.ts): only where the send goes straight to the chat open now,
+  /// whose client draws it as sent and sends it once the files are chips. Undefined: the send
+  /// waits for its files, as before.
+  onBindSendAhead?(): SendGesture | undefined;
   /// Binds the person's key press or click to `/side`'s prompt, held for its files, bound to no chat:
   /// the side chat it goes to does not exist yet (#40066). The prompt redeems it by its prompt id.
   onBindSideGesture?(): SendGesture | undefined;
@@ -469,6 +486,13 @@ type Props = {
   onNewWorktree?(cwd: string): void;
   /// A GitHub repository picked for a new chat on this Mac (ComposerContext `onGitHubHere`).
   onGitHubHere?(repo: string, candidates: string[]): void;
+  onCloneRepository?(url: string): Promise<string>;
+  onNoProject?(): void;
+  onCloudFolderWaiting?(waiting: boolean): void;
+  onNewProject?(): void;
+  noProject?: boolean;
+  sourceRepository?: { cwd: string; name: string };
+  cloningRepository?: string;
   /// A started chat's Choose folder…: the host's folder panel (see ComposerContext).
   onBrowseFolder?(): Promise<string | undefined>;
   /// The location row's SSH… and New Cloud Machine rows open the host's connect flows.
@@ -682,8 +706,13 @@ function useRelayProps(props: Props): Props {
 /// identity across the pane's renders (stableHandlers.ts), and the pane hands it a snapshot that keeps
 /// its identity while nothing the composer shows changed (composer/composerView.ts), so a transcript
 /// change (a tool call, a row added) leaves it be. A relayed one (`relay`) is the same composer.
+/// Function props the composer calls only from a send, never while drawing: held like its `on*` handlers. The
+/// pane passes `holdsSend` inline, so each pane render (every streamed tool-output chunk under a running tool
+/// call) handed the composer a new one and drew the composer and its box again, in the frames a typed key waits on.
+const CALL_TIME_PROPS = ["holdsSend"] as const;
+
 export function Composer(props: Props) {
-  return <MemoComposer {...useStableHandlers(useRelayProps(props))} />;
+  return <MemoComposer {...useStableHandlers(useRelayProps(props), CALL_TIME_PROPS)} />;
 }
 
 /// The prompt box with the agent's `/` command menu:
@@ -701,6 +730,8 @@ function ComposerFrame({
   chips: Chips,
   onSend,
   onBindSendGesture,
+  holdsSend,
+  onBindSendAhead,
   onBindSideGesture,
   transcriptFollowing,
   onStop,
@@ -748,6 +779,13 @@ function ComposerFrame({
   extraFolders,
   onNewWorktree,
   onGitHubHere,
+  onCloneRepository,
+  onNoProject,
+  onCloudFolderWaiting,
+  onNewProject,
+  noProject,
+  sourceRepository,
+  cloningRepository,
   onBrowseFolder,
   onConnect,
   onOffload,
@@ -1002,6 +1040,7 @@ function ComposerFrame({
   // Codex's ↑ after the mic, always there, so the mic never steps (composerLook.ts; Leo
   // 2026-11-04: "our codex style composer should look like codex's/chatgpt's").
   const look = useComposerLookWithV2();
+  const buttonsVisible = useExperimentSwitch("composerButtonsVisible");
   const quietActions = plainFooter && !lookRowInBox(look);
   const usage = compactingUsage(
     snapshot.summary?.usage,
@@ -1044,6 +1083,7 @@ function ComposerFrame({
     loading,
     unsettled,
     cancel,
+    goAhead,
     retry,
     revive,
     originalFailures,
@@ -1236,6 +1276,14 @@ function ComposerFrame({
   // hidden, the prompt loses focus or the prompt is sent (unsentDraftThrottle.ts). Declared ahead of the
   // handle that flushes it: one read before its declaration keeps the composer uncompiled.
   const unsentDraft = useRef<UnsentDraftThrottle | undefined>(undefined);
+  /// A send that resumes after a wait (`resumeSend`): its Computer Use hold only says why (`holdsSend` `late`).
+  const sendResuming = useRef(false);
+  /// Whether `draft` sends words to an agent: cmux's own commands other than `/side` and `/btw` (`/cd
+  /// @folder`, `/model`) send no prompt, so the Computer Use hold never reads them (Return and Cmd-Return).
+  const sendsPrompt = (draft: string) => {
+    const own = composerCommand(withoutInlineTokens(draft, attachmentId).trim(), snapshot.summary?.harness);
+    return own?.kind !== "cmux" || own.command.action === "side" || own.command.action === "btw";
+  };
   const restoreDraft = (restoredText: string, restoredAttachments: ComposerAttachment[], behind = false) => {
     // A prompt coming back (refused, taken back, edited from the queue) went with a Codex skill
     // as `/$name`: it is typed `/name` here, and send writes the `$` again. Its skills are the
@@ -1259,12 +1307,14 @@ function ComposerFrame({
     // goes after what is there (prompts a folder's trust held, sent after one already given
     // back: trustHeld.ts).
     const typed = field.current?.value() ?? "";
-    const next = !typed.trim() ? restoredText : behind ? `${typed}\n\n${restoredText}` : `${restoredText}\n\n${typed}`;
+    const next = restoredPrompt(typed, restoredText, behind);
     // A field whose editor is still starting (the chat composer that mounts as a New Tab page
     // leaves) takes it as its value, which becomes the editor's first content.
     if (!field.current?.type(next)) {
       writeText(next, next.length);
     }
+    // A queued prompt taken back moves into the field it is in now (unpopMorph.ts).
+    playUnpop(composerBox.current);
     if (restoredAttachments.length)
       setAttachments((current) => {
         const others = current.filter((attachment) => !restoredAttachments.some((back) => back.id === attachment.id));
@@ -1383,7 +1433,8 @@ function ComposerFrame({
         // Their places in the text go with them: no empty atom stays in the draft.
         for (const id of ids) field.current?.removeInline(id);
       },
-      send: () => submitNow.current(true),
+      // An imperative send (the Trust continuation's) runs long after its key press: notice-only.
+      send: () => runResumed(sendResuming, () => submitNow.current(true)),
       focus: () => field.current?.focus(),
       prefill(prefix) {
         const typed = (field.current?.value() ?? promptRef.current.text).trimStart();
@@ -1734,30 +1785,25 @@ function ComposerFrame({
     if (slashOpen) void refreshSavedPrompts();
   }, [slashOpen]);
 
-  // A new word or the list opening highlights the first row again; Return takes it (returnPicks).
-  useLayoutEffect(() => setActive(0), [query, open]);
-  // Typing @ at a word start lists other chats, then the chat's folders and files that match what
-  // follows (cx-ncc.68, mentionItems.ts).
-  const chatId = snapshot.summary?.sessionId;
-  const otherChats = useMemo(() => hasOtherChats(snapshot.sessions, chatId), [snapshot.sessions, chatId]);
+  // A new word or the list opening highlights the first row again; Return takes it (returnPicks). The
+  // row the arrows chose matters for a `$word` only: a new word, a cleared draft or the list closing forgets it.
+  const [arrowed, setArrowed] = useState(false);
+  useLayoutEffect(() => {
+    setActive(0);
+    setArrowed(false);
+  }, [query, open]);
+  // Typing @ at a word start lists the plugins (toolMentions.ts), then, for a specific word, the
+  // chat's folders and files that match what follows (mentionItems.ts). Computer use and browser use
+  // are always offered, so the menu always has rows.
   // Installed extensions' mention providers (`@pr`), composer/extensionMentions.ts.
   const mentionPrefixes = useExtensionMentionPrefixes();
-  const mentionTyped =
-    !open &&
-    !recalling &&
-    (searchFiles || otherChats || snapshot.catalog.length > 0 || mentionPrefixes.length > 0) &&
-    !facts.mentionDismissed
-      ? facts.mention
-      : undefined;
+  const mentionTyped = !open && !recalling && !facts.mentionDismissed ? facts.mention : undefined;
   const mentionWord = mentionTyped?.query;
   const extensionMentions = useExtensionMentions(mentionWord, mentionPrefixes);
-  // The @ picker finds any chat by name, not only the first page's: the pane reads the rest once
-  // it opens (sessionPages.ts `wantAllSessions`), and follows the list from then on.
-  const mentioning = mentionWord !== undefined;
-  useEffect(() => {
-    if (mentioning) wantAllSessions();
-  }, [mentioning]);
-  const mentionSearch = useMentionSearch(searchFiles, mentionWord);
+  // Any typed word asks for files; a short one lists only a file it names exactly (mentionItems.ts):
+  // `@b` lists the plugins, `@go` a root file `go`.
+  const fileWord = mentionWord?.trim() ? mentionWord : undefined;
+  const mentionSearch = useMentionSearch(searchFiles, fileWord);
   const mentionFiles = mentionResults(mentionSearch);
   // Recent @ picks belong to this chat's folder on its machine, and only where its files are searched.
   const recentScope = searchFiles
@@ -1773,29 +1819,28 @@ function ComposerFrame({
             query: mentionWord,
             files: mentionFiles,
             recent: loadRecentMentionPaths(recentScope),
-            sessions: snapshot.sessions,
-            chatId,
             harnesses: guestHarnesses,
+            toolName: (tool) => t(tool.label),
             extension: extensionMentions,
             extensionFirst: mentionProviderAsked,
           }),
-    [
-      mentionWord,
-      mentionFiles,
-      snapshot.sessions,
-      guestHarnesses,
-      chatId,
-      recentScope,
-      extensionMentions,
-      mentionProviderAsked,
-    ],
+    [mentionWord, mentionFiles, guestHarnesses, recentScope, extensionMentions, mentionProviderAsked, t],
   );
   // A chat whose folder cannot be searched (a remote chat) opens the picker only on a matching
-  // chat; it never hints at a file search.
-  const mentionAt = searchFiles || mentions.length > 0 ? mentionTyped : undefined;
+  // row; it never hints at a file search.
   // The word's files are still on their way: asked, or about to be once typing settles.
   const mentionPending =
-    !!searchFiles && !!mentionWord?.trim() && (mentionSearch.kind === "idle" || mentionSearch.kind === "searching");
+    !!searchFiles && !!fileWord?.trim() && (mentionSearch.kind === "idle" || mentionSearch.kind === "searching");
+  // A short word whose lookups settled with no row opens nothing, so Return still sends. While an
+  // answer is on its way (an exact file for `@go`, a provider's items for `@pr`) the picker holds
+  // Return, so a quick Return never sends the bare word; a specific word holds it for its files.
+  const mentionAt =
+    mentions.length > 0 ||
+    mentionPending ||
+    mentionProviderAsked ||
+    (searchFiles && mentionWord !== undefined && mentionWantsFiles(mentionWord))
+      ? mentionTyped
+      : undefined;
   const mentionSelected = mentionSelection(mentions, mentionActive, mentionPending, mentionProviderAsked);
   useEffect(() => setMentionActive(undefined), [mentionWord]);
   // `:` and two letters at a word start list emoji by shortcode; a text emoticon (`:)`, `:DD`,
@@ -1893,7 +1938,9 @@ function ComposerFrame({
   };
   const pick = (command: SlashCommand) => {
     if (command.source === "saved") return pickSaved(command);
-    setRecentCommandNames(rememberRecentCommand(command.name));
+    // A row that writes its own text (a built-in tool, an extension's command) is no command to recall:
+    // the + menu's recents write `/name`, which would lose what it writes.
+    if (!insertsText(command)) setRecentCommandNames(rememberRecentCommand(command.name));
     notePicked(command);
     // In place, over the typed `/word`, the text around it kept; the field reports the edit.
     if (field.current?.insertCommand(shownName(command), insertsText(command) ? command.insert : undefined)) {
@@ -1958,6 +2005,7 @@ function ComposerFrame({
     edit(`${text.slice(0, emojiAt.start)}${match.emoji}${space}${after}`, at);
     field.current?.focus();
   };
+  const resumeSend = <T,>(run: () => T): T => runResumed(sendResuming, run);
   /// `kept`: the gesture an earlier hold of this send bound (`useSendWhenAttached`). `route` "side":
   /// the draft goes as `/side`'s prompt, to a side chat forked from this one (Send's menu).
   const send = (force: boolean, steer = false, kept?: SendGesture, route?: "side"): boolean => {
@@ -1982,7 +2030,7 @@ function ComposerFrame({
     if (dictation && isActive(dictation.state) && !shell && !dictationEnded.current) {
       dictation.finish(() => {
         // The session is over even if this render has not heard so yet.
-        holdFlag(dictationEnded, true, () => submitNow.current(force, steer, kept, route));
+        holdFlag(dictationEnded, true, () => resumeSend(() => submitNow.current(force, steer, kept, route)));
       });
       return true;
     }
@@ -1990,6 +2038,12 @@ function ComposerFrame({
     // A token whose attachment is gone (sent, then the clear undone in the same task, before the
     // field drops its node: inlineAttachments.tsx) is no place: it goes as the field will hold it.
     const draftText = withoutDeadTokens(unwrapped());
+    // Held before anything binds the gesture (a hold for files, a side chat): the draft stays.
+    if (
+      sendsPrompt(draftText) &&
+      holdsSend?.(sentWords(draftText, attachments), sendResuming.current || submitResumed())
+    )
+      return false;
     // The attachments placed in the text go at their places (attachments.ts placeInline); a chip still
     // being read is not one of them yet.
     // A Codex skill typed or picked as `/name` goes as `/$name` (slashCommands.ts withSkillDollars).
@@ -2012,10 +2066,10 @@ function ComposerFrame({
       slash !== undefined &&
       (composerCommand(words, snapshot.summary?.harness) !== undefined ||
         (commands ?? []).some((command) => command.name === slash));
-    const placed = isCommand
+    let placed = isCommand
       ? { text: words, attachments: attachments.map(({ inline: _, ...attachment }) => attachment) }
       : inText;
-    const prompt = placed.text;
+    let prompt = placed.text;
     const command = composerCommand(prompt, snapshot.summary?.harness, attachments.length);
     // Send in side chat: the draft as written is `/side`'s prompt, through the command's own path.
     const side = route === "side" ? SIDE_COMMAND : undefined;
@@ -2038,7 +2092,7 @@ function ComposerFrame({
       // being read, and for the originals a too-large prompt goes with, as a send does.
       const sideFiles = owned.action === "side";
       if (sideFiles) {
-        const again = (gesture?: SendGesture) => submitNow.current(force, steer, gesture, route);
+        const again = (gesture?: SendGesture) => resumeSend(() => submitNow.current(force, steer, gesture, route));
         // Bound to no chat: one bound to this chat would not let its prompt go to the side chat.
         const bindSide = () => onBindSideGesture?.();
         if (holdForAttachments(again, kept, bindSide)) return false;
@@ -2159,13 +2213,34 @@ function ComposerFrame({
       sentAt.current = Date.now();
       return true;
     }
-    // A file pasted or dropped is still being read or uploaded: the prompt waits for its chip.
-    if (holdForAttachments((gesture) => submitNow.current(force, steer, gesture), kept)) return false;
+    // A file dropped, pasted or picked that is still attaching (its path asked of the host, its bytes
+    // streaming to the chat's machine) never holds the send: the prompt goes now with it as a
+    // stand-in, shows as sent, and reaches the agent once the file is its chip (composer/sendBehind.ts;
+    // Leo, 2026-11-17: "I CAN'T EVEN FUCKING SEND A MESSAGE WHILE THE FUCKING THING LOADS").
+    let wentAhead = false;
+    if (pending.length > 0 && !isCommand && onBindSendAhead) {
+      const gesture = kept ?? onBindSendAhead();
+      const ahead = gesture ? goAhead() : undefined;
+      // The gesture bound for this send stays its own, held or not.
+      if (gesture) kept = gesture;
+      if (ahead) {
+        const went = new Set(ahead.map((chip) => chip.id));
+        placed = placeInline(typedText.trim(), [...attachments, ...ahead], {
+          dropped: (id) => !went.has(id) && pending.some((chip) => chip.id === id),
+        });
+        prompt = placed.text;
+        holdForAttachments.cancel();
+        wentAhead = true;
+      }
+    }
+    // A file still being read for what goes in the prompt (an image's preview): the prompt waits for its chip.
+    if (!wentAhead && holdForAttachments((gesture) => resumeSend(() => submitNow.current(force, steer, gesture)), kept))
+      return false;
     // Too large for one message until the originals still uploading are saved: it waits for them.
     if (
       holdForOriginals(
         awaitsOriginals(prompt, placed.attachments, (id) => originalUploads.has(id), {}, undefined, needsOriginal),
-        (gesture) => submitNow.current(force, steer, gesture),
+        (gesture) => resumeSend(() => submitNow.current(force, steer, gesture)),
         kept,
       )
     )
@@ -2223,6 +2298,17 @@ function ComposerFrame({
       clear();
       return true;
     }
+    // Sent ahead of its files: it already shows as sent in the chat, so the composer is free now
+    // for the next message while the file still goes; a refusal fails its row there, kept
+    // (direct.ts `sendAheadOfFiles`). Only one refused before the chat's client drew it comes back.
+    if (wentAhead) {
+      clear();
+      taken.catch(() => {
+        if (!(field.current?.value() ?? "")) edit(written, written.length);
+        setAttachError(t("composer.stillSending"));
+      });
+      return true;
+    }
     // The prompt stays in the composer until the host takes it; a refusal keeps it there.
     markSending(true);
     taken.then(
@@ -2245,8 +2331,9 @@ function ComposerFrame({
   });
   /// + then Mention: an "@" at the caret, set off by a space, for the agent to read as a path.
   // Writes "@" at the caret, or "@path " for a file picked in Search files.
-  const mention = (path?: string) => {
+  const mention = (picked?: string) => {
     if (composing.current) return;
+    const path = picked === undefined ? undefined : mentionPath(picked);
     const { text, caret } = promptRef.current;
     const at = markdownOffset(text, caret);
     const before = text.slice(0, at);
@@ -2703,6 +2790,13 @@ function ComposerFrame({
       {...(extraFolders ? { extraFolders } : {})}
       onNewWorktree={onNewWorktree}
       {...(onGitHubHere ? { onGitHubHere } : {})}
+      onCloneRepository={onCloneRepository}
+      onNoProject={onNoProject}
+      onCloudFolderWaiting={onCloudFolderWaiting}
+      onNewProject={onNewProject}
+      noProject={noProject}
+      sourceRepository={sourceRepository}
+      cloningRepository={cloningRepository}
       onBrowseFolder={onBrowseFolder}
       onConnect={onConnect}
       {...(onOffload ? { onOffload } : {})}
@@ -2765,7 +2859,12 @@ function ComposerFrame({
       onClick={running ? stopTurn : undefined}
     >
       {/* The first Esc of the double press keeps the glyph; its color and name say Esc again stops. */}
-      <SendSlotGlyph glyph={stopping ? "stopping" : "stop"} memory={morphMemory} scope={sessionId} />
+      <SendSlotGlyph
+        glyph={stopping ? "stopping" : "stop"}
+        state={stopping ? "stopping" : "stop"}
+        memory={morphMemory}
+        scope={sessionId}
+      />
       <StopPulse pulses={stopPresence.pulses} />
     </button>
   ) : null;
@@ -2834,8 +2933,8 @@ function ComposerFrame({
   };
   // Enter sends unless it picks a command (slashCommands.ts returnPicks): while the list shows, it
   // takes the highlighted row, unless the typed word is that row's name in full with no arguments to
-  // take (Return runs it). Esc closes the list and keeps the word as typed.
-  const returnSends = () => !open || !returnPicks(matches[selected], query ?? "");
+  // take (Return runs it), or it is a `$word` whose row the arrows did not choose. Esc closes the list.
+  const returnSends = () => !open || !returnPicks(matches[selected], query ?? "", arrowed, typedSlash?.mark);
   const sendOnReturn = (event: { preventDefault(): void }) => {
     if (!returnSteers || returnHolds) return submit(event);
     event.preventDefault();
@@ -3044,7 +3143,10 @@ function ComposerFrame({
       // earlier screenshot is still being read. Ordinary prompts retain Return's attachment wait.
       const owned =
         composerCommand(typedWords().trim(), snapshot.summary?.harness, attachments.length)?.kind === "cmux";
-      if (!owned && holdForAttachments(sendAndOpen)) return;
+      // Held for Computer Use on this key press, before a wait for files reserves its gesture (CMUX-682).
+      const quickDraft = withoutDeadTokens(unwrapped());
+      if (sendsPrompt(quickDraft) && holdsSend?.(sentWords(quickDraft, attachments))) return;
+      if (!owned && holdForAttachments((gesture) => resumeSend(() => sendAndOpen(gesture)))) return;
       sendAndOpen();
       return;
     }
@@ -3072,6 +3174,8 @@ function ComposerFrame({
       event.preventDefault();
       const step = event.key === "ArrowDown" || event.key === "j" ? 1 : -1;
       setActive((selected + step + matches.length) % matches.length);
+      // The arrows chose this row: a `$word`'s Return now picks it (returnPicks).
+      setArrowed(true);
     } else if ((event.key === "Enter" || event.key === "Tab") && plain) {
       event.preventDefault();
       pick(matches[selected].command);
@@ -3120,6 +3224,7 @@ function ComposerFrame({
       composing.current = value;
     };
   });
+  const emptyQuietSlot = quietActions && !shell && !hasDraft && !listening;
   const sendOrStop =
     stop && !hasDraft && !listening ? (
       stopButton
@@ -3135,13 +3240,13 @@ function ComposerFrame({
         disabled={resuming}
         onClick={() => runResume(canResume)}
       >
-        <SendSlotGlyph glyph="play" memory={morphMemory} scope={sessionId} />
+        <SendSlotGlyph glyph="play" state="queued" memory={morphMemory} scope={sessionId} />
       </button>
-    ) : remote.canSend && (!quietActions || shell || hasDraft || listening) ? (
+    ) : remote.canSend && (!emptyQuietSlot || buttonsVisible) ? (
       // One send control in both looks (Leo 2026-10-31: "THE F***ING TWO SEND
       // BUTTONS"): mid-turn the empty prompt's slot is Stop, and the first letter turns it
       // into Send, which does what Return does: it steers an agent that steers, else queues.
-      // Claude's look draws no Send at rest until there is a draft, the mic alone on the right;
+      // The quiet footer hides Send at rest unless Always Show Composer Buttons is on;
       // its one slot sits before the mic with Claude desktop's ↵, so the mic keeps the right edge
       // through a turn. Codex's look always draws its ↑ disc after the mic (quietActions off).
       // A right-click or long press on it opens its menu (composer/SendMenu.tsx).
@@ -3149,7 +3254,10 @@ function ComposerFrame({
         <button
           ref={sendButton}
           type="submit"
-          disabled={Boolean(authBlock || authBlocked || blockSend || blocked?.reason || startHoldsSend) && !shell}
+          disabled={
+            emptyQuietSlot ||
+            (Boolean(authBlock || authBlocked || blockSend || blocked?.reason || startHoldsSend) && !shell)
+          }
           className={`acpmux-send${(shell ? shellText.trim() : !blockSend && !blocked?.reason && !startHoldsSend && hasDraft) ? " acpmux-send-ready" : ""}`}
           aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
           title={
@@ -3178,7 +3286,14 @@ function ComposerFrame({
                         )
           }
         >
-          <SendSlotGlyph glyph={quietActions && !shell ? "return" : "arrow"} memory={morphMemory} scope={sessionId} />
+          <SendSlotGlyph
+            glyph={quietActions && !shell ? "return" : "arrow"}
+            // The slot's state (composer/sendSlotTransitions.ts): a draft to send, a send the host
+            // has not taken yet, or nothing.
+            state={hasDraft || listening ? "send-ready" : sendingShown ? "sending" : "idle"}
+            memory={morphMemory}
+            scope={sessionId}
+          />
         </button>
       </SendMenu>
     ) : null;
@@ -3267,6 +3382,7 @@ function ComposerFrame({
       data-composer-variant={look === "studio" ? "studio" : undefined}
       // The box inside draws the compact grid in both looks (ComposerBox.tsx, composerLocation.css).
       data-composer-grid=""
+      data-composer-buttons-visible={buttonsVisible || undefined}
       data-shell-look={shellLook}
       data-footer-controls={controlsLook}
       data-empty-height={emptyHeight}
@@ -3504,6 +3620,7 @@ function ComposerFrame({
               <ComposerListLayer>
                 <SlashMenu
                   key={query}
+                  mark={typedSlash?.mark ?? "/"}
                   matches={matches}
                   active={selected}
                   empty={!commands?.length ? t(COMPOSER_LABELS.noCommands) : t(COMPOSER_LABELS.noMatchingCommands)}

@@ -17,7 +17,8 @@ private let log = Logger(subsystem: "dev.cmux.mobile", category: "dogfood-readin
 /// finishes. It holds no secret: the launch's nonce, the client id the launcher chose, this
 /// build's identity, the signed-in account, how the session started (`auto_login` when the
 /// launch carried credentials, else `restored`: the app's own Keychain session) and the
-/// focused Mac with whether its link is paired and connected. The launcher copies it off the
+/// focused Mac with whether its link is paired and connected, and, once it is, how the link travels
+/// (``Route``: transport, path, and whether the peer is a tailnet address). The launcher copies it off the
 /// phone (`devicectl device copy from`) or the simulator's container; a receipt from an
 /// earlier launch is deleted first, so it never answers this one. The same keys as the
 /// classic app's receipt (`ios/CmuxiOS/Sources/CmuxiOSAuth/DogfoodReadinessReceipt.swift`), plus
@@ -39,6 +40,44 @@ struct DogfoodReadiness {
         let name: String
         /// The link to this Mac is paired (the Mac accepted this phone) and connected.
         let linked: Bool
+        /// How the linked link travels (``Route``); absent while not linked. `transport`: `wireguard` or
+        /// `webrtc`; `path`: `direct-lan`, `direct-wan`, `direct`, `turn`, `turn-tls` or `none`; `tailnet`: the
+        /// peer is a tailnet or CGNAT address. `handoff_receipt.py check` names them in its verdict.
+        var transport: String? = nil
+        var path: String? = nil
+        var tailnet: Bool? = nil
+    }
+
+    /// How the link to the focused Mac travels, from the link controller's phase (transport, path) and the
+    /// Rust link's peer scope. The person's iPhone and Mac may both run Tailscale, so a dev link at home can
+    /// ride the tailnet, which no user without Tailscale gets: the hand-off says so
+    /// (`handoff_receipt.py --forbid-tailnet`).
+    struct Route: Equatable {
+        let transport: String
+        let path: String
+        let tailnet: Bool
+
+        /// `transport`: a `TransportKind` raw value (`wireguard`, `webrtc`); `path`: a `LinkPathKind` raw value
+        /// (`direct`, `turn`, `turnTLS`, `noPath`); `peerScope`: `MacLink.peerScope` (`lan`, `tailnet`, `wan`, or
+        /// empty). A direct path is `direct-lan` on this network, `direct-wan` routed (the internet, a tailnet,
+        /// CGNAT; `tailnet` tells them apart), `direct` with no peer address.
+        init(transport: String, path: String, peerScope: String) {
+            self.transport = transport
+            switch path {
+            case "direct": self.path = ["lan": "direct-lan", "tailnet": "direct-wan", "wan": "direct-wan"][peerScope] ?? "direct"
+            case "turn": self.path = "turn"
+            case "turnTLS": self.path = "turn-tls"
+            default: self.path = "none"
+            }
+            tailnet = path == "direct" && peerScope == "tailnet"
+        }
+
+        /// The connected link's route, nil while the controller is not connected.
+        @MainActor
+        static func of(_ link: LinkController) -> Route? {
+            guard case .connected(let transport, let path, _) = link.phase else { return nil }
+            return Route(transport: transport.rawValue, path: path.rawValue, peerScope: link.link?.peerScope ?? "")
+        }
     }
 
     struct Body: Encodable, Equatable {
@@ -70,6 +109,7 @@ struct DogfoodReadiness {
         let id: String
         let paired: Bool
         let connected: Bool
+        var route: Route? = nil
     }
 
     let environment: [String: String]
@@ -128,9 +168,11 @@ struct DogfoodReadiness {
     /// (their names); `focus` the coordinator's focused Mac.
     func body(nonce: String, apiBase: URL, email: String, userID: String, macs: [LiveAPI.Mac],
               focus: Focus?, phoneDeviceIDs: [String] = [], now: Date) -> Body {
-        let paired = focus.map { focus in
-            [PairedMac(id: focus.id, name: macs.first { $0.deviceId == focus.id }?.name ?? "",
-                       linked: focus.paired && focus.connected)]
+        let paired = focus.map { focus -> [PairedMac] in
+            let linked = focus.paired && focus.connected
+            let route = linked ? focus.route : nil
+            return [PairedMac(id: focus.id, name: macs.first { $0.deviceId == focus.id }?.name ?? "", linked: linked,
+                              transport: route?.transport, path: route?.path, tailnet: route?.tailnet)]
         } ?? []
         return Body(
             nonce: nonce,
@@ -197,8 +239,8 @@ struct DogfoodReadiness {
             var last: Body?
             // The authenticated call: the account's Macs, read again when the focused Mac is not
             // among them yet (a Mac paired this launch). The focus is read every second for the whole
-            // window, never stopping at the first linked Mac: a launch with a pairing code may still
-            // be on the Mac it remembered when it first links.
+            // window, never stopping at the first linked Mac: a launch that names a Mac to focus may
+            // still be on the Mac it remembered when it first links.
             var macs: [LiveAPI.Mac]?
             while !Task.isCancelled, clock.now < deadline {
                 if auth.isSignedIn, let user = auth.user, let email = user.email {
@@ -208,14 +250,15 @@ struct DogfoodReadiness {
                     }
                     if let macs {
                         let focus = live.focusedMacID.map {
-                            Focus(id: $0, paired: live.pairingState == .paired, connected: live.link.phase.isConnected)
+                            Focus(id: $0, paired: live.pairingState == .paired, connected: live.link.phase.isConnected,
+                                  route: Route.of(live.link))
                         }
                         let next = body(nonce: nonce, apiBase: apiBase, email: email, userID: user.id, macs: macs,
                                         focus: focus, phoneDeviceIDs: live.deviceIDs, now: Date())
                         if last == nil || next.paired_macs != last?.paired_macs {
                             await Self.write(next, to: url)
                             last = next
-                            log.info("readiness receipt: \(next.session_source, privacy: .public), \(next.paired_macs.count) Mac(s), linked \(next.paired_macs.first?.linked == true)")
+                            log.info("readiness receipt: \(next.session_source, privacy: .public), \(next.paired_macs.count) Mac(s), linked \(next.paired_macs.first?.linked == true), path \(next.paired_macs.first?.path ?? "-", privacy: .public)")
                         }
                     }
                 }

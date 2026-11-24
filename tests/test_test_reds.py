@@ -729,6 +729,20 @@ class ReportedFailuresAreAllNamed(unittest.TestCase):
         broken = ["failures:", "    a::one", "    a::two", "some output", "test result: FAILED. 0 passed; 2 failed"]
         self.assertTrue(self.unnamed(*broken))
 
+    def test_nested_cargo_counts_stay_in_their_own_invocation(self):
+        parent = "test result: FAILED. 0 passed; 2 failed; 0 ignored"
+        child = "test result: FAILED. 0 passed; 1 failed; 0 ignored"
+        lines = ["running 2 tests", "test outer::one ... FAILED", "test outer::two ... FAILED",
+                 "running 1 test", "test child::one ... FAILED", child, parent]
+        self.assertEqual(self.unnamed(*lines), [])
+        # Neither invocation can borrow the other's unused names to cover a missing identity.
+        child_short = lines.copy()
+        child_short[-2] = child.replace("1 failed", "2 failed")
+        self.assertEqual(self.unnamed(*child_short), [child_short[-2]])
+        parent_short = lines.copy()
+        parent_short[-1] = parent.replace("2 failed", "3 failed")
+        self.assertEqual(self.unnamed(*parent_short), [parent_short[-1]])
+
     def test_the_recorded_fixtures_name_every_failure_they_report(self):
         for path in sorted(FIXTURES.glob("*.log")):
             with self.subTest(fixture=path.name):

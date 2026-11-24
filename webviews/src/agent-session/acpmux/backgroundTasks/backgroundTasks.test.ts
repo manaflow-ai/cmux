@@ -281,4 +281,31 @@ describe("backgroundGroups", () => {
     expect(anyRunning(backgroundGroups(input(ended)))).toBe(false);
     expect(anyRunning(backgroundGroups(input([group([agent("a")])])))).toBe(true);
   });
+
+  test("subagents the page's rows lack come from acpmux's list: a group each, nested ones its tasks", () => {
+    const rows = [group([agent("a")])];
+    const listed = [
+      { id: "a", parent: null, title: "From rows", state: "done" as const, background: true },
+      {
+        id: "old",
+        parent: null,
+        title: "Started hours ago",
+        state: "running" as const,
+        background: true,
+        startedAt: 500,
+      },
+      { id: "kid", parent: "old", title: "Its helper", state: "running" as const, background: true, startedAt: 600 },
+      { id: "under-a", parent: "a", title: "A's own", state: "running" as const, background: true },
+      { id: "gone", parent: null, title: "Ended", state: "failed" as const, background: true, endedAt: 900 },
+    ];
+    const groups = backgroundGroups(input(rows, {}, { listed }));
+    expect(groups.map((g) => g.id)).toEqual(["agent:old", "agent:a", "agent:gone"]);
+    // The rows' own say wins for one both know.
+    expect(groups[1]!.state).toBe("running");
+    expect(groups[0]).toMatchObject({ name: "Started hours ago", agentId: "old", stop: { kind: "agent", id: "old" } });
+    expect(groups[0]!.running).toHaveLength(1);
+    expect(groups[0]!.running[0]).toMatchObject({ id: "kid", kind: "agent", agentId: "kid", title: "Its helper" });
+    expect(groups[2]).toMatchObject({ state: "failed", agentId: "gone" });
+    expect(groups[2]!.stop).toBeUndefined();
+  });
 });

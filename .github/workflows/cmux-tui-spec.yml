@@ -90,6 +90,7 @@ on:
       - "plans/cmux-next/action-surfaces.json"
       - "plans/cmux-next/daemon-capabilities.json"
       - "schemas/ghostty-shell-features/vectors.json"
+      - "schemas/settings/source/agent-defaults.json"
       - "schemas/settings/source/mcp-servers.json"
       - "schemas/terminal-sizing/fixtures.json"
       - "scripts/ci/init-submodule.sh"
@@ -106,10 +107,12 @@ on:
       # Customize inputs of the routed jobs: the seven-language conformance and
       # Windows check read these, so a change to them must start this workflow
       # (scripts/ci/affected_jobs.py check names the ones a paths list misses).
+      - "schemas/settings/source/agent-defaults.json"
       - "schemas/settings/source/mcp-servers.json"
       # The installers' signed release file check (linux-release-verify.test.sh) reads these.
       - "web/public/tui/install-static.sh"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json"
+      - "web/services/vms/drivers/linuxRelease.ts"
   pull_request:
   workflow_call:
     inputs:
@@ -158,22 +161,20 @@ jobs:
     timeout-minutes: 5
     outputs:
       run: ${{ steps.route.outputs.run }}
-      acpmux_protocol_ir: ${{ steps.graph.outputs.acpmux_protocol_ir }}
+      acpmux_protocol_ir: ${{ steps.graph.outputs.acpmux_protocol_ir || steps.gate.outputs.acpmux_protocol_ir }}
       acpmux_protocol_ir_tree: ${{ steps.graph.outputs.acpmux_protocol_ir_tree }}
-      acpmux_tests: ${{ steps.graph.outputs.acpmux_tests }}
+      acpmux_tests: ${{ steps.graph.outputs.acpmux_tests || steps.gate.outputs.acpmux_tests }}
       acpmux_tests_tree: ${{ steps.graph.outputs.acpmux_tests_tree }}
-      acpmux_sim: ${{ steps.graph.outputs.acpmux_sim }}
+      acpmux_sim: ${{ steps.graph.outputs.acpmux_sim || steps.gate.outputs.acpmux_sim }}
       acpmux_sim_tree: ${{ steps.graph.outputs.acpmux_sim_tree }}
-      carrier_sim: ${{ steps.graph.outputs.carrier_sim }}
+      carrier_sim: ${{ steps.graph.outputs.carrier_sim || steps.gate.outputs.carrier_sim }}
       carrier_sim_tree: ${{ steps.graph.outputs.carrier_sim_tree }}
-      router_changed: ${{ steps.graph.outputs.router_changed }}
+      router_changed: ${{ steps.graph.outputs.router_changed || steps.gate.outputs.router_changed }}
       acpmux_own: ${{ steps.acpmux-own.outputs.changed }}
     steps:
       # The merge commit and its parents: HEAD^1 is the base the pull request merges into.
-      # Blobless and narrow: the router reads names and trees from git, and blobs only under the dirs
-      # below (the crate graph's manifests and sources, the map, the scripts). A full depth-2 checkout
-      # of the whole tree took 36 s of this job's 44 s (p50, 2026-11-21). A blob outside these dirs
-      # reads as NeedsFullTree and routes every job (fail-open), never fewer.
+      # Blobless, and at first only the router's own files: the names and trees come from git (about 1 s).
+      # The next step checks out the rest only when the change needs the crate graph.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -182,24 +183,47 @@ jobs:
           filter: blob:none
           sparse-checkout-cone-mode: false
           sparse-checkout: |
-            /.github/
-            /scripts/
-            /tests/
-            /cmux-tui/
-            /first-party-apps/
-            /workers/
-            /schemas/
-            /plans/
+            /.github/workflows/cmux-tui-spec.yml
+            /.github/scripts/
+            /scripts/ci/*.py
+            /scripts/ci/*.json
+
+      # Whether the change needs the crate graph at all (affected_jobs.py gate): it does when it touches this
+      # workflow's push paths, a crate manifest or Rust source anywhere, or what `check` reads (the routed and
+      # skipped workflows, the map, the router). A pull request that touches none skips the graph, its checkout
+      # and the check (240 of the last 397 feat-cmux-next merges, 2026-11-24; about 50 s of this job's 63 s p50 went
+      # to them): every routed job reads `false`, and the feat-cmux-next push still runs them all. A push, a dispatch, the full-ci label or no base: needed.
+      - name: Does the change need the crate graph?
+        id: gate
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          base=""
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            base=$(git rev-parse HEAD^1 2>/dev/null || true)
+          fi
+          python3 scripts/ci/affected_jobs.py gate --workflow .github/workflows/cmux-tui-spec.yml \
+            --base "$base" --head HEAD --event "$EVENT_NAME" --labels "${LABELS:-[]}"
+
+      # The dirs the graph reads blobs under (the crate graph's manifests and sources, the map, the scripts):
+      # one batched fetch of their blobs, about 32 s (2026-11-24). A full depth-2 checkout of the whole tree
+      # took 36 s of this job's 44 s (p50, 2026-11-21). A blob outside these dirs reads as NeedsFullTree and
+      # routes every job (fail-open), never fewer.
+      - name: Check out what the crate graph reads
+        if: steps.gate.outputs.needed != 'false'
+        run: git sparse-checkout set --no-cone /.github/ /scripts/ /tests/ /cmux-tui/ /first-party-apps/ /workers/ /schemas/ /plans/
 
       # The base side of the change: the crate graph also reads the base's copy of each changed file
       # (base_tree), which a blobless checkout lacks. One batched fetch of just those blobs (git diff
       # prefetches both sides); without it a change under cmux-tui/ would route every job.
       - name: Fetch the base copies of the changed files
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && steps.gate.outputs.needed != 'false'
         continue-on-error: true
         run: git diff --no-renames --numstat HEAD^1 HEAD -- .github scripts tests cmux-tui first-party-apps workers schemas plans > /dev/null
 
       - name: Test the router
+        if: steps.gate.outputs.needed != 'false'
         run: python3 .github/scripts/test_cmux_tui_spec_changed.py
 
       - name: Does the change touch this workflow's paths?
@@ -220,6 +244,7 @@ jobs:
       # `!= 'false'`).
       - name: Which test jobs can the change affect (crate graph)
         id: graph
+        if: steps.gate.outputs.needed != 'false'
         env:
           EVENT_NAME: ${{ github.event_name }}
           LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
@@ -251,8 +276,10 @@ jobs:
 
       # This job runs on every pull request, so a change that gives a routed job a new input (a new
       # include_str!, a fixture, a script) outside the `paths:` of that job's workflow fails here, by name,
-      # rather than leaving the input untested. A red here runs every routed job.
+      # rather than leaving the input untested. A red here runs every routed job. A change the gate passes
+      # over touches nothing the check reads but the existence of a file a job names (the push checks it).
       - name: Every routed job's inputs are on its workflow's paths
+        if: steps.gate.outputs.needed != 'false'
         run: python3 scripts/ci/affected_jobs.py check
 
   # A pull request that changes the crate-graph router (scripts/ci/affected_jobs.py's SELF) replays the
@@ -760,22 +787,29 @@ jobs:
 
       # The whole log of this push's run, red or green, for the pull requests into feat-cmux-next (the restore
       # step above): a few hundred kB gzipped, one per push that ran the tests, restored by prefix.
+      # feat-cmux-next runs this job only in the post-merge batch (a workflow_call from a workflow_dispatch,
+      # inputs.sha the tested tip), never on a push: with `push` alone nothing was saved after #52321, every red
+      # pull request found no base log, retried the base's own reds alone and replayed them on a rebuilt merge
+      # parent (about 15 of a red run's 33 min), and a base test flaky there read as the change's own red. A
+      # bisect probe (inputs.only) tests an old commit, so it saves nothing.
       - name: Save this push's test log for pull requests
-        if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.tree.outputs.hit != 'true' && (steps.test.outcome == 'success' || steps.test.outcome == 'failure') }}
+        if: ${{ !cancelled() && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.sha != '' && inputs.only == '')) && github.ref == 'refs/heads/feat-cmux-next' && steps.tree.outputs.hit != 'true' && (steps.test.outcome == 'success' || steps.test.outcome == 'failure') }}
+        env:
+          TESTED_SHA: ${{ inputs.sha }}
         run: |
           dir="$RUNNER_TEMP/acpmux-base-run"
           [[ -s "$RUNNER_TEMP/acpmux-tests-head.log" ]] || exit 0
           mkdir -p "$dir"
           gzip -c "$RUNNER_TEMP/acpmux-tests-head.log" > "$dir/head.log.gz"
-          echo "$GITHUB_SHA" > "$dir/sha"
+          echo "${TESTED_SHA:-$GITHUB_SHA}" > "$dir/sha"
           date +%s > "$dir/time"
 
       - name: Save the base's last test log
-        if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.tree.outputs.hit != 'true' && (steps.test.outcome == 'success' || steps.test.outcome == 'failure') }}
+        if: ${{ !cancelled() && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.sha != '' && inputs.only == '')) && github.ref == 'refs/heads/feat-cmux-next' && steps.tree.outputs.hit != 'true' && (steps.test.outcome == 'success' || steps.test.outcome == 'failure') }}
         uses: ./.github/actions/cache-save
         with:
           path: ${{ runner.temp }}/acpmux-base-run
-          key: acpmux-tests-base-log-${{ github.sha }}
+          key: acpmux-tests-base-log-${{ inputs.sha || github.sha }}
 
       # A red the judge excused (a flake that passed alone, a test red on the merge parent too) is green
       # for this base only: it is not kept for the tree.
