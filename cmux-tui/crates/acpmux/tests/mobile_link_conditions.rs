@@ -280,7 +280,7 @@ impl Link {
         delta: bool,
     ) -> Result<Self, String> {
         // The phone draws no time breakdown (`AcpmuxHub.swift` `bind`).
-        let mut meta = json!({"localAppToken": token, "omitTimeBreakdown": true});
+        let mut meta = json!({"localAppToken": token});
         if app == App::IosCompact {
             meta["chunkDeltas"] = json!(true);
         }
