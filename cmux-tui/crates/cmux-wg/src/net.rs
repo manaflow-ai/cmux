@@ -420,8 +420,27 @@ struct Driver {
     wakeups: Arc<AtomicU64>,
     /// A rebind while held owes the peer its reassertion at the release.
     reassert_at_release: bool,
+    /// When this side last sent a handshake initiation of its own (see
+    /// [`INITIATION_PENDING`]).
+    initiated_at: Option<Instant>,
     scratch: Vec<u8>,
 }
+
+/// After this side sent a handshake initiation, a segment queued with no
+/// session does not start another one for this long: boringtun's own
+/// REKEY_TIMEOUT, after which its timer resends. Both sides of a fresh
+/// tunnel initiate at once; each answers the other's initiation, which
+/// clears boringtun's "in progress" mark, and a fresh initiation sent then
+/// replaces the one whose response is already on its way, so that response
+/// is refused. With round trips in flight, and each initiation arriving
+/// once per candidate address the dialer sprays, the two sides did this to
+/// each other until boringtun's rate limit answered with cookies, and the
+/// tunnel came up only at the 5 s retry (lte, 70 ms: 5.6-8.8 s to the first
+/// handshake, every dial). The answer to the first initiation completes it.
+/// Only that case changes: a lost initiation with no crossing one leaves
+/// boringtun's handshake in progress, which already refuses a second
+/// initiation until the retry (`tests/crossed_initiation.rs`).
+const INITIATION_PENDING: Duration = Duration::from_secs(5);
 
 /// A peer silent this long and then heard again counts as a path change for
 /// the tunnel's TCP: a blackout on the same route backs smoltcp's RTO off
@@ -499,6 +518,7 @@ impl Driver {
             resumed: false,
             wakeups: Arc::new(AtomicU64::new(0)),
             reassert_at_release: false,
+            initiated_at: None,
             scratch: vec![0u8; BUFFER_BYTES + 32],
         })
     }
@@ -720,8 +740,15 @@ impl Driver {
         // Starting again after replying to a crossed initiation would make
         // boringtun discard the state for our own outstanding initiation.
         self.wait_for_handshake_until = self.wait_for_handshake_until.filter(|&end| now < end);
+        // Nor does a side start again within INITIATION_PENDING of its own
+        // last initiation: duplicated copies of a crossed initiation would
+        // otherwise restart both ends until REKEY_TIMEOUT.
         let no_session = self.tunn.time_since_last_handshake().is_none();
-        if no_session && self.pacer.has_queued() && self.wait_for_handshake_until.is_none() {
+        if no_session
+            && self.pacer.has_queued()
+            && self.wait_for_handshake_until.is_none()
+            && self.initiated_at.is_none_or(|at| now.duration_since(at) >= INITIATION_PENDING)
+        {
             self.initiate_handshake();
         }
         if no_session {

@@ -385,6 +385,8 @@ export type AppUpdateState = {
   detail: string | null;
   progress?: number | null;
   actions: { id: AppUpdateAction; title: string; prominent: boolean }[];
+  /** Read-only lines under the status: Last Updated and Next Check, label and value the host's. */
+  schedule?: { id: string; label: string; value: string }[];
 };
 
 /** A button of the App Update card (Swift `SettingsUpdateAction`). */
