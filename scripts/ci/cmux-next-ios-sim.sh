@@ -1647,11 +1647,26 @@ for row in rows:
 print("- Launch to first interaction (LaunchTTIUITests, ms since process start, p50 [min-max], n):")
 for (flow, phase), items in sorted(groups.items()):
     parts = []
-    for key in ["first_frame", "shell_frame", "list_ms", "open_ms", "echo_ms", "tti_ms"]:
+    for key in ["app_init", "first_frame", "shell_frame", "list_ms", "open_ms", "echo_ms", "tti_ms"]:
         values = sorted(item[key] for item in items if key in item)
         if values:
             parts.append("%s %.0f [%.0f-%.0f]" % (key, values[len(values) // 2], values[0], values[-1]))
     print("  - %s %s (n=%d): %s" % (flow, phase, len(items), ", ".join(parts)))
+# first_connect (goals/ios-release-bar-readback.json): list_ms over every warm sample, p50 sorted[n//2],
+# p90 nearest rank; each stage's p90 beside it, so the largest stage is named on the same run.
+warm = [row for row in rows if row["phase"] == "warm"]
+def p90(values):
+    values = sorted(values)
+    return values[max(0, -(-9 * len(values) // 10) - 1)]
+if warm:
+    lists = sorted(row["list_ms"] for row in warm)
+    stages = []
+    for key in ["app_init", "first_frame", "shell_frame", "list_ms"]:
+        values = [row[key] for row in warm if key in row]
+        if values:
+            stages.append("%s %.0f" % (key, p90(values)))
+    print("- first_connect warm (n=%d): p50 %.0f, p90 %.0f; stage marks p90: %s; samples_ms %s"
+          % (len(lists), lists[len(lists) // 2], p90(lists), ", ".join(stages), [round(v) for v in lists]))
 PY
   fi
   if compgen -G "$out/ui-cold/*-console.txt" >/dev/null; then
