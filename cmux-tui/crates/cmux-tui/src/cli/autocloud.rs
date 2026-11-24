@@ -262,12 +262,17 @@ fn text_field<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
     v.get(key).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty())
 }
 
-fn bounded_int(v: &Value, key: &str, max: i64, what: &str) -> Result<Option<i64>, String> {
+fn bounded_int(
+    v: &Value,
+    key: &str,
+    (min, max): (i64, i64),
+    what: &str,
+) -> Result<Option<i64>, String> {
     match v.get(key) {
         None | Some(Value::Null) => Ok(None),
         Some(n) => match n.as_i64() {
-            Some(n) if (0..=max).contains(&n) => Ok(Some(n)),
-            _ => Err(format!("{what} is 0 to {max}")),
+            Some(n) if (min..=max).contains(&n) => Ok(Some(n)),
+            _ => Err(format!("{what} is {min} to {max}")),
         },
     }
 }
@@ -419,13 +424,14 @@ fn check_action(a: &Value) -> Result<Value, String> {
 fn check_guardrails(g: Option<&Value>) -> Result<Value, String> {
     let g = g.cloned().unwrap_or_else(|| json!({}));
     let mut out = Map::new();
-    for (key, max, what) in [
-        ("cooldownSeconds", 86_400, "the cooldown, in seconds,"),
-        ("maxRunsPerDay", 1000, "the daily cap"),
-        ("maxConcurrent", 20, "the most runs at once"),
-        ("maxMinutesPerRun", 600, "the minutes a run may take"),
+    // The platform's bounds (cmux-platform src/api/Automations.ts AutomationGuardrails).
+    for (key, bounds, what) in [
+        ("cooldownSeconds", (0, 86_400), "the cooldown, in seconds,"),
+        ("maxRunsPerDay", (0, 1000), "the daily cap"),
+        ("maxConcurrent", (1, 10), "the most runs at once"),
+        ("maxMinutesPerRun", (1, 240), "the minutes a run may take"),
     ] {
-        if let Some(n) = bounded_int(&g, key, max, what)? {
+        if let Some(n) = bounded_int(&g, key, bounds, what)? {
             out.insert(key.into(), json!(n));
         }
     }
@@ -1094,13 +1100,11 @@ fn percent(value: &str) -> String {
 
 /// A verb's answer from the platform's status and body.
 pub(super) fn answer(verb: &Verb, status: u16, body: &Value, now_ms: i64) -> Value {
-    if let Verb::Overview = verb {
-        return overview(status, body, now_ms);
-    }
-    if !(200..300).contains(&status) {
+    if !matches!(verb, Verb::Overview) && !(200..300).contains(&status) {
         return api_error(status, body);
     }
     match verb {
+        Verb::Overview => overview(status, body, now_ms),
         Verb::Runs { id, .. } => {
             let runs = body.get("runs").and_then(Value::as_array).cloned().unwrap_or_default();
             json!({"ok": true, "automation": id, "runs": runs.iter().map(|r| run_view(r, now_ms)).collect::<Vec<_>>()})
@@ -1119,7 +1123,7 @@ pub(super) fn answer(verb: &Verb, status: u16, body: &Value, now_ms: i64) -> Val
             {
                 out["secret"] = json!(secret);
                 out["secretText"] = json!(
-                    "Copy this secret now; it is not shown again. Sign each POST with HMAC-SHA256 of the body in X-Cmux-Signature-256, or send it as a bearer."
+                    "Copy this secret now; it is not shown again. Sign each POST: x-cmux-webhook-signature is sha256= and the HMAC-SHA256 of the timestamp, delivery id and body, with x-cmux-webhook-timestamp and x-cmux-webhook-delivery (or Standard Webhooks headers)."
                 );
             }
             out

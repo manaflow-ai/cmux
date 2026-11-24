@@ -633,7 +633,7 @@ export function runMockAutocloud(
       if (run.spec.trigger.type === "webhook") {
         answer.secret = "whsec_mock_9f3b7c1e2d4a6b8c0e1f";
         answer.secretText =
-          "Copy this secret now; it will not show again. Sign each POST's body with it (HMAC SHA-256).";
+          "Copy this secret now; it will not show again. Sign each POST: x-cmux-webhook-signature is sha256= and the HMAC-SHA256 of the timestamp, delivery id and body.";
       }
       return { answer, state: withList([...list, view]) };
     }
