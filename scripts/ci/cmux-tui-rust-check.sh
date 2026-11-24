@@ -1004,8 +1004,29 @@ if [[ "$mode" == channel ]]; then
   mkdir -p "$channel_out"
   warm_target_guard
   step go ensure_go
+  # The musl build and the daemon tests need no result of each other (the marker needs both to pass), and the
+  # worker has the cores: the build runs beside the tests in its own target dir (one cargo target dir is one
+  # lock), so the step takes the longer of the two, not their sum (711 s + 785 s on the 11-24 12:10 run).
+  # Merge to lane p50 is the number this serves (ci-v2.md step 10b).
+  channel_musl_target="$root/.build/cmux-tui-channel-musl-target"
+  channel_build_beside() {
+    (
+      export CARGO_TARGET_DIR="$channel_musl_target"
+      warm_target_guard
+      channel_build_acpmux
+    ) >"$channel_out/acpmux-build.txt" 2>&1
+  }
+  channel_build_beside &
+  channel_build_pid=$!
+  channel_build_result() {
+    local rc=0
+    wait "$channel_build_pid" || rc=$?
+    cat "$channel_out/acpmux-build.txt"
+    return "$rc"
+  }
   step "channel daemon tests" channel_daemon_tests
-  [[ "$first_rc" -ne 0 ]] || step "channel acpmux $channel_triple" channel_build_acpmux
+  step "channel acpmux $channel_triple (beside the tests)" channel_build_result
+  wait "$channel_build_pid" 2>/dev/null || true # a skipped step (fail-fast) leaves no build running
   [[ "$first_rc" -ne 0 ]] || step "channel candidate" channel_candidate
   finish
 fi
