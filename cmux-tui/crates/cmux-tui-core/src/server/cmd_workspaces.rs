@@ -513,6 +513,13 @@ pub(super) fn rename_workspace(
     }))
 }
 
+/// `release-workspace-names`: every user-owned workspace name goes back to the
+/// automatic namer in one call. Idempotent: a second call releases nothing.
+pub(super) fn release_workspace_names(mux: &Arc<Mux>, actor: Actor) -> anyhow::Result<Value> {
+    let (released, still_pinned) = mux.release_workspace_names(&actor)?;
+    Ok(json!({"released": released, "still_pinned": still_pinned}))
+}
+
 pub(super) fn rename_provider_managed_workspace(
     mux: &Arc<Mux>,
     actor: Actor,
