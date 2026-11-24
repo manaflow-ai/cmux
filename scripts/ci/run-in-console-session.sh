@@ -266,16 +266,17 @@ if [ -z "$console_user" ] || [ "$console_user" = "root" ] \
   # A GUI test command is not exec'd: when it fails here its failures are this
   # runner's, not the code's (no testmanagerd control service outside a console
   # session), and ci-failure-attribution reads that only from a failure
-  # annotation (#15395). Every other command (cleanup, CLI tests) keeps its
+  # annotation (#15395). The GUI test command is the app-host runner, read as
+  # the command itself past env, its NAME=value words and a bash/sh launcher.
+  # Every other command (cleanup, the CLI tests' direct xcodebuild) keeps its
   # plain exit code, and a GUI command that passes stays silent past the warning.
   gui_test_command=0
   for command_arg in "$@"; do
     case "$command_arg" in
-      */run-app-host-xcodebuild.sh|run-app-host-xcodebuild.sh|*/xcodebuild|xcodebuild)
-        gui_test_command=1
-        break
-        ;;
+      env|*/env|*=*|bash|*/bash|sh|*/sh) continue ;;
+      */run-app-host-xcodebuild.sh|run-app-host-xcodebuild.sh) gui_test_command=1 ;;
     esac
+    break
   done
   if [ "$gui_test_command" = "1" ]; then
     status=0
