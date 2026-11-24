@@ -1075,7 +1075,13 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-permission-ask .acpmux-plan-build-chevron[data-popup-open] svg{transform:rotate(180deg)}
 .acpmux-plan-build-item{display:flex;flex-direction:column;min-width:0}
 .acpmux-plan-build-detail{color:var(--agent-muted,color-mix(in srgb,currentColor 62%,transparent));font-size:var(--text-caption);line-height:var(--text-caption--line-height)}
-/* A card key (Esc, ⌘ ↩) is an outlined keycap per key after the label (the keys slot is Surface.Keys). */
+/* A card key (Esc, ⌘ ↩) is an outlined keycap per key after the label (the keys slot is Surface.Keys). The slot keeps
+   the button's ink: the keycap fades it once (75%); the slot's own 62% under that drew 46%, 2.2 to 4.4:1 on the
+   golden screen (golden-look-contrast-N.test.ts). */
+.acpmux-permission-ask .ui-surface-keys.acpmux-permission-keys{color:inherit}
+/* On the solid (accent) answer the 75% fade still reads 3.1 to 4.4:1 over the fill: its key draws the button's whole
+   ink, the outline keeps it a keycap. */
+.acpmux-permission-ask .ui-btn[data-variant="solid"] .acpmux-permission-keys .acpmux-keycap{color:inherit}
 .acpmux-permission-ask .acpmux-permission-keys .acpmux-keycap{display:inline-flex;align-items:center;justify-content:center;min-width:var(--ds-control-icon);height:var(--ds-control-icon);margin:0;padding:0 4px;border-radius:calc(var(--ds-radius-control, 8px) - var(--ds-space-1, 4px));background:none;box-shadow:inset 0 0 0 1px color-mix(in srgb,currentColor 35%,transparent);color:color-mix(in srgb,currentColor 75%,transparent);font-family:var(--font-ui);font-size:var(--text-caption);line-height:var(--text-caption--line-height)}
 /* The answer's letter, then its other keys: a faint slash between them reads as "or", never as a chord. */
 .acpmux-permission-ask .acpmux-permission-keys-or{color:color-mix(in srgb,currentColor 75%,transparent);font:var(--text-caption)/1 var(--font-ui)}
