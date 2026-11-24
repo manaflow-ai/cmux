@@ -587,7 +587,8 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
         Math.max(Math.abs(offsets.lead), Math.abs(offsets.trail)),
         `the folder's ink is ${offsets.lead.toFixed(2)} px from the leading mark's, the branch chevron's ${offsets.trail.toFixed(2)} px from the last action's`,
       ).toBeLessThanOrEqual(2.5);
-      expect(marks.text).not.toContain("·");
+      // The Where chip on Auto reads "Auto · this Mac"; no other mark of the strip carries a separator.
+      expect(marks.text.replace("Auto · this Mac", "")).not.toContain("·");
       // The strip has room for "This Mac" beside the folder and the branch at both widths.
       expect(marks.computerLabelShown).toBe(true);
     });
@@ -611,8 +612,8 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       expect(marks.computerLabelShown).toBe(!iconOnly);
       expect(marks.computerIcon!.width).toBeGreaterThan(0);
       // Named for the pointer and VoiceOver either way.
-      expect(marks.computerName).toContain("This Mac");
-      expect(label).toBe("Environment: This Mac");
+      expect(marks.computerName).toContain("this Mac");
+      expect(label).toBe("Environment: Auto · this Mac");
       if (!iconOnly) expect(marks.computerClipped).toBe(false);
       expect(marks.branchClipped).toBe(false);
     });
@@ -654,8 +655,8 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
   // names each choice; Leo, 2026-11-03: "yeah chatgpt codex has nicer ways to deal with stuff").
   // Each pair is the step's last width with the name and its first without (composerLocation.css).
   for (const [variant, width, where, machine] of [
-    ["strip-where-machine", 430, "This Mac", null],
-    ["strip-where-machine", 244, "This Mac", null],
+    ["strip-where-machine", 430, "Auto · this Mac", null],
+    ["strip-where-machine", 244, "Auto · this Mac", null],
     ["strip-where-machine", 243, false, null],
     ["strip-where-machine-cloud", 430, "Cloud", null],
     ["strip-where-machine-cloud", 244, "Cloud", null],
@@ -665,7 +666,7 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     ["strip-where-machine-machine-picked", 401, "Other devices", false],
     ["strip-where-machine-machine-picked", 346, "Other devices", false],
     ["strip-where-machine-machine-picked", 345, false, false],
-    ["strip-combined", 244, "This Mac", null],
+    ["strip-combined", 244, "Auto · this Mac", null],
     ["strip-combined", 243, false, null],
   ] as const)
     test(`a new chat's strip at ${width} px (${variant}): Where ${where || "is its icon"}, Machine ${machine === null ? "absent" : machine || "is its icon"}`, async () => {

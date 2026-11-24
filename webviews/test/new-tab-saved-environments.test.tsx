@@ -309,9 +309,9 @@ test("the saved environments are in Machines…, under This Mac; the main list i
     "Devbox API",
     "API worktree",
   ]);
-  // No header over them; This Mac is first and keeps ⌥⌘1.
+  // No header over them; This Mac is first (⌥⌘1 is Auto's now, so it has no digit of its own).
   expect(doc().querySelectorAll(".acpmux-env-popover [data-section]")).toHaveLength(0);
-  expect(rows()[0]!.querySelector(".acpmux-env-key")?.textContent).toBe("⌥⌘1");
+  expect(rows()[0]!.querySelector(".acpmux-env-key")).toBeNull();
   // Create environment is the control's right-click menu's, not a row of the list.
   expect(row(t("environment.create"))).toBeUndefined();
   const more = (await moreMenu()).map((item) => item.textContent);
@@ -539,7 +539,7 @@ test("a saved local environment that is only a folder is in the folder menu, not
   await click(environmentButton());
   await pickFolderRow(APP);
   expect(environmentButton()?.getAttribute("aria-label")).toBe(
-    `${t("composer.environment")}: ${t("composer.thisMac")}`,
+    `${t("composer.environment")}: ${t("composer.autoPlacePick", { pick: "this Mac" })}`,
   );
   expect(folderButton()).not.toBeNull();
   // It is still the saved environment: Edit environment opens it.
