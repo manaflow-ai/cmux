@@ -38,24 +38,51 @@ export const FIRST_GRANT = 64 * 1024
  */
 export const DEFAULT_USER_MIB_PER_MIN = 480
 
-/** A token bucket of MiB, refilled per millisecond up to one minute's worth. Memory only: a wake forgets it. */
+/** A bucket's state, as the hub stores it (so a wake does not hand out a fresh minute). */
+export interface MibBucketState {
+  readonly tokens: number
+  readonly at: number
+}
+
+/** A token bucket of MiB, refilled per millisecond up to one minute's worth. */
 export class MibBucket {
   private tokens: number
   private at: number
 
-  constructor(private readonly perMinute: number, now = Date.now()) {
-    this.tokens = perMinute
+  constructor(private readonly perMinute: number, state?: MibBucketState, now = Date.now()) {
+    this.tokens = state ? Math.min(perMinute, Math.max(0, state.tokens)) : perMinute
+    this.at = state ? Math.min(state.at, now) : now
+  }
+
+  private refill(now: number) {
+    this.tokens = Math.min(this.perMinute, this.tokens + ((now - this.at) / 60_000) * this.perMinute)
     this.at = now
   }
 
   /** Take `mib` if there is that much left. */
   take(mib: number, now = Date.now()): boolean {
-    this.tokens = Math.min(this.perMinute, this.tokens + ((now - this.at) / 60_000) * this.perMinute)
-    this.at = now
+    this.refill(now)
     if (this.tokens < mib) return false
     this.tokens -= mib
     return true
   }
+
+  /** Milliseconds until `mib` is there to take (0: now). */
+  msUntil(mib: number, now = Date.now()): number {
+    this.refill(now)
+    return this.tokens >= mib ? 0 : Math.ceil(((mib - this.tokens) / this.perMinute) * 60_000)
+  }
+
+  state(): MibBucketState {
+    return { tokens: this.tokens, at: this.at }
+  }
+}
+
+/** The hub's answer to a budget request: granted, or when to ask again. */
+export interface BudgetAnswer {
+  readonly granted: boolean
+  /** When refused: milliseconds until a first-size grant ([`FIRST_GRANT`]) is there. */
+  readonly retryAfterMs: number
 }
 
 /** The per-minute budget the environment names, else the default. */

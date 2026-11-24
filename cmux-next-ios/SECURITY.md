@@ -562,9 +562,10 @@ Mac. Design and history: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux
   (a newer join replaces it). The object is named by the verified owner key,
   space and session id, so two users or two dev builds never share one.
 - **Live sockets end with their session.** The hub closes a session's relay
-  sockets when the session ends (`bye`, 4001), when one of its devices or the
-  account is removed (4002), and the kill switch closes every live socket at
-  its next frame (4003), not only new joins.
+  sockets when the session ends (`bye`, even to an offline peer, and its 24 h
+  TTL, 4001), when one of its devices or the account is removed (4002), and
+  the kill switch closes every live socket at its next frame (4003), not only
+  new joins.
 - **No impersonation.** The relay overwrites the frame's peer field with the
   sender's authenticated device id; a receiving side drops frames that name
   anyone but its session's peer. Frames go only to the other party's socket.
@@ -575,8 +576,11 @@ Mac. Design and history: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux
   socket (1500 frames, 8 MiB a second) and per user: what a socket relays is
   granted by the user's hub (64 KiB, doubling to 1 MiB per grant) from one
   budget across all of that user's sessions (480 MiB a minute by default),
-  so opening more sessions buys no more bandwidth. The object keeps no
-  storage. `LINK_RELAY_MODE=off` refuses every join (`503 relay_off`) and
+  so opening more sessions buys no more bandwidth. The budget fails closed: a
+  refusal holds for the hub's retry-after and a hub error grants nothing for
+  1 s, so neither an over-budget sender nor an overloaded hub gets frames
+  through or one hub call per frame, and the budget survives a hub wake. The
+  relay object keeps no storage. `LINK_RELAY_MODE=off` refuses every join (`503 relay_off`) and
   closes live sockets; clients then fall back to their other paths and report
   the relay as off.
 - **Debug "Relay via cmux (HTTPS) only"** (`force_relay`, simulator

@@ -17,6 +17,8 @@ export interface Env {
   readonly LINK_RELAY_MODE?: string
   /** What one user may relay per minute across all sessions, MiB (default 480: src/relay-access.ts). */
   readonly LINK_RELAY_USER_MIB_PER_MIN?: string
+  /** Test only (ENVIRONMENT=test): `1` makes the hub's relay budget call throw (an overloaded hub). */
+  readonly LINK_RELAY_TEST_BUDGET_ERROR?: string
   /** Absent in tests: the memory store is used instead. */
   /** PlanetScale MySQL cmux-next-vitess (readwriter) through Hyperdrive; absent in tests (memory store). */
   readonly PS_MYSQL?: Hyperdrive

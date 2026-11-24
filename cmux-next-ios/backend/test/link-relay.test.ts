@@ -1,8 +1,9 @@
 import { env } from "cloudflare:workers"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import vectors from "../../../cmux-tui/crates/cmux-transport/tests/vectors/relay-frames.json"
 import { checkFrame } from "../src/relay-frame.ts"
-import { linkStatLine, uuidToBytes } from "../src/team-hub.ts"
+import { linkStatLine, userHubName, uuidToBytes } from "../src/team-hub.ts"
+import type { Env } from "../src/env.ts"
 import { connect, register, sockOf, token, worker, type Sock } from "./helpers.ts"
 
 // PROTOCOL.md "WebSocket relay": the last way a WireGuard link reaches its peer, WireGuard datagrams in relay
@@ -347,6 +348,107 @@ describe("link relay: a per-user byte budget", () => {
     for (let i = 0; i < 20; i++) e.ws.send(big())
     await f.until((x) => x.binary.length === 20)
     for (const sock of [a, b, c, d, e, f]) sock.ws.close()
+  })
+})
+
+describe("link relay: the budget holds under load and when the hub fails", () => {
+  const big = () => frame([new Uint8Array(16380).fill(7)])
+  /** The hub's count of budget calls for `user` (primary project: the owner key is the user id). */
+  const hubs = (env as unknown as Env).TEAM_HUB
+  const budgetCalls = (user: string) => hubs.get(hubs.idFromName(userHubName(user))).relayBudgetCalls({ ownerKey: user, space: "" })
+
+  it("over budget, frames are dropped without asking the hub for each one", async () => {
+    const erin = await session("erin", "team-e")
+    const a = await joined(erin.tok, erin.sessionId, erin.phone)
+    const b = await joined(erin.tok, erin.sessionId, erin.mac)
+    for (let i = 0; i < 200; i++) a.ws.send(big())
+    await a.until((x) => x.frames.some((f) => f.type === "error" && f.code === "rate_limited"))
+    await new Promise((r) => setTimeout(r, 300))
+    const delivered = b.binary.length
+    const before = await budgetCalls("erin")
+    for (let i = 0; i < 100; i++) a.ws.send(big())
+    await new Promise((r) => setTimeout(r, 500))
+    // Only what the bucket refilled crosses (2 MiB/min: well under 128 KiB in this second), not the 1.6 MiB sent.
+    expect(b.binary.length - delivered).toBeLessThanOrEqual(8)
+    // Review of #53240: 100 frames past the budget made 100 hub calls.
+    expect((await budgetCalls("erin")) - before).toBeLessThanOrEqual(3)
+    a.ws.close()
+    b.ws.close()
+  })
+
+  it("a hub that fails grants nothing: no frames cross, and it is not asked per frame", async () => {
+    const vars = env as unknown as { LINK_RELAY_TEST_BUDGET_ERROR?: string }
+    const m = await session("mallory", "team-m")
+    const a = await joined(m.tok, m.sessionId, m.phone)
+    const b = await joined(m.tok, m.sessionId, m.mac)
+    vars.LINK_RELAY_TEST_BUDGET_ERROR = "1"
+    try {
+      const before = await budgetCalls("mallory")
+      for (let i = 0; i < 100; i++) a.ws.send(big())
+      await a.until((x) => x.frames.some((f) => f.type === "error" && f.code === "rate_limited"))
+      await new Promise((r) => setTimeout(r, 300))
+      // Review of #53240: an erroring hub let 1.6 MiB cross a spent budget.
+      expect(b.binary.length).toBe(0)
+      expect((await budgetCalls("mallory")) - before).toBeLessThanOrEqual(2)
+    } finally {
+      delete vars.LINK_RELAY_TEST_BUDGET_ERROR
+    }
+    // The hub answers again: after its backoff the relay carries frames again.
+    await new Promise((r) => setTimeout(r, 1200))
+    a.ws.send(frame([new Uint8Array([4, 0, 0, 0, 1])]))
+    await b.until((x) => x.binary.length === 1)
+    a.ws.close()
+    b.ws.close()
+  })
+})
+
+describe("link relay: sockets end with every way a session ends", () => {
+  const closedWith = async (s: Sock, code: number) => {
+    await s.until((x) => x.closed)
+    expect(s.closeCode).toBe(code)
+  }
+
+  it("a session pruned past its 24 h closes its relay, and a later device delete leaves nothing relaying", async () => {
+    const { tok, phone, mac, p, sessionId } = await session("uma", "team-u")
+    const a = await joined(tok, sessionId, phone)
+    const b = await joined(tok, sessionId, mac)
+    a.ws.send(frame([new Uint8Array([4, 0, 0, 0, 1])]))
+    await b.until((x) => x.binary.length === 1)
+    vi.useFakeTimers({ toFake: ["Date"], now: Date.now() + 25 * 3600_000, shouldAdvanceTime: true })
+    try {
+      // A newer session prunes the expired one (review of #53240: its relay stayed open).
+      const newer = crypto.randomUUID()
+      p.send({ type: "signal", to: mac, from: phone, sessionId: newer, payload: { kind: "wg-init", publicKey: "k", endpoints: [], overlayIP: "10.77.0.2" } })
+      await closedWith(a, 4001)
+      await closedWith(b, 4001)
+      const removed = await worker.fetch(`https://api.test/v1/devices/${phone}`, { method: "DELETE", headers: { authorization: `Bearer ${await token("uma")}` } })
+      expect(removed.status).toBe(200)
+    } finally {
+      vi.useRealTimers()
+    }
+    expect(b.binary.length).toBe(1)
+    expect((await join(tok, sessionId, phone)).status).toBe(403)
+  })
+
+  it("bye ends the session and its relay even when the peer's signaling socket is closed", async () => {
+    const { tok, phone, mac, p, m, sessionId } = await session()
+    const a = await joined(tok, sessionId, phone)
+    const b = await joined(tok, sessionId, mac)
+    m.ws.close(1000, "mac asleep")
+    await new Promise((r) => setTimeout(r, 100))
+    p.send({ type: "signal", to: mac, from: phone, sessionId, payload: { kind: "bye", reason: "closed" } })
+    await closedWith(a, 4001)
+    await closedWith(b, 4001)
+  })
+
+  it("deleting the account closes the relay sockets (4002)", async () => {
+    const { tok, phone, mac, sessionId } = await session("vic", "team-u")
+    const a = await joined(tok, sessionId, phone)
+    const b = await joined(tok, sessionId, mac)
+    const gone = await worker.fetch("https://api.test/v1/me", { method: "DELETE", headers: { authorization: `Bearer ${tok}` } })
+    expect(gone.status).toBe(200)
+    await closedWith(a, 4002)
+    await closedWith(b, 4002)
   })
 })
 

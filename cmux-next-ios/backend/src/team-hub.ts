@@ -5,7 +5,7 @@ import type { Env } from "./env.ts"
 import { MAILBOX_PENDING_LIMIT, MAILBOX_TTL_MS } from "./push.ts"
 import { userTeams } from "./stack.ts"
 import { relayRoomName } from "./link-relay.ts"
-import { MibBucket, newTicket, RELAY_CLOSE, ticketsMatch, userMibPerMinute } from "./relay-access.ts"
+import { FIRST_GRANT, MIB, MibBucket, newTicket, RELAY_CLOSE, ticketsMatch, userMibPerMinute, type BudgetAnswer, type MibBucketState } from "./relay-access.ts"
 
 /** Per-socket identity, set by the Worker after auth and device checks (never by the client). */
 export interface Attachment {
@@ -247,6 +247,8 @@ interface SessionRow {
   responder: string
   initiatorTicket: string | null
   responderTicket: string | null
+  /** When the session's first signal was admitted (ms): a session lives `SESSION_TTL_MS`. */
+  createdAt: number
 }
 
 /** Thrown when a call names a device of another owner than the hub's: a Worker bug, never served. */
@@ -279,8 +281,10 @@ export class TeamHub extends DurableObject<Env> {
   private readonly members = new Map<string, { ok: boolean; at: number }>()
   private readonly buckets = new WeakMap<WebSocket, { text: { t: number; at: number }; binary: { t: number; at: number } }>()
   private readonly sessions = new Map<string, SessionRow>()
-  /** The owner's relay budget (`relayBudget`): memory only, so a wake forgets it, which only ever allows more. */
+  /** The owner's relay budget (`relayBudget`), loaded from storage after a wake, so a wake grants no fresh minute. */
   private relayBucket: MibBucket | undefined
+  /** Budget requests this instance answered (`relayBudgetCalls`: tests and diagnostics). */
+  private relayBudgetAsked = 0
   /** Deserialized attachments: read on every frame, and deserializing each time is the costly part. */
   private readonly attachments = new WeakMap<WebSocket, Attachment>()
   private colo: string | null | undefined
@@ -574,10 +578,28 @@ export class TeamHub extends DurableObject<Env> {
    * across every session of this hub. LinkRelay asks for grants of 64 KiB doubling to a MiB, so this is a few
    * calls a second at most per busy socket.
    */
-  async relayBudget(owner: HubOwner, mib: number): Promise<boolean> {
+  async relayBudget(owner: HubOwner, mib: number): Promise<BudgetAnswer> {
     this.bind(owner)
-    this.relayBucket ??= new MibBucket(userMibPerMinute(this.env.LINK_RELAY_USER_MIB_PER_MIN))
-    return this.relayBucket.take(mib)
+    this.relayBudgetAsked += 1
+    // Test only: a hub that sheds load (the relay must fail closed, test/link-relay.test.ts).
+    if (this.env.ENVIRONMENT === "test" && this.env.LINK_RELAY_TEST_BUDGET_ERROR === "1") throw new Error("test: the hub is overloaded")
+    if (!this.relayBucket) {
+      const row = this.sql.exec<{ value: string }>(`SELECT value FROM meta WHERE key = 'relay_budget'`).toArray()[0]
+      const stored = row ? (JSON.parse(row.value) as MibBucketState) : undefined
+      this.relayBucket = new MibBucket(userMibPerMinute(this.env.LINK_RELAY_USER_MIB_PER_MIN), stored)
+    }
+    const granted = this.relayBucket.take(mib)
+    this.sql.exec(
+      `INSERT INTO meta (key, value) VALUES ('relay_budget', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      JSON.stringify(this.relayBucket.state())
+    )
+    return { granted, retryAfterMs: granted ? 0 : this.relayBucket.msUntil(Math.min(mib, FIRST_GRANT / MIB)) }
+  }
+
+  /** How many budget requests this hub answered since it last woke (tests and diagnostics). */
+  async relayBudgetCalls(owner: HubOwner): Promise<number> {
+    this.bind(owner)
+    return this.relayBudgetAsked
   }
 
   async placement(owner: HubOwner): Promise<{ colo: string | null }> {
@@ -873,7 +895,11 @@ export class TeamHub extends DurableObject<Env> {
         return this.error(ws, "bad_request", "unknown payload kind", f.sessionId)
       if (!this.admit(att, f.to, f.sessionId)) return this.error(ws, "not_owner", "not allowed to signal this device", f.sessionId)
       const target = this.open(f.to)
-      if (!target) return this.error(ws, "offline", "device is offline", f.sessionId)
+      if (!target) {
+        // A bye still ends the session (and its relay) when the peer cannot hear it.
+        if (f.payload.kind === "bye") this.endSession(f.sessionId)
+        return this.error(ws, "offline", "device is offline", f.sessionId)
+      }
       // fromUserId is always the verified sender (PROTOCOL.md); any client value is dropped. A WireGuard signal
       // also carries the recipient's own relay ticket (PROTOCOL.md "WebSocket relay"), never a client's.
       const relayTicket = f.payload.kind.startsWith("wg-") ? this.ticketFor(f.sessionId, f.to) : undefined
@@ -995,8 +1021,11 @@ export class TeamHub extends DurableObject<Env> {
     const mac = this.macRow(to)
     if (!mac || mac.owner_user_id !== att.userId || (mac.owner_project_id ?? this.primary) !== (att.projectId ?? this.primary)) return false
     const now = Date.now()
-    this.sql.exec(`DELETE FROM sessions WHERE created_at < ?`, now - SESSION_TTL_MS)
-    const row: SessionRow = { initiator: att.deviceId, responder: to, initiatorTicket: newTicket(), responderTicket: newTicket() }
+    // Expired sessions go, and so do their relays (review of #53240: a pruned session's relay stayed open, and a
+    // later device delete no longer found it).
+    for (const r of this.sql.exec<{ session_id: string }>(`SELECT session_id FROM sessions WHERE created_at < ?`, now - SESSION_TTL_MS).toArray())
+      this.expireSession(r.session_id)
+    const row: SessionRow = { initiator: att.deviceId, responder: to, initiatorTicket: newTicket(), responderTicket: newTicket(), createdAt: now }
     this.sql.exec(
       `INSERT INTO sessions (session_id, initiator, responder, created_at, initiator_ticket, responder_ticket) VALUES (?, ?, ?, ?, ?, ?)`,
       sessionId,
@@ -1012,15 +1041,23 @@ export class TeamHub extends DurableObject<Env> {
 
   private session(id: string): SessionRow | undefined {
     const hit = this.sessions.get(id)
-    if (hit) return hit
+    if (hit) {
+      if (Date.now() - hit.createdAt <= SESSION_TTL_MS) return hit
+      this.expireSession(id)
+      return undefined
+    }
     const r = this.sql
       .exec<{ initiator: string; responder: string; created_at: number; initiator_ticket: string | null; responder_ticket: string | null }>(
         `SELECT initiator, responder, created_at, initiator_ticket, responder_ticket FROM sessions WHERE session_id = ?`,
         id
       )
       .toArray()[0]
-    if (!r || Date.now() - r.created_at > SESSION_TTL_MS) return undefined
-    const s: SessionRow = { initiator: r.initiator, responder: r.responder, initiatorTicket: r.initiator_ticket, responderTicket: r.responder_ticket }
+    if (!r) return undefined
+    if (Date.now() - r.created_at > SESSION_TTL_MS) {
+      this.expireSession(id)
+      return undefined
+    }
+    const s: SessionRow = { initiator: r.initiator, responder: r.responder, initiatorTicket: r.initiator_ticket, responderTicket: r.responder_ticket, createdAt: r.created_at }
     this.sessions.set(id, s)
     return s
   }
@@ -1048,6 +1085,13 @@ export class TeamHub extends DurableObject<Env> {
     this.sessions.delete(id)
     this.sql.exec(`DELETE FROM sessions WHERE session_id = ?`, id)
     this.closeRelay(id, RELAY_CLOSE.ended, "ended")
+  }
+
+  /** A session past its 24 h: gone, like an ended one, its relay sockets closed. */
+  private expireSession(id: string) {
+    this.sessions.delete(id)
+    this.sql.exec(`DELETE FROM sessions WHERE session_id = ?`, id)
+    this.closeRelay(id, RELAY_CLOSE.ended, "expired")
   }
 
   /**

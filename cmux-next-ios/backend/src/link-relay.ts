@@ -38,6 +38,16 @@ export const RELAY_TICKET_HEADER = "x-cmux-relay-ticket"
  */
 export const RELAY_BUCKETS = { frames: { rate: 1500, burst: 3000 }, bytes: { rate: 8 * 1024 * 1024, burst: 16 * 1024 * 1024 } } as const
 
+/**
+ * Frames that may wait for one grant in flight (at most 4 MiB a session); past it they are dropped (WireGuard and
+ * TCP resend). A burst that arrives during a session's first grant still fits.
+ */
+const MAX_WAITING = 256
+/** A refusal holds at least this long (the hub's retry-after can be shorter on a fresh minute). */
+const MIN_HOLD_MS = 250
+/** A hub that failed is not asked again for this long, and nothing is relayed meanwhile (fail closed). */
+const HUB_ERROR_HOLD_MS = 1000
+
 /** A notice (`peer` offline, `error`) goes to one socket at most this often per kind. */
 export const RELAY_NOTICE_INTERVAL_MS = 5000
 
@@ -55,12 +65,17 @@ export class LinkRelay extends DurableObject<Env> {
   private readonly buckets = new WeakMap<WebSocket, { frames: Bucket; bytes: Bucket }>()
   private readonly notices = new WeakMap<WebSocket, Map<string, number>>()
   private readonly attachments = new WeakMap<WebSocket, RelayAttachment>()
-  /** Bytes each socket may still relay before asking its owner's hub for more (memory only). */
-  private readonly credit = new WeakMap<WebSocket, number>()
-  /** The size of each socket's next grant ([`FIRST_GRANT`], doubling up to a MiB). */
-  private readonly grantSize = new WeakMap<WebSocket, number>()
-  /** A budget request in flight per socket: frames behind it wait for it, so they keep their order. */
-  private readonly asking = new WeakMap<WebSocket, Promise<void>>()
+  /**
+   * This session's lease on the owner's budget (memory only; a wake starts with none and asks again): bytes it may
+   * still relay, the size of its next grant ([`FIRST_GRANT`], doubling up to a MiB), until when the hub's last
+   * refusal or failure holds (frames are dropped here meanwhile, never one hub call per frame), the one grant
+   * request in flight, and how many frames wait for it.
+   */
+  private credit = 0
+  private grantSize = FIRST_GRANT
+  private deniedUntil = 0
+  private asking: Promise<void> | undefined
+  private waiting = 0
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
@@ -119,7 +134,7 @@ export class LinkRelay extends DurableObject<Env> {
     if (!att) return
     const target = this.socketOf(att.peer)
     if (!target) return this.notice(ws, "peer", { type: "peer", online: false })
-    if (!(await this.spend(ws, att, bytes.length))) return this.notice(ws, "rate_limited", { type: "error", code: "rate_limited" })
+    if (!(await this.spend(att, bytes.length))) return this.notice(ws, "rate_limited", { type: "error", code: "rate_limited" })
     try {
       target.send(withPeer(bytes, uuidToBytes(att.device)))
     } catch {
@@ -145,43 +160,56 @@ export class LinkRelay extends DurableObject<Env> {
   }
 
   /**
-   * Spend `bytes` of the owner's relay budget: from this socket's credit, else a grant from the owner's hub
-   * ([`FIRST_GRANT`], doubling up to a MiB while the socket keeps relaying; one at a time per socket, and frames
-   * that arrive meanwhile wait for it, in order). A refused grant starts over at the first size, so a link's
-   * keepalives still pass while a busy one waits. A hub that cannot be reached grants it: a hiccup there must
-   * not cut every relayed link, and the per-socket limit still holds.
+   * Spend `bytes` of the owner's relay budget (review of #53240): from this session's credit, else one grant from
+   * the owner's hub at a time ([`FIRST_GRANT`], doubling up to a MiB while the session keeps relaying), with at most
+   * [`MAX_WAITING`] frames waiting for it. A refusal holds for the hub's `retryAfterMs`, and a hub that fails
+   * (overloaded, unreachable) grants nothing and is not asked again for [`HUB_ERROR_HOLD_MS`]: the budget fails
+   * closed, and frames are dropped here meanwhile without a hub call each.
    */
-  private async spend(ws: WebSocket, att: RelayAttachment, bytes: number): Promise<boolean> {
+  private async spend(att: RelayAttachment, bytes: number): Promise<boolean> {
     for (;;) {
-      const inFlight = this.asking.get(ws)
-      if (!inFlight) break
-      await inFlight
-    }
-    let credit = this.credit.get(ws) ?? 0
-    if (credit < bytes) {
-      let grant: (granted: boolean) => void = () => {}
-      const granted = new Promise<boolean>((resolve) => (grant = resolve))
-      this.asking.set(ws, granted.then(() => {}))
+      if (this.credit >= bytes) {
+        this.credit -= bytes
+        return true
+      }
+      if (Date.now() < this.deniedUntil) return false
+      if (this.asking) {
+        if (this.waiting >= MAX_WAITING) return false
+        this.waiting += 1
+        try {
+          await this.asking
+        } finally {
+          this.waiting -= 1
+        }
+        continue
+      }
+      this.asking = this.askGrant(att, bytes)
       try {
-        const hub = this.env.TEAM_HUB.get(this.env.TEAM_HUB.idFromName(userHubName(att.owner, att.space)))
-        const size = Math.max(this.grantSize.get(ws) ?? FIRST_GRANT, bytes)
-        const ok = await hub.relayBudget({ ownerKey: att.owner, space: att.space }, size / MIB).catch((e: unknown) => {
-          console.log(JSON.stringify({ msg: "relay budget unavailable", error: String(e) }))
-          return true
-        })
-        if (ok) credit += size
-        this.grantSize.set(ws, ok ? Math.min(size * 2, MIB) : FIRST_GRANT)
-        grant(ok)
+        await this.asking
       } finally {
-        this.asking.delete(ws)
+        this.asking = undefined
       }
     }
-    if (credit < bytes) {
-      this.credit.set(ws, credit)
-      return false
+  }
+
+  /** One grant request to the owner's hub; its answer lands in the lease (credit, or a hold). */
+  private async askGrant(att: RelayAttachment, bytes: number): Promise<void> {
+    const size = Math.max(this.grantSize, bytes)
+    try {
+      const hub = this.env.TEAM_HUB.get(this.env.TEAM_HUB.idFromName(userHubName(att.owner, att.space)))
+      const answer = await hub.relayBudget({ ownerKey: att.owner, space: att.space }, size / MIB)
+      if (answer.granted) {
+        this.credit += size
+        this.grantSize = Math.min(size * 2, MIB)
+        return
+      }
+      this.grantSize = FIRST_GRANT
+      this.deniedUntil = Date.now() + Math.min(Math.max(answer.retryAfterMs, MIN_HOLD_MS), 60_000)
+    } catch (e) {
+      console.log(JSON.stringify({ msg: "relay budget unavailable", error: String(e) }))
+      this.grantSize = FIRST_GRANT
+      this.deniedUntil = Date.now() + HUB_ERROR_HOLD_MS
     }
-    this.credit.set(ws, credit - bytes)
-    return true
   }
 
   private attachment(ws: WebSocket): RelayAttachment | undefined {

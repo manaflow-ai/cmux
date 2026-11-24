@@ -533,10 +533,15 @@ relay was retired: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux-next/
   at most every 5 s. What a socket relays is first granted by the user's
   hub (64 KiB, doubling up to 1 MiB per grant while the socket keeps
   relaying), one budget per user and build space across all sessions
-  (`LINK_RELAY_USER_MIB_PER_MIN`, default 480: 8 MiB/s); past it frames are
-  dropped and the sender hears `{"type":"error","code":"rate_limited"}`.
+  (`LINK_RELAY_USER_MIB_PER_MIN`, default 480: 8 MiB/s, kept in the hub's
+  storage so a wake grants no fresh minute); past it frames are dropped and
+  the sender hears `{"type":"error","code":"rate_limited"}`. A session asks
+  the hub one grant at a time (at most 256 frames wait for it); a refusal
+  holds for the hub's retry-after, and a hub that fails grants nothing for
+  1 s (fail closed), so frames past the budget cost no hub call each.
 - **Closes:** the service closes a relay socket with 4000 `replaced` (the
-  same device joined again), 4001 `ended` (the session's `bye`), 4002
+  same device joined again), 4001 `ended` (the session's `bye`, also when the
+  peer's signaling socket is closed, or the session passed its 24 h), 4002
   `removed` (a device of the session, or the account, was removed) and 4003
   `relay_off` (the kill switch, at the socket's next frame). A client does
   not rejoin after 4001 to 4003 (the join would be refused).
