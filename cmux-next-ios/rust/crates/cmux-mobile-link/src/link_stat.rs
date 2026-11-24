@@ -125,13 +125,32 @@ pub struct LinkStat {
     pub end: Option<&'static str>,
     /// The link library's version.
     pub lib: &'static str,
+    /// Upload bytes this link sent on a metered network with the person's yes ([`crate::metered`]),
+    /// since it came up. Absent when none (and from libraries before it: v stays 1).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bulk_metered: Option<u64>,
+    /// Upload bytes this link sent on a metered network without the person's yes, since it came
+    /// up: the gate holds them, so this is absent unless the gate leaks (ledger W5).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bulk_unconsented: Option<u64>,
 }
 
 impl LinkStat {
     pub fn to_text(&self) -> String {
         serde_json::to_string(self).expect("link_stat serializes")
     }
+
+    /// Add the link's metered upload bytes (absent when 0).
+    pub fn with_metered_bulk(mut self, sent: crate::metered::MeteredBulkSent) -> Self {
+        let some = |n: u64| (n > 0).then_some(n.min(MAX_BULK_BYTES));
+        self.bulk_metered = some(sent.consented);
+        self.bulk_unconsented = some(sent.unconsented);
+        self
+    }
 }
+
+/// The most `bulkMetered` or `bulkUnconsented` says (1 TB).
+pub const MAX_BULK_BYTES: u64 = 1_000_000_000_000;
 
 /// Why a link closed, as one of a few fixed words (its reason is free text).
 pub fn end_kind(reason: &str) -> &'static str {
@@ -247,6 +266,8 @@ impl Reporter {
                 .min(30 * 86_400),
             end: end.map(end_kind),
             lib: env!("CARGO_PKG_VERSION"),
+            bulk_metered: None,
+            bulk_unconsented: None,
         })
     }
 }
@@ -291,7 +312,7 @@ pub fn spawn(
                 None,
                 cellular(),
             );
-            if let Some(stat) = stat
+            if let Some(stat) = stat.map(|stat| stat.with_metered_bulk(link.metered_bulk_sent()))
                 && !send(&signaling, &stat).await
             {
                 return;
@@ -326,7 +347,9 @@ pub fn spawn(
                 end.as_deref(),
                 cellular(),
             );
-            let Some(stat) = stat else { return };
+            let Some(stat) = stat.map(|stat| stat.with_metered_bulk(link.metered_bulk_sent())) else {
+                return;
+            };
             if !send(&signaling, &stat).await || reason == Reason::End {
                 return;
             }
@@ -411,6 +434,25 @@ mod tests {
         assert_eq!((c.pings, c.lost), (0, 0));
     }
 
+    /// Old Worker, new phone: with nothing sent metered the frame is the v1 shape it always was;
+    /// with bytes it only adds optional fields (the Worker ignores fields it does not know, and
+    /// `backend/test/link-stat.test.ts` reads both shapes).
+    #[test]
+    fn metered_bulk_bytes_are_optional_fields_of_v1() {
+        let up = Instant::now();
+        let mut reporter = Reporter::new(TransportKind::WireGuard, LinkPath::Direct, up);
+        let stat = reporter.build(Reason::First, up, &pings(1, 1, 0, &[9]), None, None, true).unwrap();
+        let none = stat.clone().with_metered_bulk(crate::metered::MeteredBulkSent::default()).to_text();
+        assert_eq!(none, stat.to_text());
+        assert!(!none.contains("bulk"), "{none}");
+        let some =
+            stat.with_metered_bulk(crate::metered::MeteredBulkSent { consented: 4_194_304, unconsented: 0 });
+        let json: serde_json::Value = serde_json::from_str(&some.to_text()).unwrap();
+        assert_eq!(json["v"], 1);
+        assert_eq!(json["bulkMetered"], 4_194_304);
+        assert!(json.get("bulkUnconsented").is_none(), "{json}");
+    }
+
     #[test]
     fn every_stat_is_bounded_whatever_its_numbers() {
         let up = Instant::now();
@@ -433,7 +475,12 @@ mod tests {
                 Some("keepalive timed out"),
                 true,
             )
-            .unwrap();
+            .unwrap()
+            .with_metered_bulk(crate::metered::MeteredBulkSent {
+                consented: u64::MAX,
+                unconsented: u64::MAX,
+            });
+        assert_eq!(stat.bulk_unconsented, Some(MAX_BULK_BYTES));
         let text = stat.to_text();
         assert!(text.len() <= MAX_FRAME_BYTES, "{} bytes: {text}", text.len());
         assert_eq!(stat.marks.len(), MARKS.len());

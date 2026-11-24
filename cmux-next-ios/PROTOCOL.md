@@ -471,6 +471,12 @@ is forwarded, and the service never answers it.
   after its ping was counted lost does not take it back). `switches`: path
   changes since the link came up. `net`: `cellular` or `other` (the app's last
   `set_cellular_path`). `upS`: seconds up. `lib`: the link library version.
+- `bulkMetered`, `bulkUnconsented` (added 2026-11-24, optional, still `v` 1):
+  upload bytes the link sent since it came up while the phone was metered
+  (cellular or Low Data Mode), with and without the person's yes
+  (`cmux-mobile-link/src/metered.rs`); absent when 0, clamped to 10^12. The
+  phone holds uploads until the yes, so `bulkUnconsented` stays absent. An
+  older Worker ignores both; an older phone never sends them.
 - Bounded: every stat is under 768 bytes; ms values are clamped to 600000.
   It names no user, device, session or address.
 

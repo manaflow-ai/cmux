@@ -1420,10 +1420,63 @@ pub async fn prewarm(base_url: String, token: String, team_id: String, device_id
 /// The device's network is cellular now, or not (iOS `NWPathMonitor`,
 /// `NWPath.usesInterfaceType(.cellular)`; every path update, the first one
 /// too). Every WireGuard link in Auto (`ConnectOptions::ultra`) reads it
-/// live: on cellular its repair data stays within its data bytes.
+/// live: on cellular its repair data stays within its data bytes, and
+/// uploads wait for `set_metered_bulk_consent(true)`.
 #[uniffi::export]
 pub fn set_cellular_path(cellular: bool) {
     cmux_mobile_link::dial::wireguard::set_cellular_path(cellular);
+}
+
+/// The network is expensive or constrained, or not (iOS `NWPath.isExpensive
+/// || NWPath.isConstrained`, Low Data Mode; every path update). With
+/// `set_cellular_path` it makes the phone metered: uploads then wait for
+/// `set_metered_bulk_consent(true)`.
+#[uniffi::export]
+pub fn set_constrained_path(constrained: bool) {
+    cmux_mobile_link::metered::set_constrained_path(constrained);
+}
+
+/// The person's answer for uploads on this metered network: `true` sends
+/// what waits and every upload until the phone leaves the metered network
+/// (cellular or Low Data Mode), when the yes is forgotten; `false` holds
+/// uploads again. A yes while not metered is not kept. Keystrokes, chat,
+/// pings and screen state never wait.
+#[uniffi::export]
+pub fn set_metered_bulk_consent(consent: bool) {
+    cmux_mobile_link::metered::set_metered_bulk_consent(consent);
+}
+
+/// The metered-upload gate: ask the person when `waiting_bytes > 0`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, uniffi::Record)]
+pub struct MeteredBulkState {
+    /// The phone is on cellular, or an expensive or constrained network.
+    pub metered: bool,
+    /// The person said yes for this metered network.
+    pub consent: bool,
+    /// Upload bytes held for consent (0 when uploads may go).
+    pub waiting_bytes: u64,
+}
+
+impl From<cmux_mobile_link::metered::MeteredBulk> for MeteredBulkState {
+    fn from(state: cmux_mobile_link::metered::MeteredBulk) -> Self {
+        Self { metered: state.metered, consent: state.consent, waiting_bytes: state.waiting_bytes }
+    }
+}
+
+/// The metered-upload gate now.
+#[uniffi::export]
+pub fn metered_bulk_state() -> MeteredBulkState {
+    cmux_mobile_link::metered::state().into()
+}
+
+/// Wait for the gate's next change (it turns metered or not, the consent
+/// changes, or upload bytes start or stop waiting; never per byte) and
+/// return the new state. Loop on it to show and hide the consent prompt.
+#[uniffi::export]
+pub async fn metered_bulk_changed() -> MeteredBulkState {
+    let mut gate = cmux_mobile_link::metered::subscribe();
+    let _ = gate.changed().await;
+    cmux_mobile_link::metered::state().into()
 }
 
 /// This process's build space (`set_build_space`); nil: none (no header).

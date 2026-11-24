@@ -81,6 +81,15 @@ describe("link_stat log line", () => {
     expect(linkStatLine(stat({ reason: "end", end: "keepalive" }), "phone", ingress, null)!.end).toBe("keepalive")
   })
 
+  it("logs a newer phone's metered upload bytes, and an older phone's stat has none", () => {
+    const newer = linkStatLine(stat({ bulkMetered: 4_194_304, bulkUnconsented: 2e15 }), "phone", ingress, null)!
+    expect(newer).toMatchObject({ v: 1, bulkMetered: 4_194_304, bulkUnconsented: 1e12 })
+    const older = linkStatLine(stat(), "phone", ingress, null)!
+    expect(older).not.toHaveProperty("bulkMetered")
+    expect(older).not.toHaveProperty("bulkUnconsented")
+    expect(linkStatLine(stat({ bulkUnconsented: "lots" }), "phone", ingress, null)).not.toHaveProperty("bulkUnconsented")
+  })
+
   it("rejects a malformed stat", () => {
     for (const bad of [{ v: 2 }, { transport: "carrier-pigeon" }, { path: "10.0.0.1:443" }, { reason: "because" }, { pings: -1 }, { lost: "none" }, { pings: Number.NaN }]) {
       expect(linkStatLine(stat(bad), "phone", ingress, null)).toBeNull()
