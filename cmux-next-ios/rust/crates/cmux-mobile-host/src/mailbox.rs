@@ -807,7 +807,7 @@ impl Mailbox {
                     let outcome = self.applier.apply(&reply).await;
                     match &outcome {
                         Err(Rejection::Unavailable(_)) => {
-                            self.spent.release(&reply.id, &reply.phone, &reply.nonce)
+                            self.spent.release(&reply.id, &reply.phone, &reply.nonce);
                         }
                         Ok(()) => self.spent.settle(&reply.id, None),
                         Err(rejection) => self.spent.settle(&reply.id, Some(rejection.code())),

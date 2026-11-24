@@ -2370,7 +2370,8 @@ mod tests {
                 "appearance-v1",
                 "pair-requests-v1",
                 "phone-frames-v1",
-                "tab-snapshots-v1"
+                "tab-snapshots-v1",
+                "mailbox-send-v1"
             ]
         );
         let launcher: crate::browser::Launcher = std::sync::Arc::new(|_| {
@@ -2390,6 +2391,7 @@ mod tests {
                 "pair-requests-v1",
                 "phone-frames-v1",
                 "tab-snapshots-v1",
+                "mailbox-send-v1",
                 BROWSER_STREAM,
                 BROWSER_VIDEO_TRACK
             ]
