@@ -371,6 +371,7 @@ fn restart_outcome(command: &str, status: std::process::ExitStatus) -> Result<()
 
 /// How this daemon's lifecycle owner should receive an executable swap.
 #[derive(Debug, PartialEq, Eq)]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 enum ServiceRestart {
     /// No service manager owns this daemon, so a detached handover is safe.
     Unmanaged,
@@ -420,12 +421,14 @@ fn service_restart() -> ServiceRestart {
 }
 
 /// Whether an XPC marker names one of acpmux's launchd jobs.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn is_acpmux_launchd_label(label: &str) -> bool {
     label == crate::cli::daemon_service::LAUNCHD_LABEL
         || label.starts_with(crate::daemon::login_placement::LABEL_PREFIX)
 }
 
 /// Resolve a launchd-owned daemon before choosing its manager restart command.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn launchd_restart_plan(
     label: &str,
     uid: u32,
@@ -440,6 +443,7 @@ fn launchd_restart_plan(
 
 /// The launchd job that owns `pid`, in the GUI or system domain, and its restart command.
 /// Matching the PID prevents a similarly named job in the other domain from being restarted.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn launchd_restart_command(
     label: &str,
     uid: u32,
@@ -453,6 +457,7 @@ fn launchd_restart_command(
     Some(vec!["launchctl".into(), "kickstart".into(), "-k".into(), target.clone()])
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn launchd_job_pid(print: &Option<String>) -> Option<u32> {
     print
         .as_deref()?
@@ -473,8 +478,6 @@ mod tests {
             .unwrap()
     }
 
-    /// The restart child killed by the stop it issued (signal 15) handed over; one that exited
-    /// non-zero or died of another signal did not.
     #[test]
     fn a_launchd_launchdaemon_restart_targets_system_instead_of_takeover() {
         let label = "com.cmux.acpmux.daemon.077f602dcb3c3936";
@@ -514,6 +517,8 @@ mod tests {
         assert!(!matches!(plan, ServiceRestart::Unmanaged | ServiceRestart::Command(_)));
     }
 
+    /// The restart child killed by the stop it issued (signal 15) handed over; one that exited
+    /// non-zero or died of another signal did not.
     #[test]
     fn a_restart_child_killed_by_sigterm_handed_over() {
         let restart = "systemctl --user restart --no-block acpmux.service";
