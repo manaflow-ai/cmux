@@ -116,7 +116,7 @@ class MappingTests(unittest.TestCase):
                                                      "frames_p95_ms": 16.6}]}),
                          {"panes.split.4x2.frame": (8.3, 16.6)})
         self.assertEqual(pb.rows_tab_switch({"scenarios": [{"kind": "terminal", "count": 10, "ctrl_tab": {
-            "table": {"ctrl_tab": {"e2e": {"p50": 5, "p95": 9}}}}}]}), {"tab_switch.terminal.10.e2e": (5, 9)})
+            "table": {"terminal": {"e2e": {"p50": 5, "p95": 9}}}}}]}), {"tab_switch.terminal.10.e2e": (5, 9)})
         self.assertEqual(pb.rows_palette({"surfaces": {"terminal Cmd-Shift-P": {"table": {"key": {"p50": 7, "p90": 12}}}}}),
                          {"palette.terminal_cmd_shift_p.key_to_frame": (7, 12)})
         self.assertEqual(pb.rows_idle({"scenarios": {"terminals": {"processes": [{"kind": "app", "cpu_percent": 0.4},
