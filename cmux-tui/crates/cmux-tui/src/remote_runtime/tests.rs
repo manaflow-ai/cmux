@@ -9,6 +9,8 @@ mod first_connect_recovery;
 #[cfg(unix)]
 mod initial_route_budget;
 #[cfg(unix)]
+mod last_good_route;
+#[cfg(unix)]
 mod ssh_forced_command;
 
 /// Binds a stream socket at `path` that never listens, as a crashed
