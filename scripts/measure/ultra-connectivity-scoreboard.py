@@ -105,14 +105,15 @@ def sel(metric, stat, condition, kind="SCOREROW", **more):
 MAPPING = {
     ("satellite 600 ms", "iOS→Mac, Mac→Linux", "link up; keystroke echo (predicted)"): {
         "today": (
-            "link up p50 / p95 {up50} / {up95} ms; remote echo p50 {rem} ms; predicted echo {pred} ms "
+            "link up p50 / p95 {up50} / {up95} ms; remote echo p50 {rem} ms; predicted echo p50 {pred} / p95 {pred95} ms "
             "(satellite-600@1, signaling on loopback; Mac→Linux: harness missing: no Mac→Linux satellite bench)"
         ),
         "sel": {
             "up50": sel("link_up_ms", "p50", "satellite 600 ms"),
             "up95": sel("link_up_ms", "p95", "satellite 600 ms"),
             "rem": sel("keystroke_echo_remote_ms", "p50", "satellite 600 ms"),
-            "pred": sel("keystroke_echo_predicted_ms", "p95", "satellite 600 ms"),
+            "pred": sel("keystroke_echo_predicted_ms", "p50", "satellite 600 ms"),
+            "pred95": sel("keystroke_echo_predicted_ms", "p95", "satellite 600 ms"),
         },
         "need": ["up50"],
         "missing": "harness missing: satellite-600 bench did not report a link up",
