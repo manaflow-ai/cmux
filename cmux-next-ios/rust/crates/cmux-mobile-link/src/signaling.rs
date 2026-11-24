@@ -222,6 +222,11 @@ pub enum SignalMessage {
 /// confirmation, since that peer's marker can no longer arrive.
 pub const WG_VERSION: u32 = 3;
 
+/// The version whose peers read `reach` and trickled endpoints (2). A
+/// feature checks the version that brought it, never [`WG_VERSION`]: a bump
+/// would take the feature away from every peer one version behind.
+pub const WG_REACH_VERSION: u32 = 2;
+
 fn is_zero(value: &u32) -> bool {
     *value == 0
 }
