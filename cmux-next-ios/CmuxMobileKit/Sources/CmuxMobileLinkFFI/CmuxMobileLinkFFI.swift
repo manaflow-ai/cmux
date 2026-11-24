@@ -4639,6 +4639,7 @@ public struct ConnectOptions: Equatable, Hashable {
      * over TLS (path `TurnTls`). WebRTC ignores it.
      */
     public var dropWireguard: Bool
+    /**
      * Debug "Relay via cmux (HTTPS) only": WireGuard sends no plain UDP and
      * takes no TURN allocation; it joins cmux's WebSocket relay at once and
      * rides it (path `HttpsRelay`). WebRTC ignores it.
@@ -4689,6 +4690,7 @@ public struct ConnectOptions: Equatable, Hashable {
          * TURN over UDP) is dropped both ways, so WireGuard falls through to TURN
          * over TLS (path `TurnTls`). WebRTC ignores it.
          */dropWireguard: Bool = false, 
+        /**
          * Debug "Relay via cmux (HTTPS) only": WireGuard sends no plain UDP and
          * takes no TURN allocation; it joins cmux's WebSocket relay at once and
          * rides it (path `HttpsRelay`). WebRTC ignores it.
