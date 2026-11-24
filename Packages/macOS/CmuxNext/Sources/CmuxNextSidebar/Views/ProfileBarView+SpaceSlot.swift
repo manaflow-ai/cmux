@@ -11,7 +11,7 @@ extension ProfileBarView {
             return slots + [NSRect(x: strip.plus.x, y: 0, width: strip.plus.width, height: bounds.height)]
         }
         let leading = min(bounds.width, max(0, leadingInset ?? SidebarStyle.horizontalInset))
-        let side = min(Metrics.roomDotSlot, max(0, bounds.width - leading))
+        let side = min(CGFloat(strip.plus.width), max(0, bounds.width - leading))
         let x = min(max(leading, strip.plus.x), bounds.width - side)
         return slots + [NSRect(x: x, y: 0, width: side, height: bounds.height)]
     }
@@ -23,24 +23,38 @@ extension ProfileBarView {
         return plus.width > 0 && bounds.contains(NSPoint(x: plus.midX, y: plus.midY))
     }
 
+    /// The x range a dot must sit in whole to be drawn: from the strip's leading inset to the bar's trailing edge,
+    /// or to the drawn "+" (#32981). A scrolled strip slides dots past both ends; a dot cut by either edge is not drawn.
+    func visibleDotRange(plus: NSRect) -> ClosedRange<CGFloat> {
+        let leading = min(bounds.width, max(0, leadingInset ?? SidebarStyle.horizontalInset))
+        let showsPlus = plus.width > 0 && bounds.contains(NSPoint(x: plus.midX, y: plus.midY))
+        let end = showsPlus ? min(bounds.maxX, plus.minX) : bounds.maxX
+        return leading...max(leading, end)
+    }
+
     /// Resolve once per draw, not once per profile: long space strips stay linear.
-    var drawnDotIndices: [Int] {
-        let rects = slotRects(), plus = rects[model.profiles.count], showsPlus = plusIsDrawn
+    /// Only a dot fully inside `visibleDotRange` is drawn; nothing else (a click, a hover, a shortcut hint, a drag
+    /// layer) acts on a dot that is not drawn (#32981).
+    var drawnDotIndices: [Int] { drawnDotIndices(in: slotRects()) }
+
+    func drawnDotIndices(in rects: [NSRect]) -> [Int] {
+        let range = visibleDotRange(plus: rects[model.profiles.count])
         return model.profiles.indices.filter {
             let slot = rects[$0]
-            let overlapsPlus = slot.maxX > plus.minX + 0.5 && slot.minX < plus.maxX - 0.5
-            return slot.width > 0 && slot.intersects(bounds) && (!showsPlus || !overlapsPlus)
+            return slot.width > 0 && slot.minY < bounds.maxY && slot.maxY > bounds.minY
+                && slot.minX >= range.lowerBound - 0.5 && slot.maxX <= range.upperBound + 0.5
         }
     }
 
     func dotIsDrawn(at index: Int) -> Bool { drawnDotIndices.contains(index) }
     var drawnDotCount: Int { drawnDotIndices.count }
 
-    /// The visible + owns its slot; a dot scrolled under it is not pressable there.
+    /// The visible + owns its slot; a dot that is not drawn (scrolled under the +, past the bar's edge or into the
+    /// leading inset) is not pressable anywhere, not even by the sliver of its slot that shows (#32981).
     func interactionIndex(at point: NSPoint) -> Int? {
         guard bounds.contains(point) else { return nil }
         let rects = slotRects()
-        if plusIsDrawn, let plus = rects.last, plus.contains(point) { return Self.plusIndex }
-        return rects.dropLast().firstIndex { $0.contains(point) }
+        if let plus = rects.last, bounds.contains(NSPoint(x: plus.midX, y: plus.midY)), plus.contains(point) { return Self.plusIndex }
+        return drawnDotIndices(in: rects).first { rects[$0].contains(point) }
     }
 }
