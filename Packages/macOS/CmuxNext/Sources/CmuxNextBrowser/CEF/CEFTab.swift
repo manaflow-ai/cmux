@@ -489,6 +489,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         runtime.arriving.ended(id)
         host.lifecycleTrace.record(id, "ready-for-keys")
         onReadyForKeys?()
+        // A cmux page that hid before its document arrived (a spare parked at launch) had no trim queued: its hide
+        // came with no cmux URL or a heap still to grow. Its document is here, so it gets the hidden page's round.
+        if CEFHiddenPageTrim.trimsOnArrival(hidden: isOccluded, url: state.url) { runtime.hiddenPageTrim.pageHidden() }
     }
 
     // What the page area shows, and when the document takes it over, are in

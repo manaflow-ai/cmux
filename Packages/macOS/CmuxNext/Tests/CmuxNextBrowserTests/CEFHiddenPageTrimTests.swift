@@ -21,4 +21,13 @@ import Testing
         #expect(trim.notices == 0)
         #expect(sent == 0)
     }
+
+    /// A spare parked at launch hides before its document: its arrival queues the round its hide could not.
+    @Test func aHiddenCmuxPageArrivingQueuesARoundAShownOrWebPageDoesNot() {
+        let page = URL(string: "cmux-page://cmux.agent/")
+        #expect(CEFHiddenPageTrim.trimsOnArrival(hidden: true, url: page))
+        #expect(!CEFHiddenPageTrim.trimsOnArrival(hidden: false, url: page))
+        #expect(!CEFHiddenPageTrim.trimsOnArrival(hidden: true, url: URL(string: "https://example.com/")))
+        #expect(!CEFHiddenPageTrim.trimsOnArrival(hidden: true, url: nil))
+    }
 }

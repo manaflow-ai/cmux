@@ -42,6 +42,12 @@ final class CEFHiddenPageTrim {
         timer.schedule(after: Self.nextDelay(since: lastNotice, now: now())) { @MainActor [weak self] in await self?.trim() }
     }
 
+    /// Whether a page's document arriving queues a round: it is a cmux page already hidden. Its hide queued none when
+    /// it came before the page had a cmux URL (a spare parked at launch), and one that did ran on a heap still growing.
+    static func trimsOnArrival(hidden: Bool, url: URL?) -> Bool {
+        hidden && CEFPageRendererGC.isCmuxPage(url)
+    }
+
     /// The notice itself, through `tab`'s DevTools.
     static func notice(_ tab: CEFTab) async {
         _ = try? await tab.devTools(method: "Memory.simulatePressureNotification", params: ["level": level], timeout: .seconds(10))
