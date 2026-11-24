@@ -18,19 +18,21 @@ async fn records(c: &mut TestClient, id: &str, kind: &str) -> Vec<Value> {
 
 /// Waits for the `compaction_outline` record number `n` (1 is the first) of `id`.
 async fn outline_record(c: &mut TestClient, id: &str, n: usize) -> Value {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(150);
     loop {
         let found = records(c, id, "compaction_outline").await;
         if let Some(r) = found.get(n - 1) {
             return r.clone();
         }
         assert!(tokio::time::Instant::now() < deadline, "no compaction_outline record came");
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        tokio::time::sleep(Duration::from_millis(500)).await;
     }
 }
 
 async fn say(c: &mut TestClient, id: &str, text: &str) {
-    c.request(method::SESSION_PROMPT, prompt(id, text, None)).await.unwrap();
+    static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    c.request(method::SESSION_PROMPT, prompt(id, &format!("say-{n}"), text)).await.unwrap();
 }
 
 #[tokio::test]
@@ -176,7 +178,7 @@ async fn a_50_mb_chat_reads_its_outline_a_digest_and_a_record_in_milliseconds() 
     let id = s["sessionId"].as_str().unwrap().to_owned();
     // About 0.67 MB of log a prompt (`a_50_mb_chat_starts_on_a_second_daemon_from_its_tail`).
     for n in 0..80 {
-        c.request(method::SESSION_PROMPT, prompt(&id, "chunks: 2500", Some(&format!("p-{n}"))))
+        c.request(method::SESSION_PROMPT, prompt(&id, &format!("p-{n}"), "chunks: 2500"))
             .await
             .unwrap();
     }

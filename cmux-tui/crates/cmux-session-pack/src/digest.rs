@@ -68,6 +68,17 @@ pub fn digest(pack: &Pack, range: &RangeId, limits: Limits) -> Result<String> {
         let kind = v.get("kind").and_then(Value::as_str).unwrap_or("");
         let update = v.pointer("/msg/params/update");
         match kind {
+            // A turn starts at its `turn_started` record, which follows the person's message: the
+            // message itself ends the turn before, so the ask is shown here too.
+            "turn_started" => {
+                let asked = v
+                    .pointer("/msg/promptLine")
+                    .or_else(|| v.pointer("/msg/prompt"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                let (shown, _) = cut(asked, limits.prompt);
+                let _ = writeln!(out, "\nasked (seq {seq}): {shown}");
+            }
             "agent_message_chunk" => {
                 say.push_str(
                     update

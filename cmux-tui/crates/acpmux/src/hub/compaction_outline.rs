@@ -78,7 +78,7 @@ impl Hub {
                         hub.append(&session, "mux", OUTLINE_KIND, record);
                     }
                     Err(error) => {
-                        tracing::debug!(session = %session.id, "compaction not outlined: {error:#}");
+                        eprintln!("DIAG compaction not outlined: {error:#}"); tracing::debug!(session = %session.id, "compaction not outlined: {error:#}");
                     }
                 }
             });
