@@ -48,6 +48,9 @@ pub struct ClaudePage {
     pub start: u64,
     /// How many bytes of the file the page read.
     pub read: u64,
+    /// Where Claude Code compacted the conversation (its `isCompactSummary` line), as the index
+    /// of the turn after it (`turns.len()` for one after the page's last turn), ascending.
+    pub compactions: Vec<usize>,
 }
 
 /// The page of `file` (a Claude Code transcript) that ends at `end` (the file's end when `None`,
@@ -69,13 +72,20 @@ fn read_claude_page(f: &mut File, end: u64, want: usize) -> std::io::Result<Clau
     let raw = scan_page(f, end, want, false, parse, |record| Prompt::from(is_prompt(record)))?;
     let RawPage { lines, start, read, has_prompt, .. } = raw;
     let mut turns: Vec<PastTurn> = Vec::new();
+    // Beside `turns`: whether a compaction came just before each.
+    let mut compacted: Vec<bool> = Vec::new();
+    let mut pending = false;
     if !has_prompt && !lines.is_empty() {
         // Part of one turn whose prompt is older than the page.
         turns.push(PastTurn::default());
+        compacted.push(false);
     }
     for (offset, record) in lines.into_iter().rev() {
         if offset < start {
             continue;
+        }
+        if record.get("isCompactSummary").and_then(Value::as_bool) == Some(true) {
+            pending = true;
         }
         let at = record_time(&record);
         if let [only] = turns.as_mut_slice()
@@ -87,10 +97,26 @@ fn read_claude_page(f: &mut File, end: u64, want: usize) -> std::io::Result<Clau
         }
         for step in claude_steps(&record, at) {
             add(&mut turns, step, at);
+            while compacted.len() < turns.len() {
+                compacted.push(std::mem::take(&mut pending));
+            }
         }
     }
-    turns.retain(|t| !t.prompt.is_empty() || !t.tools.is_empty() || !t.answer.is_empty());
-    Ok(ClaudePage { turns, start, read })
+    let mut kept = Vec::with_capacity(turns.len());
+    let mut compactions = Vec::new();
+    for (turn, after) in turns.into_iter().zip(compacted) {
+        if after {
+            compactions.push(kept.len());
+        }
+        if !turn.prompt.is_empty() || !turn.tools.is_empty() || !turn.answer.is_empty() {
+            kept.push(turn);
+        }
+    }
+    if pending {
+        compactions.push(kept.len());
+    }
+    compactions.dedup();
+    Ok(ClaudePage { turns: kept, start, read, compactions })
 }
 
 pub(super) struct RawPage {
