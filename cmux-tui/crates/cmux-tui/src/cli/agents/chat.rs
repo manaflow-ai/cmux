@@ -1085,6 +1085,23 @@ pub(in crate::cli) mod acp {
         })
     }
 
+    /// The acpmux's harness catalog (`_acpmux/harnesses`: `harnesses`, `families`,
+    /// `defaultHarness`, `defaults`), the one a new chat there resolves its agent from; at most
+    /// `timeout` (a daemon still reading its login shell answers once it has).
+    pub(in crate::cli) fn harnesses(
+        socket: Option<&Path>,
+        timeout: std::time::Duration,
+    ) -> Result<Value, String> {
+        read_on(socket, async |client| {
+            tokio::time::timeout(
+                timeout,
+                client.request(acpmux::rpc::method::MUX_HARNESSES, json!({})),
+            )
+            .await
+            .map_err(|_| anyhow::anyhow!("no answer in {} ms", timeout.as_millis()))?
+        })
+    }
+
     /// Follows `session`'s live `session/update`s on a connection of its own (`_acpmux/attach`,
     /// hidden, no history: the attach subscribes it) and hands each update's params to `each`
     /// until `each` says stop, the daemon closes the connection, or `deadline` passes.
