@@ -12,6 +12,7 @@ import type { ComposerAttachment } from "../attachments";
 import { attachmentPath } from "../fileAttachmentModel";
 import { lengthOf } from "../composer/videoPrompt";
 import { isVideoName } from "../composer/videoAttachments";
+import { localDraftShape } from "../composer/draftMediaShape";
 import { chipVideoRatio } from "../composer/videoShape";
 
 /// A video a prompt sent, as its bubble draws it (SentVideoTile.tsx).
@@ -101,18 +102,19 @@ function composerVideos(row: Pick<AcpmuxRow, "retryAttachments">): SentVideo[] {
     const key = `${chip.name}\n${chip.size}`;
     return !seen.has(key) && Boolean(seen.add(key));
   };
-  return (row.retryAttachments ?? []).flatMap((chip): SentVideo[] =>
-    chip.kind === "link" && chip.path && isVideoFile(chip.path, chip.mimeType) && once(chip)
-      ? [
-          {
-            name: chip.name,
-            path: chip.path,
-            ...(chip.video ? chipVideo(chip, chip.video) : {}),
-            ...(chip.videoShape || chip.video ? { shape: chipVideoRatio(chip) } : {}),
-          },
-        ]
-      : [],
-  );
+  return (row.retryAttachments ?? []).flatMap((chip): SentVideo[] => {
+    if (chip.kind !== "link" || !chip.path || !isVideoFile(chip.path, chip.mimeType) || !once(chip)) return [];
+    const shape =
+      chip[localDraftShape]?.forSend() ?? (chip.videoShape || chip.video ? chipVideoRatio(chip) : undefined);
+    return [
+      {
+        name: chip.name,
+        path: chip.path,
+        ...(chip.video ? chipVideo(chip, chip.video) : {}),
+        ...(shape ? { shape } : {}),
+      },
+    ];
+  });
 }
 
 function chipVideo(chip: ComposerAttachment, video: NonNullable<ComposerAttachment["video"]>): Partial<SentVideo> {
