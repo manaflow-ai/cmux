@@ -5,7 +5,7 @@ import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { reportSavesEarly, type RecursiveWatch } from "../dev-server/fastSaveWatch";
+import { ignoredBy, reportSavesEarly, type RecursiveWatch } from "../dev-server/fastSaveWatch";
 
 const root = "/repo/webviews";
 
@@ -117,4 +117,14 @@ test("with the real fs.watch, a write is reported on the watcher", async () => {
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("the server's watch.ignored keeps an ignored file off the early path", () => {
+  const ignored = ignoredBy(["**/*.snap", /generated/, (file: string) => file.endsWith(".skip.ts")], root);
+  expect(ignored(path.join(root, "src/a.snap"))).toBe(true);
+  expect(ignored(path.join(root, "src/generated/x.ts"))).toBe(true);
+  expect(ignored(path.join(root, "src/b.skip.ts"))).toBe(true);
+  expect(ignored(path.join(root, "src/App.tsx"))).toBe(false);
+  expect(ignoredBy(["**/*"], root)(path.join(root, "src/App.tsx"))).toBe(true);
+  expect(ignoredBy(undefined, root)(path.join(root, "src/App.tsx"))).toBe(false);
 });

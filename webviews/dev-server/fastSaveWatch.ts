@@ -86,21 +86,43 @@ export function reportSavesEarly(
   };
 }
 
+/// The server's `watch.ignored` as one test: globs (matched against the root-relative and absolute
+/// path), regexes and functions, as chokidar takes them. A file it ignores keeps chokidar's path.
+export function ignoredBy(ignored: unknown, root: string): (file: string) => boolean {
+  const list = ignored === undefined || ignored === null ? [] : Array.isArray(ignored) ? ignored : [ignored];
+  const tests = list.map((entry): ((file: string) => boolean) => {
+    if (typeof entry === "function") return (file) => Boolean(entry(file));
+    if (entry instanceof RegExp) return (file) => entry.test(file);
+    if (typeof entry === "string")
+      return (file) => path.matchesGlob(file, entry) || path.matchesGlob(path.relative(root, file), entry);
+    return () => false;
+  });
+  return (file) => tests.some((test) => test(file));
+}
+
 /// The dev server's plugin: ``reportSavesEarly`` on the server's watcher, macOS only.
 export function fastSaveWatch(platform: NodeJS.Platform = process.platform): Plugin {
+  let stop: (() => void) | undefined;
   return {
     name: "cmux-dev-fast-save-watch",
     apply: "serve",
     configureServer(server) {
       // `server.watch: null` (a test's server) has no watcher to speed up.
-      if (platform !== "darwin" || server.config.server.watch === null) return;
+      const watch = server.config.server.watch;
+      if (platform !== "darwin" || watch === null) return;
       const graph = server.environments?.client?.moduleGraph ?? server.moduleGraph;
-      const stop = reportSavesEarly(
+      const ignored = ignoredBy(watch?.ignored, server.config.root);
+      stop = reportSavesEarly(
         server.watcher,
         server.config.root,
-        (file) => (graph.getModulesByFile(file)?.size ?? 0) > 0,
+        (file) => !ignored(file) && (graph.getModulesByFile(file)?.size ?? 0) > 0,
       );
-      server.httpServer?.on("close", stop);
+      server.httpServer?.on("close", () => stop?.());
+    },
+    // Runs on server.close() in middleware mode too, where there is no httpServer to listen on.
+    closeBundle() {
+      stop?.();
+      stop = undefined;
     },
   };
 }
