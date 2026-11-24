@@ -39,7 +39,7 @@ pub use candidates::{
 pub use classify::{DatagramClass, classify, is_hop};
 pub use hop::{
     Delivered, HopClass, HopError, HopMsg, HopRelay, Leg, LegConfig, LegMode, LegStats, Record,
-    Repair, Side, StreamTag,
+    Repair, Side, StreamTag, decode_records, encode_records,
 };
 pub use medium::{LocalNetwork, Medium, local_networks, medium_of};
 pub use path::{PathClass, PathId, PathKind};
