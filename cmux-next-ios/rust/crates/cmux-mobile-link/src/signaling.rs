@@ -427,7 +427,9 @@ impl SignalingClient {
         build_space: Option<&crate::build_space::BuildSpace>,
     ) -> Result<Self, SignalingError> {
         crate::install_crypto_provider();
-        let url = signal_url(base_url, team_id, device_id)?;
+        let mut url = signal_url(base_url, team_id, device_id)?;
+        // This network's netcheck when one is cached (PROTOCOL.md "Relay placement"); never waited on.
+        crate::netcheck::append_query(&mut url, base_url, build_space);
         let mut request = url.into_client_request().map_err(|e| SignalingError::BadUrl(e.to_string()))?;
         request.headers_mut().insert(
             "authorization",
@@ -457,6 +459,8 @@ impl SignalingClient {
             }
         });
         let socket = connecting.await.map_err(|e| SignalingError::Connect(e.to_string()))??;
+        // Measured after the upgrade, in the background: the next connect on this network carries it.
+        crate::netcheck::refresh_in_background(base_url, token, build_space);
         let (sink, mut source) = socket.split();
         let out = Arc::new(SendQueue::default());
         let (incoming_tx, incoming_rx) = mpsc::unbounded_channel();

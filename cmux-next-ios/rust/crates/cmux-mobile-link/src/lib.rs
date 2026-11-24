@@ -26,6 +26,7 @@ pub mod link_stat;
 mod liveness;
 pub mod media;
 pub mod names;
+pub mod netcheck;
 pub mod path_report;
 pub mod reconnect;
 mod send_queue;
