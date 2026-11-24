@@ -130,6 +130,7 @@ async fn handoff(cell: bool) -> Handoff {
     let session_id = connected.session_id.clone();
     if cell {
         wireguard::set_interfaces(vec![wifi.clone(), lo_cell.clone()]);
+        assert!(!wireguard::cellular_path(), "Wi-Fi is the primary: not metered");
     }
     let channel = connected.link.open("echo", serde_json::json!({})).await.unwrap();
     let (sender, mut receiver) = channel.split();
@@ -169,6 +170,7 @@ async fn handoff(cell: bool) -> Handoff {
     tokio::time::sleep(OS_LAG).await;
     if cell {
         wireguard::set_interfaces(vec![interface("lo", InterfaceKind::Cellular, true)]);
+        assert!(wireguard::cellular_path(), "cell is the primary: Ultra's repair cap reads it");
     } else {
         wireguard::simulate_blackout(Some(&session_id), true, false);
         let session_id = session_id.clone();

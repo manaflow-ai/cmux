@@ -83,6 +83,12 @@ static CELLULAR_ASSIST: AtomicBool = AtomicBool::new(true);
 /// second socket at once, and one whose primary interface went away moves
 /// onto its warm second socket.
 pub fn set_interfaces(interfaces: Vec<NetInterface>) {
+    // One report of the path: the primary's kind is also the cellular flag
+    // Ultra's repair cap reads ([`super::set_cellular_path`]). An empty list
+    // says nothing about the path and leaves the flag as it was.
+    if let Some(primary) = interfaces.iter().find(|interface| interface.primary) {
+        super::set_cellular_path(primary.kind == InterfaceKind::Cellular);
+    }
     *INTERFACES.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = interfaces;
     super::apply_multipath_to_live_sessions();
 }
