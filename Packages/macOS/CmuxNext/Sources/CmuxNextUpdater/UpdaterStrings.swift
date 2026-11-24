@@ -93,6 +93,26 @@ nonisolated enum UpdaterStrings {
     static var rollbackStoresUnknown: String {
         text("updater.rollback.storesUnknown", "cmux can't tell whether the previous version reads your data, so it didn't roll back.")
     }
+    static var rollbackNothingOlder: String {
+        text("updater.rollback.nothingOlder", "This Mac keeps no build older than the one running.")
+    }
+    static func rollbackRelaunchFailed(_ version: String) -> String {
+        format("updater.rollback.relaunchFailed", "cmux %@ is in place, but cmux could not reopen itself. Quit cmux and open it again to finish.", version)
+    }
+    // Go back (the Updated card, the menu, the progress on the notice card)
+    static func versionFrom(_ version: String, _ day: String) -> String {
+        format("updater.goBack.versionFrom", "%1$@ from %2$@", version, day)
+    }
+    static func goBackTitle(_ label: String) -> String { format("updater.goBack.title", "Go Back to %@", label) }
+    static var revertChecking: String { text("updater.goBack.checking", "Checking the kept build…") }
+    static var revertFinding: String { text("updater.goBack.finding", "Finding the previous build…") }
+    static var revertDownloading: String { text("updater.goBack.downloading", "Downloading…") }
+    static var revertVerifying: String { text("updater.goBack.verifying", "Checking the signature…") }
+    static var revertSwapping: String { text("updater.goBack.swapping", "Putting it in place…") }
+    static var revertRestarting: String { text("updater.goBack.restarting", "Restarting…") }
+    static var revertFailed: String { text("updater.goBack.failed", "Could Not Go Back") }
+    static func revertGoingBack(_ label: String) -> String { format("updater.goBack.going", "Going Back to %@", label) }
+    static var revertGoingBackPlain: String { text("updater.goBack.goingPlain", "Going Back to the Previous Build") }
 
     // Test feed
     static var testFeedRefused: String {
