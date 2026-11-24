@@ -1,0 +1,25 @@
+{
+  "envs": [
+    ["light", "none"],
+    ["dark", "none"]
+  ],
+  "shots": [
+    {
+      "name": "prose-measure",
+      "entry": "looks.golden",
+      "variant": "cmux",
+      "width": 1100,
+      "height": 1800,
+      "deviceScaleFactor": 2,
+      "clip": ".cv-reply:has(.cv-h2)",
+      "margin": 16,
+      "setup": "(() => {\n  const reply = document.querySelector('.cv-reply:has(.cv-h2)');\n  const p = reply && reply.querySelector('.cv-md p');\n  if (!p) return;\n  const cs = getComputedStyle(p);\n  const ctx = document.createElement('canvas').getContext('2d');\n  ctx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;\n  const text = [...reply.querySelectorAll('.cv-md p, .cv-md li')].map((e) => e.textContent).join(' ');\n  const perChar = ctx.measureText(text).width / text.length;\n  const width = p.getBoundingClientRect().width;\n  const tag = document.createElement('div');\n  tag.textContent = `measure ${Math.round(width)} px: about ${Math.round(width / perChar)} characters per line`;\n  tag.style.cssText = 'margin-top:8px;font:600 13px system-ui;padding:2px 6px;background:#c62828;color:#fff;display:inline-block';\n  reply.appendChild(tag);\n})()",
+      "arms": {
+        "800px now": "",
+        "720px": ":root { --cv-column: min(100%, calc(720px / var(--cv-ui-scale))); }",
+        "680px": ":root { --cv-column: min(100%, calc(680px / var(--cv-ui-scale))); }",
+        "640px": ":root { --cv-column: min(100%, calc(640px / var(--cv-ui-scale))); }"
+      }
+    }
+  ]
+}
