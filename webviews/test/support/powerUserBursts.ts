@@ -386,6 +386,10 @@ export const KNOWN: Record<string, string> = {
   "webkit flick stray_worst_px": "manaflow-ai/cmux#50480",
   "webkit paste stray_worst_px": "manaflow-ai/cmux#50480",
   "webkit momentum stray_worst_px": "manaflow-ai/cmux#50480",
+  // A wave's stray is counted against every input kind in it: wave 21 (flick+momentum+type) puts the same
+  // flick-caused follow reversal on "type" too.
+  "chromium type stray_worst_px": "manaflow-ai/cmux#50480",
+  "webkit type stray_worst_px": "manaflow-ai/cmux#50480",
   "console ResizeObserver loop completed": "manaflow-ai/cmux#50481",
 };
 
