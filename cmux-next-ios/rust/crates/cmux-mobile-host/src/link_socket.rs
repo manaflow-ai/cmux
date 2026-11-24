@@ -354,8 +354,9 @@ async fn link_to(
         text if text.contains("offline") => ("offline", "that machine is offline".to_owned()),
         text => ("unreachable", text),
     })?;
+    let tunnel_keys = connected.tunnel_keys.clone();
     let link = Arc::new(connected.link);
-    authenticate(&link, dialer, &identity, peer, write).await?;
+    authenticate(&link, tunnel_keys.as_ref(), dialer, &identity, peer, write).await?;
     dialer.links.lock().expect("links").insert(peer.to_owned(), Arc::clone(&link));
     Ok(link)
 }
@@ -363,26 +364,48 @@ async fn link_to(
 /// `auth` as a Mac: the peer's challenge signed with this Mac's identity key.
 async fn authenticate(
     link: &Link,
+    tunnel_keys: Option<&crate::pairing::TunnelKeys>,
     dialer: &Dialer,
     identity: &MacIdentity,
     peer: &str,
     write: &mut tokio::net::unix::OwnedWriteHalf,
 ) -> Result<(), Refused> {
     let closed = |what: &str| ("closed", format!("the link closed during {what}"));
-    let mut channel = link
-        .open(
-            "auth",
-            json!({"identityKey": identity.public_key(), "approvalKey": "", "name": dialer.device_name, "kind": "mac"}),
-        )
-        .await
-        .map_err(|_| closed("auth"))?;
+    let mut args = json!({"identityKey": identity.public_key(), "approvalKey": "", "name": dialer.device_name, "kind": "mac"});
+    // On a tunnel, this Mac's signature covers the keys its tunnel handshook with.
+    if tunnel_keys.is_some() {
+        args["proofVersion"] = json!(crate::pairing::PROOF_V2);
+    }
+    let mut channel = link.open("auth", args).await.map_err(|_| closed("auth"))?;
     let challenge = next_reply(&mut channel).await?;
     let nonce = challenge.get("challenge").and_then(Value::as_str).unwrap_or_default();
     if challenge.get("mac").and_then(Value::as_str) != Some(peer) {
         return Err(("bad_reply", "that machine answered for another device id".to_owned()));
     }
-    let message =
-        crate::pairing::challenge_message(peer, &dialer.device_id, nonce, identity.public_key(), "", "pair");
+    let v2 = challenge.get("proofVersion").and_then(Value::as_str) == Some(crate::pairing::PROOF_V2);
+    let message = match tunnel_keys {
+        Some(keys) if v2 => crate::pairing::challenge_message_v2(
+            peer,
+            &dialer.device_id,
+            nonce,
+            identity.public_key(),
+            "",
+            "pair",
+            keys,
+        ),
+        // The answering Mac said v2 on a link with no tunnel keys here: not this link's Mac.
+        None if v2 => {
+            return Err(("bad_reply", "that machine proved a tunnel this link does not have".to_owned()));
+        }
+        _ => crate::pairing::challenge_message(
+            peer,
+            &dialer.device_id,
+            nonce,
+            identity.public_key(),
+            "",
+            "pair",
+        ),
+    };
     let signature = identity.sign(&message).ok_or(("unavailable", "could not sign".to_owned()))?;
     channel
         .send(Bytes::from(json!({"signature": signature}).to_string()))

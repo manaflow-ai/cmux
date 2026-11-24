@@ -336,3 +336,23 @@ fn dialog_answers_name_who_answers() {
     assert_eq!(chief["origin"], "mcp");
     assert_eq!(chief["caller"], json!({"home_chat": true}));
 }
+
+/// `cmux agents chat new --help` prints that verb's lines and its `--on` start, not the whole
+/// agents help (the Cloud and remote command matrix).
+#[test]
+fn each_agents_verb_has_its_own_help() {
+    let words = |text: &str| text.split_whitespace().map(str::to_owned).collect::<Vec<_>>();
+    let new = verb_help(&words("chat new --help")).expect("chat new");
+    assert!(
+        new.starts_with("Usage: cmux agents chat new\n\n  cmux agents chat new [--workspace"),
+        "{new}"
+    );
+    assert!(new.contains("--on vm:ID|NAME|new"), "{new}");
+    assert!(!new.contains("chat send"), "{new}");
+    let send = verb_help(&words("chat send abc --help")).expect("chat send");
+    assert!(send.starts_with("Usage: cmux agents chat send\n"), "{send}");
+    let dialog = verb_help(&words("dialog --help")).expect("dialog");
+    assert_eq!(dialog.lines().filter(|line| line.contains("agents dialog")).count(), 4, "{dialog}");
+    assert_eq!(verb_help(&words("--help")), None);
+    assert_eq!(verb_help(&words("no-such --help")), None);
+}

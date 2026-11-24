@@ -66,10 +66,6 @@ path = "tests/test_bead_autoclose.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_benchmark_dev_fleet_warm_slots.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_browser_host_release_package.py"
 lane = "linux-guard"
 
@@ -118,6 +114,11 @@ path = "tests/test_chromium_staleness.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_fast_track.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/ci/fast_track.py (the fast-track class) and its use in scripts/ci/pr_router.py; run python3 -m unittest tests/test_ci_fast_track.py yourself after editing either or risk_tier.py's RULES."
+
+[[test]]
 path = "tests/test_classic_api_guard.py"
 lane = "linux-guard"
 
@@ -153,6 +154,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_crash_ratchet_compare.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_rust_panic_ratchet_base_broken.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_rust_panic_ratchet_base_broken.py"
 
 [[test]]
 path = "tests/test_dead_code_stripping.py"
@@ -209,6 +215,10 @@ path = "tests/test_fake_socket_env.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_fast_gates_lanes.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_feat_ci_guard_group.py"
 lane = "linux-guard"
 
@@ -225,13 +235,14 @@ path = "tests/test_fetch_run_artifact.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_fleet_test_host.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_files_host_dev_only.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). Proves cmux Files (dev) never reaches a shipped build (docs/cmux-files-host.md, Production): runs the real embed-files-host-dev.sh for every Release configuration and shipped bundle id against a stub asset, and checks FilesHost's #if DEBUG gate. Run python3 tests/test_files_host_dev_only.py on a fleet Mac after changing the embed phase, FilesHost or the pin (seconds; macOS ditto and codesign, no build)."
+
+[[test]]
+path = "tests/test_fleet_test_host.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_fleet_test_host.py"
 
 [[test]]
 path = "tests/test_format_post_edit.py"
@@ -344,10 +355,6 @@ path = "tests/test_intent_familiar_warning.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_iroh_drift_issue.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_iroh_monitor_simulator_plan.py"
 lane = "legacy"
 
@@ -398,6 +405,11 @@ reason = "Run by the lane that changes scripts/live-code/patch.py (kept manual u
 path = "tests/test_live_code_ldflags_quoting.py"
 lane = "manual"
 reason = "Run by the lane that changes the live code xcodebuild args (scripts/live-code/lib/xcodebuild-args.sh; kept manual under the 2026-10-23 no-new-CI rule, since lifted): python3 tests/test_live_code_ldflags_quoting.py; needs only bash and python3."
+
+[[test]]
+path = "tests/test_live_code_patch_commands.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_live_code_patch_commands.py"
 
 [[test]]
 path = "tests/test_live_code_patch_tree.py"
@@ -490,10 +502,6 @@ path = "tests/test_merge_xcstrings.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_mobile_stability_soak_attach_contract.py"
-lane = "legacy"
-
-[[test]]
 path = "tests/test_needs_verdict.py"
 lane = "linux-guard"
 
@@ -508,6 +516,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_next_batch_groups.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_next_closes_issues.py"
 lane = "linux-guard"
 
 [[test]]
@@ -929,6 +941,10 @@ reason = "Run by the lane that changes try-pr.sh or scripts/live-code/patch.py (
 
 [[test]]
 path = "tests/test_ui_font.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ui_preview_worker.py"
 lane = "linux-guard"
 
 [[test]]
