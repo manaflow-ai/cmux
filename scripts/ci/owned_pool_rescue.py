@@ -354,7 +354,6 @@ UNRESCUED_WORKFLOW_PATHS = {
     ".github/workflows/cmux-next-fast-gates.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-next-notices.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-next-perf-budgets.yml": _POOL_READ_WHY,
-    ".github/workflows/cmux-next-pr-merge-tree.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-next-remote-daemon.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-next-web-bundles.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-tui-sdks.yml": _POOL_READ_WHY,
@@ -374,7 +373,6 @@ UNRESCUED_WORKFLOW_PATHS = {
     ".github/workflows/required-checks-drift.yml": _POOL_READ_WHY,
     ".github/workflows/risk-tier-tests.yml": _POOL_READ_WHY,
     ".github/workflows/signing-keychain-macos.yml": _POOL_READ_WHY,
-    ".github/workflows/testbox-broker-guard.yml": _POOL_READ_WHY,
     ".github/workflows/web-validation.yml": _POOL_READ_WHY,
     ".github/workflows/docs-only-fallback.yml":
         "its own gate is one small Linux job; it only calls ci.yml (and the other docs-only workflows) in the pull "
