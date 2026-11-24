@@ -1,3 +1,4 @@
+#if os(iOS)
 import Foundation
 import Testing
 @testable import CmuxMobileLive
@@ -16,3 +17,4 @@ import Testing
         #expect(LiveCoordinator.nextLinkDownSince(nil, down: false, now: drop) == nil)
     }
 }
+#endif
