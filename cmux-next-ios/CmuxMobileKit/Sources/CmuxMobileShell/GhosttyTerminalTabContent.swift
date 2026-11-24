@@ -47,9 +47,6 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     /// Each host's Mac. Tab ids (`s<surface>`) repeat across Macs: a tab of
     /// another Mac with the same id gets its own host, never this one.
     private var hostMacs: [String: String] = [:]
-    /// Per tab: "Reattaching…" in the title pill after a slow reattach (P5),
-    /// fed from the host model's `connectionState` while the tab has a host.
-    private var indicators: [String: ReattachIndicator<ContinuousClock>] = [:]
     /// What each tab's page and card show; a placeholder host is swapped for
     /// the live one in place, so a page already on screen attaches (R1-0).
     private var slots: [String: TerminalTabSlot] = [:]
@@ -186,7 +183,6 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     private func canGoLive(_ id: String) -> Bool {
         hasLiveSession?(id, placeholderTabs[id]?.workspace.macID) ?? false
     }
-    private var feeds: [String: Task<Void, Never>] = [:]
     /// Live mode: a session on the Mac for a terminal tab (a daemon surface),
     /// or nil while there is none yet (the tab then shows "Connecting…").
     var reconnect: (@MainActor (String) -> Void)?
@@ -301,7 +297,6 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         upgrade.built(tabID: tab.id, workspaceID: workspace.id, live: live != nil)
         placeholderTabs[tab.id] = live == nil ? (tab, workspace) : nil
         if let slot = slots[tab.id] { slot.host = host }
-        watchReattach(tab.id, model: model)
         workspaceOwner[tab.id] = workspace.id
         hostMacs[tab.id] = workspace.macID
         return host
@@ -312,8 +307,6 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         let key = hostFrameKeys.removeValue(forKey: id)
         hosts.removeValue(forKey: id)?.model.session.stop()
         cardViews[id] = nil
-        stopWatching(id)
-        indicators[id] = nil
         workspaceOwner[id] = nil
         hostMacs[id] = nil
         liveTabs.remove(id)
@@ -334,8 +327,6 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     /// Drops every host (another account or live data stopped).
     func reset() {
         endedShells = []
-        for id in Array(feeds.keys) { stopWatching(id) }
-        indicators = [:]
         // Each session releases its size on the Mac before its channel closes.
         for host in hosts.values { host.model.session.stop() }
         hosts = [:]
@@ -414,58 +405,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         upgrade.removed(tabID: id)
         placeholderTabs[id] = nil
         host.model.session.stop()
-        stopWatching(id)
         liveTabs.remove(id)
         warmLog.info("terminal tab \(id, privacy: .public) cooled (warm set of \(Self.warmLimit, privacy: .public)), last frame \(frameState, privacy: .public), reader \(placeState, privacy: .public)")
-    }
-
-    // MARK: Reattach indicator (design/terminal P5)
-
-    /// The tab's indicator, made on first read and kept, so the tab list
-    /// that read it observes it before the tab's host exists. Not observed
-    /// state itself: making one during a view update notifies nothing.
-    private func indicator(_ id: String) -> ReattachIndicator<ContinuousClock> {
-        if let indicator = indicators[id] { return indicator }
-        // The pill says "Reattaching…" only once an outage lasted as long as the
-        // composer's quiet line waits (10 s): a blip changes nothing on screen.
-        let indicator = ReattachIndicator(clock: ContinuousClock(), delay: QuietStatusGate.threshold)
-        indicators[id] = indicator
-        return indicator
-    }
-
-    /// Feeds the tab's indicator from its host model's connection state.
-    private func watchReattach(_ id: String, model: TerminalModel) {
-        stopWatching(id)
-        let indicator = indicator(id)
-        feeds[id] = Task { [weak indicator, model] in
-            for await state in Observations({ model.connectionState }) {
-                guard let indicator else { return }
-                if case .offline = state { indicator.update(offline: true); continue }
-                indicator.update(offline: false)
-                // Any outage (a reattach, a first connect, a failure) says so in
-                // the pill past the quiet bound: the page has no status row.
-                indicator.update(reattaching: !state.isAttached)
-            }
-        }
-    }
-
-    /// The host went away (closed or cooled). A cooled tab's next host feeds
-    /// the same indicator again.
-    private func stopWatching(_ id: String) {
-        feeds.removeValue(forKey: id)?.cancel()
-        indicators[id]?.cancel()
-    }
-
-    /// A read (no host is created): the tab's pill says "Reattaching…" (or
-    /// "Connecting…", "Can't connect") while its outage has lasted
-    /// `QuietStatusGate.threshold` or more, "Mac offline" at once. The only
-    /// place a terminal tab shows its connection: no row by the composer
-    /// (Leo, 2026-11-17: "The reconnect takes an extra line").
-    func statusSubtitle(for tab: WorkspaceTab) -> String? {
-        let indicator = indicator(tab.id)
-        if indicator.isOffline { return "Mac offline" }
-        guard indicator.isShown else { return nil }
-        return hosts[tab.id]?.model.connectionState.pillSubtitle ?? "Reattaching…"
     }
 
     func focusInput(for tab: WorkspaceTab, in workspace: Workspace) {
@@ -715,8 +656,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         // The keyboard toggle and ^C live on the key bar, and Back leaves
         // the workspace, so the menu does not repeat them (design/terminal P1).
         var actions: [TerminalTabAction] = []
-        // Retry, past the quiet bound of an outage only (the pill says
-        // "Reattaching…" then): first in the menu, no layout space on the page.
+        // Retry, past the quiet bound of an outage only (the connection chip
+        // shows then): first in the menu, no layout space on the page.
         if model.offersReconnect, let reconnect = model.reconnect {
             actions.append(TerminalTabAction(title: "Reconnect", systemImage: "arrow.clockwise") { Task { await reconnect() } })
         }
@@ -843,6 +784,44 @@ struct TerminalTabSlotPage: View {
     var body: some View {
         TerminalTabPage(host: slot.host, insets: insets, isInteractive: isInteractive)
             .id(ObjectIdentifier(slot.host))
+            .overlay(alignment: .bottomLeading) {
+                TerminalConnectionChip(model: slot.host.model, insets: insets)
+            }
+    }
+}
+
+/// The terminal's connection, as the same ``ConnectionChip`` the other surfaces show: nothing
+/// for the first ``QuietStatusGate/threshold`` of an outage (the page keeps its last frame,
+/// live and touchable), then the chip just above the key row and composer, as the agent chat
+/// places it (`AgentChatConnectionLine`). An overlay, never in the stack, so it moves nothing
+/// (Leo, 2026-11-21: "stop layout shifting"). It replaces the title pill's "Reattaching…"
+/// (Leo, 2026-11-24: "there's some b******t about like, you know, the reattaching dot, dot,
+/// dot type thing"); Reconnect stays in the page menu.
+struct TerminalConnectionChip: View {
+    let model: TerminalModel
+    let insets: EdgeInsets
+
+    var body: some View {
+        // `connectionLine` is nil until the model's QuietStatusGate has held the outage.
+        let chip = model.connectionLine == nil ? nil : model.connectionState.chip
+        Group {
+            if let chip {
+                ConnectionChip(chip, downSince: nil) // the model held it (QuietStatusGate)
+                    .padding(.leading, 20)
+                    .padding(.bottom, bottom)
+                    .transition(.opacity)
+            }
+        }
+        .animation(.cmuxMobileSmooth.unlessReduceMotion, value: chip)
+    }
+
+    /// 8 pt above the dock at rest (key row and one-line composer), which sits 8 pt above
+    /// the toolbar inset.
+    private var bottom: CGFloat {
+        let dock = TerminalDockMetrics().restingStackHeight(
+            lineHeight: UIFont.preferredFont(forTextStyle: .body).lineHeight,
+            visibility: TerminalDockVisibility(chromeHidden: model.chromeHidden, composerPresented: model.composerPresented))
+        return insets.bottom + 8 + dock + 8
     }
 }
 

@@ -155,7 +155,8 @@ import UIKit
 
     /// Past the quiet bound of a reattach, the composer is the height it is
     /// attached (before: a footnote row, "Reconnecting to Demo Mac… · Retry").
-    /// The state reads in the pill, Reconnect in the page menu.
+    /// The state reads in the page's ConnectionChip (an overlay), Reconnect in
+    /// the page menu; nothing says "Reattaching…" (Leo, 2026-11-24).
     @Test func aReattachTakesNoRowByTheComposer() {
         let model = TerminalModel(session: Silent(), artifactSource: UnavailableArtifactSource(), title: "zsh",
                                   quietStatus: QuietStatusGate(delay: .zero))
@@ -167,16 +168,16 @@ import UIKit
         model.ingest(.connection(.reattaching(mac: "Demo Mac")))
         #expect(model.connectionLine == "Reconnecting to Demo Mac…", "past the quiet bound")
         #expect(model.offersReconnect, "Reconnect is offered (in the page menu)")
-        #expect(model.connectionState.pillSubtitle == "Reattaching…")
+        #expect(model.connectionState.chip == .init(.reconnecting, sentence: "Reconnecting to Demo Mac…"))
         #expect(Self.composerHeight(model) == attached, "a reattach adds no row by the composer")
 
         model.ingest(.connection(.failed(message: "daemon channel closed")))
-        #expect(model.connectionState.pillSubtitle == "Can't connect")
+        #expect(model.connectionState.chip == .init(.cantReach, sentence: "Can't reach this terminal"))
         #expect(Self.composerHeight(model) == attached)
 
         model.ingest(.connection(.attached))
         #expect(!model.offersReconnect)
-        #expect(model.connectionState.pillSubtitle == nil)
+        #expect(model.connectionState.chip == nil)
     }
 }
 #endif

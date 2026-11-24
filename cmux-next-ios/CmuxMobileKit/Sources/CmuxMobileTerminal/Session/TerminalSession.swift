@@ -70,54 +70,26 @@ public enum TerminalConnectionState: Sendable, Equatable {
         !isAttached && sessionStarted
     }
 
-    /// The placeholder's label ("Connecting to Aziz's Mac Studio…", "Reattaching…").
-    public var label: String? {
-        switch self {
-        case .connecting(let mac):
-            guard let mac, !mac.isEmpty else { return "Connecting…" }
-            return "Connecting to \(mac)…"
-        case .reattaching:
-            return "Reattaching…"
-        case .offline(let mac):
-            guard let mac, !mac.isEmpty else { return "Your Mac is offline" }
-            return "\(mac) is offline"
-        case .failed(let message):
-            return message
-        case .attached:
-            return nil
-        }
-    }
-
-    /// The quiet line by the composer once an outage has lasted
-    /// `QuietStatusGate.threshold` (nil: attached). Plain words, never a
-    /// transport error ("daemon channel closed").
+    /// The sentence for an outage that has lasted `QuietStatusGate.threshold`
+    /// (nil: attached): the terminal's ``ConnectionChip`` reads it to VoiceOver
+    /// (``chip``). Plain words, never a transport error ("daemon channel
+    /// closed"), never "Reattaching…" (Leo, 2026-11-24).
     public var quietLine: String? {
         func named(_ mac: String?) -> String { mac.flatMap { $0.isEmpty ? nil : $0 } ?? "your Mac" }
         switch self {
         case .connecting(let mac): return "Connecting to \(named(mac))…"
         case .reattaching(let mac): return "Reconnecting to \(named(mac))…"
-        case .offline: return label
+        case .offline(let mac):
+            guard let mac, !mac.isEmpty else { return "Your Mac is offline" }
+            return "\(mac) is offline"
         case .failed: return "Can't reach this terminal"
         case .attached: return nil
         }
     }
 
-    /// The title pill's subtitle once an outage lasted
-    /// `QuietStatusGate.threshold` (nil: attached). A few words in place of
-    /// the working directory: the page itself gets no status row.
-    public var pillSubtitle: String? {
-        switch self {
-        case .connecting: return "Connecting…"
-        case .reattaching: return "Reattaching…"
-        case .offline: return "Mac offline"
-        case .failed: return "Can't connect"
-        case .attached: return nil
-        }
-    }
-
     /// A dropped tab (reattaching, or its Mac offline): a warm surface keeps
-    /// its last frame live and readable under no overlay; the title pill says
-    /// what is going on.
+    /// its last frame live and readable under no overlay; past the quiet
+    /// bound a ``ConnectionChip`` says what is going on (``chip``).
     public var keepsWarmFrame: Bool {
         switch self {
         case .reattaching, .offline, .failed: true
@@ -410,3 +382,28 @@ public struct AlternateScreenDetector: Sendable {
         return isActive == before ? nil : isActive
     }
 }
+
+#if os(iOS)
+import CmuxMobileDesign
+
+extension TerminalConnectionState {
+    /// The terminal's connection as the same ``ConnectionChip`` every other surface shows (the
+    /// Home list, Workspaces, agent chat, the browser), with ``quietLine`` as its VoiceOver
+    /// sentence; nil while attached. The terminal's only connection text: no pill subtitle,
+    /// no "Reattaching…" (Leo, 2026-11-24: "there's some b******t about like, you know, the
+    /// reattaching dot, dot, dot type thing"). Shown only past the quiet bound
+    /// (`TerminalModel.connectionLine`).
+    public var chip: ConnectionChip.Content? {
+        guard let sentence = quietLine else { return nil }
+        let kind: ConnectionChip.Kind
+        switch self {
+        case .connecting: kind = .connecting
+        case .reattaching: kind = .reconnecting
+        case .offline: kind = .macOffline
+        case .failed: kind = .cantReach
+        case .attached: return nil
+        }
+        return ConnectionChip.Content(kind, sentence: sentence)
+    }
+}
+#endif

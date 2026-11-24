@@ -484,12 +484,12 @@ public final class WorkspaceTabsSource: TabsDataSource {
             )
         case .terminal:
             let directory = tab.subtitle ?? workspace.directory
-            // "Reattaching…" replaces the directory in the pill only after a slow reattach (P5).
-            let status = terminal.statusSubtitle(for: tab)
+            // The pill always shows the directory: the connection is the page's
+            // ConnectionChip past the quiet bound, never pill words (Leo, 2026-11-24).
             return TabsKitTab(
                 id: tab.id, kind: .terminal, title: tab.title, subtitle: directory,
                 systemImage: tab.isPinned ? "pin.fill" : "apple.terminal",
-                address: .title(tab.title, subtitle: status ?? directory, monospaced: status == nil),
+                address: .title(tab.title, subtitle: directory, monospaced: true),
                 navigation: TabsKitNavigationState(canGoBack: true),
                 features: [.history, .pageMenu],
                 statusBarStyle: .lightContent

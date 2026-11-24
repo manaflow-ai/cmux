@@ -67,11 +67,6 @@ public protocol TerminalTabContent: AnyObject {
     /// New Tab from Text's `!command`: the command waits in the terminal's composer, typed and
     /// not run (the Mac's `newTab.submit` types it into the new terminal), with the keyboard up.
     func draft(_ text: String, for tab: WorkspaceTab, in workspace: Workspace)
-    /// Replaces the title pill's subtitle (the working directory) while the
-    /// tab's state matters more, e.g. "Reattaching…" after a slow reattach
-    /// (design/terminal P5). Nil keeps the directory. Read during view
-    /// updates: must not create a tab's host or write state.
-    func statusSubtitle(for tab: WorkspaceTab) -> String?
     /// The app went to the background (false) or came back: the grid's view
     /// still counts as visible in the background, so its refresh stops here.
     func sceneActiveChanged(_ active: Bool)
@@ -92,7 +87,6 @@ extension TerminalTabContent {
     public func overviewScrollingChanged(_ scrolling: Bool) {}
     public func focusInput(for tab: WorkspaceTab, in workspace: Workspace) {}
     public func draft(_ text: String, for tab: WorkspaceTab, in workspace: Workspace) {}
-    public func statusSubtitle(for tab: WorkspaceTab) -> String? { nil }
     public func sceneActiveChanged(_ active: Bool) {}
     public func observeOutput(_ owner: AnyObject, _ handler: @escaping @MainActor (String?, String) -> Void) {}
 }
