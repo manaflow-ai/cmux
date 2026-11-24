@@ -50,6 +50,12 @@ With FAKE_STEER_NO_TURN_AT_END=1 a steer is never read: the turn ends first, and
 steer is answered "steer: no turn is running" after the turn's own answer, as
 Claude Code's translator answers a message it held for a tool step that never came.
 
+FAKE_REVIEW_CMUX=<cmux-tui binary> with FAKE_REVIEW_SOCKET=<daemon socket>: a prompt that
+starts "Code review of " (a threaded diff.comments.send) is answered in each of its threads,
+as a real agent follows the prompt: for every "## Thread <id>:" section that does not say it
+"needs no answer", the agent runs `<bin> git comments reply <id> --root <root> --text
+"answered <id>"` against that socket, then echoes the prompt as any other.
+
 FAKE_SESSION_PREFIX=<p>: session ids are <p><n> instead of fake-<n> (an id as
 long as a real agent's, for checks that refuse short ones).
 
@@ -551,6 +557,26 @@ def run_goal(rid, sid, text):
     send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
 
 
+def answer_review_threads(text):
+    """Answer each thread of a threaded review in that thread, through the cmux CLI."""
+    import re
+    import shlex
+    import subprocess
+    root = re.search(r"--root ('(?:[^']|'\\'')*')", text)
+    root = shlex.split(root.group(1))[0] if root else ""
+    env = dict(os.environ, CMUX_TUI_SOCKET=os.environ.get("FAKE_REVIEW_SOCKET", ""))
+    for section in re.split(r"(?m)^## Thread ", text)[1:]:
+        thread_id = section.split(":", 1)[0].strip()
+        if "needs no answer" in section:
+            continue
+        subprocess.run(
+            [os.environ["FAKE_REVIEW_CMUX"], "git", "comments", "reply", thread_id,
+             "--root", root, "--text", "answered " + thread_id, "--json"],
+            env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            timeout=60, check=False,
+        )
+
+
 def handle_prompt(rid, params):
     sid = params["sessionId"]
     # Model a harness that scopes an interrupt to the prompt it is processing.
@@ -558,6 +584,8 @@ def handle_prompt(rid, params):
         cancelled.discard(sid)
     blocks = params.get("prompt", [])
     text = prompt_text(params)
+    if os.environ.get("FAKE_REVIEW_CMUX") and text.startswith("Code review of "):
+        answer_review_threads(text)
     if text.startswith("envs:"):
         names = [name.strip() for name in text[5:].split(",") if name.strip()]
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {
@@ -1599,6 +1627,18 @@ def handle_prompt(rid, params):
         chunk("d")
         done(2)
         chunk("e")
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "background-subagent" starts background subagent bg-quiet and ends the turn at once, as a
+    # coordinator's Claude Agent call with run_in_background outlives its turn;
+    # "background-subagent-done" reports it completed.
+    if text in ("background-subagent", "background-subagent-done"):
+        if text == "background-subagent":
+            update(sid, {"sessionUpdate": "subagent_spawned", "subagentSessionId": "bg-quiet", "name": "Background",
+                         "task": "Background audit", "background": True, "capabilities": {}})
+        else:
+            update(sid, {"sessionUpdate": "subagent_state_update", "subagentSessionId": "bg-quiet", "state": "completed"})
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     if text == "reply-segments":
