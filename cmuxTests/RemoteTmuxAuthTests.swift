@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 import Testing
 
@@ -124,17 +125,22 @@ import Testing
     @Test func eachCmuxBuildGetsItsOwnSocketAndTheReleaseAppKeepsItsName() {
         let host = RemoteTmuxHost(destination: "user@host")
         let release = host.controlSocketPath(
-            namespace: RemoteTmuxHost.controlSocketNamespace(bundleIdentifier: "com.cmuxterm.app"))
+            namespace: SSHControlSocketBuildIdentity.namespace(bundleIdentifier: "com.cmuxterm.app"))
         let nightly = host.controlSocketPath(
-            namespace: RemoteTmuxHost.controlSocketNamespace(bundleIdentifier: "com.cmuxterm.app.nightly"))
+            namespace: SSHControlSocketBuildIdentity.namespace(bundleIdentifier: "com.cmuxterm.app.nightly"))
         let tagged = host.controlSocketPath(
-            namespace: RemoteTmuxHost.controlSocketNamespace(bundleIdentifier: "com.cmuxterm.app.debug.feature"))
+            namespace: SSHControlSocketBuildIdentity.namespace(bundleIdentifier: "com.cmuxterm.app.debug.feature"))
         #expect(release.hasSuffix("-\(host.connectionHash).sock"))
         #expect(Set([release, nightly, tagged]).count == 3)
         #expect(nightly == host.controlSocketPath(
-            namespace: RemoteTmuxHost.controlSocketNamespace(bundleIdentifier: "com.cmuxterm.app.nightly")))
-        #expect(RemoteTmuxHost.controlSocketNamespace(bundleIdentifier: nil) == nil)
-        #expect(RemoteTmuxHost.controlSocketNamespace(bundleIdentifier: "") == nil)
+            namespace: SSHControlSocketBuildIdentity.namespace(bundleIdentifier: "com.cmuxterm.app.nightly")))
+        // The mirror socket takes its digest from the shared build identity, the same place the
+        // `cmux ssh` directory and lock names read the build from.
+        #expect(host.controlSocketKey(namespace: "com.cmuxterm.app.nightly")
+            == SSHControlSocketBuildIdentity.socketKey(
+                connectionHash: host.connectionHash, namespace: "com.cmuxterm.app.nightly"))
+        #expect(SSHControlSocketBuildIdentity.namespace(bundleIdentifier: nil) == nil)
+        #expect(SSHControlSocketBuildIdentity.namespace(bundleIdentifier: "") == nil)
     }
 
     @Test func tmuxSocketPermissionErrorIsNotAnAuthPrompt() {

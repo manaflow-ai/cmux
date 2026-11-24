@@ -226,27 +226,16 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
         return "\(prefix)\(Self.trimmedToUTF8ByteBudget(slug, slugBudget))\(suffix)"
     }
 
-    /// The release app's bundle identifier. It keeps the socket name it has always had, so an
-    /// existing master survives the upgrade that introduced the per-app name.
-    static let releaseBundleIdentifier = "com.cmuxterm.app"
-
     /// The app this process's control sockets belong to: `nil` for the release app, the bundle
     /// identifier for any other cmux build.
     static var controlSocketNamespace: String? {
-        controlSocketNamespace(bundleIdentifier: Bundle.main.bundleIdentifier)
-    }
-
-    static func controlSocketNamespace(bundleIdentifier: String?) -> String? {
-        guard let bundleIdentifier, !bundleIdentifier.isEmpty,
-              bundleIdentifier != releaseBundleIdentifier else { return nil }
-        return bundleIdentifier
+        SSHControlSocketBuildIdentity.namespace(bundleIdentifier: Bundle.main.bundleIdentifier)
     }
 
     /// The digest in the socket filename: the endpoint's ``connectionHash``, mixed with the app
-    /// when there is one. Same length either way, so the path budget does not change.
+    /// when there is one.
     func controlSocketKey(namespace: String?) -> String {
-        guard let namespace else { return connectionHash }
-        return Self.fnv1a64Hex("\(connectionHash)\u{1f}\(namespace)")
+        SSHControlSocketBuildIdentity.socketKey(connectionHash: connectionHash, namespace: namespace)
     }
 
     /// macOS caps an AF_UNIX `sun_path` at 104 bytes (including the NUL

@@ -138,7 +138,7 @@ public struct SSHConnectionSharingOptions: Sendable {
         let url = URL(fileURLWithPath: directory, isDirectory: true)
         let name = url.lastPathComponent
         guard url.deletingLastPathComponent().lastPathComponent == "ssh",
-              SSHControlSocketDirectory.isNamespaceDirectoryName(name) else {
+              SSHControlSocketBuildIdentity.isNamespaceDirectoryName(name) else {
             return "cmux-ssh-\(userID)"
         }
         return "cmux-ssh-\(userID)-\(name)"

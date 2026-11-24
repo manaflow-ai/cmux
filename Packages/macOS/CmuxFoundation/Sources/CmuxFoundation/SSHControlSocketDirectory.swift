@@ -33,7 +33,7 @@ enum SSHControlSocketDirectory {
         let sharedDirectory = (cmuxDirectory as NSString).appendingPathComponent("ssh")
         var directories = [cmuxDirectory, sharedDirectory]
         if let namespace {
-            directories.append((sharedDirectory as NSString).appendingPathComponent(directoryName(for: namespace)))
+            directories.append((sharedDirectory as NSString).appendingPathComponent(SSHControlSocketBuildIdentity.directoryName(for: namespace)))
         }
         let socketDirectory = directories[directories.count - 1]
         for directory in directories {
@@ -45,9 +45,6 @@ enum SSHControlSocketDirectory {
         guard isUsable(resolved), isPrivate(resolved, userID: userID) else { return nil }
         return resolved
     }
-
-    /// The release app's bundle identifier. Its sockets stay where they have always been.
-    static let releaseBundleIdentifier = "com.cmuxterm.app"
 
     /// Which cmux build this process belongs to, or `nil` for the release app.
     ///
@@ -65,9 +62,8 @@ enum SSHControlSocketDirectory {
         bundleIdentifier: String? = Bundle.main.bundleIdentifier,
         executableURL: URL? = Bundle.main.executableURL
     ) -> String? {
-        let identifier = bundleIdentifier ?? executableURL.flatMap(enclosingAppBundleIdentifier)
-        guard let identifier, !identifier.isEmpty, identifier != releaseBundleIdentifier else { return nil }
-        return identifier
+        SSHControlSocketBuildIdentity.namespace(
+            bundleIdentifier: bundleIdentifier ?? executableURL.flatMap(enclosingAppBundleIdentifier))
     }
 
     /// The bundle identifier of the `.app` that contains `executableURL`, following symlinks so a
@@ -81,28 +77,6 @@ enum SSHControlSocketDirectory {
             }
         }
         return nil
-    }
-
-    /// A short, fixed-length directory name for a namespace, so a long tag cannot push the socket
-    /// path past the AF_UNIX limit. Eight hex characters: the nested directory costs nine bytes of
-    /// a 103-byte path that already holds a 40-character socket name and OpenSSH's 17-byte bind
-    /// suffix. A home too long to fit the extra bytes shares no connections, as one too long for
-    /// the shared directory already does.
-    static func directoryName(for namespace: String) -> String {
-        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
-        for byte in namespace.utf8 {
-            hash ^= UInt64(byte)
-            hash = hash &* 0x0000_0100_0000_01b3
-        }
-        return String(format: "%08llx", hash & 0xffff_ffff)
-    }
-
-    /// Whether `name` is a directory name ``directoryName(for:)`` produces.
-    static func isNamespaceDirectoryName(_ name: String) -> Bool {
-        name.utf8.count == 8 && name.utf8.allSatisfy { byte in
-            (UInt8(ascii: "0")...UInt8(ascii: "9")).contains(byte)
-                || (UInt8(ascii: "a")...UInt8(ascii: "f")).contains(byte)
-        }
     }
 
     /// Whether `path` can go into a `ControlPath` and a shell pattern
