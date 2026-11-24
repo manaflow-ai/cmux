@@ -10,7 +10,7 @@
 //
 // Usage: bun scripts/gallery/live-line-burst-capture.ts OUT_DIR [--looks a,b] [--busy MS]
 // `--busy MS` blocks the main thread MS of every 16 ms frame, as a loaded pane does. `--rate R` plays
-// the page's CSS animations at R (0.25 is a quarter speed) to show a roll's shape on video; the dwell's
+// the page's CSS animations at R (0.25 is a quarter speed) to show a roll's shape on video; the call entry
 // timers keep real time, so its counts are read at rate 1 only.
 // Writes OUT_DIR/<look>/*.webm and OUT_DIR/report.json, and prints one JSON line per look.
 import fs from "node:fs";
@@ -28,7 +28,7 @@ const flag = (name: string) => {
 const outRoot = path.resolve(
   args.find((arg, i) => !arg.startsWith("--") && !args[i - 1]?.startsWith("--")) ?? "live-line-burst-capture",
 );
-const LOOKS = (flag("--looks") ?? "before,dwell-roll,feather,cross,reduced").split(",");
+const LOOKS = (flag("--looks") ?? "before,entry-roll,feather,cross,reduced").split(",");
 const busy = Number(flag("--busy") ?? 0);
 const rate = Number(flag("--rate") ?? 1);
 fs.mkdirSync(outRoot, { recursive: true });

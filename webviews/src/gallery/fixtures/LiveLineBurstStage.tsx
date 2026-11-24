@@ -4,10 +4,10 @@
 // rapidly flickering up with very bad/nonexistent fade-in fade-out"). A scripted timeline loops: the
 // line thinks, makes one call, then a burst of 30 changes in 2 s (a call, Thinking, a call, ...), a
 // run of messages sent one after another, one long command, and rests. The real transcript row
-// (rows/ThinkingRow.tsx) draws it, so its dwell (liveDwell.ts) and its roll (conversation.css) are
+// (rows/ThinkingRow.tsx) draws it, so its call entry (liveCallEntry.ts) and its roll (conversation.css) are
 // the shipped ones; each look pins one of them, so a recording of each shows the difference.
 import { useEffect, useLayoutEffect, useMemo, useState } from "react";
-import { LiveDwellContext, LIVE_DWELL_MS } from "../../agent-session/acpmux/conversation/liveDwell";
+import { LiveCallEntryContext, LIVE_CALL_ENTRY_MS } from "../../agent-session/acpmux/conversation/liveCallEntry";
 import { LIVE_THINKING, THINKING } from "../../agent-session/acpmux/conversation/turns";
 import type { AcpmuxRow } from "../../agent-session/acpmux/model";
 import { ThinkingRow } from "../../agent-session/acpmux/rows/ThinkingRow";
@@ -15,7 +15,7 @@ import { ThinkingRow } from "../../agent-session/acpmux/rows/ThinkingRow";
 /// What the live line draws from one moment on: a call (by id), else Thinking.
 type Step = { at: number; call?: { id: string; title: string; shell?: boolean; sendTo?: string } };
 
-const FILES = ["Thinking.tsx", "liveDwell.ts", "conversation.css", "ThinkingRow.tsx", "turns.ts"];
+const FILES = ["Thinking.tsx", "liveCallEntry.ts", "conversation.css", "ThinkingRow.tsx", "turns.ts"];
 const GREPS = ["useRoll", "cv-roll-out", "LIVE_THINKING", "data-live-swap"];
 const PEERS = ["tests", "review", "docs", "build"];
 
@@ -57,15 +57,15 @@ export const BURST_LOOP_MS = 12_000;
 const STEPS = timeline();
 
 /// How the live line changes its words in this variant.
-export type LiveLineBurstLook = "before" | "dwell-roll" | "feather" | "cross" | "reduced";
+export type LiveLineBurstLook = "before" | "entry-roll" | "feather" | "cross" | "reduced";
 
-/// The dwell and the hand-over look (conversation.css `data-live-swap`) each look pins.
-const LOOKS: Record<LiveLineBurstLook, { dwell: number; swap?: string; motion?: string }> = {
-  before: { dwell: 0, swap: "hard" },
-  "dwell-roll": { dwell: LIVE_DWELL_MS, swap: "hard" },
-  feather: { dwell: LIVE_DWELL_MS },
-  cross: { dwell: LIVE_DWELL_MS, swap: "cross" },
-  reduced: { dwell: LIVE_DWELL_MS, motion: "reduced" },
+/// The call entry wait and the hand-over look (conversation.css `data-live-swap`) each look pins.
+const LOOKS: Record<LiveLineBurstLook, { entry: number; swap?: string; motion?: string }> = {
+  before: { entry: 0, swap: "hard" },
+  "entry-roll": { entry: LIVE_CALL_ENTRY_MS, swap: "hard" },
+  feather: { entry: LIVE_CALL_ENTRY_MS },
+  cross: { entry: LIVE_CALL_ENTRY_MS, swap: "cross" },
+  reduced: { entry: LIVE_CALL_ENTRY_MS, motion: "reduced" },
 };
 
 export function LiveLineBurstStage({ look = "feather" }: { look?: LiveLineBurstLook }) {
@@ -90,8 +90,9 @@ export function LiveLineBurstStage({ look = "feather" }: { look?: LiveLineBurstL
     };
   }, [pinned.motion]);
   const t = (now - clock) % BURST_LOOP_MS;
-  const index = STEPS.findLastIndex((step) => step.at <= t);
-  const step = STEPS[Math.max(0, index)]!;
+  let index = 0;
+  while (index + 1 < STEPS.length && STEPS[index + 1]!.at <= t) index++;
+  const step = STEPS[index]!;
   const loop = Math.floor((now - clock) / BURST_LOOP_MS);
   const call = step.call;
   // Kept by identity while the step holds, as the transcript's rows are.
@@ -116,7 +117,7 @@ export function LiveLineBurstStage({ look = "feather" }: { look?: LiveLineBurstL
     [index, loop, clock, call, step.at],
   );
   return (
-    <LiveDwellContext.Provider value={pinned.dwell}>
+    <LiveCallEntryContext.Provider value={pinned.entry}>
       <div
         className="acpmux-shell"
         data-live-swap={pinned.swap}
@@ -140,6 +141,6 @@ export function LiveLineBurstStage({ look = "feather" }: { look?: LiveLineBurstL
           </output>
         </div>
       </div>
-    </LiveDwellContext.Provider>
+    </LiveCallEntryContext.Provider>
   );
 }

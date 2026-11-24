@@ -1,6 +1,6 @@
 import { memo, useContext } from "react";
 import { Thinking } from "../conversation/Thinking";
-import { LiveDwellContext, liveStatusKey, useKeyedDwell, withLiveStatus } from "../conversation/liveDwell";
+import { LiveCallEntryContext, useLiveStatus } from "../conversation/liveCallEntry";
 import { LiveLinePulseContext } from "../conversation/liveLinePulse";
 import { LIVE_THINKING } from "../conversation/turns";
 import { type RowProps } from "./rowProps";
@@ -11,14 +11,9 @@ export const ThinkingRow = memo(
   function ThinkingRow({ row: latest }: RowProps) {
     // The transcript's live line hears its chunks without a draw (liveLinePulse.ts).
     const pulse = useContext(LiveLinePulseContext);
-    // Each status stays at least a dwell, so a burst of calls rolls the line a few whole times, never
-    // thirty cut-off times (liveDwell.ts). The reply's first words never wait: the line turns to
-    // Writing in the frame they come, so no Thinking stands under a streaming answer.
-    const dwell = useContext(LiveDwellContext);
-    const row = withLiveStatus(
-      latest,
-      useKeyedDwell(liveStatusKey(latest), latest, latest.liveState === "writing" ? 0 : dwell),
-    );
+    // A call shows on the line only once it has run a moment, so a burst of quick calls leaves the line
+    // on Thinking instead of flickering through them (liveCallEntry.ts).
+    const row = useLiveStatus(latest, useContext(LiveCallEntryContext));
     return (
       <Thinking
         starting={row.queued !== undefined}

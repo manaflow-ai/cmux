@@ -3410,7 +3410,7 @@ body {
    at rest it is gone and nothing fades the words. Its width is a registered property, so it interpolates (on the main
    thread; a missed frame budget turns the chat's motion to 0, composerStates.css MINIMAL-MOTION); the
    two keyframe names swap each change, as the roll's do, to restart it. With the
-   live line's dwell (liveDwell.ts) each roll ends before the next begins. Any `data-live-swap` look
+   live line's call entry wait (liveCallEntry.ts) a burst of quick calls rolls nothing. Any `data-live-swap` look
    draws without it (`hard`: the cut edge it replaced, agent-pane.live-line-burst). Off wherever the roll is off. */
 @property --cv-roll-feather {
   syntax: "<percentage>";
