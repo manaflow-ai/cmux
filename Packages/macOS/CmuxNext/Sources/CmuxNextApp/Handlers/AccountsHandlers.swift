@@ -20,8 +20,7 @@ enum AccountsHandlers {
                                              focus: invocation.allowsViewChange)
         })
         registry.bindEffect("accounts.githubConnect", requires: nil, effect: { invocation in
-            // A chat card's Connect (it names the repository) stays in the chat: GitHub's page opens, Settings does not.
-            if invocation["repo"] == nil { try services.settingsWindow.show(section: .accounts) }
+            if invocation["repo"] == nil { try services.settingsWindow.show(section: .accounts) } // a chat card names the repo: GitHub opens, Settings does not
             return .applied(result: { await services.accounts.github.connectResult(invocation) })
         })
         registry.bind("accounts.refresh", run: { _ in services.accounts.model.refresh() })
