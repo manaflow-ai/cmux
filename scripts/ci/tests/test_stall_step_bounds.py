@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""The checkout, setup and cache steps that stalled on the Linux pools carry a step bound (note-556).
+"""The checkout, setup and cache steps that stalled on the Linux pools carry a step bound (note-558).
 
-docs/ci/cmux-next-workflow-notes.md#note-556: a stalled actions/checkout, toolchain setup or cache restore held its
+docs/ci/cmux-next-workflow-notes.md#note-558: a stalled actions/checkout, toolchain setup or cache restore held its
 job's runner for the job's whole limit (15 to 55 min) before going red. Each step below has a `timeout-minutes` a few
 times its healthy duration, and every cache step continues past its bound (a cache miss), so a bound never fails a
 job that would have passed. Run: python3 scripts/ci/tests/test_stall_step_bounds.py (about 1 s, no build).
@@ -16,7 +16,7 @@ import yaml
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 WORKFLOWS = ROOT / ".github/workflows"
 
-# Healthy durations measured on 2026-11-23 (note-556), in seconds: the bound must stay well above them.
+# Healthy durations measured on 2026-11-23 (note-558), in seconds: the bound must stay well above them.
 HEALTHY_MAX_SECONDS = {"checkout": 193, "rust": 120, "setup": 60, "cache": 46}
 # (workflow, job, how the step is found: its name or its `uses` prefix, kind, bound in minutes)
 BOUNDS = (
@@ -59,7 +59,7 @@ class StallStepBoundsTests(unittest.TestCase):
             with self.subTest(workflow=name, job=job, step=needle):
                 workflow = cache.setdefault(name, load(name))
                 steps = find_steps(workflow, job, needle)
-                self.assertTrue(steps, f"{name} {job}: no step {needle!r}; update BOUNDS and note-556 with the move")
+                self.assertTrue(steps, f"{name} {job}: no step {needle!r}; update BOUNDS and note-558 with the move")
                 for step in steps:
                     self.assertEqual(step.get("timeout-minutes"), minutes,
                                      f"{name} {job} {needle!r}: bound {step.get('timeout-minutes')!r}, want {minutes}")

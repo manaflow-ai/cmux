@@ -9,7 +9,8 @@
    "cmux-tui": 1
   },
   "expect": {
-   "acpmux": 5,
+   "acpmux": 3,
+   "acpmux-tui": 2,
    "chatmux-relay": 81,
    "cmux-app-host": 2,
    "cmux-browser-host": 1,
@@ -31,7 +32,8 @@
    "cmux-tui-core": 24
   },
   "unwrap": {
-   "acpmux": 122,
+   "acpmux": 115,
+   "acpmux-tui": 5,
    "chatmux-relay": 7,
    "cmux-remote": 4,
    "cmux-terminal-client": 30,
@@ -127,7 +129,7 @@
   "swift": {
    "dynamic_dispatch": {
     "CmuxNextAgentPane": 2,
-    "CmuxNextBrowser": 21,
+    "CmuxNextBrowser": 20,
     "CmuxNextBrowserAutomation": 5,
     "CmuxNextDesign": 6,
     "CmuxNextPages": 5,

@@ -194,7 +194,11 @@ pub(super) fn attach_surface(
     output_coalesce_ms: Option<u32>,
     replay_history_start: Option<u64>,
     (hybrid_stream, hybrid_frame): (Option<String>, Option<u64>),
-    (resume_offset, resume_generation): (Option<u64>, Option<String>),
+    (resume_offset, resume_generation, resume_max_bytes): (
+        Option<u64>,
+        Option<String>,
+        Option<u64>,
+    ),
     snapshot: terminal_snapshot::SnapshotAttachParams,
 ) -> anyhow::Result<Value> {
     let hybrid_declared =
@@ -550,9 +554,13 @@ pub(super) fn attach_surface(
         && (resume_offset.is_some()
             || mux.control_clients.supports_capability(client, TERMINAL_RESUME_CAPABILITY));
     let resumed = match (resume_wire, &resume_generation, resume_offset) {
-        (true, Some(generation), Some(offset)) => {
-            surface.attach_resume_stream(lifecycle.clone(), generation, offset, initial_size)
-        }
+        (true, Some(generation), Some(offset)) => surface.attach_resume_stream(
+            lifecycle.clone(),
+            generation,
+            offset,
+            resume_max_bytes,
+            initial_size,
+        ),
         _ => None,
     };
     let resume_asked = resume_wire && resume_offset.is_some();
@@ -749,7 +757,14 @@ pub(super) fn attach_surface(
                             let _ = viewer.take(frame, now, &mut hybrid_out);
                         }
                         (None, Some(coalescer)) => coalescer.push(frame, now, &mut ready),
-                        (None, None) => ready.push(frame),
+                        (None, None) => {
+                            // The writer is free now: the reads that queued while it was
+                            // busy go out as one event, at once (no timer).
+                            attach_output_coalesce::push_merged(frame, &mut ready);
+                            while let Ok(next) = attach.stream.try_recv() {
+                                attach_output_coalesce::push_merged(next, &mut ready);
+                            }
+                        }
                     }
                     false
                 }
