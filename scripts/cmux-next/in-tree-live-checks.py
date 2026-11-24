@@ -1557,13 +1557,30 @@ def check_resize_hitch(tab, pane):
 
     path = os.path.join(opts.out, "resize-hitch.sample.txt")
     seconds = 7
+    sample_log = []
     try:
         sampler = subprocess.Popen(["/usr/bin/sample", str(pid), str(seconds), "1", "-mayDie", "-file", path],
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        attached = threading.Event()
+
+        def read_sampler():
+            for line in sampler.stdout:
+                sample_log.append(line.rstrip())
+                if line.startswith("Sampling process"):
+                    attached.set()
+            attached.set()
+
+        threading.Thread(target=read_sampler, daemon=True).start()
+        # sample prints "Sampling process N for S seconds ..." when it starts sampling; attaching to a CEF app can take
+        # seconds, and a fixed 0.5 s let the drags finish before it began (other-Mac BEFORE ON sample: 4540 of 4549
+        # main-thread samples idle in mach_msg while debug.frames saw a 507 ms frame).
+        t_attach = time.monotonic()
+        attached.wait(30)
+        RAW["resize_hitch_attach_s"] = round(time.monotonic() - t_attach, 3)
     except OSError as error:
         sampler = None
         RAW["resize_hitch_sample_error"] = repr(error)
-    time.sleep(0.5)  # test harness: sample attaches
+    time.sleep(0.3)  # test harness: a few idle samples before the first drag
     rpc("debug.frames", {"action": "start"})
     work0 = work_counters()
     started = time.monotonic()
@@ -1576,7 +1593,8 @@ def check_resize_hitch(tab, pane):
     sample_err = None
     if sampler:
         try:
-            _, sample_err = sampler.communicate(timeout=seconds + 30)
+            sampler.wait(timeout=seconds + 30)
+            sample_err = "\n".join(sample_log[-5:])
         except subprocess.TimeoutExpired:
             sampler.kill()
             sample_err = "sample timed out"
@@ -1588,7 +1606,7 @@ def check_resize_hitch(tab, pane):
     longest = (app_frames or {}).get("max_ms") if isinstance(app_frames, dict) else None
     row(longest is not None and longest <= 50, "resize_hitch",
         {"bug": 19, "in_tree": opts.in_tree, "drag_s": drag_s, "app_frames": frame_detail(app_frames), "work": work,
-         "sample": parsed, "sample_file": os.path.basename(path),
+         "sample": parsed, "sample_file": os.path.basename(path), "sample_attach_s": RAW.get("resize_hitch_attach_s"),
          "pass_if": "no app frame over 50 ms during the corner drags; the sample names what the main thread does"})
 
 
