@@ -27,21 +27,7 @@ const MAX_IMPORT_URL_BYTES: i64 = 8_192;
 const MAX_IMPORT_TITLE_BYTES: i64 = 1_024;
 const MAX_IMPORT_TAB_BYTES: i64 = 1_024;
 
-const SCHEMA: &str = "
-CREATE TABLE IF NOT EXISTS visits(
-  id INTEGER PRIMARY KEY, url TEXT NOT NULL, title TEXT,
-  visit_time_ms INTEGER NOT NULL, tab TEXT, actor TEXT NOT NULL DEFAULT 'person', session_id TEXT);
-CREATE INDEX IF NOT EXISTS visits_time ON visits(visit_time_ms);
-CREATE INDEX IF NOT EXISTS visits_url ON visits(url);
-CREATE TABLE IF NOT EXISTS removed_visits(
-  backup TEXT NOT NULL, id INTEGER NOT NULL, url TEXT NOT NULL, title TEXT,
-  visit_time_ms INTEGER NOT NULL, tab TEXT, actor TEXT NOT NULL DEFAULT 'person', session_id TEXT);
-CREATE INDEX IF NOT EXISTS removed_visits_backup ON removed_visits(backup);
-CREATE INDEX IF NOT EXISTS removed_visits_time ON removed_visits(visit_time_ms);
-CREATE TABLE IF NOT EXISTS imported_logs(
-  source TEXT PRIMARY KEY, visits INTEGER NOT NULL);
-PRAGMA user_version=3;
-";
+const SCHEMA_VERSION: i64 = 4;
 
 /// A finished main-frame navigation to record.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -157,34 +143,50 @@ impl VisitStore {
         Self::prepare(Connection::open_in_memory()?)
     }
 
-    fn prepare(connection: Connection) -> Result<Self, HistoryError> {
+    fn prepare(mut connection: Connection) -> Result<Self, HistoryError> {
         connection.busy_timeout(Duration::from_millis(250))?;
         connection
             .pragma_update_and_check(None, "journal_mode", "WAL", |row| row.get::<_, String>(0))?;
-        connection.execute_batch(SCHEMA)?;
+        let transaction = connection.unchecked_transaction()?;
+        transaction.execute_batch(
+            "CREATE TABLE IF NOT EXISTS visits(
+               id INTEGER PRIMARY KEY, url TEXT NOT NULL, title TEXT,
+               visit_time_ms INTEGER NOT NULL, tab TEXT);
+             CREATE INDEX IF NOT EXISTS visits_time ON visits(visit_time_ms);
+             CREATE INDEX IF NOT EXISTS visits_url ON visits(url);
+             CREATE TABLE IF NOT EXISTS removed_visits(
+               backup TEXT NOT NULL, id INTEGER NOT NULL, url TEXT NOT NULL, title TEXT,
+               visit_time_ms INTEGER NOT NULL, tab TEXT);
+             CREATE INDEX IF NOT EXISTS removed_visits_backup ON removed_visits(backup);
+             CREATE INDEX IF NOT EXISTS removed_visits_time ON removed_visits(visit_time_ms);
+             CREATE TABLE IF NOT EXISTS imported_logs(
+               source TEXT PRIMARY KEY, visits INTEGER NOT NULL);",
+        )?;
         for table in ["visits", "removed_visits"] {
             for (name, definition) in
                 [("actor", "TEXT NOT NULL DEFAULT 'person'"), ("session_id", "TEXT")]
             {
-                let present = connection
+                let present = transaction
                     .prepare(&format!(
                         "SELECT 1 FROM pragma_table_info('{table}') WHERE name = ?1"
                     ))?
                     .exists([name])?;
                 if !present {
-                    connection.execute(
+                    transaction.execute(
                         &format!("ALTER TABLE {table} ADD COLUMN {name} {definition}"),
                         [],
                     )?;
                 }
             }
         }
-        let searchable = connection
+        let searchable = transaction
             .prepare("SELECT 1 FROM pragma_table_info('visits') WHERE name = 'search'")?
             .exists([])?;
         if !searchable {
-            connection.execute_batch("ALTER TABLE visits ADD COLUMN search TEXT")?;
+            transaction.execute_batch("ALTER TABLE visits ADD COLUMN search TEXT")?;
         }
+        transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+        transaction.commit()?;
         let store = Self { connection };
         store.fill_search()?;
         Ok(store)
@@ -225,15 +227,19 @@ impl VisitStore {
 
     /// Records a visit; returns its id.
     pub fn record(&self, visit: &NewVisit) -> Result<i64, HistoryError> {
+        let (actor, session_id) =
+            visit.actor.as_ref().map_or(("person", None), VisitActor::db_values);
         self.connection.execute(
-            "INSERT INTO visits(url, title, visit_time_ms, tab, search, actor, session_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT INTO visits(url, title, visit_time_ms, tab, search, actor, session_id) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 visit.url,
                 visit.title,
                 visit.at_ms,
                 visit.tab,
-                search_text(&visit.url, visit.title.as_deref())
-                , visit.actor.as_ref().unwrap_or(&VisitActor::Person).db_values().0, visit.actor.as_ref().unwrap_or(&VisitActor::Person).db_values().1
+                search_text(&visit.url, visit.title.as_deref()),
+                actor,
+                session_id
             ],
         )?;
         Ok(self.connection.last_insert_rowid())
@@ -245,8 +251,9 @@ impl VisitStore {
     pub fn update_title(&self, url: &str, title: &str) -> Result<usize, HistoryError> {
         Ok(self.connection.execute(
             "UPDATE visits SET title = ?1, search = ?3 WHERE id = \
-             (SELECT id FROM visits WHERE url = ?2 ORDER BY visit_time_ms DESC, id DESC LIMIT 1) \
-             AND actor = 'person' AND title IS NOT ?1",
+             (SELECT id FROM visits WHERE url = ?2 AND actor = 'person' \
+              ORDER BY visit_time_ms DESC, id DESC LIMIT 1) \
+             AND title IS NOT ?1",
             params![title, url, search_text(url, Some(title))],
         )?)
     }
@@ -615,21 +622,30 @@ impl VisitStore {
         {
             return Err(HistoryError::InvalidImport("a visit field is too large".into()));
         }
-        let mut rows = source_transaction.prepare(
+        let source_has_actor = source_transaction
+            .prepare("SELECT 1 FROM pragma_table_info('visits') WHERE name = 'actor'")?
+            .exists([])?;
+        let source_columns = if source_has_actor {
+            "url, title, visit_time_ms, tab, actor, session_id"
+        } else {
+            "url, title, visit_time_ms, tab, NULL AS actor, NULL AS session_id"
+        };
+        let mut rows = source_transaction.prepare(&format!(
             "SELECT typeof(url), length(CAST(url AS BLOB)),
                     typeof(title), COALESCE(length(CAST(title AS BLOB)), 0),
                     typeof(visit_time_ms),
                     typeof(tab), COALESCE(length(CAST(tab AS BLOB)), 0),
-                    url, title, visit_time_ms, tab
-             FROM visits ORDER BY visit_time_ms, id LIMIT ?1",
-        )?;
+                    {source_columns}
+             FROM visits ORDER BY visit_time_ms, id LIMIT ?1"
+        ))?;
         let transaction = self.connection.unchecked_transaction()?;
         let mut imported = 0;
         let mut imported_digest = Sha256::new();
         imported_digest.update(other.to_string_lossy().as_bytes());
         {
             let mut insert = transaction.prepare(
-                "INSERT INTO visits(url, title, visit_time_ms, tab) VALUES (?1, ?2, ?3, ?4)",
+                "INSERT INTO visits(url, title, visit_time_ms, tab, actor, session_id) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             )?;
             let mut cursor = rows.query([i64::try_from(MAX_VISITS + 1).unwrap_or(i64::MAX)])?;
             while let Some(row) = cursor.next()? {
@@ -660,8 +676,21 @@ impl VisitStore {
                 {
                     return Err(HistoryError::InvalidImport("a visit field is too large".into()));
                 }
-                let (url, title, at_ms, tab): (String, Option<String>, i64, Option<String>) =
-                    (row.get(7)?, row.get(8)?, row.get(9)?, row.get(10)?);
+                let (url, title, at_ms, tab, actor, session_id): (
+                    String,
+                    Option<String>,
+                    i64,
+                    Option<String>,
+                    Option<String>,
+                    Option<String>,
+                ) = (
+                    row.get(7)?,
+                    row.get(8)?,
+                    row.get(9)?,
+                    row.get(10)?,
+                    row.get(11)?,
+                    row.get(12)?,
+                );
                 imported_digest.update((url.len() as u64).to_le_bytes());
                 imported_digest.update(url.as_bytes());
                 match &title {
@@ -681,7 +710,13 @@ impl VisitStore {
                     }
                     None => imported_digest.update([0]),
                 }
-                imported += insert.execute(params![url, title, at_ms, tab])?;
+                // Anything but an explicit agent row is the person's; only agent rows keep a session.
+                let (actor, session_id) = if actor.as_deref() == Some("agent") {
+                    ("agent", session_id.filter(|id| id.len() as i64 <= MAX_IMPORT_TAB_BYTES))
+                } else {
+                    ("person", None)
+                };
+                imported += insert.execute(params![url, title, at_ms, tab, actor, session_id])?;
             }
         }
         drop(rows);
