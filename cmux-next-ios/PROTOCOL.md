@@ -1942,6 +1942,20 @@ Mac keeps the reply mailbox above as it is.
   settled yet (`unavailable`) holds that phone's later items back, unacked,
   until it settles; other phones' items go on.
 - An item with no `seq` (an older hub) is handled as before, by id alone.
+  Within a frame those go first, in frame order, then each phone's items by
+  `seq`; hostd handles one frame at a time. A held item's phone sends its
+  higher `seq`s to `later` until it settles; a hold not retried in 90 s
+  (its socket died) lapses.
+- The cursor moves only for an item that passed the seal, pairing, signature
+  and expiry checks: `seq` is the hub's and not signed, so a forged item
+  cannot move it. Gaps (an expired or unreadable item) are allowed.
+- An unreadable cursor file holds every item `unavailable`. An item under the
+  cursor whose spent record is still applying, or with an unreadable spent
+  file, is `unavailable`, not `replayed`. A failed cursor write is logged:
+  the spent file still stops a second apply.
+- Crash windows: after the spent claim and before its settle, a redelivery
+  answers `replayed` (as today); after the settle and before the cursor
+  write, it answers the first outcome signed and then moves the cursor.
 - hostd lists `mailbox-send-v1` in `version` when it takes the kinds below.
   A phone routes a send to the mailbox only to a Mac that listed it on its
   last link.
@@ -1957,8 +1971,11 @@ required for both):
 - `compose`: a composer queue action, keyed by its item id. `action: {type:
   "queue", op: "update" | "remove" | "send_now" | "move", promptId, text?,
   index?}` (`text` for `update`, `index` from 0 for `move`), applied as
-  `_acpmux/queue_edit` (`queue_remove` for `remove`). A queued prompt that is
-  gone is `not_pending`.
+  `_acpmux/queue_edit` (`queue_remove` for `remove`). `text` (1 to 4096
+  bytes, not blank) is read only for `update` and `index` only for `move`. A
+  queued prompt that is gone (`_acpmux/info` fails, or the answer is
+  `{ok:false}` or `{removed:false}`) is `not_pending`. A `send` whose `steer`
+  is not a bool is refused; absent or null is true.
 - Their lifetime is up to 24 hours: `expiresAt` at most 86400 s after
   `issuedAt` and at most 86460 s after the Mac's clock. Every other kind keeps
   600 s. The phone posts them with `hold` equal to its time left.
