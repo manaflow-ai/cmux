@@ -335,12 +335,12 @@ export function EnvironmentPicker({
       offersDevices
         ? [
             ...(auto ? ["auto" as const] : []),
-            ...(runMode !== undefined || cloud ? ["cloud" as const] : []),
+            "cloud" as const,
             "machines" as const,
             ...devices.filter(environmentReady),
           ].slice(0, 9)
         : numberedPlaces(environments, false),
-    [offersDevices, devices, environments, auto, runMode, cloud],
+    [offersDevices, devices, environments, auto],
   );
   const numbers = useMemo(
     () =>
