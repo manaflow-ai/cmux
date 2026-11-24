@@ -5,6 +5,7 @@ use cmux_mobile_host::paint_latency::Report;
 use cmux_mobile_host::phone_frames::Pan;
 use cmux_mobile_host::services::{LINK_PROTOCOL, version_reply};
 use cmux_mobile_link::frame::FrameType;
+use cmux_mobile_link::key_echo;
 use cmux_mobile_link::link::{self, CloseInfo, OpenRequest};
 use cmux_mobile_link::link_stat::{self, LinkStat, Reason, RttSummary};
 use cmux_mobile_link::names::{self, HostService};
@@ -252,11 +253,18 @@ pub(super) fn manifest() -> Manifest {
         up_s: 0,
         end: Some("app"),
         lib: "test",
+        // Every optional field set, so each one's wire name is in the manifest.
+        echo: key_echo::Summary::of(&[1]),
+        ack: key_echo::Summary::of(&[1]),
+        spike_count: 1,
+        spikes: vec![[0, 1, 1]],
     };
     vocabulary.insert(format!("event:{}", stat.kind));
     fields(&mut vocabulary, stat.kind, &stat);
     fields(&mut vocabulary, "link_stat.rtt", stat.rtt.unwrap());
     fields(&mut vocabulary, "link_stat.marks", &stat.marks);
+    fields(&mut vocabulary, "link_stat.echo", stat.echo.unwrap());
+    fields(&mut vocabulary, "link_stat.ack", stat.ack.unwrap());
     let gated = manifest.names();
     manifest.legacy = vocabulary.into_iter().filter(|name| !gated.contains(name.as_str())).collect();
     manifest
