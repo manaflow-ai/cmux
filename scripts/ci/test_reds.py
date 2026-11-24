@@ -672,7 +672,8 @@ def unnamed_why(unnamed: list[str]) -> str:
 def runner_unnamed(lines: list[str]) -> list[str]:
     """unnamed_failures of every runner but bun, whose count read_bun sets against the identities it keeps."""
     found: list[str] = []
-    since = Counter()  # per runner, the lines it named since its last summary
+    since = Counter()  # per runner, named failures not yet accounted for by a summary
+    cargo_parents: list[int] = []
     xc_family = 0  # XCTest, xcresult `FAILED:` and xcodebuild listing names, anywhere in LINES
     xc_summaries: list[str] = []
     listing = False
@@ -680,6 +681,11 @@ def runner_unnamed(lines: list[str]) -> list[str]:
     for text in outer_lines(lines):  # a failed cargo test's own output is not the job's (cargo_captured)
         if text.startswith(TAP_MARKER):
             continue
+        # A failed test can print a child libtest run in its captured stdout (bwrap, #46751).
+        # Its summary closes only the child; the parent's named failures still await their summary.
+        if CARGO_RUNNING.match(text):
+            cargo_parents.append(since["cargo"])
+            since["cargo"] = 0
         if text.strip() == "failures:":
             cargo_listed = set()
         elif cargo_listed is not None and (match := CARGO_LISTED.match(text)):
@@ -748,6 +754,8 @@ def runner_unnamed(lines: list[str]) -> list[str]:
                 since[runner] = 0
             else:
                 since[runner] -= reported
+        if text.startswith("test result: ") and cargo_parents:
+            since["cargo"] = cargo_parents.pop()
     if not xc_family:
         found.extend(xc_summaries)
     return found
