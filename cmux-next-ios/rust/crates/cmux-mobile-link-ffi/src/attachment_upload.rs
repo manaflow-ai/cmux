@@ -11,6 +11,12 @@
 //! final object (maybe without a newline) and never `have`: every retry then starts at byte 0.
 //! During `Compressing`, `acked_bytes` / `total_bytes` carry the encoder's progress in
 //! thousandths (`total_bytes` is 1000).
+//!
+//! Whole-file dedup: the engine hashes the file (SHA-256, on a blocking thread) before its first
+//! attempt and sends `sha256` in the `upload` open. A Mac that already has that file answers the
+//! final `{"path","size","deduped":true}` at once, so the engine waits for the Mac's first reply
+//! (`have` or the final) before its first byte. A Mac that never answers first (hostd before
+//! resumable uploads) costs that wait once (`Timings::first_reply`); later attempts don't wait.
 
 use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom};
@@ -43,6 +49,9 @@ pub struct Timings {
     pub backoff_max: Duration,
     pub give_up: Duration,
     pub progress_interval: Duration,
+    /// How long a fresh attempt that sent `sha256` waits for the Mac's first reply before its
+    /// first byte.
+    pub first_reply: Duration,
 }
 
 impl Default for Timings {
@@ -56,6 +65,7 @@ impl Default for Timings {
             backoff_max: Duration::from_secs(10),
             give_up: Duration::from_secs(300),
             progress_interval: Duration::from_millis(100),
+            first_reply: Duration::from_secs(3),
         }
     }
 }
@@ -165,6 +175,10 @@ struct State {
     /// Counts every advance, so the run loop can tell an attempt made progress.
     epoch: u64,
     file_ready: bool,
+    /// The file's SHA-256 (lowercase hex), sent so the Mac can answer with a copy it has.
+    sha256: Option<String>,
+    /// This Mac sent no first reply in time: an older hostd, so attempts no longer wait for one.
+    silent_mac: bool,
 }
 
 struct Upload {
@@ -345,6 +359,8 @@ impl AttachmentUploads {
                 last_advance: Instant::now(),
                 epoch: 0,
                 file_ready: false,
+                sha256: None,
+                silent_mac: false,
             }),
             result: watch::channel(None).0,
             task: Mutex::new(None),
@@ -472,6 +488,16 @@ async fn run(core: Arc<Core>, upload: Arc<Upload>, path: PathBuf) {
         st.progress.stage = UploadStage::WaitingForMac;
         st.last_advance = Instant::now();
     });
+    let (hashing, hash_path) = (Arc::clone(&upload), path.clone());
+    let hashed = tokio::task::spawn_blocking(move || {
+        file_sha256(&hash_path, || lock(&hashing.state).progress.stage.terminal())
+    });
+    match hashed.await {
+        Ok(Ok(Some(hash))) => lock(&upload.state).sha256 = Some(hash),
+        // Cancelled while hashing.
+        Ok(Ok(None)) => return,
+        _ => return upload.fail("unreadable", &format!("Couldn't read {} on this iPhone.", upload.name)),
+    }
     let timings = upload.timings.clone();
     let mut links = core.link_channel(&upload.mac_id).subscribe();
     let mut backoff = timings.backoff_start;
@@ -540,6 +566,29 @@ async fn run(core: Arc<Core>, upload: Arc<Upload>, path: PathBuf) {
         }
         backoff = (backoff * 2).min(timings.backoff_max);
     }
+}
+
+/// The SHA-256 of the file at `path`, lowercase hex, read 1 MiB at a time; `None` once `stop`
+/// says the upload ended.
+fn file_sha256(path: &std::path::Path, stop: impl Fn() -> bool) -> std::io::Result<Option<String>> {
+    use std::fmt::Write as _;
+    let mut file = std::fs::File::open(path)?;
+    let mut context = ring::digest::Context::new(&ring::digest::SHA256);
+    let mut buffer = vec![0_u8; 1 << 20];
+    loop {
+        if stop() {
+            return Ok(None);
+        }
+        match file.read(&mut buffer)? {
+            0 => break,
+            n => context.update(&buffer[..n]),
+        }
+    }
+    let mut hex = String::with_capacity(64);
+    for byte in context.finish().as_ref() {
+        let _ = write!(hex, "{byte:02x}");
+    }
+    Ok(Some(hex))
 }
 
 /// A reply of the Mac.
@@ -660,9 +709,9 @@ async fn attempt(
     total: u64,
 ) -> Outcome {
     let timings = &upload.timings;
-    let (offset, use_cwd) = {
+    let (offset, use_cwd, sha256, silent_mac) = {
         let st = lock(&upload.state);
-        (if st.have_seen { st.acked.min(total) } else { 0 }, !st.no_cwd)
+        (if st.have_seen { st.acked.min(total) } else { 0 }, !st.no_cwd, st.sha256.clone(), st.silent_mac)
     };
     upload.edit(true, |st| {
         st.progress.attempt += 1;
@@ -674,6 +723,10 @@ async fn attempt(
         "upload_id": lock(&upload.state).progress.upload_id,
         "offset": offset.to_string(),
     });
+    let wait_first = sha256.is_some() && offset == 0 && !silent_mac;
+    if let Some(hash) = sha256 {
+        args["sha256"] = hash.into();
+    }
     let sent_cwd = match upload.cwd.as_deref().filter(|c| use_cwd && c.starts_with('/')) {
         Some(cwd) => {
             args["cwd"] = cwd.into();
@@ -703,6 +756,19 @@ async fn attempt(
     })
     .await;
     let Ok(Ok(mut file)) = opened else { return unreadable(&upload.name) };
+
+    if wait_first {
+        // The Mac may already have this file: hear it before sending any byte.
+        match tokio::time::timeout(timings.first_reply, events.recv()).await {
+            Ok(Some(event)) => {
+                if let Some(outcome) = handle(upload, event, &mut state) {
+                    return outcome;
+                }
+            }
+            Ok(None) => return Outcome::Retry,
+            Err(_) => lock(&upload.state).silent_mac = true,
+        }
+    }
 
     if offset > 0 {
         let deadline = tokio::time::Instant::now() + timings.have;

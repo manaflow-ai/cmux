@@ -339,6 +339,60 @@ async fn a_wait_that_starts_after_the_upload_ended_still_gets_its_result() {
     );
 }
 
+/// Uploads `source` as a new attachment; its stored path and the payload bytes it sent.
+async fn send_once(uploads: &AttachmentUploads, rig: &UploadRig, source: &Path, name: &str) -> (String, u64) {
+    let id = uploads.start(spec(rig, name), source.to_str().unwrap().into());
+    let path = uploads.wait(id.clone()).await.expect("uploaded");
+    let last = uploads.progress(id).unwrap();
+    assert_eq!(last.stage, UploadStage::Done);
+    assert_eq!(last.acked_bytes, last.total_bytes);
+    (path, last.sent_bytes)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_re_upload_of_the_same_file_crosses_no_bytes_and_finishes() {
+    let rig = upload_rig(Transport::WireGuard).await;
+    let phone = tempfile::tempdir().unwrap();
+    let source = phone.path().join("photo.heic");
+    let size = 8 * MIB + 321;
+    patterned_file(&source, size);
+    let (uploads, _recorder) = engine(Timings::default());
+    uploads.set_link(rig.mac_id.clone(), Some(rig.handle.clone()));
+    let (first_path, first_sent) = send_once(&uploads, &rig, &source, "photo.heic").await;
+    assert_eq!(first_sent, size);
+    // The same picture picked again (a new attachment, same bytes).
+    let started = Instant::now();
+    let (again_path, again_sent) = send_once(&uploads, &rig, &source, "photo.heic").await;
+    eprintln!(
+        "dedup wire payload: first send {first_sent} bytes, re-send {again_sent} bytes ({:?})",
+        started.elapsed()
+    );
+    assert_eq!(again_sent, 0, "the re-send crossed payload bytes");
+    assert_eq!(again_path, first_path, "the Mac answers its stored copy");
+    assert_eq!(sha256(Path::new(&again_path)), sha256(&source));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_deleted_or_changed_stored_copy_falls_back_to_a_full_upload() {
+    let rig = upload_rig(Transport::WireGuard).await;
+    let phone = tempfile::tempdir().unwrap();
+    let source = phone.path().join("clip.mov");
+    let size = 3 * MIB + 77;
+    patterned_file(&source, size);
+    let (uploads, _recorder) = engine(Timings::default());
+    uploads.set_link(rig.mac_id.clone(), Some(rig.handle.clone()));
+    let (first, _) = send_once(&uploads, &rig, &source, "clip.mov").await;
+    std::fs::remove_file(&first).unwrap();
+    let (second, sent) = send_once(&uploads, &rig, &source, "clip.mov").await;
+    assert_eq!(sent, size, "a deleted copy is sent again whole");
+    assert_eq!(sha256(Path::new(&second)), sha256(&source));
+    // Same size, other bytes: the Mac re-hashes and takes the bytes again.
+    std::fs::write(&second, vec![0_u8; size as usize]).unwrap();
+    let (third, sent) = send_once(&uploads, &rig, &source, "clip.mov").await;
+    assert_eq!(sent, size, "a changed copy is sent again whole");
+    assert_eq!(sha256(Path::new(&third)), sha256(&source));
+}
+
 fn plan(width: u32, height: u32, seconds: u64, bytes: u64) -> VideoPlan {
     video_plan(width, height, seconds * 1000, bytes, "hevc".into())
 }

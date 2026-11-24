@@ -914,6 +914,19 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   newline-terminated line. The host removes resumable parts older than 24 hours
   when it next opens the `.parts` folder. Uploads without `upload_id` retain the
   legacy reply framing and interruption behavior.
+  Since 2026-11-24 a resumable upload may also carry `sha256`: the whole file's
+  SHA-256, 64 hexadecimal characters (either case; anything else closes
+  `bad_request`). The host keeps an index of the finished uploads of each upload
+  folder, `.parts/.sha256-<folder name>/<sha256>`, one file per hash naming the
+  stored file. When the index names a file that is still a regular file in that
+  folder with `size` bytes and the same SHA-256 (the host hashes it again), the
+  host answers `{"path","size","deduped":true}\n` at once, before any `have`,
+  and closes `eof` without reading data; it removes this upload's part. A stale
+  entry is removed and the upload proceeds as usual. The phone sends `sha256`
+  and waits up to 3 seconds for the host's first reply before its first byte; a
+  host that ignores the field answers `have` as above, and one older still
+  (no first reply) is sent the file from byte 0 after the wait. The index is
+  scoped to one upload folder, so a phone never learns of another phone's files.
 - `browser`: `{"tab", "url"?}` a streamed Mac browser tab
   (verify/browser-stream.md). The channel carries the `cmux.rd/1` stream
   carrier (`u8 kind | u32 LE len | payload`, kind 1 control JSON, 2 datagram)

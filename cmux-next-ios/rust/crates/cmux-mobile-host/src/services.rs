@@ -2197,9 +2197,13 @@ async fn upload(
 ) -> Result<(), Refusal> {
     let resumable = args.get("upload_id").is_some();
     match receive_upload(config, peer, args, sender, receiver, stall_timeout).await {
-        Ok((path, size)) => {
-            tracing::info!(size, phone = peer.device_id, "upload saved");
-            let mut reply = serde_json::json!({"path": path.to_string_lossy(), "size": size}).to_string();
+        Ok(Received { path, size, deduped }) => {
+            tracing::info!(size, deduped, phone = peer.device_id, "upload saved");
+            let mut reply = serde_json::json!({"path": path.to_string_lossy(), "size": size});
+            if deduped {
+                reply["deduped"] = true.into();
+            }
+            let mut reply = reply.to_string();
             if resumable {
                 reply.push('\n');
             }
@@ -2220,6 +2224,13 @@ async fn upload(
     }
 }
 
+/// A finished upload: where it is, and whether it was a stored copy (no bytes crossed).
+struct Received {
+    path: PathBuf,
+    size: u64,
+    deduped: bool,
+}
+
 async fn receive_upload(
     config: &ServiceConfig,
     peer: &Peer,
@@ -2227,7 +2238,7 @@ async fn receive_upload(
     sender: &ChannelSender,
     mut receiver: ChannelReceiver,
     stall_timeout: Duration,
-) -> Result<(PathBuf, u64), Refusal> {
+) -> Result<Received, Refusal> {
     let name = args
         .get("name")
         .and_then(Value::as_str)
@@ -2254,6 +2265,16 @@ async fn receive_upload(
             Some(value) => value.as_u64(),
         }
         .ok_or_else(|| Refusal::new("bad_request", "invalid offset"))?;
+        let sha256 = match args.get("sha256") {
+            None => None,
+            Some(value) => Some(
+                value
+                    .as_str()
+                    .filter(|hash| hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()))
+                    .map(str::to_ascii_lowercase)
+                    .ok_or_else(|| Refusal::new("bad_request", "invalid sha256"))?,
+            ),
+        };
         let folder = upload_folder(config, peer, cwd, true).await?;
         let parts = upload_parts_dir(&folder)?;
         cleanup_stale_upload_parts(&parts);
@@ -2275,6 +2296,16 @@ async fn receive_upload(
         }
         let mut file = tokio::fs::File::from_std(raw);
         confine_open(std::slice::from_ref(&parts), &file)?;
+        let index = upload_index_dir(&parts, &folder);
+        if let (Some(hash), Some(index)) = (&sha256, &index)
+            && UPLOAD_DEDUP.load(std::sync::atomic::Ordering::Relaxed)
+            && let Some(stored) = dedup_lookup(index, &folder, hash, size).await
+        {
+            // The part this upload may have begun is not needed any more (it is ours: locked, one link).
+            drop(file);
+            let _ = std::fs::remove_file(&part);
+            return Ok(Received { path: stored, size, deduped: true });
+        }
         let length = meta.len();
         if offset > length {
             let _ =
@@ -2330,7 +2361,11 @@ async fn receive_upload(
         file.flush().await.map_err(io_error)?;
         file.sync_data().await.map_err(io_error)?;
         send_upload_ack(sender, received).await;
-        return Ok((publish_upload(&folder, &name, &part)?, size));
+        let path = publish_upload(&folder, &name, &part)?;
+        if let (Some(hash), Some(index)) = (&sha256, &index) {
+            dedup_record(index, hash, &path);
+        }
+        return Ok(Received { path, size, deduped: false });
     }
     let folder = upload_folder(config, peer, cwd, false).await?;
     let part = folder.join(format!(".{}.part", uuid::Uuid::new_v4()));
@@ -2367,7 +2402,85 @@ async fn receive_upload(
     let path = publish_upload(&folder, &name, &part).inspect_err(|_| {
         let _ = std::fs::remove_file(&part);
     })?;
-    Ok((path, size))
+    Ok(Received { path, size, deduped: false })
+}
+
+/// Whole-file dedup (PROTOCOL.md `upload`, `sha256`). Off only in tests that play a Mac from
+/// before it (an older hostd ignores the field).
+#[doc(hidden)]
+pub static UPLOAD_DEDUP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+/// The dedup index of one upload folder: `<parts>/.sha256-<folder name>/<sha256>`, each entry a
+/// file holding the stored file's name in that folder. One file per hash, so a lookup or a record
+/// costs the same at any number of uploads, and the index lives as long as the folder's files.
+/// Scoped to the folder (one phone, one workspace): a phone never learns of another's files.
+fn upload_index_dir(parts: &Path, folder: &Path) -> Option<PathBuf> {
+    let name = folder.file_name()?.to_str()?;
+    Some(parts.join(format!(".sha256-{name}")))
+}
+
+/// The SHA-256 of a regular file, not following a symlink.
+fn file_sha256(path: &Path) -> Option<String> {
+    use std::io::Read;
+    let mut file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
+        .ok()?;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0_u8; 1 << 20];
+    loop {
+        match file.read(&mut buffer).ok()? {
+            0 => break,
+            n => hasher.update(&buffer[..n]),
+        }
+    }
+    Some(format!("{:x}", hasher.finalize()))
+}
+
+/// The stored file the index names for `hash`, when it is still a regular file in `folder` of
+/// `size` bytes whose content hashes to `hash`. A stale entry (moved, deleted, changed) is removed.
+async fn dedup_lookup(index: &Path, folder: &Path, hash: &str, size: u64) -> Option<PathBuf> {
+    let entry = index.join(hash);
+    let (folder, hash) = (folder.to_path_buf(), hash.to_string());
+    tokio::task::spawn_blocking(move || {
+        let name = std::fs::read_to_string(&entry).ok()?;
+        let name = name.trim_end_matches('\n');
+        let plain =
+            !name.is_empty() && name != "." && name != ".." && !name.contains('/') && !name.contains('\0');
+        let stored = folder.join(name);
+        let valid = plain
+            && std::fs::symlink_metadata(&stored).is_ok_and(|meta| meta.is_file() && meta.len() == size)
+            && file_sha256(&stored).as_deref() == Some(hash.as_str());
+        if !valid {
+            let _ = std::fs::remove_file(&entry);
+            return None;
+        }
+        Some(stored)
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+/// Records `stored` as the file for `hash` (best effort: a failed record only costs a later
+/// re-send its bytes). The hash is the phone's claim; a lookup re-verifies it before use.
+fn dedup_record(index: &Path, hash: &str, stored: &Path) {
+    use std::io::Write;
+    let Some(name) = stored.file_name().and_then(|n| n.to_str()) else { return };
+    if create_private_dir(index).is_err() {
+        return;
+    }
+    let temp = index.join(format!(".{hash}.{}.tmp", uuid::Uuid::new_v4()));
+    let written = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(&temp)
+        .and_then(|mut file| file.write_all(name.as_bytes()));
+    if written.is_err() || std::fs::rename(&temp, index.join(hash)).is_err() {
+        let _ = std::fs::remove_file(&temp);
+    }
 }
 
 // A phone's local channel close can finish just before hostd releases the file.
