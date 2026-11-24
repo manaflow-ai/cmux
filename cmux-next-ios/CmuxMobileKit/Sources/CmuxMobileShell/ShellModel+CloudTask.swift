@@ -26,6 +26,16 @@ extension ShellModel {
             cloudChats = CloudChatsPresentation(attention: nil, task: CloudChatTask(
                 location: CloudChatLocation(macID: target.macID, machine: machine), prompt: prompt))
         }
+        #if DEBUG
+        // `-cmux-mobile-mock-cloud-machine`: the Mac lists one Cloud machine and New Task opens on
+        // it (its captures and What's New clip; the mock app has no live Mac).
+        if CommandLine.arguments.contains("-cmux-mobile-mock-cloud-machine") {
+            let box = CloudTaskTarget(teamID: "demo-team", machineID: "demo-box", name: "Build box", macID: "mac-studio")
+            creator.loadCloudTaskTargets = { [box] }
+            creator.cloudTaskTargets = [box]
+            creator.taskDraft.chooseCloud(box.id)
+        }
+        #endif
     }
 }
 #endif
