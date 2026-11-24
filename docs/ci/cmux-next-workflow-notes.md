@@ -5057,3 +5057,28 @@ so the checks that did run were nearly all inputs of the diff, the PR itself, or
 An ideal input-based routing would save about 7% of minutes and almost no wall; the verdict wall is the slowest
 affected check (and queue and reruns), not unaffected work. Lower bound: routers, placement, comment and
 PR-metadata jobs and unknown checks count as affected, and CI plumbing paths are an input of every check.
+
+## note-560
+
+Above `Verdict key` in `.github/workflows/language-boundaries.yml`.
+
+Leo, 2026-11-21: "help 100x ci speed and the decrease of needed minutes aka lower resources and lower wall time and
+lower machine time while maintaining a partial semblance of checks." language-boundaries ran 987 times between
+2026-11-24 21:48Z and 23:03Z (about 790 an hour, p50 9 s): it re-runs on every description edit, label and re-push, and
+35% of those runs were on a head an earlier run had already judged. Its verdict is a function of the head, the base's
+script, manifest and workflow, and python, so the job now keys on exactly those (scripts/ci/verdict_cache_key.py, all
+known from the event and the base checkout without a fetch) and replays a stored verdict on a hit: same check name, same
+conclusion, same annotations, with a notice naming the run that decided it. The hit skips the merge-ref fetch, which is
+most of the job. A miss runs the check and stores a pass or a fail from the merge-ref listing (never exit 3, an unread
+input, nor a REST listing whose count can lag the push). The store is the Actions cache in the base branch's scope: only
+this base-code pull_request_target job (and base pushes) write it, a pull request's own code cannot. An approval label
+(`leo-approved-port`, `react-port-ok`) means no key, because the verdict then also reads comments and events. A newer
+base tip is left out of the key on purpose: for a fixed head it can only drop a path the base already made identical,
+never add one.
+
+Measured over the newest PR heads (2026-11-24, local git on each run's merge commit), the share whose key matched an
+earlier head that already had a verdict: language-boundaries keyed on its changed-file listing 36% (18 of 50, all
+re-pushes of the same pull request with the same files), crash ratchet keyed on its trees at head and base 6% (3 of 50),
+fast gates keyed on its 29 inputs at the merge commit 0%. The listing key needs the merge-ref fetch to compute, which is
+what the check costs, so the job keys on the head instead: 26% of all runs hit cold, 31% with the history warm.
+`vars.CI_INPUT_RECEIPT_SKIP` set to `off` turns it off, as it does every receipt skip.
