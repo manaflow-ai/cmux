@@ -16,7 +16,9 @@
 //!    prompt id): the manifest the target takes. `to` names the
 //!    target's local socket, which the source asks if the client goes away (`transfer_watch.rs`);
 //!    with `ssh`, that socket is on that ssh host, reached through a forward (`ssh_forward.rs`);
-//!    `host` is the peer's name, recorded in `movedTo` when the watch ends the move.
+//!    `host` is the peer's name, recorded in `movedTo` when the watch ends the move. With
+//!    `hub` (no `socket`), the target is a machine only the team hub reaches, by its hub
+//!    `daemonId`: it pulls the pages itself (`transfer_pull.rs`), and only it may.
 //! 2. source `_acpmux/transfer_read {transferId, path, offset, limit?}` pages a file: `{data`
 //!    (base64)`, next, eof}`.
 //! 3. target `_acpmux/transfer_receive {manifest}`, `transfer_write`, `transfer_finish`.
@@ -144,6 +146,15 @@ fn transfer_error(what: &str, message: impl std::fmt::Display) -> RpcError {
     RpcError::new(-32000, format!("transfer.{what}: {message}"))
 }
 
+/// Claim the one move lease while its caller holds `Session::moving`.
+fn claim_transfer(moving: &mut Option<String>, transfer_id: &str) -> bool {
+    if moving.is_some() {
+        return false;
+    }
+    *moving = Some(transfer_id.to_owned());
+    true
+}
+
 /// Reads the fencing epoch persisted beside an outgoing transfer. Old bundles have no marker and
 /// are treated as epoch zero for compatibility with a daemon that predates fencing.
 pub(super) fn transfer_epoch(dir: &Path) -> Result<u64, RpcError> {
@@ -254,6 +265,8 @@ pub(super) fn names_a_move(mark: &str) -> bool {
 #[cfg(test)]
 #[path = "restore_freeze_tests.rs"]
 mod restore_freeze_tests;
+#[path = "transfer_precopy.rs"]
+pub(super) mod transfer_precopy;
 
 /// The longest a move that waits for the running turn (`afterTurn`) waits for it to end. The
 /// turn lock is fair, so a prompt queued before the move runs first; the queue's later prompts
@@ -305,9 +318,33 @@ impl Hub {
                 }
                 let host = to.and_then(|to| to.get("host")).and_then(Value::as_str);
                 let host = host.filter(|h| crate::cli::hosts::checked_host(h).is_ok());
+                // A machine only the team hub reaches: its hub `daemonId`, which alone may pull
+                // the move's pages (`transfer_pull.rs`).
+                let hub = to.and_then(|to| to.get("hub")).and_then(Value::as_str);
+                if let Some(hub) = hub {
+                    let plain = (8..=128).contains(&hub.len())
+                        && hub.bytes().all(|b| b.is_ascii_alphanumeric() || b"+/=_-".contains(&b));
+                    if !plain || socket.is_some() || ssh.is_some() {
+                        return Err(RpcError::invalid_params(
+                            "transfer: `to.hub` needs a plain hub daemon id, and no socket or ssh",
+                        ));
+                    }
+                }
                 // The client hands the bundle only to a receiver whose own `initialize` listed
                 // queue approval when it carries approved prompts that still wait.
                 let gates = params.get("gatesQueueApproval").and_then(Value::as_bool) == Some(true);
+                // A pre-copied move (`transfer_precopy.rs`): the bundle holds only what follows.
+                let precopy = match (params.get("prepareId"), params.get("afterSeq")) {
+                    (None, None) => None,
+                    (Some(Value::String(id)), Some(after)) if after.is_u64() => {
+                        Some((id.as_str(), after.as_u64().unwrap_or(0)))
+                    }
+                    _ => {
+                        return Err(RpcError::invalid_params(
+                            "transfer: `prepareId` and `afterSeq` go together",
+                        ));
+                    }
+                };
                 // Wait for a running turn to end on its own, then move (`AFTER_TURN_WAIT`).
                 let after_turn =
                     !interrupt && params.get("afterTurn").and_then(Value::as_bool) == Some(true);
@@ -321,8 +358,16 @@ impl Hub {
                 };
                 // `afterTurnTimeoutMs`: the mover's `--timeout`, never past `AFTER_TURN_WAIT`.
                 let turn_wait = after_turn.then(|| after_turn_wait(params));
-                self.transfer_begin(&session, (cut, turn_wait), socket, ssh, host, gates).await
+                let cut = (cut, turn_wait);
+                self.transfer_begin(&session, cut, socket, ssh, host, hub, gates, precopy).await
             }
+            "hub" => self.transfer_hub(params).await,
+            "prepare" => {
+                self.transfer_prepare(&self.resolve(text("sessionId"))?, params.get("base"))
+            }
+            "base" => self.transfer_base(params),
+            "stage" => self.transfer_stage(params),
+            "stage_finish" => self.transfer_stage_finish(params),
             "read" => {
                 let offset = params.get("offset").and_then(Value::as_u64).unwrap_or(0);
                 let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(1 << 20);
@@ -375,7 +420,9 @@ impl Hub {
     /// Freezes the chat for its move and makes its bundle. With `after_turn` (how long to wait), a
     /// running turn is neither refused nor stopped: the move first waits (that long) for the
     /// turn lock, unfrozen, so the turn ends on its own and every prompt sent meanwhile queues
-    /// as usual; holding the lock, it freezes the chat and the queue moves with the bundle.
+    /// as usual; holding the lock, it freezes the chat and the queue moves with the bundle. With
+    /// `precopy` (a prepare and its last seq), the bundle holds the log past that seq alone, once
+    /// the prefix is checked (`transfer_precopy.rs`).
     #[allow(clippy::too_many_arguments)]
     async fn transfer_begin(
         self: &Arc<Self>,
@@ -384,7 +431,9 @@ impl Hub {
         to: Option<&str>,
         to_ssh: Option<&str>,
         to_host: Option<&str>,
+        to_hub: Option<&str>,
         gates_receiver: bool,
+        precopy: Option<(&str, u64)>,
     ) -> Result<Value, RpcError> {
         if !session.ownership_epoch_is_valid() {
             return Err(transfer_error(
@@ -422,15 +471,42 @@ impl Hub {
         // This begin holds the move's watch until it starts it, below: a watch that ran now
         // would read no `alive` stamp and end the move under it (`transfer_watch.rs`). Claimed
         // under the `moving` lock, so whoever sees the chat in this move sees the claim too.
-        let watch = {
-            let mut moving = session.moving.lock().unwrap_or_else(|e| e.into_inner());
-            if let Some(other) = moving.as_ref() {
-                let e = transfer_error("moving", "this chat is already being moved");
-                return Err(e.with_data(json!({"transferId": other})));
+        // If the old driver stopped heartbeating before it read the bundle to its end, abort
+        // that fenced move first. The target cannot have finished such a bundle, so retrying
+        // cannot create a second chat or lose the original.
+        let lease = *self.transfer_lease.lock().unwrap_or_else(|e| e.into_inner());
+        let watch = loop {
+            let other = session.moving();
+            let Some(other) = other else {
+                let mut moving = session.moving.lock().unwrap_or_else(|e| e.into_inner());
+                if claim_transfer(&mut moving, &transfer_id) {
+                    let watch = self.claim_move_watch(&transfer_id);
+                    break watch;
+                }
+                continue;
+            };
+            let old_dir = transfers_dir().join(&other);
+            let idle = super::transfer_watch::idle_for(&old_dir);
+            let fully_read = super::transfer_watch::fully_read(&old_dir);
+            if super::transfer_watch::takeover_allowed(idle, fully_read, lease) {
+                let epoch =
+                    transfer_epoch_marker(&old_dir)?.or_else(|| Some(session.ownership_epoch()));
+                if self
+                    .transfer_abort_with_epoch(session, &other, Some("stalled_driver"), epoch)
+                    .is_ok()
+                {
+                    continue;
+                }
             }
-            let watch = self.claim_move_watch(&transfer_id);
-            *moving = Some(transfer_id.clone());
-            watch
+            let age = idle.map_or_else(|| "an unknown time".to_owned(), |d| format!("{d:?} ago"));
+            let e = transfer_error(
+                "moving",
+                format!(
+                    "this chat is already being moved by transfer {other} (last heartbeat {age}); retry after the {}-second lease to take it over",
+                    lease.as_secs()
+                ),
+            );
+            return Err(e.with_data(json!({"transferId": other, "idle": idle.map(|d| d.as_secs()), "takeover": "retry after the lease"})));
         };
         // Fence every prior owner before any bundle bytes are exposed. The marker is persisted
         // before transfer_out so a daemon restart restores the same epoch while this move is in flight.
@@ -519,6 +595,15 @@ impl Hub {
             drop(guard);
             return Err(unfreeze(transfer_error("busy", "a recovered turn is running"), carried));
         }
+        // Nothing appends now: the prepared prefix is the log's head, or the move is refused.
+        let prefix = match precopy.map(|(id, after)| self.check_prefix(session, id, after)) {
+            Some(Err(error)) => {
+                drop(guard);
+                return Err(unfreeze(error, carried));
+            }
+            Some(Ok(prefix)) => Some(prefix),
+            None => None,
+        };
         // Export before the ownership scan so a concurrent log-scan callback cannot remove a
         // held prompt before `held_prompts` captures the move's exact queue snapshot.
         if let Err(error) = crate::home_fs::create_dirs(&dir) {
@@ -529,10 +614,11 @@ impl Hub {
             ));
         }
         let made = self
-            .export(session, &dir)
+            .export_after(session, &dir, prefix.as_ref().map(|p| p.after_seq))
             .map_err(|e| RpcError::internal(format!("transfer: bundle: {e}")))
             .and_then(|bundle| {
-                let approved_waiting = self.held_prompts(&bundle)?;
+                let prefix_seq = prefix.as_ref().map(|p| (session.id.as_str(), p.after_seq));
+                let approved_waiting = self.held_prompts_with(prefix_seq, &bundle)?;
                 if !approved_waiting.is_empty() && !gates_receiver {
                     return Err(approved_prompts_error(
                         json!(approved_waiting),
@@ -596,8 +682,18 @@ impl Hub {
         if let Some(host) = to_host {
             let _ = crate::home_fs::write(dir.join("to-host"), host);
         }
+        // Written before the begin answers: no page is served before it names the target.
+        if let Some(daemon) = to_hub
+            && let Err(error) =
+                crate::home_fs::write(dir.join(super::transfer_pull::TO_HUB), daemon)
+        {
+            tracing::warn!(session = %session.id, transfer_id = %transfer_id, "recording a hub move's target: {error}");
+        }
         if let Some(id) = carried {
             let _ = crate::home_fs::write(dir.join("continues"), id);
+        }
+        if let Some(prefix) = &prefix {
+            let _ = crate::home_fs::write(dir.join("prepared"), &prefix.prepare_id);
         }
         let _ = crate::home_fs::write(dir.join("epoch"), epoch.to_string());
         super::transfer_watch::note_activity(&dir, None);
@@ -621,6 +717,11 @@ impl Hub {
         });
         if let Some(id) = carried {
             answer.set("continues", json!(id));
+        }
+        if let Some(p) = prefix {
+            let named =
+                json!({"prepareId": p.prepare_id, "afterSeq": p.after_seq, "token": p.token});
+            answer.set("prefix", named);
         }
         // The receiver refuses the bundle unless it understands them (`transfer_in.rs`), and the
         // client hands it only to one that listed queue approval.
@@ -747,6 +848,8 @@ impl Hub {
             json!({"transferId": transfer_id, "to": to, "epoch": session.ownership_epoch()}),
         );
         self.kill(session, false).await?;
+        self.note_shipped(session, transfer_id);
+        transfer_precopy::forget_prepared(&dir);
         let _ = crate::home_fs::remove_dir_all(transfers_dir().join(transfer_id));
         Ok(json!({"sessionId": session.id, "transferId": transfer_id, "committed": true}))
     }
@@ -926,6 +1029,22 @@ mod fencing_tests {
         assert_eq!(parse_epoch(Some(&json!(7))).unwrap(), Some(7));
         assert!(parse_epoch(Some(&json!("7"))).is_err());
         assert!(parse_epoch(Some(&json!(null))).is_err());
+    }
+
+    #[test]
+    fn concurrent_transfer_claims_have_one_winner() {
+        use std::sync::{Arc, Mutex};
+        let moving = Arc::new(Mutex::new(None));
+        let mut threads = Vec::new();
+        for id in ["first", "second"] {
+            let moving = moving.clone();
+            threads.push(std::thread::spawn(move || {
+                let mut moving = moving.lock().unwrap();
+                claim_transfer(&mut moving, id)
+            }));
+        }
+        let winners = threads.into_iter().filter_map(|t| t.join().ok()).filter(|won| *won).count();
+        assert_eq!(winners, 1);
     }
 }
 
