@@ -9281,14 +9281,14 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   opacity: 1;
 }
 :root[data-transcript-timestamps="always"]
-  .cv-user:not(:hover, :focus-within, :has([data-popup-open]))
+  .cv-user:not(:hover, :focus-within, [data-popup-within])
   .cv-user__actions:not(.cv-user__actions--versions)
   .cv-message-footer-row
   > :not(.cv-user__time) {
   opacity: 0;
 }
 :root[data-transcript-timestamps="always"]
-  .acpmux-assistant:not(:hover, :focus-visible, :has([data-popup-open]))
+  .acpmux-assistant:not(:hover, :focus-visible, [data-popup-within])
   .cv-reply-actions:not(:focus-within)
   .cv-message-footer-row
   > :not(.cv-turn-time) {
