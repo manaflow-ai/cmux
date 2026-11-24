@@ -2936,6 +2936,28 @@ class JoblessStatusChecks(unittest.TestCase):
             self.judge()
         self.assertFalse(any("commits?sha=" in route for route in self.gh.routes))
 
+    def test_required_checks_status_red_asks_its_own_rerun(self):
+        # cmux#49885 at 8b11f0c2: the pool's 'clippy (changed cmux-tui packages)' failed while its Actions twin was
+        # skipped; judging the twin said "re-run it", and an Actions rerun comes back skipped.
+        name = "clippy (changed cmux-tui packages)"
+        self.CONTEXT = name
+        pool = f"failed on the cmux pool (exit 1); rerun: POST /v1/required-checks/rerun?head={HEAD[:12]}"
+        self.head = {"context": name, "state": "failure", "description": pool,
+                     "target_url": f"http://100.89.225.106:18765/v1/required-checks?head={HEAD}"}
+        self.base = {self.TIP: [], self.OLDER: [dict(self.head, state="success", description="passed on the cmux pool")]}
+        with unittest.mock.patch.dict(os.environ, {"CMUX_CI_CONTROLLER": "http://controller.test:1/"}):
+            with self.assertRaises(excuse.Refused) as said:
+                self.judge()
+        text = str(said.exception)
+        self.assertIn(f"base {self.OLDER[:12]} has it success: passed on the cmux pool", text)
+        self.assertIn(f"rerun the pool: POST http://controller.test:1/v1/required-checks/rerun?head={HEAD}", text)
+        self.assertNotIn("re-run it", text)
+        self.assertFalse(any("actions/runs" in route for route in self.gh.routes))  # its Actions twin is never judged
+        # The base sharing the red excuses nothing: the description names no failure to compare.
+        self.base[self.TIP] = [dict(self.head)]
+        with self.assertRaisesRegex(excuse.Refused, rf"base {self.TIP[:12]} has it failure: .*rerun the pool: POST "):
+            self.judge()
+
     IGNORED = "Canceled by Ignored Build Step"
 
     def pr_files(self, *paths, number=7192, changed=None):
