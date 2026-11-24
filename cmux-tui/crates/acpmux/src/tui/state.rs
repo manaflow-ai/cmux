@@ -137,6 +137,17 @@ pub enum PickTarget {
 
 pub enum AppMsg {
     DraftFailed,
+    /// A chat's durable draft as `_acpmux/draft_get` answered (`composer_draft.rs`).
+    DraftRead {
+        id: String,
+        draft: Result<Option<String>, String>,
+    },
+    /// A `_acpmux/draft_set` answered.
+    DraftWritten {
+        id: String,
+        text: String,
+        result: Result<(), String>,
+    },
     Models(Value),
     HarnessCatalog(u64, Value),
     Sessions(Vec<Value>),
