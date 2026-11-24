@@ -64,9 +64,10 @@ nonisolated extension AcpmuxPaneMethods {
         // (attachParams.ts plainAttach, forward attach, #47119); refused, every reconnect said "cmux
         // blocked opening this chat" over the composer (Leo, 2026-11-22).
         // schemas/agent-pane/attach-params.json lists every key the page sends here.
-        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "waitLogs", "settled", "hold", "afterSeq"], []),
+        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "attending", "waitLogs", "settled", "hold", "afterSeq"], []),
         "_acpmux/detach": (["sessionId"], []),
-        "_acpmux/view": (["sessionId", "visible"], []),
+        "_acpmux/view": (["sessionId", "visible", "attending", "seenSeq"], []),
+        "_acpmux/seen": (["sessionId", "seq"], []),
         // Whether this pane types in a shared chat, never its text (multiplayer/presenceClient.ts).
         "_acpmux/typing": (["sessionId", "on"], []),
         "_acpmux/warm": (["sessionIds", "limit"], []),
@@ -132,7 +133,9 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/move_targets": (["source", "sourceKind"], []),
         // `where`: "auto" (or "here"); `targets`: the places the page can start a chat on, each a
         // `place` name and its `headroom`, all data the page already holds (Cloud today).
-        "_acpmux/place_chat": (["where", "targets"], []),
+        // `parent` ({machine, fork}) and `key`: the Cloud machine the starting chat runs on and
+        // this start's key, for fork placement behind `cloud.autoCloud` (acpmux fork_place.rs).
+        "_acpmux/place_chat": (["where", "targets", "parent", "key"], []),
         "_acpmux/draft_get": (["sessionId"], []),
         "_acpmux/draft_set": (["sessionId", "text"], []),
         "_acpmux/inbox_thread": (["sessionId", "threadId"], []),
@@ -208,6 +211,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/context_override": (["sessionId", "scope", "text", "partId"], []),
         // `subagentSessionId`: a child of that chat, which acpmux looks up in the chat's own map.
         "_acpmux/subagent_transcript": (["sessionId", "runId", "agentId", "before", "after", "limit"], []),
+        // `ended`: how many ended subagents to list, at most 500.
+        "_acpmux/subagents": (["sessionId", "ended"], []),
         // `before`: a `native_history` cursor, a byte offset into the chat's own transcript.
         "_acpmux/native_history": (["sessionId", "before", "mark"], []),
         "_acpmux/subagent_stop": (["sessionId", "subagentSessionId"], []),
