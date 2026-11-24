@@ -10710,7 +10710,7 @@
           },
           "budget": {
             "type": "string",
-            "enum": [
+            "x-extensible-enum": [
               "snapshots",
               "vms",
               "rate",
@@ -10724,7 +10724,10 @@
               "enrollmentCode.perMeshPerHour",
               "address.perDevice",
               "agent_vms",
-              "agent_usd_per_hour"
+              "agent_usd_per_hour",
+              "agent_running_vms",
+              "agent_usd_per_day",
+              "agent_usd_per_month"
             ]
           },
           "_tag": {
