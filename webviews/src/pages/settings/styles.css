@@ -3051,52 +3051,6 @@ button.menu-disclosure {
   margin: 0 0 var(--ds-space-4);
 }
 
-/* chip: the dot and the line at the bottom of the sidebar, the app-health footer's look. The
-   section list above scrolls; nothing else moves when it comes and goes. */
-/* One column: the sidebar is narrow, so the line takes two rows (what it is and the first
-   finding) and Recover… sits under it, never cutting the line to "3 customiza…". */
-.doctor-chip {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  justify-items: start;
-  flex: none;
-  gap: var(--ds-space-1);
-  min-width: 0;
-}
-
-.doctor-chip-open .doctor-line {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
-  white-space: normal;
-}
-
-.doctor-chip-open {
-  flex: 0 1 auto;
-  justify-content: flex-start;
-  gap: var(--ds-space-2);
-  min-width: 0;
-  max-width: 100%;
-  color: var(--muted-text);
-  font-size: var(--text-detail);
-  text-align: start;
-}
-
-.doctor-chip-open {
-  height: auto;
-  align-items: flex-start;
-}
-
-.doctor-chip-open .doctor-dot {
-  align-self: flex-start;
-  margin-top: 0.45em;
-}
-
-.doctor-chip-recover {
-  flex: none;
-}
-
 /* A font row's pictures (components/FontPreview.tsx): a tile per face choice, drawn in that face at the
    surface's size and line height, under the row; the density tiles' look. */
 .font-tiles {

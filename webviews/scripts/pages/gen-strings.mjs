@@ -278,16 +278,6 @@ export const PAGES = {
     out: "webviews/src/pages/cloud-progress/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/cloud-progress/Localizable.xcstrings" }],
   },
-  // The Mobile Pairing page shares its table with its Swift provider (`mobilePairing.page.` keys).
-  "mobile-pairing": {
-    out: "webviews/src/pages/mobile-pairing/generated/strings.json",
-    catalogs: [
-      {
-        file: `${sources}/CmuxNextApp/Resources/MobilePairing.xcstrings`,
-        keys: (all) => all.filter((key) => key.startsWith("mobilePairing.page.")),
-      },
-    ],
-  },
   // The server page (cmux-page://cmux.server-cards/): the menu bar popover's routes. Every card (Add Server, Pair
   // Another Machine, Add Machine, app health) is native (AddServerDialog, PairInviteDialog, AddMachineDialog).
   "server-cards": {
@@ -437,6 +427,19 @@ export const PAGES = {
                 "preview.openIn",
               ].includes(key),
           ),
+      },
+    ],
+  },
+  // Settings > Agents > Harnesses draws the agent pane's plan usage card under each account
+  // (ProviderAccounts.tsx, acpmux/PlanUsageCard.tsx), which reads the pane's table; the page installs
+  // only its `planUsage.` keys (settings/paneStrings.ts). Without them the shipped page showed the
+  // raw keys (planUsage.window.session) in every account's usage.
+  "settings-pane": {
+    out: "webviews/src/pages/settings/generated/pane-strings.json",
+    catalogs: [
+      {
+        file: "webviews/src/agent-session/acpmux/Localizable.xcstrings",
+        keys: (all) => all.filter((key) => key.startsWith("planUsage.")),
       },
     ],
   },

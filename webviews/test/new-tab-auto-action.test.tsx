@@ -157,8 +157,7 @@ test("there is no Search | Ask switch and no Tab hint", async () => {
 test("Return on keywords asks the composer's agent", async () => {
   const calls: unknown[][] = [];
   const editor = await type(await render(calls), "ff");
-  // The prompt is Return's with no row of its own (David Beyer 2026-11-20): nothing is lit.
-  expect(selected()).toBeUndefined();
+  expect(selected()).toBe("Ask Claude Code");
   await key(editor, "Enter");
   expect(calls[0]?.slice(0, 3)).toEqual(["ask", "claude", "ff"]);
 });
@@ -166,7 +165,7 @@ test("Return on keywords asks the composer's agent", async () => {
 test("Return on a question asks the composer's agent", async () => {
   const calls: unknown[][] = [];
   const editor = await type(await render(calls), "why is ff slow?");
-  expect(selected()).toBeUndefined();
+  expect(selected()).toBe("Ask Claude Code");
   await key(editor, "Enter");
   expect(calls[0]?.slice(0, 3)).toEqual(["ask", "claude", "why is ff slow?"]);
 });

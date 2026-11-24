@@ -489,6 +489,10 @@
       "scope": "cloud:read",
       "class": "read"
     },
+    "cloud.usage.current": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
     "cloud.vm.attention.emit": {
       "scope": "cloud:execute",
       "class": "mutation"
@@ -638,6 +642,10 @@
       "class": "read"
     },
     "diff.comments.save": {
+      "scope": "diff:write",
+      "class": "mutation"
+    },
+    "diff.comments.thread": {
       "scope": "diff:write",
       "class": "mutation"
     },
@@ -799,6 +807,18 @@
     },
     "git.push": {
       "scope": "git:external",
+      "class": "mutation"
+    },
+    "git.review.comment": {
+      "scope": "git:write",
+      "class": "mutation"
+    },
+    "git.review.post": {
+      "scope": "git:external",
+      "class": "mutation"
+    },
+    "git.review.start": {
+      "scope": "git:execute",
       "class": "mutation"
     },
     "git.status": {
@@ -1007,6 +1027,14 @@
     },
     "mail.threads.peek": {
       "scope": "mail:read",
+      "class": "read"
+    },
+    "media.control": {
+      "scope": "media:control",
+      "class": "mutation"
+    },
+    "media.get": {
+      "scope": "media:read",
       "class": "read"
     },
     "memory_app.cycle_variant": {

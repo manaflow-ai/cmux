@@ -45,6 +45,11 @@ public struct SettingsDeepLink: Equatable, Sendable {
         return "#/settings/appearance" + (query.isEmpty ? "" : "?" + query.joined(separator: "&"))
     }
 
+    /// Reopening customization returns to Sidebar even if the retained Settings tab navigated away.
+    public static func sidebarRoute(open: UInt64? = nil) -> String {
+        "#/settings/sidebar?open=\(open ?? DispatchTime.now().uptimeNanoseconds)"
+    }
+
     /// The page fragment for `section` and `setting`: a schema setting focuses its row; any other
     /// anchor opens its section.
     /// The Development section (and its keys) exists only in DEV and NIGHTLY builds: elsewhere a request for

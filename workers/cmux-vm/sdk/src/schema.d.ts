@@ -1509,8 +1509,7 @@ export interface components {
             /** @description a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
             pendingSnapshotId?: string;
             retryAfterSeconds?: components["schemas"]["Int"];
-            /** @enum {string} */
-            budget?: "snapshots" | "vms" | "rate" | "capacity" | "mesh.perTenant" | "device.perMesh" | "firewallRule.perMesh" | "firewallRule.perResource" | "firewallRule.account" | "aclApply.perMeshPerMinute" | "enrollmentCode.perMeshPerHour" | "address.perDevice" | "agent_vms" | "agent_usd_per_hour";
+            budget?: string;
             /** @enum {string} */
             _tag: "QuotaExceeded";
         };

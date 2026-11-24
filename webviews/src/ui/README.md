@@ -67,6 +67,41 @@ Composer controls should import these same primitives. Leo's composer lane shoul
 files unchanged until it rebases, then replace local menu/select implementations with the examples
 above so there is one press-drag-release implementation.
 
+## Menu tokens a look sets
+
+A look (its `agent-pane/theme.css`, on `:root`) styles every page-drawn menu and popover with these
+custom properties. Each is read with today's value as its fallback, so a page with none set draws
+exactly what it drew, and the app's watcher applies a changed stylesheet to open panes with no
+reload. Colors should be made from the theme's own (`color-mix()` over `var(--agent-text)` and
+`var(--agent-page-bg)`), never a literal. The gallery's `ui.menu-looks` draws cmux, Claude, Codex
+and Studio with the values in `MenuLooks.gallery.tsx`.
+
+| Token                         | Type        | What it sets                                                                                  | Unset                                              |
+| ----------------------------- | ----------- | --------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| `--menu-radius`               | length      | the panel's corner (the App's host glass follows it)                                          | `--ds-radius-popup` (8 px)                         |
+| `--menu-padding`              | length      | the panel's inner padding, which is also the hover fill's inset from its edges                | the menu grid's 5 px                               |
+| `--menu-fill`                 | color       | the panel's fill, on the page's glass and on the App's                                        | the transient glass tint                           |
+| `--menu-border`               | color       | the panel's hairline edge (`appearance.borders: none` still clears it)                        | the theme's text at 12%                            |
+| `--menu-shadow`               | box-shadow  | the panel's drop shadow                                                                       | `--elevation-2`                                    |
+| `--menu-row-height`           | length      | a row's height                                                                                | `--ds-control-row`                                 |
+| `--menu-hover-fill`           | color       | the highlighted row's fill                                                                    | each surface's own wash                            |
+| `--menu-hover-radius`         | length      | the highlighted row's corner                                                                  | the grid's 5 px                                    |
+| `--menu-separator`            | color       | a separator's line                                                                            | each surface's own line                            |
+| `--menu-separator-inset`      | length      | a separator's distance from the panel's edges                                                 | the grid's 15 px                                   |
+| `--menu-label-color`          | color       | a section label ("Open in")                                                                   | the row ink at 55%                                 |
+| `--menu-label-weight`         | font-weight | a section label's weight                                                                      | `--weight-emphasis`                                |
+| `--menu-label-size`           | length      | a section label's size                                                                        | `--text-caption`                                   |
+| `--menu-shortcut-color`       | color       | the shortcut column                                                                           | the row's own muted ink                            |
+| `--menu-subtitle-color`       | color       | a row's second line (`MenuItem` `subtitle`)                                                   | the row ink at 55%                                 |
+| `--menu-destructive`          | color       | a destructive row (`ui-menu-item-destructive`: Delete)                                        | `--cmux-app-danger`                                |
+| `--menu-disabled-opacity`     | number      | a disabled row's strength                                                                     | 0.45 (ui.css hosts), the surface's own in the pane |
+| `--menu-submenu-offset`       | length (px) | a submenu's distance from its row; negative overlaps the menu                                 | 6 px (`UI_ANCHOR_GAP`)                             |
+| `--menu-submenu-align-offset` | length (px) | a submenu's shift along its row (negative: up, so its first row meets the row that opened it) | 0                                                  |
+
+The tokens style menus the page draws (`Menu`, `Submenu`, `Popover`, `Select`, the composer's
+pickers). Right-click menus the App draws (`ContextMenu` in a host, the sidebar's, a tab's and a
+pane's) are AppKit's `NSMenu`, which these do not reach.
+
 ## Overlays
 
 `Popover`, `Tooltip`, `Dialog`, and `Sheet` all portal into the `UiProvider` container, return focus
