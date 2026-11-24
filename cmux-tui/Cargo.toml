@@ -61,7 +61,6 @@ members = [
     "crates/cmux-local-url",
     "crates/cmux-journal",
     "crates/cmux-session-pack",
-    "crates/cmux-bundle",
     "crates/cmux-kitty-media",
     "crates/cmux-api-compat",
     "crates/cmux-tui-remote-access",
@@ -116,6 +115,7 @@ members = [
     "crates/cmux-wg-tun",
     "crates/cmux-weft",
     "crates/cmux-transport",
+    "crates/cmux-braid-path",
     "crates/cmux-tasks-core",
     "crates/cmux-bookmarks-core",
     "crates/cmux-bookmarks-ops",
@@ -263,6 +263,7 @@ default-members = [
     "crates/cmux-wg-tun",
     "crates/cmux-weft",
     "crates/cmux-transport",
+    "crates/cmux-braid-path",
     "crates/cmux-tasks-core",
     "crates/cmux-bookmarks-core",
     "crates/cmux-bookmarks-ops",
@@ -469,6 +470,7 @@ cmux-composer-send = { path = "crates/cmux-composer-send" }
 cmux-duress = { path = "crates/cmux-duress" }
 cmux-remote = { path = "crates/cmux-remote", default-features = false, features = ["wireguard-transport"] }
 cmux-wg = { path = "crates/cmux-wg" }
+cmux-braid-path = { path = "crates/cmux-braid-path" }
 cmux-server = { path = "crates/cmux-server" }
 cmux-server-core = { path = "crates/cmux-server-core" }
 cmux-host = { path = "crates/cmux-host" }
