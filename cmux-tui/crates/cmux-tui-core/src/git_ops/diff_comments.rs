@@ -167,7 +167,7 @@ fn cleared(
 
 /// A delivered `keep` send: each sent comment still at its version stays,
 /// with `thread: {promptId, acpSession, sentAt, state: "sent"}`, answered as
-/// `{sent, threaded}`. The comment's `updatedAt` is not touched: it is the
+/// `{sent, cleared: [], threaded}`. The comment's `updatedAt` is not touched: it is the
 /// person's edit, which a later send's `versions` compares.
 fn threaded(
     file: &mut File,
@@ -200,7 +200,7 @@ fn threaded(
         threaded.push(id);
     }
     let changed = !threaded.is_empty();
-    (json!({"sent": sent, "threaded": threaded}), changed)
+    (json!({"sent": sent, "cleared": [], "threaded": threaded}), changed)
 }
 
 /// The most prompts one list asks acpmux about, newest sent first.

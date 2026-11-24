@@ -10318,6 +10318,20 @@
             "max_items": 500
           },
           "description": "The ids removed, in store order; a comment edited since the caller read it, or unknown, is not among them."
+        },
+        "threaded": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "max_items": 500
+          },
+          "description": "With keep: the ids kept as threads, in store order (cleared is then empty); a comment edited since the caller read it, or unknown, is not among them."
         }
       },
       "extra": false
@@ -28146,6 +28160,14 @@
               }
             },
             "description": "Each id's updatedAt as the caller last read it, at most 500 (an empty object is allowed). A sent comment whose updatedAt differs (edited since) is kept."
+          },
+          "keep": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "True keeps the sent comments as threads instead of removing them (the session advertises comment-threads-v1): each comment still at its version gets thread {promptId, acpSession, sentAt, sentMs, state: sent}, and diff.comments.list later answers it with the agent's reply or failure. Default false."
           }
         },
         "extra": false
