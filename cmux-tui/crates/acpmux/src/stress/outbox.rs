@@ -60,8 +60,10 @@ fn outbox_with(dir: &Path, kept: usize) -> (Outbox, PathBuf) {
 fn written_per_change(kept: usize) -> Option<f64> {
     let dir = tempfile::tempdir().unwrap();
     let (outbox, _) = outbox_with(dir.path(), kept);
+    // `update_saved`: the save runs on this thread, where its bytes are counted (`update`
+    // hands the same save to the disk writer's thread).
     let change = |n: u32| {
-        outbox.update("live", |d| {
+        outbox.update_saved("live", |d| {
             d.attempts = n;
             d.state = if n.is_multiple_of(2) { State::Queued } else { State::Delivering };
         })
@@ -255,4 +257,82 @@ proptest! {
         let total = disk_bytes(dir.path());
         prop_assert!(total <= one_copy * 3 + 65_536, "{} bytes on disk for a {}-byte snapshot", total, one_copy);
     }
+}
+
+/// Hang-watch hq#8669's class (`Outbox::save`, `fsync`): on a slow disk a delivery's change
+/// saved on the tokio worker that made it, so a few deliveries changing together held every
+/// worker in `fsync` and any other request waited behind them. With each sync 100 ms slow,
+/// 24 deliveries change over and over while a request (a task that answers at once) is timed
+/// every 5 ms: its p99 is what a hub request waits. `update_saved` is the old path, unchanged;
+/// `update` hands its save to the disk writer (`disk_writer.rs`).
+#[test]
+fn a_request_waits_no_disk_while_deliveries_change_on_a_slow_disk() {
+    let before = request_p99_while_changing(|outbox, id, n| {
+        outbox.update_saved(id, |d| d.attempts = n);
+    });
+    let after = request_p99_while_changing(|outbox, id, n| {
+        outbox.update(id, |d| d.attempts = n);
+    });
+    eprintln!("hub request p99 with each sync 100 ms slow: before {before:?}, after {after:?}");
+    assert!(
+        before >= std::time::Duration::from_millis(100),
+        "the old path no longer waits: {before:?}"
+    );
+    assert!(
+        after < std::time::Duration::from_millis(50),
+        "a request waited on the disk: {after:?}"
+    );
+}
+
+/// The p99 of a request's wait on a 2-worker runtime while 24 deliveries change through
+/// `change`, each sync 100 ms slow.
+fn request_p99_while_changing(change: fn(&Outbox, &str, u32)) -> std::time::Duration {
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("outbox.json");
+    let outbox = Arc::new(Outbox::default());
+    outbox.open(&path);
+    let now = crate::store::now_ms();
+    for i in 0..24 {
+        outbox.add(delivery(&format!("c-{i}"), State::Delivering, now)).unwrap();
+    }
+    let _slow = crate::config::startup_seams::slow_syncs(dir.path(), Duration::from_millis(100));
+    let runtime =
+        tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
+    let waits = runtime.block_on(async {
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let changers: Vec<_> = (0..24)
+            .map(|i| {
+                let (outbox, stop) = (outbox.clone(), stop.clone());
+                tokio::spawn(async move {
+                    let id = format!("c-{i}");
+                    let mut n = 0;
+                    while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                        change(&outbox, &id, n);
+                        n += 1;
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
+                })
+            })
+            .collect();
+        let mut waits = Vec::new();
+        let started = Instant::now();
+        while started.elapsed() < Duration::from_millis(1500) {
+            let asked = Instant::now();
+            tokio::spawn(async {}).await.unwrap();
+            waits.push(asked.elapsed());
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        for changer in changers {
+            let _ = changer.await;
+        }
+        waits
+    });
+    drop(runtime);
+    assert!(crate::disk_writer::flush(Duration::from_secs(30)));
+    let mut waits = waits;
+    waits.sort();
+    waits[(waits.len() * 99 / 100).min(waits.len() - 1)]
 }

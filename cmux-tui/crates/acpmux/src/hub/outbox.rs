@@ -40,7 +40,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex as StdMutex;
+use std::sync::{Arc, Mutex as StdMutex};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -309,9 +309,57 @@ impl Delivery {
     }
 }
 
-/// The deliveries, saved at `path` when the store is on disk.
+/// The deliveries, saved at `path` when the store is on disk. Shared with the disk writer
+/// (`disk_writer.rs`), which makes the saves no caller waits on ([`Outbox::update`]).
 #[derive(Default)]
-pub struct Outbox {
+pub struct Outbox(Arc<OutboxState>);
+
+impl std::ops::Deref for Outbox {
+    type Target = OutboxState;
+    fn deref(&self) -> &OutboxState {
+        &self.0
+    }
+}
+
+impl Outbox {
+    /// Changes delivery `id` with `f`; the save goes to the disk writer, never waited on here.
+    /// A change whose save is lost (a failed write, a stop before the writer reached it) leaves
+    /// the file a state a restart goes on from safely (an attempt's count, an answer the next
+    /// attempt reads again); [`OutboxState::update_saved`] for one a caller lets something go
+    /// after. This ran on the request's own worker and waited out every `fsync` (hang-watch
+    /// hq#8669, `Outbox::save`): on a slow disk each update held a tokio worker for a sync and
+    /// queued behind every other save.
+    pub fn update(&self, id: &str, f: impl FnOnce(&mut Delivery)) {
+        let Some((change, ran)) = self.0.change(id, f) else { return };
+        self.0.changed.notify_waiters();
+        self.save_later(change);
+        if let Err(panic) = ran {
+            std::panic::resume_unwind(panic);
+        }
+    }
+
+    /// Asks the disk writer for a save that holds change `change`. Saves asked while one waits
+    /// share it: the save writes everything changed by the time it runs.
+    fn save_later(&self, change: u64) {
+        if self.0.path.lock().unwrap_or_else(|e| e.into_inner()).is_none() {
+            return;
+        }
+        self.0.save_wanted.fetch_max(change, std::sync::atomic::Ordering::Relaxed);
+        let state = Arc::downgrade(&self.0);
+        let key = format!("outbox:{:p}", Arc::as_ptr(&self.0));
+        crate::disk_writer::run_later(&key, move || {
+            if let Some(state) = state.upgrade() {
+                state.save(state.save_wanted.load(std::sync::atomic::Ordering::Relaxed));
+            }
+        });
+    }
+}
+
+/// [`Outbox`]'s state.
+#[derive(Default)]
+pub struct OutboxState {
+    /// The newest change [`Outbox::update`] asked the disk writer to save.
+    save_wanted: std::sync::atomic::AtomicU64,
     deliveries: crate::worker_lock::Mutex<Book>,
     path: StdMutex<Option<PathBuf>>,
     /// What is on disk, held while a write runs.
@@ -365,7 +413,7 @@ struct Disk {
     snapshot_retry_at: u64,
 }
 
-impl Outbox {
+impl OutboxState {
     /// Reads the saved deliveries at `path` and saves there from now on. Returns the ones not
     /// settled, to deliver again. A file that cannot be read starts empty (and is replaced).
     pub fn open(&self, path: &Path) -> Vec<Delivery> {
@@ -653,29 +701,30 @@ impl Outbox {
         self.book().deliveries.get(id).filter(|d| !d.is_team_receipt()).cloned()
     }
 
-    /// Changes delivery `id` with `f` and saves.
-    /// A change whose failed save leaves the file a state a restart goes on from safely (an
-    /// attempt's count, an answer the next attempt reads again); [`Self::update_saved`] for
-    /// one a caller lets something go after.
-    pub fn update(&self, id: &str, f: impl FnOnce(&mut Delivery)) {
-        self.update_saved(id, f);
-    }
-
-    /// [`Self::update`], answering whether the change is on disk: a caller that lets something
-    /// go once it is (attachment bytes, an attempt that may reach a peer) waits for that (review
-    /// of #37284 at a088585e: a failed save was logged and the bytes went anyway). False for a
-    /// failed save; true when no such delivery is here.
-    pub fn update_saved(&self, id: &str, f: impl FnOnce(&mut Delivery)) -> bool {
+    /// Changes delivery `id` with `f` and marks it for the next write: the change's number and
+    /// how `f` ended. None when no such delivery is here.
+    fn change(
+        &self,
+        id: &str,
+        f: impl FnOnce(&mut Delivery),
+    ) -> Option<(u64, std::thread::Result<()>)> {
         let mut book = self.book();
-        let Some(d) = book.deliveries.get_mut(id) else { return true };
+        let d = book.deliveries.get_mut(id)?;
         // A closure that panics part way has still changed the delivery: that change is marked
         // and saved like any other before the panic goes on, so memory never holds what no
         // write will take (a restart went back to before it and sent it again).
         let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(d)));
         d.updated_at = crate::store::now_ms();
         book.dirty.insert(id.to_owned());
-        let change = book.changed();
-        drop(book);
+        Some((book.changed(), ran))
+    }
+
+    /// [`Outbox::update`], answering whether the change is on disk, and waiting for that: a
+    /// caller that lets something go once it is (attachment bytes, an attempt that may reach a
+    /// peer) waits for that (review of #37284 at a088585e: a failed save was logged and the bytes
+    /// went anyway). False for a failed save; true when no such delivery is here.
+    pub fn update_saved(&self, id: &str, f: impl FnOnce(&mut Delivery)) -> bool {
+        let Some((change, ran)) = self.change(id, f) else { return true };
         let saved = self.save_checked(change);
         if let Err(e) = &saved {
             tracing::warn!("outbox: could not save: {e:#}");
@@ -767,7 +816,13 @@ impl Outbox {
                     use std::io::Write;
                     let appended = crate::store::open_private_append(&journal).and_then(|mut f| {
                         let start = f.metadata()?.len();
-                        let written = f.write_all(&lines).and_then(|()| f.sync_data());
+                        let written = f.write_all(&lines).and_then(|()| {
+                            #[cfg(test)]
+                            crate::config::startup_seams::sync(&journal);
+                            #[cfg(debug_assertions)]
+                            crate::store::disk_fault::sync();
+                            f.sync_data()
+                        });
                         if written.is_err() {
                             // A failed change is not kept (an add is taken out): its whole line
                             // must not stay to be read after a restart. An append-only handle
