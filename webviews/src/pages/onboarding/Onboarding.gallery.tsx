@@ -148,6 +148,14 @@ export default componentEntry<OnboardingGalleryProps>({
     "computer-use-fresh": { props: { step: "computerUse", computerUse: "fresh" } },
     "computer-use-one-granted": { props: { step: "computerUse", computerUse: "oneGranted" } },
     "computer-use-all-granted": { props: { step: "computerUse", computerUse: "allGranted" } },
+    "computer-use-finished": {
+      note: "The person's Allow got the last grant on: the done view, which closes the window after 2.4 s.",
+      props: { step: "computerUse", computerUse: "finished" },
+    },
+    "computer-use-confirming-capture": {
+      note: "Screenshots was just allowed: macOS asks once more the first time it captures.",
+      props: { step: "computerUse", computerUse: "confirmingCapture" },
+    },
     "computer-use-helper-failed": { props: { step: "computerUse", computerUse: "helperFailed" } },
     "computer-use-off": { props: { step: "computerUse", computerUse: "off" } },
     "computer-use-unavailable": { props: { step: "computerUse", computerUse: "unavailable" } },
