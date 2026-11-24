@@ -254,6 +254,16 @@ public enum HomeListNote: Equatable, Sendable {
     }
 }
 
+/// When Home's bottom "Updating" chip shows: kept rows wait for the Mac's fresh list
+/// (``HomeListNote/updating``) and nothing else says so. A connection chip at the top
+/// (Reconnecting, offline, failed) already says the list is not live, so the two never show
+/// together (the user, 2026-11-23: "only reconnecting shows"); a pull to refresh's wheel says it too.
+public enum HomeUpdatingChip {
+    public static func shows(note: HomeListNote, bannerShows: Bool, pullRefreshing: Bool) -> Bool {
+        note == .updating && !bannerShows && !pullRefreshing
+    }
+}
+
 /// What Home says while its Mac's list is not live (CMUX-489), in the Workspaces tab's words
 /// (the user, 2026-11-13: no card over the list, "make them similar, no different messaging
 /// paradigms"). With rows on screen the list stays exactly as normal under Workspaces' connection
