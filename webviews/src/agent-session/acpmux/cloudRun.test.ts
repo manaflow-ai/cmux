@@ -565,8 +565,11 @@ test("the pane builds its Cloud start from grantedCloudStart and hands every Clo
     /const \[startCloud\] = useState\(\(\) =>\s*grantedCloudStart\(\s*pickedChatCloudCall\(reservedCloudCall\(callNative, cloudReservation\), \(ms\) => harnessSwitch\.pickSession\(ms\)\),\s*cloudFolderGrant,?\s*\),?\s*\);/,
   );
   expect(source).toMatch(/cloudFolderGrant\.granting\(\s*folder\.cwd,\s*pickFolder\(callNative, folder\.cwd/);
-  expect(source).toMatch(/newTabProjectPick\(callNative, cloudOfferable, cloudFolderGrant\.granting\)/);
+  // The New Tab page's pick is drawn in the pane body (pane/PaneBody.tsx).
+  const body = readFileSync(join(import.meta.dir, "pane", "PaneBody.tsx"), "utf8");
+  expect(body).toMatch(/newTabProjectPick\(callNative, cloudOfferable, cloudFolderGrant\.granting\)/);
   expect(source).not.toMatch(/oneCloudStart\(/);
+  expect(body).not.toMatch(/oneCloudStart\(/);
 });
 
 test("a new chat with Cloud picked reads no sign-in of this Mac's agent; every other local chat does", () => {

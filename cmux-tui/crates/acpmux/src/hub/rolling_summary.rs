@@ -160,8 +160,9 @@ impl Hub {
                 let cwd = tokio::task::spawn_blocking(crate::protected_folders::unattended_cwd)
                     .await
                     .ok()?;
-                let mut cmd = tokio::process::Command::new(&argv[0]);
-                cmd.args(&argv[1..]).current_dir(&cwd);
+                let (program, args) = argv.split_first()?;
+                let mut cmd = tokio::process::Command::new(program);
+                cmd.args(args).current_dir(&cwd);
                 #[cfg(unix)]
                 cmd.process_group(0);
                 (super::titles::run_command(cmd, request, TIMEOUT).await, "custom".to_owned())

@@ -24,6 +24,10 @@ public enum TerminalSessionEvent: Sendable, Equatable {
     /// The device that sets the Mac's grid changed (its name, or nil when it
     /// is this phone or unknown), for the letterbox note.
     case hostGridOwner(String?)
+    /// The Mac stamped the redraw whose bytes the session just gave (`pseq`), and its line
+    /// arrived at `receivedMs` (epoch ms): the screen reports when it painted it
+    /// (``TerminalPaintTally``, `phone-frames` `paint`).
+    case paintMark(seq: Int, receivedMs: Double)
 }
 
 /// Whether the screen shows the Mac's terminal yet. Anything but `attached`
@@ -153,6 +157,10 @@ public enum TerminalConnectionState: Sendable, Equatable {
     public static let inputNotSentNotice = "Keys typed while your Mac was unreachable were not sent."
     /// Said when the composer's message did not reach the Mac's terminal (its text is back in the composer).
     public static let composerSendNotSentNotice = "Your message was not sent."
+    /// Said when the composer's message may have reached the Mac's terminal but its answer never
+    /// came (the link failed after it went out): its text stays out of the composer, so a second
+    /// Send never types it twice.
+    public static let composerSendMaybeSentNotice = "Your message may have been sent. Check the terminal before sending it again."
 }
 
 /// One terminal on a Mac, as the phone sees it: bytes in, input out, resize and
@@ -183,9 +191,12 @@ public protocol TerminalSession: AnyObject {
     /// writes 60 ms apart: a draft could stay unsent in the program's prompt.
     /// Returns false when this session cannot (no Mac daemon, or one without
     /// `send-expect-agent-v1`): the screen then pastes through its mirror.
-    /// `notSent` is called once, on the main actor, if the text is dropped,
-    /// refused or answered with an error: the screen then gives it back.
-    func sendPasteAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void) -> Bool
+    /// `notSent` is called once, on the main actor, if the text never reached
+    /// the terminal (dropped before it went out, or refused): the screen then
+    /// gives it back. `maybeSent` is called instead when it went out and no
+    /// answer came in time: it may have been typed, so the text stays out of
+    /// the composer (a second Send would type it twice).
+    func sendPasteAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void, maybeSent: @escaping @MainActor () -> Void) -> Bool
     /// The screen's grid in cells: what a TUI should draw (rows between the
     /// toolbar and the composer with the keyboard down).
     func resize(columns: Int, rows: Int)
@@ -248,6 +259,24 @@ public protocol TerminalSession: AnyObject {
     /// ``TerminalScrollPlace``), so a session that attaches with the latest
     /// screen first asks for at least that much history at once. Others ignore it.
     func requestHistoryRows(_ rows: Int)
+    /// The phone projects this terminal itself (``TerminalProjectingSession``):
+    /// the session claims a size only when told to, and never holds the
+    /// Mac's own grid back from the screen while the primary screen shows.
+    /// Sessions without a Mac ignore it.
+    func setProjectsLocally(_ projects: Bool)
+    /// Where the reader is, in the page's rows: from the document's end to
+    /// the top of the screen they read (the screen's height at the bottom).
+    /// A projection keeps those lines when it re-wraps at a new width.
+    /// Called as the page scrolls; others ignore it.
+    func noteReaderRowsFromEnd(_ rows: Int)
+    /// The session itself, under any session wrapping it (the projection).
+    var underlyingSession: AnyObject { get }
+    /// One pan of the screen ended: its frame intervals, for a session with a Mac to log
+    /// there (`phone-frames`). Others ignore it.
+    func reportScrollFrames(_ pan: TerminalPanFrames)
+    /// Stamped redraws the screen painted (`[seq, received, painted]`, epoch ms), for a
+    /// session with a Mac to join with its stamps (`phone-frames` `paint`). Others ignore it.
+    func reportPaint(_ samples: [TerminalPaintTally.Sample])
 }
 
 extension TerminalSession {
@@ -255,7 +284,7 @@ extension TerminalSession {
     public func sendReply(_ bytes: Data) { send(bytes) }
 
     /// Sessions with no Mac daemon paste through the screen's mirror.
-    public func sendPasteAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void) -> Bool { false }
+    public func sendPasteAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void, maybeSent: @escaping @MainActor () -> Void) -> Bool { false }
 
     /// Rows of the remote screen this session mirrors, when it mirrors one
     /// (a terminal on the Mac). The screen then maps the remote primary
@@ -286,6 +315,15 @@ extension TerminalSession {
     public func loadNewerHistory(toTheScreen: Bool) -> Bool { false }
 
     public func requestHistoryRows(_ rows: Int) {}
+
+    public func setProjectsLocally(_ projects: Bool) {}
+
+    public func noteReaderRowsFromEnd(_ rows: Int) {}
+
+    public var underlyingSession: AnyObject { self }
+    public func reportScrollFrames(_ pan: TerminalPanFrames) {}
+
+    public func reportPaint(_ samples: [TerminalPaintTally.Sample]) {}
 
     public var hostGridOwnerName: String? { nil }
 }

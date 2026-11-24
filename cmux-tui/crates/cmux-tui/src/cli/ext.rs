@@ -18,8 +18,11 @@ mod pack;
 mod publish;
 #[cfg(test)]
 mod publish_tests;
+#[cfg(test)]
+mod recipes_tests;
 mod scaffold;
 mod scene;
+mod scene_type;
 mod share;
 mod shot;
 mod source;
@@ -56,6 +59,8 @@ pub(super) mod exit {
     pub const BUILD_FAILED: i32 = 5;
     /// `ext shot`: it loaded and rendered, but no picture was taken.
     pub const SHOT_FAILED: i32 = 6;
+    /// `ext shot --record`: the scenes could not be written to `preview/scenes.json`.
+    pub const RECORD_FAILED: i32 = 9;
     /// `ext add`: the source could not be fetched; `ext search`: GitHub did not answer.
     pub const FETCH_FAILED: i32 = 7;
     /// `ext share`: the folder cannot be shared yet.
@@ -68,7 +73,7 @@ cmux ext: make a cmux extension and watch it change as you work.
   cmux ext new NAME [--kind K] a working extension folder ./NAME on the SDK this cmux ships;
                                K: sidebar (default, a sidebar section), session-info (a section
                                in an agent chat's Session Info), pane (a view in a tab),
-                               newtab (a whole New Tab page, picked in tabs.newTabApp),
+                               newtab (a view over the New Tab composer, picked in tabs.newTabApp),
                                widget (a New Tab and sidebar widget, small/medium/large),
                                command (a palette command, `cmux NAME ...` and an agent tool);
                                --repo OWNER/REPO (else the folder's github.com origin) makes the
@@ -86,7 +91,8 @@ cmux ext: make a cmux extension and watch it change as you work.
   cmux ext shot [DIR] [--out PNG] [--record] [--json]
                                one reload, then what it rendered: the view's outline, its design
                                warnings and a picture of the cmux window that shows it; exit 6
-                               no picture. --record writes the scene into DIR/preview/scenes.json
+                               no picture. --record writes the scene (a widget: each declared size)
+                               into DIR/preview/scenes.json; exit 9 when it cannot
   cmux ext add SOURCE [--no-install]
                                add someone's extension: a git URL, OWNER/NAME[@REF], a GitHub
                                /tree/REF/PATH link, URL#PATH, or a folder; again to update it
@@ -127,6 +133,8 @@ pub(super) struct DevOptions {
     pub build_timeout: std::time::Duration,
     /// `bun` for the packer (found on PATH; tests set none).
     pub bun: Option<PathBuf>,
+    /// Render a widget at every size it declares (`ext shot --record`; `ext dev` renders one).
+    pub every_size: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -241,6 +249,7 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
                 build: None,
                 build_timeout: dev::BUILD_TIMEOUT,
                 bun: None,
+                every_size: false,
             };
             let mut dir = None;
             let mut words = rest.iter();
@@ -330,7 +339,10 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
                 }
             }
             match parse(&dev)? {
-                Request::Dev(dev) => Ok(Request::Shot(shot::ShotOptions { dev, out, record })),
+                Request::Dev(mut dev) => {
+                    dev.every_size = record;
+                    Ok(Request::Shot(shot::ShotOptions { dev, out, record }))
+                }
                 _ => Err(usage("ext shot")),
             }
         }
@@ -726,6 +738,17 @@ pub(super) fn load_customize_folder(global: &GlobalArgs, folder: &std::path::Pat
             .then(|| rejected.field("issue").as_str().unwrap_or("refused").to_owned())
     });
     refused.map_or(FolderLoad::Loaded, FolderLoad::Refused)
+}
+
+/// One daemon request on the session socket `global` names: the answer's data, or the daemon's
+/// refusal as `code: message`; `Err` when there is no daemon or it did not answer.
+pub(in crate::cli) fn daemon_call(
+    global: &GlobalArgs,
+    request: Value,
+) -> Result<Result<Value, String>, String> {
+    let (sender, wakes) = channel();
+    let mut daemon = daemon::Daemon::connect(global, sender, wakes)?;
+    daemon.call(request).map_err(|_| "the cmux daemon did not answer".to_string())
 }
 
 /// The daemon's `apps-reload` answer, or an exit code and message.
