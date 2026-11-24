@@ -38,6 +38,10 @@ pub(crate) struct RestorePoint {
     /// The last transfer record through `seq` that decides authority, as `(seq, blocked)`.
     pub(crate) transfer_authority: Option<(u64, bool)>,
     pub(crate) queue: super::queue::QueueCarry,
+    /// The prompts a `prompt_stop_requested` through `seq` names (`auto_resume.rs`
+    /// `seed_prompt_stops`); none in a point saved before it was carried.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) prompt_stops: Option<Vec<String>>,
 }
 
 impl Hub {
