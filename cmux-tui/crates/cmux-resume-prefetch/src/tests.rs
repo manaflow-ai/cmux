@@ -15,11 +15,12 @@ fn present_pages_coalesce_into_runs_and_absent_ones_split_them() {
 
 #[test]
 fn the_daemon_goes_first_then_agents_then_shells() {
-    assert_eq!(rank("cmux-tui"), 0);
-    assert_eq!(rank("claude"), 1);
-    assert_eq!(rank("node"), 1);
-    assert_eq!(rank("bash"), 2);
-    assert_eq!(rank("sshd"), 3);
+    assert_eq!(rank("/system.slice/cmux-app-server@a.service"), 0);
+    assert_eq!(rank("/system.slice/acpmux.service"), 1);
+    assert_eq!(rank("/system.slice/cmux-host.service"), 1);
+    assert_eq!(rank("/user.slice/user-1000.slice/user@1000.service/app.slice"), 1);
+    assert_eq!(rank("/user.slice/user-1000.slice/session-3.scope"), 2);
+    assert_eq!(rank("/system.slice/ssh.service"), 3);
 }
 
 #[test]
@@ -29,8 +30,8 @@ fn a_plan_round_trips_and_another_version_is_not_read() {
         recorded_at_ms: 7,
         procs: vec![ProcPlan {
             pid: 42,
-            start: 99,
-            comm: "cmux-tui".into(),
+            ident: "55d0-55e0 r--p 00000000 08:01 12 /usr/bin/cmux-tui".into(),
+            unit: "/system.slice/cmux-app-server@a.service".into(),
             ranges: vec![(0x7f00_0000_0000, 3)],
         }],
     };
@@ -51,12 +52,12 @@ fn batches_keep_plan_order_skip_dead_processes_and_cap_at_the_batch_size() {
         procs: vec![
             ProcPlan {
                 pid: 1,
-                start: 1,
-                comm: "a".into(),
+                ident: "a".into(),
+                unit: "/a".into(),
                 ranges: vec![(0, BATCH_PAGES as u64 + 1)],
             },
-            ProcPlan { pid: 2, start: 1, comm: "b".into(), ranges: vec![(0, 5)] },
-            ProcPlan { pid: 3, start: 1, comm: "c".into(), ranges: vec![(0x10000, 2)] },
+            ProcPlan { pid: 2, ident: "b".into(), unit: "/b".into(), ranges: vec![(0, 5)] },
+            ProcPlan { pid: 3, ident: "c".into(), unit: "/c".into(), ranges: vec![(0x10000, 2)] },
         ],
     };
     let b = batches(&plan, &[true, false, true]);
@@ -76,20 +77,20 @@ fn records_and_touches_this_test_process_and_skips_a_replaced_one() {
     let ranges = resident(me, page, u64::MAX);
     let pages: u64 = ranges.iter().map(|r| r.1).sum();
     assert!(pages >= (8 << 20) / page, "resident pages {pages}");
-    let start = proc_start(me).expect("own start time");
+    let ident = ident(me).expect("own first mapping");
     let plan = Plan {
         page,
         recorded_at_ms: 0,
-        procs: vec![ProcPlan { pid: me, start, comm: "test".into(), ranges }],
+        procs: vec![ProcPlan { pid: me, ident, unit: "/test".into(), ranges }],
     };
     let out = prefetch(&plan, 4, Duration::from_secs(30));
     assert_eq!(out.stale_procs, 0);
     assert!(out.touched >= (8 << 20) / page, "{out:?}");
     assert!(out.touched <= out.planned);
     assert!(!out.cut);
-    // Same pid, other start time: a recycled pid, not this process.
+    // Same pid, another first mapping: a recycled pid, not this process.
     let mut stale = plan;
-    stale.procs[0].start += 1;
+    stale.procs[0].ident.push('x');
     let out = prefetch(&stale, 2, Duration::from_secs(30));
     assert_eq!((out.stale_procs, out.touched), (1, 0));
     assert_eq!(held[12345], 2);
@@ -101,6 +102,6 @@ fn a_full_record_names_no_kernel_thread_and_respects_the_page_cap() {
     let plan = record(1000);
     assert!(plan.pages() <= 1000 + 8192, "{}", plan.pages());
     assert!(plan.procs.iter().all(|p| p.pid != 2));
-    let ranks: Vec<u8> = plan.procs.iter().map(|p| rank(&p.comm)).collect();
+    let ranks: Vec<u8> = plan.procs.iter().map(|p| rank(&p.unit)).collect();
     assert!(ranks.windows(2).all(|w| w[0] <= w[1]), "{ranks:?}");
 }

@@ -3,19 +3,20 @@
 //! wake-echo harness (scripts/cmux-next/wake-echo-probe.py) uploads into a staging guest for its A/B
 //! (hq#21300). Each prints one JSON line.
 
+use std::process::ExitCode;
 use std::time::Duration;
 
 fn flag(args: &[String], name: &str) -> Option<u64> {
     args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).and_then(|v| v.parse().ok())
 }
 
-fn main() {
+fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
     let (Some(cmd), Some(path)) = (args.get(1), args.get(2)) else {
         eprintln!(
             "usage: cmux-resume-prefetch record|run PLAN [--max-pages N] [--threads N] [--deadline-ms N]"
         );
-        std::process::exit(2);
+        return ExitCode::from(2);
     };
     match cmd.as_str() {
         "record" => {
@@ -23,7 +24,7 @@ fn main() {
             let text = plan.to_json().to_string();
             if let Err(e) = std::fs::write(path, text) {
                 eprintln!("write {path}: {e}");
-                std::process::exit(1);
+                return ExitCode::FAILURE;
             }
             println!("{}", serde_json::json!({"procs": plan.procs.len(), "pages": plan.pages()}));
         }
@@ -34,7 +35,7 @@ fn main() {
                 .and_then(|v| cmux_resume_prefetch::Plan::from_json(&v));
             let Some(plan) = plan else {
                 println!("{}", serde_json::json!({"error": "no plan"}));
-                std::process::exit(1);
+                return ExitCode::FAILURE;
             };
             let threads = flag(&args, "--threads").unwrap_or(4) as usize;
             let deadline = Duration::from_millis(flag(&args, "--deadline-ms").unwrap_or(20_000));
@@ -42,7 +43,8 @@ fn main() {
         }
         _ => {
             eprintln!("unknown command {cmd}");
-            std::process::exit(2);
+            return ExitCode::from(2);
         }
     }
+    ExitCode::SUCCESS
 }

@@ -10,8 +10,12 @@
 //! to the guest those pages are already in memory.
 //!
 //! - [`record`] reads the page tables only: it loads no page.
-//! - [`prefetch`] touches the recorded pages of the processes still alive (same pid and start time),
-//!   in the plan's order: the terminal daemon first, then the agents, the shells, the rest.
+//! - [`prefetch`] touches the recorded pages of the processes still alive (same pid, same first
+//!   mapping), in the plan's order: the terminal daemon first, then the agents, the shells, the rest.
+//!
+//! Processes come from the cgroup v2 tree (`cgroup.procs`), never a `/proc` walk
+//! (plans/cmux-next/pty-holder.md section 4, D3: a full process tree only through the Linux cgroup);
+//! the order comes from each process's unit (its cgroup path), not from reading what it is.
 //!
 //! Linux only; elsewhere both return empty results.
 
@@ -24,13 +28,14 @@ pub const PLAN_VERSION: u64 = 1;
 /// Pages one `process_vm_readv` touches (IOV_MAX is 1024).
 const BATCH_PAGES: usize = 512;
 
-/// A process the plan names: a recycled pid with another start time is not this process.
+/// A process the plan names: a recycled pid with another first mapping is not this process.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProcPlan {
     pub pid: i32,
-    /// `/proc/PID/stat` field 22, clock ticks after boot.
-    pub start: u64,
-    pub comm: String,
+    /// The first line of `/proc/PID/maps` (lowest mapping: address, inode, path) at record time.
+    pub ident: String,
+    /// The cgroup the process was in, relative to the cgroup root (`/system.slice/x.service`).
+    pub unit: String,
     /// Runs of resident pages: (first page's address, pages).
     pub ranges: Vec<(u64, u64)>,
 }
@@ -59,7 +64,7 @@ impl Plan {
             "page": self.page,
             "recorded_at_ms": self.recorded_at_ms,
             "procs": self.procs.iter().map(|p| json!({
-                "pid": p.pid, "start": p.start, "comm": p.comm,
+                "pid": p.pid, "ident": p.ident, "unit": p.unit,
                 "ranges": p.ranges.iter().map(|r| json!([r.0, r.1])).collect::<Vec<_>>(),
             })).collect::<Vec<_>>(),
         })
@@ -78,8 +83,8 @@ impl Plan {
             }
             procs.push(ProcPlan {
                 pid: i32::try_from(p["pid"].as_i64()?).ok()?,
-                start: p["start"].as_u64()?,
-                comm: p["comm"].as_str()?.to_owned(),
+                ident: p["ident"].as_str()?.to_owned(),
+                unit: p["unit"].as_str()?.to_owned(),
                 ranges,
             });
         }
@@ -106,17 +111,16 @@ pub struct Outcome {
     pub cut: bool,
 }
 
-/// The order processes are prefetched in: what the first echo and the first reply need first.
-pub fn rank(comm: &str) -> u8 {
-    let c = comm.to_ascii_lowercase();
-    if c.starts_with("cmux-tui") || c == "cmux" {
+/// The order processes are prefetched in, by unit (cgroup path): what the first echo and the first
+/// reply need first. 0 the terminal daemon, 1 the agents and the Cloud agent, 2 login sessions, 3 the
+/// rest.
+pub fn rank(unit: &str) -> u8 {
+    let u = unit.to_ascii_lowercase();
+    if ["cmux-tui", "cmux-app-server"].iter().any(|n| u.contains(n)) {
         0
-    } else if ["claude", "node", "codex", "acpmux", "bun", "cmux-host", "cmux-vm-agent"]
-        .iter()
-        .any(|n| c.starts_with(n))
-    {
+    } else if ["acpmux", "cmux-host", "cmux-vm-agent", "user@"].iter().any(|n| u.contains(n)) {
         1
-    } else if ["bash", "zsh", "sh", "fish", "dash"].contains(&c.as_str()) {
+    } else if u.contains("/session-") || u.contains("user.slice") {
         2
     } else {
         3
@@ -157,34 +161,42 @@ pub fn page_size() -> u64 {
     4096
 }
 
-/// `/proc/PID/stat` field 22 (start time) and field 4 (parent pid).
-pub fn proc_start(pid: i32) -> Option<u64> {
-    let s = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-    s.rsplit_once(')')?.1.split_whitespace().nth(19)?.parse().ok()
+/// The first line of `/proc/PID/maps`: what tells a recycled pid apart (a new program maps other
+/// files, or the same ones at other randomized addresses).
+pub fn ident(pid: i32) -> Option<String> {
+    use std::io::{BufRead, BufReader};
+    let f = std::fs::File::open(format!("/proc/{pid}/maps")).ok()?;
+    let mut line = String::new();
+    BufReader::new(f).read_line(&mut line).ok()?;
+    let line = line.trim_end();
+    (!line.is_empty()).then(|| line.to_owned())
 }
 
-fn proc_ppid(pid: i32) -> Option<i32> {
-    let s = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-    s.rsplit_once(')')?.1.split_whitespace().nth(1)?.parse().ok()
-}
+const CGROUP_ROOT: &str = "/sys/fs/cgroup";
 
-/// User processes (kernel threads have no address space to prefetch), this one excluded.
+/// Every process in a cgroup below the root, with its cgroup path, this one excluded. Kernel
+/// threads stay in the root cgroup, which is not read.
 fn processes() -> Vec<(i32, String)> {
-    let me = std::process::id() as i32;
-    let Ok(dir) = std::fs::read_dir("/proc") else { return Vec::new() };
+    let me = i32::try_from(std::process::id()).unwrap_or(-1);
     let mut out = Vec::new();
-    for e in dir.flatten() {
-        let Some(pid) = e.file_name().to_str().and_then(|s| s.parse::<i32>().ok()) else {
-            continue;
-        };
-        if pid == me || pid == 2 || proc_ppid(pid) == Some(2) {
+    let mut dirs = vec![std::path::PathBuf::from(CGROUP_ROOT)];
+    while let Some(dir) = dirs.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        for e in entries.flatten() {
+            if e.file_type().is_ok_and(|t| t.is_dir()) {
+                dirs.push(e.path());
+            }
+        }
+        if dir.as_os_str() == CGROUP_ROOT {
             continue;
         }
-        let comm = std::fs::read_to_string(format!("/proc/{pid}/comm"))
-            .unwrap_or_default()
-            .trim()
-            .to_owned();
-        out.push((pid, comm));
+        let unit = dir.to_string_lossy().trim_start_matches(CGROUP_ROOT).to_owned();
+        let procs = std::fs::read_to_string(dir.join("cgroup.procs")).unwrap_or_default();
+        for pid in procs.lines().filter_map(|l| l.trim().parse::<i32>().ok()) {
+            if pid != me {
+                out.push((pid, unit.clone()));
+            }
+        }
     }
     out
 }
@@ -246,9 +258,7 @@ pub fn record(max_pages: u64) -> Plan {
     let page = page_size();
     let mut procs: Vec<ProcPlan> = processes()
         .into_iter()
-        .filter_map(|(pid, comm)| {
-            Some(ProcPlan { pid, start: proc_start(pid)?, comm, ranges: Vec::new() })
-        })
+        .filter_map(|(pid, unit)| Some(ProcPlan { pid, ident: ident(pid)?, unit, ranges: Vec::new() }))
         .collect();
     let mut left = max_pages;
     for p in &mut procs {
@@ -259,7 +269,7 @@ pub fn record(max_pages: u64) -> Plan {
         left = left.saturating_sub(p.pages());
     }
     procs.retain(|p| !p.ranges.is_empty());
-    procs.sort_by_key(|p| (rank(&p.comm), std::cmp::Reverse(p.pages())));
+    procs.sort_by_key(|p| (rank(&p.unit), std::cmp::Reverse(p.pages())));
     Plan { page, recorded_at_ms: wall_ms(), procs }
 }
 
@@ -341,7 +351,7 @@ fn touch(_pid: i32, _pages: &[u64], _scratch: &mut [u8]) -> u64 {
 pub fn prefetch(plan: &Plan, threads: usize, deadline: Duration) -> Outcome {
     use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
     let began = Instant::now();
-    let live: Vec<bool> = plan.procs.iter().map(|p| proc_start(p.pid) == Some(p.start)).collect();
+    let live: Vec<bool> = plan.procs.iter().map(|p| ident(p.pid).as_deref() == Some(p.ident.as_str())).collect();
     let work = batches(plan, &live);
     let next = AtomicUsize::new(0);
     let touched = AtomicU64::new(0);
