@@ -116,7 +116,7 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
         return Ok(Command::Help);
     }
     if verb == Some("auto") {
-        return parse_auto(&rest[1..]);
+        return parse_auto(rest.get(1..).unwrap_or_default());
     }
     let mut worktree = None;
     let mut port = None;
@@ -435,7 +435,9 @@ fn run_auto(global: &GlobalArgs, verb: RustVerb, worktree: Option<&Path>) -> i32
     let mut frame = json!({"id": "cmux-live-auto-1", "cmd": "live-auto", "op": op});
     // `stop` with no --worktree outside a checkout stops every one.
     if let Some(tree) = tree.as_ref().filter(|_| verb != RustVerb::Status) {
-        frame["worktree"] = json!(tree.display().to_string());
+        if let Some(map) = frame.as_object_mut() {
+            map.insert("worktree".to_owned(), json!(tree.display().to_string()));
+        }
     }
     let answer = match ask(global, frame) {
         Answer::Ok(answer) => answer,
@@ -479,11 +481,15 @@ pub(super) fn auto_lines(answer: &Value, verb: RustVerb) -> Vec<String> {
         lines.push(messages.auto_not_watching.to_owned());
         return lines;
     }
-    let on = |tree: &Value, layer: &str| tree["live"][layer].as_bool() == Some(true);
+    let on = |tree: &Value, layer: &str| {
+        tree.get("live").and_then(|live| live.get(layer)).and_then(Value::as_bool) == Some(true)
+    };
     for tree in &trees {
         let layers: Vec<&str> =
             ["web", "rust", "swift"].into_iter().filter(|layer| on(tree, layer)).collect();
-        let number = |key: &str| tree["trigger_ms"][key].as_f64().unwrap_or(0.0);
+        let number = |key: &str| {
+            tree.get("trigger_ms").and_then(|ms| ms.get(key)).and_then(Value::as_f64).unwrap_or(0.0)
+        };
         lines.push(
             messages
                 .auto_watching

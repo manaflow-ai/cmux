@@ -284,7 +284,7 @@ pub fn parse_diff(text: &str) -> HashMap<String, Vec<(char, String)>> {
         } else if let Some(path) = &current
             && let Some(sign @ ('+' | '-')) = line.chars().next()
         {
-            diffs.entry(path.clone()).or_default().push((sign, line[1..].to_string()));
+            diffs.entry(path.clone()).or_default().push((sign, line.get(1..).unwrap_or_default().to_string()));
         }
     }
     diffs
@@ -328,10 +328,10 @@ pub fn event(root: &Path, dispatch: &Dispatch, trigger_ms: f64) -> Value {
         "paths": dispatch.paths,
     });
     if let Some(error) = &dispatch.error {
-        out["error"] = json!(error);
+        put(&mut out, "error", json!(error));
     }
     if let Some(reason) = &dispatch.reason {
-        out["reason"] = json!(reason);
+        put(&mut out, "reason", json!(reason));
     }
     out
 }
@@ -448,8 +448,8 @@ fn receipt_event(
             })
             .unwrap_or_default();
         let mut out = handoff_event(item, Some(layer), &format!("{outcome}: {error}"), now);
-        out["outcome"] = json!(outcome);
-        out["daemons"] = json!(daemons);
+        put(&mut out, "outcome", json!(outcome));
+        put(&mut out, "daemons", json!(daemons));
         return out;
     }
     // rust-live's own save-to-swapped time, from the receipt; the router's
@@ -673,8 +673,15 @@ pub fn stop(worktree: Option<&Path>) -> Value {
     }
     drop(router);
     let mut out = status();
-    out["stopped"] = json!(names.iter().map(|n| n.display().to_string()).collect::<Vec<_>>());
+    put(&mut out, "stopped", json!(names.iter().map(|n| n.display().to_string()).collect::<Vec<_>>());
     out
+}
+
+/// Sets `key` on a JSON object; a non-object is left as it is.
+fn put(out: &mut Value, key: &str, value: Value) {
+    if let Some(map) = out.as_object_mut() {
+        map.insert(key.to_owned(), value);
+    }
 }
 
 /// p50 and p95 of `samples` (nearest rank).
@@ -684,8 +691,10 @@ pub fn percentiles(samples: &[f64]) -> (f64, f64) {
     }
     let mut sorted = samples.to_vec();
     sorted.sort_by(f64::total_cmp);
-    let rank =
-        |q: f64| sorted[((q * sorted.len() as f64).ceil() as usize).clamp(1, sorted.len()) - 1];
+    let rank = |q: f64| {
+        let nth = ((q * sorted.len() as f64).ceil() as usize).clamp(1, sorted.len());
+        sorted.get(nth.saturating_sub(1)).copied().unwrap_or_default()
+    };
     (rank(0.50), rank(0.95))
 }
 
