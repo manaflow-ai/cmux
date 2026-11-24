@@ -226,9 +226,9 @@ all three apps). Settings row icons 17 pt in a 22 pt frame.
 SwiftUI `.sensoryFeedback`, or `UIFeedbackGenerator` from UIKit code. All gated by Settings >
 Haptic feedback, **default off** (Leo, 2026-11-23: "ive turned off all haptics already, so dont inject
 haptic noise when i havent asked for it. ever."). Also respect the system haptics switch (automatic) and
-skip all haptics in Low Power Mode (ChatGPT does). Every call goes through the gate; the
-`NoUngatedHapticsTests` detector fails on any raw `UIFeedbackGenerator`, `.sensoryFeedback`,
-`AudioServicesPlaySystemSound` or `playInputClick` outside the gate files.
+skip all haptics in Low Power Mode (ChatGPT does). Every call goes through the gate; no raw
+`UIFeedbackGenerator`, `.sensoryFeedback`, `AudioServicesPlaySystemSound` or `playInputClick` outside
+the gate files (`design/haptics-audit.md` lists every site).
 
 | Event | Feedback |
 | --- | --- |

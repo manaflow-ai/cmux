@@ -60,6 +60,6 @@ gallery.
 ## Haptics, app wide
 
 Every haptic goes through a gate that defaults to off (`CmuxMobileHaptics`, `MobileHapticFeedback`,
-`ConversationHaptics`, `ScreenKitHaptics`). `NoUngatedHapticsTests` fails on any new raw
-`UIFeedbackGenerator`, `.sensoryFeedback`, `AudioServicesPlaySystemSound` or `playInputClick` outside
-those files.
+`ConversationHaptics`, `ScreenKitHaptics`). No raw `UIFeedbackGenerator`, `.sensoryFeedback`,
+`AudioServicesPlaySystemSound` or `playInputClick` call sits outside those files; `haptics-audit.md`
+lists every site.

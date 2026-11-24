@@ -190,3 +190,8 @@ The following are the matches from `git grep -nE 'NSHapticFeedbackManager|NSSoun
 - `Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/GhosttyRuntime+Bell.swift:84:                guard let sound = NSSound(contentsOfFile: path, byReference: false) else { continue }` — system alert volume / Play user interface sound effects (or a sound-library reference in a comment).
 - `Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/NotificationSoundLibraryTests.swift:7:/// plays is never shadowed, and a file NSSound cannot play is refused.` — system alert volume / Play user interface sound effects (or a sound-library reference in a comment).
 - `Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/NotificationSoundLibraryTests.swift:38:    @Test func aFileNSSoundCannotPlayIsRefused() throws {` — system alert volume / Play user interface sound effects (or a sound-library reference in a comment).
+
+## Sites that reached feat-cmux-next after the audit (gated in the same PR)
+- `cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileDesign/InPlaceTextSelection.swift` (2 sites) — selectionChanged via CmuxMobileHaptics
+- `cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/ChatInlineTextSelection.swift` — selectionChanged via CmuxMobileHaptics
+- `Packages/iOS/CmuxConversation/Sources/CmuxConversationUI/ConversationViewController+TextSelection.swift` — selectionChanged via ConversationHaptics
