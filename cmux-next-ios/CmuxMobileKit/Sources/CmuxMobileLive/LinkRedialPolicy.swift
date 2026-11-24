@@ -60,6 +60,17 @@ public enum LinkRedialPolicy {
         #endif
     }
 
+    /// The attempt of a dial news starts from a wait at `attempt` (the foreground, a new network
+    /// path, the Mac's presence): a stopped redial starts over at 1, so stopping never strands
+    /// the person; otherwise one more.
+    public static func newsAttempt(after attempt: Int) -> Int {
+        #if canImport(CmuxMobileLinkFFI)
+        Int(linkRedialNewsAttempt(attempt: UInt32(clamping: attempt)))
+        #else
+        attempt >= maxAttempts ? 1 : nextAttempt(after: attempt)
+        #endif
+    }
+
     /// The policy's bounds, read from Rust once.
     struct Limits: Sendable {
         var stableAfterMs: UInt64

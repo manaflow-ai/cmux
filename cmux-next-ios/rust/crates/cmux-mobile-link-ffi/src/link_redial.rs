@@ -53,7 +53,11 @@ pub fn link_redial_after_failure(backoff_ms: Vec<u64>, attempt: u32) -> LinkRedi
 /// After the link dial `connected_attempt` made was lost `up_for_ms` after it connected (none: no
 /// clock, counted as stable).
 #[uniffi::export]
-pub fn link_redial_after_drop(backoff_ms: Vec<u64>, connected_attempt: u32, up_for_ms: Option<u64>) -> LinkRedial {
+pub fn link_redial_after_drop(
+    backoff_ms: Vec<u64>,
+    connected_attempt: u32,
+    up_for_ms: Option<u64>,
+) -> LinkRedial {
     policy::after_drop(&table(&backoff_ms), connected_attempt, up_for_ms.map(Duration::from_millis)).into()
 }
 
@@ -62,6 +66,14 @@ pub fn link_redial_after_drop(backoff_ms: Vec<u64>, connected_attempt: u32, up_f
 #[uniffi::export]
 pub fn link_redial_next_attempt(attempt: u32) -> u32 {
     policy::restart_attempt(attempt)
+}
+
+/// The attempt of a dial news starts from a wait at `attempt` (the foreground, a new network
+/// path, the Mac's presence): a stopped redial starts over at 1, so stopping never strands the
+/// person; otherwise one more.
+#[uniffi::export]
+pub fn link_redial_news_attempt(attempt: u32) -> u32 {
+    policy::news_attempt(attempt)
 }
 
 /// The policy's bounds.
@@ -94,7 +106,10 @@ mod tests {
     #[test]
     fn failures_back_off_then_stop() {
         assert_eq!(link_redial_after_failure(BACKOFF.to_vec(), 1), LinkRedial::Now { attempt: 2 });
-        assert_eq!(link_redial_after_failure(BACKOFF.to_vec(), 2), LinkRedial::Wait { attempt: 2, after_ms: 1000 });
+        assert_eq!(
+            link_redial_after_failure(BACKOFF.to_vec(), 2),
+            LinkRedial::Wait { attempt: 2, after_ms: 1000 }
+        );
         let limits = link_redial_limits();
         assert_eq!(
             link_redial_after_failure(BACKOFF.to_vec(), limits.max_attempts),
@@ -102,5 +117,7 @@ mod tests {
         );
         assert_eq!(link_redial_next_attempt(limits.max_attempts), limits.max_attempts);
         assert_eq!(limits.stable_after_ms, 60_000);
+        assert_eq!(link_redial_news_attempt(limits.max_attempts), 1);
+        assert_eq!(link_redial_news_attempt(3), 4);
     }
 }

@@ -78,11 +78,19 @@ pub fn restart_attempt(attempt: u32) -> u32 {
     attempt.saturating_add(1).min(MAX_ATTEMPTS)
 }
 
-/// The dial a person (Retry, a surface opening, the foreground) or news starts from a wait at
-/// `attempt`, stopped or not. Never past [`MAX_ATTEMPTS`], so its failure stops again at once and
+/// The dial the person's Retry (or a surface opening) or a due retry starts from a wait at
+/// `attempt`, stopped or not: one dial. Never past [`MAX_ATTEMPTS`], so its failure stops again at once and
 /// Retry stays offered.
 pub fn resume_attempt(attempt: u32) -> u32 {
     restart_attempt(attempt)
+}
+
+/// The dial news starts from a wait at `attempt`: the app back in the foreground, the phone's
+/// network path changed, the Mac's presence came back. A stopped redial ([`MAX_ATTEMPTS`]) starts
+/// over with every attempt, so stopping never strands the person: the next path or the person's
+/// return tries again with no tap. Otherwise one more ([`restart_attempt`]).
+pub fn news_attempt(attempt: u32) -> u32 {
+    if attempt >= MAX_ATTEMPTS { 1 } else { restart_attempt(attempt) }
 }
 
 /// Whether a wait at `attempt` after a lost link offers Retry ("Can't reach"), not "Reconnecting".
@@ -177,6 +185,25 @@ mod tests {
             attempt = restart_attempt(attempt);
         }
         assert_eq!(attempt, MAX_ATTEMPTS);
+    }
+
+    #[test]
+    fn news_after_a_stop_starts_every_attempt_over() {
+        assert_eq!(news_attempt(MAX_ATTEMPTS), 1);
+        assert_eq!(news_attempt(MAX_ATTEMPTS + 2), 1);
+        assert_eq!(news_attempt(3), 4);
+        // From the fresh start the whole backoff runs again before the next stop.
+        let mut attempt = news_attempt(MAX_ATTEMPTS);
+        let mut lost = 1;
+        loop {
+            match after_drop(b(), attempt, Some(Duration::ZERO)) {
+                Redial::Now { attempt: next } => attempt = next,
+                Redial::Wait { attempt: waiting, .. } => attempt = waiting + 1,
+                Redial::Stop { .. } => break,
+            }
+            lost += 1;
+        }
+        assert_eq!(lost, MAX_ATTEMPTS);
     }
 
     #[test]

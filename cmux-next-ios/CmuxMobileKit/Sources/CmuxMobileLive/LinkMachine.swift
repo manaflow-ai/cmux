@@ -376,7 +376,7 @@ public struct LinkMachine: Sendable {
             switch phase {
             case .connected: return isParked ? [] : [.quickProbe(generation: generation)]
             // The Mac just came back: dial now, not at the end of the backoff.
-            case .waiting(_, let attempt, _, _): return dial(attempt: LinkRedialPolicy.nextAttempt(after: attempt), closing: false)
+            case .waiting(_, let attempt, _, _): return dial(attempt: LinkRedialPolicy.newsAttempt(after: attempt), closing: false)
             // A dial in flight sent its offer to a host that was down or
             // restarting (a cmux-mobile-host kill: back on signaling in 1.6 s, the
             // offer unanswered until the 25 s dial timeout). Presence frames
@@ -388,7 +388,7 @@ public struct LinkMachine: Sendable {
             }
         case .networkChanged:
             switch phase {
-            case .waiting(_, let attempt, _, _): return dial(attempt: LinkRedialPolicy.nextAttempt(after: attempt), closing: false)
+            case .waiting(_, let attempt, _, _): return dial(attempt: LinkRedialPolicy.newsAttempt(after: attempt), closing: false)
             // Without this a retry dial on the dead path waited out its whole
             // dial timeout (25 s) and then a backoff step after the network
             // was back (iOS reliability matrix, network_back_during_inflight_dial).
@@ -408,7 +408,7 @@ public struct LinkMachine: Sendable {
             }
         case .foreground:
             switch phase {
-            case .waiting(_, let attempt, _, _): return dial(attempt: LinkRedialPolicy.nextAttempt(after: attempt), closing: false)
+            case .waiting(_, let attempt, _, _): return dial(attempt: LinkRedialPolicy.newsAttempt(after: attempt), closing: false)
             // A parked link is probed only by its resume: a ping ends the Mac's park.
             case .connected: return isParked ? [] : [.probe(generation: generation)]
             default: return []

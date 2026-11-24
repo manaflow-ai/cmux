@@ -174,13 +174,13 @@ import Testing
         #expect(machine.handle(.linkDropped(generation: 1, reason: "network lost")) == [.close, .dial(generation: 2, macID: "m1", transport: .wireGuard)])
         // The redial is on the dead path; the network comes back.
         #expect(machine.handle(.networkChanged) == [.dial(generation: 3, macID: "m1", transport: .wireGuard)])
-        #expect(machine.phase == .connecting(.wireGuard, attempt: 1))
+        // The restart counts as an attempt (`LinkRedialPolicy.nextAttempt`), so news cannot hold it in place.
+        #expect(machine.phase == .connecting(.wireGuard, attempt: 2))
         // The old dial's late failure is ignored.
         #expect(machine.handle(.dialFailed(generation: 2, reason: "timeout")) == [])
         _ = machine.handle(.dialFailed(generation: 3, reason: "x"))
-        _ = machine.handle(.dialFailed(generation: 4, reason: "x"))
         guard case .waiting(_, let attempt, _, _) = machine.phase else { Issue.record("expected waiting"); return }
-        #expect(machine.handle(.networkChanged) == [.dial(generation: 6, macID: "m1", transport: .wireGuard)])
+        #expect(machine.handle(.networkChanged) == [.dial(generation: 5, macID: "m1", transport: .wireGuard)])
         #expect(machine.phase == .connecting(.wireGuard, attempt: attempt + 1))
     }
 
