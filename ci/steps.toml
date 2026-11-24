@@ -662,6 +662,56 @@ fi
 exit "$status"
 '''
 
+# ci-web.yml's diff-sidecar-check job, which checks the generated protocol types and the Rust sidecar for changes in
+# webviews' diff surface, Native/DiffSidecar or its linked cmux-git crate. Its old job installs the pinned Rust 1.98.1
+# toolchain after the shared Linux Rust setup (which stays on coderouter's 1.94.0), so the step does that locally too.
+# Rust fmt and clippy are warnings for feat-cmux-next pull requests, while the sidecar tests and generated protocol
+# check remain blocking. The old job's warm 4-vCPU p90 was about 63 s, under this step's 300-second limit.
+[step.diff-sidecar-check]
+job = "linux"
+timeout = 300
+title = "Diff sidecar checks"
+about = "the diff sidecar's Rust tests and generated protocol types pass, with fmt and clippy reported as warnings on feat-cmux-next"
+needs = ["bun", "rust"]
+inputs = [
+  "scripts/benchmark-diff-viewer.sh",
+  "scripts/build-diff-sidecar.sh",
+  "scripts/generate-diff-sidecar-types.sh",
+  "scripts/install-rust-ci.sh",
+  "scripts/run-diff-sidecar-cargo.sh",
+  "webviews/bun.lock",
+  "webviews/package.json",
+  "Native/DiffSidecar/**",
+  "cmux-tui/crates/cmux-git/**",
+  "webviews/bench/**",
+  "webviews/src/diff/**",
+  ".github/workflows/ci-web.yml",
+  "scripts/ci/web_subareas.py",
+]
+run = '''
+rustup toolchain install 1.98.1 --profile minimal --component clippy,rustfmt
+cd webviews
+flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile
+cd ..
+status=0
+lint_status=0
+./scripts/run-diff-sidecar-cargo.sh fmt --manifest-path Native/DiffSidecar/Cargo.toml --all --check || lint_status=1
+./scripts/run-diff-sidecar-cargo.sh clippy --manifest-path Native/DiffSidecar/Cargo.toml --all-targets --locked --no-default-features -- -D warnings || lint_status=1
+./scripts/run-diff-sidecar-cargo.sh clippy --manifest-path Native/DiffSidecar/Cargo.toml --all-targets --all-features --locked -- -D warnings || lint_status=1
+if [ "$lint_status" -ne 0 ]; then
+  if [ "${GITHUB_BASE_REF:-}" = "feat-cmux-next" ] || [ "${GITHUB_REF:-}" = "refs/heads/feat-cmux-next" ]; then
+    echo "::warning::Rust sidecar fmt or clippy found issues (warn-only); see the lint commands above."
+  else
+    echo "::error::Rust sidecar fmt or clippy failed; see the lint commands above."
+    status=1
+  fi
+fi
+./scripts/run-diff-sidecar-cargo.sh test --manifest-path Native/DiffSidecar/Cargo.toml --all-targets --locked --no-default-features || status=1
+./scripts/run-diff-sidecar-cargo.sh test --manifest-path Native/DiffSidecar/Cargo.toml --all-targets --all-features --locked || status=1
+./scripts/generate-diff-sidecar-types.sh --check || status=1
+exit "$status"
+'''
+
 # cmux-next-guards.yml's security-holes job, which every feat-cmux-next pull request ran: 3,725 jobs and 8,327
 # runner-minutes a day, a median 85 s for about 30 s of work. It judged every change whatever it touched (gitleaks
 # reads any file a change adds), so its `inputs` are `**` and every change routes it, but a docs-only change

@@ -670,6 +670,27 @@ class PipelineTest(unittest.TestCase):
         # One failed command does not stop the others, as the job's `!cancelled()` steps did.
         self.assertEqual(holes.run.count("|| status=1"), 4)
         self.assertIn('exit "$status"', holes.run)
+        # ci-web.yml's diff-sidecar-check keeps its route and runs as the table step on feat-cmux-next pull requests,
+        # while docs-only fallback still runs the reusable job directly.
+        diff_wf = yaml.safe_load((ROOT / ".github/workflows/ci-web.yml").read_text())
+        self.assertTrue(diff_wf["jobs"]["diff-sidecar-check"]["if"].endswith(
+            "&& (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' || github.workflow == 'docs-only fallback') }}"))
+        diff_step = steps["diff-sidecar-check"]
+        self.assertEqual(diff_step.job, "linux")
+        self.assertEqual(diff_step.timeout, 300)
+        self.assertEqual(diff_step.needs, ("bun", "rust"))
+        for path in ("Native/DiffSidecar/src/server.rs", "cmux-tui/crates/cmux-git/src/lib.rs",
+                     "webviews/src/diff/view.ts", "webviews/package.json", ".github/workflows/ci-web.yml",
+                     "scripts/ci/web_subareas.py"):
+            with self.subTest(path=path):
+                self.assertTrue(ci_steps.routed(diff_step, [path]))
+        self.assertFalse(ci_steps.routed(diff_step, ["web/app/page.tsx"]))
+        for command in ("bun install --frozen-lockfile", "rustup toolchain install 1.98.1",
+                        "run-diff-sidecar-cargo.sh fmt", "run-diff-sidecar-cargo.sh clippy",
+                        "run-diff-sidecar-cargo.sh test", "generate-diff-sidecar-types.sh --check"):
+            self.assertIn(command, diff_step.run)
+        self.assertGreaterEqual(diff_step.run.count("|| status=1"), 3)
+        self.assertIn("lint_status=1", diff_step.run)
         # These workflows keep the pull_request trigger for a macOS job; the moved Linux job skips it, and
         # a pull request runs it as a step of the table with the same command.
         jobs = {("agent-brands.yml", "drift"): "agent-brands-drift",
@@ -688,7 +709,7 @@ class PipelineTest(unittest.TestCase):
         table = ci_steps.load()
         self.assertEqual(sorted(table.tools), ["bun", "go", "node", "rust", "zig"])
         wants_bun = {"app-platform", "mux", "automation-bench", "cloud-vm-image-lock", "cmux-vm-sdk", "web-complexity",
-                     "web-typecheck", "webviews-typecheck"}
+                     "web-typecheck", "webviews-typecheck", "diff-sidecar-check"}
         wants_node = {"ci-artifact-worker", "coderouter", "web-complexity", "webviews-typecheck"}
         self.assertEqual(table.steps["coderouter"].needs, ("rust", "node"))
         self.assertEqual(table.steps["remote-daemon-packaging"].needs, ("go",))
