@@ -461,6 +461,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     services.apps.attach(router: router)
                 }
                 logger.info("control socket \(self.control.socketPath ?? "", privacy: .public)")
+                services.updater.attachHealthCheck(socket: { [weak self] in self?.control.socketPath }, file: { [reporter = services.crashReporting.reporter] in reporter.captureNonFatal($0, type: $1, fingerprint: $2, tags: $3, extra: $4) })
             } catch {
                 logger.error("control socket failed: \(String(describing: error), privacy: .public)")
             }
