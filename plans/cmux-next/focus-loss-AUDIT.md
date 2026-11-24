@@ -8,7 +8,7 @@ one does now, and how to see a loss in a real session.
 
 ## Turn on the focus log
 
-- In the DEV or NIGHTLY build you want to inspect, run `cmux debug open-settings` or choose **Open Debug Settings** from the command palette. Under **Focus and Scroll**, turn on **Record focus changes**. Each build saves its own choice.
+- In the DEV or NIGHTLY build you want to inspect, choose **Open Debug Settings** from the command palette. Under **Focus and Scroll**, turn on **Record focus changes**. Each build saves its own choice.
 - Log: `~/Library/Logs/cmux-next/<tag or release>/focus-log.jsonl` (rolls to `focus-log.1.jsonl` at 4 MB).
 
 Each line is one JSON object (`FocusLogEntry`): `kind` (`responder`, `refused`, `silent`, `key`,

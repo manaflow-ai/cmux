@@ -176,10 +176,10 @@ fn the_computer_use_opt_out_survives_a_rename() {
 }
 
 #[test]
-fn obsolete_dotted_spellings_move_or_drop_without_changing_siblings() {
+fn dotted_removals_keep_dormant_renames_and_unrelated_siblings() {
     let dirs = Dirs::new("dotted");
     let old = json!({
-        "sidebar.showCounts": false,
+        "remote.ultraMode": true,
         "tabs.terminalFirst": true,
         "tunable.diagnostics": { "focusLog": true, "other": false },
         "unrelated.key": 3
@@ -189,7 +189,7 @@ fn obsolete_dotted_spellings_move_or_drop_without_changing_siblings() {
     assert_eq!(
         dirs.file(),
         json!({
-            "sidebar": { "workspaceRow": { "tabCount": false } },
+            "remote.ultraMode": true,
             "tunable.diagnostics": { "other": false },
             "unrelated.key": 3
         })
@@ -200,6 +200,26 @@ fn obsolete_dotted_spellings_move_or_drop_without_changing_siblings() {
 fn a_rename_preserves_a_conflicting_parent() {
     let dirs = Dirs::new("conflicting-parent");
     let text = r#"{ "sidebar": { "workspaceRow": "unexpected", "showCounts": true } }"#;
+    std::fs::write(dirs.config(), text).unwrap();
+    drop(dirs.open());
+    assert_eq!(std::fs::read_to_string(dirs.config()).unwrap(), text);
+}
+
+#[test]
+fn an_inactive_dotted_mode_cannot_enable_computer_use_during_migration() {
+    let dirs = Dirs::new("dotted-mode");
+    let text = r#"{ "computerUse": { "enabled": false }, "computerUse.mode": "fullAccess" }"#;
+    std::fs::write(dirs.config(), text).unwrap();
+    let store = dirs.open();
+    assert_eq!(std::fs::read_to_string(dirs.config()).unwrap(), text);
+    let row = store.state().get(&Target::Key("computerUse.mode".to_owned())).row.unwrap();
+    assert_eq!(row.value, Some(json!("off")));
+}
+
+#[test]
+fn the_app_can_still_migrate_hidden_tab_buttons_to_pinned_buttons() {
+    let dirs = Dirs::new("pane-buttons");
+    let text = r#"{ "tabs": { "hiddenButtons": ["splitDown"] } }"#;
     std::fs::write(dirs.config(), text).unwrap();
     drop(dirs.open());
     assert_eq!(std::fs::read_to_string(dirs.config()).unwrap(), text);

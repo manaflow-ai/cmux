@@ -298,6 +298,39 @@ fn announce_says_each_finding_once_and_again_when_it_changes() {
 }
 
 #[test]
+fn moving_a_misspelling_keeps_its_new_line_but_does_not_announce_it_again() {
+    let home = Home::new();
+    let customize = home.customize();
+    let id = "unknown-key:appearance.acent";
+    home.write("cmux-next.json", "{\"appearance\": {\"acent\": \"red\"}}");
+    assert!(customize.doctor_announce(&at(NOW)).unwrap().announce.is_some());
+    home.write("cmux-next.json", "{\n  // moved\n  \"appearance\": {\"acent\": \"red\"}\n}");
+    let moved = customize.doctor_announce(&at(NOW)).unwrap();
+    assert_eq!(find(&moved, id).line, Some(3));
+    assert_eq!(moved.announce, None);
+    customize.doctor_dismiss(id, &at(NOW)).unwrap();
+    home.write("cmux-next.json", "{\"appearance\": {\"acent\": \"red\"}}");
+    assert!(find(&customize.doctor(&at(NOW)), id).dismissed);
+
+    // Older builds saved a hash containing the line. An upgrade must honor it too.
+    let state = home.dir.path().join("state/doctor.json");
+    fs::write(
+        state,
+        json!({"announced": {id: "aa00000000000001"}, "dismissed": {id: "aa00000000000001"}})
+            .to_string(),
+    )
+    .unwrap();
+    let upgraded = customize.doctor_announce(&at(NOW)).unwrap();
+    assert!(find(&upgraded, id).dismissed);
+    assert_eq!(upgraded.announce, None);
+
+    home.write("cmux-next.json", "{}");
+    customize.doctor_announce(&at(NOW)).unwrap();
+    home.write("cmux-next.json", "{\"appearance\": {\"acent\": \"red\"}}");
+    assert!(customize.doctor_announce(&at(NOW)).unwrap().announce.is_some());
+}
+
+#[test]
 fn a_dismissed_finding_stays_listed_but_leaves_the_notice_until_it_changes() {
     let home = Home::new();
     home.write("cmux-next.json", "{ \"mystery\": true }\n");

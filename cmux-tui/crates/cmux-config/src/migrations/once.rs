@@ -97,25 +97,26 @@ fn spellings(
 fn edits_for(file: &Value, entry: &crate::schema::Retired) -> Vec<Edit> {
     let mut old_paths = Vec::new();
     spellings(file, &super::path(&entry.key), &mut Vec::new(), &mut old_paths);
-    let Some(old) = old_paths.first().and_then(|path| value_at(file, path)) else {
-        return Vec::new();
-    };
     let mut edits = Vec::new();
     if let Some(new) = &entry.replaced_by {
+        // Only the fully nested source is active in the owner's file. Preserve a
+        // literal dotted rename: moving it could turn an ignored option on.
+        let old_path = super::path(&entry.key);
+        let Some(old) = value_at(file, &old_path) else { return edits };
         let new_path = super::path(new);
         if value_at(file, &new_path).is_none() {
-            // An explicit current spelling wins, including one written as a dotted key.
-            let value = file
-                .as_object()
-                .and_then(|root| super::find(root, &new_path))
-                .or_else(|| replaced_by_row(&new_path)?.read(old));
-            if let Some(value) = value {
+            // A conflicting dotted destination is inactive too. Keep both spellings
+            // as written, including the person's effective nested value.
+            if file.as_object().and_then(|root| super::find(root, &new_path)).is_some() {
+                return edits;
+            }
+            if let Some(value) = replaced_by_row(&new_path).and_then(|row| row.read(old)) {
                 // JSONC set would replace a non-object ancestor. Leave the old setting
                 // and the conflicting user value intact.
                 if (1..new_path.len())
                     .any(|n| value_at(file, &new_path[..n]).is_some_and(|value| !value.is_object()))
                 {
-                    return Vec::new();
+                    return edits;
                 }
                 edits.push(Edit {
                     target: Target::Path(new_path),
@@ -137,6 +138,7 @@ fn edits_for(file: &Value, entry: &crate::schema::Retired) -> Vec<Edit> {
 pub fn pending(file: &Value, ledger: &Ledger) -> Vec<Pending> {
     retired_entries()
         .iter()
+        .filter(|entry| !entry.migrated_by_app)
         .filter_map(|entry| {
             let kind = if entry.replaced_by.is_some() { "rename" } else { "remove" };
             let id = format!("{kind}:{}", entry.key);

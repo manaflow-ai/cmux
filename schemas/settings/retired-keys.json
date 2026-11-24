@@ -37,8 +37,9 @@
     },
     {
       "key": "tabs.hiddenButtons",
-      "reason": "the pane's \"…\" menu lists every action",
-      "why": "The pane's buttons became one hover \"…\" listing every action (Leo 2026-10-12)."
+      "migrated_by_app": true,
+      "reason": "pinned tab bar buttons now live in tabs.toolbarButtons",
+      "why": "On launch the app converts the old hidden button IDs to the visible buttons and their order (SettingsController.migrateLegacyPaneToolbarButtons)."
     },
     {
       "key": "tabs.tabBar.terminal",

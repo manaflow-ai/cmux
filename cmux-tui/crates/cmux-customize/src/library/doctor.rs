@@ -207,6 +207,7 @@ impl Customize {
             .collect();
         let seen = self.note_defaults(&state.seen_defaults);
         if announced != state.announced || seen != state.seen_defaults {
+            state.dismissed.retain(|id, _| announced.contains_key(id));
             state.announced = announced;
             state.seen_defaults = seen;
             self.write_doctor_state(&state)?;
@@ -759,10 +760,18 @@ impl Customize {
     }
 
     fn read_doctor_state(&self) -> State {
-        std::fs::read(self.roots().state_dir.join(STATE))
+        let mut state: State = std::fs::read(self.roots().state_dir.join(STATE))
             .ok()
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        // Older builds hashed the line number. The key alone identifies this
+        // finding, so keep earlier announcements and dismissals when lines move.
+        for (id, print) in state.announced.iter_mut().chain(&mut state.dismissed) {
+            if id.starts_with("unknown-key:") {
+                id.clone_into(print);
+            }
+        }
+        state
     }
 
     fn write_doctor_state(&self, state: &State) -> Result<(), Error> {
@@ -820,10 +829,14 @@ impl Found {
     ) {
         let id = format!("{}:{subject}", kind_name(kind));
         let path = path.map(|path| path.display().to_string());
-        let fingerprint = tree::sha256(format!("{id}\n{title}\n{detail}\n{place}").as_bytes())
-            .get(..16)
-            .unwrap_or_default()
-            .to_owned();
+        let fingerprint = if kind == FindingKind::UnknownKey {
+            id.clone()
+        } else {
+            tree::sha256(format!("{id}\n{title}\n{detail}\n{place}").as_bytes())
+                .get(..16)
+                .unwrap_or_default()
+                .to_owned()
+        };
         self.0.push(Finding {
             id,
             kind,
