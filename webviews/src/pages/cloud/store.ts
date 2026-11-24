@@ -37,6 +37,7 @@ import {
   type AuthStatus,
   type CloudMachine,
   type CloudPlan,
+  type CloudUsage,
   type CloudSnapshot,
   type CloudTeam,
   type CreateMachineArgs,
@@ -47,6 +48,7 @@ import {
   type PlanRefusal,
   type RetentionOverrides,
   type SnapshotListResult,
+  type CloudSurge,
 } from "./ops";
 
 export type Connection = "connecting" | "connected" | "disconnected" | "failed";
@@ -114,6 +116,12 @@ export interface CloudState {
   migration?: MigrationStatus;
   /** The account's latest payment failed (`cmux.cloud.billing.status`): the plan shows a notice. */
   paymentPastDue?: boolean;
+  /** This month's usage and its price (`cloud.usage.current`); absent until read or when not served. */
+  usage?: CloudUsage;
+  /** The last usage read failed (not "not served"): the panel says so and offers Retry. */
+  usageFailed?: boolean;
+  /** The checkout answered that payments are not open yet (`cloud.billing.off`): no Add payment method button. */
+  paymentOff?: boolean;
   /** "Later" hid the classic migration banner for this account (kept in this browser, account.ts). */
   migrationDismissed: boolean;
   /** A plan refusal of a change outside the create sheet (start, resize, snapshot). */
@@ -137,6 +145,8 @@ export interface CloudState {
   transfers: FileTransfer[];
   /** The team's archive snapshots (`archive_of`), newest first: restorable machines the platform deleted. */
   archives: CloudSnapshot[];
+  /** The latest surge as the last list read it (the surge card); absent when none. */
+  surge?: CloudSurge;
   /** Retention notices dismissed in this browser (`machine:notice.at`); each shows once. */
   dismissed: ReadonlySet<string>;
   /** The cleanup settings' last save. */
@@ -444,7 +454,17 @@ export class CloudStore {
 
   /** The page is shown again (the app became active, the tab came back): read the billing state again. */
   refreshBilling(): Promise<void> {
-    return this.account.readBilling(this.session);
+    return Promise.all([this.account.readBilling(this.session), this.account.readUsage(this.session)]).then(() => {});
+  }
+
+  /** Retry beside a failed usage read. */
+  retryUsage(): Promise<void> {
+    return this.account.readUsage(this.session);
+  }
+
+  /** "Add payment method": the host confirms, then opens the checkout in the browser. */
+  addPaymentMethod(): Promise<void> {
+    return this.account.checkout();
   }
 
   /** Manage Billing beside the payment notice. */
@@ -961,7 +981,12 @@ export class CloudStore {
         revision = event.revision;
       }
       buffer = null;
-      this.setMirror(machines, revision, { loading: false, connection: "connected", error: undefined });
+      this.setMirror(machines, revision, {
+        loading: false,
+        connection: "connected",
+        error: undefined,
+        surge: page.surge ?? undefined,
+      });
       void this.readArchives(session);
     } catch (error) {
       buffer = null;
@@ -1243,6 +1268,9 @@ function signedOutState(): Partial<CloudState> {
     plan: undefined,
     migration: undefined,
     paymentPastDue: undefined,
+    usage: undefined,
+    usageFailed: undefined,
+    paymentOff: undefined,
     refusal: undefined,
     blocked: undefined,
     selection: undefined,

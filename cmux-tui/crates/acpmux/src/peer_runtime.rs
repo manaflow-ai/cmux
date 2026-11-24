@@ -135,6 +135,8 @@ impl Peer {
             health_asking: AtomicBool::new(false),
             watch_key: StdMutex::new(None),
             pipelined_key: StdMutex::new(None),
+            early_init: StdMutex::new(None),
+            early_refused: AtomicBool::new(false),
             pipelines: AtomicBool::new(false),
             list_follow: AtomicBool::new(false),
             list_cursor: StdMutex::new(None),
@@ -172,13 +174,18 @@ impl Peer {
         f(&mut self.quality.lock_or_recover())
     }
 
-    /// How long a ping sent to check a silent link waits for an answer: `NETWORK_PROBE`, scaled
-    /// to the link's measured round trip (`peer_link_quality::probe_wait`).
+    /// How long a ping sent to check a silent link waits for an answer: `NETWORK_PROBE`, or
+    /// longer for a peer that answers late. The longer of the silence budget's wait (its
+    /// retransmit timeout, `SilenceBudget::probe_wait`) and four of the link's timeouts
+    /// (`peer_link_quality::probe_wait`).
     pub(super) fn probe_wait(&self) -> Duration {
+        let learned = self.with_silence(|b| b.probe_wait(network::NETWORK_PROBE));
         if !self.timings.rtt_adaptive {
-            return network::NETWORK_PROBE;
+            return learned;
         }
-        self.with_quality(|q| crate::peer_link_quality::probe_wait(q.rtt(), network::NETWORK_PROBE))
+        learned.max(self.with_quality(|q| {
+            crate::peer_link_quality::probe_wait(q.rtt(), network::NETWORK_PROBE)
+        }))
     }
 
     /// The silence budget for this link: the learned budget (`SilenceBudget`), not under the floor
