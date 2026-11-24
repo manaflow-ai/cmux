@@ -57,3 +57,31 @@ test("a chat's card changes only when what it says changes", () => {
   expect(store.get("s-1")).not.toBe(first);
   expect(store.get("s-1")?.doing).toBe("Read App.tsx");
 });
+
+test("chats listed after the others add their own cards, and an agent link still opens the first chat it names", () => {
+  const entry = (id: string, agent: string, fields: Record<string, unknown> = {}) =>
+    sessionEntry({ sessionId: id, title: id, harness: "claude", agentSessionId: agent, status: "idle", ...fields });
+  const list = Array.from({ length: 50 }, (_, at) => entry(`s${at}`, `a${at % 40}`));
+  const store = new SessionHoverStore();
+  let told = 0;
+  store.subscribe(() => told++);
+  store.set(list);
+  const card = store.get("s1");
+  const longer = [...list, entry("new", "a3"), entry("other", "fresh", { peer: "gpu", host: "gpu" })];
+  store.set(longer);
+  const fresh = new SessionHoverStore();
+  fresh.set(longer);
+  expect(told).toBe(2);
+  expect(store.get("s1")).toBe(card);
+  for (const id of ["new", "other", "s3", "s49"]) {
+    expect(store.get(id)).toEqual(fresh.get(id));
+    expect(store.host(id)).toBe(fresh.host(id));
+  }
+  expect(store.byAgent("claude", "a3")).toBe("s3");
+  expect(store.byAgentSession("fresh")).toBe("other");
+  // A chat already listed, listed again after the others, reads the list whole.
+  const twice = [...longer, entry("s2", "a2", { title: "again" })];
+  store.set(twice);
+  fresh.set(twice);
+  expect(store.get("s2")).toEqual(fresh.get("s2"));
+});

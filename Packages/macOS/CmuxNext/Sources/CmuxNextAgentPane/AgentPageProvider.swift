@@ -63,7 +63,7 @@ public nonisolated struct AgentPageOps {
         ].map { ($0, $0) })
         for action in AgentPaneIMessageAction.allCases { methods["imessage.\(action.rawValue)"] = "imessage.\(action.rawValue)" }
         for method in AgentPaneReplyRequest.methods.union(AgentPaneEnvironmentRequest.methods).union(AgentPaneCloudMachineRequest.methods).union(AgentPaneCloudRepositoryRequest.methods)
-            .union(AgentPaneCloudEnvironmentRequest.methods).union(AgentPaneGitHubRequest.methods).union(AgentPaneCloudReservationRequest.methods).union(AgentPaneCloudTurnRewind.methods) { methods[method] = method }
+            .union(AgentPaneCloudEnvironmentRequest.methods).union(AgentPaneGitHubRequest.methods).union(AgentPaneCloudReservationRequest.methods).union(AgentPaneCloudTurnRewind.methods).union(AgentProjectPaletteRequest.methods) { methods[method] = method }
         methods["handshake"] = "ready"
         methods["session.persist"] = "chat.persistSession"
         return methods
@@ -157,6 +157,9 @@ public final class AgentPageProvider: PageProvider {
     /// The page's flicker events (`diag.flicker`, `{events}`), for the pane's ring file
     /// (``AgentPageFlickerLog/recordPage(_:page:pid:)``). ``AgentPaneView`` sets it; until then they are dropped.
     public var onFlicker: @MainActor (JSONValue) -> Void = { _ in }
+
+    var onHandshake: (@MainActor () -> Void)?
+    var onProjectPalette: (@MainActor (String, JSONValue, Bool) -> JSONValue)?
 
     public init(prepare: @escaping Prepare) {
         self.prepare = prepare
@@ -397,6 +400,9 @@ public final class AgentPageProvider: PageProvider {
             onFlicker(params)
             return .null
         }
+        if AgentProjectPaletteRequest.methods.contains(method) {
+            return onProjectPalette?(method, params, context.userGesture) ?? .object(["shown": .bool(false)])
+        }
         if method == "pane.edit" { return try edit(params, op: op, context: context) }
         if method == "pane.setScrollToBottomOnSend" || method == "pane.setRemoteControl", !context.userGesture {
             throw PageError(code: PageNativeOp.userOnlyCode, message: "This setting can only be changed by a person")
@@ -436,6 +442,7 @@ public final class AgentPageProvider: PageProvider {
         let request = AgentPaneRequest(body: ["method": method, "params": params.foundationObject])
         if case .unsupported = request { throw PageError.invalidParams(op) }
         guard let model = prepare(request) else { throw PageError.closed }
+        if request == .ready { onHandshake?() }
         // `context.userGesture` is host-authenticated PageRouter state; it cannot be supplied by
         // page params. Pass it through only at this seam so shared-page user-only writes survive a
         // long native menu, while the legacy bridge still uses its pane gesture credit.
