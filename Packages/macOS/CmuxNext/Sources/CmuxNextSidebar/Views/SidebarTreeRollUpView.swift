@@ -109,19 +109,31 @@ final class SidebarTreeRollUpView: NSView {
     }
 
     private static var dotSide: CGFloat { max(4, SidebarStyle.dotSize - 1) }
-    private static var pad: CGFloat { Metrics.space1 }
+    /// The room around a chip's content, each side: 4 pt, so a digit never sits against the fill's edge (it was 2).
+    private static var pad: CGFloat { Metrics.space2 }
+    /// The gap between chips: the chip's own padding apart, so two chips read as two (it was 2 pt).
+    private static var chipGap: CGFloat { Metrics.space2 }
+    /// The chip's height, from its font; a chip's mark never takes all of it.
+    private static var chipHeight: CGFloat { ceil(SidebarStyle.badgeFont.pointSize + Metrics.space2) }
+
+    /// The mark's box: a quiet dot for waiting, failed and unread, but the running chip's working spinner draws at the
+    /// status glyph size every other row's spinner takes (a 5 pt spinner drew as a stray comma beside the count),
+    /// inside the chip with a point of air above and below.
+    private func markSide(_ chip: Chip) -> CGFloat {
+        chip.state == .running ? min(SidebarStyle.statusSpinnerSide, Self.chipHeight - Metrics.space1) : Self.dotSide
+    }
 
     private func width(_ chip: Chip) -> CGFloat {
         chip.count.isHidden ? 0 : ceil(Self.pad + dotWidth(chip) + chip.count.intrinsicContentSize.width + Self.pad)
     }
 
     /// The dot and its gap; none on the count chip.
-    private func dotWidth(_ chip: Chip) -> CGFloat { chip.state == .idle ? 0 : Self.dotSide + Metrics.space1 }
+    private func dotWidth(_ chip: Chip) -> CGFloat { chip.state == .idle ? 0 : markSide(chip) + Metrics.space1 }
 
     override var intrinsicContentSize: NSSize {
         let shown = chips.filter { !$0.count.isHidden }
-        let widths = shown.map(width).reduce(0, +) + CGFloat(max(0, shown.count - 1)) * Metrics.space1
-        return NSSize(width: widths, height: ceil(SidebarStyle.badgeFont.pointSize + Metrics.space2))
+        let widths = shown.map(width).reduce(0, +) + CGFloat(max(0, shown.count - 1)) * Self.chipGap
+        return NSSize(width: widths, height: Self.chipHeight)
     }
 
     override func layout() {
@@ -135,8 +147,8 @@ final class SidebarTreeRollUpView: NSView {
             let w = width(chip)
             chip.fill.frame = CGRect(x: x, y: 0, width: w, height: h)
             chip.fill.cornerRadius = Metrics.chipCornerRadius(height: h)
-            let side = Self.dotSide
-            chip.dot.frame = CGRect(x: x + Self.pad, y: (h - side) / 2, width: side, height: side)
+            let side = markSide(chip)
+            chip.dot.frame = CGRect(x: x + Self.pad, y: ((h - side) / 2).rounded(), width: side, height: side)
             chip.dot.cornerRadius = side / 2
             if chip.state == .running { runningIndicator.frame = chip.dot.frame }
             // The text box sits `space1` after the dot; the frame adds the label's padding around
@@ -144,7 +156,7 @@ final class SidebarTreeRollUpView: NSView {
             let text = chip.count.intrinsicContentSize
             chip.count.frame = chip.count.frame(forAlignmentRect: NSRect(x: x + Self.pad + dotWidth(chip), y: (h - text.height) / 2,
                                                                          width: ceil(text.width), height: ceil(text.height)))
-            x += w + Metrics.space1
+            x += w + Self.chipGap
         }
     }
 }
