@@ -430,6 +430,11 @@ pub mod method {
     pub const SESSION_UPDATE: &str = "session/update";
     pub const SESSION_REQUEST_PERMISSION: &str = "session/request_permission";
     pub const CANCEL_REQUEST: &str = "$/cancel_request";
+    /// Which of this connection's requests the daemon still runs, and which it answered lately
+    /// (`server/in_flight.rs` `states`): `{}` -> `{running: [id], answered: [id]}`. A client's
+    /// proof, per request, that a slow answer is still being worked on (webviews `direct.ts`
+    /// `checkRequests`). Answered in order with the connection's requests, never queued for a slot.
+    pub const MUX_REQUEST_STATE: &str = "_acpmux/request_state";
 
     // acpmux extension namespace. Everything a plain ACP client does not need.
     pub const MUX_STATUS: &str = "_acpmux/status";

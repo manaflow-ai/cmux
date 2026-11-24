@@ -354,11 +354,11 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
             // An earlier switch still waiting on a first frame ends now.
             endPaintHold()
         }
-        let leaving = hosted !== view && !holds ? hosted : nil
+        var leaving = hosted !== view && !holds ? hosted : nil
         // Its omnibar row on this pane's edge before it lays out here.
         (view as? any ToolbarEdgeHosting)?.toolbarPosition = toolbarPosition
         if let view, !windowEntry.defers(view, to: contentHost) { install(view, replacing: leaving) }
-        if holds, let shown, let view { beginPaintHold(outgoing: shown, incoming: view) }
+        if holds || (kept == nil && !isBandActive && PanePaintHold.holds(view, replacing: hosted)), let shown, let view { leaving = nil; beginPaintHold(outgoing: shown, incoming: view) } // asked again once in: a chat back from drawn parking learns its move here (`AgentPaneView.movedPageWaits`)
         // A terminal's theme scope inherits this pane's workspace theme.
         view?.reparentRootedThemeScope()
         // Another pane may own `previous` now and have taken its callback.

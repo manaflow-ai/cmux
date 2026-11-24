@@ -2,6 +2,7 @@
 #if DEBUG
 import CmuxAgentQuestion
 import CmuxMobileModel
+import CmuxMobileTransport
 import Foundation
 
 /// An offline `AgentSessionSource` that streams a realistic Claude Code style
@@ -56,10 +57,30 @@ public final class MockAgentSession: AgentSessionSource {
         let replayed = batch ?? []
         batch = nil
         continuation.yield(.batch(replayed))
+        // `CMUX_MOBILE_MOCK_LINK=down`: the chat's history is there, its Mac is not.
+        if link == .down { continuation.yield(.status(.disconnected)) }
         return stream
     }
 
+    /// The link to the "Mac" (`CMUX_MOBILE_MOCK_LINK`): a slow one holds what each side
+    /// sends and lets it through in bursts; a down one carries nothing.
+    let link = MockLinkCondition.current
+    private var held: [AgentSessionEvent] = []
+    private var burst: Task<Void, Never>?
+
     public func send(_ intent: AgentClientIntent) {
+        switch link {
+        case .healthy: receive(intent)
+        case .down: return
+        case .slow:
+            Task { [weak self] in
+                try? await Task.sleep(for: MockLinkCondition.burst)
+                self?.receive(intent)
+            }
+        }
+    }
+
+    private func receive(_ intent: AgentClientIntent) {
         switch intent {
         case .prompt(let text, let attachments, let steer, let sentID, _):
             // The client's id comes back on the echo, as acpmux does: the store
@@ -156,7 +177,18 @@ public final class MockAgentSession: AgentSessionSource {
     func emit(_ event: AgentSessionEvent) {
         if batch != nil {
             batch?.append(event)
-        } else {
+        } else if link == .slow {
+            held.append(event)
+            guard burst == nil else { return }
+            burst = Task { [weak self] in
+                try? await Task.sleep(for: MockLinkCondition.burst)
+                guard let self else { return }
+                let events = self.held
+                self.held = []
+                self.burst = nil
+                for event in events { self.continuation?.yield(event) }
+            }
+        } else if link == .healthy {
             continuation?.yield(event)
         }
     }

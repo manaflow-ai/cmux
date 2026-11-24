@@ -182,6 +182,8 @@ pub fn registry() -> Vec<MethodDecl> {
         acp(method::SESSION_UPDATE, Notification),
         acp(method::SESSION_REQUEST_PERMISSION, ServerRequest),
         acp(method::CANCEL_REQUEST, ClientNotification),
+        // Which of the connection's requests still run (server/in_flight.rs `states`).
+        untyped(method::MUX_REQUEST_STATE, Request),
         // ACP extensions acpmux names in the acp.* space.
         request::<ForkParams, Value>(method::ACP_SESSION_FORK),
         keyed::<params::TrustGetParams>(method::ACP_TRUST_GET, Request),
