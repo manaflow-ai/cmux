@@ -59,11 +59,10 @@ public final class GitHubConnections {
     }
     public var connected: Bool { currentConnections.contains { $0["status"]?.stringValue == "active" && (canDisconnect($0) || $0["sharing"]?.stringValue == "team") } }
     public var ready: Bool { scope() != nil && loadedScope == scope() && configured }
-    public var canConnect: Bool { ready && !busy && !connected && (!pending || scope().map(resumable) == true) }
-
-    /// A pending flow this launch can resume: its cached browser URL, or the idempotency key of a
-    /// connect whose response was lost (replaying it returns the same pending connection's URL).
-    private func resumable(_ bound: Scope) -> Bool { authorizations[bound] != nil || connectKeys[bound] != nil }
+    /// A pending connection never blocks Connect (#46018): this launch resumes its own flow (its cached URL, or the key
+    /// of a connect whose answer was lost); one it can't resume (another launch's, or one whose return to cmux failed)
+    /// can't be finished, so Connect asks for a new one and the stale one expires on its own (30 min).
+    public var canConnect: Bool { ready && !busy && !connected }
 
     /// An active connection's Reconfigure: its installation's page on GitHub, where the person changes the account's
     /// or org's repository access (another account or org: Disconnect, then Connect GitHub picks it).
@@ -95,9 +94,7 @@ public final class GitHubConnections {
             switch action {
             case "githubConnect":
                 linkRefusal = nil // a new Connect starts over
-                // A pending flow from another launch has no resumable URL or key here.
-                // Keep it pending until refresh or disconnect resolves that flow.
-                guard ready, !connected, !pending || resumable(bound) else { return }
+                guard ready, !connected else { return }
                 if let authorization = authorizations[bound], authorization.expires <= now() {
                     authorizations[bound] = nil
                     connectKeys[bound] = nil
