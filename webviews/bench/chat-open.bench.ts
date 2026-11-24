@@ -553,7 +553,7 @@ try {
                           typeof hook.memoizedState !== "function"
                         )
                           changed.push(
-                            /^(TranscriptView|ThreadMinimapView|ThreadMinimap)$/.test(name) || index >= 100
+                            /^(TranscriptView|ThreadMinimapView|ThreadMinimap)$/.test(name)
                               ? `${name}#${index}=${String(JSON.stringify(was.memoizedState) ?? was.memoizedState).slice(0, 40)}->${String(JSON.stringify(hook.memoizedState) ?? hook.memoizedState).slice(0, 40)}`
                               : `${name}#${index}`,
                           );
@@ -908,8 +908,6 @@ try {
         timeDeltas: number[];
       };
     };
-    if (process.env.DUMP_PROFILE)
-      fs.writeFileSync(process.env.DUMP_PROFILE, JSON.stringify({ profile, profileAttach, latestAt, profileStart }));
     const mapper = sourceMapper(out);
     const byId = new Map(profile.nodes.map((node) => [node.id, node]));
     const self = new Map<string, number>();
