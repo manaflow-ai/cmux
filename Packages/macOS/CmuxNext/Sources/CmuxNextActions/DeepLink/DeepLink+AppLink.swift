@@ -143,8 +143,11 @@ extension DeepLink {
     /// - Parameters:
     ///   - url: The clicked link.
     ///   - linkScheme: This build's own scheme; the `cmux` scheme is taken too.
+    /// An app install link (`cmux://apps/install?repo=…`, ``appInstallAction(for:linkScheme:)``)
+    /// runs `app.install` the same way, so a click shows the App Store's consent card.
     /// - Returns: The action and its arguments, or nil for any other URL.
     public static func settingsAction(for url: URL, linkScheme: String) -> SettingsLinkAction? {
+        if let install = appInstallAction(for: url, linkScheme: linkScheme) { return install }
         guard let scheme = url.scheme?.lowercased(), scheme == chiefScheme || scheme == linkScheme.lowercased(),
               url.host?.lowercased() == "settings" else { return nil }
         return settingsRoutes[url.path.lowercased()]

@@ -222,7 +222,8 @@ pub const CHIEF_TURN_TOOLS: &str = "agents_snapshot,agents_workspace_create,\
     agents_dialog_list,agents_dialog_answer,agents_events,agents_wait,render,\
     agents_terminal_list,agents_terminal_send,agents_chat_send,agents_chat_read,\
     agents_chat_state,acpmux_send,acpmux_send_status,acpmux_ls,acpmux_last,acpmux_info,\
-    acpmux_inbox_read,acpmux_inbox_reply,cloud_machines,cloud_chat_start,cloud_chat_send,\
+    acpmux_inbox_read,acpmux_inbox_reply,acpmux_watch_add,acpmux_watch_ls,acpmux_watch_rm,\
+    cloud_machines,cloud_chat_start,cloud_chat_send,\
     cloud_chat_status,cloud_computer,cloud_computer_control,workspace_list,workspace_rename,workspace_move,\
     workspace_place,workspace_group_list,workspace_group_create,workspace_group_update";
 /// What every agent chat is told about asking the person, in the cmux MCP
@@ -519,7 +520,7 @@ pub struct Inputs {
     pub github: bool,
     /// The `desktop-lease` binary when [`DESKTOP_LEASE_ENV`] names one (default off):
     /// sessions get [`DESKTOP_LEASE_SERVER`], computer use on a leased desktop the host's
-    /// pool suspends while the model thinks (crates/desktop-lease, cmuxterm-hq#8741).
+    /// pool suspends while the model thinks (cmuxterm-hq#8741).
     pub desktop_lease: Option<PathBuf>,
 }
 
