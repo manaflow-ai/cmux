@@ -492,6 +492,10 @@ pub mod method {
     /// Start a hibernated session's agent now, on its conversation (`hub/pause.rs`):
     /// `{sessionId}`.
     pub const MUX_WAKE: &str = "_acpmux/wake";
+    /// Hold or release a chat (`hub/session_hold.rs`).
+    pub const MUX_SESSION_HOLD: &str = "_acpmux/session_hold";
+    /// Set or read the fleet hold (`hub/session_hold.rs`).
+    pub const MUX_FLEET_HOLD: &str = "_acpmux/fleet_hold";
     pub const MUX_KEEP: &str = "_acpmux/keep";
     pub const MUX_WATCH_TAKE_OVER: &str = "_acpmux/watch_take_over";
     /// A chat hands its Claude Code or Codex conversation to a terminal: once idle, its harness
