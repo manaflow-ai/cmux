@@ -294,7 +294,7 @@ keyed! {
     /// `_acpmux/route/list`.
     RouteListParams: ["sessionId"];
     /// `_acpmux/secret_submit`.
-    SecretSubmitParams: ["sessionId", "secretId", "value"];
+    SecretSubmitParams: ["sessionId", "secretId", "value", "keepAs"];
     /// `session/cancel`.
     SessionCancelParams: ["sessionId"];
     /// `session/new`.
