@@ -561,7 +561,7 @@ import { type SignIn, SignInContext, signedOutHarnesses } from "./signIn";
 import { ACCESS_ACTIONS, type AccessOffer } from "./accessOffer";
 import { type ChatAccounts, ChatAccountsContext, readChatAccounts } from "./chatAccounts";
 import { ForkPendingLine } from "./ForkPendingLine";
-import { HostError, HostLineSlot, HostRecoveringLine, HostUnavailableLine, HostWaitingLine } from "./HostError";
+import { HostError, HostLineSlot, HostRecoveringLine, HostUnavailableLine } from "./HostError";
 import { hostLineText } from "./hostLine";
 import { AcpmuxRestartGate, type HostRestoring, readHostRestoring, hostSelfRetrying } from "./hostRetry";
 import { pageShowsWhatItIs } from "./firstPaint";
@@ -729,6 +729,7 @@ import { reply as questionReply, replyParams, selection } from "./question/model
 export { NewTabComposerChips, ChatComposerChips } from "./pane/ComposerChips";
 import { DefaultComposerChips } from "./pane/ComposerChips";
 import { drawPaneComposer } from "./pane/PaneComposer";
+import { useHostOverload } from "./OverloadNotice";
 import { drawPaneBody } from "./pane/PaneBody";
 import { preloadNewTabWhenIdle } from "./newtab/lazyNewTab";
 
@@ -1224,6 +1225,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       directClient.current ? directClient.current.perf(params) : Promise.reject(new Error(translate("error.notOpen"))),
     [],
   );
+  // acpmux's verdict on this Mac's load and swap (host_overload.rs): the composer draws it only when over.
+  const readOverload = useCallback(
+    () => directClient.current?.hostOverload() ?? Promise.reject(new Error("no client")),
+    [],
+  );
+  const hostOverload = useHostOverload(readOverload);
   /// The pane's toasts (paneToasts.ts): feedback on a click goes there, never into the transcript.
   const [paneToasts] = useState(createPaneToasts);
   /// Where the toasts' top anchors are drawn (ToastLayer.tsx).
@@ -6546,17 +6553,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// old daemon again while it stops, hostRetry.ts).
   const [restartingAcpmux, setRestartingAcpmux] = useState(false);
   const [restartGate] = useState(() => new AcpmuxRestartGate());
-  /// When the handshake in flight began (`Date.now()` time), while it waits for acpmux; undefined
-  /// when none waits. The waiting line (HostWaitingLine) counts from it and offers Restart agent
-  /// service: a slow acpmux is never restarted by the app on its own (rule R5).
-  const [waitingSince, setWaitingSince] = useState<number | undefined>();
-  /// The host said it cannot restart what this wait waits on (a remote or Cloud chat, the Chief
-  /// home's acpmux, or no lookup of this app's acpmux in flight): the line keeps its time and drops
-  /// the button until the next wait.
-  const [restartUnavailable, setRestartUnavailable] = useState(false);
-  /// When this pane's connection to acpmux was lost (its client's `onLost`), until a handshake
-  /// connects again: the quiet "Reconnecting…" line counts from it (HostRecoveringLine).
-  const [relinkingSince, setRelinkingSince] = useState<number | undefined>();
+  /// The transport said the link to acpmux is down for real: an attempt to connect failed with a
+  /// refusal that is not a planned restart (hostRetry.ts `hostPlannedRestart`), or the host refused
+  /// it while acpmux restores. Cleared by the next connect. The quiet chip (HostRecoveringLine)
+  /// follows it, never a clock (Leo, 2026-11-22: "surely we can think of better fixes than random
+  /// timing which can shift"). A dropped socket or a handshake that waits for acpmux sets nothing.
+  const [linkDown, setLinkDown] = useState(false);
   /// When the pane's trouble began (paneSnapshot.ts `troubleSince`): bounds the bare "Reconnecting…".
   const [hostTroubleSince, setHostTroubleSince] = useState<number | undefined>();
   /// The host says acpmux is restoring its chats after a start (its `acpmux-host-status` event, or
@@ -7526,9 +7528,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       cancelRetry,
       setAcpmuxRestartOffered,
       restartGate,
-      setWaitingSince,
-      setRestartUnavailable,
-      setRelinkingSince,
+      setLinkDown,
       setHostTroubleSince,
       setHostRestoring,
       runPendingAdoption,
@@ -9717,6 +9717,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   };
   const composer = drawPaneComposer({
     markDockEdge,
+    hostOverload,
     readOnlySubagent,
     subagentRelay,
     subagentDraftKey,
@@ -9959,21 +9960,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     setComputerUseAsked,
     holdsForComputerUseSetup,
   });
-  // A handshake that still waits for acpmux: once it has waited long, one line says how long, with
-  // Restart agent service. The person decides; the app never restarts a slow acpmux by itself.
-  const restartStuck = () =>
-    void restartGate.run(
-      () =>
-        callNative<{ stopped?: unknown } | null>("acpmux.restartStuck").then((reply) => {
-          if (reply?.stopped !== true) setRestartUnavailable(true);
-        }),
-      {
-        cancelRetries: () => cancelRetry.current?.(),
-        changed: setRestartingAcpmux,
-        connected: () => !!directClient.current,
-        ask: () => retryHost.current?.(),
-      },
-    );
   // While the host recovers nothing shows (no card, no spinner, no button) and the composer stays
   // usable; a failure past its deadline, or a refusal, is one line (HostUnavailableLine).
   // The line is plain words: a chat's machine that is not reachable says so, and acpmux's own codes
@@ -10012,37 +9998,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       />
     </Notice>
   );
-  // One host line at a time, the newest state winning: a long wait replaces the line of an
-  // earlier failed handshake (HostWaitingLine's `otherwise`).
-  const daemonWaitingSince = clientSnapshot.daemonWaitingSince;
-  const hostWaitingSince = waitingSince ?? daemonWaitingSince;
-  const hostWaitOrError =
-    hostWaitingSince !== undefined ? (
-      <HostWaitingLine
-        since={hostWaitingSince}
-        restarting={restartingAcpmux}
-        onRestart={waitingSince !== undefined && !restartUnavailable ? restartStuck : undefined}
-        otherwise={hostErrorCard}
-      />
-    ) : (
-      hostErrorCard
-    );
   // While the pane gets its chat back on its own, one quiet line says so: "Restoring sessions…"
-  // while the host says acpmux restores, "Reconnecting…" for a lost connection before the deadline.
+  // while the host says acpmux restores, "Reconnecting…" while the link is down for real (`linkDown`).
   // A Restart acpmux in flight keeps its own line.
   // It is drawn out of flow, in a slot that is always there (HostLineSlot): no state of it moves a row.
   const hostLine = (
     <HostLineSlot>
       {restartingAcpmux ? (
-        hostWaitOrError
+        hostErrorCard
       ) : (
         <HostRecoveringLine
-          relinkingSince={relinkingSince}
+          linkDown={linkDown}
           restoring={hostRestoring}
           failureShown={hostErrorSaid}
-          // "Reconnecting…" stays until the waiting line, whose wait starts a moment later, replaces it.
-          waitingSince={hostWaitingSince}
-          otherwise={hostWaitOrError}
+          otherwise={hostErrorCard}
         />
       )}
     </HostLineSlot>
