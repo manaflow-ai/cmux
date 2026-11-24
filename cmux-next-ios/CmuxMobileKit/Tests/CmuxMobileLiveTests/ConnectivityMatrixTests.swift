@@ -115,7 +115,7 @@ private struct Timeline {
                 pending.append(standbyOutcome(generation: generation, world: world))
             case .promoteStandby:
                 resumed += 1
-            case .close, .probe, .quickProbe, .closeStandby:
+            case .close, .probe, .quickProbe, .closeStandby, .park, .resumeParked:
                 break
             }
         }
@@ -310,6 +310,45 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
             results.append(reconnected ?? .seconds(3600))
         }
         #expect(withinGodBound(small: results[0], god: results[1]))
+    }
+
+    /// A short background (another app for a few seconds; the Mac still
+    /// holds the link) or a long one (the link is gone). Before: the link was
+    /// closed on resume and redialed, so the chat waited a dial and re-attached
+    /// every channel. After: it is kept beside the redial; a live one answers
+    /// its first probe in one round trip and nothing re-attaches, a dead one
+    /// loses to the redial exactly as before.
+    @Test func cellAppShortBackgroundKeepsTheLink() {
+        for (variant, carries) in [("short-link-alive", true), ("long-link-gone", false)] {
+            var results: [String: Duration] = [:]
+            var reattached: [String: Int] = [:]
+            for (mode, keeps) in [("before", false), ("after", true)] {
+                let leave: Duration = .seconds(5)
+                let resume = leave + .seconds(8)
+                let world = World(dial: { _ in (true, dialTime, "") }, linkCarries: { t in carries || t < leave })
+                var timeline = Timeline()
+                timeline.machine.keepsStandby = keeps
+                timeline.run(world: world, external: [
+                    (.zero, .target(studio)),
+                    (leave, .background),
+                    (resume, .resume),
+                ], until: resume + .seconds(60))
+                let flowing = timeline.connected(after: resume + .milliseconds(1)).map { $0 - resume }
+                results[mode] = flowing ?? .seconds(3600)
+                reattached[mode] = timeline.newLinks
+                report("app_short_background", "\(variant)-\(mode)", [
+                    "flowing_after_resume_ms": (flowing?.seconds ?? -1) * 1000,
+                    "channels_reattached": timeline.newLinks, "resumed_from_standby": timeline.resumed,
+                ])
+            }
+            #expect(results["after"]! <= results["before"]!, "\(variant): a kept link never slows the resume")
+            if carries {
+                #expect(results["after"]! <= .milliseconds(60), "\(variant): \(results["after"]!)")
+                #expect(reattached["after"] == 0)
+            } else {
+                #expect(results["after"]! == dialTime)
+            }
+        }
     }
 
     /// Killed and relaunched: a fresh machine dials at once with no retry

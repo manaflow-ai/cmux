@@ -157,6 +157,8 @@ final class CEFPaneHost {
         // not override a hide it applied (a pane parked off screen).
         hostView.isHidden = Self.hidesHost(tab)
         visibleTab = tab
+        // A page given its address before any pane showed it loads from this frame; its browser comes after it.
+        tab.startLoadAwaitingBrowser()
         shownWithWindowOut = windowOut ? tab : nil
         tab.applyHostBackdrop()
         // Tabs from windows cmux does not host go to a pane, never a panel.

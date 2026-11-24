@@ -76,7 +76,7 @@ import Testing
         let model = BookmarkEditModel(isNew: false, title: "Docs", folder: "bar", folders: [
             BookmarkFolderChoice(id: "bar", title: "Bookmarks Bar", depth: 0),
         ])
-        let hosting = NSHostingView(rootView: BookmarkEditView(model: model))
+        let hosting = ThemedHostingView(rootView: BookmarkEditView(model: model))
         let card = Glass.makeMenuPanel(content: hosting)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 320), styleMask: [.titled],
                               backing: .buffered, defer: false)
@@ -113,6 +113,44 @@ import Testing
             let hit = root.hitTest(root.superview.map { root.convert(middle, to: $0) } ?? middle)
             #expect(hit != nil && hit !== button && !(hit is CmuxDialogButtonView), "\(name)'s click reaches SwiftUI: \(String(describing: hit))")
         }
+    }
+
+    /// Chief 2026-11-23: every SwiftUI control on a menu panel's glass draws the theme's text fit to that glass, from
+    /// its first frame. The bubble's form is hosted as in the app (``ThemedHostingView`` on
+    /// ``Glass/makeMenuPanel(content:cornerRadius:interactive:)``): once the panel is in its window, with no run loop
+    /// pass and no draw yet, the root its content renders already holds the glass inks, each 4.5:1 on the menu glass over
+    /// the theme's window, a white and a black page (NativeControlContrastAuditTests reads the pixels in every theme).
+    @Test func aMenuPanelsSwiftUIContentHasTheGlassInksBeforeItsFirstDraw() throws {
+        let scope = ThemeScope(level: .room)
+        scope.setOverride(ThemeSpec("Glass Dark"), input: ThemeInput(background: ThemeRGB(hex: 0x1E1E1E), foreground: ThemeRGB(hex: 0xE6E6E6)),
+                          animated: false)
+        let model = BookmarkEditModel(isNew: true, title: "Docs", folder: "bar", folders: [
+            BookmarkFolderChoice(id: "bar", title: "Bookmarks Bar", depth: 0),
+        ])
+        let hosting = ThemedHostingView(rootView: BookmarkEditView(model: model))
+        let card = Glass.makeMenuPanel(content: hosting)
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 520, height: 320))
+        root.addSubview(card)
+        let window = NSWindow(contentRect: root.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.contentView = nil; window.close() }
+        scope.adopt(window)
+        window.contentView = root
+
+        let tokens = scope.tokens
+        let inks = try #require(hosting.inks, "the host has no inks")
+        #expect(hosting.rootView.inks == inks, "the content renders without the inks the host found")
+        #expect(inks.menuGlass == tokens, "the host on a menu panel does not know its glass")
+        for (name, ink) in [("primary", inks.primary), ("secondary", inks.secondary), ("tertiary", inks.tertiary)] {
+            for ground in CmuxDialogButtonLook.menuCardSurfaces(tokens) {
+                #expect(ink.contrast(with: ground) >= 4.5, "\(name): \(ink.contrast(with: ground)):1 on the menu glass \(ground)")
+            }
+        }
+
+        // Off the panel the host fits the window instead and knows no menu glass, at once.
+        hosting.removeFromSuperview()
+        root.addSubview(hosting)
+        #expect(hosting.inks?.menuGlass == nil && hosting.rootView.inks == hosting.inks, "the host kept the menu glass off the panel")
     }
 
     private static func rgb(_ color: NSColor) -> ThemeRGB? {

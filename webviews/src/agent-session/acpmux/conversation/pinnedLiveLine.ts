@@ -214,6 +214,12 @@ export function drawPinned(thread: HTMLElement, x: number): void {
   }
 }
 
+/// The live line `thread` holds pinned now, if any: its translate is the pin's while it is held, so
+/// a motion's settle (VirtualTranscript.tsx `settleMotion`) leaves it on. O(1).
+export function pinnedLiveRow(thread: HTMLElement | null): HTMLElement | undefined {
+  return thread ? pinned.get(thread)?.live : undefined;
+}
+
 /// A placement pass started or retargeted tail glides after taking the pin: update its clips before paint.
 export function refreshPinned(thread: HTMLElement | null): void {
   if (thread) drawPinned(thread, threadY(thread));

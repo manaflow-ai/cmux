@@ -18,7 +18,7 @@ let page: Rendered | null = null;
 afterEach(() => {
   page?.unmount();
   page = null;
-  setDoctorTreatment("chip");
+  setDoctorTreatment("inline");
 });
 
 const card = () => page!.container.querySelector<HTMLElement>('[data-card="customizeDoctor"]');
@@ -52,7 +52,7 @@ test("every finding dismissed: nothing draws (the end state is the start state)"
   expect(notice()).toBeNull();
 });
 
-test("a stale layer and a broken theme: each draws its title, place, detail and fixes, and the chip its line", async () => {
+test("a stale layer and a broken theme: each draws its title, place, detail and fixes, and the card header its line", async () => {
   await open({ doctor: mockDoctor() });
   expect(finding(LAYER).textContent).toContain("pr-45206 is still on");
   expect(finding(LAYER).textContent).toContain("Customization Library");
@@ -60,7 +60,8 @@ test("a stale layer and a broken theme: each draws its title, place, detail and 
   expect(finding(BROKEN).textContent).toContain("themes/night.json:3");
   expect(finding(BROKEN).textContent).toContain("malformed JSON at line 3");
   expect(fix(BROKEN, "open").textContent).toBe("Open");
-  expect(notice()!.dataset.doctorNotice).toBe("chip");
+  expect(notice()!.dataset.doctorNotice).toBe("inline");
+  expect(card()!.contains(notice())).toBe(true);
   expect(notice()!.querySelector(".doctor-line")!.textContent).toBe(mockDoctor().line!);
 });
 
@@ -143,7 +144,15 @@ test("a host that cannot run the doctor draws no card and no notice", async () =
   expect(notice()).toBeNull();
 });
 
-test("the chip's Review, on another page, opens Personalization on the card", async () => {
+test("the sidebar draws no notice: on another page nothing tells of the findings outside the card", async () => {
+  await open({ doctor: mockDoctor() }, "/settings/general");
+  expect(card()).toBeNull();
+  expect(page!.container.querySelector(".sidebar [data-doctor-notice]")).toBeNull();
+  expect(notice()).toBeNull();
+});
+
+test("the banner's Review, on another page, opens Personalization on the card", async () => {
+  setDoctorTreatment("banner");
   const scrolled: HTMLElement[] = [];
   const view = globalThis.window.HTMLElement.prototype;
   const original = view.scrollIntoView;
@@ -153,7 +162,7 @@ test("the chip's Review, on another page, opens Personalization on the card", as
   try {
     await open({ doctor: mockDoctor() }, "/settings/general");
     expect(card()).toBeNull();
-    await click(notice()!.querySelector<HTMLElement>('[data-doctor-action="review"]')!);
+    await click(notice()!.querySelector<HTMLElement>('[data-notice-action="review"]')!);
     await settle();
     expect(page!.history.location.pathname).toBe("/settings/personalization");
     expect(card()).not.toBeNull();
@@ -169,7 +178,7 @@ test("the banner treatment draws a warning Notice with Review; inline draws the 
   const banner = page!.container.querySelector<HTMLElement>('[data-doctor-notice="banner"]')!;
   expect(banner.querySelector('[data-kind="warning"]')).not.toBeNull();
   expect(banner.querySelector('[data-notice-action="review"]')!.textContent).toBe("Review");
-  expect(page!.container.querySelector('[data-doctor-notice="chip"]')).toBeNull();
+  expect(page!.container.querySelector('[data-doctor-notice="inline"]')).toBeNull();
   page!.unmount();
   setDoctorTreatment("inline");
   await open({ doctor: mockDoctor() });
@@ -219,9 +228,10 @@ test("no recover plan: no Recover… on the card or the notice", async () => {
   expect(notice()!.querySelector('[data-doctor-action="recover"]')).toBeNull();
 });
 
-test("the notice's Recover… opens the card with Recover's question open, still asked first", async () => {
+test("the banner's Recover… opens the card with Recover's question open, still asked first", async () => {
+  setDoctorTreatment("banner");
   await open({ doctor: mockDoctor() }, "/settings/general");
-  await click(notice()!.querySelector<HTMLElement>('[data-doctor-action="recover"]')!);
+  await click(notice()!.querySelector<HTMLElement>('[data-notice-action="recover"]')!);
   await settle();
   expect(page!.history.location.pathname).toBe("/settings/personalization");
   const confirm = card()!.querySelector<HTMLElement>("[data-doctor-confirm]")!;

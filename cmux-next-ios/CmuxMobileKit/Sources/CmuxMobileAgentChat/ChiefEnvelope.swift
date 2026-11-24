@@ -1,6 +1,7 @@
 import Foundation
 #if os(iOS)
 import CmuxMobileDesign
+import CmuxMobileMarkdown
 import SwiftUI
 import UIKit
 #endif
@@ -89,10 +90,7 @@ struct ChiefContextRow: View {
             .padding(.vertical, -10)
             if open {
                 ScrollView {
-                    Text(context)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
+                    SelectableText(context, textStyle: .caption1, monospaced: true, color: .secondaryLabel)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(12)
                 }
