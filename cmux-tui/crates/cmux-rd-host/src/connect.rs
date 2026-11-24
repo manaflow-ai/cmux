@@ -194,7 +194,11 @@ fn app_lines(buf: &mut Vec<u8>) -> Result<Vec<Later>, String> {
     Ok(lines)
 }
 
-fn bridge(link: &mut LinkCarrier, listener: &UnixListener, relay_note: Option<&str>) -> Res<String> {
+fn bridge(
+    link: &mut LinkCarrier,
+    listener: &UnixListener,
+    relay_note: Option<&str>,
+) -> Res<String> {
     let mut pane: Option<UnixStream> = None;
     let mut reader = FrameReader::default();
     let mut app = Vec::new();

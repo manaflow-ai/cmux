@@ -700,8 +700,7 @@ fn serve_session(
         None => OpenedDesktop::open(&cfg, crate::stream::wants_cursor(&negotiated.caps))?,
     };
     let max_datagram = carrier.link.max_datagram();
-    let mut media =
-        MediaSession::on_desktop(desktop, &cfg, max_datagram, &negotiated.caps, sink)?;
+    let mut media = MediaSession::on_desktop(desktop, &cfg, max_datagram, &negotiated.caps, sink)?;
     let (width, height) = media.size();
     carrier.send_control(&Control::Welcome {
         encoder: media.encoder_name(),
