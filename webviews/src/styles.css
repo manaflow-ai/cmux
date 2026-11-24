@@ -1449,12 +1449,12 @@ body[data-status-only="true"] #status-text {
 }
 .comment-entry-thread {
   align-items: stretch;
-  padding: 4px 7px;
+  padding: var(--grid-base) var(--grid-gap);
 }
 .comment-entry-select {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--grid-half-step);
   width: 100%;
   padding: 0;
   border: 0;
@@ -1470,7 +1470,7 @@ body[data-status-only="true"] #status-text {
 }
 .comment-entry-resolve {
   align-self: flex-start;
-  margin-top: 2px;
+  margin-top: var(--grid-half-step);
 }
 .comment-composer,
 .comment-card {
@@ -1609,20 +1609,20 @@ body[data-status-only="true"] #status-text {
 .comment-thread {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--grid-gap);
   margin-top: 4px;
-  padding-left: 10px;
+  padding-left: var(--grid-gap);
   border-left: 2px solid var(--cmux-diff-border);
 }
 .comment-thread-reply {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--grid-half-step);
 }
 .comment-thread-reply-header {
   color: var(--cmux-diff-text-muted);
-  font-size: calc(var(--cmux-diff-ui-font-size) - 1px);
-  font-weight: 500;
+  font-size: var(--text-caption);
+  font-weight: var(--weight-emphasis);
 }
 .comment-thread-reply-text {
   white-space: pre-wrap;
@@ -1634,7 +1634,7 @@ body[data-status-only="true"] #status-text {
   padding-left: 0;
 }
 .comment-entry-thread .comment-composer {
-  margin: 2px 0 0;
+  margin: var(--grid-half-step) 0 0;
   padding: 8px;
   box-shadow: none;
 }
