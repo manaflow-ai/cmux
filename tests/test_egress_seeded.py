@@ -99,11 +99,28 @@ def test_exists(ref: str, root: Path = ROOT) -> str | None:
     if not rel or not path.is_file():
         return f"{ref}: no file {rel}"
     text = path.read_text(encoding="utf-8", errors="replace")
-    if not re.search(rf"\bfn\s+{re.escape(fn)}\s*\(", text):
+    found = re.search(rf"\bfn\s+{re.escape(fn)}\s*\(", text)
+    if not found:
         return f"{ref}: {rel} has no fn {fn}"
-    if "capture::" not in text:
-        return f"{ref}: {rel} never uses cmux_egress::capture"
+    if not re.search(r"\bcapture::(leaks|requests|requests_to)\s*\(", fn_body(text, found.end())):
+        return f"{ref}: fn {fn} never asks cmux_egress::capture what was sent (capture::leaks or capture::requests)"
     return None
+
+
+def fn_body(text: str, start: int) -> str:
+    """The text of the fn whose signature starts before START, from its first { to the matching }."""
+    open_at = text.find("{", start)
+    if open_at < 0:
+        return ""
+    depth = 0
+    for i in range(open_at, len(text)):
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[open_at:i + 1]
+    return text[open_at:]
 
 
 def problems(found: dict[str, list[str]], data: dict, root: Path = ROOT) -> list[str]:
@@ -157,6 +174,17 @@ class Matcher(unittest.TestCase):
         self.assertTrue(any(b.startswith("gone:") for b in bad))
         data = {"todo_max": 0, "sites": {"a": {"todo": True}}}
         self.assertTrue(any("todo_max" in b for b in problems({"a": ["x.rs"]}, data)))
+
+    def test_the_named_fn_itself_must_ask_capture(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "t.rs").write_text(
+                "fn helper() { let _ = capture::leaks(\"s\"); }\n"
+                "#[test]\nfn seeded() {\n    let x = { 1 };\n    send(x);\n}\n"
+                "#[test]\nfn checked() {\n    if true { send(1); }\n    assert!(capture::leaks(\"s\").is_empty());\n}\n")
+            self.assertIn("never asks", test_exists("t.rs::seeded", root))
+            self.assertIsNone(test_exists("t.rs::checked", root))
 
 
 if __name__ == "__main__":

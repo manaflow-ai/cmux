@@ -55,15 +55,19 @@ impl Captured {
     pub fn carries(&self, secret: &str) -> Vec<String> {
         let forms = forms(secret);
         let mut found = Vec::new();
-        if holds(self.target.as_bytes(), &forms) {
+        if holds(self.target.as_bytes(), &forms, true) {
             found.push("target".to_owned());
         }
         for (name, value) in &self.headers {
-            if holds(value.as_bytes(), &forms) || holds(name.as_bytes(), &forms) {
+            if holds(value.as_bytes(), &forms, false) || holds(name.as_bytes(), &forms, false) {
                 found.push(format!("header {name}"));
             }
         }
-        if holds(&self.body, &forms) {
+        let form_body = self.headers.iter().any(|(name, value)| {
+            name.eq_ignore_ascii_case("content-type")
+                && value.to_ascii_lowercase().starts_with("application/x-www-form-urlencoded")
+        });
+        if holds(&self.body, &forms, form_body) {
             found.push("body".to_owned());
         }
         found
@@ -71,9 +75,17 @@ impl Captured {
 }
 
 /// Whether `text`, as sent or percent-decoded, contains any of `forms`.
-fn holds(text: &[u8], forms: &[Vec<u8>]) -> bool {
-    let decoded = percent_decoded(&String::from_utf8_lossy(text));
-    forms.iter().any(|form| contains(text, form) || contains(decoded.as_bytes(), form))
+/// Whether `text` carries one of `forms`: as written, percent-decoded, or (for
+/// a query or form body, where `+` means a space) form-decoded.
+fn holds(text: &[u8], forms: &[Vec<u8>], form_text: bool) -> bool {
+    let lossy = String::from_utf8_lossy(text);
+    let decoded = percent_decoded(&lossy, false);
+    let form_decoded = form_text.then(|| percent_decoded(&lossy, true));
+    forms.iter().any(|form| {
+        contains(text, form)
+            || contains(decoded.as_bytes(), form)
+            || form_decoded.as_ref().is_some_and(|text| contains(text.as_bytes(), form))
+    })
 }
 
 /// `secret` itself, then the base64 text its bytes alone decide, at each of the
@@ -123,7 +135,7 @@ fn contains(haystack: &[u8], needle: &[u8]) -> bool {
 }
 
 /// `text` with `%XX` and `+` decoded, so a secret sent form- or query-encoded is still found.
-fn percent_decoded(text: &str) -> String {
+fn percent_decoded(text: &str, plus_is_space: bool) -> String {
     fn hex(byte: u8) -> Option<u8> {
         (byte as char).to_digit(16).and_then(|digit| u8::try_from(digit).ok())
     }
@@ -139,7 +151,7 @@ fn percent_decoded(text: &str) -> String {
                 i += 3;
                 continue;
             }
-            (b'+', _) => out.push(b' '),
+            (b'+', _) if plus_is_space => out.push(b' '),
             (byte, _) => out.push(byte),
         }
         i += 1;
@@ -374,6 +386,19 @@ mod tests {
     fn a_percent_encoded_header_value_is_found() {
         let sent = request("/", &[("x-auth", "Bearer%20seeded-SECRET-7f3a")], "");
         assert_eq!(sent.carries("Bearer seeded-SECRET-7f3a"), ["header x-auth"]);
+    }
+
+    #[test]
+    fn plus_means_a_space_only_in_the_query_and_a_form_body() {
+        let secret = "seeded SECRET 7f3a";
+        let sent = request("/x?k=seeded+SECRET+7f3a", &[("x-auth", "seeded+SECRET+7f3a")], "");
+        assert_eq!(sent.carries(secret), ["target"]);
+        let form = [("content-type", "application/x-www-form-urlencoded")];
+        assert_eq!(request("/", &form, "k=seeded+SECRET+7f3a").carries(secret), ["body"]);
+        assert!(request("/", &[], "k=seeded+SECRET+7f3a").carries(secret).is_empty());
+        // A secret that holds a `+` is still found where `+` is written as itself.
+        let sent = request("/", &[("x-auth", "a+seeded-SECRET")], "");
+        assert_eq!(sent.carries("a+seeded-SECRET"), ["header x-auth"]);
     }
 
     #[test]
