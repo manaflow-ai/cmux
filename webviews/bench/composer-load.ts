@@ -317,8 +317,7 @@ export async function runComposerLoad(
     budget_p95_ms: 16,
     budget_p99_ms: 33,
     budget_policy: "report-only",
-    target_met:
-      errors.length === 0 && keys >= 200 && paintP95 <= 16 && paintP99 <= 33,
+    target_met: errors.length === 0 && keys >= 200 && paintP95 <= 16 && paintP99 <= 33,
     renders: result.renders,
     samples,
   };
