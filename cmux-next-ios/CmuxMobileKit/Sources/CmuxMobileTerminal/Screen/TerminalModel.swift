@@ -60,9 +60,20 @@ public final class TerminalModel {
     var sticky = TerminalStickyModifiers()
 
     // Composer
+    /// The draft. Only the text field reads it while typing: a view body that read it was
+    /// built again on every key (the whole composer, its strip and its buttons: tens of size
+    /// questions per key in a long draft; Leo, 2026-11-23). Views read `composerHasText`.
     public var composerText = "" {
-        didSet { if composerText != oldValue { onDraftChange?() } }
+        didSet {
+            guard composerText != oldValue else { return }
+            let hasText = !composerText.isEmpty
+            if composerHasText != hasText { composerHasText = hasText }
+            composerEdited()
+            onDraftChange?()
+        }
     }
+    /// Whether the draft has any text: changes on the first key and on clearing, not per key.
+    public private(set) var composerHasText = false
     /// Told when the draft to keep changes (``draftToKeep``): the shell writes it to disk.
     @ObservationIgnored public var onDraftChange: (@MainActor () -> Void)?
     /// Voice mode on this terminal's agent (set by the shell); the composer's
@@ -616,7 +627,11 @@ public final class TerminalModel {
         controller?.noteSent(text)
         composerSending = true
         let viaDaemon = submit.steps.first == .paste(text)
-            && session.sendPasteAndSubmit(text, notSent: { [weak self] in self?.composerSendNotSent(text) })
+            && session.sendPasteAndSubmit(
+                text,
+                notSent: { [weak self] in self?.composerSendNotSent(text) },
+                maybeSent: { [weak self] in self?.composerSendMaybeSent(text) }
+            )
         composerSending = false
         if !viaDaemon {
             controller?.surface.sendText(text, pressReturn: true, fullScreenApp: isTUI)
@@ -628,7 +643,7 @@ public final class TerminalModel {
     @ObservationIgnored private var composerSending = false
 
     /// The session dropped, refused or got an error for a composer send
-    /// (``TerminalSession/sendPasteAndSubmit(_:notSent:)``): never silent.
+    /// (``TerminalSession/sendPasteAndSubmit(_:notSent:maybeSent:)``): never silent.
     /// The notice shows and the text comes back to an empty composer (one the
     /// person typed into since keeps what they typed).
     private func composerSendNotSent(_ text: String) {
@@ -638,6 +653,20 @@ public final class TerminalModel {
             composerSendRefused = true
         } else if composerText.isEmpty {
             composerText = text
+        }
+    }
+
+    /// A composer send went out and its answer never came: the Mac may have
+    /// typed it. The notice says so, and the text never comes back as unsent
+    /// (Leo, 2026-11-23: "there's like a sort of like double send type
+    /// thing"); a blip's restore that already put it back is taken out again.
+    private func composerSendMaybeSent(_ text: String) {
+        composerNotice = TerminalConnectionState.composerSendMaybeSentNotice
+        heldComposerSend = nil
+        if composerSending {
+            composerSendRefused = false
+        } else if composerText == text {
+            composerText = ""
         }
     }
 
@@ -768,7 +797,7 @@ public final class TerminalModel {
     #if DEBUG
     /// Demo drivers (`ws-terminal-composer`): a draft, with two photos and a
     /// file attached when asked, for gallery captures of the composer.
-    public func demoFillComposer(_ text: String, attachments withAttachments: Bool) {
+    public func demoFillComposer(_ text: String, attachments withAttachments: Bool, file: Bool = true) {
         composerText = text
         guard withAttachments else { return }
         let colors: [UIColor] = [.systemOrange, .systemTeal]
@@ -781,7 +810,22 @@ public final class TerminalModel {
             }
             addAttachment(ComposerAttachment(kind: .image, name: "Photo \(index + 1).png", thumbnail: image, data: image.pngData()))
         }
+        guard file else { return }
         addAttachment(ComposerAttachment(kind: .file, name: "build.log", data: Data(repeating: 0x61, count: 18_432)))
+    }
+
+    /// `count` characters of prose, sentences and paragraph breaks, for
+    /// typing-cost captures of a long draft (`ComposerTypingLagUITests`).
+    public static func demoProse(_ count: Int) -> String {
+        let sentence = "The build fails on the second step when the cache is cold, so check the log and the screenshots before rerunning it. "
+        var text = ""
+        var index = 0
+        while text.count < count {
+            text += sentence
+            index += 1
+            if index % 4 == 0 { text += "\n\n" }
+        }
+        return String(text.prefix(count))
     }
 
     /// Demo drivers (`ws-terminal-reattach`): the session's link changes as a

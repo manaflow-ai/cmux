@@ -44,7 +44,6 @@ pub(crate) const MAX_FOLDERS: usize = 200;
 const MAX_ENTRIES: usize = 4096;
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 pub(super) struct FoldersParams {
     surface: SurfaceId,
 }

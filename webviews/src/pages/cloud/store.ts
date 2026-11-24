@@ -3,7 +3,7 @@
 // no timers) plus one ordered log of pending intents (OWNERSHIP-PRINCIPLES "Clients are
 // projections"). Money, destructive and view-changing ops go to the host as native actions (ops.ts
 // NATIVE_ACTIONS). React reads it through `useSyncExternalStore`; tests drive it directly.
-import { isPageError, pageError, type PageClient } from "../shared/pageClient";
+import { isPageError, type PageClient, pageError } from "../shared/pageClient";
 import { userMessage } from "../shared/userMessage";
 import { AccountReader } from "./account";
 import { connectionFailure } from "./connectionFailure";
@@ -38,6 +38,7 @@ import {
   type CloudMachine,
   type CloudPlan,
   type CloudSnapshot,
+  type CloudSurge,
   type CloudTeam,
   type CreateMachineArgs,
   type MachineEvent,
@@ -112,6 +113,8 @@ export interface CloudState {
   planFailed?: boolean;
   /** `cloud.migration.status` (contract 4). */
   migration?: MigrationStatus;
+  /** The account's latest payment failed (`cmux.cloud.billing.status`): the plan shows a notice. */
+  paymentPastDue?: boolean;
   /** "Later" hid the classic migration banner for this account (kept in this browser, account.ts). */
   migrationDismissed: boolean;
   /** A plan refusal of a change outside the create sheet (start, resize, snapshot). */
@@ -135,6 +138,8 @@ export interface CloudState {
   transfers: FileTransfer[];
   /** The team's archive snapshots (`archive_of`), newest first: restorable machines the platform deleted. */
   archives: CloudSnapshot[];
+  /** The latest surge as the last list read it (the surge card); absent when none. */
+  surge?: CloudSurge;
   /** Retention notices dismissed in this browser (`machine:notice.at`); each shows once. */
   dismissed: ReadonlySet<string>;
   /** The cleanup settings' last save. */
@@ -438,6 +443,16 @@ export class CloudStore {
   dismissError(): void {
     if (this.state.error || this.state.refusal || this.state.blocked)
       this.set({ error: undefined, refusal: undefined, blocked: undefined });
+  }
+
+  /** The page is shown again (the app became active, the tab came back): read the billing state again. */
+  refreshBilling(): Promise<void> {
+    return this.account.readBilling(this.session);
+  }
+
+  /** Manage Billing beside the payment notice. */
+  manageBilling(): Promise<void> {
+    return this.account.manageBilling();
   }
 
   /** Storefront Retry after a failed plan read. */
@@ -949,7 +964,12 @@ export class CloudStore {
         revision = event.revision;
       }
       buffer = null;
-      this.setMirror(machines, revision, { loading: false, connection: "connected", error: undefined });
+      this.setMirror(machines, revision, {
+        loading: false,
+        connection: "connected",
+        error: undefined,
+        surge: page.surge ?? undefined,
+      });
       void this.readArchives(session);
     } catch (error) {
       buffer = null;
@@ -1230,6 +1250,7 @@ function signedOutState(): Partial<CloudState> {
     teams: [],
     plan: undefined,
     migration: undefined,
+    paymentPastDue: undefined,
     refusal: undefined,
     blocked: undefined,
     selection: undefined,

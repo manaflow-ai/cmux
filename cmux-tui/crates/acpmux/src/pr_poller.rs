@@ -518,6 +518,9 @@ impl<F: Fetch> Poller<F> {
         // The first page names the last; the newest comments (the receipts) are on it.
         let first = format!("repos/{repo}/issues/{n}/comments?per_page=100");
         let (mut raw, last) = self.read(e, used, first.clone()).await?;
+        // With no Link header (the broker's answers), the pull's own comment count says it.
+        let counted = pull.get("comments").and_then(Value::as_u64).map(|c| c.div_ceil(100));
+        let last = last.or_else(|| counted.and_then(|c| u32::try_from(c).ok()));
         if let Some(last) = last.filter(|l| *l > 1) {
             let (tail, _) = self.read(e, used, format!("{first}&page={last}")).await?;
             raw = tail;
@@ -632,8 +635,96 @@ fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack.windows(needle.len()).position(|w| w == needle)
 }
 
-/// The real fetcher: this machine's `gh`, with the daemon's own login.
-pub struct GhFetch;
+/// The real fetcher: this machine's `gh`, with the daemon's own login. A lane VM's `gh` has no
+/// login: its GitHub reads go through the broker on the controller (`lane-gh call get`), so once
+/// `gh` says it has none, every read goes there. Before, `pr_state` failed every call on a lane VM
+/// ("gh auth login"; 76 of 76 in 48 h, cmuxterm-hq
+/// docs/findings/2026-11-23-mcp-tool-error-census.md).
+pub struct GhFetch {
+    /// `lane-gh`, once `gh` said it has no login here.
+    broker: std::sync::OnceLock<std::path::PathBuf>,
+}
+
+impl GhFetch {
+    pub const fn new() -> Self {
+        Self { broker: std::sync::OnceLock::new() }
+    }
+
+    /// `path` through the broker when `gh` has no login here (`said`) and `lane-gh` is found;
+    /// else `said`.
+    async fn or_broker(&self, path: &str, said: String) -> Result<Reply, String> {
+        if !no_login(&said) {
+            return Err(said);
+        }
+        let Ok(program) = crate::cli::send_relay::find_relay_program(BROKER) else {
+            return Err(said);
+        };
+        let program = self.broker.get_or_init(|| program);
+        broker_get(program, path).await.map_err(|e| format!("{said}; through the broker: {e}"))
+    }
+}
+
+impl Default for GhFetch {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// The lane VM broker's client, in `~/.local/bin` (`cli/send_relay.rs` finds it off PATH).
+const BROKER: &str = "lane-gh";
+
+/// `gh`'s answer when it has no login here (or is not here at all).
+fn no_login(said: &str) -> bool {
+    said.contains("gh auth login") || said.contains("gh is not installed")
+}
+
+/// `repos/OWNER/REPO/REST?QUERY` as the broker's `OWNER/REPO`, `REST` and query map.
+fn broker_path(path: &str) -> Option<(String, String, std::collections::BTreeMap<String, String>)> {
+    let (path, query) = path.split_once('?').unwrap_or((path, ""));
+    let mut parts = path.strip_prefix("repos/")?.splitn(3, '/');
+    let (owner, repo, rest) = (parts.next()?, parts.next()?, parts.next()?);
+    let query = query
+        .split('&')
+        .filter_map(|kv| kv.split_once('='))
+        .map(|(k, v)| (k.to_owned(), v.to_owned()))
+        .collect();
+    Some((format!("{owner}/{repo}"), rest.to_owned(), query))
+}
+
+/// One GET through the broker: `program call get OWNER/REPO {"path","query"}`, whose answer is
+/// `{"status", "data"}` (no headers: a list's last page is read from its `total_count`).
+async fn broker_get(program: &std::path::Path, path: &str) -> Result<Reply, String> {
+    let (repo, rest, query) =
+        broker_path(path).ok_or_else(|| format!("{path} is not a repos/OWNER/REPO/ path"))?;
+    let ask = json!({"path": rest, "query": query}).to_string();
+    let mut cmd = tokio::process::Command::new(program);
+    cmd.args(["call", "get", &repo, &ask])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true);
+    let out = match tokio::time::timeout(GH_TIMEOUT, cmd.output()).await {
+        Err(_) => return Err(format!("{BROKER} did not answer in {}s", GH_TIMEOUT.as_secs())),
+        Ok(Err(e)) => return Err(format!("{BROKER} could not run: {e}")),
+        Ok(Ok(out)) => out,
+    };
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let answer: Value = serde_json::from_slice(&out.stdout)
+        .map_err(|_| format!("{BROKER} call get gave no JSON: {}", stderr.trim()))?;
+    let status = answer.get("status").and_then(Value::as_u64).and_then(|s| u16::try_from(s).ok());
+    let Some(status) = status else {
+        let why = answer.get("error").and_then(Value::as_str).unwrap_or(stderr.trim());
+        return Err(format!("{BROKER} call get: {why}"));
+    };
+    let data = answer.get("data").cloned().unwrap_or(Value::Null);
+    let per_page = query.get("per_page").and_then(|p| p.parse::<u64>().ok()).unwrap_or(30).max(1);
+    let last_page = data
+        .get("total_count")
+        .and_then(Value::as_u64)
+        .map(|total| u32::try_from(total.div_ceil(per_page).max(1)).unwrap_or(u32::MAX));
+    let body = serde_json::to_vec(&data).map_err(|e| e.to_string())?;
+    Ok(Reply { status, body, last_page, ..Reply::default() })
+}
 
 /// How long one `gh` may run.
 const GH_TIMEOUT: Duration = Duration::from_secs(30);
@@ -672,14 +763,25 @@ impl Fetch for GhFetch {
                 ["api", "--include", "-H", "Accept: application/vnd.github+json"]
                     .map(str::to_owned)
                     .into();
+            if let Some(broker) = self.broker.get() {
+                return broker_get(broker, path).await;
+            }
             if let Some(etag) = etag {
                 args.extend(["-H".to_owned(), format!("If-None-Match: {etag}")]);
             }
             args.push(path.to_owned());
             // `gh api` exits 1 on a 304 and on HTTP errors: the status line says which.
-            let (_, stdout, stderr) = run_gh(args).await?;
-            parse_include(&stdout)
-                .ok_or_else(|| format!("gh api gave no HTTP answer: {}", stderr.trim()))
+            let (_, stdout, stderr) = match run_gh(args).await {
+                Ok(ran) => ran,
+                Err(e) => return self.or_broker(path, e).await,
+            };
+            match parse_include(&stdout) {
+                Some(reply) => Ok(reply),
+                None => {
+                    let said = format!("gh api gave no HTTP answer: {}", stderr.trim());
+                    self.or_broker(path, said).await
+                }
+            }
         })
     }
 
@@ -700,7 +802,7 @@ impl Fetch for GhFetch {
 /// This daemon's poller: one per machine.
 pub fn machine() -> &'static Poller<GhFetch> {
     static POLLER: std::sync::LazyLock<Poller<GhFetch>> =
-        std::sync::LazyLock::new(|| Poller::new(GhFetch, Config::default()));
+        std::sync::LazyLock::new(|| Poller::new(GhFetch::new(), Config::default()));
     &POLLER
 }
 
