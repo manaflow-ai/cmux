@@ -16,6 +16,8 @@ struct MacRecoveryPanel: View {
     let now: Date
     let retry: (() -> Void)?
     let signIn: (() -> Void)?
+    /// Replaces the state's own title (several Macs: "Your Macs are offline").
+    var title: String? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -23,10 +25,12 @@ struct MacRecoveryPanel: View {
                 .font(.system(size: 28, weight: .regular))
                 .foregroundStyle(theme.colors.label)
                 .accessibilityHidden(true)
-            Text(reach.title(macName: macName))
+            Text(title ?? reach.title(macName: macName))
                 .font(theme.type.emptyTitle)
                 .foregroundStyle(theme.colors.label)
                 .multilineTextAlignment(.center)
+                // Wraps at every text size, never truncates (cmux#52200 walk, step 5).
+                .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 16)
                 .accessibilityIdentifier("mac.recovery.title")
             Text(reach.message(macName: macName, now: now))
@@ -104,6 +108,21 @@ struct MacRecoveryPanel: View {
         case nil: return "in progress"
         case .connected: return "done"
         case .failed: return "failed"
+        }
+    }
+}
+/// A panel that is the whole page: centered when it fits, scrolling when the text size makes it
+/// taller than the page, so its button stays reachable above the tab bar.
+struct ScrollingPanel<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        GeometryReader { proxy in
+            ScrollView {
+                content
+                    .frame(maxWidth: .infinity, minHeight: proxy.size.height)
+            }
+            .scrollBounceBehavior(.basedOnSize)
         }
     }
 }
