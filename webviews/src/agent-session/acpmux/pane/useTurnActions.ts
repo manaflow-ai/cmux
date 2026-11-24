@@ -1,6 +1,7 @@
 // AcpmuxPane's turn rows and turn actions (RFD 0046 step 2.5): the bodies of its `turnRowsShown` and
 // `turnActions` memos, moved out of App.tsx as they were. The memos, their deps arrays and every
 // hook stay in AcpmuxPane; these are plain functions over the values it closes over.
+import type { AnswerBlock } from "../subagents/restart";
 import type { RefObject } from "react";
 import type { AccessOffer } from "../accessOffer";
 import { callNative } from "../callNative";
@@ -101,6 +102,8 @@ export interface TurnActionsDeps {
   /// CMUX-682); the chat already said why, or the click opened setup.
   holdsRetry?: (prompt: string) => boolean;
   restartChat: string | undefined;
+  /// Why the shown chat takes no answer, when `restartChat` is undefined (subagents/restart.ts).
+  answerBlock?: AnswerBlock;
   queuedMessageActionsRef: RefObject<QueuedMessageActionsValue | undefined>;
   stableBranches: Map<string, MessageBranch>;
   runningBranchSessions: ReadonlySet<string>;
@@ -307,6 +310,7 @@ export function turnActionsFrom(deps: TurnActionsDeps): TurnActions {
     showCall,
     holdsRetry,
     restartChat,
+    answerBlock,
     queuedMessageActionsRef,
     stableBranches,
     runningBranchSessions,
@@ -491,6 +495,8 @@ export function turnActionsFrom(deps: TurnActionsDeps): TurnActions {
               : Promise.resolve()
         )(restartChat),
       }),
+    // Where it cannot send, the card says why (NextStepCard.tsx), in the typed answer's row.
+    ...(!restartChat && answerBlock && { answerBlock }),
     // A tagged ask's answer (NextStepCard.tsx) sends as Continue does, with the same reach.
     ...(restartChat && {
       nextStepKey,

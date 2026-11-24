@@ -92,9 +92,53 @@ describe("NextStepCard", () => {
     expect(html).toContain("acpmux-question-number");
   });
 
-  test("a pane that cannot send draws no buttons", () => {
-    const html = renderToStaticMarkup(createElement(NextStepCard, { ask }));
-    expect(html).not.toContain("acpmux-next-step__answer");
+  // Lucas, 2026-11-24: where the pane cannot send, the same card, read only, so it reads the same and
+  // stays as tall as its estimate. The answers are a numbered list; the last row says why.
+  test("a pane that cannot send draws the same card read only, with no control", () => {
+    const html = renderToStaticMarkup(createElement(NextStepCard, { ask, blocked: "watching" }));
+    expect(html).toContain("Needs your input");
+    expect(html).toContain("Add a hook that pushes them to the background?");
+    expect(html.match(/<li class="acpmux-next-step__answer"/g)).toHaveLength(3);
+    expect(html).toContain('<ul class="acpmux-next-step__answers" data-read-only=""');
+    for (const label of ["Yes, add the hook", "Not now", "Fix CI first"]) expect(html).toContain(label);
+    // Nothing to press or type, and nothing that claims a key.
+    expect(html).not.toContain("<button");
+    expect(html).not.toContain("<input");
+    expect(html).not.toContain("aria-keyshortcuts");
+    expect(html).not.toContain("is-primary");
+    expect(html).toContain("Take over to answer");
+  });
+
+  test("the last row names why, for every pane that cannot send", () => {
+    const reasons = {
+      watching: "Take over to answer",
+      subagent: "Answer in the main chat",
+      disconnected: "Not connected",
+      remote: "Not available from here",
+      origin: "Update cmux to answer here",
+      guest: "Only the owner can answer",
+    } as const;
+    for (const [blocked, text] of Object.entries(reasons)) {
+      const html = renderToStaticMarkup(createElement(NextStepCard, { ask, blocked: blocked as keyof typeof reasons }));
+      expect(html).toContain(`<span class="acpmux-next-step__reason" title="${text}">${text}</span>`);
+      expect(html.match(/acpmux-next-step__reason/g)).toHaveLength(1);
+    }
+    // A host that does not say why reads as not connected.
+    expect(renderToStaticMarkup(createElement(NextStepCard, { ask }))).toContain("Not connected");
+  });
+
+  test("a pane that can send has no reason row; a question with no answers has no last row in any pane", () => {
+    const sending = renderToStaticMarkup(createElement(NextStepCard, { ask, onAnswer: async () => undefined }));
+    expect(sending).not.toContain("acpmux-next-step__reason");
+    const bare = { ...ask, options: [] };
+    for (const props of [
+      { ask: bare, onAnswer: async () => undefined },
+      { ask: bare, blocked: "watching" as const },
+    ]) {
+      const html = renderToStaticMarkup(createElement(NextStepCard, props));
+      expect(html).not.toContain("acpmux-question-footer");
+      expect(html).toContain("Needs your input");
+    }
   });
 
   test("answered: the question and the answer, no buttons", () => {

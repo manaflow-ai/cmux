@@ -144,6 +144,25 @@
 .acpmux-next-step__answer:disabled {
   opacity: 0.6;
 }
+/* A pane that cannot send (NextStepCard.tsx `blocked`): the same card, read only, as tall as the one
+   that can. The answers are a plain list with no fill, hover or arrow; the last row says why in the
+   muted ink, on one line, so the card's height never depends on the reason. */
+.acpmux-next-step__answers[data-read-only] {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.acpmux-next-step__answers[data-read-only] > .acpmux-next-step__answer:hover {
+  background: transparent;
+}
+.acpmux-next-step__reason {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--agent-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 /* The typed answer: the question card's last row (questionCard.css .acpmux-question-footer). */
 .acpmux-next-step__other input {
   flex: 1;

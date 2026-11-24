@@ -1,11 +1,12 @@
 import React, { memo, useEffect, useRef, useState, useSyncExternalStore, useLayoutEffect } from "react";
 import { DismissButton } from "../../../ui/DismissButton";
 import { Icon } from "../icons/Icon";
-import { useT } from "../i18n";
+import { useT, type StringKey } from "../i18n";
 import { ArrowRight } from "./icons";
 import { focusRoute } from "../../../ui/focusRoute";
 import { inlineText } from "../question/inlineText";
 import { answerPrompt, type NextStepAsk } from "./nextStepAsk";
+import type { AnswerBlock } from "../subagents/restart";
 import {
   answerState,
   claimAnswer,
@@ -42,6 +43,20 @@ import "./NextStepCard.css";
 /// coordinator's [irreversible] ask was cut mid-word). Only a very long one stops at
 /// `--acpmux-next-step-lines` lines (its tail at `--acpmux-next-step-detail-lines`) with Show more
 /// under it, which opens the rest in place: the answers keep their order under the text.
+/// Where the pane cannot send (`onAnswer` absent: View Only, a subagent's pane, a disconnected or
+/// remote chat, a shared chat's guest) it is the same card, read only (Lucas, 2026-11-24): the answers
+/// as a plain numbered list, and in the typed answer's row the reason it cannot answer, so the card
+/// is as tall in every pane and the transcript's first estimate holds (cardHeight.ts
+/// `nextStepCardHeight`).
+const BLOCKED: Record<AnswerBlock, { icon: string; text: StringKey }> = {
+  watching: { icon: "action.watching", text: "question.cannotAnswer.watching" },
+  subagent: { icon: "agent.bot", text: "question.cannotAnswer.subagent" },
+  disconnected: { icon: "status.disconnected", text: "question.cannotAnswer.disconnected" },
+  remote: { icon: "cloud", text: "question.cannotAnswer.remote" },
+  origin: { icon: "action.reload", text: "question.cannotAnswer.origin" },
+  guest: { icon: "security.lock", text: "question.cannotAnswer.guest" },
+};
+
 /// An answer row's keys: its number (1-9), and ⌘↩ on the first while the composer hands it the key.
 function answerKeys(index: number, primary: boolean): string | undefined {
   const keys = [index < 9 ? String(index + 1) : undefined, primary ? "Meta+Enter" : undefined].filter(Boolean);
@@ -58,8 +73,12 @@ export const NextStepCard = memo(function NextStepCard({
   asker,
   className,
   onDismiss,
+  blocked,
 }: {
   ask: NextStepAsk;
+  /// Why this pane cannot send, where `onAnswer` is absent: the last row says it. Disconnected when
+  /// the host does not say.
+  blocked?: AnswerBlock;
   className?: string;
   /// Puts the pinned copy away (PendingAsks.tsx): the header's close. The transcript's card has none.
   onDismiss?: () => void;
@@ -173,15 +192,13 @@ export const NextStepCard = memo(function NextStepCard({
   };
   return (
     <fieldset ref={card} className={`acpmux-next-step${className ? ` ${className}` : ""}`} aria-label={ask.question}>
-      {(onAnswer || onDismiss) && (
-        <div className="acpmux-question-bar acpmux-next-step__bar">
-          <span>
-            <Icon name="status.question" size={14} />
-            {t("question.needsInput")}
-          </span>
-          {onDismiss && <DismissButton label={t("message.dismiss")} onDismiss={onDismiss} />}
-        </div>
-      )}
+      <div className="acpmux-question-bar acpmux-next-step__bar">
+        <span>
+          <Icon name="status.question" size={14} />
+          {t("question.needsInput")}
+        </span>
+        {onDismiss && <DismissButton label={t("message.dismiss")} onDismiss={onDismiss} />}
+      </div>
       {recap}
       <div ref={textRef} className="acpmux-next-step__text" data-whole={whole || undefined}>
         <p className="acpmux-next-step__question">{inlineText(ask.question)}</p>
@@ -197,7 +214,7 @@ export const NextStepCard = memo(function NextStepCard({
           {t(whole ? "message.less" : "message.more")}
         </button>
       )}
-      {onAnswer && (
+      {onAnswer ? (
         <div className="acpmux-next-step__answers">
           {ask.options.map((option, index) => (
             <button
@@ -216,6 +233,31 @@ export const NextStepCard = memo(function NextStepCard({
               <ArrowRight size={12} className="acpmux-next-step__arrow" />
             </button>
           ))}
+        </div>
+      ) : (
+        <ul className="acpmux-next-step__answers" data-read-only="">
+          {ask.options.map((option, index) => (
+            <li key={option.label} className="acpmux-next-step__answer">
+              <span className="acpmux-question-number" aria-hidden="true">
+                {index + 1}
+              </span>
+              <span className="acpmux-next-step__label">{option.key ? t(option.key) : inlineText(option.label)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {!onAnswer && ask.options.length > 0 && (
+        <div className="acpmux-question-footer acpmux-next-step__other acpmux-next-step__blocked">
+          <span className="acpmux-question-number" data-edit="" aria-hidden="true">
+            <Icon name={BLOCKED[blocked ?? "disconnected"].icon} size={12} />
+          </span>
+          <span
+            className="acpmux-next-step__reason"
+            /* tooltip-allow: the reason stays on one line; a long translation ends in an ellipsis */
+            title={t(BLOCKED[blocked ?? "disconnected"].text)}
+          >
+            {t(BLOCKED[blocked ?? "disconnected"].text)}
+          </span>
         </div>
       )}
       {onAnswer && ask.options.length > 0 && (

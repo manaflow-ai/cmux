@@ -1,3 +1,4 @@
+import type { AnswerBlock } from "../subagents/restart";
 import { memo, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import { useT } from "../i18n";
 import * as watch from "../layoutWatch";
@@ -26,8 +27,11 @@ export const PendingAsks = memo(function PendingAsks({
   registerKey,
   onDismiss,
   asker,
+  blocked,
 }: {
   asks: readonly AcpmuxRow[];
+  /// Why this pane cannot send, where `onAnswer` is absent (NextStepCard.tsx `blocked`).
+  blocked?: AnswerBlock;
   /// Sends an answer; absent where this pane cannot send.
   onAnswer?: (text: string) => Promise<unknown>;
   registerKey?: (fire: () => void) => () => void;
@@ -60,6 +64,7 @@ export const PendingAsks = memo(function PendingAsks({
               className="ui-glass ui-glass-floats acpmux-stack-material"
               ask={pinnedAsk(step.ask)}
               onAnswer={onAnswer}
+              blocked={blocked}
               registerKey={index === shown.length - 1 ? registerKey : undefined}
               answerKey={askKey(row)}
               asker={asker}

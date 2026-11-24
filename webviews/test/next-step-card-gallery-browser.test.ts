@@ -98,10 +98,76 @@ await requireBrowserLane("next-step-card-gallery-browser.test.ts", async () => {
         });
   });
 
+  // The transcript places the reply under a card by its first estimate (cardHeight.ts
+  // nextStepCardHeight) until the card draws: the card must draw exactly that tall, in a pane that can
+  // send and in each that cannot (Lucas, 2026-11-24: the same card read only), with a recap, a cut
+  // question and Show more, a wrapped answer, answered and superseded. The gallery frame writes both.
+  const HOLDS = [
+    "box-choices",
+    "box-watching",
+    "box-subagent",
+    "box-disconnected",
+    "box-remote",
+    "box-origin",
+    "box-guest",
+    "box-wrapping",
+    "box-wrapping-watching",
+    "box-long",
+    "box-long-watching",
+    "wrap-up-recap",
+    "wrap-up-recap-watching",
+    "wrap-up-recap-answered",
+    "wrap-up-recap-only",
+    "box-answered",
+    "box-answered-typed",
+    "box-superseded",
+    "box-no-answers",
+    "box-no-answers-watching",
+  ];
+  describe("the first estimate is the drawn height", () => {
+    for (const variant of HOLDS)
+      for (const width of [420, 640])
+        test(`${variant} at ${width}`, async () => {
+          const height = variant.startsWith("box-long") ? 560 : HEIGHT;
+          const page = await browser!.newPage({ viewport: { width, height }, deviceScaleFactor: 2 });
+          try {
+            const base = `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}`;
+            await page.goto(base + galleryFrame(ENTRY, { variant, width, height, colorScheme: "dark" }));
+            await page.waitForFunction(
+              () => ["1", "error"].includes(document.documentElement.dataset.galleryReady ?? ""),
+              undefined,
+              { timeout: 90_000 },
+            );
+            await page.waitForFunction(() => document.querySelector<HTMLElement>("[data-drawn]") !== null);
+            const read = await page.evaluate(() => {
+              const frame = document.querySelector<HTMLElement>("[data-drawn]")!;
+              return {
+                estimate: Number(frame.dataset.estimate),
+                drawn: Number(frame.dataset.drawn),
+                // Show more is the reader's own, in every pane.
+                controls: frame.querySelectorAll(
+                  ".acpmux-next-step button:not(.acpmux-next-step__more), .acpmux-next-step input",
+                ).length,
+                reason: frame.querySelector(".acpmux-next-step__reason")?.textContent ?? "",
+              };
+            });
+            expect(Math.abs(read.drawn - read.estimate)).toBeLessThan(1);
+            // A card that cannot send has nothing to press or type, and says why.
+            if (/watching|subagent|disconnected|remote|origin|guest/.test(variant) && !variant.includes("no-answers")) {
+              expect(read.controls).toBe(0);
+              expect(read.reason).not.toBe("");
+            }
+          } finally {
+            await page.close();
+          }
+        });
+  });
+
   // The real pane on a snapshot: the transcript's own shaping places the card (turns.ts NEXT_STEP).
   describe("in the agent pane", () => {
     for (const [variant, cards] of [
       ["waiting", 1],
+      ["waiting-view-only", 1],
       ["answered", 1],
       ["ordinary-question", 0],
     ] as const)
@@ -120,6 +186,13 @@ await requireBrowserLane("next-step-card-gallery-browser.test.ts", async () => {
             if (cards) await page.locator(".acpmux-next-step").first().waitFor();
             expect(await page.locator(".acpmux-next-step").count()).toBe(cards);
             if (variant === "answered") expect(await page.locator(".acpmux-next-step__answer").count()).toBe(0);
+            // View Only reaches the card through the pane (subagents/restart.ts answerBlock): its
+            // answers read as a list, nothing to press or type, and the reason in the last row.
+            if (variant === "waiting-view-only") {
+              expect(await page.locator("li.acpmux-next-step__answer").count()).toBe(3);
+              expect(await page.locator(".acpmux-next-step button, .acpmux-next-step input").count()).toBe(0);
+              expect(await page.locator(".acpmux-next-step__reason").textContent()).toBe("Take over to answer");
+            }
             if (out) await page.screenshot({ path: path.join(out, `pane-${variant}-${scheme}.png`) });
           } finally {
             await page.close();

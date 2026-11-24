@@ -46,6 +46,21 @@ export function restartOwner(chat: RestartChat): string | undefined {
   return chat.connected && !chat.watching && !chat.readOnly && chat.canSend ? chat.sessionId : undefined;
 }
 
+/// Why a pane takes no answer to an agent's ask (conversation/NextStepCard.tsx draws it in the typed
+/// answer's row): the same tests as `restartOwner`, named. `guest` is a shared chat's reader
+/// (conversation/readOnly.ts), whose transcript has no RestartChat.
+export type AnswerBlock = "disconnected" | "subagent" | "watching" | "remote" | "origin" | "guest";
+
+/// The reason `chat` sends nothing, or undefined exactly when `restartOwner(chat)` names a chat.
+/// `note` is remoteEditing.ts `remoteComposer(...).note`, which says why a remote chat cannot send.
+export function answerBlock(chat: RestartChat & { note?: string }): AnswerBlock | undefined {
+  if (!chat.connected || !chat.sessionId) return "disconnected";
+  if (chat.readOnly) return "subagent";
+  if (chat.watching) return "watching";
+  if (!chat.canSend) return chat.note === "composer.originUnknown" ? "origin" : "remote";
+  return undefined;
+}
+
 /// Whether a Restart from a row drawn for `owner` still reaches that chat: the pane still shows it
 /// (`shown`) and the client, which `chat.send` writes to, still has it selected (`selected`). During
 /// a switch's hold the pane draws the chat before while the client already names the next one.

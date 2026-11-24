@@ -2843,15 +2843,11 @@ function fallbackRowHeight(
   if (row.kind === ACTIVITY_LINE) return finish(row.below ? footerRow() : metaRow());
   // The 20px date line with 8px above it.
   if (row.kind === DATE) return finish(20);
-  // A tagged ask's card (conversation/NextStepCard.tsx): waiting, the question card
-  // (permissions/cardHeight.ts `nextStepCardHeight`); answered or superseded, the question over the
-  // answer in 8px.
+  // A tagged ask's card (conversation/NextStepCard.tsx), the same in every pane, waiting or answered
+  // (permissions/cardHeight.ts `nextStepCardHeight`).
   if (row.kind === NEXT_STEP && row.nextStep) {
     const { ask, answer, superseded } = row.nextStep;
-    if (answer === undefined && !superseded) return finish(nextStepCardHeight(ask, width));
-    const perLine = Math.max(120, width - 32) / 7.5;
-    const lines = (text: string | undefined) => (text ? Math.max(1, Math.ceil(text.length / perLine)) : 0);
-    return finish(16 + 2 + (lines(ask.question) + lines(answer)) * 20 + 4);
+    return finish(nextStepCardHeight(ask, width, { answer, superseded }));
   }
   // A walkthrough strip (conversation/Walkthrough.tsx): its 28px head and, open, the 96px row of
   // shots over two 16px caption lines, with 8px above and below.

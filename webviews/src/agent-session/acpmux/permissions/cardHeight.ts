@@ -289,24 +289,43 @@ function previewHeight(option: QuestionOption, width: number): number {
   return 8 + 2 + textHeight(label, width - 24, caption.size, caption.lineHeight) + 8 + picture + 12;
 }
 
-/// A waiting tagged ask's card (conversation/NextStepCard.tsx, NextStepCard.css): the 8 px inset, the
-/// 28 px "Needs your input" line, the question as a 14/20 title (8 lines at most) and its muted line
-/// (4 at most) in 8 px of side padding, then each answer's row, 2 px apart: 36 px, or its label's
-/// lines when it wraps beside the number and the arrow; then the typed answer's 36 px row under its
-/// 8 px gap.
-export function nextStepCardHeight(ask: NextStepAsk, width: number): number {
+/// A tagged ask's card (conversation/NextStepCard.tsx, NextStepCard.css), the same in every pane: a
+/// pane that cannot send draws the same rows read only and its reason in the typed answer's row.
+/// Waiting: the 8 px inset, the 28 px "Needs your input" line, a wrap-up's recap (2 px over it, 8 under),
+/// the question as a 14/20 title (8 lines at most) and its muted line (4 at most) in 8 px of side
+/// padding, Show more under them when either is cut, then each answer's row, 2 px apart: 36 px, or its
+/// label's lines when it wraps beside the number and the arrow; then the last row's 36 px under its 8 px
+/// gap. Answered or superseded: 12 px over and under, the recap and 8 + 8 px under it, the question
+/// and, 2 px under it, the answer, in 16 px of side padding. A recap alone: its box, 12 px over and
+/// under, 16 px and the hairline at the sides.
+export function nextStepCardHeight(
+  ask: NextStepAsk,
+  width: number,
+  settled?: { answer?: string; superseded?: boolean },
+): number {
+  const room = Math.max(1, width - 32);
+  const prose = (value: string, available = room) =>
+    textHeight(plainText(value), available, body.size, body.lineHeight);
+  if (!ask.question) return ask.recap ? 24 + 1 + prose(ask.recap, room - 1) : 0;
+  if (settled && (settled.answer !== undefined || settled.superseded)) {
+    const made = ask.options.find((option) => option.key && option.label === settled.answer)?.key;
+    return (
+      24 +
+      (ask.recap ? prose(ask.recap) + 16 : 0) +
+      prose(ask.question) +
+      (settled.answer !== undefined ? 2 + prose(made ? translate(made) : settled.answer) : 0)
+    );
+  }
   const contentSize = drawnFontSize(chatDisplay());
   const titleLine = contentSize * (20 / 14);
-  const room = Math.max(1, width - 32);
-  const lines = (value: string | undefined, line: number, size: number, cap: number) =>
-    value ? Math.min(cap * line, textHeight(plainText(value), room, size, line)) : 0;
-  let height =
-    16 +
-    28 +
-    2 +
-    lines(ask.question, titleLine, contentSize, 8) +
-    (ask.detail ? 2 + lines(ask.detail, body.lineHeight, body.size, 4) : 0) +
-    8;
+  const question = textHeight(plainText(ask.question), room, contentSize, titleLine);
+  const detailLines = ask.detail ? prose(ask.detail) : 0;
+  let height = 16 + 28;
+  if (ask.recap) height += 2 + prose(ask.recap) + 8;
+  height +=
+    2 + Math.min(8 * titleLine, question) + (ask.detail ? 2 + Math.min(4 * body.lineHeight, detailLines) : 0) + 8;
+  // Show more: its caption line, 4 px tucked under the text and 8 px over the answers.
+  if (question > 8 * titleLine + 0.5 || detailLines > 4 * body.lineHeight + 0.5) height += -4 + caption.lineHeight + 8;
   // A row's label: the row's 8 px padding each side, the 20 px number, the 12 px arrow, 10 px apart.
   const labelRoom = Math.max(1, width - 16 - 16 - 20 - 12 - 2 * 10);
   ask.options.forEach((option, index) => {

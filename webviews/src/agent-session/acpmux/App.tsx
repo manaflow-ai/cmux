@@ -566,7 +566,7 @@ import { hostLineText } from "./hostLine";
 import { AcpmuxRestartGate, type HostRestoring, readHostRestoring, hostSelfRetrying } from "./hostRetry";
 import { pageShowsWhatItIs } from "./firstPaint";
 import { ShellRuns } from "./shell/shellRuns";
-import { restartOwner, restartReaches } from "./subagents/restart";
+import { answerBlock, restartOwner, restartReaches } from "./subagents/restart";
 import { type SubagentRows, runningGroups, subagentsIn } from "./subagents/subagentRows";
 import { foldOwnLog, subagentPaneView, useOwnLog, needsOwnLog } from "./subagents/subagentOwnLog";
 import { lastReply as lastSubagentReply, SubagentReplyContext } from "./subagents/wholeReport";
@@ -3488,13 +3488,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (running.size === last.size && [...running].every((id) => last.has(id))) return last;
     return (lastRunningBranches.current = running);
   }, [snapshot.sessions, stableBranches]);
-  const restartChat = restartOwner({
+  const restartChatInput = {
     connected,
     sessionId: snapshot.sessionId,
     watching: Boolean(snapshot.summary?.watching),
     readOnly: readOnlySubagent,
     canSend: remoteComposer(snapshot).canSend,
-  });
+  };
+  const restartChat = restartOwner(restartChatInput);
+  // Why the pane takes no answer (an ask's card says it): the same tests as restartOwner, named.
+  const answerBlocked = answerBlock({ ...restartChatInput, note: remoteComposer(snapshot).note });
   // The questions waiting on the person, in the composer hat (question/hatModel.ts): this chat's
   // own, the tagged ask its last turn ended on, and those of the chats it started. The list keeps its
   // identity while it draws the same, so a streamed chunk never redraws the hat.
@@ -3761,6 +3764,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         showCall,
         holdsRetry: (prompt) => holdsForComputerUseSetupRef.current(prompt, false, shownChatPlace()),
         restartChat,
+        answerBlock: answerBlocked,
         queuedMessageActionsRef,
         stableBranches,
         runningBranchSessions,
@@ -3840,6 +3844,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       retryTop,
       catalog,
       restartChat,
+      answerBlocked,
       subagentRelayChat,
       snapshot.commands,
       queueRunsNext,
@@ -9432,6 +9437,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         <PendingAsks
           asks={pinnedAsks}
           onAnswer={turnActions.answer}
+          blocked={turnActions.answerBlock}
           registerKey={turnActions.nextStepKey}
           onDismiss={dismissPinnedAsk}
           asker={turnActions.asker}

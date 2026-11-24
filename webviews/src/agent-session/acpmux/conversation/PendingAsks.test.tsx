@@ -238,10 +238,21 @@ test("a typed answer that fails comes back with its words", async () => {
   expect(container.querySelector("output")).not.toBeNull();
 });
 
-// A pane that cannot send (View Only) still shows the pinned card, so it keeps its close.
-test("a pinned card in a pane that cannot send keeps its close", async () => {
+// A pane that cannot send (View Only) still shows the pinned card: the same card read only, with its
+// answers, the reason, and its close.
+test("a pinned card in a pane that cannot send is the same card read only, and keeps its close", async () => {
   const dismissed: string[] = [];
-  const container = await render(<PendingAsks asks={[asked]} onDismiss={(key) => dismissed.push(key)} />);
+  const container = await render(
+    <PendingAsks asks={[asked]} blocked="watching" onDismiss={(key) => dismissed.push(key)} />,
+  );
+  expect([...container.querySelectorAll("li.acpmux-next-step__answer")].map((row) => row.textContent)).toEqual([
+    "1Box",
+    "2Inline",
+  ]);
+  expect(container.querySelector(".acpmux-next-step__reason")?.textContent).toBe("Take over to answer");
+  expect(container.querySelector("input")).toBeNull();
+  // The close is the card's only button.
+  expect(container.querySelectorAll(".acpmux-pending-ask button")).toHaveLength(1);
   const dismiss = container.querySelector<HTMLButtonElement>(".acpmux-pending-ask .acpmux-next-step__bar .ui-dismiss")!;
   await act(async () => dismiss.click());
   expect(dismissed).toEqual([askKey(asked)]);

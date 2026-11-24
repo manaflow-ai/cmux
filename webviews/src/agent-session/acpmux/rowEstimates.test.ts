@@ -811,6 +811,31 @@ test("a next-step answer whose label wraps reserves its lines", () => {
   );
 });
 
+// A tagged ask's card is the same in every pane (NextStepCard.tsx), so one estimate holds; its recap,
+// a cut question's Show more, the recap box alone and the answered card are each reserved as drawn.
+test("a next-step card reserves its recap, Show more, the recap box alone and its answered form", () => {
+  const row = (ask: object, extra: object = {}) =>
+    ({ id: "next", version: 1, at: 0, kind: "nextStep", nextStep: { ask, ...extra } }) as unknown as AcpmuxRow;
+  const height = (r: AcpmuxRow, width = 480) => layoutConversation([r], width).heights[0]!;
+  const base = { tag: "wrap_up", question: "Ship it?", options: [{ label: "Yes" }, { label: "Not now" }] };
+  const recap = "Moved the composer settings into one page and kept every key.";
+  // The recap: 2 px over it, its line, 8 px under it.
+  expect(height(row({ ...base, recap }))).toBeCloseTo(height(row(base)) + 2 + 18 + 8);
+  // A question past 8 lines adds Show more: its 14 px caption line, 4 px tucked up, 8 px under.
+  const long = "word ".repeat(400);
+  const longer = "word ".repeat(800);
+  expect(height(row({ ...base, question: longer }))).toBe(height(row({ ...base, question: long })));
+  expect(height(row({ ...base, question: long })) - height(row(base))).toBeCloseTo(7 * 20 + -4 + 14 + 8);
+  // The recap alone: its box, 12 px over and under and the hairline, no card.
+  const alone = height(row({ tag: "wrap_up", recap, question: "", options: [] }));
+  expect(alone).toBeLessThan(height(row(base)));
+  // Answered: 12 px over and under, the question, 2 px, the answer, all on body lines.
+  const answered = height(row(base, { answer: "Yes" }));
+  const superseded = height(row(base, { superseded: true }));
+  expect(answered - superseded).toBeCloseTo(2 + 18);
+  expect(height(row({ ...base, recap }, { answer: "Yes" })) - answered).toBeCloseTo(18 + 16);
+});
+
 test("narrow permission action rows and two-line commands reserve their extra height", () => {
   const row = permissionAsk({
     command: "printf '%s' ".repeat(12),
