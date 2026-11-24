@@ -447,6 +447,26 @@
         "api-compat": "api-compat",
         "acpmux-protocol-ir": "acpmux protocol IR is current"
       }
+    },
+    "react-doctor": {
+      "workflow": "cmux-next-react-doctor.yml",
+      "paths": [
+        "webviews/**",
+        "agent-chat/**",
+        "backend/**",
+        "web/**",
+        "cmux-tui/frontends/web/**",
+        "scripts/ci/react_doctor_gate.py",
+        "scripts/ci/react-doctor-baseline.json",
+        "scripts/react-doctor/**",
+        "scripts/ci/bun-install.sh",
+        "tests/test_react_doctor_gate.py",
+        "scripts/ci/receipt_input_key.py",
+        "scripts/ci/receipt_signed.py",
+        "scripts/ci/check-paths.txt",
+        ".github/workflows/cmux-next-react-doctor.yml"
+      ],
+      "jobs": {"react-doctor": "React Doctor (changed React projects)"}
     }
   }
 }

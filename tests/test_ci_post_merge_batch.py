@@ -293,6 +293,28 @@ class WiringTest(unittest.TestCase):
                 self.assertIn(f"inputs.only == '{job_id}'", gate, f"{key}/{job_id}")
             self.assertIn("inputs.sha", (WORKFLOW.parent / suite.workflow).read_text(), key)
 
+    def test_react_doctor_scans_the_base_once_a_batch_not_once_a_push(self) -> None:
+        """732 full scans a day on feat-cmux-next pushes were 6.5k of React Doctor's 9.4k runner-min (2026-11-23 10Z
+        to 11-24 10Z) for a gate that exits 0 on findings. Leo: "de facto, im asking for 99% fewer minutes of ci time,
+        period." The batch scans the base; pull requests keep their required check."""
+        suite = self.suites["react-doctor"]
+        self.assertEqual(suite.workflow, "cmux-next-react-doctor.yml")
+        callee = yaml.safe_load((WORKFLOW.parent / suite.workflow).read_text())
+        on = callee.get(True) or callee.get("on")
+        self.assertNotIn("push", on)
+        self.assertIn("pull_request", on)
+        # Every React project and the gate's own files reach the suite.
+        for path in ("webviews/src/a.tsx", "web/app/page.tsx", "agent-chat/src/x.ts", "backend/apps/api/x.ts",
+                     "cmux-tui/frontends/web/src/x.tsx", "scripts/ci/react_doctor_gate.py",
+                     "scripts/ci/react-doctor-baseline.json", ".github/workflows/cmux-next-react-doctor.yml"):
+            self.assertTrue(suite.reached([path]), path)
+        self.assertFalse(suite.reached(["cmux-tui/crates/acpmux/src/lib.rs", "Packages/macOS/x.swift"]))
+        # A batch run keys its concurrency on the commit it tests, and records the signed receipt a push did.
+        self.assertIn("inputs.sha", str(callee["concurrency"]["group"]))
+        steps = {s.get("name"): s for s in callee["jobs"]["react-doctor"]["steps"]}
+        self.assertIn("github.event_name != 'pull_request'", steps["Record the signed receipt"]["if"])
+        self.assertEqual(self.workflow["jobs"]["react-doctor"]["permissions"].get("id-token"), "write")
+
     def test_a_hung_checkout_is_bounded_and_tried_once_more(self) -> None:
         """A fetch that hangs must not take the job's whole budget and its verdict with it (plan job
         137288423007 and judge job 137302455752, 2026-11-22: cancelled in "Fetching the repository")."""
