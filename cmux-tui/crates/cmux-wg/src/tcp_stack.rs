@@ -35,9 +35,12 @@ use crate::send_gate::{SendGate, SendPacer};
 use crate::stream::{Outbound, WgStream};
 use crate::wire::{ip_address, socket_addr};
 
-/// Per-socket receive and transmit buffers, by default: one stream's window.
-/// A stream moves at most one window per round trip, so 256 KiB held bulk to
-/// about 21 Mbit/s at 100 ms; 4 MiB is about 335 Mbit/s there. The buffers
+/// Per-socket receive and transmit buffers, by default: the most one stream's
+/// window may grow to. A stream moves at most one window per round trip, so
+/// the old fixed 256 KiB held bulk to about 21 Mbit/s at 100 ms; 4 MiB is
+/// about 335 Mbit/s there. How much of it a stream keeps in flight is sized
+/// from its path ([`crate::send_gate::SendPacer::send_window`]), so short
+/// paths keep the 256 KiB flight that served them. The buffers
 /// are zeroed allocations the OS maps on first touch, and smoltcp's ring
 /// starts over at its front whenever it drains, so a stream that never has
 /// more than a few KiB queued (a terminal) only ever touches its first pages.
@@ -391,9 +394,12 @@ impl TcpStack {
     fn update_send_gates(&mut self) {
         let now = Instant::now();
         for conn in &mut self.conns {
-            let socket = self.sockets.get::<tcp::Socket>(conn.handle);
+            let socket = self.sockets.get_mut::<tcp::Socket>(conn.handle);
             let srtt = socket.smoothed_rtt().map(|srtt| Duration::from_micros(srtt.total_micros()));
             conn.send.update(now, socket.send_queue(), socket.unsent_queue(), srtt);
+            // The buffer is the most a stream may use; the path decides how
+            // much it does (`SendPacer::send_window`).
+            socket.set_send_window_cap(Some(conn.send.send_window(socket.send_capacity())));
         }
     }
 
