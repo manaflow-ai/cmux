@@ -14,7 +14,8 @@
  * its budget and prints help of its own: text that names the verb and is not its parent's help (`cmux vm
  * pause --help` printing all of `cmux vm --help` is the overview, not pause's help).
  *
- * The verb lists are read from the source (cloud_help.rs GROUPS, vm_short.rs VERBS), so a verb added there
+ * The verb lists are read from the source (cloud_help.rs GROUPS, vm_short.rs VERBS, cli.rs remote actions,
+ * action-surfaces.json, acpmux help_examples/host.rs), so a verb added there
  * gets a row here with nothing else to edit. --out DIR gets matrix.json and matrix.md. Exit 0 only when no
  * row failed.
  */
@@ -60,9 +61,42 @@ const VM_API_VERBS = ["new", "show", "start", "stop", "snapshot", "creation", "k
 /** `cmux cloud` verbs that are their own modules, not app actions. */
 const CLOUD_MODULE_VERBS = ["secret", "team-keys", "machine-auth", "repo"];
 const LINK_VERBS = ["init", "show", "peer", "serve", "ensure", "stop", "archive", "status", "dial", "chat", "sync", "project", "seed", "agent", "access", "machine", "start-chat"];
-const MACHINE_VERBS = ["list", "add", "revoke", "rotate", "doctor", "vault"];
-const REMOTE_VERBS = ["connect", "ssh", "forward", "rpc", "enroll", "known-daemons", "doctor", "trust", "stop"];
-const ACPMUX_MACHINE = ["add", "ls", "status", "pick", "dedicated", "load", "rm", "ticket", "join", "leave", "enroll-self", "vault", "deps", "setup", "update", "self-update", "enroll", "doctor", "agents"];
+/** `cmux machine VERB`: its CLI verbs plus the app's offered `machine ...` actions. */
+const MACHINE_CLI_VERBS = ["list", "add", "revoke", "rotate", "doctor", "vault"];
+
+/**
+ * `cmux remote VERB`: the CLI's own remote actions (cli.rs `remote_action_command`) plus the app's offered
+ * `remote ...` actions (plans/cmux-next/action-surfaces.json, which cli/app_action_help.rs lists). Before,
+ * a hand list carried `remote doctor` and `remote trust`, which no parser takes.
+ */
+export function remoteVerbs(
+  cliSrc = readFileSync(path.join(ROOT, "cmux-tui/crates/cmux-tui/src/cli.rs"), "utf8"),
+  surfaces = readFileSync(path.join(ROOT, "plans/cmux-next/action-surfaces.json"), "utf8"),
+): string[] {
+  const start = cliSrc.indexOf("fn remote_action_command");
+  const body = cliSrc.slice(start, cliSrc.indexOf("_ => None", start));
+  const cli = [...body.matchAll(/"([a-z][a-z-]*)" => Some/g)].map((m) => m[1]);
+  return [...new Set([...cli, ...offeredVerbs("remote", surfaces)])];
+}
+
+/** The app's offered CLI verbs under one scope (action-surfaces.json `cli: "offered"`, `cli_name: "SCOPE VERB"`). */
+export function offeredVerbs(scope: string, surfaces = readFileSync(path.join(ROOT, "plans/cmux-next/action-surfaces.json"), "utf8")): string[] {
+  const doc = JSON.parse(surfaces) as { actions?: { cli?: string; cli_name?: string }[] };
+  const verbs = (doc.actions ?? [])
+    .filter((a) => a.cli === "offered" && a.cli_name?.startsWith(`${scope} `))
+    .map((a) => a.cli_name!.slice(scope.length + 1));
+  return [...new Set(verbs)].sort();
+}
+
+/**
+ * `acpmux machine VERB [SUBVERB]`: every command acpmux's own help examples name (acpmux
+ * cli/help_examples/host.rs), nested ones (`ticket new`, `vault keep`) included, as space-joined words.
+ */
+export function acpmuxMachineVerbs(
+  src = readFileSync(path.join(ROOT, "cmux-tui/crates/acpmux/src/cli/help_examples/host.rs"), "utf8"),
+): string[] {
+  return [...new Set([...src.matchAll(/"machine ([a-z][a-z-]*(?: [a-z][a-z-]*)*)"/g)].map((m) => m[1]))].sort();
+}
 const ACPMUX_TOP = ["new", "run", "ensure", "send", "wait", "last", "ls", "dispatch", "resolve", "machine-auth"];
 
 const help = (bin: Bin, words: string[], cls: string, parent?: string[], names?: string): Row => ({
@@ -77,7 +111,9 @@ export function helpRows(): Row[] {
   const rows: Row[] = [
     help("cmux", [], "help"),
     help("cmux", ["vm"], "help", [], "vm"),
-    help("cmux", ["cloud"], "help", [], "start-chat"),
+    // The overview's quick start is `cmux chat --on vm:new` (cloud_help.rs INTRO); it never named
+    // `start-chat`, so a row asking for that failed on every run (Greptile P1 on #52473).
+    help("cmux", ["cloud"], "help", [], "cmux chat --on"),
     help("cmux", ["machine"], "help", []),
     help("cmux", ["link"], "help", []),
     help("cmux", ["remote"], "help", []),
@@ -94,12 +130,16 @@ export function helpRows(): Row[] {
     rows.push(help("cmux", ["cloud", v], cls(v), ["cloud"]));
   }
   for (const v of VM_API_VERBS) rows.push(help("cmux", ["vm", v], cls(v), ["vm"]));
-  for (const v of MACHINE_VERBS) rows.push(help("cmux", ["machine", v], cls(v), ["machine"]));
+  for (const v of new Set([...MACHINE_CLI_VERBS, ...offeredVerbs("machine")])) rows.push(help("cmux", ["machine", v], cls(v), ["machine"]));
   for (const v of LINK_VERBS) rows.push(help("cmux", ["link", v], cls(v), ["link"]));
-  for (const v of REMOTE_VERBS) rows.push(help("cmux", ["remote", v], cls(v), ["remote"]));
+  for (const v of remoteVerbs()) rows.push(help("cmux", ["remote", v], cls(v), ["remote"]));
   rows.push(help("acpmux", [], "help"));
   rows.push(help("acpmux", ["machine"], "help", []));
-  for (const v of ACPMUX_MACHINE) rows.push(help("acpmux", ["machine", v], cls(v), ["machine"]));
+  for (const v of acpmuxMachineVerbs()) {
+    const words = v.split(" ");
+    // A nested verb's parent is its own group (`machine ticket new` vs `machine ticket`).
+    rows.push(help("acpmux", ["machine", ...words], cls(words[0]), ["machine", ...words.slice(0, -1)]));
+  }
   for (const v of ACPMUX_TOP) rows.push(help("acpmux", [v], cls(v), []));
   rows.push(help("acpmux", ["session", "move"], "resume", ["session"], "move"));
   rows.push(help("acpmux", ["hand"], "start", []));
