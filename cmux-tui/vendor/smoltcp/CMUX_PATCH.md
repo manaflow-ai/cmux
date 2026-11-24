@@ -70,6 +70,15 @@ slow start included, but its RTO returns to the RTT estimate's value instead of
 doubling: the losses were the old route's. With nothing in flight it resends
 nothing.
 
+`Socket::set_retransmit_paused(true)` is for a peer that went silent on purpose
+(cmux-wg's `WgNet::hold`, a phone the OS suspended in the background). Data in
+flight is not resent while paused: no RTO, tail-loss probe or zero-window probe,
+and `poll_at` waits for ingress instead of their deadlines. New data is still
+sent once, and arriving segments are answered. `set_retransmit_paused(false)`
+with data in flight resends at the next poll as `path_changed()` does. The
+detector is `test_retransmit_paused_resends_nothing_until_resumed`, and in
+cmux-wg `a_held_tunnel_does_not_retransmit_unacknowledged_output`.
+
 `Socket::link_repairs_losses()` is for a tunnel that starts repairing its own
 losses below TCP (cmux-wg's ultra mode, which "Auto" turns on at the first
 loss). The losses that turned it on, and any other loss of data already in

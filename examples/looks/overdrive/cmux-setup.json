@@ -1,0 +1,47 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/overdrive-look",
+  "name": "Overdrive",
+  "tagline": "A loud, fast look for agent chats: hot pink and electric cyan on near-black, chunky round prompts and cards, bold tight type, motion at full speed.",
+  "description": "A whole cmux look built only from public surfaces: theme files for color (Overdrive, dark, the default; Overdrive Daylight), settings for a tight bold chat face, a roomy sidebar and fast motion, a stylesheet of cmux.agentPane.style/1 tokens that draws the prompt as a big round pink pill with a cyan rim, and a customize view for a score-card hover card and heavy sidebar rows. Remove it and everything you had comes back.",
+  "version": "0.1.0",
+  "license": "MIT",
+
+  "cmuxProfile": 1,
+  "settings": {
+    "appearance.themeFile": "overdrive",
+
+    // The chat: a tight, heavy sans at 15 px with a short 1.5 line height, so replies read in quick
+    // bursts, code a step smaller, a medium 760 px column and no minimap.
+    "agentPane.display.font.ui": "system-ui-tight",
+    "agentPane.display.font.preset": "system",
+    "agentPane.display.font.size": 15,
+    "agentPane.display.font.lineHeight": 1.5,
+    "agentPane.display.code.scale": 0.9,
+    "agentPane.display.width": 760,
+    "agentPane.display.minimap": "off",
+    // The thinking line sweeps quickly with a narrow band of light, like a beat marker.
+    "agentPane.display.thinking.shimmer": "continuous",
+    "agentPane.display.thinking.shimmerPeriod": 700,
+    "agentPane.display.thinking.shimmerBand": 48,
+    "agentPane.composerRing": "context",
+
+    // The sidebar: big rows, each a chunky card, agent state up front, the hover card at once.
+    "sidebar.density": "comfortable",
+    "sidebar.textSize": "large",
+    "sidebar.groupBy": "folder",
+    "sidebar.detailedStatusIcons": true,
+    "sidebar.workspaceRow.icon": true,
+    "sidebar.workspaceRow.agentStatus": true,
+    "sidebar.workspaceRow.working": true,
+    "sidebar.workspaceRow.progress": true,
+    "sidebar.workspaceRow.lastActivity": false,
+    "sidebar.hoverCards.enabled": true,
+    "sidebar.hoverCards.delay": 200,
+    // Pending cmux#46879: menus in the theme's colors.
+    // "sidebar.drawnMenus": true,
+
+    // Everything moves at full speed.
+    "ui.animationSpeed": "fast"
+  }
+}

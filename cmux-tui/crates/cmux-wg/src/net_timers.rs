@@ -4,6 +4,7 @@
 use std::time::Duration;
 
 use boringtun::noise::TunnResult;
+use cmux_transport::classify::WG_DATA_MIN_LEN;
 use cmux_transport::{DatagramClass, classify};
 use tokio::time::Instant;
 
@@ -59,7 +60,32 @@ impl Driver {
             self.tunn.format_handshake_initiation(&mut self.scratch, true)
         {
             self.underlay.send(packet);
+            self.handshake_retry.on_initiation(Instant::now(), false);
             self.schedule.on_activity(Instant::now());
+        }
+    }
+
+    /// Send the initiation again while data waits for a session and its
+    /// answer is overdue (see `crate::handshake_retry`).
+    /// Not while a crossed handshake is held (`wait_for_handshake_until`):
+    /// a new initiation would drop the state the peer's reply needs.
+    pub(super) fn run_handshake_retry(&mut self) {
+        let now = Instant::now();
+        if self.wait_for_handshake_until.is_some_and(|end| now < end) {
+            return;
+        }
+        if !self.handshake_retry.fire(now, self.pacer.srtt()) {
+            return;
+        }
+        if self.tunn.time_since_last_handshake().is_some() || !self.underlay.has_peer() {
+            return;
+        }
+        if let TunnResult::WriteToNetwork(packet) =
+            self.tunn.format_handshake_initiation(&mut self.scratch, true)
+        {
+            self.underlay.send(packet);
+            self.handshake_retry.on_initiation(now, false);
+            self.schedule.on_activity(now);
         }
     }
 
@@ -83,6 +109,8 @@ impl Driver {
             self.tunn.format_handshake_initiation(&mut self.scratch, false)
         {
             self.underlay.send(packet);
+            // `false` sends only when no handshake is in progress.
+            self.handshake_retry.on_initiation(Instant::now(), true);
             self.schedule.on_activity(Instant::now());
         }
     }
@@ -98,6 +126,7 @@ impl Driver {
         let result = if fresh {
             self.tunn.encapsulate(&[], &mut self.scratch)
         } else {
+            self.handshake_retry.on_initiation(Instant::now(), true);
             self.tunn.format_handshake_initiation(&mut self.scratch, true)
         };
         if let TunnResult::WriteToNetwork(packet) = result {
@@ -171,11 +200,14 @@ impl Driver {
     }
 
     /// Send due path probes while the session carries traffic; an idle
-    /// session probes nothing.
+    /// session probes nothing, and neither does a held one (`WgNet::hold`):
+    /// its peer is suspended on purpose, and a probe would only wake its
+    /// radio, as a keepalive would. The first pass after the release
+    /// probes again.
     pub(super) fn run_probes(&mut self) {
         let now = Instant::now();
         let mut off_path = Vec::new();
-        self.probe_deadline = if self.schedule.is_active(now) {
+        self.probe_deadline = if self.schedule.is_active(now) && self.stack.hold().is_none() {
             let (tunn, scratch) = (&mut self.tunn, &mut self.scratch);
             let route = self.probe_route;
             probing::send_due(tunn, &mut self.underlay, scratch, route, now, &mut off_path)
@@ -214,11 +246,18 @@ impl Driver {
 
     pub(super) fn update_timers(&mut self) {
         if let TunnResult::WriteToNetwork(packet) = self.tunn.update_timers(&mut self.scratch) {
+            // A held tunnel's peer is suspended on purpose (`WgNet::hold`):
+            // its keepalives, persistent or passive, would only wake its
+            // radio. Not sending one is a lost datagram to boringtun.
+            if self.stack.hold().is_some() && packet.len() == WG_DATA_MIN_LEN {
+                return;
+            }
             // A handshake retry keeps the timers running until boringtun
             // gives up; a keepalive alone does not.
             let retry = classify(packet) == DatagramClass::WireGuardInitiation;
             self.underlay.send(packet);
             if retry {
+                self.handshake_retry.on_initiation(Instant::now(), false);
                 self.schedule.on_activity(Instant::now());
             }
         }

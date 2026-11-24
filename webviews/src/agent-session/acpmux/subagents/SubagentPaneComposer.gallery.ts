@@ -109,9 +109,8 @@ export default agentPaneEntry({
       play: openSubagent(true),
     },
     subagent: {
-      note: "The subagent's own pane with nothing in the hat (Debug Settings agentPane.debug.subagentTray off): the same box at the same place as the chat's.",
+      note: "The subagent's own pane before the hat draws: the same box at the same place as the chat's.",
       snapshot: SNAPSHOT,
-      theme: { subagentTray: false },
       play: openSubagent(false),
     },
   },
