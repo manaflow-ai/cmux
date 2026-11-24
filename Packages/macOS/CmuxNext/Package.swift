@@ -65,6 +65,8 @@ import PackageDescription
 //   CmuxNextHistoryDaemon -> Daemon, History, Wakeups (the daemon history module's client, `history-v1`)
 //   CmuxNextStash -> Compat, Daemon, DaemonService (Stash on this Mac's daemon: Save and Close, the
 //     Stashed Tabs page's restore and delete; the App answers StashHost)
+//   CmuxNextAppInstallLink -> Compat, Daemon, Design (cmux.com's Open in cmux link: forwards it to the bundled
+//     `cmux apps install-link`, shows its consent card and runs Install only on the person's yes)
 //   CmuxNextHistoryPages -> BrowserAutomation, DaemonService, Design, Pages, Settings, Stash, Wakeups (the React
 //     History and Stashed Tabs pages' native ops: Cookie Backups, stash restore and delete with Undo)
 //   CmuxNextAppHealth -> Compat, Control, Daemon, DaemonService, Design, Pages, Server, Settings, Wakeups (app health's
@@ -119,9 +121,9 @@ import PackageDescription
 //     plans/cmux-next/server.md)
 //   CmuxNextRemoteView -> Design, Icons (remote desktop pane: decode, presenters, chrome, input capture;
 //     no daemon; the App supplies the stream source and input sink; plans/cmux-next/remote-desktop.md)
-//   CmuxNextMacScreen -> Compat, Settings, Wakeups, Actions, Control, Design, RemoteView, Devices, CmuxScreenKit (Mac Screen tabs: another
-//     Mac's screen as a WebRTC stream, the user's devices from the device hub, pairing home page (DEV), Share This Mac host,
-//     host approval prompt, Settings > Devices state; CmuxScreenKit links WebRTC.framework)
+//   CmuxNextMacScreen -> Compat, Settings, Wakeups, Actions, Control, Design, RemoteView, Devices, Phone, CmuxScreenKit (Mac Screen tabs:
+//     another Mac's screen as a WebRTC stream, the user's devices from the device hub, pairing home page (DEV), Share This Mac host,
+//     host approval prompt, Settings > Devices state, this Mac's displays as the iPhone's surfaces; CmuxScreenKit links WebRTC.framework)
 //   CmuxNextDevices -> Compat, Wakeups, CCmuxAppFFI (the device hub: Secure Enclave device identity, the signed
 //     HTTP client, the User DO socket, relay sealing and the @Observable DeviceHub; no UI; the App
 //     supplies the account token and the hub URL; docs/device-hub/PROTOCOL.md)
@@ -353,6 +355,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextAgentUpdates",
                 "CmuxNextAppCore",
                 "CmuxNextAppHealth",
+                "CmuxNextAppInstallLink",
                 "CmuxNextAppTry",
                 "CmuxNextApps",
                 "CmuxNextBookmarks",
@@ -412,6 +415,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextImportSuggestions",
                 "CmuxNextKeepAwake",
                 "CmuxNextKeys",
+                "CmuxNextLaunchImages",
                 "CmuxNextLayout",
                 "CmuxNextLiveCode",
                 "CmuxNextMacScreen",
@@ -618,6 +622,20 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDaemon",
                 "CmuxNextDaemonService",
                 "CmuxNextHistory",
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // cmux.com's Open in cmux link (cmux://apps/install?repo=…&commit=…): the CLI checks and installs;
+        // this shows the consent card and runs Install only on the person's yes.
+        .target(
+            name: "CmuxNextAppInstallLink",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextCompat",
+                "CmuxNextDaemon",
+                "CmuxNextDesign",
+            ],
+            resources: [
+                .process("Resources"),
             ],
             swiftSettings: uiSwiftSettings
         ),
@@ -1348,6 +1366,19 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // action, working local agents and (sessions.keepAwakeForCommands) long terminal
         // commands, released on battery unless the user chose Always. IOKit's power-source
         // notification and one deadline from the Rust command rule, no polling.
+        // Each window's last frame for the next launch's stage 0: the capture, published into the
+        // launch image store (cmux-launch-image) on the Rust schedule; the app hands it its windows.
+        .target(
+            name: "CmuxNextLaunchImages",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
+                "CmuxNextCompat",
+                "CmuxNextControl",
+                "CmuxNextDesign",
+                "CmuxNextWakeups",
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
         .target(
             name: "CmuxNextKeepAwake",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
@@ -1825,6 +1856,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDesignTokens",
                 "CmuxNextDevices",
                 "CmuxNextPalette",
+                "CmuxNextPhone",
                 "CmuxNextRemoteView",
                 "CmuxNextSettings",
                 "CmuxNextWakeups",

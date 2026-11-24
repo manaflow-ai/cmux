@@ -186,3 +186,27 @@ fn the_plan_request_carries_the_send_its_account_workspace_and_the_listed_machin
     );
     assert_eq!(warm["machines"], json!([{"id": "vm-a"}]));
 }
+
+#[test]
+fn an_attach_reads_again_only_a_record_no_fresh_answer_gave() {
+    // A claimed spare: the claim's answer says running a few ms ago, so no list read.
+    let claimed = RecordLook { running: true, answered_ago_ms: Some(5), ..RecordLook::default() };
+    assert!(!rereads_record(claimed));
+    assert!(!rereads_record(RecordLook { answered_ago_ms: Some(ANSWER_FRESH_MS - 1), ..claimed }));
+    // Older than that, a list's record, or a record that does not read running: read again.
+    assert!(rereads_record(RecordLook { answered_ago_ms: Some(ANSWER_FRESH_MS), ..claimed }));
+    assert!(rereads_record(RecordLook { answered_ago_ms: None, ..claimed }));
+    assert!(rereads_record(RecordLook { running: false, ..claimed }));
+    // Connected, or paused (the attach resumes it): nothing to read.
+    assert!(!rereads_record(RecordLook { connected: true, answered_ago_ms: None, ..claimed }));
+    assert!(!rereads_record(RecordLook {
+        paused: true,
+        running: false,
+        answered_ago_ms: None,
+        ..claimed
+    }));
+    let read: RecordLook =
+        serde_json::from_value(json!({"running": true, "answeredAgoMs": 40})).unwrap();
+    assert!(!rereads_record(read));
+    assert!(rereads_record(RecordLook::default()), "an empty look reads again, as before");
+}
