@@ -1101,13 +1101,13 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// Each upload's progress shows on the message (``AgentSessionEvent/promptUploading(promptID:_:)``);
     /// an upload the link loses goes on over the next link, waiting up to ``uploadLinkWait`` for it.
     func promptBlocks(text: String, attachments: [AgentAttachment], promptID: String, hub: AcpmuxHub) async throws -> [JSONValue] {
-        let reporter = UploadProgressReporter { [weak self] progress in self?.emit(.promptUploading(promptID: promptID, progress)) }
         let wait = Self.uploadLinkWait
-        let nextLink: @Sendable () async -> (any MacLink)? = { [weak hub] in
-            await MainActor.run { hub }.flatMap { _ in nil as (any MacLink)? } ?? (await Self.readyLink(hub, within: wait))
+        let nextLink: @Sendable () async -> (any MacLink)? = { [weak hub] in await Self.readyLink(hub, within: wait) }
+        let progress: @Sendable (AgentUploadProgress) -> Void = { [weak self] step in
+            Task { @MainActor in self?.emit(.promptUploading(promptID: promptID, step)) }
         }
         return try await Self.promptBlocks(text: text, attachments: attachments, link: hub.macLink, cwd: baseDirectory,
-                                           macName: summary.macName, progress: { reporter.report($0) }, nextLink: nextLink)
+                                           macName: summary.macName, progress: progress, nextLink: nextLink)
     }
 
     /// How long an upload the link lost waits for the next link before the message comes back.

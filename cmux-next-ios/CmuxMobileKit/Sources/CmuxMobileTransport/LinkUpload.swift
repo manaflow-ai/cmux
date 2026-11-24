@@ -205,8 +205,9 @@ public enum LinkUpload {
         for attempt in 1...options.attempts {
             timing.attempts = attempt
             if attempt > 1 {
+                guard let nextLink = options.nextLink else { break }
                 options.progress?(Progress(sent: timing.resumedFrom, total: size, phase: .waitingForLink, attempt: attempt))
-                guard let nextLink = options.nextLink, let next = await nextLink() else { break }
+                guard let next = await nextLink() else { break }
                 try Task.checkCancellation()
                 link = next
             }
@@ -311,14 +312,21 @@ public enum LinkUpload {
             timing.sendMs += ms(since: sending)
             options.progress?(Progress(sent: offset, total: size, phase: .saving, attempt: attempt))
             let replying = ContinuousClock.now
-            let reply = try await bounded(options.replyWithin, "answering") {
-                var reply = Data()
-                while let chunk = try await channel.receive() {
-                    reply.append(chunk)
+            let reply: Data
+            do {
+                reply = try await bounded(options.replyWithin, "answering") {
+                    var reply = Data()
+                    while let chunk = try await channel.receive() {
+                        reply.append(chunk)
+                    }
+                    return reply
+                } onTimeout: {
+                    await channel.close(code: "cancelled", reason: "stalled")
                 }
-                return reply
-            } onTimeout: {
-                await channel.close(code: "cancelled", reason: "stalled")
+            } catch is CancellationError {
+                // Closed before this returns, so the Mac drops the upload (and the caller sees it closed).
+                await channel.close(code: "cancelled", reason: "cancelled")
+                throw CancellationError()
             }
             timing.replyMs += ms(since: replying)
             try Task.checkCancellation()
