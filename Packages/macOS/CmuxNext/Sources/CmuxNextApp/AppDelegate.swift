@@ -23,6 +23,7 @@ import CmuxNextSettings
 import CmuxNextSettingsWindow
 import CmuxNextSidebar
 import CmuxNextTerminal
+import CmuxNextSignposts
 import CmuxNextUpdater
 import CmuxNextWakeups
 import os
