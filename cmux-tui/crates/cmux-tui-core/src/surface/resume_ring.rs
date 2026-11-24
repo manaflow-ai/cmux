@@ -106,17 +106,29 @@ impl ResumeRing {
 
     /// The bytes after `offset` when the viewer's `(nonce, epoch)` is current
     /// and `offset` is still in the ring; with the stamp they bring it to.
+    #[cfg(test)]
     pub(crate) fn missing_after(
+        &self,
+        held: (u64, u64),
+        offset: u64,
+    ) -> Option<(Vec<u8>, StreamStamp)> {
+        self.missing_within(held, offset, None)
+    }
+
+    /// [`Self::missing_after`], and `None` when more than `max_bytes` are
+    /// missing (counted before any byte is copied).
+    pub(crate) fn missing_within(
         &self,
         (nonce, epoch): (u64, u64),
         offset: u64,
+        max_bytes: Option<u64>,
     ) -> Option<(Vec<u8>, StreamStamp)> {
         let inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         if nonce != self.nonce || epoch != inner.epoch || offset > inner.end {
             return None;
         }
         let start = inner.end - inner.bytes.len() as u64;
-        if offset < start {
+        if offset < start || max_bytes.is_some_and(|max| inner.end - offset > max) {
             return None;
         }
         let skip = (offset - start) as usize;
@@ -148,6 +160,18 @@ mod tests {
         ring.bump_epoch();
         assert!(ring.missing_after(held, 110).is_none());
         assert!(ring.missing_after((held.0 ^ 1, ring.stamp().epoch), 110).is_none());
+    }
+
+    #[test]
+    fn a_bounded_resume_refuses_more_missed_bytes_than_its_bound() {
+        let ring = ResumeRing::with_budget(64);
+        ring.append(b"0123456789");
+        let stamp = ring.stamp();
+        let held = (stamp.nonce, stamp.epoch);
+        assert_eq!(ring.missing_within(held, 6, Some(4)).unwrap().0, b"6789");
+        assert!(ring.missing_within(held, 5, Some(4)).is_none());
+        assert_eq!(ring.missing_within(held, 10, Some(0)).unwrap().0, b"");
+        assert_eq!(ring.missing_within(held, 0, None).unwrap().0.len(), 10);
     }
 
     #[test]
