@@ -421,8 +421,10 @@ export const SentImage = memo(function SentImage({
   image,
   read,
   fallback = null,
+  path,
 }: {
   image: PromptImage;
+  path?: string;
   /// Reads the image by its id (a dataURL), when acpmux does not keep it (`SentLinkedImage`).
   read?: (id: string) => Promise<string | undefined>;
   /// What draws when the image cannot be read or decoded; nothing by default.
@@ -506,7 +508,11 @@ export const SentImage = memo(function SentImage({
       draggable
       /* tooltip-allow: an image thumbnail shows no name */ title={withSourceLabel(label, from)}
       aria-label={label || t("image.view")}
-      onClick={() => openImage(src, label)}
+      onClick={() => {
+        if (path && shown.thumbnail) {
+          void readLinkedImage(path).then((full) => openImage(full ?? src, label, path));
+        } else openImage(src, label, path);
+      }}
     >
       {thumbnail}
     </button>
@@ -547,6 +553,7 @@ function SentLinkedImage({
     <SentImage
       image={{ id: `file:${path}`, mimeType: mimeType || "image/png", name, ...(source ? { source } : {}) }}
       read={read}
+      path={path}
       fallback={chip}
     />
   );

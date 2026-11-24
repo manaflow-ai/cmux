@@ -130,7 +130,7 @@ export async function fileThumbnail(file: Blob): Promise<Thumb | undefined> {
   const bitmap = await decodeFile(file);
   if (!bitmap) return undefined;
   try {
-    return await drawThumb(bitmap);
+    return await drawThumb(bitmap, 160, true);
   } finally {
     bitmap.close();
   }
@@ -196,14 +196,19 @@ export function thumbRatio(width: number, height: number): number {
 /// between 0.7:1 and 2:1, its center cropped only past those bounds, so a wide screenshot shows as
 /// itself rather than a sliver of its text (Leo, 2026-10-14) and a chip never hands a
 /// multi-megabyte image to a small <img>, with the image's natural size (its hover name says it).
-export async function drawThumb(bitmap: ImageBitmap, height = 160): Promise<Thumb | undefined> {
+export async function drawThumb(bitmap: ImageBitmap, height = 160, whole = false): Promise<Thumb | undefined> {
   if (!bitmap.width || !bitmap.height) return undefined;
-  const ratio = thumbRatio(bitmap.width, bitmap.height);
+  const ratio = whole ? bitmap.width / bitmap.height : thumbRatio(bitmap.width, bitmap.height);
   const [sourceWidth, sourceHeight] =
     bitmap.width / bitmap.height > ratio
       ? [bitmap.height * ratio, bitmap.height]
       : [bitmap.width, bitmap.width / ratio];
-  const canvas = new OffscreenCanvas(Math.round(height * ratio), height);
+  // A linked file shares its preview with the sent bubble, which shows the whole picture.
+  const scale = whole ? Math.min(1, height / sourceHeight, 480 / sourceWidth) : height / sourceHeight;
+  const canvas = new OffscreenCanvas(
+    Math.max(1, Math.round(sourceWidth * scale)),
+    Math.max(1, Math.round(sourceHeight * scale)),
+  );
   const context = canvas.getContext("2d");
   if (!context) return undefined;
   context.drawImage(

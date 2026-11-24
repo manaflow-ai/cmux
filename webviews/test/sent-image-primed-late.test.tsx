@@ -110,8 +110,8 @@ try {
     const drawn = host.querySelector<HTMLImageElement>(".cv-user__images img");
     expect(drawn?.getAttribute("src")).toBe(image.src);
     expect(host.querySelector(".cv-user__image-placeholder")).toBeNull();
-    // 120px tall at 3:2.
-    expect(drawn?.style.width).toBe("180px");
+    // 160px tall at 3:2.
+    expect(drawn?.style.width).toBe("240px");
   });
 
   test("a second bubble of an image another bubble already drew shows it without a read", async () => {
