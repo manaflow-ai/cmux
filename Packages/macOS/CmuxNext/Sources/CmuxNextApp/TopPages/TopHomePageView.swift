@@ -151,7 +151,6 @@ final class TopHomePageView: NSView {
             }
         }
         list.onNewMessage = { [weak self] in self?.presentNewMessage() }
-        list.onNewChief = { [weak self] in self?.startChiefConversation() }
         list.onCloseDraft = { [weak self] in self?.performCloseNewMessage() }
         list.onOpenRequests = { [weak self] in self?.presentRequests() }
         list.composeMenu = { [weak services] in services.map { HomePageMenus.backgroundMenu(registry: $0.registry) } }

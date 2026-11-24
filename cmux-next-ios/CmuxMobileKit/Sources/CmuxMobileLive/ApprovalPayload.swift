@@ -1,4 +1,5 @@
 import CmuxMobileAgentChat
+import CmuxMobileTransport
 import CryptoKit
 import Foundation
 
@@ -225,6 +226,8 @@ public struct PeerApprovalPayload: Sendable, Equatable {
 /// (cmux-mobile-host `pairing.rs`).
 public struct LinkAuthPayload: Sendable, Equatable {
     public static let domain = "cmux-mobile-link-auth-v1"
+    /// The domain when the signature covers the link's tunnel keys (`proofVersion` 2).
+    public static let domainV2 = "cmux-mobile-link-auth-v2"
     public var mac: String
     public var phone: String
     public var nonce: String
@@ -232,17 +235,25 @@ public struct LinkAuthPayload: Sendable, Equatable {
     public var approvalKey: String
     /// `pair` or `unpair`.
     public var action: String
+    /// The keys of the tunnel this `auth` runs on, in a v2 `auth` (nil: v1).
+    public var tunnel: TunnelKeys?
 
-    public init(mac: String, phone: String, nonce: String, identityKey: String, approvalKey: String, action: String) {
+    public init(mac: String, phone: String, nonce: String, identityKey: String, approvalKey: String, action: String,
+                tunnel: TunnelKeys? = nil) {
         self.mac = mac
         self.phone = phone
         self.nonce = nonce
         self.identityKey = identityKey
         self.approvalKey = approvalKey
         self.action = action
+        self.tunnel = tunnel
     }
 
     public var message: Data {
-        ApprovalPayload.joined(Self.domain, [mac, phone, nonce, identityKey, approvalKey, action])
+        guard let tunnel else {
+            return ApprovalPayload.joined(Self.domain, [mac, phone, nonce, identityKey, approvalKey, action])
+        }
+        return ApprovalPayload.joined(Self.domainV2, [mac, phone, nonce, identityKey, approvalKey, action,
+                                                      tunnel.dialer, tunnel.answerer])
     }
 }

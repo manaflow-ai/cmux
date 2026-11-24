@@ -75,7 +75,7 @@ fn compaction_failed(hub: &Hub, session: &Session, turn: &str) -> bool {
 
 impl Hub {
     /// Whether `session`'s harness can compact its chat: Claude Code, which takes `/compact`.
-    pub(super) async fn can_compact(&self, session: &Session) -> bool {
+    pub(in crate::hub) async fn can_compact(&self, session: &Session) -> bool {
         let harness = session.meta().harness;
         let config = self.config.read().await;
         config
@@ -173,6 +173,7 @@ impl Hub {
                         trust_gate: step.trust_gate,
                         error: &step.error,
                         not_before: None,
+                        slash: None,
                     };
                     hub.auto_resume(&session, cut, step.attempt).await;
                 });

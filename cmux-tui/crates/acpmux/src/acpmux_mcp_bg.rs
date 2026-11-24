@@ -42,21 +42,21 @@ pub(super) fn tools() -> Vec<Value> {
         json!({"type": "string", "description": "The task's id, as bg_start or bg_list gave it."});
     let description = json!({"type": "string", "description": "A few words: what this call is for. The transcript titles the call with it."});
     vec![
-        json!({"name": "bg_start", "description": "Run a shell command in the background: a dev server, a watcher, a long build or test run. It keeps running while this chat is idle or its agent hibernates, and after a restart; read it later with bg_output by its id. Prefer it to the harness's own background shell, which ends when the agent hibernates. Returns at once with the task's id. When it ends, this chat gets one message with how it ended and its last lines (unless notify is false), so there is no need to poll it.",
+        json!({"name": "bg_start", "description": "Start a background command that survives hibernation and restarts. Returns its task id immediately, and not the command or description you just sent (bg_list and bg_output read a stored command back). Use bg_output to read it.",
             "inputSchema": {"type": "object", "properties": {
-                "command": {"type": "string", "description": "The command, run by bash -c (/bin/sh where there is no bash), in the agent's environment."},
-                "cwd": {"type": "string", "description": "Its folder (default: the chat's)."},
-                "description": {"type": "string", "description": "A few words: what the task is for. Kept with the task; bg_list, bg_output and the end message name it by this."},
-                "notify": {"type": "boolean", "description": "Send this chat one message when the task ends (default true). It waits for a running turn to end; it never interrupts one."}},
+                "command": {"type": "string", "description": "Runs in the agent environment with bash -c (fallback /bin/sh)."},
+                "cwd": {"type": "string", "description": "Working directory (default: chat folder)."},
+                "description": {"type": "string", "description": "Short task title for listings, output and completion."},
+                "notify": {"type": "boolean", "description": "Send exit status and last lines when it ends (default true); a running turn reads it at its next tool step."}},
                 "required": ["command"]}}),
-        json!({"name": "bg_list", "description": "Your background tasks (the ones you started; a subagent sees its own), newest first, one line each: id, state (running, exited, stopped, killed, lost), exit code, age and the command, cut. A bare call lists the newest 30; the last line says how many more there are and the argument that lists them. Tasks other subagents or the lead started are counted, not listed, unless all is true; they are not yours to stop.",
+        json!({"name": "bg_list", "description": "Your background tasks (the ones you started; a subagent sees its own), newest first, one line each: id, state (running, exited, stopped, killed, lost), exit code, age and the command, cut. A bare call lists the newest 30; the last line says how many more there are and the argument that lists them. Tasks other subagents or the lead started are counted, not listed, unless all is true; they are not yours to stop. A row carries only what you cannot read off it: this chat's session and folder are on the page once, and a field at its default (no exit yet, no signal, no error) is left off.",
             "inputSchema": {"type": "object", "properties": {"description": description,
                 "all": {"type": "boolean", "description": "List every task of this chat, whoever started it, each with who started it (default false: only yours)."},
                 "limit": {"type": "integer", "minimum": 1, "maximum": 500, "description": "How many tasks to list (default 30)."},
                 "offset": {"type": "integer", "minimum": 0, "description": "How many of the newest to skip first (default 0): the last line's offset lists the next page."},
                 "state": {"type": "string", "enum": ["running", "exited", "stopped", "killed", "lost", "ok", "failed"], "description": "Only tasks in this state, or with this outcome (ok, failed)."},
                 "full": {"type": "boolean", "description": "Each task's whole command and the tail of its output (default false). bg_output reads one task's output."}}}}),
-        json!({"name": "bg_output", "description": "Read a background task's output: by default its last 64 KiB; with fromByte, from there (pass the last nextByte to read only what is new). Each task keeps its newest 8 MiB of output; skippedBytes says how much before fromByte is gone.",
+        json!({"name": "bg_output", "description": "Read the last 64 KiB by default. Pass nextByte as fromByte to continue. skippedBytes counts output lost beyond the newest 8 MiB. Text, no base64 copy.",
             "inputSchema": {"type": "object", "properties": {"id": id, "description": description,
                 "fromByte": {"type": "integer", "minimum": 0},
                 "maxBytes": {"type": "integer", "minimum": 1, "maximum": 1048576}},
@@ -139,6 +139,7 @@ pub(crate) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: 
             Ok(r) => {
                 let (line, status) = outcome("bg_start", &r);
                 let mut structured = r;
+                trim_echo("bg_start", &mut structured);
                 structured.set("summary", json!(line));
                 structured.set("status", json!(status));
                 let id = structured.get("id").and_then(Value::as_str).unwrap_or_default();
@@ -190,6 +191,7 @@ pub(crate) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: 
                 return ok(format!("{line}\n{text}").trim_end().to_owned(), structured);
             }
             let mut structured = r;
+            trim_echo(name, &mut structured);
             structured.set("summary", json!(line));
             structured.set("status", json!(status));
             let mut text = format!("{line}\n{}", summary(name, &structured)).trim_end().to_owned();
@@ -214,10 +216,13 @@ pub(crate) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: 
     }
 }
 
-/// The background task id a `run_wait` call gives instead of a repo: a `bg-` value under
-/// `id`, `task`, `taskId`, `task_id` or `run`.
+/// The background task id a `run_wait` call gives: a `bg-` value under `id`, `task`, `taskId`,
+/// `task_id` or `run`, with a repo or without one. A `bg-` id names only a task this server
+/// started, so a repo beside it changes nothing: the census of 2026-11-23 (cmuxterm-hq
+/// docs/findings/2026-11-23-mcp-tool-error-census.md) counted 58 run_wait refusals "give run or
+/// pr" in 48 h on one VM, nearly all `{"repo": ..., "id": "bg-...", "timeoutSeconds": ...}`.
 fn bg_task_given_to_run_wait(name: &str, params: &Value) -> Option<String> {
-    if name != "run_wait" || params.get("repo").is_some_and(|r| !r.is_null()) {
+    if name != "run_wait" {
         return None;
     }
     ["id", "task", "taskId", "task_id", "run"].iter().find_map(|k| {
@@ -325,6 +330,43 @@ impl TaskWait {
     }
 }
 
+/// What a result need not carry back to the agent that made the call: the command the caller
+/// itself just sent, whole, and `bg_output`'s base64 `data`, the same bytes `text` already
+/// carries. Measured on one VM in the week to 2026-11-24 (`scripts/measure/bg-echo-bytes.py`):
+/// 1,000,679 characters of echoed command and 2,019,596 of base64 over 3,597 results, about
+/// 839,000 tokens for nothing. A command of up to [`CMD_KEPT`] characters stays byte-identical
+/// (reading it back is how one checks what was stored when a start failed); a longer one is cut
+/// here and `bg_list` with `full: true` still reads the whole stored command.
+///
+/// A start's own answer carries neither: the caller wrote the `command` and the `description` in
+/// the very call it is reading the answer to, and `bg_output` and `bg_list` read the stored
+/// command back later, when the task is no longer in hand. Measured over 2,723 real `bg_start`
+/// answers in this host's transcripts (`scripts/measure/bg-echo-bytes.py`): of 756 B an answer,
+/// `command` was 37.6%, `description` 7.0% and `sessionId` 6.7% — half of every start receipt
+/// was the caller's own words read back to it.
+fn trim_echo(name: &str, structured: &mut Value) {
+    let Some(o) = structured.as_object_mut() else { return };
+    // The chat's own id, the same on every answer this chat reads.
+    o.remove("sessionId");
+    if name == "bg_start" {
+        o.remove("command");
+        o.remove("description");
+    }
+    // `text` is those bytes already; base64 of them costs a third again for nothing.
+    if o.contains_key("text") && o.remove("data").is_some() {
+        o.insert("dataOmitted".into(), json!("the bytes are in text; no base64 copy"));
+    }
+    if let Some(command) = o.get("command").and_then(Value::as_str) {
+        if command.chars().count() > CMD_KEPT {
+            o.insert("command".into(), json!(super::bg_list::cut(command, CMD_KEPT)));
+            o.insert("commandCut".into(), json!("bg_list with full: true reads the whole one"));
+        }
+    }
+}
+
+/// How much of a task's own command a single-task result carries back (`trim_echo`).
+const CMD_KEPT: usize = super::bg_list::COMMAND_CHARS * 2;
+
 /// The result's one-line outcome and status (module docs): a task's own (`bg_run::outcome`, as
 /// the daemon put it in its view), or for a list how many run, finished and failed.
 fn outcome(name: &str, r: &Value) -> (String, &'static str) {
@@ -380,10 +422,14 @@ fn task_line(t: &Value) -> String {
         (_, Some(signal)) => format!(" (signal {signal})"),
         _ => String::new(),
     };
-    let what = match s("description") {
-        "" => s("command").to_owned(),
-        d => format!("{d}: {}", s("command")),
-    };
+    // The caller sent this command; the line needs only enough of it to name the task.
+    let what = super::bg_list::cut(
+        &match s("description") {
+            "" => s("command").to_owned(),
+            d => format!("{d}: {}", s("command")),
+        },
+        super::bg_list::COMMAND_CHARS,
+    );
     let by = t.get("startedBy").filter(|v| v.is_object()).map_or(String::new(), |sub| {
         format!("  (started by {})", crate::hub::bg_owner_words(Some(sub)))
     });
@@ -409,6 +455,63 @@ fn summary(name: &str, r: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A result carries the bytes once and the caller's own command only as far as it names the
+    /// task: no base64 copy of `text`, and a long command cut (measured waste in `trim_echo`).
+    #[test]
+    fn a_result_echoes_neither_the_bytes_twice_nor_a_whole_command() {
+        let long = format!("cargo test {}", "x".repeat(4000));
+        let mut r = json!({"id": "bg-1", "command": long, "state": "exited",
+            "text": "out\n", "data": "b3V0Cg==", "totalBytes": 4});
+        trim_echo("bg_output", &mut r);
+        assert_eq!(r.get("data"), None, "text already carries those bytes");
+        assert!(r["dataOmitted"].is_string());
+        let kept = r["command"].as_str().unwrap();
+        assert!(kept.chars().count() <= CMD_KEPT, "{} chars", kept.chars().count());
+        assert!(kept.starts_with("cargo test x") && kept.ends_with('\u{2026}'));
+        assert!(r["commandCut"].as_str().unwrap().contains("full: true"));
+        // A command short enough to read back is left byte-identical: after a start that failed,
+        // reading it is how one checks what was stored.
+        let mut short = json!({"id": "bg-2", "command": "ls  -l\n", "text": "", "data": ""});
+        trim_echo("bg_output", &mut short);
+        assert_eq!(short["command"], json!("ls  -l\n"));
+        assert_eq!(short.get("commandCut"), None);
+        // The text line cuts it too, so one result never carries the command twice whole.
+        let line = task_line(&json!({"id": "bg-1", "state": "exited", "exitCode": 0,
+            "description": "a long one", "command": long, "tail": "out"}));
+        assert!(line.chars().count() < 200, "{line}");
+        assert!(line.contains("a long one: cargo test x") && line.contains('\u{2026}'));
+    }
+
+    /// A start's answer carries what the caller cannot know yet — the task's id, its pid, that
+    /// it is running — and none of the words the caller itself just wrote. Reading a task back
+    /// by id still answers with its command, for a caller that no longer has it in hand.
+    #[test]
+    fn a_start_receipt_echoes_none_of_the_callers_own_words() {
+        let as_the_daemon_answers = || {
+            json!({"id": "bg-1", "sessionId": "00000000-0000-4000-8000-000000000001",
+                "command": "cargo test -p acpmux", "cwd": "/tmp/checkout",
+                "description": "run the suite", "state": "running", "pid": 1234,
+                "startedAt": 1_795_506_015_665_i64, "notify": true})
+        };
+        let mut start = as_the_daemon_answers();
+        trim_echo("bg_start", &mut start);
+        let o = start.as_object().unwrap();
+        for key in ["command", "description", "sessionId"] {
+            assert!(!o.contains_key(key), "{key} is read back to its own author: {start}");
+        }
+        for key in ["id", "pid", "state", "startedAt"] {
+            assert!(o.contains_key(key), "{key} was dropped: {start}");
+        }
+        let before = as_the_daemon_answers().to_string().len();
+        assert!(start.to_string().len() * 2 < before, "{start} of {before} bytes");
+        // A read of a task by id is not the turn that started it: the command comes back.
+        let mut read = as_the_daemon_answers();
+        trim_echo("bg_output", &mut read);
+        assert_eq!(read["command"], json!("cargo test -p acpmux"));
+        assert_eq!(read["description"], json!("run the suite"));
+        assert!(read.get("sessionId").is_none(), "still this chat's own id");
+    }
 
     /// A list's outcome counts its tasks by status; the list runs while any task runs.
     #[test]
@@ -476,8 +579,18 @@ mod tests {
             of(json!({"repo": "o/r", "pr": "12", "sha": "ABCDEF1", "description": "CI"})).unwrap();
         assert_eq!(pr.target, Target::Pr { number: 12, sha: Some("abcdef1".into()) });
         assert_eq!(pr.description, "CI");
+        // An id that names a run or a pull request is that run or pull request.
+        for (id, want) in [
+            (json!(4120), Target::Run(4120)),
+            (json!("4120"), Target::Run(4120)),
+            (json!("https://github.com/o/r/actions/runs/4120/job/9"), Target::Run(4120)),
+            (json!("https://github.com/o/r/pull/12"), Target::Pr { number: 12, sha: None }),
+        ] {
+            assert_eq!(of(json!({"repo": "o/r", "id": id.clone()})).unwrap().target, want, "{id}");
+        }
         for bad in [
             json!({"run": 7}),
+            json!({"repo": "o/r", "id": "nope"}),
             json!({"repo": "o/r; rm -rf /", "run": 7}),
             json!({"repo": "o/r"}),
             json!({"repo": "o/r", "run": 7, "pr": 1}),
@@ -830,6 +943,28 @@ fn number(params: &Value, key: &str) -> Result<Option<u64>, String> {
     }
 }
 
+/// The run or pull request an `id` names when the call gives neither `run` nor `pr`: an Actions
+/// run id (digits), a run URL (`.../actions/runs/N[/job/M]`) or a pull request URL
+/// (`.../pull/N`). A `bg-` id never comes here (`bg_task_given_to_run_wait`).
+fn run_or_pr_of_id(params: &Value) -> (Option<u64>, Option<u64>) {
+    let Some(id) = ["id", "url", "target"].iter().find_map(|k| match params.get(*k) {
+        Some(Value::Number(n)) => n.as_u64().map(|n| n.to_string()),
+        Some(Value::String(s)) => Some(s.trim().to_owned()),
+        _ => None,
+    }) else {
+        return (None, None);
+    };
+    let after = |marker: &str| -> Option<u64> {
+        let (_, rest) = id.split_once(marker)?;
+        rest.split(['/', '?', '#']).next()?.parse().ok().filter(|n| *n > 0)
+    };
+    if let Some(run) = id.parse::<u64>().ok().filter(|n| *n > 0).or_else(|| after("/actions/runs/"))
+    {
+        return (Some(run), None);
+    }
+    (None, after("/pull/"))
+}
+
 impl RunWait {
     fn of(params: &Value) -> Result<Self, String> {
         let s = |k: &str| {
@@ -849,7 +984,11 @@ impl RunWait {
         {
             return Err(format!("sha must be a commit sha (7 to 40 hex digits), not {sha:?}"));
         }
-        let target = match (number(params, "run")?, number(params, "pr")?) {
+        let (run, pr) = match (number(params, "run")?, number(params, "pr")?) {
+            (None, None) => run_or_pr_of_id(params),
+            given => given,
+        };
+        let target = match (run, pr) {
             (Some(run), None) if sha.is_none() => Target::Run(run),
             (Some(_), None) => return Err("sha goes with pr, not run".to_owned()),
             (None, Some(number)) => Target::Pr { number, sha },

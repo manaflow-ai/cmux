@@ -550,11 +550,43 @@ struct UdpBlock {
     on: std::sync::atomic::AtomicBool,
     dropped_from_clients: std::sync::atomic::AtomicU64,
     dropped_to_clients: std::sync::atomic::AtomicU64,
+    /// Allocate success responses still to drop (a lossy link that loses
+    /// the server's answer, so the client's retransmit meets an allocation
+    /// that already exists).
+    drop_allocate_successes: std::sync::atomic::AtomicU32,
+}
+
+/// Whether `datagram` is a STUN Allocate success response (type 0x0103).
+fn is_allocate_success(datagram: &[u8]) -> bool {
+    datagram.len() >= 20 && datagram[..2] == [0x01, 0x03]
+}
+
+/// How long the loopback TURN server's UDP answers to requests (Allocate,
+/// Refresh, CreatePermission, ChannelBind) take to leave it, in
+/// milliseconds: a TURN server a real round trip away, for the client's
+/// control transactions only (data is shaped by `impair_inbound`). 0, the
+/// default, answers at once.
+static TURN_ANSWER_DELAY_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Sets [`TURN_ANSWER_DELAY_MS`] for every [`TestTurn`] in this process.
+pub fn set_turn_answer_delay(delay: std::time::Duration) {
+    TURN_ANSWER_DELAY_MS
+        .store(u64::try_from(delay.as_millis()).unwrap_or(u64::MAX), std::sync::atomic::Ordering::Relaxed);
+}
+
+/// A STUN success or error response (not an indication, not ChannelData).
+fn is_stun_response(datagram: &[u8]) -> bool {
+    if datagram.len() < 20 || datagram[0] & 0xc0 != 0 || datagram[4..8] != [0x21, 0x12, 0xa4, 0x42] {
+        return false;
+    }
+    let kind = u16::from_be_bytes([datagram[0], datagram[1]]);
+    let class = ((kind >> 7) & 0x2) | ((kind >> 4) & 0x1);
+    class >= 2
 }
 
 /// The TURN server's UDP socket, which drops everything while `block` is on.
 struct BlockableUdp {
-    socket: tokio::net::UdpSocket,
+    socket: Arc<tokio::net::UdpSocket>,
     block: Arc<UdpBlock>,
 }
 
@@ -587,6 +619,28 @@ impl webrtc::util::Conn for BlockableUdp {
             self.block.dropped_to_clients.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             return Ok(buf.len());
         }
+        if is_allocate_success(buf)
+            && self
+                .block
+                .drop_allocate_successes
+                .fetch_update(
+                    std::sync::atomic::Ordering::Relaxed,
+                    std::sync::atomic::Ordering::Relaxed,
+                    |n| n.checked_sub(1),
+                )
+                .is_ok()
+        {
+            return Ok(buf.len());
+        }
+        let delay = TURN_ANSWER_DELAY_MS.load(std::sync::atomic::Ordering::Relaxed);
+        if delay > 0 && is_stun_response(buf) {
+            let (socket, answer) = (Arc::clone(&self.socket), buf.to_vec());
+            tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                let _ = socket.send_to(&answer, target).await;
+            });
+            return Ok(buf.len());
+        }
         Ok(self.socket.send_to(buf, target).await?)
     }
 
@@ -616,7 +670,7 @@ impl TestTurn {
         let udp_block = Arc::new(UdpBlock::default());
         let allocated = Arc::new(Mutex::new(Vec::new()));
         let udp = BlockableUdp {
-            socket: tokio::net::UdpSocket::bind("127.0.0.1:0").await.expect("bind TURN UDP"),
+            socket: Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.expect("bind TURN UDP")),
             block: Arc::clone(&udp_block),
         };
         let udp_port = udp.socket.local_addr().expect("addr").port();
@@ -731,6 +785,12 @@ impl TestTurn {
         self.udp_block.on.store(blocked, std::sync::atomic::Ordering::Relaxed);
     }
 
+    /// Drop the next `count` Allocate success responses on the UDP port, as
+    /// a lossy link that loses the server's answer to an allocation.
+    pub fn drop_allocate_successes(&self, count: u32) {
+        self.udp_block.drop_allocate_successes.store(count, std::sync::atomic::Ordering::Relaxed);
+    }
+
     /// Datagrams the blocked UDP port dropped so far: (from its clients, to
     /// its clients). A blocked phone's leg counts what each end sent the
     /// other while it was cut off.
@@ -743,6 +803,12 @@ impl TestTurn {
     /// Stream connections (TLS or TCP) the server accepted so far.
     pub fn stream_connections(&self) -> usize {
         self.streams.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Allocations this server holds now (each until it is released or
+    /// expires).
+    pub fn allocations(&self) -> usize {
+        self.allocated.lock().unwrap_or_else(PoisonError::into_inner).len()
     }
 
     /// Whether `addr` is one of this server's relayed addresses.
