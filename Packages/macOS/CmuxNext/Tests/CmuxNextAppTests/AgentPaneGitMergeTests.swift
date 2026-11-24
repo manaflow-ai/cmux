@@ -16,6 +16,7 @@ struct AgentPaneGitMergeTests {
     }
 
     /// The fake GitHub: the pull request it answers, and what it was asked.
+    // Called from the @Sendable GitHub closure off the main actor; the lock guards every field.
     nonisolated final class GitHub: @unchecked Sendable {
         private let lock = NSLock()
         private var shown = ""
