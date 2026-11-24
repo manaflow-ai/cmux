@@ -564,12 +564,11 @@ jobs:
       # and 2026-09-23 never went quiet for more than 45 s, and no single test
       # took longer than 44 s; three hung runs went quiet for 353-1152 s.
       TEST_SILENCE_SECONDS: "180"
-      # swift-packages-linux.yml runs CMUXMobileCore, CmuxMobilePairedMac
-      # and CmuxMobileShellModel on Linux for every
-      # feat-cmux-next pull request that touches Packages/, so such a pull
-      # request runs them here only with the full-ci label; pushes, dispatches
-      # and other bases still run them on the Mac.
-      MAC_RUNS_LINUX_PACKAGES: ${{ github.event_name != 'pull_request' || !startsWith(github.base_ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+      # mobile-core-linux (below) runs CMUXMobileCore, CmuxMobilePairedMac and
+      # CmuxMobileShellModel on Linux for every event that used to run them here, so
+      # the Mac runs them only for a focused dispatch or a pull request labeled
+      # full-ci (a Mac-side cross-check of the Linux result).
+      MAC_RUNS_LINUX_PACKAGES: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
     steps:
       - name: Verify GitHub-hosted route
         env:
@@ -716,6 +715,50 @@ jobs:
           python3 scripts/ci/hung_test_watchdog.py --silence-seconds "$TEST_SILENCE_SECONDS" \
             --label CmuxMobileShellModel --log "$log_path" -- swift test "${args[@]}"
           ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxMobileShellModel}"
+
+
+  # The pure-Swift logic suites, on Linux: no simulator and no Apple runtime. The rows of
+  # scripts/ci/swift-linux-packages.txt run through the same package-test-lane.sh suite the
+  # swift-linux-packages.yml receipt uses; the Mac copies of these suites in mobile-core-package
+  # run only for a focused dispatch or the full-ci label.
+  mobile-core-linux:
+    needs: [detect-ios-changes]
+    if: >-
+      ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (
+      !cancelled() && needs.detect-ios-changes.result == 'success'
+          && needs.detect-ios-changes.outputs.should_run == 'true'
+          && inputs.swift_package == '' && inputs.test_filter == ''
+      ) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 20
+    container: public.ecr.aws/docker/library/swift:6.2-noble@sha256:d6f8f6112e9a63da0a4a151d6b93acd16699d35c0b82531ac1a245f5af210197
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.detect-ios-changes.outputs.target_sha }}
+          persist-credentials: false
+          submodules: false
+
+      # python3 for the lane's watchdog; CmuxMobilePairedMac links the system SQLite.
+      - name: Install python3 and SQLite headers
+        run: apt-get update -qq && apt-get install -y -qq --no-install-recommends python3 libsqlite3-dev
+
+      - name: package-test-lane.sh suite, mobile-core packages
+        run: |
+          set -euo pipefail
+          status=0
+          for want in Packages/Shared/CMUXMobileCore Packages/iOS/CmuxMobilePairedMac Packages/iOS/CmuxMobileShellModel; do
+            row="$(awk -v d="$want" '$1 == d' scripts/ci/swift-linux-packages.txt)"
+            if [ -z "$row" ]; then echo "::error::$want is not listed in scripts/ci/swift-linux-packages.txt"; status=1; continue; fi
+            read -r dir targets _ <<< "$row"
+            echo "::group::$dir ($targets)"
+            bash scripts/ci/package-test-lane.sh suite "$dir" "$targets" || { echo "::error::$dir failed on Linux"; status=1; }
+            echo "::endgroup::"
+          done
+          exit "$status"
 
   ios-simulator-build:
     needs: [runner, detect-ios-changes, package-conventions-lint]
@@ -1159,6 +1202,7 @@ jobs:
       - detect-ios-changes
       - package-conventions-lint
       - mobile-core-package
+      - mobile-core-linux
       - ios-simulator-build
     # Preserve the aggregate verdict after a failed suite, but do not allocate
     # a Blacksmith runner after the workflow has been cancelled.
