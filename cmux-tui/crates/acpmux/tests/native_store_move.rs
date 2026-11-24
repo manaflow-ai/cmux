@@ -175,3 +175,49 @@ fn a_chat_coming_back_replaces_its_stale_transcript_but_never_a_diverged_one() {
         "{\"turn\":1}\n{\"turn\":2,\"on\":\"here\"}\n"
     );
 }
+
+/// A history-later move's bundle takes the prepare's copy of the agent's transcript and only
+/// what the file grew by since (`grow_into_from`), cut back to its last whole line; a file that
+/// is not that copy grown at its end is left to the whole copy (None). Its restore links the
+/// bundle's file in, the same bytes.
+#[test]
+fn a_prepared_transcript_moves_with_only_its_growth() {
+    let sid = "4b3c2d1e-aaaa-bbbb-cccc-111122223333";
+    let rel = Path::new(".claude/projects/-Users-me-src").join(format!("{sid}.jsonl"));
+    let home = tempfile::tempdir().unwrap();
+    let src = home.path().join(&rel);
+    let early = "{\"turn\":1}\n".repeat(20_000);
+    put(&src, &early);
+    let prepared = tempfile::tempdir().unwrap();
+    native::copy_into_from(&src, prepared.path(), "claude-project", home.path()).unwrap();
+
+    let grown = format!("{early}{{\"turn\":2}}\n{{\"turn\":3,\"half");
+    put(&src, &grown);
+    let bundle = tempfile::tempdir().unwrap();
+    let dest = bundle.path().join("native");
+    let moved = native::grow_into_from(&src, prepared.path(), &dest, "claude-project", home.path());
+    let moved = moved.unwrap().expect("the grown file takes the prepared copy");
+    assert_eq!(moved, Path::new("claude-project").join(&rel).to_string_lossy());
+    let copy = std::fs::read_to_string(dest.join(&moved)).unwrap();
+    assert_eq!(copy, format!("{early}{{\"turn\":2}}\n"));
+    assert!(!prepared.path().join("claude-project").join(&rel).exists(), "moved, not copied");
+
+    let there = meta("claude", "claude", sid, "/Users/me/src");
+    let target = tempfile::tempdir().unwrap();
+    assert_eq!(native::restore_in_with(bundle.path(), &there, target.path(), true).unwrap(), 1);
+    assert_eq!(std::fs::read_to_string(target.path().join(&rel)).unwrap(), copy);
+
+    // Rewritten before the copy's end, or shorter: the whole copy goes instead.
+    let again = tempfile::tempdir().unwrap();
+    put(&src, &early);
+    native::copy_into_from(&src, again.path(), "claude-project", home.path()).unwrap();
+    put(&src, &format!("{}{{\"turn\":9}}\n", "{\"turn\":0}\n".repeat(20_000)));
+    let other = tempfile::tempdir().unwrap();
+    let refused =
+        native::grow_into_from(&src, again.path(), other.path(), "claude-project", home.path());
+    assert!(refused.unwrap().is_none());
+    put(&src, "{\"turn\":1}\n");
+    let refused =
+        native::grow_into_from(&src, again.path(), other.path(), "claude-project", home.path());
+    assert!(refused.unwrap().is_none());
+}

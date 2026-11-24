@@ -3,14 +3,18 @@
 // spending cap) and computes no limit.
 // "See plans" (Notices.tsx) links the public plans page until billing lands, then runs the checkout.
 // Ops the owner does not serve yet (team list, sign-out) show "Not available yet".
+// A failed renewal (the app's `cmux.cloud.billing.status` answers true) shows one line under the plan
+// with Manage Billing; any other answer, a failed read or a signed-out account shows nothing.
 import { useState } from "react";
 import type { Strings } from "../shared/i18n";
+import { Switch } from "../../ui/Switch";
 import { percent } from "./model";
 import { AccountOps, CloudOps, type CloudRetention, type RetentionOverrides } from "./ops";
 import { RETENTION_FIELDS, retentionLimit, type RetentionField } from "./retention";
 import { usd } from "./spendCap";
 import type { CloudState, CloudStore } from "./store";
 import { format, L } from "./strings";
+import { intl } from "../../ui/intl";
 
 /** "12.5 h" or "12.5 h / 40 h", with the unit from the string table. */
 function amount(
@@ -20,7 +24,7 @@ function amount(
   t: (key: string) => string,
   language: string,
 ) {
-  const number = new Intl.NumberFormat(language, { maximumFractionDigits: 1 });
+  const number = intl.NumberFormat(language, { maximumFractionDigits: 1 });
   const text = (n: number) => format(t(unit), { value: number.format(n) });
   return limit === undefined || limit === null ? text(value) : `${text(value)} / ${text(limit)}`;
 }
@@ -31,6 +35,18 @@ function amount(
  */
 function finite(value: number | string | null | undefined): number | undefined {
   return typeof value === "number" ? value : undefined;
+}
+
+/** The failed-payment line with Manage Billing (the app's `billing.openPortal`). */
+function PaymentPastDue({ store, t }: { store: CloudStore; t: (key: string) => string }) {
+  return (
+    <div className="cloud-past-due" role="status">
+      <span className="cloud-past-due-text">{t(L.planPastDue)}</span>
+      <button type="button" className="cloud-button cloud-manage-billing" onClick={() => void store.manageBilling()}>
+        {t(L.planManageBilling)}
+      </button>
+    </div>
+  );
 }
 
 function UsageRow({ label, used, limit, text }: { label: string; used: number; limit?: number | null; text: string }) {
@@ -85,6 +101,7 @@ export function AccountPanel({ store, state, strings }: { store: CloudStore; sta
           </select>
         </label>
       )}
+      {!plan && state.paymentPastDue && <PaymentPastDue store={store} t={t} />}
       {plan && (
         <>
           <h3 className="cloud-subsection-title">{t(L.plan)}</h3>
@@ -92,6 +109,7 @@ export function AccountPanel({ store, state, strings }: { store: CloudStore; sta
             <dt>{t(L.plan)}</dt>
             <dd className="cloud-plan-name">{plan.plan_id}</dd>
           </dl>
+          {state.paymentPastDue && <PaymentPastDue store={store} t={t} />}
           <h3 className="cloud-subsection-title">{t(L.usage)}</h3>
           <div className="cloud-stats cloud-usage">
             <UsageRow
@@ -191,12 +209,12 @@ function CleanupSettings({
         </p>
       )}
       <label className="cloud-check cloud-cleanup-email">
-        <input
-          type="checkbox"
+        <Switch
+          size="sm"
           aria-label={t(L.cleanupEmail)}
           checked={retention.email_heads_up}
           disabled={saving}
-          onChange={(event) => void store.setEmailHeadsUp(event.target.checked)}
+          onCheckedChange={(on) => void store.setEmailHeadsUp(on)}
         />
         <span>{t(L.cleanupEmail)}</span>
       </label>

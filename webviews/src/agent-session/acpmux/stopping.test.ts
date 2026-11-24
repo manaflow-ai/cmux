@@ -71,10 +71,11 @@ test("Stop says it is stopping until the turn ends", async () => {
     await until(() => view.shown.stopping === true);
     expect(view.shown.isWorking).toBe(true);
 
-    // The turn's end takes it away, while acpmux still lists the chat as running.
+    // The turn's end takes it away, and the turn with it, while acpmux still lists the chat as
+    // running (turnEndStopsLiveLine.test.ts: no Thinking clock past the end).
     daemon.emit(id, { mux: "turn_end", msg: { stopReason: "cancelled" } });
     await until(() => view.shown.stopping === undefined);
-    expect(view.shown.isWorking).toBe(true);
+    expect(view.shown.isWorking).toBe(false);
     daemon.emit(id, { mux: "turn_result", msg: { status: "cancelled", stopReason: "cancelled" } });
     daemon.touch(id, { status: "ready" });
     await until(() => !view.shown.isWorking);

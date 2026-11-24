@@ -63,6 +63,33 @@ import Testing
         #expect(hub.pushCount == 1)
     }
 
+    /// "My agents can turn screen sharing and control on my machines": off until the hub says
+    /// otherwise, read again on its push, and off for a hub with no such route.
+    @Test func theAgentsPermissionFollowsTheHubAndDefaultsOff() async throws {
+        let value = Locked("true")
+        let stub = StubHub { request in
+            if request.url.path == "/v1/auth/stack" { return (200, #"{"session":"hub-session","userId":"u","expiresAt":1800003600000}"#) }
+            if request.method == "PUT", request.url.path == "/v1/settings" {
+                return (200, #"{"settings":{"agentsMayShare":false,"updatedAt":1,"updatedBy":"d"}}"#)
+            }
+            if request.url.path == "/v1/settings" { return (200, #"{"settings":{"agentsMayShare":\#(value.value),"updatedAt":1,"updatedBy":"d"}}"#) }
+            return (404, #"{"error":{"code":"not_found","message":"no route"}}"#)
+        }
+        let hub = makeHub(stub)
+        #expect(hub.agentsMayShare == false)
+        await hub.handle(.push(.settingsChanged))
+        #expect(hub.agentsMayShare == true)
+        try await hub.setAgentsMayShare(false)
+        #expect(hub.agentsMayShare == false)
+        #expect(stub.requests.contains { $0.method == "PUT" && $0.url.path == "/v1/settings" })
+        #expect(DeviceHubPush(text: #"{"type":"settings.changed"}"#) == .settingsChanged)
+
+        let old = makeHub(StubHub.routes([:]))
+        await old.refreshSettings()
+        #expect(old.agentsMayShare == false)
+        #expect(old.lastError == nil)
+    }
+
     /// A relay deleted elsewhere: its opened secret leaves this Mac's keychain too.
     @Test func deletedRelaysLoseTheirSecrets() async {
         let secrets = MemoryRelaySecretStore()
@@ -213,6 +240,37 @@ import Testing
             Issue.record("expected failed, got \(hub.status)")
             return
         }
+    }
+
+    /// Leo, 2026-11-19 (ask-6a79af928f), "i simply dont see ANYTHING on the scren sharing screen": an empty
+    /// `devices` before the first read is not "no devices". The hub says it read the list only after a read
+    /// succeeds, keeps why a read failed, and forgets both on sign-out; Your Devices says "none" only then.
+    @Test func theDeviceListSaysWhetherItWasRead() async {
+        let me = self.me, phone = self.phone
+        let failing = Locked(true)
+        let stub = StubHub { request in
+            if request.url.path == "/v1/auth/stack" { return (200, #"{"session":"hub-session","userId":"u","expiresAt":1800003600000}"#) }
+            if failing.value { return (503, #"{"error":{"code":"unavailable","message":"down"}}"#) }
+            return (200, devicesJSON([(me, "Studio"), (phone, "Phone")]))
+        }
+        let hub = makeHub(stub)
+        #expect(!hub.devicesListed && hub.devicesListError == nil)
+        #expect(DeviceDiscovery.of(hub, shown: 0) == .finding)
+        await hub.refreshDevices()
+        #expect(!hub.devicesListed)
+        #expect(hub.devicesListError != nil)
+        guard case .failed(.list, _) = DeviceDiscovery.of(hub, shown: 0) else {
+            Issue.record("a failed read must say so, got \(DeviceDiscovery.of(hub, shown: 0))")
+            return
+        }
+        failing.set(false)
+        await hub.refreshDevices()
+        #expect(hub.devicesListed && hub.devicesListError == nil)
+        #expect(hub.otherDevices.map(\.id) == [phone.id])
+        #expect(DeviceDiscovery.of(hub, shown: 0) == .noDevices)
+        #expect(DeviceDiscovery.of(hub, shown: 1) == .list)
+        hub.stop()
+        #expect(!hub.devicesListed && hub.devicesListError == nil && hub.devices.isEmpty)
     }
 }
 

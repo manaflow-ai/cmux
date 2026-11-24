@@ -1,0 +1,60 @@
+{
+  "name": "cmux.signal.source/1",
+  "version": 1,
+  "docs": "Signal sources other extensions watch with cmux.watch. Each key of options.sources is a source of this app, named <app namespace>.<key> (acme/tickets declares open, watched as acme.tickets.open) and readable with the scope <app namespace>:read. The app publishes a value with signal.publish {name, value}; the daemon checks it against the source's value schema, keeps the last one, and tells the readers that hold the scope (stream <name>.changed) at most once per pollFloorSeconds, the newest value last. Readers read it with signal.read {name}.",
+  "props": {
+    "sources": "{ [key]: { docs?, value: JSON Schema, pollFloorSeconds, staleAfterSeconds? } }"
+  },
+  "methods": {},
+  "events": [
+    "<name>.changed"
+  ],
+  "options": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "sources"
+    ],
+    "properties": {
+      "sources": {
+        "type": "object",
+        "minProperties": 1,
+        "maxProperties": 16,
+        "propertyNames": {
+          "pattern": "^[a-z][a-z0-9_]{0,31}$"
+        },
+        "additionalProperties": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value",
+            "pollFloorSeconds"
+          ],
+          "properties": {
+            "docs": {
+              "type": "string",
+              "maxLength": 500
+            },
+            "value": {
+              "type": "object",
+              "description": "JSON Schema (draft 2020-12) every published value must pass."
+            },
+            "pollFloorSeconds": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 86400,
+              "description": "The shortest time between two change events readers get: publishes inside it coalesce into one, carrying the newest value."
+            },
+            "staleAfterSeconds": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 604800,
+              "description": "How old a published value may be before a read says stale (default: none, a value stays fresh until the next publish)."
+            }
+          }
+        }
+      }
+    }
+  },
+  "status": "draft: shapes are refined with the first implementing app before the interface is public"
+}

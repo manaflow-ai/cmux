@@ -7,6 +7,9 @@ import XCTest
 /// turn, and each reading voice mode asks for is played back as captions, which must never hold
 /// code or a diff.
 ///
+/// The button is hidden unless turned on (Settings → Composer → Voice Button; Leo, 2026-11-22:
+/// "im hiding this by default"), so these launches turn it on with `-composer.voiceButton`.
+///
 /// The frames attached while it runs (`voice-chat-NNN`, `voice-terminal-NNN`) are the recording.
 final class VoiceModeUITests: XCTestCase {
     static let prompt = "Run the tests again and tell me what failed."
@@ -15,13 +18,14 @@ final class VoiceModeUITests: XCTestCase {
         continueAfterFailure = false
     }
 
-    private func launch(_ demo: String) -> XCUIApplication {
+    private func launch(_ demo: String, placement: String? = "sendButton") -> XCUIApplication {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchEnvironment["CMUX_MOBILE_VOICE_MODE_DEMO"] = "1"
         app.launchEnvironment["CMUX_MOBILE_VOICE_MODE_DEMO_PROMPT"] = Self.prompt
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-demo", demo]
+        if let placement { app.launchArguments += ["-composer.voiceButton", placement] }
         app.launch()
         return app
     }
@@ -81,6 +85,48 @@ final class VoiceModeUITests: XCTestCase {
         voice.tap()
         XCTAssertTrue(waitGone(app.otherElements["voiceMode.bar"].firstMatch), "a second tap ends voice mode")
         recorder.frames(seconds: 1)
+    }
+
+    /// Out of the box neither composer has a voice button: no dead button for people with no
+    /// OpenAI key. The terminal's field starts right after +.
+    @MainActor
+    func testVoiceButtonIsHiddenByDefault() {
+        for demo in ["voice-chat", "voice-terminal"] {
+            let app = launch(demo, placement: nil)
+            if demo == "voice-chat" {
+                // The agent chat shows its composer collapsed ("Reply to ...") until tapped.
+                let capsule = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Reply to'")).firstMatch
+                if capsule.waitForExistence(timeout: 30) {
+                    XCTAssertFalse(app.buttons["agentChat.composer.voice"].exists, "voice-chat: no voice button on the capsule")
+                    capsule.tap()
+                }
+            }
+            let field = app.textViews[demo == "voice-chat" ? "chat.composer.field" : "terminal.composer.field"]
+            XCTAssertTrue(field.waitForExistence(timeout: 30), "\(demo): the composer shows\n\(app.debugDescription)")
+            XCTAssertFalse(app.buttons["agentChat.composer.voice"].exists, "\(demo): no voice button by default")
+            XCTAssertFalse(app.buttons["terminal.composer.voice"].exists, "\(demo): no voice button by default")
+            let shot = XCTAttachment(screenshot: app.screenshot())
+            shot.name = "composer-default-\(demo)"
+            shot.lifetime = .keepAlways
+            add(shot)
+            app.terminate()
+        }
+    }
+
+    /// "Left of Field": its own circle between + and the field.
+    @MainActor
+    func testTerminalVoiceButtonLeftOfField() {
+        let app = launch("voice-terminal", placement: "leading")
+        defer { app.terminate() }
+        let voice = app.buttons["terminal.composer.voice"]
+        XCTAssertTrue(voice.waitForExistence(timeout: 30), "the voice circle shows\n\(app.debugDescription)")
+        let attach = app.buttons["terminal.composer.attach"]
+        if attach.exists { XCTAssertLessThan(attach.frame.midX, voice.frame.midX, "+ comes first") }
+        XCTAssertTrue(app.buttons["terminal.composer.send"].exists, "send stays send")
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "composer-voice-leading"
+        shot.lifetime = .keepAlways
+        add(shot)
     }
 
     private func waitGone(_ element: XCUIElement) -> Bool {

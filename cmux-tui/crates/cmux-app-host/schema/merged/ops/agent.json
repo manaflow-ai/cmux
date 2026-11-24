@@ -1,0 +1,40 @@
+{
+  "family": "agent",
+  "ops": {
+    "agent.list": {
+      "source": "local",
+      "class": "read",
+      "digest": "cbd0af1d6c1c8b45"
+    },
+    "agent.message.list": {
+      "source": "local",
+      "class": "read",
+      "digest": "e4c8176f7466db5a"
+    },
+    "agent.message.mark": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "8008ce1b1816be72"
+    },
+    "agent.message.release": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "9692d30760979d6d"
+    },
+    "agent.message.send": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "b496446690a0b99f"
+    },
+    "agent.message.unsend": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "6e67617868ff9c7e"
+    },
+    "agent.report": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "4fdc32e3521ebb07"
+    }
+  }
+}

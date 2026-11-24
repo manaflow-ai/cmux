@@ -52,7 +52,7 @@ struct AgentSenderIcon: View {
     }
 
     /// The harness's own id when it has a mark, else its family's (`claude-sr2` → `claude`).
-    static func family(_ harness: String?) -> String? {
+    nonisolated static func family(_ harness: String?) -> String? {
         guard let harness, !harness.isEmpty else { return nil }
         if AgentBrandCatalog.spec(forAgent: harness) != nil { return harness }
         return harness.split(whereSeparator: { "-_/".contains($0) }).first.map(String.init)
