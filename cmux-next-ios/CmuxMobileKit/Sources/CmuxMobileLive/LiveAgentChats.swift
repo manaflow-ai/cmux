@@ -71,7 +71,9 @@ extension LiveWorkspaceCreationBackend: AgentChatsBackend {
             updatedAt: value["updatedAt"]?.numberValue.map { Date(timeIntervalSince1970: $0 / 1000) },
             archived: archived, lastPrompt: value["lastPrompt"]?.stringValue.map { String($0.prefix(500)) },
             summary: rolling?["text"]?.stringValue.map { String($0.prefix(200)) },
-            nextAction: rolling?["next"]?.stringValue.map { String($0.prefix(120)) })
+            nextAction: rolling?["next"]?.stringValue.map { String($0.prefix(120)) },
+            // acpmux names the app that runs it (`watching`), as `AcpmuxSession` reads it; absent: the chat's own.
+            runsInTerminal: value["watching"]?.stringValue.map { !$0.isEmpty } ?? false)
     }
 
     public func openAgentChat(_ chat: AgentChatListing, in workspace: Workspace) async throws -> WorkspaceTab {

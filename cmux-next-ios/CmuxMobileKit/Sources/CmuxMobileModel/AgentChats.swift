@@ -21,9 +21,13 @@ public struct AgentChatListing: Identifiable, Hashable, Sendable {
     /// a person started (`rollingSummary`): the row's summary line, as the Mac sidebar's hover card.
     public var summary: String?
     public var nextAction: String?
+    /// The chat shows a conversation a terminal on the Mac runs (acpmux `watching`, a View Only
+    /// chat of a terminal agent), not one the chat runs itself. Stored only; nothing draws it yet.
+    public var runsInTerminal: Bool
 
     public init(id: String, title: String?, harness: String, cwd: String, status: String, updatedAt: Date?,
-                archived: Bool, lastPrompt: String? = nil, summary: String? = nil, nextAction: String? = nil) {
+                archived: Bool, lastPrompt: String? = nil, summary: String? = nil, nextAction: String? = nil,
+                runsInTerminal: Bool = false) {
         self.id = id
         self.title = title
         self.harness = harness
@@ -34,6 +38,7 @@ public struct AgentChatListing: Identifiable, Hashable, Sendable {
         self.lastPrompt = lastPrompt
         self.summary = summary
         self.nextAction = nextAction
+        self.runsInTerminal = runsInTerminal
     }
 
     /// The row's summary line: the rolling summary, then its next action after an arrow, as the

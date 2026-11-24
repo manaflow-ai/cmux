@@ -290,6 +290,7 @@ public final class SidebarFaceBatch {
             face.folderTab = Self.index(raw.folder_tab)
             face.bucketTab = Self.index(raw.bucket_tab)
             face.agent = Self.index(raw.agent)
+            face.agentInTerminal = raw.agent_in_terminal != 0
             face.notice = switch raw.notice {
             case 1: Self.index(raw.notice_tab).map(SidebarFace.Notice.attention)
             case 2: Self.index(raw.notice_tab).map(SidebarFace.Notice.notification)
@@ -365,6 +366,8 @@ struct SidebarFace: Equatable {
     var folderTab: Int?
     var bucketTab: Int?
     var agent: Int?
+    /// `agent`'s agent runs in a terminal, not a chat (`agent_in_terminal`).
+    var agentInTerminal = false
     var notice: Notice?
     var kind: SidebarWorkspaceKind = .terminal
     var rowKind: WorkspaceRowKind = .terminal

@@ -244,6 +244,7 @@ extension SidebarMapping {
             row.agentFormerName = AgentTurnStateStore.shared.formerName(for: ref)
         }
         row.paneShape = Self.paneShape(workspace)
+        row.agentInTerminal = facts.agentInTerminal
         row.iconFromShownTab = ownIcon == nil && row.icon != nil
         row.activityFromProgram = indicator.primary?.source == .program
         row.presence = presence(tabs)

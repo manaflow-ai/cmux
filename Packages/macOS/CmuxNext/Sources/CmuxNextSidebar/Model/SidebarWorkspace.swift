@@ -128,6 +128,9 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     public var agentBrand: String?
     /// A custom harness's own icon (user 12922), drawn instead of `agentBrand`'s mark when set.
     public var agentIcon: SidebarAgentIcon?
+    /// The agent of that mark runs in a terminal (its hooks report on a terminal tab), not an agent chat:
+    /// the Rust face's `agent_in_terminal`. False with no mark. Stored only; nothing draws it yet.
+    public var agentInTerminal = false
     /// The Chief operating this chat, resolved from acpmux ownership tags.
     public var chiefAvatar: SidebarChiefAvatar?
     /// That agent's name ("Claude Code", "Codex"): the hover card's agent line (cx-13w3).
