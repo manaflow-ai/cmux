@@ -436,8 +436,11 @@ impl HostConfig {
             // screen-stream-eval `iphone-link` target runs hostd so, with no cmux app).
             None if env("CMUX_MOBILE_SURFACE_SOURCE").is_some() => {
                 let exe = PathBuf::from(env("CMUX_MOBILE_SURFACE_SOURCE").unwrap_or_default());
-                let config =
-                    crate::surface::SurfaceConfig::process(exe, default_state_dir().join("surface"), max_tabs);
+                let config = crate::surface::SurfaceConfig::process(
+                    exe,
+                    default_state_dir().join("surface"),
+                    max_tabs,
+                );
                 if env("CMUX_MOBILE_MAC_DISPLAY").as_deref() == Some("1") {
                     config.with_mac_display()
                 } else {

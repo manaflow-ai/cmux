@@ -1093,7 +1093,8 @@ async fn launch_process(
     // built without the switch in rb_shim.mm (the pin e9bed2bc) otherwise waits for
     // the login Keychain's "Chromium Safe Storage" key it can never read, and every
     // http(s) load hangs on about:blank (PR #22555 smoke).
-    let args = ["--serve", "--listen", "127.0.0.1:0", "--lifeline", "--use-mock-keychain", "--url", &request.url];
+    let args =
+        ["--serve", "--listen", "127.0.0.1:0", "--lifeline", "--use-mock-keychain", "--url", &request.url];
     launch_lifeline(exe, &args, &[("CMUX_RB_CACHE_DIR", cache.as_os_str())], log, "the browser host").await
 }
 

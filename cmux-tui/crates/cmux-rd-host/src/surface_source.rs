@@ -128,8 +128,9 @@ impl Deframer {
         if self.buffer.len() < 5 {
             return Ok(None);
         }
-        let len = u32::from_be_bytes([self.buffer[1], self.buffer[2], self.buffer[3], self.buffer[4]])
-            as usize;
+        let len =
+            u32::from_be_bytes([self.buffer[1], self.buffer[2], self.buffer[3], self.buffer[4]])
+                as usize;
         if len > MAX_FRAME {
             return Err("an sf/1 frame over the limit".into());
         }
@@ -184,10 +185,9 @@ fn session_cfg(display: String, opts: &Opts) -> Res<SessionCfg> {
 
 /// The eval's input socket, when both of its variables are set.
 fn eval_socket() -> Res<Option<(UdpSocket, String)>> {
-    let (Ok(addr), Ok(token)) = (
-        std::env::var("CMUX_RD_SURFACE_EVAL_INPUT"),
-        std::env::var("CMUX_RD_SURFACE_EVAL_TOKEN"),
-    ) else {
+    let (Ok(addr), Ok(token)) =
+        (std::env::var("CMUX_RD_SURFACE_EVAL_INPUT"), std::env::var("CMUX_RD_SURFACE_EVAL_TOKEN"))
+    else {
         return Ok(None);
     };
     let addr: SocketAddr =
@@ -309,7 +309,8 @@ fn session(
         if let Some((socket, token)) = eval.as_ref() {
             let mut datagram = [0u8; 256];
             while let Ok(n) = socket.recv(&mut datagram) {
-                for event in eval_input(&datagram[..n], token, (width, height)).unwrap_or_default() {
+                for event in eval_input(&datagram[..n], token, (width, height)).unwrap_or_default()
+                {
                     desktop.inject(&event)?;
                 }
             }

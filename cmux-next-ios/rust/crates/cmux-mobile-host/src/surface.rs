@@ -114,7 +114,8 @@ impl SurfaceConfig {
         let source: Launcher = Arc::new(move |request: LaunchRequest| {
             let (exe, log_dir) = (exe.clone(), log_dir.clone());
             Box::pin(async move {
-                std::fs::create_dir_all(&log_dir).map_err(|e| format!("log dir {}: {e}", log_dir.display()))?;
+                std::fs::create_dir_all(&log_dir)
+                    .map_err(|e| format!("log dir {}: {e}", log_dir.display()))?;
                 let log = std::fs::File::create(log_dir.join(format!("surface-{}.log", request.tab)))
                     .map_err(|e| format!("source log: {e}"))?;
                 let args = ["surface-source", "--tab", request.tab.as_str(), "--lifeline", "1"];
