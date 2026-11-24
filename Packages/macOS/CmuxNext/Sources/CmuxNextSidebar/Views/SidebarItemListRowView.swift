@@ -53,7 +53,7 @@ final class SidebarItemListRowView: SidebarRowView {
         title.stringValue = item.title
         title.font = SidebarStyle.titleFont
         let picture = info?.favicon ?? favicon
-        hasIcon = picture != nil && info?.hidesGlyphBesideTitle != true // the Chief row draws its title alone
+        hasIcon = picture != nil
         iconAddress = item.iconAddress
         icon.configure(icon: picture.map(WorkspaceIcon.favicon))
         icon.isHidden = !hasIcon

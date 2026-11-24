@@ -416,6 +416,10 @@ export type CloudPageVariant = VariantBase & {
   spendCap?: NonNullable<import("../pages/cloud/ops").CloudPlan["spend_cap"]>;
   /** The member's own monthly budget is spent: a start or create is refused. */
   memberBudget?: { spent_usd: number; limit_usd: number };
+  /** The app's billing read: the latest payment failed (true), or the read fails ("fail"). */
+  paymentPastDue?: boolean | "fail";
+  /** The plan the account panel names (`cloud.plan.get` `plan_id`), when not the sample plan's. */
+  planId?: string;
   machines: CloudMachine[];
   snapshots: CloudSnapshot[];
 };
