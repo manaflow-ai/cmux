@@ -49,6 +49,13 @@ class RepositoryTests(unittest.TestCase):
         problems = [p for w in self.workflows for p in cc.cron_findings(w)]
         self.assertEqual(problems, [], "\n".join(problems))
 
+    def test_a_dispatch_with_an_image_does_not_share_the_scheduled_group(self):
+        # #45786 F1: a pending image check must not be replaced by a scheduled run (the group key is its own).
+        workflow = next(w for w in self.workflows if w.name == "cloud-vm-image-reachability.yml")
+        group = workflow.block_for("reachable")
+        self.assertIsNotNone(group)
+        self.assertIn("inputs.image", group["group"])
+
     def test_no_delivery_or_publish_workflow_gained_cancel_or_a_shared_cron_group(self):
         problems = [p for w in self.workflows for p in cc.excluded_findings(w)]
         self.assertEqual(problems, [], "\n".join(problems))
