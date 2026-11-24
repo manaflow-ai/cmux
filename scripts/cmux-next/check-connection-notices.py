@@ -131,7 +131,13 @@ PERSON_ACTIONS = re.compile(
     r"|\bButton\s*[({]|\bNSButton\b|\.onTapGesture\b|\baddAction\b|#selector\(|\bUIAction\b|\.swipeActions\b"  # Swift
     r"|\baction:\s*\{|\bactions:\s*\[|\baction:\s*\."
     # A Swift model that names the person's action for its state (`var action: Action?`), drawn by a view.
-    r"|\bvar\s+action\s*:\s*\w*Action\?)"
+    r"|\bvar\s+action\s*:\s*\w*Action\?"
+    # A sidebar section's click handler for its own rows (`func activate(_ id: LayoutItemID) -> Bool`).
+    r"|\bfunc\s+activate\s*\(\s*_\s+\w+\s*:\s*LayoutItemID\b"
+    # A web list row's click handler (`run: () => goTo("github")`, `run: github.onRetry`): the person picks the row.
+    # Not a callback that takes an argument (`run: (agent) => resumes.run(agent)`), which is some other action,
+    # and not a type (`timeout(run: () => void, ms)`, a timer or frame scheduler's signature).
+    r"|\brun:\s*(?:\(\s*\)\s*=>(?!\s*(?:void|Promise\b|unknown\b))|\w+(?:\.\w+)*\.on[A-Z]\w*\b))"
 )
 # Lines that are not UI text: logs, errors, assertions.
 NOT_UI_LINE = re.compile(

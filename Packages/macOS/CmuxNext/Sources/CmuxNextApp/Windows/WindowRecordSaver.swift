@@ -55,6 +55,9 @@ final class WindowRecordSaver {
     /// Each window's last frame for the next launch's stage 0 (`WindowLaunchImages`).
     private(set) lazy var launchImages = WindowLaunchImages(manager: owner, work: work, record: launchRecord,
                                                             bundleID: host?.environment.launch.bundleID)
+    /// Every window's layout, for the next launch to draw already placed.
+    private(set) lazy var layoutCache = LayoutCacheWriter(bundleID: host?.environment.launch.bundleID, work: work,
+        restored: { [weak self] in self?.host?.windows.restored ?? false }, snapshot: { [weak self] in self?.host?.layoutCacheJSON() })
     private var selectedTabsCache: [String: TabSelectionRecord] = [:]
     /// Panes whose remembered tab a record build read on the main thread (`SpaceSwitchRecordSaveTests`).
     var paneReads: Int { selectedTabsCache.values.reduce(0) { $0 + $1.paneReads } }
@@ -70,6 +73,7 @@ final class WindowRecordSaver {
     func stateDidChange(_ state: WindowState) {
         guard let manager = owner else { return }
         guard manager.restored, !manager.isTerminating else { return }
+        layoutCache.note()
         requestSave()
     }
 
@@ -77,6 +81,7 @@ final class WindowRecordSaver {
     func geometryDidChange(_ state: WindowState) {
         guard let manager = owner else { return }
         guard manager.restored, !manager.isTerminating else { return }
+        layoutCache.note()
         geometryTimer.schedule(after: .milliseconds(500)) { @MainActor [weak self] in self?.requestSave() }
     }
 
@@ -280,12 +285,11 @@ extension AppServices {
             guard let window = controller.window else { return nil }
             let image = images[controller.state.id]
             let color = controller.themeScope.tokens.surfaceBackground
-            let rgba = (Self.launchRecordByte(color.red), Self.launchRecordByte(color.green), Self.launchRecordByte(color.blue), Self.launchRecordByte(color.alpha))
+            let rgba = (LayoutCacheTheme.byte(color.red), LayoutCacheTheme.byte(color.green), LayoutCacheTheme.byte(color.blue), LayoutCacheTheme.byte(color.alpha))
             let tabs = controller.mountedContents.filter { !$0.isParked }.flatMap { content in
                 content.panes.values.filter { !$0.view.isHiddenOrHasHiddenAncestor }.compactMap { $0.stripModel.selectedID?.rawValue }
             }
-            let display = (window.screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? 0
-            var snapshot = LaunchRecordWindowSnapshot(id: controller.state.id, frame: window.frame, displayID: display,
+            var snapshot = LaunchRecordWindowSnapshot(id: controller.state.id, frame: window.frame, displayID: LayoutCacheDisplay.id(of: window.screen),
                 backgroundRGBA: rgba, barRGBA: rgba, imageKey: image?.key ?? "",
                 imagePixelSize: (image?.pixelWidth ?? 0, image?.pixelHeight ?? 0),
                 workspaceID: controller.state.workspaceID ?? "", tabIDs: tabs)
@@ -301,8 +305,21 @@ extension AppServices {
         return LaunchRecordSnapshot(windows: windows, sidebarRows: sidebars, sessionSocketPath: socketPath)
     }
 
-    private static func launchRecordByte(_ component: Double) -> UInt8 {
-        let rounded = (min(1, max(0, component)) * 255).rounded()
-        return UInt8(exactly: rounded) ?? 0
+    /// The layout cache's JSON for every window but incognito ones, front first (LayoutCacheWriter), from values
+    /// already computed. TODO: each pane's kind, scroll, terminal grid and chat anchor; the sidebar's scroll; pictures.
+    func layoutCacheJSON() -> String? {
+        let manager = windows, front = manager.active
+        let controllers = manager.controllers.filter { !manager.isIncognito(window: $0.state.id) }
+        let layouts = (controllers.filter { $0 === front } + controllers.filter { $0 !== front }).compactMap { controller -> LayoutCacheWindow? in
+            guard let window = controller.window else { return nil }
+            let color = controller.themeScope.tokens.surfaceBackground, content = controller.content
+            let panes = content?.layoutModel.layoutCacheNode { id in
+                content?.panes[id].flatMap { LayoutCacheWindow.contentFrame(of: $0.view, in: window) }
+            }
+            return .gather(window, id: controller.state.id, surface: [color.red, color.green, color.blue, color.alpha],
+                           sidebarWidth: controller.state.sidebarWidth ?? Double(controller.sidebar.model.width),
+                           sidebarCollapsed: controller.sidebar.model.isHidden, workspaceId: controller.state.workspaceID ?? "", panes: panes)
+        }
+        return LayoutCacheDocument.json(layouts)
     }
 }
