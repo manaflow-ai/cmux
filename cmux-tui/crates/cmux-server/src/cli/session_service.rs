@@ -31,6 +31,21 @@ pub(super) fn installed(svc: &Services<'_>) -> Option<SessionUnit> {
     parse_session_unit(&text)
 }
 
+/// The session of the installed session unit, as the steps that render or
+/// run it need it (uninstall renews the unit as cmux renders it, and on
+/// macOS runs the binary to end the session's terminals). Its binary is the
+/// one install places (`$HOME/SESSION_BINARY`), never the path the file
+/// names: a unit cmux renders for another binary still counts as cmux's only
+/// through the ownership record, and no other binary runs.
+pub(super) fn installed_host(ctx: &Context<'_>, svc: &Services<'_>) -> Option<SessionHost> {
+    if svc.layout.mode != InstallMode::User {
+        return None;
+    }
+    let unit = installed(svc)?;
+    let binary = Path::new(ctx.env.home.as_deref()?).join(SESSION_BINARY);
+    Some(SessionHost { binary: binary.to_str()?.to_owned(), session: unit.session })
+}
+
 pub(super) fn install(
     ctx: &Context<'_>,
     args: &Args,
@@ -72,6 +87,8 @@ pub(super) fn install(
         announce,
         ..lifecycle::services(ctx, layout)?
     };
+    // One service command at a time, for the whole install (Services::lock).
+    let _service_lock = svc.lock()?;
     // Every refusal comes before the first change.
     svc.preflight()?;
     let binary_changed = place_binary(&source, &target, announce)?;
@@ -143,10 +160,9 @@ fn digest(path: &Path) -> Result<[u8; 32]> {
     let mut buf = vec![0u8; 256 * 1024];
     loop {
         let n = file.read(&mut buf).map_err(|e| Error::io(path.display(), e))?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buf[..n]);
+        // `read` never returns more than the buffer holds.
+        let Some(chunk) = buf.get(..n).filter(|chunk| !chunk.is_empty()) else { break };
+        hasher.update(chunk);
     }
     Ok(hasher.finalize().into())
 }

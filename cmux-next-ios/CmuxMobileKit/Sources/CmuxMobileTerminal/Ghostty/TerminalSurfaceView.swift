@@ -41,6 +41,10 @@ final class TerminalSurfaceView: UIView {
     /// write delivered while that is clear goes as a reply, never as keys
     /// that were "not sent".
     var isPerformingInput = false
+    /// Input went out that the keyboard did not type itself (the key bar, a paste, the
+    /// composer, a hardware key command): the keyboard's context no longer matches the
+    /// prompt, so its next insert re-announces the document (`insertText`).
+    var keyboardContextStale = true
     /// The person typed, pressed a key or pasted (before the bytes go out).
     var onUserInput: (() -> Void)?
     var onEvent: ((TerminalSurfaceEvent) -> Void)?
@@ -251,7 +255,8 @@ final class TerminalSurfaceView: UIView {
         ) { [weak self] note in
             let macID = note.userInfo?[CmuxMobileTerminalThemes.macIDKey] as? String
             MainActor.assumeIsolated {
-                guard let self, macID == self.themeMacID || self.themeMacID == nil else { return }
+                // No Mac id: Match Mac theme flipped, so every terminal recolors.
+                guard let self, macID == nil || macID == self.themeMacID || self.themeMacID == nil else { return }
                 self.applyHostTheme()
             }
         }

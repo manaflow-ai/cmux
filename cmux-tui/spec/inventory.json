@@ -38,6 +38,8 @@
     "chat.list",
     "chat.mark_read",
     "chat.pin",
+    "chief.automation.list",
+    "chief.automation.update",
     "chief.continue",
     "chief.engine.get",
     "chief.engine.set",
@@ -66,6 +68,8 @@
     "closed.list",
     "closed.reopen",
     "cloud.machine.chat_access",
+    "cloud.machine.chief_resize",
+    "cloud.machine.chief_start",
     "cloud.machine.io",
     "cloud.machine.share_chat",
     "cloud.owner.acpmux_keyed_start",
@@ -139,11 +143,15 @@
     "git.files.search",
     "git.fingerprint",
     "git.push",
+    "git.review.comment",
+    "git.review.post",
+    "git.review.start",
     "git.status",
     "git.worktree.apply",
     "git.worktree.create",
     "git.worktree.remove",
     "git.worktree.setup",
+    "git.worktree.setup.run",
     "history.backups.purge",
     "history.clear",
     "history.entries.list",
@@ -160,6 +168,7 @@
     "keybindings.remove",
     "keybindings.reset",
     "keybindings.set",
+    "language_packs.ensure",
     "layout.bulk",
     "machine.get",
     "machine.list",
@@ -193,6 +202,7 @@
     "pane.zoom",
     "participant.avatar.get",
     "participant.avatar.set",
+    "project.actions.list",
     "project.add",
     "project.list",
     "project.observe",
@@ -554,6 +564,7 @@
       "swap-pane",
       "terminal-command-context",
       "terminal-events",
+      "terminal-find",
       "terminal-history",
       "terminal-last-command",
       "terminal-ports",
@@ -614,6 +625,7 @@
     ],
     "local-admin": [
       "server-stats",
+      "process-census",
       "subscribe-activity",
       "set-terminal-command-history",
       "list-terminal-commands",
@@ -631,6 +643,8 @@
       "conversation-thread",
       "conversation-link-resolve",
       "conversation-inbox-op",
+      "conversation-scheduled-list",
+      "conversation-scheduled-op",
       "home-inbox",
       "conversation-search",
       "history-search",
@@ -860,6 +874,12 @@
       ]
     },
     {
+      "name": "conversation-scheduled-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
       "name": "daemon-shutdown",
       "streams": [
         "control"
@@ -970,6 +990,12 @@
     },
     {
       "name": "chief-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "agent-session-share-changed",
       "streams": [
         "subscribe"
       ]

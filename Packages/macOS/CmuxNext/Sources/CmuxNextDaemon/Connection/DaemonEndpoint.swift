@@ -169,6 +169,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// is kept: `keep` on creation, `set-terminal-keep`, and
     /// `shutdown-daemon end_terminals` (cmux-tui PR 15600).
     case terminalReap = "terminal-reap-v1"
+    /// `set-terminal-tail-pin`: a terminal's last output line under its workspace in the
+    /// sidebar (Show Last Line in Sidebar, `cmux terminal <term> pin-tail on|off`).
+    case terminalTailPin = "terminal-tail-pin-v1"
     /// `terminal-resume-command`: a person's resume command for one terminal,
     /// typed on the new prompt when the daemon respawns it.
     case resumeCommand = "resume-command"
@@ -402,6 +405,10 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `agent-session-login`: a Cloud chat's own sign-in on that machine (the failed turn's
     /// sign-in card), as acpmux's `_acpmux/agent_login/*` on the tab's own session.
     case agentSessionLogin = "agent-session-login-v1"
+    /// `agent-session-share-changed` on subscribe: a chat's link shares or invites changed, so an
+    /// open Invite People sheet reads its rows again (a later join, a departure, an expiry). A daemon
+    /// without it leaves the sheet as it was read.
+    case agentSessionShareEvents = "agent-session-share-events-v1"
     /// `agent-session-login` for a new chat with no session yet (an unbound tab of that machine's
     /// store): its agent's sign-in runs on that machine itself, gated there as a start is
     /// (`vm_kind: "owner"` on a Cloud VM). Without it a new chat's failed start says to sign in there.
@@ -614,6 +621,12 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// release's widths and ratios) are one commit, every value or none. Without it each value goes
     /// as its own command under the gesture's transaction (`LayoutSizeCommands`).
     case layoutSizesBatch = "layout-sizes-batch-v1"
+    /// `language_packs.ensure`: the home daemon downloads the app's pinned pack for the person's
+    /// language on first use, checks its sha256 and unpacks it (`LanguagePacksClient`, CMUX-570).
+    case languagePacks = "language-packs-v1"
+    /// `workspace.open_url` with a workspace selector: a hover card port row opens its port in that
+    /// workspace (WorkspaceOpenURLClient); a daemon without it gets the usual refusal.
+    case workspaceOpenURL = "workspace-open-url-v1"
 
     /// Which list a capability is in.
     public enum Tier: Sendable {
@@ -639,7 +652,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .workspaceChecklist, .notificationMarkUnread, .tabMarkUnread, .tabAttention, .tabAttentionRequestID, .workspaceDescription, .workspaceStatus,
              .screenMetadata, .screenGroups, .stateResources, .windowRecords, .terminalEnv, .terminalPlacementEnv,
              .splitClientKeys, .splitClientSplitID, .splitAround, .splitDividerVisibility, .splitBefore, .rowClientKeys, .conversationTabSplit, .frontendBrowserTabSplit, .workspaceFirstTab, .frontendBrowserTabWorkspace,
-             .terminalInputWhileCreating, .creatingInputCancel, .terminalReap, .resumeCommand, .terminalLastCommand, .terminalReaperActive,
+             .terminalInputWhileCreating, .creatingInputCancel, .terminalReap, .terminalTailPin, .resumeCommand, .terminalLastCommand, .terminalReaperActive,
              .endTerminalsKeepLayout, .batchClose, .sendExpectForeground, .closeReason, .closeWorkspaceIfEmpty,
              .browserHostProvider, .remoteHost, .computerUse, .frontendBrowserActivate, .frontendBrowserInsertAfter, .loopbackForward,
              .browserRuntime, .notificationSource, .terminalShellArgs, .terminalFrontendShellIntegration,
@@ -651,7 +664,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs, .closedConversationTabs,
              .agentSessionAttach, .agentSessionFork, .agentSessionSide, .cloudChatRelay, .agentSessionObserve, .agentSessionStart, .agentSessionStartNoCwd, .agentSessionTrust,
              .agentSessionStartKeyedReason, .agentSessionStartVMKind, .agentSessionStartModel, .agentSessionStartPermissionMode, .agentSessionStartMode, .agentSessionTrustVMKind, .agentSessionFolders,
-             .agentSessionChildren, .agentSessionContent, .agentSessionPresence, .agentSessionSettings, .agentSessionLogin, .agentSessionLoginMachine, .agentSessionContext, .agentSessionBtw, .agentSessionPageBytes, .agentSessionSteer, .agentSessionQueueDecision, .agentSessionMember, .pageTabs, .pageTabRoute, .appScreens,
+             .agentSessionChildren, .agentSessionContent, .agentSessionPresence, .agentSessionSettings, .agentSessionLogin, .agentSessionShareEvents, .agentSessionLoginMachine, .agentSessionContext, .agentSessionBtw, .agentSessionPageBytes, .agentSessionSteer, .agentSessionQueueDecision, .agentSessionMember, .pageTabs, .pageTabRoute, .appScreens,
              .conversationSearch, .conversationThreads, .conversationThread, .conversationInboxState, .homeInbox,
              .chiefEvents, .cloudConversations, .cloudHostReplica, .cloudAttachments, .cloudSelfHost,
              .pageCredential, .scopedPageCredential, .wsListen, .wsListenOrigins, .personalMixedOrder,
@@ -664,7 +677,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .terminalClipboardRead, .originClaim, .pageRouter, .sessionJournal,
              .terminalResources, .machineIdentity, .agentCLIAppProvider, .agentCLIAppInvalidation, .appProviderChanged,
              .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk, .layoutBulkBare,
-             .browserImport, .classicImport, .diffCommentsSend, .gitFingerprint, .layoutSizesBatch:
+             .browserImport, .classicImport, .diffCommentsSend, .gitFingerprint, .layoutSizesBatch, .languagePacks,
+             .workspaceOpenURL:
             return .optional
         }
     }

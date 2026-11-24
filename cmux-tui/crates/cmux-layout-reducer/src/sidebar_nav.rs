@@ -3,7 +3,8 @@
 //!
 //! The setting is a list of strings, each `action.id` or `action.id | Title | sf.symbol` (the title
 //! and the symbol are optional, either may be left empty). Rust owns the rules: each id must name a
-//! catalog action (a legacy id becomes its canonical one), debug-only and destructive actions, and any whose id quits, closes, clears, resets or removes, are
+//! catalog action (a legacy id becomes its canonical one), debug-only and destructive actions, and
+//! any whose id quits, closes, clears, resets or removes, are
 //! refused (a look must not plant a one-click Quit or Close All), a duplicate keeps its first row,
 //! and titles and symbols are bounded. The native view maps the rows it gets and runs the action on
 //! a click; an empty list (the default) draws no block, exactly today's sidebar.
