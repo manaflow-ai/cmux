@@ -8,7 +8,7 @@ import Testing
 @Suite struct PanePicturesTests {
     /// A schedule with the Rust crate's rules (cmux-pane-pictures `PictureSchedule`), so the glue is tested in a
     /// build whose pinned app FFI predates the crate too.
-    final class FakeSchedule: PanePictureScheduling {
+    @MainActor final class FakeSchedule: PanePictureScheduling {
         let gap: UInt64
         var watched = false, generation: UInt64 = 0, captured: UInt64?, inFlight: UInt64?, lastStart: UInt64?, unavailable: UInt64?
         var events: [PanePictureEvent] = []
@@ -43,7 +43,7 @@ import Testing
         }
     }
 
-    final class Harness {
+    @MainActor final class Harness {
         var clock: UInt64 = 1_000
         var captures = 0
         var slept: [UInt64] = []
