@@ -1327,6 +1327,13 @@ impl Hub {
         } else {
             self.forum_context(session, pushed.clone(), &mut blocks).await
         };
+        // The files the prompt names, read into this message, last, after the cached prefix
+        // (`prefetch.rs`). Not into a resumed turn, a remote device's or a slash command.
+        if !resumed && control != Control::Web && super::forum::slash_command(&blocks).is_none() {
+            self.prefetch_into(session, &text, &turn_id, &mut blocks).await;
+        } else {
+            *session.prefetch.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        }
         session.stderr_tail.lock().unwrap().clear();
         // Under the turn lock: this turn ends a person's Stop's hold only if it began under it.
         session.turn_hold.store(session.stop_hold.load(Ordering::SeqCst), Ordering::SeqCst);
