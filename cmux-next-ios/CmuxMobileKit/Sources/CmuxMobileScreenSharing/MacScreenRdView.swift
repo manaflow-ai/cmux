@@ -73,7 +73,7 @@ struct MacScreenRdView: View {
                 .font(.system(size: 17, weight: .medium))
                 .frame(width: 44, height: 44)
         }
-        .buttonStyle(.cmuxPressFill)
+        .buttonStyle(.cmuxPressGlass)
         .glassEffect(.regular.interactive(), in: .circle)
         .accessibilityLabel(title)
         .accessibilityIdentifier(id)
