@@ -1465,7 +1465,8 @@ def phone_team_id(simctl, udid, bundle_id):
     if r.returncode == 0 and r.stdout.strip():
         return r.stdout.strip()
     r = subprocess.run(simctl + ["spawn", udid, "defaults", "read", bundle_id], capture_output=True, text=True)
-    m = re.search(r'"?cmuxMobile\.live\.mac\.([^"\s=]+)"?\s*=', r.stdout or "")
+    m = re.search(r'"?cmuxMobile\.(?:live\.mac|workspaces\.macFilter|teamAppearance|workspaces\.recentDirectories)\.'
+                  r'([^"\s=]+)"?\s*=', r.stdout or "")
     return m.group(1) if m else ""
 
 
@@ -1499,7 +1500,9 @@ def pair_by_tag_and_walk(app, exe, env, a, simctl, phone_env, phone_log, streams
     took = time.monotonic() - t1
     card = got[0] if got else host_card()
     rows = [{k: r.get(k) for k in ("title", "paired", "connected")} for r in card_phones(card)]
-    team_id = phone_team_id(simctl, a.udid, a.bundle_id)
+    # The phone writes cmuxMobile.live.mac.<team> only once the focus Mac shows in its team's list, which
+    # can land after the card shows the phone connected: wait for it (bounded) instead of reading once.
+    team_id = wait_for(lambda: phone_team_id(simctl, a.udid, a.bundle_id), 60, every=3) if got else ""
     phone_settled()
     note(f"- pairing (by tag, no code on this ref): {'PAIRED' if got else 'NOT paired'} in {took:.0f} s; Mac "
          f"{mac_id[:8]}…, card phase {card.get('phase')!r} status {card.get('status')!r} allowed "
