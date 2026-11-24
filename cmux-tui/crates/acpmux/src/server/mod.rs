@@ -1461,7 +1461,7 @@ pub async fn serve_ws_until(
             // Answered through the connection's outbound queue once it is made, in order with
             // every other line and counted against its byte bound (`outbound.rs`).
             let (uploads, replies) = tokio::sync::watch::channel(None);
-            let frames = upload_frames::spawn(hub.clone(), origin, proof, replies);
+            let frames = Arc::new(upload_frames::spawn(hub.clone(), origin, proof, replies));
             let read_shutdown = shutdown.clone();
             let reader_end = crate::link_v2::ReaderEnd::new(slot.clone());
             let reader = tokio::spawn(async move {
@@ -1471,14 +1471,19 @@ pub async fn serve_ws_until(
                     () = read_shutdown.closing() => {},
                     () = async {
                         // Pings are answered while a frame waits to be taken (`ws_read_ahead.rs`).
-                        let ended = ws_read_ahead::read_ahead(source, async |frame| match frame {
-                            // After the frames before it are written (`upload_frames::InFlight`).
-                            tokio_tungstenite::tungstenite::Message::Text(t) => {
-                                frames.in_flight.drained().await;
-                                in_tx.send(t.to_string()).await.is_ok()
+                        let ended = ws_read_ahead::read_ahead(source, |frame| {
+                            let (frames, in_tx) = (frames.clone(), in_tx.clone());
+                            async move {
+                                match frame {
+                                    // After the frames before it are written (`upload_frames::InFlight`).
+                                    tokio_tungstenite::tungstenite::Message::Text(t) => {
+                                        frames.in_flight.drained().await;
+                                        in_tx.send(t.to_string()).await.is_ok()
+                                    }
+                                    tokio_tungstenite::tungstenite::Message::Binary(b) => frames.send(b).await,
+                                    _ => true,
+                                }
                             }
-                            tokio_tungstenite::tungstenite::Message::Binary(b) => frames.send(b).await,
-                            _ => true,
                         })
                         .await;
                         // A read error ends the connection; say why, or the client sees only a reset.

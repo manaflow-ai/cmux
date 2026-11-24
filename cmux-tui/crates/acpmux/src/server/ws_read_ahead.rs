@@ -12,6 +12,7 @@
 //! own backpressure holds the sender.
 
 use std::collections::VecDeque;
+use std::future::Future;
 
 use futures_util::{Stream, StreamExt};
 use tokio_tungstenite::tungstenite::{Error as WsError, Message as Frame};
@@ -25,12 +26,12 @@ pub(crate) const READ_AHEAD_FRAMES: usize = 256;
 /// one at a time; while one is being handed off, later frames are read (and pings answered) up to
 /// the bounds above. Stops when `deliver` says false. A read error ends reading: the frames read
 /// before it are delivered first, then it is returned.
-pub(crate) async fn read_ahead<S>(
-    mut source: S,
-    mut deliver: impl AsyncFnMut(Frame) -> bool,
-) -> Option<WsError>
+/// Each hand-off owns what it needs (an `async` closure's borrow is not `Send` for a spawned task).
+pub(crate) async fn read_ahead<S, F, H>(mut source: S, mut deliver: F) -> Option<WsError>
 where
     S: Stream<Item = Result<Frame, WsError>> + Unpin,
+    F: FnMut(Frame) -> H,
+    H: Future<Output = bool>,
 {
     let mut held: VecDeque<Frame> = VecDeque::new();
     let mut held_bytes = 0usize;
