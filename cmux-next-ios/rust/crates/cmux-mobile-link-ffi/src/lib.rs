@@ -1870,6 +1870,8 @@ async fn dial(
         drop_wireguard_udp: request.drop_wireguard
             || std::env::var_os("CMUX_MOBILE_DEV_DROP_WIREGUARD").is_some(),
         egress: cmux_mobile_link::egress::Egress { require_proxy: proxy_only(request), ..Default::default() },
+        // What this network taught an earlier dial about UDP (dial/udp_memory.rs).
+        remember_udp: true,
         video_lane: request.video_lane,
         webrtc_media: request.webrtc_media,
         ultra: request.ultra,

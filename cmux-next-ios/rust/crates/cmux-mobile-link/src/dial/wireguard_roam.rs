@@ -702,9 +702,12 @@ impl Session {
         let weak = Arc::downgrade(self);
         let roams = self.roams.load(Ordering::Relaxed);
         let epoch = crate::dial::udp_memory::epoch();
+        let remember = self.options.remember_udp;
         tokio::spawn(async move {
             let Ok(turn) = udp.await else { return };
-            crate::dial::udp_memory::udp_answered(epoch);
+            if remember {
+                crate::dial::udp_memory::udp_answered(epoch);
+            }
             let Some(session) = weak.upgrade() else { return };
             if session.stream_only.load(Ordering::Relaxed) {
                 return;
@@ -737,7 +740,7 @@ impl Session {
         if asked > 0 && self.control.send(Control::Gather { stun, reflexive: reflexive_tx }).is_err() {
             return;
         }
-        let (stun_side, turn_side) = stun_turn_link();
+        let (stun_side, turn_side) = stun_turn_link(false);
         let reflexive = async {
             let mut clock = StunClock::new(asked > 0, Some(stun_side));
             let mut found: Vec<SocketAddr> = Vec::new();

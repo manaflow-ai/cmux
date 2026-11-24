@@ -13,15 +13,16 @@
 //! the UDP allocation still runs beside the stream; a STUN answer or a UDP
 //! allocation that lands clears the mark ([`udp_answered`]), and the
 //! session moves onto UDP (`Session::upgrade_turn_when`).
+//!
+//! Only a dial with `DialOptions::remember_udp` (the phone app's) reads or
+//! writes the mark; the Mac's answers, roams, tests and tools leave it alone.
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// The network epoch: one per network the device has been on.
 static EPOCH: AtomicU64 = AtomicU64::new(1);
 /// The epoch whose network was found UDP-silent, or 0.
 static SILENT_IN: AtomicU64 = AtomicU64::new(0);
-/// Measurement only: off, every dial starts with UDP unknown, as before.
-static ENABLED: AtomicBool = AtomicBool::new(true);
 
 /// The network epoch now; a dial reads it when it starts.
 pub(crate) fn epoch() -> u64 {
@@ -37,7 +38,7 @@ pub(crate) fn network_changed() {
 
 /// Whether the network the device is on now was found UDP-silent.
 pub(crate) fn udp_silent_here() -> bool {
-    ENABLED.load(Ordering::Relaxed) && SILENT_IN.load(Ordering::Acquire) == epoch()
+    SILENT_IN.load(Ordering::Acquire) == epoch()
 }
 
 /// A dial that started in `epoch` asked STUN and heard nothing, and took no
@@ -56,23 +57,13 @@ pub(crate) fn udp_answered(epoch: u64) {
     let _ = SILENT_IN.compare_exchange(epoch, 0, Ordering::AcqRel, Ordering::Acquire);
 }
 
-/// Measurement only: turn the memory off (`false`) for a baseline run, or
-/// back on. Off also forgets any mark.
-pub fn set_udp_memory(on: bool) {
-    ENABLED.store(on, Ordering::Relaxed);
-    if !on {
-        SILENT_IN.store(0, Ordering::Release);
-    }
-}
-
 #[cfg(test)]
 pub(crate) fn reset_for_test() {
     network_changed();
-    ENABLED.store(true, Ordering::Relaxed);
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     /// The marks are process-wide; one test holds them at a time.
@@ -98,10 +89,5 @@ mod tests {
         assert!(udp_silent_here(), "a late answer from the old network keeps this one's mark");
         udp_answered(epoch());
         assert!(!udp_silent_here(), "UDP answering clears the mark");
-        udp_was_silent(epoch());
-        set_udp_memory(false);
-        assert!(!udp_silent_here(), "off: no memory");
-        set_udp_memory(true);
-        assert!(!udp_silent_here(), "turning it off forgot the mark");
     }
 }
