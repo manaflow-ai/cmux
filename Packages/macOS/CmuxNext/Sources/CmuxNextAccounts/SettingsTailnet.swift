@@ -14,13 +14,16 @@ import Foundation
 @MainActor
 public final class SettingsTailnet: PageProvider {
     public nonisolated static let prefix = "cmux.settings.tailnet."
-    private static let verbs: Set<String> = ["state", "start", "login", "logout"]
+    private static let verbs: Set<String> = ["state", "start", "login", "logout", "joinVM", "leaveVM"]
 
     /// This app's acpmux; nil in a showcase or with the mock agent host.
     private let environment: @MainActor () -> AcpmuxEnvironment?
+    /// The bundled `cmux` CLI. Join keys are supplied as stdin to this process and are never put in argv.
+    private let cli: @MainActor () async -> URL?
 
-    public init(environment: @escaping @MainActor () -> AcpmuxEnvironment?) {
+    public init(environment: @escaping @MainActor () -> AcpmuxEnvironment?, cli: @escaping @MainActor () async -> URL? = { nil }) {
         self.environment = environment
+        self.cli = cli
     }
 
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
@@ -29,9 +32,43 @@ public final class SettingsTailnet: PageProvider {
         guard verb == "state" || (context.page == PageDescriptor.settings.id && context.userGesture) else {
             throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
         }
+        if verb == "joinVM" || verb == "leaveVM" {
+            return try await runVM(verb: verb, params: params)
+        }
         guard let environment = environment(), let line = await AcpmuxPersonLine.open(environment) else { return .null }
         defer { line.close() }
         guard line.isPerson, let reply = await line.call("_acpmux/tailnet/\(verb)", [:]) else { return .null }
         return (try? JSONValue.parse(JSONSerialization.data(withJSONObject: reply))) ?? .null
+    }
+
+    private func runVM(verb: String, params: JSONValue) async throws -> JSONValue {
+        guard let binary = await cli(), let vm = params["vm"]?.stringValue, !vm.isEmpty else {
+            return ["ok": .bool(false), "error": .string("Choose a Cloud machine first.")]
+        }
+        var arguments = ["vm", "tailnet", verb == "joinVM" ? "join" : "leave", vm]
+        var stdin: Data?
+        if verb == "joinVM" {
+            guard let key = params["key"]?.stringValue, !key.isEmpty else {
+                return ["ok": .bool(false), "error": .string("Enter a Tailscale auth key to join this machine.")]
+            }
+            stdin = Data(key.utf8)
+            arguments += ["--key-stdin"]
+            if params["oauth"]?.boolValue == true { arguments.append("--oauth") }
+            if let value = params["loginServer"]?.stringValue, !value.isEmpty { arguments += ["--login-server", value] }
+            if let value = params["hostname"]?.stringValue, !value.isEmpty { arguments += ["--hostname", value] }
+            for tag in params["tags"]?.arrayValue?.compactMap(\.stringValue) ?? [] where !tag.isEmpty { arguments += ["--tag", tag] }
+            if params["ssh"]?.boolValue == true { arguments.append("--ssh") }
+            if params["ephemeral"]?.boolValue == true { arguments.append("--ephemeral") }
+            for port in params["servePorts"]?.arrayValue?.compactMap(\.stringValue) ?? [] where !port.isEmpty { arguments += ["--serve", port] }
+            if params["switch"]?.boolValue == true { arguments.append("--switch") }
+        }
+        let result = try await ProcessRunner.run(executable: binary, arguments: arguments, environment: nil, stdin: stdin,
+                                                 timeout: .seconds(240), outputTailBytes: 64 * 1024, clock: ContinuousClock())
+        let lines = String(decoding: result.stdout, as: UTF8.self).split(separator: "\n")
+        if let line = lines.last(where: { !$0.allSatisfy(\.isWhitespace) }), let answer = try? JSONValue.parse(Data(line.utf8)) {
+            return answer
+        }
+        let detail = String(decoding: result.stderr, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        return ["ok": .bool(false), "error": .string(detail.isEmpty ? "The tailnet command failed (exit \(result.status))." : detail)]
     }
 }
