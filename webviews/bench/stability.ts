@@ -252,10 +252,19 @@ export function installStabilityProbe(options: {
           (a as Animation & { transitionProperty?: string }).transitionProperty ??
           a.id ??
           "animation";
-        const owner =
-          target instanceof Element
-            ? `${target.tagName.toLowerCase()}${typeof target.className === "string" && target.className ? `.${target.className.split(" ")[0]}` : ""}`
-            : "?";
+        // An svg's className is an SVGAnimatedString, so the class attribute names it; the nearest ancestor with a
+        // class or data-slot says which spinner of the page's many it is.
+        const tag = (el: Element) => {
+          const cls = (el.getAttribute("class") ?? "").trim().split(/\s+/)[0];
+          const slot = el.getAttribute("data-slot");
+          return `${el.tagName.toLowerCase()}${cls ? `.${cls}` : ""}${slot ? `[data-slot=${slot}]` : ""}`;
+        };
+        const host = (el: Element) => {
+          for (let up = el.parentElement, i = 0; up && i < 6; up = up.parentElement, i++)
+            if (up.getAttribute("class") || up.getAttribute("data-slot")) return ` in ${tag(up)}`;
+          return "";
+        };
+        const owner = target instanceof Element ? `${tag(target)}${host(target)}` : "?";
         return `animation: ${name} on ${owner}`;
       };
       for (const animation of running) {
