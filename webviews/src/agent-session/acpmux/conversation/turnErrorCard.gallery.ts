@@ -21,7 +21,12 @@ const failed = (error: string, errorCode?: string, fields: Parameters<typeof cha
     [
       user(prompt, 6),
       assistant("Running the sidebar tests first.", 5.8),
-      summary(5.5, { status: "failed", durationMs: 662_000, error, ...(errorCode ? { errorCode } : {}) }),
+      summary(5.5, {
+        status: "failed",
+        durationMs: 662_000,
+        error,
+        ...(errorCode ? { errorCode } : {}),
+      }),
     ],
     fields,
   );
@@ -45,15 +50,21 @@ const deadTurn = (workAt: number, endAt: number, durationMs: number) => [
 ];
 
 /// Claude Code's own /compact, as its `available_commands_update` lists it.
-const compactCommand = { name: "compact", description: "Clear conversation history but keep a summary in context" };
+const compactCommand = {
+  name: "compact",
+  description: "Clear conversation history but keep a summary in context",
+};
 const contextFull =
   'API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 212043 tokens > 200000 maximum"}}';
 
-const cloudFailed = (error: string) => {
-  const snapshot = chat([
-    user(prompt, 6, { id: "cloud-request" }),
-    summary(5.5, { status: "failed", error, prompt, retryRowId: "cloud-request" }),
-  ]);
+const cloudFailed = (error: string, fields: Parameters<typeof chat>[1] = {}) => {
+  const snapshot = chat(
+    [
+      user(prompt, 6, { id: "cloud-request" }),
+      summary(5.5, { status: "failed", error, prompt, retryRowId: "cloud-request" }),
+    ],
+    fields,
+  );
   if (snapshot.summary) {
     delete snapshot.summary.host;
     delete snapshot.summary.hostKind;
@@ -107,9 +118,14 @@ export default agentPaneEntry({
       snapshot: cloudFailed("HTTP 403 Forbidden"),
     },
     "cloud-expired-no-agent-login": {
-      note: "The same expired login on a machine whose acpmux runs no agent login (an older one): Switch model is the card's way on.",
+      note: "The same expired login on a machine whose acpmux runs no agent login (an older one) and whose chat names no login command: Switch model is the card's way on.",
       ready: { cloudMachineID: "gallery-vm" },
       snapshot: cloudFailed("OAuth token expired (HTTP 401)"),
+    },
+    "cloud-expired-older-machine": {
+      note: "The same expired login on an older machine (no agent-login-v1) whose agent's login finishes from the Mac's browser (Claude Code's pasted code; Codex's plain codex login is not offered): Sign in again leads, running that login in a terminal on the machine, and one sentence says why.",
+      ready: { cloudMachineID: "gallery-vm" },
+      snapshot: cloudFailed("OAuth token expired (HTTP 401)", { catalog: signedOutCatalog }),
     },
     "usage-limit-resets": {
       note: 'Claude Code\'s used-up subscription limit names its reset (`|epoch`): the card says when it resets, not "in a moment".',
@@ -190,7 +206,11 @@ export default agentPaneEntry({
       note: "Capacity before anything ran: Retry leads and sends the prompt again, Switch model beside it.",
       snapshot: chat([
         user(prompt, 6),
-        summary(5.9, { status: "failed", durationMs: 4_000, error: "API Error: 529 overloaded_error" }),
+        summary(5.9, {
+          status: "failed",
+          durationMs: 4_000,
+          error: "API Error: 529 overloaded_error",
+        }),
       ]),
     },
     // c-763204aef8 (asks board: "API-error turn shows an empty 'Worked for Ns'"): the turn's only step
@@ -236,7 +256,11 @@ export default agentPaneEntry({
       note: "The model's server could not be reached before anything ran: Retry leads (filled) and runs acpmux's turn retry, Switch model follows it outlined.",
       snapshot: chat([
         user(prompt, 6),
-        summary(5.9, { status: "failed", durationMs: 4_000, error: "API Error: Connection error." }),
+        summary(5.9, {
+          status: "failed",
+          durationMs: 4_000,
+          error: "API Error: Connection error.",
+        }),
       ]),
     },
     "server-unreachable-retrying": {
@@ -244,7 +268,11 @@ export default agentPaneEntry({
       snapshot: chat(
         [
           user(prompt, 6),
-          summary(5.9, { status: "failed", durationMs: 4_000, error: "API Error: Connection error." }),
+          summary(5.9, {
+            status: "failed",
+            durationMs: 4_000,
+            error: "API Error: Connection error.",
+          }),
           row("typing", 0.5, {
             id: TURN_RETRY,
             retry: { attempt: 2, maxRetries: 10, errorStatus: 503, error: "server_error" },
