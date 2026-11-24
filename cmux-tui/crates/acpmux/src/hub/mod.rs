@@ -705,11 +705,12 @@ pub struct HubEvent {
     pub peer_batch: bool,
 }
 
-/// A [`HubEvent`]'s cells its receivers share: its row, without and with its tools, and the clock
-/// of its fan-out to the connections (`gauges::FanoutClock`).
+/// A [`HubEvent`]'s cells its receivers share: its row without its tools, with them, and with
+/// them but no time breakdown (a client that draws none, `omitTimeBreakdown`), and the clock of
+/// its fan-out to the connections (`gauges::FanoutClock`).
 #[derive(Debug, Default)]
 pub struct EventRow {
-    pub cells: [SharedRow; 2],
+    pub cells: [SharedRow; 3],
     pub fanout: crate::gauges::FanoutClock,
 }
 
