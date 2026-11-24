@@ -548,7 +548,14 @@ relay was retired: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux-next/
   heard nothing for 16 s in the foreground, when its relay socket dies while
   the session needs it, or when the peer asks (`wg-relay`). A side that
   joins on its own asks the peer; one that heard the peer while its join
-  ran drops the unused socket. A failed join is retried after 1, 3, 10 and
+  ran drops the unused socket (an asked one too, once another route is
+  confirmed both ways, and an ask that arrives then is ignored). A dead
+  socket is joined again at once only while nothing else reaches the peer,
+  and only a side that left the relay on its own (another route carried the
+  session) keeps it after joining again within 5 minutes. On joining, the phone sends its handshake
+  through the relay at once and the Mac 300 to 900 ms later (at random, and
+  only if nothing arrived meanwhile): two initiations that cross in step each
+  overwrite the other side's pending one. A failed join is retried after 1, 3, 10 and
   30 s; `403`, `404` and `503` are not.
 - **On the tunnel:** the relay is one more carrier, a path of the path
   selector like each TURN route, ranked below every direct path and, by
@@ -1373,6 +1380,11 @@ cmux-tui daemon's names hostd itself declares or checks. Printed from
 | `page-tabs-v1` | cmux-tui daemon | Declared in `set-client-info`: page tabs read as `conversation` with their `page` (a phone tab is a simulator tab). |
 | `agent-session-tabs-v1` | cmux-tui daemon | Declared in `set-client-info` on a `cloud-acpmux` carrier: agent session tabs read with their session source. |
 | `send-expect-agent-v1` | cmux-tui daemon | In `identify`: a notification reply to an agent types text and Return only while that agent waits at its prompt (#24205). |
+| `agent-cli-hybrid-v1` | cmux-tui daemon | Declared by the phone's terminal in `set-client-info` (the lean stream): an agent CLI's terminal as `agent-cli-frame` cell deltas. |
+| `agent-cli-hybrid-v2` | cmux-tui daemon | With `agent-cli-hybrid-v1`: the same deltas packed as `agent-cli-lean`. |
+| `terminal-shell-lines-v1` | cmux-tui daemon | With the hybrid pair: a plain shell's terminal as lean frames too, PTY bytes while it runs a full-screen program. |
+| `attach-output-coalesce-v1` | cmux-tui daemon | `output` at most once per display frame for a terminal that stays on PTY bytes (#43373). |
+| `terminal-full-screen-frames-v1` | cmux-tui daemon | With `terminal-shell-lines-v1`: a full-screen program as lean frames as well (its modes as bytes), one display frame apart, instead of its PTY repaints (#51565). |
 <!-- link-names:capabilities:end -->
 
 ## Pairing (`auth` service and the Mac app's control lines)
