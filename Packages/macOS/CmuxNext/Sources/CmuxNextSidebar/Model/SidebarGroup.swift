@@ -251,7 +251,7 @@ public nonisolated struct SidebarListItem: Hashable, Sendable {
     public var title: String
     /// The page icon address of a link (stored on the item, else the site's own).
     public var iconAddress: String?
-    /// The stored Space for a link, tab or app, or Default for a legacy record. Shared item kinds leave it nil.
+    /// The explicit Space of a link, tab or app. An unstamped group member follows its visible group.
     public var room: String?
     /// Archived in the sidebar document: the row draws dimmed. Set by `arrange`.
     public var isArchived = false
