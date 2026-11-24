@@ -220,6 +220,19 @@ def conversation(events: list[dict]) -> list[tuple[str, str]]:
     return out
 
 
+def prompt(m: Machine, sid: str, text: str, timeout: float = 120.0) -> dict:
+    """One user turn, as a client sends it (`session/prompt`): the reply comes when the turn ends.
+    Not `acpmux send`: run from inside an agent session that is an agent's message to the chat
+    (an inbox record), not a person's turn."""
+    r = m.rpc(timeout)
+    try:
+        r.call("initialize", {"protocolVersion": 1, "clientInfo": {"name": "fleet-recovery-bench"}})
+        return r.call("session/prompt", {"sessionId": sid, "prompt": [{"type": "text", "text": text}],
+                                         "_meta": {"acpmux": {"promptId": f"bench-{os.urandom(8).hex()}"}}})
+    finally:
+        r.close()
+
+
 def all_events(m: Machine, sid: str) -> list[dict]:
     r = m.rpc(60)
     try:
@@ -308,27 +321,15 @@ def main() -> int:
             r = host.cli("run", "-m", "fake", "-n", name, "--cwd", str(cwd), f"turn 0 of chat {i}", timeout=180)
             if r.returncode != 0:
                 raise RuntimeError(f"{name}: {r.stderr.strip()[-300:]}")
+            sid = next(x["sessionId"] for x in sessions(host) if x["name"] == name)
             for t in range(1, a.turns):
-                r = host.cli("send", name, f"turn {t} of chat {i}", timeout=180)
-                if r.returncode != 0:
-                    raise RuntimeError(f"{name} turn {t}: {r.stderr.strip()[-300:]}")
-            return {"i": i, "name": name, "cwd": str(cwd)}
+                prompt(host, sid, f"turn {t} of chat {i}", timeout=180)
+            return {"i": i, "name": name, "cwd": str(cwd), "id": sid}
 
         t0 = time.monotonic()
         with cf.ThreadPoolExecutor(16) as ex:
             chats = list(ex.map(make, range(a.n)))
         result["setup_s"] = round(time.monotonic() - t0, 1)
-        # `send` returns once delivered; wait until every chat's last turn ended.
-        deadline = time.monotonic() + 120
-        while time.monotonic() < deadline:
-            rows = {s["name"]: s for s in sessions(host)}
-            if all(rows.get(c["name"], {}).get("indicator") not in ("running", "queued") and
-                   not rows.get(c["name"], {}).get("queue") for c in chats):
-                break
-            time.sleep(1)
-        rows = {s["name"]: s for s in sessions(host)}
-        for c in chats:
-            c["id"] = rows[c["name"]]["sessionId"]
         time.sleep(a.settle)
 
         # The truth at the kill: what the host journaled.
@@ -349,6 +350,8 @@ def main() -> int:
         finally:
             r.close()
         result["copies_at_kill"] = snap_have
+        result["truth_turns_min"] = min(c["truth_turns"] for c in chats)
+        result["copy_records_min"] = min(c["copy_records"] for c in chats)
 
         # Kill: freeze every process of the host's home.
         frozen = host.signal_all(signal.SIGSTOP)
@@ -386,9 +389,10 @@ def main() -> int:
                 return out
             out["new"] = new
             probe = f"probe after kill of chat {c['i']}"
-            pr = spare.cli("send", new, probe, timeout=max(5, a.deadline - (time.monotonic() - t_kill)))
-            if pr.returncode != 0:
-                out["error"] = f"probe: {(pr.stderr or pr.stdout).strip()[-400:]} (move said: {text[-300:]})"
+            try:
+                prompt(spare, new, probe, timeout=max(5, a.deadline - (time.monotonic() - t_kill)))
+            except (OSError, RuntimeError, EOFError) as e:
+                out["error"] = f"probe: {e} (move said: {text[-300:]})"
                 return out
             # The probe's reply is in the moved chat's journal.
             while time.monotonic() - t_kill < a.deadline:
