@@ -208,3 +208,26 @@ describe("remote images", () => {
     expect(content.querySelector("img")?.hasAttribute("src")).toBe(false);
   });
 });
+
+describe("local images", () => {
+  test("Refresh points the same image at a new URL so WebKit loads the file again", () => {
+    const { render, reloadLocalImages } = shell();
+    const img = render("![plot](plot.png)").querySelector("img");
+    const cached = img?.getAttribute("src");
+    reloadLocalImages(1);
+    expect(img?.getAttribute("src")).toStartWith("cmux-local-image://image?url=");
+    expect(img?.getAttribute("src")).not.toBe(cached);
+  });
+
+  test("a render after Refresh keeps the refreshed URL", () => {
+    const { render, reloadLocalImages } = shell();
+    const content = render("![plot](plot.png)");
+    const original = content.querySelector("img")?.getAttribute("src");
+    reloadLocalImages(1);
+    const refreshed = content.querySelector("img")?.getAttribute("src");
+    // A later save of the .md re-renders with the current revision.
+    const rerendered = render("![plot](plot.png)\n\nUpdated notes.", 1).querySelector("img")?.getAttribute("src");
+    expect(rerendered).not.toBe(original);
+    expect(rerendered).toBe(refreshed);
+  });
+});

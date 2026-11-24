@@ -92,6 +92,12 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case focusHistoryForward
     /// Toggles focus between the current position and the one it last left.
     case focusHistoryLast
+    /// Toggles focus between the current surface and the one it last left,
+    /// whatever the focus history scope.
+    case focusHistoryLastSurface
+    /// Toggles focus between the current workspace and the one it last left,
+    /// whatever the focus history scope.
+    case focusHistoryLastWorkspace
     case selectWorkspaceByNumber
     case renameTab
     case renameWorkspace
