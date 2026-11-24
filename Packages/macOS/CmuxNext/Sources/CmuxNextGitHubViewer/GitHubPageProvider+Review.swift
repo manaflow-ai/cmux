@@ -1,6 +1,6 @@
 public import CmuxNextAgentPane
 public import CmuxNextPages
-import CmuxNextSettings
+public import CmuxNextSettings
 
 /// The GitHub page's review writes: a review of the pull request, and a reply to or a resolve of
 /// one of its review threads. Each is one op of acpmux's GitHub host op (`review.submit`,
