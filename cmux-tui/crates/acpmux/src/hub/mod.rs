@@ -510,6 +510,7 @@ mod translator_queue_tests;
 mod trigger_quiet_tests;
 mod trust_wait;
 mod turn_attestation;
+mod turn_cost;
 mod turn_git;
 pub(crate) mod turn_shots;
 mod turn_usage;
