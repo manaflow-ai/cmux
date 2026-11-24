@@ -2843,6 +2843,11 @@ jobs:
           "$client" compile-check --ref "$REF" --app --timeout 1200 --queue-timeout 300 || status=$?
           case "$status" in
             0) verdict=pass; summary="The build fleet compiled and linked the cmux-next app at \`$REF\` ($how). The Release compile runs at land." ;;
+            # 75 (EX_TEMPFAIL): the fleet kept the job queued past --queue-timeout. A red here sent every PR to a re-run that queued
+            # again (652 of 1030 red runs, 7,900 gateway minutes, 2026-11-23/24); like the fast tier's queued verdict it is a warning,
+            # and the Release compile at land, plus the fallback where mac_release asks for it, still compile the head.
+            75) verdict=unavailable; summary="The build fleet kept the compile of \`$REF\` queued past the queue timeout, so nothing compiled this head here; the Release compile at land compiles it."
+              echo "::warning title=Build fleet compile: still queued::no verdict for $REF; the Release compile at land compiles it" ;;
             1) verdict=fail; summary="The cmux-next app did not compile on the build fleet at \`$REF\`; the errors are in this job's log above." ;;
             *) no_verdict "controller unreachable or timed out: cmux-ci exit $status" ;;
           esac
@@ -4988,6 +4993,28 @@ jobs:
         run: python3 -I .base-red-src/scripts/ci/base_red_skip.py decide --workflow cmux-next.yml --job "cmux-next generated files" --events push,workflow_dispatch --dispatch-title "cmux-next base tier" >> "$GITHUB_OUTPUT"
 
   # Why: docs/ci/cmux-next-workflow-notes.md#note-59
+  # Why: docs/ci/cmux-next-workflow-notes.md#note-556
+  generated-files-base-red:
+    if: github.event_name == 'pull_request' && format('{0}', vars.CI_SKIP_WHILE_BASE_RED) != '0' && !contains(github.event.pull_request.labels.*.name, 'full-ci')
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    timeout-minutes: 6
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      base_red: ${{ steps.decide.outputs.base_red }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          path: .base-red-src
+          sparse-checkout: scripts/ci
+      - name: Red on the base right now?
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -I .base-red-src/scripts/ci/base_red_skip.py decide --workflow cmux-next.yml --job "cmux-next generated files" >> "$GITHUB_OUTPUT"
+
   generated-files:
     needs: [path_route, macos-placement, push-head-preflight, web-bundles, generated-files-base-red]
     # Why: docs/ci/cmux-next-workflow-notes.md#note-265
