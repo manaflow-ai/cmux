@@ -148,7 +148,7 @@ class FixtureRepo(unittest.TestCase):
         decision = self.route(["webviews/src/pane.tsx"])
         self.assertFalse(decision.all)
         steps = self.verdicts(decision)
-        self.assertEqual({k for k, s in steps.items() if not s.run}, {"tt-a", "tt-b", "tt-g"})
+        self.assertEqual({k for k, s in steps.items() if not s.run}, {"tt-a", "tt-b", "tt-f", "tt-g"})
         # Setup steps are never selectable: they always run.
         self.assertNotIn("setup-python", steps)
 
@@ -176,8 +176,53 @@ class FixtureRepo(unittest.TestCase):
         self.assertIn("no test", steps["tt-d"].reason)
         self.assertTrue(steps["tt-e"].run)
         self.assertIn("${{ }}", steps["tt-e"].reason)
+
+    def stage(self):
+        subprocess.run(["git", "-C", str(self.root), "add", "-A"], check=True, env=git_fixture_env.fixture_env())
+
+    def test_a_shell_script_running_a_variable_reaches_its_own_directory(self):
+        # tests/run-all.test.sh runs "$t": a file of its own directory, as run-all scripts do, so a change there runs it.
+        self.assertFalse(self.verdicts(self.route(["webviews/src/pane.tsx"]))["tt-f"].run)
+        steps = self.verdicts(self.route(["tests/shell/new.test.sh"]))
+        self.assertTrue(steps["tt-f"].run, steps["tt-f"].reason)
+        # One that declares what it runs reaches that and nothing else of its directory.
+        (self.root / "tests/run-all.test.sh").write_text(
+            "#!/bin/bash\n# tooling-steps runs: tests/shell/*.test.sh\nfor t in $(ls tests/shell); do bash \"$t\"; done\n")
+        (self.root / "tests/shell").mkdir()
+        (self.root / "tests/shell/one.test.sh").write_text("true\n")
+        self.stage()
+        self.assertFalse(self.verdicts(self.route(["tests/other.txt"]))["tt-f"].run)
+        steps = self.verdicts(self.route(["tests/shell/one.test.sh"]))
+        self.assertTrue(steps["tt-f"].run, steps["tt-f"].reason)
+
+    def test_a_variable_run_outside_a_shell_script_stays_unresolved(self):
+        path = self.root / WORKFLOW
+        path.write_text(path.read_text().replace("run: bash tests/run-all.test.sh", 'run: bash "$RUNNER"'))
+        steps = self.verdicts(self.route(["webviews/src/pane.tsx"]))
         self.assertTrue(steps["tt-f"].run)
-        self.assertIn('runs $t', steps["tt-f"].reason)
+
+    def test_heredoc_bodies_and_test_brackets_are_not_commands(self):
+        (self.root / "tests/run-all.test.sh").write_text(textwrap.dedent("""\
+            #!/bin/bash
+            if [[ -n "${A:-}" && -z "${B:-}" ]]; then args+=("$A"); fi
+            cat > out.txt <<'EOF'
+            $mystery --not-a-command
+            EOF
+            python3 - <<'PY'
+            print("inline")
+            PY
+            """))
+        self.stage()
+        steps = self.verdicts(self.route(["webviews/src/pane.tsx"]))
+        self.assertFalse(steps["tt-f"].run, steps["tt-f"].reason)
+
+    def test_the_whole_tree_rule_needs_an_added_or_deleted_file(self):
+        steps = self.verdicts(tooling_steps.route(self.root, WORKFLOW, "tooling-tests", ["webviews/src/pane.tsx"],
+                                                  "pull_request", []))
+        self.assertFalse(steps["tt-h"].run, steps["tt-h"].reason)
+        steps = self.verdicts(tooling_steps.route(self.root, WORKFLOW, "tooling-tests", ["webviews/src/new.tsx"],
+                                                  "pull_request", ["webviews/src/new.tsx"]))
+        self.assertTrue(steps["tt-h"].run, steps["tt-h"].reason)
 
     def test_a_workflow_or_router_change_runs_every_step(self):
         for changed in (WORKFLOW, "scripts/ci/tooling_steps.py", "scripts/ci/workflow_paths_cover_inputs.py",
@@ -208,7 +253,7 @@ class FixtureRepo(unittest.TestCase):
             tooling_steps.write_outputs(decision, output, summary, "tooling-tests")
             values = dict(line.split("=", 1) for line in output.read_text(encoding="utf-8").splitlines())
             self.assertEqual(values["tooling_all"], "false")
-            self.assertEqual(values["tooling_steps"], " tt-a tt-c tt-d tt-e tt-f tt-h ")
+            self.assertEqual(values["tooling_steps"], " tt-a tt-c tt-d tt-e tt-h ")
             self.assertIn("`tt-b` B:", summary.read_text(encoding="utf-8"))
 
 
@@ -261,8 +306,8 @@ class RealWorkflow(unittest.TestCase):
         setup_python = next(i for i, s in enumerate(steps) if s.get("id") == "setup-python")
         self.assertLess(setup_python, index)
         self.assertTrue(all(not str(s.get("id") or "").startswith("tt-") for s in steps[:index]))
-        # No routing job of its own: tooling-tests waits only on coalesce.
-        self.assertEqual(self.job["needs"], "coalesce")
+        # No routing job of its own: tooling-tests waits on coalesce and on the base-red check (#52891).
+        self.assertEqual(self.job["needs"], ["coalesce", "tooling-tests-base-red"])
         self.assertNotIn("portable-placement", self.document["jobs"])
         self.assertTrue(self.job["if"].startswith("${{ (!cancelled()"))
 
