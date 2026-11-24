@@ -704,6 +704,14 @@ struct CutSocket {
     cut: Arc<AtomicBool>,
 }
 
+impl CutSocket {
+    /// Once cut, what arrived is gone.
+    fn discard(&self, batch: &mut cmux_wg::ReceiveBatch) {
+        let mut scratch = [0u8; 1 << 16];
+        while batch.pop_into(&mut scratch).is_some() || !batch.is_empty() {}
+    }
+}
+
 impl cmux_wg::DatagramSocket for CutSocket {
     fn poll_recv_from(
         &mut self,
@@ -731,6 +739,40 @@ impl cmux_wg::DatagramSocket for CutSocket {
             return Ok(datagram.len());
         }
         cmux_wg::DatagramSocket::try_send_to(&mut self.socket, datagram, target)
+    }
+
+    fn try_send_batch(&mut self, batch: &cmux_wg::SendBatch, from: usize) -> io::Result<usize> {
+        if self.cut.load(Ordering::Relaxed) {
+            return Ok(batch.len().saturating_sub(from).max(1));
+        }
+        cmux_wg::DatagramSocket::try_send_batch(&mut self.socket, batch, from)
+    }
+
+    fn poll_recv_batch(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+        batch: &mut cmux_wg::ReceiveBatch,
+    ) -> std::task::Poll<io::Result<()>> {
+        loop {
+            std::task::ready!(cmux_wg::DatagramSocket::poll_recv_batch(
+                &mut self.socket,
+                cx,
+                batch
+            ))?;
+            if !self.cut.load(Ordering::Relaxed) {
+                return std::task::Poll::Ready(Ok(()));
+            }
+            self.discard(batch);
+        }
+    }
+
+    fn try_recv_batch(&mut self, batch: &mut cmux_wg::ReceiveBatch) -> io::Result<()> {
+        cmux_wg::DatagramSocket::try_recv_batch(&mut self.socket, batch)?;
+        if self.cut.load(Ordering::Relaxed) {
+            self.discard(batch);
+            return Err(io::ErrorKind::WouldBlock.into());
+        }
+        Ok(())
     }
 
     fn local_addr(&self) -> io::Result<SocketAddr> {

@@ -9,7 +9,6 @@
 //! path carried it, so swapping or adding paths never resets the session or
 //! its TCP streams.
 
-use std::collections::VecDeque;
 use std::future::Future;
 use std::io;
 use std::net::SocketAddr;
@@ -345,10 +344,12 @@ impl DatagramSocket for UdpSocket {
 pub struct SocketPath<S> {
     socket: S,
     peer: Option<SocketAddr>,
-    pending: VecDeque<(Vec<u8>, SocketAddr)>,
-    /// Datagrams of this pass, sent together at its flush (or once
-    /// [`STAGE_LIMIT`] wait). Only staged while nothing is pending.
-    staged: SendBatch,
+    /// Datagrams not yet sent, oldest first: this pass's, sent together at
+    /// its flush (or once [`STAGE_LIMIT`] wait), and any the socket refused.
+    queue: SendBatch,
+    /// The socket refused the queue's front: the driver feeds no more data
+    /// until [`Underlay::poll_flush`] drains it.
+    waiting: bool,
     /// Datagrams the last batched read took and the driver has not had.
     received: ReceiveBatch,
     /// Until when sends go one at a time ([`UNBATCHED_AFTER_REFUSAL`]).
@@ -379,8 +380,8 @@ impl<S: DatagramSocket> SocketPath<S> {
         Self {
             socket,
             peer,
-            pending: VecDeque::new(),
-            staged: SendBatch::default(),
+            queue: SendBatch::default(),
+            waiting: false,
             received: ReceiveBatch::default(),
             unbatched_until: None,
             retry: None,
@@ -403,60 +404,48 @@ impl<S: DatagramSocket> SocketPath<S> {
     /// the socket is unwritable. The mesh addresses each peer this way on
     /// one shared socket.
     pub(crate) fn send_to(&mut self, datagram: &[u8], peer: SocketAddr) {
-        if !self.pending.is_empty() {
+        if self.waiting {
             self.flush();
         }
-        if !self.pending.is_empty() {
-            if self.pending.len() < SEND_QUEUE_DEPTH {
-                self.pending.push_back((datagram.to_vec(), peer));
+        if self.waiting {
+            if self.queue.len() < SEND_QUEUE_DEPTH {
+                self.queue.push(datagram, peer);
             } else {
                 eprintln!("wireguard UDP send to {peer} dropped: the socket never drained");
             }
             return;
         }
-        if self.unbatched_until.is_some_and(|until| Instant::now() < until) {
-            match self.socket.try_send_to(datagram, peer) {
-                Ok(_) => {}
-                Err(error) if refusal(&error).is_some() => {
-                    self.refused();
-                    self.pending.push_back((datagram.to_vec(), peer));
-                }
-                Err(error) => eprintln!("wireguard UDP send to {peer} failed: {error}"),
-            }
-            return;
-        }
-        self.unbatched_until = None;
-        self.staged.push(datagram, peer);
-        if self.staged.len() >= STAGE_LIMIT {
-            self.send_staged();
+        self.queue.push(datagram, peer);
+        let unbatched = self.unbatched_until.is_some_and(|until| Instant::now() < until);
+        if unbatched || self.queue.len() >= STAGE_LIMIT {
+            self.send_queued();
         }
     }
 
     fn refused(&mut self) {
+        self.waiting = true;
         self.unbatched_until = Some(Instant::now() + UNBATCHED_AFTER_REFUSAL);
     }
 
-    /// Send what this pass staged, in as few calls as the socket allows; what
-    /// the socket refuses waits in `pending`, in order, for writability.
-    fn send_staged(&mut self) {
-        let mut from = 0;
-        while from < self.staged.len() {
-            match self.socket.try_send_batch(&self.staged, from) {
-                Ok(0) => break,
-                Ok(sent) => from += sent,
+    /// Send what is queued, in as few calls as the socket allows, until it
+    /// refuses; what it refused waits, in order, for writability.
+    fn send_queued(&mut self) {
+        while !self.queue.is_empty() {
+            match self.socket.try_send_batch(&self.queue, 0) {
+                Ok(sent) => self.queue.consume(sent.max(1)),
                 Err(error) if refusal(&error).is_some() => {
                     self.refused();
-                    break;
+                    return;
                 }
                 Err(error) => {
-                    if let Some((_, peer)) = self.staged.get(from) {
+                    if let Some((_, peer)) = self.queue.get(0) {
                         eprintln!("wireguard UDP send to {peer} failed: {error}");
                     }
-                    from += 1;
+                    self.queue.consume(1);
                 }
             }
         }
-        self.pending.extend(self.staged.drain_from(from));
+        self.waiting = false;
     }
 
     /// The next datagram already read, or one read now without waiting:
@@ -482,37 +471,17 @@ impl<S: DatagramSocket> Underlay for SocketPath<S> {
         if self.retry.as_ref().is_some_and(|retry| retry.deadline() <= Instant::now()) {
             self.retry = None;
         }
-        while self.retry.is_none()
-            && let Some((datagram, peer)) = self.pending.front()
-        {
-            match self.socket.try_send_to(datagram, *peer) {
-                Ok(_) => {
-                    self.pending.pop_front();
-                }
-                Err(error) if refusal(&error).is_some() => {
-                    self.unbatched_until = Some(Instant::now() + UNBATCHED_AFTER_REFUSAL);
-                    break;
-                }
-                Err(error) => {
-                    eprintln!("wireguard UDP send to {peer} failed: {error}");
-                    self.pending.pop_front();
-                }
-            }
-        }
-        if self.pending.is_empty() {
-            self.send_staged();
-        } else {
-            // Behind what the socket refused, in order.
-            self.pending.extend(self.staged.drain_from(0));
+        if self.retry.is_none() {
+            self.send_queued();
         }
     }
 
     fn backlogged(&self) -> bool {
-        !self.pending.is_empty()
+        self.waiting && !self.queue.is_empty()
     }
 
     fn poll_flush(&mut self, cx: &mut Context<'_>) -> Poll<()> {
-        while let Some((datagram, peer)) = self.pending.front() {
+        while !self.queue.is_empty() {
             if let Some(retry) = &mut self.retry {
                 if retry.as_mut().poll(cx).is_pending() {
                     return Poll::Pending;
@@ -523,40 +492,43 @@ impl<S: DatagramSocket> Underlay for SocketPath<S> {
                 Poll::Pending => return Poll::Pending,
                 Poll::Ready(Err(error)) => {
                     eprintln!("wireguard UDP socket failed: {error}");
-                    self.pending.clear();
+                    self.queue.clear();
                     break;
                 }
                 Poll::Ready(Ok(())) => {}
             }
-            match self.socket.try_send_to(datagram, *peer) {
-                Ok(_) => {
-                    self.pending.pop_front();
+            match self.socket.try_send_batch(&self.queue, 0) {
+                Ok(sent) => {
+                    self.queue.consume(sent.max(1));
                     self.retry_after = INTERFACE_RETRY_MIN;
                     self.refusals = 0;
                 }
-                Err(error) => match refusal(&error) {
-                    // Readiness was stale; the next poll registers interest.
-                    Some(Refusal::SocketFull) => {
-                        self.unbatched_until = Some(Instant::now() + UNBATCHED_AFTER_REFUSAL);
-                    }
-                    Some(Refusal::InterfaceFull) => {
-                        self.unbatched_until = Some(Instant::now() + UNBATCHED_AFTER_REFUSAL);
-                        self.refusals += 1;
-                        if self.refusals >= INTERFACE_RETRY_LIMIT {
-                            eprintln!("wireguard UDP send to {peer} dropped: {error} for 3 s");
-                            self.pending.pop_front();
-                            self.refusals = 0;
+                Err(error) => {
+                    let peer =
+                        self.queue.get(0).map_or_else(String::new, |(_, peer)| peer.to_string());
+                    match refusal(&error) {
+                        // Readiness was stale; the next poll registers interest.
+                        Some(Refusal::SocketFull) => self.refused(),
+                        Some(Refusal::InterfaceFull) => {
+                            self.refused();
+                            self.refusals += 1;
+                            if self.refusals >= INTERFACE_RETRY_LIMIT {
+                                eprintln!("wireguard UDP send to {peer} dropped: {error} for 3 s");
+                                self.queue.consume(1);
+                                self.refusals = 0;
+                            }
+                            self.retry = Some(Box::pin(tokio::time::sleep(self.retry_after)));
+                            self.retry_after = (self.retry_after * 2).min(INTERFACE_RETRY_MAX);
                         }
-                        self.retry = Some(Box::pin(tokio::time::sleep(self.retry_after)));
-                        self.retry_after = (self.retry_after * 2).min(INTERFACE_RETRY_MAX);
+                        None => {
+                            eprintln!("wireguard UDP send to {peer} failed: {error}");
+                            self.queue.consume(1);
+                        }
                     }
-                    None => {
-                        eprintln!("wireguard UDP send to {peer} failed: {error}");
-                        self.pending.pop_front();
-                    }
-                },
+                }
             }
         }
+        self.waiting = false;
         Poll::Ready(())
     }
 

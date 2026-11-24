@@ -81,5 +81,6 @@ pub use timers::TimerSchedule;
 pub use ultra::{UltraMode, UltraStats, is_parity as is_ultra_parity};
 pub use ultra_auto::UltraChoice;
 pub use underlay::{
-    DatagramSocket, DueProbes, Origin, RECEIVE_BUFFER, Received, SocketPath, UdpUnderlay, Underlay,
+    DatagramSocket, DueProbes, Origin, RECEIVE_BUFFER, ReceiveBatch, Received, SendBatch,
+    SocketPath, UdpUnderlay, Underlay,
 };

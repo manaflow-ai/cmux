@@ -18,11 +18,14 @@ use std::net::SocketAddr;
 pub(crate) const STAGE_LIMIT: usize = 64;
 
 /// Datagrams waiting to leave, in order, their bytes back to back so a run to
-/// one address is one GSO message without copying again.
+/// one address is one GSO message without copying again. Index 0 is the
+/// oldest not yet sent.
 #[derive(Debug, Default)]
 pub struct SendBatch {
     data: Vec<u8>,
     entries: Vec<(usize, usize, SocketAddr)>,
+    /// Entries before this one have left.
+    head: usize,
 }
 
 impl SendBatch {
@@ -32,33 +35,41 @@ impl SendBatch {
     }
 
     pub fn len(&self) -> usize {
-        self.entries.len()
+        self.entries.len() - self.head
     }
 
     pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
+        self.len() == 0
     }
 
-    /// The `index`th datagram and where it goes.
+    /// The `index`th datagram still waiting and where it goes.
     pub fn get(&self, index: usize) -> Option<(&[u8], SocketAddr)> {
-        let (start, len, target) = *self.entries.get(index)?;
+        let (start, len, target) = *self.entries.get(self.head + index)?;
         Some((self.data.get(start..start + len)?, target))
     }
 
-    /// Every datagram from `from` on, for a queue that keeps them one by one.
-    pub(crate) fn drain_from(
-        &mut self,
-        from: usize,
-    ) -> impl Iterator<Item = (Vec<u8>, SocketAddr)> {
-        let rest: Vec<_> =
-            (from..self.len()).filter_map(|i| self.get(i).map(|(d, t)| (d.to_vec(), t))).collect();
-        self.clear();
-        rest.into_iter()
+    /// The oldest `count` datagrams left (or were dropped).
+    pub(crate) fn consume(&mut self, count: usize) {
+        self.head = (self.head + count).min(self.entries.len());
+        if self.head == self.entries.len() {
+            self.clear();
+        } else if self.head >= STAGE_LIMIT && self.head * 2 >= self.entries.len() {
+            // A queue that never empties (a socket that stays full) keeps
+            // only what still waits.
+            let offset = self.entries.get(self.head).map_or(0, |entry| entry.0);
+            self.entries.drain(..self.head);
+            self.head = 0;
+            self.data.drain(..offset);
+            for entry in &mut self.entries {
+                entry.0 -= offset;
+            }
+        }
     }
 
     pub(crate) fn clear(&mut self) {
         self.data.clear();
         self.entries.clear();
+        self.head = 0;
     }
 }
 
@@ -85,7 +96,7 @@ impl ReceiveBatch {
 
     /// Copy the oldest datagram into `buffer`. One longer than `buffer` is
     /// dropped (as `recv_from` truncates; WireGuard then refuses it).
-    pub(crate) fn pop_into(&mut self, buffer: &mut [u8]) -> Option<(usize, SocketAddr)> {
+    pub fn pop_into(&mut self, buffer: &mut [u8]) -> Option<(usize, SocketAddr)> {
         let (start, len, from) = self.entries.pop_front()?;
         let datagram = self.data.get(start..start + len)?;
         let slot = buffer.get_mut(..len)?;
@@ -414,5 +425,27 @@ pub(crate) mod linux {
             assert!(plan.iter().all(|m| m.count * 1452 <= GSO_BYTES && m.count <= GSO_SEGMENTS));
             assert_eq!(plan.iter().map(|m| m.count).sum::<usize>(), 100);
         }
+    }
+}
+
+#[cfg(test)]
+mod send_batch_tests {
+    use super::*;
+
+    #[test]
+    fn consumed_datagrams_leave_the_front_in_order() {
+        let target = SocketAddr::from(([127, 0, 0, 1], 9));
+        let mut batch = SendBatch::default();
+        for n in 0..200u8 {
+            batch.push(&[n; 3], target);
+            if n % 2 == 1 {
+                batch.consume(1);
+            }
+        }
+        assert_eq!(batch.len(), 100);
+        assert_eq!(batch.get(0), Some((&[100u8; 3][..], target)));
+        assert!(batch.entries.len() < 200, "consumed entries were compacted away");
+        batch.consume(100);
+        assert!(batch.is_empty() && batch.data.is_empty());
     }
 }
