@@ -38,7 +38,9 @@
 //! std and libc only: the holder (`cmux-holder`) links it too.
 
 mod flight;
-pub use flight::{RECENT_EVENTS, RecentEvent, dump_recent, write_json_array};
+pub use flight::{
+    RECENT_EVENTS, RECENT_PER_SHARD, RECENT_SHARDS, RecentEvent, dump_recent, write_json_array,
+};
 
 use std::cell::UnsafeCell;
 use std::io::Write;

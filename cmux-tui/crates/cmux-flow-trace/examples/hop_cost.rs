@@ -74,7 +74,55 @@ fn main() {
     extra::report_dump();
 }
 
-/// The parts that need the flight recorder (none before it existed).
+/// The cost of `dump_recent` (the flight recorder), idle and while [`THREADS`] threads hop.
 mod extra {
-    pub fn report_dump() {}
+    use cmux_flow_trace::{RECENT_EVENTS, RecentEvent, dump_recent};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Instant;
+
+    fn dumps(want: usize) -> (f64, f64, usize) {
+        let mut out = [RecentEvent::EMPTY; RECENT_EVENTS];
+        let mut samples = Vec::with_capacity(20_000);
+        let mut got = 0;
+        for _ in 0..20_000 {
+            let start = Instant::now();
+            got = dump_recent(&mut out[..want], None);
+            samples.push(start.elapsed().as_nanos() as u64);
+        }
+        samples.sort_unstable();
+        let at = |q: f64| samples[((samples.len() - 1) as f64 * q) as usize] as f64;
+        (at(0.5), at(0.99), got)
+    }
+
+    pub fn report_dump() {
+        for want in [64, RECENT_EVENTS] {
+            let (p50, p99, got) = dumps(want);
+            println!("dump_recent({want}) idle: {got} events, p50 {p50:.0} ns, p99 {p99:.0} ns");
+        }
+        let stop = Arc::new(AtomicBool::new(false));
+        let threads: Vec<_> = (0..super::THREADS)
+            .map(|_| {
+                let stop = stop.clone();
+                std::thread::spawn(move || {
+                    let mut flow = 0;
+                    while !stop.load(Ordering::Relaxed) {
+                        cmux_flow_trace::hop("bench.send.read", flow, "00ff");
+                        flow += 1;
+                    }
+                })
+            })
+            .collect();
+        for want in [64, RECENT_EVENTS] {
+            let (p50, p99, got) = dumps(want);
+            println!(
+                "dump_recent({want}) while {} threads hop: {got} events, p50 {p50:.0} ns, p99 {p99:.0} ns",
+                super::THREADS
+            );
+        }
+        stop.store(true, Ordering::Relaxed);
+        for thread in threads {
+            let _ = thread.join();
+        }
+    }
 }

@@ -6,7 +6,7 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 use std::time::Duration;
 
-use cmux_flow_trace::{RECENT_EVENTS, RecentEvent, dump_recent, hop, hop_id};
+use cmux_flow_trace::{RECENT_EVENTS, RECENT_PER_SHARD, RecentEvent, dump_recent, hop, hop_id};
 
 struct Counting;
 
@@ -28,6 +28,9 @@ unsafe impl GlobalAlloc for Counting {
 #[global_allocator]
 static ALLOCATOR: Counting = Counting;
 
+/// More threads than shards, so every shard fills.
+const RECENT_EVENTS_THREADS: u64 = cmux_flow_trace::RECENT_SHARDS as u64 + 2;
+
 #[test]
 fn the_ring_keeps_the_newest_hops_under_overflow_with_no_allocation() {
     assert!(
@@ -35,7 +38,7 @@ fn the_ring_keeps_the_newest_hops_under_overflow_with_no_allocation() {
         "run this test without CMUX_TRACE_FLOWS"
     );
     assert!(!cmux_flow_trace::init());
-    let total = RECENT_EVENTS as u64 * 3 + 17;
+    let total = RECENT_PER_SHARD as u64 * 3 + 17;
     hop_id("flight.warm", 0, &[0; 16]); // reads this thread's id once
     let mut out = [RecentEvent::EMPTY; RECENT_EVENTS];
     let before = ALLOCATIONS.with(Cell::get);
@@ -45,11 +48,16 @@ fn the_ring_keeps_the_newest_hops_under_overflow_with_no_allocation() {
     let count = dump_recent(&mut out, None);
     assert_eq!(ALLOCATIONS.with(Cell::get) - before, 0, "a hop or a dump allocated");
 
-    assert_eq!(count, RECENT_EVENTS);
-    let flows: Vec<u64> = out.iter().map(|event| event.flow).collect();
-    let newest: Vec<u64> = (total - RECENT_EVENTS as u64 + 1..=total).collect();
-    assert_eq!(flows, newest, "the newest RECENT_EVENTS, oldest first");
-    assert!(out.iter().all(|event| event.name == "flight.overflow" && event.terminal() == "00ff"));
+    // One thread writes one shard: its newest RECENT_PER_SHARD hops.
+    assert_eq!(count, RECENT_PER_SHARD);
+    let flows: Vec<u64> = out[..count].iter().map(|event| event.flow).collect();
+    let newest: Vec<u64> = (total - RECENT_PER_SHARD as u64 + 1..=total).collect();
+    assert_eq!(flows, newest, "the newest RECENT_PER_SHARD, oldest first");
+    assert!(
+        out[..count]
+            .iter()
+            .all(|event| event.name == "flight.overflow" && event.terminal() == "00ff")
+    );
 
     // A smaller buffer keeps the newest.
     let mut few = [RecentEvent::EMPTY; 4];
@@ -66,7 +74,27 @@ fn the_ring_keeps_the_newest_hops_under_overflow_with_no_allocation() {
 
     let mut json = String::new();
     cmux_flow_trace::write_json_array(&mut json, &out[..1]).unwrap();
-    let parsed: Vec<&str> = json.split('"').collect();
-    assert!(parsed.contains(&"flight.fresh"), "{json}");
     assert!(json.starts_with("[{\"hop\":\"flight.fresh\",\"flow\":9,\"terminal\":\""), "{json}");
+
+    // Threads on other shards: the dump merges every shard by clock, newest last.
+    let threads: Vec<_> = (0..RECENT_EVENTS_THREADS)
+        .map(|thread| {
+            std::thread::spawn(move || {
+                for flow in 0..RECENT_PER_SHARD as u64 * 2 {
+                    hop("flight.many", thread * 1000 + flow, "");
+                }
+            })
+        })
+        .collect();
+    for thread in threads {
+        thread.join().unwrap();
+    }
+    let count = dump_recent(&mut out, None);
+    assert_eq!(count, RECENT_EVENTS, "every shard full");
+    let many = out.iter().filter(|event| event.name == "flight.many").count();
+    assert!(many >= RECENT_EVENTS - 2 * RECENT_PER_SHARD, "the other threads' hops: {many}");
+    assert!(
+        out.windows(2).all(|pair| pair[0].age_ns >= pair[1].age_ns),
+        "oldest first across shards"
+    );
 }

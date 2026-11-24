@@ -116,7 +116,7 @@ fn the_ring_keeps_order_and_refuses_when_full() {
 #[test]
 fn a_dump_while_a_slot_is_mid_write_returns_and_skips_only_that_slot() {
     hop("flight.held.before", 11, "aa");
-    let (position, old) = flight::hold_next_slot();
+    let (held, old) = flight::hold_next_slot();
     for flow in 0..8 {
         hop("flight.held.after", flow, "bb");
     }
@@ -137,5 +137,5 @@ fn a_dump_while_a_slot_is_mid_write_returns_and_skips_only_that_slot() {
         .collect();
     assert_eq!(after, (0..8).collect::<Vec<_>>(), "oldest first, every hop after the held slot");
     // Release the slot as the stopped hop would have.
-    flight::sequence_for_test(position).store(old, Ordering::Relaxed);
+    held.store(old, Ordering::Relaxed);
 }

@@ -9,11 +9,17 @@
 //! A record holds the hop's static name, its flow id, the terminal's hex id, the thread id and the
 //! clock: no terminal content, typed text, path or message can reach it.
 //!
-//! Cost: one `fetch_add` on the shared position, one compare-and-swap on the slot, a clock read and
-//! ten relaxed stores; no allocation, no lock, no system call (the thread id is read once per
-//! thread). Memory: [`RECENT_EVENTS`] slots of 128 bytes in a static, never more.
+//! The ring is [`RECENT_SHARDS`] rings of [`RECENT_PER_SHARD`] slots. A thread takes a shard at its
+//! first hop (round robin) and keeps it, so threads that hop at once do not fight over one cache
+//! line (one shared position cost 515 ns a hop with 8 threads hopping; per-thread shards, below). A
+//! dump merges the shards by clock, newest first. A thread keeps at least its newest
+//! [`RECENT_PER_SHARD`] hops; with more threads than shards, two share one.
 //!
-//! The ring overwrites its oldest slot. Each slot is a seqlock: a writer claims it by moving its
+//! Cost: a clock read, one `fetch_add` on the shard's position, one compare-and-swap on the slot and
+//! ten relaxed stores; no allocation, no lock, no system call (the thread id and shard are read once
+//! per thread). Memory: [`RECENT_EVENTS`] slots of 128 bytes in a static, never more.
+//!
+//! Each ring overwrites its oldest slot. Each slot is a seqlock: a writer claims it by moving its
 //! sequence to an odd value with a compare-and-swap (a second writer that laps the ring onto the
 //! same slot while the first still writes finds it odd and drops its record instead of mixing two),
 //! and publishes it with `2 * position + 2`. A reader keeps a slot only when it reads that exact
@@ -25,8 +31,12 @@ use std::cell::Cell;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering, fence};
 use std::time::Duration;
 
-/// Hops the flight recorder keeps; the oldest is overwritten. A power of two.
-pub const RECENT_EVENTS: usize = 256;
+/// Rings of the flight recorder; a thread writes to one.
+pub const RECENT_SHARDS: usize = 8;
+/// Hops one ring keeps; its oldest is overwritten. A power of two.
+pub const RECENT_PER_SHARD: usize = 64;
+/// Hops the flight recorder keeps in all.
+pub const RECENT_EVENTS: usize = RECENT_SHARDS * RECENT_PER_SHARD;
 
 #[repr(align(64))]
 struct FlightSlot {
@@ -41,7 +51,9 @@ struct FlightSlot {
     t_ns: AtomicU64,
 }
 
-static SLOTS: [FlightSlot; RECENT_EVENTS] = [const {
+/// A slot never written: the array initialiser of [`SHARDS`], copied once per slot at compile time.
+#[allow(clippy::declare_interior_mutable_const)]
+const EMPTY_SLOT: FlightSlot = {
     FlightSlot {
         sequence: AtomicU64::new(0),
         name_ptr: AtomicUsize::new(0),
@@ -52,14 +64,27 @@ static SLOTS: [FlightSlot; RECENT_EVENTS] = [const {
         tid: AtomicU64::new(0),
         t_ns: AtomicU64::new(0),
     }
-}; RECENT_EVENTS];
+};
 
-/// The position of the next record (records written so far, overwritten ones included).
-static NEXT: AtomicU64 = AtomicU64::new(0);
+/// One thread's ring (or a few threads').
+struct Shard {
+    /// The position of the next record (records written so far, overwritten ones included).
+    next: Position,
+    slots: [FlightSlot; RECENT_PER_SHARD],
+}
+
+/// On its own cache line, so one shard's writers never slow another's.
+#[repr(align(64))]
+struct Position(AtomicU64);
+
+static SHARDS: [Shard; RECENT_SHARDS] =
+    [const { Shard { next: Position(AtomicU64::new(0)), slots: [EMPTY_SLOT; RECENT_PER_SHARD] } };
+        RECENT_SHARDS];
+static NEXT_SHARD: AtomicUsize = AtomicUsize::new(0);
 
 thread_local! {
-    /// The calling thread's id, read once (0: not read yet).
-    static TID: Cell<u64> = const { Cell::new(0) };
+    /// The calling thread's id and shard, read once (`u64::MAX`: not yet).
+    static THREAD: Cell<(u64, usize)> = const { Cell::new((u64::MAX, 0)) };
 }
 
 /// One hop as [`dump_recent`] returns it.
@@ -122,8 +147,10 @@ pub fn write_json_array(
 
 /// Keeps one hop. `terminal` is at most 32 bytes (the caller cut it).
 pub(crate) fn record(name: &'static str, flow: u64, terminal: &[u8], t_ns: u64) {
-    let position = NEXT.fetch_add(1, Ordering::Relaxed);
-    let Some(slot) = SLOTS.get(position as usize & (RECENT_EVENTS - 1)) else { return };
+    let (tid, shard) = this_thread();
+    let Some(shard) = SHARDS.get(shard) else { return };
+    let position = shard.next.0.fetch_add(1, Ordering::Relaxed);
+    let Some(slot) = shard.slots.get(position as usize & (RECENT_PER_SHARD - 1)) else { return };
     let current = slot.sequence.load(Ordering::Relaxed);
     if current & 1 == 1
         || slot
@@ -136,56 +163,74 @@ pub(crate) fn record(name: &'static str, flow: u64, terminal: &[u8], t_ns: u64) 
     slot.name_ptr.store(name.as_ptr() as usize, Ordering::Relaxed);
     slot.name_len.store(name.len(), Ordering::Relaxed);
     slot.flow.store(flow, Ordering::Relaxed);
-    let mut words = [0u64; 4];
-    for (index, byte) in terminal.iter().take(32).enumerate() {
-        if let Some(word) = words.get_mut(index / 8) {
-            *word |= u64::from(*byte) << ((index % 8) * 8);
-        }
+    let len = terminal.len().min(32);
+    let mut bytes = [0u8; 32];
+    if let (Some(into), Some(from)) = (bytes.get_mut(..len), terminal.get(..len)) {
+        into.copy_from_slice(from);
     }
-    for (into, word) in slot.terminal.iter().zip(words) {
-        into.store(word, Ordering::Relaxed);
+    for (into, word) in slot.terminal.iter().zip(bytes.chunks_exact(8)) {
+        let word: [u8; 8] = word.try_into().unwrap_or_default();
+        into.store(u64::from_le_bytes(word), Ordering::Relaxed);
     }
-    slot.terminal_len.store(terminal.len().min(32) as u64, Ordering::Relaxed);
-    slot.tid.store(cached_thread_id(), Ordering::Relaxed);
+    slot.terminal_len.store(len as u64, Ordering::Relaxed);
+    slot.tid.store(tid, Ordering::Relaxed);
     slot.t_ns.store(t_ns, Ordering::Relaxed);
     slot.sequence.store(position.wrapping_mul(2).wrapping_add(2), Ordering::Release);
 }
 
-fn cached_thread_id() -> u64 {
-    TID.try_with(|cell| {
-        let mut id = cell.get();
-        if id == 0 {
-            id = crate::thread_id();
-            cell.set(id);
-        }
-        id
-    })
-    .unwrap_or(0)
+/// The calling thread's id and shard, read once per thread. A thread past its thread-locals (a
+/// destructor) gets shard 0.
+fn this_thread() -> (u64, usize) {
+    THREAD
+        .try_with(|cell| {
+            let mut known = cell.get();
+            if known.0 == u64::MAX {
+                let shard = NEXT_SHARD.fetch_add(1, Ordering::Relaxed) % RECENT_SHARDS;
+                known = (crate::thread_id(), shard);
+                cell.set(known);
+            }
+            known
+        })
+        .unwrap_or((0, 0))
 }
 
 /// Copies the newest hops into `out`, oldest first, and returns how many it wrote: at most
 /// `out.len()` and [`RECENT_EVENTS`], and none older than `max_age` when given. No allocation, no
 /// lock, no wait: a slot a writer is in (on another thread, or this one if it panicked mid-hop) is
-/// skipped. Safe to call from a panic hook or a signal-free hang reporter on any thread.
+/// skipped. Safe to call from a panic hook or a hang reporter on any thread.
 pub fn dump_recent(out: &mut [RecentEvent], max_age: Option<Duration>) -> usize {
     let now = crate::now_ns();
     let max_age_ns =
         max_age.map_or(u64::MAX, |age| u64::try_from(age.as_nanos()).unwrap_or(u64::MAX));
-    let end = NEXT.load(Ordering::Acquire);
-    let want = out.len().min(RECENT_EVENTS) as u64;
+    // Each shard's cursor: the newest record not taken yet, and the position before it.
+    let mut cursors: [Cursor; RECENT_SHARDS] = std::array::from_fn(|index| {
+        let next = SHARDS.get(index).map_or(0, |shard| shard.next.0.load(Ordering::Acquire));
+        let mut cursor = Cursor {
+            shard: index,
+            position: next,
+            oldest: next.saturating_sub(RECENT_PER_SHARD as u64),
+            head: None,
+        };
+        cursor.advance(now);
+        cursor
+    });
     let mut written = 0;
-    // Newest first, so a full `out` keeps the newest; reversed at the end.
-    let mut position = end;
-    while position > end.saturating_sub(RECENT_EVENTS as u64) && (written as u64) < want {
-        position -= 1;
-        let Some(event) = read(position, now) else { continue };
+    // Newest first across the shards, so a full `out` keeps the newest; reversed at the end.
+    while let Some(into) = out.get_mut(written) {
+        let Some(newest) = cursors
+            .iter_mut()
+            .filter(|cursor| cursor.head.is_some())
+            .min_by_key(|cursor| cursor.head.map_or(u64::MAX, |event| event.age_ns))
+        else {
+            break;
+        };
+        let Some(event) = newest.head else { break };
         if event.age_ns > max_age_ns {
             break;
         }
-        if let Some(into) = out.get_mut(written) {
-            *into = event;
-            written += 1;
-        }
+        *into = event;
+        written += 1;
+        newest.advance(now);
     }
     if let Some(filled) = out.get_mut(..written) {
         filled.reverse();
@@ -193,9 +238,33 @@ pub fn dump_recent(out: &mut [RecentEvent], max_age: Option<Duration>) -> usize 
     written
 }
 
+/// A walk of one shard from its newest record back.
+struct Cursor {
+    shard: usize,
+    /// The next position to read is `position - 1`.
+    position: u64,
+    /// No position below this is read (the ring has overwritten it).
+    oldest: u64,
+    head: Option<RecentEvent>,
+}
+
+impl Cursor {
+    /// Moves `head` to the next whole record back, or none.
+    fn advance(&mut self, now: u64) {
+        self.head = None;
+        while self.position > self.oldest {
+            self.position -= 1;
+            if let Some(event) = read(self.shard, self.position, now) {
+                self.head = Some(event);
+                return;
+            }
+        }
+    }
+}
+
 /// The record of `position`, if its slot still holds it whole.
-fn read(position: u64, now: u64) -> Option<RecentEvent> {
-    let slot = SLOTS.get(position as usize & (RECENT_EVENTS - 1))?;
+fn read(shard: usize, position: u64, now: u64) -> Option<RecentEvent> {
+    let slot = SHARDS.get(shard)?.slots.get(position as usize & (RECENT_PER_SHARD - 1))?;
     let expected = position.wrapping_mul(2).wrapping_add(2);
     if slot.sequence.load(Ordering::Acquire) != expected {
         return None;
@@ -220,25 +289,21 @@ fn read(position: u64, now: u64) -> Option<RecentEvent> {
         std::str::from_utf8_unchecked(std::slice::from_raw_parts(name_ptr as *const u8, name_len))
     };
     let mut terminal = [0u8; 32];
-    for (index, byte) in terminal.iter_mut().enumerate() {
-        *byte = words.get(index / 8).map_or(0, |word| (word >> ((index % 8) * 8)) as u8);
+    for (into, word) in terminal.chunks_exact_mut(8).zip(words) {
+        into.copy_from_slice(&word.to_le_bytes());
     }
     Some(RecentEvent { name, flow, terminal, terminal_len, tid, age_ns: now.saturating_sub(t_ns) })
 }
 
-/// Marks the slot of the next position as mid-write, as a hop that stopped between its claim and its
-/// publish (a panic mid-hop, a preempted thread) leaves it. Returns the position and the old sequence.
+/// Marks the slot of the calling thread's next position as mid-write, as a hop that stopped between
+/// its claim and its publish (a panic mid-hop, a preempted thread) leaves it. Returns that slot's
+/// sequence and its old value, to release it.
 #[cfg(test)]
-pub(crate) fn hold_next_slot() -> (u64, u64) {
-    let position = NEXT.fetch_add(1, Ordering::Relaxed);
-    let slot = &SLOTS[position as usize & (RECENT_EVENTS - 1)];
-    let old = slot.sequence.load(Ordering::Relaxed);
-    slot.sequence.store(old | 1, Ordering::Relaxed);
-    (position, old)
-}
-
-/// The sequence of the slot of `position`, to release a slot [`hold_next_slot`] held.
-#[cfg(test)]
-pub(crate) fn sequence_for_test(position: u64) -> &'static AtomicU64 {
-    &SLOTS[position as usize & (RECENT_EVENTS - 1)].sequence
+pub(crate) fn hold_next_slot() -> (&'static AtomicU64, u64) {
+    let shard = &SHARDS[this_thread().1];
+    let position = shard.next.0.fetch_add(1, Ordering::Relaxed);
+    let sequence = &shard.slots[position as usize & (RECENT_PER_SHARD - 1)].sequence;
+    let old = sequence.load(Ordering::Relaxed);
+    sequence.store(old | 1, Ordering::Relaxed);
+    (sequence, old)
 }
