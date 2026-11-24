@@ -4,7 +4,7 @@
 //!            [--transport webrtc|wireguard]... [--relay-only] [--block-udp]
 //!            [--drop-wireguard] [--proxy-only]
 //!            [--exclude-cgnat] [--bytes N] [--daemon] [--pings N] [--no-turn]
-//!            [--no-turn-prewarm]
+//!            [--no-turn-prewarm] [--relay] [--force-https-relay]
 //!
 //! Prints one JSON line per transport: connect time, path, RTT, echo
 //! throughput, and the daemon `identify` answer.
@@ -21,6 +21,15 @@
 //! to TURN over TLS; `--proxy-only` blocks UDP and lets TURN over TLS out only
 //! through the system's proxy (`CMUX_MOBILE_DEV_PROXY=http://host:port` sets
 //! one). PROTOCOL.md "Corporate networks".
+//!
+//! `--relay` offers cmux's WebSocket relay (`/v1/relay` on the base URL,
+//! PROTOCOL.md "WebSocket relay") as the last way to the Mac, as the app does;
+//! without it the dial has no relay. `--force-https-relay` (implies
+//! `--relay`) is the app's debug "Relay via cmux (HTTPS) only": no plain UDP,
+//! no TURN allocation, the link rides the relay (path `https-relay`). With
+//! `--relay-only` (TURN, UDP first) and `--block-udp` (TURN over TLS) it lets
+//! a harness force each relayed path instead of waiting for a network to
+//! block the others.
 //!
 //! As the app does, `GET /v1/ice` runs beside the signaling socket's open
 //! (the device registration, which the app does at sign-in, comes first and
@@ -59,6 +68,8 @@ struct Args {
     pings: usize,
     stock_ice_waits: bool,
     no_turn_prewarm: bool,
+    relay: bool,
+    force_https_relay: bool,
 }
 
 fn parse() -> Result<Args> {
@@ -70,6 +81,7 @@ fn parse() -> Result<Args> {
     let (mut drop_wireguard, mut proxy_only) = (false, false);
     let (mut bytes, mut pings) = (10 * 1024 * 1024, 20);
     let (mut no_input_lane, mut no_turn_prewarm) = (false, false);
+    let (mut relay, mut force_https_relay) = (false, false);
     while let Some(arg) = args.next() {
         let mut value = || args.next().with_context(|| format!("{arg} needs a value"));
         match arg.as_str() {
@@ -93,6 +105,8 @@ fn parse() -> Result<Args> {
             "--no-input-lane" => no_input_lane = true,
             "--no-turn-prewarm" => no_turn_prewarm = true,
             "--daemon" => daemon = true,
+            "--relay" => relay = true,
+            "--force-https-relay" => (relay, force_https_relay) = (true, true),
             "--stock-ice-waits" => stock_ice_waits = true,
             other => bail!("unknown argument {other}"),
         }
@@ -120,6 +134,8 @@ fn parse() -> Result<Args> {
         pings,
         stock_ice_waits,
         no_turn_prewarm,
+        relay,
+        force_https_relay,
     })
 }
 
@@ -154,6 +170,17 @@ async fn run(args: &Args, kind: TransportKind) -> Result<serde_json::Value> {
         input_lane: !args.no_input_lane,
         timeline: timeline.clone(),
         stock_ice_waits: args.stock_ice_waits,
+        // cmux's WebSocket relay on the same service, with this device's id
+        // and token, as the app's dial builds it.
+        relay: args.relay.then(|| {
+            cmux_mobile_link::dial::relay::RelayEndpoint::with_token(
+                args.base_url.clone(),
+                None,
+                device.clone(),
+                args.token.clone(),
+            )
+        }),
+        force_relay: args.force_https_relay,
         ..DialOptions::default()
     };
     // `/v1/ice` beside the signaling socket's open, as the app does; the TURN
@@ -281,6 +308,8 @@ async fn run(args: &Args, kind: TransportKind) -> Result<serde_json::Value> {
         "relay_only": args.relay_only,
         "block_udp": args.block_udp,
         "no_turn": args.no_turn,
+        "relay": args.relay,
+        "force_https_relay": args.force_https_relay,
         "turn_prewarm": !args.no_turn_prewarm,
         "ice_beside_signaling": true,
         "path": path,
