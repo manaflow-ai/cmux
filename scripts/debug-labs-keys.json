@@ -7,6 +7,7 @@
   "agentPane.debug.sidebarPreviewVariant": {"case": "keep", "why": "A look comparison for the sidebar preview; the default is the shipped look."},
   "agentPane.debug.turnActionsPlacement": {"case": "keep", "why": "A look comparison (left as Claude Code desktop, or right); the default is the shipped look."},
   "labs.previewFeatures": {"case": "keep", "why": "Gates several unfinished surfaces at once (music, Click by Hint, Stats, the App Store page); each ships by leaving the gate, not by flipping it."},
+  "labs.parakeetDictation": {"case": "keep", "why": "Downloads a speech model of several hundred MB and swaps the dictation engine: the person turns it on."},
   "labs.voiceRoom": {"case": "keep", "why": "Records mic and screen text and posts them to a room: a privacy switch only the person turns on."},
   "labs.voiceRoomURL": {"case": "keep", "why": "Voice Room's server address, a value and not a switch."},
   "labs.machineJoin": {"case": "keep", "why": "Mints a line that joins any machine to the team: a network switch only the person turns on."},

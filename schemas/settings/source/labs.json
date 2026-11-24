@@ -77,6 +77,30 @@
           ]
         },
         {
+          "key": "labs.parakeetDictation",
+          "note": "Unofficial Labs engine (docs/design/voice-byo-providers.md slice 3): dictation runs the Parakeet speech model in process instead of On This Mac, on every dictation surface. Turning it on downloads the model (several hundred MB) into Application Support/cmux-next/speech-models with a progress toast that can cancel; once downloaded it works offline. Apple silicon only; off by default.",
+          "title": {
+            "key": "settings.labs.parakeetDictation",
+            "text": "Parakeet Dictation"
+          },
+          "help": {
+            "key": "settings.labs.parakeetDictation.help",
+            "text": "Dictate with the Parakeet speech model on this Mac. Turning it on downloads the model once; after that it works offline."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "labs",
+            "dictation",
+            "voice",
+            "speech",
+            "parakeet",
+            "transcribe",
+            "offline",
+            "model"
+          ]
+        },
+        {
           "key": "labs.voiceRoom",
           "note": "Unofficial Labs feature (plans/cmux-next/voice-room-DESIGN.md): Open Voice Room transcribes the mic on device, reads the screen's text on device when it changes, and posts both to the room server at labs.voiceRoomURL, whose cheap model keeps the room's memory and sends asks spoken to Chief as tasks. Off by default; while off the Voice Room actions are unavailable everywhere. The person turns it on: agents may not (not in SettingsSchema agent-writable keys).",
           "title": {

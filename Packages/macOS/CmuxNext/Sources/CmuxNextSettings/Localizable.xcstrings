@@ -30635,6 +30635,268 @@
         }
       }
     },
+    "settings.labs.parakeetDictation": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إملاء Parakeet"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Parakeet diktiranje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Parakeet-diktering"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Parakeet-Diktat"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parakeet Dictation"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dictado con Parakeet"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dictée Parakeet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dettatura Parakeet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Parakeet 音声入力"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការសរសេរតាមសំឡេង Parakeet"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Parakeet 받아쓰기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Parakeet-diktering"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dyktowanie Parakeet"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ditado com Parakeet"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Диктовка Parakeet"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การป้อนตามคำบอก Parakeet"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Parakeet Dikte"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Диктування Parakeet"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đọc chính tả Parakeet"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Parakeet 听写"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Parakeet 聽寫"
+          }
+        }
+      }
+    },
+    "settings.labs.parakeetDictation.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أملِ باستخدام نموذج الكلام Parakeet على هذا الـ Mac. يؤدي تشغيله إلى تنزيل النموذج مرة واحدة؛ وبعد ذلك يعمل دون اتصال."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diktirajte Parakeet govornim modelom na ovom Macu. Uključivanje jednom preuzima model; nakon toga radi bez mreže."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dikter med Parakeet-talemodellen på denne Mac. Når du slår det til, hentes modellen én gang; derefter virker det offline."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diktiere mit dem Parakeet-Sprachmodell auf diesem Mac. Beim Einschalten wird das Modell einmal geladen; danach funktioniert es offline."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dictate with the Parakeet speech model on this Mac. Turning it on downloads the model once; after that it works offline."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dicta con el modelo de voz Parakeet en este Mac. Al activarlo, el modelo se descarga una vez; después funciona sin conexión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dictez avec le modèle vocal Parakeet sur ce Mac. L’activer télécharge le modèle une fois ; ensuite, il fonctionne hors ligne."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Detta con il modello vocale Parakeet su questo Mac. Attivandolo il modello viene scaricato una volta; poi funziona offline."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "この Mac 上の Parakeet 音声モデルで音声入力します。オンにするとモデルを一度だけダウンロードし、その後はオフラインで動作します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សរសេរតាមសំឡេងជាមួយម៉ូដែលសំឡេង Parakeet នៅលើ Mac នេះ។ ការបើកវានឹងទាញយកម៉ូដែលម្ដង បន្ទាប់មកវាដំណើរការក្រៅបណ្ដាញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 Mac에서 Parakeet 음성 모델로 받아쓰기합니다. 켜면 모델을 한 번 다운로드하며, 이후에는 오프라인으로 작동합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dikter med Parakeet-talemodellen på denne Macen. Når du slår det på, lastes modellen ned én gang; deretter virker det uten nett."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dyktuj z modelem mowy Parakeet na tym Macu. Włączenie pobiera model jeden raz; potem działa offline."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dite com o modelo de fala Parakeet neste Mac. Ao ativar, o modelo é baixado uma vez; depois funciona offline."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Диктуйте с речевой моделью Parakeet на этом Mac. При включении модель загружается один раз, после этого всё работает офлайн."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ป้อนตามคำบอกด้วยโมเดลเสียงพูด Parakeet บน Mac เครื่องนี้ การเปิดจะดาวน์โหลดโมเดลครั้งเดียว หลังจากนั้นใช้งานแบบออฟไลน์ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu Mac'teki Parakeet konuşma modeliyle dikte edin. Açmak modeli bir kez indirir; ardından çevrimdışı çalışır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Диктуйте з мовною моделлю Parakeet на цьому Mac. Увімкнення один раз завантажує модель; після цього все працює офлайн."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đọc chính tả bằng mô hình giọng nói Parakeet trên máy Mac này. Khi bật, mô hình được tải một lần; sau đó hoạt động ngoại tuyến."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "使用这台 Mac 上的 Parakeet 语音模型听写。开启后会下载一次模型，之后可离线使用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "使用這台 Mac 上的 Parakeet 語音模型聽寫。開啟後會下載一次模型，之後可離線使用。"
+          }
+        }
+      }
+    },
     "settings.labs.voiceRoom": {
       "extractionState": "manual",
       "localizations": {

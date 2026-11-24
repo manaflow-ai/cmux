@@ -99,6 +99,7 @@
     "CmuxNextTabs": {"layer": "ui", "mixes": ["domain"]},
     "CmuxNextLayout": {"layer": "ui", "mixes": ["domain"]},
     "CmuxNextPalette": {"layer": "ui", "mixes": ["domain"]},
+    "CmuxNextParakeet": {"layer": "ui", "mixes": ["service"]},
     "CmuxNextTerminal": {"layer": "ui", "mixes": ["service"]},
     "CmuxNextHome": {"layer": "ui"},
     "CmuxNextHomeModel": {"layer": "ui", "mixes": ["domain"], "plan": "Home models with no views (design/home.md); domain once HomeAgentGlance reads IconName from a target below ui (CmuxNextIcons is ui)"},

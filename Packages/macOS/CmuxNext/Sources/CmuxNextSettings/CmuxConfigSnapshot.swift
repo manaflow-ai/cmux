@@ -96,6 +96,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var liveTree = CmuxConfigSnapshot.liveTreeDefault
     /// `labs.voiceRoom` (off when unset) and `labs.voiceRoomURL` (trimmed; empty is the local room server).
     public var voiceRoom = CmuxConfigSnapshot.voiceRoomDefault, voiceRoomURL = CmuxConfigSnapshot.voiceRoomURLDefault
+    /// `labs.parakeetDictation`: dictate with the Parakeet model in process (voice-byo-providers slice 3).
+    public var parakeetDictation = CmuxConfigSnapshot.parakeetDictationDefault
     /// `labs.machineJoin`: This Mac's Screen sharing and Control consent switches for a joined Mac (Add Device's
     /// join way and the joined Machines rows no longer read it); off when unset.
     public var machineJoin = CmuxConfigSnapshot.machineJoinDefault
@@ -413,6 +415,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(Self.parseLabsToggle(root, path: appStorePath, fallback: appStoreDefault), \.appStore)
         snapshot.take(Self.parseLabsToggle(root, path: liveTreePath, fallback: liveTreeDefault), \.liveTree)
         snapshot.take(Self.parseLabsToggle(root, path: voiceRoomPath, fallback: voiceRoomDefault), \.voiceRoom)
+        snapshot.take(Self.parseLabsToggle(root, path: parakeetDictationPath, fallback: parakeetDictationDefault), \.parakeetDictation)
         snapshot.take(Self.parseLabsText(root, path: voiceRoomURLPath, fallback: voiceRoomURLDefault), \.voiceRoomURL)
         snapshot.take(Self.parseLabsToggle(root, path: machineJoinPath, fallback: machineJoinDefault), \.machineJoin)
         snapshot.take(Self.parseLabsToggle(root, path: liveCodePath, fallback: liveCodeDefault), \.liveCode)

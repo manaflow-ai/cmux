@@ -1405,6 +1405,13 @@
       ]
     },
     {
+      "agent": "network",
+      "why": "Turning Parakeet Dictation on downloads a speech model of several hundred MB.",
+      "keys": [
+        "labs.parakeetDictation"
+      ]
+    },
+    {
       "agent": "privacy",
       "why": "Voice Room records mic and screen text and posts it to the configured room.",
       "keys": [
