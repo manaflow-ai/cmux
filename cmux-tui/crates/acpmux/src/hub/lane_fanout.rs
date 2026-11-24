@@ -10,7 +10,8 @@
 //!   fork an agent made, which lineage leaves a root). The walk up stops at a
 //!   session with no parent or at a parent this host does not hold (a peer's
 //!   session): that id is the lane.
-//! - The cap counts the lane's live sessions here (`admission::is_live`) but
+//! - The cap counts the lane's resident sessions here (`residency::costs_for_cap`: a
+//!   hibernated chat takes no lane) but
 //!   its root, plus the creates admitted for the lane and not yet running.
 //!   Counting and reserving are one step under the admission lock, so
 //!   concurrent starts never pass it.
@@ -153,7 +154,7 @@ impl Hub {
                 Row {
                     id: s.id.clone(),
                     parent,
-                    live: super::admission::is_live(status, hosted.contains(&s.id)),
+                    live: super::residency::costs_for_cap(s, status, hosted.contains(&s.id)),
                 }
             })
             .collect();
