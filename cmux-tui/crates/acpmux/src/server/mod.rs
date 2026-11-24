@@ -157,6 +157,15 @@ impl MessageNoticeBook {
     }
 }
 
+/// Only the local byte stream can switch from JSON-RPC to a pipe on its first line.
+enum Transport {
+    Messages,
+    LocalStream {
+        /// The verified root peer of a Cloud VM's non-root daemon (daemon/provision.rs).
+        provisioner: bool,
+    },
+}
+
 pub struct Conn {
     /// The owner of this connection's own tasks (each request it sent, a reply waiting for room),
     /// a child of the hub's scope. A request a client sent before it hung up still runs to its
@@ -226,10 +235,7 @@ pub struct Conn {
     /// own outbox: where a send's process chain is walked from and whose check is carried
     /// (`sender_harness::check_trust`), provenance only, never a proof.
     pub(super) socket_peer: crate::sender_harness::SocketPeer,
-    /// A unix socket peer that is root while this daemon is not (Linux, `daemon/provision.rs`):
-    /// the VM provisioning exec, the one caller besides the signed app that may give the person key.
-    /// Only a Cloud machine's daemon, not dumpable since its start, has one.
-    provisioner: bool,
+    transport: Transport,
     /// Requests seen so far (`hub/person.rs`: initialize first, the proof second).
     requests: std::sync::atomic::AtomicU64,
     /// Its first request was an `initialize` that got the person challenge.
@@ -991,23 +997,49 @@ pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
         crate::home_fs::remove_file(path)?;
     }
     crate::config::refuse_lost_home(&crate::config::home())?;
-    // Made owner-only by bind itself (umask 0177 for the one call), never wider until the chmod
-    // below: a socket file carries its mode from the umask, and connect needs its write bit.
-    let listener = {
-        // SAFETY: umask has no preconditions and cannot fail; the old mask is put back at once.
-        let old = unsafe { libc::umask(0o177) };
-        let bound = UnixListener::bind(path);
-        // SAFETY: as above.
-        unsafe { libc::umask(old) };
-        bound.with_context(|| format!("bind {}", path.display()))?
-    };
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        crate::home_fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
-    }
+    let listener = bind_owner_only(path)?;
     tracing::info!("listening on {}", path.display());
     Ok(listener)
+}
+
+/// Binds `path` so nobody but this user can ever connect, without touching the process umask:
+/// the umask is process-wide, so setting it for one bind made a folder another thread created
+/// meanwhile 0600, which nothing can enter (two hub_carrier pipe tests failed with "bind
+/// .../acpmux.sock: Permission denied" that way). The socket is bound inside a fresh 0700
+/// folder next to `path`, made 0600 there and renamed into place; a bound socket keeps working
+/// under its new name. A staging path too long for `sun_path` binds in place, where the 0600
+/// chmod follows at once and the peer check at accept ([`peer_uid_allowed`]) holds meanwhile.
+#[cfg(unix)]
+fn bind_owner_only(path: &std::path::Path) -> Result<UnixListener> {
+    use std::os::unix::fs::PermissionsExt;
+    static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let owner_only = || std::fs::Permissions::from_mode(0o600);
+    let parent = path.parent().filter(|p| !p.as_os_str().is_empty());
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let stage = parent.map(|p| p.join(format!(".b{:x}{n:x}", std::process::id())));
+    let staged = stage.as_ref().map(|s| s.join("s"));
+    let fits = staged.as_ref().is_some_and(|s| cmux_unix_socket::check_path(s).is_ok());
+    let (Some(stage), Some(staged), true) = (stage, staged, fits) else {
+        let listener =
+            UnixListener::bind(path).with_context(|| format!("bind {}", path.display()))?;
+        crate::home_fs::set_permissions(path, owner_only())?;
+        return Ok(listener);
+    };
+    crate::home_fs::create_dir(&stage, 0o700)
+        .with_context(|| format!("create {}", stage.display()))?;
+    let bound = (|| -> Result<UnixListener> {
+        // A umask set elsewhere can leave the folder without its search bit; 0700 whatever it was.
+        crate::home_fs::set_permissions(&stage, std::fs::Permissions::from_mode(0o700))?;
+        let listener =
+            UnixListener::bind(&staged).with_context(|| format!("bind {}", path.display()))?;
+        crate::home_fs::set_permissions(&staged, owner_only())?;
+        crate::home_fs::rename(&staged, path)
+            .with_context(|| format!("move the socket to {}", path.display()))?;
+        Ok(listener)
+    })();
+    let _ = crate::home_fs::remove_file(&staged);
+    let _ = crate::home_fs::remove_dir(&stage);
+    bound
 }
 
 /// Narrows `dir`, the daemon socket's directory, to 0700 when it is acpmux's own (its home, or a
@@ -1661,7 +1693,7 @@ pub async fn serve_ws_until(
                 origin,
                 proof,
                 None,
-                false,
+                Transport::Messages,
                 SocketPeer::Unknown,
                 device,
                 Some(wire),
@@ -1826,7 +1858,7 @@ pub(super) async fn serve_outbox_connection(
         origin,
         auth,
         None,
-        false,
+        Transport::Messages,
         SocketPeer::Outbox,
         None,
         None,
@@ -1855,7 +1887,7 @@ pub async fn serve_connection_authed(
         origin,
         auth,
         None,
-        false,
+        Transport::Messages,
         SocketPeer::Unknown,
         None,
         None,
@@ -1882,7 +1914,7 @@ pub(crate) async fn serve_peer_link(
         Origin::Peer,
         ConnAuth::PeerToken,
         None,
-        false,
+        Transport::Messages,
         SocketPeer::Unknown,
         None,
         None,
@@ -1912,7 +1944,7 @@ pub(crate) async fn serve_device_link(
         origin,
         auth,
         None,
-        false,
+        Transport::Messages,
         SocketPeer::Unknown,
         Some(device.id),
         None,
@@ -1942,7 +1974,7 @@ async fn serve_connection_from(
     origin: Origin,
     auth: ConnAuth,
     peer: Option<cmux_link::app_caller::PeerToken>,
-    provisioner: bool,
+    transport: Transport,
     socket_peer: SocketPeer,
     device: Option<String>,
     wire: Option<Arc<crate::frame_compress::Wire>>,
@@ -2014,7 +2046,7 @@ async fn serve_connection_from(
         watch_inventory: StdMutex::new(false),
         peer,
         socket_peer,
-        provisioner,
+        transport,
         requests: std::sync::atomic::AtomicU64::new(0),
         challenged: AtomicBool::new(false),
         nonce: crate::hub::person::new_nonce(),
