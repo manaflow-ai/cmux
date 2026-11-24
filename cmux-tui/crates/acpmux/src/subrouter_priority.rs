@@ -19,10 +19,18 @@
 use crate::subrouter_session::HEADERS_ENV;
 
 /// `interactive` or `background`: the priority this process's requests carry.
+/// A profile may also name one of subrouter's other classes, `coordinator` or
+/// `batch` (subrouter-internal `internal/proxy/admission_class.go`; the
+/// gateway finds a `/compact` from the request body itself).
 pub const ENV: &str = "SUBROUTER_PRIORITY";
 const HEADER: &str = "X-Subrouter-Priority";
 pub const INTERACTIVE: &str = "interactive";
 pub const BACKGROUND: &str = "background";
+
+/// Whether `value` (lowercase) is a priority [`ENV`] may carry.
+pub fn is_known(value: &str) -> bool {
+    matches!(value, INTERACTIVE | BACKGROUND | "coordinator" | "batch")
+}
 
 /// Whether `name` is a coordinator session's name.
 pub fn is_coordinator(name: &str) -> bool {
@@ -69,7 +77,7 @@ pub fn set(env: &mut std::collections::BTreeMap<String, String>, name: &str, for
 /// one, or `None` when [`ENV`] is unset or not a known priority.
 pub fn custom_headers(get: impl Fn(&str) -> Option<String>) -> Option<String> {
     let priority = get(ENV)?.trim().to_ascii_lowercase();
-    if priority != INTERACTIVE && priority != BACKGROUND {
+    if !is_known(&priority) {
         return None;
     }
     let mut lines: Vec<String> = get(HEADERS_ENV)
