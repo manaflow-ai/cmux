@@ -88,7 +88,15 @@ test("a silent turn no call took that ended with something to say draws its repl
 
 test("a background turn with something to say draws as before", () => {
   const view = ids(turnView(transcript({ quiet: false }), new Set()));
-  expect(view).toEqual(["prompt", "worked-prompt", "reply", "summary", "worked-backgroundTurn-bg", "note", "backgroundEnd-bg"]);
+  expect(view).toEqual([
+    "prompt",
+    "worked-prompt",
+    "reply",
+    "summary",
+    "worked-backgroundTurn-bg",
+    "note",
+    "backgroundEnd-bg",
+  ]);
 });
 
 test('quiet background turns in a row draw no "N background updates" line', () => {
