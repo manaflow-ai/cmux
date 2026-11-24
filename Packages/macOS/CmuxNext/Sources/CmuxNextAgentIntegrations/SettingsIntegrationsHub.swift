@@ -15,6 +15,11 @@ public import Observation
 /// (`platform`, `team`), for an approval it listed; the shaped call is then read with
 /// `cmux hub status`.
 ///
+/// Chief's pinned Needs you section draws the same state as cards (the overview's `approvalCards`,
+/// shaped by the CLI): one per waiting approval with Approve and Deny, which answer here as the
+/// Settings card does. The card a click answered stays, with what the answer did (`lastAnswer`),
+/// until the next refresh; ``changedStream`` tells the page to read the state again.
+///
 /// The Stripe key the person pastes goes to the CLI's stdin and nowhere else: never an argument,
 /// the environment, the state or a log.
 ///
@@ -28,6 +33,8 @@ public import Observation
 public final class SettingsIntegrationsHub: PageProvider {
     public static let stateOp = "cmux.settings.hub.state"
     public static let runOp = "cmux.settings.hub.run"
+    /// Fires (no data) after the state changes: a refresh ends, an answer lands.
+    public static let changedStream = "cmux.settings.hub.changed"
 
     /// The CLI's overview, as it printed it (webviews/src/pages/settings/ops.ts `HubOverview`).
     private(set) var overview: JSONValue = .null
@@ -38,6 +45,17 @@ public final class SettingsIntegrationsHub: PageProvider {
     private(set) var lastError: (action: String, code: String, message: String)?
     /// The last call an answer ran (allow runs the call): its view, for the card's confirmation line.
     private(set) var lastCall: JSONValue = .null
+    /// The Chief card the person's click answered: `{approvalId, decision, card}` with the `call` it
+    /// ran or the `refused` answer's `{code, message}`, kept through
+    /// the refresh the answer runs and dropped on the next one.
+    private(set) var lastAnswer: JSONValue = .null
+
+    /// How many Chief cards show: one per waiting approval, the answered one in place of its own.
+    public var chiefCards: Int {
+        let waiting = (overview["approvalCards"]?.arrayValue ?? []).compactMap { $0["approvalId"]?.stringValue }
+        guard let answered = lastAnswer["approvalId"]?.stringValue else { return waiting.count }
+        return waiting.filter { $0 != answered }.count + 1
+    }
 
     @ObservationIgnored private let cli: @MainActor () async -> URL?
     @ObservationIgnored private let runCLI: @Sendable (URL, [String], Data?) async throws -> (Int32, Data, Data)
@@ -45,6 +63,7 @@ public final class SettingsIntegrationsHub: PageProvider {
     /// header when one is named): `(status, body)`.
     @ObservationIgnored private let answerApproval: @MainActor (_ platform: URL, _ team: String?, _ path: String, _ body: Data) async throws -> (Int, Data)
     @ObservationIgnored private var generation = 0
+    @ObservationIgnored private var listeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
 
     public init(cli: @escaping @MainActor () async -> URL?,
                 answerApproval: @escaping @MainActor (URL, String?, String, Data) async throws -> (Int, Data),
@@ -70,7 +89,20 @@ public final class SettingsIntegrationsHub: PageProvider {
             "overview": overview,
             "error": lastError.map { ["action": .string($0.action), "code": .string($0.code), "message": .string($0.message)] } ?? .null,
             "lastCall": lastCall,
+            "lastAnswer": lastAnswer,
         ]
+    }
+
+    public func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
+                          onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
+        guard stream == Self.changedStream else { throw PageError.unknownOp(stream) }
+        let id = UUID()
+        listeners[id] = onEvent
+        return PageSubscription { [weak self] in self?.listeners[id] = nil }
+    }
+
+    private func changed() {
+        for listener in listeners.values { listener(.object([:])) }
     }
 
     /// One gesture: `refresh`; `link` with `provider` (`stripe` with `key`, or `github`) and
@@ -81,7 +113,7 @@ public final class SettingsIntegrationsHub: PageProvider {
     func run(_ params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         let action = params["action"]?.stringValue ?? ""
         if action == "refresh" {
-            await refresh()
+            await refresh(keepAnswer: false)
             return .object([:])
         }
         guard context.userGesture || context.isConfirmedUser else {
@@ -113,6 +145,7 @@ public final class SettingsIntegrationsHub: PageProvider {
     func answer(_ action: String, params: JSONValue) async throws -> JSONValue {
         let id = params["id"]?.stringValue ?? ""
         let request = try Self.answerRequest(action: action, params: params, overview: overview)
+        let card = (overview["approvalCards"]?.arrayValue ?? []).first { $0["approvalId"]?.stringValue == id } ?? .null
         let reply: (Int, Data)?
         do { reply = try await answerApproval(request.platform, request.team, request.path, request.body) } catch { reply = nil }
         let value = reply.flatMap { try? JSONValue.parse($0.1) }
@@ -129,7 +162,16 @@ public final class SettingsIntegrationsHub: PageProvider {
                          value?["error"]?["code"]?.stringValue ?? (reply == nil ? "api.unreachable" : "api.bad_answer"),
                          value?["error"]?["message"]?.stringValue ?? "")
         }
-        await refresh()
+        // An answer that landed keeps its card with what it did; a refused one keeps it waiting, with the refusal.
+        if card == .null {
+            lastAnswer = .null
+        } else if let refused = lastError {
+            lastAnswer = ["approvalId": .string(id), "decision": .string(action), "card": card,
+                          "refused": ["code": .string(refused.code), "message": .string(refused.message)]]
+        } else {
+            lastAnswer = ["approvalId": .string(id), "decision": .string(action), "card": card, "call": lastCall]
+        }
+        await refresh(keepAnswer: true)
         return ["ok": .bool(lastError == nil)]
     }
 
@@ -215,8 +257,11 @@ public final class SettingsIntegrationsHub: PageProvider {
         return try? JSONValue.parse(last)
     }
 
-    /// Reads the overview again; only the newest read writes it.
-    func refresh() async {
+    /// Reads the overview again; only the newest read writes it. A refresh an answer did not run
+    /// drops the answered Chief card (`keepAnswer` false).
+    public func refresh(keepAnswer: Bool = false) async {
+        if !keepAnswer { lastAnswer = .null }
+        defer { changed() }
         guard let cli = await cli() else {
             overview = .null
             problem = "unavailable"

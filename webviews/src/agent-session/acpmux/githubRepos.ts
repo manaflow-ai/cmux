@@ -12,8 +12,11 @@
 // `cloud.startChat {cwd}`; the machine clones it.
 //
 // One small store per page (useSyncExternalStore, as cloudMachines.ts), driven by the menu's own
-// events: opening the menu reads the status, Connect to GitHub opens GitHub and then reads the status
-// again each time the page becomes the key one (pageKey.ts), until it says ready. No timers, no polls.
+// events: the folder chip showing reads the status once, and the repositories with it once it is
+// ready (`prefetch`, cmux#53226), so they are listed when the menu opens rather than arriving under
+// it; opening the menu reads the status again (the repositories stay as read), Connect to GitHub opens
+// GitHub and then reads the status again each time the page becomes the key one (pageKey.ts), until
+// it says ready. No timers, no polls.
 import { useSyncExternalStore } from "react";
 import { githubRepository } from "./githubRepository";
 import { postNative } from "./native";
@@ -65,6 +68,9 @@ export type GitHubPicker = {
   state: GitHubPickerState;
   /// The menu opened: read the status (and the repositories, once it is ready).
   onOpen(): void;
+  /// The folder chip that opens the menu is shown: read the status and the repositories once, ahead
+  /// of the open, unless they were read already (none for a gallery's fixed state).
+  onPrefetch?(): void;
   /// Connect to GitHub, or Choose more repositories…: the host opens GitHub.
   onConnect(): void;
   /// Read the repositories again for `query` (Enter on a search the loaded page has no match for).
@@ -183,6 +189,10 @@ export function createGitHubPicker(
   let statusTurn = 0;
   let reposTurn = 0;
   let unwatch: (() => void) | undefined;
+  // A status read was asked for (`prefetch` asks once, not each time a chip shows), and one is out:
+  // an open while the chip's read is out waits for that answer rather than asking twice.
+  let statusAsked = false;
+  let statusOut = false;
   // The status the latest Connect was clicked in: the wait ends when the status moves off it.
   let waitingFrom: string | undefined;
   const set = (next: Partial<GitHubPickerState>) => {
@@ -224,10 +234,13 @@ export function createGitHubPicker(
   };
   // `relist`: list the repositories again even when some are shown (the installation's repositories changed).
   const readStatus = (relist = false) => {
+    statusAsked = true;
+    statusOut = true;
     const turn = ++statusTurn;
     call("github.status", {}).then(
       (reply) => {
         if (turn !== statusTurn) return;
+        statusOut = false;
         const status = githubStatusFromReply(reply);
         const ready = status.state === "ready";
         // The wait goes on only while the browser's work is not done: still not installed, or still
@@ -239,11 +252,16 @@ export function createGitHubPicker(
           (status.state === "not_connected" || status.reason === "signed_out");
         if (!stays) stopWaiting();
         set({ status, ...(stays ? {} : { waiting: false }) });
-        if (ready && (relist || state.repos === undefined || state.error !== undefined)) listRepos(state.query);
+        // A list still out for the same words (the chip's prefetch, the menu opened under it) answers this
+        // read too: a second would drop the first and keep the Loading row up longer (cmux#53226).
+        const listing = state.loading && !relist;
+        if (ready && !listing && (relist || state.repos === undefined || state.error !== undefined))
+          listRepos(state.query);
       },
       () => {
         // A host that does not serve it (an older app) or refused it: GitHub can't be reached.
         if (turn !== statusTurn) return;
+        statusOut = false;
         stopWaiting();
         set({ status: { state: "unavailable", reposScope: null, reason: "unreachable" }, waiting: false });
       },
@@ -260,10 +278,13 @@ export function createGitHubPicker(
       listeners.add(listener);
       return () => void listeners.delete(listener);
     },
+    prefetch() {
+      if (!statusAsked) readStatus();
+    },
     open() {
       // A fresh open says nothing of an earlier refusal.
       if (state.connectError !== undefined) set({ connectError: undefined });
-      readStatus();
+      if (!statusOut) readStatus();
     },
     connect() {
       if (state.connecting) return;
@@ -317,6 +338,7 @@ export function useGitHubPicker(store?: GitHubPickerStore): GitHubPicker {
   return {
     state,
     onOpen: picker.open,
+    onPrefetch: picker.prefetch,
     onConnect: picker.connect,
     onSearch: picker.search,
     onRetry: picker.retry,
