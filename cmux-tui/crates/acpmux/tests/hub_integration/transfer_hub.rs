@@ -90,9 +90,8 @@ impl TransferDial for Direct {
 /// B's control hook as `host join` writes it, with `move` listed, for person `user-1`.
 fn hook(ledger: &Path, ops: &[&str]) -> MeshControlHook {
     let entry = MeshControlFrom {
-        daemon_id: String::new(),
-        same_user: true,
         ops: ops.iter().map(|o| (*o).to_owned()).collect(),
+        ..MeshControlFrom::same_user()
     };
     MeshControlHook::new(vec![entry], Some(ledger.join("mesh-controls.json")))
         .with_own_user(Arc::new(|| Some("user-1".to_owned())))
