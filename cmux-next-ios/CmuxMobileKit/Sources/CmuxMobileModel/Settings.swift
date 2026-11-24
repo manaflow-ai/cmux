@@ -185,6 +185,10 @@ public final class SettingsStore {
     /// Settings → Transport → Agent CLI Screen Changes (off by default): agent CLI terminals
     /// come as cell deltas (`agent-cli-hybrid-v1`). Read at each terminal attach.
     public var agentCLIHybrid: Bool { didSet { save(agentCLIHybrid, "agentCLIHybrid") } }
+    /// Settings → Transport → Mac Screen over Link (off by default): Screen Sharing views a Mac
+    /// that streams its display on the link (`mac-display-v1`) over that link, view only. Read by
+    /// Screen Sharing (`CmuxMobilePreferences.Key.macScreenOverLink`) through the same key.
+    public var macScreenOverLink: Bool { didSet { save(macScreenOverLink, "macScreenOverLink") } }
     public var notifyLevel: NotificationLevel { didSet { save(notifyLevel.rawValue, "notifyLevel") } }
     /// Macs whose notifications are off (their device ids).
     public private(set) var notifyMutedMacs: [String] { didSet { save(notifyMutedMacs, "notifyMutedMacs") } }
@@ -239,6 +243,7 @@ public final class SettingsStore {
         defaults.set(ultra.rawValue, forKey: "cmuxMobile.settings.ultra")
         alignKeepalives = bool("alignKeepalives", false)
         agentCLIHybrid = bool("agentCLIHybrid", false)
+        macScreenOverLink = bool("macScreenOverLink", false)
         // The earlier three switches: Finished off reads as "Only when I'm needed".
         let level = string("notifyLevel").flatMap(NotificationLevel.init(rawValue:))
             ?? (bool("notifyFinished", true) ? .neededAndFinished : .needed)

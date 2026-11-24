@@ -420,9 +420,29 @@ impl HostConfig {
         // `CMUX_MOBILE_SURFACE_SIMULATORS=0`; an older app sets neither then), and Cloud desktops.
         let surface = match &supplied {
             Some(supplied) if env("CMUX_MOBILE_SURFACE_HOSTS").as_deref() == Some("1") => {
-                let config = crate::surface::SurfaceConfig::new(Some(supplied.surface.launcher()), max_tabs);
+                let mut config =
+                    crate::surface::SurfaceConfig::new(Some(supplied.surface.launcher()), max_tabs);
                 if env("CMUX_MOBILE_SURFACE_SIMULATORS").as_deref() == Some("0") {
-                    config.without_simulators()
+                    config = config.without_simulators();
+                }
+                // The app's source also captures this Mac's displays (`d~<display>`).
+                if env("CMUX_MOBILE_MAC_DISPLAY").as_deref() == Some("1") {
+                    config = config.with_mac_display();
+                }
+                config
+            }
+            // Standalone (no app): a source process of its own (`CMUX_MOBILE_SURFACE_SOURCE`, e.g.
+            // `cmux-rd`), for this Mac's displays when `CMUX_MOBILE_MAC_DISPLAY=1` (the
+            // screen-stream-eval `iphone-link` target runs hostd so, with no cmux app).
+            None if env("CMUX_MOBILE_SURFACE_SOURCE").is_some() => {
+                let exe = PathBuf::from(env("CMUX_MOBILE_SURFACE_SOURCE").unwrap_or_default());
+                let config = crate::surface::SurfaceConfig::process(
+                    exe,
+                    default_state_dir().join("surface"),
+                    max_tabs,
+                );
+                if env("CMUX_MOBILE_MAC_DISPLAY").as_deref() == Some("1") {
+                    config.with_mac_display()
                 } else {
                     config
                 }
