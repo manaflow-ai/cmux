@@ -594,13 +594,13 @@ where
     let reader_end = crate::link_v2::ReaderEnd::new(slot.clone());
     let reader = tokio::spawn(async move {
         let _reader_end = reader_end;
-        while let Some(Ok(frame)) = source.next().await {
-            match frame {
-                Frame::Text(t) if in_tx.send(t.to_string()).await.is_err() => break,
-                Frame::Close(_) => break,
-                _ => {}
-            }
-        }
+        // Pings are answered while a frame waits to be taken (`ws_read_ahead.rs`).
+        super::ws_read_ahead::read_ahead(source, async |frame| match frame {
+            Frame::Text(t) => in_tx.send(t.to_string()).await.is_ok(),
+            Frame::Close(_) => false,
+            _ => true,
+        })
+        .await;
     });
     let (stop, mut stopped) = tokio::sync::oneshot::channel::<()>();
     let writer = tokio::spawn(async move {
