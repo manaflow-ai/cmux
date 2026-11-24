@@ -143,28 +143,28 @@ enum BrowserToolbarHandlers {
             profileActions: !services.cache.browserTabs.isIncognitoTab(key))
     }
 
-    /// The More menu (cx-6qwm, `ActionRegistry.makeBrowserMoreMenu`) on glass: the hidden toolbar buttons (and
-    /// Extensions while none is pinned) first, the toolbar's zoom row, then Show in Toolbar (cx-d0d.81).
+    /// The More menu (cx-6qwm, `ActionRegistry.makeBrowserMoreMenu`) on glass, as ChatGPT Atlas's: the hidden toolbar
+    /// buttons (and Extensions while none is pinned) and Show in Toolbar (cx-d0d.81) in Tools; no Design Mode row.
     static func overflowMenu(for entry: BrowserEntry, registry: ActionRegistry, settings: SettingsController?) -> NSMenu {
         var entries: [ContextMenuEntry] = []
         let buttons = entry.chrome?.toolbarButtons
         if entry.chrome?.offersExtensionsMenuInMore == true { entries.append(.action("browser.extensions.menu")) }
         for button in buttons?.menuButtons ?? [] {
             switch button {
-            case .designMode: entries.append(.action("toggleBrowserDesignMode"))
             case .devTools: entries.append(.action("toggleBrowserDeveloperTools"))
             case .profile: entries.append(.action("browser.profile.choose"))
             case .theme: entries.append(.choices("browserTheme"))
             // Zoom is the zoom row; Bookmark Manager and Downloads are rows of their own.
             // The media hub only while a tab has media.
             case .media: if buttons?.hasContent(.media) == true { entries.append(.action("browser.media.show")) }
-            case .zoom, .favorites, .downloads, .overflow: break
+            case .designMode, .zoom, .favorites, .downloads, .overflow: break
             }
         }
-        let menu = registry.makeBrowserMoreMenu(tabKey: entry.key, buttons: entries, chromium: entry.tab.engineKind == .cef) { buttons?.zoomRow($0) }
         // Show in Toolbar's rows run the palette's Pin or Unpin Browser Toolbar Button… (one handler).
         let pin = BrowserToolbarButtonsSetting.menuToggle(settings)
-        return buttons?.addingShowInToolbar(to: menu, (pin.enabled, { [weak registry] id in runToolbarPin(id, registry: registry, fallback: pin.toggle) })) ?? menu
+        let show = buttons?.showInToolbarItem(enabled: pin.enabled) { [weak registry] in runToolbarPin($0.rawValue, registry: registry, fallback: pin.toggle) }
+        return registry.makeBrowserMoreMenu(tabKey: entry.key, buttons: entries, chromium: entry.tab.engineKind == .cef,
+                                            toolsFooter: show.map { [$0] } ?? []) { buttons?.zoomRow($0) }
     }
 }
 
