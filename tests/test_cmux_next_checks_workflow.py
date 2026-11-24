@@ -3879,7 +3879,7 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
         self.assertIn("app-compile-fleet", jobs["release-compile"]["needs"])
 
     def run_check(self, word: str | None, *, mac_release: str = "false", reader_exit: int = 0,
-                  knows_phase: bool = True) -> tuple[subprocess.CompletedProcess, str, str, str]:
+                  knows_phase: bool = True, why: str = "") -> tuple[subprocess.CompletedProcess, str, str, str]:
         """Run the step with a stub base reader printing word (None: no reader checked out)."""
         step = next(s for s in self.job()["steps"] if s.get("id") == "check")
         self.assertEqual(step["env"]["REF"], "${{ github.event.pull_request.head.sha }}")
@@ -3892,6 +3892,8 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
 import sys
 open({str(Path(tmp) / "args")!r}, "w").write(" ".join(sys.argv[1:]))
 print({word!r})
+if {why!r}:
+    print("fleet compile result for " + {("d" * 40)!r} + ": " + {word!r} + " (" + {why!r} + ")", file=sys.stderr)
 sys.exit({reader_exit})
 """)
             output = Path(tmp) / "output"
@@ -3930,6 +3932,15 @@ sys.exit({reader_exit})
         result, output, _, _ = self.run_check("fail")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("verdict=fail", output)
+
+    def test_a_fleet_red_says_why(self):
+        # hq#24624: a red said only "tip check fail:". The reader's reason line goes into the summary and annotation.
+        why = "tip check fail: build fleet job j1: /w/A.swift:12:5: error: cannot find 'foo' in scope"
+        result, _, _, summary = self.run_check("fail", why=why)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(why, summary)
+        self.assertIn(why, result.stdout)
+        self.assertIn("no reason given", self.run_check("fail")[3])
 
     def test_no_fleet_verdict_is_never_green(self):
         """2026-10-28: cmux-ci exited 69 (EX_UNAVAILABLE, a TimeoutError against the wedged controller)
