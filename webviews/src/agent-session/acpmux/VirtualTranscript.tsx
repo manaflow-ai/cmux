@@ -90,7 +90,12 @@ import { useCountedRender } from "./perfRender";
 import { drewStreamingRow, useStreamingRow } from "./streamingRow";
 import { rowsWithLiveOutput } from "./liveToolOutput";
 import { followTrace } from "./followTrace";
-import { FIELD_GROWTH_EVENT, growthTranslate, type FieldGrowthEvent } from "./composer/fieldGrowthEvent";
+import {
+  FIELD_GROWTH_EVENT,
+  growthPendingIn,
+  growthTranslate,
+  type FieldGrowthEvent,
+} from "./composer/fieldGrowthEvent";
 import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
 import { holdOlderScrollTarget, noteOlderScrollTarget } from "./conversation/olderScrollTarget";
@@ -1697,7 +1702,21 @@ function TranscriptView({
     // frame by frame: the room takes each frame's height and the rows ride with it on that one clock.
     // A glide of their own on top would trail the stack's edge by a fold.
     const asksFolding = () => dock.querySelector(":scope > .acpmux-asks-stack [data-fold-clip]") !== null;
+    // A typed edit's growth starts in the field's own observer (fieldGrowth.ts, deferred): told first
+    // in that round, the dock already holds the field at its natural height. Taken here, the rows
+    // glided on the fold's curve and led the field by 5 to 7 px (transcript-composer-grow-anchor).
+    // The growth event, in the same round, takes it on the field's curve instead; a change no growth
+    // claims by the next frame is taken then.
+    let waitedForGrowth = 0;
     const resized = () => {
+      if (!growth && growthPendingIn(dock)) {
+        if (!waitedForGrowth)
+          waitedForGrowth = requestAnimationFrame(() => {
+            waitedForGrowth = 0;
+            if (!growth) resized();
+          });
+        return;
+      }
       const rows = thread.current;
       if (!rows || growth || asksFolding()) {
         take();
@@ -1819,6 +1838,7 @@ function TranscriptView({
       observer.disconnect();
       dock.removeEventListener("click", toggled, { capture: true });
       dock.removeEventListener(FIELD_GROWTH_EVENT, grew);
+      if (waitedForGrowth) cancelAnimationFrame(waitedForGrowth);
       rowsMove?.cancel();
       for (const move of stackMoves) move.cancel();
       freezeGrowthRise.current = () => {};
