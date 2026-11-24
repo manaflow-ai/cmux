@@ -76,6 +76,7 @@ dependencies = [
  "cmux-source-scan",
  "cmux-stack-auth",
  "cmux-supervise-core",
+ "cmux-sync",
  "cmux-tag-cache",
  "cmux-tailnet",
  "cmux-tailnet-front",

@@ -361,6 +361,26 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/here/beat",
+      "params": {
+        "$ref": "#/types/HereBeatParams"
+      },
+      "result": {
+        "$ref": "#/types/HereBeatDone"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/here",
+      "params": {
+        "$ref": "#/types/HereParams"
+      },
+      "result": {
+        "$ref": "#/types/HereResult"
+      }
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/markUnread",
       "params": {
         "$ref": "#/types/MarkUnreadParams"
@@ -4477,6 +4497,219 @@
         "cwd": true
       },
       "type": "object"
+    },
+    "HereActivity": {
+      "description": "What the person on a device is doing, as its client sees it.",
+      "oneOf": [
+        {
+          "const": "present",
+          "description": "The app is in front; `idleMs` says how long since the last input.",
+          "type": "string"
+        },
+        {
+          "const": "working",
+          "description": "The person is typing or driving a terminal.",
+          "type": "string"
+        },
+        {
+          "const": "away",
+          "description": "The app is in the background, the screen locked or asleep.",
+          "type": "string"
+        }
+      ]
+    },
+    "HereBeatDone": {
+      "properties": {
+        "changed": {
+          "description": "Whether the beat changed what `_acpmux/here` answers.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "changed"
+      ],
+      "type": "object"
+    },
+    "HereBeatParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/here/beat`: send about every 10 s while the app runs (a beat lives 30 s) and once\nwith `leave` when it quits. At most 64 devices are held; `seq` grows per device, so a beat\nthat arrives late or twice changes nothing.",
+      "properties": {
+        "_meta": {
+          "anyOf": [
+            {
+              "$ref": "#/types/AuthorMeta"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The person, when a peer forwards for one of its own; none is this machine's owner."
+        },
+        "activity": {
+          "$ref": "#/types/HereActivity"
+        },
+        "device": {
+          "description": "The device's stable id, one line of at most 128 bytes.",
+          "type": "string"
+        },
+        "deviceKind": {
+          "$ref": "#/types/HereDeviceKind"
+        },
+        "idleMs": {
+          "default": 0,
+          "description": "Milliseconds since the person's last input on this device.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "leave": {
+          "description": "The device is going away: drop its beat now.",
+          "type": "boolean"
+        },
+        "scopes": {
+          "description": "The chats or workspaces the device shows; at most 16, each at most 256 bytes.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "seq": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "device",
+        "deviceKind",
+        "seq",
+        "activity"
+      ],
+      "type": "object"
+    },
+    "HereDevice": {
+      "properties": {
+        "ageMs": {
+          "description": "Milliseconds since its last beat, on this daemon's clock.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "device": {
+          "type": "string"
+        },
+        "deviceKind": {
+          "$ref": "#/types/HereDeviceKind"
+        },
+        "status": {
+          "$ref": "#/types/HereStatus"
+        },
+        "working": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "ageMs",
+        "device",
+        "deviceKind",
+        "status",
+        "working"
+      ],
+      "type": "object"
+    },
+    "HereDeviceKind": {
+      "description": "The kind of device a heartbeat comes from.",
+      "enum": [
+        "mac",
+        "vm",
+        "phone",
+        "web",
+        "other"
+      ],
+      "type": "string"
+    },
+    "HereKind": {
+      "enum": [
+        "person",
+        "agent"
+      ],
+      "type": "string"
+    },
+    "HereMember": {
+      "description": "One person or agent, across their devices.",
+      "properties": {
+        "devices": {
+          "items": {
+            "$ref": "#/types/HereDevice"
+          },
+          "type": "array"
+        },
+        "id": {
+          "description": "`owner` for this machine's person, an author id for another, the session id for an agent.",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/types/HereKind"
+        },
+        "name": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/types/HereStatus",
+          "description": "The best status across devices."
+        },
+        "working": {
+          "description": "Typing, driving a terminal, or (an agent) in a turn.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "devices",
+        "id",
+        "kind",
+        "name",
+        "status",
+        "working"
+      ],
+      "type": "object"
+    },
+    "HereParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/here`.",
+      "properties": {
+        "scope": {
+          "description": "Only who shows this chat or workspace; agents match by session id.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "HereResult": {
+      "properties": {
+        "here": {
+          "description": "Active first, then idle, then away; people before agents; then by name.",
+          "items": {
+            "$ref": "#/types/HereMember"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "here"
+      ],
+      "type": "object"
+    },
+    "HereStatus": {
+      "description": "Best first.",
+      "enum": [
+        "active",
+        "idle",
+        "away"
+      ],
+      "type": "string"
     },
     "InboxThreadParams": {
       "additionalProperties": false,
