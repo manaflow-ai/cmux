@@ -179,6 +179,15 @@ public final class MobileKeyboardDock: NSObject {
         // Already pinned before UIKit started moving it. Leave this layout in the
         // keyboard transaction. An inconsistent guide uses the notification below.
         if followingVerifiedGuide, systemGuideMatches(constant) { return }
+        // UIKit posts this before its own guide moves, inside the keyboard's
+        // animation, and lays the guide's dependents out in that transaction.
+        // Stay on its guide, keep the notified constraint ready, and check the
+        // endpoint on did-change. A layout here ran the whole view (its SwiftUI
+        // hosts too) before the keyboard's first frame, on every show.
+        if followingVerifiedGuide, UIView.inheritedAnimationDuration > 0, view?.window != nil {
+            if notifiedTop.constant != constant { notifiedTop.constant = constant }
+            return
+        }
         let handedBack = followNotifications()
         guard let view, view.window != nil else { return }
         guard handedBack || notifiedTop.constant != constant else { return }
@@ -216,6 +225,12 @@ public final class MobileKeyboardDock: NSObject {
         guard let view, view.window != nil else { return }
         if holdingAfterDrag {
             holdingAfterDrag = false
+            refresh()
+            view.layoutIfNeeded()
+        }
+        // The transition rode UIKit's guide: one that settled off the notified
+        // endpoint goes back to the notification.
+        if followingVerifiedGuide, !fingerDrag, !systemGuideMatches(notifiedConstant) {
             refresh()
             view.layoutIfNeeded()
         }
