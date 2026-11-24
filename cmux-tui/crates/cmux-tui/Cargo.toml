@@ -11,8 +11,15 @@ description = "cmux-tui: tmux-like terminal multiplexer TUI backed by libghostty
 workspace = true
 
 [features]
-default = []
+default = ["acpmux-tui"]
 iroh-transport = ["cmux-remote/iroh-transport"]
+# acpmux's ratatui terminal UI (acpmux `src/tui/`, with syntect and pulldown-cmark): `cmux acp
+# attach`, `cmux acp chats open`, bare `acpmux`. On by default for now, so the bundled `cmux`
+# (bin/cmux, bin/acpmux) still opens it. CMUX-570 (bundle size) turns it off for the bundle once
+# the separately shipped TUI binary carries it, so an attach in a NIGHTLY never falls back to a
+# plain stream. Without it those commands hand the session to a cmux that has it (ACPMUX_TUI, else
+# one on PATH), else stream it as `attach --plain` (acpmux `src/tui_entry.rs`).
+acpmux-tui = ["acpmux/tui"]
 # Windows only (cx-w0uha): build cmux-tui.exe as a thin launcher that loads
 # the whole program from cmux_tui.dll beside it. The DLL is the library
 # target built with `cargo rustc -p cmux-tui --lib --crate-type cdylib`.
@@ -175,10 +182,10 @@ ring.workspace = true
 # (acpmux::tailnet). `-p acpmux` checks on Windows in the same CI job.
 # Without its `build-id` feature: this crate installs acpmux's build id at
 # start (acpmux-build-id docs), so a new stamp does not recompile acpmux.
-# With its `tui` feature: `cmux acp attach` (the app's chat-in-a-terminal-tab, `acp.rs`
-# `chat_tab_command`) and the bundle's `acpmux` symlink open acpmux's terminal UI, which a
-# default acpmux build leaves out (headless; acpmux `src/tui_entry.rs`).
-acpmux = { path = "../acpmux", default-features = false, features = ["tui"] }
+# Its `tui` feature only through this crate's `acpmux-tui` (above): `cmux acp attach` (the
+# app's chat-in-a-terminal-tab, `acp.rs` `chat_tab_command`) and the bundle's `acpmux` symlink
+# are headless otherwise and hand the TUI off (acpmux `src/tui_entry.rs`).
+acpmux = { path = "../acpmux", default-features = false }
 acpmux-build-id = { path = "../acpmux-build-id" }
 # A device row's kind and glyph (`devices/model.rs`).
 cmux-device-kind = { path = "../cmux-device-kind" }

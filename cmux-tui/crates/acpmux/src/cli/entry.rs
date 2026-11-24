@@ -80,6 +80,8 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         libc::sigemptyset(&mut empty);
         libc::pthread_sigmask(libc::SIG_SETMASK, &empty, std::ptr::null_mut());
     }
+    // A headless acpmux fails the TUI handoff's probe before anything else (tui_entry.rs).
+    crate::tui_entry::refuse_probe()?;
     crate::daemon::set_daemon_prefix(invocation.daemon_prefix.clone());
     // An agent host serves one harness for its controller; it has no CLI.
     // Agent work yields CPU and disk to the app (`qos.rs`): before any thread

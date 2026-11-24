@@ -49,8 +49,9 @@ hot-modules = ["dep:acpmux-hot"]
 # on (scripts/ci/acpmux-build-features.sh).
 # The ratatui terminal UI (src/tui/): bare `acpmux`, `attach`, `new` without --detach, `chats open`.
 # Off by default, so acpmux is headless (Lawrence, 2026-11-17: "we want to keep acpmux
-# headless"); the `cmux` multicall binary turns it on (cmux-tui's Cargo.toml), and a headless
-# acpmux hands those commands to a `cmux` (src/tui_entry.rs).
+# headless"); only the `cmux` multicall binary turns it on, through cmux-tui's own `acpmux-tui`
+# feature (on by default until CMUX-570 moves it to the separate TUI binary), and a headless
+# acpmux hands those commands to a `cmux` that has it (src/tui_entry.rs).
 tui = ["dep:ratatui", "dep:crossterm", "dep:syntect", "dep:pulldown-cmark", "dep:unicode-width"]
 hub-carrier = ["dep:cmux-remote", "dep:cmux-remote-protocol", "dep:async-trait", "dep:url"]
 # The heap by allocation site (dhat) for the god-fixture profile (`tests/god_daemon.rs`): the
