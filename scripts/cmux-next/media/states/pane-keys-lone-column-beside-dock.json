@@ -1,0 +1,159 @@
+{
+ "title": "Lawrence 2026-11-23 (video, 'gotta fix columns stuff'): Ctrl-Shift-H/L on a lone column beside a docked chat. Before, the column narrowed across its far edge and left an empty area at the window's edge; after, the divider beside the chat follows the arrow.",
+ "launch_args": [
+  "--showcase"
+ ],
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "A workspace",
+   "cmux": [
+    "action",
+    "run",
+    "newTab",
+    "--name",
+    "Columns",
+    "--focus",
+    "--cwd",
+    "/tmp"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "A wide window",
+   "rpc": {
+    "method": "debug.window_frame",
+    "params": {
+     "frame": [
+      160,
+      85,
+      1600,
+      960
+     ]
+    }
+   },
+   "wait": 0.3,
+   "shot": false
+  },
+  {
+   "title": "Hide the sidebar",
+   "cmux": [
+    "action",
+    "run",
+    "toggleSidebar"
+   ],
+   "wait": 1.0,
+   "shot": false
+  },
+  {
+   "title": "A page in the column (example.com: synthetic)",
+   "cmux": [
+    "tab",
+    "create",
+    "browser",
+    "--url",
+    "https://example.com/",
+    "--name",
+    "Page"
+   ],
+   "wait": 4,
+   "shot": false
+  },
+  {
+   "title": "An agent chat (it docks left; the page's column is on its right)",
+   "cmux": [
+    "agent",
+    "new-chat",
+    "--cwd",
+    "/tmp"
+   ],
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "Wait for the chat page",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "chat_state"
+    }
+   },
+   "shot": false
+  },
+  {
+   "title": "A: the chat docked left, the page's column focused",
+   "cmux": [
+    "action",
+    "run",
+    "focusRight"
+   ],
+   "wait": 2,
+   "shot": true
+  },
+  {
+   "title": "Ctrl-Shift-H on the page (1 of 2)",
+   "cmux": [
+    "action",
+    "run",
+    "resizePaneLeft"
+   ],
+   "wait": 0.8,
+   "shot": false
+  },
+  {
+   "title": "B: Ctrl-Shift-H twice on the page: the divider beside the chat moves left, the page still reaches the window's edge",
+   "cmux": [
+    "action",
+    "run",
+    "resizePaneLeft"
+   ],
+   "wait": 1.5,
+   "shot": true
+  },
+  {
+   "title": "Ctrl-Shift-L on the page (1 of 4)",
+   "cmux": [
+    "action",
+    "run",
+    "resizePaneRight"
+   ],
+   "wait": 0.8,
+   "shot": false
+  },
+  {
+   "title": "Ctrl-Shift-L (2 of 4)",
+   "cmux": [
+    "action",
+    "run",
+    "resizePaneRight"
+   ],
+   "wait": 0.8,
+   "shot": false
+  },
+  {
+   "title": "Ctrl-Shift-L (3 of 4)",
+   "cmux": [
+    "action",
+    "run",
+    "resizePaneRight"
+   ],
+   "wait": 0.8,
+   "shot": false
+  },
+  {
+   "title": "C: then Ctrl-Shift-L four times: the divider moves right, past where it started",
+   "cmux": [
+    "action",
+    "run",
+    "resizePaneRight"
+   ],
+   "wait": 1.5,
+   "shot": true
+  }
+ ]
+}
