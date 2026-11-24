@@ -692,6 +692,8 @@ public final class DaemonTerminalSession: TerminalSession {
         autoReattach?.cancel()
         autoReattach = nil
         autoReattaching = false
+        noLinkWait?.cancel()
+        noLinkWait = nil
         stopLiveness()
         inputUnansweredSince = nil
     }
@@ -1253,6 +1255,8 @@ public final class DaemonTerminalSession: TerminalSession {
             heldEvents = nil
             for event in held { apply(event) }
             attachRetries = 0
+            noLinkWait?.cancel()
+            noLinkWait = nil
             // Keys held past the limit (the app was suspended) are dropped and said before
             // the screen hears `.attached`, which forgets a held composer send.
             expireInput()
@@ -1317,6 +1321,23 @@ public final class DaemonTerminalSession: TerminalSession {
                 autoReattaching = false
                 attachRetries = 0
                 if let client = self.client { self.client = nil; Task { await client.close() } }
+                // Its own bound: a link that never comes back (or comes back without
+                // reattaching this session) left "Reattaching…" up for ever. Past
+                // `noLinkBound` the cached screen stays and the line says "Can't reach
+                // this terminal" with Retry; a new link's `reconnect()` still attaches.
+                if noLinkWait == nil {
+                    let bound = noLinkBound
+                    // task-owner: `noLinkWait`; cancelled by an attach and `stop()`
+                    noLinkWait = Task { [weak self] in
+                        try? await Task.sleep(for: bound)
+                        guard let self, !Task.isCancelled else { return }
+                        self.noLinkWait = nil
+                        guard self.handler != nil, !self.ended, !self.attached, !self.attaching, !self.gaveUp else { return }
+                        log.notice("surface \(self.surface, privacy: .public): no link for \(String(describing: bound), privacy: .public): can't reach")
+                        self.gaveUp = true
+                        self.handler?(.connection(self.connectionState))
+                    }
+                }
                 if handler != nil, !ended { handler?(.connection(connectionState)) }
                 return
             }
@@ -2091,6 +2112,12 @@ public final class DaemonTerminalSession: TerminalSession {
     /// Delays before retrying a failed reattach (seconds); then the error shows.
     static let defaultReattachBackoff: [Double] = [0.25, 0.5, 1, 2, 4, 8]
     var reattachBackoff = DaemonTerminalSession.defaultReattachBackoff
+    /// How long a self-reattach that found no link waits for the link's return
+    /// before saying "Can't reach this terminal" (with Retry) over the cached screen.
+    static let defaultNoLinkBound: Duration = .seconds(30)
+    var noLinkBound = DaemonTerminalSession.defaultNoLinkBound
+    /// The no-link wait's bound, while it runs.
+    private var noLinkWait: Task<Void, Never>?
 
     // MARK: Self-recovery
 

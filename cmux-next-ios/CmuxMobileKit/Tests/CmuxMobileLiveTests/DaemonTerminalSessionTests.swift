@@ -1348,6 +1348,16 @@ final class ProbeCancellationChannel: LinkChannel, @unchecked Sendable {
     }
 }
 
+/// Whether a test's fake link is up (read from the session's `open`).
+final class LinkFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var up = true
+    var value: Bool {
+        get { lock.withLock { up } }
+        set { lock.withLock { up = newValue } }
+    }
+}
+
 final class ChannelLog: @unchecked Sendable {
     private let lock = NSLock()
     private var channels: [any LinkChannel] = []
@@ -1621,6 +1631,48 @@ final class MutableChannel: LinkChannel, @unchecked Sendable {
             if case .output(let data) = event { return String(decoding: data, as: UTF8.self) }
             return nil
         }
+    }
+
+    /// no-hangs 2026-11-24: the channel ends and the link with it, and no new link calls
+    /// `reconnect()`. Before, the self-reattach found no link and said "Reattaching…" for
+    /// ever. Now it has its own bound: past it the cached screen stays and the line says
+    /// "Can't reach this terminal" (Retry); Retry with the link back attaches.
+    @Test(.timeLimit(.minutes(1))) func aSelfReattachWithNoLinkEndsOnCantReachWithRetry() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.afterAttach = nil
+        let channels = ChannelLog()
+        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let linkUp = LinkFlag()
+        let session = DaemonTerminalSession(surface: 7) {
+            guard linkUp.value else { throw LinkError(code: "no-link", message: "Not connected to the Mac") }
+            let channel = try await link.openChannel(service: "daemon", args: [:])
+            channels.append(channel)
+            return DaemonClient(channel: channel)
+        }
+        session.macName = "mini"
+        session.noLinkBound = .milliseconds(300)
+        defer { session.stop() }
+        var events: [TerminalSessionEvent] = []
+        session.start { events.append($0) }
+        try #require(try await poll(Self.setup) { session.isAttached }, "the first attach never finished")
+
+        linkUp.value = false
+        let start = ContinuousClock.now
+        await channels.last?.close(code: "link_closed", reason: "link dropped")
+        #expect(try await poll(Self.setup) { !session.isAttached })
+        let ended = try await poll(Self.lag) {
+            session.connectionState == .failed(message: DaemonTerminalSession.unreachableMessage("mini"))
+        }
+        let took = Self.ms(ContinuousClock.now - start)
+        print("TERMRECOVER mode=no-link ms=\(ended ? String(took) : "never(>30000)")")
+        #expect(ended, "a self-reattach with no link said Reattaching for ever")
+        #expect(events.last == .connection(.failed(message: DaemonTerminalSession.unreachableMessage("mini"))))
+
+        // Retry, the link back: attached again.
+        linkUp.value = true
+        session.reconnect()
+        #expect(try await poll(Self.setup) { session.isAttached })
+        #expect(session.connectionState == .attached)
     }
 
     /// (i) The daemon closes the attach channel; the link is up.
