@@ -2,11 +2,12 @@
 """Base-red skip: a pull request job that is red on the base branch right now is not run again on the pull request.
 
 Leo, 2026-11-23 21:10Z: "we're drowning in our own workflow". On 2026-11-23 11:12-23:12Z (controller timing feed)
-two PR jobs were red on every base push run that decided them, and their PR runs were red too, so a PR run told
+three PR jobs were red on every base push run that decided them, and their PR runs were red too, so a PR run told
 nobody anything gh-merge-green does not already excuse (scripts/ci/base_red_excuse.py: a red the base shares is no
 PR's red):
 - tooling-tests: base 23 red and 0 green, PR 15 of 326 green, 110 runner-h a day;
 - the Cloud journey (PR CLI on staging): 7 of 101 green on PRs while journey-staging was red, 77 runner-h a day.
+- cmux-next generated files: base 41 of 42 red, PR 0 of 571 green, 295 runner-h a day (11-23).
 CmuxMobileKit tests (base 21 of 21 red, PR 0 of 258 green) is not skipped: Leo wants every pull request to get a
 proper run of it (his words of 2026-11-22 in cmux-next-ios-kit.yml).
 

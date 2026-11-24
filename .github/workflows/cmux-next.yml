@@ -4973,11 +4973,38 @@ jobs:
           if-no-files-found: ignore
           retention-days: 3
 
+  # Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period." While generated files is red on
+  # feat-cmux-next (41 of 42 base pushes red, 0 of 571 pull request runs green, 17.7k runner-min a day on 11-23), a
+  # pull request's run of it is red too and gh-merge-green excuses that red as the base's, so it is skipped
+  # (scripts/ci/base_red_skip.py: fails open, 10% of skips still run as the audit, label full-ci runs it,
+  # vars.CI_SKIP_WHILE_BASE_RED == '0' turns it off).
+  generated-files-base-red:
+    if: github.event_name == 'pull_request' && format('{0}', vars.CI_SKIP_WHILE_BASE_RED) != '0' && !contains(github.event.pull_request.labels.*.name, 'full-ci')
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    timeout-minutes: 6
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      base_red: ${{ steps.decide.outputs.base_red }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          # Only the script, into its own folder (as cmux-next-guards.yml's tooling-tests-base-red does).
+          path: .base-red-src
+          sparse-checkout: scripts/ci
+      - name: Red on the base right now?
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -I .base-red-src/scripts/ci/base_red_skip.py decide --workflow cmux-next.yml --job "cmux-next generated files" >> "$GITHUB_OUTPUT"
+
   # Why: docs/ci/cmux-next-workflow-notes.md#note-59
   generated-files:
-    needs: [path_route, macos-placement, push-head-preflight, web-bundles]
+    needs: [path_route, macos-placement, push-head-preflight, web-bundles, generated-files-base-red]
     # Why: docs/ci/cmux-next-workflow-notes.md#note-265
-    if: ${{ !cancelled() && ((needs.web-bundles.result == 'success' || needs.web-bundles.result == 'skipped') && needs.path_route.outputs.generated == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci')) && needs.path_route.outputs.generated_host == 'generated-files') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'full-ci') }}
+    if: ${{ !cancelled() && needs.generated-files-base-red.outputs.base_red != 'true' && ((needs.web-bundles.result == 'success' || needs.web-bundles.result == 'skipped') && needs.path_route.outputs.generated == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci')) && needs.path_route.outputs.generated_host == 'generated-files') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'full-ci') }}
     name: cmux-next generated files
     # Why: docs/ci/cmux-next-workflow-notes.md#note-266
     concurrency:
