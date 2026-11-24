@@ -137,7 +137,12 @@ export function FileSearch({
             : undefined;
 
   return (
-    <dialog ref={root} open className="acpmux-file-search" aria-label={t("files.search")}>
+    <dialog
+      ref={root}
+      open
+      className="acpmux-file-search ui-glass ui-glass-floats ui-glass-transient"
+      aria-label={t("files.search")}
+    >
       <input
         ref={field}
         type="text"

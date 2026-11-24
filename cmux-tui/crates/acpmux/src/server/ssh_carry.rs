@@ -316,6 +316,8 @@ fn not_connected(stderr: &str) -> bool {
         "Permission denied",
         "Host key verification failed",
         "connect to host",
+        // A relay ProxyCommand (ProxyUseFdpass) reached none of the machine's routes: no login.
+        "proxy dialer did not pass back a connection",
     ];
     NEVER.iter().any(|m| stderr.contains(m))
 }
@@ -432,6 +434,16 @@ mod tests {
         assert!(matches!(
             outcome(Some(255), "", "Connection to box closed by remote host."),
             Carry::Maybe(_)
+        ));
+        // A parked machine behind a relay ProxyCommand: ssh never logged in, so the message is
+        // still unsent and the mesh relay may carry it (not a maybe-taken that rules it out).
+        assert!(matches!(
+            outcome(
+                Some(255),
+                "",
+                "mm_receive_fd: recvmsg: expected received 1 got 0\nproxy dialer did not pass back a connection"
+            ),
+            Carry::NotTaken(_)
         ));
         assert!(matches!(outcome(Some(127), "", "acpmux: not found"), Carry::NotTaken(_)));
         assert!(matches!(outcome(Some(4), "", "no session"), Carry::NotTaken(_)));

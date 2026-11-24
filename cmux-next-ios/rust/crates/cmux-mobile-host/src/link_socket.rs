@@ -22,6 +22,11 @@
 //!   closes with a code other than `eof`, one last line
 //!   `{"error":CODE,"message":REASON}` follows its bytes (for line-JSON
 //!   services such as `pair-requests`, `cmux mobile pair-requests`).
+//! - `{"op":"pair-requests","args":{...}}`: the `pair-requests` service's
+//!   list or answer for a request waiting on THIS Mac (`pair_requests.rs`,
+//!   [`crate::pair_requests::answer_locally`]), asked by its own user here, so
+//!   an agent on one Mac needs no click in the app (`cmux mobile pair-requests`
+//!   without `--mac`). One answer line, then the socket closes.
 //! - `{"op":"traffic"}`: this host's bytes in and out per service since it
 //!   started, and per second over the last 10 s and 60 s (`traffic.rs`;
 //!   `cmux device traffic`).
@@ -69,6 +74,8 @@ pub struct Dialer {
     pub activity: Arc<crate::activity::Activity>,
     /// Live links by peer device id (one per peer, reused by every request).
     pub links: Mutex<HashMap<String, Arc<Link>>>,
+    /// This hostd's pairing, whose waiting requests `{"op":"pair-requests"}` answers.
+    pub pairing: Option<crate::pairing::Pairing>,
 }
 
 /// `<dir>/<session>.link.sock` for the daemon socket `<dir>/<session>.sock`.
@@ -138,9 +145,17 @@ async fn handle(stream: UnixStream, dialer: Arc<Dialer>) -> Result<()> {
         }
         Some("open") => open(&dialer, &request, read, write).await,
         Some("traffic") => reply(&mut write, traffic_reply(Instant::now())).await,
+        Some("pair-requests") => {
+            // Only this user reaches this socket (`same_user`): the trust of the app's Allow.
+            let args = request.get("args").cloned().unwrap_or_else(|| json!({}));
+            reply(&mut write, crate::pair_requests::answer_locally(dialer.pairing.as_ref(), &args)).await
+        }
         _ => {
-            reply(&mut write, json!({"error": "bad_request", "message": "op is machines, open or traffic"}))
-                .await
+            reply(
+                &mut write,
+                json!({"error": "bad_request", "message": "op is machines, open, pair-requests or traffic"}),
+            )
+            .await
         }
     }
 }

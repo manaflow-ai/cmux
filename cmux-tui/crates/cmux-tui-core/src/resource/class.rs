@@ -51,6 +51,7 @@ impl ResourceOperation {
                 | Self::PairingRequestList
                 | Self::FrontendProjectionGet
                 | Self::ChiefEngineGet
+                | Self::ChiefAutomationList
                 | Self::ChiefProfileList
                 | Self::ChiefProfileGet
                 | Self::ChiefProfileAvatarGet
@@ -115,6 +116,7 @@ impl ResourceOperation {
                 | Self::SidebarLayoutGet
                 | Self::SidebarGet
                 | Self::ProjectList
+                | Self::ProjectActionsList
                 | Self::PaletteUsageGet
                 | Self::PaletteRank
                 | Self::ThemeSchemeConvert

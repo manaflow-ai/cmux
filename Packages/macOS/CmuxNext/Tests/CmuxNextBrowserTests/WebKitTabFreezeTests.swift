@@ -101,6 +101,19 @@ import WebKit
         tab.close()
     }
 
+    /// https://github.com/manaflow-ai/cmux/issues/51079: Play from Now Playing or the media menu on a frozen
+    /// tab (a paused, hidden player) ran no script and did nothing. A media command wakes the page first.
+    @Test func aMediaCommandWakesAFrozenPage() async throws {
+        let engine = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory())
+        let tab = engine.makeWebKitTab()
+        defer { tab.close() }
+        try await Self.loadTallPage(in: tab)
+        #expect(tab.setFrozen(true))
+        await tab.media(.play)
+        #expect(!tab.isFrozen, "Play left the page frozen")
+        #expect(try await tab.evaluate("6 * 7", world: .page, gesture: .cmux) == .number(42))
+    }
+
     @Test func aClosedWebKitTabIgnoresAFreeze() {
         let engine = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory())
         let tab = engine.makeWebKitTab()

@@ -1,3 +1,4 @@
+import CmuxMobileDesign
 import CmuxMobileModel
 import Foundation
 import Observation
@@ -592,6 +593,9 @@ import SwiftUI
         let claude = try #require(source.tabs.first { $0.id == "t-claude" })
         let menu = source.pageMenu(for: claude).flatMap { $0 }.map(\.title)
         #expect(menu.contains("Fork Conversation…") && menu.contains("Archive") && menu.contains("Duplicate Tab"))
+        // Its glyph is the pack's agent.fork split arrow (CmuxSymbol.fork), not the system branch symbol.
+        let forkRow = try #require(source.pageMenu(for: claude).flatMap { $0 }.first { $0.title == "Fork Conversation…" })
+        #expect(forkRow.systemImage == CmuxSymbol.fork && forkRow.symbolBundle == CmuxSymbol.bundle)
         // Fork Conversation… asks where (the Mac's fork destinations); In a New Tab is the fork beside it.
         source.pageMenu(for: claude).flatMap { $0 }.first { $0.title == "Fork Conversation…" }?.action()
         #expect(source.forkingTab?.id == "t-claude")

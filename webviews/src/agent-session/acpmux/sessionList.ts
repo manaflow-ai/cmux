@@ -4,6 +4,7 @@
 import { type Translate, translate } from "./i18n";
 import { withoutRelayLabel, withoutRelayLabelOfMessage } from "./conversation/relayEnvelope";
 import { readRetry, type RetryState } from "./subagents/retryState";
+import { parseSessionIcon, type HarnessIconSpec } from "../shared/harnessIcons";
 import { senderSessionName } from "./senderIdentity";
 import { replacedSince } from "./sessionIndex";
 import { type SessionUsageStats, usageStatsOf } from "./usageStats";
@@ -12,6 +13,13 @@ import { type SessionUsageStats, usageStatsOf } from "./usageStats";
 export type AcpmuxSessionEntry = {
   sessionId: string;
   displayTitle?: string;
+  /** The name it was given (acpmux `displayName`, "Mango"): every human-visible surface shows it
+   *  first. Absent when none was given. */
+  displayName?: string;
+  /** Its names before its renames, oldest first (acpmux `formerNames`): "fka" lines read the last. */
+  formerNames?: string[];
+  /** The icon it set (acpmux `icon`), drawn in place of its harness mark (`SessionMark`). */
+  icon?: HarnessIconSpec;
   title?: string;
   name?: string;
   harness?: string;
@@ -290,16 +298,39 @@ function doingLine(session: Record<string, any>): string | undefined {
   return step ?? tool ?? text(session.lane?.step);
 }
 
-/** What a session waits on the person for: only the person answers either, in the app. */
-export type SessionWaiting = { on: "question"; prompt?: string } | { on: "permission" };
+/** What a session waits on the person for: only the person answers any of them, in the app. acpmux
+ *  names every wait (`waitingOn`, subsession_send.rs `waiting_on`): a question, a tool's permission,
+ *  a secret's value, the password for one command as root, or an MCP server to connect. */
+export type SessionWaiting =
+  | { on: "question"; prompt?: string }
+  | { on: "permission" }
+  | { on: "secret" }
+  | { on: "elevation" }
+  | { on: "mcpConnect" };
 
 /** `waitingOn` while the session waits on the person, with a question's first prompt
  *  (`waitingPrompt`) when acpmux gives it. */
 export function sessionWaiting(session: Record<string, any>): SessionWaiting | undefined {
   if (session.waitingOn === "permission") return { on: "permission" };
+  if (session.waitingOn === "secret") return { on: "secret" };
+  if (session.waitingOn === "elevation") return { on: "elevation" };
+  if (session.waitingOn === "mcp_connect") return { on: "mcpConnect" };
   if (session.waitingOn !== "question") return undefined;
   const prompt = text(session.waitingPrompt);
   return prompt ? { on: "question", prompt } : { on: "question" };
+}
+
+/** `formerNames` as acpmux sends it (oldest first), its non-blank strings; absent for none. */
+export function formerNamesOf(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const names = value.filter((name): name is string => typeof name === "string" && name.trim() !== "");
+  return names.length > 0 ? names : undefined;
+}
+
+/** The newest of its former names ("fka claude-sr2-coord-old"), unless it is the name shown now. */
+export function formerName(entry: { formerNames?: string[]; displayTitle?: string }): string | undefined {
+  const last = entry.formerNames?.at(-1);
+  return last && last !== entry.displayTitle ? last : undefined;
 }
 
 /** What a row draws at its right edge, most urgent first. */
@@ -313,6 +344,9 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
   return {
     sessionId: session.sessionId,
     displayTitle: sessionTitle(session),
+    displayName: text(session.displayName),
+    formerNames: formerNamesOf(session.formerNames),
+    icon: parseSessionIcon(session.icon),
     title: session.title,
     name: session.name,
     harness: session.harness,
@@ -469,12 +503,14 @@ export function isOpaqueName(bare: string): boolean {
 }
 
 /**
- * The title (the agent's title, else the first prompt) when the name was generated (`codex`,
+ * Its given name (acpmux `displayName`) when it has one. Else the title (the agent's title, else
+ * the first prompt) when the name was generated (`codex`,
  * `codex-3`, `codex-fork`, after the harness profile or its family), else the name the user gave. A generated
  * name is the launch profile's (`claude-sr`), so a chat with no prompt yet is a "New chat".
  */
 export function sessionTitle(
   session: {
+    displayName?: string;
     title?: string;
     lastPrompt?: string;
     name?: string;
@@ -485,6 +521,9 @@ export function sessionTitle(
   },
   t: Translate = translate,
 ): string {
+  // The name it was given (acpmux decides it: a given handle) reads everywhere first.
+  const given = session.displayName?.trim();
+  if (given) return given;
   const name = senderSessionName(session.name ?? "", session.peer);
   const bare = name.split("/").pop() ?? name;
   // acpmux names a session `agent` or `agent-N`, and a fork `<name>-fork`, also made unique with `-N`.
@@ -523,10 +562,12 @@ const shown = (value: unknown): string | undefined => {
 
 /**
  * A folderless workspace's private chat folder, `~/Library/Application Support/cmux/agent-home/<workspace-id>`
- * (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE). It is not a project, so it is never shown by its id.
+ * (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE), or a DEV build's own,
+ * `~/Library/Application Support/cmux-next/builds/<key>/agent-home/<workspace-id>` (BuildStatePaths `agentHome`).
+ * It is not a project, so it is never shown by its id (cmux#53226: a tagged build listed its own by UUID).
  */
 export function isAgentHome(cwd: string | undefined): boolean {
-  return /\/Library\/Application Support\/cmux\/agent-home(?:\/|$)/.test(cwd ?? "");
+  return /\/Library\/Application Support\/(?:cmux|cmux-next\/builds\/[^/]+)\/agent-home(?:\/|$)/.test(cwd ?? "");
 }
 
 /**
@@ -612,35 +653,127 @@ export class SessionsBy {
 }
 
 /// What a session's folder lists read of it (``recentLocalFolders``, the pane's project pickers): its
-/// folder, where it runs, whether it is listed, and when it was last active.
-export const folderFields = (session: AcpmuxSessionEntry): readonly unknown[] => [
+/// folder, where it runs, whether it is listed, and when it was last active. The time only of a chat
+/// on this Mac: no folder list orders another machine's chats by it, and at Leo's scale those were
+/// most of the changes (another machine's lanes working), each building every page's project list
+/// again from 10K chats (bench/session-scale-typing.bench.ts).
+/// Where a session works, without when: the folders a list names, not their order.
+export const placeFields = (session: AcpmuxSessionEntry): readonly unknown[] => [
   session.cwd,
   session.host,
   session.hostKind,
   session.peer,
   listed(session),
-  activityTime(session),
+];
+
+export const folderFields = (session: AcpmuxSessionEntry): readonly unknown[] => [
+  ...placeFields(session),
+  !session.peer && (!session.hostKind || session.hostKind === "local") ? activityTime(session) : undefined,
 ];
 
 /// This Mac's chat folders, newest chat first, each once: not a private agent-home folder, `~` or a
 /// chat on another machine. `mostRecentProject` picks from it; a New Tab page keeps it for the next
 /// page's first frame (newtab/recentProject.ts).
+export function recentLocalFolders(sessions: readonly AcpmuxSessionEntry[], limit = Infinity): string[] {
+  return recentFolders(sessions, localFolder, limit);
+}
+
+/// The folders `folderOf` names, of the newest chat first, each once (a tie keeps the list's order).
 /// One pass keeps each folder's newest chat (the first in the list among equals, as a stable sort
 /// leaves it), then only the folders are sorted: every page reads this on each change of a chat of
 /// this Mac, and sorting all of a large profile's chats there took the scrolled page's frames
 /// (bench/session-scale-scroll.bench.ts).
-export function recentLocalFolders(sessions: readonly AcpmuxSessionEntry[], limit = Infinity): string[] {
+export function recentFolders(
+  sessions: readonly AcpmuxSessionEntry[],
+  folderOf: (session: AcpmuxSessionEntry) => string | undefined,
+  limit = Infinity,
+): string[] {
   const newest = new Map<string, { at: number; index: number }>();
   sessions.forEach((session, index) => {
-    if (session.peer || (session.hostKind && session.hostKind !== "local") || !listed(session)) return;
-    const cwd = session.cwd?.replace(/\/+$/, "");
-    if (!cwd || cwd === "~" || isAgentHome(cwd)) return;
+    const folder = folderOf(session);
+    if (folder === undefined) return;
     const at = activityTime(session) ?? 0;
-    const kept = newest.get(cwd);
-    if (!kept || at > kept.at) newest.set(cwd, { at, index });
+    const kept = newest.get(folder);
+    if (!kept || at > kept.at) newest.set(folder, { at, index });
   });
   const folders = [...newest].sort(([, left], [, right]) => right.at - left.at || left.index - right.index);
-  return folders.slice(0, limit).map(([cwd]) => cwd);
+  return folders.slice(0, limit).map(([folder]) => folder);
+}
+
+/// The folder `recentLocalFolders` lists a session under, or undefined when it lists none for it.
+export function localFolder(session: AcpmuxSessionEntry): string | undefined {
+  const cwd = session.cwd?.replace(/\/+$/, "");
+  if (!cwd || cwd === "~" || isAgentHome(cwd)) return undefined;
+  return !session.peer && (!session.hostKind || session.hostKind === "local") && listed(session) ? cwd : undefined;
+}
+
+/// `recentFolders` of a list that changes one chat at a time, kept as the list changes: a chat on
+/// this Mac working moves its folder to the front, without sorting every chat again. The same array
+/// while the order holds. Anything else (a chat added or gone, one moved to another folder, a time
+/// that went back or ties another folder's) builds it again from the whole list. Leo, 2026-11-18,
+/// "typing in the composer still slow 😞 there must be a lot of open stuff?": each page sorted all
+/// 10K chats on every event of a chat on this Mac (bench/session-scale-typing.bench.ts).
+export class FolderRecency {
+  constructor(private readonly folderOf: (session: AcpmuxSessionEntry) => string | undefined = localFolder) {}
+
+  private last: readonly AcpmuxSessionEntry[] | undefined;
+  private order: string[] = [];
+  private newest = new Map<string, number>();
+  private seen = new Map<string, { folder: string | undefined; at: number }>();
+
+  of(sessions: readonly AcpmuxSessionEntry[]): readonly string[] {
+    if (sessions === this.last) return this.order;
+    const replaced = this.last === undefined ? undefined : replacedSince(this.last, sessions);
+    this.last = sessions;
+    if (!replaced || !replaced.every((at) => this.moved(sessions[at]!))) this.build(sessions);
+    return this.order;
+  }
+
+  private build(sessions: readonly AcpmuxSessionEntry[]) {
+    this.order = recentFolders(sessions, this.folderOf);
+    this.newest = new Map();
+    this.seen = new Map();
+    for (const session of sessions) {
+      const folder = this.folderOf(session);
+      const at = activityTime(session) ?? 0;
+      this.seen.set(session.sessionId, { folder, at });
+      if (folder !== undefined && at > (this.newest.get(folder) ?? -Infinity)) this.newest.set(folder, at);
+    }
+  }
+
+  /// Applies one replaced session; false when the whole list must be read again.
+  private moved(session: AcpmuxSessionEntry): boolean {
+    const before = this.seen.get(session.sessionId);
+    const folder = this.folderOf(session);
+    const at = activityTime(session) ?? 0;
+    if (!before || before.folder !== folder || at < before.at) return false;
+    this.seen.set(session.sessionId, { folder, at });
+    if (folder === undefined || at === before.at) return true;
+    const newest = this.newest.get(folder)!;
+    if (at < newest) return true;
+    // Its folder's newest time again, from another chat: a tie with another folder may order otherwise.
+    if (at === newest) return false;
+    this.newest.set(folder, at);
+    const from = this.order.indexOf(folder);
+    if (from < 0) return false;
+    // Its new place: after every folder newer than it. A tie keeps the list's own order: build again.
+    let to = 0;
+    while (to < this.order.length) {
+      const other = this.order[to]!;
+      if (other !== folder) {
+        const time = this.newest.get(other)!;
+        if (time === at) return false;
+        if (time < at) break;
+      }
+      to += 1;
+    }
+    if (to >= from) return true;
+    const next = this.order.slice();
+    next.splice(from, 1);
+    next.splice(to, 0, folder);
+    this.order = next;
+    return true;
+  }
 }
 
 /// The first of `folders` (newest first) a New Tab may start in: not the home folder or a temporary

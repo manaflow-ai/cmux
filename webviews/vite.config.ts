@@ -32,9 +32,9 @@ export default defineConfig({
       "src/diff/generated/**",
       // A markdown test document: its exact syntax (*** rules, odd spacing) is what it tests.
       "src/gallery/fixtures/markdown-showcase.md",
-      // scripts/pane-protocol-codegen.ts --check owns these bytes.
+      // Build output of scripts/pane-protocol-codegen.ts.
       "src/protocol/generated/**",
-      // scripts/acpmux-protocol-codegen.ts --check owns these bytes.
+      // Build output of scripts/acpmux-protocol-codegen.ts.
       "src/agent-session/acpmux/protocol/generated/**",
       // Byte-identical copy of the Rust lane's emitted IR.
       "src/protocol/ir/**",
@@ -72,7 +72,8 @@ export default defineConfig({
     ...reactWithCompiler(),
     // CMUX_GALLERY_STAGE_CSS=dev: the gallery scans' build keeps the dev server's CSS (vite.config.gallery.ts).
     tailwindcss(process.env.CMUX_GALLERY_STAGE_CSS === "dev" ? { optimize: false } : undefined),
-    // Shiki's grammars and themes stored deflated, inflated on import (CMUX-570, app size).
+    // Shiki's grammars and themes and Monaco's UI strings stored deflated, inflated on import
+    // (CMUX-570, app size).
     packedShikiData(),
     {
       // Vite writes root-absolute script URLs into `diff-page.html` and `markdown-page.html`; make
@@ -273,8 +274,8 @@ function lazyChunkName(id: string): string | null {
   if (shikiTheme) {
     return `shiki-theme-${shikiTheme[1]}`;
   }
-  // What the packed grammars and themes inflate with (packed-shiki-data.mjs): one lazy chunk,
-  // loaded with the first of them, never on a page's first load.
+  // What the packed grammars, themes and Monaco UI strings inflate with (packed-shiki-data.mjs):
+  // one lazy chunk, loaded with the first of them, never on a page's first load.
   if (id === UNPACK_MODULE || id.includes("/node_modules/fflate/")) {
     return "shiki-unpack";
   }

@@ -8,6 +8,7 @@ import { SubagentStartedLine } from "../src/agent-session/acpmux/subagents/Subag
 import { SubagentHarnessContext } from "../src/agent-session/acpmux/subagents/subagentGroupModel";
 import { turnView, WORKED } from "../src/agent-session/acpmux/conversation/turns";
 import { layoutConversation, type AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { TRANSCRIPT_LINE_ROW } from "../src/agent-session/acpmux/transcriptGrid";
 
 const row = (id: string, kind: string, fields: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
   id,
@@ -94,7 +95,7 @@ for (const harness of ["claude-opus-5-5", "codex"])
     expect(withSubagentLines(replayed)).toBe(replayed);
     const geometry = layoutConversation(closed, 760);
     for (const entry of closed.filter((entry) => entry.kind === SUBAGENT_STARTED || entry.kind === SUBAGENT_DONE))
-      expect(geometry.heights[closed.indexOf(entry)]).toBe(22);
+      expect(geometry.heights[closed.indexOf(entry)]).toBe(TRANSCRIPT_LINE_ROW);
   });
 
 test("queued placeholders and missing identities do not announce work", () => {
