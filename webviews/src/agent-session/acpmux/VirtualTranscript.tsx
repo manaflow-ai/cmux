@@ -28,6 +28,7 @@ import {
   layoutConversation,
   type PlacedLayout,
   type RowHeights,
+  layoutGeometry,
   placedFromEstimate,
   placedWithOrigin,
   placeRowsIndexed,
@@ -72,7 +73,7 @@ import {
 } from "./conversation/scrollCoordinates";
 import { createFollowGlide, followRoom } from "./conversation/followGlide";
 import { createTailGlide, type PlacedRows, type TailGlide } from "./conversation/tailGlide";
-import { finishCarry, notePinPass, pinLiveLine, pinnedLiveRow, refreshPinned } from "./conversation/pinnedLiveLine";
+import { finishCarry, notePinPass, pinLiveLine, refreshPinned, pinnedLiveRow } from "./conversation/pinnedLiveLine";
 import {
   createFollowChase,
   type FollowChase,
@@ -170,7 +171,7 @@ import { type TranscriptNeedsYou } from "./needsYou/JumpPill";
 import { copyTextResult } from "./conversation/clipboard";
 import { transcriptRangeText } from "./conversation/transcriptCopy";
 import { chatColumnOf, useChatSizing } from "./chatWidth";
-import { useChatDisplay, sendPopEnabled } from "./chatDisplay";
+import { sendPopEnabled, useChatDisplay } from "./chatDisplay";
 import { useComposerSettings } from "./composerSettings";
 import { type Folds } from "./conversation/viewFolds";
 import { SUBAGENT_OF } from "./subagents/subagentRows";
@@ -955,7 +956,10 @@ function TranscriptView({
   /// frame and node, which read refs, are given as the transcript mounts (`connect`, below): until then
   /// they did nothing (`transcriptMounted`).
   const guardRead = useRef<() => void>(() => {});
-  const frameGuard = useRef<{ seen: number | undefined; handled: number | undefined }>({
+  const frameGuard = useRef<{
+    seen: number | undefined;
+    handled: number | undefined;
+  }>({
     seen: undefined,
     handled: undefined,
   });
@@ -1012,7 +1016,9 @@ function TranscriptView({
     jumpBack.current = undefined;
     setJumpBackHeld(false);
   }, [setJumpBackHeld]);
-  const [promptScan] = useState<{ current: PromptScan }>(() => ({ current: { length: 0 } }));
+  const [promptScan] = useState<{ current: PromptScan }>(() => ({
+    current: { length: 0 },
+  }));
   const [jumpUpHint] = useState(() => ({ current: -1 }));
   /// The offset Jump up just set, so its scroll event is not taken for the reader's stop.
   const placedTop = useRef<number | undefined>(undefined);
@@ -3000,7 +3006,10 @@ function TranscriptView({
   /// Only then is there room they came back to: a layout pass that lets go and takes it again (the queue
   /// closing at the latest row) leaves none (agent-pane-queue-scroll-bottom).
   /// One ref for both, which the placement pass reads once (`roomUnderRows`).
-  const heldRoom = useRef<HeldRoom>({ room: dockRoom, reader: { followed: false } });
+  const heldRoom = useRef<HeldRoom>({
+    room: dockRoom,
+    reader: { followed: false },
+  });
   /// The composer card's height the room under the last row was last made for (`grown` below).
   const cardRest = useRef(0);
   /// The overlay dock (composer/dockMotion.experiment.ts): the composer card's height the room under
@@ -6110,7 +6119,11 @@ function TranscriptView({
     const declareFold = (line: Element | null | undefined) => {
       const rowId = line?.closest<HTMLElement>("[data-row-id]")?.dataset.rowId;
       if (rowId)
-        transition(motionList, { cause: "disclosure", anchorRow: rowId, ms: FOLD_HOLD_MIN_MS + FOLD_SETTLE_MS });
+        transition(motionList, {
+          cause: "disclosure",
+          anchorRow: rowId,
+          ms: FOLD_HOLD_MIN_MS + FOLD_SETTLE_MS,
+        });
     };
     // First on the window, so a fling's momentum held after a jump reaches no other listener.
     const removeMomentumHold = installMomentumHold(node, scrollRunning);
