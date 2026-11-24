@@ -55,6 +55,11 @@ site=...`); a release build logs it. `CMUX_EGRESS=enforce|log|off` overrides the
 (a self-hosted server, an API endpoint, an SSH or git host) pass because you named them; loopback, IP addresses and
 reserved names pass. The gate's host list is generated from this page, so the two stay equal.
 
+The gate keeps an audit trail: every connection it sees, allowed or refused, is recorded once per host, caller and
+verdict for the life of the process. Set `CMUX_EGRESS_AUDIT=/path/file.jsonl` and each new record is appended there as
+one JSON line (`ts`, `host`, `site`, `verdict` = listed, named, local or unlisted, `mode`, `refused`). The file
+stays on your machine; nothing in it is sent anywhere.
+
 Not every client goes through the gate yet. `tests/test_egress_gate.py` finds every client the code makes by hand
 (Rust and Swift); `tests/egress_ungated.json` lists the ones not moved yet (165 today), and that list may only
 shrink. The Mac and iPhone apps' Swift gate and the web pages' Content Security Policy come next.
