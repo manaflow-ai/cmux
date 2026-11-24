@@ -33,7 +33,7 @@ async fn impaired(
             while let Ok((n, from)) = front.recv_from(&mut buf).await {
                 *client.lock().unwrap() = Some(from);
                 n_seen += 1;
-                if n_seen % drop_every == 0 {
+                if n_seen.is_multiple_of(drop_every) {
                     dropped.fetch_add(1, Ordering::Relaxed);
                     continue;
                 }
@@ -52,7 +52,7 @@ async fn impaired(
             let mut n_seen = 0_u64;
             while let Ok((n, _)) = back.recv_from(&mut buf).await {
                 n_seen += 1;
-                if n_seen % drop_every == 0 {
+                if n_seen.is_multiple_of(drop_every) {
                     dropped.fetch_add(1, Ordering::Relaxed);
                     continue;
                 }

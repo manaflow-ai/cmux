@@ -313,7 +313,7 @@ impl Allocation {
                     let Some(msg) = msg else { break };
                     last_heard = Instant::now();
                     match msg {
-                        ToAlloc::Phone(datagram) => self.from_phone(&datagram, last_heard),
+                        ToAlloc::Phone(datagram) => self.on_phone(&datagram, last_heard),
                         ToAlloc::Rebind(addr) => {
                             self.phone = addr;
                             self.counters.rebinds += 1;
@@ -324,7 +324,7 @@ impl Allocation {
                     if let Ok((n, from)) = got && let Some(datagram) = buf.get(..n) {
                         last_heard = Instant::now();
                         self.mac = Some(from);
-                        self.from_mac(datagram, last_heard);
+                        self.on_mac(datagram, last_heard);
                     }
                 }
                 () = tokio::time::sleep_until(wake) => {}
@@ -350,7 +350,7 @@ impl Allocation {
         }
     }
 
-    fn from_phone(&mut self, datagram: &[u8], now: Instant) {
+    fn on_phone(&mut self, datagram: &[u8], now: Instant) {
         self.counters.phone_datagrams += 1;
         for record in self.phone_leg.handle(datagram, now) {
             match &mut self.mac_leg {
@@ -366,7 +366,7 @@ impl Allocation {
         }
     }
 
-    fn from_mac(&mut self, datagram: &[u8], now: Instant) {
+    fn on_mac(&mut self, datagram: &[u8], now: Instant) {
         if wire::is_hop(datagram) {
             let leg = self.mac_leg.get_or_insert_with(|| HopLeg::new(now));
             for record in leg.handle(datagram, now) {
@@ -436,10 +436,10 @@ impl Allocation {
             .unwrap_or_else(PoisonError::into_inner)
             .remove(&self.relayed_addr.port());
         let mut registry = self.registry.lock().unwrap_or_else(PoisonError::into_inner);
-        if registry.by_session.get(&self.session).is_some_and(|h| h.generation == self.generation) {
-            if let Some(handle) = registry.by_session.remove(&self.session) {
-                registry.by_addr.remove(&handle.phone);
-            }
+        if registry.by_session.get(&self.session).is_some_and(|h| h.generation == self.generation)
+            && let Some(handle) = registry.by_session.remove(&self.session)
+        {
+            registry.by_addr.remove(&handle.phone);
         }
     }
 }
