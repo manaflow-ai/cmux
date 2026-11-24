@@ -503,3 +503,28 @@ describe("relay frame (shared golden vectors with cmux-transport)", () => {
     }
   })
 })
+
+describe("netcheck targets (PROTOCOL.md \"Relay placement\")", () => {
+  const probe = (tok: string | null, region: string, upgrade = true) =>
+    worker.fetch(`https://api.test/v1/netcheck/${region}`, { headers: { ...(upgrade ? { Upgrade: "websocket" } : {}), ...(tok ? { authorization: `Bearer ${tok}` } : {}) } })
+
+  it("answers ping with pong, per region, and refuses the rest", async () => {
+    const tok = await token("alice")
+    expect((await probe(null, "wnam")).status).toBe(401)
+    expect((await probe(tok, "wnam", false)).status).toBe(426)
+    expect((await probe(tok, "mars")).status).toBe(404)
+    const res = await probe(tok, "weur")
+    expect(res.status).toBe(101)
+    const ws = res.webSocket!
+    const got: string[] = []
+    ws.accept()
+    ws.addEventListener("message", (e) => got.push(String(e.data)))
+    ws.send("ping")
+    for (let i = 0; i < 50 && !got.length; i++) await new Promise((r) => setTimeout(r, 10))
+    expect(got).toEqual(["pong"])
+    // Anything but a ping closes it: a netcheck socket never carries relay frames.
+    const closed = new Promise<number>((r) => ws.addEventListener("close", (e) => r(e.code)))
+    ws.send(new Uint8Array([1, 1, ...new Uint8Array(16)]))
+    expect(await closed).toBe(1008)
+  })
+})

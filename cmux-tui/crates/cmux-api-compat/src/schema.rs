@@ -27,6 +27,11 @@ pub struct Schema {
     pub protocol: String,
     /// The oldest revision this build can still talk to.
     pub base: u32,
+    /// The dated name of `base` (`YYYY-MM-DD`, [`crate::version`]). Set once a
+    /// protocol makes the dated-version promise; then every later revision
+    /// carries a later `date`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_date: Option<String>,
     /// Revisions after `base`, ascending and contiguous (`base + 1`, `base + 2`, ...).
     #[serde(default)]
     pub revisions: Vec<Revision>,
@@ -41,6 +46,10 @@ pub struct Revision {
     /// Why the revision exists (free text).
     #[serde(default)]
     pub note: String,
+    /// The dated name a client pins this revision by (`YYYY-MM-DD`,
+    /// [`crate::version`]); required once the schema has a `base_date`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub date: Option<String>,
     /// The changes, applied in order when upgrading.
     #[serde(default)]
     pub changes: Vec<MessageChange>,
@@ -65,7 +74,7 @@ pub struct MessageChange {
 impl Schema {
     /// An empty history: only `base` exists.
     pub fn new(protocol: impl Into<String>, base: u32) -> Self {
-        Self { protocol: protocol.into(), base, revisions: Vec::new() }
+        Self { protocol: protocol.into(), base, base_date: None, revisions: Vec::new() }
     }
 
     /// Parses and validates a compat file.
@@ -84,7 +93,27 @@ impl Schema {
     /// Appends a revision (`current() + 1`) and returns its number.
     pub fn push(&mut self, note: impl Into<String>, changes: Vec<MessageChange>) -> u32 {
         let rev = self.current() + 1;
-        self.revisions.push(Revision { rev, note: note.into(), changes, fingerprint: None });
+        self.revisions.push(Revision {
+            rev,
+            note: note.into(),
+            date: None,
+            changes,
+            fingerprint: None,
+        });
+        rev
+    }
+
+    /// Appends a revision pinned by `date` (`YYYY-MM-DD`) and returns its number.
+    pub fn push_dated(
+        &mut self,
+        date: impl Into<String>,
+        note: impl Into<String>,
+        changes: Vec<MessageChange>,
+    ) -> u32 {
+        let rev = self.push(note, changes);
+        if let Some(revision) = self.revisions.last_mut() {
+            revision.date = Some(date.into());
+        }
         rev
     }
 
@@ -102,6 +131,6 @@ impl Schema {
                 change.change.to_op(false)?;
             }
         }
-        Ok(())
+        crate::version::validate_dates(self)
     }
 }

@@ -51,6 +51,9 @@ const HUB_ERROR_HOLD_MS = 1000
 /** A notice (`peer` offline, `error`) goes to one socket at most this often per kind. */
 export const RELAY_NOTICE_INTERVAL_MS = 5000
 
+/** The tag of a netcheck socket (never a device id: those are UUIDs). */
+const NETCHECK_TAG = "netcheck"
+
 interface RelayAttachment {
   readonly device: string
   readonly peer: string
@@ -84,6 +87,7 @@ export class LinkRelay extends DurableObject<Env> {
 
   override async fetch(req: Request): Promise<Response> {
     if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") return new Response("expected a WebSocket upgrade", { status: 426 })
+    if (new URL(req.url).pathname === "/netcheck") return this.netcheck(req)
     const device = req.headers.get("x-cmux-relay-device") ?? ""
     const peer = req.headers.get("x-cmux-relay-peer") ?? ""
     const owner = req.headers.get("x-cmux-relay-owner") ?? ""
@@ -118,9 +122,28 @@ export class LinkRelay extends DurableObject<Env> {
     }
   }
 
+  /**
+   * A netcheck socket (`placement.ts`): the runtime answers its `ping` with `pong` without waking this object, and
+   * anything else closes it. Tagged `netcheck`, never a device, so it can never receive a relay frame.
+   */
+  private netcheck(req: Request): Response {
+    const pair = new WebSocketPair()
+    const [client, server] = [pair[0], pair[1]]
+    this.ctx.acceptWebSocket(server, [NETCHECK_TAG])
+    const headers = new Headers()
+    if (req.headers.get("x-cmux-relay-subprotocol")) headers.set("sec-websocket-protocol", RELAY_SUBPROTOCOL)
+    return new Response(null, { status: 101, webSocket: client, headers })
+  }
+
   override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
     // The kill switch stops what is already relaying too, at its next frame.
     if (this.env.LINK_RELAY_MODE === "off") return this.closeAll(RELAY_CLOSE.off, "relay_off")
+    if (this.ctx.getTags(ws).includes(NETCHECK_TAG)) {
+      try {
+        ws.close(1008, "netcheck answers ping only")
+      } catch {}
+      return
+    }
     // Text frames carry nothing (the ping is answered before it reaches here).
     if (typeof message === "string") return
     if (message.byteLength > RELAY_FRAME_MAX) return this.notice(ws, "error", { type: "error", code: "too_large" })
