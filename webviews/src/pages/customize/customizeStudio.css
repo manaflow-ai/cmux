@@ -315,7 +315,7 @@
   gap: var(--ds-space-2);
   padding: var(--ds-space-2);
   border: 1px solid var(--ds-surface-card-line);
-  border-radius: var(--ds-radius-card);
+  border-radius: calc(var(--ds-radius-control) + var(--ds-space-2));
   background: var(--ds-surface-card);
 }
 .studio-setup-text {
@@ -335,7 +335,7 @@
   gap: var(--ds-space-1);
   padding: var(--ds-space-2);
   border: 1px solid var(--ds-surface-card-line);
-  border-radius: var(--ds-radius-card);
+  border-radius: calc(var(--ds-radius-control) + var(--ds-space-2));
   background: var(--ds-surface-card);
   color: inherit;
   font: inherit;
