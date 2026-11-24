@@ -25,7 +25,7 @@ env:
 jobs:
   tick:
     if: github.repository == 'manaflow-ai/cmux'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-repair-jit-x64' }}
     permissions:
       actions: write
       contents: read
@@ -41,9 +41,30 @@ jobs:
             scripts/ci/post_merge_batch.py
             .github/post-merge-batch.json
           sparse-checkout-cone-mode: false
+      # The tick's reads go on the read-only route App token first (its own budget; post_merge_batch.py
+      # read_tokens() tries GH_READ_TOKEN, then GH_TOKEN), as the batch run's own plan job does. On
+      # github.token alone every tick from 09:46 to 12:46Z on 2026-11-23 (runs 45149997282 to 45177522461)
+      # stopped at its first read with "API rate limit exceeded for installation", so no batch ran
+      # after 09:23Z and the tier went quiet while each tick reported success.
+      - name: Mint the tick's read token
+        id: read-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-actions: read
+          permission-contents: read
+          # A read-only token is left to expire on its own: the revoke call would spend the App's budget.
+          skip-token-revoke: true
       - name: Start one batch run when the tip is untested
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_READ_TOKEN: ${{ steps.read-token.outputs.token }}
           NEXT_POST_MERGE_WINDOW_MINUTES: ${{ vars.NEXT_POST_MERGE_WINDOW_MINUTES }}
         run: |
           if [ ! -f scripts/ci/post_merge_batch.py ]; then
