@@ -887,6 +887,26 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   `bad_request`, `io`) is answered `{"error","message"}` before the channel
   closes with that code. The name is made safe, and an existing file is never
   replaced (`name 2.ext`, ...).
+  Resumable uploads (`upload-resume-v1`, 2026-11-24): `upload` also takes `id` (1-64
+  characters of `[A-Za-z0-9-]`, else `bad_request`) and `offset` (a number or decimal
+  string, default 0). With an `id`, a channel that ends early (link drop, cancel, stall)
+  keeps its bytes under `<uploads>/.resume/<device>/<id>.part`, keyed by the phone's device
+  id and the upload id, so a new link session finds them. They are kept 24 h after the last
+  write, then swept. With `offset` N the Mac continues that partial from byte N: it refuses
+  `{"error":"resume_mismatch"}` when no partial exists or it has fewer than N bytes, and
+  truncates a longer one to N. The phone then sends `size - N` bytes; completion publishes
+  into the target folder exactly as above (hard link, or a copy across filesystems) and
+  answers `{"path","size"}`. A new channel for the same `id` takes over: the older one
+  stops writing. Without `id` nothing is kept. A receive with no data frame for 60 s ends
+  as `{"error":"stalled"}` (the partial is kept when `id` is set). Resolving `cwd` against
+  the daemon's tab folders waits at most 5 s, then refuses `not_found` (the phone falls back
+  to the uploads folder). The Mac logs one `upload` line per channel with `folder_ms`,
+  `first_byte_ms`, `receive_ms`, `sync_ms`, `publish_ms`, `mb_per_s` and `outcome`.
+- `upload-status`: `{"id"}` (same id rules and pairing gate as `upload`). One data frame,
+  then `eof`: `{"offset": N}` with the bytes kept for that id (0 when none), or
+  `{"path","size"}` when that id finished within 24 h, so a lost final reply is recoverable.
+  The phone asks this before resuming; an older Mac refuses it `unknown_service` and the
+  phone sends the whole file again.
 - `browser`: `{"tab", "url"?}` a streamed Mac browser tab
   (verify/browser-stream.md). The channel carries the `cmux.rd/1` stream
   carrier (`u8 kind | u32 LE len | payload`, kind 1 control JSON, 2 datagram)
@@ -1248,6 +1268,7 @@ cmux-tui daemon's names hostd itself declares or checks. Printed from
 | `pair-requests-v1` | hostd `version` | The host serves `pair-requests`: a paired device answers a pairing request waiting on this Mac. |
 | `phone-frames-v1` | hostd `version` | The host serves `phone-frames`: the phone's terminal scroll frame times, logged to `phone-frames.jsonl` on the Mac. |
 | `tab-snapshots-v1` | hostd `version` | (2026-11-22) The host serves `tabs`: every tab's title, favicon, thumbnail or terminal screen text, each picture sent once by hash and then only changes. |
+| `upload-resume-v1` | hostd `version` | (2026-11-24) `upload` takes `id` and `offset` and keeps a partial upload for 24 h; `upload-status {id}` answers the kept offset or the finished file, so a send resumes after a link drop. |
 | `browser-stream-v1` | hostd `version` | The host streams browser tabs (`browser`); listed only when the Mac has a browser host. |
 | `browser-video-track-v1` | hostd `version` | With `browser-stream-v1`: `browser {"video":"track"}` carries the page's video on the media lane (WebRTC, and WireGuard since 2026-10-14). |
 | `surface-stream-v1` | hostd `version` | (2026-10-22) The host streams the Mac's phone tabs' simulators (`surface`); listed only when the Mac app streams simulators. |

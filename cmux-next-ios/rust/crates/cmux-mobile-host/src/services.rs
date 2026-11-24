@@ -13,7 +13,7 @@ use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 use tokio::sync::mpsc;
-use tokio::time::{Duration, timeout};
+use tokio::time::{Duration, Instant, timeout};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
@@ -154,6 +154,7 @@ pub async fn serve(
         "file" => file(&config, &args, &sender, false).await,
         "file-preview" => file(&config, &args, &sender, true).await,
         "upload" => upload(&config, &peer, &args, &sender, receiver).await,
+        "upload-status" => upload_status(&config, &peer, &args, &sender).await,
         "version" => version(&config, &sender).await,
         "machine" => {
             let grants = machine_grants.and_then(Result::ok).unwrap_or_default();
@@ -267,7 +268,7 @@ const ACPMUX_MAX_MESSAGE_BYTES: usize = 64 << 20;
 /// `tab-snapshots-v1`: the `tabs` service (every tab's title, favicon, thumbnail or screen text,
 /// with deltas and content-addressed blobs, `tab_snapshots.rs`).
 /// The names are declared once in `cmux_mobile_link::names`.
-pub const CAPABILITIES: [&str; 10] = [
+pub const CAPABILITIES: [&str; 11] = [
     names::REMOVAL,
     names::FILE_PREVIEW,
     names::LOCALHOST_FORWARD,
@@ -278,6 +279,7 @@ pub const CAPABILITIES: [&str; 10] = [
     names::PAIR_REQUESTS,
     names::PHONE_FRAMES,
     names::TAB_SNAPSHOTS,
+    names::UPLOAD_RESUME,
 ];
 /// Added to [`CAPABILITIES`] when this Mac can stream browser tabs (`browser`).
 pub const BROWSER_STREAM: &str = names::BROWSER_STREAM;
@@ -2080,7 +2082,14 @@ async fn upload_folder(config: &ServiceConfig, peer: &Peer, cwd: Option<&str>) -
         return Err(Refusal::new("bad_request", "cwd is not a folder"));
     }
     let in_roots = confine(&config.file_roots, &canonical).is_ok();
-    if !in_roots && !daemon_folders(config).await?.contains(&canonical) {
+    // The daemon's folder list is bounded: a daemon that never answers refuses `not_found`,
+    // and the phone falls back to the uploads folder.
+    if !in_roots
+        && !timeout(DAEMON_FOLDERS_BOUND, daemon_folders(config))
+            .await
+            .map_err(|_| Refusal::new("not_found", "the Mac's daemon did not list its folders in time"))??
+            .contains(&canonical)
+    {
         return Err(Refusal::new("forbidden", "cwd is not the folder of a tab on this Mac"));
     }
     let folder = canonical.join(".cmux").join("attachments").join(format!("phone-{session}"));
@@ -2103,8 +2112,102 @@ fn create_private_dir(path: &Path) -> Result<(), Refusal> {
     }
 }
 
+/// How long `upload_folder` waits for the daemon's folder list before refusing `not_found`.
+const DAEMON_FOLDERS_BOUND: Duration = Duration::from_secs(5);
+/// How long a kept partial upload (and a finished upload's record) lives after its last write.
+const UPLOAD_KEEP: Duration = Duration::from_secs(24 * 60 * 60);
+/// A receive with no data frame for this long ends as `stalled`.
+static UPLOAD_STALL_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(60_000);
+
+/// Sets the no-data bound of an upload receive (tests use a short one; default 60 s).
+pub fn set_upload_stall_bound(bound: Duration) {
+    UPLOAD_STALL_MS.store(bound.as_millis().max(1) as u64, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn upload_stall_bound() -> Duration {
+    Duration::from_millis(UPLOAD_STALL_MS.load(std::sync::atomic::Ordering::Relaxed))
+}
+
+/// The upload ids a channel is receiving now, by the generation that owns each: a newer
+/// channel for the same id takes the partial over and the older one stops writing.
+static ACTIVE_UPLOADS: std::sync::Mutex<Option<HashMap<String, u64>>> = std::sync::Mutex::new(None);
+static UPLOAD_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+fn claim_upload(key: &str) -> u64 {
+    let generation = UPLOAD_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let mut active = ACTIVE_UPLOADS.lock().unwrap_or_else(|e| e.into_inner());
+    active.get_or_insert_with(HashMap::new).insert(key.to_owned(), generation);
+    generation
+}
+
+fn owns_upload(key: &str, generation: u64) -> bool {
+    let active = ACTIVE_UPLOADS.lock().unwrap_or_else(|e| e.into_inner());
+    active.as_ref().and_then(|map| map.get(key)) == Some(&generation)
+}
+
+fn release_upload(key: &str, generation: u64) {
+    let mut active = ACTIVE_UPLOADS.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(map) = active.as_mut()
+        && map.get(key) == Some(&generation)
+    {
+        map.remove(key);
+    }
+}
+
+/// An upload id: 1-64 characters of `[A-Za-z0-9-]`.
+fn upload_id(args: &Value) -> Result<Option<String>, Refusal> {
+    match args.get("id") {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(id))
+            if (1..=64).contains(&id.len()) && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') =>
+        {
+            Ok(Some(id.clone()))
+        }
+        _ => Err(Refusal::new("bad_request", "id must be 1-64 characters of A-Z, a-z, 0-9 and -")),
+    }
+}
+
+/// A byte count as a JSON number or a decimal string.
+fn byte_count(value: Option<&Value>) -> Option<u64> {
+    match value {
+        Some(Value::Number(number)) => number.as_u64(),
+        Some(Value::String(text)) => text.parse().ok(),
+        _ => None,
+    }
+}
+
+/// `<uploads>/.resume/<device>`: the partial and finished uploads of one phone, which outlive
+/// a link session.
+fn resume_dir(config: &ServiceConfig, peer: &Peer) -> Result<PathBuf, Refusal> {
+    let device: String =
+        peer.device_id.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').take(64).collect();
+    if device.is_empty() {
+        return Err(Refusal::new("bad_request", "no device id"));
+    }
+    Ok(config.uploads_dir.join(".resume").join(device))
+}
+
+/// Removes kept partials and records not written for 24 h.
+fn sweep_resume(config: &ServiceConfig) {
+    let Ok(devices) = std::fs::read_dir(config.uploads_dir.join(".resume")) else { return };
+    for device in devices.flatten() {
+        let Ok(files) = std::fs::read_dir(device.path()) else { continue };
+        for file in files.flatten() {
+            let old = file
+                .metadata()
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.elapsed().ok())
+                .is_some_and(|age| age > UPLOAD_KEEP);
+            if old {
+                let _ = std::fs::remove_file(file.path());
+            }
+        }
+    }
+}
+
 /// `<folder>/<name>`, or `<stem> 2.<ext>`, ... when that name is taken:
-/// links `part` there without replacing anything.
+/// links `part` there without replacing anything (a copy when `part` is on another filesystem).
 fn publish_upload(folder: &Path, name: &str, part: &Path) -> Result<PathBuf, Refusal> {
     let (stem, extension) = match name.rfind('.') {
         Some(dot) if dot > 0 => (&name[..dot], &name[dot..]),
@@ -2116,7 +2219,11 @@ fn publish_upload(folder: &Path, name: &str, part: &Path) -> Result<PathBuf, Ref
         } else {
             folder.join(format!("{stem} {attempt}{extension}"))
         };
-        match std::fs::hard_link(part, &candidate) {
+        let placed = match std::fs::hard_link(part, &candidate) {
+            Err(e) if e.kind() != std::io::ErrorKind::AlreadyExists => copy_new(part, &candidate),
+            other => other,
+        };
+        match placed {
             Ok(()) => {
                 let _ = std::fs::remove_file(part);
                 return Ok(candidate);
@@ -2128,8 +2235,64 @@ fn publish_upload(folder: &Path, name: &str, part: &Path) -> Result<PathBuf, Ref
     Err(Refusal::new("io", "too many files with that name"))
 }
 
-/// `upload` `{name, size, cwd?}`: the phone sends exactly `size` bytes as
-/// data frames; hostd writes them to a new file of the upload folder
+/// Copies `from` to a new file `to` (`AlreadyExists` when `to` is taken); a failed copy leaves nothing.
+fn copy_new(from: &Path, to: &Path) -> std::io::Result<()> {
+    let mut source = std::fs::File::open(from)?;
+    let mut target = std::fs::OpenOptions::new().write(true).create_new(true).open(to)?;
+    let copied = std::io::copy(&mut source, &mut target).and_then(|_| target.sync_all());
+    if copied.is_err() {
+        let _ = std::fs::remove_file(to);
+    }
+    copied
+}
+
+/// The hops of one upload on the Mac, logged as one line.
+#[derive(Default)]
+struct UploadLog {
+    id: Option<String>,
+    size: u64,
+    offset: u64,
+    received: u64,
+    folder_ms: u128,
+    first_byte_ms: u128,
+    receive_ms: u128,
+    sync_ms: u128,
+    publish_ms: u128,
+}
+
+impl UploadLog {
+    fn emit(&self, phone: &str, outcome: &str) {
+        let mb_per_s = if self.receive_ms > 0 {
+            self.received as f64 / 1_048_576.0 / (self.receive_ms as f64 / 1000.0)
+        } else {
+            0.0
+        };
+        tracing::info!(
+            phone,
+            id = self.id.as_deref().unwrap_or("-"),
+            size = self.size,
+            offset = self.offset,
+            received = self.received,
+            folder_ms = self.folder_ms as u64,
+            first_byte_ms = self.first_byte_ms as u64,
+            receive_ms = self.receive_ms as u64,
+            sync_ms = self.sync_ms as u64,
+            publish_ms = self.publish_ms as u64,
+            mb_per_s = format!("{mb_per_s:.1}"),
+            outcome,
+            "upload"
+        );
+    }
+}
+
+async fn upload_refusal(sender: &ChannelSender, refusal: Refusal) -> Result<(), Refusal> {
+    let reply = serde_json::json!({"error": refusal.code, "message": refusal.reason}).to_string();
+    let _ = sender.send(Bytes::from(reply)).await;
+    Err(refusal)
+}
+
+/// `upload` `{name, size, cwd?, id?, offset?}`: the phone sends `size` bytes (`size - offset`
+/// when resuming) as data frames; hostd writes them to a new file of the upload folder
 /// ([`upload_folder`]) and answers one data frame `{"path","size"}`, then
 /// closes with `eof`. A refusal is answered `{"error","message"}` before the
 /// channel closes with that code. Nothing is overwritten, nothing is
@@ -2137,6 +2300,11 @@ fn publish_upload(folder: &Path, name: &str, part: &Path) -> Result<PathBuf, Ref
 /// accepted: the bytes stream to disk as they arrive (attachments have no
 /// size cap). `size` may be a JSON number or a decimal string (the app's
 /// channel arguments are strings).
+///
+/// With `id` (`upload-resume-v1`) a channel that ends early or stalls keeps its bytes under
+/// `<uploads>/.resume/<device>/<id>.part` for 24 h; a later `upload` with the same `id` and
+/// `offset` continues them, and `upload-status` tells the phone where. A receive with no data
+/// frame for 60 s ends as `{"error":"stalled"}`.
 async fn upload(
     config: &ServiceConfig,
     peer: &Peer,
@@ -2144,18 +2312,49 @@ async fn upload(
     sender: &ChannelSender,
     receiver: ChannelReceiver,
 ) -> Result<(), Refusal> {
-    match receive_upload(config, peer, args, receiver).await {
+    let mut log = UploadLog::default();
+    match receive_upload(config, peer, args, receiver, &mut log).await {
         Ok((path, size)) => {
-            tracing::info!(size, phone = peer.device_id, "upload saved");
+            log.emit(&peer.device_id, "saved");
             let reply = serde_json::json!({"path": path.to_string_lossy(), "size": size}).to_string();
             let _ = sender.send(Bytes::from(reply)).await;
             Ok(())
         }
         Err(refusal) => {
-            let reply = serde_json::json!({"error": refusal.code, "message": refusal.reason}).to_string();
-            let _ = sender.send(Bytes::from(reply)).await;
-            Err(refusal)
+            log.emit(&peer.device_id, &refusal.code);
+            upload_refusal(sender, refusal).await
         }
+    }
+}
+
+/// `upload-status` `{id}`: one frame `{"offset": N}` (the bytes kept for that id, 0 when none) or
+/// `{"path","size"}` when that id finished within 24 h, then `eof`.
+async fn upload_status(
+    config: &ServiceConfig,
+    peer: &Peer,
+    args: &Value,
+    sender: &ChannelSender,
+) -> Result<(), Refusal> {
+    let looked = (|| {
+        let id = upload_id(args)?.ok_or_else(|| Refusal::new("bad_request", "missing id"))?;
+        let dir = resume_dir(config, peer)?;
+        sweep_resume(config);
+        if let Ok(meta) = std::fs::metadata(dir.join(format!("{id}.part"))) {
+            return Ok(serde_json::json!({"offset": meta.len()}));
+        }
+        if let Ok(done) = std::fs::read(dir.join(format!("{id}.done")))
+            && let Ok(done) = serde_json::from_slice::<Value>(&done)
+        {
+            return Ok(done);
+        }
+        Ok(serde_json::json!({"offset": 0}))
+    })();
+    match looked {
+        Ok(reply) => {
+            let _ = sender.send(Bytes::from(reply.to_string())).await;
+            Ok(())
+        }
+        Err(refusal) => upload_refusal(sender, refusal).await,
     }
 }
 
@@ -2164,54 +2363,185 @@ async fn receive_upload(
     peer: &Peer,
     args: &Value,
     mut receiver: ChannelReceiver,
+    log: &mut UploadLog,
 ) -> Result<(PathBuf, u64), Refusal> {
+    let opened = Instant::now();
     let name = args
         .get("name")
         .and_then(Value::as_str)
         .ok_or_else(|| Refusal::new("bad_request", "missing name"))?;
-    let size = match args.get("size") {
-        Some(Value::Number(number)) => number.as_u64(),
-        Some(Value::String(text)) => text.parse().ok(),
-        _ => None,
+    let size = byte_count(args.get("size")).ok_or_else(|| Refusal::new("bad_request", "missing size"))?;
+    let id = upload_id(args)?;
+    let offset = match args.get("offset") {
+        None | Some(Value::Null) => 0,
+        other => byte_count(other).ok_or_else(|| Refusal::new("bad_request", "bad offset"))?,
+    };
+    if offset > 0 && id.is_none() {
+        return Err(Refusal::new("bad_request", "offset needs an id"));
     }
-    .ok_or_else(|| Refusal::new("bad_request", "missing size"))?;
+    if offset > size {
+        return Err(Refusal::new("bad_request", "offset is past the size"));
+    }
+    log.id = id.clone();
+    log.size = size;
+    log.offset = offset;
     let name = safe_file_name(name);
     let cwd = args.get("cwd").and_then(Value::as_str).filter(|cwd| !cwd.is_empty());
-    let folder = upload_folder(config, peer, cwd).await?;
-    let part = folder.join(format!(".{}.part", uuid::Uuid::new_v4()));
-    let mut file = tokio::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&part)
-        .await
-        .map_err(|e| Refusal::new("io", format!("cannot create the upload: {e}")))?;
-    let received = async {
-        let mut received: u64 = 0;
+    let folder = upload_folder(config, peer, cwd).await;
+    log.folder_ms = opened.elapsed().as_millis();
+    let folder = folder?;
+    // With an id the bytes live in the resume folder until the upload completes.
+    let (part, resume) = match &id {
+        Some(id) => {
+            sweep_resume(config);
+            let dir = resume_dir(config, peer)?;
+            create_private_dir(&dir)?;
+            (
+                dir.join(format!("{id}.part")),
+                Some((dir.join(format!("{id}.done")), format!("{}/{id}", peer.device_id))),
+            )
+        }
+        None => (folder.join(format!(".{}.part", uuid::Uuid::new_v4())), None),
+    };
+    let mut file = if resume.is_some() {
+        let mut options = tokio::fs::OpenOptions::new();
+        options.write(true);
+        if offset == 0 {
+            options.create(true).truncate(true);
+        }
+        let file = options.open(&part).await.map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                Refusal::new("resume_mismatch", "no partial upload to continue")
+            } else {
+                Refusal::new("io", format!("cannot open the upload: {e}"))
+            }
+        })?;
+        if offset > 0 {
+            let kept = file.metadata().await.map_err(|e| Refusal::new("io", e.to_string()))?.len();
+            if kept < offset {
+                return Err(Refusal::new(
+                    "resume_mismatch",
+                    format!("only {kept} bytes are kept, not {offset}"),
+                ));
+            }
+            file.set_len(offset).await.map_err(|e| Refusal::new("io", e.to_string()))?;
+            use tokio::io::AsyncSeekExt as _;
+            let mut file = file;
+            file.seek(std::io::SeekFrom::Start(offset))
+                .await
+                .map_err(|e| Refusal::new("io", e.to_string()))?;
+            file
+        } else {
+            file
+        }
+    } else {
+        tokio::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&part)
+            .await
+            .map_err(|e| Refusal::new("io", format!("cannot create the upload: {e}")))?
+    };
+    let generation = resume.as_ref().map(|(done, key)| {
+        let _ = std::fs::remove_file(done);
+        claim_upload(key)
+    });
+    let key = resume.as_ref().map(|(_, key)| key.clone());
+    let stall = upload_stall_bound();
+    let waiting = Instant::now();
+    let mut first_byte: Option<Instant> = None;
+    // Err carries whether the bytes so far stay for a resume.
+    let received: Result<(), (Refusal, bool)> = async {
+        let mut received = offset;
         while received < size {
-            match receiver.recv().await {
-                Some(ChannelEvent::Data(bytes)) => {
-                    received += bytes.len() as u64;
-                    if received > size {
-                        return Err(Refusal::new("bad_request", "more bytes than the declared size"));
+            match timeout(stall, receiver.recv()).await {
+                Ok(Some(ChannelEvent::Data(bytes))) => {
+                    first_byte.get_or_insert_with(Instant::now);
+                    if let (Some(key), Some(generation)) = (&key, generation)
+                        && !owns_upload(key, generation)
+                    {
+                        return Err((Refusal::new("busy", "a newer channel took this upload over"), true));
                     }
-                    file.write_all(&bytes).await.map_err(|e| Refusal::new("io", e.to_string()))?;
+                    received += bytes.len() as u64;
+                    log.received += bytes.len() as u64;
+                    if received > size {
+                        return Err((
+                            Refusal::new("bad_request", "more bytes than the declared size"),
+                            false,
+                        ));
+                    }
+                    file.write_all(&bytes).await.map_err(|e| (Refusal::new("io", e.to_string()), false))?;
                 }
-                _ => return Err(Refusal::new("bad_request", "the upload ended early")),
+                Ok(_) => return Err((Refusal::new("bad_request", "the upload ended early"), true)),
+                Err(_) => {
+                    return Err((
+                        Refusal::new("stalled", format!("no data for {} s", stall.as_secs_f32())),
+                        true,
+                    ));
+                }
             }
         }
-        file.flush().await.map_err(|e| Refusal::new("io", e.to_string()))?;
-        file.sync_all().await.map_err(|e| Refusal::new("io", e.to_string()))?;
         Ok(())
     }
     .await;
-    drop(file);
-    if let Err(refusal) = received {
-        let _ = std::fs::remove_file(&part);
+    log.first_byte_ms = first_byte.map_or(waiting.elapsed(), |t| t - waiting).as_millis();
+    log.receive_ms = first_byte.map_or(0, |t| t.elapsed().as_millis());
+    if let Err((refusal, keep)) = received {
+        let _ = file.flush().await;
+        drop(file);
+        if let (Some(key), Some(generation)) = (&key, generation) {
+            if !(keep && owns_upload(key, generation)) && owns_upload(key, generation) {
+                let _ = std::fs::remove_file(&part);
+            }
+            release_upload(key, generation);
+        } else {
+            let _ = std::fs::remove_file(&part);
+        }
         return Err(refusal);
     }
-    let path = publish_upload(&folder, &name, &part).inspect_err(|_| {
-        let _ = std::fs::remove_file(&part);
-    })?;
+    let synced = Instant::now();
+    let finished = async {
+        file.flush().await?;
+        file.sync_all().await
+    }
+    .await;
+    log.sync_ms = synced.elapsed().as_millis();
+    drop(file);
+    let done_key = key.as_ref().zip(generation);
+    if let Err(e) = finished {
+        if let Some((key, generation)) = done_key {
+            release_upload(key, generation);
+        } else {
+            let _ = std::fs::remove_file(&part);
+        }
+        return Err(Refusal::new("io", e.to_string()));
+    }
+    let published = Instant::now();
+    let (publish_folder, publish_part) = (folder.clone(), part.clone());
+    let path = tokio::task::spawn_blocking(move || publish_upload(&publish_folder, &name, &publish_part))
+        .await
+        .unwrap_or_else(|_| Err(Refusal::new("io", "the upload's publish stopped")));
+    log.publish_ms = published.elapsed().as_millis();
+    if let Some((key, generation)) = done_key {
+        release_upload(key, generation);
+    }
+    let path = match path {
+        Ok(path) => path,
+        Err(refusal) => {
+            // A resumable upload keeps its bytes: the phone can ask again.
+            if done_key.is_none() {
+                let _ = std::fs::remove_file(&part);
+            }
+            return Err(refusal);
+        }
+    };
+    if let Some((done, _)) = &resume {
+        let record = serde_json::json!({"path": path.to_string_lossy(), "size": size}).to_string();
+        let temporary = done.with_extension("done.tmp");
+        if std::fs::write(&temporary, record).is_ok() {
+            let _ = std::fs::rename(&temporary, done);
+        }
+    }
     Ok((path, size))
 }
 
@@ -2367,7 +2697,8 @@ mod tests {
                 "appearance-v1",
                 "pair-requests-v1",
                 "phone-frames-v1",
-                "tab-snapshots-v1"
+                "tab-snapshots-v1",
+                "upload-resume-v1"
             ]
         );
         let launcher: crate::browser::Launcher = std::sync::Arc::new(|_| {
@@ -2387,6 +2718,7 @@ mod tests {
                 "pair-requests-v1",
                 "phone-frames-v1",
                 "tab-snapshots-v1",
+                "upload-resume-v1",
                 BROWSER_STREAM,
                 BROWSER_VIDEO_TRACK
             ]
