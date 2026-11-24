@@ -1,11 +1,11 @@
 #if os(iOS)
-#if DEBUG
 import Foundation
 import Observation
 import QuartzCore
 import SwiftUI
 import UIKit
 
+#if DEBUG
 /// `CMUX_MOBILE_LOAD_PROBE=1` (DEBUG): what each presented frame showed while a page loads, for
 /// `LoadShiftsUITests` (Leo, 2026-11-24: "the loading has layout shifts and placeholder states").
 /// Counted once per display frame, so a row that moved and came back between two samples of the
@@ -142,13 +142,21 @@ public struct LoadFrameProbeLabel: View {
     }
 }
 
+#endif
+
 extension View {
-    /// Counts this view's frames on screen as a loading placeholder's (`LoadFrameProbe`).
+    /// Counts this view's frames on screen as a loading placeholder's (`LoadFrameProbe`, DEBUG
+    /// with `CMUX_MOBILE_LOAD_PROBE=1`); nothing otherwise.
     public func loadProbePlaceholder() -> some View {
+        #if DEBUG
         modifier(LoadProbePlaceholder())
+        #else
+        self
+        #endif
     }
 }
 
+#if DEBUG
 private struct LoadProbePlaceholder: ViewModifier {
     @State private var id = UUID().uuidString
 

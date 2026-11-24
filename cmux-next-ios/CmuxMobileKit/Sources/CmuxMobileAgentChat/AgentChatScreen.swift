@@ -721,9 +721,7 @@ struct AgentChatLoadingState: View {
         .multilineTextAlignment(.center)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("agentChat.loadingHistory")
-        #if DEBUG
         .loadProbePlaceholder()
-        #endif
     }
 }
 

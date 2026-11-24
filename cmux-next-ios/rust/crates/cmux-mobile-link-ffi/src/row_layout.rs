@@ -118,7 +118,8 @@ impl Inner {
 
     /// Keeps the `keep` most recently used rows.
     fn evict(&mut self, keep: usize) {
-        let mut used: Vec<u64> = self.rows.values().flat_map(|rows| rows.values().map(|kept| kept.used)).collect();
+        let mut used: Vec<u64> =
+            self.rows.values().flat_map(|rows| rows.values().map(|kept| kept.used)).collect();
         if used.len() <= keep {
             return;
         }
@@ -255,9 +256,18 @@ mod tests {
             memory.diff(scope.clone(), 390.0, vec![key("a", "hello", 0), key("b", "x", 0)]),
             vec![RowLayoutDiff::Unchanged { height: 44.5 }, RowLayoutDiff::New]
         );
-        assert_eq!(memory.diff(scope.clone(), 390.0, vec![key("a", "hello!", 0)]), vec![RowLayoutDiff::Changed]);
-        assert_eq!(memory.diff(scope.clone(), 390.0, vec![key("a", "hello", 1)]), vec![RowLayoutDiff::Changed]);
-        assert_eq!(memory.diff(scope.clone(), 320.0, vec![key("a", "hello", 0)]), vec![RowLayoutDiff::Changed]);
+        assert_eq!(
+            memory.diff(scope.clone(), 390.0, vec![key("a", "hello!", 0)]),
+            vec![RowLayoutDiff::Changed]
+        );
+        assert_eq!(
+            memory.diff(scope.clone(), 390.0, vec![key("a", "hello", 1)]),
+            vec![RowLayoutDiff::Changed]
+        );
+        assert_eq!(
+            memory.diff(scope.clone(), 320.0, vec![key("a", "hello", 0)]),
+            vec![RowLayoutDiff::Changed]
+        );
         assert_eq!(memory.diff("other".into(), 390.0, vec![key("a", "hello", 0)]), vec![RowLayoutDiff::New]);
         memory.forget(scope.clone());
         assert_eq!(memory.diff(scope, 390.0, vec![key("a", "hello", 0)]), vec![RowLayoutDiff::New]);
@@ -277,11 +287,20 @@ mod tests {
             memory.record("s".into(), 390.0, key(&format!("r{row}"), "c", 0), 20.0);
         }
         // r0 is used again, so it outlives the rows after it.
-        assert!(matches!(memory.diff("s".into(), 390.0, vec![key("r0", "c", 0)])[0], RowLayoutDiff::Unchanged { .. }));
+        assert!(matches!(
+            memory.diff("s".into(), 390.0, vec![key("r0", "c", 0)])[0],
+            RowLayoutDiff::Unchanged { .. }
+        ));
         memory.record("s".into(), 390.0, key("r64", "c", 0), 20.0);
         assert_eq!(memory.stats().rows, 48);
-        assert!(matches!(memory.diff("s".into(), 390.0, vec![key("r0", "c", 0)])[0], RowLayoutDiff::Unchanged { .. }));
-        assert!(matches!(memory.diff("s".into(), 390.0, vec![key("r64", "c", 0)])[0], RowLayoutDiff::Unchanged { .. }));
+        assert!(matches!(
+            memory.diff("s".into(), 390.0, vec![key("r0", "c", 0)])[0],
+            RowLayoutDiff::Unchanged { .. }
+        ));
+        assert!(matches!(
+            memory.diff("s".into(), 390.0, vec![key("r64", "c", 0)])[0],
+            RowLayoutDiff::Unchanged { .. }
+        ));
         assert_eq!(memory.diff("s".into(), 390.0, vec![key("r1", "c", 0)]), vec![RowLayoutDiff::New]);
     }
 

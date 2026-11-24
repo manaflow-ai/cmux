@@ -1335,42 +1335,6 @@ private final class FrameClock: NSObject {
         link = nil
     }
 }
-/// A demo chat whose history comes `delay` late, as from a slow Mac: it says it loads history
-/// (``AgentSessionSource/loadsHistory``) and says when it caught up.
-@MainActor
-final class DelayedHistorySource: AgentSessionSource {
-    let inner: MockAgentSession
-    let delay: Duration
-
-    init(inner: MockAgentSession, delay: Duration) {
-        self.inner = inner
-        self.delay = delay
-    }
-
-    var summary: AgentSessionSummary { inner.summary }
-    var loadsHistory: Bool { true }
-
-    func events() -> AsyncStream<AgentSessionEvent> {
-        let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream(bufferingPolicy: .unbounded)
-        let inner = inner, delay = delay
-        Task { @MainActor in
-            // Demo only: stands in for a Mac that answers late.
-            try? await Task.sleep(for: delay)
-            var first = true
-            for await event in inner.events() {
-                continuation.yield(event)
-                if first {
-                    first = false
-                    continuation.yield(.historyLoading(false))
-                }
-            }
-            continuation.finish()
-        }
-        return stream
-    }
-
-    func send(_ intent: AgentClientIntent) { inner.send(intent) }
-}
 /// A demo chat whose last turn failed on a rate limit, after the mock's history: the error card
 /// with Retry and Retry with another model (the mock offers three models).
 @MainActor
