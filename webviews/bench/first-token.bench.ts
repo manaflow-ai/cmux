@@ -16,7 +16,9 @@
 // Rows chat.first_token.<rail>.<stage> (rail: the thread rail's layout, cmux.experiments' thread-minimap-layout, as
 // chat-open.bench.ts names its arms), p50 the median round and p95 the nearest-rank 95th percentile, with each round's
 // value in `samples`. The page and the stand-in share the host's clock (performance.timeOrigin + now, Date.now()).
-//   [THINK_MS=0] [ARMS=compact,off] [PANE_OUT=dir] bun bench/first-token.bench.ts [rounds=10]
+// PROFILE=1 builds the pane unminified (its rounds are then not the production build's) and prints, for the last
+// round, the page functions with the most self time from the Return to the first token's frame.
+//   [THINK_MS=0] [ARMS=compact,off] [PANE_OUT=dir] [PROFILE=1] bun bench/first-token.bench.ts [rounds=10]
 /// <reference types="bun" />
 import fs from "node:fs";
 import os from "node:os";
@@ -29,6 +31,7 @@ import { perfRow, TARGET_MS } from "./perfRow";
 const ROUNDS = Number(process.argv[2] ?? 10);
 const THINK_MS = Number(process.env.THINK_MS ?? 0);
 const ARMS = (process.env.ARMS ?? "compact").split(",").filter(Boolean);
+const PROFILE = process.env.PROFILE === "1";
 if (!Number.isInteger(ROUNDS) || ROUNDS < 1 || !Number.isFinite(THINK_MS) || THINK_MS < 0 || !ARMS.length) {
   console.error("usage: [THINK_MS=0] [ARMS=compact,off] bun bench/first-token.bench.ts [rounds=10]");
   process.exit(2);
@@ -213,7 +216,27 @@ export function percentiles(values: readonly number[]): { p50: number; p95: numb
   return { p50, p95: sorted[Math.max(0, Math.ceil(0.95 * sorted.length) - 1)]! };
 }
 
-async function round(browser: Browser, url: string, rail: string): Promise<Round> {
+type ProfileNode = { id: number; callFrame: { functionName: string; url: string; lineNumber: number } };
+/// The functions with the most self time in a CPU profile (pure): `name file:line ms`, most first.
+export function selfTimes(
+  profile: { nodes: ProfileNode[]; samples: number[]; timeDeltas: number[] },
+  top = 15,
+): string[] {
+  const byId = new Map(profile.nodes.map((node) => [node.id, node]));
+  const ms = new Map<string, number>();
+  profile.samples.forEach((id, index) => {
+    const frame = byId.get(id)?.callFrame;
+    if (!frame) return;
+    const key = `${frame.functionName || "(anonymous)"} ${frame.url.split("/").pop()}:${frame.lineNumber + 1}`;
+    ms.set(key, (ms.get(key) ?? 0) + (profile.timeDeltas[index] ?? 0) / 1000);
+  });
+  return [...ms]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, top)
+    .map(([key, value]) => `${value.toFixed(1).padStart(7)} ms  ${key}`);
+}
+
+async function round(browser: Browser, url: string, rail: string, profile = false): Promise<Round> {
   events.length = opened;
   status = "idle";
   marks.requestAt = 0;
@@ -232,6 +255,12 @@ async function round(browser: Browser, url: string, rail: string): Promise<Round
     await page.mouse.move(0, 0);
     await rest(page);
     await arm(page);
+    const cdp = profile ? await page.context().newCDPSession(page) : undefined;
+    if (cdp) {
+      await cdp.send("Profiler.enable");
+      await cdp.send("Profiler.setSamplingInterval", { interval: 100 });
+      await cdp.send("Profiler.start");
+    }
     await page.keyboard.press("Enter");
     await page.waitForFunction(
       () => {
@@ -241,6 +270,11 @@ async function round(browser: Browser, url: string, rail: string): Promise<Round
       undefined,
       { timeout: 30_000 + THINK_MS },
     );
+    if (cdp) {
+      const { profile } = await cdp.send("Profiler.stop");
+      console.log(`first-token [rail ${rail}]: self time, Return to the first token's frame and a little after:`);
+      for (const line of selfTimes(profile as never)) console.log(line);
+    }
     await turnDone;
     const pageMarks = await page.evaluate(() => (window as unknown as { __ft: PageMarks }).__ft);
     return stages(pageMarks, marks);
@@ -257,7 +291,7 @@ async function paneBuild(): Promise<{ out: string; owned: boolean }> {
   const { build } = await import("vite");
   await build({
     configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-    build: { outDir: out, emptyOutDir: true },
+    build: { outDir: out, emptyOutDir: true, ...(PROFILE ? { minify: false, sourcemap: true } : {}) },
     logLevel: "error",
   });
   console.log(`first-token: pane built in ${((performance.now() - builtAt) / 1000).toFixed(0)} s`);
@@ -321,7 +355,8 @@ if (import.meta.main) {
 
     for (const rail of ARMS) {
       const rounds: Round[] = [];
-      for (let index = 0; index < ROUNDS; index++) rounds.push(await round(browser, url, rail));
+      for (let index = 0; index < ROUNDS; index++)
+        rounds.push(await round(browser, url, rail, PROFILE && index === ROUNDS - 1));
       console.log(`first-token [rail ${rail}]: ${ROUNDS} cold loads, think ${THINK_MS} ms, chromium`);
       console.log("round | prompt->request ms | prompt->user row ms | prompt->first token ms | token->paint ms");
       for (const [index, r] of rounds.entries())
