@@ -49,7 +49,6 @@ public struct WorkspacesList: View {
     @State private var query = ""
     /// Offline Macs whose rows are unfolded (this session).
     @State private var unfolded: Set<String> = []
-    /// A refresh has taken long enough to say so.
     /// The page's placeholder rows showed in this load: the list's own (below Mac lines) take
     /// over from them at once.
     @State private var placeholdersShown = false
@@ -164,7 +163,6 @@ public struct WorkspacesList: View {
     private func listState(_ macID: String) -> WorkspaceInbox.ListState {
         store.tracksMacData ? WorkspaceInbox.ListState(store.macDataPhase(macID)) : .live
     }
-
 
     /// The page's one state for the team's data (CMUX-49): first load, the list, no Mac, or failed.
     private var launchState: WorkspacesLaunchState {
