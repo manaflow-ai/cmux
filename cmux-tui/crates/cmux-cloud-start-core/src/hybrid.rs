@@ -6,7 +6,8 @@
 //! next state and the effects to run, in order.
 //!
 //! What it decides:
-//! - who gets it ([`enabled`]): everybody on a Pro plan, unless the server's flag says otherwise;
+//! - who gets it ([`enabled`]): a person on a Pro plan who turned on Settings > Cloud > Start Cloud
+//!   Chats Here First (`cloud.hybridStart`, off by default), unless the flag says otherwise;
 //! - one writer at a time: the chat's home is here until the machine holds the chat and the move
 //!   committed, and there after. A prompt goes to the home; one sent while the chat moves is held
 //!   and delivered once, to wherever the move left the chat ([`Effect::Deliver`]), so no turn is
@@ -46,8 +47,11 @@ pub const STOPPED: &str = "stopped";
 pub enum Off {
     /// Cloud is off by policy, or nobody is signed in: the Cloud start's own refusal says which.
     NoCloud,
-    /// The server's flag turned it off for this account.
+    /// The flag turned it off for this account.
     Flag,
+    /// The person has not turned on Settings > Cloud > Start Cloud Chats Here First
+    /// (`cloud.hybridStart`, off by default).
+    Setting,
     /// The plan is not Pro.
     Plan,
 }
@@ -64,11 +68,19 @@ pub struct Account {
     pub flag: Option<bool>,
     pub cloud_disabled: bool,
     pub signed_in: bool,
+    /// The setting `cloud.hybridStart` is on. A flag that says on starts hybrid without it (a
+    /// test's `CMUX_HYBRID_START=1`).
+    pub setting: bool,
 }
 
-/// Whether a Cloud start of this account is hybrid: on for everybody on a Pro plan (Leo,
-/// 2026-11-23: "just on for everybody on a pro plan, essentially like my teammates"). `Err` says
-/// why not; the start is then the Cloud start as it was.
+/// Whether a Cloud start of this account is hybrid: on for a person on a Pro plan (Leo,
+/// 2026-11-23: "just on for everybody on a pro plan, essentially like my teammates") who turned on
+/// the setting (off by default, so the nightly's demo flips no default: Leo, 2026-11-24, "can we
+/// put our mvp in?"). `Err` says why not; the start is then the Cloud start as it was.
+///
+/// The reasons, first one wins: [`Off::NoCloud`]; a flag (on: hybrid, whatever follows; off:
+/// [`Off::Flag`]); [`Off::Setting`]; [`Off::Plan`]. The setting comes before the plan, so a start
+/// with the setting off never needs the plan.
 pub fn enabled(account: &Account) -> Result<(), Off> {
     if account.cloud_disabled || !account.signed_in {
         return Err(Off::NoCloud);
@@ -76,6 +88,7 @@ pub fn enabled(account: &Account) -> Result<(), Off> {
     match account.flag {
         Some(true) => Ok(()),
         Some(false) => Err(Off::Flag),
+        None if !account.setting => Err(Off::Setting),
         None if account.plan.as_deref().is_some_and(|plan| PLANS.contains(&plan)) => Ok(()),
         None => Err(Off::Plan),
     }

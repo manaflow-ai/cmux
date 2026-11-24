@@ -1048,6 +1048,13 @@
     },
     {
       "agent": "userOnly",
+      "why": "Whether a Cloud chat first runs on this Mac, with this Mac's files and logins, before it moves to its machine: only the person chooses where their chats run.",
+      "keys": [
+        "cloud.hybridStart"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "Whether the person's agent memory (CLAUDE.md, AGENTS.md, skills, Claude's notes) is copied to the cloud: only the person opts in or out; off deletes their cloud copy.",
       "keys": [
         "cloud.agentMemory.follow"

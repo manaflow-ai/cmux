@@ -206,6 +206,35 @@ pub(crate) fn hybrid_chat_start_flag(
     }
 }
 
+/// The setting that turns the hybrid start on for this person (Settings > Cloud > Start Cloud
+/// Chats Here First), off by default.
+pub(crate) const HYBRID_CHAT_START_SETTING: &str = "cloud.hybridStart";
+
+/// Whether the settings file `document` (flat `"cloud.hybridStart"` or nested
+/// `{"cloud": {"hybridStart": …}}`, as the app's settings owner writes either) turns
+/// [`HYBRID_CHAT_START_SETTING`] on, under what an administrator set (`managed`: a forced value
+/// wins, a recommended one fills a missing value). Only `true` is on; no file, no value or any
+/// other value is off.
+pub(crate) fn hybrid_chat_start_setting(
+    document: Option<&Value>,
+    managed: impl FnOnce(Option<Value>) -> Option<Value>,
+) -> bool {
+    let file = document.and_then(|root| {
+        root.get(HYBRID_CHAT_START_SETTING)
+            .or_else(|| cmux_config::value::value_at(root, &["cloud", "hybridStart"][..]))
+            .cloned()
+    });
+    managed(file) == Some(Value::Bool(true))
+}
+
+/// [`hybrid_chat_start_setting`] of this person's settings file and managed policy: one file
+/// read, no socket round trip.
+pub(crate) fn hybrid_chat_start_setting_on() -> bool {
+    hybrid_chat_start_setting(settings().as_ref(), |file| {
+        cmux_config::managed::applied_to(HYBRID_CHAT_START_SETTING, file)
+    })
+}
+
 /// Whether the managed policy or this tester's wave turns `feature` off.
 pub(crate) fn disables(feature: &str) -> bool {
     let env = |name: &str| std::env::var(name).ok();

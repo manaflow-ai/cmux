@@ -101,3 +101,26 @@ fn the_hybrid_start_flag_is_the_env_then_the_disabled_list_then_none() {
     assert_eq!(hybrid_chat_start_flag(&none, &dropped), Some(false));
     assert_eq!(hybrid_chat_start_flag(&env(""), &dropped), Some(false));
 }
+
+#[test]
+fn the_hybrid_start_setting_is_off_unless_true_flat_or_nested_under_the_managed_policy() {
+    let as_is = |file: Option<Value>| file;
+    let on =
+        |text: &str| hybrid_chat_start_setting(Some(&serde_json::from_str(text).unwrap()), as_is);
+    assert!(!hybrid_chat_start_setting(None, as_is));
+    assert!(!on("{}"));
+    assert!(on(r#"{"cloud.hybridStart": true}"#));
+    assert!(on(r#"{"cloud": {"hybridStart": true}}"#));
+    assert!(!on(r#"{"cloud.hybridStart": false}"#));
+    assert!(!on(r#"{"cloud": {"hybridStart": "yes"}}"#));
+    assert!(!on(r#"{"cloud": {"newWorkspacesInCloud": true}}"#));
+    // A forced managed value wins over the file; a recommended one fills only a missing value.
+    let forced = |value: bool| move |_: Option<Value>| Some(Value::Bool(value));
+    let recommended = |value: bool| move |file: Option<Value>| file.or(Some(Value::Bool(value)));
+    let file_on = serde_json::json!({"cloud.hybridStart": true});
+    let file_off = serde_json::json!({"cloud.hybridStart": false});
+    assert!(!hybrid_chat_start_setting(Some(&file_on), forced(false)));
+    assert!(hybrid_chat_start_setting(Some(&file_off), forced(true)));
+    assert!(hybrid_chat_start_setting(None, recommended(true)));
+    assert!(!hybrid_chat_start_setting(Some(&file_off), recommended(true)));
+}

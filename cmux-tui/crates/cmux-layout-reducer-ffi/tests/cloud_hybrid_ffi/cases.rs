@@ -33,9 +33,15 @@ fn step(state: &Value, event: Value, now: u64) -> Value {
 
 #[test]
 fn a_pro_account_gets_it_and_another_plan_hears_why_not() {
-    let pro = json!({"plan": "next_pro", "signedIn": true});
+    let pro = json!({"plan": "next_pro", "signedIn": true, "setting": true});
     assert_eq!(call(c"cloud_hybrid_enabled", &pro), (OK, json!({"enabled": true})));
-    let plus = json!({"plan": "next_plus", "signedIn": true});
+    // `cloud.hybridStart` is off by default: a Pro account without it hears why.
+    let unset = json!({"plan": "next_pro", "signedIn": true});
+    assert_eq!(
+        call(c"cloud_hybrid_enabled", &unset),
+        (OK, json!({"enabled": false, "off": "setting"}))
+    );
+    let plus = json!({"plan": "next_plus", "signedIn": true, "setting": true});
     assert_eq!(
         call(c"cloud_hybrid_enabled", &plus),
         (OK, json!({"enabled": false, "off": "plan"}))

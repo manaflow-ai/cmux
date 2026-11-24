@@ -88,22 +88,34 @@ pub(super) fn plan_of(answer: &Value) -> Option<String> {
 }
 
 /// [`hybrid::Account`] from what the Cloud start already reads: the flag
-/// ([`crate::feature_flags::hybrid_chat_start_flag`]), `cloud list-machines` (signed in; a
-/// `cloud_disabled` refusal), and the plan, read only when no flag decides.
+/// ([`crate::feature_flags::hybrid_chat_start_flag`]), the setting
+/// ([`crate::feature_flags::hybrid_chat_start_setting_on`]), `cloud list-machines` (signed in; a
+/// `cloud_disabled` refusal), and the plan, read only when the plan decides: no flag, setting on.
 pub(super) fn account(
     flag: Option<bool>,
+    setting: bool,
     listed: Result<Value, Value>,
     plan: impl FnOnce() -> Option<String>,
 ) -> Account {
     let code = listed.as_ref().err().and_then(|error| error.get("code")).and_then(Value::as_str);
     Account {
-        plan: if flag.is_none() { plan() } else { None },
+        plan: if plan_decides(flag, setting) { plan() } else { None },
         flag,
+        setting,
         cloud_disabled: code.is_some_and(|code| code.contains("cloud_disabled")),
         signed_in: listed
             .as_ref()
             .is_ok_and(|listed| listed.pointer("/account/signed_in") != Some(&Value::Bool(false))),
     }
+}
+
+/// Whether the plan is what decides: no flag says on or off, and the setting is on.
+pub(super) fn plan_decides(flag: Option<bool>, setting: bool) -> bool {
+    flag.is_none() && setting
+}
+
+fn setting() -> bool {
+    crate::feature_flags::hybrid_chat_start_setting_on()
 }
 
 fn flag() -> Option<bool> {
@@ -126,8 +138,8 @@ fn read_plan() -> Option<String> {
     plan_of(&answer)
 }
 
-fn account_of(global: &GlobalArgs, flag: Option<bool>) -> Account {
-    account(flag, cloud_start_chat::app_machines(global), read_plan)
+fn account_of(global: &GlobalArgs, flag: Option<bool>, setting: bool) -> Account {
+    account(flag, setting, cloud_start_chat::app_machines(global), read_plan)
 }
 
 /// The plan cache: the last plan `cloud.plan.get` answered and when (`{plan, read_at_ms}`, Unix
@@ -173,28 +185,39 @@ fn refresh_plan() -> Option<String> {
 
 /// [`account_of`] for a start: the cached plan when it grants it, else the plan read beside the
 /// machine list (both bounded as before), never one after the other.
-fn account_for_start(global: &GlobalArgs, flag: Option<bool>) -> Account {
-    let cached = if flag.is_none() { read_cached_plan() } else { None };
-    if cached.is_some() || flag.is_some() {
-        return account(flag, cloud_start_chat::app_machines(global), || cached);
+fn account_for_start(global: &GlobalArgs, flag: Option<bool>, setting: bool) -> Account {
+    let cached = if plan_decides(flag, setting) { read_cached_plan() } else { None };
+    if cached.is_some() || !plan_decides(flag, setting) {
+        return account(flag, setting, cloud_start_chat::app_machines(global), || cached);
     }
     std::thread::scope(|scope| {
         let plan = scope.spawn(refresh_plan);
         let listed = cloud_start_chat::app_machines(global);
-        account(flag, listed, || plan.join().ok().flatten())
+        account(flag, setting, listed, || plan.join().ok().flatten())
     })
 }
 
+/// Whether a start reads nothing more and runs as the Cloud start: a flag that says off, or no
+/// flag and the setting off (`cloud.hybridStart`, off by default).
+pub(super) fn off_before_reading(flag: Option<bool>, setting: bool) -> bool {
+    match flag {
+        Some(on) => !on,
+        None => !setting,
+    }
+}
+
 /// The hybrid start of a Cloud route, when it is on and takes this start: its exit code. None: the
-/// Cloud start runs as before. A flag that says off reads nothing.
+/// Cloud start runs as before. A flag that says off, or the setting off, reads nothing more.
 pub(super) fn start(global: &GlobalArgs, start: &Start, machine: &Machine) -> Option<i32> {
     let target = takes(start, machine)?;
     let flag = flag();
-    if flag == Some(false) {
+    // The setting is read only when no flag decides: one settings file read, no round trip.
+    let setting = flag.is_none() && setting();
+    if off_before_reading(flag, setting) {
         return None;
     }
     let gate = Instant::now();
-    hybrid::enabled(&account_for_start(global, flag)).ok()?;
+    hybrid::enabled(&account_for_start(global, flag, setting)).ok()?;
     let gate_ms = u64::try_from(gate.elapsed().as_millis()).unwrap_or(u64::MAX);
     Some(begin(global, start, &target, gate_ms))
 }
@@ -715,11 +738,11 @@ fn run_drive(global: &GlobalArgs, rest: &[String]) -> i32 {
     0
 }
 
-/// `{enabled, off, plan, flag, signed_in, cloud_disabled}`: what the hybrid start decides for
+/// `{enabled, off, plan, flag, setting, signed_in, cloud_disabled}`: what the hybrid start decides for
 /// this account now, read as the start reads it (the plan too, for the read-back).
 fn status(global: &GlobalArgs) -> i32 {
     let flag = flag();
-    let mut account = account_of(global, flag);
+    let mut account = account_of(global, flag, setting());
     if account.plan.is_none() {
         account.plan = read_plan();
     }
@@ -729,6 +752,7 @@ fn status(global: &GlobalArgs) -> i32 {
         "off": decided.err(),
         "plan": account.plan,
         "flag": account.flag,
+        "setting": account.setting,
         "signed_in": account.signed_in,
         "cloud_disabled": account.cloud_disabled,
     });

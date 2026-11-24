@@ -23,7 +23,13 @@ fn moves(effects: &[Effect]) -> usize {
 }
 
 fn account(plan: Option<&str>, flag: Option<bool>) -> Account {
-    Account { plan: plan.map(str::to_owned), flag, cloud_disabled: false, signed_in: true }
+    Account {
+        plan: plan.map(str::to_owned),
+        flag,
+        cloud_disabled: false,
+        signed_in: true,
+        setting: true,
+    }
 }
 
 #[test]
@@ -50,6 +56,26 @@ fn the_servers_flag_wins_over_the_plan_and_cloud_off_over_both() {
     assert_eq!(enabled(&signed_out), Err(Off::NoCloud));
     let disabled = Account { cloud_disabled: true, ..account(Some("next_pro"), Some(true)) };
     assert_eq!(enabled(&disabled), Err(Off::NoCloud));
+}
+
+#[test]
+fn the_setting_is_off_by_default_and_a_pro_plan_needs_it() {
+    assert!(!Account::default().setting);
+    let off = |plan: Option<&str>, flag| Account { setting: false, ..account(plan, flag) };
+    assert_eq!(enabled(&off(Some("next_pro"), None)), Err(Off::Setting));
+    assert_eq!(enabled(&account(Some("next_pro"), None)), Ok(()));
+    // The setting comes before the plan: a start with it off needs no plan.
+    assert_eq!(enabled(&off(Some("next_plus"), None)), Err(Off::Setting));
+    assert_eq!(enabled(&off(None, None)), Err(Off::Setting));
+    assert_eq!(enabled(&account(Some("next_plus"), None)), Err(Off::Plan));
+    // A flag decides before the setting: on forces it (a test's env), off wins.
+    assert_eq!(enabled(&off(None, Some(true))), Ok(()));
+    assert_eq!(enabled(&off(Some("next_pro"), Some(false))), Err(Off::Flag));
+    assert_eq!(enabled(&account(Some("next_pro"), Some(false))), Err(Off::Flag));
+    // No Cloud before everything.
+    let signed_out = Account { signed_in: false, ..off(Some("next_pro"), Some(true)) };
+    assert_eq!(enabled(&signed_out), Err(Off::NoCloud));
+    assert_eq!(serde_json::to_value(Off::Setting).unwrap(), "setting");
 }
 
 #[test]

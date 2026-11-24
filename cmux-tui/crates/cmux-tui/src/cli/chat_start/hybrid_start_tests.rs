@@ -7,9 +7,10 @@ use super::super::super::GlobalArgs;
 use super::super::super::cloud_start_chat::Machine;
 use super::super::{Parsed, cloud_words, here_words, parse};
 use super::{
-    Drive, account, cached_plan, drive, drive_args, drive_words, here_of, move_words, pause_words,
-    plan_of, takes, tool_event,
+    Drive, account, cached_plan, drive, drive_args, drive_words, here_of, move_words,
+    off_before_reading, pause_words, plan_of, takes, tool_event,
 };
+use crate::feature_flags::{HYBRID_CHAT_START, HYBRID_CHAT_START_ENV, hybrid_chat_start_flag};
 
 fn words(list: &[&str]) -> Vec<String> {
     list.iter().map(|word| (*word).to_owned()).collect()
@@ -138,7 +139,7 @@ fn the_plan_is_read_at_the_top_or_under_plan() {
 fn the_env_flag_and_plan_table_decides_as_hybrid_enabled_says() {
     let signed_in = || Ok(json!({"account": {"signed_in": true}, "machines": []}));
     let decide = |flag, listed: Result<Value, Value>, plan: Option<&str>| {
-        hybrid::enabled(&account(flag, listed, || plan.map(str::to_owned)))
+        hybrid::enabled(&account(flag, true, listed, || plan.map(str::to_owned)))
     };
     assert_eq!(decide(None, signed_in(), Some("pro")), Ok(()));
     assert_eq!(decide(None, signed_in(), Some("team")), Ok(()));
@@ -155,11 +156,56 @@ fn the_env_flag_and_plan_table_decides_as_hybrid_enabled_says() {
     assert_eq!(decide(Some(true), disabled, None), Err(Off::NoCloud));
     // A flag decides: the plan is not read.
     let read = std::cell::Cell::new(false);
-    let _ = account(Some(true), signed_in(), || {
+    let _ = account(Some(true), true, signed_in(), || {
         read.set(true);
         None
     });
     assert!(!read.get());
+    // The setting off: the plan is not read either.
+    let _ = account(None, false, signed_in(), || {
+        read.set(true);
+        None
+    });
+    assert!(!read.get());
+}
+
+/// The whole gate: the setting (`cloud.hybridStart`) × the plan × `CMUX_HYBRID_START` × the
+/// managed policy or wave turning `hybrid-chat-start` off, as `start` reads them. With the
+/// setting off a start is the Cloud start as on base, whatever the plan; env on still forces it.
+#[test]
+fn the_setting_is_one_more_requirement_and_env_or_managed_still_decide_first() {
+    let signed_in = || Ok(json!({"account": {"signed_in": true}, "machines": []}));
+    // What `start` does: Some(true) hybrid, Some(false) the Cloud start after the account read,
+    // None the Cloud start with nothing more read.
+    let gate = |setting: bool, plan: Option<&str>, env: Option<&str>, managed_off: bool| {
+        let env = |name: &str| (name == HYBRID_CHAT_START_ENV).then(|| env.map(str::to_owned))?;
+        let disabled = |name: &str| managed_off && name == HYBRID_CHAT_START;
+        let flag = hybrid_chat_start_flag(&env, &disabled);
+        let setting = flag.is_none() && setting;
+        if off_before_reading(flag, setting) {
+            return (None, Err(if flag.is_some() { Off::Flag } else { Off::Setting }));
+        }
+        let decided =
+            hybrid::enabled(&account(flag, setting, signed_in(), || plan.map(str::to_owned)));
+        (Some(decided.is_ok()), decided)
+    };
+    for plan in [Some("next_pro"), Some("next_plus"), None] {
+        // The setting off (the default): never hybrid, nothing read, says why.
+        assert_eq!(gate(false, plan, None, false), (None, Err(Off::Setting)), "{plan:?}");
+        assert_eq!(gate(false, plan, None, true), (None, Err(Off::Flag)), "{plan:?}");
+        assert_eq!(gate(false, plan, Some("0"), false), (None, Err(Off::Flag)), "{plan:?}");
+        // Env on forces it, setting or not, plan or not, managed off or not.
+        for setting in [false, true] {
+            assert_eq!(gate(setting, plan, Some("1"), true), (Some(true), Ok(())), "{plan:?}");
+            assert_eq!(gate(setting, plan, Some("0"), false).0, None, "{plan:?}");
+        }
+        // The setting on: managed off still wins.
+        assert_eq!(gate(true, plan, None, true), (None, Err(Off::Flag)), "{plan:?}");
+    }
+    // The setting on and nothing else deciding: the plan does.
+    assert_eq!(gate(true, Some("next_pro"), None, false), (Some(true), Ok(())));
+    assert_eq!(gate(true, Some("next_plus"), None, false), (Some(false), Err(Off::Plan)));
+    assert_eq!(gate(true, None, None, false), (Some(false), Err(Off::Plan)));
 }
 
 /// A driver whose events are scripted and whose effects are recorded.
