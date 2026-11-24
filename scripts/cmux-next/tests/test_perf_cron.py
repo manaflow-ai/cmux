@@ -24,7 +24,7 @@ def row(p95, unit="ms", floor=1.0, budget=None):
     return {"p50": p95, "p95": p95, "unit": unit, "floor": floor, "budget": budget}
 
 
-LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-flat", "web-ui-scroll-up", "web-ui-flat-grown", "web-ui-ladder", "web-ui-fidelity", "web-ui-typing", "web-ui-scroll", "chat-disk", "cloud-claim", "terminal-scroll", "daemon-restart", "coord-sim", "chat-search"]
+LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-memory", "web-ui-flat", "web-ui-scroll-up", "web-ui-flat-grown", "web-ui-ladder", "web-ui-fidelity", "web-ui-typing", "web-ui-scroll", "chat-disk", "cloud-claim", "terminal-scroll", "daemon-restart", "coord-sim", "chat-search"]
 FLEET = [n for n in ALL if n not in ("build", *LINUX_PARTS)]
 
 
@@ -1386,6 +1386,13 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "transcript-scroll-up-scale"])
         self.assertEqual(cwd, "/r/webviews")
 
+    def test_the_chat_pages_memory_rows_have_their_own_part(self):
+        self.assertTrue(cron.is_linux_part("web-ui-memory"))
+        self.assertEqual(cron.part_for_row("webui.chat_pages_memory.n10.ratio_vs_empty@linux"), "web-ui-memory")
+        argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-memory")["suite"]
+        self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "chat-pages-memory"])
+        self.assertEqual(cwd, "/r/webviews")
+
     def test_the_god_part_runs_both_fixtures_and_owns_the_god_rows(self):
         self.assertTrue(cron.is_linux_part("web-ui-god"))
         argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-god")["suite"]
@@ -1599,6 +1606,16 @@ class WebUiTests(unittest.TestCase):
         part = cron.PART_BY_NAME["web-ui"]
         self.assertFalse(cron.report_is_incomplete(part, self.REPORT))
         self.assertTrue(cron.report_is_incomplete(part, {**self.REPORT, "incomplete": ["chat-open: exit 1"]}))
+
+    def test_the_wakeup_lines_name_what_woke_an_idle_page(self):
+        stdout = ("web-ui-suite: chat-switch\n"
+                  "  chat-switch|   at rest for 5 s: 0 wakeups (0 timeouts, 0 intervals, 0 frames)\n"
+                  "  chat-switch|   left alone for 10 s: 1 wakeups (1 timeouts, 0 intervals); setTimeout at a.ts:3\n"
+                  "PERF_ROW {\"name\": \"chat_switch.unread.rest_wakeups\"}\n")
+        self.assertEqual(cron.webui_wakeup_lines(stdout), [
+            "chat-switch|   at rest for 5 s: 0 wakeups (0 timeouts, 0 intervals, 0 frames)",
+            "chat-switch|   left alone for 10 s: 1 wakeups (1 timeouts, 0 intervals); setTimeout at a.ts:3"])
+        self.assertEqual(cron.webui_wakeup_lines(None), [])
 
     def test_the_summary_is_slowest_first_relative_to_target(self):
         lines = cron.webui_summary({**self.REPORT, "failed": [{"bench": "chat-open", "why": "exit 1"}]})
@@ -2609,6 +2626,21 @@ class ConfirmTests(unittest.TestCase):
             self.assertEqual(self.measured(22.2, name, r(22.2), parts={"motion": {"state": "done"}}), "good")
         self.assertEqual(self.names("regressions"), [])
         self.assertIn(name, self.state["pending"])
+
+    def test_an_open_regression_keeps_its_newest_reading(self):
+        # The probe and NOW read last_p95 and last_at: a later run's value, not the one the regression was detected at.
+        for v in (19.5, 20.0, 21.0):
+            self.measured(v)
+        self.measured(45.0)
+        self.assertEqual(self.measured(46.0), "regressed")
+        reg = self.state["regressions"][0]
+        self.assertEqual((reg["last_p95"], reg["last_at"]), (46.0, self.state["history"][-1]["at"]))
+        self.assertEqual(self.measured(52.0), "still")
+        reg = self.state["regressions"][0]
+        self.assertEqual((reg["last_p95"], reg["last_at"]), (52.0, self.state["history"][-1]["at"]), "still worse")
+        self.assertEqual(self.measured(20.0), "still")
+        reg = self.state["regressions"][0]
+        self.assertEqual((reg["last_p95"], reg["last_at"]), (20.0, self.state["history"][-1]["at"]), "recovering")
 
     def test_a_candidate_never_moves_row_ok_or_the_baseline(self):
         # Review 1, finding 4: row_ok moved with every unconfirmed value, so a later confirmation blamed a newer commit.

@@ -136,3 +136,17 @@ extension SidebarNoticeCard {
         return notice
     }
 }
+
+extension SidebarNoticeCard {
+    /// A status card for work that names its step (going back to an earlier build): the text
+    /// starts at the card's padding, the bar shows `fraction` (a sweep without one) while
+    /// `working`, and only a finished one (a failure) has an x.
+    public static func status(id: String, title: String, detail: String?, fraction: Double?, working: Bool,
+                              dismissLabel: String) -> SidebarNoticeCard {
+        var card = SidebarNoticeCard(id: id, title: title, detail: detail,
+                                     progress: working ? (fraction.map { .fraction($0) } ?? .indeterminate) : nil,
+                                     dismissLabel: working ? nil : dismissLabel, userAsked: true)
+        card.leadingSpinner = false
+        return card
+    }
+}

@@ -192,6 +192,8 @@ pub struct Conn {
     /// Where each attached chat's live stream stands, so a lap of the event ring is read back
     /// from the store (`stream_cursor.rs`).
     stream_cursors: stream_cursor::StreamCursors,
+    /// The chats attached here that moved to a peer, or are being moved (`follow.rs`).
+    follows: follow::Follows,
     /// The chats a `session/load` replayed here: their message notices go once.
     message_notices: StdMutex<MessageNoticeBook>,
     /// Server-derived mailbox identities for this connection's local attachments.
@@ -209,6 +211,8 @@ pub struct Conn {
     /// one peer's rows as one `_acpmux/peer_rows_changed` (`Events::send_remote_batch`) and
     /// follow the list for them, not one `session_changed` per row.
     peer_row_batches: AtomicBool,
+    /// Compact text chunks on its event streams (`chunk_deltas.rs`), when its `initialize` asked.
+    chunk_deltas: chunk_deltas::ChunkDeltas,
     /// The client asked, in its `initialize` (`_meta.acpmux.sessionChangedDelta`), to hear a chat's
     /// row changes after the first as `_acpmux/session_patch`; `sent_rows` keeps what it holds.
     session_delta: AtomicBool,
@@ -497,6 +501,26 @@ impl Conn {
     /// The acpmux session this connection proved it runs in (`hub/person.rs` (a)).
     pub(super) fn caller(&self) -> Option<&str> {
         self.caller.get().map(String::as_str)
+    }
+
+    /// Who closes `target` when this connection asks (`close_why.rs`): a peer daemon or remote
+    /// client by its paired machine, the app's pane, an agent closing itself, or the local CLI
+    /// (with the session it runs in, when it proved one, and its pid).
+    pub(super) fn close_actor(&self, target: &str) -> crate::close_why::CloseActor {
+        use crate::close_why::CloseActor;
+        let pid = match self.socket_peer {
+            crate::sender_harness::SocketPeer::Pid(pid) => Some(pid),
+            _ => None,
+        };
+        let caller = self.caller();
+        let kind = match self.origin {
+            Origin::Peer => "peer",
+            Origin::Web => "web",
+            Origin::LocalApp => "app",
+            Origin::Local if caller == Some(target) => "agent_self",
+            Origin::Local => "cli",
+        };
+        CloseActor::new(kind).session(caller).host(self.device.as_deref()).pid(pid)
     }
 
     /// Who this connection is in the caller stats (`caller_stats.rs`): its client name, origin,
@@ -1853,7 +1877,7 @@ async fn serve_connection_from(
     // for, with `list` and `peers` on (`link_v2.rs`). Every other connection drops its frames.
     let mut link_v2 = link
         .filter(|_| origin == Origin::Peer)
-        .and_then(|slot| crate::link_v2::Link::serving(&hub, slot));
+        .and_then(|slot| link_v2_serve::Link::serving(&hub, slot));
     // Opt-in usage patterns: connections by listener, and distinct paired machines (an opaque
     // stand-in for the device id, never the id).
     if cmux_usage_patterns::enabled() {
@@ -1877,6 +1901,7 @@ async fn serve_connection_from(
         gate,
         subs: StdMutex::new(HashMap::new()),
         stream_cursors: Default::default(),
+        follows: Default::default(),
         message_notices: StdMutex::new(MessageNoticeBook::default()),
         mailbox_bindings: StdMutex::new(HashMap::new()),
         controls: Default::default(),
@@ -1885,6 +1910,7 @@ async fn serve_connection_from(
         watch_all: AtomicBool::new(false),
         watch_tools: AtomicBool::new(false),
         peer_row_batches: AtomicBool::new(false),
+        chunk_deltas: Default::default(),
         session_delta: AtomicBool::new(false),
         sent_rows: StdMutex::default(),
         watch_inventory: StdMutex::new(false),
@@ -2439,6 +2465,10 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
     // row has here (`qualifiedSessionId`), so clients key live transcripts and prompts by the
     // same route as their session rows. A peer daemon's link names it by its own route.
     let routed = |mut params: Value| {
+        // A chat that moved to a peer keeps the shape its records had here (`follow.rs`).
+        if ev.remote.is_some() && conn.follows.following(&ev.session_id) {
+            return params;
+        }
         if conn.origin != Origin::Peer
             && let Some(remote) = &ev.remote
         {
@@ -2478,10 +2508,8 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             // Sent by the replay.
         } else if sub.event_stream {
             if sub.filter.matches_live(rec) {
-                conn.send(&Message::notification(
-                    method::MUX_EVENT,
-                    routed(event_value(&ev.session_id, rec)),
-                ));
+                let params = routed(event_value(&ev.session_id, rec));
+                conn.send(&conn.chunk_deltas.frame(&ev.session_id, params));
             }
         } else {
             // Agent -> client updates as standard ACP notifications.
@@ -2695,6 +2723,7 @@ pub(crate) mod computer_use_relay;
 mod connection_token_tests;
 pub(crate) mod controls;
 mod in_flight;
+mod keys_relay;
 #[cfg(test)]
 #[path = "latency_gauges_tests.rs"]
 mod latency_gauges_tests;
@@ -2710,6 +2739,7 @@ pub(crate) use crate::clock_text::{civil_from_days, iso};
 pub(crate) use change_kind::session_change_kind;
 mod change_kind;
 mod chat_windows;
+mod chunk_deltas;
 pub(crate) mod session_patch;
 pub use chat_windows::live_tasks as live_chat_window_tasks;
 pub mod carrier;
@@ -2720,7 +2750,10 @@ mod durable_gate;
 mod ephemeral;
 mod fanout;
 mod fix_from_link;
+mod follow;
 mod forum;
+mod github_lane;
+mod link_v2_serve;
 mod media_forward;
 mod mesh_control_send;
 pub mod mesh_relay;
@@ -2741,11 +2774,13 @@ mod inventory_watch;
 mod lane_parent;
 mod list_reply;
 use lane_parent::lane_parent;
+mod agent_home;
 mod bg_tasks;
 mod github_prs;
 mod goal;
 pub mod local_app;
 pub(crate) mod machine_enroll;
+mod machine_files_relay;
 pub(crate) mod machine_health;
 mod machine_join_ssh;
 #[cfg(feature = "hub-carrier")]
@@ -2768,6 +2803,7 @@ mod sign_in_follow;
 mod ssh_carry;
 mod task_list;
 pub use pairing::serve_connection_device;
+mod chat_place;
 pub(crate) mod host_power;
 pub(crate) mod interest;
 mod move_targets;
@@ -2882,6 +2918,13 @@ mod outbound_queue_tests;
 /// Owner-only TLS ingress from the embedded tailnet node.
 #[cfg(all(unix, feature = "tailnet"))]
 pub mod tailnet_ingress;
+
+/// The embedded tailnet listener's lifecycle, a server module (it serves the hub through
+/// `tailnet_ingress`; it was `tailnet::embedded_service`). Its file stays where it was: the
+/// spawn-owner ratchet (`check-spawn-owner.py`) keeps its row by path and does not follow a move.
+#[cfg(all(unix, feature = "tailnet"))]
+#[path = "../tailnet/embedded_service.rs"]
+pub(crate) mod tailnet_service;
 
 #[cfg(test)]
 mod message_notice_tests;
