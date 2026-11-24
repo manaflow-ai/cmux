@@ -293,6 +293,8 @@ const DEAD_AFTER: usize = 3;
 pub struct Chain {
     remotes: Vec<Remote>,
     get: Box<dyn Get>,
+    /// The object stores ([`crate::s3`]) among `remotes`, found by their `base`.
+    stores: Vec<crate::s3::Store>,
 }
 
 /// What [`Chain::fill`] did, for the mount's timing line.
@@ -300,6 +302,7 @@ pub struct Chain {
 pub struct Filled {
     pub peer: usize,
     pub ssd: usize,
+    /// From R2 or another S3-compatible store ([`crate::s3`]).
     pub r2: usize,
     /// Answers whose bytes did not hash to the id asked for (dropped).
     pub rejected: usize,
@@ -316,7 +319,15 @@ pub fn enabled(flag: Option<&str>) -> bool {
 impl Chain {
     #[must_use]
     pub fn new(remotes: Vec<Remote>, get: Box<dyn Get>) -> Self {
-        Self { remotes, get }
+        Self { remotes, get, stores: Vec::new() }
+    }
+
+    /// The chain with `stores` asked after its other sources, in order.
+    #[must_use]
+    pub fn with_stores(mut self, stores: Vec<crate::s3::Store>) -> Self {
+        self.remotes.extend(stores.iter().map(crate::s3::Store::remote));
+        self.stores.extend(stores);
+        self
     }
 
     /// The chain the environment names, or `None` when [`FLAG`] turns it off or no client can be
@@ -338,17 +349,21 @@ impl Chain {
         if let Ok(index) = std::env::var("CMUX_PROJECTION_PEER_INDEX") {
             remotes.extend(peers_in(&get, &index));
         }
-        if let Ok(base) = std::env::var("CMUX_PROJECTION_CACHE_URL") {
+        if let Some(base) = std::env::var("CMUX_PROJECTION_CACHE_URL")
+            .ok()
+            .and_then(|url| crate::s3::http_base(&url))
+        {
             let token = std::env::var("CMUX_PROJECTION_CACHE_TOKEN_FILE")
                 .ok()
                 .and_then(|file| std::fs::read_to_string(file).ok())
                 .map(|token| token.trim().to_owned());
             remotes.push(Remote { tier: "ssd", base, token });
         }
-        if let Ok(base) = std::env::var("CMUX_PROJECTION_R2_URL") {
-            remotes.push(Remote { tier: "r2", base, token: None });
-        }
-        Some(Self::new(remotes, Box::new(get)))
+        let stores = crate::s3::Config::from_env()
+            .into_iter()
+            .filter_map(|config| crate::s3::Store::new(config).ok())
+            .collect();
+        Some(Self::new(remotes, Box::new(get)).with_stores(stores))
     }
 
     /// The peers asked, as indexes: the nearest [`PEERS_PER_BLOB`] in index order (the
@@ -455,7 +470,23 @@ impl Chain {
                 continue;
             }
             let url = format!("{}/objects/{oid}", remote.base.trim_end_matches('/'));
-            match self.get.get(&url, remote.token.as_deref(), remote.deadline()) {
+            let answer = match self.stores.iter().find(|store| store.config.base == remote.base) {
+                None => self.get.get(&url, remote.token.as_deref(), remote.deadline()),
+                Some(store) => match store.get(oid, remote.deadline()) {
+                    crate::s3::Fetched::Answer(answer) => answer,
+                    // Wrong or missing keys refuse every blob: drop the store on this first answer.
+                    crate::s3::Fetched::Denied(status) => {
+                        if failed.swap(DEAD_AFTER, Ordering::Relaxed) < DEAD_AFTER {
+                            eprintln!(
+                                "cmux-projection: {} store {} answered {status}; skipped",
+                                remote.tier, remote.base
+                            );
+                        }
+                        continue;
+                    }
+                },
+            };
+            match answer {
                 Answer::Found(bytes) if verify(oid, &bytes) => {
                     failed.store(0, Ordering::Relaxed);
                     return Some((remote.tier, bytes));

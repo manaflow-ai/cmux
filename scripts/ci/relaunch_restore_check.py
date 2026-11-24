@@ -37,7 +37,8 @@ Two halves, one file:
   usable a new turn sent to the chat must be answered (live_ms), so the chat is reattached to its agent, not
   only bound to its tab; where the build serves `debug.agent_pane` (a DEV build; a NIGHTLY's release router
   drops `debug.*`), the shown page must also report a live event (`liveEvent`, as bench_relaunch_reconnect.py
-  reads it). `first-run` (the #36274 case) stays out of the default until cmux#36306 (its fix) lands. Each round prints
+  reads it). A `chat` round also records `page_painted_ms`: when the page's own app drew the chat
+  (`agent_pane.page_painted`, ms since the process started), not its inert saved copy; not budgeted. `first-run` (the #36274 case) stays out of the default until cmux#36306 (its fix) lands. Each round prints
   `L5-ROUND {json}` (quit_ms: quit asked to process gone; quit_to_usable_ms: quit asked to the end of the
   poll that found it usable, the budgeted number; ready_ms: to the start of that poll, a lower bound), and the
   run prints `L5 {json}` with the verdict. Exit 0 only when every round restored everything within budget.
@@ -367,6 +368,11 @@ def launch(app: Path, env: dict, out_log: Path) -> tuple[subprocess.Popen, int, 
     return process, marks_read, marks_write
 
 
+# The page's own app drew the shown chat (AgentPaneModel `.painted` without `copy`), in ms since the process started.
+PAGE_PAINTED_MARK = "agent_pane.page_painted"
+PAGE_PAINT_WAIT_S = 10.0
+
+
 def usable(inst: Instance, before: dict, chat: str, shown_before: list[dict], which: str,
            marks: dict) -> tuple[bool, dict | None, str]:
     """(usable, state, why not): topology loaded, both l5 workspaces and the chat tab back, the front window showing
@@ -629,8 +635,18 @@ def round_once(n: int, process, inst: Instance, app: Path, env: dict, before: di
             break
         time.sleep(POLL_S)
     drain()
+    # The chat drawn live: the page's own app painted it (`agent_pane.page_painted`), not the inert saved copy that
+    # `agent_pane.painted` also counts (a usable round can come ~500 ms before it, bench fc27ac4f, 2026-11-23). Not
+    # budgeted; a build without the mark reads None after PAGE_PAINT_WAIT_S.
+    if ok and which == "chat":
+        until = time.monotonic() + PAGE_PAINT_WAIT_S
+        while PAGE_PAINTED_MARK not in marks and time.monotonic() < until and process.poll() is None:
+            time.sleep(POLL_S)
+            drain()
     os.close(marks_read)
     row["marks"] = marks
+    if which == "chat":
+        row["page_painted_ms"] = marks.get(PAGE_PAINTED_MARK)
     row["front_after"] = front(inst.topology())
     row["usable"] = ok
     row["quit_to_usable_ms"] = round((done - asked) * 1000) if ok else None

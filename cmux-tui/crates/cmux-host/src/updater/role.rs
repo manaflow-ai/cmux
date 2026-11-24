@@ -18,6 +18,7 @@ use serde_json::{Value, json};
 
 use super::carrier::{CARRIER_MAX_HOLD, CarrierHold, CarrierLook};
 use super::channel::{self, CHANNEL_MAX_BYTES, CHANNEL_URL, CMUX_TUI, CMUX_TUI_HOOK};
+use super::credential_wake::{self, WakeTries};
 use super::gate::{Gate, HoldKind, Honor, Refused};
 use super::resolve::{
     GuardStep, Resolved, guard_rollback_waits, resolve_with, timeout_rollback_waits,
@@ -933,7 +934,7 @@ fn check_inner(
     // carrier sessions' last look is inside the gate ([`flip_in_gate`]).
     let last = match off_reason(paths) {
         Some(why) => Some(Outcome::Off(why)),
-        None => match acpmux_busy_sessions() {
+        None => match acpmux_busy_before_flip() {
             Ok(busy) if busy.is_empty() => None,
             Ok(busy) => Some(Outcome::Busy(busy)),
             Err(e) => Some(Outcome::Busy(vec![e])),
@@ -1667,13 +1668,18 @@ pub(super) fn output_within(mut cmd: Command, limit: Duration) -> Result<Vec<u8>
 /// which the caller counts as busy, unless acpmux answered. Empty only when
 /// it answered that no daemon runs and its unit is down (or absent).
 fn acpmux_busy_sessions() -> Result<Vec<String>, String> {
+    Ok(acpmux_look()?.0)
+}
+
+/// [`acpmux_busy_sessions`] with the list it read (`acpmux --json ls`; None when no daemon runs).
+fn acpmux_look() -> Result<(Vec<String>, Option<String>), String> {
     let (_, status) = acpmux(&["--json", "daemon", "status"]).ok_or("acpmux did not run")?;
     match super::daemon_running(&status) {
         None => return Err("acpmux daemon status is unreadable".to_owned()),
         Some(false) => {
             return match user_unit_state(ACPMUX_UNIT).as_deref() {
-                Some("inactive" | "failed") => Ok(Vec::new()),
-                _ if !Path::new(ACPMUX_UNIT_FILE).exists() => Ok(Vec::new()),
+                Some("inactive" | "failed") => Ok((Vec::new(), None)),
+                _ if !Path::new(ACPMUX_UNIT_FILE).exists() => Ok((Vec::new(), None)),
                 state => Err(format!("no acpmux daemon answered, its unit is {state:?}")),
             };
         }
@@ -1683,7 +1689,38 @@ fn acpmux_busy_sessions() -> Result<Vec<String>, String> {
     if !ok {
         return Err("acpmux ls failed".to_owned());
     }
-    super::busy_sessions_in(&ls).ok_or_else(|| "acpmux ls is unreadable".to_owned())
+    let busy = super::busy_sessions_in(&ls).ok_or_else(|| "acpmux ls is unreadable".to_owned())?;
+    Ok((busy, Some(ls)))
+}
+
+/// What the wakes keep between looks ([`super::credential_wake`]).
+static CREDENTIAL_WAKES: Mutex<WakeTries> = Mutex::new(WakeTries::new());
+
+/// How long one look may keep starting wakes. The guard is armed by then
+/// ([`GUARD_AFTER_SECS`]), and each wake starts an agent (seconds; `acpmux` gives it 20 s). A
+/// session not reached in time holds the look and is woken at the next, with its tries intact.
+const WAKES_WITHIN: Duration = Duration::from_secs(90);
+
+/// The last look before a flip: [`acpmux_busy_sessions`], and with none busy, the wake of every
+/// chat whose launch credential only acpmux's memory holds, so the restart does not lose it
+/// ([`WakeTries::before_flip`]). A wake that failed or was not reached holds the update like a
+/// busy session. No wake starts once the updater is told to stop (a park waits only
+/// `ROLE_STOP_GRACE` for this thread).
+fn acpmux_busy_before_flip() -> Result<Vec<String>, String> {
+    let began = Instant::now();
+    CREDENTIAL_WAKES.lock().unwrap_or_else(|e| e.into_inner()).before_flip(
+        acpmux_look,
+        |id| {
+            if stopped() || began.elapsed() >= WAKES_WITHIN {
+                return credential_wake::Woke::NotReached;
+            }
+            match acpmux(&["--json", "session", "wake", id]) {
+                Some((ok, reply)) => credential_wake::woke(ok, &reply),
+                None => credential_wake::Woke::Failed,
+            }
+        },
+        log,
+    )
 }
 
 /// `systemctl --user is-active UNIT` in the work user's manager: its word.

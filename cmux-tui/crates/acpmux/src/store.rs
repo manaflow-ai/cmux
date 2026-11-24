@@ -32,7 +32,7 @@ mod sealed_segments;
 mod segment_starts;
 mod segment_table;
 pub use kind_heads::KindHead;
-pub use kind_index::{DIR as KIND_INDEX_DIR, INDEXED_KINDS};
+pub use kind_index::{DIR as KIND_INDEX_DIR, INDEXED_KINDS, carry_copy as carry_kind_index};
 use segment_table::SegmentList;
 mod fork_view;
 pub use fork_view::{
@@ -152,6 +152,36 @@ impl SessionStatus {
 impl std::fmt::Display for SessionStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())
+    }
+}
+
+/// Why a chat waits on the person: every [`SessionStatus::Waiting`] has one, written with it
+/// (`Hub::set_waiting`, the only way into Waiting), so a client always says what it waits for (the
+/// summary's `waitingOn`). Never a bare Waiting (goal cloud-chat-waiting-always-explained).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WaitReason {
+    /// An agent's question (AskUserQuestion, Codex user input), carried as a permission request.
+    Question,
+    /// A tool's permission: only the person allows it (`hub/person.rs`).
+    Permission,
+    /// A card asking to connect an MCP server (`hub/mcp_connect.rs`).
+    McpConnect,
+    /// A private card asking for a secret's value (`hub/secrets.rs`).
+    Secret,
+    /// A private card asking for the password to run one command as root (`hub/elevation.rs`).
+    Elevation,
+}
+
+impl WaitReason {
+    /// The summary's `waitingOn` for it.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Question => "question",
+            Self::Permission => "permission",
+            Self::McpConnect => "mcp_connect",
+            Self::Secret => "secret",
+            Self::Elevation => "elevation",
+        }
     }
 }
 
@@ -781,6 +811,24 @@ pub struct SessionMeta {
     /// chat list shows of it without opening the archive. Cleared when the log comes back.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cold: Option<ColdPreview>,
+    /// The subagent of chat `parent_id` this fork holds the conversation of, not the chat's own
+    /// (`hub/fork_subagent.rs`). The info view's `forkOf`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fork_of_subagent: Option<SubagentForkOf>,
+}
+
+/// A fork of a chat's subagent: the chat, and the subagent as its `_meta.acpmux.subagents`
+/// names it (`SessionMeta::fork_of_subagent`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SubagentForkOf {
+    pub session_id: String,
+    pub subagent_id: String,
+    /// Claude's agent id (its sidechain's), or the Codex child's thread id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
 }
 
 /// A cold-archived chat's preview, kept in `session.json` (`SessionMeta::cold`).
