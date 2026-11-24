@@ -956,6 +956,8 @@ fn seeded(mode: &'static str, planned: &Planned, ended: &Ended) -> Pushed {
         .map(|item| {
             let kind = if item.why.starts_with("a separate git repository") {
                 "repository"
+            } else if item.why.starts_with("a big file") {
+                "big"
             } else {
                 "secret"
             };
