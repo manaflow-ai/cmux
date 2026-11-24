@@ -66,6 +66,7 @@
 // measured at (`hostGlassPageZoom`, the zoom the page renders at, published on `<html>` before the
 // frame paints), a zoom change alone sends a new report, and the App places each box with that zoom
 // and never its own (AgentPaneView+HostGlass.swift hostGlassFrame).
+import { pageDrawsHover } from "../hoverLook";
 import { GLASS_ATTRIBUTE, GLASS_OFF, LENS_ATTRIBUTE, LIVE_BACKGROUND_ATTRIBUTE } from "./glassState";
 import { onVisualViewport, visualViewportScale } from "../visualViewportBox";
 import { INTERFACE_SCALE_EVENT } from "../interfaceScale";
@@ -387,6 +388,13 @@ export function reportHostGlass(
         if (live) mark(element, "0");
         continue;
       }
+      // A restyled tooltip or hover card (experiments.hoverLook) paints its own glass every frame, not
+      // only when it mounts: no App glass under it, or the two draw a double glass.
+      if (pageDrawsHover(element)) {
+        firstShown.delete(element);
+        if (live) mark(element, "0");
+        continue;
+      }
       // A fallen-back surface is not reported: the App draws no glass under the page's own.
       const surface = applies && !fellBack(element) ? hostGlassSurface(element, id) : undefined;
       if (surface && surfaces.length >= HOST_GLASS_MAX) {
@@ -444,6 +452,11 @@ export function reportHostGlass(
     resize?.observe(element);
     watchStyles();
     if (!live) {
+      mark(element, "0");
+      return;
+    }
+    // The restyled tooltips and hover cards (experiments.hoverLook) paint their own glass.
+    if (pageDrawsHover(element)) {
       mark(element, "0");
       return;
     }

@@ -15,7 +15,8 @@ import { turnView } from "./turns";
 
 const expanded = new Set<string>();
 
-function SendStreamMotionGallery({ turn }: { turn: ScriptedTurn }) {
+/// `family`: the harness whose folds the turn view uses (stream-follow-fold.gallery.tsx plays Claude's).
+export function SendStreamMotionGallery({ turn, family }: { turn: ScriptedTurn; family?: string }) {
   const [view, setView] = useState<Required<ScriptedView>>(() => ({
     rows: scriptedHistory() as AcpmuxRow[],
     working: false,
@@ -38,14 +39,20 @@ function SendStreamMotionGallery({ turn }: { turn: ScriptedTurn }) {
         <div className="acpmux-stage">
           <header className="acpmux-header">
             <button type="button" className="ui-button" data-testid="send-stream-play" onClick={play}>
-              {turn === "send" ? "Send and stream" : turn === "tools" ? "Stream with tools" : "Steer mid-stream"}
+              {turn === "send"
+                ? "Send and stream"
+                : turn === "tools"
+                  ? "Stream with tools"
+                  : turn === "steer"
+                    ? "Steer mid-stream"
+                    : "Stream and fold"}
             </button>
             <output data-testid="send-stream-state" aria-live="polite">
               {state === "settled" ? "Turn settled" : state === "playing" ? "Playing" : "Ready"}
             </output>
           </header>
           <VirtualTranscript
-            rows={turnView(view.rows, expanded, { working: view.working })}
+            rows={turnView(view.rows, expanded, { working: view.working, agentFamily: family })}
             sessionId={`send-stream-motion-${turn}`}
             working={view.working}
             sends={view.sends}
@@ -66,7 +73,7 @@ function SendStreamMotionGallery({ turn }: { turn: ScriptedTurn }) {
 }
 
 /// Plays the turn and waits until its summary row is drawn and the follow motion rests.
-const playTurn: Play = async (ctx) => {
+export const playTurn: Play = async (ctx) => {
   ctx.motion.start({ kind: "streaming-follow", target: ".acpmux-scroll", maxMs: 8_000 });
   await ctx.click({ testId: "send-stream-play" });
   await ctx.waitFor(() => ctx.find({ testId: "send-stream-state" }).textContent === "Turn settled", { capMs: 10_000 });

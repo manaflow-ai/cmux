@@ -12,14 +12,14 @@
       "rows": [
         {
           "key": "labs.previewFeatures",
-          "note": "Surfaces still being shaped (the App Store, the agent pane's session coverage label and its Pull requests view). Off by default, so a default app shows only finished surfaces.",
+          "note": "Surfaces still being shaped (the agent pane's session coverage label and its Pull requests view). Off by default, so a default app shows only finished surfaces. The App Store has its own switch, labs.appStore.",
           "title": {
             "key": "settings.labs.previewFeatures",
             "text": "Show Preview Features"
           },
           "help": {
             "key": "settings.labs.previewFeatures.help",
-            "text": "Unfinished surfaces, such as the App Store and the agent session's coverage label and Pull requests view."
+            "text": "Unfinished surfaces, such as the agent session's coverage label and Pull requests view."
           },
           "kind": "toggle",
           "default": false,
@@ -28,10 +28,29 @@
             "preview",
             "experimental",
             "beta",
-            "prototype",
+            "prototype"
+          ]
+        },
+        {
+          "key": "labs.appStore",
+          "note": "The App Store: its sidebar item, its actions in the palette, menus and context menus, and its page. Off by default until it is ready (David Beyer, Nov 20: \"don't show the app store until it's ready\"; Lawrence, Nov 23: \"get rid of app store from default for now\"). Its own switch, apart from Show Preview Features, so turning previews on for the music player, Click by Hint or Stats does not bring it back.",
+          "title": {
+            "key": "settings.labs.appStore",
+            "text": "Show App Store"
+          },
+          "help": {
+            "key": "settings.labs.appStore.help",
+            "text": "Browse, install and update apps for cmux. Still being shaped."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "labs",
             "app store",
             "apps",
-            "extensions"
+            "store",
+            "extensions",
+            "install"
           ]
         },
         {
@@ -153,6 +172,28 @@
             "inject",
             "swift",
             "develop"
+          ]
+        },
+        {
+          "key": "labs.bundledCodexAppServer",
+          "note": "Bundled Codex app-server (plans/next-ux/ux-harness-health.md, optional bundled Codex app-server): on, a Codex chat whose profile runs plain `codex app-server` starts the app-server in the app-owned bundle folder when its manifest's sha256, version and protocol check out (acpmux codex_bundle.rs), and falls back to the installed CLI otherwise, saying why on the harness health row. A profile naming its own program, CODEX_PATH or a non-stdio --listen keeps its own. Off by default; read at each new chat. The person turns it on: agents may not (it chooses which binary runs).",
+          "title": {
+            "key": "settings.labs.bundledCodexAppServer",
+            "text": "Use Bundled Codex App Server"
+          },
+          "help": {
+            "key": "settings.labs.bundledCodexAppServer.help",
+            "text": "New Codex chats use the app server bundled with cmux when it checks out, else your installed Codex."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "labs",
+            "codex",
+            "bundled",
+            "app-server",
+            "harness",
+            "runtime"
           ]
         },
         {

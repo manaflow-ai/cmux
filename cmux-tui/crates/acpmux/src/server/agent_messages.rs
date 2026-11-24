@@ -112,6 +112,8 @@ async fn retry(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Value
         trust_gate: super::trust_gate::gated(conn.origin, params),
         full_access_device: super::remote_guard::sending_device(conn, params),
         from: None,
+        // As for a prompt (`counts_as_person_prompt`): no agent's connection, no trigger's.
+        person: !conn.agent_side() && !conn.is_trigger(),
     };
     hub.retry(&s, str_param(params, "subagentId"), by).await
 }

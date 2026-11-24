@@ -120,12 +120,19 @@ const fn access(operation: Op) -> Access {
         | Op::DiffCommentsList
         | Op::DiffCommentsSave
         | Op::DiffCommentsDelete
+        | Op::DiffCommentsThread
+        // A pull request review: checked out, drafted and posted with the
+        // person's own git and gh, for the app and agents, never a page.
+        | Op::GitReviewStart
+        | Op::GitReviewComment
+        | Op::GitReviewPost
         | Op::DiffCommentsSend
         | Op::SessionJournalHookPut
         // It tells whether a path exists and is a folder (cx-9aps).
         | Op::WorkspaceAgentStartGet
         // The user's folders (project-list-v1): read and edited by the app, never a page.
         | Op::ProjectList
+        | Op::ProjectActionsList
         | Op::ProjectObserve
         | Op::ProjectAdd
         | Op::ProjectUpdate
@@ -470,6 +477,7 @@ const fn access(operation: Op) -> Access {
         | Op::CloudMachineChatAccess
         | Op::CloudMachineShareChat
         | Op::CloudMachineChiefStart
+        | Op::CloudMachineChiefResize
         => Access::Denied(Denied::NotAllowed),
     }
 }

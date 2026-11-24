@@ -62,6 +62,10 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
                 "acpmux session route --facts facts.json",
             ),
             ("Read the facts from stdin", "acpmux session route --facts -"),
+            (
+                "Ask what to do with a dead session: restart, move or a successor",
+                "acpmux session route --facts /tmp/review-27-death.json",
+            ),
         ],
     ),
     (
@@ -130,6 +134,15 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
                 "Rename a session on another machine",
                 "acpmux session rename mini-3/scratch sidebar-fix",
             ),
+        ],
+    ),
+    (
+        "session icon",
+        &[
+            ("Give the session this shell runs in a mango icon", "acpmux session icon @ 🥭"),
+            ("Use an SF Symbol", "acpmux session icon @ sf:leaf.fill"),
+            ("Print a session's icon", "acpmux session icon Mango"),
+            ("Clear it", "acpmux session icon @ none"),
         ],
     ),
     (
