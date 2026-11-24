@@ -343,9 +343,9 @@ impl Customize {
                     FindingKind::Broken,
                     Level::Warning,
                     "library.json",
-                    "Your Customization Library does not read".to_owned(),
+                    "Your Customization Library can't be read".to_owned(),
                     format!(
-                        "{error}. Turning entries on and off is refused until it reads; `cmux customize library reset` starts it again."
+                        "{error}. You can't turn items on or off until it's fixed. Run `cmux customize library reset` to start over."
                     ),
                     "Customization Library".to_owned(),
                     Some(&path),
@@ -370,13 +370,13 @@ impl Customize {
             if refused || in_build {
                 let detail = if refused {
                     format!(
-                        "It needs web ABI {} and this app has {}, so the app refuses it and shows its own pages; turning it off ends the mismatch.",
+                        "It was made for a different version of cmux (web ABI {}, this app has {}), so cmux shows its own pages instead. Turn it off to clear this.",
                         code.abi.unwrap_or_default(),
                         expiry.app_abi.unwrap_or_default()
                     )
                 } else {
                     format!(
-                        "{}: the layer pins {source} @{head} over code your build already has.",
+                        "{}. It still holds {source} @{head}, which your build already includes.",
                         code.note
                     )
                 };
@@ -384,7 +384,7 @@ impl Customize {
                     FindingKind::OldBuild,
                     Level::Warning,
                     name,
-                    format!("{name} pins an old build"),
+                    format!("{name} is out of date"),
                     detail,
                     "Customization Library".to_owned(),
                     None,
@@ -398,9 +398,9 @@ impl Customize {
                 _ => source.clone(),
             };
             let pages = if serves {
-                format!("It serves {who}'s web pages (@{head}) in place of your build's")
+                format!("cmux is showing web pages from {who} (@{head}) instead of your build's")
             } else {
-                format!("It is on ({source} @{head}) under a higher code layer")
+                format!("It's on ({source} @{head}), but another layer above it is used instead")
             };
             let mut detail = pages;
             if let Some(on_for) = &on_for {
@@ -408,11 +408,11 @@ impl Customize {
             }
             detail.push('.');
             if entry.on_ms.is_some_and(|at| now.saturating_sub(at) > MAX_AGE_MS / 2) {
-                detail.push_str(&format!(" It turns off by itself at {}.", age(MAX_AGE_MS)));
+                detail.push_str(&format!(" It turns off on its own after {}.", age(MAX_AGE_MS)));
             }
             if !code.needs_build.is_empty() {
                 detail.push_str(&format!(
-                    " Part of it needs a build, so the app runs a mix: {}.",
+                    " Some of it only works after a rebuild, so the app is running a mix: {}.",
                     code.needs_build.join("; ")
                 ));
             }
@@ -457,9 +457,9 @@ impl Customize {
                         FindingKind::Leftover,
                         Level::Warning,
                         "web-dev.json",
-                        "web-dev.json serves a layer no entry uses".to_owned(),
+                        "web-dev.json points to a layer you no longer use".to_owned(),
                         format!(
-                            "It names {} from a layer that is off or gone, so the app serves that code in place of your build's.",
+                            "It points to {}, from a layer that's off or deleted, so cmux shows that code instead of your build's.",
                             overlay.path
                         ),
                         "web-dev.json".to_owned(),
@@ -478,9 +478,9 @@ impl Customize {
                 let (kind, title, detail) = if overlay.refused {
                     (
                         FindingKind::OldBuild,
-                        "A web-dev overlay pins an old build".to_owned(),
+                        "A web-dev overlay is out of date".to_owned(),
                         format!(
-                            "web-dev.json names {} (@{commit}{installed}). It needs web ABI {} and this app has {}, so the app refuses it.",
+                            "web-dev.json points to {} (@{commit}{installed}). It was made for web ABI {} and this app has {}, so cmux won't load it.",
                             overlay.path,
                             overlay.abi.unwrap_or_default(),
                             overlay.app_abi.unwrap_or_default()
@@ -489,9 +489,9 @@ impl Customize {
                 } else if !overlay.installed {
                     (
                         FindingKind::Broken,
-                        "The web-dev overlay is not there".to_owned(),
+                        "The web-dev overlay is missing".to_owned(),
                         format!(
-                            "web-dev.json names {}, which has no manifest.json, so the app cannot serve it.",
+                            "web-dev.json points to {}, which has no manifest.json, so cmux can't load it.",
                             overlay.path
                         ),
                     )
@@ -500,7 +500,7 @@ impl Customize {
                         FindingKind::WebDevOverlay,
                         "A web-dev overlay is on".to_owned(),
                         format!(
-                            "web-dev.json serves {} (@{commit}{installed}) in place of your build's web pages. It was put there by hand, so it is not in your Customization Library.",
+                            "cmux is showing web pages from {} (@{commit}{installed}) instead of your build's. It was added by hand, so it isn't in your Customization Library.",
                             overlay.path
                         ),
                     )
@@ -538,9 +538,9 @@ impl Customize {
                 FindingKind::Leftover,
                 Level::Info,
                 &format!("layers/{name}"),
-                format!("Layer folder {name} is left over"),
+                format!("Unused layer folder: {name}"),
                 format!(
-                    "No entry in your Customization Library uses it ({}). It changes nothing you see; it takes disk space.",
+                    "Nothing in your Customization Library uses it. It doesn't change anything; it only takes up {} of disk.",
                     size_words(bytes)
                 ),
                 format!("layers/{name}"),
@@ -592,9 +592,9 @@ impl Customize {
                 FindingKind::Ignored,
                 Level::Info,
                 &skipped.path,
-                format!("{} is skipped", skipped.path),
+                format!("{} isn't backed up", skipped.path),
                 format!(
-                    "cmux keeps no copy of it ({}), so undo and roll back leave it as it is.",
+                    "cmux doesn't keep a copy of it ({}), so undo and roll back won't change it.",
                     skipped.reason
                 ),
                 skipped.path.clone(),
@@ -616,12 +616,12 @@ impl Customize {
                 let line = line_of_key(text, &key);
                 let (title, detail) = match retired {
                     Some(why) => (
-                        format!("{key} is a retired setting"),
-                        format!("cmux no longer reads it: {why}"),
+                        format!("{key} is no longer used"),
+                        format!("cmux ignores it now: {why}. You can delete it."),
                     ),
                     None => (
-                        format!("{key} is not a setting"),
-                        "cmux ignores it. A typo, or a key from another app or an older cmux; `cmux settings list` names every key.".to_owned(),
+                        format!("{key} isn't a cmux setting"),
+                        "cmux ignores it. It may be a typo or left over from another app or an older cmux. Run `cmux settings list` to see every setting.".to_owned(),
                     ),
                 };
                 out.push(
@@ -652,9 +652,9 @@ impl Customize {
                 FindingKind::Broken,
                 Level::Warning,
                 &logical,
-                format!("Theme {name} is not there"),
+                format!("Theme {name} is missing"),
                 format!(
-                    "appearance.themeFile names {name}, and {} has no {name}.json, so no theme file applies.",
+                    "appearance.themeFile is set to {name}, but there's no {name}.json in {}, so no theme is applied.",
                     display_dir(&theme_file::folder(&roots.config_dir), roots)
                 ),
                 file_name(&roots.settings_file),
@@ -686,8 +686,8 @@ impl Customize {
                 FindingKind::Ignored,
                 Level::Info,
                 &format!("{logical}#{}", diagnostic.path),
-                format!("{logical} sets {} and cmux skips it", diagnostic.path),
-                format!("{}. The rest of the theme still applies.", sentence(&diagnostic.message)),
+                format!("{logical}: {} is ignored", diagnostic.path),
+                format!("{}. The rest of the theme still works.", sentence(&diagnostic.message)),
                 match diagnostic.line {
                     Some(line) => format!("{logical}:{line}"),
                     None => logical.clone(),
@@ -706,9 +706,9 @@ impl Customize {
                     FindingKind::Shadowed,
                     Level::Info,
                     &format!("theme:{key}"),
-                    format!("Theme {name} overrides your {key}"),
+                    format!("Theme {name} replaces your {key}"),
                     format!(
-                        "{} sets {key} and so does {logical}; the theme applies over your settings, so your value is not used.",
+                        "{} and {logical} both set {key}. The theme wins, so your value isn't used.",
                         file_name(&roots.settings_file)
                     ),
                     match line_of_key(text, key) {

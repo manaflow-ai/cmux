@@ -104,7 +104,7 @@ fn a_stale_pr_layer_and_a_broken_file_are_both_said_in_one_line() {
     let stale = find(&report, "layer-on:pr-45206");
     assert_eq!(stale.level, Level::Warning);
     assert_eq!(stale.title, "pr-45206 is still on");
-    assert!(stale.detail.contains("PR #45206's web pages"), "{}", stale.detail);
+    assert!(stale.detail.contains("web pages from PR #45206"), "{}", stale.detail);
     assert!(stale.detail.contains("on 3 hours"), "{}", stale.detail);
     assert_eq!(stale.fixes[0].kind, FixKind::Off);
 
@@ -146,7 +146,7 @@ fn a_layer_for_another_web_abi_pins_an_old_build() {
     customize.library_use_code(layer(9, 1), vec![], "cli", NOW - 1000).unwrap();
     let report = customize.doctor(&Expiry { app_abi: Some(3), ..at(NOW) });
     let old = find(&report, "old-build:pr-9");
-    assert!(old.detail.contains("web ABI 1 and this app has 3"), "{}", old.detail);
+    assert!(old.detail.contains("web ABI 1, this app has 3"), "{}", old.detail);
 }
 
 #[test]
@@ -202,7 +202,7 @@ fn an_unknown_and_a_misspelled_settings_key_are_named_with_their_line() {
     );
     let report = home.customize().doctor(&at(NOW));
     let typo = find(&report, "unknown-key:appearance.acent");
-    assert_eq!(typo.title, "appearance.acent is not a setting");
+    assert_eq!(typo.title, "appearance.acent isn't a cmux setting");
     assert_eq!(typo.line, Some(4));
     assert_eq!(typo.place, "cmux-next.json:4");
     find(&report, "unknown-key:notASection");
@@ -220,13 +220,13 @@ fn a_theme_that_overrides_a_setting_and_a_missing_theme_are_said() {
     let customize = home.customize();
     let report = customize.doctor(&at(NOW));
     let shadow = find(&report, "shadowed:theme:appearance.density");
-    assert_eq!(shadow.title, "Theme night overrides your appearance.density");
+    assert_eq!(shadow.title, "Theme night replaces your appearance.density");
     assert_eq!(shadow.line, Some(4));
 
     home.write("cmux-next.json", "{ \"appearance\": { \"themeFile\": \"gone\" } }\n");
     let report = customize.doctor(&at(NOW));
     let missing = find(&report, "broken:themes/gone.json");
-    assert_eq!(missing.title, "Theme gone is not there");
+    assert_eq!(missing.title, "Theme gone is missing");
 }
 
 #[test]
