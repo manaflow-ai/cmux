@@ -1916,6 +1916,9 @@ export class AcpmuxDirectClient {
   private viewSync: Promise<void> = Promise.resolve();
   /// The selection generation whose attach reply has landed; lag resync waits for it.
   private attachedGeneration = -1;
+  /// What the shown chat's running turn held when it was first drawn and when its attach landed
+  /// (`noteReadWork`), while that turn runs.
+  private readWork: { session: string; generation: number; attached: boolean; items: Map<string, number> } | undefined;
   private historyExhausted = false;
   /// Whether the transcript follows its latest row (the pane says, `setFollowing`): only then are the oldest held
   /// records let go (`shedOlderHeld`), so nothing the reader has in view or scrolled to ever leaves.
@@ -10942,6 +10945,43 @@ export class AcpmuxDirectClient {
     return this.replaces.get(sessionId) ?? 0;
   }
 
+  /// A v1 chat opened or reloaded mid-turn (a coordinator's turn that never ends) draws the turn's
+  /// settled work folded from its first frame, as the row store sends an open turn's (acpmux-book
+  /// `open_fold`): the rows the turn holds when the chat is first drawn, and when its attach lands,
+  /// are marked `readAtOpen`, and the running turn draws what of them its fold will hold folded
+  /// (turns.ts `withoutReadWork`). What comes after streams in as a watched turn draws it. The marks
+  /// go when the turn ends, whose fold holds the work. Leo: "i see this rush and barrage of tool
+  /// calls and message on a sort of "renewed-load" of chats. but they get folded/hidden anyways".
+  private noteReadWork(working: boolean, fromStore: boolean): void {
+    const session = this.selectedSessionId;
+    const read = this.readWork;
+    if (read && (!working || fromStore || read.session !== session || read.generation !== this.selectionGeneration)) {
+      this.readWork = undefined;
+      this.rows.readAtOpen = undefined;
+      this.rows.restampRead(read.items.keys());
+    }
+    if (!working || fromStore || !session || this.replayThrough !== undefined) return;
+    const attached = this.attachedGeneration === this.selectionGeneration;
+    const current = this.readWork;
+    if (current ? current.attached || !attached : !this.chatRead()) return;
+    // The running turn starts after the last ended one.
+    const rows = this.rows.sorted();
+    let start = rows.length;
+    while (start > 0 && rows[start - 1]!.kind !== "turnSummary") start -= 1;
+    const items = current?.items ?? new Map<string, number>();
+    const changed: string[] = [];
+    for (let at = start; at < rows.length; at += 1) {
+      const row = rows[at]!;
+      const count = row.kind === "activity" ? (row.items?.length ?? 0) : 0;
+      if ((items.get(row.id) ?? -1) >= count) continue;
+      items.set(row.id, count);
+      changed.push(row.id);
+    }
+    this.readWork = { session, generation: this.selectionGeneration, attached, items };
+    this.rows.readAtOpen = items;
+    this.rows.restampRead(changed);
+  }
+
   private emitNow(connection: string): void {
     if (this.closed && !this.replayMode && !(this.fedMode && !this.disposed)) return;
     if (this.snapshotHold) {
@@ -10976,6 +11016,7 @@ export class AcpmuxDirectClient {
     this.placeSince();
     // A chat on the store draws its rows, queue and paging from it (rows/chatSource.ts).
     const fromStore = this.chatRows.view(this.selectedSessionId);
+    this.noteReadWork(working, fromStore !== undefined);
     const actualRows = fromStore?.rows ?? this.rows.sorted();
     // Only a rail jump's sparse window holds placeholders: the common snapshot builds no id set.
     const placeholders = this.indexedPlaceholders;

@@ -3061,6 +3061,35 @@ export function withRetry(turn: readonly AcpmuxRow[], shaped: AcpmuxRow[]): Acpm
   return [...shaped.slice(0, at), next];
 }
 
+/// The running turn without what of its work the open read (`readAtOpen`, direct.ts `noteReadWork`)
+/// that its fold will hold: the calls and thoughts that were there, and the short narration among
+/// them, as the turn's end folds them under "Worked for" (`shapeTurn`, the closed fold's `out`). A
+/// chat reloaded mid-turn draws that work folded from the first frame, as the row store sends an open
+/// turn's (acpmux-book `open_fold`), never drawn and then folded away at the end (Leo: "i see this
+/// rush and barrage of tool calls and message on a sort of "renewed-load" of chats. but they get
+/// folded/hidden anyways"). What came after the read draws as a watched turn draws it
+/// (liveTurnWork). A call still running or waiting for its permission stays, as the fold keeps it.
+export function withoutReadWork(rows: AcpmuxRow[]): AcpmuxRow[] {
+  if (!rows.some((row) => row.readAtOpen !== undefined)) return rows;
+  const replies = repliesIn(rows);
+  const out: AcpmuxRow[] = [];
+  for (const row of rows) {
+    const read = row.readAtOpen;
+    if (read === undefined || row.kind === "user" || staysOut(row) || isFinalAnswer(row) || replies.has(row.id)) {
+      out.push(row);
+    } else if (row.kind === "activity") {
+      const items = row.items ?? [];
+      const shown = items.filter(
+        (item, at) => at >= read || (item.tool !== undefined && (isRunning(item.tool) || awaitsPermission(item.tool))),
+      );
+      if (shown.length === items.length) out.push(row);
+      // Its own version: the memoized row and its measured height follow what it draws.
+      else if (shown.length) out.push({ ...row, items: shown, version: row.version * 2 + 1 });
+    } else if (!isReply(row)) out.push(row);
+  }
+  return out;
+}
+
 function shapeLiveTurn(
   user: AcpmuxRow,
   turn: AcpmuxRow[],
@@ -3070,14 +3099,27 @@ function shapeLiveTurn(
   turnStartedAtMs?: number,
   foldsPrompt = false,
 ): AcpmuxRow[] {
-  const kept = turn.filter((row) => row.kind !== "typing" && !isVisiblyEmptyMessage(row) && !hidesEveryCall(row));
+  const all = turn.filter((row) => row.kind !== "typing" && !isVisiblyEmptyMessage(row) && !hidesEveryCall(row));
+  // Opened mid-turn, the work already there draws as its fold will hold it: folded.
+  const kept = withoutReadWork(all);
+  // The "Working for" line stands over work the open read folded, as over work it watched.
+  const worked = all.some((row) => row.kind === "activity" && row.inBackground === undefined);
   // The agent's wrap-up call draws as its card the moment the call returns, not once the turn ends:
   // the turn ends only after one more model request (6 s and more), and the card waited that long
   // (Leo, 2026-11-19, on the Needs your input cards: "plus it's not instant yet"). Same id as the
   // ended turn's card (`card` in shapedTurn), so the row stays when the turn ends.
   const wrapUp = liveWrapUp(kept);
   const drawn = wrapUp ? withoutLiveWrapUp(kept, wrapUp) : kept;
-  const shaped = shapeLiveRows(user, drawn, clockOffset, sessionStatus, trayAgents, turnStartedAtMs, foldsPrompt);
+  const shaped = shapeLiveRows(
+    user,
+    drawn,
+    clockOffset,
+    sessionStatus,
+    trayAgents,
+    turnStartedAtMs,
+    foldsPrompt,
+    worked,
+  );
   if (!wrapUp) return shaped;
   const card: AcpmuxRow = {
     id: `${NEXT_STEP}-${user.id}`,
@@ -3160,6 +3202,7 @@ function shapeLiveRows(
   trayAgents: number,
   turnStartedAtMs: number | undefined,
   foldsPrompt: boolean,
+  worked = drawn.some((row) => row.kind === "activity" && row.inBackground === undefined),
 ): AcpmuxRow[] {
   // A started chat's card that no row follows yet is not the turn's latest step. The latest step is
   // read before the Codex-style runs fold it: the call it runs is what the live line names.
@@ -3204,7 +3247,7 @@ function shapeLiveRows(
   // (`foldsPrompt`, shapedTurn), so its "Working for" stands from the start, in that place: the line
   // never comes in over the message at the first call, and the turn's end only swaps its words (Leo,
   // 2026-11-17: "the jostles and shifts and spacing are still bad here").
-  if (!foldsPrompt && !drawn.some((row) => row.kind === "activity" && row.inBackground === undefined)) return shaped;
+  if (!foldsPrompt && !worked) return shaped;
   // As the Codex app and T3 Code draw a running turn: "Working for 32s" over its work, under the
   // prompt, where "Worked for" lands when the turn ends (liveTurnClock.experiment.ts); the line at
   // the bottom says only what the agent does now, "Thinking", with no clock.
