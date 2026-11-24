@@ -123,7 +123,6 @@ export const SCENE_SF_SYMBOLS: Readonly<Record<string, string>> = {
   "arrow.up": "composer.send",
   "arrow.up.circle.fill": "composer.send",
   paperclip: "composer.attach",
-  "chevron.down": "disclosure.expanded",
   "chevron.right": "disclosure.collapsed",
   "clock.arrow.circlepath": "history.recent",
   laptopcomputer: "machine.mac",
