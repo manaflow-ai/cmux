@@ -416,6 +416,8 @@ pub fn is_test_relay(addr: &std::net::SocketAddr) -> bool {
 struct RecordedRelays {
     inner: webrtc::turn::relay::relay_range::RelayAddressGeneratorRanges,
     allocated: Arc<Mutex<Vec<std::net::SocketAddr>>>,
+    /// Every allocation this server granted, when, and its relayed address.
+    granted: Arc<Mutex<Vec<(std::time::Instant, std::net::SocketAddr)>>>,
 }
 
 #[async_trait::async_trait]
@@ -434,6 +436,7 @@ impl webrtc::turn::relay::RelayAddressGenerator for RecordedRelays {
         // (also 127.0.0.1): both spellings are the same socket.
         RELAYED.lock().unwrap_or_else(PoisonError::into_inner).push(relayed);
         self.allocated.lock().unwrap_or_else(PoisonError::into_inner).push(relayed);
+        self.granted.lock().unwrap_or_else(PoisonError::into_inner).push((std::time::Instant::now(), relayed));
         let conn = RecordedConn { inner: conn, relayed, allocated: Arc::clone(&self.allocated) };
         Ok((Arc::new(conn), relayed))
     }
@@ -541,6 +544,8 @@ pub struct TestTurn {
     /// Relayed addresses this server allocated (also in [`RELAYED`] until
     /// the server drops).
     allocated: Arc<Mutex<Vec<std::net::SocketAddr>>>,
+    /// Every allocation granted so far, released or not: when, and where.
+    granted: Arc<Mutex<Vec<(std::time::Instant, std::net::SocketAddr)>>>,
 }
 
 /// Whether the TURN server's UDP port drops everything, and what it dropped
@@ -554,6 +559,18 @@ struct UdpBlock {
     /// the server's answer, so the client's retransmit meets an allocation
     /// that already exists).
     drop_allocate_successes: std::sync::atomic::AtomicU32,
+    /// Until the instant, every datagram the server sends its clients
+    /// leaves this much late (a new network's first seconds: a radio still
+    /// attaching, a congested cell), [`TestTurn::delay_udp_replies`].
+    reply_delay: Mutex<Option<(std::time::Instant, std::time::Duration)>>,
+    /// STUN and TURN messages (not ChannelData) ride the profile set by
+    /// [`set_link_profile`] both ways, [`TestTurn::shape_udp_control`].
+    shaped: std::sync::atomic::AtomicBool,
+}
+
+/// Whether `datagram` is a STUN message (TURN's control), not ChannelData.
+fn is_stun(datagram: &[u8]) -> bool {
+    datagram.len() >= 20 && datagram[0] & 0xC0 == 0
 }
 
 /// Whether `datagram` is a STUN Allocate success response (type 0x0103).
@@ -563,7 +580,7 @@ fn is_allocate_success(datagram: &[u8]) -> bool {
 
 /// The TURN server's UDP socket, which drops everything while `block` is on.
 struct BlockableUdp {
-    socket: tokio::net::UdpSocket,
+    socket: Arc<tokio::net::UdpSocket>,
     block: Arc<UdpBlock>,
 }
 
@@ -609,6 +626,29 @@ impl webrtc::util::Conn for BlockableUdp {
         {
             return Ok(buf.len());
         }
+        let mut late = std::time::Duration::ZERO;
+        if let Some((until, by)) = *self.block.reply_delay.lock().unwrap_or_else(PoisonError::into_inner)
+            && std::time::Instant::now() < until
+        {
+            late += by;
+        }
+        if self.block.shaped.load(std::sync::atomic::Ordering::Relaxed) && is_stun(buf) {
+            // The request's leg and the answer's, each its own draw.
+            for _ in 0..2 {
+                match shape_by_profile(false, &target, buf.len()) {
+                    Some(delay) => late += delay,
+                    None => return Ok(buf.len()),
+                }
+            }
+        }
+        if !late.is_zero() {
+            let (socket, datagram) = (Arc::clone(&self.socket), buf.to_vec());
+            tokio::spawn(async move {
+                tokio::time::sleep(late).await;
+                let _ = socket.send_to(&datagram, target).await;
+            });
+            return Ok(buf.len());
+        }
         Ok(self.socket.send_to(buf, target).await?)
     }
 
@@ -637,12 +677,14 @@ impl TestTurn {
         let servers = Arc::new(Mutex::new(Vec::new()));
         let udp_block = Arc::new(UdpBlock::default());
         let allocated = Arc::new(Mutex::new(Vec::new()));
+        let granted = Arc::new(Mutex::new(Vec::new()));
         let udp = BlockableUdp {
-            socket: tokio::net::UdpSocket::bind("127.0.0.1:0").await.expect("bind TURN UDP"),
+            socket: Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.expect("bind TURN UDP")),
             block: Arc::clone(&udp_block),
         };
         let udp_port = udp.socket.local_addr().expect("addr").port();
-        let server = Self::server(Arc::new(udp), relay_ports.clone(), Arc::clone(&allocated)).await;
+        let server =
+            Self::server(Arc::new(udp), relay_ports.clone(), Arc::clone(&allocated), Arc::clone(&granted)).await;
         servers.lock().unwrap_or_else(PoisonError::into_inner).push(server);
 
         let certified =
@@ -667,21 +709,23 @@ impl TestTurn {
             listener.set_nonblocking(true).expect("nonblocking");
             let port = listener.local_addr().expect("addr").port();
             let listener = TcpListener::from_std(listener).expect("listener");
-            let (acceptor, servers, ports, streams, allocated) = (
+            let (acceptor, servers, ports, streams, allocated, granted) = (
                 acceptor.clone(),
                 Arc::clone(&servers),
                 relay_ports.clone(),
                 Arc::clone(&streams),
                 Arc::clone(&allocated),
+                Arc::clone(&granted),
             );
             tasks.push(tokio::spawn(async move {
                 while let Ok((tcp, client)) = listener.accept().await {
-                    let (acceptor, servers, ports, streams, allocated) = (
+                    let (acceptor, servers, ports, streams, allocated, granted) = (
                         acceptor.clone(),
                         Arc::clone(&servers),
                         ports.clone(),
                         Arc::clone(&streams),
                         Arc::clone(&allocated),
+                        Arc::clone(&granted),
                     );
                     tokio::spawn(async move {
                         let _ = tcp.set_nodelay(true);
@@ -693,7 +737,7 @@ impl TestTurn {
                             Arc::new(crate::dial::turn::StreamConn::new(tcp, local, client))
                         };
                         streams.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        let server = Self::server(conn, ports, allocated).await;
+                        let server = Self::server(conn, ports, allocated, granted).await;
                         servers.lock().unwrap_or_else(PoisonError::into_inner).push(server);
                     });
                 }
@@ -711,13 +755,14 @@ impl TestTurn {
             username: Some("cmuxMobile".into()),
             credential: Some("secret".into()),
         };
-        Self { ice, roots: Arc::new(roots), relay_ports, servers, tasks, streams, udp_block, allocated }
+        Self { ice, roots: Arc::new(roots), relay_ports, servers, tasks, streams, udp_block, allocated, granted }
     }
 
     async fn server(
         conn: Arc<dyn webrtc::util::Conn + Send + Sync>,
         ports: std::ops::RangeInclusive<u16>,
         allocated: Arc<Mutex<Vec<std::net::SocketAddr>>>,
+        granted: Arc<Mutex<Vec<(std::time::Instant, std::net::SocketAddr)>>>,
     ) -> webrtc::turn::server::Server {
         webrtc::turn::server::Server::new(webrtc::turn::server::config::ServerConfig {
             conn_configs: vec![webrtc::turn::server::config::ConnConfig {
@@ -732,6 +777,7 @@ impl TestTurn {
                         net: Arc::new(webrtc::util::vnet::net::Net::new(None)),
                     },
                     allocated,
+                    granted,
                 }),
             }],
             realm: "cmuxMobile.test".into(),
@@ -757,6 +803,28 @@ impl TestTurn {
     /// a lossy link that loses the server's answer to an allocation.
     pub fn drop_allocate_successes(&self, count: u32) {
         self.udp_block.drop_allocate_successes.store(count, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// For `window` from now, every datagram the UDP port sends its
+    /// clients leaves `delay` late: a new network's first seconds (a radio
+    /// still attaching, a congested cell), when an allocation's answer
+    /// comes after the client stopped waiting for it.
+    pub fn delay_udp_replies(&self, delay: std::time::Duration, window: std::time::Duration) {
+        *self.udp_block.reply_delay.lock().unwrap_or_else(PoisonError::into_inner) =
+            Some((std::time::Instant::now() + window, delay));
+    }
+
+    /// STUN and TURN messages on the UDP port (not ChannelData, which a
+    /// tunnel's `impair_inbound` shapes) ride the link profile set by
+    /// [`set_link_profile`], both legs of each exchange.
+    pub fn shape_udp_control(&self, on: bool) {
+        self.udp_block.shaped.store(on, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Every allocation this server granted so far (released ones too):
+    /// when, and its relayed address.
+    pub fn grants(&self) -> Vec<(std::time::Instant, std::net::SocketAddr)> {
+        self.granted.lock().unwrap_or_else(PoisonError::into_inner).clone()
     }
 
     /// Datagrams the blocked UDP port dropped so far: (from its clients, to
@@ -822,6 +890,7 @@ mod tests {
                 net: Arc::new(webrtc::util::vnet::net::Net::new(None)),
             },
             allocated: Arc::clone(&allocated),
+            granted: Arc::default(),
         };
         let (conn, relayed) = relays.allocate_conn(true, 0).await.expect("allocate");
         assert!(is_test_relay(&relayed), "a live allocation is a relay");

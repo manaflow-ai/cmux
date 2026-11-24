@@ -361,6 +361,14 @@ impl TurnCarrier {
         Self::allocate_with(options, None, false).await
     }
 
+    /// [`Self::allocate`], keeping in `late` each attempt that ran past its
+    /// bound: it still runs, and a grant it lands later is this side's
+    /// allocation after all ([`LateTurn::landed`]) instead of being
+    /// released. The bounds, and what this returns, are `allocate`'s.
+    pub(crate) async fn allocate_keeping(options: &DialOptions, late: &LateTurn) -> Option<Self> {
+        Self::allocate_inner_with(options, None, false, Some(late)).await
+    }
+
     /// [`Self::allocate`], told by the STUN wait running beside it whether
     /// UDP looks blocked (`udp_silent` true: STUN asked, nothing came back
     /// in [`super::wireguard::STUN_SILENT`]). On such a network the stream
@@ -374,6 +382,17 @@ impl TurnCarrier {
         udp_silent: Option<watch::Receiver<bool>>,
         stream_now: bool,
     ) -> Option<Self> {
+        Self::allocate_inner_with(options, udp_silent, stream_now, None).await
+    }
+
+    /// [`Self::allocate_with`], keeping each attempt that ran past its bound
+    /// in `late` (when given) instead of dropping its answer.
+    pub(crate) async fn allocate_inner_with(
+        options: &DialOptions,
+        udp_silent: Option<watch::Receiver<bool>>,
+        stream_now: bool,
+        late: Option<&LateTurn>,
+    ) -> Option<Self> {
         let silent_now = || udp_silent.as_ref().is_some_and(|silent| *silent.borrow());
         let (udp, stream) = turn_servers(&options.ice_servers);
         let udp = udp.filter(|_| !options.block_udp);
@@ -386,7 +405,7 @@ impl TurnCarrier {
             if stream.is_some() { UDP_WAIT } else { NO_STREAM_UDP_WAIT.min(options.timeout.max(UDP_WAIT)) };
         let udp = async {
             match udp {
-                Some(server) => bounded(udp_wait, Self::allocate_on(server, options)).await,
+                Some(server) => bounded(udp_wait, Self::spawn_on(server, options), late).await,
                 None => None,
             }
         };
@@ -399,7 +418,7 @@ impl TurnCarrier {
                     () = tokio::time::sleep(delay) => {}
                     () = until_silent(silent) => {}
                 }
-                bounded(STREAM_WAIT, Self::allocate_on(server, options)).await
+                bounded(STREAM_WAIT, Self::spawn_on(server, options), late).await
             }
         };
         if !tried_udp {
@@ -441,6 +460,11 @@ impl TurnCarrier {
     /// timeout, the losing side of the UDP and TLS race) drops only the
     /// answer, and the task still finishes and releases what it opened.
     async fn allocate_on(server: TurnServer, options: &DialOptions) -> Result<Self, String> {
+        Self::spawn_on(server, options).await.map_err(|_| "the TURN allocation task ended".to_owned())?
+    }
+
+    /// The allocation task of [`Self::allocate_on`], its answer to come.
+    fn spawn_on(server: TurnServer, options: &DialOptions) -> Attempt {
         let (tx, rx) = tokio::sync::oneshot::channel();
         let options = options.clone();
         tokio::spawn(async move {
@@ -448,7 +472,7 @@ impl TurnCarrier {
             // Unwanted by now: dropping the carrier releases the allocation.
             let _ = tx.send(result);
         });
-        rx.await.map_err(|_| "the TURN allocation task ended".to_owned())?
+        rx
     }
 
     async fn connect_stream(
@@ -1070,21 +1094,90 @@ async fn until_silent(silent: Option<watch::Receiver<bool>>) {
     std::future::pending::<()>().await;
 }
 
-/// `attempt`, or `None` when it fails or takes longer than `limit`.
-async fn bounded(
-    limit: Duration,
-    attempt: impl std::future::Future<Output = Result<TurnCarrier, String>>,
-) -> Option<TurnCarrier> {
-    match tokio::time::timeout(limit, attempt).await {
-        Ok(Ok(carrier)) => Some(carrier),
-        Ok(Err(error)) => {
+/// An allocation task's answer ([`TurnCarrier::spawn_on`]).
+type Attempt = tokio::sync::oneshot::Receiver<Result<TurnCarrier, String>>;
+
+/// `attempt`'s carrier, or `None` once it failed or `limit` passed. Past
+/// `limit` the attempt goes on: kept in `late` (when given) its grant can
+/// still be taken; otherwise its answer is dropped and it releases what it
+/// opens.
+async fn bounded(limit: Duration, mut attempt: Attempt, late: Option<&LateTurn>) -> Option<TurnCarrier> {
+    match tokio::time::timeout(limit, &mut attempt).await {
+        Ok(Ok(Ok(carrier))) => Some(carrier),
+        Ok(Ok(Err(error))) => {
             tracing::debug!(%error, "TURN allocation failed");
             None
         }
-        Err(_) => {
-            tracing::debug!("TURN allocation timed out");
+        Ok(Err(_)) => {
+            tracing::debug!("TURN allocation task ended");
             None
         }
+        Err(_) => {
+            tracing::debug!(kept = late.is_some(), "TURN allocation timed out");
+            if let Some(late) = late {
+                late.keep(attempt);
+            }
+            None
+        }
+    }
+}
+
+/// Allocation attempts that ran past their bound and still run (a slow
+/// network's first seconds: the server granted, its answer is on the way).
+/// The first that lands is taken ([`Self::landed`]) instead of asking the
+/// server again: a roam that missed TURN in its wait has a relay as soon as
+/// the grant arrives, not after a new allocation's round trips. Dropped, it
+/// drops their answers, and each attempt releases what it opens.
+#[derive(Default)]
+pub(crate) struct LateTurn(Mutex<Late>);
+
+#[derive(Default)]
+struct Late {
+    attempts: Vec<Attempt>,
+    /// The task waiting in [`LateTurn::landed`], woken when an attempt joins.
+    waiting: Option<std::task::Waker>,
+}
+
+impl LateTurn {
+    fn keep(&self, attempt: Attempt) {
+        let mut late = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        late.attempts.push(attempt);
+        if let Some(waker) = late.waiting.take() {
+            waker.wake();
+        }
+    }
+
+    /// Whether no attempt is still running.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner).attempts.is_empty()
+    }
+
+    /// The first late attempt to land a carrier, or `None` once every one
+    /// failed (at once when there is none). Cancel-safe: the attempts stay
+    /// here while it waits, and one kept meanwhile is waited for too.
+    pub(crate) async fn landed(&self) -> Option<TurnCarrier> {
+        std::future::poll_fn(|cx| {
+            let mut late = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut index = 0;
+            while index < late.attempts.len() {
+                match std::future::Future::poll(std::pin::Pin::new(&mut late.attempts[index]), cx) {
+                    std::task::Poll::Ready(Ok(Ok(carrier))) => {
+                        late.attempts.swap_remove(index);
+                        return std::task::Poll::Ready(Some(carrier));
+                    }
+                    std::task::Poll::Ready(_) => {
+                        late.attempts.swap_remove(index);
+                    }
+                    std::task::Poll::Pending => index += 1,
+                }
+            }
+            if late.attempts.is_empty() {
+                return std::task::Poll::Ready(None);
+            }
+            late.waiting = Some(cx.waker().clone());
+            std::task::Poll::Pending
+        })
+        .await
     }
 }
 
