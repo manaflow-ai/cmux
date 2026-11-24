@@ -66,6 +66,10 @@ pub struct Totals {
     /// What cache reads saved against the input price, at the bundled table
     /// (`PriceTable::cache_savings`), whoever priced the turn; 0 for a model the table lacks.
     pub cache_saved_usd: f64,
+    /// Cloud machine time the turns ran, at the VM's list rate (`hub/turn_cost.rs`
+    /// `computeCostUsd`); 0 off Cloud and in lines from before it was kept. Not in `cost_usd`,
+    /// which stays model spend: a task's whole cost is the two added.
+    pub compute_cost_usd: f64,
     pub turns: u64,
     pub tool_calls: u64,
     pub wall_ms: u64,
@@ -85,6 +89,7 @@ impl Totals {
         self.cache_write_tokens += o.cache_write_tokens;
         self.cache_write_1h_tokens += o.cache_write_1h_tokens;
         self.cache_saved_usd += o.cache_saved_usd;
+        self.compute_cost_usd += o.compute_cost_usd;
         self.turns += o.turns;
         self.tool_calls += o.tool_calls;
         self.wall_ms += o.wall_ms;
@@ -444,12 +449,29 @@ impl Ledger {
 
     /// Shutdown (`Hub::flush`): closes the writer's queue and waits up to `within` for it to
     /// write what it holds and end. True when it ended; later lines are kept in memory only.
+    /// A writer still running is kept for [`Ledger::wait_closed`].
     pub fn close(&self, within: std::time::Duration) -> bool {
         drop(self.writer.lock().unwrap_or_else(PoisonError::into_inner).take());
         let Some(thread) = self.thread.lock().unwrap_or_else(PoisonError::into_inner).take() else {
             return true;
         };
-        thread.join_within(within)
+        match thread.join_within(within) {
+            Ok(()) => true,
+            Err(thread) => {
+                *self.thread.lock().unwrap_or_else(PoisonError::into_inner) = Some(thread);
+                false
+            }
+        }
+    }
+
+    /// Closes the writer's queue and waits for the writer to end, however long that takes:
+    /// what holds the daemon's home lock until then (`Hub::persist_for_handoff`).
+    pub fn wait_closed(&self) {
+        drop(self.writer.lock().unwrap_or_else(PoisonError::into_inner).take());
+        let thread = self.thread.lock().unwrap_or_else(PoisonError::into_inner).take();
+        if let Some(thread) = thread {
+            thread.join();
+        }
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, State> {
@@ -571,6 +593,11 @@ impl Ledger {
             cache_write_1h_tokens: msg.get("cacheWrite1hTokens").and_then(Value::as_u64),
         };
         let mut totals = Totals::priced(&model, &usage, 1);
+        totals.compute_cost_usd = msg
+            .get("computeCostUsd")
+            .and_then(Value::as_f64)
+            .filter(|c| c.is_finite() && *c >= 0.0)
+            .unwrap_or(0.0);
         let version = crate::pricing::table().version.clone();
         let cwd = ctx.info.cwd.clone();
         let mut s = self.lock();

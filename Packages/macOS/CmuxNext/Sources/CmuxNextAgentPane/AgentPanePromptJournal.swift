@@ -33,9 +33,8 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
     /// The app's journal: `<Application Support>/<bundle id>/agent-pane-unsent-prompts.json`. Nil
     /// outside an app bundle (package tests, tools), so they never write the app's file.
     public static let shared: AgentPanePromptJournal? = {
-        guard Bundle.main.bundleURL.pathExtension == "app", let bundle = Bundle.main.bundleIdentifier, !bundle.isEmpty,
-              let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return nil }
-        return AgentPanePromptJournal(url: support.appending(path: bundle).appending(path: fileName))
+        guard Bundle.main.bundleURL.pathExtension == "app", let bundle = Bundle.main.bundleIdentifier, !bundle.isEmpty else { return nil }
+        return AgentPanePromptJournal(url: NextSupport.applicationSupportDirectory().appending(path: bundle).appending(path: fileName))
     }()
 
     /// One prompt waiting for acpmux's acknowledgement.
@@ -109,9 +108,14 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
     private let unreadableKept = Mutex(false)
     private let queue = DispatchQueue(label: "com.cmuxterm.app.next.agent-pane.prompt-journal", qos: .utility)
 
+    /// The prompts no agent took yet, by chat, beside this file: the ones this journal forgets at a
+    /// refusal or another answer stay there until an agent takes them or the person removes them.
+    public let unsentPrompts: AgentPaneUnsentPrompts
+
     public init(url: URL, now: @escaping @Sendable () -> Date = { Date() }) {
         self.url = url
         self.now = now
+        unsentPrompts = AgentPaneUnsentPrompts(directory: url.deletingLastPathComponent(), now: now)
     }
 
     private static func key(_ daemon: String, _ promptId: String) -> String { daemon + "\u{0}" + promptId }

@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
-@testable import CmuxNextBookmarks
+import CmuxNextBookmarks
 import CmuxNextDaemon
 import CmuxNextPages
 import CmuxNextSettings
@@ -78,22 +78,16 @@ struct BookmarkFolderIconTests {
 
     // MARK: Drawing
 
-    /// A bar folder menu's subfolder row draws the folder's own icon, else the folder symbol.
-    @Test func theBarsFolderMenuDrawsAFoldersOwnIconAndTheFolderSymbolWithout() throws {
+    @Test func theBarDrawsAFoldersOwnIconAndTheFolderSymbolWithout() throws {
         let services = Self.services()
-        func image(_ icon: String?) throws -> Data? {
-            let row = BookmarksBarMenu.Row.folder(try Self.folder(icon), [])
-            let menu = BookmarksBarMenu(host: services, profile: "default", tabKey: "bookmark-folder-icon-test", rows: [row], title: "Work")
-            menu.menuNeedsUpdate(menu.menu)
-            return menu.menu.items.first?.image?.tiffRepresentation
-        }
-        let plain = try #require(try image(nil))
+        let bar = BookmarksBarHostSource(host: services, tabKey: "bookmark-folder-icon-test")
+        let plain = try #require(bar.favicon(for: try Self.folder(nil))?.tiffRepresentation)
         for icon in ["🚀", "star.fill"] {
-            let drawn = try #require(try image(icon))
-            #expect(drawn != plain, "a folder with icon \(icon) still draws the folder symbol in the bar's menu")
+            let drawn = try #require(bar.favicon(for: try Self.folder(icon))?.tiffRepresentation)
+            #expect(drawn != plain, "a folder with icon \(icon) still draws the folder symbol on the bar")
         }
         // A stored asset not read yet (no home daemon here): the folder symbol stands in.
-        #expect(try image(Self.asset) == plain)
+        #expect(bar.favicon(for: try Self.folder(Self.asset))?.tiffRepresentation == plain)
     }
 
     /// The manager page's rows get these images (`cmux.bookmarkPage.icons`).

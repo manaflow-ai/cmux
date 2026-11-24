@@ -5,7 +5,9 @@
    animation sits inside `prefers-reduced-motion: no-preference` and under the slot's motion gate, so
    Reduce Motion, static status indicators and animations off draw the still frame written outside it.
    The box: the word at its reserved width, then one mark of a fixed inline size on the line's center,
-   which never changes while it runs, so a variant never moves what follows it or the transcript. */
+   which never changes while it runs, so a variant never moves what follows it or the transcript.
+   No mark fades, blinks or pulses forever (test/no-breathing-dots.test.ts, Leo 2026-10-21: "we need to
+   guarantee the breathing dot doesnt come back"): a loop moves a mark from place to place instead. */
 .slot-thinking {
   display: inline-flex;
   align-items: center;
@@ -29,9 +31,11 @@
   contain: layout paint;
 }
 
-/* counting-dots: four places a fixed 1.25em wide. Still frame: three dots at full strength, the fourth
-   in place once the think is long. */
+/* counting-dots: four places a fixed 1.25em wide, and a lit dot that steps from place to place over
+   the dim ones (one place per pitch: (1.25em - 0.1875em) / 3). Still frame: three dots at full strength,
+   the fourth in place once the think is long, no lit dot. */
 .slot-thinking__dots {
+  --slot-dot-pitch: calc((1.25em - 0.1875em) / 3);
   inline-size: 1.25em;
   justify-content: space-between;
 }
@@ -57,8 +61,24 @@
 .slot-thinking__dots[data-long] .slot-thinking__dot[data-dot="3"] {
   transform: none;
 }
+.slot-thinking__lit-dot {
+  display: none;
+  position: absolute;
+  inset-inline-start: 0;
+  inline-size: var(--slot-dot-pitch);
+  block-size: 0.1875em;
+}
+.slot-thinking__lit-dot::before {
+  content: "";
+  display: block;
+  inline-size: 0.1875em;
+  block-size: 0.1875em;
+  border-radius: 999px;
+  background: currentColor;
+}
 
-/* pulse: one round mark in a fixed 0.5em box. Still frame: the mark at full size and strength. */
+/* pulse: one round mark in a fixed 0.5em box that swells in once as the think starts, then holds still
+   (a mark that keeps breathing is the breathing dot). Still frame: the mark at full size and strength. */
 .slot-thinking__pulse-box {
   inline-size: 0.5em;
   justify-content: center;
@@ -70,10 +90,11 @@
   background: currentColor;
 }
 
-/* caret: a thin bar in a fixed 0.25em box. Still frame: the caret shown. */
+/* caret: a thin bar in a fixed 0.375em box that steps ahead by its own width a place at a time, a
+   cursor typing ahead, and never blinks. Still frame: the caret at its first place. */
 .slot-thinking__caret-box {
-  inline-size: 0.25em;
-  justify-content: center;
+  inline-size: 0.375em;
+  justify-content: flex-start;
 }
 .slot-thinking__caret {
   inline-size: 0.125em;
@@ -110,50 +131,48 @@
 
 @media (prefers-reduced-motion: no-preference) {
   :root:not([data-status-indicators="static"], [data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .slot-thinking__dot {
-    animation: slot-thinking-beat var(--cmux-spinner-period) linear infinite;
-    animation-delay: calc(var(--cmux-spinner-period) * (var(--slot-dot) / 4 - 1));
+    opacity: 0.3;
+  }
+  :root:not([data-status-indicators="static"], [data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .slot-thinking__lit-dot {
+    display: block;
+    animation: slot-thinking-step var(--cmux-spinner-period) steps(3, end) infinite;
+  }
+  :root:not([data-status-indicators="static"], [data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .slot-thinking__dots[data-long] .slot-thinking__lit-dot {
+    animation-name: slot-thinking-step-long;
+    animation-timing-function: steps(4, end);
   }
   :root:not([data-status-indicators="static"], [data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .slot-thinking__dot[data-dot="3"] {
     transition: transform var(--cmux-motion-micro) var(--cmux-ease-out);
   }
   :root:not([data-status-indicators="static"], [data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .slot-thinking__pulse {
-    animation: slot-thinking-pulse var(--cmux-breath-period) var(--cmux-ease-settle) infinite alternate;
+    animation: slot-thinking-swell var(--cmux-breath-period) var(--cmux-ease-settle) 1 both;
   }
   :root:not([data-status-indicators="static"], [data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .slot-thinking__caret {
-    animation: slot-thinking-blink calc(var(--cmux-spinner-period) / 2) steps(1, end) infinite;
+    animation: slot-thinking-step var(--cmux-spinner-period) steps(3, end) infinite;
   }
   :root:not([data-status-indicators="static"], [data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .slot-thinking__lit-block {
     animation: slot-thinking-step var(--cmux-spinner-period) steps(3, end) infinite;
   }
 }
 
-/* A dot rests dim and lights on its beat. */
-@keyframes slot-thinking-beat {
-  0%,
-  40%,
-  100% {
-    opacity: 0.3;
-  }
-  15% {
-    opacity: 1;
-  }
-}
-@keyframes slot-thinking-pulse {
+/* The pulse's one swell as the think starts, ending on the still frame. */
+@keyframes slot-thinking-swell {
   from {
-    transform: scale(1);
-    opacity: 1;
-  }
-  to {
     transform: scale(0.6);
     opacity: 0.45;
   }
-}
-@keyframes slot-thinking-blink {
-  0% {
+  to {
+    transform: none;
     opacity: 1;
   }
-  50% {
-    opacity: 0;
+}
+/* A mark one pitch wide stepping across three places (counting dots, caret, blocks), or four. */
+@keyframes slot-thinking-step-long {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(400%);
   }
 }
 @keyframes slot-thinking-step {

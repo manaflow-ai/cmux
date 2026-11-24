@@ -60,8 +60,8 @@ pub(in crate::cli) enum ChatCommand {
         after: u64,
         limit: usize,
     },
-    /// Start a GUI agent chat (chat_control.rs).
-    New(super::chat_control::NewChat),
+    /// Start a GUI agent chat (chat_control.rs); boxed, as the largest variant by far.
+    New(Box<super::chat_control::NewChat>),
     /// What a chat is doing.
     State {
         target: String,
@@ -77,7 +77,9 @@ pub(in crate::cli) enum ChatCommand {
 /// <chat>` and `chat continue <chat> [[--] <text>]` (the words after `chat`).
 pub(in crate::cli) fn parse(words: &[&str]) -> Result<ChatCommand, UsageError> {
     match words {
-        ["new", rest @ ..] => super::chat_control::parse_new(rest).map(ChatCommand::New),
+        ["new", rest @ ..] => {
+            super::chat_control::parse_new(rest).map(|chat| ChatCommand::New(Box::new(chat)))
+        }
         ["state", target] => Ok(ChatCommand::State { target: chat_word(target)? }),
         ["interrupt", target] => Ok(ChatCommand::Interrupt { target: chat_word(target)? }),
         // A nudge: a send whose text defaults to "Continue.".
@@ -210,6 +212,7 @@ fn not_run(code: &str, message: impl Into<String>, details: Value) -> CallFailur
 /// A chat a verb reaches: its acpmux session id, and the app's acpmux socket when the chat runs
 /// there and not in the caller's own acpmux (read, state and interrupt reach it there; a send
 /// goes through the daemon, whose acpmux it is).
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::cli) struct Chat {
     pub id: String,
     pub app: Option<PathBuf>,
@@ -220,6 +223,33 @@ impl Chat {
     pub(in crate::cli) fn socket(&self) -> Option<&Path> {
         self.app.as_deref()
     }
+}
+
+/// The chat this process's `chat new` started here, in a workspace of this cmux session
+/// (`chat_control::new`), and the acpmux it runs in.
+static STARTED: std::sync::Mutex<Option<Chat>> = std::sync::Mutex::new(None);
+
+/// Notes `chat` as the one this process just started in a workspace of this cmux session.
+pub(in crate::cli) fn note_started(chat: Chat) {
+    *STARTED.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(chat);
+}
+
+/// The chat this process last started here ([`note_started`]), whatever its id: the hybrid
+/// start (chat_start/hybrid_start.rs) hands it to the driver that moves it to Cloud.
+pub(in crate::cli) fn last_started() -> Option<Chat> {
+    STARTED.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+}
+
+/// The chat `id` names when this process started it here ([`note_started`]): its scope is
+/// known and its acpmux too, so `cmux chat --prompt … --wait` reaches it with no lookup, no
+/// app call and no session snapshot (goal local-instant-start).
+pub(in crate::cli) fn started(id: &str) -> Option<Chat> {
+    STARTED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .as_ref()
+        .filter(|chat| chat.id == id)
+        .cloned()
 }
 
 /// The chat `target` names (an id, a name or a unique prefix), when it is a chat of this cmux
@@ -267,6 +297,18 @@ pub(in crate::cli) fn app_acpmux(global: &GlobalArgs) -> Option<PathBuf> {
     (same(&acp::own_socket()) != same(&app)).then_some(app)
 }
 
+/// The peers of the acpmux `chat new` starts chats in (the app's own, else the one `cmux acp`
+/// reaches): its `_acpmux/peers` answer, the machines New Agent Chat's Environment picker lists.
+pub(in crate::cli) fn chat_peers(global: &GlobalArgs) -> Result<Value, String> {
+    acp::peers(app_acpmux(global).as_deref())
+}
+
+/// Where the acpmux the app's chats use would place new work (`_acpmux/place`): a new chat's Auto
+/// reads this Mac's room from it (`chat_start/auto_place.rs`).
+pub(in crate::cli) fn chat_place_verdict(global: &GlobalArgs) -> Result<Value, String> {
+    acp::place(app_acpmux(global).as_deref())
+}
+
 /// A workspace key in one comparable form: lowercase, without dashes (the
 /// app hands sessions the key's uppercase UUID form). As the daemon's
 /// `agent_message_policy::workspace_key`.
@@ -293,6 +335,50 @@ fn own_chat() -> Option<String> {
     ["CMUX_AGENT_SESSION", "ACPMUX_SESSION_ID"]
         .into_iter()
         .find_map(|name| std::env::var(name).ok().filter(|value| !value.trim().is_empty()))
+}
+
+/// The name the caller's own chat goes by, sent as its message's sender name. The daemon knows
+/// a chat's sender only by its launch credential, which a chat the app's acpmux starts lacks
+/// (that acpmux has no `CMUX_TUI_SOCKET` to mint one), so without a name the receiving chat
+/// showed every chat's message, a Chief's too, as `cli`, the person's shell
+/// (manaflow-ai/cmux#51004). A name claims what `--from` claims and proves nothing more: the
+/// daemon still treats the send as unverified. None from a shell, which has no chat.
+fn own_sender_name() -> Option<String> {
+    let own = own_chat()?;
+    let (_, info) = acp::lookup(&own, None).ok()?;
+    sender_name_of(&info)
+}
+
+/// The longest sender name the daemon stores (cmux-tui-core `MAX_SENDER_NAME_CHARS`) and acpmux
+/// shows (`prompt_provenance` `MAX_NAME_CHARS`).
+const MAX_SENDER_NAME_CHARS: usize = 64;
+
+/// A chat's shown name from its `_acpmux/info`: its `mux.label` (a Chief turn's: the Chief's own
+/// name, optchat-chief `acpmux::turn_tags`), else its name; one line, spaces collapsed, at most
+/// [`MAX_SENDER_NAME_CHARS`] characters. A Chief turn's session name (`optchat-<home>-<n>`) is
+/// never shown.
+fn sender_name_of(info: &Value) -> Option<String> {
+    let shown = |value: &Value| {
+        let words: Vec<&str> = value
+            .as_str()?
+            .split(|c: char| c.is_whitespace() || c.is_control())
+            .filter(|word| !word.is_empty())
+            .collect();
+        let line = words.join(" ");
+        let line: String =
+            line.chars().filter(|c| !format_mark(*c)).take(MAX_SENDER_NAME_CHARS).collect();
+        let line = line.trim().to_owned();
+        (!line.is_empty()).then_some(line)
+    };
+    info.pointer("/tags/mux.label").and_then(shown).or_else(|| shown(&info["name"]))
+}
+
+/// A bidi or zero-width format mark, which acpmux refuses in a provenance name.
+fn format_mark(c: char) -> bool {
+    matches!(
+        c,
+        '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}' | '\u{FEFF}'
+    )
 }
 
 /// Refuses `chat` when it is the caller's own: a chat never prompts or
@@ -331,7 +417,7 @@ fn send(
     let plan = MessagePlan {
         target: Some(recipient.clone()),
         body: Body::Text(text.to_owned()),
-        from: None,
+        from: own_sender_name(),
         thread: None,
         reply_to: None,
         idempotency_key: Some(key.clone()),
@@ -411,6 +497,31 @@ fn read(global: &GlobalArgs, target: &str, after: u64, limit: usize) -> Result<V
     Ok(transcript.page(chat, after, limit, more, cursor))
 }
 
+/// A read page (`cmux chat read`'s shape) of `events`, a chat's records oldest first that another
+/// place read: a chat on a Cloud VM, whose records its machine prints (cloud_start_chat.rs
+/// `read_existing`). `more_before`: older records exist that `events` does not hold.
+pub(in crate::cli) fn page_of_events(
+    chat: &str,
+    events: &[Value],
+    after: u64,
+    limit: usize,
+    more_before: bool,
+) -> Value {
+    let mut once = Some(json!({"events": events, "hasMore": false}));
+    let read = load(after, limit, |_| {
+        Ok(once.take().unwrap_or_else(|| json!({"events": [], "hasMore": false})))
+    });
+    let (transcript, more, cursor) = match read {
+        Ok(read) => read,
+        Err(_) => (Transcript::default(), false, after),
+    };
+    let mut page = transcript.page(chat, after, limit, more, cursor);
+    if more_before {
+        page.set("older_not_read", json!(true));
+    }
+    page
+}
+
 /// The transcript items of `target` after `after`, each whole (no per-item cut) and masked as a
 /// read masks them: the turn `cmux chat --wait` waited on (turn.rs), read from its prompt on.
 pub(in crate::cli) fn turn_items(
@@ -418,7 +529,12 @@ pub(in crate::cli) fn turn_items(
     target: &str,
     after: u64,
 ) -> Result<Vec<Value>, CallFailure> {
-    let found = scoped_chat(global, target)?;
+    turn_items_of(&scoped_chat(global, target)?, after)
+}
+
+/// [`turn_items`] of a chat already found (and scope-checked) with [`scoped_chat`]: `cmux chat
+/// --wait` finds its chat once and reads it with no second lookup (turn.rs).
+pub(in crate::cli) fn turn_items_of(found: &Chat, after: u64) -> Result<Vec<Value>, CallFailure> {
     let chat = &found.id;
     // Every event from the turn's prompt on, not a read's page: the turn's end must be in it,
     // however much text the turn wrote. The cost is the turn's, never the whole chat's.
@@ -753,7 +869,7 @@ impl Transcript {
 }
 
 #[cfg(unix)]
-pub(super) mod acp {
+pub(in crate::cli) mod acp {
     //! The acpmux linked into this binary: the one at `socket` (the app's own, `agent.acpmux`),
     //! else the one at the home `cmux acp` uses (`ACPMUX_SOCKET` first). A chat verb never starts
     //! the acpmux daemon.
@@ -786,13 +902,68 @@ pub(super) mod acp {
         }
     }
 
+    /// One runtime and one connection per acpmux for this process's reads (a lookup, a wait, a
+    /// page of events), kept across calls: `cmux chat --wait` waits, reads the turn's start and
+    /// reads the turn, and each read used to build a runtime and dial, hello and all, again
+    /// (goal local-instant-start). Only reads share it: a prompt, a kill or a new chat keeps its
+    /// own connection, which closes when it answers, as before. Statics, never dropped: its one
+    /// worker drives the connections between calls and from any thread, and ends with the
+    /// process.
+    static READS: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
+    type Reader = (Option<std::path::PathBuf>, Arc<acpmux::client::Client>);
+    static READERS: std::sync::Mutex<Vec<Reader>> = std::sync::Mutex::new(Vec::new());
+
+    fn readers() -> std::sync::MutexGuard<'static, Vec<Reader>> {
+        READERS.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// `work` on the shared connection to the acpmux at `socket` (see [`READS`]): dialed once,
+    /// again once the daemon closed it (a restart, an update), and then `work` runs again.
+    fn read_on<T>(
+        socket: Option<&Path>,
+        work: impl AsyncFn(Arc<acpmux::client::Client>) -> anyhow::Result<T>,
+    ) -> Result<T, String> {
+        crate::acp::configure_home();
+        let runtime = match READS.get() {
+            Some(runtime) => runtime,
+            None => {
+                let runtime = tokio::runtime::Builder::new_multi_thread()
+                    .worker_threads(1)
+                    .thread_name("cmux-acpmux-reads")
+                    .enable_all()
+                    .build()
+                    .map_err(|error| error.to_string())?;
+                READS.get_or_init(|| runtime)
+            }
+        };
+        let key = socket.map(Path::to_path_buf);
+        runtime
+            .block_on(async {
+                let known = {
+                    let mut readers = readers();
+                    readers.retain(|(_, client)| !client.is_closed());
+                    readers.iter().find(|(at, _)| *at == key).map(|(_, client)| client.clone())
+                };
+                if let Some(client) = known {
+                    let answer = work(client.clone()).await;
+                    if answer.is_ok() || !client.is_closed() {
+                        return answer;
+                    }
+                    readers().retain(|(_, kept)| !Arc::ptr_eq(kept, &client));
+                }
+                let client = client(socket).await?;
+                readers().push((key.clone(), client.clone()));
+                work(client).await
+            })
+            .map_err(|error| format!("{error:#}"))
+    }
+
     /// The id and `_acpmux/info` of the session `key` names.
     pub(in crate::cli) fn lookup(
         key: &str,
         socket: Option<&Path>,
     ) -> Result<(String, Value), String> {
-        block_on(async {
-            let client = client(socket).await?;
+        read_on(socket, async |client| {
             let (id, _name) = acpmux::deliver::resolve_session(&client, key).await?;
             let info =
                 client.request(acpmux::rpc::method::MUX_INFO, json!({"sessionId": id})).await?;
@@ -801,21 +972,29 @@ pub(super) mod acp {
     }
 
     /// Starts a chat in `cwd` with `meta` as its `_meta.acpmux`; the
-    /// `session/new` reply.
+    /// `session/new` reply. No `cwd`: the peer `meta` names picks the folder (`acpmux new --on`).
     pub(in crate::cli) fn new_session(
-        cwd: &str,
+        cwd: Option<&str>,
         meta: Value,
         socket: Option<&Path>,
     ) -> Result<Value, String> {
+        let mut params = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
+        if let (Some(cwd), Some(object)) = (cwd, params.as_object_mut()) {
+            object.insert("cwd".into(), json!(cwd));
+        }
         block_on(async {
-            client(socket)
-                .await?
-                .request(
-                    acpmux::rpc::method::SESSION_NEW,
-                    json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": meta}}),
-                )
-                .await
+            client(socket).await?.request(acpmux::rpc::method::SESSION_NEW, params).await
         })
+    }
+
+    /// The acpmux's placement verdict (`_acpmux/place`), as `acpmux machine pick` reads it.
+    pub(super) fn place(socket: Option<&Path>) -> Result<Value, String> {
+        block_on(async { client(socket).await?.request("_acpmux/place", json!({})).await })
+    }
+
+    /// The acpmux's peers (`_acpmux/peers`), as `acpmux host` reads them.
+    pub(super) fn peers(socket: Option<&Path>) -> Result<Value, String> {
+        block_on(async { client(socket).await?.request("_acpmux/peers", json!({})).await })
     }
 
     /// Queues `text` as a prompt of `session` and returns once acpmux accepted it (started, or
@@ -877,6 +1056,121 @@ pub(super) mod acp {
         })
     }
 
+    /// `_acpmux/wait` on `session` until its turn ended, it asks for a permission or it
+    /// closed, at most `timeout`: the daemon answers on the chat's own events, as `acpmux wait`
+    /// does, so the caller learns of the turn's end when acpmux records it (turn.rs).
+    pub(in crate::cli) fn wait_turn(
+        session: &str,
+        timeout: std::time::Duration,
+        socket: Option<&Path>,
+    ) -> Result<Value, String> {
+        let timeout_ms = u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX);
+        read_on(socket, async |client| {
+            client
+                .request(
+                    acpmux::rpc::method::MUX_WAIT,
+                    json!({"sessions": [session], "until": ["ready", "permission", "closed"],
+                           "timeoutMs": timeout_ms}),
+                )
+                .await
+        })
+    }
+
+    /// `_acpmux/wait` on `session` until it reaches one of `until` (`running`, `ready`,
+    /// `closed`, ...), at most `timeout`: the daemon answers on the chat's own events, so a
+    /// waiter learns of a turn's start or end when acpmux records it, with no polling.
+    pub(in crate::cli) fn wait_until(
+        session: &str,
+        until: &[&str],
+        timeout: std::time::Duration,
+        socket: Option<&Path>,
+    ) -> Result<Value, String> {
+        let timeout_ms = u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX);
+        read_on(socket, async |client| {
+            client
+                .request(
+                    acpmux::rpc::method::MUX_WAIT,
+                    json!({"sessions": [session], "until": until, "timeoutMs": timeout_ms}),
+                )
+                .await
+        })
+    }
+
+    /// Sets `session`'s tags `set` (`_acpmux/tag`), each living `ttl_seconds`.
+    pub(in crate::cli) fn set_tags(
+        session: &str,
+        set: &Value,
+        ttl_seconds: u64,
+        socket: Option<&Path>,
+    ) -> Result<Value, String> {
+        read_on(socket, async |client| {
+            client
+                .request(
+                    acpmux::rpc::method::MUX_TAG,
+                    json!({"sessionId": session, "set": set, "ttlSeconds": ttl_seconds}),
+                )
+                .await
+        })
+    }
+
+    /// The acpmux's harness catalog (`_acpmux/harnesses`: `harnesses`, `families`,
+    /// `defaultHarness`, `defaults`), the one a new chat there resolves its agent from; the dial
+    /// and the answer together at most `timeout` (a daemon still reading its login shell answers
+    /// once it has; a dial waits for a daemon that is starting). Its own connection, as
+    /// [`new_session`] has: it runs on a thread of its own beside the start's other reads.
+    pub(in crate::cli) fn harnesses(
+        socket: Option<&Path>,
+        timeout: std::time::Duration,
+    ) -> Result<Value, String> {
+        block_on(async {
+            tokio::time::timeout(timeout, async {
+                client(socket).await?.request(acpmux::rpc::method::MUX_HARNESSES, json!({})).await
+            })
+            .await
+            .map_err(|_| anyhow::anyhow!("no answer in {} ms", timeout.as_millis()))?
+        })
+    }
+
+    /// Follows `session`'s live `session/update`s on a connection of its own (`_acpmux/attach`,
+    /// hidden, no history: the attach subscribes it) and hands each update's params to `each`
+    /// until `each` says stop, the daemon closes the connection, or `deadline` passes.
+    pub(in crate::cli) fn follow_updates(
+        session: &str,
+        socket: Option<&Path>,
+        deadline: std::time::Instant,
+        mut each: impl FnMut(&Value) -> bool,
+    ) -> Result<(), String> {
+        use acpmux::rpc::{Message, method};
+        block_on(async {
+            let client = client(socket).await?;
+            let mut notes = client
+                .notifications()
+                .await
+                .ok_or_else(|| anyhow::anyhow!("notifications already taken"))?;
+            client
+                .request(
+                    method::MUX_ATTACH,
+                    json!({"sessionId": session, "limit": 0, "visible": false}),
+                )
+                .await?;
+            let end = tokio::time::Instant::from_std(deadline);
+            loop {
+                let Ok(Some(note)) = tokio::time::timeout_at(end, notes.recv()).await else {
+                    return Ok(());
+                };
+                let Message::Notification { method: name, params } = note else { continue };
+                if name == method::MUX_DISCONNECTED {
+                    return Ok(());
+                }
+                let params = params.unwrap_or(Value::Null);
+                let ours = params.get("sessionId").and_then(Value::as_str) == Some(session);
+                if name == method::SESSION_UPDATE && ours && !each(&params) {
+                    return Ok(());
+                }
+            }
+        })
+    }
+
     /// One page of the session's events after `after_seq`.
     pub(in crate::cli) fn events(
         session: &str,
@@ -884,9 +1178,8 @@ pub(super) mod acp {
         limit: u64,
         socket: Option<&Path>,
     ) -> Result<Value, String> {
-        block_on(async {
-            client(socket)
-                .await?
+        read_on(socket, async |client| {
+            client
                 .request(
                     acpmux::rpc::method::MUX_EVENTS,
                     json!({"sessionId": session, "afterSeq": after_seq, "limit": limit,
@@ -904,9 +1197,8 @@ pub(super) mod acp {
         limit: u64,
         socket: Option<&Path>,
     ) -> Result<Value, String> {
-        block_on(async {
-            client(socket)
-                .await?
+        read_on(socket, async |client| {
+            client
                 .request(
                     acpmux::rpc::method::MUX_EVENTS,
                     json!({"sessionId": session, "beforeSeq": before_seq, "limit": limit,

@@ -66,8 +66,6 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     /// images, file links, git remote, comments or table widths read beside it on this Mac.
     let files: any FilePageFiles
     private(set) var file: URL?
-    /// Another machine's file holds an edit not saved yet (no crash draft keeps it): app health's reload refuses.
-    private(set) var remoteUnsaved: String?
     /// Strong: the tab host holds its service weakly, so no cycle.
     private(set) var host: (any FilePageHosting)?
     private let clock: any Clock<Duration>
@@ -101,6 +99,8 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     /// Where the editor puts the cursor on the tab's file (a Find result's line and column): the
     /// next config of that file carries it once as `reveal`. The markdown page ignores it.
     var reveal: FilePosition?
+    /// The page reported an edit no save has covered yet (app health's hold; ``ReportedEdits``).
+    let reportedEdits = ReportedEdits()
     /// Whether the tab's file may be saved (the last config's answer).
     private var writable = false
     var isWritable: Bool { writable }
@@ -417,7 +417,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         let workspace = inWorkspace(file)
         let result: FileSaveResult
         do {
-            result = try await files.save(text, to: file, baseHash: base, inWorkspace: workspace)
+            result = try await reportedEdits.covering { () async throws(FileSaveFailure) in try await files.save(text, to: file, baseHash: base, inWorkspace: workspace) }
         } catch .readOnly {
             throw PageError(code: kind.op("read_only"), message: file.path)
         } catch .conflict(let hash, let text) {
@@ -428,7 +428,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
             throw PageError(code: kind.op("save_failed"), message: reason, retryable: true)
         }
         // The quit documents and the omnibar's git state are this Mac's files.
-        if files.isLocal { host?.saved(file, hash: result.hash) } else if remoteUnsaved == text { remoteUnsaved = nil }
+        if files.isLocal { host?.saved(file, hash: result.hash) }
         return ["hash": .string(result.hash)]
     }
 
@@ -467,9 +467,10 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         let url = try path(params["path"])
         guard let file, canonical(url) == file else { throw PageError.invalidParams("path is not this page's file") }
         guard let text = params["text"]?.stringValue else { throw PageError.invalidParams("text is required") }
+        reportedEdits.reported()
         // Crash drafts are keyed by this Mac's paths (FilePageRecovery): none for another machine's file.
-        remoteUnsaved = files.isLocal ? nil : text
-        let accepted = files.isLocal ? host.edited(file, text: text, baseHash: params["baseHash"]?.stringValue, writable: writable) : .invalidID
+        guard files.isLocal else { return ["recovery": "invalidID"] }
+        let accepted = host.edited(file, text: text, baseHash: params["baseHash"]?.stringValue, writable: writable)
         return ["recovery": .string(accepted.rawValue)]
     }
 

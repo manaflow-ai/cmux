@@ -170,6 +170,11 @@ pub fn live(config: &Path) -> Vec<Peer> {
     dir.flatten().filter_map(|e| read_entry(&e.path())).collect()
 }
 
+/// The live session registered under `pid` (`<pid>.json`), checked as [`live`] checks each.
+pub fn entry(config: &Path, pid: u32) -> Option<Peer> {
+    read_entry(&registry(config).join(format!("{pid}.json")))
+}
+
 /// The live session registered with Claude Code session id `id`.
 pub fn find(config: &Path, id: &str) -> Option<Peer> {
     live(config).into_iter().find(|p| p.session_id == id)
@@ -184,7 +189,8 @@ pub fn key_file(config: &Path, pid: u32, socket: &Path) -> PathBuf {
 }
 
 /// The two lines a delivery writes: auth (when a token is known), then the message.
-pub fn frames(token: Option<&str>, text: &str, uuid: &str, from: &str) -> String {
+/// `content`: the message's text, or its content blocks (text and images, as stream-json takes them).
+pub fn frames(token: Option<&str>, content: impl Into<Value>, uuid: &str, from: &str) -> String {
     let mut out = String::new();
     if let Some(token) = token {
         out.push_str(&serde_json::json!({"type": "auth", "token": token}).to_string());
@@ -194,7 +200,7 @@ pub fn frames(token: Option<&str>, text: &str, uuid: &str, from: &str) -> String
         "type": "user",
         "uuid": uuid,
         "from": from,
-        "message": {"role": "user", "content": text},
+        "message": {"role": "user", "content": content.into()},
     });
     out.push_str(&msg.to_string());
     out.push('\n');
@@ -439,6 +445,32 @@ pub fn sole_claimant(peer: &Peer, live: &[Peer]) -> bool {
     !live.iter().any(|p| p.pid != peer.pid && p.session_id == peer.session_id)
 }
 
+/// Why a registered chat's conversation has no process its registration reaches.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Unreached {
+    /// No live process runs the conversation: its app is closed.
+    NotRunning,
+    /// One live process runs it, but not the one that registered (Claude Code restarted, or
+    /// resumed the conversation in a new process): that process's token is in its own shell only,
+    /// so only `acpmux register` run there hands it over.
+    Restarted { pid: u32 },
+    /// More than one live process claims it ([`sole_claimant`]): neither is delivered to.
+    Contested { pids: Vec<u32> },
+}
+
+/// Why no process of `live` takes a registered chat's delivery for conversation `session_id`,
+/// asked once none did ([`token_for`] and [`sole_claimant`] both refused or none runs it).
+pub fn unreached(session_id: &str, live: &[Peer]) -> Unreached {
+    let mut pids: Vec<u32> =
+        live.iter().filter(|p| p.session_id == session_id).map(|p| p.pid).collect();
+    pids.sort_unstable();
+    match pids.as_slice() {
+        [] => Unreached::NotRunning,
+        [pid] => Unreached::Restarted { pid: *pid },
+        _ => Unreached::Contested { pids },
+    }
+}
+
 /// The code-signing requirement Claude Code's own binary meets (the CLI and the desktop app's).
 #[cfg(target_os = "macos")]
 const CLAUDE_CODE_REQUIREMENT: &str = "=anchor apple generic and certificate leaf[subject.OU] = \"Q6L2SF6YDW\" and identifier \"com.anthropic.claude-code\"";
@@ -465,75 +497,100 @@ pub fn is_claude_code(_pid: u32) -> bool {
 
 /// Whether the process listening on `socket` is `pid`, run by this daemon's user (the kernel's
 /// peer credentials of a connection to it). A symlink is never followed.
-#[cfg(unix)]
 pub async fn inbox_is(socket: &Path, pid: u32) -> bool {
-    if !std::fs::symlink_metadata(socket).is_ok_and(|m| !m.file_type().is_symlink()) {
-        return false;
+    inbox_proof(socket, pid).await.unwrap_or(false)
+}
+
+/// A definite mismatch is `Ok(false)`. An I/O error leaves ownership unknown, so a
+/// renewal can try again once the inbox answers. Neither result proves ownership.
+#[cfg(unix)]
+pub(crate) async fn inbox_proof(socket: &Path, pid: u32) -> std::io::Result<bool> {
+    use std::os::unix::fs::FileTypeExt;
+    if !std::fs::symlink_metadata(socket)?.file_type().is_socket() {
+        return Ok(false);
     }
-    let Ok(Ok(stream)) =
-        tokio::time::timeout(IO_TIMEOUT, tokio::net::UnixStream::connect(socket)).await
-    else {
-        return false;
-    };
-    let Ok(cred) = stream.peer_cred() else { return false };
+    connected_inbox_is(pid, tokio::net::UnixStream::connect(socket)).await
+}
+
+#[cfg(unix)]
+async fn connected_inbox_is(
+    pid: u32,
+    connect: impl std::future::Future<Output = std::io::Result<tokio::net::UnixStream>>,
+) -> std::io::Result<bool> {
+    let stream = tokio::time::timeout(IO_TIMEOUT, connect).await??;
+    let cred = stream.peer_cred()?;
     // SAFETY: getuid has no preconditions.
     let own = unsafe { libc::getuid() };
-    cred.uid() == own && cred.pid().and_then(|p| u32::try_from(p).ok()) == Some(pid)
+    Ok(cred.uid() == own && cred.pid().and_then(|p| u32::try_from(p).ok()) == Some(pid))
 }
 
 /// No unix sockets here: no inbox is proven.
 #[cfg(not(unix))]
-pub async fn inbox_is(_socket: &Path, _pid: u32) -> bool {
-    false
+pub(crate) async fn inbox_proof(_socket: &Path, _pid: u32) -> std::io::Result<bool> {
+    Ok(false)
 }
 
 /// Removes the token kept for chat `chat_id`, when it has one.
 pub fn forget_token(home: &Path, chat_id: &str) {
-    let _ = std::fs::remove_file(token_file(home, chat_id));
+    let _ = crate::home_fs::remove_file(token_file(home, chat_id));
 }
 
 /// Delivers `text` into `peer`'s inbox as message `uuid`: connecting and writing take at most
 /// [`IO_TIMEOUT`] together. `child_token` is the session's own registered token ([`token_for`]);
-/// without one, the peer key file is read.
+/// without one, the peer key file is read. When the session runs an inbox relay
+/// (`claude_inbox_relay.rs`), the relay, its own child, writes the same lines instead.
 #[cfg(unix)]
 pub async fn deliver(
     config: &Path,
     peer: &Peer,
-    text: &str,
+    content: impl Into<Value>,
     uuid: &str,
     from: &str,
     child_token: Option<&str>,
 ) -> Result<(), String> {
-    use tokio::io::AsyncWriteExt;
+    let content = content.into();
     let socket = peer.socket.as_deref().ok_or("the session has no messaging socket")?;
     let key = key_file(config, peer.pid, socket);
+    let token = match child_token {
+        Some(token) => token.to_owned(),
+        None => tokio::time::timeout(IO_TIMEOUT, peer_key(&key)).await.unwrap_or_else(|_| {
+            Err(format!("the session's inbox key {} did not read in time", key.display()))
+        })?,
+    };
+    let frames = frames(Some(&token), content, uuid, from);
+    if let Some(relayed) = crate::claude_inbox_relay::deliver(peer.pid, socket, &frames).await {
+        return relayed;
+    }
+    write_frames(socket, &frames).await
+}
+
+/// The peer token in the key file Claude Code publishes at `key`.
+#[cfg(unix)]
+async fn peer_key(key: &Path) -> Result<String, String> {
+    // Claude Code drops what comes without its token: with no readable key, nothing is sent.
+    // Only a small regular file is read (never a FIFO).
+    let small_file =
+        tokio::fs::metadata(key).await.is_ok_and(|m| m.is_file() && m.len() <= MAX_FILE);
+    let bytes = if small_file { tokio::fs::read(key).await.ok() } else { None };
+    bytes
+        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+        .and_then(|v| v.get("peerToken").and_then(Value::as_str).map(str::to_owned))
+        .ok_or_else(|| {
+            format!("the session's inbox key {} is missing or unreadable", key.display())
+        })
+}
+
+/// Writes `frames` ([`frames`]) to the inbox at `socket`, within [`IO_TIMEOUT`]: what the daemon
+/// does for a session with no relay, and what the relay does for its own session.
+#[cfg(unix)]
+pub async fn write_frames(socket: &Path, frames: &str) -> Result<(), String> {
+    use tokio::io::AsyncWriteExt;
     let send = async {
-        let token = match child_token {
-            Some(token) => token.to_owned(),
-            None => {
-                // Claude Code drops what comes without its token: with no readable key, nothing
-                // is sent. Only a small regular file is read (never a FIFO), within the deadline.
-                let small_file = tokio::fs::metadata(&key)
-                    .await
-                    .is_ok_and(|m| m.is_file() && m.len() <= MAX_FILE);
-                let bytes = if small_file { tokio::fs::read(&key).await.ok() } else { None };
-                bytes
-                    .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
-                    .and_then(|v| v.get("peerToken").and_then(Value::as_str).map(str::to_owned))
-                    .ok_or_else(|| {
-                        format!(
-                            "the session's inbox key {} is missing or unreadable",
-                            key.display()
-                        )
-                    })?
-            }
-        };
         // Claude Code refuses to write through a symlink at a peer's socket path; neither does
         // acpmux.
         if std::fs::symlink_metadata(socket).is_ok_and(|m| m.file_type().is_symlink()) {
             return Err(format!("the session's inbox {} is a symlink", socket.display()));
         }
-        let frames = frames(Some(&token), text, uuid, from);
         let mut stream = tokio::net::UnixStream::connect(socket).await.map_err(|e| {
             format!("could not reach the session's inbox {}: {e}", socket.display())
         })?;
@@ -553,7 +610,7 @@ pub async fn deliver(
 pub async fn deliver(
     _: &Path,
     _: &Peer,
-    _: &str,
+    _: impl Into<Value>,
     _: &str,
     _: &str,
     _: Option<&str>,

@@ -668,6 +668,158 @@ async fn a_route_s_group_closed_by_the_connection_is_replaced_not_reused() {
     assert!(Arc::ptr_eq(&cached, &fresh), "and the fresh one is cached in its place");
 }
 
+/// A group whose links never carry anything: a receive waits, a send goes nowhere.
+struct QuietGroup;
+
+struct QuietLink;
+
+#[async_trait]
+impl cmux_remote::link::FrameLink for QuietLink {
+    fn description(&self) -> &str {
+        "quiet"
+    }
+    fn maximum_frame_bytes(&self) -> usize {
+        65_535
+    }
+    async fn send(&self, _: bytes::Bytes) -> Result<(), LinkError> {
+        Ok(())
+    }
+    async fn receive(&self) -> Result<Option<bytes::Bytes>, LinkError> {
+        std::future::pending().await
+    }
+    async fn close(&self) -> Result<(), LinkError> {
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl LinkGroup for QuietGroup {
+    fn description(&self) -> &str {
+        "quiet://relay"
+    }
+    fn capabilities(&self) -> cmux_remote::provider::ProviderCapabilities {
+        cmux_remote::provider::ProviderCapabilities::STREAM
+    }
+    fn evidence(&self) -> &cmux_remote::provider::CarrierEvidence {
+        &cmux_remote::provider::CarrierEvidence::None
+    }
+    async fn open(
+        &self,
+        _: LinkRequest,
+    ) -> Result<Box<dyn cmux_remote::link::FrameLink>, ProviderError> {
+        Ok(Box::new(QuietLink))
+    }
+    async fn close(&self) -> Result<(), ProviderError> {
+        Ok(())
+    }
+}
+
+/// The fault drill's kill inside a running session: the relay's group fails the link the
+/// session reads on (a receive in flight included) as a cut carrier would, opens nothing
+/// more, and the session's reconnect never connects the relay again, while ssh still does.
+#[tokio::test]
+async fn a_killed_route_fails_its_links_and_the_reconnect_goes_on_without_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let (full, _hub) = setup(dir.path(), true);
+    let with_ssh = answer(Some(candidate()));
+    let source = endpoints("10.20.0.7", super::now_unix() + 900);
+    let route =
+        ssh_route(&full, &with_ssh, MACHINE, source, far(), &SshRefusal::default()).unwrap();
+    let relay_group = CachedGroup::killable(Arc::new(QuietGroup), true);
+    let current = Arc::new(CurrentRoute::default());
+    current.set("relay:0");
+    let set = carrier_routes(&with_ssh, relay(), Some(route.clone()));
+    let routes =
+        CarrierRoutes::new(set, 0, relay_group.clone(), SessionId([7; 16]), current.clone());
+    let request = LinkRequest { lane: Lane::Interactive, generation: 0 };
+    let link: Arc<dyn cmux_remote::link::FrameLink> =
+        Arc::from(relay_group.open(request).await.unwrap());
+    let reading = tokio::spawn({
+        let link = link.clone();
+        async move { link.receive().await }
+    });
+    tokio::task::yield_now().await;
+    assert!(!reading.is_finished(), "a live relay link waits for its next frame");
+
+    assert_eq!(routes.kill(super::super::fault::Route::Relay).await, 1);
+    let read = tokio::time::timeout(Duration::from_secs(5), reading).await.unwrap().unwrap();
+    assert!(matches!(read, Err(LinkError::Transport(_))), "{read:?}");
+    assert!(
+        link.send(bytes::Bytes::from_static(b"x")).await.is_err(),
+        "a killed link sends nothing"
+    );
+    let Err(closed) = relay_group.open(request).await else { panic!("a killed group opens") };
+    assert!(matches!(closed, ProviderError::Link(LinkError::Closed)), "{closed}");
+
+    let Err(refused) = routes.connect(0, ssh_request(&route), AuthKind::Grant).await else {
+        panic!("the killed relay connected again")
+    };
+    assert!(refused.to_string().contains("killed"), "{refused}");
+    assert_eq!(current.get(), "relay:0", "a refused route is never the session's");
+    routes.connect(1, ssh_request(&route), AuthKind::Grant).await.unwrap();
+    assert_eq!(current.get(), "ssh:0", "the reconnect goes on over ssh");
+    // The kill is of that carrier only: ssh's own route stays.
+    assert_eq!(routes.kill(super::super::fault::Route::Ssh).await, 1);
+    assert!(routes.connect(1, ssh_request(&route), AuthKind::Grant).await.is_err());
+}
+
+/// The relay failing while the first mux stream opens: the session's reconnect moves it to ssh before the first
+/// dial gets to name its route, and the first dial's relay never overwrites that, so the drill labels each record
+/// by the carrier it came on and kills the route in use. With no failover the first dial names its own route.
+#[tokio::test]
+async fn a_failover_during_the_first_open_keeps_the_reconnect_s_route() {
+    let dir = tempfile::tempdir().unwrap();
+    let (full, _hub) = setup(dir.path(), true);
+    let with_ssh = answer(Some(candidate()));
+    let source = endpoints("10.20.0.7", super::now_unix() + 900);
+    let route =
+        ssh_route(&full, &with_ssh, MACHINE, source, far(), &SshRefusal::default()).unwrap();
+    let session = |current: &Arc<CurrentRoute>| {
+        let set = carrier_routes(&with_ssh, relay(), Some(route.clone()));
+        let relay_group = CachedGroup::killable(Arc::new(QuietGroup), true);
+        CarrierRoutes::new(set, 0, relay_group, SessionId([7; 16]), current.clone())
+    };
+
+    let current = Arc::new(CurrentRoute::default());
+    let routes = session(&current);
+    // The reconnect inside the first open, then the first dial's mux stream opens.
+    routes.connect(1, ssh_request(&route), AuthKind::Grant).await.unwrap();
+    routes.first_route("relay:0");
+    assert_eq!(current.get(), "ssh:0", "the session is on ssh, not the relay it first dialed");
+
+    let current = Arc::new(CurrentRoute::default());
+    session(&current).first_route("relay:0");
+    assert_eq!(current.get(), "relay:0", "no failover: the first dial's route");
+}
+
+/// A dial that is not a drill's has no kill switch (`CachedGroup::new`: its links are the route's own, with no
+/// wrapper on any send or receive), and a kill does nothing to it.
+#[tokio::test]
+async fn a_dial_that_is_not_a_drill_s_cannot_be_killed() {
+    let dir = tempfile::tempdir().unwrap();
+    let (full, _hub) = setup(dir.path(), true);
+    let with_ssh = answer(Some(candidate()));
+    let source = endpoints("10.20.0.7", super::now_unix() + 900);
+    let route =
+        ssh_route(&full, &with_ssh, MACHINE, source, far(), &SshRefusal::default()).unwrap();
+    let relay_group = CachedGroup::new(Arc::new(QuietGroup));
+    let current = Arc::new(CurrentRoute::default());
+    let set = carrier_routes(&with_ssh, relay(), Some(route.clone()));
+    let routes = CarrierRoutes::new(set, 0, relay_group.clone(), SessionId([7; 16]), current);
+    let request = LinkRequest { lane: Lane::Interactive, generation: 0 };
+    let link: Arc<dyn cmux_remote::link::FrameLink> =
+        Arc::from(relay_group.open(request).await.unwrap());
+    let reading = tokio::spawn({
+        let link = link.clone();
+        async move { link.receive().await }
+    });
+    assert_eq!(routes.kill(super::super::fault::Route::Relay).await, 0);
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    assert!(!reading.is_finished(), "nothing was cut");
+    assert!(relay_group.open(request).await.is_ok(), "the group still opens");
+    reading.abort();
+}
+
 /// Carrier keys made at once, in one process, all end as the one key: each
 /// creation's temporary file is its own, the losers of the link race load
 /// the winner's key, and no temporary file stays.
@@ -729,9 +881,10 @@ async fn a_captured_ssh_s_stderr_goes_into_the_link_error_as_one_line() {
     let Err(LinkError::Transport(detail)) = ended else { panic!("{ended:?}") };
     let said = cmux_remote::provider::ssh_stderr_of(&detail).expect(&detail);
     assert_eq!(said, "ssh: connect to host 10.20.0.7 port 22: Connection refused kex 'x' / junk");
-    let line = routes_line(MACHINE, Phase::Resume, None, None, Some(Step::Relay), Some(said));
+    let line = routes_line(MACHINE, Phase::Resume, None, None, Some(Step::Relay), Some(&detail));
     assert!(
-        line.ends_with(&format!(" outcome=relay ssh_stderr=\"{said}\"\n")),
+        line.contains(" outcome=relay why=")
+            && line.ends_with(&format!(" ssh_stderr=\"{said}\"\n")),
         "a quoted field last: {line}"
     );
     assert_eq!(line.matches('\n').count(), 1, "{line}");
@@ -744,12 +897,78 @@ fn a_stderr_tail_is_one_quoted_safe_line_and_only_its_end_is_logged() {
     assert_eq!(ssh_stderr_of("x; ssh stderr: \"said it\"; relay: closed"), Some("said it"));
     assert_eq!(ssh_stderr_of("no stderr here"), None);
     let long = "y".repeat(300) + "end";
-    let line = routes_line(MACHINE, Phase::Resume, None, None, Some(Step::Relay), Some(&long));
+    let detail = format!("the ssh link ended; ssh stderr: \"{long}\"");
+    let line = routes_line(MACHINE, Phase::Resume, None, None, Some(Step::Relay), Some(&detail));
     let field = line.split_once("ssh_stderr=\"").unwrap().1.trim_end_matches("\"\n");
     assert_eq!(field.chars().count(), 240);
     assert!(field.ends_with("yend"));
-    let quiet = routes_line(MACHINE, Phase::Resume, None, None, None, Some("  "));
-    assert!(!quiet.contains("ssh_stderr"), "{quiet}");
+    let quiet = routes_line(MACHINE, Phase::Resume, None, None, None, Some("ssh stderr: \"  \""));
+    assert!(!quiet.contains("ssh_stderr") && !quiet.contains("why="), "{quiet}");
+}
+
+#[test]
+fn a_failed_routes_line_says_why_in_fixed_codes_only() {
+    use super::super::contract::why_codes;
+    // Each route of a group resume that failed, in order, as a fixed code:
+    // never the secret-bearing text it failed with.
+    let all = "relay: connection closed; carrier ssh key: no authorization within 4000 ms; \
+               carrier ssh route dropped: vm-secret-501";
+    assert_eq!(why_codes(all).as_deref(), Some("closed,ssh_key_timeout,ssh_refused"));
+    assert_eq!(why_codes("carrier ssh key: token=abc").as_deref(), Some("ssh_key"));
+    assert_eq!(
+        why_codes("the carrier route was killed; the carrier route was killed").as_deref(),
+        Some("killed")
+    );
+    // A quoted stderr tail (even one holding `; ` or a marker) is its own field.
+    let said = "x; ssh stderr: \"a; carrier ssh key: b\"; relay: timed out";
+    assert_eq!(why_codes(said).as_deref(), Some("other,timeout"));
+    assert_eq!(why_codes("  "), None);
+    // Which of ssh-endpoint's refusals dropped the route, or failed the key:
+    // the platform's status and fixed code, never other text.
+    assert_eq!(
+        why_codes("carrier ssh route dropped: cmux-platform answered 403 auth.forbidden")
+            .as_deref(),
+        Some("ssh_refused_403_auth_forbidden")
+    );
+    assert_eq!(
+        why_codes("carrier ssh key: cmux-platform answered 409 cloud.machine.not_running; relay: connection closed")
+            .as_deref(),
+        Some("ssh_key_409_cloud_machine_not_running,closed")
+    );
+    assert_eq!(
+        why_codes("carrier ssh route dropped: cmux-platform answered 403 Token=abc").as_deref(),
+        Some("ssh_refused")
+    );
+    // A resume that failed on every route: each failure after its route's
+    // scheme, never the route's host.
+    let both = "transport provider failed: all reconnect route providers failed: \
+                relay+do://relay.example/s/1: transport provider failed: slot gone 10.0.0.9; \
+                ssh://cmux@100.64.0.7: transport provider failed: SSH bootstrap failed for \
+                reconnect route ssh://cmux@100.64.0.7: exit 255";
+    assert_eq!(why_codes(both).as_deref(), Some("relay_other,ssh_bootstrap"));
+    let unsupported = "transport provider failed: all reconnect route providers failed: \
+                       ssh://cmux@100.64.0.7: transport scheme \"ssh\" does not support \
+                       carrier-grant client authentication; relay+do://r/s: the carrier route was killed";
+    assert_eq!(why_codes(unsupported).as_deref(), Some("ssh_unsupported_auth,killed"));
+    assert_eq!(
+        why_codes("invalid transport configuration: no reconnect routes configured").as_deref(),
+        Some("no_routes")
+    );
+    assert_eq!(
+        why_codes("service transport failed: connection is closed").as_deref(),
+        Some("closed")
+    );
+    let line = routes_line(MACHINE, Phase::Resume, None, None, Some(Step::Relay), Some(all));
+    assert_eq!(
+        line,
+        format!(
+            "carrier.routes machine={MACHINE} phase=resume carrier=none outcome=relay \
+             why=closed,ssh_key_timeout,ssh_refused\n"
+        )
+    );
+    assert!(!line.contains("secret"), "{line}");
+    let ok = routes_line(MACHINE, Phase::Resume, None, Some("ssh:0"), None, Some(all));
+    assert!(!ok.contains("why="), "{ok}");
 }
 
 /// A state directory whose path holds `%`: every path reaches ssh as an

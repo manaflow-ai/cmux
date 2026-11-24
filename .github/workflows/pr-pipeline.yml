@@ -1,0 +1,62 @@
+name: pr pipeline
+
+# The PR pipeline (the CI v2 design, "One step table"): a pull request's checks are steps of
+# ci/steps.toml, run by `ci/run` in a few jobs, not a workflow, a runner and a checkout apiece. This is
+# the `linux` job: one machine, one checkout of the merge commit, and every `linux` step the change
+# routes, side by side. Each step's output is one log group, a failed step is one annotation, and the
+# summary lists every step with its seconds.
+#
+# pr-router.yml starts it, and only when the change routes a step (scripts/ci/pr_router.json
+# `table_jobs`): a pull request that touches no step's inputs costs no runner here.
+#
+# Adding a check: add a step to ci/steps.toml. No new workflow, no router edit.
+on:
+  workflow_call:
+
+permissions: {}
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
+jobs:
+  linux:
+    name: linux
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    # Above setup (10 min), the tool downloads (3 min), the waves of the slowest step (6 min; steps two at
+    # once on 2 CPUs) and the `alone` steps (coderouter 6 min, the cmux_next_ daemon tests 65 min), with room for
+    # the checkout, so a slow step is reported by the runner, not cut here.
+    timeout-minutes: 170
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout the merge commit and the base tip
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: List the changed paths
+        # Every path the merge commit changes against the base tip, both sides of a rename (what the
+        # router read). With no merge commit there is no list, and ci/run then runs every step.
+        run: |
+          if git rev-parse -q --verify 'HEAD^2' >/dev/null; then
+            git diff --name-only --no-renames -z 'HEAD^1' HEAD > "$RUNNER_TEMP/changed-paths.txt"
+            echo "PATHS_FILE=$RUNNER_TEMP/changed-paths.txt" >> "$GITHUB_ENV"
+            tr -cd '\0' < "$RUNNER_TEMP/changed-paths.txt" | wc -c
+          else
+            echo "::notice::No merge commit to diff: every linux step runs."
+          fi
+      - name: Run the routed linux steps (ci/steps.toml)
+        run: ci/run run --job linux ${PATHS_FILE:+--paths-file "$PATHS_FILE"}
+      # A type check (the `web-typecheck` step) whose every error had one safe language-service fix, and passed with
+      # them: the patch fixit_compile.py wrote to $RUNNER_TEMP/fixit-compile, for the cmuxterm-hq fixit-compile
+      # reconciler (tools/ci-oops/fixit_push.py, which reads a run's `fixit-compile-*` artifacts) to push onto a
+      # lane/* branch as a fixup commit (ci-oops 0a). No patch, no artifact.
+      - name: Upload the fixit-compile patch
+        if: ${{ failure() && !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fixit-compile-${{ github.job }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/fixit-compile
+          if-no-files-found: ignore
+          retention-days: 3

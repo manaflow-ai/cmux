@@ -6,6 +6,7 @@
 // Search covers emoji names, CLDR keywords and shortcodes (English and Japanese) and symbol names
 // and keywords. Keyboard driven from the search field; typing anywhere searches. Hosts: the icon
 // picker page (a native panel around a prewarmed web view) and any React page that embeds it.
+import { keycapLegend } from "../ui/keycapLegend";
 import {
   useRef,
   useState,
@@ -33,6 +34,7 @@ import { pickerKeyAction, typesText } from "./keyboard";
 import { DEFAULT_CELL, PickerStore, type CategoryOption, type PickerCell, type PickerView } from "./store";
 import { SYMBOL_MODES, symbolRendering, type SymbolMode } from "./symbols";
 import { GridViewport, VirtualGrid } from "./VirtualGrid";
+import { intl } from "../ui/intl";
 
 const TONE_SAMPLES = ["✋", "✋🏻", "✋🏼", "✋🏽", "✋🏾", "✋🏿"];
 /** The grid's side padding (styles.css .icon-grid-scroll). */
@@ -55,8 +57,13 @@ export interface IconPickerProps {
    * page tints with its theme color (CSS mask); multicolor is a finished image.
    */
   symbolImageURL?: (name: string, mode: SymbolMode) => string;
-  /** Why the last pick did not apply (the host refused it); shown until the next session. */
+  /** Why the last pick did not apply (the host refused it); shown until the next try or session. */
   error?: string;
+  /**
+   * A new try starts in the Image or SVG sheet (a file or a URL, also one that the sheet refuses
+   * itself, which gives no `onPick`). The owner of `error` takes it away then.
+   */
+  onTry?: () => void;
 }
 
 export function IconPicker({
@@ -69,6 +76,7 @@ export function IconPicker({
   assets,
   symbolImageURL,
   error,
+  onTry,
 }: IconPickerProps) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const [viewport] = useState(() => {
@@ -282,7 +290,7 @@ export function IconPicker({
         )}
       </div>
       {error && (
-        <p className="icon-picker-error" role="alert">
+        <p className="ui-glass icon-picker-error" role="alert">
           {error}
         </p>
       )}
@@ -316,6 +324,7 @@ export function IconPicker({
           kind={snap.view === "svg" ? "svg" : "image"}
           sink={assets}
           strings={strings}
+          onTry={onTry}
           onPicked={(value) => {
             store.recordAsset(value);
             onPick(value);
@@ -351,7 +360,7 @@ export function IconPicker({
                 onClick={() => pick(active)}
               >
                 {t("iconPicker.setIcon")}
-                <kbd className="icon-keycap">↩</kbd>
+                <kbd className="icon-keycap">{keycapLegend("↩")}</kbd>
               </button>
               <span className="icon-bar-divider" aria-hidden />
             </>
@@ -425,7 +434,7 @@ function CategoryMenu({
   const emoji = categories.filter((option) => option.kind === "emoji");
   const symbols = categories.filter((option) => option.kind === "symbols");
   const symbolCategories = categories.filter((option) => option.kind === "symbol");
-  const count = (option: CategoryOption) => option.count.toLocaleString(strings.language);
+  const count = (option: CategoryOption) => intl.NumberFormat(strings.language).format(option.count);
   const item = (option: CategoryOption) => (
     <MenuRadioItem key={option.id} value={option.id} shortcut={count(option)}>
       {option.glyph ? (

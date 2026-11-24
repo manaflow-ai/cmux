@@ -7,7 +7,10 @@
 //   rest       nothing arrives;
 //   echo       acpmux repeats other chats' summaries unchanged (`_acpmux/session_changed`), RATE a
 //              second, as a busy daemon does when it re-sends the list;
-//   presence   acpmux repeats the same empty presence for the open chat, RATE a second.
+//   presence   acpmux repeats the same empty presence for the open chat, RATE a second;
+//   changes    other chats really change (a newer `updatedAt`), RATE a second, as running agents do: the
+//              pane draws none of them, so they must cost about as little (Lawrence, 2026-11-18: a short
+//              chat's scroll dropped frames in an app with many running chats and much history).
 // A pane at rest costs about nothing; a repeat that changes nothing must cost about as little.
 // RESTS=n sits through n rest windows first, so work that grows with the time the pane is open shows.
 // MEMORY=1 then says what the settled page holds: its JS heap after a collection, and a heap snapshot's
@@ -18,10 +21,12 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { chromium, type CDPSession } from "playwright";
+import { chromium } from "./browsers";
+import type { CDPSession } from "playwright";
 import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
 import { perfRow } from "./perfRow";
 import { addStabilityProbe, cpuSession, measureIdle, settledAt } from "./stability";
+import { newestPage } from "./daemonPage";
 
 const TURNS = Number(process.argv[2] ?? 300);
 const OTHERS = Number(process.argv[3] ?? 200);
@@ -54,8 +59,12 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
       return { sessions };
     case "_acpmux/attach": {
       if (params.sessionId !== A) return { session: others[0], lastSeq: 0, events: [], hasMore: false };
-      const limit = Number(params.limit ?? 400);
-      return { session: chat.session, lastSeq, events: chat.events.slice(-limit), hasMore: chat.events.length > limit };
+      // As the daemon does: the newest `limit` events within `maxBytes` (daemonPage.ts).
+      const { page, hasMore } = newestPage(chat.events, {
+        limit: Number(params.limit ?? 400),
+        maxBytes: params.maxBytes,
+      });
+      return { session: chat.session, lastSeq, events: page, hasMore };
     }
     case "_acpmux/events":
       return { events: [], hasMore: false, lastSeq };
@@ -121,11 +130,8 @@ try {
     },
   });
   releases.push(() => statics.stop(true));
-  const url = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${A}`;
+  const url = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&scheme=cmux&session=${A}`;
   const browser = await chromium.launch({
-    ...(process.env.CMUX_CHROME_HEADLESS_SHELL
-      ? { executablePath: process.env.CMUX_CHROME_HEADLESS_SHELL }
-      : { channel: "chrome" }),
     headless: true,
   });
   releases.push(() => browser.close());
@@ -162,13 +168,23 @@ try {
       name: "presence",
       start: repeat(() => notify("_acpmux/presence", { sessionId: A, viewers: [] })),
     },
+    {
+      name: "changes",
+      start: repeat((tick) => {
+        const session = others[tick % Math.max(1, OTHERS)];
+        notify("_acpmux/session_changed", {
+          kind: "updated",
+          session: { ...session, updatedAt: (Number(session?.updatedAt) || 0) + 1000 * (tick + 1) },
+        });
+      }),
+    },
   ];
   console.log(
     `agent-pane-idle: ${TURNS} turns, ${OTHERS} other chats, ${PHASE_MS / 1000} s a phase, repeats ${RATE}/s`,
   );
   console.log("phase | renderer ms/s | wakeups/s | sources");
   for (const phase of phases) {
-    if (phase.start && OTHERS === 0 && phase.name === "echo") continue;
+    if (phase.start && OTHERS === 0 && phase.name !== "presence") continue;
     const stop = phase.start?.();
     const [quiet] = await measureIdle([{ page, cdp }], PHASE_MS);
     stop?.();

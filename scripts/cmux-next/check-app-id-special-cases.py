@@ -33,6 +33,7 @@ Usage: scripts/cmux-next/check-app-id-special-cases.py [repo-root] [--list] [--w
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import re
 import sys
@@ -91,10 +92,21 @@ def is_test_path(path: str) -> bool:
     )
 
 
+def load_test_modules():
+    """rust_test_modules.py beside this file (a checkout's, or the installed copy's): `-I` puts no
+    folder on sys.path. It names the files a `#[cfg(test)] mod name;` makes test code."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    spec = importlib.util.spec_from_file_location("rust_test_modules", os.path.join(here, "rust_test_modules.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def product_files(root: str) -> list[str]:
     found = []
     for base, suffix in ((SWIFT_ROOT, ".swift"), (RUST_ROOT, ".rs")):
         top = os.path.join(root, base)
+        test_modules = load_test_modules().scan(top) if suffix == ".rs" and os.path.isdir(top) else None
         for directory, dirs, files in os.walk(top):
             dirs[:] = [d for d in dirs if d not in ("target", "node_modules", ".build", "tests", "Tests")]
             rel_dir = os.path.relpath(directory, root)
@@ -105,8 +117,11 @@ def product_files(root: str) -> list[str]:
             for name in files:
                 if name.endswith(suffix):
                     path = os.path.join(rel_dir, name)
-                    if not is_test_path(path):
-                        found.append(path)
+                    if is_test_path(path):
+                        continue
+                    if test_modules is not None and test_modules.contains(os.path.join(root, path)):
+                        continue  # a `#[cfg(test)] mod name;` file, or one below it
+                    found.append(path)
     return sorted(found)
 
 

@@ -7,6 +7,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -47,6 +48,7 @@ const { createRoot } = await import("react-dom/client");
 const { UserBubble } = await import("../src/agent-session/acpmux/conversation/UserBubble");
 const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
 const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
+const { SENT_IMAGE_HEIGHT } = await import("../src/agent-session/acpmux/conversation/userBubbleModel");
 const { linkAttachment, promptText } = await import("../src/agent-session/acpmux/attachments");
 
 const PATH = "/Users/dev/Library/Application Support/cmux/Chat Uploads/0190a000-upload/0/screen-demo.mp4";
@@ -206,7 +208,7 @@ try {
     const view = shown();
     expect(view.tile).not.toBeNull();
     expect(view.tile?.closest(".cv-user__bubble")).not.toBeNull();
-    expect(view.tile?.style.width).toBe("120px");
+    expect(view.tile?.style.width).toBe(`${SENT_IMAGE_HEIGHT}px`);
     expect(view.title).toBe("screen-demo.mov");
     expect(view.files.join("")).not.toContain("screen-demo.mov");
     expect(view.bubble).toBe("look");
@@ -241,7 +243,7 @@ try {
       ]);
       expect(view.poster).toBe("data:image/jpeg;base64,cmVhZA==");
       expect(view.length).toBe("0:42");
-      expect(view.tile?.style.width).toBe("120px");
+      expect(view.tile?.style.width).toBe(`${SENT_IMAGE_HEIGHT}px`);
     } finally {
       setChipHost(async (method, params) => {
         calls.push({ method, params });
@@ -465,13 +467,9 @@ try {
     expect(calls.map((call) => call.method)).toEqual(["media.load", "video.quickLook"]);
   });
 } finally {
-  afterAll(() => {
+  afterAll(async () => {
     setChipHost(undefined);
     act(() => root.unmount());
-    dom.window.close();
-    for (const [key, had, value] of saved) {
-      if (had) scope[key] = value;
-      else delete scope[key];
-    }
+    await teardownDom(saved, { window: dom.window, scope });
   });
 }

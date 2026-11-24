@@ -37,6 +37,7 @@ import {
   released,
   resumed,
 } from "./support/agentPairDaemon";
+import { settleReact } from "./support/domTeardown";
 
 /// What a row says, compactly: why, what it still holds, what settled, whether it resumed.
 const summary = (pair: AcpmuxAgentPair) => ({
@@ -218,6 +219,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

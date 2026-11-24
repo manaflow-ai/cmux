@@ -95,8 +95,8 @@
       "localizations": {
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux uses Face ID to confirm that you want to lower the protection for texts to Chief."
+            "state": "translated",
+            "value": "cmux verwendet Face ID, um zu bestätigen, dass du den Schutz für Nachrichten an Chief verringern möchtest."
           }
         },
         "en": {
@@ -107,20 +107,20 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux uses Face ID to confirm that you want to lower the protection for texts to Chief."
+            "state": "translated",
+            "value": "cmux usa Face ID para confirmar que quieres reducir la protección de los mensajes a Chief."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux uses Face ID to confirm that you want to lower the protection for texts to Chief."
+            "state": "translated",
+            "value": "cmux utilise Face ID pour confirmer que vous souhaitez réduire la protection des messages envoyés à Chief."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux uses Face ID to confirm that you want to lower the protection for texts to Chief."
+            "state": "translated",
+            "value": "cmux usa Face ID per confermare che vuoi ridurre la protezione dei messaggi a Chief."
           }
         },
         "ja": {
@@ -131,50 +131,50 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux uses Face ID to confirm that you want to lower the protection for texts to Chief."
+            "state": "translated",
+            "value": "cmux는 Chief에게 보내는 메시지의 보호 수준을 낮추려는 것을 확인하기 위해 Face ID를 사용합니다."
           }
         },
         "nl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux uses Face ID to confirm that you want to lower the protection for texts to Chief."
+            "state": "translated",
+            "value": "cmux gebruikt Face ID om te bevestigen dat je de beveiliging van berichten aan Chief wilt verlagen."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux uses Face ID to confirm that you want to lower the protection for texts to Chief."
+            "state": "translated",
+            "value": "cmux używa Face ID, aby potwierdzić, że chcesz obniżyć ochronę wiadomości do Chief."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux uses Face ID to confirm that you want to lower the protection for texts to Chief."
+            "state": "translated",
+            "value": "O cmux usa o Face ID para confirmar que você quer reduzir a proteção das mensagens para o Chief."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux uses Face ID to confirm that you want to lower the protection for texts to Chief."
+            "state": "translated",
+            "value": "cmux использует Face ID, чтобы подтвердить, что вы хотите снизить защиту сообщений для Chief."
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux uses Face ID to confirm that you want to lower the protection for texts to Chief."
+            "state": "translated",
+            "value": "cmux, Chief'e gönderilen mesajların korumasını düşürmek istediğinizi onaylamak için Face ID kullanır."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux uses Face ID to confirm that you want to lower the protection for texts to Chief."
+            "state": "translated",
+            "value": "cmux 使用面容 ID 来确认你要降低发送给 Chief 的消息的保护级别。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux uses Face ID to confirm that you want to lower the protection for texts to Chief."
+            "state": "translated",
+            "value": "cmux 使用 Face ID 來確認你要降低傳送給 Chief 的訊息的保護等級。"
           }
         }
       }

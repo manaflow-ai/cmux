@@ -56,6 +56,9 @@ export type AnchoredCollapse = {
   /// Opens or closes it. Given the click (a row's `onClick`), only a deliberate one (`deliberateClick`).
   /// True when it did: a wrapper that does more on a click (notes it, moves focus) does it only then.
   toggle: (event?: unknown) => boolean;
+  /// Whether `event` is a deliberate click (`deliberateClick`), using up the header's press as
+  /// `toggle` does: for a row that acts on the click later (it waits on a read, then `setOpen`).
+  deliberate: (event?: unknown) => boolean;
   setOpen: (open: boolean) => void;
   /// The ref for the line the reader clicks: it stays where it is drawn while the body opens or closes.
   headerRef: (node: HTMLElement | null) => void;
@@ -216,16 +219,19 @@ export function useAnchoredCollapse(options: AnchoredCollapseOptions = {}): Anch
     },
     [stopKeeping],
   );
+  const deliberate = useCallback((event?: unknown) => {
+    const noted = press.current;
+    press.current = undefined;
+    const pressed = noted && noted.on === header.current ? noted : undefined;
+    return deliberateClick(event, header.current, pressed);
+  }, []);
   const toggle = useCallback(
     (event?: unknown) => {
-      const noted = press.current;
-      press.current = undefined;
-      const pressed = noted && noted.on === header.current ? noted : undefined;
-      if (!deliberateClick(event, header.current, pressed)) return false;
+      if (!deliberate(event)) return false;
       setOpen(!latest.current.open);
       return true;
     },
-    [setOpen],
+    [deliberate, setOpen],
   );
   useLayoutEffect(() => {
     const keep = pendingKeep.current;
@@ -237,6 +243,7 @@ export function useAnchoredCollapse(options: AnchoredCollapseOptions = {}): Anch
     open,
     present: fold.present,
     toggle,
+    deliberate,
     setOpen,
     headerRef,
     bodyProps: {

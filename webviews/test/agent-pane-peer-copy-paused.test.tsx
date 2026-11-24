@@ -16,6 +16,7 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { translate as t } from "../src/agent-session/acpmux/i18n";
 import type { CloudMachine } from "../src/agent-session/acpmux/cloudMachines";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -58,12 +59,8 @@ afterEach(async () => {
   (await import("../src/agent-session/acpmux/cloudMachines")).setCloudMachinesForTest([]);
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const PEER = "dev-vm-2";
@@ -243,7 +240,7 @@ test("a name two of the account's machines share reads offline, with no Resume",
   expect(peerCloudMachine([paused, { ...paused, id: "vm_twin" }], PEER)).toBeUndefined();
 });
 
-test("offline peer Reconnect invokes doctor and shows its refusal", async () => {
+test("offline peer Reconnect invokes doctor and says plainly that it failed", async () => {
   const app = fakeApp([]);
   const calls: string[] = [];
   await mount(PEER, app.call, async (peer) => {
@@ -259,7 +256,10 @@ test("offline peer Reconnect invokes doctor and shows its refusal", async () => 
     await new Promise((resolve) => setImmediate(resolve));
   });
   expect(calls).toEqual([PEER]);
-  expect(host.querySelector('[role="alert"]')?.textContent).toContain("peer_unreachable: refused by doctor");
+  // doctor's raw text goes to the log, the line says it plainly (Leo, 2026-11-12: "we want good error
+  // states. We don't want busted errors.").
+  expect(host.querySelector('[role="alert"]')?.textContent).toBe(t("peerCopy.reconnectFailed"));
+  expect(host.textContent).not.toContain("peer_unreachable");
   expect(host.querySelector<HTMLButtonElement>('button[data-state="failed"]')?.textContent).toBe(
     t("sessionInfo.connectors.retry"),
   );

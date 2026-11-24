@@ -93,6 +93,8 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
                     }
                     Some(Ok(Event::Mouse(m))) => { app.on_mouse(m); frames.request(); }
                     Some(Ok(Event::Resize(..))) | Some(Ok(Event::FocusGained)) => frames.request(),
+                    // The terminal went to the background (another tab, a suspend): the draft is written now.
+                    Some(Ok(Event::FocusLost)) => app.flush_draft(),
                     Some(Ok(Event::Paste(s))) => {
                         frames.request();
                         if matches!(app.overlay, Overlay::None) && app.paste_images(&s) {
@@ -204,10 +206,27 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
                 app.pending_select = Some(id);
             }
         }
+        // A chat switch, an edit, a draft write whose pause or bound came (`composer_draft.rs`).
+        app.draft_tick(Instant::now());
         if app.quit {
             break Ok(());
         }
     };
+    // The composer's last keystrokes reach acpmux before the TUI goes (an error exit too).
+    app.flush_draft();
+    let settle = tokio::time::Instant::now() + composer_draft::SETTLE;
+    while app.draft_sync.unsettled() && !app.draft_sync.failing() {
+        tokio::select! {
+            m = rx.recv() => match m {
+                Some(m) => {
+                    app.on_msg(m);
+                    app.draft_tick(Instant::now());
+                }
+                None => break,
+            },
+            _ = tokio::time::sleep_until(settle) => break,
+        }
+    }
     app.set_pointer(false);
     let _ = crossterm::execute!(
         std::io::stdout(),
@@ -264,6 +283,7 @@ pub(super) fn make_app(
         history_in_flight: HashSet::new(),
         history_more: HashMap::new(),
         input: Editor::default(),
+        draft_sync: Default::default(),
         input_images: Vec::new(),
         command: Editor::default(),
         drafts: Vec::new(),
@@ -355,7 +375,9 @@ async fn reconnect(app: &mut App) -> Result<tokio::sync::mpsc::Receiver<Message>
         tokio::time::sleep(delay).await;
         match crate::daemon::connect(true).await {
             Ok(c) => {
-                c.request(method::MUX_WATCH, json!({"enabled": true})).await?;
+                // Only the watch turns on here: the list is read whole just below, so its reply
+                // is one row, not a copy of that list read to be dropped.
+                c.request(method::MUX_WATCH, json!({"enabled": true, "limit": 1})).await?;
                 let sessions = c.whole_list(method::MUX_SESSIONS, json!({})).await?;
                 let notes = c
                     .notifications()
@@ -370,6 +392,8 @@ async fn reconnect(app: &mut App) -> Result<tokio::sync::mpsc::Receiver<Message>
                 if let Some(id) = app.selected_id() {
                     app.attach(&id);
                 }
+                // Another pane may have written the draft meanwhile; a failed write goes again.
+                app.reread_draft();
                 app.status = format!("reconnected to the daemon (build {build})");
                 return Ok(notes);
             }

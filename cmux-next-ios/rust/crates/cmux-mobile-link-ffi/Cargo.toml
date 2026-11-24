@@ -22,16 +22,30 @@ required-features = ["bindgen"]
 bindgen = ["uniffi/cli"]
 
 [dependencies]
+# The terminal composer's keyed Send (src/composer_outbox.rs).
+cmux-composer-send.workspace = true
+cmux-follow-cam.workspace = true
 cmux-mobile-link.workspace = true
 cmux-rd-ffi.workspace = true
+cmux-rd-link.workspace = true
 cmux-rd-proto.workspace = true
+cmux-tab-snapshots.workspace = true
 cmux-terminal-prediction.workspace = true
+cmux-terminal-projection.workspace = true
+cmux-window-rules.workspace = true
+libc.workspace = true
+# Share a Mac from the phone (src/share_approval.rs): the approval format the target admits,
+# and the P-256 check of the phone's signature (ring is the link's TLS crypto already).
+cmux-share-approval.workspace = true
+base64.workspace = true
+ring = "0.17"
 serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 uniffi = "=0.31.1"
+url.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]

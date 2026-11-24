@@ -6,6 +6,7 @@ import type { MachineDetail } from "./detail";
 import type { CloudStore } from "./store";
 import type { Strings } from "../shared/i18n";
 import { FilesSection } from "./FilesSection";
+import { settleReact } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><body></body>", { url: "http://localhost/" });
 const globals = globalThis as Record<string, unknown>;
@@ -29,7 +30,8 @@ const clientPath = fileURLToPath(
 );
 delete require.cache[clientPath];
 const { createRoot } = require(clientPath) as typeof import("react-dom/client");
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   dom.window.close();
   for (const [name, value] of savedGlobals) {
     if (value === undefined) delete globals[name];
@@ -110,6 +112,20 @@ test("a successful delayed save preserves edits typed during the write and allow
     expect(view.writes).toEqual(["submitted", "newer draft"]);
     await view.finish(true);
     expect(view.container.querySelector("textarea")).toBeNull();
+  } finally {
+    view.close();
+  }
+});
+
+// Codex's review of #39247 at 5e952b6 (F1): text changed from the file holds the page against app
+// health's repair reload (pageHealth.ts reports the mark with its beat); the file's own text does not.
+test("the editor marks unsaved text for app health until it matches the file", async () => {
+  const view = await editor();
+  try {
+    const marked = () => view.container.querySelector("textarea")!.hasAttribute("data-cmux-unsaved-edits");
+    expect(marked()).toBe(false);
+    await view.type("unsaved");
+    expect(marked()).toBe(true);
   } finally {
     view.close();
   }

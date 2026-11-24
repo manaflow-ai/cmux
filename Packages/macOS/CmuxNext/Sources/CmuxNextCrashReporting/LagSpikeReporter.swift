@@ -60,7 +60,7 @@ public final class LagSpikeReporter: Sendable {
 
     /// Sets the context read for each admitted spike (main thread).
     public func setContextProvider(_ provider: (@Sendable () -> [String: String])?) {
-        contextProvider.withLock { $0 = provider }
+        contextProvider.store(provider)
     }
 
     /// One finished main-thread stall.
@@ -74,7 +74,7 @@ public final class LagSpikeReporter: Sendable {
         let now = uptime()
         guard limiter.withLock({ $0.admit(durationNanos: nanos, nowNanos: now) }) else { return false }
         summary?.record(.spikeSent)
-        let context = contextProvider.withLock { $0 }?() ?? [:]
+        let context = contextProvider.load()?() ?? [:]
         let event = LagSpikeEvent(duration: duration, cpu: cpu, addresses: addresses, context: context)
         let sink = self.sink
         Task.detached(priority: .utility) { sink(event) }

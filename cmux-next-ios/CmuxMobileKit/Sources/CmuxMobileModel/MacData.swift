@@ -138,85 +138,6 @@ extension AppStore {
     }
 }
 
-/// What the phone last saw from the live service for one account: the space
-/// it used, that space's Macs, the Mac it linked to, and each Mac's
-/// workspaces. Restored at launch so the screens show last-known data
-/// (marked cached) and the link can dial before the service is asked anything.
-public struct LiveSnapshot: Codable, Equatable, Sendable {
-    public var teamID: String
-    public var teamName: String
-    public var macs: [MacDevice]
-    /// The Mac the link last reached.
-    public var linkedMacID: String?
-    /// Mac id → its workspaces when it last answered, and when that was.
-    public var workspaces: [String: MacWorkspaces]
-
-    public struct MacWorkspaces: Codable, Equatable, Sendable {
-        public var workspaces: [Workspace]
-        public var savedAt: Date
-
-        public init(workspaces: [Workspace], savedAt: Date) {
-            self.workspaces = workspaces
-            self.savedAt = savedAt
-        }
-    }
-
-    public init(teamID: String, teamName: String, macs: [MacDevice], linkedMacID: String?, workspaces: [String: MacWorkspaces]) {
-        self.teamID = teamID
-        self.teamName = teamName
-        self.macs = macs
-        self.linkedMacID = linkedMacID
-        self.workspaces = workspaces
-    }
-}
-
-/// Snapshots on disk, one file per account in Application Support, written
-/// off the main thread. Sign-out removes them all.
-public final class LiveSnapshotStore: @unchecked Sendable {
-    private let directory: URL
-    private let queue = DispatchQueue(label: "dev.cmux.mobile.snapshot", qos: .utility)
-
-    public init(directory: URL) {
-        self.directory = directory
-    }
-
-    public static let standard: LiveSnapshotStore = {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? FileManager.default.temporaryDirectory
-        return LiveSnapshotStore(directory: base.appending(path: "cmux-mobile-live", directoryHint: .isDirectory))
-    }()
-
-    private func file(_ accountID: String) -> URL {
-        let safe = accountID.unicodeScalars.map { CharacterSet.alphanumerics.contains($0) || $0 == "-" ? String($0) : "_" }.joined()
-        return directory.appending(path: "snapshot-\(safe).json")
-    }
-
-    public func load(accountID: String) -> LiveSnapshot? {
-        guard let data = try? Data(contentsOf: file(accountID)) else { return nil }
-        return try? JSONDecoder().decode(LiveSnapshot.self, from: data)
-    }
-
-    public func save(_ snapshot: LiveSnapshot, accountID: String) {
-        let url = file(accountID)
-        let directory = directory
-        queue.async {
-            guard let data = try? JSONEncoder().encode(snapshot) else { return }
-            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            try? data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
-        }
-    }
-
-    /// Waits for pending writes (tests).
-    public func flush() {
-        queue.sync {}
-    }
-
-    public func removeAll() {
-        let directory = directory
-        queue.async { try? FileManager.default.removeItem(at: directory) }
-    }
-}
-
 /// This phone's connection to a Mac, apart from the Mac's presence: a Mac
 /// can be online (its mobile host holds the service socket) while this phone
 /// cannot reach it.
@@ -240,21 +161,32 @@ public struct MacStatusLine: Equatable, Sendable {
         self.text = text
     }
 
-    /// `presence` is the offline wording ("Last seen 2h ago") for an offline Mac.
-    public static func make(mac: MacDevice, connection: MacConnection?, live: Bool, presence: String) -> MacStatusLine {
-        guard mac.isOnline else { return MacStatusLine(dot: .offline, text: presence) }
+    /// `presence` is the offline wording ("Last seen 2h ago") for an offline Mac. A Mac the
+    /// phone tried and could not use says how far the try got (``MacReachability``).
+    public static func make(mac: MacDevice, connection: MacConnection?, live: Bool, presence: String,
+                            failure: MacLinkFailure? = nil, now: Date = Date()) -> MacStatusLine {
+        guard mac.isOnline || (live && failure != nil) else { return MacStatusLine(dot: .offline, text: presence) }
         guard live else { return MacStatusLine(dot: .connected, text: presence) }
-        switch connection {
+        let reach = MacReachability.resolve(mac: mac, connection: connection, failure: failure, live: live)
+        switch reach {
         case .connected: return MacStatusLine(dot: .connected, text: "Online")
         case .connecting: return MacStatusLine(dot: .connecting, text: "Online · Connecting…")
-        case .failed: return MacStatusLine(dot: .failed, text: "Online · Can't connect")
-        case nil: return MacStatusLine(dot: .connecting, text: "Online · Not connected")
+        case .notConnected: return MacStatusLine(dot: .connecting, text: "Online · Not connected")
+        case .offline: return MacStatusLine(dot: .offline, text: presence)
+        default: return MacStatusLine(dot: .failed, text: reach.statusText(now: now))
         }
     }
 }
 
 extension AppStore {
     public func macStatusLine(_ mac: MacDevice, presence: String) -> MacStatusLine {
-        MacStatusLine.make(mac: mac, connection: macConnection[mac.id], live: tracksMacData, presence: presence)
+        MacStatusLine.make(mac: mac, connection: macConnection[mac.id], live: tracksMacData, presence: presence,
+                           failure: macFailure[mac.id])
+    }
+
+    /// What the Mac's own view says about it (cmux#52200).
+    public func macReachability(_ mac: MacDevice) -> MacReachability {
+        MacReachability.resolve(mac: mac, connection: macConnection[mac.id], failure: macFailure[mac.id],
+                                live: tracksMacData, phoneOffline: isOffline)
     }
 }

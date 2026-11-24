@@ -43,7 +43,7 @@ struct PageAccessibilityPressTests {
         let sources = view.webView.configuration.userContentController.userScripts.map(\.source)
         #expect(sources.filter { $0 == PageAccessibilityPress.script }.count == 1)
         let press = view.webView.configuration.userContentController.userScripts.filter { $0.source == PageAccessibilityPress.script }
-        #expect(press.allSatisfy(\.isForMainFrameOnly))
+        #expect(press.allSatisfy { $0.isForMainFrameOnly })
         // Chromium gets its own press path (ChromiumAccessibilityPress), never this script.
         #expect(!PageChromiumDocumentScripts(controller: view.webView.configuration.userContentController).sources
             .contains { $0.contains(PageAccessibilityPress.handlerName) })

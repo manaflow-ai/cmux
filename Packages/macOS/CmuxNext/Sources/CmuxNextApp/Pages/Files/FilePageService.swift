@@ -12,6 +12,7 @@ import CmuxNextSettings
 import Foundation
 import CmuxNextWakeups
 import typealias CmuxNextDaemon.SurfaceID
+import class CmuxNextDaemon.PaneModel
 
 /// Owns one file page's tabs (diff-host S6 `cmux.markdown`, S7 `cmux.editor`): pane tabs, one
 /// ``FilePageProvider`` and page view per tab, one shared look per page (its settings section,
@@ -182,6 +183,19 @@ final class FilePageService: InternalPageProvider {
         return key
     }
 
+    /// `file` as a new tab of `model`, a pane no window shows (an agent's workspace off screen): the
+    /// tab goes into the daemon's model unselected and shows when its workspace shows (user, 2026-11-18).
+    func open(_ file: URL, parkedIn model: PaneModel, of daemon: DaemonService, window: WindowController, userChose: Bool) -> Bool {
+        guard daemon.isLocal, services.pages.keepsRoutes(daemon) else { return false }
+        let files = machineFiles(on: daemon), real = files.canonical(file), key = LocalPageTab.makeKey(kind.page)
+        tabs[key] = Tab(file: real, userChose: userChose, readOnly: false, recoveredText: nil, reveal: nil, files: files, machine: "local")
+        guard services.pages.openStoreTab(kind.page, in: model, of: daemon, services: services, controller: nil, window: window, focus: false, key: key) != nil else {
+            tabs[key] = nil
+            return false
+        }
+        return true
+    }
+
     /// The files of `machine` (#25581): this Mac's disk (nil or the local daemon), or the machine's daemon over its own
     /// read link (`noFollow`: through no symlink there, a Cloud chat's path chip, which a tab that follows links never shows).
     func machineFiles(on machine: DaemonService?, noFollow: Bool = false) -> any FilePageFiles {
@@ -223,7 +237,7 @@ final class FilePageService: InternalPageProvider {
         }
         let accepted = document.edited(text: text, baseHash: baseHash)
         if accepted == .tooLarge, warnedTooLarge.insert(url.path).inserted, let window = tabs[key]?.page?.window {
-            _ = CmuxToastCenter.shared.show(CmuxToast(id: "file-recovery:\(url.path)", message: FilePageStrings.noRecovery(url.lastPathComponent),
+            _ = CmuxToastCenter.shared.show(CmuxToast(id: "file-recovery:\(url.path)", kind: "file-recovery", message: FilePageStrings.noRecovery(url.lastPathComponent),
                                                      duration: .seconds(8)), in: window)
         }
         return accepted
@@ -416,8 +430,8 @@ final class FilePageService: InternalPageProvider {
         // One menu: Copy; Comment…, Quote in Chat, Send to Chief and Send To… on a selection; Reset
         // Column Widths on a table (viewer-comments-DESIGN.md).
         installSelectionMenu(on: page, key: key, then: kind == .markdown ? Self.tableMenu(provider: provider, page: page) : nil)
-        // Unsaved edits app health's reload must keep: a remote file's (no crash draft keeps it) or the shared quit document's.
-        page.holdsUnsavedEdits = { [weak self, weak provider] in provider?.remoteUnsaved != nil || provider?.file.flatMap { self?.documents.existing($0) }?.hasUnsavedChanges == true }
+        // Unsaved edits app health's reload must keep: reported ones no save has covered (a remote file's has no crash draft) or the shared quit document's.
+        page.holdsUnsavedEdits = { [weak self, weak provider] in provider?.reportedEdits.held == true || provider?.file.flatMap { self?.documents.existing($0) }?.hasUnsavedChanges == true }
         tab.page = page
         tab.provider = provider
         tab.host = host

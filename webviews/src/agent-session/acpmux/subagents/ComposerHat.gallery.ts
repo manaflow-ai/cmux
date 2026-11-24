@@ -17,10 +17,12 @@ type Props = {
   surface?: "card" | "queue" | "codex-strip";
   narrow?: boolean;
   tucked?: boolean;
+  bridge?: "none" | "seated" | "perched" | "before";
 };
 
 const stage = (name: string) => ({ selector: `[data-stage="${name}"]` });
-const count = (ctx: PlayContext) => ctx.document.querySelector(".acpmux-tray-pull__count")?.textContent ?? "";
+const count = (ctx: PlayContext) =>
+  ctx.document.querySelector<HTMLElement>(".acpmux-tray-pull__count")?.dataset.count ?? "";
 
 export const composerHatScript = [
   {
@@ -80,7 +82,7 @@ export default componentEntry<Props>({
       props: { start: 7 },
     },
     "line-many": {
-      note: "128 run (^ 99+): the widest pill, and the gap in the line is as wide.",
+      note: "128 run (^ 128, never 99+): a three-digit pill, and the gap in the line is as wide.",
       props: { start: 128 },
     },
     "line-left": {
@@ -127,7 +129,7 @@ export default componentEntry<Props>({
       props: { start: 7, surface: "queue" },
     },
     "line-queue-many": {
-      note: "128 run (^ 99+) over a queue: the queue's gap is the widest pill's width.",
+      note: "128 run (^ 128) over a queue: the queue's gap is the pill's width.",
       props: { start: 128, surface: "queue" },
     },
     "line-queue-narrow-left": {
@@ -137,6 +139,25 @@ export default componentEntry<Props>({
     "line-tuck": {
       note: "Twelve run and the hat is out: Tuck the hat, and the gap is the pill's whole width from its first frame.",
       props: { start: 12, tucked: false },
+    },
+    // No line of the pill's own beside it (Leo, 2026-11-11: "did this line behind the count box get
+    // removed yet?"): where the pill sits on the card's line. `bridge-none` ships; theme switch for
+    // light and dark; test/composer-hat-line-gap.test.ts.
+    "bridge-none": {
+      note: "Shipped: 41 run (^ 41) and the pill hangs no stub; the card's line runs up to its rim, 2px under its middle.",
+      props: { start: 41 },
+    },
+    "bridge-seated": {
+      note: "Candidate: no stubs and no lift, the pill centred on the card's line.",
+      props: { start: 41, bridge: "seated" },
+    },
+    "bridge-perched": {
+      note: "Candidate: no stubs, the pill lifted till its foot stands on the card's line.",
+      props: { start: 41, bridge: "perched" },
+    },
+    "bridge-before": {
+      note: "Before (Leo's capture): 8px stubs at the pill's middle ran 2px over the card's line, a second line poking out on both sides.",
+      props: { start: 41, bridge: "before" },
     },
     "line-before": {
       note: "Before: the card's top line ran through the middle of the pill's glass.",

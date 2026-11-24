@@ -19,6 +19,12 @@ enum EphemeralWorkspaces {
         manager.services.machines.workspace(id: workspaceID)?.0.ephemeral == true
     }
 
+    /// The workspaces `daemon` flags ephemeral. Membership observes them (`observeMembership`): a flag can land
+    /// after reconcile placed its workspace in a normal window, and the ledger drops it then (#31039).
+    static func ephemeralIDs(_ daemon: DaemonService) -> Set<String> {
+        Set(daemon.store.workspaces.lazy.filter(\.ephemeral).map(\.id))
+    }
+
     /// The local daemon has said whether it serves state resources.
     static func localDaemonServes(_ manager: WindowManager) -> Bool { manager.services.daemon.store.servesStateResources }
 
@@ -44,7 +50,7 @@ enum EphemeralWorkspaces {
                     manager.reconcileMembership(); return manager.registry.members(of: windowID) }) else { return } // past its bound: this window's
                 if let space, let key = workspace.key { try await manager.pinToIncognitoSpace(key, space, on: daemon) }
                 manager.claimNew(workspaceID: workspace.id, window: windowID)
-                manager.recordIncognitoWorkspaces() // phones hide it now, not at the next membership sync
+                manager.recordIncognitoWorkspaces() // the ledger has it now, not at the next membership sync
                 guard let pane = daemon.store.pane(containing: tab.surface) else { return }
                 _ = try await browserTabs.open(choice, in: pane.handle, on: daemon, url: address, incognito: true)
                 try await connection.closeTab(tab.surface)
@@ -73,7 +79,7 @@ enum EphemeralWorkspaces {
             _ = manager.incognitoProfile()
             result[id] = window
         }
-        // A workspace another client made ephemeral: phones hide it as soon as the app knows the flag.
+        // A workspace another client made ephemeral: the ledger updates as soon as the app knows the flag.
         if !result.isEmpty { manager.recordIncognitoWorkspaces() }
         return result
     }

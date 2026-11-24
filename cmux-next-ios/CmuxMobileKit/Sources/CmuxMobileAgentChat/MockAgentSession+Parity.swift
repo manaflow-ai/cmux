@@ -48,9 +48,14 @@ extension MockAgentSession {
             part("coordinator", "0193a6f2-7c41-7e0b-9d2a-5f1e8c3b4a09"),
             part("studio-mac/codex-1", nil),
         ])])
+        // A Chief's turn sending this chat a task (acpmux `stamp_chief`): the Chief's blue bubble (CMUX-51).
+        let fromChief: JSONValue = .object(["kind": .string("session_message"), "from": .string("optchat-home-12"),
+                                            "fromName": .string("Chief"), "fromChief": .string("agent_mux")])
         for (index, (text, provenance, answer)) in [
             (report, named, "Noted: #36125 lands once its base-only reds are confirmed."),
             (digest, digested, "Taking the iOS half; the review's SHIP is at the head."),
+            ("Please rebase **#36125** on `feat-cmux-next` and post the exact-head build.", fromChief,
+             "Rebasing now; I'll post the build when it is green."),
         ].enumerated() {
             let turnID = "history-agent-\(index)"
             let at = start.addingTimeInterval(Double(index) * 120)

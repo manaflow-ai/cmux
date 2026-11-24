@@ -24,19 +24,22 @@ export const PAGE_OPERATIONS: Readonly<Record<string, PageOperations>> = {
       "apps.asset.get",
       "apps.catalog.get",
       "apps.catalog.list",
+      "apps.catalog.sections",
       "apps.grants.get",
       "apps.installed.list",
-      "apps.logs"
+      "apps.logs",
+      "apps.updates.list"
     ],
     "gesture": [
       "apps.grant.revoke",
-      "apps.hidden.set"
+      "apps.hidden.set",
+      "apps.install"
     ],
     "confirm": [
       "apps.grant.set",
-      "apps.install",
       "apps.set",
-      "apps.uninstall"
+      "apps.uninstall",
+      "apps.update"
     ]
   },
   "bookmarks": {
@@ -47,13 +50,6 @@ export const PAGE_OPERATIONS: Readonly<Record<string, PageOperations>> = {
     "gesture": [
       "bookmarks.apply"
     ],
-    "confirm": []
-  },
-  "bookmarks-bar": {
-    "read": [
-      "bookmarks.children"
-    ],
-    "gesture": [],
     "confirm": []
   },
   "feed": {
@@ -92,24 +88,6 @@ export const PAGE_OPERATIONS: Readonly<Record<string, PageOperations>> = {
       "chief.profile.list",
       "chief.profile.update",
       "palette.rank",
-      "participant.avatar.get"
-    ],
-    "gesture": [
-      "chief.profile.create",
-      "chief.profile.delete",
-      "chief.profile.undo",
-      "workspace.open_url"
-    ],
-    "confirm": []
-  },
-  "home-messages": {
-    "read": [
-      "chief.profile.avatar.get",
-      "chief.profile.avatar.set",
-      "chief.profile.get",
-      "chief.profile.history",
-      "chief.profile.list",
-      "chief.profile.update",
       "participant.avatar.get"
     ],
     "gesture": [
@@ -166,9 +144,11 @@ export const ROUTED_NAMESPACES: Readonly<Record<string, RoutedNamespace>> = {
       "apps.asset.get",
       "apps.catalog.get",
       "apps.catalog.list",
+      "apps.catalog.sections",
       "apps.grants.get",
       "apps.installed.list",
-      "apps.logs"
+      "apps.logs",
+      "apps.updates.list"
     ],
     "mutation": [
       "apps.grant.revoke",
@@ -176,7 +156,8 @@ export const ROUTED_NAMESPACES: Readonly<Record<string, RoutedNamespace>> = {
       "apps.hidden.set",
       "apps.install",
       "apps.set",
-      "apps.uninstall"
+      "apps.uninstall",
+      "apps.update"
     ]
   },
   "bookmarks": {

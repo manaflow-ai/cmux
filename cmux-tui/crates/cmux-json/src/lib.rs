@@ -1,4 +1,5 @@
-//! Non-panicking writes into [`serde_json::Value`].
+//! Non-panicking writes into [`serde_json::Value`], and typed reads of one
+//! member ([`JsonGet`]).
 //!
 //! `value["key"] = x` goes through `IndexMut`, which panics when `value` is
 //! neither an object nor null (an array, a string, a number: easy to get from
@@ -92,6 +93,74 @@ impl JsonSet for Map<String, Value> {
     }
 }
 
+/// Typed reads of one member, for [`Value`] and JSON object maps: the
+/// `value.get(key).and_then(Value::as_str)` chain each crate kept its own
+/// `text`/`flag`/`number` helper for. A missing member, a non-object
+/// `self` and a member of another type all read as absent; nothing here
+/// coerces (a `"7"` is not a `u64`).
+///
+/// ```
+/// use cmux_json::JsonGet as _;
+/// use serde_json::json;
+///
+/// let record = json!({ "id": "w1", "count": 3, "pinned": true, "tabs": [1, 2] });
+/// assert_eq!(record.get_str("id"), Some("w1"));
+/// assert_eq!(record.get_string("id").as_deref(), Some("w1"));
+/// assert_eq!(json!({ "id": "" }).get_nonempty_str("id"), None);
+/// assert_eq!(record.get_u64("count"), Some(3));
+/// assert_eq!(record.get_bool("pinned"), Some(true));
+/// assert_eq!(record.get_array("tabs").len(), 2);
+/// assert_eq!(record.get_str("count"), None);
+/// assert!(record.get_array("missing").is_empty());
+/// ```
+pub trait JsonGet {
+    /// The member `key`, when `self` is an object that has it.
+    fn member(&self, key: &str) -> Option<&Value>;
+
+    /// Member `key` as a string.
+    fn get_str(&self, key: &str) -> Option<&str> {
+        self.member(key).and_then(Value::as_str)
+    }
+
+    /// Member `key` as a string that is not empty: `""` reads as absent,
+    /// for ids and names where an empty value means "not set".
+    fn get_nonempty_str(&self, key: &str) -> Option<&str> {
+        self.get_str(key).filter(|text| !text.is_empty())
+    }
+
+    /// Member `key` as an owned string.
+    fn get_string(&self, key: &str) -> Option<String> {
+        self.get_str(key).map(str::to_owned)
+    }
+
+    /// Member `key` as an unsigned integer.
+    fn get_u64(&self, key: &str) -> Option<u64> {
+        self.member(key).and_then(Value::as_u64)
+    }
+
+    /// Member `key` as a boolean.
+    fn get_bool(&self, key: &str) -> Option<bool> {
+        self.member(key).and_then(Value::as_bool)
+    }
+
+    /// Member `key`'s elements; empty when it is missing or not an array.
+    fn get_array(&self, key: &str) -> &[Value] {
+        self.member(key).and_then(Value::as_array).map_or(&[], Vec::as_slice)
+    }
+}
+
+impl JsonGet for Value {
+    fn member(&self, key: &str) -> Option<&Value> {
+        self.get(key)
+    }
+}
+
+impl JsonGet for Map<String, Value> {
+    fn member(&self, key: &str) -> Option<&Value> {
+        self.get(key)
+    }
+}
+
 /// The object inside `value`, turning null into an empty object first.
 fn object_mut(value: &mut Value) -> Option<&mut Map<String, Value>> {
     if value.is_null() {
@@ -101,57 +170,5 @@ fn object_mut(value: &mut Value) -> Option<&mut Map<String, Value>> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::JsonSet as _;
-    use serde_json::{Map, Value, json};
-
-    #[test]
-    fn set_writes_objects_and_null() {
-        let mut object = json!({ "a": 1 });
-        object.set("b", json!("two"));
-        object.set("a", json!([3]));
-        assert_eq!(object, json!({ "a": [3], "b": "two" }));
-
-        let mut null = Value::Null;
-        assert!(null.set("k", json!(true)));
-        assert_eq!(null, json!({ "k": true }));
-    }
-
-    #[test]
-    fn set_leaves_non_objects_unchanged() {
-        for start in [json!([1]), json!("s"), json!(4), json!(false)] {
-            let mut value = start.clone();
-            assert!(!value.set("k", json!(1)));
-            assert!(value.object_mut().is_none());
-            value.set_path(&["k", "j"], json!(1));
-            assert_eq!(value, start);
-        }
-    }
-
-    #[test]
-    fn set_path_creates_parents_and_stops_at_non_objects() {
-        let mut value = json!({ "error": null, "meta": { "keep": 1 } });
-        value.set_path(&["error", "data"], json!(5));
-        value.set_path(&["meta", "acpmux", "source"], json!("peer"));
-        assert_eq!(
-            value,
-            json!({ "error": { "data": 5 }, "meta": { "keep": 1, "acpmux": { "source": "peer" } } })
-        );
-
-        let mut blocked = json!({ "error": "text" });
-        blocked.set_path(&["error", "data"], json!(5));
-        assert_eq!(blocked, json!({ "error": "text" }));
-
-        let mut empty = json!({});
-        empty.set_path(&[], json!(5));
-        assert_eq!(empty, json!({}));
-    }
-
-    #[test]
-    fn map_set_inserts() {
-        let mut map = Map::new();
-        map.set("k", json!(1));
-        map.set_path(&["a", "b"], json!(2));
-        assert_eq!(Value::Object(map), json!({ "k": 1, "a": { "b": 2 } }));
-    }
-}
+#[path = "tests.rs"]
+mod tests;

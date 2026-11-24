@@ -68,9 +68,6 @@ import Testing
         grouped.flattensMachines = false
         let underHeader = grouped.rowContent(ws, machine: SidebarLayout.machineLabel(section(vm), options: grouped))
         #expect(names(label(underHeader)) == 1)
-        var minimal = o
-        minimal.minimal = true
-        #expect(names(label(minimal.rowContent(ws, machine: SidebarLayout.machineLabel(section(vm), options: minimal)))) == 1)
     }
 
     /// Review of #28510 at 5f1d588f (P1): a machine that cannot connect has its status in the one-list label
@@ -89,13 +86,12 @@ import Testing
 
     /// Review of #28510 at 58ee6d24 (P1): every row mode says the failed machine's status, and a row that draws no
     /// mark (only that one machine listed, so no marks) still names the computer.
-    @Test(arguments: ["compact", "minimal", "tabs", "expanded", "unmarked"])
+    @Test(arguments: ["compact", "tabs", "expanded", "unmarked"])
     func everyRowModeSpeaksAFailedMachinesStatus(_ mode: String) throws {
         let model = SidebarModel(sections: [mac, vm].map(section))
         var o = model.listOptions()
         o.machineStatusLabels[vm.id] = "Failed to start"
         switch mode {
-        case "minimal": o.minimal = true
         case "tabs": o.workspacesAsTabs = true
         case "expanded": o.expanded = true
         case "unmarked": o.machines = [:]
@@ -147,7 +143,8 @@ import Testing
             let cloud = SidebarMachine(id: MachineID("cloud-\(label)"), name: "cloud", kind: .cloud, status: status)
             let cloudSection = SidebarSection(kind: .machine(cloud), nodes: [.workspace(SidebarWorkspace(id: WorkspaceID("cloud-ws"), title: "ws"))])
             let options = SidebarModel(sections: [section(mac), cloudSection]).listOptions()
-            #expect(SidebarLayout.machineLabel(cloudSection, options: options) == "cloud · \(label)")
+            // The status alone: a Cloud row never names its machine (2026-11-10).
+            #expect(SidebarLayout.machineLabel(cloudSection, options: options) == label)
         }
     }
 
@@ -190,11 +187,14 @@ import Testing
             row.subviews.filter { !$0.isHidden && $0.alphaValue > 0 && !$0.frame.isEmpty }.map { String(describing: type(of: $0)) }.sorted()
         }
         let local = try #require(rows["This Mac"])
-        for name in ["cloud-a", "gpu-box"] {
-            let row = try #require(rows[name])
-            #expect(shown(row) == shown(local), "\(name) draws more than this Mac's row: \(shown(row)) vs \(shown(local))")
-            let label = row.accessibilityLabel() ?? ""
-            #expect(label.contains(name), "\(name): the row's label lost its machine: \(label)")
-        }
+        let ssh = try #require(rows["gpu-box"])
+        #expect(shown(ssh) == shown(local), "gpu-box draws more than this Mac's row: \(shown(ssh)) vs \(shown(local))")
+        #expect((ssh.accessibilityLabel() ?? "").contains("gpu-box"), "the row's label lost its machine")
+        // A Cloud row's one sign is the small muted cloud in its trailing status cluster (Leo 2026-11-22, moved from
+        // the leading slot); it never names the machine.
+        let cloud = try #require(rows["cloud-a"])
+        #expect(shown(cloud) == (shown(local) + ["DecorativeImageView"]).sorted() && !cloud.cloudMark.isHidden)
+        let label = cloud.accessibilityLabel() ?? ""
+        #expect(label.contains(Strings.hoverCloud) && !label.contains("cloud-a"), "\(label)")
     }
 }

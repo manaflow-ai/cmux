@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxDeviceHub
 import CmuxMobileAgentChat
 import CmuxMobileChief
 import CmuxMobileLive
@@ -6,6 +7,7 @@ import CmuxMobileModel
 import CmuxMobileNotifications
 import CmuxMobileScreenSharing
 import CmuxMobileSettings
+import CmuxMobileTerminal
 import Foundation
 import OSLog
 import Observation
@@ -194,6 +196,8 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
 
     public func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
+        // A terminal page turns with the phone.
+        TerminalPageOrientation.shared.onChange = { ScreenSharingOrientation.shared.terminalShown($0) }
         // The App Group resolves once, off the main thread (its lookup is a synchronous XPC).
         PushAppGroup.prime()
         PushReplies.shared.registerCategories()
@@ -236,9 +240,10 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
         }
     }
 
-    /// Portrait everywhere but a Mac's shared screen, which turns with the phone.
+    /// Portrait on a phone's screen everywhere but a Mac's shared screen, which turns with the
+    /// phone; an unfolded foldable's screen turns everywhere.
     public func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
-        ScreenSharingOrientation.shared.allowed
+        ScreenSharingOrientation.shared.allowed(in: window)
     }
 
     public func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
@@ -383,11 +388,6 @@ final class LiveDeviceDirectory: SettingsDeviceDirectory {
     func removeThisPhoneFromMacs() async {
         await live?.removeThisPhoneFromMacs()
     }
-
-    func openPairingCode(_ text: String) -> Bool {
-        guard let live, let invite = PairInvite(text: text) else { return false }
-        return live.accept(invite)
-    }
 }
 #endif
 
@@ -420,5 +420,15 @@ final class MockDeviceDirectory: SettingsDeviceDirectory {
     func deleteAccountData() async throws {}
 
     func removeThisPhoneFromMacs() async {}
+
+    /// The mock account's Macs as Screen Sharing lists them: each once, sharing its screen,
+    /// online as Devices shows it.
+    static func hubDevices(_ macs: [MacDevice]) -> [HubDevice] {
+        macs.reduce(into: [HubDevice]()) { out, mac in
+            guard !out.contains(where: { $0.id == mac.id }) else { return }
+            out.append(HubDevice(id: mac.id, name: mac.name, platform: .macos, lastSeenAt: mac.lastSeenAt,
+                                 macScreenShared: true, online: mac.isOnline))
+        }
+    }
 }
 #endif

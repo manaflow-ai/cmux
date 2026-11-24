@@ -59,11 +59,16 @@ export function inlinePrompt(input: string, attachments: ComposerAttachment[]) {
       ...placed,
       name: a.name,
       ...(a.mimeType ? { mimeType: a.mimeType } : {}),
-      size: a.size,
+      ...knownSize(a),
       ...(a.pageCount ? { pageCount: a.pageCount } : {}),
       ...(a.source ? { source: a.source } : {}),
     });
-    if (a.kind === "image")
+    if (a.kind === "image") {
+      const src = a.data ? `data:${a.mimeType};base64,${a.data}` : undefined;
+      // Its size from its bytes (the header the composer's tile read), so the sent row is laid out
+      // and drawn at its final shape from the send, never a square that reshapes once it decodes
+      // (Leo, 2026-11-07: "know beforehand the size we're going to go for").
+      const shape = src ? knownImageSize(src) : undefined;
       parts.push({
         kind: "image",
         id: a.id,
@@ -72,17 +77,18 @@ export function inlinePrompt(input: string, attachments: ComposerAttachment[]) {
         mimeType: a.mimeType,
         name: a.name,
         ...placed,
-        ...(a.data ? { src: `data:${a.mimeType};base64,${a.data}` } : {}),
+        ...(src ? { src } : {}),
+        ...(shape ? { width: shape.width, height: shape.height } : {}),
         ...(a.source ? { source: a.source } : {}),
       });
-    else {
+    } else {
       const first = blocks[0];
       parts.push({
         kind,
         attachmentId: a.id,
         name: a.name,
         mimeType: a.mimeType,
-        size: a.size,
+        ...knownSize(a),
         ...placed,
         ...(text ? { text } : {}),
         ...(a.pageCount ? { pageCount: a.pageCount } : {}),
@@ -105,6 +111,13 @@ export function inlinePrompt(input: string, attachments: ComposerAttachment[]) {
     blockIndex += blocks.length;
   }
   return { parts, display };
+}
+/// `{size}` when the chip knows its file's size: a link chip (a dropped file's, an image past the
+/// budget gone as its original's link, promptBudget.ts `originalLink`) has neither a type nor a
+/// size, and its 0 is no size, so the sent bubble never names it "0 byte" (Leo, 2026-11-22: "WHAT
+/// THE FUCK IS THIS SITUATION MAN WITH THESE ATTACHMENTS!?"). stripFileDisplay keeps the same rule.
+function knownSize(a: Pick<ComposerAttachment, "mimeType" | "size">): { size?: number } {
+  return a.mimeType || a.size > 0 ? { size: a.size } : {};
 }
 export function normalizePromptContentPart(value: unknown): PromptContentPart | undefined {
   if (!value || typeof value !== "object") return undefined;
@@ -139,7 +152,10 @@ export function normalizePromptContentPart(value: unknown): PromptContentPart | 
     ...(typeof raw.uri === "string" ? { uri: raw.uri } : {}),
     ...(typeof raw.text === "string" ? { text: raw.text } : {}),
     ...(typeof raw.mimeType === "string" ? { mimeType: raw.mimeType } : {}),
-    ...(typeof raw.size === "number" ? { size: raw.size } : {}),
+    // A recorded 0 with no type is a link chip's unknown size (`knownSize`), never "0 byte".
+    ...(typeof raw.size === "number" && (raw.size > 0 || (typeof raw.mimeType === "string" && raw.mimeType))
+      ? { size: raw.size }
+      : {}),
     ...(typeof raw.pageCount === "number" ? { pageCount: raw.pageCount } : {}),
     ...(Number.isSafeInteger(raw.companionOf) && Number(raw.companionOf) >= 0
       ? { companionOf: Number(raw.companionOf) }
@@ -200,16 +216,31 @@ export function recordedPromptParts(msg: any, known?: readonly PromptContentPart
     };
   });
 }
-/// Move complete attachment tokens across a plain-text edit. Literal U+FFFC stays ordinary text.
-export function carryInline(input: string, text: string, attachments: ComposerAttachment[]): string {
+/// `input` as text a person reads and edits: its words and the text of its pasted and text chips,
+/// each other attachment's token taken out and kept by where it was (`marks`).
+function plainRuns(input: string, attachments: readonly ComposerAttachment[]) {
   let plain = "";
   const marks: { at: number; token: string }[] = [];
-  for (const run of orderedDraftParts(input, attachments)) {
+  // A chip left in the strip goes after the words as its own paragraph, as an unedited send puts it.
+  const apart = (id: string) => (!input.includes(inlineToken(id)) && plain && !plain.endsWith("\n\n") ? "\n\n" : "");
+  for (const run of orderedDraftParts(input, [...attachments])) {
     if (run.type === "text") plain += run.text;
-    else if (run.attachment.kind === "pasted") plain += run.attachment.text ?? "";
-    else if (run.attachment.kind === "text") plain += promptText("", [run.attachment]);
+    else if (run.attachment.kind === "pasted") plain += apart(run.attachment.id) + (run.attachment.text ?? "");
+    else if (run.attachment.kind === "text") plain += apart(run.attachment.id) + promptText("", [run.attachment]);
     else marks.push({ at: plain.length, token: inlineToken(run.attachment.id) });
   }
+  return { plain, marks };
+}
+
+/// The text of a draft `input` a queued row shows and edits (`carryInline` puts its tokens back):
+/// never an attachment's token, whose id is no text the person wrote (#41016).
+export function inlinePlainText(input: string, attachments: readonly ComposerAttachment[]): string {
+  return plainRuns(input, attachments).plain;
+}
+
+/// Move complete attachment tokens across a plain-text edit. Literal U+FFFC stays ordinary text.
+export function carryInline(input: string, text: string, attachments: ComposerAttachment[]): string {
+  const { plain, marks } = plainRuns(input, attachments);
   let head = 0,
     tail = 0;
   while (head < plain.length && head < text.length && plain[head] === text[head]) head += 1;
@@ -375,6 +406,21 @@ export async function restoreInline(
     else throw new Error(translate("attachment.unavailable", { name: part.name }));
     attachments.push(attachment);
     input += inlineToken(id);
+  }
+  // An image recorded only in the legacy `images` shape beside inline-recorded parts (UserBubble
+  // draws it as a loose image) goes back too, read back by id: Retry never drops it.
+  for (const image of row.images ?? []) {
+    if (row.inlineParts?.some((part) => part.kind === "image" && part.id === image.id)) continue;
+    const data = await read(image.id);
+    if (!data) throw new Error(translate("attachment.unavailable", { name: image.name ?? image.id }));
+    attachments.push({
+      id: `sent-${image.id}`,
+      kind: "image",
+      name: image.name ?? "image",
+      ...data,
+      size: Math.floor((data.data.length * 3) / 4),
+      ...(image.source ? { source: image.source } : {}),
+    });
   }
   for (const [index, chip] of attachments.entries()) {
     const frames = chip.kind === "link" && !chip.video ? saved.get(chip) : undefined;

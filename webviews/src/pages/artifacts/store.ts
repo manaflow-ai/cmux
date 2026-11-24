@@ -2,6 +2,7 @@
 // revision's change. React reads it through `useSyncExternalStore`; a reply for a file or revision
 // the person already left is dropped.
 import { isPageError, type PageClient } from "../shared/pageClient";
+import { OWNER_SENTENCE, userMessage } from "../shared/userMessage";
 import {
   ACTION_RUN,
   ArtifactsActions,
@@ -298,5 +299,11 @@ export function textOf(file: ArtifactFile): string | undefined {
 }
 
 function failureOf(error: unknown): ArtifactsFailure {
-  return isPageError(error) ? { code: error.code, message: error.message } : { code: "cmux.artifacts.failed" };
+  // Every `cmux.artifacts.*` refusal is worded for the person (ArtifactsPageProvider); anything else
+  // shows the page's own "failed" line.
+  return isPageError(error)
+    ? error.code.startsWith("cmux.artifacts.")
+      ? { code: error.code, message: userMessage(error, { [error.code]: OWNER_SENTENCE }) }
+      : { code: error.code }
+    : { code: "cmux.artifacts.failed" };
 }

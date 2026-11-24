@@ -20,13 +20,14 @@
 //! (a move to 0 uses `disappear`) unless built with `Spring::position`
 //! (positions and offsets never switch token).
 //!
-//! The token numbers (springs, fades, loops, speed, the bounce, the settle
-//! thresholds, the structural set and the per-kind switch defaults) are read
+//! The token numbers (springs, fades, loops, speed, the settle thresholds
+//! and the per-kind switch defaults) are read
 //! at build time from the spec's `design-tokens.json` (`motion`; build.rs),
 //! the same file cmux-next macOS and cmux-theme-tokens read. Springs step in
 //! closed form (`SpringValue::solve`), so a path is exact at any frame rate.
-//! Structural springs (`MotionSpring::is_structural`) follow
-//! `ui.animations.bounce`; `ui.paneAnimations`, `ui.animations.newTab` and
+//! Every spring token is critically damped: no spring passes its target
+//! (build.rs refuses a damping fraction under 1). `ui.paneAnimations`,
+//! `ui.animations.newTab` and
 //! `ui.animations.newWorkspace` turn one kind on (`MotionPolicy::animates`;
 //! newTab on by default, the others off). The host passes these settings
 //! in (`set_animation_switches` or `MotionPolicy::with_animations`).
@@ -44,7 +45,10 @@
 mod clock;
 mod color;
 mod fade;
+mod flight;
+pub mod goo;
 pub mod hover;
+mod light;
 mod marquee;
 mod policy;
 #[cfg(feature = "settings")]
@@ -53,6 +57,7 @@ mod spring;
 mod tab_strip;
 pub mod terminal_selection;
 mod tokens;
+mod turn_presence;
 mod tween;
 // The Reduce Motion reading off macOS (macOS asks NSWorkspace in settings.rs).
 #[cfg(all(feature = "settings", not(target_os = "macos")))]
@@ -61,6 +66,8 @@ mod system;
 pub use clock::*;
 pub use color::*;
 pub use fade::*;
+pub use flight::*;
+pub use light::*;
 pub use marquee::*;
 pub use policy::*;
 #[cfg(feature = "settings")]
@@ -68,4 +75,5 @@ pub use settings::*;
 pub use spring::*;
 pub use tab_strip::*;
 pub use tokens::*;
+pub use turn_presence::*;
 pub use tween::*;

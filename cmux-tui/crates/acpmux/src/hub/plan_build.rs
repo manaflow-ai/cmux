@@ -26,9 +26,8 @@
 
 use super::{Hub, Session};
 use crate::rpc::RpcError;
-use crate::store::SessionStatus;
+use crate::store::{SessionStatus, now_ms};
 use cmux_json::JsonSet as _;
-use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -48,38 +47,7 @@ const MAX_FILES: usize = 200;
 /// The longest one build's git read takes before it is given up.
 const GIT_LIMIT: Duration = Duration::from_secs(10);
 
-/// One plan build, kept on the plan's chat (`SessionMeta::plan_builds`) by acpmux alone: which
-/// chats are its builds, and each one's worktree root and base as its start made them. Tags would
-/// not do: a build's agent can set its own chat's tags (`_acpmux/tag`), and compare runs git in
-/// the root it names.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PlanBuildRecord {
-    pub build_id: String,
-    pub builds: Vec<PlanBuildEntry>,
-    /// The build kept (`_acpmux/plan/keep`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub kept: Option<String>,
-}
-
-/// Whether a chat has no plan builds (`SessionMeta::plan_builds` is then left out).
-pub(crate) fn no_records(records: &Arc<Vec<PlanBuildRecord>>) -> bool {
-    records.is_empty()
-}
-
-/// One build of a [`PlanBuildRecord`].
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PlanBuildEntry {
-    pub session_id: String,
-    /// Its worktree's root, from the start (the chat's folder is the started-from folder's place
-    /// in the worktree).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub root: Option<PathBuf>,
-    /// The branch its worktree was made from.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub base: Option<String>,
-}
+pub use crate::plan_build_records::{PlanBuildEntry, PlanBuildRecord};
 
 /// Where an approved plan is built.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -176,6 +144,86 @@ pub(crate) fn plan_of(request: &Value) -> Option<String> {
         .filter(|t| !t.is_empty())
         .collect();
     Some(parts.join("\n\n")).filter(|t| !t.is_empty())
+}
+
+/// The longest edited plan a person may send back (`edit_plan`): far past any plan an agent
+/// writes, short of what one hub message carries.
+pub(crate) const MAX_EDITED_PLAN: usize = 256 * 1024;
+
+/// Puts the person's edit of a plan (Leo's gap doc item 6: "an edit step before Approve") on the
+/// pending ask `request`: Claude Code's ExitPlanMode only, whose allow carries its input back
+/// (`updatedInput`, `claude_stdio/outbound.rs`), so the agent builds the plan as edited. The
+/// edit is the input's `plan` and `_meta.acpmux.plan` (`{markdown, edited}`), which the card and
+/// a build elsewhere read first (`plan_of`).
+pub(crate) fn edit_plan(request: &mut Value, plan: &str) -> Result<(), RpcError> {
+    let plan = plan.trim();
+    if plan.is_empty() {
+        return Err(RpcError::invalid_params("an edited plan cannot be empty"));
+    }
+    if plan.len() > MAX_EDITED_PLAN {
+        return Err(RpcError::invalid_params(format!(
+            "an edited plan is at most {MAX_EDITED_PLAN} bytes"
+        )));
+    }
+    let Some(tool) = request.get_mut("toolCall") else {
+        return Err(refused("plan_edit.unsupported", "this plan approval cannot take an edit"));
+    };
+    let exit_plan =
+        tool.pointer("/_meta/claude/tool").and_then(Value::as_str) == Some("ExitPlanMode");
+    let has_input = tool.get("rawInput").is_some_and(Value::is_object);
+    if !exit_plan || !has_input {
+        return Err(refused(
+            "plan_edit.unsupported",
+            "only a Claude Code plan approval takes an edited plan",
+        ));
+    }
+    tool["rawInput"].set("plan", json!(plan));
+    tool.set_path(&["_meta", "acpmux", "plan"], json!({"markdown": plan, "edited": true}));
+    Ok(())
+}
+
+/// The input an allow of `request` hands back when the person edited its plan (`edit_plan`),
+/// else None (the input goes back as the agent sent it).
+pub(crate) fn edited_input(request: &Value) -> Option<Value> {
+    let tool = request.get("toolCall")?;
+    if tool.pointer("/_meta/acpmux/plan/edited").and_then(Value::as_bool) != Some(true) {
+        return None;
+    }
+    tool.get("rawInput").filter(|v| v.is_object()).cloned()
+}
+
+/// What the chat keeps of a plan approval `request` the person allowed (`ApprovedPlan`), or None
+/// for an ask that approves no plan. The markdown is the plan as the agent builds it: the
+/// person's edit when they made one (`edit_plan`).
+pub(crate) fn approved_plan(
+    request: &Value,
+    permission_id: &str,
+) -> Option<crate::store::ApprovedPlan> {
+    let markdown = plan_of(request)?;
+    let edited = request.pointer("/toolCall/_meta/acpmux/plan/edited").and_then(Value::as_bool)
+        == Some(true);
+    Some(crate::store::ApprovedPlan {
+        markdown,
+        edited,
+        permission_id: permission_id.to_owned(),
+        turn: 0,
+        at: 0,
+    })
+}
+
+impl Hub {
+    /// Keeps `plan` as `session`'s approved plan, stamped with its turn and time, logs it as an
+    /// `approved_plan` record (watchers redraw the summary's `approvedPlan`) and saves the meta.
+    pub(crate) fn approved_plan_set(&self, session: &Session, plan: crate::store::ApprovedPlan) {
+        let plan = {
+            let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            let plan = crate::store::ApprovedPlan { turn: m.turn_count, at: now_ms(), ..plan };
+            m.approved_plan = Some(plan.clone());
+            plan
+        };
+        self.append(session, "mux", "approved_plan", json!({"approvedPlan": plan}));
+        self.save_meta(session);
+    }
 }
 
 /// The first option of `kind` an ask offers.
@@ -297,6 +345,25 @@ impl Hub {
         if let Some(turn_id) = turn_id {
             self.cancel_turn(session, turn_id).await;
         }
+    }
+
+    /// Puts the person's edited plan on `session`'s pending plan approval `permission_id`
+    /// (`edit_plan`), before it is answered: an allow then hands the edit to the agent, and a
+    /// build elsewhere starts from it.
+    pub(crate) fn edit_pending_plan(
+        &self,
+        session: &Session,
+        permission_id: &str,
+        plan: &str,
+    ) -> Result<(), RpcError> {
+        let mut state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
+        let pending = state.pending.get_mut(permission_id).ok_or_else(|| {
+            refused(
+                "plan_build.not_pending",
+                "that plan approval is no longer waiting for an answer",
+            )
+        })?;
+        edit_plan(&mut pending.request, plan)
     }
 
     /// The plan of `session`'s pending ask `permission_id`, with the ask itself.

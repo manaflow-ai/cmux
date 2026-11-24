@@ -30,6 +30,12 @@ pub struct Session {
     stream_live: bool,
     /// The workload probe's last reported result (`workload.rs`); None while it is unknown.
     workload: Option<Workload>,
+    /// The applied machine.toml's idle window (cmux-cloud-start-core `machine_config::idle`), read
+    /// on each workload probe; None while the file declares none.
+    idle_window: Option<u64>,
+    /// This service is the restart a flip or a rollback queued: the reports say degraded until
+    /// the restarted session host answers `identify` ([`Session::after_restart`]).
+    awaiting_daemon: bool,
 }
 
 /// What the machine's acpmux daemons last said: each one's sessions at work and until when it
@@ -43,6 +49,12 @@ struct AcpActivity {
     /// Daemons whose count lapsed while it said sessions were at work (cmux#33573): their agent
     /// hosts may still run those turns, so the count stays unknown until each reports again.
     lapsed_busy: std::collections::BTreeSet<String>,
+    /// Since when the workload probe has found no `acpmux` process on the machine (cmux-platform
+    /// census `blind_report`, cause `no_turns`): None while one runs or the probe cannot tell.
+    absent_since: Option<u64>,
+    /// No acpmux process has run for [`ACP_ACTIVITY_TTL_MS`] and no daemon's count holds: no ACP
+    /// turn can run, so the count is a known 0 rather than unknown.
+    absent_known: bool,
     last_action_at: Option<u64>,
     /// The newest `last_person_prompt_at` any daemon sent (a person's prompt into a chat). Like
     /// `last_action_at`, it outlives a daemon's count and never moves backwards.
@@ -84,7 +96,23 @@ impl AcpActivity {
     /// Whether the machine's count is known: some daemon's count holds and no daemon lapsed
     /// while busy.
     fn known(&self) -> bool {
-        !self.daemons.is_empty() && self.lapsed_busy.is_empty()
+        (!self.daemons.is_empty() || self.absent_known) && self.lapsed_busy.is_empty()
+    }
+
+    /// The workload probe's look at the machine's processes: `Some(false)` when no `acpmux`
+    /// process runs. acpmux starts on demand, so a machine nobody opened a chat on never hears a
+    /// line, and before this its report never said it knew 0 turns: the Cloud read it as
+    /// `blind_report` and held it to the long backstop instead of the idle window. With no
+    /// acpmux process for a whole count lifetime, no ACP turn can be running; a daemon that
+    /// lapsed while busy (cmux#33573) still keeps the count unknown, and a starting daemon
+    /// reports at least one session at work until its startup settles (cloud_activity.rs).
+    fn presence(&mut self, running: Option<bool>, now: u64) {
+        self.absent_since = match running {
+            Some(false) => Some(self.absent_since.unwrap_or(now)),
+            _ => None,
+        };
+        self.absent_known = self.daemons.is_empty()
+            && self.absent_since.is_some_and(|at| now.saturating_sub(at) >= ACP_ACTIVITY_TTL_MS);
     }
 
     /// Drops the counts that lapsed by `now`, remembering the ones that lapsed while busy.
@@ -107,7 +135,7 @@ impl AcpActivity {
     /// The machine's `phases` block: every daemon's turns, relayed only when every daemon's
     /// are. None unless the count is known and every daemon whose count holds sent phases.
     fn phases(&self) -> Option<Value> {
-        if !self.known() {
+        if !self.known() || self.daemons.is_empty() {
             return None;
         }
         let mut relayed = true;
@@ -153,7 +181,25 @@ impl Session {
             acp: AcpActivity::default(),
             stream_live: false,
             workload: None,
+            idle_window: None,
+            awaiting_daemon: false,
         }
+    }
+
+    /// With `restarted`, this service is the restart an update's flip or a rollback queued
+    /// (`updater/gate.rs` [`crate::updater::gate::Gate::service_started_at`]): every report says
+    /// `degraded` until the restarted session host answers `identify`
+    /// ([`Session::daemon_identified`]), and only then `running`. Its first report would
+    /// otherwise take the bake's recorded daemon block before the daemon answers and say
+    /// `running` at once, and the Cloud would hand the spare to a person whose chat then never
+    /// connects (2026-11-15 04:23Z: a warm spare flipped at 04:23:23Z, was claimed 41 s later,
+    /// and its chat never connected).
+    pub fn after_restart(mut self, restarted: bool) -> Session {
+        if restarted {
+            self.awaiting_daemon = true;
+            self.reporter.replace_state(super::sender::MachineState::Degraded);
+        }
+        self
     }
 
     /// After bind and after every start of the agent: one report.
@@ -189,6 +235,7 @@ impl Session {
         let prompt = line.field("last_person_prompt_at").as_u64().filter(|ms| *ms > 0);
         self.acp.last_person_prompt_at = self.acp.last_person_prompt_at.max(prompt);
         self.acp.lapsed_busy.remove(&id);
+        self.acp.absent_known = false;
         let phases = read_phases(line, sessions);
         let expires_at = now + ACP_ACTIVITY_TTL_MS;
         self.acp.daemons.insert(id, AcpDaemon { sessions, expires_at, phases });
@@ -234,6 +281,7 @@ impl Session {
             self.acp.last_person_prompt_at,
         );
         activity.workload = self.workload.as_ref().map(Workload::to_json);
+        activity.idle_window_seconds = self.idle_window;
         activity
     }
 
@@ -264,6 +312,45 @@ impl Session {
         self.reporter.set_activity(activity, true, now).into_iter().collect()
     }
 
+    /// Whether an `acpmux` process runs on the machine, from the workload probe's process list
+    /// (None: the probe did not read). A report goes when that makes the turn count known or
+    /// unknown ([`AcpActivity::presence`]).
+    pub fn acpmux_running(&mut self, running: Option<bool>, now: u64) -> Vec<OpRequest> {
+        let was = self.acp.known();
+        self.acp.presence(running, now);
+        if self.acp.known() == was {
+            return Vec::new();
+        }
+        self.acp_refresh(now)
+    }
+
+    /// The applied machine.toml's idle window as it stands (`machine_config::idle::read`). A report
+    /// goes when it changed: the Cloud's pause owner uses it as this machine's idle window.
+    pub fn idle_window(&mut self, seconds: Option<u64>, now: u64) -> Vec<OpRequest> {
+        if seconds == self.idle_window {
+            return Vec::new();
+        }
+        self.idle_window = seconds;
+        let activity = self.activity();
+        self.reporter.set_activity(activity, true, now).into_iter().collect()
+    }
+
+    /// The updater's block the first report carries (no report of its own: `start` makes it).
+    pub fn with_updater(mut self, block: Option<Value>) -> Session {
+        let _ = self.reporter.set_updater(block, false, 0);
+        self
+    }
+
+    /// The updater's block as it stands (`updater/look.rs` `report`). A report goes
+    /// when its outcome, reason, run or swap changed; a check that only moved its
+    /// time rides along with the next report.
+    pub fn updater(&mut self, block: Option<Value>, now: u64) -> Vec<OpRequest> {
+        let cur = self.reporter.updater().cloned();
+        let changed =
+            crate::updater::look::report_key(&block) != crate::updater::look::report_key(&cur);
+        self.reporter.set_updater(block, changed, now).into_iter().collect()
+    }
+
     /// The activity stream connected or dropped: `activity` is advertised
     /// only while it is live.
     pub fn activity_stream(&mut self, connected: bool, now: u64) -> Vec<OpRequest> {
@@ -282,13 +369,31 @@ impl Session {
     /// an update's own restart from use by the version changing (cmux-platform `IdlePolicy.ts`
     /// `UpdateSettle`), read each restart's acpmux time as an agent's action: an untouched
     /// machine never paused (staging probe machine-idle-pause, 2026-11-07 and 2026-11-08).
+    ///
+    /// On a restarted service ([`Session::after_restart`]) this answer is the restarted daemon
+    /// coming back: the state turns `running`, in the same report as a new block.
     pub fn daemon_identified(&mut self, daemon: &DaemonInfo, now: u64) -> Vec<OpRequest> {
-        let base = daemon.with_activity(false, false, false);
-        if base == self.base {
-            return Vec::new();
+        let ready = std::mem::take(&mut self.awaiting_daemon);
+        if ready {
+            self.reporter.replace_state(super::sender::MachineState::Running);
         }
-        self.base = base;
-        self.daemon_block(now)
+        let base = daemon.with_activity(false, false, false);
+        let block = if base == self.base {
+            false
+        } else {
+            self.base = base;
+            let daemon = self.daemon_now();
+            let changed = &daemon != self.reporter.daemon();
+            self.reporter.replace_daemon(daemon);
+            changed
+        };
+        let reason = match (block, ready) {
+            (true, true) => "daemon+state",
+            (true, false) => "daemon",
+            (false, true) => "state",
+            (false, false) => return Vec::new(),
+        };
+        self.reporter.trigger(reason, now).into_iter().collect()
     }
 
     /// The daemon block as it stands: `activity` while the stream is live, `activity-turns` with
@@ -523,6 +628,39 @@ mod tests {
         );
     }
 
+    /// An attached person's client is reported on its own beside the open sessions, so the
+    /// Cloud's input-only policy can tell an idle attached app from work: the count stays in
+    /// `active_sessions` (every other policy reads it as before), `attached_clients` names how
+    /// much of it is attached clients, and the person's last input rides along.
+    #[test]
+    fn an_attached_client_is_reported_apart_from_agents_and_turns() {
+        let mut s = session();
+        let start = s.start(0);
+        s.answered(&start[0], &ok(), 0, 0.5);
+        let input = 1_790_000_000_000u64;
+        let attached =
+            json!({"attached_clients": 1, "live_agents": 0, "last_user_input_at_ms": input});
+        s.daemon_activity(&attached, 100);
+        let r = s.fire(20_000);
+        assert_eq!(r[0].params["activity"]["active_sessions"], 1);
+        assert_eq!(r[0].params["activity"]["attached_clients"], 1);
+        assert_eq!(r[0].params["activity"]["last_user_input_at"], input);
+        s.answered(&r[0], &ok(), 20_000, 0.5);
+
+        // A live agent and a running turn are in use under every policy: not attached clients.
+        s.daemon_activity(&json!({"attached_clients": 1, "live_agents": 1}), 40_000);
+        s.line(&acp(1, None), 40_000);
+        let a = s.reporter.activity().to_json();
+        assert_eq!(a["active_sessions"], 3);
+        assert_eq!(a["attached_clients"], 1);
+
+        // A socket activity line names no attached clients: its whole count is in use.
+        s.line(&json!({"activity": {"active_sessions": 2}}).to_string(), 50_000);
+        let a = s.reporter.activity().to_json();
+        assert_eq!(a["active_sessions"], 3);
+        assert_eq!(a["attached_clients"], 0);
+    }
+
     /// acpmux that stops renewing mid-turn (it died) stops counting after the TTL, so the
     /// machine can go idle again.
     #[test]
@@ -607,6 +745,32 @@ mod tests {
         assert!(s.daemon_identified(&running, 60_000).is_empty(), "reported once");
     }
 
+    /// The lead (2026-11-13): "machine id and updater outcome (seen, held with reason, busy
+    /// with reason, swapped) in sawBuild, so the slow mode gets read instead of inferred." The
+    /// first report after an update's restart carries the updater's swap; a later check that
+    /// finds the same thing makes no report, a new outcome does.
+    #[test]
+    fn the_report_carries_the_updaters_block_and_goes_when_its_outcome_changes() {
+        let baked = DaemonInfo { version: "0.1.0+bbbbbbbbbbbb".into(), capabilities: vec![] };
+        let swapped = json!({"outcome": "swapped", "at": 1_000, "seen_at": 500, "waited": "busy:turn",
+                             "swapped": {"commit": "bbbbbbbbbbbb", "at": 1_000}});
+        let mut s = Session::new("vm_m0000000000000000001", baked, 3_600_000)
+            .with_updater(Some(swapped.clone()));
+        let start = s.start(0);
+        assert_eq!(start.len(), 1);
+        assert_eq!(start[0].params["updater"], swapped);
+        s.answered(&start[0], &ok(), 0, 0.5);
+
+        let mut later = swapped;
+        later["at"] = json!(16_000);
+        assert!(s.updater(Some(later), 20_000).is_empty(), "only its time moved");
+        let current = json!({"outcome": "current", "at": 46_000, "seen_at": 500, "waited": "busy:turn",
+                             "swapped": {"commit": "bbbbbbbbbbbb", "at": 1_000}});
+        let r = s.updater(Some(current.clone()), 50_000);
+        assert_eq!(r.len(), 1, "a new outcome is reported");
+        assert_eq!(r[0].params["updater"], current);
+    }
+
     fn acp_from(daemon: &str, turns: u64) -> String {
         json!({"acp_activity": {"turns": turns, "daemon": daemon}}).to_string()
     }
@@ -662,6 +826,57 @@ mod tests {
             "the expiry report still advertises activity-turns: {}",
             caps(&r[0])
         );
+    }
+
+    /// cmux-platform census `blind_report` (`no_turns`): a machine where acpmux never ran never
+    /// heard a line, so its 0 turns were never known and the Cloud held it to the backstop. No
+    /// acpmux process for a whole count lifetime makes 0 a known 0; one that runs, a probe that
+    /// cannot read, or a daemon that lapsed busy keeps it unknown.
+    #[test]
+    fn no_acpmux_process_for_a_count_lifetime_makes_zero_turns_known() {
+        use super::super::wire::{ACTIVITY_PHASES_CAPABILITY, ACTIVITY_TURNS_CAPABILITY};
+        let has = |s: &Session, c: &str| s.reporter.daemon().capabilities.iter().any(|x| x == c);
+        let mut s = session();
+        s.activity_stream(true, 0);
+        assert!(s.acpmux_running(Some(false), 0).is_empty(), "not yet a whole lifetime");
+        assert!(s.acpmux_running(Some(false), ACP_ACTIVITY_TTL_MS - 1).is_empty());
+        assert!(!has(&s, ACTIVITY_TURNS_CAPABILITY));
+        s.acpmux_running(Some(false), ACP_ACTIVITY_TTL_MS);
+        assert!(has(&s, ACTIVITY_TURNS_CAPABILITY), "absent a lifetime: 0 turns known");
+        assert!(!has(&s, ACTIVITY_PHASES_CAPABILITY), "no daemon, no phases");
+        assert_eq!(s.activity().active_sessions, 0);
+
+        // acpmux starts: unknown again until it reports.
+        s.acpmux_running(Some(true), ACP_ACTIVITY_TTL_MS + 30_000);
+        assert!(!has(&s, ACTIVITY_TURNS_CAPABILITY));
+        // A probe that cannot read is not an absence.
+        s.acpmux_running(None, ACP_ACTIVITY_TTL_MS + 60_000);
+        assert!(!has(&s, ACTIVITY_TURNS_CAPABILITY));
+
+        // A daemon that lapses busy keeps the count unknown even once acpmux is gone.
+        let t = 1_000_000;
+        s.line(&acp_from("/a.sock", 1), t);
+        assert!(has(&s, ACTIVITY_TURNS_CAPABILITY));
+        s.fire(t + ACP_ACTIVITY_TTL_MS);
+        assert!(!has(&s, ACTIVITY_TURNS_CAPABILITY));
+        s.acpmux_running(Some(false), t + ACP_ACTIVITY_TTL_MS);
+        s.acpmux_running(Some(false), t + 3 * ACP_ACTIVITY_TTL_MS);
+        assert!(!has(&s, ACTIVITY_TURNS_CAPABILITY), "lapsed busy: never a known 0");
+
+        // An idle daemon that exits: its count lapses, then a lifetime with no acpmux is a known 0.
+        let mut s = session();
+        s.activity_stream(true, 0);
+        s.line(&acp_from("/a.sock", 0), 0);
+        s.acpmux_running(Some(true), 0);
+        s.fire(ACP_ACTIVITY_TTL_MS);
+        assert!(!has(&s, ACTIVITY_TURNS_CAPABILITY), "lapsed: unknown at first");
+        s.acpmux_running(Some(false), ACP_ACTIVITY_TTL_MS);
+        assert!(!has(&s, ACTIVITY_TURNS_CAPABILITY));
+        s.acpmux_running(Some(false), 2 * ACP_ACTIVITY_TTL_MS);
+        assert!(has(&s, ACTIVITY_TURNS_CAPABILITY), "gone a lifetime: 0 known");
+        // Its next line takes over as the count.
+        s.line(&acp_from("/a.sock", 2), 2 * ACP_ACTIVITY_TTL_MS + 1);
+        assert_eq!(s.activity().active_sessions, 2);
     }
 
     /// cmux#33573: daemon a lapses while it says a turn runs and daemon b keeps renewing 0. a's
@@ -878,6 +1093,38 @@ mod tests {
         assert!(!cap(&r[0]));
         assert!(r[0].params["activity"].get("workload").is_none());
         assert!(s.workload(None, 160_000).is_empty());
+    }
+
+    /// A lane's machine.toml window (300 s) rides in every report's activity once read, and a
+    /// report goes only when it changes.
+    #[test]
+    fn the_idle_window_reaches_the_report_and_only_a_change_is_reported() {
+        let mut s = session();
+        let send = |s: &mut Session, mut r: Vec<OpRequest>, now: u64| {
+            r.extend(s.fire(now));
+            for req in &r {
+                s.answered(req, &ok(), now, 0.5);
+            }
+            r
+        };
+        let start = s.start(0);
+        let r = send(&mut s, start, 0);
+        assert!(r[0].params["activity"].get("idle_window_seconds").is_none());
+        assert!(s.idle_window(None, 10_000).is_empty(), "none declared, none before");
+        let r = s.idle_window(Some(300), 20_000);
+        let r = send(&mut s, r, 20_000);
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0].params["activity"]["idle_window_seconds"], 300);
+        assert!(s.idle_window(Some(300), 40_000).is_empty(), "nothing changed");
+        // Another report (the workload) still carries it.
+        let r = s.workload(Some(Workload::default()), 60_000);
+        let r = send(&mut s, r, 60_000);
+        assert_eq!(r[0].params["activity"]["idle_window_seconds"], 300);
+        // The file no longer declares one: a report without it.
+        let r = s.idle_window(None, 80_000);
+        let r = send(&mut s, r, 80_000);
+        assert_eq!(r.len(), 1);
+        assert!(r[0].params["activity"].get("idle_window_seconds").is_none());
     }
 
     /// Relayed only when every daemon says so; turns from every daemon.

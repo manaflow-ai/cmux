@@ -15,7 +15,7 @@ import Foundation
 enum AgentPaneTheme {
     /// `motion` is the web category's policy without live resize: the page keeps these tokens
     /// after a drag ends.
-    static func values(_ tokens: ThemeTokens, motion: MotionPolicy = Motion.web.policyIgnoringLiveResize,
+    static func values(_ tokens: ThemeTokens, motion: MotionPolicy = Motion.web.policy,
                        surface: SurfaceKind = .agentPane) -> [String: any Sendable] {
         AgentPaneTunables.followTurnActionsPlacement()
         let page = pageColor(tokens, surface: surface)
@@ -41,8 +41,6 @@ enum AgentPaneTheme {
             // Debug Settings agentPane.debug.turnActionsPlacement, pushed with the theme so open
             // transcript footers follow the setting without reloading the page.
             "turnActionsPlacement": AgentPaneTunables.turnActionsPlacement.value.rawValue,
-            // Debug Settings agentPane.debug.subagentTray (AgentPaneTunables+SubagentTray.swift).
-            "subagentTray": AgentPaneTunables.subagentTray.value,
             "text": css(tokens.textPrimary),
             "mutedText": css(tokens.textSecondary),
             "softText": css(tokens.textTertiary),

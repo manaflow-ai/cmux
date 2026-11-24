@@ -3,16 +3,18 @@
 // with that text, the bubble showed pages of base64 and the chat's compaction failed. A pasted image
 // is an attachment atom: only its thumbnail is rendered, its data never becomes prompt text
 // (it goes as an ACP image block), and a bubble never draws the data URI as text.
-import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, setSystemTime, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, createRef, type ComponentProps, type RefObject } from "react";
 import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
-import { promptBlocks, type ComposerAttachment } from "../src/agent-session/acpmux/attachments";
+import { promptBlocks, type ComposerAttachment, type DroppedKind } from "../src/agent-session/acpmux/attachments";
+import { droppedPaths } from "../src/agent-session/acpmux/composer/intakeFiles";
 import { liftInlineImages, withoutDataUris } from "../src/agent-session/acpmux/inlineImages";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -72,12 +74,8 @@ afterEach(() => {
   host.replaceChildren();
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 function Chips() {
@@ -141,8 +139,13 @@ function imageEngine() {
 const pngBase64 = btoa(String.fromCharCode(...PNG));
 const dataUri = `data:image/png;base64,${pngBase64}`;
 /// What Chrome's Copy Image (or a copied transcript image) puts on the clipboard beside the file.
+/// Each image is its own (the last filler byte), as two copied screenshots are.
 const imageHtml = (count: number) =>
-  Array.from({ length: count }, (_, index) => `<img src="${dataUri}" alt="Screenshot · 778×69${index}">`).join("");
+  Array.from(
+    { length: count },
+    (_, index) =>
+      `<img src="data:image/png;base64,${btoa(String.fromCharCode(...PNG.slice(0, -1), index))}" alt="Screenshot · 778×69${index}">`,
+  ).join("");
 
 /// Yields to React until `ready()` holds; fails after 2 s with what it waited for.
 async function until(ready: () => boolean, what: string) {
@@ -225,7 +228,241 @@ async function paste(clipboard: { files?: File[]; html?: string; plain?: string 
   await until(() => (opened!.current!.wakeState().attachments ?? []).length > 0, "the pasted chips");
 }
 
-const screenshot = (index: number) => new File([PNG], "image.png", { type: "image/png", lastModified: index });
+/// Screenshot `index`: its own bytes (the last filler byte), as two different screenshots have.
+const screenshot = (index: number) =>
+  new File([PNG.slice(0, -1), Uint8Array.of(index)], "image.png", { type: "image/png", lastModified: index });
+
+// Leo, 2026-11-06: "Why am I seeing that, like the app is trying to attach doubled up screenshots?"
+// A screenshot tool that copies the saved file and its picture hands the page one image as two files.
+test("one screenshot the clipboard holds twice is one attachment atom and one image to the agent", async () => {
+  const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
+  const composer = await openComposer(sent);
+  const shot = screenshot(1);
+  const twin = new File([await shot.arrayBuffer()], "Screenshot 2026-11-06 at 18.40.12.png", { type: "image/png" });
+  await paste({ files: [shot, twin], plain: "" });
+  await until(() => field().querySelectorAll("[data-inline-attachment] img").length === 1, "one inline thumbnail");
+  expect((composer.current!.wakeState().attachments ?? []).map((chip) => chip.kind)).toEqual(["image"]);
+  await act(async () => {
+    composer.current!.send();
+  });
+  expect(promptBlocks(sent[0]!.text, sent[0]!.attachments).filter((block) => block.type === "image")).toHaveLength(1);
+});
+
+test("overlapping drops with twin screenshots and folders keep each drop's native paths", async () => {
+  const names = ["image.png", "copy.png", "assets"];
+  const directories = ["/Users/you/first", "/Users/you/second"];
+  const firstImage = screenshot(1);
+  const secondImage = screenshot(2);
+  const firstBytes = await firstImage.arrayBuffer();
+  const firstTwin = new File([firstBytes], "copy.png", { type: "image/png" });
+  const secondTwin = new File([await secondImage.arrayBuffer()], "copy.png", { type: "image/png" });
+  const read = Promise.withResolvers<ArrayBuffer>();
+  Object.defineProperty(firstTwin, "arrayBuffer", { value: () => read.promise });
+  let hostDirectory: string | undefined;
+  const composer = await openComposer([], {
+    localPaths: async (kind, batch) => {
+      // Each new drop replaces the host's one-shot record, with the same names in another folder.
+      const directory = hostDirectory;
+      hostDirectory = undefined;
+      if (!directory || kind !== "drop" || batch.map((file) => file.name).join() !== names.join()) return undefined;
+      return names.map((name) => ({ path: `${directory}/${name}`, folder: name === "assets" }));
+    },
+  });
+  const drop = (directory: string, image: File, twin: File) => {
+    hostDirectory = directory;
+    const files = [image, twin, new File([], "assets")];
+    const event = new dom.window.Event("drop", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "dataTransfer", { value: { files, types: ["Files"] } });
+    field().dispatchEvent(event);
+  };
+  await act(async () => {
+    drop(directories[0]!, firstImage, firstTwin);
+    drop(directories[1]!, secondImage, secondTwin);
+    read.resolve(firstBytes);
+  });
+  const attachments = () => composer.current!.wakeState().attachments ?? [];
+  await until(() => attachments().length === 6, "both sets of files and folders");
+  expect(attachments().map((chip) => chip.path)).toEqual(
+    directories.flatMap((directory) => names.map((name) => `${directory}/${name}`)),
+  );
+});
+
+/// A host that keeps each gesture's record of where its files are, dated by the wall clock, and
+/// answers an ask from the newest record made by the ask's `gestureAt`, once (AgentPaneDroppedPaths).
+/// An ask with no `gestureAt` takes the newest record, as the host does for an older page.
+/// It answers only once `open()` runs, so every gesture's record exists before any ask is answered.
+function datedHost(names: string[]) {
+  const records: { at: number; kind: DroppedKind; directory: string }[] = [];
+  const gate = Promise.withResolvers<void>();
+  return {
+    gesture(kind: DroppedKind, directory: string) {
+      records.push({ at: Date.now(), kind, directory });
+    },
+    open: () => gate.resolve(),
+    localPaths: async (kind: DroppedKind, batch: File[], gestureAt?: number) => {
+      await gate.promise;
+      let index = records.length - 1;
+      while (
+        index >= 0 &&
+        !(records[index]!.kind === kind && (gestureAt === undefined || records[index]!.at <= gestureAt))
+      )
+        index -= 1;
+      const [record] = index < 0 ? [] : records.splice(index, 1);
+      if (!record || batch.map((file) => file.name).join() !== names.join()) return undefined;
+      return names.map((name) => ({ path: `${record.directory}/${name}`, folder: name === "assets" }));
+    },
+  };
+}
+
+/// Each chip's native path in the composer's order, which is the gestures' order: a path that went
+/// to the other gesture's chip shows as a swap, not only as a missing path.
+const nativePaths = (attachments: ComposerAttachment[]) => ({
+  images: attachments.filter((chip) => chip.kind === "image").map((chip) => chip.originalPath ?? ""),
+  links: attachments.filter((chip) => chip.kind === "link").map((chip) => chip.path ?? ""),
+});
+
+// cmux#48809 follow-up: two fast pastes of the same screenshots and folder from different folders.
+// The first paste's twin read used to ask the host for its paths after the second paste replaced
+// the host's record, so the first got the second's paths. Each now asks at once with its gesture's
+// time, and the host answers from that gesture's own record.
+test("two fast pastes with twin screenshots each keep their own native paths", async () => {
+  const names = ["image.png", "copy.png", "assets"];
+  const directories = ["/Users/you/first", "/Users/you/second"];
+  const host = datedHost(names);
+  const composer = await openComposer([], { localPaths: host.localPaths });
+  const held: { resolve: (value: ArrayBuffer) => void }[] = [];
+  const pasteFiles = async (directory: string, index: number) => {
+    const image = screenshot(index);
+    const bytes = await image.arrayBuffer();
+    const twin = new File([bytes], "copy.png", { type: "image/png" });
+    const read = Promise.withResolvers<ArrayBuffer>();
+    held.push(read);
+    Object.defineProperty(twin, "arrayBuffer", { value: () => read.promise.then(() => bytes) });
+    // The host records the paste as it goes to the page.
+    host.gesture("paste", directory);
+    const files = [image, twin, new File([], "assets")];
+    const event = new dom.window.Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "clipboardData", {
+      value: { files, types: ["Files"], getData: () => "" },
+    });
+    field().dispatchEvent(event);
+  };
+  const start = Date.now();
+  try {
+    await act(async () => {
+      setSystemTime(new Date(start));
+      await pasteFiles(directories[0]!, 1);
+      setSystemTime(new Date(start + 200));
+      await pasteFiles(directories[1]!, 2);
+      // Both records exist before either ask is answered: only the gesture's time tells them apart.
+      host.open();
+      for (const read of held) read.resolve(new ArrayBuffer(0));
+    });
+  } finally {
+    setSystemTime();
+  }
+  const attachments = () => composer.current!.wakeState().attachments ?? [];
+  await until(() => attachments().length === 6, "both sets of paths");
+  expect(nativePaths(attachments()).links).toEqual(
+    directories.flatMap((directory) => names.map((name) => `${directory}/${name}`)),
+  );
+});
+
+// cmux#48809 follow-up: a host answer with fewer paths than files used to drop every path, and the
+// screenshot then went without its original. The paths the host gave are kept, matched by name.
+test("a host answer short of the files keeps the paths it gave", async () => {
+  const composer = await openComposer([], {
+    localPaths: async () => [{ path: "/Users/you/first/assets", folder: true }],
+  });
+  const event = new dom.window.Event("drop", { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "dataTransfer", {
+    value: { files: [screenshot(1), new File([], "assets")], types: ["Files"] },
+  });
+  await act(async () => {
+    field().dispatchEvent(event);
+  });
+  const attachments = () => composer.current!.wakeState().attachments ?? [];
+  await until(() => nativePaths(attachments()).links.length === 1, "the folder's link");
+  expect(nativePaths(attachments()).links).toEqual(["/Users/you/first/assets"]);
+  expect(attachments().filter((chip) => chip.kind === "image")).toHaveLength(1);
+});
+
+test("droppedPaths sends the gesture's time and keeps a short answer's paths by name", async () => {
+  const calls: Record<string, unknown>[] = [];
+  const files = [screenshot(1), new File([], "assets"), new File(["x"], "notes.txt")];
+  const paths = await droppedPaths(
+    "paste",
+    files,
+    async (_method, params) => {
+      calls.push(params);
+      return { items: [{ path: "/Users/you/notes.txt" }, { path: "/Users/you/assets/", folder: true }] };
+    },
+    1_800_000_000_250,
+  );
+  expect(calls).toEqual([{ kind: "paste", names: ["image.png", "assets", "notes.txt"], gestureAt: 1_800_000_000_250 }]);
+  expect(paths).toEqual([
+    undefined,
+    { path: "/Users/you/assets/", folder: true },
+    { path: "/Users/you/notes.txt", folder: false },
+  ]);
+  // A full answer is used as it is; none is none.
+  expect(await droppedPaths("drop", [files[0]!], async () => ({ items: [{ path: "/a/x.png" }] }))).toEqual([
+    { path: "/a/x.png", folder: false },
+  ]);
+  expect(await droppedPaths("drop", files, async () => ({ items: [] }))).toBeUndefined();
+});
+
+test("a send made while a paste's twins are still compared waits for its image", async () => {
+  const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
+  const composer = await openComposer(sent);
+  const shot = screenshot(1);
+  const twin = new File([await shot.arrayBuffer()], "copy.png", { type: "image/png" });
+  const event = new dom.window.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "clipboardData", {
+    value: { files: [shot, twin], types: ["Files"], getData: () => "" },
+  });
+  // Return in the paste's own task, before the twins' bytes are read.
+  act(() => {
+    field().dispatchEvent(event);
+  });
+  act(() => {
+    composer.current!.send();
+  });
+  expect(sent).toHaveLength(0);
+  await until(() => sent.length === 1, "the held send");
+  expect(promptBlocks(sent[0]!.text, sent[0]!.attachments).filter((block) => block.type === "image")).toHaveLength(1);
+});
+
+test("a gesture's files keep every different file, and answer at once when none could be a twin", async () => {
+  const { filesOnce } = await import("../src/agent-session/acpmux/attachments");
+  const [one, two] = [screenshot(1), screenshot(2)];
+  // Two screenshots of one size are two: only the same bytes are one.
+  expect(await filesOnce([one, two])).toEqual([one, two]);
+  // The same bytes as another type are another file.
+  const asText = new File([await one.arrayBuffer()], "image.txt", { type: "text/plain" });
+  expect(await filesOnce([one, asText])).toEqual([one, asText]);
+  // Files that aren't images are each the person's, whatever their bytes: two empty files stay two.
+  const init = new File([], "__init__.py", { type: "text/x-python" });
+  const typed = new File([], "py.typed", { type: "text/x-python" });
+  expect(await filesOnce([init, typed])).toEqual([init, typed]);
+  const copies = [
+    new File(["same"], "a.txt", { type: "text/plain" }),
+    new File(["same"], "b.txt", { type: "text/plain" }),
+  ];
+  expect(filesOnce(copies)).toEqual(copies);
+  expect(await filesOnce([one, new File([await one.arrayBuffer()], "copy.png", { type: "image/png" })])).toEqual([one]);
+  // No two files of one type and size: no read, the chips draw in the gesture's own task.
+  const small = new File([Uint8Array.of(1)], "a.png", { type: "image/png" });
+  expect(filesOnce([one, small])).toEqual([one, small]);
+  // Twins whose bytes take past a frame to read are both kept, not a chip held for them.
+  class Stuck extends File {
+    override arrayBuffer() {
+      return new Promise<ArrayBuffer>(() => {});
+    }
+  }
+  const stuck = [new Stuck([PNG], "a.png", { type: "image/png" }), new Stuck([PNG], "b.png", { type: "image/png" })];
+  expect(await filesOnce(stuck, 5)).toEqual(stuck);
+});
 
 test("pasting two copied images puts two attachment atoms in the prompt", async () => {
   const composer = await openComposer();
@@ -365,6 +602,25 @@ test("attachment intake wires local link deduplication through its hook state", 
   });
   await act(async () => {});
   expect(held.map((chip) => chip.path)).toEqual(["/Users/you/assets"]);
+});
+
+test("a picker keeps both selected images when their bytes match and the host has no paths", async () => {
+  const uploads: string[][] = [];
+  await openComposer([], {
+    localPaths: async () => undefined,
+    upload: async (files) => {
+      uploads.push(files.map((file) => file.name));
+      return { paths: files.map((file) => `/saved/${file.name}`) };
+    },
+  });
+  const names = ["first.png", "second.png"];
+  const input = host.querySelector<HTMLInputElement>("input.acpmux-attach-input")!;
+  Object.defineProperty(input, "files", { value: names.map((name) => new File([PNG], name, { type: "image/png" })) });
+  await act(async () => {
+    input.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  });
+  await until(() => uploads.length > 0, "the picked files' upload");
+  expect(uploads).toEqual([names]);
 });
 
 test("a file chosen in + > Attach files asks the host where it came from, and its chip keeps the answer", async () => {
@@ -795,7 +1051,7 @@ test("a retried attachment keeps its id and its place in the text, wherever the 
   await act(async () => {
     field().dispatchEvent(event);
   });
-  const retry = () => field().querySelector<HTMLElement>('[data-state="failed"] .acpmux-md-inline-retry');
+  const retry = () => field().querySelector<HTMLElement>(".acpmux-attachment-failed .acpmux-attachment-retry");
   await until(() => Boolean(retry()), "the failed tile");
   const original = field().querySelector("[data-inline-attachment]")!.getAttribute("data-inline-attachment")!;
   const placedAt = markdownField().value();
@@ -915,14 +1171,14 @@ test("a send with a failed attachment waits until its x takes it away", async ()
   await act(async () => {
     field().dispatchEvent(event);
   });
-  const failed = () => field().querySelector('[data-state="failed"]');
+  const failed = () => field().querySelector(".acpmux-attachment-failed");
   await until(() => Boolean(failed()), "the failed tile in the text");
   await act(async () => composer.current!.send());
   await settleTurns();
   expect(sent).toHaveLength(0);
   // Still reachable: its Retry and its ×.
-  expect(failed()!.querySelector(".acpmux-md-inline-retry")).not.toBeNull();
-  const remove = field().querySelector<HTMLElement>("[data-inline-attachment] .acpmux-md-inline-remove");
+  expect(failed()!.querySelector(".acpmux-attachment-retry")).not.toBeNull();
+  const remove = failed()!.querySelector<HTMLElement>(".acpmux-attachment-remove");
   expect(remove).not.toBeNull();
   await act(async () => {
     remove!.click();
@@ -1075,4 +1331,133 @@ test("an unplaced chip's text or file goes in after a selection, never over it",
   await act(async () => markdownField().pasteText(" and this"));
   await settleTurns();
   expect(markdownField().value()).toBe("keep this draft and this");
+});
+
+// https://github.com/manaflow-ai/cmux/issues/49644: three screenshots pasted one after another, then
+// ⌘Z took all three out at once ("this is not good behavior"). The field's history joins adjacent
+// edits made within its group delay, and each pasted node lands right after the one before it. Each
+// paste is its own undo step, the words typed before them another, and redo puts them back one by one.
+test("each pasted image is its own undo step, and redo brings them back one by one", async () => {
+  await openComposer([]);
+  const placed = () => markdownField().inlineIds()?.length ?? 0;
+  const words = () => markdownField().plainText().replaceAll("￼", "").trim();
+  await act(async () => markdownField().insertTyped("look"));
+  for (const index of [1, 2, 3]) {
+    await paste({ files: [screenshot(index)] });
+    await until(() => placed() === index, `pasted image ${index}`);
+  }
+  for (const left of [2, 1, 0]) {
+    await act(async () => markdownField().undo());
+    await settleTurns();
+    expect(placed()).toBe(left);
+    expect(words()).toBe("look");
+  }
+  await act(async () => markdownField().undo());
+  expect(words()).toBe("");
+  for (const back of [0, 1, 2, 3]) {
+    await act(async () => markdownField().redo());
+    await settleTurns();
+    expect(words()).toBe("look");
+    expect(placed()).toBe(back);
+  }
+  expect(markdownField().history().redo).toBe(false);
+});
+
+// The same for text: each paste is one step, and the keys typed right after it are another.
+test("each paste of text is its own undo step, apart from the typing around it", async () => {
+  await openComposer([]);
+  await act(async () => markdownField().insertTyped("a "));
+  await act(async () => markdownField().pasteText("one "));
+  await act(async () => markdownField().pasteText("two"));
+  await act(async () => markdownField().insertTyped("!"));
+  expect(markdownField().plainText()).toBe("a one two!");
+  const steps: string[] = [];
+  for (let undo = 0; undo < 4; undo += 1) {
+    await act(async () => markdownField().undo());
+    steps.push(markdownField().plainText());
+  }
+  expect(steps).toEqual(["a one two", "a one ", "a ", ""]);
+  const redone: string[] = [];
+  for (let redo = 0; redo < 4; redo += 1) {
+    await act(async () => markdownField().redo());
+    redone.push(markdownField().plainText());
+  }
+  expect(redone).toEqual(["a ", "a one ", "a one two", "a one two!"]);
+});
+
+// Greptile review of https://github.com/manaflow-ai/cmux/pull/49685: a browser runs microtasks between
+// one native paste listener and the next, so the composer's document listener can place a paste's
+// attachment after a microtask the editor's own listener queued. It is still that paste's step: one
+// undo takes the text and the attachment together.
+test("an attachment a paste places after a microtask is in that paste's one undo step", async () => {
+  await openComposer([]);
+  await act(async () => markdownField().insertTyped("look "));
+  await act(async () => {
+    markdownField().pasteText("here ");
+    await Promise.resolve();
+    await Promise.resolve();
+    markdownField().insertInline(["later-placed"]);
+  });
+  expect(markdownField().inlineIds()).toContain("later-placed");
+  await act(async () => markdownField().undo());
+  expect(markdownField().plainText()).toBe("look ");
+  expect(markdownField().inlineIds() ?? []).not.toContain("later-placed");
+});
+
+// https://github.com/manaflow-ai/cmux/issues/50984: the same picture pasted again is another
+// attachment, never folded into the first. Each paste is the person's own gesture.
+test("the same image pasted three times is three attachments, and all three go to the agent", async () => {
+  const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
+  const composer = await openComposer(sent);
+  const shot = screenshot(1);
+  for (const count of [1, 2, 3]) {
+    // As the engine gives each paste: a new File of the same bytes and name.
+    await paste({ files: [new File([await shot.arrayBuffer()], shot.name, { type: shot.type })] });
+    await until(() => (markdownField().inlineIds()?.length ?? 0) === count, `pasted copy ${count}`);
+  }
+  await until(() => field().querySelectorAll("[data-inline-attachment] img").length === 3, "three inline thumbnails");
+  const chips = composer.current!.wakeState().attachments ?? [];
+  expect(chips.map((chip) => chip.kind)).toEqual(["image", "image", "image"]);
+  expect(new Set(chips.map((chip) => chip.id)).size).toBe(3);
+  await act(async () => {
+    composer.current!.send();
+  });
+  expect(promptBlocks(sent[0]!.text, sent[0]!.attachments).filter((block) => block.type === "image")).toHaveLength(3);
+});
+
+test("the same clipboard File pasted three times is three attachments", async () => {
+  const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
+  const composer = await openComposer(sent);
+  const shot = screenshot(1);
+  for (const count of [1, 2, 3]) {
+    await paste({ files: [shot] });
+    await until(() => (markdownField().inlineIds()?.length ?? 0) === count, `pasted copy ${count}`);
+  }
+  await until(() => (composer.current!.wakeState().attachments ?? []).length === 3, "three chips");
+  await act(async () => {
+    composer.current!.send();
+  });
+  expect(promptBlocks(sent[0]!.text, sent[0]!.attachments).filter((block) => block.type === "image")).toHaveLength(3);
+});
+
+test("pasting the same image three times, each undo takes out only the last copy", async () => {
+  await openComposer([]);
+  const placed = () => markdownField().inlineIds()?.length ?? 0;
+  const words = () => markdownField().plainText().replaceAll("￼", "").trim();
+  await act(async () => markdownField().insertTyped("look"));
+  for (const count of [1, 2, 3]) {
+    await paste({ files: [screenshot(1)] });
+    await until(() => placed() === count, `pasted copy ${count}`);
+  }
+  for (const left of [2, 1, 0]) {
+    await act(async () => markdownField().undo());
+    await settleTurns();
+    expect(placed()).toBe(left);
+    expect(words()).toBe("look");
+  }
+  for (const back of [1, 2, 3]) {
+    await act(async () => markdownField().redo());
+    await settleTurns();
+    expect(placed()).toBe(back);
+  }
 });

@@ -51,8 +51,26 @@ pub mod config;
 pub mod daemon_spec;
 #[cfg(unix)]
 pub mod github_cli;
+/// How to connect GitHub, on every platform (`github_cli` is unix-only; acpmux's errors use it
+/// everywhere).
+pub mod github_connect {
+    /// How to connect GitHub, in the words every surface uses: the app's action (Settings,
+    /// Accounts, GitHub, or the command palette) and the CLI command that runs the same action.
+    pub const CONNECT_GITHUB: &str = "in cmux choose Connect GitHub (Settings > Accounts > GitHub, \
+or the command palette), or run `cmux accounts github-connect` on your Mac";
+}
 #[cfg(unix)]
 pub mod github_cli_identity;
+/// `cmux github` on a joined (non-Cloud) machine: the hub's machine token route.
+#[cfg(unix)]
+pub mod github_cli_joined;
+/// `cmux github` on a machine a Mac lends GitHub to: the ask goes to its acpmux daemon.
+#[cfg(unix)]
+pub mod github_cli_lane;
+/// The Mac app's GitHub calls as data: what acpmux's `_acpmux/github_rest` runs with an App token.
+pub mod github_rest;
+#[cfg(unix)]
+pub mod github_wiring;
 #[cfg(unix)]
 pub mod gitlab_cli;
 pub mod identity;
@@ -66,6 +84,7 @@ pub mod remote_entry;
 pub mod retry;
 pub mod roles;
 pub mod run_roles;
+pub mod sccache_env;
 pub mod status;
 pub mod team_ssh;
 #[cfg(unix)]

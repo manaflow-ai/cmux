@@ -7,8 +7,20 @@ import CmuxMobileDiff
 import CmuxMobileMarkdown
 import CmuxMobileModel
 import CmuxSpinner
+import GameController
 import SwiftUI
 import UIKit
+
+/// A workspace tab's composer stack at rest: its height and its bottom's distance from the
+/// page's bottom (TabsKit rests it 8 pt above the toolbar capsule).
+struct ChatRestingStack: Codable, Equatable {
+    var height: CGFloat
+    var bottomGap: CGFloat
+
+    /// Before any tab measured its stack: the transcript's long-standing defaults (a 96 pt
+    /// stack resting 80 pt above the page's bottom).
+    static let fallback = ChatRestingStack(height: 96, bottomGap: 80)
+}
 
 /// View state of one open agent chat, shared by its transcript and its
 /// bottom stack. The pushed `AgentChatScreen` owns one; a workspace tab
@@ -18,16 +30,35 @@ import UIKit
 @MainActor
 @Observable
 public final class AgentChatSurface {
-    public var text = ""
+    public var text = "" {
+        didSet { if text != oldValue { onTextChange?(text) } }
+    }
+    /// Told when the draft changes: a workspace tab keeps it on disk (`ComposerDraftStore`).
+    @ObservationIgnored public var onTextChange: (@MainActor (String) -> Void)?
     /// The transcript holds its rows as they are (the page is shown as a
     /// small card on the tab grid): streamed changes wait and apply in one
     /// reload when this goes back to false, or on `refreshHeldTranscript()`.
-    public var holdsTranscript = false
+    public var holdsTranscript = false {
+        // A release reloads with everything: nothing held is left to show.
+        didSet { if !holdsTranscript { heldChangePending = false } }
+    }
     /// Bumped to apply what arrived while held, in one reload (the grid's
-    /// once-a-second card refresh).
+    /// card refresh, at most once a second after a change).
     private(set) var heldRefresh = 0
-    public func refreshHeldTranscript() { heldRefresh &+= 1 }
-    var attachments: [AgentAttachment] = []
+    public func refreshHeldTranscript() {
+        heldChangePending = false
+        heldRefresh &+= 1
+    }
+    /// A change arrived while held and is not shown yet.
+    @ObservationIgnored public private(set) var heldChangePending = false
+    /// Told once per held change (the grid schedules a refresh then, not on a timer).
+    @ObservationIgnored public var onHeldChange: (@MainActor () -> Void)?
+    func noteHeldChange() {
+        guard !heldChangePending else { return }
+        heldChangePending = true
+        onHeldChange?()
+    }
+    public var attachments: [AgentAttachment] = []
     /// The transcript's scroll position. Writes that change nothing are
     /// dropped: SwiftUI writes the resolved position back through the
     /// binding, and an unconditional invalidation there can feed back into
@@ -100,7 +131,7 @@ public final class AgentChatSurface {
             do {
                 targets = try await store.source.handoffTargets()
             } catch {
-                return (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+                return UserFacingError.message(error)
             }
             if let refusal = command.refusal(args: args, canFork: canFork, isRunning: store.isRunning, targets: targets) { return refusal }
             guard let target = CmuxSlashCommand.target(args, in: targets) else { return nil }
@@ -184,6 +215,45 @@ public final class AgentChatSurface {
     /// it from the keyboard layout guide in the keyboard's own animation.
     public internal(set) var stackHeight: CGFloat?
     public internal(set) var stackMaxY: CGFloat?
+    /// A workspace tab's composer stack at rest (the keyboard down), as its transcript placed it
+    /// last. The tab's grid card and its page both place the newest turn from this one value
+    /// (`restingTranscriptBottomInset`), so a card opens into its page without a jump.
+    var restingStack: ChatRestingStack?
+    /// The resting stack a tab placed last on this phone, for a tab whose own stack is not
+    /// measured yet (not shown in this launch): every tab's resting composer is the same
+    /// capsule over the same toolbar, so its card and its page's first frames use this. Kept
+    /// in defaults, so a workspace opened on a terminal tab after a relaunch has it too.
+    static var lastRestingStack: ChatRestingStack? {
+        get {
+            if !restingStackLoaded {
+                restingStackLoaded = true
+                storedRestingStack = UserDefaults.standard.data(forKey: restingStackKey)
+                    .flatMap { try? JSONDecoder().decode(ChatRestingStack.self, from: $0) }
+            }
+            return storedRestingStack
+        }
+        set {
+            restingStackLoaded = true
+            guard newValue != storedRestingStack else { return }
+            storedRestingStack = newValue
+            UserDefaults.standard.set(newValue.flatMap { try? JSONEncoder().encode($0) }, forKey: restingStackKey)
+        }
+    }
+    private static var storedRestingStack: ChatRestingStack?
+    private static var restingStackLoaded = false
+    private static let restingStackKey = "cmux.chat.restingStack.v1"
+
+    /// The resting stack this tab's card and page are placed from: its own, else the last one
+    /// measured, else `ChatRestingStack.fallback`.
+    var placementStack: ChatRestingStack { restingStack ?? Self.lastRestingStack ?? .fallback }
+
+    /// The transcript's bottom content inset at rest: the space from the stack's top to the
+    /// page's bottom, plus the transcript's gap above the stack. The live transcript's
+    /// (`ChatTranscriptController.bottomInset`) and the grid card's (`AgentChatPreview`).
+    public var restingTranscriptBottomInset: CGFloat {
+        let stack = placementStack
+        return max(0, stack.height + stack.bottomGap) + ChatTranscriptController.contentGap
+    }
     /// Window y the bottom stack may not rise above: under the transcript's header and,
     /// for the pushed chat, inside the dock's host. The transcript sets it as it lays
     /// out; the composer's slash-command list scrolls inside the room below it.
@@ -194,6 +264,16 @@ public final class AgentChatSurface {
     /// (the transcript's inset follows it in the same frame).
     @ObservationIgnored var stackHeightFrame: ((CGFloat) -> Void)?
     @ObservationIgnored var drawnStackHeight: CGFloat?
+    /// The spring the bottom stack's current height change rides; the transcript's inset
+    /// takes the same one so the two move as one.
+    @ObservationIgnored var stackMotion: StackMotion = .smooth
+    enum StackMotion: String {
+        /// `.cmuxMobileSmooth` (0.35 s): collapse, expand, attachments, the queue.
+        case smooth
+        /// `ComposerLineMotion`: the draft gained or lost a line.
+        case line
+        var seconds: TimeInterval { self == .line ? ComposerLineMotion.seconds : 0.35 }
+    }
     /// Rows the person opened or closed (the transcript's cells are reused).
     let disclosures = ChatDisclosures()
 
@@ -302,7 +382,7 @@ public final class AgentChatSurface {
         case .artifactsLayout(let grid):
             artifacts.grid = grid
         case .artifactsOpen(let reference):
-            let collected = SessionArtifacts.collect(turns: store.turns, subagents: store.subagents, cwd: store.summary.cwd)
+            let collected = store.artifacts
             if let artifact = collected.artifacts.first(where: { $0.reference == reference }) { artifacts.path = [artifact] }
         case .artifactsSource(let on):
             artifacts.showSource = on
@@ -350,7 +430,7 @@ public struct AgentChatScreen: View {
         // The transcript hosts the composer itself, docked to the keyboard
         // (ChatTranscriptController), instead of a SwiftUI safe-area inset.
         AgentChatTranscript(store: store, surface: surface, placement: .owned)
-            .background(Color.cmuxMobileBackground)
+            .background(CmuxMobileChatBackdrop())
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbar }
     }
@@ -415,7 +495,10 @@ public struct AgentChatScreen: View {
         switch store.summary.status {
         case .running: .cmuxMobileWarning
         case .waiting: .cmuxMobileWarning
-        case .disconnected, .closed: Color(uiColor: .tertiaryLabel)
+        // A dropped link dims the dot only once the outage outlasted the quiet bound
+        // (``AgentChatStore/quietStatus``); a reconnect inside it shows nothing.
+        case .disconnected: store.quietStatus.isShown ? Color(uiColor: .tertiaryLabel) : .cmuxMobileSuccess
+        case .closed: Color(uiColor: .tertiaryLabel)
         default: .cmuxMobileSuccess
         }
     }
@@ -460,9 +543,14 @@ public struct AgentChatTranscript: View {
     }
 
     public var body: some View {
+        // The chat in the light or dark style of the Mac's theme while it follows the Mac.
+        transcript.cmuxMobileChatLookStyle(CmuxMobileMacTheme.shared.chatLook)
+    }
+
+    private var transcript: some View {
         let surface = surface
         let openFile = openFile
-        ChatTranscriptRepresentable(
+        return ChatTranscriptRepresentable(
             placement: placement, surface: surface, topInset: topInset, onUserScroll: onUserScroll,
             isEmpty: !store.hasTurns,
             store: store,
@@ -480,7 +568,7 @@ public struct AgentChatTranscript: View {
                     return .handled
                 }
             },
-            empty: AnyView(AgentChatEmptyState(store: store)),
+            empty: AnyView(AgentChatEmptyState(store: store, entrance: true)),
             dock: placement == .owned ? AnyView(AgentChatBottomStack(store: store, surface: surface, bottomPadding: 0)) : nil,
             // Both placements: the controller hosts the circle at a fixed
             // size, 4 pt above the stack's top (verify/jump-button.md).
@@ -570,20 +658,92 @@ extension AgentChatTranscript {
 /// Centered in the space between the header and the composer.
 struct AgentChatEmptyState: View {
     let store: AgentChatStore
+    /// The live chat plays the new-chat entrance (`NewChatEntrance`); a still (a tab card's
+    /// preview) draws the greeting at rest.
+    var entrance = false
 
     var body: some View {
-        if !store.hasTurns {
-            VStack(spacing: 12) {
-                // The agent's own mark (the Claude or Codex logo), not a generic glyph.
-                AgentBrandMark(agent: store.summary.harness, size: 24, style: .brand)
-                    .frame(width: 48, height: 48)
-                    .background(Color.cmuxMobileSurfaceRaised, in: .circle)
-                Text("What should \(store.summary.agentName) do?").font(.title3.weight(.semibold))
-                Text("\(store.summary.workspaceTitle) on \(store.summary.macName)").font(.subheadline).foregroundStyle(.secondary)
-            }
-            .multilineTextAlignment(.center)
-            .accessibilityElement(children: .combine)
+        if store.isLoadingHistory && !store.hasTurns || store.awaitsFirstPrompt {
+            // An existing chat whose history is on its way, or a new one whose first message
+            // (New Task's) is on its way: never the new-chat prompt.
+            AgentChatLoadingState(store: store)
+        } else if store.isNewChat {
+            NewChatGreeting(store: store, entrance: entrance)
         }
+    }
+}
+
+/// The new-chat prompt: the agent's mark, "What should <agent> do?" and where it runs, settling
+/// in on the entrance's spring the first time the chat shows (`NewChatEntrance`).
+struct NewChatGreeting: View {
+    let store: AgentChatStore
+    private let style: NewChatEntrance.Style
+    @State private var settled: Bool
+
+    init(store: AgentChatStore, entrance: Bool) {
+        self.store = store
+        style = NewChatEntrance.Style.current
+        _settled = State(initialValue: !entrance || store.newChatEntrance.greeting || UIAccessibility.isReduceMotionEnabled)
+    }
+
+    var body: some View {
+        VStack(spacing: 12) {
+            // The agent's own mark (the Claude or Codex logo), not a generic glyph.
+            AgentBrandMark(agent: store.summary.harness, size: 24, style: .brand)
+                .frame(width: 48, height: 48)
+                .background(Color.cmuxMobileSurfaceRaised, in: .circle)
+                .newChatEntrance(.mark, style: style, settled: settled)
+            Text("What should \(store.summary.agentName) do?").font(.title3.weight(.semibold))
+                .newChatEntrance(.title, style: style, settled: settled)
+            Text("\(store.summary.workspaceTitle) on \(store.summary.macName)").font(.subheadline).foregroundStyle(.secondary)
+                .newChatEntrance(.detail, style: style, settled: settled)
+        }
+        .multilineTextAlignment(.center)
+        .accessibilityElement(children: .combine)
+        .releasesNewChatEntrance($settled) { [store] in store.newChatEntrance.greeting = true }
+    }
+}
+
+/// An existing chat's history is on its way and none is kept on this phone yet: a spinner
+/// with what it waits for (the Mac's link, or its reply), in the empty state's place.
+struct AgentChatLoadingState: View {
+    let store: AgentChatStore
+
+    static func text(_ store: AgentChatStore) -> String { store.loadingText }
+
+    var body: some View {
+        VStack(spacing: 12) {
+            CmuxSpinner()
+            Text(Self.text(store))
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .multilineTextAlignment(.center)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("agentChat.loadingHistory")
+    }
+}
+
+/// Kept rows show while the chat is away from the Mac or catches up with it; after
+/// ``QuietStatusGate/threshold`` a small chip floats just above the composer
+/// (``AgentChatStore/connectionLine`` is its VoiceOver sentence). An overlay, never
+/// in the stack, so it pushes nothing up (Leo, 2026-11-21: "these messages should
+/// not be pushing up the text ... a symbol or short thing, not a sentence. stop
+/// layout shifting").
+struct AgentChatConnectionLine: View {
+    let store: AgentChatStore
+
+    var body: some View {
+        Group {
+            if let line = store.connectionLine {
+                ConnectionChip(.init(store.summary.status == .disconnected ? .connecting : .updating, sentence: line), downSince: nil) // the store held it (QuietStatusGate)
+                    .padding(.leading, 20)
+                    .alignmentGuide(.top) { $0[.bottom] + 8 }
+                    .accessibilityIdentifier("agentChat.connectionLine")
+                    .transition(.opacity)
+            }
+        }
+        .animation(.cmuxMobileSmooth.unlessReduceMotion, value: store.connectionLine)
     }
 }
 
@@ -620,7 +780,8 @@ struct AgentChatJumpButton: View {
                         }
                         .contentShape(.circle)
                 }
-                .buttonStyle(.plain)
+                // The interactive glass disc is the press; a wash here drew a square around it.
+                .buttonStyle(.cmuxPressGlass)
                 .transition(.scale(scale: 0.85).combined(with: .opacity))
                 .accessibilityLabel("Jump to bottom")
             }
@@ -645,64 +806,52 @@ public struct AgentChatBottomStack: View {
     nonisolated private static let stackSpace = "AgentChatBottomStack"
     /// The composer field's focus (a UITextView that follows it both ways).
     @State private var composerFocused = false
-    @State private var retryCount = 0
+    /// The composer has settled into place (`NewChatEntrance`): false only while a new chat's
+    /// composer rises in. Typing works throughout; the motion is render only.
+    @State private var composerSettled: Bool
+    private let entranceStyle: NewChatEntrance.Style
 
     public init(store: AgentChatStore, surface: AgentChatSurface) {
-        self.store = store
-        self.surface = surface
+        self.init(store: store, surface: surface, bottomPadding: 8)
     }
 
     init(store: AgentChatStore, surface: AgentChatSurface, bottomPadding: CGFloat) {
         self.store = store
         self.surface = surface
         self.bottomPadding = bottomPadding
+        entranceStyle = NewChatEntrance.Style.current
+        // Only a new chat's first showing rises in; a chat with history, one still loading it,
+        // or a second visit draws the composer in place.
+        _composerSettled = State(initialValue: !store.isNewChat || store.awaitsFirstPrompt || store.newChatEntrance.composer
+            || UIAccessibility.isReduceMotionEnabled)
     }
 
     public var body: some View {
         VStack(spacing: 12) {
             VStack(spacing: 12) {
                 if let error = store.clientError {
-                    if store.canRetryPrompt {
-                        HStack(spacing: 8) {
-                            Button {
-                                withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { store.clientError = nil }
-                            } label: {
-                                Label(error, systemImage: "exclamationmark.circle")
-                                    .font(.footnote.weight(.semibold))
-                                    .foregroundStyle(.primary)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityHint("Dismiss")
-                            Button("Retry", systemImage: "arrow.clockwise") {
-                                retryCount += 1
-                            }
+                    // One symbol, no Retry: the draft is back in the composer, so Send retries it.
+                    Button {
+                        withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { store.clientError = nil }
+                    } label: {
+                        Label(error, systemImage: "exclamationmark.circle")
                             .font(.footnote.weight(.semibold))
-                            .buttonStyle(.plain)
-                            .disabled(surface.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && surface.attachments.isEmpty)
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 9)
-                        .glassEffect(.regular, in: .capsule)
-                        .transition(.opacity.combined(with: .offset(y: 8)))
-                    } else {
-                        Button {
-                            withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { store.clientError = nil }
-                        } label: {
-                            Label(error, systemImage: "exclamationmark.circle")
-                                .font(.footnote.weight(.semibold))
-                                .foregroundStyle(.primary)
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 9)
-                        }
-                        .buttonStyle(.plain)
-                        .glassEffect(.regular, in: .capsule)
-                        .transition(.opacity.combined(with: .offset(y: 8)))
-                        .accessibilityHint("Dismiss")
+                            .foregroundStyle(.primary)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 9)
                     }
+                    .buttonStyle(.cmuxPressFillCapsule)
+                    .glassEffect(.regular, in: .capsule)
+                    .transition(.opacity.combined(with: .offset(y: 8)))
+                    .accessibilityHint("Dismiss")
                 }
                 // Pinned plan progress while a turn runs (ACP web UI parity).
                 if let progress = store.runningPlan, let entries = store.runningPlanEntries {
                     PlanProgressBar(progress: progress, entries: entries)
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
+                if !store.outgoing.isEmpty {
+                    OutgoingMessagesView(store: store)
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
                 if !store.queue.isEmpty {
@@ -738,7 +887,6 @@ public struct AgentChatBottomStack: View {
                                  placeholderOverride: replying ? "Tell \(store.summary.agentName) what to do instead" : nil,
                                  denyingPermission: replying,
                                  suggestionsCeiling: surface.stackCeiling.map { $0 + composerOffset },
-                                 retryCount: retryCount,
                                  cmuxCommands: CmuxSlashCommand.allCases.filter { $0 != .fork || surface.tabActions != nil },
                                  runCmuxCommand: { [surface, store] command, args in
                                      await surface.run(command, args: args, store: store)
@@ -746,6 +894,18 @@ public struct AgentChatBottomStack: View {
                         .onGeometryChange(for: CGFloat.self, of: { $0.frame(in: .named(Self.stackSpace)).minY }) { offset in
                             if composerOffset != offset { composerOffset = offset }
                         }
+                        // The space between the composer and a raised keyboard is darkened from the
+                        // card's middle down, as the ChatGPT and Claude iOS apps draw it (Leo,
+                        // 2026-11-23: "they properly darken the ... space between the ios composer
+                        // and the built in keyboard"). The band runs on under the keyboard, which
+                        // covers it, so it never shows an edge while the keyboard moves.
+                        .background(alignment: .top) {
+                            KeyboardSkirt(shown: composerFocused && GCKeyboard.coalesced == nil)
+                        }
+                        // After the geometry reader: the entrance is render only, so the stack's
+                        // measured place (the transcript's inset, the keyboard pin) is the resting one.
+                        .newChatEntrance(.composer, style: entranceStyle, settled: composerSettled)
+                        .releasesNewChatEntrance($composerSettled) { [store] in store.newChatEntrance.composer = true }
                         .transition(.opacity)
                 }
             }
@@ -758,14 +918,31 @@ public struct AgentChatBottomStack: View {
                 surface.bottomStackTop = frame.minY
                 if surface.stackHeight != frame.height { surface.stackHeight = frame.height }
                 if surface.stackMaxY != frame.maxY { surface.stackMaxY = frame.maxY }
+                // A line the draft gained or lost moves on the line motion, field and
+                // transcript together; the stack's other changes on `.cmuxMobileSmooth`.
+                let lineMotion = store.lineMotionPending && reportedHeight != frame.height
+                if reportedHeight != frame.height { store.lineMotionPending = false }
                 if reportedHeight != frame.height {
-                    // Interpolated on the composer's spring (`.cmuxMobileSmooth`):
-                    // the reporter below hands the transcript every frame.
-                    if reportedHeight == 0 || store.placeBottomStackInstantly {
+                    // Interpolated on the composer's spring (`.cmuxMobileSmooth`, or
+                    // `ComposerLineMotion` for a line): the reporter below hands the
+                    // transcript every frame, and the transcript's own spring takes the
+                    // same length (`surface.stackMotion`).
+                    let spring = (lineMotion ? ComposerLineMotion.animation : Animation.cmuxMobileSmooth).unlessReduceMotion
+                    surface.stackMotion = lineMotion ? .line : .smooth
+                    if reportedHeight == 0 || store.placeBottomStackInstantly || spring == nil {
                         store.placeBottomStackInstantly = false
                         reportedHeight = frame.height
+                        // Not animated (the first height, an instant placement, or Reduce
+                        // Motion), so `DrawnHeightReporter` gets no frame for it and its onAppear
+                        // ran at 0: hand the height over here. Without it a tab's jump-to-bottom
+                        // circle stayed on the dock guide's 96 pt default, 40 pt above a 56 pt
+                        // composer, until some later animated change (CMUX-10).
+                        if frame.height > 0 {
+                            surface.drawnStackHeight = frame.height
+                            surface.stackHeightFrame?(frame.height)
+                        }
                     } else {
-                        withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { reportedHeight = frame.height }
+                        withAnimation(spring) { reportedHeight = frame.height }
                     }
                 }
             }
@@ -773,6 +950,9 @@ public struct AgentChatBottomStack: View {
                 surface.drawnStackHeight = height
                 surface.stackHeightFrame?(height)
             })
+            // Floats just above the stack, never in it: showing it moves
+            // neither the composer nor the transcript's rows.
+            .overlay(alignment: .topLeading) { AgentChatConnectionLine(store: store) }
             // As in Messages, a downward swipe on the composer takes the
             // keyboard down (the transcript's interactive dismissal covers
             // drags that start above it).
@@ -803,6 +983,27 @@ public struct AgentChatBottomStack: View {
                 withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { surface.showPermissionChoices() }
             }
         }
+    }
+}
+
+/// The darkened band from a composer's middle down to and under the system keyboard
+/// (`Color.cmuxMobileKeyboardSkirt`). Shown while the composer has focus and no hardware keyboard is
+/// attached (one leaves no software keyboard to sit on). Draws only; touches pass through.
+struct KeyboardSkirt: View {
+    var shown: Bool
+    /// How far the band runs on below the composer: past the gap and into the keyboard's area.
+    static let reach: CGFloat = 400
+
+    var body: some View {
+        GeometryReader { proxy in
+            Color.cmuxMobileKeyboardSkirt
+                .frame(width: proxy.size.width, height: proxy.size.height / 2 + Self.reach)
+                .offset(y: proxy.size.height / 2)
+                .opacity(shown ? 1 : 0)
+                .animation(.cmuxMobileSmooth.unlessReduceMotion, value: shown)
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 
@@ -877,11 +1078,7 @@ struct StreamingMarkdown: View {
         // blocks keep their ids: only the last block's inline markers change).
         MarkdownView(MarkdownDocument(blocks: parse.blocks(markdown, isStreaming: isStreaming)), isStreaming: isStreaming,
                      animatesBlocks: animatesBlocks, marks: findMarks)
-            .contextMenu {
-                Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = markdown }
-                Button("Select Text", systemImage: "selection.pin.in.out") { ChatSelectText.present(markdown) }
-                ShareLink(item: markdown) { Label("Share", systemImage: "square.and.arrow.up") }
-            }
+            .selectionMenu { source in messageSelectionActions({ markdown }, from: source) }
     }
 }
 
@@ -895,7 +1092,7 @@ final class StreamParseBox {
     }
 }
 
-/// SPEC 4.4 user bubble with a timestamp-headed context menu and select-text sheet.
+/// User bubble with the message actions under its timestamp in the selection menu.
 struct UserBubble: View {
     let prompt: String
     let attachments: [AgentAttachment]
@@ -905,7 +1102,7 @@ struct UserBubble: View {
     /// Edit and Resend of an earlier prompt (a fork before it), when the chat offers it.
     var editEarlier: (() -> Void)?
     /// Bookmark and Read Aloud.
-    var polish: ChatPolishMenuButtons?
+    var polishActions: (() -> [UIMenuElement])?
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 6) {
@@ -915,41 +1112,63 @@ struct UserBubble: View {
             bubbleText
                 .padding(.horizontal, 16)
                 .padding(.vertical, 11)
-                .background(Color.cmuxMobileBubble, in: .rect(cornerRadius: 20, style: .continuous))
-                .contentShape(.contextMenuPreview, .rect(cornerRadius: 20, style: .continuous))
-                .contextMenu {
-                    Section(AgentTurn.menuTimestamp(promptAt)) {
-                        Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = prompt }
-                        Button("Select Text", systemImage: "selection.pin.in.out") { ChatSelectText.present(prompt) }
-                        if isLast {
-                            Button("Edit and Resend", systemImage: "pencil") { editAndResend() }
-                        } else if let editEarlier {
-                            Button("Edit and Resend", systemImage: "pencil") { editEarlier() }
-                        }
-                        ShareLink(item: prompt) { Label("Share", systemImage: "square.and.arrow.up") }
-                        polish
-                    }
-                }
+                .background(Color.cmuxMobileChatBubble, in: .rect(cornerRadius: 20, style: .continuous))
         }
-        .containerRelativeFrame(.horizontal, alignment: .trailing) { width, _ in width * 0.8 }
+        .selectionMenu(menuRows)
+        .containerRelativeFrame(.horizontal, alignment: .trailing) { width, _ in Self.maxWidth(in: width) }
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
+
+    private func menuRows(from source: UIView) -> [UIMenuElement] {
+        var actions = messageSelectionActions({ prompt }, from: source)
+        if let edit = isLast ? editAndResend : editEarlier {
+            actions.append(SelectionMenu.action("Edit and Resend", "pencil") { edit() })
+        }
+        actions += polishActions?() ?? []
+        return [UIMenu(title: AgentTurn.menuTimestamp(promptAt), options: .displayInline, children: actions)]
+    }
+
+    /// 80% of the column, at most 560 pt: on an unfolded foldable's wide screen 80% would
+    /// run a prompt's lines across most of it. The native row measures with the same rule.
+    nonisolated static func maxWidth(in column: CGFloat) -> CGFloat { min(column * 0.8, 560) }
 }
 
 extension UserBubble {
     /// The prompt, its leading quote drawn as the Mac draws one: muted, behind a bar.
     @ViewBuilder var bubbleText: some View {
-        if let split = NextStepAsk.replyQuote(prompt) {
+        if prompt.isEmpty {
+            // An attachment-only message has no word to hold.
+            MessageActionsButton(rows: menuRows)
+        } else if let split = NextStepAsk.replyQuote(prompt) {
             VStack(alignment: .leading, spacing: 6) {
-                Text(split.quote)
-                    .font(.body).lineSpacing(4).foregroundStyle(.secondary)
+                SelectableText(split.quote, color: .secondaryLabel, lineSpacing: 4)
                     .padding(.leading, 10)
                     .overlay(alignment: .leading) { Capsule().fill(.tertiary).frame(width: 2) }
-                Text(split.body).font(.body).lineSpacing(4)
+                SelectableText(split.body, color: .cmuxMobileChatBubbleText, lineSpacing: 4)
             }
         } else {
-            Text(prompt).font(.body).lineSpacing(4)
+            SelectableText(prompt, color: .cmuxMobileChatBubbleText, lineSpacing: 4)
         }
+    }
+}
+
+/// The same menu as a held word on a prompt that contains only attachments.
+private struct MessageActionsButton: UIViewRepresentable {
+    let rows: @MainActor (UIView) -> [UIMenuElement]
+
+    func makeUIView(context: Context) -> UIButton {
+        let button = UIButton(type: .system)
+        button.setImage(UIImage(systemName: "ellipsis"), for: .normal)
+        button.accessibilityLabel = String(localized: "Message actions")
+        button.showsMenuAsPrimaryAction = true
+        return button
+    }
+
+    func updateUIView(_ button: UIButton, context: Context) {
+        button.menu = UIMenu(children: [UIDeferredMenuElement.uncached { [weak button, rows] completion in
+            guard let button else { completion([]); return }
+            completion(rows(button))
+        }])
     }
 }
 
@@ -1164,6 +1383,18 @@ struct RetryModelChoice {
 
     /// The Mac's title (`turn.retryWith`).
     static let title = "Retry with another model"
+    static let systemImage = "arrow.triangle.2.circlepath"
+
+    /// The menu in a row: the live `Menu`, or in a still (`chatStill`) its label as a plain
+    /// button, which takes the same button and label styles (a `Menu` draws as `ImageRenderer`'s
+    /// yellow placeholder).
+    @ViewBuilder func control(still: Bool) -> some View {
+        if still {
+            Button {} label: { Label(Self.title, systemImage: Self.systemImage) }
+        } else {
+            menu
+        }
+    }
 
     var menu: some View {
         Menu {
@@ -1179,7 +1410,7 @@ struct RetryModelChoice {
                 }
             }
         } label: {
-            Label(Self.title, systemImage: "arrow.triangle.2.circlepath")
+            Label(Self.title, systemImage: Self.systemImage)
         }
         .accessibilityIdentifier("chat.retryWithModel")
     }
@@ -1197,6 +1428,7 @@ struct AnswerActionRow: View {
     var polish: ChatPolishMenuButtons?
     let retry: () -> Void
     @State private var copied = false
+    @Environment(\.chatStill) private var still
 
     var body: some View {
         HStack(spacing: 0) {
@@ -1211,24 +1443,23 @@ struct AnswerActionRow: View {
             .sensoryFeedback(.impact(weight: .light, intensity: 0.7), trigger: copied) { _, new in
                 new && CmuxMobileTheme.standard.haptics.isEnabled
             }
-            ShareLink(item: turn.answerMarkdown) {
+            if still {
+                // Share and More are UIKit controls, a placeholder in a still: their glyphs alone.
                 IconActionLabel("square.and.arrow.up")
+            } else {
+                ShareLink(item: turn.answerMarkdown) {
+                    IconActionLabel("square.and.arrow.up")
+                }
+                .accessibilityLabel("Share")
             }
-            .accessibilityLabel("Share")
             if isLast {
                 IconAction("arrow.clockwise", label: "Retry", action: retry)
             }
-            Menu {
-                Section(AgentTurn.menuTimestamp(turn.endedAt ?? turn.promptAt)) {
-                    Button("Copy as Markdown", systemImage: "text.document") { UIPasteboard.general.string = turn.answerMarkdown }
-                    Button("Retry", systemImage: "arrow.clockwise", action: retry)
-                    retryWith?.menu
-                    polish
-                }
-            } label: {
+            if still {
                 IconActionLabel("ellipsis")
+            } else {
+                moreMenu
             }
-            .accessibilityLabel("More")
             Spacer()
             if let duration = ToolWording().shown(turn.duration) {
                 Text(ToolWording().duration(duration)).font(.footnote.monospacedDigit()).foregroundStyle(.tertiary)
@@ -1242,6 +1473,20 @@ struct AnswerActionRow: View {
         .padding(.vertical, insetsTargets ? -6 : 0)
         .padding(.top, insetsTargets ? 2 : 0)
         .padding(.leading, -14)
+    }
+
+    private var moreMenu: some View {
+        Menu {
+            Section(AgentTurn.menuTimestamp(turn.endedAt ?? turn.promptAt)) {
+                Button("Copy as Markdown", systemImage: "text.document") { UIPasteboard.general.string = turn.answerMarkdown }
+                Button("Retry", systemImage: "arrow.clockwise", action: retry)
+                retryWith?.menu
+                polish
+            }
+        } label: {
+            IconActionLabel("ellipsis")
+        }
+        .accessibilityLabel("More")
     }
 }
 

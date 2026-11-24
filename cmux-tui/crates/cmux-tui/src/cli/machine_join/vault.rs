@@ -32,7 +32,7 @@ mod policy;
 
 pub(in crate::cli) use policy::Policy;
 
-const USAGE: &str = "usage: cmux machine vault set NAME [--host H]... [--no-hosts | --env]   (the value from a hidden prompt or stdin)
+pub(super) const USAGE: &str = "usage: cmux machine vault set NAME [--host H]... [--no-hosts | --env]   (the value from a hidden prompt or stdin)
        cmux machine vault policy NAME (--host H... | --no-hosts | --env)
        cmux machine vault ls
   --host H     agents get a placeholder; the machine sends the real value only to H (repeat for more)
@@ -404,7 +404,11 @@ pub(super) fn run(
             platform
                 .request(reqwest::Method::DELETE, &format!("{ENV_PATH}/{name}"), None)
                 .map_err(|e| match e {
-                    CallError::Status { status: 404, code: "vault.not_found" | "not_found" } => {
+                    CallError::Status {
+                        status: 404,
+                        code: "vault.not_found" | "not_found",
+                        ..
+                    } => {
                         Failure::new("machine_vault.not_found", format!("your vault has no {name}"))
                     }
                     e => vault_failure(&e, "the removal"),
@@ -423,12 +427,12 @@ pub(super) fn run(
             platform
                 .request(reqwest::Method::PUT, &path, Some(json!({ "granted": granted })))
                 .map_err(|e| match e {
-                    CallError::Status { status: 403, code: "machine.vault_personal_only" } => {
-                        Failure::new(
-                            "machine_join.vault_personal_only",
-                            "the vault goes only to machines of your personal team",
-                        )
-                    }
+                    CallError::Status {
+                        status: 403, code: "machine.vault_personal_only", ..
+                    } => Failure::new(
+                        "machine_join.vault_personal_only",
+                        "the vault goes only to machines of your personal team",
+                    ),
                     e => vault_failure(&e, "the grant"),
                 })?;
             let human = if *granted {

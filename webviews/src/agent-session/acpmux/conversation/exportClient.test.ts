@@ -1,7 +1,8 @@
 // l10n-allow-file: synthetic relay fixtures, not shipped UI.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import type { EventRecord } from "../direct";
+import type { EventRecord } from "../eventRecord";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -10,7 +11,8 @@ beforeAll(() => {
   scope.window = dom.window;
   scope.document = dom.window.document;
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, previous] of saved) {
     if (previous.had) scope[key] = previous.value;
     else delete scope[key];

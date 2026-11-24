@@ -32,9 +32,9 @@ fi
 # iPhone host's, here first, so no two background builds install into
 # one toolchain at once (both scripts then find them in place).
 toolchain="$(sed -n 's/^channel *= *"\(.*\)"/\1/p' cmux-tui/rust-toolchain.toml)"
-rustup toolchain install "$toolchain" --profile minimal >/dev/null
 # shellcheck source=scripts/lib/rust-targets.sh
 source scripts/lib/rust-targets.sh
+ensure_rust_toolchain "$toolchain" --profile minimal >/dev/null
 ensure_rust_targets --toolchain "$toolchain" aarch64-apple-darwin x86_64-apple-darwin >/dev/null
 (cd cmux-next-ios/rust && ensure_rust_targets aarch64-apple-darwin x86_64-apple-darwin >/dev/null)
 python3 scripts/ci/background_build.py start --state "$RUNNER_TEMP/nightly-helper-builds" optchat-chief -- \

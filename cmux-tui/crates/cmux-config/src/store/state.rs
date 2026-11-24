@@ -1,5 +1,8 @@
 //! The owner's in-memory state and its derived effective settings.
 
+use std::collections::BTreeSet;
+use std::path::PathBuf;
+
 use serde_json::{Map, Value};
 
 use super::replay::ReplayLog;
@@ -10,7 +13,9 @@ use crate::effective::EffectiveSettings;
 use crate::jsonc;
 use crate::managed::{ManagedPreferences, TeamPolicyLayer};
 use crate::render::compact;
-use crate::schema::{Schema, accepts};
+use crate::schema::{Row, Schema, accepts};
+use crate::sidebar_look;
+use crate::theme_file::{self, ThemeDiagnosticKind, ThemeFile};
 use crate::value::value_at;
 
 /// What reading cmux.json gave: its text (`""` for a missing file), or why
@@ -36,6 +41,33 @@ pub struct State {
     pub(crate) revision: u64,
     pub(crate) effective: EffectiveSettings,
     pub(crate) replay: ReplayLog,
+    pub(crate) theme: ThemeLayer,
+    sidebar_look: Option<sidebar_look::SidebarLook>,
+}
+
+/// The active theme file (`appearance.themeFile`) as the owner last read
+/// it. It applies over the user's file and under managed values, as in the
+/// Mac app (`ThemeFileOverlay`).
+#[derive(Debug, Clone, Default)]
+pub struct ThemeLayer {
+    /// The name the read below is of.
+    pub(crate) name: Option<String>,
+    /// `None`: no file of that name; `Err`: it could not be read.
+    pub(crate) read: Option<Result<String, String>>,
+    /// The themes folder, for pictures beside the file.
+    pub(crate) folder: Option<PathBuf>,
+    /// The last text of `name` that parsed: applies while a save is half done.
+    pub(crate) last_good: Option<(String, String)>,
+    /// The file as it applies now.
+    pub(crate) file: Option<ThemeFile>,
+}
+
+/// One read of a theme file, for [`State::reload_with_theme`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ThemeRead {
+    pub name: String,
+    pub read: Option<Result<String, String>>,
+    pub folder: Option<PathBuf>,
 }
 
 impl State {
@@ -61,6 +93,8 @@ impl State {
             revision,
             effective,
             replay: ReplayLog::default(),
+            theme: ThemeLayer::default(),
+            sidebar_look: None,
         };
         state.read_file(file);
         state.recompute();
@@ -75,6 +109,10 @@ impl State {
     }
     pub fn source(&self) -> &str {
         &self.source
+    }
+    /// The last document of the file that parsed (it applies while the file is broken).
+    pub fn file_root(&self) -> &Value {
+        &self.file_root
     }
     pub fn effective(&self) -> &EffectiveSettings {
         &self.effective
@@ -106,12 +144,43 @@ impl State {
     /// a change only when something visible changed (a comment-only edit
     /// changes nothing).
     pub fn reload(&self, file: FileRead, managed: ManagedPreferences) -> (State, Option<Change>) {
+        self.reload_with_theme(file, managed, |_| None)
+    }
+
+    /// [`State::reload`], with the active theme file read by `read_theme`
+    /// (given the theme file name the new file root picks). `None` keeps the
+    /// read already held.
+    pub fn reload_with_theme(
+        &self,
+        file: FileRead,
+        managed: ManagedPreferences,
+        read_theme: impl FnOnce(&str) -> Option<ThemeRead>,
+    ) -> (State, Option<Change>) {
         let mut next = self.clone();
         next.read_file(file);
         next.managed = managed;
+        if let Some(name) = theme_file::name_in(&next.file_root)
+            && let Some(read) = read_theme(name)
+        {
+            next.theme.name = Some(read.name);
+            next.theme.read = read.read;
+            next.theme.folder = read.folder;
+        }
         next.recompute();
         let applied = finish(self, next, Origin::File);
         (applied.state, applied.changes.into_iter().next())
+    }
+
+    /// The theme file the file root picks, and whether the held read is of
+    /// another name (the owner then reads it).
+    pub fn theme_wanted(&self) -> Option<(&str, bool)> {
+        theme_file::name_in(&self.file_root)
+            .map(|name| (name, self.theme.name.as_deref() != Some(name)))
+    }
+
+    /// The active theme file as it applies, when one does.
+    pub fn theme_file(&self) -> Option<&ThemeFile> {
+        self.theme.file.as_ref()
     }
 
     /// Adopts a file read: a parsing object becomes the file root; anything
@@ -144,10 +213,30 @@ impl State {
         if let Some(problem) = &self.file_problem {
             diagnostics.push(Diagnostic::new(DiagnosticKind::UnreadableFile, "", problem));
         }
+        if let Some(themed) = self.apply_theme(&effective) {
+            let managed_keys = effective.managed_keys.clone();
+            effective = EffectiveSettings::merge(&themed, &self.managed, &self.team, self.schema);
+            // The user's own file stays the file: writes and "customized" read it.
+            effective.file_root = self.file_root.clone();
+            effective.managed_keys = managed_keys;
+            for problem in self.theme.file.iter().flat_map(|file| &file.diagnostics) {
+                let kind = match problem.kind {
+                    ThemeDiagnosticKind::UnreadableFile => DiagnosticKind::UnreadableFile,
+                    _ => DiagnosticKind::InvalidValue,
+                };
+                diagnostics.push(Diagnostic::new(kind, &problem.path, &problem.display()));
+            }
+        }
+        // The sidebar look fills only what every layer above leaves unset (sidebar_look).
+        self.sidebar_look = sidebar_look::selected(&effective.root, self.schema, &self.domains);
+        if let Some(look) = &self.sidebar_look {
+            effective.root = look.filling(&effective.root);
+        }
         diagnostics.append(&mut effective.diagnostics);
         for row in &self.schema.rows {
+            // An old choice value (a row's alias) reads as its replacement, without a diagnostic.
             if let Some(stored) = value_at(&effective.root, &row.path)
-                && accepts(row, stored, &self.domains).is_err()
+                && accepts(row, &crate::schema::aliased(row, stored), &self.domains).is_err()
             {
                 let message = format!("{} does not accept {}", row.key, compact(stored));
                 diagnostics.push(Diagnostic::new(DiagnosticKind::InvalidValue, &row.key, &message));
@@ -155,6 +244,80 @@ impl State {
         }
         effective.diagnostics = diagnostics;
         self.effective = effective;
+    }
+
+    /// A file value for group headers may override a different value from a lower layer
+    /// even when it equals the schema default. The preset is the last such layer.
+    pub(super) fn overrides_group_background(&self, row: &Row, value: &Value) -> bool {
+        if row.key != sidebar_look::GROUP_BACKGROUND {
+            return false;
+        }
+        self.managed
+            .recommended
+            .get(&row.key)
+            .or_else(|| self.team.defaults.get(&row.key))
+            .or_else(|| self.schema.build_defaults().get(&row.key))
+            .or_else(|| {
+                self.sidebar_look
+                    .as_ref()?
+                    .values
+                    .iter()
+                    .find(|(path, _)| *path == row.path)
+                    .map(|(_, value)| value)
+            })
+            .is_some_and(|inherited| inherited != value)
+    }
+
+    /// The file root with the active theme file over it (managed keys
+    /// left alone), or `None` when no theme file applies. A held read of
+    /// another name is not applied: the owner reads the new one next.
+    fn apply_theme(&mut self, base: &EffectiveSettings) -> Option<Value> {
+        let Some(name) = theme_file::name_in(&self.file_root).map(str::to_string) else {
+            self.theme.file = None;
+            return None;
+        };
+        if self.theme.name.as_deref() != Some(name.as_str()) {
+            self.theme.file = None;
+            return None;
+        }
+        let source = self.theme.read.clone();
+        let last_good = self
+            .theme
+            .last_good
+            .as_ref()
+            .filter(|(of, _)| *of == name)
+            .map(|(_, text)| text.as_str());
+        let file = ThemeFile::read(
+            &name,
+            source.as_ref().map(|read| read.as_deref().map_err(Clone::clone)),
+            &self.file_root,
+            self.theme.folder.as_deref(),
+            self.schema,
+            &self.domains,
+        )
+        .or_last_good(
+            last_good,
+            &self.file_root,
+            self.theme.folder.as_deref(),
+            self.schema,
+            &self.domains,
+        );
+        if !file.is_unparsable
+            && let Some(Ok(text)) = &source
+            && file.is_loaded
+        {
+            self.theme.last_good = Some((name, text.clone()));
+        }
+        // Managed keys, and the keys the person changed over the file (#44894), keep their value.
+        let mut kept: BTreeSet<String> = base.managed_keys.keys().cloned().collect();
+        // Only look rows count, never the colors map: a hand-written "appearance" must not turn
+        // the whole file off (as Swift `ThemeFileExceptionsSetting.keys`).
+        kept.extend(theme_file::exceptions_in(&self.file_root).into_iter().filter(|key| {
+            key != "appearance.themeEdits" && self.schema.row(key).is_some_and(theme_file::is_look)
+        }));
+        let themed = file.applied(&self.file_root, &kept);
+        self.theme.file = Some(file);
+        Some(themed)
     }
 
     /// Whether a client could see a difference between `self` and `other`.
@@ -166,12 +329,17 @@ impl State {
 /// Bumps the revision of `next` once when it differs visibly from `previous`.
 pub(super) fn finish(previous: &State, mut next: State, origin: Origin) -> Applied {
     if !previous.visibly_differs(&next) {
-        let outcome = Outcome { revision: next.revision, keys: Vec::new(), replayed: false };
+        let outcome = Outcome {
+            revision: next.revision,
+            keys: Vec::new(),
+            replayed: false,
+            applied: Vec::new(),
+        };
         return Applied { state: next, changes: Vec::new(), outcome, write: None };
     }
     next.revision = previous.revision + 1;
     let keys = diff::changed_keys(&previous.effective, &next.effective);
     let change = Change { revision: next.revision, keys: keys.clone(), origin };
-    let outcome = Outcome { revision: next.revision, keys, replayed: false };
+    let outcome = Outcome { revision: next.revision, keys, replayed: false, applied: Vec::new() };
     Applied { state: next, changes: vec![change], outcome, write: None }
 }

@@ -4,11 +4,9 @@ import CoreGraphics
 /// The motion parity corpus of this port (`debug.motion {action:
 /// "trajectory"}`): every chrome spring token resolved at speed fast, and
 /// the frame path of a 200 pt move (and a retarget to 50 pt after 5 frames)
-/// at 60 and 120 Hz until the spring rests. No spring bounces, so every row
-/// is `"bounce": "none"`: the field stays because
-/// scripts/cmux-next/motion-parity.py keys rows on it, and cmux-motion's
-/// `motion_trajectories` example still prints "none" and "subtle" rows
-/// until cmux-motion drops its bounce too.
+/// at 60 and 120 Hz until the spring rests (the document cmux-motion's
+/// `motion_trajectories` example prints; scripts/cmux-next/motion-parity.py
+/// compares the two).
 /// `debug.motion` (CmuxNextApp) serves it; it lives here, beside the
 /// motion settings, to keep the App target small.
 public struct MotionParityCorpus {
@@ -23,14 +21,14 @@ public struct MotionParityCorpus {
         for token in tokens {
             let spring = policy.spring(token)
             tokenRows.append([
-                "token": .string(token.rawValue), "bounce": .string("none"),
+                "token": .string(token.rawValue),
                 "response": .number(spring.response), "damping_fraction": .number(spring.dampingFraction),
                 "visible_end": .number(spring.perceivedDuration),
             ])
             for hz in [60.0, 120.0] {
                 for (name, retarget) in [("move", nil), ("retarget", (5, CGFloat(50)))] as [(String, (Int, CGFloat)?)] {
                     paths.append([
-                        "token": .string(token.rawValue), "bounce": .string("none"), "hz": .number(hz),
+                        "token": .string(token.rawValue), "hz": .number(hz),
                         "case": .string(name), "values": .array(path(spring, hz: hz, retarget: retarget).map { .number(Double($0)) }),
                     ])
                 }

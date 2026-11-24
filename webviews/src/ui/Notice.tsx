@@ -14,9 +14,13 @@
 // it when it can be dismissed. Native calls forward into the same card through the host's cards
 // (toolCards) rather than drawing their own.
 import { Checkbox } from "@base-ui/react/checkbox";
-import { useId, type KeyboardEvent, type ReactNode } from "react";
+import { useId, type KeyboardEvent, type ReactNode, useRef } from "react";
+import { Spinner } from "../agent-session/acpmux/conversation/Spinner";
 import { Button } from "./Button";
 import { cx } from "./cx";
+import { DismissButton } from "./DismissButton";
+import { useNoticeMorph } from "./noticeMorph";
+import type { ToastLook } from "./toastsV2.experiment";
 import "./controls.css";
 import "./notice.css";
 
@@ -24,6 +28,9 @@ export type NoticeKind = "toast" | "warning" | "ask" | "error";
 /** inline: in the flow of its surface (above a composer, in a form); banner: across the top of a
  * page; stack: one of NoticeStack's toasts, over the surface. */
 export type NoticePlacement = "inline" | "banner" | "stack";
+/** A toast that tracks work (NoticeQueue.promise): a spinner while it runs, then its result, in the
+ * same card. */
+export type NoticeState = "working" | "success" | "error";
 
 export interface NoticeAction {
   id: string;
@@ -71,6 +78,10 @@ export interface NoticeProps {
   id?: string;
   /** A toast shown again while it was up: how many times, drawn as `×2` after its text. */
   count?: number;
+  /** Work it tracks: the lead is a spinner while working, then a check or the error's mark. */
+  state?: NoticeState;
+  /** The toasts-v2 experiment's arm (toastsV2.experiment.ts); `off` draws today's card. */
+  look?: ToastLook;
 }
 
 /** The buttons in their order: an error's Retry first, then the actions; which one is filled. */
@@ -118,10 +129,17 @@ export function Notice({
   className,
   id,
   count = 1,
+  state,
+  look = "off",
 }: NoticeProps) {
   const titleId = useId();
   const messageId = useId();
-  const buttons = noticeButtons(kind, actions, retry);
+  const v2 = look !== "off";
+  // v2: a toast's first answer (its Undo) is the one ink-filled button.
+  const buttons = noticeButtons(kind, actions, retry).map((button, index) => ({
+    ...button,
+    ink: v2 && kind === "toast" && index === 0,
+  }));
   const role = noticeRole(kind);
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (event.key !== "Escape" || !onDismiss || event.defaultPrevented) return;
@@ -129,14 +147,30 @@ export function Notice({
     event.stopPropagation();
     onDismiss();
   };
-  const mark = leading ?? (kind === "toast" ? null : <NoticeMark kind={kind} />);
+  const mark =
+    leading ??
+    (state === "working" ? (
+      <NoticeSpinner />
+    ) : state === "success" ? (
+      <NoticeMark kind="success" />
+    ) : kind === "toast" ? null : (
+      <NoticeMark kind={kind} />
+    ));
+  const card = useRef<HTMLElement>(null);
+  // v2: a change of state or text moves the card's box from the old size to the new (noticeMorph.ts).
+  const plain = (value: ReactNode) => (typeof value === "string" ? value : "");
+  useNoticeMorph(card, v2 ? JSON.stringify([kind, state ?? "", plain(title), plain(message)]) : undefined);
   return (
     // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape closes the notice from its buttons, checkmark or field.
     <section
+      ref={card}
       id={id}
       className={cx("ui-notice ui-glass", className)}
+      data-surface-role={kind === "toast" ? "toast" : "card"}
       data-kind={kind}
       data-placement={placement}
+      data-state={state}
+      data-look={v2 ? look : undefined}
       role={role}
       aria-live={role === "group" ? "polite" : undefined}
       aria-labelledby={title ? titleId : message ? messageId : undefined}
@@ -169,7 +203,7 @@ export function Notice({
           {check && <NoticeCheckmark {...check} />}
           {buttons.length > 0 && (
             <div className="ui-notice-actions">
-              {buttons.map(({ action, filled }) =>
+              {buttons.map(({ action, filled, ink }) =>
                 // A disabled link is drawn as its disabled button, so it neither focuses nor opens.
                 action.href && !action.disabled ? (
                   // A link the host opens outside the page (PageNavigation), in the button's look.
@@ -179,6 +213,7 @@ export function Notice({
                     data-variant={filled ? "solid" : "ghost"}
                     data-size="sm"
                     data-notice-action={action.id}
+                    data-ink={ink ? "" : undefined}
                     href={action.href}
                     /* tooltip-allow: the link names the action; the tooltip is its scope, shown nowhere else */
                     title={action.hint}
@@ -193,6 +228,7 @@ export function Notice({
                     variant={filled ? "solid" : "ghost"}
                     size="sm"
                     data-notice-action={action.id}
+                    data-ink={ink ? "" : undefined}
                     disabled={action.disabled}
                     /* tooltip-allow: the button names the action; the tooltip is its scope, shown nowhere else */
                     title={action.hint}
@@ -207,20 +243,7 @@ export function Notice({
         </div>
       )}
       {/* Last in the tab order: an answer or Retry comes before closing. */}
-      {onDismiss && (
-        <Button
-          variant="ghost"
-          size="sm"
-          icon
-          className="ui-notice-dismiss"
-          aria-label={dismissLabel}
-          onClick={onDismiss}
-        >
-          <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
-            <path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
-          </svg>
-        </Button>
-      )}
+      {onDismiss && <DismissButton className="ui-notice-dismiss" label={dismissLabel} onDismiss={onDismiss} />}
     </section>
   );
 }
@@ -253,11 +276,30 @@ function NoticeCheckmark({ label, checked, onCheckedChange, hint }: NoticeCheck)
   );
 }
 
-/** The kind's small mark: a ring for an error, a triangle for a warning, a dot for an ask. */
-export function NoticeMark({ kind }: { kind: NoticeKind }) {
+/** The working mark: the one shared spinner (conversation/icons.tsx `Spinner`), turned by its own sheet
+ * on the shared keyframes and clock (spinnerClock.ts). */
+export function NoticeSpinner() {
+  return <Spinner loading size={14} className="ui-notice-mark ui-notice-spinner" />;
+}
+
+/** The kind's small mark: a ring for an error, a triangle for a warning, a dot for an ask, a check
+ * for work that succeeded. */
+export function NoticeMark({ kind }: { kind: NoticeKind | "success" }) {
   return (
     <svg className="ui-notice-mark" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" data-kind={kind}>
-      {kind === "error" ? (
+      {kind === "success" ? (
+        <>
+          <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="1.25" />
+          <path
+            d="M5.4 8.2 7.2 10l3.4-3.8"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </>
+      ) : kind === "error" ? (
         <>
           <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="1.25" />
           <path d="M8 4.75v3.75M8 10.9v.35" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />

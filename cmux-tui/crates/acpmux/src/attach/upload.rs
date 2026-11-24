@@ -247,10 +247,8 @@ impl Record {
         // Its lock file stays when the record goes: a sender that opened it just before would
         // otherwise lock a file nobody else sees.
         crate::config::private_state_dir(dir).ok()?;
-        let mut open = std::fs::OpenOptions::new();
-        open.create(true).truncate(false).write(true);
-        #[cfg(unix)]
-        std::os::unix::fs::OpenOptionsExt::mode(&mut open, 0o600);
+        let mut open = crate::home_fs::OpenOptions::new();
+        open.create(true).truncate(false).write(true).mode(0o600);
         let lock = open.open(dir.join(format!("{hash}.lock"))).ok()?;
         lock.try_lock().ok()?;
         Some(Self { path: dir.join(format!("{hash}.json")), lock })
@@ -272,7 +270,7 @@ impl Record {
     /// Removes it: its upload finished, was cancelled, or is gone. The lock file stays, empty.
     /// False when it is still there, naming an upload another send could take as its own.
     pub(super) fn forget(&self) -> bool {
-        match std::fs::remove_file(&self.path) {
+        match crate::home_fs::remove_file(&self.path) {
             Ok(()) => true,
             Err(e) => e.kind() == std::io::ErrorKind::NotFound,
         }

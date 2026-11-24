@@ -11,8 +11,9 @@ name: Cloud desktop UDP link readback (staging, Mac behind NAT)
 # (never a key or an address). The machine is deleted by the journey and again, by its run tag, in an
 # always() step. Nothing gates on this run.
 #
-# Secrets: the staging agent test account (CMUX_JOURNEY_DEV_STACK_*) in cmux-next-cloud-journey, the
-# environment cloud-chat-proof.yml reads. Manual dispatch on feat-cmux-next only.
+# Secrets: the staging agent test account, CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD in cmux-next-vm-image-dev (the
+# pair cloud-chat-proof.yml's staging job reads; cmux-next-cloud-journey holds the production account and no
+# CMUX_JOURNEY_DEV_STACK_* pair, cmuxterm-hq#8702). Manual dispatch on feat-cmux-next only.
 on:
   workflow_dispatch:
     inputs:
@@ -29,12 +30,16 @@ concurrency:
   group: cloud-rd-link-readback-${{ github.run_id }}
   cancel-in-progress: false
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
 jobs:
   readback:
     if: github.ref == 'refs/heads/feat-cmux-next'
     # Holds the stack pair: an ephemeral Blacksmith macOS VM from the declared pool, as cloud-chat-proof.yml.
     environment:
-      name: cmux-next-cloud-journey
+      name: cmux-next-vm-image-dev
       deployment: false
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 75
@@ -94,18 +99,19 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       - name: Desktop link readback (staging)
         timeout-minutes: 25
         env:
-          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_JOURNEY_DEV_STACK_EMAIL }}
-          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_JOURNEY_DEV_STACK_PASSWORD }}
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
           CMUX_PATH: ${{ steps.build-cmux-tui.outputs.path }}
           TEAM: ${{ inputs.team }}
         run: |
           set -euo pipefail
           if [ -z "${CMUX_DOGFOOD_STACK_EMAIL:-}" ] || [ -z "${CMUX_DOGFOOD_STACK_PASSWORD:-}" ]; then
-            echo "::error::the staging agent Stack pair is missing from cmux-next-cloud-journey"
+            echo "::error::the staging agent Stack pair is missing from cmux-next-vm-image-dev"
             exit 1
           fi
           OUT="$RUNNER_TEMP/rd-link"
@@ -159,8 +165,8 @@ jobs:
       - name: Delete the run's machine
         if: always()
         env:
-          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_JOURNEY_DEV_STACK_EMAIL }}
-          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_JOURNEY_DEV_STACK_PASSWORD }}
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
           TEAM: ${{ inputs.team }}
         run: |
           set -euo pipefail

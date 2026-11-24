@@ -22,6 +22,7 @@ use tokio::net::UdpSocket;
 use tokio::sync::{Notify, mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
+use zeroize::Zeroizing;
 
 use crate::config::InterfaceAddress;
 use crate::error::WgError;
@@ -147,10 +148,11 @@ fn earliest(a: Option<Instant>, b: Option<Instant>) -> Option<Instant> {
 
 pub(crate) fn spawn(
     config: WgMeshConfig,
+    retired: Option<Zeroizing<[u8; 32]>>,
     socket: UdpSocket,
     commands: mpsc::Receiver<MeshCommand>,
 ) -> Result<JoinHandle<()>, WgError> {
-    let driver = MeshDriver::new(config, socket, commands)?;
+    let driver = MeshDriver::new(config, retired.as_deref(), socket, commands)?;
     Ok(tokio::spawn(driver.run()))
 }
 
@@ -163,6 +165,9 @@ pub(crate) struct MeshDriver {
     /// Checks the MAC of every handshake initiation before the
     /// Diffie-Hellman that identifies its key, and rate-limits them.
     pub(crate) gate: RateLimiter,
+    /// The same check for initiations to this side's retired key, when it
+    /// has one (`WgMesh::start_retiring`).
+    pub(crate) retired_gate: Option<RateLimiter>,
     /// Per-connection pacing of the stack's output (shared with
     /// [`crate::WgNet`]): smoltcp releases a whole window at once, and a
     /// burst into a socket buffer loses segments.
@@ -190,20 +195,24 @@ enum Event {
 impl MeshDriver {
     pub(crate) fn new(
         config: WgMeshConfig,
+        retired: Option<&[u8; 32]>,
         socket: UdpSocket,
         commands: mpsc::Receiver<MeshCommand>,
     ) -> Result<Self, WgError> {
         let local = socket.local_addr()?;
         let wake = Arc::new(Notify::new());
         let stack = TcpStack::new(&config.addresses, config.mtu, Arc::clone(&wake), true)?;
-        let table = PeerTable::new(&config.private_key);
+        let table = PeerTable::new(&config.private_key, retired);
         let gate = RateLimiter::new(table.public(), HANDSHAKES_PER_SECOND);
+        let retired_gate =
+            table.retired().map(|(_, public)| RateLimiter::new(public, HANDSHAKES_PER_SECOND));
         Ok(Self {
             table,
             stack,
             out: Outbound::new(SocketPath::new(socket, None), local),
             addresses: config.addresses,
             gate,
+            retired_gate,
             pacer: Pacer::default(),
             pace_deadline: None,
             probe_deadline: None,
@@ -442,6 +451,19 @@ impl MeshDriver {
                     peer.schedule.on_activity(now);
                 }
             }
+            // The peer's session on the current key (`probe_current`) runs
+            // its own timers: an unanswered probe is sent again every 5 s
+            // until boringtun gives up, and its handshake rate limit resets
+            // each second, as any session's.
+            if let Some(current) = peer.current.as_mut()
+                && let TunnResult::WriteToNetwork(packet) = current.update_timers(&mut self.scratch)
+            {
+                let retry = classify(packet) == DatagramClass::WireGuardInitiation;
+                deliver(&mut peer.paths, &mut self.out, now, packet);
+                if retry {
+                    peer.schedule.on_activity(now);
+                }
+            }
             // A dial waiting on the handshake gets an initiation every
             // HANDSHAKE_RESEND, not only boringtun's every 5 s or more.
             if peer.paths.has_target()
@@ -459,8 +481,8 @@ impl MeshDriver {
 
     fn handle_command(&mut self, command: MeshCommand) {
         match command {
-            MeshCommand::AddPeer { peer, reply } => {
-                let _ = reply.send(self.add_peer(peer));
+            MeshCommand::AddPeer { peer, retired, reply } => {
+                let _ = reply.send(self.add_peer(peer, retired));
             }
             MeshCommand::RemovePeer { public_key, reply } => {
                 let removed = self.table.remove(&public_key).is_some();
@@ -472,6 +494,9 @@ impl MeshDriver {
             MeshCommand::PeerPaths { public_key, reply } => {
                 let _ = reply.send(self.table.get_mut(&public_key).map(|peer| peer.paths.views()));
             }
+            MeshCommand::ProbeCurrent { public_key, reply } => {
+                self.probe_current(public_key, reply);
+            }
             MeshCommand::Connect { remote, reply } => self.begin_connect(remote, reply),
             MeshCommand::Listen { port, reply } => {
                 let _ = reply.send(self.stack.begin_listen(port));
@@ -480,11 +505,36 @@ impl MeshDriver {
         }
     }
 
-    fn add_peer(&mut self, peer: WgPeer) -> Result<(), WgError> {
-        self.table.check(&peer)?;
+    /// [`crate::WgMesh::probe_current`]: an initiation from the peer's
+    /// session on the current key; `reply` answers once that session is the
+    /// peer's ([`crate::mesh_peers::Peer::move_to_current`]). Each probe
+    /// sends one, even while an earlier one is unanswered; the session's
+    /// timers ([`MeshDriver::run_timers`]) send it again until it is.
+    fn probe_current(&mut self, key: [u8; 32], reply: oneshot::Sender<bool>) {
+        let Some(peer) = self.table.get_mut(&key) else {
+            let _ = reply.send(false);
+            return;
+        };
+        // Already on the current key (its own handshake moved it there).
+        let Some(current) = peer.current.as_mut() else {
+            let _ = reply.send(!peer.on_retired);
+            return;
+        };
+        let now = Instant::now();
+        if let TunnResult::WriteToNetwork(packet) =
+            current.format_handshake_initiation(&mut self.scratch, true)
+        {
+            deliver(&mut peer.paths, &mut self.out, now, packet);
+            peer.schedule.on_activity(now);
+        }
+        peer.probing = Some(reply);
+    }
+
+    fn add_peer(&mut self, peer: WgPeer, retired: bool) -> Result<(), WgError> {
+        self.table.check(&peer, retired)?;
         let key = peer.public_key;
         let now = Instant::now();
-        let entry = self.table.insert(peer, &self.local.networks, now);
+        let entry = self.table.insert(peer, &self.local.networks, now, retired);
         // A replaced peer's connections stay only where it still routes.
         let allowed = entry.allowed_ips.clone();
         // Start the session now when the peer's address is known, so a peer

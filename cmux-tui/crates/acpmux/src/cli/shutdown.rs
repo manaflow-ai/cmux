@@ -44,23 +44,70 @@ pub(crate) async fn restart(json_out: bool) -> Result<()> {
     let before = client.request(method::MUX_STATUS, json!({})).await?;
     preserve_restart_listener(&before)?;
     drop(client);
-    run_on(&*TokioClock::new(), false, json_out, true, true).await?;
-    let client = crate::daemon::connect(true).await?;
-    let status = client.request(method::MUX_STATUS, json!({})).await?;
+    // The binary the next daemon should run: this command's own, or a newer install
+    // (`daemon/start_exe.rs`), never whatever `acpmux` PATH names.
+    let choice = crate::daemon::start_exe::current(&crate::config::home())?;
+    let mut status = Value::Null;
+    for attempt in 1..=RESTART_ATTEMPTS {
+        run_on(&*TokioClock::new(), false, json_out, true, true).await?;
+        let client = crate::daemon::connect(true).await?;
+        status = client.request(method::MUX_STATUS, json!({})).await?;
+        let Some(stale) = stale_winner(&choice, &status) else { break };
+        // Another client of an older build started its own binary between the old daemon's
+        // exit and this start (air-blue, 2026-11-22). Restart again; say so either way.
+        if attempt == RESTART_ATTEMPTS {
+            return Err(anyhow!(
+                "the daemon came back as {stale}, an older build than {} ({}); a client of that \
+                 build restarted it first. Update or remove that binary, then run `daemon restart` again",
+                choice.this.exe.display(),
+                choice.why
+            ));
+        }
+        eprintln!("restart: the daemon came back as {stale}, an older build; restarting it again");
+        tracing::warn!("restart: the daemon came back as {stale}, an older build; again");
+    }
     anyhow::ensure!(
         before.get("listen") == status.get("listen")
             && before.get("webUrl") == status.get("webUrl"),
         "the daemon started with different listener settings; inspect `daemon status`"
     );
+    let exe = status.get("exe").and_then(Value::as_str).unwrap_or("unknown");
     if json_out {
-        print_json(&json!({"restarted": true, "status": status}));
+        print_json(&json!({
+            "restarted": true,
+            "status": status,
+            "start": {"exe": choice.this.exe, "why": choice.why},
+        }));
     } else {
         println!(
-            "restarted; daemon pid {}",
-            status.get("pid").and_then(serde_json::Value::as_u64).unwrap_or(0)
+            "restarted; daemon pid {} runs {exe} ({})",
+            status.get("pid").and_then(serde_json::Value::as_u64).unwrap_or(0),
+            choice.why
         );
     }
     Ok(())
+}
+
+/// How many times `restart` stops and starts the daemon when an older build keeps winning.
+const RESTART_ATTEMPTS: u32 = 2;
+
+/// The daemon `status` names, as `<exe> (build <b>)`, when it is an older build than `choice`
+/// (`start_exe::stale_winner`); None when it runs the chosen build or cannot be told apart.
+fn stale_winner(choice: &crate::daemon::start_exe::Choice, status: &Value) -> Option<String> {
+    use crate::daemon::start_exe;
+    let exe = status
+        .get("exe")
+        .and_then(Value::as_str)
+        .map(|e| crate::self_command::undeleted(std::path::PathBuf::from(e)))?;
+    let build = status.get("build").and_then(Value::as_str);
+    let stale = start_exe::stale_winner(
+        choice,
+        crate::hub::build(),
+        Some(&exe),
+        build,
+        start_exe::commit_time_of(&exe),
+    );
+    stale.then(|| format!("{} (build {})", exe.display(), build.unwrap_or("unknown")))
 }
 
 fn preserve_restart_listener(status: &Value) -> Result<()> {
@@ -105,6 +152,21 @@ fn preserve_restart_listener(status: &Value) -> Result<()> {
     config.save().map_err(|e| anyhow!("preserve daemon listener settings for restart: {e:#}"))
 }
 
+/// The `_acpmux/shutdown` reason of this command: which command, then the caller's own word
+/// when it set `ACPMUX_STOP_REASON` (tools/nightly-update's heal names itself there), so the
+/// daemon's log tells a script's restart from a person's.
+fn cli_reason(restart: bool, end_agents: bool) -> String {
+    let command = match (restart, end_agents) {
+        (true, _) => "cli: daemon restart",
+        (false, true) => "cli: daemon shutdown --end-agents",
+        (false, false) => "cli: daemon shutdown",
+    };
+    match std::env::var("ACPMUX_STOP_REASON") {
+        Ok(why) if !why.trim().is_empty() => format!("{command} ({})", why.trim()),
+        _ => command.to_owned(),
+    }
+}
+
 async fn run_on(
     clock: &dyn Clock,
     end_agents: bool,
@@ -120,6 +182,7 @@ async fn run_on(
     if restart {
         params.set("restart", json!(true));
     }
+    params.set("reason", json!(cli_reason(restart, end_agents)));
     // A refusal (a shutdown already under way hands its agents off) or a
     // closed connection still ends with the daemon's exit, and the sweep
     // below ends whatever it left running.

@@ -1,0 +1,11 @@
+/* The Leo collection's agent pane: links and the caret in the theme's accent, so a chat reads
+   in the same violet (or pink) as the sidebar, the terminal and every collection extension.
+   Colors come from the theme file; this only points more of the pane at them. */
+:root {
+  --agent-link: var(--agent-accent);
+}
+
+textarea,
+[contenteditable="true"] {
+  caret-color: var(--agent-accent);
+}

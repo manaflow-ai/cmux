@@ -8,6 +8,7 @@
 // composer placed in its text (`inlineParts`), so it is a render-side fix.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -467,10 +468,7 @@ test("a 1,200-character dictation paste draws inline in the sent message, no chi
   expect(drawn[0]!.textContent).toBe(`${typed}${dictation}`);
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });

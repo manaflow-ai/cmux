@@ -45,6 +45,15 @@ HERE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HERE))
 import bench_launch as bl  # noqa: E402
 
+# bench_launch drives the app through macOS tools and APIs (sw_vers, launchctl limit, kqueue's
+# KQ_NOTE_WRITE): on another system its tests have nothing to stand on.
+NOT_A_MAC = "bench_launch uses macOS sw_vers, launchctl and kqueue; this test runs on a Mac"
+
+
+def setUpModule():
+    if sys.platform != "darwin":
+        raise unittest.SkipTest(NOT_A_MAC)
+
 # No test changes the host's sound output: osascript answers nothing unless a test gives its own fake.
 os.environ["BENCH_LAUNCH_OSASCRIPT"] = "/usr/bin/false"
 # No test moves a real tag's saved state (bench_launch.start_fresh): every tag root is under a temporary base.

@@ -1000,8 +1000,8 @@ its `watch` job, on another Blacksmith pool, waits for the probe:
   label other than `blacksmith-*` or `ubuntu-*` to them: `MACOS_RUNNER_26`
   has no owned failover, an override naming a reused machine for either is
   refused, and a stalled probe never re-applies an older record's owned value
-  to one (on 2026-10-28 that turned `signing-runner-variables` red on every
-  pull request). Only a variable that
+  to one (on 2026-10-28 one did, putting signing jobs on a shared mini with no
+  whole-mini claim). Only a variable that
   is unset or names a `blacksmith-*` label changes; one someone pointed
   elsewhere is left alone. Then up to 25 runs holding a job queued 5 minutes
   or more on a `blacksmith-*` label are force-cancelled (a plain cancel did
@@ -1121,6 +1121,23 @@ fallback, so flipping the repo variable redirects those workflows. An explicit
 manual choice wins over the variable; both dropdowns expose Blacksmith, Warp,
 and `depot-macos-*` choices, with a Depot identity guard for GUI-activation
 runs. These choices are available only through `workflow_dispatch`.
+
+
+### Ship a nightly now
+
+`python3 scripts/ci/nightly_now.py [SHA]` asks main's `nightly-next-tick.yml` for
+SHA (default: the tip of `feat-cmux-next`), skipping the rolling rule's wait, so
+the newest buildable commit at or before it goes to `nightly-next` and builds.
+It also starts `nightly-next-supersede.yml`, which runs beside every
+`nightly-next` push too. That workflow cancels an older `nightly-next` run
+holding the push or sign group when none of its build, sign or publish jobs has
+started and the newer run waiting on that group has waited 5 min on it
+(`scripts/ci/nightly_next_supersede.py`, with the light-job list and started rule
+from main's `scripts/ci/delivery_workflows.py`). It never cancels a started job,
+the tip's push run or the newest sign stage. When a holder is still inside that
+5 min wait as its run ends, the run dispatches itself again on `nightly-next`
+(input `chain`, at most 12 links after one push), so a stuck holder is dropped
+within minutes instead of at the next promotion. `--dry-run` sends nothing.
 
 ## Guard
 

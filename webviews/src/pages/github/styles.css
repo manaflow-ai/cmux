@@ -132,11 +132,15 @@ html[data-cmux-page="github"],
 .gh-merge-confirm { display: inline-flex; gap: var(--ds-space-2); }
 .gh-merge-done { color: var(--agent-status-merged); font-weight: 600; font-size: var(--text-control); }
 .gh-merge-failure { flex-basis: 100%; font-size: var(--text-caption); }
+/* What Merge's tooltip said, as text (Chief, 2026-11-21): why it waits, or the commit it merges. */
+.gh-merge-confirm { flex-wrap: wrap; align-items: baseline; }
+.gh-merge-note { flex-basis: 100%; color: var(--page-text-2); font-size: var(--text-caption); }
+.gh-tally-word { color: var(--page-text-2); }
 
 .gh-button {
   padding: var(--ds-space-1) var(--ds-space-3);
   border: 1px solid var(--page-separator);
-  border-radius: 6px;
+  border-radius: var(--ds-radius-control);
   color: var(--page-text);
   background: var(--page-elevated);
   font: inherit;
@@ -154,6 +158,8 @@ html[data-cmux-page="github"],
 
 .gh-failure { margin: 0; color: var(--agent-status-failure); }
 .gh-muted { color: var(--page-text-3); }
+/* No pull request routed: the Moon, the line and a way to find one, a little down the page. */
+.gh-empty { margin-block-start: var(--ds-space-48); }
 
 /* The body: one column, or main and rail side by side on a wide pane. Narrow keeps the DOM order
    (main, then rail), so nothing moves between the two but the columns. */

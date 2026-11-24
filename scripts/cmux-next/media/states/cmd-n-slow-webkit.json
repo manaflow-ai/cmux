@@ -1,0 +1,215 @@
+{
+ "title": "Cmd-N on a busy Mac (user 2026-11-10: \"cmd n is lowkey hella slow\"): the New Tab pool as after one spare took over a second (spare dropped, WebKit's setup marked slow: debug.new_tab drop_spare slow), 65 s later, then Cmd-N and window snapshots at about 0.1 s, 0.3 s and 1 s, light then dark. Before the fix the pool stays empty and the page loads cold after the key; after it the gate asked again and the page is prewarmed. Record with: cmux-ci capture SHA --state scripts/cmux-next/media/states/cmd-n-slow-webkit.json --mac (any commit with debug.new_tab drop_spare slow).",
+ "launch_args": [
+  "--showcase"
+ ],
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "A fixed window size, so every capture frames the page the same",
+   "rpc": {
+    "method": "debug.window_frame",
+    "params": {
+     "frame": [
+      160,
+      85,
+      1280,
+      820
+     ]
+    }
+   },
+   "wait": 0.3,
+   "shot": false
+  },
+  {
+   "title": "light: appearance",
+   "rpc": {
+    "method": "debug.appearance",
+    "params": {
+     "mode": "light"
+    }
+   },
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "light: as after one New Tab spare took over a second on a loaded Mac (spare dropped, WebKit's setup marked slow), then 65 s: the fixed gate asks again (30 s, 60 s for a second mark) and the pool warms; before the fix it stays slow",
+   "rpc": {
+    "method": "debug.new_tab",
+    "params": {
+     "action": "drop_spare",
+     "slow": true
+    }
+   },
+   "wait": 65,
+   "shot": false
+  },
+  {
+   "title": "light: the pool before Cmd-N",
+   "rpc": {
+    "method": "debug.new_tab",
+    "params": {
+     "action": "state"
+    }
+   },
+   "record": true,
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "light: Cmd-N",
+   "rpc": {
+    "method": "debug.key",
+    "params": {
+     "key": "n",
+     "modifiers": [
+      "command"
+     ]
+    }
+   },
+   "wait": 0.05,
+   "shot": false
+  },
+  {
+   "title": "light: the window about 0.1s after Cmd-N",
+   "rpc": {
+    "method": "debug.window_snapshot",
+    "params": {
+     "kind": "main",
+     "path": "{collect}"
+    }
+   },
+   "collect": "light-01s.png",
+   "wait": 0.15,
+   "shot": false
+  },
+  {
+   "title": "light: the window about 0.3s after Cmd-N",
+   "rpc": {
+    "method": "debug.window_snapshot",
+    "params": {
+     "kind": "main",
+     "path": "{collect}"
+    }
+   },
+   "collect": "light-03s.png",
+   "wait": 0.6,
+   "shot": false
+  },
+  {
+   "title": "light: the window about 1s after Cmd-N",
+   "rpc": {
+    "method": "debug.window_snapshot",
+    "params": {
+     "kind": "main",
+     "path": "{collect}"
+    }
+   },
+   "collect": "light-1s.png",
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "light: the page",
+   "wait": 0.1,
+   "shot": true
+  },
+  {
+   "title": "dark: appearance",
+   "rpc": {
+    "method": "debug.appearance",
+    "params": {
+     "mode": "dark"
+    }
+   },
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "dark: as after one New Tab spare took over a second on a loaded Mac (spare dropped, WebKit's setup marked slow), then 65 s: the fixed gate asks again (30 s, 60 s for a second mark) and the pool warms; before the fix it stays slow",
+   "rpc": {
+    "method": "debug.new_tab",
+    "params": {
+     "action": "drop_spare",
+     "slow": true
+    }
+   },
+   "wait": 65,
+   "shot": false
+  },
+  {
+   "title": "dark: the pool before Cmd-N",
+   "rpc": {
+    "method": "debug.new_tab",
+    "params": {
+     "action": "state"
+    }
+   },
+   "record": true,
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "dark: Cmd-N",
+   "rpc": {
+    "method": "debug.key",
+    "params": {
+     "key": "n",
+     "modifiers": [
+      "command"
+     ]
+    }
+   },
+   "wait": 0.05,
+   "shot": false
+  },
+  {
+   "title": "dark: the window about 0.1s after Cmd-N",
+   "rpc": {
+    "method": "debug.window_snapshot",
+    "params": {
+     "kind": "main",
+     "path": "{collect}"
+    }
+   },
+   "collect": "dark-01s.png",
+   "wait": 0.15,
+   "shot": false
+  },
+  {
+   "title": "dark: the window about 0.3s after Cmd-N",
+   "rpc": {
+    "method": "debug.window_snapshot",
+    "params": {
+     "kind": "main",
+     "path": "{collect}"
+    }
+   },
+   "collect": "dark-03s.png",
+   "wait": 0.6,
+   "shot": false
+  },
+  {
+   "title": "dark: the window about 1s after Cmd-N",
+   "rpc": {
+    "method": "debug.window_snapshot",
+    "params": {
+     "kind": "main",
+     "path": "{collect}"
+    }
+   },
+   "collect": "dark-1s.png",
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "dark: the page",
+   "wait": 0.1,
+   "shot": true
+  }
+ ]
+}

@@ -4,11 +4,13 @@
 //! every reload runs under the store lock and emits its changes before the
 //! lock is released, so events leave in revision order.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use cmux_config::{Change, ConfigStore, ManagedReader, Op, Outcome, Refusal, State, Watcher};
 
+use super::agent_notification_delivery::{AgentEvent, AgentNotificationLevels, Delivery};
 use super::terminal_sizing::host_policy::{
     HostSizePolicy, host_policy_from_state, touches_host_policy,
 };
@@ -17,8 +19,23 @@ use super::{Mux, MuxEvent};
 /// The daemon serves `settings.*` and emits `settings-changed`.
 pub const SETTINGS_CAPABILITY: &str = "settings-v1";
 
+/// The daemon serves `settings.edit`: several edits in one publish, the
+/// conditional `set_unset` and `reset_unchanged` edits
+/// (plans/cmux-next/settings-react.md section 7, items 2 and 3), the
+/// `set_exact` edit (a default stays) and the `file` check
+/// (`settings.file_mismatch`). v2: v1 had neither.
+pub const SETTINGS_EDIT_CAPABILITY: &str = "settings-edit-v2";
+
 #[derive(Default)]
-pub(crate) struct SettingsSlot(OnceLock<SettingsOwner>);
+pub(crate) struct SettingsSlot {
+    owner: OnceLock<SettingsOwner>,
+    // Hook folds may already hold the lifecycle fence. Read this small snapshot
+    // independently of the store, which takes daemon locks when applying edits.
+    agent_notifications: Mutex<AgentNotificationLevels>,
+    /// `agents.appControl` is `read`: agents in cmux may read the app but
+    /// not change it (server/agent_app_control.rs). One load per line.
+    agents_read_only: AtomicBool,
+}
 
 pub(crate) struct SettingsOwner {
     store: Arc<Mutex<ConfigStore>>,
@@ -38,10 +55,35 @@ pub struct SettingsPaths {
 }
 
 impl Mux {
+    pub(super) fn agent_notification_delivery(&self, event: Option<AgentEvent>) -> Delivery {
+        event.map_or(Delivery::Banner, |event| {
+            self.settings
+                .agent_notifications
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .for_event(event)
+        })
+    }
+
+    fn adopt_agent_notification_levels(&self, state: &State) {
+        *self.settings.agent_notifications.lock().unwrap_or_else(|e| e.into_inner()) =
+            AgentNotificationLevels::from_settings(&state.effective().root);
+    }
+
+    /// Whether `agents.appControl` is `read` (server/agent_app_control.rs).
+    /// False until the settings owner has read the file.
+    pub(crate) fn agents_read_only(&self) -> bool {
+        self.settings.agents_read_only.load(Ordering::Relaxed)
+    }
+
+    fn adopt_agents_app_control(&self, state: &State) {
+        self.settings.agents_read_only.store(agents_read_only(state), Ordering::Relaxed);
+    }
+
     /// Starts the settings owner with `paths`. False when one already runs.
     pub fn start_settings_owner(self: &Arc<Self>, paths: SettingsPaths) -> bool {
         let mut started = false;
-        self.settings.0.get_or_init(|| {
+        self.settings.owner.get_or_init(|| {
             started = true;
             open_owner(self, paths)
         });
@@ -50,7 +92,10 @@ impl Mux {
 
     /// Starts the owner on `CMUX_NEXT_CONFIG_FILE` or
     /// `~/.config/cmux/cmux-next.json`, with this session's state directory
-    /// for the cache.
+    /// for the cache. The variable is the launch input for the settings
+    /// file: the Mac app sets it on the `server ensure` that starts its
+    /// daemon, the detached owner inherits it, and a `server restart`
+    /// carries it to the next owner (`CarriedLaunch` in cmux-tui).
     pub fn start_default_settings_owner(self: &Arc<Self>) -> bool {
         self.start_settings_owner(self.default_settings_paths())
     }
@@ -81,7 +126,7 @@ impl Mux {
     }
 
     fn settings_store(self: &Arc<Self>) -> &Arc<Mutex<ConfigStore>> {
-        &self.settings.0.get_or_init(|| open_owner(self, self.default_settings_paths())).store
+        &self.settings.owner.get_or_init(|| open_owner(self, self.default_settings_paths())).store
     }
 
     /// Runs `op` on the owner and emits every change it produced, including
@@ -90,19 +135,40 @@ impl Mux {
         let mut store = self.settings_store().lock().unwrap_or_else(|poison| poison.into_inner());
         let applied = store.apply(op);
         let host_policy = host_policy_after(&store, &applied.changes);
-        adopt_freeing(self, &store, &applied.changes);
+        let computer_use = touches_computer_use(&applied.changes);
+        adopt_preferences(self, &store, &applied.changes);
         emit_changes(self, applied.changes);
         drop(store);
+        if computer_use {
+            self.computer_use_policy_changed();
+        }
         if let Some((policy, revision)) = host_policy {
             self.adopt_host_size_policy(policy, revision);
         }
         applied.result
     }
 
+    /// The effective settings (every layer merged), as JSON.
+    pub(crate) fn settings_effective_root(self: &Arc<Self>) -> serde_json::Value {
+        self.with_settings(|state| state.effective().root.clone())
+    }
+
     /// Reads the owner's state.
     pub(crate) fn with_settings<T>(self: &Arc<Self>, read: impl FnOnce(&State) -> T) -> T {
         let store = self.settings_store().lock().unwrap_or_else(|poison| poison.into_inner());
         read(store.state())
+    }
+
+    /// The owner's settings file path when it is not `file` (`settings.edit`'s
+    /// `file`, `ConfigStore::serves`), else None.
+    pub(crate) fn settings_file_mismatch(self: &Arc<Self>, file: &Path) -> Option<PathBuf> {
+        let store = self.settings_store().lock().unwrap_or_else(|poison| poison.into_inner());
+        (!store.serves(file)).then(|| store.config_path().to_path_buf())
+    }
+
+    /// The `settings.snapshot` answer, with the owner's settings file path.
+    pub(crate) fn settings_snapshot(self: &Arc<Self>) -> serde_json::Value {
+        self.settings_store().lock().unwrap_or_else(|poison| poison.into_inner()).snapshot_json()
     }
 }
 
@@ -113,6 +179,15 @@ fn host_policy_after(store: &ConfigStore, changes: &[Change]) -> Option<(HostSiz
         .iter()
         .any(|change| touches_host_policy(&change.keys))
         .then(|| (host_policy_from_state(store.state()), store.state().revision()))
+}
+
+/// Whether `changes` touched a `computerUse.*` key (read after the store
+/// lock is released: the Computer Use host reads the settings again).
+fn touches_computer_use(changes: &[Change]) -> bool {
+    changes
+        .iter()
+        .flat_map(|change| &change.keys)
+        .any(|key| key == "computerUse" || key.starts_with("computerUse."))
 }
 
 /// The app setting that frees idle terminals; while on, each terminal keeps
@@ -128,8 +203,35 @@ fn freeing_enabled(state: &State) -> bool {
         .unwrap_or(false)
 }
 
-/// Adopts `workspaces.freeing.enabled` when `changes` touched it.
-fn adopt_freeing(mux: &Mux, store: &ConfigStore, changes: &[Change]) {
+/// The app setting that lets agents in cmux change the app (`change`, the
+/// default) or only read it (`read`).
+pub(crate) const AGENTS_APP_CONTROL_SETTING: &str = "agents.appControl";
+
+fn agents_read_only(state: &State) -> bool {
+    state
+        .get(&cmux_config::Target::Key(AGENTS_APP_CONTROL_SETTING.to_string()))
+        .row
+        .and_then(|row| row.value)
+        .is_some_and(|value| value.as_str() == Some("read"))
+}
+
+/// Whether `key` (a changed key) is the app control setting or holds it.
+fn touches_agents_app_control(key: &str) -> bool {
+    key == "agents" || key == AGENTS_APP_CONTROL_SETTING
+}
+
+/// Refresh daemon-owned preferences while changes are still in revision order.
+fn adopt_preferences(mux: &Mux, store: &ConfigStore, changes: &[Change]) {
+    if changes.iter().flat_map(|change| &change.keys).any(|key| {
+        key == "notifications"
+            || key == "notifications.delivery"
+            || key.starts_with("notifications.delivery.")
+    }) {
+        mux.adopt_agent_notification_levels(store.state());
+    }
+    if changes.iter().flat_map(|change| &change.keys).any(|key| touches_agents_app_control(key)) {
+        mux.adopt_agents_app_control(store.state());
+    }
     if changes.iter().any(|change| change.keys.iter().any(|key| key == FREEING_ENABLED_SETTING)) {
         mux.set_terminal_last_command(freeing_enabled(store.state()));
     }
@@ -171,6 +273,8 @@ fn open_owner(mux: &Arc<Mux>, paths: SettingsPaths) -> SettingsOwner {
         mux.adopt_host_size_policy(policy, revision);
     }
     if let Ok(store) = store.lock() {
+        mux.adopt_agent_notification_levels(store.state());
+        mux.adopt_agents_app_control(store.state());
         mux.set_terminal_last_command(freeing_enabled(store.state()));
     }
     SettingsOwner { store, _watcher: watcher }
@@ -185,9 +289,13 @@ fn start_watcher(mux: Weak<Mux>, store: &Arc<Mutex<ConfigStore>>) -> Option<Watc
         let mut store = store.lock().unwrap_or_else(|poison| poison.into_inner());
         let change: Vec<Change> = store.reload().into_iter().collect();
         let host_policy = host_policy_after(&store, &change);
-        adopt_freeing(&mux, &store, &change);
+        let computer_use = touches_computer_use(&change);
+        adopt_preferences(&mux, &store, &change);
         emit_changes(&mux, change);
         drop(store);
+        if computer_use {
+            mux.computer_use_policy_changed();
+        }
         if let Some((policy, revision)) = host_policy {
             mux.adopt_host_size_policy(policy, revision);
         }

@@ -48,7 +48,7 @@ import type { WorkflowAgent, WorkflowSummary } from "../summary/workflow";
 import { useUnderSessionInfo } from "./underSessionInfo";
 import { useNativeSessionInfoHost } from "./native/host";
 import { useSameValue } from "./sameValue";
-import { NativeSessionInfo } from "./native/NativeSessionInfo";
+import { LazyNativeSessionInfo } from "./native/LazyNativeSessionInfo";
 import {
   FLOAT_MARGIN,
   pushes,
@@ -74,10 +74,12 @@ import {
 import { MemoSessionInfoPanel, MemoSessionInfoSections } from "./SessionInfo";
 import { subagentsIn } from "../subagents/subagentRows";
 import type { Subagent } from "../subagents/subagentFold";
+import type { ResumeActions } from "../subagents/ResumeControl";
 import { useCountedRender } from "../perfRender";
 import { useStableProps } from "../stableProps";
 import { COMPUTER_USE_PREVIEW_RESERVE, useComputerUsePreview } from "../computerUse/computerUsePreview";
 import { useChangeCounts, type ReadChanges } from "./changeCounts";
+import type { ReadCarried, ResolveCarried } from "./carriedSectionModel";
 import { useStepAside } from "./stepAside";
 import { usageEntries } from "./usageEntries";
 import { chatPlace } from "../chatMachine";
@@ -238,6 +240,8 @@ export function useSessionInfo({
   beside,
   wide = false,
   onReconnectMcp,
+  readCarried,
+  onResolveCarried,
   remoteControl,
   onCompact,
   onViewPrompt,
@@ -290,6 +294,8 @@ export function useSessionInfo({
     /// The tool calls the chat's open asks are about (SubagentStatusList.tsx `pendingToolCalls`).
     asks: ReadonlySet<string>;
     onOpen: (id: string) => void;
+    /// Resume on a stopped subagent's line (subagents/ResumeControl.tsx): the chat's `resumeAgent`.
+    resume?: ResumeActions;
   };
   /// The chats the chat's agent started (App.tsx `childSessions`), and how one opens.
   sessions?: { list: readonly StartedSession[]; onOpen: (sessionId: string) => void };
@@ -319,6 +325,10 @@ export function useSessionInfo({
   split?: boolean;
   /// Reconnects one of the chat's failed MCP servers by name (`_acpmux/mcp/reconnect`).
   onReconnectMcp?: (server: string) => Promise<unknown>;
+  /// Carried memory (CarriedSection.tsx): reads `_acpmux/agent_home`, and sends
+  /// `_acpmux/agent_home_resolve` on the click. The chat's own panel only (not Quick Chat).
+  readCarried?: ReadCarried;
+  onResolveCarried?: ResolveCarried;
   /// Environment's Remote Control switch (App.tsx, remoteControl.ts): absent, no row.
   remoteControl?: { on: boolean; set: (on: boolean) => void };
   /// Sends the chat's agent its `/compact` (Context's and Usage's Compact); unset where it cannot reach.
@@ -438,10 +448,21 @@ export function useSessionInfo({
   const openSubagent = useStableCallback(subagents?.onOpen);
   const subagentViews = subagents?.views;
   const subagentAsks = subagents?.asks;
+  // Resume keeps one identity while the chat's capabilities do: the chat's `resumeAgent` is made
+  // again with its turn actions, and the panel draws only when what it is handed changes.
+  const resumeAgent = useStableCallback(subagents?.resume?.resumeAgent);
+  const resumeCapabilities = subagents?.resume?.retryCapabilities;
   const steadySubagents = useMemo(
     () =>
-      subagentAsks && openSubagent ? { views: subagentViews, asks: subagentAsks, onOpen: openSubagent } : undefined,
-    [subagentViews, subagentAsks, openSubagent],
+      subagentAsks && openSubagent
+        ? {
+            views: subagentViews,
+            asks: subagentAsks,
+            onOpen: openSubagent,
+            ...(resumeAgent && { resume: { resumeAgent, retryCapabilities: resumeCapabilities } }),
+          }
+        : undefined,
+    [subagentViews, subagentAsks, openSubagent, resumeAgent, resumeCapabilities],
   );
   // The section a running line's count asked for, scrolled to once drawn.
   const [revealed, setRevealed] = useState<{ section: SessionInfoSectionId; at: number }>();
@@ -497,7 +518,7 @@ export function useSessionInfo({
   // popup in the page takes it (they listen on the window, after the document). Anywhere else Esc
   // keeps its own meaning: with nothing focused and a turn running it is the composer's double press
   // that stops the turn (escapeStop.ts), which an Esc claimed here never reaches. An open popover,
-  // menu or dialog takes Esc first (as WidgetEditing.tsx): they listen on the document too, but after this.
+  // menu or dialog takes Esc first: they listen on the document too, but after this.
   useEffect(() => {
     if (!shown) return;
     const escape = (event: KeyboardEvent) => {
@@ -585,6 +606,8 @@ export function useSessionInfo({
         onOpenChanges={subagent ? undefined : stableOnOpenChanges}
         onSaveEnvironment={stableOnSaveEnvironment}
         onReconnectMcp={stableOnReconnectMcp}
+        readCarried={subagent ? undefined : readCarried}
+        onResolveCarried={subagent ? undefined : onResolveCarried}
         remoteControl={remoteControl}
         onCompact={stableOnCompact}
         onViewPrompt={stableOnViewPrompt}
@@ -868,6 +891,8 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   onOpenChanges,
   onSaveEnvironment,
   onReconnectMcp,
+  readCarried,
+  onResolveCarried,
   remoteControl,
   onCompact,
   onViewPrompt,
@@ -913,6 +938,8 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
     views: Record<string, AcpmuxRow[]> | undefined;
     asks: ReadonlySet<string>;
     onOpen: (id: string) => void;
+    /// Resume on a stopped subagent's line (subagents/ResumeControl.tsx): the chat's `resumeAgent`.
+    resume?: ResumeActions;
   };
   sessions?: { list: readonly StartedSession[]; onOpen: (sessionId: string) => void };
   onSetRunningLimit?: (sessionId: string, maxRunning: number | null, from?: number) => Promise<unknown>;
@@ -938,6 +965,9 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   onOpenChanges?: () => void;
   onSaveEnvironment?: () => Promise<unknown>;
   onReconnectMcp?: (server: string) => Promise<unknown>;
+  /// Carried memory (CarriedSection.tsx): `_acpmux/agent_home` and `_acpmux/agent_home_resolve`.
+  readCarried?: ReadCarried;
+  onResolveCarried?: ResolveCarried;
   remoteControl?: { on: boolean; set: (on: boolean) => void };
   onCompact?: () => void;
   onViewPrompt?: () => void;
@@ -1332,7 +1362,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
             }}
           />
         )}
-        <NativeSessionInfo
+        <LazyNativeSessionInfo
           key={scope ? `${snapshot.sessionId}:subagent:${scope.agent.id}` : snapshot.sessionId}
           shown={drawn && !gallery}
           width={panelWidth}
@@ -1369,6 +1399,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
           workflows={scope ? [] : (workflows?.list ?? [])}
           agent={scope?.agent}
           onOpenSubagent={subagents?.onOpen}
+          resumeSubagent={subagents?.resume}
           onOpenSession={sessions?.onOpen}
           allSessions={scope ? undefined : snapshot.sessions}
           onOpenChat={onOpenChat}
@@ -1445,6 +1476,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         agents={agents}
         waiting={waiting}
         onOpenSubagent={onOpenSubagent}
+        resumeSubagent={subagents?.resume}
         statuses={statuses}
         processes={processes}
         listed={registry?.listed}
@@ -1477,6 +1509,9 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         // Save keeps the chat's machine and folder, not a subagent's.
         onSaveEnvironment={scope ? undefined : onSaveEnvironment}
         onReconnectMcp={onReconnectMcp}
+        // Carried memory is the chat's own, never a subagent's.
+        readCarried={scope ? undefined : readCarried}
+        onResolveCarried={scope ? undefined : onResolveCarried}
         remoteControl={scope ? undefined : remoteControl}
         // Compact ends the chat's context, not a subagent's.
         onCompact={scope ? undefined : onCompact}

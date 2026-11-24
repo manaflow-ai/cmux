@@ -6,7 +6,7 @@
  * or a Cursor subscription".
  *
  *   bun scripts/cmux-next/cloud-chat-matrix.ts --backend prod --credentials ~/.secrets/cmuxterm-prod.env
- *   bun scripts/cmux-next/cloud-chat-matrix.ts --cells codex-chatgpt-stub,cursor-signed-out --out /tmp/matrix
+ *   bun scripts/cmux-next/cloud-chat-matrix.ts --cells codex-chatgpt-stub,gemini-signed-out --out /tmp/matrix
  *   bun scripts/cmux-next/cloud-chat-matrix.ts --list
  *
  * Cells run one after another, never at once: journeys on one account at the same time collide on its
@@ -24,7 +24,8 @@
  * when no cell failed.
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -32,13 +33,18 @@ export type Cell = {
   id: string;
   agent: string;
   signIn: string;
-  proof: "live" | "stubbed" | "expect";
+  proof: "live" | "stubbed" | "expect" | "start" | "bench";
   args: string[];
-  /** Environment the cell needs; absent, the cell is skipped with this reason. */
-  needs?: { env: string; why: string };
+  /** Environment the cell needs (one name or several); any absent, the cell is skipped with this reason. */
+  needs?: { env: string | string[]; why: string };
+  /** Journey steps that must run and pass: a skipped one fails the cell, so a cell never passes without its proof. */
+  must?: string[];
   /** For `expect` cells: the step that must fail, its error, and the most it may take. */
   expect?: { step: string; error: RegExp; withinMs: number };
 };
+
+/** The harnesses the Cloud chat picker offers: the app's LOGIN_AGENTS (cloudAgentLogin.ts) and opencode. */
+export const PICKER_HARNESSES = ["claude", "codex", "gemini", "grok", "cursor", "opencode"] as const;
 
 export const CELLS: Cell[] = [
   {
@@ -57,6 +63,17 @@ export const CELLS: Cell[] = [
     needs: { env: "CODEX_AUTH_JSON", why: "a Codex ChatGPT sign-in (auth.json) of the test account's own" },
   },
   {
+    id: "codex-github-live",
+    agent: "codex",
+    signIn: "ChatGPT subscription (codex login), the app's copy",
+    proof: "live",
+    // cloud-journey's live GitHub step asks this agent to clone, branch, commit, push and open a draft PR.
+    args: ["--agent", "codex"],
+    needs: { env: ["CODEX_AUTH_JSON", "CMUX_JOURNEY_GITHUB_REPO"], why: "a Codex ChatGPT sign-in (auth.json) and the GitHub sandbox repository for the live GitHub agent cell" },
+    // cloud-journey.ts's names (JOURNEY_ONLY_STEPS); the matrix test holds them to it.
+    must: ["GitHub on the machine (live)", "GitHub by the agent (live)"],
+  },
+  {
     id: "codex-model-plane",
     agent: "codex",
     signIn: "none: the team's model plane (the API-key route)",
@@ -71,15 +88,72 @@ export const CELLS: Cell[] = [
     args: ["--agent", "codex", "--gateway", "$CMUX_BIN"],
     needs: { env: "CMUX_BIN", why: "a cmux CLI for `cmux inference setup --gateway-machine`" },
   },
+  // Lane cloud-grok-gemini-opencode. Under each Cloud cell, acp-agent-contract.py proves the agent's own ACP
+  // with no account (first, follow-up, session/load resume; the signed-out refusal).
   {
-    id: "cursor-signed-out",
-    agent: "cursor",
-    signIn: "none: must fail fast with Cursor's sign-in error",
-    proof: "expect",
-    args: ["--agent", "cursor", "--skip", "lifecycle", "--chat-timeout", "120"],
-    expect: { step: "reply", error: /authenticat|not (?:logged|signed) in|log ?in|sign ?in/i, withinMs: 60_000 },
+    id: "opencode-zen",
+    agent: "opencode",
+    signIn: "none: OpenCode's free Zen models",
+    proof: "live",
+    args: ["--agent", "opencode", "--lifecycle"],
   },
+  {
+    id: "gemini-signed-out",
+    agent: "gemini",
+    signIn: "none: must fail fast with Gemini CLI's sign-in error",
+    proof: "expect",
+    args: ["--agent", "gemini", "--skip", "lifecycle", "--chat-timeout", "120"],
+    expect: { step: "reply", error: /authenticat|auth.?required|not (?:logged|signed) in|log ?in|sign ?in|api key/i, withinMs: 60_000 },
+  },
+  // No Cursor, Grok (SuperGrok, xAI key) or third-party provider-key cells: Leo has none of those accounts (Leo,
+  // 2026-11-10: "I only have ChatGPT and Google ... Or else I ask the company to get me basic accounts later").
+  // The `start` cells below need no account: a signed-out agent passes by naming itself.
+  ...PICKER_HARNESSES.map(appStartCell),
+  // Not a chat: the start bench (cloud-journey.ts --start-bench, cloud-start-bench.ts), create-to-first-command phase
+  // by phase on the spare, cold, snapshot and VM API paths, 5 starts each. Dispatch it alone (cells=start-bench): it
+  // makes and deletes about 27 machines and runs 30 to 60 minutes. Leo, 2026-11-16: "let's do all those".
+  {
+    id: "start-bench",
+    agent: "claude",
+    signIn: "none needed: no agent is started",
+    proof: "bench",
+    args: ["--preclaim", "--start-bench", "5", "--cmux", "$CMUX_BIN"],
+    needs: { env: "CMUX_BIN", why: "a cmux CLI for the warm the app sends (the spare path)" },
+  },
+  // TODO(hq#11225 PR4): gemini and grok through the team's inference gateway (a second machine), once gateway
+  // routing for those harnesses lands: a started session there, never sign_in_required.
 ];
+
+/**
+ * A fresh machine, each harness the Cloud chat picker offers, started the way the app starts it
+ * (`agent-session-start` over the carrier, cloud-journey.ts `--start-via app`). Leo, 2026-11-15: "so does cloud work?
+ * on our thing? just automatically? or switching environments? claude and codex alike, through gui? and other
+ * harnesses/etc too? and alternatively can pick enviornments?" (hq#11225). Pass: a started session, or exactly
+ * `agent_session.sign_in_required` naming that harness (the app then offers that agent's own sign-in); a bare refusal,
+ * a hang or another harness's name fails. Mirrors cmux-tui's cloud_harness_start.rs test and the app's LOGIN_AGENTS
+ * (webviews/src/agent-session/acpmux/cloudAgentLogin.ts), plus opencode.
+ */
+function appStartCell(harness: string): Cell {
+  return {
+    id: `${harness}-app-start`,
+    agent: harness,
+    signIn: "whatever a fresh machine has: started, or sign_in_required naming the harness",
+    proof: "start",
+    args: ["--agent", harness, "--start-via", "app", "--cmux", "$CMUX_BIN"],
+    needs: { env: "CMUX_BIN", why: "a cmux CLI for the carrier dial the app's start goes over" },
+  };
+}
+
+/** What the journey's `start agent (H)` step says of the app's start (cloud-journey.ts `--start-via app`). */
+export function appStartDetail(reply: any): { ok: boolean; detail: string } {
+  if (reply?.ok === true) {
+    const session = String(reply?.data?.session ?? "");
+    return session ? { ok: true, detail: `started: session ${session}` } : { ok: false, detail: `started with no session: ${JSON.stringify(reply).slice(0, 200)}` };
+  }
+  const code = String(reply?.error_code ?? reply?.error?.code ?? "no error_code");
+  const harness = typeof reply?.data?.harness === "string" ? reply.data.harness : "-";
+  return { ok: false, detail: `refused: ${code} harness=${harness}: ${String(reply?.error?.message ?? reply?.error ?? "").slice(0, 160)}` };
+}
 
 /** The steps a row reports, with their latencies. */
 const TIMED = ["create machine", "reply", "turn 2 (same session)", "pause", "resume", "turn after resume"] as const;
@@ -97,6 +171,19 @@ export function judge(cell: Cell, steps: Step[], exit: number): Row {
   }
   const reply = steps.find((x) => x.step === "reply" && x.status === "pass")?.detail;
   const failed = steps.filter((x) => x.status === "fail" && !x.step.startsWith("prod:"));
+  if (cell.proof === "start") {
+    // The app's start: a session, or exactly sign_in_required naming this harness. Any other failure fails it.
+    const name = `start agent (${cell.agent})`;
+    const s = steps.find((x) => x.step === name);
+    const others = failed.filter((x) => x.step !== name);
+    if (others.length) return { cell, verdict: "fail", why: `${others[0]!.step}: ${(others[0]!.detail ?? "").slice(0, 200)}`, ms };
+    if (!s || s.status === "skip") return { cell, verdict: "fail", why: `${name} did not run: ${(s?.detail ?? "not run").slice(0, 200)}`, ms };
+    const detail = s.detail ?? "";
+    if (s.status === "pass" && detail.startsWith("started: session ")) return { cell, verdict: "pass", why: `${detail.slice(0, 160)} in ${s.ms} ms`, ms };
+    const named = /^refused: agent_session\.sign_in_required harness=(\S+):/.exec(detail);
+    if (s.status === "fail" && named?.[1] === cell.agent) return { cell, verdict: "pass", why: `signed out, named ${cell.agent} in ${s.ms} ms`, ms };
+    return { cell, verdict: "fail", why: `${name}: ${detail.slice(0, 200)}`, ms };
+  }
   if (cell.expect) {
     const want = cell.expect;
     const s = steps.find((x) => x.step === want.step);
@@ -110,6 +197,10 @@ export function judge(cell: Cell, steps: Step[], exit: number): Row {
   }
   if (failed.length) return { cell, verdict: "fail", why: `${failed[0]!.step}: ${(failed[0]!.detail ?? "").slice(0, 200)}`, ms, reply };
   if (exit !== 0) return { cell, verdict: "fail", why: `journey exit ${exit}`, ms, reply };
+  for (const name of cell.must ?? []) {
+    const s = steps.find((x) => x.step === name);
+    if (s?.status !== "pass") return { cell, verdict: "fail", why: `${name} did not run: ${(s?.detail ?? "not run").slice(0, 200)}`, ms, reply };
+  }
   return { cell, verdict: "pass", why: "every step passed", ms, reply };
 }
 
@@ -140,8 +231,11 @@ export function main(argv: string[]): number {
     console.error(`unknown cells: ${unknown.join(", ")} (--list names them)`);
     return 2;
   }
-  const cells = want ? CELLS.filter((c) => want.includes(c.id)) : CELLS;
-  const out = path.resolve(argValue("--out", argv) ?? `/tmp/cloud-chat-matrix-${Date.now().toString(36)}`);
+  // The bench is never part of a default run: it is long and makes many machines; name it in --cells.
+  const cells = want ? CELLS.filter((c) => want.includes(c.id)) : CELLS.filter((c) => c.proof !== "bench");
+  // The default is a folder mkdtemp makes, never a guessable /tmp name another account could make first.
+  const given = argValue("--out", argv);
+  const out = given ? path.resolve(given) : mkdtempSync(path.join(os.tmpdir(), "cloud-chat-matrix-"));
   mkdirSync(out, { recursive: true });
   // Everything but this script's own flags goes to every journey (--backend, --credentials, --team, --cmux).
   const own = new Set(["--cells", "--out"]);
@@ -152,10 +246,13 @@ export function main(argv: string[]): number {
   }
   const journey = fileURLToPath(new URL("./cloud-journey.ts", import.meta.url));
   const rows: Row[] = [];
+  // A bench cell's own table (start-bench.md) follows the matrix, so the job summary carries it.
+  const extra: string[] = [];
   for (const cell of cells) {
-    if (cell.needs && !process.env[cell.needs.env]) {
-      rows.push({ cell, verdict: "skip", why: `no ${cell.needs.env}: ${cell.needs.why}`, ms: {} });
-      console.log(`SKIP ${cell.id}: no ${cell.needs.env}`);
+    const missing = cell.needs ? [cell.needs.env].flat().filter((name) => !process.env[name]) : [];
+    if (cell.needs && missing.length) {
+      rows.push({ cell, verdict: "skip", why: `no ${missing.join(", ")}: ${cell.needs.why}`, ms: {} });
+      console.log(`SKIP ${cell.id}: no ${missing.join(", ")}`);
       continue;
     }
     const dir = path.join(out, cell.id);
@@ -172,9 +269,11 @@ export function main(argv: string[]): number {
     const steps: Step[] = existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")).steps ?? []) : [];
     const row = judge(cell, steps, r.status ?? 1);
     rows.push(row);
+    const bench = path.join(dir, "start-bench.md");
+    if (existsSync(bench)) extra.push(readFileSync(bench, "utf8"));
     console.log(`${row.verdict.toUpperCase()} ${cell.id} ${((Date.now() - t0) / 1000).toFixed(0)} s :: ${row.why}`);
   }
-  const md = `${table(rows)}\n`;
+  const md = `${table(rows)}\n${extra.map((e) => `\n${e}`).join("")}`;
   writeFileSync(path.join(out, "matrix.md"), md);
   console.log(`\n${md}\nmatrix: ${path.join(out, "matrix.md")}`);
   return rows.some((r) => r.verdict === "fail") ? 1 : 0;

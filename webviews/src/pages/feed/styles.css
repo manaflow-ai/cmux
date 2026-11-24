@@ -40,27 +40,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* MARK: - Banner, empty state */
-
-.feed-banner {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
-  font-size: var(--text-caption);
-  line-height: var(--text-caption--line-height);
-  color: var(--ds-color-muted);
-  background: color-mix(in srgb, var(--ds-color-attention) 8%, transparent);
-}
-
-.feed-banner-dot {
-  flex: none;
-  width: var(--feed-dot);
-  height: var(--feed-dot);
-  border-radius: 999px;
-  background: var(--ds-color-attention);
-}
+/* MARK: - Empty state (the unreachable owner is a corner mark, ui/ConnectionChip.tsx) */
 
 .feed-empty {
   display: flex;
@@ -344,7 +324,6 @@
   border-color: transparent;
   background: var(--ds-color-selection);
   color: var(--ds-color-fg);
-  font-weight: var(--weight-emphasis, 600);
 }
 
 .feed-chip:disabled {
@@ -1252,10 +1231,6 @@
   cursor: default;
 }
 
-.feed-needs-more:hover {
-  background: var(--ds-color-hover);
-}
-
 .feed-needs-row {
   display: flex;
   align-items: center;
@@ -1322,6 +1297,28 @@
 .feed-needs-answers {
   flex: none;
   padding-inline-end: 4px;
+}
+
+/* An integrations hub approval (HubApprovalCard.tsx) is a request row (.feed-needs-row) with no
+   opener: it sizes as one, so the pinned section's frame (FeedNeedsYouSection.hubCardHeight, the
+   row height) matches it. What an answer did keeps to its own line, beside the row's text. */
+.feed-hub-row {
+  height: var(--feed-needs-row);
+}
+
+.feed-hub-row .feed-needs-opener:hover {
+  background: transparent;
+}
+
+.feed-hub-row .feed-closed {
+  max-width: 280px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.feed-hub-row[data-tone="done"] .feed-closed .feed-icon {
+  color: var(--ds-color-success);
 }
 
 .feed-needs .feed-card {

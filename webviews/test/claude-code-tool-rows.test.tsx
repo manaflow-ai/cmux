@@ -4,7 +4,7 @@
 // they're doing stuff" / "wrt tool calls and the lowest level thinking"). A finished call is one
 // muted line, verb then tool ("Used repo: repo grep", "Ran git status", "Read App.tsx"); the live
 // line is one line naming the current action ("Using repo: repo grep"), its verb in full ink and the
-// rest muted, then the turn's time and its tokens as one count ("3m 2s · 47.4K tokens"). The
+// rest muted, then the turn's elapsed time ("3m 2s"). The
 // shimmer stays the line's only working mark ("we don't want the claude symbol ellipsis thing btw
 // we just keep the shimmer ONLY").
 import { afterEach, expect, test } from "bun:test";
@@ -29,8 +29,13 @@ const grep = (status: Tool["status"]): Tool => ({
 });
 
 test("a finished MCP call reads Used <server>: <tool>", () => {
+  // The earlier words are tool-row-words' `now` arm; `plain` (the default) says what the call did.
+  globalThis.cmuxExperiments = { "tool-row-words": "now" };
   expect(toolLabel(grep("completed"), "", ran)).toBe("Used repo: repo grep");
   expect(mcpLabel(t, [mcpCall(grep("completed"))!], new Map())).toBe("Used repo: repo grep");
+  globalThis.cmuxExperiments = undefined;
+  expect(toolLabel(grep("completed"), "", ran)).toBe("Searched repo");
+  expect(mcpLabel(t, [mcpCall(grep("completed"))!], new Map())).toBe("Searched repo");
 });
 
 test("a running MCP call reads Using <server>: <tool>", () => {
@@ -72,12 +77,6 @@ test("the live line names the MCP call in flight the way Claude Code does", () =
 
 const START = Date.UTC(2026, 10, 3, 6, 0, 0);
 const counts: WorkingCounts = {
-  agents: 0,
-  commands: 0,
-  sessions: 0,
-  openAgents: () => {},
-  openCommands: () => {},
-  openSessions: () => {},
   tokens: 47_400,
   split: { output: 47_400, input: 9_000, cacheRead: 2_650_000, cacheWrite: 41_000 },
 };
@@ -87,7 +86,7 @@ const liveLine = (props: Parameters<typeof Thinking>[0]) =>
       <Thinking since={START} now={() => START + 182_000} {...props} />
     </WorkingCountsContext.Provider>,
   );
-/// What a reader sees: the base words, the time and the counts, never the shimmer's lit copy.
+/// What a reader sees: the base words and elapsed time, never the shimmer's lit copy.
 const shown = (html: string) =>
   html
     .replace(/<span class="cv-shimmer__band"[\s\S]*?<\/span><\/span>/g, "")
@@ -100,12 +99,13 @@ afterEach(() => {
   delete globalThis.cmuxExperiments;
 });
 
-test("the live line is one line: the action, its time, then the turn's tokens as one count", () => {
+test("the live line is one line: the action and time, without token amounts", () => {
   const html = liveLine({ doing: "Using repo: repo grep" });
   expect(html.match(/class="cv-worked( |")/g)).toHaveLength(1);
-  expect(shown(html)).toBe("Using repo: repo grep 3m 2s · 47.4K tokens");
-  // The split stays on hover, named part by part.
-  expect(html).toContain('title="Output 47.4K · fresh input 9K · cache reads 2.7M · cache writes 41K"');
+  expect(shown(html)).toBe("Using repo: repo grep 3m 2s");
+  expect(html).not.toContain("cv-worked__tokens");
+  expect(html).not.toContain("cv-worked__sep");
+  expect(html).not.toContain('title="Output');
   expect(html).not.toContain("↑");
 });
 
@@ -128,12 +128,9 @@ test("the live line draws no mark of its own: the shimmer is its only working si
   expect(html).not.toContain("cv-tool__icon");
 });
 
-test("the split arm keeps out and in on the live line", () => {
+test("the legacy split arm cannot restore live token amounts", () => {
   globalThis.cmuxExperiments = { "live-line-tokens": "split" };
-  expect(shown(liveLine({ doing: "Using repo: repo grep" }))).toBe(
-    // "in" is the uncached input (9K fresh + 41K cache writes), never every call's reads added up.
-    "Using repo: repo grep 3m 2s · ↓ 47.4K out ↑ 50K in",
-  );
+  expect(shown(liveLine({ doing: "Using repo: repo grep" }))).toBe("Using repo: repo grep 3m 2s");
 });
 
 // A verb says what a command did (commandActions.ts), so a merge a hook blocked never reads "Merged

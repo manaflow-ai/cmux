@@ -61,12 +61,19 @@ import Foundation
     /// An order change inside a pane, or of the workspaces, noted by its
     /// writer (`noteTabOrderChanged`).
     private var tabOrderChanged = false
+    /// An order-free digest of which panes there are, each in which screen of which workspace (XOR of one hash per
+    /// indexed pane). A record indexed again as it was leaves it as it was, and no tab changes it: it moves only
+    /// when a pane came, went or sits in another screen or workspace. A snapshot that applies a workspace again
+    /// notes a tab order change each time (`tabOrderChanged`); this digest does not move for it.
+    private var paneMembership = 0
+    private var takenPaneMembership = 0
 
     private enum Keys {
         case workspace(handle: WorkspaceHandle, key: WorkspaceKey?, id: String, resource: ResourceID?)
         case screen(handle: ScreenID, id: String, resource: ResourceID?)
         case pane(handle: PaneID, resource: ResourceID?, groups: [TabGroupModel])
-        case tab(surface: SurfaceID, id: String, terminal: TerminalID?, resource: ResourceID?, terminalResource: ResourceID?)
+        case tab(surface: SurfaceID, id: String, terminal: TerminalID?, resource: ResourceID?, terminalResource: ResourceID?,
+                 agentSession: String?)
     }
 
     private struct Entry {
@@ -76,6 +83,8 @@ import Foundation
         var children: Set<ObjectIdentifier> = []
         /// A tab's or a pane's share of `tabMembership` (0 for other records).
         var membership = 0
+        /// A pane's share of `paneMembership` (0 for other records).
+        var paneMembership = 0
     }
 
     private var entries: [ObjectIdentifier: Entry] = [:]
@@ -90,6 +99,26 @@ import Foundation
     /// The indexed tab records on `surface` (normally one).
     func tabs(onSurface surface: SurfaceID) -> [TabModel] {
         (recordsBySurface[surface] ?? []).compactMap { entries[$0]?.record as? TabModel }
+    }
+
+    /// Every indexed agent chat tab record per acpmux session id (``TabModel/agentSession``): a turn end
+    /// of one chat reaches only that chat's tabs, never a walk of every tab of every workspace (design
+    /// audit 2026-11-18 finding 7: O(1,600 tabs) on main per turn end of any of ~30 machines).
+    private var recordsByAgentSession: [String: [ObjectIdentifier]] = [:]
+
+    /// Every indexed tab record per terminal public id (``TabModel/terminalResourceID``): each view of a
+    /// terminal shown in several tabs, which an `agent-changed` of the terminal reaches in O(its tabs)
+    /// (cmux#49392). ``tabsByTerminalResource`` keeps one of them.
+    private var recordsByTerminalResource: [ResourceID: [ObjectIdentifier]] = [:]
+
+    /// The indexed tab records that show terminal `terminal` (its views), in O(its tabs).
+    func tabs(terminalResource terminal: ResourceID) -> [TabModel] {
+        (recordsByTerminalResource[terminal] ?? []).compactMap { entries[$0]?.record as? TabModel }
+    }
+
+    /// The indexed tab records that show acpmux session `session` (normally zero or one), in O(its tabs).
+    func tabs(agentSession session: String) -> [TabModel] {
+        (recordsByAgentSession[session] ?? []).compactMap { entries[$0]?.record as? TabModel }
     }
 
     // MARK: Parents
@@ -115,8 +144,10 @@ import Foundation
         let keyedBefore: [ResourceID: WorkspaceModel] = workspacesByResource
         let keyWaits = workspaceKeyWaits
         let keysBefore: [WorkspaceKey: WorkspaceModel] = workspacesByKey
+        let takenPanes = takenPaneMembership
         self = StoreIndex() // its own new cells, which no wait reads: the inserts below touch none of `waits`
         indexedRecords = counted
+        takenPaneMembership = takenPanes // the same panes indexed again are no pane list change
         for workspace in workspaces { insert(workspace) }
         workspaceResourceWaits = waits
         // Only an id whose workspace changed (came, went, or another record) wakes its waits.
@@ -136,6 +167,24 @@ import Foundation
     mutating func takeTabListChange() -> Bool {
         defer { (takenMembership, tabOrderChanged) = (tabMembership, false) }
         return tabOrderChanged || tabMembership != takenMembership
+    }
+
+    /// Whether the panes (which there are, each in which screen of which workspace) changed since the last call;
+    /// resets it.
+    mutating func takePaneListChange() -> Bool {
+        defer { takenPaneMembership = paneMembership }
+        return paneMembership != takenPaneMembership
+    }
+
+    /// With the screen and the workspace: a pane that leaves one workspace and comes to another in one publish
+    /// (alone, or with its screen) keeps its id and its handle, and the two records must not cancel in the XOR.
+    private static func paneMembership(_ pane: PaneModel, screen: ScreenID?, workspace: String?) -> Int {
+        var hasher = Hasher()
+        hasher.combine(pane.id)
+        hasher.combine(pane.handle)
+        hasher.combine(screen)
+        hasher.combine(workspace)
+        return hasher.finalize()
     }
 
     /// By the pane's handle, not its record: an overlay that makes the same
@@ -181,7 +230,7 @@ import Foundation
     mutating func insert(_ tab: TabModel, in pane: PaneModel) {
         remove(tab)
         add(tab, .tab(surface: tab.surface, id: tab.id, terminal: tab.terminalID, resource: tab.resourceID,
-                      terminalResource: tab.terminalResourceID), parent: pane)
+                      terminalResource: tab.terminalResourceID, agentSession: tab.agentSession?.session), parent: pane)
     }
 
     /// Drops `record` (a workspace, screen, pane or tab) and its subtree.
@@ -192,6 +241,7 @@ import Foundation
     private mutating func remove(id: ObjectIdentifier) {
         guard let entry = entries.removeValue(forKey: id) else { return }
         tabMembership ^= entry.membership
+        paneMembership ^= entry.paneMembership
         for child in entry.children { remove(id: child) }
         if let parent = entry.parent { entries[parent]?.children.remove(id) }
         unkey(entry.keys, entry.record)
@@ -207,6 +257,9 @@ import Foundation
         } else if let pane = record as? PaneModel {
             entry.membership = Self.membership(pane)
             tabMembership ^= entry.membership
+            let screen = parent as? ScreenModel
+            entry.paneMembership = Self.paneMembership(pane, screen: screen?.handle, workspace: screen.flatMap(workspace(holding:))?.id)
+            paneMembership ^= entry.paneMembership
         }
         entries[id] = entry
         if let parentID { entries[parentID]?.children.insert(id) }
@@ -239,14 +292,18 @@ import Foundation
             if let resource { panesByResource[resource] = pane }
             paneRecordsByID[pane.id, default: []].append(ObjectIdentifier(pane))
             for group in groups { tabGroupsByID[group.id] = group }
-        case .tab(let surface, let id, let terminal, let resource, let terminalResource):
+        case .tab(let surface, let id, let terminal, let resource, let terminalResource, let agentSession):
             guard let tab = record as? TabModel else { return }
+            if let agentSession { recordsByAgentSession[agentSession, default: []].append(ObjectIdentifier(tab)) }
             tabsBySurface[surface] = tab
             recordsBySurface[surface, default: []].append(ObjectIdentifier(tab))
             tabsByID[id] = tab
             if let terminal { tabsByTerminal[terminal] = tab }
             if let resource { tabsByResource[resource] = tab }
-            if let terminalResource { tabsByTerminalResource[terminalResource] = tab }
+            if let terminalResource {
+                tabsByTerminalResource[terminalResource] = tab
+                recordsByTerminalResource[terminalResource, default: []].append(ObjectIdentifier(tab))
+            }
             if Self.isOverlayTab(id: id, surface: surface) { provisionalTabCount += 1 }
         }
     }
@@ -276,13 +333,17 @@ import Foundation
                 if paneRecordsByID[pane.id]?.isEmpty == true { paneRecordsByID[pane.id] = nil }
             }
             for group in groups { Self.drop(group.id, from: &tabGroupsByID, if: group) }
-        case .tab(let surface, let id, let terminal, let resource, let terminalResource):
+        case .tab(let surface, let id, let terminal, let resource, let terminalResource, let agentSession):
+            if let agentSession {
+                recordsByAgentSession[agentSession]?.removeAll { $0 == ObjectIdentifier(record) }
+                if recordsByAgentSession[agentSession]?.isEmpty == true { recordsByAgentSession[agentSession] = nil }
+            }
             Self.drop(surface, from: &tabsBySurface, if: record)
             recordsBySurface[surface]?.removeAll { $0 == ObjectIdentifier(record) }
             if recordsBySurface[surface]?.isEmpty == true { recordsBySurface[surface] = nil }
             // A second record of the surface still indexed takes its keys back.
             if tabsBySurface[surface] == nil, let other = recordsBySurface[surface]?.first, let entry = entries[other],
-               case .tab(_, let otherID, let terminal, let resource, let terminalResource) = entry.keys,
+               case .tab(_, let otherID, let terminal, let resource, let terminalResource, _) = entry.keys,
                let tab = entry.record as? TabModel {
                 tabsBySurface[surface] = tab
                 if tabsByID[otherID] == nil { tabsByID[otherID] = tab }
@@ -293,7 +354,11 @@ import Foundation
             Self.drop(id, from: &tabsByID, if: record)
             if let terminal { Self.drop(terminal, from: &tabsByTerminal, if: record) }
             if let resource { Self.drop(resource, from: &tabsByResource, if: record) }
-            if let terminalResource { Self.drop(terminalResource, from: &tabsByTerminalResource, if: record) }
+            if let terminalResource {
+                Self.drop(terminalResource, from: &tabsByTerminalResource, if: record)
+                recordsByTerminalResource[terminalResource]?.removeAll { $0 == ObjectIdentifier(record) }
+                if recordsByTerminalResource[terminalResource]?.isEmpty == true { recordsByTerminalResource[terminalResource] = nil }
+            }
             if Self.isOverlayTab(id: id, surface: surface) { provisionalTabCount -= 1 }
         }
     }

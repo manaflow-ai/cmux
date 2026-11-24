@@ -36,9 +36,9 @@ use tokio::process::Command;
 /// family (`chief`, `unii`, a test's `fake`) is left as it was.
 /// The discovered ACP agents (`config/discover.rs`) are all here, Muse
 /// (`muse-acp`, family from its name) included.
-const LEAF_FAMILIES: [&str; 12] = [
+const LEAF_FAMILIES: [&str; 13] = [
     "claude", "codex", "opencode", "gemini", "pi", "omp", "prime", "grok", "cursor", "hermes",
-    "deepseek", "muse",
+    "openclaw", "deepseek", "muse",
 ];
 
 /// A login variable and the harness family it belongs to. Every key of the
@@ -65,6 +65,8 @@ pub(crate) const LOGIN_ENV_OWNERS: &[LoginEnv] = &[
     // `GOOGLE_*` stays: Claude Code on Vertex reads it on purpose (`login_env.rs`).
     LoginEnv { key: "GEMINI_API_KEY", family: "gemini", shared_with_others: true },
     LoginEnv { key: "GEMINI_CLI_HOME", family: "gemini", shared_with_others: false },
+    // xAI's grok CLI home (`~/.grok`, its `grok login` session): its own.
+    LoginEnv { key: "GROK_HOME", family: "grok", shared_with_others: false },
     // Muse Code's API key: no other harness signs in with it.
     LoginEnv { key: "META_API_KEY", family: "muse", shared_with_others: false },
 ];
@@ -311,7 +313,7 @@ const RUNNERS: [&str; 7] = ["npx", "bunx", "pnpx", "node", "bun", "uvx", "env"];
 
 /// The executables of leaf agents and their families: `derive_family`'s and
 /// the launchers discovery finds (`config/discover.rs`).
-const EXECUTABLES: [(&str, &str); 20] = [
+const EXECUTABLES: [(&str, &str); 21] = [
     ("codex", "codex"),
     ("codex-acp", "codex"),
     ("claude", "claude"),
@@ -329,6 +331,7 @@ const EXECUTABLES: [(&str, &str); 20] = [
     ("grok", "grok"),
     ("cursor-agent", "cursor"),
     ("hermes", "hermes"),
+    ("openclaw", "openclaw"),
     ("muse", "muse"),
     ("muse-acp", "muse"),
     ("deepseek", "deepseek"),

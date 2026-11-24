@@ -340,7 +340,7 @@ final class PollCardView: UIView {
             }
         }
         if animate {
-            UIView.animate(withDuration: 0.35, delay: 0, usingSpringWithDamping: 0.86, initialSpringVelocity: 0, options: [.allowUserInteraction, .beginFromCurrentState], animations: apply)
+            UIView.animateUnlessReduceMotion(withDuration: 0.35, delay: 0, usingSpringWithDamping: 0.86, initialSpringVelocity: 0, options: [.allowUserInteraction, .beginFromCurrentState], animations: apply)
         } else {
             UIView.performWithoutAnimation(apply)
         }
@@ -421,7 +421,9 @@ extension ConversationViewController {
 
     func presentPollComposer() {
         let composer = PollComposerViewController { [weak self] question, choices in
-            self?.store.sendPoll(question: question, choices: choices)
+            guard let self else { return }
+            let send = { [weak self] in _ = self?.store.sendPoll(question: question, choices: choices) }
+            if self.sendGateAllows(retry: send) { send() }
         }
         let nav = UINavigationController(rootViewController: composer)
         if let sheet = nav.sheetPresentationController {

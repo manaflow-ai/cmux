@@ -11,10 +11,34 @@ never included in evidence. Through the tagged app's own CLI and socket:
 3. `cloud start-chat --prompt ... --wait`: a new machine, a chat on it, the prompt, the reply,
 4. kills the machine the chat made.
 
+A cancel or a step timeout (SIGINT, SIGTERM, SIGHUP) kills the machines named after the run before the
+proof goes, and the evidence's `machine_cleanup` says whether that happened; when it did not (the runner
+stopped the process first), the workflow's always() step runs `--cleanup-tag`, which kills every machine
+named after the run and nothing else (cmuxterm-hq#8702: a cut-off proof leaked its machine).
+
+With `--paused-capture DIR` there is no chat (cmux-platform#1150 sends a paused machine's
+`paused_hourly_rate_usd`; webviews/src/pages/cloud/cost.ts says it as "About $X a month while paused"):
+after sign-in it makes one machine named after the tag (`cloud new-machine`, or reuses the one that
+name already has), pauses it with `cloud pause-machine` (the app's own Pause Machine), opens the Cloud
+page (`palette.openCloudPane`), selects the machine's row and reads its row and detail text through the
+debug build's `debug.page`, then writes the page (`debug.page` snapshot) and the window
+(`debug.window_snapshot`) as PNGs to DIR. It fails unless the machine's row says "a month while
+paused", and kills the machine, pass or fail, as the chat proof kills its own.
+
 With `--from-folder` the chat starts from a new plain folder on this Mac (no Git, nothing else in it but
 one file), as a person who picks any folder in a new workspace does (Leo, 2026-11-08: "suppose he picks
 some random folder"): `cloud start-chat --from-folder` copies it the composer's way, and the reply must
 carry the one word that only that file holds, so the agent read it on the machine.
+
+An unattended run has no person to answer the Claude login question (harness_login.rs `step_and_reason`), so a
+headless claude start-chat refuses unless the run decides it. `--grant-claude-login` gives the launched app its
+own scratch cmux.json holding the one-time Use My Claude Login consent, as cloud-chat-matrix.py does: what a
+Release-rules build (the published NEXT DEV app) waits for (`consent-first`). `--cache-claude-login` gives the
+signed-in account the cached Claude login a start copies to its own machine (claude_login_cache.py: the agent test
+account's CLAUDE_CODE_OAUTH_TOKEN from the environment, stored the way the app stores a `claude setup-token` login,
+removed when the run ends), and `--login pass` copies it: a DEV build installs a cached login with no prompt
+(`install-cached`), a Release build once the consent says yes. `--login none` copies nothing; run 42940662878 showed
+that leaves Claude signed out ("Not logged in") on a team the gateway does not serve. All go to a Claude chat only.
 
 Each step's exit code and the CLI's own message go to the evidence JSON and the job summary, with
 the reply text. The chat prompt always includes a browser proof against example.com, so a passing
@@ -22,6 +46,7 @@ run demonstrates that the agent on the Cloud machine drove its browser and read 
 Nothing here reads the credentials file; the app does.
 """
 import argparse
+import atexit
 import collections
 import hashlib
 import json
@@ -29,12 +54,17 @@ import os
 import re
 import secrets
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
 import threading
 import time
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import claude_login_cache  # noqa: E402
+from state_wait import wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True, help="the tagged app bundle")
@@ -48,11 +78,33 @@ parser.add_argument("--evidence", required=True)
 parser.add_argument("--from-folder", action="store_true",
                     help="start the chat from a new plain folder on this Mac; the reply must name a word only its file holds")
 parser.add_argument("--cleanup-machine", default="", help="vm_<hex>: inspect and kill this machine, no chat")
+parser.add_argument("--cleanup-tag", action="store_true",
+                    help="no chat: kill every machine named --tag (the machines this run's chat made), for the "
+                         "workflow's always() step after a proof that was cut off")
+parser.add_argument("--paused-capture", default="",
+                    help="DIR: no chat; make one machine, pause it, open the Cloud page and write its image of the "
+                         "machine's paused price to DIR (the line must say 'a month while paused'), then kill it")
+parser.add_argument("--grant-claude-login", action="store_true",
+                    help="the app this run launches gets its own scratch cmux.json that says yes to Use My Claude Login "
+                         "on My Own Cloud Machines (a Release build's headless claude chat refuses without it)")
+parser.add_argument("--login", choices=("", "none", "machine", "pass"), default="",
+                    help="a Claude chat's `start-chat --login` (default: none given). `pass` copies the account's "
+                         "cached login (see --cache-claude-login); `none` copies nothing")
+parser.add_argument("--cache-claude-login", action="store_true",
+                    help="store CLAUDE_CODE_OAUTH_TOKEN (environment only) as the signed-in account's cached Claude "
+                         "login for this run, the one a start copies to the account's own machine; removed at the end")
 args = parser.parse_args()
+CLAUDE_TOKEN = claude_login_cache.token_from(os.environ) if args.cache_claude_login else ""
+if args.cache_claude_login and not claude_login_cache.valid(CLAUDE_TOKEN):
+    parser.error(f"--cache-claude-login needs {claude_login_cache.TOKEN_ENV} set to a `claude setup-token` login")
+if args.paused_capture and (args.cleanup_machine or args.from_folder):
+    parser.error("--paused-capture takes no --cleanup-machine or --from-folder")
 if not args.cleanup_machine and (not args.cloud_backend or not args.expected_api_origin):
     parser.error("--cloud-backend and --expected-api-origin are required for a chat proof")
 if args.cleanup_machine and not re.fullmatch(r"vm_[0-9a-f]{1,64}", args.cleanup_machine):
     parser.error("--cleanup-machine must look like vm_<lowercase hex>")
+if args.cleanup_tag and args.cleanup_machine:
+    parser.error("--cleanup-tag and --cleanup-machine are separate runs")
 
 CLI = str(Path(args.app) / "Contents/Resources/bin/cmux")
 SOCKET_PATH = f"/tmp/cmux-debug-{args.tag}.sock"
@@ -64,6 +116,35 @@ ENV = {
     "CMUX_SOCKET_PATH": SOCKET_PATH,
     "CMUX_NEXT_SOCKET_PATH": SOCKET_PATH,
 }
+# The token goes to `cloud secret set` on stdin only; no CLI call inherits it.
+ENV.pop(claude_login_cache.TOKEN_ENV, None)
+# The cached login entries this run stored, removed in finish().
+CACHED_LOGINS: list[str] = []
+
+
+def claude_chat(agent: str) -> bool:
+    """Whether AGENT is a Claude harness by the start's own rule (harness_login.rs `login_provider`): the last `/`
+    segment, up to its first `-`, `_` or space, any case; none named is Claude."""
+    name = (agent or "").rsplit("/", 1)[-1]
+    family = next((part for part in re.split(r"[-_\s]", name) if part), "")
+    return not agent or family.lower() == "claude"
+
+
+# A Claude chat's `--login` only: Codex never takes it (`none` would leave it signed out; its login is the Mac's broker).
+START_LOGIN = ("--login", args.login) if args.login and claude_chat(args.agent) else ()
+# --grant-claude-login: the launched app's own cmux.json (0600), removed with its folder when the run ends. It holds
+# the consent a Release build's claude chat on the account's own machine waits for (CloudLoginCopyConsentSetting:
+# only the file can say yes; `settings set` asks a person on screen, which CI has not). Never the shared
+# ~/.config/cmux/cmux-next.json a person's other apps read.
+CLAUDE_LOGIN_SETTING = ("cloud", "useMyClaudeLoginOnMyCloudMachines")
+CONFIG_DIR = None
+CONFIG_FILE = None
+if args.grant_claude_login:
+    CONFIG_DIR = os.path.realpath(tempfile.mkdtemp(prefix="cmux-proof-config-"))
+    CONFIG_FILE = Path(CONFIG_DIR, "cmux-next.json")
+    CONFIG_FILE.touch(mode=0o600)
+    CONFIG_FILE.write_text(json.dumps({CLAUDE_LOGIN_SETTING[0]: {CLAUDE_LOGIN_SETTING[1]: True}}, indent=2) + "\n")
+    ENV["CMUX_NEXT_CONFIG_FILE"] = str(CONFIG_FILE)
 BROWSER_PROOF_NONCE = secrets.token_hex(8)
 BROWSER_PROOF_URL = f"https://example.com/?cmux_browser_proof={BROWSER_PROOF_NONCE}"
 BROWSER_PROOF_MARKER = "CLOUD_BROWSER_PROOF_OK"
@@ -100,6 +181,8 @@ evidence = {
     "tag": None,
     "agent": args.agent,
     "from_folder": bool(FOLDER_PROOF_DIR),
+    "claude_login": {"consent_granted": bool(CONFIG_FILE), "login": START_LOGIN[1] if START_LOGIN else None,
+                     "cached": False},
     "prompt_sha256": hashlib.sha256(args.prompt.encode("utf-8")).hexdigest(),
     "prompt_bytes": len(args.prompt.encode("utf-8")),
     "steps": [],
@@ -154,7 +237,25 @@ def record(name: str, code: int, out: str, err: str, **extra) -> dict:
     return step
 
 
+def _remove_cached_logins_on_exit() -> None:
+    """The backstop for an exception or a cancelled job: a cached login never outlives the run."""
+    while CACHED_LOGINS:
+        code, err = claude_login_cache.remove(CLI, ENV, CACHED_LOGINS.pop())
+        if code != 0:
+            print(f"cached claude login NOT removed: exit {code} ({err.strip()[:200]})", file=sys.stderr, flush=True)
+
+
+atexit.register(_remove_cached_logins_on_exit)
+signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(128 + signum))  # a cancelled job skips atexit otherwise
+
+
 def finish(result: str) -> None:
+    while CACHED_LOGINS:
+        entry = CACHED_LOGINS.pop()
+        code, err = claude_login_cache.remove(CLI, ENV, entry)
+        record("remove cached claude login", code, "", err)
+        if code != 0 and result == "pass":
+            result = "fail: cached claude login not removed"
     if app_launcher is not None:
         # Quit only the bundle this proof identified, then wait for the open -W helper we started.
         # Its exit is the launch service's completion event, not a fixed sleep between backends.
@@ -172,6 +273,8 @@ def finish(result: str) -> None:
                 result = "fail: the launched app did not exit"
     if FOLDER_PROOF_DIR:
         shutil.rmtree(FOLDER_PROOF_DIR, ignore_errors=True)
+    if CONFIG_DIR:
+        shutil.rmtree(CONFIG_DIR, ignore_errors=True)
     evidence["result"] = result
     Path(args.evidence).parent.mkdir(parents=True, exist_ok=True)
     Path(args.evidence).write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
@@ -247,7 +350,7 @@ def app_link_log(since: str, keep: int = 300) -> dict:
     try:
         proc = subprocess.Popen([LOG_TOOL, "show", "--style", "compact", "--info", "--start", since,
                                  "--predicate", LINK_LOG_PREDICATE],
-                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, errors="replace")
+                                env=ENV, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, errors="replace")
     except OSError as error:
         return {"unavailable": clean(str(error), 300)}
     timer = threading.Timer(180, proc.kill)
@@ -381,6 +484,22 @@ def kill_machine(machine: str, *, inspect_status: bool = True, cleanup: bool = F
     return False
 
 
+def kill_run_machines() -> str:
+    """Kill every machine named after this run (start-chat names its machine --tag, so only this run's).
+    `killed`, `none` (no such machine), or `failed` (the listing or a kill failed)."""
+    list_code, list_out, list_err, machines = listed()
+    rows = [row for row in machines.get("machines") or []
+            if isinstance(row, dict) and row.get("title") == args.tag and row.get("machine_id")]
+    record("cloud list-machines (this run's machines)", list_code, "", failure_text(list_err, list_out),
+           count=len(rows), loaded=machines.get("loaded"))
+    if list_code != 0:
+        return "failed"
+    if not rows:
+        return "none"
+    killed = [kill_machine(row["machine_id"], inspect_status=False, cleanup=True) for row in rows]
+    return "killed" if all(killed) else "failed"
+
+
 def guest_events(machine: str, session: str) -> tuple[int, list[dict], str]:
     """Read raw ACP events from the guest, without putting the raw log in evidence."""
     prelude = 'export HOME="${HOME:-/home/cmux}"; c=cmux-tui; [ -x "$HOME/.cmux/bin/cmux-tui" ] && c="$HOME/.cmux/bin/cmux-tui"; '
@@ -502,6 +621,9 @@ launch = [open_tool, "-W", "-g", "-n"]
 # must travel as --env, and only as CMUX_NEXT_SOCKET_PATH: CMUX_SOCKET_PATH is a marker of another cmux,
 # and the app then strips the CMUX_NEXT_* state-root knobs (LaunchIdentity.inheritedKeys), the socket one included.
 launch.extend(["--env", f"CMUX_NEXT_SOCKET_PATH={SOCKET_PATH}"])
+if CONFIG_FILE:
+    # Its own cmux.json, as the socket: LaunchServices passes the app only what --env names.
+    launch.extend(["--env", f"CMUX_NEXT_CONFIG_FILE={CONFIG_FILE}"])
 if args.credentials_file:
     try:
         credentials_file = validate_credentials_file(args.credentials_file)
@@ -513,9 +635,17 @@ if args.credentials_file:
                    "--env", "CMUX_DEV_AUTH_REPLACE_SESSION=1"])
 launch.extend([app_path, "--args", "--cloud-backend", args.cloud_backend])
 launchable_cleanup = not args.cleanup_machine or Path(app_path, "Contents", "Info.plist").is_file()
+if args.cleanup_tag:
+    # After a cut-off proof the app it launched is usually still up on the run's socket, signed in: use it
+    # rather than open a second copy of the same bundle.
+    code, out, _ = cmux("app", "identify", "--json", timeout=30)
+    running = parsed(out) if code == 0 else {}
+    if running.get("pid") and running.get("app_bundle_path") == app_path:
+        record("reuse the running app", 0, "", "", pid=running.get("pid"))
+        launchable_cleanup = False
 if launchable_cleanup:
     try:
-        app_launcher = subprocess.Popen(launch, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        app_launcher = subprocess.Popen(launch, env=ENV, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except OSError as error:
         record("launch app", 1, "", str(error))
         finish("fail: launch app")
@@ -554,6 +684,202 @@ actual = wait_for("selected backend active and signed in", ("app", "call", "auth
                   and value.get("signed_in") is True)
 evidence["api_origin"] = actual.get("backend")
 
+if args.cleanup_tag:
+    evidence["machine_cleanup"] = kill_run_machines()
+    finish("fail: a machine named after this run was not killed" if evidence["machine_cleanup"] == "failed" else "pass")
+
+PAUSED_LINE = "a month while paused"
+
+
+def app_call(method: str, params: dict, timeout: int = 60) -> dict:
+    """One `app call` on the proof's socket; its answer, or {"error": ...}."""
+    code, out, err = cmux("app", "call", method, json.dumps(params), "--json", timeout=timeout)
+    value = parsed(out)
+    if code != 0 and "error" not in value:
+        value = {"error": failure_text(err, out) or f"exit {code}"}
+    return value
+
+
+def page_call(params: dict, timeout: int = 60) -> dict:
+    return app_call("debug.page", {"page": "cmux.cloud", **params}, timeout=timeout)
+
+
+def poll(seconds: float, step: float, probe):
+    """PROBE() until it returns a truthy value or SECONDS pass (a harness wait on the app and the
+    server, not app code); its last value."""
+    deadline = time.monotonic() + seconds
+    while True:
+        value = probe()
+        if value or time.monotonic() >= deadline:
+            return value
+        time.sleep(step)
+
+
+def machine_by_title(title: str) -> dict:
+    for row in listed()[3].get("machines") or []:
+        if isinstance(row, dict) and row.get("title") == title and row.get("machine_id"):
+            return row
+    return {}
+
+
+def paused_capture(out_dir: str) -> None:
+    """The Cloud page's paused price, on a real paused machine (see the module doc)."""
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    evidence["paused_capture"] = {"dir": str(out)}
+    # 1. One machine, named after the run: the one this name already has (a rerun), else a new one.
+    found = machine_by_title(args.tag)
+    machine = found.get("machine_id")
+    if machine:
+        record("cloud machine (reused by name)", 0, "", "", machine_id=clean(machine), status=scalar(found.get("status")))
+    else:
+        started = time.monotonic()
+        code, out_text, err = cmux("cloud", "new-machine", "--name", args.tag, "--json", timeout=180)
+        answer = parsed(out_text) if code == 0 else {}
+        machine = answer.get("machine_id") or (error_object(err, out_text).get("details") or {}).get("machine_id")
+        if not machine:
+            # A create still pending after 30 s goes on in the app; the name finds it.
+            machine = poll(600, 10, lambda: machine_by_title(args.tag).get("machine_id"))
+        record("cloud new-machine", code, "", failure_text(err, out_text) if code != 0 else "",
+               machine_id=clean(machine or "") or None, pending=answer.get("pending") is True,
+               elapsed_ms=round((time.monotonic() - started) * 1000))
+        if not machine:
+            finish("fail: cloud new-machine made no machine")
+
+    def status_now() -> str:
+        return str(machine_status(machine)[1].get("status") or "")
+
+    def done(result: str) -> None:
+        killed = kill_machine(machine, inspect_status=False)
+        evidence["machine_cleanup"] = "killed" if killed else "failed"
+        finish(result if killed or result != "pass" else "fail: the capture passed but its machine was not killed")
+
+    # 2. Running, then paused through the app's own Pause Machine.
+    started = time.monotonic()
+    status = poll(900, 10, lambda: (lambda s: s if s in ("running", "paused") else "")(status_now()))
+    record("machine running", 0 if status else 1, "", "" if status else "the machine never reached running",
+           status=status or status_now(), elapsed_ms=round((time.monotonic() - started) * 1000))
+    if not status:
+        done("fail: the machine never reached running")
+    if status != "paused":
+        started = time.monotonic()
+        code, out_text, err = cmux("cloud", "pause-machine", "--target", f"machine:{machine}", "--json", timeout=360)
+        record("cloud pause-machine", code, "", failure_text(err, out_text) if code != 0 else "",
+               elapsed_ms=round((time.monotonic() - started) * 1000))
+        if code != 0:
+            done("fail: cloud pause-machine")
+    code, summary, detail = machine_status(machine)
+    if summary.get("status") != "paused":
+        summary = poll(300, 10, lambda: (lambda s: s if s.get("status") == "paused" else {})(machine_status(machine)[1])) \
+            or machine_status(machine)[1]
+    paused = summary.get("status") == "paused"
+    record("machine paused", 0 if paused else 1, "", "" if paused else (detail or "the machine is not paused"),
+           machine_status=summary)
+    if not paused:
+        done("fail: the machine did not pause")
+
+    # 3. The Cloud page, its row for this machine, and that row's detail.
+    opened = app_call("action.run", {"id": "palette.openCloudPane", "focus": True})
+    record("open the Cloud page", 0 if not opened.get("error") else 1, "", clean(str(opened.get("error") or "")))
+    listed_rows = page_call({"action": "wait", "selector": ".cloud-machine", "timeout_ms": 90000}, timeout=100)
+    record("Cloud page shows machines", 0 if listed_rows.get("matched") else 1, "",
+           clean(str(listed_rows.get("error") or "")))
+
+    def row() -> dict:
+        titles = page_call({"action": "query", "selector": ".cloud-machine-title"}).get("elements") or []
+        subtitles = page_call({"action": "query", "selector": ".cloud-machine-subtitle"}).get("elements") or []
+        for index, title in enumerate(titles):
+            if isinstance(title, dict) and args.tag in (title.get("text") or "") and index < len(subtitles):
+                text = (subtitles[index] or {}).get("text") or ""
+                # The page reads the machine list again on its own; wait for the paused record.
+                return {"index": index, "text": text} if PAUSED_LINE in text else {}
+        return {}
+
+    found_row = poll(120, 3, row)
+    row_text = clean(found_row.get("text") or "", 300)
+    evidence["paused_capture"]["row_text"] = row_text or None
+    record("row says the paused price", 0 if found_row else 1, "",
+           "" if found_row else f"no row titled {args.tag} says '{PAUSED_LINE}'", row_text=row_text or None)
+    detail_text = ""
+    if found_row:
+        selector = f".cloud-machine-list > .cloud-machine:nth-child({found_row['index'] + 1})"
+        page_call({"action": "scroll", "selector": selector, "block": "center"})
+        clicked = page_call({"action": "click", "selector": selector})
+        cost = page_call({"action": "wait", "selector": ".cloud-machine-cost", "timeout_ms": 30000}, timeout=40) \
+            if not clicked.get("error") else {}
+        detail_text = clean(cost.get("text") or "", 300)
+        evidence["paused_capture"]["detail_text"] = detail_text or None
+        record("detail says the paused price", 0 if PAUSED_LINE in detail_text else 1, "",
+               clean(str(clicked.get("error") or cost.get("error") or "")), detail_text=detail_text or None)
+
+    # 4. The images: the page as WebKit drew it, and the whole window.
+    # The selection and detail drew before the capture: the window's pixels hold still (best effort).
+    probe_fd, probe = tempfile.mkstemp(prefix="cloud-paused-probe-", suffix=".png")
+    os.close(probe_fd)
+
+    def window_pixels() -> str:
+        shot = app_call("debug.window_snapshot", {"kind": "main", "path": probe}, timeout=60)
+        if shot.get("error"):
+            raise RuntimeError(shot["error"])
+        return hashlib.sha256(Path(probe).read_bytes()).hexdigest()
+    try:
+        wait_stable(window_pixels, "the window after the selection", timeout=10, interval=0.25,
+                    raise_on_timeout=False)
+    finally:
+        Path(probe).unlink(missing_ok=True)
+    images = {}
+    for name, method, params in (
+        ("cloud-paused-page.png", "debug.page", {"page": "cmux.cloud", "action": "snapshot"}),
+        ("cloud-paused-window.png", "debug.window_snapshot", {"kind": "main"}),
+    ):
+        path = out / name
+        shot = app_call(method, {**params, "path": str(path)}, timeout=60)
+        made = path.is_file() and path.stat().st_size > 0
+        images[name] = made
+        record(f"capture {name}", 0 if made else 1, "", "" if made else clean(str(shot.get("error") or "no file")))
+    evidence["paused_capture"]["images"] = [name for name, made in images.items() if made]
+    if not found_row:
+        done(f"fail: the Cloud page does not say '{PAUSED_LINE}' for the paused machine")
+    if not any(images.values()):
+        done("fail: no image of the Cloud page was written")
+    done("pass")
+
+
+# From here a machine may exist. A cancel or a step timeout stops this process (SIGINT, then SIGTERM after a
+# few seconds); kill the run's machines before going. `machine_cleanup` stays `pending` in the evidence only
+# when the runner stopped the process before the kill finished, which the workflow's always() step reads.
+evidence["machine_cleanup"] = "pending"
+
+
+def cut_off(signum, _frame) -> None:
+    for each in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        signal.signal(each, signal.SIG_IGN)
+    name = signal.Signals(signum).name
+    record("cut off", 128 + signum, "", f"stopped by {name}; killing the machines named after this run")
+    evidence["machine_cleanup"] = kill_run_machines()
+    finish(f"fail: cut off by {name}")
+
+
+for each in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+    signal.signal(each, cut_off)
+
+if args.paused_capture:
+    paused_capture(args.paused_capture)
+
+if args.cache_claude_login:
+    # The entries the start reads for this account (CloudCredentialLogin.loadAny): its team's, then its personal one.
+    entries = claude_login_cache.names(actual)
+    if not entries:
+        record("cache claude login", 1, "", "auth.status names no user")
+        finish("fail: cache claude login")
+    for entry in entries:
+        CACHED_LOGINS.append(entry)
+        code, err = claude_login_cache.store(CLI, ENV, entry, CLAUDE_TOKEN)
+        record("cache claude login", code, "", err)
+        if code != 0:
+            finish("fail: cache claude login")
+    evidence["claude_login"]["cached"] = True
+
 # 2. A VM agent key at the selected environment's issuer.
 started = time.monotonic()
 code, out, err = cmux("vm", "token", "create", "--ttl", "30m", "--json", timeout=60)
@@ -570,7 +896,7 @@ chat_started = time.monotonic()
 chat_deadline = chat_started + 600
 while True:  # bounded: the same start-chat again while its machine is still being made
     code, out, err = cmux("cloud", "start-chat", "--prompt", BROWSER_PROOF_PROMPT, "--agent", args.agent,
-                          *(("--from-folder", FOLDER_PROOF_DIR) if FOLDER_PROOF_DIR else ()),
+                          *(("--from-folder", FOLDER_PROOF_DIR) if FOLDER_PROOF_DIR else ()), *START_LOGIN,
                           "--name", args.tag, "--wait", "--timeout", "600", "--json", timeout=660)
     if code != 75 or time.monotonic() > chat_deadline:
         break
@@ -621,6 +947,7 @@ record("cloud browser event proof", event_code, "", "",
 
 # 5. The machine the chat made goes, pass or fail.
 killed = kill_machine(machine, inspect_status=False) if machine else False
+evidence["machine_cleanup"] = ("killed" if killed else "failed") if machine else "none"
 
 if not (code == 0 and reply_text):
     finish("fail: cloud start-chat gave no reply")

@@ -11,6 +11,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { StyleSwitch } from "../src/agent-session/acpmux/newtab/StyleSwitch";
 import { pickNewTabStyle } from "../src/agent-session/acpmux/newtab/templates";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -41,46 +42,39 @@ beforeAll(() => {
   });
 });
 
-afterAll(() => {
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { scope });
 });
 
-test("the New Tab page offers its six styles as named dots, the current one checked", async () => {
+// cmux ships two styles: Cards, Default, Threads and Console are templates a person builds now (Leo
+// 2026-11-18: "The templates should be like the customixastikms api you can build them i don't think
+// they should ship as is"), skills/cmux-customization/templates/newtab-*.
+test("the New Tab page offers its shipped styles as named dots, the current one checked", async () => {
   const host = window.document.getElementById("root")!;
   const root = createRoot(host);
   const picks: string[] = [];
   await act(async () => {
     root.render(
-      createElement(StyleSwitch, { current: "threads", onPick: (style) => picks.push(style), onCancel() {} }),
+      createElement(StyleSwitch, { current: "classic", onPick: (style) => picks.push(style), onCancel() {} }),
     );
   });
   const group = host.querySelector("fieldset")!;
   expect(group.getAttribute("aria-label")).toBe("New Tab templates");
   const radios = [...host.querySelectorAll<HTMLInputElement>("input[type=radio]")];
-  expect(radios.map((radio) => radio.value)).toEqual(["minimal", "cards", "default", "threads", "console", "classic"]);
-  expect(radios.map((radio) => radio.getAttribute("aria-label"))).toEqual([
-    "Minimal",
-    "Cards",
-    "Default",
-    "Threads",
-    "Console",
-    "Classic",
-  ]);
-  expect(radios.filter((radio) => radio.checked).map((radio) => radio.value)).toEqual(["threads"]);
+  expect(radios.map((radio) => radio.value)).toEqual(["minimal", "classic"]);
+  expect(radios.map((radio) => radio.getAttribute("aria-label"))).toEqual(["Minimal", "Classic"]);
+  expect(radios.filter((radio) => radio.checked).map((radio) => radio.value)).toEqual(["classic"]);
   // Dots: no name shows at rest.
   const name = () => host.querySelector<HTMLElement>(".nt-style-name")!;
   expect(name().hasAttribute("data-shown")).toBe(false);
   // A pointer over a dot shows its name, over that dot; leaving the row hides it.
   await act(async () => {
-    radios[4]!.closest("label")!.dispatchEvent(new window.MouseEvent("pointerover", { bubbles: true }));
+    radios[0]!.closest("label")!.dispatchEvent(new window.MouseEvent("pointerover", { bubbles: true }));
   });
-  expect(name().textContent).toBe("Console");
+  expect(name().textContent).toBe("Minimal");
   expect(name().hasAttribute("data-shown")).toBe(true);
   await act(async () => {
-    radios[4]!.closest("label")!.dispatchEvent(new window.MouseEvent("pointerout", { bubbles: true }));
+    radios[0]!.closest("label")!.dispatchEvent(new window.MouseEvent("pointerout", { bubbles: true }));
   });
   expect(name().hasAttribute("data-shown")).toBe(false);
 
@@ -93,15 +87,15 @@ test("the New Tab page offers its six styles as named dots, the current one chec
   jest.useFakeTimers();
   try {
     await act(async () => {
-      radios[5]!.dispatchEvent(new window.Event("pointerdown", { bubbles: true }));
-      radios[5]!.click();
+      radios[0]!.dispatchEvent(new window.Event("pointerdown", { bubbles: true }));
+      radios[0]!.click();
     });
-    expect(picks).toEqual(["classic"]);
+    expect(picks).toEqual(["minimal"]);
     expect(fieldAsked).toBe(0);
     await act(async () => nextFrame());
     expect(fieldAsked).toBe(1);
     // The pick shows its name for a moment, then lets it fade.
-    expect(name().textContent).toBe("Classic");
+    expect(name().textContent).toBe("Minimal");
     expect(name().hasAttribute("data-shown")).toBe(true);
     await act(async () => void jest.advanceTimersByTime(1000));
     expect(name().hasAttribute("data-shown")).toBe(true);
@@ -123,10 +117,10 @@ test("the style radios draw no native dot: the page's own stylesheet hides them"
   const host = window.document.getElementById("root")!;
   const root = createRoot(host);
   await act(async () => {
-    root.render(createElement(StyleSwitch, { current: "default", onPick() {}, onCancel() {} }));
+    root.render(createElement(StyleSwitch, { current: "minimal", onPick() {}, onCancel() {} }));
   });
   const radios = [...host.querySelectorAll<HTMLInputElement>("input[type=radio]")];
-  expect(radios).toHaveLength(6);
+  expect(radios).toHaveLength(2);
   for (const radio of radios) {
     const drawn = window.getComputedStyle(radio);
     expect([radio.value, drawn.position, drawn.width, drawn.height, drawn.opacity]).toEqual([
@@ -144,10 +138,10 @@ test("the style radios draw no native dot: the page's own stylesheet hides them"
 test("a style picked on the page is saved as tabs.newTabTemplate and shown in place", () => {
   const sent: [string, unknown][] = [];
   const shown: string[] = [];
-  pickNewTabStyle("console", {
+  pickNewTabStyle("classic", {
     callNative: async (method, params) => void sent.push([method, params]),
     show: (style) => shown.push(style),
   });
-  expect(sent).toEqual([["newTab.setTemplate", { template: "console" }]]);
-  expect(shown).toEqual(["console"]);
+  expect(sent).toEqual([["newTab.setTemplate", { template: "classic" }]]);
+  expect(shown).toEqual(["classic"]);
 });

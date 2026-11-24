@@ -106,6 +106,11 @@ public struct RowSpill<Row: Codable & Sendable>: Sendable {
         queue.sync {}
     }
 
+    /// The rows short of a page that wait in memory, newest first (tests and measurements).
+    public func rowsInMemory() -> [Row] {
+        queue.sync { tail.rows }
+    }
+
     /// How many rows are on disk (tests and measurements; reads every page).
     public func storedCount() -> Int {
         queue.sync { tail.rows.count + pages().reduce(0) { $0 + (load($1)?.count ?? 0) } }

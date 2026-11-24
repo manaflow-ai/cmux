@@ -49,6 +49,39 @@ struct TerminalVeilContrastTests {
         #expect(!lines.contains("palette = 3=#f6c177"))
     }
 
+    /// The user's report (Nov 11): "colors are less rich than the ones in Ghostty". Terminal Theme
+    /// and App Theme Monokai Classic over a picture: the veil is Monokai's own background, yet its
+    /// pink-red (1, 9: 3.9:1), its black (0) and its bright black (8) were washed toward white.
+    /// A color reads on the veil as well as on its own theme's background: nothing to raise, so
+    /// the terminal draws the theme exactly as Ghostty does.
+    @Test func aThemeOnAVeilOfItsOwnBackgroundIsDrawnAsGhosttyDrawsIt() {
+        let monokai = GhosttyThemeColors(
+            background: .init(r: 0x27, g: 0x28, b: 0x22), foreground: .init(r: 0xFD, g: 0xFF, b: 0xF1),
+            palette: [0x272822, 0xF92672, 0xA6E22E, 0xE6DB74, 0xFD971F, 0xAE81FF, 0x66D9EF, 0xFDFFF1,
+                      0x6E7066, 0xF92672, 0xA6E22E, 0xE6DB74, 0xFD971F, 0xAE81FF, 0x66D9EF, 0xFDFFF1].map {
+                GhosttyThemeColors.RGB(r: UInt8($0 >> 16), g: UInt8(($0 >> 8) & 0xFF), b: UInt8($0 & 0xFF))
+            },
+            selectionBackground: nil, selectionForeground: nil, cursor: nil, backgroundOpacity: 1, backgroundBlur: 0)
+        #expect(monokai.contrastLines(over: ThemeRGB(hex: 0x272822)) == [])
+        // A veil a shade darker than the theme's background reads every color at least as well: nothing changes.
+        #expect(monokai.contrastLines(over: ThemeRGB(hex: 0x232420)) == [])
+    }
+
+    /// On a veil that reads worse than its own background, a color is raised back to how it read
+    /// there (at most 4.5:1), never past it: a theme's black stays black on a light veil.
+    @Test func aColorIsRaisedOnlyBackToHowItReadsOnItsOwnBackground() {
+        let lines = Self.rosePine.contrastLines(over: Self.latteVeil)
+        #expect(!lines.contains { $0.hasPrefix("palette = 0=") })
+        let own = ThemeRGB(hex: 0x191724)
+        for line in lines {
+            guard let index = line.split(separator: "=").dropFirst().first.map({ $0.trimmingCharacters(in: .whitespaces) }),
+                  let i = Int(index), let raised = Self.color(line) else { continue }
+            let c = Self.rosePine.palette[i]
+            let original = ThemeRGB(r: c.r, g: c.g, b: c.b)
+            #expect(raised.contrast(with: Self.latteVeil) >= min(4.5, original.contrast(with: own)))
+        }
+    }
+
     @Test func aSurfaceConfigTakesTheRaisedColorsAndKeepsTheRest() throws {
         _ = GhosttyRuntime.shared  // ghostty_config_new requires ghostty_init
         let base = try #require(ghostty_config_new())

@@ -190,10 +190,14 @@ const OPS: &[(&str, &[&str], &[&str])] = &[
         ],
     ),
     ("cloud.plan.get", READ, &[]),
-    ("cloud.billing.checkout", MUTATION, &[]),
+    ("cloud.usage.current", READ, &[]),
+    ("cloud.billing.checkout", MUTATION, &["cloud.billing.off"]),
     ("cloud.shell.open", MUTATION, &["cloud.machine.not_found", "cloud.machine.paused"]),
     ("cloud.migration.status", READ, &[]),
     ("cloud.migration.start", MUTATION, &["cloud.migration.unavailable"]),
+    // A bounded capacity burst through the team's provider (#49766).
+    ("cloud.surge.preview", READ, &[]),
+    ("cloud.surge.create", MUTATION, &["cloud.surge.capacity", "cloud.surge.unavailable"]),
     // A VM calls these about itself; this server never does (listed so the
     // table is the whole CloudDO catalog).
     ("cloud.vm.self.get", VM_SELF, &["cloud.machine.not_found", "cloud.rate_limited"]),
@@ -258,6 +262,10 @@ const PROVIDER_OPS: &[&str] = &[
 /// start at the team's cap, or over their own monthly budget.
 const SPEND_CAP: &[&str] = &["cloud.member_budget.reached", "cloud.spend_cap.reached"];
 
+/// The provider's VM limit for the team, paused machines included (cmux-platform#1192): any op
+/// that makes or starts a VM can meet it, the same ops the spending cap refuses.
+const VM_LIMIT: &[&str] = &["cloud.quota.vm_limit"];
+
 /// Ops that start a machine for a member, which the spending cap refuses.
 const SPEND_CAP_OPS: &[&str] = &[
     "cloud.machine.create",
@@ -283,12 +291,14 @@ pub fn declared_errors(op: &str) -> Option<&'static [&'static str]> {
                 let provider: &[&str] = if PROVIDER_OPS.contains(name) { PROVIDER } else { &[] };
                 let approval: &[&str] = if APPROVAL_OPS.contains(name) { APPROVAL } else { &[] };
                 let cap: &[&str] = if SPEND_CAP_OPS.contains(name) { SPEND_CAP } else { &[] };
+                let vm_limit: &[&str] = if SPEND_CAP_OPS.contains(name) { VM_LIMIT } else { &[] };
                 let mut codes: Vec<&'static str> = base
                     .iter()
                     .chain(own.iter())
                     .chain(provider.iter())
                     .chain(approval.iter())
                     .chain(cap.iter())
+                    .chain(vm_limit.iter())
                     .copied()
                     .collect();
                 codes.sort_unstable();

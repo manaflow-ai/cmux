@@ -204,7 +204,6 @@ public final class TerminalSession {
         view.onVeil = { [weak self] veil in self?.setVeil(veil) }
         view.install(surfaceView)
         find.target = self
-        view.attachFind(find)
         echo?.colors = { [weak self] in self?.theme?.colors ?? GhosttyRuntime.shared.themeColors }
         echo?.attach(to: surfaceView)
 
@@ -317,6 +316,9 @@ public final class TerminalSession {
     public var linkPointerStateForTesting: (wrapped: String?, pointingHand: Bool) {
         (surfaceView.linkPointer.wrapped?.text, surfaceView.cursor == .pointingHand)
     }
+
+    /// The viewport rows a wrapped link's underlines are drawn on.
+    public var linkUnderlineRowsForTesting: [Int] { surfaceView.linkPointer.underlinedRowsForTesting }
     #endif
 
     /// Activates `text` as a Cmd-click on a link Ghostty detected does (its `open_url` action).
@@ -609,7 +611,7 @@ public final class TerminalSession {
         TerminalFontScale(old).carry(to: fresh) // after the theme: its config update can reset the size
         // Nothing was parsed into the fresh surface yet: no drain needed.
         if let canonicalGrid { fresh.applyAnnouncedGrid(canonicalGrid) }
-        if wasFirstResponder { fresh.window?.makeFirstResponder(fresh) }
+        if wasFirstResponder { FocusRoute(.system, "a terminal surface swapped").moveKeyboard(in: fresh.window, to: fresh) }
         surfaceHasContent = false
         // The fresh surface has no search; an open find bar searches it again.
         find.surfaceReplaced()

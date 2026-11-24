@@ -82,7 +82,7 @@ export default componentEntry<Props>({
   variants: {
     toast: {
       props: { model: chrome, look: "toast" },
-      note: "Picked. A toast: one line, Don't Show Again quiet and Import bold as clear text, the close button is Not Now.",
+      note: "Picked. The dialog card's grammar: the line in the title weight, Don't Show Again quiet, Not Now, Import primary.",
     },
     buttons: {
       props: { model: chrome, look: "buttons", width: 640 },

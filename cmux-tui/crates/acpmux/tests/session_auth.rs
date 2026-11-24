@@ -128,6 +128,56 @@ async fn agent_login_uses_the_chats_account_and_invalidates_only_its_old_evidenc
     );
 }
 
+/// Gemini signs in here with a saved key (`$GEMINI_CLI_HOME/.gemini/.env`), an account with no
+/// route home: saving it supersedes that chat's old sign-in failure, as for Claude, and leaves a
+/// chat in another Gemini home signed out.
+#[cfg(unix)]
+#[tokio::test]
+async fn gemini_key_supersedes_only_its_accounts_old_sign_in_failure() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = scratch("login-gemini");
+    // The chat's own `gemini` program (agent_login runs that CLI, never for a key) runs the fake.
+    let bin = root.join("bin/gemini");
+    std::fs::create_dir_all(bin.parent().unwrap()).unwrap();
+    std::fs::write(&bin, "#!/bin/sh\nexec python3 \"$@\"\n").unwrap();
+    std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let hub = hub(&root);
+    {
+        let mut cfg = hub.config.write().await;
+        for (name, home) in [("gem", "gemini-user"), ("gem-other", "gemini-other")] {
+            let profile = serde_json::from_value(json!({
+                "argv": [bin, FAKE],
+                "family": "gemini",
+                "env": {"GEMINI_CLI_HOME": root.join(home)},
+            }))
+            .unwrap();
+            cfg.harnesses.insert(name.into(), profile);
+        }
+    }
+    let mut c = client(&hub);
+    let id = c.new_session_of("gem").await;
+    let other = c.new_session_of("gem-other").await;
+    for session in [&id, &other] {
+        c.prompt(session, &format!("fail-streamed: {NOT_SIGNED_IN}")).await;
+    }
+    let before = c.auth(json!({"sessionId": id})).await;
+    assert_eq!(state(&before), ("signedOut", "turn"), "{before}");
+    let saved = c
+        .call(
+            method::MUX_AGENT_LOGIN_API_KEY,
+            json!({"agent": "gemini", "sessionId": id, "key": "AIzaTestReplacement"}),
+        )
+        .await;
+    assert!(saved.get("error").is_none(), "{saved}");
+    let env = std::fs::read_to_string(root.join("gemini-user/.gemini/.env")).unwrap();
+    assert_eq!(env, "GEMINI_API_KEY=AIzaTestReplacement\n");
+    assert!(!root.join("gemini-other/.gemini/.env").exists(), "the other account is untouched");
+    let changed = c.auth(json!({"sessionId": id})).await;
+    assert_eq!(changed["state"], "unknown", "the old refusal is obsolete: {changed}");
+    let untouched = c.auth(json!({"sessionId": other})).await;
+    assert_eq!(state(&untouched), ("signedOut", "turn"), "{untouched}");
+}
+
 #[tokio::test]
 async fn agent_login_without_a_chat_invalidates_only_the_default_accounts_failures() {
     let root = scratch("login-without-chat");

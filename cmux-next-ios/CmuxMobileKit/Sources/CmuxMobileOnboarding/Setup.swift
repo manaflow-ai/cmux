@@ -107,6 +107,7 @@ public struct SetupFlow: View {
                 theme.haptics.warning()
                 signOut()
             }
+            Button("Cancel", role: .cancel) {}
         } message: {
             Text("You can sign in again with this or another account.")
         }
@@ -230,6 +231,7 @@ private struct SetupSymbol: View {
         Image(systemName: name)
             .font(.system(size: 40, weight: .regular))
             .foregroundStyle(theme.colors.label)
+            .accessibilityHidden(true)
     }
 }
 
@@ -243,6 +245,7 @@ private struct ExplainerRow: View {
                 .font(.system(size: 17))
                 .frame(width: 22)
                 .foregroundStyle(theme.colors.label)
+                .accessibilityHidden(true)
             Text(text)
                 .font(theme.type.body)
                 .foregroundStyle(theme.colors.label)
@@ -356,7 +359,7 @@ private struct TeamStep: View {
 
     private func row<Label: View>(action: @escaping () -> Void, @ViewBuilder label: () -> Label) -> some View {
         Button(action: action, label: label)
-            .buttonStyle(.plain)
+            .buttonStyle(.cmuxPressFill)
             .padding(.horizontal, theme.metrics.selectedRowInset)
     }
 
@@ -478,8 +481,7 @@ private struct CreateTeamPage: View {
         SetupPage(symbol: "person.2", title: "Create your team") {
             VStack(alignment: .leading, spacing: 10) {
                 TextField("Team name", text: $name)
-                    // Names are code-like: no autocorrect, no capitals (full verify D5).
-                    .autocorrectionDisabled()
+                    // Names are code-like: no capitals (full verify D5); autocorrect stays on, as on every GUI field (Leo, 2026-11-23).
                     .textInputAutocapitalization(.never)
                     .font(theme.type.body)
                     .cmuxMobileInputField()
@@ -626,18 +628,16 @@ private struct PairMacCTAStyle: ButtonStyle {
         let pressed = configuration.isPressed
         configuration.label
             .font(theme.type.cta)
-            .foregroundStyle(primary ? theme.colors.onAccent : theme.colors.label)
+            .foregroundStyle(primary ? theme.colors.neutralOnAccent : theme.colors.label)
             .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity)
             .padding(.horizontal, theme.metrics.ctaInlinePadding)
             // Grows with Dynamic Type instead of clipping its label.
             .padding(.vertical, 12)
             .frame(minHeight: CmuxMobileCapsuleSize.large.height)
-            .background(theme.colors.accent.color.opacity(primary ? 1 : 0), in: .capsule)
+            // Held: the pressed wash over the fill; the label never dims or shrinks.
+            .cmuxMobilePressFill(pressed, rest: AnyShapeStyle(theme.colors.neutralAccent.color.opacity(primary ? 1 : 0)), in: Capsule())
             .contentShape(.rect)
-            .opacity(pressed ? 0.85 : 1)
-            .scaleEffect(primary && pressed ? 0.98 : 1)
-            .animation(theme.motion.snap.animation.unlessReduceMotion, value: pressed)
     }
 }
 

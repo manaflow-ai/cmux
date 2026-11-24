@@ -15,10 +15,20 @@ import {
   workedTurn,
   WORKED_SESSION,
   type SeedStep,
+  fleetListedSession,
 } from "./mockFixture";
 import { mockGitCommit, mockGitDiff, mockGitPush, mockGitStatus } from "./mockGit";
 import { mockFileSearch } from "./mockFiles";
+import { sampleAgentHome, type AgentHome } from "./session-info/carriedSectionModel";
 import { lightTurn, loadTurn, streamedReply, streamedTool } from "./loadFixture";
+import {
+  journeyCell,
+  journeyHarnesses,
+  journeyHealth,
+  journeyStartError,
+  journeyTurnFailure,
+  type JourneyCell,
+} from "./journeyFixture";
 
 /** Gallery-only auth data. The mock daemon consumes this; production direct clients do not. */
 export type MockSessionAuth = {
@@ -53,6 +63,8 @@ type MockAuthGlobals = {
   cmuxAcpmuxMockSlowMs?: number;
   /** bench/update-one.bench.ts: that many more listed sessions beside the fixture's, with no history. */
   cmuxAcpmuxMockListSize?: number;
+  /** `fleet`: those listed sessions shaped as a fleet Mac's rows (mockFixture.ts `fleetListedSession`). */
+  cmuxAcpmuxMockListShape?: "fleet";
 };
 
 // Mock transport: the host answers `ready` with `{transport: "mock"}` when no
@@ -240,7 +252,27 @@ export function mockTurn(prompt: string, turn: number): Step[] {
 
 /// How a load run streams its turn: text deltas of `chunkChars` every `chunkMs`, and a large
 /// tool call (a log or an edit) after every `toolEvery` deltas.
-export type LoadStreamOptions = { seconds: number; chunkChars: number; chunkMs: number; toolEvery: number };
+export type LoadStreamOptions = {
+  seconds: number;
+  chunkChars: number;
+  chunkMs: number;
+  toolEvery: number;
+  /// Words of reply that arrive at once before the timed stream, and how long they get to reveal.
+  prefixWords?: number;
+  prefixSettleMs?: number;
+  /// Assign each text delta a fixed due time. A delayed timer sends one due delta in the next task;
+  /// it never emits a same-task catch-up batch.
+  fixedSchedule?: boolean;
+  toolLinesPerSecond?: number;
+  stopped?: () => boolean;
+  progress?: (counts: {
+    deltas: number;
+    toolLines: number;
+    elapsedMs: number;
+    maxGapMs: number;
+    maxScheduleOffsetMs: number;
+  }) => void;
+};
 
 /// Whether `event` is subagent `id`'s own record (hub/paging.rs `subagent_owns`): an agent update
 /// acpmux tagged with it (`_meta.acpmux.subagent`) or one that starts or changes it (`subagents[].id`).
@@ -278,6 +310,13 @@ export class MockAcpmuxSocket {
   /// Folder profiles the user enabled (`_acpmux/harness_enable`), by id.
   private enabledProfiles = new Set<string>();
   private bookmarks = new Map<string, Set<number>>();
+  /// Saved prompts by lower-cased name, as acpmux keeps them (prompts.rs), without its limits.
+  private prompts = new Map<string, { name: string; text: string; source: "saved"; updatedAt: number }>();
+  /// Stashed drafts by chat, newest first, as acpmux keeps them (stash.rs), without its limits.
+  private stash = new Map<string, { id: string; text: string; attachments: unknown[]; at: number }[]>();
+  private stashSerial = 0;
+  /** Session Info's Carried memory (`_acpmux/agent_home`): sample files and proposals, settled by resolve. */
+  private agentHome: AgentHome | undefined;
   private handoffs = new MockHandoffs(
     () => this.sessions,
     (source, harness) => {
@@ -321,6 +360,8 @@ export class MockAcpmuxSocket {
   private queue: Promise<unknown> = Promise.resolve();
   /// Prompts sent and not yet finished; one sent while another runs is reported queued.
   private pending = 0;
+  /// The first-user journey cell this daemon serves (`?journey=HARNESS:STATE`), if any.
+  private readonly journey: JourneyCell | undefined;
 
   /// `delay` paces the scripted turn; tests pass one that resolves at once.
   constructor(
@@ -328,9 +369,11 @@ export class MockAcpmuxSocket {
       new Promise((resolve) => window.setTimeout(resolve, ms)),
     private readonly script?: MockScript,
   ) {
-    // A replayed turn starts from an empty session, as the recording did.
+    // A replayed turn starts from an empty session, as the recording did. A first-user journey cell
+    // (journeyFixture.ts) starts on a machine with no chats at all.
+    this.journey = script ? undefined : journeyCell();
     if (script) this.sessions = [{ ...scriptSession }];
-    else this.seed(Date.now());
+    else if (!this.journey) this.seed(Date.now());
     MockAcpmuxSocket.live = this;
     queueMicrotask(() => {
       this.readyState = 1;
@@ -348,7 +391,9 @@ export class MockAcpmuxSocket {
       if (entry.status === "running" || entry.permission) this.openTurns.add(entry.sessionId);
     }
     const listSize = Number((globalThis as MockAuthGlobals).cmuxAcpmuxMockListSize ?? 0);
-    for (let index = 0; index < listSize; index += 1) this.sessions.push(listedSession(index, now));
+    const listed =
+      (globalThis as MockAuthGlobals).cmuxAcpmuxMockListShape === "fleet" ? fleetListedSession : listedSession;
+    for (let index = 0; index < listSize; index += 1) this.sessions.push(listed(index, now));
   }
 
   /// One field change of one session (a status dot, unread, a rename, a cost), told the client the way
@@ -407,10 +452,42 @@ export class MockAcpmuxSocket {
       const at = now - (turns - turn) * 60_000;
       for (const step of light ? lightTurn(turn) : loadTurn(turn)) this.record(id, step, at);
     }
-    if (light) this.openWhole.add(id);
+    // Small light fixtures are opened whole so the short composer rows are exact. Large typing
+    // fixtures must use the normal paged attach: the production row store intentionally holds a
+    // bounded window, and one 100k-event whole response never becomes a usable page.
+    if (light && turns < 10_000) this.openWhole.add(id);
     this.sessions.push(created);
     this.deliver({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { kind: "created", session: created } });
     return id;
+  }
+
+  /// What a seeded session's whole log holds, counted in the log the client pages from (not the client's held
+  /// window): its records, and the rows they make, a prompt, a reply and a turnSummary per light turn
+  /// (loadFixture.ts `lightTurn`). `last_prompt_seq` names the newest prompt row (`user-${seq}`, direct.ts).
+  loadSessionLog(target: string): { records: number; rows: number; last_prompt_seq: number | null } {
+    let records = 0;
+    let rows = 0;
+    let lastPrompt: number | null = null;
+    for (const event of this.events) {
+      if (event.sessionId !== target) continue;
+      records += 1;
+      if (event.dir === "mux" && event.kind === "user_message") {
+        rows += 1;
+        lastPrompt = event.seq;
+      } else if (event.kind === "agent_message_chunk" || (event.dir === "mux" && event.kind === "turn_result"))
+        rows += 1;
+    }
+    return { records, rows, last_prompt_seq: lastPrompt };
+  }
+
+  /// Puts `count` prompts in `target`'s queue, delivered as acpmux's `queued` records for prompts sent
+  /// while a turn runs (the composer typing bench's `--queue`).
+  seedQueue(target: string, count: number): void {
+    for (let index = 0; index < count; index += 1)
+      this.emit(target, {
+        mux: "queued",
+        msg: { promptId: `${target}-queued-${index}`, text: `Queued prompt ${index + 1}` },
+      });
   }
 
   /// Records `updates` into `target`'s log in place of subagent `id`'s own records there, without
@@ -431,22 +508,74 @@ export class MockAcpmuxSocket {
     this.touch(target, { turnCount: turn, status: "running", indicator: "working" });
     this.emit(target, { mux: "user_message", msg: { text: `Turn ${turn}: stream a long answer` } });
     this.emit(target, { mux: "turn_started" });
-    const reply = streamedReply(turn, 400);
-    const end = performance.now() + options.seconds * 1000;
+    let reply = streamedReply(turn, 400);
     let at = 0;
     let deltas = 0;
     let tools = 0;
-    while (performance.now() < end && !this.closed) {
-      await this.delay(options.chunkMs);
+    // A long reply already on screen (`prefixWords`): its first words arrive in one delta and get
+    // `prefixSettleMs` to reveal, then the timed stream goes on from where they end, so a frame's
+    // cost can be read against the reply's length.
+    const words = Math.max(0, Math.floor(options.prefixWords ?? 0));
+    if (words > 0) {
+      for (let more = 1; reply.split(" ").length < words * 2; more += 1) reply += streamedReply(turn + more, 400);
+      const prefix = reply.split(" ").slice(0, words).join(" ");
+      this.emit(target, { update: text(prefix) });
+      deltas += 1;
+      at = prefix.length;
+      await this.delay(options.prefixSettleMs ?? 1500);
+    }
+    const started = performance.now();
+    const end = started + options.seconds * 1000;
+    const call = `load-stream-tool-${turn}`;
+    if (options.toolLinesPerSecond)
+      this.emit(target, {
+        update: tool(call, "execute", "Stream benchmark output", "in_progress", { rawInput: { command: "benchmark" } }),
+      });
+    let toolLines = 0;
+    let output = "";
+    let previous = started;
+    let maxGapMs = 0;
+    let maxScheduleOffsetMs = 0;
+    let nextChunkAt = started + options.chunkMs;
+    while (performance.now() < end && !this.closed && !options.stopped?.()) {
+      if (options.fixedSchedule) {
+        const waitMs = nextChunkAt - performance.now();
+        if (waitMs > 0) await this.delay(waitMs);
+      } else await this.delay(options.chunkMs);
+      if (options.stopped?.() || this.closed) break;
+      const now = performance.now();
+      maxGapMs = Math.max(maxGapMs, now - previous);
+      previous = now;
+      if (options.fixedSchedule) {
+        maxScheduleOffsetMs = Math.max(maxScheduleOffsetMs, Math.max(0, now - nextChunkAt));
+        nextChunkAt = started + (deltas + 2) * options.chunkMs;
+      }
       const chunk = reply.slice(at % reply.length, (at % reply.length) + options.chunkChars);
       at += options.chunkChars;
       this.emit(target, { update: text(chunk) });
       deltas += 1;
+      const due = Math.floor(((now - started) * (options.toolLinesPerSecond ?? 0)) / 1000);
+      if (due > toolLines) {
+        output += Array.from({ length: due - toolLines }, (_, index) => `benchmark line ${toolLines + index}\n`).join(
+          "",
+        );
+        toolLines = due;
+        this.emit(target, {
+          update: {
+            sessionUpdate: "tool_call_update",
+            toolCallId: call,
+            status: "in_progress",
+            content: [{ type: "content", content: { type: "text", text: output } }],
+          },
+        });
+      }
+      options.progress?.({ deltas, toolLines, elapsedMs: now - started, maxGapMs, maxScheduleOffsetMs });
       if (options.toolEvery > 0 && deltas % options.toolEvery === 0) {
         this.emit(target, { update: streamedTool(turn, tools) });
         tools += 1;
       }
     }
+    if (options.toolLinesPerSecond) this.emit(target, { update: done(call) });
     this.emit(target, { mux: "turn_result", msg: { status: "completed" } });
     this.touch(target, { status: "idle", indicator: "done" });
     return { deltas, chars: at, tools };
@@ -521,6 +650,48 @@ export class MockAcpmuxSocket {
     return { ticks, sidebar };
   }
 
+  /// The turn `addLoadTools` left running, by session: its number and how many calls it has.
+  private openToolTurns = new Map<string, { turn: number; calls: number }>();
+
+  /// Adds `count` short tool calls to `target`'s running turn (starting one if none is), each as a busy
+  /// agent's: the call, then `gapMs` later its result, then `gapMs` before the next. No text streams, so
+  /// each call is one new row and every other render is waste. `keepOpen: false` ends the turn after.
+  async addLoadTools(
+    target: string,
+    options: { count: number; gapMs: number; keepOpen: boolean },
+  ): Promise<{ tools: number; events: number }> {
+    let open = this.openToolTurns.get(target);
+    if (!open) {
+      const turn = Number(this.sessions.find((entry) => entry.sessionId === target)?.turnCount ?? 0) + 1;
+      this.touch(target, { turnCount: turn, status: "running", indicator: "working" });
+      this.emit(target, { mux: "user_message", msg: { text: `Turn ${turn}: check every file` } });
+      this.emit(target, { mux: "turn_started" });
+      open = { turn, calls: 0 };
+      this.openToolTurns.set(target, open);
+    }
+    let events = 0;
+    for (let index = 0; index < options.count && !this.closed; index += 1) {
+      const call = `load-tools-${open.turn}-${open.calls}`;
+      const command = `rg -n check src/file${open.calls}.ts`;
+      open.calls += 1;
+      this.emit(target, { update: tool(call, "execute", command, "in_progress", { rawInput: { command } }) });
+      await this.delay(options.gapMs);
+      this.emit(target, {
+        update: done(call, {
+          content: [{ type: "content", content: { type: "text", text: `src/file${index}.ts:1: check\n` } }],
+        }),
+      });
+      events += 2;
+      await this.delay(options.gapMs);
+    }
+    if (!options.keepOpen) {
+      this.openToolTurns.delete(target);
+      this.emit(target, { mux: "turn_result", msg: { status: "completed" } });
+      this.touch(target, { status: "idle", indicator: "done" });
+    }
+    return { tools: options.count, events };
+  }
+
   send(raw: string): void {
     const request = JSON.parse(raw) as { id?: number; method: string; params?: Record<string, any> };
     if (request.method === "session/cancel") {
@@ -585,7 +756,14 @@ export class MockAcpmuxSocket {
           },
         };
       case FORK_OP:
-        return this.fork(target, Number(params.throughSeq));
+        // `live`: the whole chat as it is now; `harness` (and `model`): onto another harness, as a
+        // model switch in a started chat forks it in place (App.tsx `chat.switchModel`).
+        return this.fork(
+          target,
+          params.live === true ? Number.MAX_SAFE_INTEGER : Number(params.throughSeq),
+          typeof params.harness === "string" ? params.harness : undefined,
+          typeof params.model === "string" ? params.model : undefined,
+        );
       case "_acpmux/watch":
         return { sessions: this.sessions };
       // A session this daemon lists (mockFixture.ts `mockResolvable`), by link, id or HOST/NAME.
@@ -603,7 +781,9 @@ export class MockAcpmuxSocket {
           // A gallery state can stand for a Mac with no agent CLI (`mockHarnesses`).
           harnesses: this.script
             ? scriptHarnesses
-            : ((globalThis as { cmuxAcpmuxMockHarnesses?: unknown[] }).cmuxAcpmuxMockHarnesses ?? harnesses),
+            : this.journey
+              ? journeyHarnesses(this.journey)
+              : ((globalThis as { cmuxAcpmuxMockHarnesses?: unknown[] }).cmuxAcpmuxMockHarnesses ?? harnesses),
           ...(typeof params.cwd === "string" && this.profileFolder(params.cwd)
             ? { folderProfiles: this.folderProfiles() }
             : {}),
@@ -672,6 +852,7 @@ export class MockAcpmuxSocket {
       }
       // Gallery data may override this mock daemon's health, never the real direct client.
       case "_acpmux/harness/health": {
+        if (this.journey) return { harnesses: journeyHealth(this.journey) };
         const fixture = globalThis as MockAuthGlobals;
         const native = fixture.cmuxAcpmuxMockNative?.["harness.health"] as
           | { health?: { id?: string; auth?: "signedIn" | "signedOut" | "expired" | "unknown"; login?: string } }
@@ -728,6 +909,95 @@ export class MockAcpmuxSocket {
           else marks.delete(Number(params.seq));
         this.bookmarks.set(target, marks);
         return { sessionId: target, bookmarks: [...marks].sort((a, b) => a - b) };
+      }
+      case "_acpmux/prompts_list":
+        return {
+          prompts: [...this.prompts.values()].sort((a, b) =>
+            a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
+          ),
+        };
+      case "_acpmux/prompts_save": {
+        const name = String(params.name ?? "").trim();
+        const text = String(params.text ?? "");
+        if (!name || !text.trim()) throw Object.assign(new Error("name and text are required"), { code: -32602 });
+        const prompt = { name, text, source: "saved" as const, updatedAt: Date.now() };
+        this.prompts.set(name.toLowerCase(), prompt);
+        return { prompt };
+      }
+      case "_acpmux/prompts_delete":
+        return {
+          removed: this.prompts.delete(
+            String(params.name ?? "")
+              .trim()
+              .toLowerCase(),
+          ),
+        };
+      case "_acpmux/stash_list":
+        return {
+          drafts: (this.stash.get(String(params.chat)) ?? []).map((draft) => ({
+            ...draft,
+            attachments: draft.attachments.map((chip) => {
+              const { data: _data, text: _text, ...light } = chip as Record<string, unknown>;
+              return light;
+            }),
+          })),
+        };
+      case "_acpmux/stash_push": {
+        const chat = String(params.chat ?? "");
+        const attachments = Array.isArray(params.attachments) ? params.attachments : [];
+        const text = String(params.text ?? "");
+        if (!chat || (!text.trim() && !attachments.length))
+          throw Object.assign(new Error("the draft is empty"), { code: -32602 });
+        const draft = { id: `stash-${++this.stashSerial}`, text, attachments, at: Date.now() };
+        const rest = (this.stash.get(chat) ?? []).filter((entry) => entry.id !== params.replaces);
+        this.stash.set(chat, [draft, ...rest].slice(0, 5));
+        return { draft };
+      }
+      case "_acpmux/stash_get": {
+        const draft = this.stash.get(String(params.chat))?.find((entry) => entry.id === params.id);
+        if (!draft) throw Object.assign(new Error("no stashed draft with that id"), { code: -32004 });
+        return { draft };
+      }
+      case "_acpmux/stash_drop": {
+        const list = this.stash.get(String(params.chat)) ?? [];
+        const rest = list.filter((entry) => entry.id !== params.id);
+        this.stash.set(String(params.chat), rest);
+        return { removed: rest.length !== list.length };
+      }
+      case "_acpmux/stash_move": {
+        const from = String(params.chat);
+        const to = String(params.to);
+        if (from === to) return { moved: 0 };
+        const kept = this.stash.get(to) ?? [];
+        const source = this.stash.get(from) ?? [];
+        const moving = source.filter((entry) => !kept.some((own) => own.id === entry.id));
+        this.stash.set(to, [...moving, ...kept].slice(0, 5));
+        this.stash.delete(from);
+        return { moved: moving.length, ids: source.map((entry) => entry.id) };
+      }
+      // Session Info's Carried memory (acpmux agent_home.rs): sample files and two proposals; a
+      // resolve settles the ones it names, as the daemon would, and refuses an id it does not hold.
+      case "_acpmux/agent_home": {
+        this.agentHome ??= sampleAgentHome(Date.now(), 2);
+        return this.agentHome;
+      }
+      case "_acpmux/agent_home_resolve": {
+        this.agentHome ??= sampleAgentHome(Date.now(), 2);
+        const held = new Set(this.agentHome.proposals.map((proposal) => proposal.id));
+        const ids = (value: unknown) => (Array.isArray(value) ? value.map(String) : []);
+        const accepted = ids(params.accept).filter((id) => held.has(id));
+        const dropped = ids(params.drop).filter((id) => held.has(id) && !accepted.includes(id));
+        const refused = [...ids(params.accept), ...ids(params.drop)]
+          .filter((id) => !held.has(id))
+          .map((id) => ({ id, reason: "unknown proposal" }));
+        const settled = new Set([...accepted, ...dropped]);
+        const revision = (this.agentHome.revision ?? 0) + (accepted.length > 0 ? 1 : 0);
+        this.agentHome = {
+          ...this.agentHome,
+          revision,
+          proposals: this.agentHome.proposals.filter((proposal) => !settled.has(proposal.id)),
+        };
+        return { accepted, dropped, refused, revision };
       }
       // The memory inbox's Accept and Dismiss (acpmux hub/memory.rs): writes nothing here, and logs
       // the `memory_resolved` record the daemon would, with only the offer's facts still open.
@@ -901,6 +1171,11 @@ export class MockAcpmuxSocket {
         ).cmuxAcpmuxMockStart;
         if (start?.delayMs) await this.delay(start.delayMs);
         if (start?.error) throw Object.assign(new Error(start.error), { code: -32603 });
+        // A journey cell's daemon has only its harness, when that is installed (config.rs's refusal).
+        const journeyRefusal =
+          this.journey &&
+          journeyStartError(this.journey, String(params._meta?.acpmux?.harness ?? this.journey.harness));
+        if (journeyRefusal) throw Object.assign(new Error(journeyRefusal.message), { code: journeyRefusal.code });
         // A new chat opens in the project of the session it was started from.
         const from = this.sessions.find((entry) => entry.sessionId === this.attached) ?? this.sessions[0];
         const profile = mockFolderProfiles.find((entry) => entry.id === params._meta?.acpmux?.harness);
@@ -919,6 +1194,10 @@ export class MockAcpmuxSocket {
           params._meta?.acpmux?.harness === "codex" ? "codex" : "claude",
         );
         if (params._meta?.acpmux?.harness) created.harness = params._meta.acpmux.harness;
+        if (this.journey) {
+          const own = journeyHarnesses(this.journey)[0];
+          Object.assign(created, { harness: own!.id, name: own!.id, family: own!.id, model: own!.models[0]!.id });
+        }
         // It runs on the same machine, with the harness's model the catalog offers.
         if (from?.host) Object.assign(created, { host: from.host, hostKind: from.hostKind });
         if (this.script) created.model = scriptHarnesses[0]!.models[0]!.id;
@@ -1076,7 +1355,7 @@ export class MockAcpmuxSocket {
   }
 
   /// A new session holding `target`'s events through `throughSeq`, under its own sequence.
-  private fork(target: string, throughSeq: number): { sessionId: string } {
+  private fork(target: string, throughSeq: number, harness?: string, model?: string): { sessionId: string } {
     const source = this.sessions.find((entry) => entry.sessionId === target);
     if (!source || !Number.isFinite(throughSeq)) throw new Error(`cannot fork ${target}`);
     const sessionId = `mock-session-${this.sessions.length + 1}`;
@@ -1089,6 +1368,8 @@ export class MockAcpmuxSocket {
     const turns = this.events.filter((entry) => entry.sessionId === sessionId && entry.kind === "turn_result").length;
     const created = {
       ...source,
+      ...(harness ? { harness } : {}),
+      ...(model ? { model } : {}),
       sessionId,
       status: "idle",
       unread: false,
@@ -1127,6 +1408,10 @@ export class MockAcpmuxSocket {
       msg: { ...(recorded ?? { text: prompt }), promptId, ...(images.length > 0 ? { images } : {}) },
     });
     this.emit(target, { mux: "turn_started" });
+    const failure = this.journey
+      ? journeyTurnFailure(this.journey, String(this.sessions.find((entry) => entry.sessionId === target)?.harness))
+      : undefined;
+    if (failure) return this.failTurn(target, running, failure);
     const steps: MockScript["steps"] = this.script?.steps ?? mockTurn(prompt, this.turns);
     for (const step of steps) {
       if (!this.script) await this.delay(350);
@@ -1142,6 +1427,26 @@ export class MockAcpmuxSocket {
     this.running = undefined;
     this.touch(target, { status: "idle", indicator: running.cancelled ? null : "done" });
     return { stopReason: running.cancelled ? "cancelled" : "end_turn" };
+  }
+
+  /// A turn the agent refused, logged as acpmux logs it (hub/turns.rs): `turn_error`, then a failed
+  /// `turn_result` with the error's kind and recovery, and `session/prompt` answers with the error.
+  private async failTurn(
+    target: string,
+    running: { cancelled: boolean; target: string },
+    failure: NonNullable<ReturnType<typeof journeyTurnFailure>>,
+  ): Promise<never> {
+    await this.delay(350);
+    const turnCount = Number(this.sessions.find((entry) => entry.sessionId === target)?.turnCount ?? 1);
+    const fields = { error: failure.message, code: failure.code, ...failure.data };
+    this.emit(target, { mux: "turn_error", msg: { ...fields, turnSeq: turnCount } });
+    this.emit(target, {
+      mux: "turn_result",
+      msg: { status: "failed", ...fields, errorText: failure.message, turnSeq: turnCount, turnCount, trigger: false },
+    });
+    if (this.running === running) this.running = undefined;
+    this.touch(target, { status: "idle", indicator: null });
+    throw Object.assign(new Error(failure.message), { data: failure.data });
   }
 
   /// Updates a session's summary and tells the client, as the daemon does.

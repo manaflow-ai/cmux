@@ -60,7 +60,7 @@ public nonisolated struct HomeTunables {
         help: "How the messages end at the top of the chat as they scroll under the avatar and name pill: the chat's own background (the default), a glass band, a soft fade, a progressive blur, a material band with a hairline, a hard edge with a shadow, a fade that starts below the pill, or Messages' blurred bar. Changes every open chat at once.",
         default: .backgroundTint, code: "HomeTunables.topFadeStyle")
 
-    /// The avatar-only list with only one conversation in it (the Messages list): off by default,
+    /// The avatar-only list with only one conversation in it (`HomeSidebarSplitView`): off by default,
     /// so a lone Chief takes no column and the chat gets the width (visual QA 2026-10-21: one avatar in
     /// an empty band); on keeps the avatar-only column for it.
     public static let loneConversationRail = Tunable<Bool>.toggle(
@@ -68,9 +68,24 @@ public nonisolated struct HomeTunables {
         help: "A narrow Home column whose list holds one conversation (only the Chief) still shows the avatar-only list beside the chat. Off gives the chat the whole width; compose stays at its top-left.",
         default: false, code: "HomeTunables.loneConversationRail")
 
+    /// How many recent copies the composer's + menu lists (`home.clipboardHistory` keeps about 20).
+    public static let plusMenuClipboardRows = Tunable<Double>.number(
+        "home.plusMenu.clipboardRows", section, "Clipboard rows in the + menu",
+        help: "How many of your recent copies the Chief composer's + menu lists, newest first. 0 turns the menu off: the + opens the file picker at once.",
+        default: 6, range: 0...20, step: 1, unit: .count, code: "HomeTunables.plusMenuClipboardRows")
+
+    /// Whether the clipboard history also reads at activation while macOS's pasteboard privacy for
+    /// cmux is at its default (which asks on programmatic reads once Apple enforces it). Off: only
+    /// "Always Allow" (or a macOS before 15.4) reads at activation; the + menu's own open still reads.
+    public static let clipboardReadAtDefaultAccess = Tunable<Bool>.toggle(
+        "home.clipboardHistory.readAtDefaultAccess", section, "Clipboard history reads at activation by default",
+        help: "Reads the clipboard for the + menu each time cmux becomes active even while macOS's pasteboard privacy for cmux is at its default. Where macOS enforces that privacy, this can show its prompt on switching to cmux.",
+        default: false, code: "HomeTunables.clipboardReadAtDefaultAccess")
+
     public static var all: [TunableDescriptor] {
         [flightRecorder.descriptor, flightRecorderCaptures.descriptor, turnProgress.descriptor, voiceInput.descriptor,
-         chatHeader.descriptor, topFadeStyle.descriptor, loneConversationRail.descriptor]
+         chatHeader.descriptor, topFadeStyle.descriptor, loneConversationRail.descriptor,
+         plusMenuClipboardRows.descriptor, clipboardReadAtDefaultAccess.descriptor]
     }
 }
 

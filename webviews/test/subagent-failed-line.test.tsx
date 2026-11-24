@@ -10,8 +10,10 @@ import { SubagentDoneLine } from "../src/agent-session/acpmux/subagents/Subagent
 import { shortReason } from "../src/agent-session/acpmux/subagents/subagentDoneLineModel";
 import { TurnActionsContext } from "../src/agent-session/acpmux/conversation/turnActions";
 import { SUBAGENT_DONE } from "../src/agent-session/acpmux/subagents/subagentRows";
+import { SubagentNavContext } from "../src/agent-session/acpmux/subagents/subagentGroupModel";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
+import { settleReact } from "./support/domTeardown";
 
 const css = readFileSync(new URL("../src/agent-session/acpmux/subagents/subagents.css", import.meta.url), "utf8");
 
@@ -33,7 +35,7 @@ const failed = (id: string, task: string): Subagent => ({
   error: ERROR,
 });
 
-function render(agents: Subagent[]): HTMLElement {
+function render(agents: Subagent[], open?: (id: string | undefined) => void): HTMLElement {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>");
   for (const key of ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"])
     saved.set(key, scope[key]);
@@ -57,19 +59,22 @@ function render(agents: Subagent[]): HTMLElement {
   act(() => {
     root = createRoot(host);
     root.render(
-      <TurnActionsContext.Provider value={{ retryAgent: async () => undefined }}>
-        {rows.map((row) => (
-          <SubagentDoneLine key={row.id} row={row} />
-        ))}
-      </TurnActionsContext.Provider>,
+      <SubagentNavContext.Provider value={open}>
+        <TurnActionsContext.Provider value={{ retryAgent: async () => undefined }}>
+          {rows.map((row) => (
+            <SubagentDoneLine key={row.id} row={row} />
+          ))}
+        </TurnActionsContext.Provider>
+      </SubagentNavContext.Provider>,
     );
   });
   return host;
 }
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -124,4 +129,48 @@ test("the grid's columns are fixed, and red is on the mark only", () => {
   expect(css).toMatch(
     /:is\(\[data-look="grid"\], \[data-look="quiet"\]\) > \.cv-subagent-done \.cv-tool__icon \{\s*color: var\(--agent-status-failure\)/,
   );
+});
+
+// cmux#52916 ("what is the point of this this looks weird?"): a failed line that opens its subagent
+// drew its title as a link chip with a ring under the pointer and a "Failed · 0s" hover card over
+// the row above. It is one button now, as a tool row that opens is: its task and its reason in the
+// line, the words lifting under the pointer, no chip and no card.
+test("a failed line that opens its subagent is one button with its task and reason, no chip or card", async () => {
+  const opened: (string | undefined)[] = [];
+  const host = render([failed("a", "Auto mode laptop daemon")], (id) => opened.push(id));
+  const row = host.querySelector<HTMLElement>(".cv-subagent-done-row")!;
+  const line = row.querySelector<HTMLElement>(":scope > .cv-subagent-done")!;
+  expect(line.tagName).toBe("BUTTON");
+  expect(row.querySelector(".cv-agent-tag")).toBeNull();
+  // No hover card trigger on the title (SubagentChipPreview marks its child `data-tooltip`).
+  expect(row.querySelector("[data-tooltip]")).toBeNull();
+  expect(line.querySelector(".cv-subagent-failed__title")?.textContent).toBe("Auto mode laptop daemon");
+  expect(line.querySelector(".cv-subagent-failed__reason")?.textContent).toBe(
+    "Agent terminated early due to an API error",
+  );
+  // Its name says what it opens and why it failed; the cut failure is whole in its title.
+  expect(line.getAttribute("aria-label")).toContain("Auto mode laptop daemon");
+  expect(line.getAttribute("aria-label")).toContain("Agent terminated early due to an API error");
+  expect(line.querySelector(".cv-subagent-failed__text")?.getAttribute("title")).toContain(ERROR);
+  act(() => line.click());
+  expect(opened).toEqual(["a"]);
+  // The row's time opens it too (the pointer's wider target); Retry keeps its own click.
+  act(() => row.querySelector<HTMLElement>(".cv-subagent-done__time")!.click());
+  expect(opened).toEqual(["a", "a"]);
+  await act(async () => row.querySelector<HTMLElement>(":scope > .cv-subagent-retry")!.click());
+  expect(opened).toEqual(["a", "a"]);
+});
+
+test("a failed line's reason that is whole on the line has no tooltip", () => {
+  const host = render([{ ...failed("a", "Push relay"), error: "503: no accounts available" }], () => undefined);
+  const text = host.querySelector(".cv-subagent-failed__text")!;
+  expect(text.querySelector(".cv-subagent-failed__reason")?.textContent).toBe("503: no accounts available");
+  expect(text.getAttribute("title")).toBeNull();
+});
+
+test("a failed line's button lifts its words under the pointer as a tool row does, with no ring", () => {
+  expect(css).toMatch(
+    /:has\(> button\.cv-subagent-done\):is\(:hover, :focus-within\)\s*> button\.cv-subagent-done\s*> \.cv-tool__text \{\s*color: var\(--cv-text\)/,
+  );
+  expect(css).not.toContain(".cv-subagent-failed__text > .cv-agent-tag.is-open");
 });

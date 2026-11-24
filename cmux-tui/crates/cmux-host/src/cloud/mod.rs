@@ -26,21 +26,36 @@
 //! I/O), [`session`] (inputs to requests, sans I/O), [`client`] (bind and
 //! auth over the [`client::Http`] and [`client::Store`] traits), [`github`]
 //! (GitHub tokens for the machine's git and `gh` over the agent socket),
-//! [`github_repos`] (repository discovery through the platform connector),
+//! [`github_repos`] (repository discovery through cmux-api, as the machine),
 //! [`github_status`] (the person's connected GitHub account, no token),
 //! [`carrier_ticket`] (the session host's relay Register ticket),
 //! `carrier_server` (the thread and socket that answer it off the poll loop),
 //! [`handoff`] (hand-off reports for the machine's agent sessions, over the
 //! same socket), `github_minter` (the thread that answers both off the poll
 //! loop),
+//! [`additions`] (a person's image additions list, sent at idle only under their usage-sharing
+//! choice), `additions_thread` (its listing and send, off the poll loop),
+//! [`page_cache`] (the sync and clean page-cache drop the platform runs before a pause),
 //! `role` (the Linux worker), [`trajectory`] (ACP chats kept in cmux
 //! Cloud and restored into a replacement machine, #25584),
 //! and `trajectory_thread` (its thread). A person's Claude or Codex login is
 //! never sent to a cmux server: it stays in the harness's own files on the
 //! machine, and their next machine gets it from their own machine's snapshot.
 
+pub mod additions;
+#[cfg(all(test, target_os = "linux"))]
+mod additions_tests;
+#[cfg(target_os = "linux")]
+pub mod additions_thread;
 #[cfg(target_os = "linux")]
 mod agent_socket;
+pub mod apps_call;
+#[cfg(all(test, unix))]
+mod apps_call_tests;
+#[cfg(unix)]
+pub mod apps_spawn;
+#[cfg(all(test, unix))]
+mod apps_spawn_tests;
 #[cfg(target_os = "linux")]
 mod bootstrap_role;
 #[cfg(unix)]
@@ -59,6 +74,7 @@ pub mod github_minter;
 pub mod github_repos;
 pub mod github_status;
 pub mod handoff;
+pub mod page_cache;
 #[cfg(target_os = "linux")]
 pub mod role;
 pub mod sender;

@@ -8,7 +8,8 @@ const { renderPage, settle, rowElement, changeValue } = await import("./testing"
 
 test("ordinary Settings shows all four placements and an explicit top-symbols choice survives reload", async () => {
   const page = await renderPage({
-    path: "/settings/agents",
+    // The row is hidden on its page (rowLevelsData.ts); a link to it shows it behind More Options.
+    path: `/settings/chat?focus=${key}`,
     setup: (provider) => provider.setHost({ ...provider.host, harness_placement: "left" }),
   });
   try {

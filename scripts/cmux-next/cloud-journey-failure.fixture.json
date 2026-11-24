@@ -1,0 +1,11 @@
+{
+  "probe": "cloud-chat-replies-production-real-model",
+  "at": "2026-11-12T22:59:00Z",
+  "runner": "github-actions",
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/10",
+  "backend": "prod",
+  "model": "real",
+  "run_attempt": 1,
+  "outcome": "fail",
+  "error": "no reply step ran"
+}

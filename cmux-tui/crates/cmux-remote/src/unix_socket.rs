@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use cmux_tui_core::backoff::Backoff;
 use tokio::net::UnixListener;
 
 use crate::owner_lock::{OwnerFileLock, sibling_lock_path};
@@ -19,49 +20,10 @@ const SOCKET_PROBE_TIMEOUT: Duration = Duration::from_millis(250);
 const ACCEPT_RETRY_INITIAL_DELAY: Duration = Duration::from_millis(10);
 const ACCEPT_RETRY_MAX_DELAY: Duration = Duration::from_millis(250);
 
-/// The delay before retrying a failed `accept` that can pass (an
-/// interrupted call, a full descriptor table), doubling to a cap.
-pub struct UnixAcceptBackoff {
-    next_delay: Duration,
-}
-
-impl Default for UnixAcceptBackoff {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl UnixAcceptBackoff {
-    pub fn new() -> Self {
-        Self { next_delay: ACCEPT_RETRY_INITIAL_DELAY }
-    }
-
-    pub fn retry_delay(&mut self, error: &io::Error) -> Option<Duration> {
-        if !retryable_accept_error(error) {
-            return None;
-        }
-        let delay = self.next_delay;
-        self.next_delay = self.next_delay.saturating_mul(2).min(ACCEPT_RETRY_MAX_DELAY);
-        Some(delay)
-    }
-
-    pub fn reset(&mut self) {
-        self.next_delay = ACCEPT_RETRY_INITIAL_DELAY;
-    }
-}
-
-fn retryable_accept_error(error: &io::Error) -> bool {
-    matches!(
-        error.kind(),
-        io::ErrorKind::Interrupted
-            | io::ErrorKind::WouldBlock
-            | io::ErrorKind::ConnectionAborted
-            | io::ErrorKind::ConnectionReset
-            | io::ErrorKind::TimedOut
-    ) || matches!(
-        error.raw_os_error(),
-        Some(libc::EMFILE) | Some(libc::ENFILE) | Some(libc::ENOBUFS) | Some(libc::ENOMEM)
-    )
+/// The spacing of a listener's `accept` retries
+/// ([`cmux_tui_core::backoff::accept_retry_delay`]): 10 ms doubling to 250 ms.
+pub fn accept_backoff() -> Backoff {
+    Backoff::new(ACCEPT_RETRY_INITIAL_DELAY, ACCEPT_RETRY_MAX_DELAY).with_jitter(0.0)
 }
 
 /// Why a listener could not be bound.
@@ -354,19 +316,5 @@ fn contextual_io(error: io::Error, context: String) -> UnixSocketError {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn bind_preserves_an_existing_owner_controlled_directory() {
-        let directory = tempfile::tempdir().unwrap();
-        fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o755)).unwrap();
-        let socket = directory.path().join("daemon.sock");
-
-        let listener = OwnedUnixListener::bind(socket.clone()).await.unwrap();
-
-        assert_eq!(fs::metadata(directory.path()).unwrap().permissions().mode() & 0o777, 0o755);
-        assert_eq!(fs::metadata(&socket).unwrap().permissions().mode() & 0o777, 0o600);
-        drop(listener);
-    }
-}
+#[path = "unix_socket_tests.rs"]
+mod tests;

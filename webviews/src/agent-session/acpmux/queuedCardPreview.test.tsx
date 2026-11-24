@@ -10,6 +10,7 @@ import { ComposerQueue } from "./ComposerQueue";
 import { queuedTiles } from "./queuedImagesModel";
 import type { QueueEdit, QueuedPromptImage } from "./model";
 import { framesNote } from "./composer/videoPrompt";
+import { settleReact } from "../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -35,6 +36,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

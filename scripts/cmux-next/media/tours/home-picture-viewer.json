@@ -1,0 +1,119 @@
+{
+  "title": "Home chat: table pictures load with sized skeletons, open large, compare Before|After and take marks",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "The Home fixture conversation",
+      "rpc": {
+        "method": "debug.home_native_fixture.open",
+        "params": {}
+      },
+      "wait": 3,
+      "shot": false
+    },
+    {
+      "title": "Dark",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "dark"
+        }
+      },
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "Pictures still loading hold a skeleton of their size",
+      "rpc": {
+        "method": "debug.home.drive",
+        "params": {
+          "action": "stream",
+          "text": "Shots on their way.\n\n| | Before | After |\n|---|---|---|\n| Web | ![before](https://10.255.255.1/before.png) | ![after](https://10.255.255.1/after.png) |",
+          "done": true
+        }
+      },
+      "wait": 2,
+      "shot": true
+    },
+    {
+      "title": "The Chief posts a before and after table",
+      "rpc": {
+        "method": "debug.home.drive",
+        "params": {
+          "action": "stream",
+          "text": "Trash icon fix, done.\n\n| | Before | After |\n|---|---|---|\n| Light | ![before, light](/System/Library/CoreServices/Dock.app/Contents/Resources/trashempty@2x.png) | ![after, light](/System/Library/CoreServices/Dock.app/Contents/Resources/trashfull@2x.png) |\n| Dark | ![before, dark](/System/Library/CoreServices/Dock.app/Contents/Resources/trashempty@2x.png) | ![after, dark](/System/Library/CoreServices/Dock.app/Contents/Resources/trashfull@2x.png) |",
+          "done": true
+        }
+      },
+      "wait": 3,
+      "shot": true
+    },
+    {
+      "title": "A click on Light · After opens it large",
+      "rpc": {
+        "method": "debug.home.drive",
+        "params": {
+          "action": "picture",
+          "index": "1"
+        }
+      },
+      "wait": 2,
+      "shot": true,
+      "optional": "the large picture viewer (debug.home.drive picture) is new in this change: the Before build has none"
+    },
+    {
+      "title": "Compare: Before and After with a slider",
+      "rpc": {
+        "method": "debug.home.drive",
+        "params": {
+          "action": "picture",
+          "index": "0",
+          "compare": "1"
+        }
+      },
+      "wait": 2,
+      "shot": true,
+      "optional": "the large picture viewer (debug.home.drive picture) is new in this change: the Before build has none"
+    },
+    {
+      "title": "Marked up: a box, an arrow and words, ready for Send in Chat",
+      "rpc": {
+        "method": "debug.home.drive",
+        "params": {
+          "action": "picture",
+          "index": "1",
+          "mark": "1"
+        }
+      },
+      "wait": 2,
+      "shot": true,
+      "optional": "the large picture viewer (debug.home.drive picture) is new in this change: the Before build has none"
+    },
+    {
+      "title": "Light: marked up",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "light"
+        }
+      },
+      "wait": 2,
+      "shot": true
+    },
+    {
+      "title": "Back to the system appearance",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "system"
+        }
+      },
+      "wait": 2,
+      "shot": false
+    }
+  ]
+}

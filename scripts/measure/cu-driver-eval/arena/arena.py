@@ -31,6 +31,7 @@ import os
 import re
 import shutil
 import signal
+import socket
 import statistics
 import subprocess
 import sys
@@ -166,6 +167,42 @@ class Sampler(threading.Thread):
         return out
 
 
+# On-screen normal windows (layer 0) of a pid, from the window server (CGWindowListCopyWindowInfo through JXA:
+# no Accessibility grant needed); None when the list cannot be read.
+WINDOWS_JXA = (
+    "ObjC.import('CoreGraphics'); function run(argv) { var pid = parseInt(argv[0]);"
+    " var list = ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo($.kCGWindowListOptionOnScreenOnly, 0)));"
+    " return String(list.filter(function (w) { return w.kCGWindowOwnerPID === pid && w.kCGWindowLayer === 0; }).length); }")
+
+
+def window_count(pid: int) -> int | None:
+    try:
+        out = subprocess.run(["/usr/bin/osascript", "-l", "JavaScript", "-e", WINDOWS_JXA, str(pid)],
+                             capture_output=True, text=True, timeout=10).stdout.strip()
+        return int(out)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+
+
+def wait_until(predicate, timeout: float, what: str, interval: float = 0.1) -> None:
+    deadline = time.monotonic() + timeout
+    while not predicate():
+        if time.monotonic() >= deadline:
+            raise RuntimeError(f"{what} within {timeout:g} s")
+        time.sleep(interval)
+
+
+def accepts(path: str) -> bool:
+    """Whether a unix socket at PATH takes a connection (it exists before its daemon listens)."""
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
+            conn.settimeout(2)
+            conn.connect(path)
+        return True
+    except OSError:
+        return False
+
+
 # ---------------------------------------------------------------- task setup and checks
 
 
@@ -230,7 +267,21 @@ class Task:
                 if state.exists():
                     break
                 time.sleep(0.1)
-        time.sleep(1.0)  # windows ordered in, the minimized one in the Dock
+        # Until every arena window is ordered in (the window server lists it on screen; a modal one with its
+        # sheet too), and the minimized one is in the Dock (its state says so). An unreadable window list
+        # falls back to the 1 s this used to wait.
+        started = time.monotonic()
+        for proc, mode in zip(self.procs[-len(s.get("arena", [])):] if s.get("arena") else [], s.get("arena", [])):
+            def ready(proc=proc, mode=mode) -> bool:
+                if proc.poll() is not None:
+                    raise RuntimeError(f"arena {mode}: the app exited ({proc.returncode})")
+                if mode == "minimized":
+                    return self.state(mode).get("started_minimized") is True
+                count = window_count(proc.pid)
+                if count is None:
+                    return time.monotonic() - started >= 1.0
+                return count >= (2 if mode == "modal" else 1)
+            wait_until(ready, 10.0, f"arena {mode}: its window was not on screen")
 
     def prompt(self) -> str:
         values = {"target": "", "code": ""}
@@ -469,24 +520,30 @@ def start_daemon(arm: str, spec: dict, log_dir: Path) -> subprocess.Popen | None
             stop_proc(proc)
             raise RuntimeError(f"{arm}: its daemon made no {ready} in 30 s")
         time.sleep(0.2)
-    time.sleep(1.0)
+    if ready:
+        # The socket file is made before the daemon listens on it: until it takes a connection.
+        wait_until(lambda: proc.poll() is not None or accepts(ready), 10.0, f"{arm}: its daemon's {ready} took no connection")
+        if proc.poll() is not None:
+            raise RuntimeError(f"{arm}: its daemon exited ({proc.returncode})")
     return proc
 
 
 def stop_proc(proc: subprocess.Popen | None) -> None:
-    if proc is None or proc.poll() is not None:
+    if proc is None:
         return
-    try:
-        os.killpg(proc.pid, signal.SIGTERM)
-    except (ProcessLookupError, PermissionError):
-        proc.terminate()
-    try:
-        proc.wait(timeout=10)
-    except subprocess.TimeoutExpired:
+    # The group, whatever its leader's state: an exited leader can leave a child running in it (cmux#41767 review
+    # F1). The group keeps the leader's pid as its id while any member lives.
+    for sig in (signal.SIGTERM, signal.SIGKILL):
         try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
-            proc.kill()
+            os.killpg(proc.pid, sig)
+        except ProcessLookupError:
+            break
+        except PermissionError:
+            pass
+        try:
+            proc.wait(timeout=10 if sig == signal.SIGTERM else 5)
+        except subprocess.TimeoutExpired:
+            pass
 
 
 def trial(args, arm: str, spec: dict, harness: str, model: str, task_spec: dict, rep: int, preamble: str, out: Path) -> dict:
@@ -527,7 +584,16 @@ def trial(args, arm: str, spec: dict, harness: str, model: str, task_spec: dict,
         parsed = parse_claude(lines) if harness == "claude" else parse_codex(lines)
         row.update(parsed)
         row["exit"] = proc.returncode
-        time.sleep(0.5)  # the last write of the app's state
+        # The app's last state write: until every arena state file reads the same for 0.3 s (each save
+        # stamps "t"), at most 5 s.
+        settle_end, last, since = time.monotonic() + 5, None, time.monotonic()
+        while time.monotonic() < settle_end:
+            current = [task.state(mode) for mode in task.states]
+            if current != last:
+                last, since = current, time.monotonic()
+            elif time.monotonic() - since >= 0.3:
+                break
+            time.sleep(0.05)
         passed, reason = task.check(row.get("answer", ""))
         if row["shell_calls"]:
             passed, reason = False, f"used a shell {row['shell_calls']} times; " + reason

@@ -1,11 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt;
 use std::io;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 #[cfg(unix)]
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, Weak};
 use std::task::{Context, Poll};
 use std::time::Duration;
@@ -27,7 +27,7 @@ use tokio::task::JoinSet;
 // end them are, so they hold on a paused or test clock too.
 use tokio::time::Instant;
 
-use crate::connection::{ConnectionError, LinkRejection, send_link_ready, send_link_rejection};
+use crate::connection::{ConnectionError, LinkRejected, send_link_ready, send_link_rejection};
 use crate::crypto::{
     AcceptedSecureLink, AuthKind, ConnectionAttemptId, CryptoError, ServiceAuthority,
     authorize_secure_link, verify_secure_link,
@@ -41,12 +41,20 @@ use crate::observability::{ConnectionState, ServerConnectionSnapshot};
 use crate::provider::AxumWebSocketLink;
 use crate::session::{ReceivedFrame, ReliableSession, SessionError, SessionLimits};
 #[cfg(unix)]
-use crate::unix_socket::{OwnedUnixListener, UnixAcceptBackoff, UnixSocketCleanup};
+use crate::unix_socket::{OwnedUnixListener, UnixSocketCleanup};
 use cmux_tui_core::net_keepalive::enable_tcp_keepalive;
 
 const PENDING_LINK_TTL: Duration = Duration::from_secs(30);
 const MAX_PENDING_LINK_GROUPS: usize = 256;
-const MAX_CLIENT_CONNECTIONS: usize = 64;
+/// The fewest logical client sessions a daemon admits at once, whatever its
+/// open-file limit.
+pub const MIN_CLIENT_CONNECTIONS: usize = 64;
+/// The most logical client sessions a daemon admits at once. It bounds the
+/// per-client state (replay buffers, lane schedulers) a daemon can hold.
+pub const MAX_CLIENT_CONNECTIONS: usize = 4_096;
+/// Descriptors one connected client may hold: up to four lane links plus the
+/// pipes and PTYs of the commands and streams it runs.
+const DESCRIPTORS_PER_CLIENT: u64 = 16;
 const MAX_CONCURRENT_HANDSHAKES: usize = 256;
 const MAX_PENDING_APPROVALS: usize = 64;
 const PREAUTH_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -157,6 +165,12 @@ pub struct ServerConnection {
     lane_sends: [Mutex<()>; 4],
     closed: AtomicBool,
     close_state: watch::Sender<ServerCloseState>,
+    /// When the connection opened; [`Self::input_at_ms`] counts from it.
+    opened: Instant,
+    /// Milliseconds after [`Self::opened`] of the last client frame
+    /// [`Self::receive`] delivered (not connection control): the snapshot's
+    /// `input_idle_ms`. One relaxed store per frame.
+    input_at_ms: AtomicU64,
 }
 
 #[derive(Clone, Debug)]
@@ -331,6 +345,8 @@ impl ServerConnection {
             lane_sends: std::array::from_fn(|_| Mutex::new(())),
             closed: AtomicBool::new(false),
             close_state,
+            opened: Instant::now(),
+            input_at_ms: AtomicU64::new(0),
         })
     }
 
@@ -357,7 +373,14 @@ impl ServerConnection {
             resume_lease_remaining_ms,
             lane_bindings: diagnostics.lane_bindings.clone(),
             physical_link_count: diagnostics.lane_bindings.len(),
+            input_idle_ms: Some(
+                self.opened_ms().saturating_sub(self.input_at_ms.load(Ordering::Relaxed)),
+            ),
         }
+    }
+
+    fn opened_ms(&self) -> u64 {
+        self.opened.elapsed().as_millis().min(u128::from(u64::MAX)) as u64
     }
 
     pub async fn send(
@@ -415,9 +438,13 @@ impl ServerConnection {
                     if let Some(expected) = expected_generation {
                         return Err(DaemonError::Generation { expected, actual });
                     }
-                    // The failed send retained this reliable frame. Reconnect
-                    // replayed it with the original application sequence.
-                    return Ok(sequence);
+                    // A failed send the old session took (its sequence was used) was retained,
+                    // and reconnect replayed it with the original sequence. A send that found
+                    // the old session already closed took nothing: send it on the replacement,
+                    // or it is lost and the next frame takes its sequence.
+                    if self.session.read().await.next_outbound_sequence(lane) > sequence {
+                        return Ok(sequence);
+                    }
                 }
                 Err(error) => return Err(error.into()),
             }
@@ -433,7 +460,10 @@ impl ServerConnection {
             let generation = session.generation();
             match session.receive().await {
                 Ok(Some(frame)) => match self.handle_connection_control(&frame).await? {
-                    ConnectionControlAction::Deliver => return Ok(Some(frame)),
+                    ConnectionControlAction::Deliver => {
+                        self.input_at_ms.store(self.opened_ms(), Ordering::Relaxed);
+                        return Ok(Some(frame));
+                    }
                     ConnectionControlAction::Continue => continue,
                     ConnectionControlAction::Close => return Ok(None),
                 },
@@ -742,11 +772,47 @@ fn recoverable_server_session_error(error: &SessionError) -> bool {
     )
 }
 
+/// How many logical client sessions a daemon admits at once: half of its soft
+/// open-file limit at [`DESCRIPTORS_PER_CLIENT`] each, within
+/// [`MIN_CLIENT_CONNECTIONS`]..=[`MAX_CLIENT_CONNECTIONS`]. The daemon process
+/// raises its soft limit toward the hard limit at start (`owner_start`), so on
+/// a default Linux host (hard limit 524288, raised soft 65536) this is 2048.
+pub fn client_connection_limit() -> usize {
+    client_limit_for_open_files(soft_open_file_limit())
+}
+
+fn client_limit_for_open_files(soft_limit: Option<u64>) -> usize {
+    let Some(soft_limit) = soft_limit else {
+        return MIN_CLIENT_CONNECTIONS;
+    };
+    let fit = soft_limit / 2 / DESCRIPTORS_PER_CLIENT;
+    usize::try_from(fit).unwrap_or(usize::MAX).clamp(MIN_CLIENT_CONNECTIONS, MAX_CLIENT_CONNECTIONS)
+}
+
+#[cfg(unix)]
+fn soft_open_file_limit() -> Option<u64> {
+    let mut limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+    // SAFETY: `limit` is valid writable storage for one rlimit.
+    if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &raw mut limit) } != 0 {
+        return None;
+    }
+    Some(limit.rlim_cur)
+}
+
+#[cfg(not(unix))]
+fn soft_open_file_limit() -> Option<u64> {
+    None
+}
+
 pub struct RemoteDaemon {
     auth: Arc<AuthDatabase>,
     limits: SessionLimits,
     policy: DaemonSessionPolicy,
     state: Mutex<DaemonState>,
+    /// One permit per logical client session, held from its first link until
+    /// the daemon drops it, so admission is decided before link-ready.
+    client_slots: Arc<Semaphore>,
+    client_limit: usize,
     accepted_tx: mpsc::Sender<Arc<ServerConnection>>,
     handshakes: Semaphore,
     approvals: Semaphore,
@@ -755,6 +821,8 @@ pub struct RemoteDaemon {
 
 struct DaemonState {
     clients: HashMap<ClientKey, Arc<ServerConnection>>,
+    /// The admission permit of each registered client; removed with it.
+    client_permits: HashMap<ClientKey, OwnedSemaphorePermit>,
     pending: HashMap<(ClientKey, u64, ConnectionAttemptId), PendingLinks>,
     registration_locks: HashMap<ClientKey, Weak<Mutex<()>>>,
 }
@@ -767,6 +835,9 @@ struct PendingLinks {
     client_resume: BTreeMap<Lane, u64>,
     grant_generation: u64,
     service_authority: ServiceAuthority,
+    /// A new session's admission permit, moved to `client_permits` once it
+    /// registers; a reconnect has none.
+    client_permit: Option<OwnedSemaphorePermit>,
 }
 
 struct ReconnectRegistration<'a> {
@@ -792,7 +863,21 @@ impl RemoteDaemon {
         limits: SessionLimits,
         policy: DaemonSessionPolicy,
     ) -> Result<(Arc<Self>, mpsc::Receiver<Arc<ServerConnection>>), DaemonError> {
+        Self::with_client_limit(auth, limits, policy, client_connection_limit())
+    }
+
+    /// [`Self::with_policy`] admitting at most `client_limit` logical client
+    /// sessions at once instead of the limit derived from the open-file limit.
+    pub fn with_client_limit(
+        auth: Arc<AuthDatabase>,
+        limits: SessionLimits,
+        policy: DaemonSessionPolicy,
+        client_limit: usize,
+    ) -> Result<(Arc<Self>, mpsc::Receiver<Arc<ServerConnection>>), DaemonError> {
         let policy = policy.validate()?;
+        if client_limit == 0 || client_limit > Semaphore::MAX_PERMITS {
+            return Err(DaemonError::Protocol("client limit must be positive".into()));
+        }
         let (accepted_tx, accepted_rx) = mpsc::channel(64);
         let daemon = Arc::new(Self {
             auth,
@@ -800,9 +885,12 @@ impl RemoteDaemon {
             policy,
             state: Mutex::new(DaemonState {
                 clients: HashMap::new(),
+                client_permits: HashMap::new(),
                 pending: HashMap::new(),
                 registration_locks: HashMap::new(),
             }),
+            client_slots: Arc::new(Semaphore::new(client_limit)),
+            client_limit,
             accepted_tx,
             handshakes: Semaphore::new(MAX_CONCURRENT_HANDSHAKES),
             approvals: Semaphore::new(MAX_PENDING_APPROVALS),
@@ -814,6 +902,11 @@ impl RemoteDaemon {
 
     pub fn auth(&self) -> &Arc<AuthDatabase> {
         &self.auth
+    }
+
+    /// How many logical client sessions this daemon admits at once.
+    pub fn client_limit(&self) -> usize {
+        self.client_limit
     }
 
     pub async fn accept(self: &Arc<Self>, inbound: InboundLink) -> Result<(), DaemonError> {
@@ -871,7 +964,8 @@ impl RemoteDaemon {
             )));
         }
         let now = Instant::now();
-        let (existing, expired) = {
+        let pending_key = (key.clone(), accepted.generation, accepted.connection_attempt);
+        let (existing, expired, joins_pending_group) = {
             let mut state = self.state.lock().await;
             // Per-group timers normally remove these entries. This bounded
             // scan is the admission-time safety net when a timer is delayed
@@ -886,11 +980,12 @@ impl RemoteDaemon {
                 .into_iter()
                 .filter_map(|key| state.pending.remove(&key))
                 .collect::<Vec<_>>();
-            (state.clients.get(&key).cloned(), expired)
+            (state.clients.get(&key).cloned(), expired, state.pending.contains_key(&pending_key))
         };
         for pending in expired {
             close_pending_links(Some(pending)).await;
         }
+        let mut client_permit = None;
         let (base_generation, daemon_resume) = match &existing {
             Some(connection) => {
                 if connection.closed.load(Ordering::Acquire) {
@@ -906,11 +1001,28 @@ impl RemoteDaemon {
             }
             None => {
                 if accepted.generation != 0 {
-                    send_link_rejection(&accepted.link, LinkRejection::SessionUnavailable).await?;
+                    send_link_rejection(&accepted.link, LinkRejected::session_unavailable())
+                        .await?;
                     return Err(DaemonError::Generation {
                         expected: 0,
                         actual: accepted.generation,
                     });
+                }
+                // A new session takes its slot before link-ready, so a full
+                // daemon refuses it with a reason the client can act on
+                // instead of closing it after it looked connected. The other
+                // links of the same group share the first link's slot.
+                if !joins_pending_group {
+                    let Ok(permit) = self.client_slots.clone().try_acquire_owned() else {
+                        send_link_rejection(
+                            &accepted.link,
+                            LinkRejected::too_many_clients(self.client_limit),
+                        )
+                        .await?;
+                        let _ = accepted.link.close().await;
+                        return Err(DaemonError::TooManyClients { limit: self.client_limit });
+                    };
+                    client_permit = Some(permit);
                 }
                 (None, Lane::ALL.into_iter().map(|lane| (lane, 0)).collect())
             }
@@ -918,7 +1030,6 @@ impl RemoteDaemon {
         send_link_ready(&accepted.link, accepted.session, accepted.generation, daemon_resume)
             .await?;
 
-        let pending_key = (key.clone(), accepted.generation, accepted.connection_attempt);
         let mut state = self.state.lock().await;
         let registry_matches = match (&existing, state.clients.get(&key)) {
             (Some(expected), Some(actual)) => {
@@ -973,8 +1084,12 @@ impl RemoteDaemon {
                 client_resume: accepted.resume.clone(),
                 grant_generation: accepted.grant.revocation_generation,
                 service_authority: accepted.grant.authority.clone(),
+                client_permit: None,
             }
         });
+        if pending.client_permit.is_none() {
+            pending.client_permit = client_permit.take();
+        }
         for lane in &accepted.lanes {
             let lane_was_new = pending.assigned.insert(*lane);
             debug_assert!(lane_was_new);
@@ -992,6 +1107,7 @@ impl RemoteDaemon {
         }
         let mut pending = state.pending.remove(&pending_key).expect("pending entry exists");
         drop(pending.expiry_task.take());
+        let client_permit = pending.client_permit.take();
         drop(state);
         // Every lane is in: the grant that formed this group admits nothing
         // more, also once this session closes.
@@ -1059,11 +1175,16 @@ impl RemoteDaemon {
                     "client session was registered concurrently".into(),
                 ));
             }
-            if state.clients.len() >= MAX_CLIENT_CONNECTIONS {
+            // The group's first link took this permit. Only a group whose
+            // entry expired and was rebuilt between its links has none.
+            let Some(permit) =
+                client_permit.or_else(|| self.client_slots.clone().try_acquire_owned().ok())
+            else {
                 drop(state);
                 let _ = connection.close().await;
-                return Err(DaemonError::Protocol("too many connected clients".into()));
-            }
+                return Err(DaemonError::TooManyClients { limit: self.client_limit });
+            };
+            state.client_permits.insert(key.clone(), permit);
             state.clients.insert(key.clone(), connection.clone());
             drop(state);
             (connection, true)
@@ -1206,6 +1327,7 @@ impl RemoteDaemon {
             state.clients.get(key).is_some_and(|current| Arc::ptr_eq(current, connection));
         if matches {
             state.clients.remove(key);
+            state.client_permits.remove(key);
             state.pending.retain(|(pending_key, _, _), _| pending_key != key);
         }
         matches
@@ -1304,7 +1426,16 @@ pub struct DirectWebSocketOptions {
     /// Grant carrier authentication to every link: the listener is reachable only
     /// from a network whose members are all authorized (a cmux Cloud machine's
     /// private VPC). Enrolled and invitation dials keep working alongside.
+    /// Off loopback it also needs `allow_trusted_carrier_non_loopback`, and
+    /// even then only peers on a private address (RFC 1918, 100.64/10, ULA)
+    /// get carrier authentication; any other peer must present a device key,
+    /// an invitation or a client grant.
     pub trusted_carrier: bool,
+    /// Explicit opt-in for `trusted_carrier` on a non-loopback bind. Without it
+    /// the listener refuses to start: off loopback the direct listener requires
+    /// a client grant. Only compatibility machines whose launch line predates
+    /// client grants (`--remote-ws-trusted-carrier`) and local development set it.
+    pub allow_trusted_carrier_non_loopback: bool,
     /// When an idle link is pinged and when a silent one is closed. The
     /// default ([`WebSocketKeepalive::default`]) is the production policy.
     pub keepalive: WebSocketKeepalive,
@@ -1334,6 +1465,7 @@ struct AdmissionIo {
 #[derive(Clone)]
 struct AdmissionInfo {
     upgraded: Arc<AtomicBool>,
+    peer: SocketAddr,
 }
 
 impl Listener for LimitedTcpListener {
@@ -1380,7 +1512,21 @@ impl Listener for LimitedTcpListener {
 
 impl Connected<IncomingStream<'_, LimitedTcpListener>> for AdmissionInfo {
     fn connect_info(stream: IncomingStream<'_, LimitedTcpListener>) -> Self {
-        Self { upgraded: stream.io().upgraded.clone() }
+        Self { upgraded: stream.io().upgraded.clone(), peer: *stream.remote_addr() }
+    }
+}
+
+/// Whether a trusted-carrier listener may grant carrier authentication to a
+/// peer at `ip`: loopback, or a private address that only an authorized network
+/// can originate (RFC 1918, shared 100.64/10, IPv6 unique local fc00::/7).
+/// Every other peer falls back to ordinary network evidence.
+pub(crate) fn trusted_carrier_peer_in_scope(ip: IpAddr) -> bool {
+    match ip.to_canonical() {
+        IpAddr::V4(v4) => {
+            let [a, b, ..] = v4.octets();
+            v4.is_loopback() || v4.is_private() || (a == 100 && (64..128).contains(&b))
+        }
+        IpAddr::V6(v6) => v6.is_loopback() || (v6.segments()[0] & 0xfe00) == 0xfc00,
     }
 }
 
@@ -1474,11 +1620,21 @@ pub async fn serve_direct_websocket_with_options(
     maximum_frame_bytes: usize,
     options: DirectWebSocketOptions,
 ) -> Result<DirectWebSocketServer, DaemonError> {
-    let DirectWebSocketOptions { allow_insecure_non_loopback, trusted_carrier, keepalive } =
-        options;
+    let DirectWebSocketOptions {
+        allow_insecure_non_loopback,
+        trusted_carrier,
+        allow_trusted_carrier_non_loopback,
+        keepalive,
+    } = options;
     if !address.ip().is_loopback() && !allow_insecure_non_loopback {
         return Err(DaemonError::Protocol(format!(
             "refusing plaintext remote WebSocket bind {address}; use TLS or explicitly allow it"
+        )));
+    }
+    if trusted_carrier && !address.ip().is_loopback() && !allow_trusted_carrier_non_loopback {
+        return Err(DaemonError::Protocol(format!(
+            "refusing trusted-carrier WebSocket bind {address}: off loopback the direct \
+             listener requires a client grant"
         )));
     }
     let listener = tokio::net::TcpListener::bind(address)
@@ -1528,11 +1684,12 @@ async fn upgrade_websocket(
                 socket,
                 state.keepalive,
             );
-            let inbound = if state.trusted_carrier {
-                InboundLink::trusted_network(Box::new(link), NetworkPeer::Tcp)
-            } else {
-                InboundLink::network(Box::new(link), NetworkPeer::Tcp)
-            };
+            let inbound =
+                if state.trusted_carrier && trusted_carrier_peer_in_scope(admission.peer.ip()) {
+                    InboundLink::trusted_network(Box::new(link), NetworkPeer::Tcp)
+                } else {
+                    InboundLink::network(Box::new(link), NetworkPeer::Tcp)
+                };
             let _ = state.daemon.accept(inbound).await;
         })
 }
@@ -1604,7 +1761,7 @@ pub async fn serve_unix_with_shutdown(
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
     let permits = Arc::new(Semaphore::new(MAX_UNIX_CONNECTIONS));
     let task = tokio::spawn(async move {
-        let mut accept_backoff = UnixAcceptBackoff::new();
+        let mut accept_backoff = crate::unix_socket::accept_backoff();
         let mut connections = JoinSet::new();
         loop {
             tokio::select! {
@@ -1620,7 +1777,7 @@ pub async fn serve_unix_with_shutdown(
                             accepted
                         }
                         Err(error) => {
-                            let Some(delay) = accept_backoff.retry_delay(&error) else {
+                            let Some(delay) = cmux_tui_core::backoff::accept_retry_delay(&mut accept_backoff, &error) else {
                                 if let Some(owner_shutdown) = &owner_shutdown {
                                     let _ = owner_shutdown.send(true);
                                 }
@@ -1677,12 +1834,19 @@ pub enum DaemonError {
     Link(LinkError),
     Session(SessionError),
     Protocol(String),
-    Generation { expected: u64, actual: u64 },
+    Generation {
+        expected: u64,
+        actual: u64,
+    },
     GenerationExhausted,
     HandshakeBusy,
     ApprovalBusy,
     HandshakeTimeout,
     Closed,
+    /// The daemon already serves its limit of logical client sessions.
+    TooManyClients {
+        limit: usize,
+    },
 }
 
 impl fmt::Display for DaemonError {
@@ -1705,6 +1869,9 @@ impl fmt::Display for DaemonError {
             Self::ApprovalBusy => formatter.write_str("too many pending enrollment approvals"),
             Self::HandshakeTimeout => formatter.write_str("remote handshake timed out"),
             Self::Closed => formatter.write_str("daemon connection is closed"),
+            Self::TooManyClients { limit } => {
+                write!(formatter, "too many connected clients (the limit is {limit})")
+            }
         }
     }
 }
@@ -1749,6 +1916,89 @@ mod tests {
     use tokio::net::UnixListener;
 
     use super::*;
+
+    #[test]
+    fn trusted_carrier_scope_admits_only_loopback_and_private_peers() {
+        for inside in [
+            "127.0.0.1",
+            "10.4.0.7",
+            "172.16.0.1",
+            "192.168.1.2",
+            "100.64.0.1",
+            "100.127.255.254",
+            "::1",
+            "fd00:4::7",
+            "fd7a:115c:a1e0::a",
+            "fc00::1",
+            "::ffff:10.0.0.5",
+        ] {
+            assert!(trusted_carrier_peer_in_scope(inside.parse().unwrap()), "{inside}");
+        }
+        for outside in [
+            "8.8.8.8",
+            "100.128.0.1",
+            "100.63.255.255",
+            "169.254.169.254",
+            "172.32.0.1",
+            "2602:f75c:0:1::2a",
+            "fe80::1",
+            "::ffff:8.8.8.8",
+            "0.0.0.0",
+            "::",
+        ] {
+            assert!(!trusted_carrier_peer_in_scope(outside.parse().unwrap()), "{outside}");
+        }
+    }
+
+    #[tokio::test]
+    async fn trusted_carrier_off_loopback_needs_the_explicit_opt_in() {
+        let state = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(state.path(), "trusted-scope", false).unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let refused = serve_direct_websocket_with_options(
+            daemon.clone(),
+            "0.0.0.0:0".parse().unwrap(),
+            65_535,
+            DirectWebSocketOptions {
+                allow_insecure_non_loopback: true,
+                trusted_carrier: true,
+                ..Default::default()
+            },
+        )
+        .await;
+        let Err(DaemonError::Protocol(message)) = refused else {
+            panic!("trusted carrier bound off loopback without the opt-in");
+        };
+        assert!(message.contains("requires a client grant"), "{message}");
+        // Loopback stays a valid trusted listener with no opt-in.
+        serve_direct_websocket_with_options(
+            daemon.clone(),
+            "127.0.0.1:0".parse().unwrap(),
+            65_535,
+            DirectWebSocketOptions { trusted_carrier: true, ..Default::default() },
+        )
+        .await
+        .unwrap()
+        .shutdown()
+        .await
+        .unwrap();
+        serve_direct_websocket_with_options(
+            daemon,
+            "0.0.0.0:0".parse().unwrap(),
+            65_535,
+            DirectWebSocketOptions {
+                allow_insecure_non_loopback: true,
+                trusted_carrier: true,
+                allow_trusted_carrier_non_loopback: true,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap()
+        .shutdown()
+        .await
+        .unwrap();
+    }
 
     #[cfg(unix)]
     #[test]
@@ -1959,5 +2209,39 @@ mod tests {
             }
         }
         assert!(!target.join("missing").exists());
+    }
+
+    #[test]
+    fn client_limit_scales_with_the_soft_open_file_limit() {
+        // No limit to read, or a small one: today's floor.
+        assert_eq!(client_limit_for_open_files(None), MIN_CLIENT_CONNECTIONS);
+        assert_eq!(client_limit_for_open_files(Some(256)), MIN_CLIENT_CONNECTIONS);
+        assert_eq!(client_limit_for_open_files(Some(1_024)), MIN_CLIENT_CONNECTIONS);
+        // Half the descriptors at 16 per client.
+        assert_eq!(client_limit_for_open_files(Some(10_240)), 320);
+        assert_eq!(client_limit_for_open_files(Some(65_536)), 2_048);
+        // An unlimited hard limit still bounds per-client state.
+        assert_eq!(client_limit_for_open_files(Some(u64::MAX)), MAX_CLIENT_CONNECTIONS);
+    }
+
+    #[test]
+    fn a_daemon_refuses_a_zero_client_limit() {
+        let state = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(state.path(), "zero-client-limit", false).unwrap();
+        let result = RemoteDaemon::with_client_limit(
+            auth,
+            SessionLimits::default(),
+            DaemonSessionPolicy::default(),
+            0,
+        );
+        assert!(matches!(result, Err(DaemonError::Protocol(_))));
+    }
+
+    #[test]
+    fn too_many_clients_names_the_limit() {
+        assert_eq!(
+            DaemonError::TooManyClients { limit: 64 }.to_string(),
+            "too many connected clients (the limit is 64)"
+        );
     }
 }

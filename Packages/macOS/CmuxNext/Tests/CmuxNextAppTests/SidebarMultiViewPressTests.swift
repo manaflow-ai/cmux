@@ -33,6 +33,24 @@ import Testing
             + "filled=\(G.filledRows(list).sorted())"
     }
 
+    @Test func suppressingGroupingKeepsTheLastReorderSlot() throws {
+        try Self.withMultiView {
+            let (list, window) = G.list()
+            defer { window.close() }
+            list.model.onScreen = [WorkspaceID("x"), WorkspaceID("y")]
+            let position = DropPosition(section: .machine(.local), index: 1)
+            let drag = SidebarListDrag(payload: .workspaces([WorkspaceID("x")]),
+                                       grabbedKey: .workspace(WorkspaceID("x")),
+                                       hiddenKeys: [.workspace(WorkspaceID("x"))], grabOffsetY: 0, gapHeight: 20,
+                                       lift: DragLiftView(content: NSView(), count: 1),
+                                       target: .position(position))
+
+            let gated = SidebarGroupDrop.gate(list, drag, card: .zero, resolved: .some(.ontoWorkspace(WorkspaceID("y"))))
+
+            #expect(gated == .some(.position(position)), "multi-view suppression closed the reorder slot: \(String(describing: gated))")
+        }
+    }
+
     @Test func aPressChangesNoSelectionInAnyFrameUntilItsRelease() throws {
         try Self.withMultiView {
             let (list, window) = G.list()

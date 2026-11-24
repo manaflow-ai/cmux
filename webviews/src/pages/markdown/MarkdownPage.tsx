@@ -4,9 +4,12 @@
 // come from the app's key dispatcher as page commands, never from page key handlers.
 import { lazy, Suspense, useRef, useState, useSyncExternalStore, type ChangeEvent, type ReactNode } from "react";
 import type { Strings } from "../shared/i18n";
+import { useLasting } from "../../ui/lasting";
 import { Toolbar, ToolbarButton, ToolbarGroup, ToolbarToggleGroup } from "../../ui/Toolbar";
 import type { EditorFind } from "../editor/editorFind";
 import { MarkdownFindBar } from "./MarkdownFindBar";
+import type { Outline } from "./outline";
+import { OutlineRail } from "./OutlineRail";
 import type { LinkOverlays } from "./overlays";
 import { L } from "./strings";
 import type { MarkdownReadOnlyReason } from "./host";
@@ -46,6 +49,10 @@ export interface MarkdownPageProps {
   onRunAll?(): void;
   /** Find in the document (Cmd-F, the `find` page commands): its pill shows over the document. */
   find?: EditorFind;
+  /** The heading outline rail (rich mode, two headings or more). */
+  outline?: Outline;
+  /** Print or Save as PDF: the rendered document through the system print panel (no button without it). */
+  onPrint?(): void;
 }
 
 export function MarkdownPage({
@@ -59,13 +66,21 @@ export function MarkdownPage({
   reading,
   onRunAll,
   find,
+  outline,
+  onPrint,
 }: MarkdownPageProps) {
   const state = useSyncExternalStore(store.subscribe, store.getState);
   const [readingOpen, setReadingOpen] = useState(false);
   const readingAnchor = useRef<HTMLSpanElement | null>(null);
   const { t } = strings;
+  // A lost link says so only once it lasts (a launch, a daemon restart: the store reads again when the
+  // link is back, `linkChanged`); until then the page stays blank.
+  const downLasting = useLasting(state.phase === "disconnected");
 
   if (state.phase === "empty" && emptyState) return emptyState();
+
+  if (state.phase === "disconnected" && !downLasting)
+    return <div className="md-page md-page-message" aria-busy="true" />;
 
   if (state.phase === "disconnected" || state.phase === "failed") {
     return (
@@ -161,6 +176,11 @@ export function MarkdownPage({
             options={modes.map((mode) => ({ value: mode, label: t(mode === "rich" ? L.rich : L.source) }))}
             onValueChange={(mode) => store.setMode(mode as MarkdownMode)}
           />
+          {onPrint && state.phase === "ready" && state.mode === "rich" ? (
+            <ToolbarButton className="md-print-button" label={t(L.printTitle)} onPress={onPrint}>
+              {t(L.print)}
+            </ToolbarButton>
+          ) : null}
           {reading ? (
             <span className="md-reading-anchor" ref={readingAnchor}>
               <ToolbarButton
@@ -206,6 +226,9 @@ export function MarkdownPage({
         <div className="md-find-host">
           <MarkdownFindBar find={find} strings={strings} />
         </div>
+      ) : null}
+      {outline && state.mode === "rich" && state.phase === "ready" ? (
+        <OutlineRail outline={outline} strings={strings} />
       ) : null}
       <main className="md-scroll">
         <div className="md-doc selectable" ref={editorRef} hidden={state.mode !== "rich"} />

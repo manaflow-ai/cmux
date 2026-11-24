@@ -2,12 +2,21 @@
 // The line of a turn the agent ran on its own (backgroundTurns.ts, BackgroundTurnLine.tsx): quiet,
 // it is one closed line the reader can open; running, the same line with the working spinner and its words shimmering; one
 // with something to say draws no line. direct.ts tags the rows (test/agent-pane-background-turns.test.ts).
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxRow } from "../model";
 import { BackgroundTurnLine } from "./BackgroundTurnLine";
 import { BACKGROUND_TURN, backgroundTurnRowId, foldBackgroundTurns } from "./backgroundTurns";
 import { turnView } from "./turns";
+
+// These pin the line look (backgroundTurnLook.experiment.ts `line`): the default draws a background
+// turn's calls inline, with no line (backgroundTurnInline.test.ts).
+beforeAll(() => {
+  globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "background-turn-look": "line" };
+});
+afterAll(() => {
+  delete globalThis.cmuxExperiments;
+});
 
 let at = 0;
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
@@ -61,10 +70,18 @@ test("a quiet background turn is one closed line that opens to its rows", () => 
   expect(html).not.toContain("cv-spinner");
 });
 
-test("a background turn that is not quiet draws its rows as they came, with no line", () => {
+test("a background turn that is not quiet folds its work and draws its reply, with no line", () => {
   const rows = transcript({ quiet: false });
-  // Its reply ends on its own footer (backgroundTurnFooter.test.ts).
-  expect(ids(turnView(rows, new Set()))).toEqual(["prompt", "reply", "summary", "check", "note", "backgroundEnd-bg"]);
+  // Its work folds under its "Worked for" (cmux#49592); its reply ends on its own footer
+  // (backgroundTurnFooter.test.ts).
+  expect(ids(turnView(rows, new Set()))).toEqual([
+    "prompt",
+    "reply",
+    "summary",
+    "worked-backgroundTurn-bg",
+    "note",
+    "backgroundEnd-bg",
+  ]);
 });
 
 test("a running background turn is the compact line with the working spinner", () => {
@@ -79,11 +96,23 @@ test("a running background turn is the compact line with the working spinner", (
   // Its words shimmer as a running tool row's do (Leo, 2026-11-09: "isn't highlighted all the way
   // through like other tool calls are"): the lit copy of the whole label, on a live line.
   expect(html).toContain("is-live");
+  expect(html).toContain('data-spinner-look="track"');
   expect(html).toMatch(/class="cv-row-shimmer"[^>]*>.*Scheduled check/);
   const ended = line("bg", { running: false, quiet: true, trigger: "scheduled" });
   expect(renderToStaticMarkup(<BackgroundTurnLine row={ended} expanded={false} onToggle={() => {}} />)).not.toContain(
     "cv-row-shimmer",
   );
+});
+
+test("a finished task's line, while its turn still answers, leads with the clock, never a spinner", () => {
+  const cause = { kind: "shell", status: "completed", weight: "result" as const };
+  const answering = line("bg", { running: true, trigger: "task_notification" });
+  answering.background = { ...answering.background!, cause };
+  const html = renderToStaticMarkup(<BackgroundTurnLine row={answering} expanded={false} onToggle={() => {}} />);
+  expect(html).toContain("Background task finished");
+  expect(html).not.toContain("cv-spinner");
+  expect(html).toContain('data-icon="time.waiting"');
+  expect(html).toContain("cv-row-shimmer");
 });
 
 test("rows with no background turn come back as they were", () => {

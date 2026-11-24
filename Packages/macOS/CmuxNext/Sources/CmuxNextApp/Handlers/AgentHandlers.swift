@@ -28,10 +28,9 @@ import Observation
 /// Launch Claude/Codex Teams run `AgentTeamsLaunch`. Computer Use
 /// focus/stop are typed-unavailable.
 enum AgentHandlers {
-    /// Inspect Element (#24707): the web-content menus that place it (the agent chat page's)
-    /// leave it out while Debug Settings' UI pointer inspector
-    /// (`AgentPaneTunables.pointerInspector`, on by default) is turned off. Native menus never
-    /// place it (InspectElementScopeTests).
+    /// Point at Element (#24707, ask-5077a4ec48): the menus that place it (the agent chat page's, and the native
+    /// tab, pane, workspace row and sidebar item menus) leave it out while Debug Settings' UI pointer inspector
+    /// (`AgentPaneTunables.pointerInspector`, on by default) is turned off (InspectElementScopeTests).
     static func gatePointerInspectorMenuRows(in registry: ActionRegistry) {
         ActionTargetVisibility.hide("agentPane.togglePointerInspector", in: registry) { _ in
             !AgentPaneTunables.pointerInspector.value
@@ -74,12 +73,22 @@ enum AgentHandlers {
         }
         registry.bind("agentActivity.open", run: { _ in context.services.agentActivityPage.open() })
         context.services.pages.register(context.services.macScreenTabs)
-        registry.bind("macScreen.open", run: { context.services.openMacScreen(in: try? context.pane($0)) })
-        // The menu bar item's rows while a device sees or controls this Mac (MacScreenShareIndicator).
-        registry.bind("macScreen.stopSharing", unavailable: { context.services.macScreenPages.hubHost.noSessionReason },
-                      run: { _ in _ = context.services.macScreenPages.hubHost.stopSession() })
-        registry.bind("macScreen.revokeViewer", unavailable: { context.services.macScreenPages.hubHost.noSessionReason },
-                      run: { _ in _ = context.services.macScreenPages.hubHost.revokeViewer() })
+        MacScreenActions(pages: context.services.macScreenPages, selectedTab: { context.scope().tab?.id.rawValue },
+                         providerKey: { id, machine in
+                             if let machine {
+                                 guard let daemon = context.services.machines.anyDaemon(machine: machine) else { return nil }
+                                 if context.services.pages.storeKey(of: id) != nil { return context.services.pages.storeKey(of: id, in: daemon.store) }
+                                 guard context.services.paneController(showingTab: id)?.daemon.machineID == machine else { return nil }
+                             }
+                             return context.services.pages.storeKey(of: id) ?? id
+                         }, open: { record, invocation, byPerson in
+                             let pane: PaneController?
+                             if let target = context.explicitTarget(invocation, kinds: [.tab]), LocalPageTab.page(of: target.id) != nil {
+                                 pane = context.paneController(invocation)
+                             } else { pane = try context.pane(invocation) }
+                             guard let pane else { return }
+                             context.services.macScreenTabs.open(try record(), in: pane, focus: ActionRunScope.viewChangeAllowed(), byPerson: byPerson)
+                         }, refusal: { registry.refuse(thrown: $0) }, listedDevices: { [weak services = context.services] in (await services?.devices.readDevices()?.devices ?? []).compactMap { MacScreenListedDevice(name: $0.name, screenAction: $0.screen?.action, reason: $0.screen?.reason) } }, worker: context.services.cmuxRemote.screenSessionWorker).bind(into: registry, paletteRows: { context.services.palette.sources.extraProviders.append($0) })
         context.services.cmuxRemoteActions.bind(into: registry)
         AgentSessionWorkspace.bind(into: registry, context: context)
         AgentSessionTab.bind(into: registry, context: context)
@@ -103,11 +112,13 @@ enum AgentHandlers {
         // A chat tab's Move to Floating Chat (cx-b9qi): the same panel holds its session.
         context.services.agentTabs.moveToFloatingChat = { [weak services = context.services] in services?.quickComposer.moveToFloatingChat(session: $0) ?? false }
         // Computer Use Setup: one model (`ComputerUseSetup`) behind the palette, the CLI, the
-        // Settings card and the onboarding step. Setup opens the guided step; the two grant
-        // actions open their Privacy & Security list.
-        registry.bind("palette.computerUse.setup", run: { _ in
-            context.services.onboarding.computerUseSetup.recheck()
-            context.services.onboarding.show(step: .computerUse)
+        // Settings card and the onboarding step. Every entry opens the guided window; the two grant
+        // actions also start that grant's Allow there (System Settings with the drag panel) on the
+        // person's own run in this app (never a `focus` request, a page or the socket). An agent's run (`cmux action run palette.computerUse.setup` after a
+        // tool call found Computer Use off) only opens the window, without the keys.
+        registry.bindEffect("palette.computerUse.setup", effect: { invocation in
+            context.services.onboarding.showComputerUse(inFront: invocation.allowsViewChange, byPerson: invocation.isPersonsOwnRun)
+            return .done
         })
         registry.bindEffect("palette.computerUse.restart", effect: { _ in
             guard let restart = context.services.onboarding.computerUseSetup.prepareRestart() else { return .done }
@@ -116,9 +127,34 @@ enum AgentHandlers {
                 return nil
             }))
         })
-        registry.bind("palette.computerUse.accessibility", run: { _ in context.services.onboarding.computerUseSetup.open(.accessibility) })
-        registry.bind("palette.computerUse.screenRecording", run: { _ in context.services.onboarding.computerUseSetup.open(.screenRecording) })
-        registry.bindAgentPane { invocation in
+        // Settings › Computer Use › Saved Approvals (the page's own buttons and the CLI): the worker's
+        // approvals, through the daemon's `computer-use-approvals` on this verified app's connection.
+        for id in ["computerUse.approval.forget", "computerUse.approval.set"] as [ActionID] {
+            registry.bindEffect(id, effect: { invocation in
+                guard let app = (invocation["appId"] ?? invocation["app_id"])?.stringValue, !app.isEmpty else { return .refused(ComputerUseSessionStrings.noApp) }
+                let decision = invocation["decision"]?.stringValue
+                if id == "computerUse.approval.set", decision != "always", decision != "never" { return .refused(ComputerUseSessionStrings.noDecision) }
+                // SECURITY: Always and Forget widen, so from the page they need the person's own input (``ComputerUseSettings/isPersonOnly(_:)``).
+                if invocation.origin == .page, id != "computerUse.approval.set" || decision == "always", !context.services.personInput.backsNow { return .refused(RefusalStrings.personOnlyFromPage) }
+                let remote = context.services.cmuxRemote
+                // action-wait-allow: the saved approvals live in cmux Remote's Computer Use worker, another process.
+                return .waiting(.externalProcess) {
+                    do { try await remote.editComputerUseApproval(appID: app, decision: id == "computerUse.approval.set" ? decision : nil) } catch {
+                        return ActionWorkFailure(String(describing: error))
+                    }
+                    return nil
+                }
+            })
+        }
+        context.services.cmuxRemote.bindApprovalSuggestions(into: registry)
+        for (id, pane) in [("palette.computerUse.accessibility", .accessibility), ("palette.computerUse.screenRecording", .screenRecording)]
+            as [(ActionID, ComputerUsePermissionPane)] {
+            registry.bindEffect(id, effect: { invocation in
+                context.services.onboarding.showComputerUse(allowing: pane, inFront: invocation.allowsViewChange, byPerson: invocation.isPersonsOwnRun)
+                return .done
+            })
+        }
+        registry.bindAgentPane(customizeRows: { context.services.settings?.snapshot.customizeFromTheApp == true }) { invocation in
             if openOnHost(invocation, context: context) { return }
             openLocalChat(invocation, context: context)
         }
@@ -128,7 +164,8 @@ enum AgentHandlers {
             return .done
         })
         registry.bindEffect("palette.newCloudChat", effect: { invocation in  // New Agent Chat's tab; its seed picks Cloud, carrying a page's `handoff` token
-            withAgentPane(invocation, context: context, seed: .picksCloud(handoff: invocation["handoff"]?.stringValue)) { $0.openAgentTab(seed: .picksCloud(after: $0.agentSeedFromSelectedTab(), handoff: invocation["handoff"]?.stringValue)) }
+            let handoff = invocation["handoff"]?.stringValue; if invocation.target == nil, invocation.allowsViewChange, openChatWorkspace(invocation, context: context, seed: .picksCloud(after: context.scope(invocation).pane?.agentSeedFromSelectedTab(), handoff: handoff), cloud: true) { return .done } // a person's own: a workspace of its own (cmux#45947)
+            withAgentPane(invocation, context: context, seed: .picksCloud(handoff: handoff)) { $0.openAgentTab(seed: .picksCloud(after: $0.agentSeedFromSelectedTab(), handoff: handoff)) }
             return .done })
         registry.bindAgentPaneSessionInfo { invocation in
             focusedAgentView(.toggleSessionInfo, context, invocation)?.toggleSessionInfo()
@@ -154,11 +191,12 @@ enum AgentHandlers {
                 "Point at Element is off. Turn on UI pointer inspector in Debug Settings."
         }, run: { invocation in
             // Palette, keyboard and the CLI keep the existing toggle contract.
-            // A targeted context-menu invocation starts at the right-click point.
+            // A right-click menu's run starts on what was right-clicked: the chat page's element, or the native
+            // tab, pane, workspace row or sidebar item the menu belongs to.
             if invocation.target == nil {
                 context.services.uiInspector.toggle()
             } else {
-                context.services.uiInspector.inspectFromContextMenu()
+                context.services.uiInspector.inspectFromContextMenu(menu: invocation.menuContext, target: invocation.target)
             }
         })
         gatePointerInspectorMenuRows(in: registry)
@@ -171,9 +209,13 @@ enum AgentHandlers {
             }
         })
         // The composer's mic (CmuxNextAgentPane). Held from the keyboard, it
-        // is push-to-talk. Outside an agent chat it stops a session still
-        // running in one.
-        registry.bind("palette.toggleDictation", invoke: { invocation in
+        // is push-to-talk. Outside an agent chat it stops a session still running in one. Offered
+        // only with a terminal or chat in front or a dictation to stop; elsewhere its key does nothing.
+        registry.bind("palette.toggleDictation", unavailable: { [weak registry] in
+            if case .terminal = context.scope().pane?.currentContent { return nil }
+            let runs = selectedChat(context) != nil || terminalDictation.isActive || registry?.action(for: "palette.toggleDictation")?.paletteState?() == true
+            return runs ? nil : MiscHandlerStrings.noAgentChat
+        }, invoke: { invocation in
             if let (pane, content) = context.visibleContent(invocation), case .terminal(let entry) = content {
                 guard let tabID = pane.stripModel.selectedID?.rawValue,
                       let tab = pane.pane.tabs.first(where: { $0.id == tabID }) else { return }
@@ -182,10 +224,7 @@ enum AgentHandlers {
                 return
             }
             if terminalDictation.stopIfActive() { return }
-            guard let view = selectedChat(context, invocation) else {
-                if AgentPaneView.stopDictation() { return }
-                return context.refuse(MiscHandlerStrings.noAgentChat)
-            }
+            guard let view = selectedChat(context, invocation) else { AgentPaneView.stopDictation(); return }
             view.toggleDictation(byPerson: invocation.isPersonsOwnRun)
         })
         // Its palette row says whether the dictation a run would end listens (read only, no refusal).
@@ -228,18 +267,18 @@ enum AgentHandlers {
             guard let view = selectedChat(context, invocation) else { return context.registry.refuse(.noChat, "agentPane.continueIn") }
             view.showContinueIn()
         })
-        // The focused chat's page takes the keyboard, then opens the model picker, file search,
-        // or `/btw`'s side-question composer. The gate is published live from Debug Settings.
-        let keyboardCommands: [(ActionID, () -> String, () -> String, (AgentPaneView) -> Void)] = [
-            ("agentPane.switchModel", { MiscHandlerStrings.switchModelNeedsFocus }, { MiscHandlerStrings.switchModelNeedsAgentChat }, { $0.showModelPicker() }),
-            ("agentPane.searchFiles", { MiscHandlerStrings.pickerNeedsFocus }, { MiscHandlerStrings.searchFilesNeedsAgentChat }, { $0.showFileSearch() }),
-            ("agentPane.sideQuestion", { MiscHandlerStrings.sideQuestionNeedsFocus }, { MiscHandlerStrings.sideQuestionNeedsAgentChat }, { $0.askSideQuestion() }),
-        ]
-        for (id, needsFocus, needsChat, run) in keyboardCommands {
+        // The focused chat's page takes the keyboard, then opens the model picker, file search, `/btw`'s side-question composer or a composer
+        // bar control (AgentComposerControl; the person's own Toggle Plan Mode key is its mode switch's gesture). The gate is published live from Debug Settings.
+        let keyboardCommands: [(ActionID, () -> String, (AgentPaneView, ActionInvocation) -> Void)] = [
+            ("agentPane.switchModel", { MiscHandlerStrings.switchModelNeedsFocus }, { view, _ in view.showModelPicker() }),
+            ("agentPane.searchFiles", { MiscHandlerStrings.pickerNeedsFocus }, { view, _ in view.showFileSearch() }),
+            ("agentPane.sideQuestion", { MiscHandlerStrings.sideQuestionNeedsFocus }, { view, _ in view.askSideQuestion() }),
+        ] + AgentComposerControl.allCases.map { control -> (ActionID, () -> String, (AgentPaneView, ActionInvocation) -> Void) in (control.actionID, { MiscHandlerStrings.pickerNeedsFocus }, { $0.showComposerControl(control, byPerson: $1.isPersonsOwnRun, event: context.services.inputDispatch.event) }) }
+        for (id, needsFocus, run) in keyboardCommands {
             registry.bind(id, run: { invocation in
                 guard invocation.allowsViewChange else { return context.refuse(needsFocus()) }
-                guard let view = selectedChat(context, invocation) else { return context.refuse(needsChat()) }
-                run(view)
+                guard let view = selectedChat(context, invocation) else { return context.registry.refuse(.noChat, id) }
+                run(view, invocation)
             })
         }
         registry.bind("agentPane.createCheckpoint", run: { invocation in
@@ -258,7 +297,7 @@ enum AgentHandlers {
                 guard invocation.allowsViewChange else {
                     return context.refuse(MiscHandlerStrings.gitWriteNeedsFocus)
                 }
-                guard let view = selectedChat(context, invocation) else { return context.refuse(MiscHandlerStrings.gitNeedsAgentChat) }
+                guard let view = selectedChat(context, invocation) else { return context.registry.refuse(.noChat, id) }
                 view.runGitAction(action)
             })
         }
@@ -266,12 +305,12 @@ enum AgentHandlers {
         AgentShareActions(host: context.services).bind(into: registry)
         AgentTeamsLaunch.bind(into: registry, context: context)
         let services = context.services
-        let helper = ComputerUseHelperDaemon.shared
         ComputerUseHandlers.bind(
             into: registry,
-            sessions: CuaComputerUseSessions(configuration: { helper.configuration },
-                                             phase: { [weak services] in services?.onboarding.computerUseSetup.phase ?? .off },
-                                             confirmRunning: { helper.confirmRunning() }),
+            sessions: CmuxRemoteComputerUseSessions(remote: services.cmuxRemote, ready: { [weak services] in
+                let now = services?.onboarding.computerUseSetup.phase ?? .off
+                guard now == .ready || now == .starting else { throw ComputerUseSessionError.notRunning(ComputerUseSessionStrings.notRunning(now)) }
+            }, refused: { ComputerUseSessionError.failed(ComputerUseSessionStrings.hostRefused("\($0)")) }),
             focus: AppComputerUseFocus(services: services))
     }
 
@@ -334,17 +373,18 @@ enum AgentHandlers {
     }
 
     static func openNewAgentChat(in pane: PaneController, invocation: ActionInvocation, context: AppActionContext) {
+        let placed = !(invocation.origin == .user && invocation.target?.kind == .pane && pane.plusChatIsTab) // the + menu: a tab here
         // Preserve Cmd-I exactly when no optional argument was supplied. Explicit CLI/MCP
         // arguments use the same seed consumed by the palette and the page handshake.
         guard !invocation.arguments.isEmpty else {
-            pane.newAgentTab()
+            pane.newAgentTab(placed: placed)
             return
         }
         let requested = seed(for: invocation)
         // An explicit peer never inherits a path or draft from this Mac. Local argument-only
         // invocations override just the supplied values and keep the existing inheritance.
         guard requested.host == nil else {
-            _ = pane.openAgentTab(seed: AgentPaneSeedSource(requested))
+            _ = pane.openAgentTab(seed: AgentPaneSeedSource(requested), placed: placed)
             return
         }
         let inherited = pane.agentSeedFromSelectedTab()
@@ -352,14 +392,14 @@ enum AgentHandlers {
             var seed = await inherited?.peek() ?? AgentPaneSeed()
             seed.cwd = requested.cwd ?? seed.cwd
             seed.harness = requested.harness ?? seed.harness
-            seed.model = requested.model ?? seed.model
+            (seed.model, seed.draft) = (requested.model ?? seed.model, requested.draft ?? seed.draft)
             return seed
-        })
+        }, placed: placed)
     }
 
     static func seed(for invocation: ActionInvocation) -> AgentPaneSeed {
         let host = invocation["host"]?.targetValue?.id ?? invocation["host"]?.stringValue
-        return AgentPaneSeed(cwd: invocation["cwd"]?.stringValue,
+        return AgentPaneSeed(cwd: invocation["cwd"]?.stringValue, draft: invocation["draft"]?.stringValue,
                       harness: invocation["harness"]?.stringValue,
                       model: invocation["model"]?.stringValue,
                       host: host == MachineRegistry.localID ? nil : host)
@@ -487,10 +527,16 @@ enum AgentHandlers {
             paneless = opensPaneless
         case nil: throw ActionFailure(message: MiscHandlerStrings.fileNotFound(path))
         }
-        let pane = paneless ? nil : context.paneController(invocation)
-        guard paneless || pane != nil else { return }
         // Open as Text applies on the file's machine, including Cloud Markdown.
         let asText = invocation["asText"]?.boolValue ?? (invocation["asText"]?.stringValue == "true")
+        // A pane no window shows (an agent's workspace off screen): a tab there, the view unchanged (user, 2026-11-18).
+        if !paneless, target == .tab, let parked = context.parkedPane(invocation) {
+            if let reason = context.services.viewers.openFile(URL(fileURLWithPath: path), parkedIn: parked, userChose: invocation.origin == .user,
+                                                              asText: asText) { throw ActionFailure(message: reason) }
+            return
+        }
+        let pane = paneless ? nil : context.paneController(invocation)
+        guard paneless || pane != nil else { return }
         if let pane, !pane.daemon.isLocal {
             let url = URL(fileURLWithPath: path)
             switch rules.chatFileCheck(path: path, target: target.rawValue, remote: true) {
@@ -529,8 +575,6 @@ enum AgentHandlers {
         } catch {
             throw ActionFailure(message: MiscHandlerStrings.fileNotFound(path))
         }
-        if let editor = opening.editor {
-            context.services.editorApps.open(opening.url, withApplicationAt: editor)
-        }
+        context.services.editorApps.open(opening, line: invocation.editorLine)
     }
 }

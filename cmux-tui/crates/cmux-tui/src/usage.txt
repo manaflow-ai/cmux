@@ -5,6 +5,7 @@ USAGE
 {lifecycle_usage}
   cmux attach [OPTIONS]    Attach to a session or one terminal
   cmux relay [OPTIONS]     Relay protocol bytes over stdio
+  cmux usage-patterns      Your own opt-in usage patterns on this machine
   {machine_agent_usage}
   cmux <scope> --help      Discover resource commands
 
@@ -53,6 +54,9 @@ START OPTIONS
                     config (issuer, machine, team, keyset). Off without it.
   --iroh            Publish an Iroh route for NAT traversal and mobile use.
   --advertise <url> Add a non-secret route hint to enrollment invitations.
+  --remote-local-socket <path>
+                    Let the owner's remote session open this local Unix socket
+                    (absolute path; repeatable). Off without it.
   --term <value>     TERM for child shells (default: keep the outer terminal's
                      xterm-ghostty, else xterm-256color).
   --terminal-reap-grace-seconds <seconds>

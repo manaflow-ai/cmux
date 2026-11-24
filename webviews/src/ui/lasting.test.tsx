@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { LASTING_MS, useLasting } from "./lasting";
+import { settleReact } from "../../test/support/domTeardown";
 
 // Leo, 2026-10-29: "STOP SHOWING FUCKING BULLSHIT ON LOAD". A link down or connecting on a launch
 // shows nothing; only one that lasts past the grace is said. The grace runs on a clock the test moves.
@@ -31,6 +32,7 @@ afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
   jest.useRealTimers();
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

@@ -8,9 +8,12 @@ mod bindings {
 
 /// The `Agent` that `parse.rs` names as `super::Agent`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)] // Gemini and Grok: parse.rs names them; the WIT world reads only the first two.
 pub enum Agent {
     Claude,
     Codex,
+    Gemini,
+    Grok,
 }
 
 #[allow(dead_code)]

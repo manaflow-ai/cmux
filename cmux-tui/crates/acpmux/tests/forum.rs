@@ -16,6 +16,8 @@
 mod daemon_env;
 // This process runs stand-in agents (the fake agents under tests/).
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+#[path = "support/held_turn.rs"]
+mod held_turn;
 
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
@@ -338,18 +340,19 @@ impl Gate {
         Gate(path)
     }
 
-    /// Starts the held turn on `session` and returns once it runs.
+    /// Starts the held turn on `session` and returns once its prompt went out to the agent
+    /// (`held_turn::prompt_sent`): a rule posted after that waits behind it, never in it.
     async fn hold(&self, hub: &Arc<Hub>, session: &str) {
         let mut bg = Client::person(hub).await;
         let text = format!("gate: {}", self.0.display());
         let p = json!({"sessionId": session, "prompt": [{"type": "text", "text": text}]});
         tokio::spawn(async move { bg.call("session/prompt", p).await });
-        let mut c = Client::person(hub).await;
-        c.ok(
-            "_acpmux/wait",
-            json!({"sessions": [session], "until": ["running"], "timeoutMs": 10000}),
-        )
-        .await;
+        let s = hub.resolve(session).unwrap();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        while !held_turn::prompt_sent(&hub.session_summary(&s)) {
+            assert!(tokio::time::Instant::now() < deadline, "the held turn never ran");
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
     }
 
     /// Lets the held turn end (the write waits for the agent to open the fifo).

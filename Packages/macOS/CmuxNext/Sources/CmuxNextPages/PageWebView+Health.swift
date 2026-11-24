@@ -10,11 +10,20 @@ import WebKit
 @MainActor
 public protocol PageHealthFeed: AnyObject {
     /// The page's heartbeat (`cmux.page.heartbeat`), with the key and pointer presses it handled.
-    func pageBeat(_ page: PageWebView, handled: UInt64)
+    /// `resting`: its last beat before a rest; it beats again when something happens in it (input, a
+    /// scroll, an edit, a host call) or it is shown, and its silence until then is no hang.
+    func pageBeat(_ page: PageWebView, handled: UInt64, resting: Bool)
+    /// Whether a page's `rest` beat stops the timing of its silence here (the linked health model
+    /// knows rest beats); false keeps the page beating every 2 s, as before rests.
+    var takesRestBeats: Bool { get }
     /// A real key or mouse event reached the page's view (its first since the last beat matters).
     func pageInput(_ page: PageWebView)
     /// The page's view may have been shown or hidden; read ``PageWebView/isShownForHealth``.
     func pageVisibilityChanged(_ page: PageWebView)
+    /// The page's document started loading: a navigation the host started (a reload for a web source
+    /// change, crash recovery, a repair) or a main-frame load WebKit began. The page loads and is not
+    /// hung until ``pageLoaded(_:)``.
+    func pageNavigationStarted(_ page: PageWebView)
     /// A document finished loading.
     func pageLoaded(_ page: PageWebView)
     /// A main-frame load failed (not a cancelled one).
@@ -41,18 +50,17 @@ extension PageWebView {
     /// the Dock) and under no hidden ancestor. A page that cannot be seen stops its heartbeat (the
     /// document is hidden), so health never times it.
     public var isShownForHealth: Bool {
-        guard let window, !isHiddenOrHasHiddenAncestor, !isParkedSpare else { return false }
+        guard let window, !isHiddenOrHasHiddenAncestor, !isParkedSpare, !isDrawnAway else { return false }
         return window.isVisible && !window.isMiniaturized && window.occlusionState.contains(.visible)
     }
 
     /// App health's `reloadPage`: the page saves its scroll and draft (`cmux.page.save_state`, waited
     /// for at most `saveWait`; a hung page cannot answer, and its last autosave is used), then the
     /// document reloads in whichever engine shows it. Never blocks: the wait is a suspension.
-    /// Returns false, without reloading, when the page holds unsaved edits once the wait ends (the
-    /// person may have typed while it ran).
+    /// False when it did not reload: the page closed, or holds unsaved edits once the save wait ends.
     @discardableResult
     public func reloadKeepingState(saveWait: Duration = .milliseconds(500)) async -> Bool {
-        guard !isClosed else { return true }
+        guard !isClosed else { return false }
         // A document that never loaded or whose process ended has nothing to save, and a WebKit
         // `reload()` of a view whose process ended does nothing: load it in a new process.
         guard loaded else {
@@ -70,8 +78,8 @@ extension PageWebView {
         deadline.schedule(after: saveWait) { @MainActor in done.finish() }
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in done.hold(continuation) }
         deadline.cancel()
-        guard !isClosed else { return true }
-        guard !holdsUnsavedEdits() else { return false }
+        // An edit that came while the page saved (a hung page that answers again) is not reloaded away.
+        guard !isClosed, !holdsEdits else { return false }
         reloadPage()
         return true
     }
@@ -85,6 +93,8 @@ extension PageWebView {
         guard loaded else { return reloadAfterCrashes() }
         rendererRestartPending = true
         if let chromiumPage {
+            // At once, not through the bridge's navigate (which waits on the renderer to turn the
+            // Runtime domain on): the new document gets the binding with its commit.
             chromiumPage.restartRenderer()
             return
         }
@@ -94,12 +104,11 @@ extension PageWebView {
         }
     }
 
-    /// Ends this page's WebContent process (WebKit's `_killWebContentProcess`). False when WebKit
-    /// has no such call.
+    /// Ends this page's WebContent process (WebKit's `_killWebContentProcess`); false when WebKit has no such call.
     func killWebContentProcess() -> Bool {
-        let kill = NSSelectorFromString("_killWebContentProcess")
-        guard webView.responds(to: kill) else { return false }
-        webView.perform(kill)
+        let selector = NSSelectorFromString("_killWebContentProcess")
+        guard webView.responds(to: selector) else { return false }
+        webView.perform(selector)
         return true
     }
 

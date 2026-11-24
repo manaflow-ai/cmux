@@ -1,5 +1,6 @@
-// `chat.thinkingIndicator` / `caret`: a thin caret after the word blinks on and off, a cursor waiting for
-// the next words: opacity in two hard steps over half a `--cmux-spinner-period` (thinkingIndicator.css).
+// `chat.thinkingIndicator` / `caret`: a thin caret after the word steps ahead a place at a time, a cursor
+// typing ahead of the next words: one transform loop in `steps(3)` over `--cmux-spinner-period`
+// (thinkingIndicator.css). It never blinks (test/no-breathing-dots.test.ts).
 import { ReservedLabel, type ThinkingIndicatorProps } from "./slot";
 
 export function CaretMark({ label, verbs }: ThinkingIndicatorProps) {

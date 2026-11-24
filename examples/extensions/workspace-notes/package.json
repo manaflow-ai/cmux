@@ -1,0 +1,10 @@
+{
+  "name": "cmux-extension-workspace-notes",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Example cmux extension built only against cmux-extension-sdk.",
+  "dependencies": {
+    "cmux-extension-sdk": "file:../../../cmux-tui/crates/cmux-extension-sdk/typescript"
+  }
+}

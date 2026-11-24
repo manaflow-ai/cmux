@@ -69,6 +69,9 @@ export type Choice = {
   description?: string;
   icon?: React.ReactNode;
   hint?: string;
+  /// The verb Return carries out on this row, drawn beside the Return keycap when the row is
+  /// highlighted in a Picker with `returnHint` (the composer's +).
+  verb?: string;
   /// The level the model recommends (its catalog default): the effort slider marks it.
   recommended?: boolean;
 };
@@ -166,4 +169,40 @@ export function reasoningChoices(
     if (option.value === model?.defaultEffort) base.recommended = true;
     return base;
   });
+}
+
+/// Whether a chat takes `effort` once it runs the picked model: a level its effort option offers, or
+/// Claude Code's Ultracode, which is no level of that option but rides Extra High through it where the
+/// chat offers its switch (`ultracode`, the configOption ComposerPickers draws as its own row).
+export function effortTakes(effort: string, offered: readonly string[], ultracode: boolean): boolean {
+  return offered.includes(effort) || (effort === "ultracode" && ultracode && offered.includes("xhigh"));
+}
+
+/// The reasoning ladder, lowest first: how far apart two levels are when a model lacks one.
+const LEVEL_LADDER = ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"];
+
+/// The level another model keeps when it lacks the chat's (#48444: model, reasoning and Fast are
+/// independent): `now` itself where `levels` has it, else the closest one up or down the ladder. On a
+/// tie (Medium onto Low or High) the model's recommended level wins, else the lower one. Ultracode
+/// keeps Extra High, the level it rides. Undefined with no `now`, no levels, or a level off the ladder
+/// (a harness's own name), where the caller falls back to the model's recommended one.
+export function nearestLevel(now: string | undefined, levels: readonly Choice[]): string | undefined {
+  if (!now || levels.length === 0) return undefined;
+  const wanted = now === "ultracode" ? "xhigh" : now;
+  if (levels.some((choice) => choice.id === wanted)) return wanted;
+  const at = LEVEL_LADDER.indexOf(wanted);
+  if (at < 0) return undefined;
+  let best: { choice: Choice; distance: number; rank: number } | undefined;
+  for (const choice of levels) {
+    const rank = LEVEL_LADDER.indexOf(choice.id);
+    if (rank < 0) continue;
+    const distance = Math.abs(rank - at);
+    const better =
+      !best ||
+      distance < best.distance ||
+      (distance === best.distance &&
+        (!!choice.recommended === !!best.choice.recommended ? rank < best.rank : !!choice.recommended));
+    if (better) best = { choice, distance, rank };
+  }
+  return best?.choice.id;
 }

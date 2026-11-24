@@ -31,7 +31,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 const MINUTE_MS: u64 = 60_000;
-const HOUR_MS: u64 = 60 * MINUTE_MS;
+pub(crate) const HOUR_MS: u64 = 60 * MINUTE_MS;
 pub const DAY_MS: u64 = 24 * HOUR_MS;
 /// The most of a file a first read takes: its newest bytes.
 pub const FIRST_READ_BYTES: u64 = 256 << 20;
@@ -134,9 +134,10 @@ impl Source {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 struct Bucket {
     tokens: u64,
+    by_model: BTreeMap<String, u64>,
     cost_usd: f64,
     priced: bool,
     compactions: u64,
@@ -276,6 +277,10 @@ impl Tracker {
     fn stats(&self, source: &Source, now: u64, window: Option<u64>) -> UsageStats {
         let known = |n: u64| self.complete.then_some(n);
         let (mut day, mut hour_spawns, mut priced) = (Bucket::default(), 0_u64, false);
+        let mut hourly = BTreeMap::<String, u64>::new();
+        let mut previous_hour = BTreeMap::<String, u64>::new();
+        let hour_start = now - now % HOUR_MS;
+        let previous = hour_start.saturating_sub(HOUR_MS)..hour_start;
         for (minute, b) in &self.minutes {
             day.tokens = day.tokens.saturating_add(b.tokens);
             day.cost_usd += b.cost_usd;
@@ -286,8 +291,19 @@ impl Tracker {
             day.prompt_read = day.prompt_read.saturating_add(b.prompt_read);
             day.prompt_rest = day.prompt_rest.saturating_add(b.prompt_rest);
             priced |= b.priced;
-            if minute.saturating_add(MINUTE_MS) > now.saturating_sub(HOUR_MS) {
+            let rolling = minute.saturating_add(MINUTE_MS) > now.saturating_sub(HOUR_MS);
+            if rolling {
                 hour_spawns = hour_spawns.saturating_add(b.spawns);
+            }
+            for (included, totals) in
+                [(rolling, &mut hourly), (previous.contains(minute), &mut previous_hour)]
+            {
+                if included {
+                    for (model, tokens) in &b.by_model {
+                        let total = totals.entry(model.clone()).or_default();
+                        *total = total.saturating_add(*tokens);
+                    }
+                }
             }
         }
         let (autocompact, autocompact_cap) = autocompact(source, window);
@@ -305,6 +321,8 @@ impl Tracker {
             subagents1h: known(hour_spawns),
             subagents24h: known(day.spawns),
             tokens24h: known(day.tokens),
+            tokens_by_model1h: self.complete.then_some(hourly),
+            tokens_by_model_previous_utc_hour: self.complete.then_some(previous_hour),
             // Rounded to the cent's hundredth: a sum of list prices, not a bill.
             cost_usd24h: (self.complete && priced)
                 .then(|| (day.cost_usd * 10_000.0).round() / 10_000.0),
@@ -416,6 +434,11 @@ impl Tracker {
                 let cost = models.prices(&model).map(|p| t.cost(&p));
                 if let Some(b) = self.bucket(at, now) {
                     b.tokens = b.tokens.saturating_add(t.total);
+                    let total = b
+                        .by_model
+                        .entry(if model.is_empty() { "unknown".into() } else { model })
+                        .or_default();
+                    *total = total.saturating_add(t.total);
                     b.calls = b.calls.saturating_add(1);
                     b.prompt_read = b.prompt_read.saturating_add(t.cache_read);
                     b.prompt_rest =
@@ -986,7 +1009,7 @@ fn quick_timestamp(line: &[u8]) -> Option<u64> {
     const KEY: &[u8] = b"\"timestamp\":\"";
     let rest = line.get(memchr::memmem::rfind(line, KEY)?..)?.strip_prefix(KEY)?;
     let len = memchr::memchr(b'"', rest)?;
-    crate::server::machine_health::rfc3339_ms(std::str::from_utf8(rest.get(..len)?).ok()?)
+    crate::clock_text::rfc3339_ms(std::str::from_utf8(rest.get(..len)?).ok()?)
 }
 
 /// A Claude reply's message id found without parsing the line (`"id":"msg_…"`, as the API
@@ -1033,10 +1056,7 @@ fn escaped_kind(harness: Harness, line: &[u8], tail: &mut Tail, now: u64) {
 }
 
 fn timestamp(record: &Value) -> Option<u64> {
-    record
-        .get("timestamp")
-        .and_then(Value::as_str)
-        .and_then(crate::server::machine_health::rfc3339_ms)
+    record.get("timestamp").and_then(Value::as_str).and_then(crate::clock_text::rfc3339_ms)
 }
 
 fn modified_ms(path: &Path) -> Option<u64> {
@@ -1052,7 +1072,7 @@ fn contains(hay: &[u8], needle: &[u8]) -> bool {
 /// The proleptic Gregorian date of a day count since 1970-01-01.
 fn civil_from_days(days: u64) -> (i64, u32, u32) {
     // A day of a unix-ms time (at most ~2.1e11) always fits an i64.
-    crate::server::civil_from_days(i64::try_from(days).unwrap_or(i64::MAX))
+    crate::clock_text::civil_from_days(i64::try_from(days).unwrap_or(i64::MAX))
 }
 
 #[cfg(test)]

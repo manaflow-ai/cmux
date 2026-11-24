@@ -18,6 +18,7 @@ type Curve = "standard" | "linear" | "ease-out" | "slow" | "before";
 type DwellDemoProps = { curve: Curve };
 
 const LANES = [
+  // motion-allow: a pointer pass length under test, not a motion
   { label: "80 ms pass", stay: 80 },
   { label: "200 ms pass", stay: 200 },
   { label: "stays", stay: Infinity },
@@ -38,6 +39,7 @@ function HoverDwellDemo({ curve }: DwellDemoProps) {
         rows.current.forEach((row, index) => {
           row?.setAttribute("data-dwell-hover", "");
           const stay = LANES[index]!.stay;
+          // gallery-capture: every arm's play `ran` waits for the dwell to end (data-dwell-done).
           if (Number.isFinite(stay))
             timers.push(window.setTimeout(() => row?.removeAttribute("data-dwell-hover"), stay));
         });
@@ -103,6 +105,7 @@ export default componentEntry<DwellDemoProps>({
     Promise.all([import("../../pages/shared/desktop.css"), import("./motion.css"), import("./motion.gallery.css")]),
   variants: {
     standard: {
+      // motion-allow: the hover reveal's own out token (--cmux-hover-reveal-out), not a scale step
       note: "Picked: 400 ms cubic-bezier(0.4, 0, 0.2, 1) in, 180 ms ease-in out. A pass stays faint; a look reads.",
       props: { curve: "standard" },
       play: ran,
@@ -119,6 +122,7 @@ export default componentEntry<DwellDemoProps>({
       play: ran,
     },
     before: {
+      // motion-allow: the historical before values
       note: "Before: 100 ms delay, then 120 ms. A pass shows nothing; a 200 ms look flashes to full.",
       props: { curve: "before" },
       play: ran,

@@ -1,3 +1,4 @@
+public import AppKit
 public import QuartzCore
 public import CmuxNextDesignTokens
 
@@ -22,17 +23,18 @@ public struct MotionMove: Sendable {
     /// Seconds from the start to rest.
     public let duration: CFTimeInterval
 
-    /// A move on tween `token` (Chrome's tab strip tweens: open, close, move), or nil when the change
-    /// applies at once (`gate.duration(token)` is 0: the master switch or `gate`'s category off,
-    /// speed off, Reduce Motion, a live resize, or tabOpen with `ui.animations.newTab` off).
-    public static func tween(_ token: MotionTween, in gate: MotionGate) -> MotionMove? {
-        let duration = gate.duration(token)
+    /// A move on tween `token` (Chrome's tab strip tweens: open, close, move) in `window`, or nil when
+    /// the change applies at once (`gate.duration(token, in: window)` is 0: the master switch or `gate`'s
+    /// category off, speed off, Reduce Motion, a live resize of `window`, or tabOpen with
+    /// `ui.animations.newTab` off).
+    public static func tween(_ token: MotionTween, in gate: MotionGate, window: NSWindow?) -> MotionMove? {
+        let duration = gate.duration(token, in: window)
         return duration > 0 ? MotionMove(curve: .tween(token), duration: duration) : nil
     }
 
-    /// A move on spring `token`, or nil when movement does not animate.
-    public static func spring(_ token: MotionSpring, in gate: MotionGate) -> MotionMove? {
-        guard gate.animatesMovement else { return nil }
+    /// A move on spring `token` in `window`, or nil when movement does not animate there.
+    public static func spring(_ token: MotionSpring, in gate: MotionGate, window: NSWindow?) -> MotionMove? {
+        guard gate.animatesMovement(in: window) else { return nil }
         return MotionMove(curve: .spring(token, gate), duration: gate.spring(token).settlingTime(within: 0.002))
     }
 

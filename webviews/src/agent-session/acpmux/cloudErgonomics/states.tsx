@@ -17,12 +17,14 @@ import { summary } from "../../../gallery/fixtures/acpmux";
 import type { CloudSignIn } from "../cloudAgentLogin";
 import cloudStartGallery from "../CloudStartView.gallery";
 import { CloudStartView } from "../CloudStartView";
+import { createCloudPlanSubscribe } from "../cloudPlanSubscribe";
 import { cloudStartEnded, type CloudStartProgress } from "../cloudStartProgress";
 import type { FailureKind, FailureRoute } from "../failureCopy";
 import repoRecoveryGallery from "../conversation/RepoRecoveryCard.gallery";
 import { RepoRecoveryCard } from "../conversation/RepoRecoveryCard";
 import { TurnFooter } from "../conversation/TurnRows";
 import { TurnActionsContext, type TurnActions } from "../conversation/turnActions";
+import { FailedSendsContext, type FailedSends } from "../conversation/promptDeliveryModel";
 import type { Effect } from "./classify";
 
 export type Recorder = (effect: Effect) => void;
@@ -56,12 +58,26 @@ function cloudStartHandlers(record: Recorder) {
     onRetry: inPlace(record, "retry the start"),
     // cloudSignInRetry: the browser sign-in, then the same start goes again by itself.
     onSignIn: inPlace(record, "sign in, then the start goes again"),
-    // access.addCredits: the app's paid-plan path (palette.pro.upgrade).
-    onUpgrade: () => record({ kind: "out-of-app", what: "upgrade the plan" }),
+    // cloudPlanStore: Subscribe or Upgrade to <plan> opens the plan's checkout (`cloud.plan.subscribe`), then the
+    // same start goes again by itself once the plan is on.
+    planStore: createCloudPlanSubscribe({
+      call: async () => {
+        record({ kind: "out-of-app", what: "subscribe to the plan" });
+        return { opened: true };
+      },
+      watchKey: () => () => undefined,
+      isKey: () => false,
+    }),
     onRunHere: inPlace(record, "run the prompt on this Mac"),
     onDismiss: () => record({ kind: "dismiss", what: "not now" }),
     // The plan card's Switch to <team>: the team picker's switch, then the same start goes again.
     onSwitchTeam: inPlace(record, "switch to the person's own team, then the start goes again"),
+    // cloudTooBigActions: a repository or a folder picked (project.browse), or none, then the same prompt goes there.
+    onPickRepo: inPlace(record, "start the prompt in a repository inside the folder"),
+    onPickFolder: inPlace(record, "pick a folder, then the start goes again there"),
+    onStartWithoutFolder: inPlace(record, "start the prompt with no folder"),
+    // openNewCloudChatForStart: a new Cloud chat (palette.newCloudChat) with the same prompt and folder.
+    onOpenNewCloudChat: inPlace(record, "open a new Cloud chat with the same prompt"),
   };
 }
 
@@ -140,6 +156,20 @@ const HOST_ANSWERS: readonly HostAnswer[] = [
       canSwitch: true,
     },
   },
+  // The platform's size check: the folder needs a larger machine than the plan includes (Upgrade to Max, This Mac,
+  // Retry), or than any plan does (This Mac, Retry).
+  {
+    id: "cloud_size_locked",
+    code: "cloud_size_locked",
+    retryable: true,
+    details: { needed: "xl", allowed: "lg", upgrade_plan: "max", folder_bytes: 60_000_000_000 },
+  },
+  {
+    id: "cloud_size_locked.largest",
+    code: "cloud_size_locked",
+    retryable: true,
+    details: { needed: "xl", allowed: "lg", upgrade_plan: null, folder_bytes: 60_000_000_000 },
+  },
   // CloudStartChat: a create the team's spending cap or the member's budget refused (cmux-platform SpendCap.ts),
   // in the backend's words; the pane words it itself (cloudStartProgress `spendRefusal`) with Run on This Mac.
   {
@@ -211,6 +241,7 @@ function cloudSignIn(record: Recorder): CloudSignIn {
     openOnMachine: () => NEVER,
     finish: () => NEVER,
     apiKey: inPlace(record, "save an API key on the machine"),
+    gateway: inPlace(record, "run the agent on cmux's gateway"),
     cancel: () => {},
     reserve: () => Promise.resolve(undefined),
     resend: () => NEVER,
@@ -218,19 +249,23 @@ function cloudSignIn(record: Recorder): CloudSignIn {
 }
 
 /// What App.tsx's `turnActions` holds for a connected Cloud chat on the person's own machine whose acpmux
-/// retries turns and signs agents in (`agent_login`), whose agent lists /compact, with credential setup on.
+/// retries turns and signs agents in (`agent_login`), whose agent lists /compact.
 function cloudChatActions(record: Recorder, route: FailureRoute): TurnActions {
   return {
     retry: inPlace(record, "send the prompt again"),
     retryFailed: inPlace(record, "retry the turn"),
     resume: inPlace(record, "continue the turn"),
     compact: inPlace(record, "compact the chat"),
-    transferCloudCredentials: inPlace(record, "set up credentials on the machine"),
     cloudSignIn: cloudSignIn(record),
     switchModel: () => record({ kind: "in-place", what: "open the model picker" }),
     access: { addCredits: () => record({ kind: "out-of-app", what: "add credits" }) },
     route,
   };
+}
+
+/// What App.tsx's `failedSends` holds for a chat whose folder is not trusted yet and whose pane answers for it.
+function cloudChatSends(record: Recorder): FailedSends {
+  return { runs: new Map(), trustFolder: () => record({ kind: "in-place", what: "trust the folder" }) };
 }
 
 type TurnFailureFixture = { id: string; kind: FailureKind; error: string; code?: string; teamMachine?: true };
@@ -314,6 +349,13 @@ const TURN_FAILURES: readonly TurnFailureFixture[] = [
   { id: "cloud-login-missing", kind: "auth", error: "Claude failed to authenticate: credential is missing" },
   { id: "cloud-login-expired", kind: "subscription-login", error: "OAuth token expired (HTTP 401)" },
   { id: "cloud-login-rejected", kind: "auth", error: "HTTP 403 Forbidden" },
+  // The card's three ways in: the machine's team has cmux's gateway (acpmux names it).
+  {
+    id: "cloud-login-gateway",
+    kind: "subscription-login",
+    error:
+      "Claude is not signed in here. Click Set up Claude Code credentials on this message to sign it in from your Mac; the message is sent again. Or click Use cmux's gateway: this machine's team has an account there. (Claude said: Not logged in · Please run /login)",
+  },
 ];
 
 /// Every failure kind, so a kind added to failureCopy.ts is a typecheck error here until it has a fixture.
@@ -362,12 +404,14 @@ const TURN_FAILURE_STATES: ErgoState[] = TURN_FAILURES.map((fixture) => {
     type: "error",
     surface: "turn-failure",
     kind: fixture.kind,
-    // The card, and the footer's Set up credentials beside it. Not the footer's Retry icon, which every failed
-    // turn draws whatever its cause: it is not a way out the error names.
-    region: ".cv-turn-error, .cv-turn-actions .cv-turn-auth-action",
+    // The card. Not the footer's Retry icon, which every failed turn draws whatever its cause: it is
+    // not a way out the error names.
+    region: ".cv-turn-error",
     render: (record) => (
       <TurnActionsContext.Provider value={cloudChatActions(record, route)}>
-        <TurnFooter row={row} />
+        <FailedSendsContext.Provider value={cloudChatSends(record)}>
+          <TurnFooter row={row} />
+        </FailedSendsContext.Provider>
       </TurnActionsContext.Provider>
     ),
   };

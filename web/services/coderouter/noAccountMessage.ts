@@ -59,3 +59,15 @@ export const OWN_LOGIN_HINT: Record<NoAccountFamily, string> = {
   opencode:
     "Or use your own provider sign-in on this machine: run `cr use own opencode`, then `opencode auth login` (on older machines, start OpenCode with `env -u OPENAI_BASE_URL -u ANTHROPIC_BASE_URL opencode`).",
 };
+
+/**
+ * What the house Claude route (claudeFallback.ts) says when it refuses a team
+ * with no Claude account of its own. Plain words for someone who has never
+ * heard of upstream accounts: no provider or service names, one way forward.
+ * The used-up line is the pricing lane's copy (hq#19720).
+ */
+export const FALLBACK_REFUSAL_MESSAGES = {
+  included_usage_used_up: "You have used the model usage included with your pass. Sign in to Claude or Codex to keep going.",
+  model_not_included: "This model is not included with your pass. Sign in to Claude or Codex to use it, or pick a Sonnet model.",
+  included_daily_budget_reached: "Included model usage is paused for today. Sign in to Claude or Codex to keep going.",
+} as const;

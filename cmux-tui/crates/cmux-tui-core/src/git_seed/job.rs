@@ -12,6 +12,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError, mpsc};
+use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -81,6 +82,43 @@ struct Status {
     exported: Option<serde_json::Map<String, Value>>,
     /// The seed marked its head on the sync barrier and fills the rest.
     head_ready: bool,
+    /// Where the job's time went, its status `timings`: since it began, since `phase` began,
+    /// each phase it left, its whole time once ended, and its thread's git runs and waits
+    /// ([`super::git::take_runs`]).
+    began: Instant,
+    phase_began: Instant,
+    phase_times: Vec<(&'static str, Duration)>,
+    took: Option<Duration>,
+    runs: Value,
+}
+
+impl Status {
+    /// Adds the time since `phase` began to it.
+    fn close_phase(&mut self, now: Instant) {
+        let took = now.duration_since(self.phase_began);
+        let name = self.phase.name();
+        match self.phase_times.iter_mut().find(|(phase, _)| *phase == name) {
+            Some((_, sum)) => *sum += took,
+            None => self.phase_times.push((name, took)),
+        }
+        self.phase_began = now;
+    }
+
+    fn timings(&self) -> Value {
+        let mut phases: Vec<(&'static str, Duration)> = self.phase_times.clone();
+        if self.took.is_none() {
+            phases.push((self.phase.name(), self.phase_began.elapsed()));
+        }
+        let phases: serde_json::Map<String, Value> = phases
+            .into_iter()
+            .map(|(name, took)| (name.to_owned(), json!(took.as_millis())))
+            .collect();
+        json!({
+            "job_ms": self.took.unwrap_or_else(|| self.began.elapsed()).as_millis(),
+            "phases": phases,
+            "git": self.runs,
+        })
+    }
 }
 
 /// One seed.
@@ -106,7 +144,10 @@ impl Job {
     }
 
     pub(super) fn enter(&self, phase: Phase) {
-        self.update(|status| status.phase = phase);
+        self.update(|status| {
+            status.close_phase(Instant::now());
+            status.phase = phase;
+        });
     }
 
     pub(super) fn progress(&self, line: &str) {
@@ -138,6 +179,13 @@ impl Job {
     }
 
     pub(super) fn finish(&self, result: Result<(), Failed>) {
+        let runs = super::git::take_runs();
+        self.update(|status| {
+            let now = Instant::now();
+            status.close_phase(now);
+            status.took = Some(now.duration_since(status.began));
+            status.runs = runs;
+        });
         self.update(|status| match result {
             Ok(()) => status.state = State::Done,
             Err(failed) => {
@@ -164,6 +212,7 @@ impl Job {
                 "total_objects": status.progress.total_objects,
             },
             "notes": status.notes,
+            "timings": status.timings(),
         });
         if status.head_ready
             && let Some(object) = answer.as_object_mut()
@@ -213,6 +262,9 @@ pub struct GitSeedService {
     jobs: Mutex<Jobs>,
     /// The running holds' owner threads, and whether each still runs, by job ([`super::hold`]).
     holds: Arc<Mutex<HashMap<String, Holder>>>,
+    /// Holds taken while set run on [`hold::Lease::Ticks`] (tests; see [`Self::lease_tick`]).
+    #[cfg(test)]
+    pub(super) ticked_leases: std::sync::atomic::AtomicBool,
 }
 
 /// A running hold's owner thread, and whether the hold still runs.
@@ -230,7 +282,14 @@ impl GitSeedService {
     }
 
     pub(crate) fn with_config(roots: Roots, config: Config) -> Self {
-        Self { roots, config, jobs: Mutex::new(Jobs::default()), holds: Arc::default() }
+        Self {
+            roots,
+            config,
+            jobs: Mutex::new(Jobs::default()),
+            holds: Arc::default(),
+            #[cfg(test)]
+            ticked_leases: std::sync::atomic::AtomicBool::new(false),
+        }
     }
 
     /// For tests (and the debug-only daemon seam in [`super::installed`]):
@@ -443,7 +502,13 @@ impl GitSeedService {
         let id = job.id.clone();
         let alive = hold::Alive::new(std::sync::RwLock::new(true));
         let mut owners = self.holds.lock().unwrap_or_else(PoisonError::into_inner);
-        let lease = params.lease();
+        let lease = hold::Lease::Wall(params.lease());
+        #[cfg(test)]
+        let lease = if self.ticked_leases.load(std::sync::atomic::Ordering::Relaxed) {
+            hold::Lease::Ticks
+        } else {
+            lease
+        };
         let owner =
             hold::spawn(job.clone(), folder, head, lease, barrier, alive.clone(), move || {
                 holds.lock().unwrap_or_else(PoisonError::into_inner).remove(&id);
@@ -478,6 +543,15 @@ impl GitSeedService {
         let _finished: Result<(), Failed> = ended.recv().map_err(|_| hold_ended())?;
         let job = self.jobs().by_id.get(&job).cloned().ok_or_else(hold_ended)?;
         Ok(job.answer())
+    }
+
+    /// Ends one lease window of the ticked hold `job` (tests): the hold ends unless an op came
+    /// since the window before.
+    #[cfg(test)]
+    pub(super) fn lease_tick(&self, job: &str) {
+        if let Some(owner) = self.holder(job) {
+            let _ = owner.send(hold::Op::LeaseTick);
+        }
     }
 
     fn holder(&self, job: &str) -> Option<mpsc::Sender<hold::Op>> {
@@ -537,6 +611,11 @@ impl Status {
             head: None,
             exported: None,
             head_ready: false,
+            began: Instant::now(),
+            phase_began: Instant::now(),
+            phase_times: Vec::new(),
+            took: None,
+            runs: Value::Null,
         }
     }
 }

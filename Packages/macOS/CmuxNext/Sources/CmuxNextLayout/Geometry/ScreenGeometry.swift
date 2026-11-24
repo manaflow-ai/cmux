@@ -76,6 +76,10 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
     public var scrollAreas: [SplitID: ScrollAreaGeometry] = [:]
     public var scrollAreaOfPane: [PaneID: SplitID] = [:]
     public var scrollAreaOfSplit: [SplitID: SplitID] = [:]
+    /// The screen's floating panes, back to front (`placingFloating`): each has its pane frame in `panes` (view
+    /// coordinates, never scrolled, so it is one of `fixedPanes`) and its card, which holds the pane, here.
+    public var floating: [PaneID] = []
+    public var floatingCards: [PaneID: CGRect] = [:]
 
     public static func compute(_ layout: ScreenLayout, viewport: CGSize, style: LayoutStyle, scale: CGFloat = 2) -> ScreenGeometry {
         switch layout {
@@ -235,13 +239,28 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
     /// True for a pane, divider or column edge that the scroll moves.
     public func scrolls(pane: PaneID) -> Bool { !fixedPanes.contains(pane) }
 
+    /// This geometry with `list` (back to front) above the tiled panes: each floating pane's card at its fractions
+    /// of the viewport and its pane inside the card. The tiled frames stay as they are.
+    public func placingFloating(_ list: [LayoutFloatingPane], scale: CGFloat) -> ScreenGeometry {
+        guard !list.isEmpty else { return self }
+        var placed = self
+        for entry in list where placed.floatingCards[entry.pane] == nil {
+            let card = entry.rect(in: viewport, scale: scale)
+            placed.floatingCards[entry.pane] = card
+            placed.floating.append(entry.pane)
+            placed.panes[entry.pane] = LayoutFloatingPane.paneRect(inCard: card)
+            placed.fixedPanes.insert(entry.pane)
+        }
+        return placed
+    }
+
     /// The view x of strip content x at scroll `offset`.
     public func viewShift(offset: CGFloat) -> CGFloat { stripMinX - offset }
 
     /// The docked column holding `pane`, if any.
     public func dockFrame(containing pane: PaneID) -> DockColumnFrame? {
         // A pane in a scroll area may sit past the dock's edge: its area's window does not.
-        guard fixedPanes.contains(pane), let rect = scrollAreaWindow(of: pane) ?? panes[pane] else { return nil }
+        guard fixedPanes.contains(pane), floatingCards[pane] == nil, let rect = scrollAreaWindow(of: pane) ?? panes[pane] else { return nil }
         return dock.first { $0.frame.contains(CGPoint(x: rect.midX, y: rect.midY)) }
     }
 

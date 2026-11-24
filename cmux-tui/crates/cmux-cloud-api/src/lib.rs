@@ -1,10 +1,10 @@
 //! NEXT Cloud's API calls, one library for the cmux daemon's `cloud.*` ops (cmux-tui-core
 //! `server/cloud_api.rs`) and the cmux CLI (`cmux cloud api`, which sends its request to the
-//! daemon): a machine's SCP route, domains, publications, sandboxed Runs, the person's hand-offs
-//! and acpmux routes, previews and a machine's files and exec. The macOS app sent these
-//! from Swift (`CloudAPIClient`, `CloudOwnerAPIClient`); the requests, their deadlines, the retry
-//! of a lost Run create, the long-poll to a Run's receipt, the hand-off paging and every refusal's
-//! reading live here.
+//! daemon): a machine's SCP route, domains, publications, the person's hand-offs and acpmux
+//! routes, previews and a machine's files and exec. The macOS app sent these from Swift
+//! (`CloudAPIClient`, `CloudOwnerAPIClient`); the requests, their deadlines, the hand-off paging
+//! and every refusal's reading live here. Sandboxed Runs are the daemon's own ([`sandbox`]): a
+//! Cloud chat on a machine made for the task, never classic Cloud's Run API.
 //!
 //! A call is a [`Request`]: its name (`call`, one of [`CALLS`]), the API's base URL, the auth
 //! (`stack|owner|worker`), the caller's `credential` (and classic's `refresh`), the `team`, the
@@ -13,7 +13,10 @@
 //!
 //! `machine.io` is a machine's exec or file operation (its `args` are [`machine_io::Request`]'s
 //! fields: `op`, `machine`, `path`, …): a Worker machine's runs [`machine_io`]'s logic; a `stack`
-//! one is refused before any request. `vm.scp_endpoint` is cmux-platform's
+//! one is refused before any request. `machine.chat_access` and `machine.share_chat` are
+//! cmux-platform's `/v1/machines/{id}/chat-access` and `/v1/machines/{id}/chat-grants/{user}`
+//! (who may start app chats on a team machine, and Share with Me; [`chat`]); a `stack` call is
+//! refused before any request. `vm.scp_endpoint` is cmux-platform's
 //! `/v1/cloud/machines/{id}/ssh-endpoint` (a `stack` call is refused before any request).
 //!
 //! Classic cmux.com's `/api/vm` is gone from NEXT: the tunnel and firewall calls
@@ -23,14 +26,26 @@
 //! `owner.acpmux_keyed_start` takes the person key as raw bytes beside the request (exactly
 //! `args.key_length` of them), so the key is never part of a JSON value here.
 //!
+//! `machine.fork` is cmux-platform's `POST /v1/machines/{id}/fork`: a running copy of a Cloud
+//! machine, memory and disk, that a new session or sub-agent is placed on ([`machine_fork`]).
+//!
+//! `machine.chief_resize` moves a Chief's own machine up the Chief ladder over cmux-platform's
+//! `cloud.machine.resize` ([`chief_resize`]).
+//!
+//! `owner.fork_run` is cmux-platform's fork runs (`args.verb`: `start`, `get` or `select`;
+//! [`fork_runs`]): one machine captured once, one copy-on-write child per harness, one kept.
+//!
+//! `owner.turn_checkpoint`, `owner.turn_rewind` and `owner.turns` are a Cloud chat's "back to
+//! before this turn": whole-machine turn checkpoints on cmux-platform (`turns.rs`).
+//!
 //! An answer is `Ok(body)` or a [`Failure`]; [`answer_line`] writes `{"ok": true, "body": B}` or
 //! `{"ok": false, "error": E}`, where `E.kind` is `timed_out` (with `path`), `transport`
 //! (`message`), `no_backend`, `http` (`status`, `code`, `message`, `action`, `trace_id`),
 //! `plan_required` (`message`, `upgrade_url`, `plan`) or `decoding` (`message`): the app's
 //! `CloudAPIError` cases one for one.
 //!
-//! Auth: `stack` is classic cmux.com's sandboxed Runs (`/api/runs`): the Stack access token as the
-//! bearer, the refresh token in `X-Stack-Refresh-Token`, the team in `X-Cmux-Team-Id`. `owner` is
+//! Auth: `stack` is classic cmux.com's, which no call sends to any more (a call under it is
+//! refused before any request): the Stack access token as the bearer, the refresh token in `X-Stack-Refresh-Token`, the team in `X-Cmux-Team-Id`. `owner` is
 //! the cmux API Worker's person routes: `Authorization` and `x-cmux-team` only (the Worker's
 //! invocation log records every other header and the URL, so nothing else may carry a key).
 //! `worker` is the platform's machine routes through the generated client, `previews.*` and the
@@ -40,14 +55,22 @@
 
 #![cfg(unix)]
 
+pub mod background;
+mod chat;
+pub mod chief_machine;
+pub mod chief_resize;
+mod fork_runs;
 mod http;
 mod machine;
+pub mod machine_destroy;
+pub mod machine_fork;
 pub mod machine_io;
 mod network;
 mod owner;
 mod previews;
-mod runs;
+pub mod sandbox;
 pub mod session;
+mod turns;
 
 use serde_json::{Map, Value, json};
 use zeroize::Zeroizing;
@@ -86,7 +109,13 @@ pub struct Request {
 pub fn parse(input: &[u8]) -> Result<(Request, Zeroizing<Vec<u8>>), String> {
     let mut parts = input.splitn(2, |&b| b == b'\n');
     let (head, tail) = (parts.next().unwrap_or_default(), parts.next().unwrap_or_default());
-    let mut request: Request = serde_json::from_slice(head)
+    let mut head: Map<String, Value> = serde_json::from_slice(head)
+        .map_err(|_| "the request is not a cloud api request".to_owned())?;
+    // An app built before classic Cloud's Runs were deleted still sends its classic session
+    // (`classic`, `classic_unread`) beside a Runs call; no call reads it, so it is dropped here.
+    head.remove("classic");
+    head.remove("classic_unread");
+    let mut request: Request = serde_json::from_value(Value::Object(head))
         .map_err(|_| "the request is not a cloud api request".to_owned())?;
     request.credential = request.credential.trim().to_owned();
     request.api = request.api.trim().to_owned();
@@ -95,28 +124,44 @@ pub fn parse(input: &[u8]) -> Result<(Request, Zeroizing<Vec<u8>>), String> {
 
 /// Runs one call.
 pub async fn perform(request: &Request, tail: Zeroizing<Vec<u8>>) -> Result<Value, Failure> {
-    // The GitHub App status sends Authorization alone: its team is in the query.
-    let http = if request.call == "owner.github_app" {
-        Http::new(&Request { team: None, ..request.clone() })?
-    } else {
-        Http::new(request)?
+    // The GitHub App status and repository list send Authorization alone: their team is in the
+    // query. Connect GitHub names its team in the team header, as every op does.
+    let http = match request.call.as_str() {
+        "owner.github_app" | "owner.github_repos" => {
+            Http::new(&Request { team: None, ..request.clone() })?
+        }
+        "owner.github_connect" => {
+            let team = owner::team_id(text(&request.args, "team")?)?;
+            Http::new(&Request { team: Some(team.to_owned()), ..request.clone() })?
+        }
+        _ => Http::new(request)?,
     };
     let args = &request.args;
     match request.call.as_str() {
         "machine.io" if request.auth == Auth::Stack => Err(not_on_this_cloud("machine.io")),
         "machine.io" => machine::worker(request).await,
+        "machine.chief_start" => chief_machine::perform(request, &http).await,
+        "machine.chief_resize" => chief_resize::perform(request, &http).await,
+        "machine.fork" if request.auth == Auth::Stack => Err(not_on_this_cloud("machine.fork")),
+        "machine.fork" => machine_fork::fork_machine(request, args).await,
+        call if chat::CALLS.contains(&call) && request.auth == Auth::Stack => {
+            Err(not_on_this_cloud(call))
+        }
+        call if chat::CALLS.contains(&call) => chat::run(request, call, args).await,
         "vm.networks" => network::networks(&http, request.auth).await,
         "vm.scp_endpoint" => machine::scp_endpoint(&http, args).await,
         call if previews::PUBLICATION_CALLS.contains(&call) => {
             previews::publications(request, call, args).await
         }
         call if NOT_ON_THIS_CLOUD.contains(&call) => Err(not_on_this_cloud(call)),
-        "runs.create" => runs::create(&http, args).await,
-        "runs.start" => runs::start(&http, args).await,
-        "runs.wait" => runs::wait(&http, args).await,
-        "runs.cancel" => runs::cancel(&http, args).await,
-        "runs.sandbox" => runs::sandbox(&http, args).await,
+        // The daemon's own Runs ([`sandbox::Engine`]): never an HTTP call.
+        call if call.starts_with("runs.") => Err(Failure::Transport(format!(
+            "{call} is the cmux daemon's own sandboxed Run; send it to the daemon"
+        ))),
         "owner.acpmux_keyed_start" => owner::keyed_start(&http, args, tail).await,
+        "owner.turn_checkpoint" | "owner.turn_rewind" | "owner.turns" => {
+            turns::run(&http, request.call.as_str(), args).await
+        }
         call if call.starts_with("owner.") => owner::run(&http, call, args).await,
         call if call.starts_with("previews.") => previews::run(request, call, args).await,
         other => Err(Failure::Transport(format!("no cloud api call {other:?}"))),
@@ -155,7 +200,7 @@ pub fn answer_line(result: &Result<Value, Failure>) -> String {
 }
 
 /// Every call [`perform`] answers.
-pub const CALLS: [&str; 34] = [
+pub const CALLS: [&str; 44] = [
     "vm.scp_endpoint",
     "vm.tunnel_enroll",
     "vm.tunnel_revoke",
@@ -186,10 +231,20 @@ pub const CALLS: [&str; 34] = [
     "owner.handoff_begin_turn",
     "owner.harness_login_copy",
     "owner.github_app",
+    "owner.github_repos",
+    "owner.github_connect",
+    "owner.turn_checkpoint",
+    "owner.turn_rewind",
+    "owner.turns",
     "previews.refresh",
     "previews.create_link",
     "previews.revoke_link",
     "machine.io",
+    "machine.chat_access",
+    "machine.share_chat",
+    "machine.chief_start",
+    "machine.chief_resize",
+    "machine.fork",
 ];
 
 /// A bound past every fixed deadline of a call (the longest, a staged machine read's, is about
@@ -203,10 +258,12 @@ pub fn longest(request: &Request) -> std::time::Duration {
         u64::try_from(optional_int(&request.args, name).unwrap_or(default)).unwrap_or(0)
     };
     let call_ms = match request.call.as_str() {
-        "runs.sandbox" => ms("timeoutMs", runs::DEFAULT_TIMEOUT_MS)
-            .saturating_add(ms("teardownMs", runs::DEFAULT_TEARDOWN_MS))
-            .saturating_add(ms("callsMarginMs", runs::DEFAULT_CALLS_MARGIN_MS)),
+        "runs.sandbox" => ms("timeoutMs", sandbox::DEFAULT_TIMEOUT_MS)
+            .saturating_add(ms("teardownMs", sandbox::DEFAULT_TEARDOWN_MS))
+            .saturating_add(ms("callsMarginMs", sandbox::DEFAULT_CALLS_MARGIN_MS)),
         "machine.io" => ms("timeout_ms", 0).saturating_add(5_000),
+        // A machine's boot, its pairing and its host: each wait is bounded in chief_machine.
+        "machine.chief_start" => 1_500_000,
         _ => 0,
     };
     std::time::Duration::from_millis(call_ms.max(LONGEST_FIXED_MS))

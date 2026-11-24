@@ -61,8 +61,9 @@ final class WatchReply: @unchecked Sendable {
     }
 
     /// A list past acpmux's reply budget comes in pages: the watch's first rows and a
-    /// `nextCursor`, the rest from `_acpmux/sessions {cursor}` (no `enabled`). The hub's
-    /// bind and a refresh both see every session.
+    /// `nextCursor`, the rest from `_acpmux/sessions {cursor}` (no `enabled`). The hub is
+    /// ready with the first page and reads the rest after it (CMUX-563); then the hub and a
+    /// refresh both see every session.
     @Test func bindAndRefreshFollowTheWatchCursor() async throws {
         let mac = MockMacLink { _, data in
             guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -81,6 +82,8 @@ final class WatchReply: @unchecked Sendable {
         }
         let hub = AcpmuxHub()
         await hub.bind(try await mac.openChannel(service: "acpmux", args: [:]))
+        await hub.restOfList?.value
+        #expect(hub.listWhole)
         #expect(Set(hub.sessions.keys) == ["s1", "s2"])
 
         let store = FeedStore(items: [])
@@ -178,7 +181,11 @@ final class WatchReply: @unchecked Sendable {
         await hub.bind(nil)
     }
 
-    @Test(arguments: ["initialize", "_acpmux/watch"])
+    /// The request's own timeout (2 min) is past the test's limit (1 min), so the bind can
+    /// only end in time through the cancel: a cancel that did not release the request fails
+    /// at the limit, its request ends a minute later, and no wall-clock bound on a loaded
+    /// runner decides the result.
+    @Test(.timeLimit(.minutes(1)), arguments: ["initialize", "_acpmux/watch"])
     func cancellingUnansweredHandshakeReleasesTheRequest(method: String) async throws {
         let (requests, sent) = AsyncStream<Void>.makeStream()
         let link = MockMacLink { _, data in
@@ -193,13 +200,11 @@ final class WatchReply: @unchecked Sendable {
         }
         let hub = AcpmuxHub()
         let channel = try await link.openChannel(service: "acpmux", args: [:])
-        let task = Task { @MainActor in await hub.bind(channel, requestTimeout: .seconds(60)) }
+        let task = Task { @MainActor in await hub.bind(channel, requestTimeout: .seconds(120)) }
         for await _ in requests { break }
-        let start = ContinuousClock.now
         task.cancel()
         await task.value
         sent.finish()
-        #expect(start.duration(to: .now) < .seconds(2))
         #expect(!hub.isReady)
         #expect(hub.lastError != nil)
     }

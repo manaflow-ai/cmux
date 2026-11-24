@@ -26,6 +26,7 @@ import { resetPullRequestStore } from "../src/agent-session/acpmux/chips/pullReq
 import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
 import { resetChangesStatuses } from "../src/agent-session/acpmux/session-info/changesStatus";
 import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
+import { SESSION_INFO } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 import {
   sessionInfoTopOffset,
   sessionInfoOverChat,
@@ -62,6 +63,7 @@ import { sessionSummary } from "../src/agent-session/acpmux/summary/sessionSumma
 import { activity, assistant, chat, tool } from "../src/gallery/fixtures/acpmux";
 import { withCloudMachineSummary } from "../src/agent-session/acpmux/cloudSummary";
 import { SummaryCard } from "../src/agent-session/acpmux/summary/SummaryCard";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -122,6 +124,7 @@ afterEach(async () => {
   resetSessionInfoState();
   setSessionInfoMore(true);
   setHeaderState({ inspector: false, pullRequest: null });
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -133,7 +136,7 @@ afterEach(async () => {
 
 const noop = () => undefined;
 let paneWidth = 0;
-// The running line's counts call this (App.tsx `openAgents` / `openCommands`).
+// A tray command with no terminal calls this (App.tsx `openTrayCommand`).
 let reveal: ((section: "subagents" | "tasks") => void) | undefined;
 
 /// The pane's pieces as App.tsx places them: the toggle last in the header's tools, Session Info
@@ -222,7 +225,7 @@ async function render(container: HTMLElement, snapshot: AcpmuxSnapshot, opened: 
 
 const toggle = (container: HTMLElement) =>
   container.querySelector<HTMLButtonElement>('.acpmux-header-tools button[aria-label="Session Info"]');
-const panel = (container: HTMLElement) => container.querySelector<HTMLElement>("aside.acpmux-session-info");
+const panel = (container: HTMLElement) => container.querySelector<HTMLElement>(SESSION_INFO);
 const section = (container: HTMLElement, id: string) =>
   container.querySelector<HTMLElement>(`section.acpmux-session-info-section[data-section="${id}"]`);
 const sectionIds = (container: HTMLElement) =>
@@ -368,8 +371,11 @@ test("Session Info opens with a first chat: its environment, its context on one 
   expect(rows[0]!.querySelector(".acpmux-session-info-row__name")?.textContent).toBe("Studio");
   expect(rows[0]!.querySelector("[data-machine-kind]")?.textContent).toBe(translate("composer.envLocal"));
   expect(rows[0]!.dataset.machine).toBe("local");
-  expect(rows[1]!.textContent).toBe("atlas-web");
-  expect(rows[1]!.getAttribute("title")).toBe(CWD);
+  expect(rows[1]!.textContent).toBe(translate("sessionInfo.environment.shareScreen"));
+  const project = rows.find((row) => row.getAttribute("title") === CWD)!;
+  expect(project.textContent).toBe("atlas-web");
+  // This pane fixture has no folder callback, so its project stays noninteractive.
+  expect(project.tagName).toBe("LI");
   expect(rows.map((row) => row.textContent)).toContain("main");
 
   // Context: one line, 48K of 200K on a meter at 24% (Lucas, 2026-11-05, Session Info lab), folded; a
@@ -856,24 +862,30 @@ test("opening Session Info moves no part of the chat", () => {
 // so no output click opens a diff split from here: Environment's Changes row opens the folder's diff,
 // and Session Info steps aside for it (session-info-step-aside.test.tsx). What stays is the room rule
 // (Lucas, 2026-11-06): "With enough space: session info opens automatically on new chats. In a narrow
-// layout: it becomes a popover and starts closed."
-test("in a narrow pane a new chat starts with Session Info closed; the toggle opens it as a popover; room again shows the chat's choice", async () => {
+// layout: it becomes a popover and starts closed." Since Leo, 2026-11-10 (#40232: "It's the resizing
+// of the window itself, potentially... Maybe making a new workspace."), a resize never opens it: a
+// panel the narrow pane held closed stays closed when the pane gets room, until the person opens it.
+test("in a narrow pane a new chat starts with Session Info closed; room again keeps it closed; the toggle opens it, a popover when narrow", async () => {
   const container = installDom(true);
   paneWidth = 600;
   await render(container, localChat);
   expect(sessionInfoFits(600)).toBe(false);
   expect(panel(container)).toBeNull();
   expect(toggle(container)?.getAttribute("aria-pressed")).toBe("false");
-  // Held, not closed: the chat's choice is still open.
+  // Held, not closed: the chat's saved choice is still open (a resize changes nothing saved).
   expect(sessionInfoState().open).toBe(true);
-  // The pane gets room (a split beside it closed): the chat's choice shows, floating.
+  // The pane gets room (a split beside it closed, the window widened): it stays closed.
   await act(async () => {
     paneWidth = 1600;
     for (const observer of observers) observer();
   });
+  expect(panel(container)).toBeNull();
+  expect(toggle(container)?.getAttribute("aria-pressed")).toBe("false");
+  // The person opens it: it floats.
+  await click(toggle(container)!);
   expect(panel(container)).not.toBeNull();
   expect(panel(container)?.hasAttribute("data-popover")).toBe(false);
-  // Narrow again, with no ask: it shows, so it stays, as a popover.
+  // Narrow again: it shows, so it stays, as a popover.
   await act(async () => {
     paneWidth = 600;
     for (const observer of observers) observer();

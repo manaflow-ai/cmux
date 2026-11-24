@@ -151,7 +151,7 @@
   height: 28px;
   padding: 0 12px;
   border: 1px solid var(--ce-line);
-  border-radius: 6px;
+  border-radius: var(--ds-radius-control);
   background: transparent;
   color: var(--ce-text);
   font: inherit;
@@ -182,7 +182,7 @@
   height: 28px;
   padding: 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-control);
   background: transparent;
   color: var(--ce-text-2);
 }

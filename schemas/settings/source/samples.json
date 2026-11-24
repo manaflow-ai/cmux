@@ -218,6 +218,14 @@
         ["__not_a_choice__"],
         [1]
       ]
+    },
+    "json": {
+      "accept": [],
+      "refuse": [
+        "[[\"name\"]]",
+        1,
+        true
+      ]
     }
   },
   "domains": {
@@ -259,6 +267,26 @@
         [{"program": "x"}],
         [{"program": [], "label": "x"}],
         [{"program": "x", "label": "x", "icon": 1}],
+        [1]
+      ]
+    },
+    "domain:hosts": {
+      "accept": [
+        [],
+        [{"label": "studio", "endpoints": ["studio.local", "ssh://leo@100.64.0.7:2222"], "icon": "desktopcomputer"}],
+        [{"label": "a", "endpoint": "leo@a"}, {"label": "b", "endpoint": "b", "id": "b1"}]
+      ],
+      "refuse": [
+        "studio",
+        [{"endpoints": ["a"]}],
+        [{"label": " ", "endpoints": ["a"]}],
+        [{"label": "a", "endpoints": []}],
+        [{"label": "a", "endpoint": "a", "endpoints": ["a"]}],
+        [{"label": "a", "endpoints": ["http://a"]}],
+        [{"label": "a", "endpoints": ["-oProxyCommand=x"]}],
+        [{"label": "a", "endpoints": ["a b"]}],
+        [{"label": "a", "endpoints": ["a"], "icon": 1}],
+        [{"label": "a", "endpoint": "a"}, {"label": "A", "endpoint": "b"}],
         [1]
       ]
     },
@@ -415,7 +443,9 @@
         "dore-raven",
         "system:/System/Library/Desktop Pictures/Solid Colors/Blue.heic",
         "file:/Users/Shared/Harbor.png",
-        "folder:/Users/Shared/Wallpapers"
+        "folder:/Users/Shared/Wallpapers",
+        "appearance",
+        "schedule"
       ],
       "refuse": [
         "system:relative/path.heic",
@@ -429,6 +459,40 @@
         true
       ]
     },
+    "domain:app_id": {
+      "accept": [
+        "local/web-pane",
+        "local/showcase-newtab",
+        "manaflow-ai/launcher"
+      ],
+      "refuse": [
+        "Foo/Bar",
+        "local/Web",
+        "a/b/c",
+        "launcher",
+        "/b",
+        "a/",
+        "-a/b",
+        "a b/c",
+        "",
+        1,
+        true
+      ]
+    },
+    "domain:sidebar_section_ids": {
+      "accept": [
+        [],
+        ["recents"],
+        ["projects", "pinned"]
+      ],
+      "refuse": [
+        "recents",
+        [""],
+        ["pinned", "pinned"],
+        [1],
+        {"hidden": ["recents"]}
+      ]
+    },
     "domain:search_template": {
       "accept": [
         "",
@@ -439,6 +503,156 @@
         "https://search.example/",
         "search.example",
         "not a url %s",
+        1
+      ]
+    },
+    "domain:sidebar_row_lines": {
+      "accept": [
+        [],
+        [["icon", "name", "branch"], ["agentStatus"]],
+        [["name", "directory"], ["process"], ["ports", "lastActivity"]]
+      ],
+      "refuse": [
+        "name",
+        1,
+        {},
+        null
+      ]
+    },
+    "domain:sidebar_row_lines_by_kind": {
+      "accept": [
+        {},
+        {"agent": [["icon", "name", "working"], ["agentStatus"]], "terminal": [["icon", "name"], ["process", "directory"]]}
+      ],
+      "refuse": [
+        [],
+        "agent",
+        1,
+        null
+      ]
+    },
+    "domain:sidebar_row_lines_by_agent": {
+      "accept": [
+        {},
+        {"claude": [["icon", "name", "working"], ["lastActivity"]], "codex": [["name", "branch"]]}
+      ],
+      "refuse": [
+        [],
+        "claude",
+        1,
+        null
+      ]
+    },
+    "domain:backdrop_picture": {
+      "accept": [
+        "desktop",
+        "munch-scream",
+        "system:/System/Library/Desktop Pictures/Sonoma.heic",
+        "file:/Users/Shared/Harbor.png"
+      ],
+      "refuse": [
+        "none",
+        "daily",
+        "appearance",
+        "schedule",
+        "folder:/Users/Shared/Wallpapers",
+        "system:relative/path.heic",
+        "file:",
+        "__not_a_backdrop__",
+        1
+      ]
+    },
+    "domain:backdrop_schedule": {
+      "accept": [
+        {},
+        {"07:00": "munch-scream", "9:30": "desktop", "sunset-30m": "file:/Users/Shared/Night.png", "sunrise+1h": "system:/System/Library/Desktop Pictures/Sonoma.heic", "dusk": "desktop", "dawn+90m": "desktop", "noon": "desktop"}
+      ],
+      "refuse": [
+        "07:00",
+        [],
+        {"24:00": "desktop"},
+        {"07:60": "desktop"},
+        {"7": "desktop"},
+        {"sunset-": "desktop"},
+        {"sunset+30s": "desktop"},
+        {"midnight": "desktop"},
+        {"07:00": "daily"},
+        {"07:00": "folder:/Users/Shared/Wallpapers"},
+        {"07:00": "__not_a_backdrop__"},
+        {"07:00": 1}
+      ]
+    },
+    "domain:backdrop_memory": {
+      "accept": [
+        {},
+        {"rotate": "folder:/Users/Shared/Wallpapers", "folder": "folder:/Users/Shared/Wallpapers", "off": "file:/Users/Shared/Harbor.png"},
+        {"rotate": "daily", "folder": "folder:/Users/Shared/Wallpapers", "off": "none"},
+        {"off": "munch-scream"},
+        {"off": "system:/System/Library/Desktop Pictures/Sonoma.heic"}
+      ],
+      "refuse": [
+        "folder:/Users/Shared/Wallpapers",
+        [],
+        {"rotate": "munch-scream"},
+        {"rotate": "appearance"},
+        {"folder": "daily"},
+        {"folder": "folder:/"},
+        {"folder": "folder:relative"},
+        {"off": "daily"},
+        {"off": "schedule"},
+        {"off": "folder:/Users/Shared/Wallpapers"},
+        {"off": "__not_a_backdrop__"},
+        {"light": "munch-scream"},
+        {"rotate": 1}
+      ]
+    },
+    "domain:backdrop_placement": {
+      "accept": [
+        {},
+        {"munch-scream": "fit"},
+        {"file:/Users/Shared/Harbor.png": "fill 0.2 0.8 1.5", "desktop": "center 0.5 0"}
+      ],
+      "refuse": [
+        "fit",
+        [],
+        {"munch-scream": "cover"},
+        {"munch-scream": "fill 2 0"},
+        {"munch-scream": "fill 0.5"},
+        {"munch-scream": "fill 0.5 0.5 9"},
+        {"": "fit"},
+        {"munch-scream": 1}
+      ]
+    },
+    "domain:backdrop_recents": {
+      "accept": [
+        [],
+        ["folder:/Users/Shared/Wallpapers", "file:/Users/Shared/Harbor.png", "daily"],
+        ["munch-scream", "desktop", "none", "system:/System/Library/Desktop Pictures/Sonoma.heic"]
+      ],
+      "refuse": [
+        "daily",
+        {},
+        ["daily", "daily"],
+        ["folder:/"],
+        ["folder:relative"],
+        ["__not_a_backdrop__"],
+        [1],
+        ["file:/a.png", "file:/b.png", "file:/c.png", "file:/d.png", "file:/e.png", "file:/f.png", "file:/g.png", "file:/h.png", "file:/i.png"]
+      ]
+    },
+    "domain:backdrop_location": {
+      "accept": [
+        "37.77,-122.42",
+        "-33.87, 151.21",
+        "69.65,18.96"
+      ],
+      "refuse": [
+        "",
+        "37.77",
+        "91,0",
+        "0,181",
+        "north,east",
+        "1,2,3",
         1
       ]
     }

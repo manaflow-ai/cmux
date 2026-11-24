@@ -68,15 +68,20 @@ public struct ChiefEngineReport: Codable, Sendable, Equatable {
         /// What the default resolves to (#20531), {id, name}; nil when the
         /// Mac does not know or is older.
         public var defaultModel: Model?
+        /// What `/` lists in the Chief composer (optchat-chief engine_control.rs
+        /// `offered.skills`); nil from a Mac whose Chief is older than the list.
+        public var skills: [ChiefSlashSkill]?
 
-        public init(models: [Model] = [], efforts: [String] = [], defaultModel: Model? = nil) {
+        public init(models: [Model] = [], efforts: [String] = [], defaultModel: Model? = nil,
+                    skills: [ChiefSlashSkill]? = nil) {
             self.models = models
             self.efforts = efforts
             self.defaultModel = defaultModel
+            self.skills = skills
         }
 
         enum CodingKeys: String, CodingKey {
-            case models, efforts
+            case models, efforts, skills
             case defaultModel = "default_model"
         }
 
@@ -85,6 +90,8 @@ public struct ChiefEngineReport: Codable, Sendable, Equatable {
             models = try c.decodeIfPresent([Model].self, forKey: .models) ?? []
             efforts = try c.decodeIfPresent([String].self, forKey: .efforts) ?? []
             defaultModel = try? c.decodeIfPresent(Model.self, forKey: .defaultModel)
+            // One malformed row drops the list, never the engine report.
+            skills = try? c.decodeIfPresent([ChiefSlashSkill].self, forKey: .skills)
         }
     }
 

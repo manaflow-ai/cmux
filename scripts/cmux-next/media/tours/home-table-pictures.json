@@ -1,0 +1,63 @@
+{
+  "title": "Home chat: pictures in a Chief table draw as thumbnails, side by side",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "The Home fixture conversation",
+      "rpc": {
+        "method": "debug.home_native_fixture.open",
+        "params": {}
+      },
+      "wait": 3,
+      "shot": false
+    },
+    {
+      "title": "The Chief posts a before and after table",
+      "rpc": {
+        "method": "debug.home.drive",
+        "params": {
+          "action": "stream",
+          "text": "Trash icon fix, done.\n\n| | Before | After |\n|---|---|---|\n| Local file | ![before](/System/Library/CoreServices/Dock.app/Contents/Resources/trashempty@2x.png) | ![after](/System/Library/CoreServices/Dock.app/Contents/Resources/trashfull@2x.png) |\n| Web | ![before](https://github.com/apple.png?size=256) | ![after](https://github.com/github.png?size=256) |\n\nNothing open.",
+          "done": true
+        }
+      },
+      "wait": 4,
+      "shot": false
+    },
+    {
+      "title": "Light",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "light"
+        }
+      },
+      "wait": 3
+    },
+    {
+      "title": "Dark",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "dark"
+        }
+      },
+      "wait": 3
+    },
+    {
+      "title": "Back to the system appearance",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "system"
+        }
+      },
+      "wait": 2,
+      "shot": false
+    }
+  ]
+}

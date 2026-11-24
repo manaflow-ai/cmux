@@ -19,7 +19,6 @@ extension SidebarListViewComponents {
         var standing: WorkspaceID?
         if let header = pressed.standingHeader, case let .workspace(id) = press.key,
            !(model.selection.contains(id) && model.selection.count > 1 && press.switchedOnPress == nil) {
-            if let before = press.switchedOnPress { restorePressSelection(before, pressed: id) }
             key = header.key
             standing = id
         }
@@ -28,11 +27,11 @@ extension SidebarListViewComponents {
             // A creating row drags alone (it is never selected); a placeholder bar never drags.
             guard !model.isPlaceholder(id) || model.isCreating(id) else { return }
             let ids = model.selection.contains(id) && press.switchedOnPress == nil ? model.orderedSelection : [id]
-            // A plain press's drag moves the row and leaves the shown workspace (and the selection) as it was
-            // before the press: a press that switched on mouse-down switches back.
-            if let before = press.switchedOnPress {
-                restorePressSelection(before, pressed: id)
-            } else if !model.selection.contains(id), press.clickOnRelease != id { model.click(id) }
+            // A plain press's drag keeps the switch its press made: the dragged workspace stays shown and selected,
+            // as a tab drag in Chrome and Edge does (Leo 2026-11-08: "The second you click, it focuses. So we might
+            // as well make the thing be better"). Putting the old workspace back as the row lifted switched twice
+            // in one gesture, the "really weird shifting of focus".
+            if press.switchedOnPress == nil, !model.selection.contains(id), press.clickOnRelease != id { model.click(id) }
             payload = .workspaces(ids)
             hidden = Set(ids.map(SidebarRowKey.workspace))
             origin = ids.first.flatMap { SidebarEdits.position(of: $0, in: model.sections) }.map(DropTarget.position)
@@ -109,21 +108,6 @@ extension SidebarListViewComponents {
         showDragLayout()
         SidebarEmptyZones.begin(self, drag)
     }
-    /// A press that became a drag puts back the shown workspace and the selection it switched on mouse-down. That is
-    /// no focus change: the list does not scroll to the workspace shown before the press (Leo 2026-11-06: "it jumps me
-    /// up or to the bottom"). A row pressed near the bottom of a scrolled list, with the shown workspace far above,
-    /// scrolled the list there as the drag lifted.
-    func restorePressSelection(_ before: (shown: WorkspaceID?, selection: Set<WorkspaceID>), pressed id: WorkspaceID) {
-        // Marked revealed before the click: in the app the click's select redraws the list in the same turn
-        // (`SidebarSameTurn.syncNow`), and that reload must see the put-back as no focus change too.
-        if let shown = before.shown, shown != model.activeWorkspaceID {
-            revealedActive = .workspace(shown)
-            model.click(shown)
-        }
-        model.selection = before.selection
-        revealedActive = selectionRevealKey
-        if !patchSelection(from: .workspace(id), oldSelection: [id]) { reload(animated: false) }
-    }
     func updateDrag(windowPoint: NSPoint) {
         guard let drag else { return }
         let started = CACurrentMediaTime()
@@ -147,7 +131,7 @@ extension SidebarListViewComponents {
         if drag.group != nil { return updateGroupDrag(drag) }
         if drag.docItems != nil { return updateDocDrag(drag, point: point) }
         let (base, rules) = dragBase(drag)
-        let resolved = drag.resolve(card: card, displayed: displayed, base: base, rules: rules)
+        let resolved = drag.resolve(card: card, displayed: displayed, base: base, rules: rules, dropY: dropY)
         guard let target = SidebarGroupDrop.gate(self, drag, card: card, resolved: resolved) else { return }
         guard target != drag.target else { return }
         drag.target = target
@@ -156,7 +140,7 @@ extension SidebarListViewComponents {
     }
     /// The drag's base layout (no gap) and its drop rules in the Rust reducer, made again only when the rows or their
     /// look change: a move builds no options, lays out nothing and crosses into Rust with the card's points only, so its
-    /// cost does not grow with the rows the list holds (`SidebarDragMoveCostTests`, `SidebarDragFullMoveCostTests`). The rows are the held ones as shown (`SidebarRowHold`).
+    /// cost does not grow with the rows the list holds (`SidebarDragMoveCostTests`, `SidebarDragFullMoveCostTests`).
     func dragBase(_ drag: Drag) -> (layout: SidebarLayout, rules: DropResolver.DragRules?) {
         let key = dragBaseKey(drag)
         if let base = drag.base, base.key == key { return (base.layout, base.rules) }
@@ -192,7 +176,7 @@ extension SidebarListViewComponents {
             settling = SidebarSettlingDrop(drag: drag, revision: model.sectionsRevision, blocks: blocks)
             self.drag = nil
             // A drop is no focus change (hq-2d, cx-8quut): the reloads that show it anchor, and scroll only when the
-            // focused row moved or was pushed out of view (sidebar-focused-visible, `ListViewport.settle`).
+            // focused row moved or was pushed out of view (sidebar-focused-visible, `ListViewportChange.settle`).
             revealedActive = selectionRevealKey
             let sentBefore = doc.document?.lastIntentKey
             doc.drop(items, target)
@@ -235,7 +219,7 @@ extension SidebarListViewComponents {
         guard let doc = model.docDrag else { return }
         if drag.docGeometry == nil {
             drag.geometryRevision = model.sectionsRevision
-            drag.blockBases = blockBases()
+            (drag.blockBases, drag.blockGapShape) = (blockBases(), nil)
             let base = SidebarLayout.make(sections: listSections, metrics: metrics, options: options(includeGap: false))
             drag.docGeometry = doc.geometry(base, width: bounds.width, acceptance: drag.docAcceptance, blocks: drag.blockBases)
             // The outliner rule: at a nested block's bottom edge the pointer's x picks the level (`SidebarIndent`).
@@ -243,22 +227,13 @@ extension SidebarListViewComponents {
         }
         guard let (geometry, rows) = drag.docGeometry else { return }
         // The rest shape's centre under the pointer: it does not move when the card morphs (no hit oscillation at a block edge).
-        let displayY = drag.morphs || drag.tileSource != nil ? point.y - drag.grabOffsetY * drag.restFrame.height / max(1, drag.lift.frame.height)
+        let cardY = drag.morphs || drag.tileSource != nil ? point.y - drag.grabOffsetY * drag.restFrame.height / max(1, drag.lift.frame.height)
             + drag.restFrame.height / 2 : drag.probeCard.midY
-        var y = drag.blockTarget != nil ? baseY(displayY: displayY, blockGap: drag.blockTarget, bases: drag.blockBases)
-            : SidebarDragGeometry.baseY(displayY: displayY, gapY: displayed.gapY, gapHeight: displayed.gapShift)
-        if drag.blockTarget == nil {
-            // A row moves by its edges too (Lawrence 2026-10-20): its top past the middle of the row above moves it up,
-            // its bottom past the middle of the row below moves it down (`SidebarDragGeometry.edgeY`). The rest shape's
-            // edges, as for the centre above, so a morph does not move them. A block's tiles keep the centre.
-            let morphs = drag.morphs || drag.tileSource != nil
-            let height = morphs ? drag.restFrame.height : drag.lift.frame.height
-            let top = morphs ? displayY - height / 2 : drag.lift.frame.minY
-            let reversing = drag.docTargetChangedUp.map { $0 != drag.movingUp } ?? false
-            guard let edge = geometry.edgeY(top: top, bottom: top + height, x: point.x, movingUp: drag.movingUp, gapY: displayed.gapY,
-                                            gapHeight: displayed.gapShift, current: drag.docTarget, reversing: reversing) else { return }
-            if let hit = geometry.hit(CGPoint(x: point.x, y: edge)), rows[hit.slot.key] != nil { y = edge }
-        }
+        // On the stuck header the drop is the header's (`dropY`), not the row under its veil, and its edges decide nothing.
+        let displayY = dropY(cardY)
+        let onStuckHeader = displayY != cardY
+        // One rule for the list's rows and a block's item rows (pinned workspaces): `docDragBaseY`. Nil keeps the target.
+        guard var y = docDragBaseY(drag, geometry: geometry, rows: rows, displayY: displayY, x: point.x, edges: !onStuckHeader) else { return }
         // A block item's card back over its own slot drops where it came from. The base has the dragged items out, so
         // that slot's centre is the next item's middle there, and a point either way picked a neighbour's half: a
         // release where the drag started moved the item one place (Lawrence 2026-10-30, the stuck Home drag).
@@ -402,8 +377,6 @@ extension SidebarListViewComponents {
             groupLineViews.showMissing(groupLines(displayed), in: self, above: decorations)
         }
         updateHover()
-        // The rows the ticks patched meanwhile show their new content now, together (`SidebarRowHold`).
-        releaseRowHold()
         if let anchor = drag.renameOnLand { inlineRename.beginGroup(of: anchor) }
     }
 
@@ -451,7 +424,7 @@ extension SidebarListViewComponents {
         let drag = settled.drag
         guard drag.lift.superview != nil else { return }
         drag.landsOnModel = true
-        if let real = holdDropped(drag), !sameFrame(real, drag.lift.frame) { return land(drag, at: real, then: settled.then) }
+        if let real = holdDropped(drag), !real.isSameFrame(as: drag.lift.frame) { return land(drag, at: real, then: settled.then) }
         if settled.landed { finishLand(drag, then: settled.then) }
     }
 
@@ -460,7 +433,7 @@ extension SidebarListViewComponents {
     /// retargets, on its spring, to where the model shows the item now, and the item's new views stay hidden under it.
     func followLanding() {
         guard let drag = landing, drag.landsOnModel, drag.lift.superview != nil, settling?.drag !== drag,
-              let real = holdDropped(drag), !sameFrame(real, drag.lift.frame) else { return }
+              let real = holdDropped(drag), !real.isSameFrame(as: drag.lift.frame) else { return }
         land(drag, at: real, then: drag.landingThen)
     }
 
@@ -539,10 +512,14 @@ extension SidebarListViewComponents {
         displayed = layout
         spliceBase = nil // the drag's look is no full layout of the model
         updateDocumentHeight()
+        // A header stuck over the dragged rows stays stuck over the drag's look.
+        let wasStuck = stuckHeader
+        stuckHeader = findStuckHeader(in: layout)
+        defer { endStuckPass(from: wasStuck) }
         let realize = realizationRect()
         for i in dragLookRows(layout, realize: realize) {
             let row = layout.rows[i]
-            let target = frame(for: row)
+            let target = drawnFrame(for: row)
             guard let view = rowViews[row.key] else {
                 // A row the look adds (an empty Pinned that takes the drop) fades in at its slot.
                 guard target.intersects(realize) else { continue }
@@ -640,7 +617,10 @@ extension SidebarListViewComponents {
     }
 }
 
-/// Two frames within half a point on every edge (a landing that needs no retarget).
-private func sameFrame(_ a: NSRect, _ b: NSRect) -> Bool {
-    abs(a.minX - b.minX) <= 0.5 && abs(a.minY - b.minY) <= 0.5 && abs(a.width - b.width) <= 0.5 && abs(a.height - b.height) <= 0.5
+private extension NSRect {
+    /// Within half a point of `other` on every edge (a landing that needs no retarget).
+    func isSameFrame(as other: NSRect) -> Bool {
+        abs(minX - other.minX) <= 0.5 && abs(minY - other.minY) <= 0.5 && abs(width - other.width) <= 0.5
+            && abs(height - other.height) <= 0.5
+    }
 }

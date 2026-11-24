@@ -12,6 +12,8 @@ import type { ComposerAttachment } from "../attachments";
 import { attachmentPath } from "../fileAttachmentModel";
 import { lengthOf } from "../composer/videoPrompt";
 import { isVideoName } from "../composer/videoAttachments";
+import { localDraftShape } from "../composer/draftMediaShape";
+import { chipVideoRatio } from "../composer/videoShape";
 
 /// A video a prompt sent, as its bubble draws it (SentVideoTile.tsx).
 export type SentVideo = {
@@ -22,6 +24,9 @@ export type SentVideo = {
   length?: string;
   width?: number;
   height?: number;
+  /// Its tile's width over height as the composer's chip drew it (composer/videoShape.ts): the sent
+  /// tile keeps that box. Unset for one read back from acpmux alone: its size's.
+  shape?: number;
   /// Its first frame, the image the prompt sent it as; before acpmux's echo, the composer chip's poster.
   poster?: PromptImage;
 };
@@ -79,9 +84,11 @@ export function sentVideosOf(
   });
   if (!chips.length) return [...framed, ...bare];
   // A chip the host never read takes what its note says, when it went with frames all the same.
-  return chips.map(
-    (chip) => (!chip.poster && framed.find((video) => video.name === chip.name && video.path === chip.path)) || chip,
-  );
+  return chips.map((chip) => {
+    const note = !chip.poster && framed.find((video) => video.name === chip.name && video.path === chip.path);
+    // Its note's poster and length, in the box its chip had.
+    return note ? { ...note, ...(chip.shape ? { shape: chip.shape } : {}) } : chip;
+  });
 }
 
 /// The videos the pane's own row sent, read from the composer's chips (their poster, length and
@@ -89,11 +96,25 @@ export function sentVideosOf(
 /// note (its text is what the bubble reads). A chip the host could not read, or whose frames were
 /// left off (`withoutFrames`), is still its tile, with what the chip knows.
 function composerVideos(row: Pick<AcpmuxRow, "retryAttachments">): SentVideo[] {
-  return (row.retryAttachments ?? []).flatMap((chip): SentVideo[] =>
-    chip.kind === "link" && chip.path && isVideoFile(chip.path, chip.mimeType)
-      ? [{ name: chip.name, path: chip.path, ...(chip.video ? chipVideo(chip, chip.video) : {}) }]
-      : [],
-  );
+  // The same recording attached twice is one video (`withoutRepeatedVideos`).
+  const seen = new Set<string>();
+  const once = (chip: ComposerAttachment) => {
+    const key = `${chip.name}\n${chip.size}`;
+    return !seen.has(key) && Boolean(seen.add(key));
+  };
+  return (row.retryAttachments ?? []).flatMap((chip): SentVideo[] => {
+    if (chip.kind !== "link" || !chip.path || !isVideoFile(chip.path, chip.mimeType) || !once(chip)) return [];
+    const shape =
+      chip[localDraftShape]?.forSend() ?? (chip.videoShape || chip.video ? chipVideoRatio(chip) : undefined);
+    return [
+      {
+        name: chip.name,
+        path: chip.path,
+        ...(chip.video ? chipVideo(chip, chip.video) : {}),
+        ...(shape ? { shape } : {}),
+      },
+    ];
+  });
 }
 
 function chipVideo(chip: ComposerAttachment, video: NonNullable<ComposerAttachment["video"]>): Partial<SentVideo> {
@@ -123,12 +144,47 @@ function videoPath(row: Pick<AcpmuxRow, "inlineParts" | "retryAttachments">, nam
   return undefined;
 }
 
-/// Whether a recorded file part is one of `videos`: the tile draws it, not a file chip.
+/// Whether a recorded file part is one of `videos`: the tile draws it, not a file chip. By its
+/// path, else by its name: the same recording attached a second time goes as a second upload of it
+/// (another path), and it is still that video, never a file chip beside its tile (Leo, 2026-11-22:
+/// "WHAT THE FUCK IS THIS SITUATION MAN WITH THESE ATTACHMENTS!?").
 export function sentVideoOf(
   part: Exclude<PromptContentPart, { kind: "text" | "image" }>,
   videos: readonly SentVideo[],
 ): SentVideo | undefined {
   if (part.kind !== "file" || !part.uri) return undefined;
-  const path = attachmentPath(part.uri);
-  return videos.find((video) => video.name === part.name && video.path === path);
+  return sentVideoFor({ name: part.name, path: attachmentPath(part.uri) }, videos);
+}
+
+/// The video of `videos` a file of `name` at `path` is (`sentVideoOf`): the one at its path, else
+/// the one of its name.
+export function sentVideoFor(
+  file: { name: string; path?: string },
+  videos: readonly SentVideo[],
+): SentVideo | undefined {
+  return (
+    videos.find((video) => video.name === file.name && video.path === file.path) ??
+    videos.find((video) => video.name === file.name)
+  );
+}
+
+/// `parts` with each video once: a second part that is a video already drawn (the same recording
+/// attached again: its name and size, whichever upload of it the part names) draws nothing, so one
+/// video is one tile. UserBubble.tsx draws these and the row's estimate (bubbleParts.ts
+/// `bubbleLayout`) measures them.
+export function withoutRepeatedVideos<T extends PromptContentPart>(
+  parts: readonly T[],
+  videos: readonly SentVideo[],
+): T[] {
+  const drawn = new Set<string>();
+  return parts.filter((given) => {
+    const part: PromptContentPart = given;
+    if (part.kind === "text" || part.kind === "image") return true;
+    const video = sentVideoOf(part, videos);
+    if (!video) return true;
+    const key = `${video.name}\n${part.size ?? ""}`;
+    if (drawn.has(key)) return false;
+    drawn.add(key);
+    return true;
+  });
 }

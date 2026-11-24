@@ -16,6 +16,9 @@ use cmux_json::JsonSet as _;
 
 pub mod actions;
 mod answering;
+mod composer_draft;
+#[cfg(all(test, unix))]
+mod composer_draft_tests;
 mod events;
 mod run;
 mod scheduler;
@@ -140,6 +143,8 @@ pub struct App {
     pub(super) history_in_flight: HashSet<String>,
     pub(super) history_more: HashMap<String, bool>,
     pub input: Editor,
+    /// The composer's tie to the chat's durable draft (`composer_draft.rs`).
+    pub draft_sync: composer_draft::DraftSync,
     pub input_images: Vec<PromptImage>,
     pub command: Editor,
     /// Not-yet-created sessions shown as the top sidebar rows, newest first.
@@ -502,7 +507,9 @@ impl App {
         let tx = self.tx.clone();
         let id = id.to_owned();
         tokio::spawn(async move {
-            let mut params = json!({"sessionId": id, "limit": 3000});
+            // The person's terminal shows it: an open, so a hibernated agent wakes
+            // (`server/requests.rs` `attach_shows`).
+            let mut params = json!({"sessionId": id, "limit": 3000, "visible": true});
             if let Some(after) = after_seq {
                 params.set("afterSeq", json!(after));
             }
@@ -699,6 +706,7 @@ impl App {
             return;
         };
         self.input.take();
+        self.note_draft_sent();
         if let Some(id) = self.selected_id() {
             self.viewport.entry(id).or_default().to_bottom();
         }
@@ -778,7 +786,7 @@ impl App {
 }
 
 fn session_route_id(session: &Value) -> Option<String> {
-    crate::cli::resolve::routed_id(session).ok()
+    crate::session_identity::routed_id(session).ok()
 }
 
 /// A session or transcript status with a turn still open: running, or waiting on a permission.

@@ -2,8 +2,9 @@ public import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
 
-/// Where the Chief runs, as a small chip (the Home header beside the Chief's name, the Chief card's
-/// Runs On row): This Mac, cmux Cloud or the host's name, or the running move's step. A click
+/// Where the Chief runs, as a small chip (the Chief Teleport playground; the Chief card has no Runs On row since
+/// 2026-11-23, and moves run from the command palette's `chief.moveTo` and `chief.moveRollback`): This
+/// Mac, cmux Cloud or the host's name, or the running move's step. A click
 /// opens the Teleport menu (``ChiefTeleportMenuBuilder``), whose picks run the app's `chief.moveTo`
 /// and `chief.moveRollback` through ``ChiefTeleportModel``.
 ///
@@ -13,10 +14,7 @@ import CmuxNextDesign
 @MainActor
 public final class ChiefTeleportChip: NSView {
     /// How it draws (``ChiefTeleportChipStyle/plain`` ships).
-    public var style: ChiefTeleportChipStyle { didSet { if style != oldValue { show() } } }
-    /// A Chief on another host reads "Chief is on <host>" (Home's header on this Mac's conversation,
-    /// which cannot open the Chief there); off, the host's name alone (the Chief card).
-    public var saysAway = false { didSet { if saysAway != oldValue { show() } } }
+    public var style: ChiefTeleportChipStyle { didSet { if style != oldValue { applyShape(); show() } } }
     private let model: ChiefTeleportModel
     private let glyph = ThemedImageView()
     private let label = ThemedLabel(labelWithString: "")
@@ -41,18 +39,15 @@ public final class ChiefTeleportChip: NSView {
         self.style = style
         super.init(frame: NSRect(x: 0, y: 0, width: 80, height: Self.height))
         wantsLayer = true
-        layer?.cornerRadius = Self.height / 2
-        label.font = Typography.caption
+        applyShape()
         label.lineBreakMode = .byTruncatingTail
         label.maximumNumberOfLines = 1
         dot.wantsLayer = true
         dot.layer?.cornerRadius = Self.dotSize / 2
-        chevron.image = Self.symbol("chevron.down", scale: .small)
         for view in [glyph, label, chevron, dot] { addSubview(view) }
         setAccessibilityElement(true)
         setAccessibilityRole(.popUpButton)
         setAccessibilityIdentifier("cmux.home.chief.teleport")
-        setAccessibilityHelp(ChiefTeleportStrings.help)
         show()
         startWatching()
     }
@@ -78,7 +73,8 @@ public final class ChiefTeleportChip: NSView {
         // task-owner: this view (cancelled when it leaves its window; it ends at the first change after
         // the view is released); event-driven (Observation).
         watch = Task { [weak self, model] in
-            for await _ in ObservationStream({ ChiefTeleportChipShown(location: model.location, phase: model.shownPhase, fork: model.marks.fork?.name) }) {
+            for await _ in ObservationStream({ ChiefTeleportChipShown(location: model.location, phase: model.shownPhase, fork: model.marks.fork?.name,
+                                                                      language: DesignSettings.shared.appLanguage, thisMac: ChiefTeleportStrings.thisMac) }) {
                 self?.show()
             }
         }
@@ -88,31 +84,46 @@ public final class ChiefTeleportChip: NSView {
 
     /// Reads the model and draws the chip for it.
     func show() {
-        let face = model.chipFace(saysAway: saysAway)
-        let text = face.text
-        tone = switch face.tone {
-        case "running": .running
-        case "failed": .failed
-        case "away": .away
-        default: .here
+        let phase = model.shownPhase
+        let place = Self.placeTitle(model.location, current: model.menu().currentTitle)
+        let text: String
+        let symbol: String
+        switch phase {
+        case .checking, .moving, .verifying, .rollingBack:
+            tone = .running
+            text = ChiefTeleportMenuBuilder.statusLine(phase) ?? place
+            symbol = phase == .rollingBack ? "arrow.uturn.backward" : "arrow.triangle.2.circlepath"
+        case .failed:
+            tone = .failed
+            text = ChiefTeleportMenuBuilder.statusLine(phase) ?? place
+            symbol = "exclamationmark.triangle"
+        case .idle, .done, .rolledBack:
+            tone = model.location == .thisMac ? .here : .away
+            if model.location == .thisMac, model.marks.fork != nil {
+                text = ChiefTeleportStrings.withFork(place)
+            } else {
+                text = place
+            }
+            symbol = Self.placeSymbol(model.location)
         }
-        let symbol = face.symbol
         label.stringValue = text
         label.ink = switch tone {
         case .failed: .danger
-        case .here: .secondary
+        case .here: style == .field ? .primary : .secondary
         case .away: style == .plain ? .secondary : .primary
         case .running: .primary
         }
         glyph.image = Self.symbol(symbol, scale: .medium)
         glyph.ink = label.ink
-        chevron.ink = .tertiary
+        chevron.ink = style == .field ? .primary : .tertiary  // a field's arrows read like the pop-ups beside it
         glyph.isHidden = !style.showsGlyph
         label.isHidden = !style.showsText
         chevron.isHidden = !style.showsChevron
         dot.isHidden = style != .dot
-        setAccessibilityLabel(face.label)
-        themedToolTip = style.showsText ? ChiefTeleportStrings.help : text
+        setAccessibilityLabel(ChiefTeleportStrings.label(text))
+        // With its words shown it needs no tooltip (a1315's cut 2); a glyph alone is named by it.
+        themedToolTip = style.showsText ? nil : text
+        setAccessibilityHelp(ChiefTeleportStrings.help)
         invalidateIntrinsicContentSize()
         needsLayout = true
         needsDisplay = true
@@ -121,8 +132,8 @@ public final class ChiefTeleportChip: NSView {
 
     override public func updateLayer() {
         performWithTheme {
-            let filled = style == .capsule || (style == .awayBadge && tone != .here)
-            layer?.backgroundColor = filled ? (style == .awayBadge ? Palette.selectionFill : Palette.hoverFill).cgColor : nil
+            let filled = style == .capsule || style == .field || (style == .awayBadge && tone != .here)
+            layer?.backgroundColor = filled ? (style == .awayBadge || style == .field ? Palette.selectionFill : Palette.hoverFill).cgColor : nil
             layer?.borderWidth = style == .outline ? 1 : 0
             layer?.borderColor = Palette.separator.cgColor
             let dotColor: NSColor = switch tone {
@@ -140,6 +151,14 @@ public final class ChiefTeleportChip: NSView {
     }
 
     private var padding: CGFloat { style == .plain || style == .iconOnly || style == .dot ? 2 : 8 }
+    private var chipHeight: CGFloat { style == .field ? Metrics.controlHeight : Self.height }
+
+    /// Height, corners, text and chevron for the style: a field is as tall as the pickers beside it.
+    private func applyShape() {
+        layer?.cornerRadius = style == .field ? Metrics.controlCornerRadius : Self.height / 2
+        label.font = style == .field ? Typography.body : Typography.caption
+        chevron.image = style == .field ? Self.symbol("chevron.up.chevron.down", scale: .medium) : Self.symbol("chevron.down", scale: .small)
+    }
 
     override public var intrinsicContentSize: NSSize {
         var width = padding * 2
@@ -149,7 +168,7 @@ public final class ChiefTeleportChip: NSView {
         if style.showsText { parts.append(ceil(label.naturalSize.width)) }
         if style.showsChevron { parts.append(chevron.image?.size.width ?? 0) }
         width += parts.reduce(0, +) + Self.gap * CGFloat(max(parts.count - 1, 0))
-        return NSSize(width: ceil(width), height: Self.height)
+        return NSSize(width: ceil(width), height: chipHeight)
     }
 
     override public func layout() {
@@ -167,7 +186,10 @@ public final class ChiefTeleportChip: NSView {
             let chevronWidth = style.showsChevron ? (chevron.image?.size.width ?? 0) + Self.gap : 0
             place(label, width: max(0, min(ceil(size.width), bounds.width - x - padding - chevronWidth)), height: ceil(size.height))
         }
-        if style.showsChevron, let size = chevron.image?.size { place(chevron, width: size.width, height: size.height) }
+        if style.showsChevron, let size = chevron.image?.size {
+            if style == .field { x = bounds.width - padding - size.width }
+            place(chevron, width: size.width, height: size.height)
+        }
     }
 
     // MARK: Menu
@@ -204,6 +226,14 @@ public final class ChiefTeleportChip: NSView {
         }
     }
 
+    static func placeSymbol(_ location: ChiefLocation) -> String {
+        switch location {
+        case .thisMac: "laptopcomputer"
+        case .cloud: "cloud"
+        case .host: "macmini"
+        }
+    }
+
     private static func symbol(_ name: String, scale: NSImage.SymbolScale) -> NSImage? {
         NSImage(systemSymbolName: name, accessibilityDescription: nil)?
             .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: TypeScale.caption, weight: TypeScale.regular, scale: scale))
@@ -215,4 +245,9 @@ private nonisolated struct ChiefTeleportChipShown: Equatable {
     var location: ChiefLocation
     var phase: ChiefTeleportPhase
     var fork: String?
+    /// `app.language` and the chip's words in it: the chip draws again in a new language, live (the
+    /// words register the strings bundle's language with Observation; the setting, a change before
+    /// the launch warm-up adopted the bundle).
+    var language: String?
+    var thisMac: String
 }

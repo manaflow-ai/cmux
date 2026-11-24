@@ -20,10 +20,3 @@ extension ChiefHome {
         return id
     }
 }
-
-extension HomeStore {
-    /// The local Chief of conversation `id` when it is not the default (``ChiefHome/namedChief(in:)``).
-    public func namedChief(of id: ConversationID) -> String? {
-        rows.first { row in row.id == id }.flatMap { ChiefHome.namedChief(in: $0.summary.participants) }
-    }
-}

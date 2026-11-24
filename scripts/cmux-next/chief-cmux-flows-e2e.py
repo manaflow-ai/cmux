@@ -3,7 +3,7 @@
 
 hmchief7: the Chief's `cmux workspace create` landed in the user's release app
 (session cmux-app) and the tagged sidebar stayed empty. This drives the real
-Chief through the Home composer (home_page.py type/send) with the
+Chief through the Home composer (`debug.home.drive` type/send) with the
 requests a user makes, waits for each reply, then checks the tagged daemon
 (through scripts/cmux-debug-cli.sh, as a user would) and the default sessions
 (cmux-app, main: where a misrouted call lands, read only). Prints one table
@@ -17,9 +17,9 @@ Usage: chief-cmux-flows-e2e.py --tag <tag> --app PATH --debug-cli PATH [--out DI
 Submit the nx-remote job with --allow-agents: gui and input jobs default to ACPMUX_AGENT_LAUNCH=deny (cx-tgf4h).
 """
 import argparse, json, os, re, signal, socket, subprocess, sys, tempfile, time
-
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import home_page  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
+from state_wait import wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -182,7 +182,7 @@ def ask(text):
     """Sends `text` through the Home composer; returns the Chief's final reply of that turn."""
     before = len(log_items())
     for action, extra in (("focus", {}), ("type", {"text": text}), ("send", {})):
-        reply = home_page.drive(rpc, {"action": action, **extra})
+        reply = rpc("debug.home.drive", {"action": action, **extra})
         if not (isinstance(reply, dict) and reply.get("ok")):
             return f"(drive {action} failed: {reply})"
     mine = wait(lambda: next((i for i, m in enumerate(log_items()) if i >= before and m.get("kind") == "user"
@@ -201,7 +201,9 @@ def ask(text):
     reply = wait(done, opts.turn_timeout, step=3)
     if reply is None:
         return "(no reply)"
-    time.sleep(4)  # a turn that goes on after a talk item logs more
+    # A turn that goes on after a talk item logs more: the log (and the conversation's last_seq) stop changing.
+    wait_stable(lambda: (len(log_items()), int((chief_conversation() or {}).get("last_seq", 0))),
+                "the Chief's log after its reply", timeout=20, interval=0.5, reads=5, raise_on_timeout=False)
     return done() or reply
 
 
@@ -225,7 +227,7 @@ def row(flow, expected, observed, ok):
 
 def show_home():
     rpc("action.run", {"id": "home.show"})
-    wait(lambda: (home_page.drive(rpc, {"action": "geometry"}) or {}).get("ok"), 20)
+    wait(lambda: (rpc("debug.home.drive", {"action": "geometry"}) or {}).get("ok"), 20)
 
 
 def tail():
@@ -267,7 +269,7 @@ app = None
 def cleanup():
     if opts.keep:
         return
-    print("cleanup", flush=True)
+    safe_print("cleanup", flush=True)
     rpc("action.run", {"id": "quitEndSessions"}, timeout=10)
     if app:
         try:
@@ -287,7 +289,7 @@ def cleanup():
             parts = line.split(None, 1)
             # The bundle's own executables only (this script's argv names the bundle too).
             if len(parts) == 2 and parts[1].startswith(APP + "/") and int(parts[0]) != os.getpid():
-                print("leftover", line[:160], flush=True)
+                safe_print("leftover", line[:160], flush=True)
                 try:
                     os.kill(int(parts[0]), signal.SIGTERM)
                 except OSError:
@@ -325,7 +327,14 @@ def main():
     # The Chief host attaches to the conversation after Home opens.
     if not wait(lambda: host_log().count("daemon connected") > connected, 120):
         sys.exit("the Chief host did not connect")
-    time.sleep(10)  # test harness: its compactor start-up probe
+    # Its compactor start-up probe ran: host.log after the connect says the probe built its node (or its name is
+    # taken), as chief-home-fixes-live.py reads it.
+    def probe_done():
+        text = host_log()
+        text = text[text.rfind("daemon connected"):]
+        return ("compactor probe (" in text and "built a node" in text) or "is taken" in text
+    if not wait(probe_done, 60, step=0.5):
+        print("warning: host.log never showed the compactor start-up probe in 60 s", flush=True)
     if not conv:
         sys.exit(f"no Chief conversation: {json.dumps(rpc('debug.home'))[:2000]}")
     print("identify:", json.dumps(tagged("app", "identify"))[:600], flush=True)

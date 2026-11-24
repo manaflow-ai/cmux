@@ -9,6 +9,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AttachmentService } from "../src/pages/home-channels/attachmentService";
 import type { HomeAttachment } from "../src/pages/home-channels/types";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -73,6 +74,7 @@ afterEach(async () => {
   if (root) act(() => root!.unmount());
   root = undefined;
   await new Promise((resolve) => setTimeout(resolve, 0));
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

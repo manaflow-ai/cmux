@@ -4,6 +4,9 @@
 import { useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from "react";
 import { Popover, type UiAnchor, type UiVirtualAnchor } from "../../ui/Popover";
 import type { Strings } from "../shared/i18n";
+import { ConnectionChip } from "../../ui/ConnectionChip";
+import { useConnectionQuiet } from "../../ui/lasting";
+import { keycapLegend } from "../../ui/keycapLegend";
 import {
   canEditWhen,
   displayStrokes,
@@ -16,6 +19,7 @@ import {
 } from "./model";
 import type { KeybindingsStore, Recording } from "./store";
 import type { Binding } from "./types";
+import { WithFacts } from "../../agent-session/acpmux/chips/FactsHoverCard";
 
 const focusOnMount = (node: HTMLInputElement | null) => node?.focus();
 const editOnMount = (node: HTMLInputElement | null) => {
@@ -74,7 +78,7 @@ function Keycaps({ display }: { display: string }) {
       {displayStrokes(display).map((stroke, index) => (
         // oxlint-disable-next-line react/no-array-index-key
         <kbd key={index} className="keys-cap">
-          {stroke}
+          {keycapLegend(stroke)}
         </kbd>
       ))}
     </span>
@@ -85,6 +89,9 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const { t } = strings;
   const disconnected = snap.connection === "disconnected";
+  // A lost link keeps the list on screen and says so only once it lasts (ui/lasting.ts): a daemon
+  // restart drops it for a few seconds, and the person has nothing to do (Leo, 2026-11-14).
+  const downLasting = useConnectionQuiet(disconnected);
   const searchRecording = snap.recording?.target === "search";
   const selected = snap.rows.find((row) => identity(row) === snap.selection);
   // The recording row's keys, read each time the recorder is placed.
@@ -143,9 +150,13 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
             />
             {searchRecording && (
               // The mode, inside the field; how to leave it on hover.
-              <span className="keys-search-badge" title={t("keybindings.page.recordingExit")} aria-hidden="true">
-                {t("keybindings.page.recordingKeys")}
-              </span>
+              <WithFacts facts={[{ value: t("keybindings.page.recordingExit") }]}>
+                {(facts) => (
+                  <span {...facts} className="keys-search-badge" aria-hidden="true">
+                    {t("keybindings.page.recordingKeys")}
+                  </span>
+                )}
+              </WithFacts>
             )}
           </div>
           <button
@@ -218,11 +229,11 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
           store={store}
         />
       )}
-      {disconnected ? (
-        <div className="keys-empty">{t("keybindings.page.disconnected")}</div>
-      ) : snap.rows.length === 0 ? (
+      {/* The list stays while the link is down; a corner mark says so once it lasts (ui/ConnectionChip.tsx). */}
+      {downLasting ? <ConnectionChip text={t("keybindings.page.disconnected")} /> : null}
+      {snap.rows.length === 0 ? (
         <div className="keys-empty">
-          {snap.loading
+          {snap.loading || disconnected
             ? ""
             : t(snap.text || snap.conflictsOnly ? "keybindings.page.emptySearch" : "keybindings.page.empty")}
         </div>
@@ -449,7 +460,7 @@ function Recorder({
             <span key={index} className={`keys-recorder-stroke${group.held ? " held" : ""}`}>
               {group.caps.map((cap) => (
                 <kbd key={cap} className="keys-recorder-cap">
-                  {cap}
+                  {keycapLegend(cap)}
                 </kbd>
               ))}
             </span>
@@ -479,9 +490,7 @@ function Recorder({
         </output>
       )}
       <div className="keys-recorder-actions">
-        <span className="keys-recorder-command" title={binding.title}>
-          {binding.title}
-        </span>
+        <span className="keys-recorder-command">{binding.title}</span>
         {prompt ? (
           // The app's recorder answers Escape (Close) and Return (Overwrite); a new shortcut
           // drops the question.
@@ -493,7 +502,7 @@ function Recorder({
               onMouseDown={keepFocus}
               onClick={() => void store.resolveConflict("close")}
             >
-              {withKeys(t("keybindings.page.recorder.closeOnly"), ["Esc"])}
+              {withKeys(t("keybindings.page.recorder.closeOnly"), [keycapLegend("Esc")])}
             </button>
             <button
               type="button"
@@ -502,7 +511,7 @@ function Recorder({
               onMouseDown={keepFocus}
               onClick={() => void store.resolveConflict("overwrite")}
             >
-              {withKeys(t("keybindings.page.recorder.overwrite"), ["↩"])}
+              {withKeys(t("keybindings.page.recorder.overwrite"), [keycapLegend("↩")])}
             </button>
           </span>
         ) : (
@@ -513,7 +522,7 @@ function Recorder({
             onMouseDown={keepFocus}
             onClick={() => store.closeRecording()}
           >
-            {withKeys(t("keybindings.page.recorder.close"), ["Esc", "↩"])}
+            {withKeys(t("keybindings.page.recorder.close"), [keycapLegend("Esc"), keycapLegend("↩")])}
           </button>
         )}
       </div>
@@ -561,7 +570,6 @@ function BindingRow({ binding, strings, selected, editing, recording: rowRecordi
             aria-label={
               binding.display ? `${t("keybindings.page.change")}: ${binding.display}` : t("keybindings.page.change")
             }
-            title={t("keybindings.page.change")}
             aria-pressed={recording}
             onClick={(event) => {
               event.stopPropagation();

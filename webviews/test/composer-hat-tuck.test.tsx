@@ -1,6 +1,7 @@
 // l10n-allow-file: test fixture commands, not shipped UI.
 import { afterAll, describe, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -55,14 +56,10 @@ type BackgroundCommand = import("../src/agent-session/acpmux/session-info/proces
 // The composer hat tucks away (Leo, 2026-11-04: "what if you wanted to collapse that one line?"):
 // a chevron at the hat's top middle tucks it, `agentPane.display.trayTucked` holds it, and tucked
 // only a pull tab at the composer's top middle stays, whose click brings the hat back (App.tsx).
-afterAll(() => {
+afterAll(async () => {
   registerChatDisplayHost(undefined);
   setChatDisplay({});
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 setPaneLanguage("en");
 
@@ -187,7 +184,7 @@ describe("the composer hat tucks away and comes back", () => {
     const root = createRoot(host);
     await act(async () => root.render(createElement(Stack, { agents: [reviewer] })));
     try {
-      expect(host.querySelector(".acpmux-tray-pull__count")?.textContent).toBe("3");
+      expect(host.querySelector<HTMLElement>(".acpmux-tray-pull__count")?.dataset.count).toBe("3");
       expect(host.querySelector(".acpmux-tray-pull__dot")).toBeNull();
       await act(async () => root.render(createElement(Stack, { agents: [reviewer], waiting: new Set([reviewer.id]) })));
       expect(host.querySelector(".acpmux-tray-pull__dot")).not.toBeNull();

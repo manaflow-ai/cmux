@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # try-pr.sh --live-code end to end on a fleet Mac (docs/cmux-next/hot-reload.md, "Try a pull request"):
 # builds this commit as a live code bench build (scripts/live-code/build.sh), then tries a fixture pull
-# request that turns Home's background red and insets Home's page, which otherwise covers it
-# (HomeConversationPage.updateLayer and layout, two function bodies), in a side instance with try-pr.sh --live-code. The PR comes from a scratch
+# request that turns Home's background red and insets Home's transcript, which otherwise covers it
+# (HomeHostView.updateLayer and layout, two function bodies), in a side instance with try-pr.sh --live-code. The PR comes from a scratch
 # clone whose origin serves it as refs/pull/1/head, so no GitHub. The side instance is made and opened
 # first and captured, then try-pr.sh is timed from its start to the copy's "applied" line, captured
 # again, and both captures' red pixels counted. A second PR, whose patch needs Swift only its newer base
@@ -31,16 +31,16 @@ log="$out/build/xcodebuild.log"
 # newer than the build (the case try-pr.sh sorts again from the build's own commit):
 #   PR 1 on HEAD+1 (a docs edit): Home's background red and its transcript inset, so a red border
 #        shows around the chat; two function bodies, it applies and shows.
-#   PR 2 on HEAD+2 (HEAD+1 plus a new HomeConversationPage method): the same line calls that method, which the
+#   PR 2 on HEAD+2 (HEAD+1 plus a new HomeHostView method): the same line calls that method, which the
 #        build lacks, so its patch cannot compile against the build and it takes the dev build.
 # try-pr.sh runs from a clone of it.
-view="Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeConversationPage.swift"
+view="Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeHostView.swift"
 original="layer?.backgroundColor = nil"
 red="layer?.backgroundColor = NSColor.systemRed.cgColor"
-# The page fills Home (layout sets its frame to bounds) and hides the layer: a still of the run at
+# The transcript fills Home (layout sets its frame to bounds) and hides the layer: a still of the run at
 # 71936c52 counted 0 red pixels with the patch applied. Inset by 80 points, a red border shows around it.
-fill="page.frame = bounds$"
-inset="page.frame = bounds.insetBy(dx: 80, dy: 80)"
+fill="transcript.frame = bounds$"
+inset="transcript.frame = bounds.insetBy(dx: 80, dy: 80)"
 grep -qF "$original" "$view" || { echo "try-pr-live-code: $view no longer has $original" >&2; exit 1; }
 fx="$out/fixture"; rm -rf "$fx"; mkdir -p "$fx"
 git init -q --bare "$fx/origin.git"
@@ -59,7 +59,7 @@ build_commit="$(git rev-parse HEAD)"
 docs="docs/cmux-next/live-code.md"
 newer="$( (cat "$docs"; echo; echo "<!-- try-pr-live-code fixture -->") | commit_with "$build_commit" "$docs" "fixture: a newer base")"
 pr1="$(sed -e "s/$original/$red/" -e "s/$fill/$inset/" "$view" | commit_with "$newer" "$view" "fixture: Home red")"
-helper='extension HomeConversationPage {\n    func tryPrLiveTint() -> CGColor { NSColor.systemRed.cgColor }\n}'
+helper='extension HomeHostView {\n    func tryPrLiveTint() -> CGColor { NSColor.systemRed.cgColor }\n}'
 newest="$( (cat "$view"; printf '\n%b\n' "$helper") | commit_with "$newer" "$view" "fixture: a base with a new method")"
 pr2="$(git show "$newest:$view" | sed "s/$original/layer?.backgroundColor = tryPrLiveTint()/" | commit_with "$newest" "$view" "fixture: Home tint from the new method")"
 git push -q "$fx/origin.git" "$newest:refs/heads/feat-cmux-next" "$pr1:refs/pull/1/head" "$pr2:refs/pull/2/head"
@@ -115,6 +115,21 @@ capture() {
   copy_rpc debug.window_list '{}' >"$out/$1-windows.json" || true
   [[ -f "$out/$1.png" ]] || { echo "try-pr-live-code: the copy wrote no $1 still: $(cat "$out/$1-snapshot.json")" >&2; exit 1; }
 }
+# capture_settled NAME [UNLIKE.png]: a still once the window stopped changing: captures until two in a row
+# are the same image (and, given UNLIKE, not that image: the applied patch repainted), up to 15 s; a window
+# that never holds still keeps its last capture, with a note.
+capture_settled() {
+  local previous="" now unlike=""
+  [[ -n "${2:-}" ]] && unlike="$(cksum <"$2")"
+  for _ in $(seq 1 75); do
+    capture "$1"
+    now="$(cksum <"$out/$1.png")"
+    [[ "$now" == "$previous" && "$now" != "$unlike" ]] && return 0
+    previous="$now"
+    sleep 0.2
+  done
+  echo "try-pr-live-code: note: the copy's window still changed after 15 s; the $1 still is its last capture" >&2
+}
 cleanup() { "$try" 1 --stop >"$out/stop.log" 2>&1 || true; }
 trap cleanup EXIT
 # The copy as try-pr.sh makes it (same app, label and --live-code), open in front, then captured.
@@ -124,16 +139,19 @@ live="$CMUX_SIDE_ROOT/pr-1/live-code"
 for _ in $(seq 1 300); do grep -q 'live code: watching' "$live/live-code.log" 2>/dev/null && break; sleep 0.2; done
 grep -q 'live code: watching' "$live/live-code.log" || { echo "try-pr-live-code: the copy never watched $live" >&2; exit 1; }
 show_home
-sleep 3
-capture before
+capture_settled before
 start="$(python3 -c 'import time; print(time.time())')"
 set +e
 "$try" 1 --from "$app" --live-code "$log" --front --no-build >"$out/try-pr.log" 2>&1
 code=$?
 set -e
 end="$(python3 -c 'import time; print(time.time())')"
-sleep 2
-capture after
+# Once the copy logged "applied", the still must differ from before (the patch repainted Home).
+if grep -q 'live code: applied' "$out/try-pr.log"; then
+  capture_settled after "$out/before.png"
+else
+  capture_settled after
+fi
 # PR 2: its patch needs the newer base's method, so it must not apply.
 start2="$(python3 -c 'import time; print(time.time())')"
 set +e

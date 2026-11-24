@@ -21,9 +21,6 @@ public final class SidebarCustomizationService: SidebarCustomization {
     /// Each decorated row's overrides; the sidebar bridge reads it inside its row observation.
     public private(set) var rowDecorations: [String: SidebarRowDecoration] = [:]
     @ObservationIgnored public var onRowDecorationsChange: (() -> Void)?
-    /// The Home chat's widget host (agents' widget parts, plans/cmux-next/chat-widgets-DESIGN.md), on
-    /// the same client and the same presence check.
-    @ObservationIgnored public private(set) lazy var chatWidgets = ChatWidgetHost(client: client, isPresented: isPresented)
     @ObservationIgnored private var rowsMount: AppMount?
     @ObservationIgnored private var rowsKey: String?
     @ObservationIgnored private var appsWatch: Task<Void, Never>?
@@ -104,12 +101,14 @@ public final class SidebarCustomizationService: SidebarCustomization {
         onRowDecorationsChange?()
     }
 
-    /// Every `Group` node with a `row` prop, read as a decoration (later nodes win).
+    /// Every `Group` node naming its row by `row` (the id) or `title`, read as a decoration (later nodes win).
+    /// `title` is read too: a rows view that names rows by title (the documented example, the example
+    /// looks) decorated nothing while only `row` was read.
     static func decorations(_ scene: AppScene) -> [String: SidebarRowDecoration] {
         var out: [String: SidebarRowDecoration] = [:]
         for node in scene.nodes.values where node.type == .group {
             var props: [String: String] = [:]
-            for key in ["row", "icon", "weight", "indicator", "badge"] { props[key] = node.string(key) }
+            for key in ["row", "title", "icon", "weight", "indicator", "badge"] { props[key] = node.string(key) }
             if let (id, decoration) = SidebarRowDecoration.parse(props) { out[id] = decoration }
         }
         return out

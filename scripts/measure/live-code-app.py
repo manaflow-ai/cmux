@@ -15,12 +15,12 @@ ROOT = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, os.path.join(ROOT, "scripts", "cmux-next"))
 from bench_launch import BenchApp  # noqa: E402
 
-VIEW = os.path.join(ROOT, "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeConversationPage.swift")
+VIEW = os.path.join(ROOT, "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeHostView.swift")
 ORIGINAL = "layer?.backgroundColor = nil"
-# Home's page fills the view (layout sets its frame to bounds) and covers the layer's color, so the
+# Home's transcript fills the view (layout sets its frame to bounds) and covers the layer's color, so the
 # first patch also insets it: the color then shows as a border around the chat (a fleet still of
 # try-pr-live-code.sh at 71936c52 counted 0 red pixels without it).
-FILL, INSET = "page.frame = bounds\n", "page.frame = bounds.insetBy(dx: 80, dy: 80)\n"
+FILL, INSET = "transcript.frame = bounds\n", "transcript.frame = bounds.insetBy(dx: 80, dy: 80)\n"
 
 
 def pixels(png):
@@ -68,6 +68,18 @@ def main():
         return {"generation": generation, "png": os.path.basename(path), "red_px": red, "blue_px": blue,
                 "snapshot": reply.get("method") if isinstance(reply, dict) else None}
 
+    def settled_snap(generation, seconds=15):
+        """Snapshot until two in a row count the same red and blue pixels: the redraw has landed."""
+        deadline = time.time() + seconds
+        last = snap(generation)
+        while time.time() < deadline:
+            current = snap(generation)
+            if (current["red_px"], current["blue_px"]) == (last["red_px"], last["blue_px"]):
+                return current
+            last = current
+        print(f"live-code-app: generation {generation} pixels still changing after {seconds}s", file=sys.stderr)
+        return last
+
     def wait_line(pattern, seconds):
         deadline = time.time() + seconds
         while time.time() < deadline:
@@ -103,8 +115,7 @@ def main():
                 entry.update(functions=int(applied[0]), load_ms=int(applied[1]))
             if drawn:
                 entry["edit_to_redraw_s"] = round(float(drawn.group(1)) - edited, 2)
-                time.sleep(0.5)
-                entry.update(snap(generation))
+                entry.update(settled_snap(generation))
         return entry
 
     def roll_back(generation):
@@ -118,16 +129,14 @@ def main():
             entry.update(functions=int(rolled.group(1)), rollback_ms=int(rolled.group(2)))
         if drawn:
             entry["rollback_to_redraw_s"] = round(float(drawn.group(1)) - dropped, 2)
-            time.sleep(0.5)
-            entry.update(snap(generation))
+            entry.update(settled_snap(generation))
         return entry
 
     try:
         app.launch()
         result["pid"] = app.process.pid
         result["ready_s"] = app.ready_seconds
-        time.sleep(3)
-        result["generations"].append(snap(0))
+        result["generations"].append(settled_snap(0))
         red, blue = "layer?.backgroundColor = NSColor.systemRed.cgColor", "layer?.backgroundColor = NSColor.systemBlue.cgColor"
         result["generations"].append(patch(1, ORIGINAL, red, (FILL, INSET)))
         result["generations"].append(patch(2, red, blue))

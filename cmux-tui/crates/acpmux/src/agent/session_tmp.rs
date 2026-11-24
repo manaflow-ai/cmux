@@ -15,10 +15,19 @@
 //! names its acpmux home (`.home`); a daemon whose home hashes to a root that
 //! names another home gets no folder, so two daemons never share a root.
 //!
-//! The folder lives as long as acpmux knows the session: a purge removes it,
+//! The folder lives while the session is open: a close frees it
+//! ([`free_closed`], from `hub/closed_tmp.rs`, at the close and again every
+//! hour for closed sessions whose folder is still there), a purge removes it,
 //! and a starting daemon removes every folder in its own root whose session
 //! its store no longer has, and the root of any daemon whose acpmux home is
-//! gone (`stale`). Nothing goes by age.
+//! gone (`stale`). A closed session's folder stays while an open session's
+//! folder (its cwd: a probe chat) is inside it. Processes are not scanned for
+//! it (cmux-next never scans processes, plans/cmux-next/pty-holder.md 4):
+//! the processes acpmux holds end with the session's close, as at a purge. A
+//! reopened session gets a new, empty folder at its
+//! agent's start (`make`). Nothing goes by age (gcp-agent-lane-14,
+//! 2026-11-24: 12.4 GiB of test scratch in 106 folders, 104 of them of
+//! sessions acpmux still listed, most of them closed).
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -72,6 +81,26 @@ pub(crate) fn per_user_base() -> PathBuf {
     BASE_OVERRIDE
         .with(|b| b.borrow().clone())
         .unwrap_or_else(|| std::env::temp_dir().join(format!("acpmux-unit-session-tmp-{uid}")))
+}
+
+/// Whether `path` is inside the sessions' temporary folders (`<base>/t/...`, also as macOS's
+/// `/private/tmp/...`). acpmux never makes a folder there again once it is gone: a session's own
+/// is made only at its agent's start, and anything an agent made inside one (a probe session's
+/// `mktemp -d` folder) is that agent's scratch. So a session whose folder is in here and gone
+/// never runs again (Leo's cosmic-gray, 2026-11-23: relayed messages to a probe chat whose
+/// folder an agent's scratch cleanup removed were tried again every minute, forever).
+pub(crate) fn holds(path: &Path) -> bool {
+    holds_in(&per_user_base(), path)
+}
+
+fn holds_in(base: &Path, path: &Path) -> bool {
+    let root = base.join(TMP_SUBDIR);
+    // macOS's `/tmp` is `/private/tmp`: a folder recorded either way is the same folder.
+    let other = match root.strip_prefix("/private") {
+        Ok(bare) => Path::new("/").join(bare),
+        Err(_) => Path::new("/private").join(root.strip_prefix("/").unwrap_or(&root)),
+    };
+    path.starts_with(&root) || path.starts_with(&other)
 }
 
 /// One daemon's root: `<base>/t/<first 8 hex of fnv1a64(acpmux home)>`.
@@ -141,9 +170,9 @@ pub(crate) fn make(base: &Path, acpmux_home: &Path, session_id: &str) -> Option<
 /// a symlink) owned by `uid`, narrowed to 0700 if it is wider.
 #[cfg(unix)]
 fn private_child(parent: &Path, name: &str, uid: u32) -> Option<PathBuf> {
-    use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
+    use std::os::unix::fs::MetadataExt;
     let dir = parent.join(name);
-    match std::fs::DirBuilder::new().mode(0o700).create(&dir) {
+    match crate::home_fs::create_dir(&dir, 0o700) {
         Ok(()) => {}
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
         Err(_) => return None,
@@ -153,7 +182,7 @@ fn private_child(parent: &Path, name: &str, uid: u32) -> Option<PathBuf> {
         return None;
     }
     if meta.mode() & 0o077 != 0 {
-        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).ok()?;
+        crate::home_fs::set_mode(&dir, 0o700).ok()?;
     }
     Some(dir)
 }
@@ -175,11 +204,21 @@ fn private_child(parent: &Path, name: &str, uid: u32) -> Option<PathBuf> {
 /// daemon's own host and never starts one, so that agent keeps the
 /// `$TMPDIR/cmux/browser-host.sock` it resolves and starts its own host
 /// there. A Mac agent without `TMPDIR` keeps it unset: a pinned `/tmp` would
-/// move `remote_runtime`'s `/tmp/cmux-rd-<euid>`. Elsewhere (Linux without
-/// a runtime dir) `XDG_RUNTIME_DIR` is not pinned: `systemctl --user` and
+/// move `remote_runtime`'s `/tmp/cmux-rd-<euid>`.
+///
+/// Elsewhere (Linux) a pinned `/tmp` would not do: `systemctl --user` and
 /// the app servers' socket folder (cmux-tui-core `server_tmp`) read a set
-/// `XDG_RUNTIME_DIR` as the systemd runtime dir and refuse `/tmp`; there the
-/// agent keeps the shared `TMPDIR` and gets only `ACPMUX_SESSION_TMPDIR`.
+/// `XDG_RUNTIME_DIR` as the systemd runtime dir and refuse `/tmp`. An agent
+/// without one gets the user's own systemd runtime dir, `user_runtime_dir`
+/// ([`user_runtime_dir`]: `/run/user/<uid>`, a 0700 directory of this
+/// user's), the one every login shell on the machine has, as its
+/// `XDG_RUNTIME_DIR`; then `systemctl --user` reaches the user's manager
+/// and clients resolve their sockets where a person's shell there does
+/// (gcp-agent-lane-1, 2026-11-17: a daemon started with no runtime dir gave
+/// every lane the shared `/tmp`, and two lanes' `/tmp/claude-<uid>/body.md`
+/// were one file). With no such dir the agent keeps the shared `TMPDIR`,
+/// and `CLAUDE_CODE_TMPDIR` (Claude Code's own temporary folder, and its
+/// sandboxed commands' `TMPDIR`) is `dir`.
 ///
 /// `profile_blank` names a key the profile sets to an empty value: the
 /// profile's env is applied after this one, so a pin of that key would not
@@ -189,6 +228,7 @@ pub(crate) fn env_for(
     agent: impl Fn(&str) -> Option<String>,
     profile_blank: impl Fn(&str) -> bool,
     pin_runtime_dir: bool,
+    user_runtime_dir: Option<&Path>,
     uid: u32,
 ) -> Vec<(&'static str, OsString)> {
     let set = |key: &str| agent(key).filter(|v| !v.is_empty());
@@ -197,10 +237,16 @@ pub(crate) fn env_for(
         out.push(("TMPDIR", dir.as_os_str().to_owned()));
         return out;
     }
-    if !pin_runtime_dir
-        || profile_blank("XDG_RUNTIME_DIR")
-        || profile_blank("CMUX_BROWSER_HOST_SOCKET")
-    {
+    if !pin_runtime_dir {
+        if let Some(runtime) = user_runtime_dir.filter(|_| !profile_blank("XDG_RUNTIME_DIR")) {
+            out.push(("TMPDIR", dir.as_os_str().to_owned()));
+            out.push(("XDG_RUNTIME_DIR", runtime.as_os_str().to_owned()));
+        } else if set("CLAUDE_CODE_TMPDIR").is_none() && !profile_blank("CLAUDE_CODE_TMPDIR") {
+            out.push(("CLAUDE_CODE_TMPDIR", dir.as_os_str().to_owned()));
+        }
+        return out;
+    }
+    if profile_blank("XDG_RUNTIME_DIR") || profile_blank("CMUX_BROWSER_HOST_SOCKET") {
         return out;
     }
     let Some(tmpdir) = set("TMPDIR") else { return out };
@@ -213,12 +259,27 @@ pub(crate) fn env_for(
     out
 }
 
+/// The user's systemd runtime dir, `<root>/<uid>` (`/run/user`), when it is
+/// a real directory (lstat) of `uid`'s that no one else can write or list:
+/// what logind makes for a user with a session or lingering.
+pub(crate) fn user_runtime_dir_in(root: &Path, uid: u32) -> Option<PathBuf> {
+    use std::os::unix::fs::MetadataExt;
+    let dir = root.join(uid.to_string());
+    let meta = std::fs::symlink_metadata(&dir).ok()?;
+    (meta.file_type().is_dir() && meta.uid() == uid && meta.mode() & 0o077 == 0).then_some(dir)
+}
+
+/// [`user_runtime_dir_in`] `/run/user` on Linux; no other system has one.
+pub(crate) fn user_runtime_dir(uid: u32) -> Option<PathBuf> {
+    if cfg!(target_os = "linux") { user_runtime_dir_in(Path::new("/run/user"), uid) } else { None }
+}
+
 /// Remove `dir` when it is a real directory (lstat: a symlink there is left,
 /// and nothing it points at is touched; `remove_dir_all` does not follow
 /// symlinks inside it either).
 fn remove_dir(dir: &Path) {
     if std::fs::symlink_metadata(dir).is_ok_and(|m| m.file_type().is_dir())
-        && let Err(e) = std::fs::remove_dir_all(dir)
+        && let Err(e) = crate::home_fs::remove_dir_all(dir)
     {
         tracing::debug!(dir = %dir.display(), "session tmp folder not removed: {e}");
     }
@@ -278,7 +339,6 @@ const HOME_RECORD: &str = ".home";
 #[cfg(unix)]
 fn record_home(root: &Path, acpmux_home: &Path) {
     use std::io::Write as _;
-    use std::os::unix::fs::OpenOptionsExt as _;
     let path = root.join(HOME_RECORD);
     if std::fs::symlink_metadata(&path).is_ok() {
         return;
@@ -287,12 +347,12 @@ fn record_home(root: &Path, acpmux_home: &Path) {
     // record, and a second writer never replaces the first.
     let part = root.join(format!("{HOME_RECORD}.{}", uuid::Uuid::now_v7().simple()));
     if let Ok(mut file) =
-        std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&part)
+        crate::home_fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&part)
     {
         if file.write_all(acpmux_home.as_os_str().as_encoded_bytes()).is_ok() {
-            let _ = std::fs::hard_link(&part, &path);
+            let _ = crate::home_fs::hard_link(&part, &path);
         }
-        let _ = std::fs::remove_file(&part);
+        let _ = crate::home_fs::remove_file(&part);
     }
 }
 
@@ -325,11 +385,100 @@ pub(crate) fn remove_session(session_id: &str) {
     remove(&per_user_base(), &crate::config::home(), user_home.as_deref(), session_id);
 }
 
+/// Why a closed session's folder stays ([`free_closed`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Kept {
+    /// An open session's folder (its cwd) is inside it.
+    Session { id: String, cwd: PathBuf },
+}
+
+impl std::fmt::Display for Kept {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Kept::Session { id, cwd } => write!(f, "open session {id} works in {}", cwd.display()),
+        }
+    }
+}
+
+/// What [`free_closed`] did with a closed session's folder.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Freed {
+    /// There is none (never made, already gone, or not this daemon's root).
+    Absent,
+    /// Moved aside to this path in the daemon's root, for [`remove_all`]:
+    /// a start after this makes a new, empty folder.
+    Aside(PathBuf),
+    Kept(Kept),
+    /// The move failed (logged).
+    Failed,
+}
+
+/// `path` is `dir` or below it, either spelling of macOS's `/tmp`.
+fn inside(dir: &Path, path: &Path) -> bool {
+    let other = match dir.strip_prefix("/private") {
+        Ok(bare) => Path::new("/").join(bare),
+        Err(_) => Path::new("/private").join(dir.strip_prefix("/").unwrap_or(dir)),
+    };
+    path.starts_with(dir) || path.starts_with(&other)
+}
+
+/// The prefix of a closed session's folder moved aside for removal.
+const GONE_PREFIX: &str = ".gone-";
+
+/// A folder name [`free_closed`] gave a folder it moved aside.
+fn gone_named(name: &str) -> bool {
+    name.strip_prefix(GONE_PREFIX)
+        .is_some_and(|rest| rest.len() == 32 && rest.bytes().all(|b| b.is_ascii_hexdigit()))
+}
+
+/// The session is closed: move its folder in this daemon's root aside, for
+/// [`remove_all`], unless an open session's folder (`open_cwds`: id and cwd of each session that is not
+/// closed, and the session's own cwd) is inside it. The caller holds the
+/// session's spawn lock, so no agent start (`make`) runs meanwhile; a start
+/// after it makes a new folder.
+pub(crate) fn free_closed(
+    base: &Path,
+    acpmux_home: &Path,
+    session_id: &str,
+    open_cwds: &[(String, PathBuf)],
+) -> Freed {
+    let Some(root) = own_root(base, acpmux_home) else { return Freed::Absent };
+    let Some(dir) = session_dir(&root, session_id) else { return Freed::Absent };
+    if !std::fs::symlink_metadata(&dir).is_ok_and(|m| m.file_type().is_dir()) {
+        return Freed::Absent;
+    }
+    if let Some((id, cwd)) = open_cwds.iter().find(|(_, cwd)| inside(&dir, cwd)) {
+        return Freed::Kept(Kept::Session { id: id.clone(), cwd: cwd.clone() });
+    }
+    let aside = root.join(format!("{GONE_PREFIX}{}", uuid::Uuid::now_v7().simple()));
+    match crate::home_fs::rename(&dir, &aside) {
+        Ok(()) => Freed::Aside(aside),
+        Err(e) => {
+            tracing::debug!(dir = %dir.display(), "closed session tmp folder not moved: {e}");
+            Freed::Failed
+        }
+    }
+}
+
+/// [`free_closed`] for this daemon, from its environment.
+#[cfg(unix)]
+pub(crate) fn free_closed_session(session_id: &str, open_cwds: &[(String, PathBuf)]) -> Freed {
+    free_closed(&per_user_base(), &crate::config::home(), session_id, open_cwds)
+}
+
+/// Whether this daemon has a folder for `session_id`.
+#[cfg(unix)]
+pub(crate) fn has_folder(session_id: &str) -> bool {
+    session_dir(&daemon_root(&per_user_base(), &crate::config::home()), session_id)
+        .is_some_and(|dir| std::fs::symlink_metadata(dir).is_ok_and(|m| m.file_type().is_dir()))
+}
+
 /// What a starting daemon removes, listed before it serves (so no session
 /// can start in between) and removed later by [`remove_all`]:
 ///
 /// - in its own root ([`own_root`]), every session folder whose session
-///   `known` does not have;
+///   `known` does not have, and every folder [`free_closed`] moved aside
+///   and a daemon that stopped did not get to remove;
 /// - every other daemon's root whose recorded acpmux home (an absolute path)
 ///   no longer exists (that daemon and its store are gone: a test's, a
 ///   removed Chief home's), when the per-user directory is private;
@@ -345,7 +494,9 @@ pub(crate) fn stale(
 ) -> Vec<PathBuf> {
     let own = daemon_root(base, acpmux_home);
     let mut out = match own_root(base, acpmux_home) {
-        Some(root) => real_dirs_in(&root, &|name| session_named(name) && !known(name)),
+        Some(root) => {
+            real_dirs_in(&root, &|name| (session_named(name) && !known(name)) || gone_named(name))
+        }
         None => Vec::new(),
     };
     let own_name = own.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_owned();
@@ -392,6 +543,20 @@ pub(crate) fn stale_for_daemon(
 
 #[cfg(all(test, unix))]
 mod tests {
+    #[test]
+    fn holds_only_the_session_temp_folders_in_either_spelling() {
+        let base = Path::new("/tmp/acpmux-501");
+        let probe = "t/93dddea7/01a18a35-b1e8-7951-ba2f-703bf916b9a6/first-turn-probe-3w0m8ppi";
+        assert!(super::holds_in(base, &base.join(probe)));
+        assert!(super::holds_in(base, &Path::new("/private/tmp/acpmux-501").join(probe)));
+        assert!(super::holds_in(Path::new("/private/tmp/acpmux-501"), &base.join(probe)));
+        // The per-user directory's sockets, a plain /tmp folder, a project: not session temp.
+        assert!(!super::holds_in(base, &base.join("acpmux.sock")));
+        assert!(!super::holds_in(base, Path::new("/tmp/send-async-gone-1")));
+        assert!(!super::holds_in(base, Path::new("/Users/leoli/Projects")));
+        assert!(!super::holds_in(base, Path::new("/tmp/acpmux-5011/t/x")));
+    }
+
     use super::*;
     use std::os::unix::fs::PermissionsExt as _;
 
@@ -479,7 +644,7 @@ mod tests {
         let dir = Path::new("/tmp/acpmux-1/t/0/s");
         let agent = |k: &str| (k == "XDG_RUNTIME_DIR").then(|| "/run/user/1".to_owned());
         for pin in [true, false] {
-            let env = env_for(dir, agent, |_| false, pin, 1);
+            let env = env_for(dir, agent, |_| false, pin, Some(Path::new("/run/user/1")), 1);
             assert_eq!(
                 env,
                 vec![(SESSION_TMPDIR_ENV, dir.into()), ("TMPDIR", dir.into())],
@@ -521,7 +686,7 @@ mod tests {
         ];
         for case in cases {
             let before = |k: &str| case.iter().find(|(n, _)| *n == k).map(|(_, v)| v.to_string());
-            let changes = env_for(dir, before, |_| false, true, 501);
+            let changes = env_for(dir, before, |_| false, true, None, 501);
             let after = |k: &str| {
                 changes
                     .iter()
@@ -544,6 +709,7 @@ mod tests {
             |k| (k == "TMPDIR").then(|| "/var/folders/ab/T/".into()),
             |_| false,
             true,
+            None,
             501,
         );
         assert!(env.contains(&("XDG_RUNTIME_DIR", "/var/folders/ab/T/".into())));
@@ -560,7 +726,7 @@ mod tests {
             "CMUX_TUI_SOCKET" => Some("/var/folders/ab/T/cmux-501/tui.sock".to_owned()),
             _ => None,
         };
-        let changes = env_for(dir, before, |_| false, true, 501);
+        let changes = env_for(dir, before, |_| false, true, None, 501);
         assert!(!changes.iter().any(|(k, _)| *k == "CMUX_BROWSER_HOST_SOCKET"), "{changes:?}");
         assert!(changes.contains(&("XDG_RUNTIME_DIR", "/var/folders/ab/T/".into())));
         let after = |k: &str| {
@@ -574,13 +740,76 @@ mod tests {
     }
 
     #[test]
-    fn linux_without_a_runtime_dir_keeps_the_shared_tmpdir() {
+    fn linux_without_a_runtime_dir_gets_the_users_own() {
+        // gcp-agent-lane-1, 2026-11-17: a daemon with no runtime dir gave
+        // every lane the shared /tmp, so two lanes wrote one body.md.
         let dir = Path::new("/tmp/acpmux-1/t/0/s");
-        let env = env_for(dir, |k| (k == "TMPDIR").then(|| "/tmp".into()), |_| false, false, 1);
+        let runtime = Path::new("/run/user/1");
+        let tmp = |k: &str| (k == "TMPDIR").then(|| "/tmp".to_owned());
+        let none = |_: &str| None::<String>;
+        for before in [&tmp as &dyn Fn(&str) -> Option<String>, &none] {
+            let env = env_for(dir, before, |_| false, false, Some(runtime), 1);
+            assert_eq!(
+                env,
+                vec![
+                    (SESSION_TMPDIR_ENV, dir.into()),
+                    ("TMPDIR", dir.into()),
+                    ("XDG_RUNTIME_DIR", runtime.into())
+                ]
+            );
+        }
+        // Two sessions, two folders.
+        let other = Path::new("/tmp/acpmux-1/t/0/o");
+        let tmpdir = |d: &Path| {
+            env_for(d, tmp, |_| false, false, Some(runtime), 1)
+                .into_iter()
+                .find(|(k, _)| *k == "TMPDIR")
+                .map(|(_, v)| v)
+        };
+        assert_ne!(tmpdir(dir), tmpdir(other));
+    }
+
+    #[test]
+    fn linux_with_no_runtime_dir_at_all_names_claude_codes_folder() {
+        let dir = Path::new("/tmp/acpmux-1/t/0/s");
+        let tmp = |k: &str| (k == "TMPDIR").then(|| "/tmp".to_owned());
+        let env = env_for(dir, tmp, |_| false, false, None, 1);
+        assert_eq!(env, vec![(SESSION_TMPDIR_ENV, dir.into()), ("CLAUDE_CODE_TMPDIR", dir.into())]);
+        // A profile's own CLAUDE_CODE_TMPDIR, set or blank, stays.
+        let own = |k: &str| (k == "CLAUDE_CODE_TMPDIR").then(|| "/p".to_owned());
+        let env = env_for(dir, own, |_| false, false, None, 1);
         assert_eq!(env, vec![(SESSION_TMPDIR_ENV, dir.into())]);
+        let env = env_for(dir, tmp, |k| k == "CLAUDE_CODE_TMPDIR", false, None, 1);
+        assert_eq!(env, vec![(SESSION_TMPDIR_ENV, dir.into())]);
+        // A profile that blanks XDG_RUNTIME_DIR: no runtime dir is pinned.
+        let env = env_for(dir, tmp, |k| k == "XDG_RUNTIME_DIR", false, Some(Path::new("/r")), 1);
+        assert_eq!(env, vec![(SESSION_TMPDIR_ENV, dir.into()), ("CLAUDE_CODE_TMPDIR", dir.into())]);
         // A profile that blanks XDG_RUNTIME_DIR would undo the pin on a Mac too.
-        let env = env_for(dir, |_| None, |k| k == "XDG_RUNTIME_DIR", true, 1);
+        let env = env_for(dir, |_| None, |k| k == "XDG_RUNTIME_DIR", true, None, 1);
         assert_eq!(env, vec![(SESSION_TMPDIR_ENV, dir.into())]);
+    }
+
+    #[test]
+    fn only_a_private_dir_of_the_users_is_a_runtime_dir() {
+        let s = Scratch::new("runtime");
+        // SAFETY: getuid has no preconditions.
+        let uid = unsafe { libc::getuid() };
+        let mine = s.0.join(uid.to_string());
+        assert_eq!(user_runtime_dir_in(&s.0, uid), None);
+        std::fs::create_dir(&mine).unwrap();
+        std::fs::set_permissions(&mine, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(user_runtime_dir_in(&s.0, uid), Some(mine.clone()));
+        // Open to others.
+        std::fs::set_permissions(&mine, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(user_runtime_dir_in(&s.0, uid), None);
+        // A symlink to a private directory.
+        std::fs::set_permissions(&mine, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let other = s.0.join("x");
+        std::fs::create_dir(&other).unwrap();
+        std::os::unix::fs::symlink(&mine, other.join(uid.to_string())).unwrap();
+        assert_eq!(user_runtime_dir_in(&other, uid), None);
+        // Another user's.
+        assert_eq!(user_runtime_dir_in(&s.0, uid.wrapping_add(1)), None);
     }
 
     #[test]
@@ -757,5 +986,60 @@ mod tests {
         assert!(!legacy_root(&user).join(A).exists());
         assert!(legacy_root(&user).join(B).is_dir());
         assert!(legacy_root(&user).join(id_c).is_dir());
+    }
+
+    #[test]
+    fn a_closed_sessions_folder_is_moved_aside_and_a_reopen_gets_a_new_one() {
+        let s = Scratch::new("closed");
+        let base = s.0.join("acpmux-1");
+        let home = Path::new("/home/u/state");
+        let dir = make(&base, home, A).unwrap();
+        let other = make(&base, home, B).unwrap();
+        std::fs::create_dir_all(dir.join("stall-reconciler-1/deep")).unwrap();
+        std::fs::write(dir.join("stall-reconciler-1/deep/f"), b"x").unwrap();
+        let Freed::Aside(aside) = free_closed(&base, home, A, &[]) else {
+            panic!("not moved aside");
+        };
+        assert!(!dir.exists());
+        assert!(other.is_dir(), "another session's folder went with this one");
+        assert_eq!(aside.parent(), Some(daemon_root(&base, home).as_path()));
+        // One a daemon did not get to remove goes at the next start.
+        let known = |id: &str| id == A || id == B;
+        assert_eq!(stale(&base, home, None, &known, &|_| false), vec![aside.clone()]);
+        remove_all(std::slice::from_ref(&aside));
+        assert!(!aside.exists());
+        // Gone already: nothing to do.
+        assert_eq!(free_closed(&base, home, A, &[]), Freed::Absent);
+        // Reopened: its start makes a new, empty folder at the same path.
+        assert_eq!(make(&base, home, A), Some(dir.clone()));
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
+        // A symlink in its place is never followed or moved.
+        std::fs::remove_dir(&dir).unwrap();
+        let target = s.0.join("target");
+        std::fs::create_dir(&target).unwrap();
+        std::os::unix::fs::symlink(&target, &dir).unwrap();
+        assert_eq!(free_closed(&base, home, A, &[]), Freed::Absent);
+        assert!(target.is_dir() && dir.symlink_metadata().is_ok());
+    }
+
+    #[test]
+    fn a_closed_sessions_folder_an_open_session_works_in_stays() {
+        let s = Scratch::new("held");
+        let base = s.0.join("acpmux-1");
+        let home = Path::new("/home/u/state");
+        let dir = make(&base, home, A).unwrap();
+        let deep = dir.join("probe-1");
+        std::fs::create_dir(&deep).unwrap();
+        let open = [(B.to_owned(), deep.clone())];
+        let freed = free_closed(&base, home, A, &open);
+        assert_eq!(freed, Freed::Kept(Kept::Session { id: B.into(), cwd: deep.clone() }));
+        assert!(dir.is_dir());
+        // macOS spells /tmp two ways.
+        if let Ok(bare) = dir.strip_prefix("/private") {
+            let open = [(B.to_owned(), Path::new("/").join(bare).join("probe-1"))];
+            assert!(matches!(free_closed(&base, home, A, &open), Freed::Kept(_)));
+        }
+        // Nobody left in it: it goes.
+        assert!(matches!(free_closed(&base, home, A, &[]), Freed::Aside(_)));
     }
 }

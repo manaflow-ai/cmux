@@ -7,6 +7,7 @@ import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import type { PermissionClientState, PermissionGroup } from "../src/agent-session/acpmux/permissions/protocol";
+import { settleReact } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -57,7 +58,8 @@ const domClasses = Object.getOwnPropertyNames(dom.window).filter(
 );
 for (const key of domClasses) globals[key] = (dom.window as unknown as Record<string, unknown>)[key];
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, had, value] of saved) {
     if (had) globals[key] = value;
     else delete globals[key];
@@ -175,7 +177,7 @@ test("a pending command asks in one row: its verb and command once, then Allow, 
   for (const jargon of ["ACP", "Isolation", "from this turn", "Expand details", "Tool permissions"])
     expect(seen).not.toContain(jargon);
   // What Always grants stays in view while it can be chosen (cg-design-judge: hidden, 0-16).
-  expect(seen).toContain("Always also allows this chat's later requests");
+  expect(seen).toContain("Always covers the rest of this chat.");
   // No tooltips: every control names itself.
   expect([...panel.querySelectorAll("[title]")].map((node) => node.outerHTML)).toEqual([]);
   // The answers, short, while it waits.
@@ -219,6 +221,56 @@ test("a pending command asks in one row: its verb and command once, then Allow, 
   expect([...(answered?.querySelectorAll("button") ?? [])].map((button) => readName(button)?.trim())).not.toContain(
     "Allow",
   );
+  await act(async () => root.unmount());
+});
+
+// Leo 2026-11-23 ("i also dont know why you asked me this"): a subagent's ask read
+// "Run export ACPMUX_CALLER_SUBAGENT=gen…", acpmux's caller line, cut off in the code face. The row
+// says what the call does in the agent's words (acpmux's `summary`) and opens to the command as the
+// agent wrote it (acpmux's `command`, the caller line dropped).
+test("a subagent's ask reads as what it does and opens to its command without acpmux's line", async () => {
+  const { PermissionPanel } = await import("../src/agent-session/acpmux/permissions/Panel");
+  const bare = "cmux agent last desktop-helper";
+  const marked = `export ACPMUX_CALLER_SUBAGENT=general-purpose:a1b2\n${bare}`;
+  const summary = "Read the newest desktop-helper message";
+  const state = permissions("pending");
+  state.groups[0]!.items[0] = {
+    permissionId: "permission-1",
+    state: "pending",
+    summary,
+    command: bare,
+    request: {
+      toolCall: {
+        toolCallId: callId,
+        title: bare,
+        kind: "execute",
+        rawInput: { command: marked, description: summary, cwd: "/Users/you/src/cmux" },
+      },
+    },
+  };
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  await act(async () =>
+    root.render(
+      <PermissionPanel
+        state={state}
+        working
+        onRespond={() => {}}
+        onRetry={() => {}}
+        onRevoke={() => {}}
+        onRefresh={() => {}}
+      />,
+    ),
+  );
+  const panel = dom.window.document.querySelector<HTMLElement>(".acpmux-permission-panel")!;
+  const toggle = panel.querySelector<HTMLButtonElement>("button[aria-expanded]")!;
+  expect(toggle.textContent).toContain(summary);
+  expect(toggle.textContent).not.toContain("Run");
+  expect(toggle.querySelector(".is-code")).toBeNull();
+  expect(visibleText(panel)).not.toContain("ACPMUX_CALLER_SUBAGENT");
+  await act(async () => toggle.click());
+  const details = dom.window.document.getElementById(toggle.getAttribute("aria-controls")!)!;
+  expect(details.textContent).toContain(`$ ${bare}`);
+  expect(details.textContent).not.toContain("ACPMUX_CALLER_SUBAGENT");
   await act(async () => root.unmount());
 });
 
@@ -301,7 +353,7 @@ test("an ask whose allows the daemon refuses offers only Deny and says where to 
   expect(buttons.map((button) => readName(button)?.trim())).toEqual(["Deny"]);
   const seen = visibleText(panel).replace(/\s+/g, " ");
   expect(seen).toContain("Only the cmux app can approve this. Approve it in cmux on the Mac that runs this chat.");
-  expect(seen).not.toContain("Always also allows");
+  expect(seen).not.toContain("Always covers");
   // The allow shortcuts do nothing; Deny's still answers.
   await act(async () => {
     dom.window.dispatchEvent(new dom.window.Event("cmux-acpmux-permissionAllowOnce"));

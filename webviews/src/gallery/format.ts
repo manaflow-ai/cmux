@@ -12,7 +12,7 @@
 // Gallery files import types only (and pure data helpers), so a test can import every one of them
 // without a DOM (test/gallery-coverage.test.ts). A component host loads its component lazily.
 import type { ComponentType } from "react";
-import type { DiffCommentRecord } from "../comments/types";
+import type { DiffCommentRecord, DiffReviewTarget } from "../comments/types";
 import type { AcpmuxSnapshot } from "../agent-session/acpmux/model";
 import type { AppDetail, Grants, InstalledApp } from "../pages/apps/types";
 import type { CloudMachine, CloudSnapshot } from "../pages/cloud/ops";
@@ -35,14 +35,22 @@ import type { SourceOption } from "../toolbar-model";
 import type {
   AccountsState,
   AgentsState,
+  ChannelSwitch,
+  ChannelsState,
   CloudEnvironmentsState,
   DevicesState,
   HarnessesState,
   HostLists,
   IntegrationsState,
+  KeysState,
   SharesState,
   TailnetState,
+  ModelsState,
+  LibraryListing,
+  HubState,
+  DoctorReport,
 } from "../pages/settings/ops";
+import type { DoctorTreatment } from "../pages/settings/customizeDoctor";
 import type { MockData } from "../pages/passwords/mockProvider";
 
 /** Initial gestures use the real controls, so local forms remain interactive. */
@@ -63,8 +71,22 @@ export type SettingsPageVariant = VariantBase & {
   environments?: CloudEnvironmentsState;
   /** Settings > Privacy and Security > Shared Links fixture state; default the mock's shares. */
   sharedLinks?: SharesState;
+  /** Appearance > Customization Library fixture state; default the mock's few entries. */
+  library?: LibraryListing;
+  /** The CLI refuses every library change with this text (a preview is open). */
+  libraryRefusal?: string;
+  /** Personalization > Customization Problems: `cmux customize doctor`'s report; default none. */
+  doctor?: DoctorReport;
+  /** Where the doctor's one-line notice draws; default the shipped one (customizeDoctor.ts). */
+  doctorTreatment?: DoctorTreatment;
+  /** Settings > Keys fixture state (requests and keys); default the mock's. */
+  keys?: KeysState;
+  /** Settings > Integrations fixture state; default the mock's (a waiting Stripe refund). */
+  hub?: HubState;
   /** Settings > Server > This Mac on Your Tailnet fixture state (null: no tailnet); default signed out. */
   tailnet?: TailnetState | null;
+  /** Settings > Models fixture state (null: a host without the part); default the mock's Mac logins. */
+  models?: ModelsState | null;
   /** Settings > Agents over the mock's harness list (`manages: false`: an older acpmux). */
   agents?: Partial<AgentsState>;
   /** Settings > Agents > Add > Endpoint: what the endpoint lists for Fetch Models and the hello
@@ -74,6 +96,14 @@ export type SettingsPageVariant = VariantBase & {
   harnesses?: HarnessesState;
   /** Settings > Devices; default the mock's (this Mac, two other devices, two relays). */
   devices?: DevicesState;
+  /** Settings > Updates' Channels card (null: no updater); default the mock's tracks. */
+  channels?: ChannelsState | null;
+  /** The Channels card's way back to the picked channel; default none. */
+  channelSwitch?: ChannelSwitch | null;
+  /** The host's refusal of every Switch; default none (Switch runs). */
+  switchRefusal?: string;
+  /** An in-place sign-in's finish never answers, so the card stays on its code (logins done right). */
+  signInHold?: boolean;
   /** Settings > Agents > Agent integrations; default the mock's four (focus `agents.integrations` opens it). */
   integrations?: IntegrationsState;
   /** Public-safe thumbnail data URLs for native-origin backdrop images. */
@@ -180,10 +210,28 @@ type VariantBase = {
   play?: Play;
   /** Variant-specific play thresholds, merged over the entry defaults. */
   checks?: PlayChecks;
+  /** The title area tone the variant is drawn under, over the env's (env.ts TITLE_AREA_TONES): for
+   * a variant that only means something under one tone (a folder tab's join under Subtle Tone). */
+  titleAreaTone?: import("./env").TitleAreaToneName;
+  /** The picture the variant is drawn over when the env sets none (env.ts BACKGROUNDS), or one per scheme: the window
+   * turns see-through as over the user's picture in the app (the theme's tint over it, the pane's inks fit for it), for
+   * a variant that only means something over a picture. A stage that painted its own picture got neither.
+   * `{ dark: "busy", light: "light" }` is the control contrast audit's pairing (test/support/controlContrast.ts): the
+   * wallpaper tint is the theme's whatever the picture (ReadabilityOverArtTests), so a light theme's text is not held
+   * to 4.5:1 over a busy picture. */
+  background?: import("./env").GalleryBackground | Record<"dark" | "light", import("./env").GalleryBackground>;
+  /** A whole look the variant is drawn under (golden/look.ts): its theme file for the env's scheme
+   * over the env's theme, and, in the agent pane, its settings, stylesheet and composer look. */
+  look?: import("./golden/look").GoldenLook;
+  /** A font study pairing (fontStudy/candidates.ts) the variant is drawn in, applied before the page
+   * mounts as the `fontStudy` URL key is (which wins over it); the mock app draws its chrome in it too. */
+  fontStudy?: string;
 };
 
 /** The whole agent pane (AcpmuxApp) on the pane bridge, as the app hosts it. */
 export type AgentPaneVariant = VariantBase & {
+  /** The composer's initial look, before the pane mounts; absent uses the app's default. */
+  composerLook?: import("../agent-session/acpmux/composerLook").ComposerLook;
   /** Fields of the `ready` answer the app sends (newTab, draft, newSession, machineName, ...). */
   ready?: Record<string, unknown>;
   /** Fields over the theme the app pushes (`applyTheme`, AgentPaneTheme.swift), such as a Debug
@@ -217,6 +265,10 @@ export type AgentPaneVariant = VariantBase & {
     routeId: string | null;
     fromSessionId: string | null;
     login?: { kind: "terminal" | "route"; command?: string; host?: string | null; routeId?: string | null };
+    /** Whose credential refused the chat, as acpmux names it. */
+    credential?: "login" | "apiKey" | "cmux";
+    /** The provider id of a refused API key ("opencode-go"). */
+    provider?: string;
   };
   /** Answers for native page methods (`turn.undo`, ...) by name; any other method answers null.
    * `{ nativeError: {code, userMessage?} }` answers as the app refusing the call. A function is
@@ -242,9 +294,15 @@ export type AgentPaneVariant = VariantBase & {
   /** `<html data-*>` attributes the app sets at document start for Debug Settings choices
    *  (AgentPaneTunables `documentAttributes`), by name without `data-`: `{ "needs-you": "off" }`. */
   documentAttributes?: Record<string, string>;
+  /** Experiment arms the variant pins, by experiment id (experiments/experiment.ts), set before the
+   *  pane's scripts run: a variant about one arm's look keeps it when the default moves. */
+  experiments?: Record<string, string>;
   /** The pane's first chat has Session Info open, as a person who opened it there has it. Session
    *  Info starts closed in every new pane (sessionInfoState.ts); a stage that draws it set this. */
   sessionInfoOpen?: boolean;
+  /** The mock app's tab strip (mock-app.html): other tabs' titles beside this chat's, in order; the
+   * chat's own tab is the one named by the snapshot's title. */
+  windowTabs?: string[];
 };
 
 /** The markdown editor page (src/pages/markdown) on an in-page cmuxPage host. */
@@ -282,10 +340,15 @@ export type DiffPageVariant = VariantBase & {
   sourceOptions?: SourceOption[];
   /** A machine error while the loaded diff remains visible. */
   fingerprintError?: { code: string; message: string };
+  /** The first diff never arrives (`loading`), or opening it fails with `openError` (`error`). */
+  mode?: "loading" | "error";
+  openError?: { code: string; message: string };
   /** Saved review comments the in-page host lists (`comments.list`). */
   comments?: DiffCommentRecord[];
   /** The host sends comments to the diff's chat (Send to agent). */
   commentsSend?: boolean;
+  /** A review worktree's pull request (`comments.list`'s `review`): the section posts to it. */
+  commentsReview?: DiffReviewTarget;
   /** The diff's chat's review brief the in-page host answers (`cmux.diff.brief`), as acpmux's
    * `_acpmux/review_brief` answers it; absent, the host serves no brief. */
   reviewBrief?: unknown;
@@ -307,6 +370,10 @@ export type AppsPageVariant = VariantBase & {
     details: Record<string, AppDetail>;
     installed: Record<string, InstalledApp>;
     grants: Record<string, Grants>;
+    /** The owner offers the Examples shelf (developer mode, or a `cmux ext dev` app). */
+    examples?: boolean;
+    /** Package files `cmux.apps.asset.get` serves (screenshots, icon images), by app and path. */
+    assets?: Record<string, Record<string, string>>;
   };
 };
 
@@ -339,6 +406,8 @@ export type CloudPageVariant = VariantBase & {
   retention?: import("../pages/cloud/ops").CloudRetention;
   /** The plan's machines cap (paused ones count): a create past it is refused with a cap offer. */
   machinesCap?: number;
+  /** The running machines the platform calls idle: a create at the running limit pauses one. */
+  idle?: string[];
   /** The machine the cap refusal names to free (`details.free_up`). */
   freeUp?: { machine: string; name: string | null; reason: string };
   /** The caller is not a team admin: saving the team's cleanup numbers is refused. */
@@ -347,6 +416,14 @@ export type CloudPageVariant = VariantBase & {
   spendCap?: NonNullable<import("../pages/cloud/ops").CloudPlan["spend_cap"]>;
   /** The member's own monthly budget is spent: a start or create is refused. */
   memberBudget?: { spent_usd: number; limit_usd: number };
+  /** The latest surge the list's last page reports (the surge card on Machines). */
+  surge?: import("../pages/cloud/ops").CloudSurge;
+  /** The app's billing read: the latest payment failed (true), or the read fails ("fail"). */
+  paymentPastDue?: boolean | "fail";
+  /** This month's usage (`cloud.usage.current`); "fail" fails the read, "hold" keeps it loading; absent: not served. */
+  usage?: import("../pages/cloud/ops").CloudUsage | "fail" | "hold";
+  /** The plan the account panel names (`cloud.plan.get` `plan_id`), when not the sample plan's. */
+  planId?: string;
   machines: CloudMachine[];
   snapshots: CloudSnapshot[];
 };
@@ -375,6 +452,8 @@ export type IconPickerPageVariant = VariantBase & {
   /** Saved picker prefs (Frequently Used, skin tone, symbol rendering) the host loads. */
   prefs?: unknown;
   assetState?: "loading" | "error";
+  /** The host refuses the pick (`finish` rejects): the picker stays open and says so. */
+  finishState?: "refused";
   query?: string;
   active?: number;
   mode?: "normal" | "empty";
@@ -404,6 +483,8 @@ export type HistoryPageVariant = VariantBase & {
   /** The app's cookie backups (the Cookie Backups panel). */
   cookieBackups?: CookieBackup[];
   loading?: boolean;
+  /** The owner's list is not complete yet (`pending_kinds`): the page shows its still-loading line. */
+  pending?: boolean;
   error?: "network" | "permission" | "not-found";
   query?: {
     text?: string;
@@ -449,7 +530,9 @@ type EntryBase<V> = {
   /**
    * What the entry shows, for the coverage test: `<path under webviews/src>#<ExportName>` (or the
    * path alone for every export of a file) for web components, `page:<PageDescriptor id>` for
-   * pages, `swift:<TypeName>` for native views.
+   * pages, `swift:<TypeName>` for native views. A cover may also name another source file under
+   * webviews/src (`path#name` for a name it holds) that the entry exercises; it must exist, and it
+   * counts toward no component's coverage.
    */
   covers: string[];
   /** Default stage height in px (else 520). */

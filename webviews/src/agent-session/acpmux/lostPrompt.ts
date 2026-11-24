@@ -5,8 +5,14 @@
 // next connection and for the prompt to show there, and says "Not sent" only when it never does.
 // Leo, 2026-10-21: "why does it say it's not responding?"
 
-/// How long a sender waits for the pane's next connection.
-export const LOST_PROMPT_CONNECT_MS = 30_000;
+import type { ComposerAttachment } from "./attachments";
+
+/// How long a sender waits for the pane's next connection: until it comes. An acpmux restart for an
+/// app update can take longer than any fixed wait, and the host's journal sends the prompt again on
+/// that connection whenever it comes, so a wait that gave up first handed the prompt back (or said
+/// "Not sent") for a prompt that then ran anyway (Leo, 2026-11-24: after an update, chats said
+/// "Not sent: no answer from cmux" and wanted a Retry by hand).
+export const LOST_PROMPT_CONNECT_MS = Number.POSITIVE_INFINITY;
 /// How long the next connection waits for the prompt the host sent again to show.
 export const LOST_PROMPT_SHOW_MS = 10_000;
 
@@ -26,7 +32,8 @@ export function lostPrompt(error: unknown): LostPrompt | undefined {
 }
 
 /// The pane's connected clients, one after another: `next` settles with the first client that
-/// connects after `previous`, or undefined after `timeoutMs`.
+/// connects after `previous`, or undefined after `timeoutMs`. With no finite `timeoutMs` it waits
+/// for the connection itself, however long that takes.
 export function clientWaiter<Client>() {
   let current: Client | undefined;
   const waiting = new Set<(client: Client) => void>();
@@ -35,15 +42,16 @@ export function clientWaiter<Client>() {
       current = client;
       for (const resolve of waiting) resolve(client);
     },
-    next(previous: Client, timeoutMs: number): Promise<Client | undefined> {
+    next(previous: Client, timeoutMs: number = Number.POSITIVE_INFINITY): Promise<Client | undefined> {
       if (current !== undefined && current !== previous) return Promise.resolve(current);
       return new Promise((resolve) => {
         const done = (client: Client | undefined) => {
-          clearTimeout(timer);
+          if (timer !== undefined) clearTimeout(timer);
           waiting.delete(done);
           resolve(client);
         };
-        const timer = setTimeout(() => done(undefined), timeoutMs);
+        // No timer for a wait with no end (a timer cannot hold `Infinity`: it would fire at once).
+        const timer = Number.isFinite(timeoutMs) ? setTimeout(() => done(undefined), timeoutMs) : undefined;
         waiting.add(done);
       });
     },
@@ -90,6 +98,47 @@ export async function resentAfterLoss<Client extends ResendWaiter>(
   const lost = lostPrompt(error);
   if (!lost || !from) return false;
   return (await waitForResend(clients, from, lost, connectMs, showMs)) !== undefined;
+}
+
+/// A connection that draws a lost prompt as its own row meanwhile (`AcpmuxDirectClient`).
+export type LostRowHolder = ResendWaiter & {
+  awaitResent(
+    sessionId: string,
+    promptId: string,
+    timeoutMs: number,
+    draw?: { input: string; attachments: ComposerAttachment[] },
+  ): Promise<boolean>;
+  failLostPrompt(promptId: string, error: unknown): boolean;
+};
+
+/// Where a lost prompt ended up (`keepLostPrompt`): it showed as sent on a later connection; it
+/// stays there as a failed row with Retry; or no connection could hold it, so its sender keeps it.
+export type LostOutcome = "shown" | "failed" | "none";
+
+/// A started chat's prompt its connection lost before the pane heard acpmux take it (acpmux may
+/// well have it: Leo, 2026-11-11, every "Not sent yet" message had reached its chat). It stays
+/// in the chat, one row with one state: on the next connection it draws as its own row on its way
+/// until acpmux's record of it lands there, and only if that never comes does the row fail, with
+/// Retry under the same prompt id. Before, the prompt went back to the composer and a free line
+/// said "Not sent yet" under a bubble that, once the record came, already looked sent.
+export async function keepLostPrompt<Client extends LostRowHolder>(
+  error: unknown,
+  clients: { next(previous: Client, timeoutMs: number): Promise<Client | undefined> },
+  from: Client | undefined,
+  draw: { input: string; attachments: ComposerAttachment[] },
+  connectMs = LOST_PROMPT_CONNECT_MS,
+  showMs = LOST_PROMPT_SHOW_MS,
+): Promise<LostOutcome> {
+  const lost = lostPrompt(error);
+  if (!lost || !from) return "none";
+  let previous = from;
+  for (;;) {
+    const next = await clients.next(previous, connectMs);
+    if (!next) return "none";
+    if (await next.awaitResent(lost.sessionId, lost.promptId, showMs, draw)) return "shown";
+    if (!next.isClosed) return next.failLostPrompt(lost.promptId, error) ? "failed" : "none";
+    previous = next;
+  }
 }
 
 /// The prompts a connection lost, by chat. The host's journal may send one again once acpmux is

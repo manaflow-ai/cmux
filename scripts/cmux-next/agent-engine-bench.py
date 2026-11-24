@@ -23,11 +23,12 @@ report adds which window holds the keys once the chat is focused (a Chromium pag
 window). Runs on a fleet mini, never a laptop:
   agent-engine-bench.py --tag TAG --app BUNDLE [--modes own,page,chromium] [--chats 10] [--json FILE]
 """
-import argparse, glob, json, math, os, signal, socket, statistics, subprocess, sys, tempfile, time
+import argparse, glob, hashlib, json, math, os, signal, socket, statistics, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bench_memory  # noqa: E402
-from bench_launch import LaunchError, launch_app, bundle_id  # noqa: E402
+from bench_launch import LaunchError, launch_app, bundle_id, require_no_person_mac  # noqa: E402
+from state_wait import wait_until, wait_stable, StateWaitTimeout  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -49,6 +50,8 @@ parser.add_argument("--out", default="/tmp")
 parser.add_argument("--json")
 parser.add_argument("--shots", help="a folder: light and dark screen captures of the open session in each mode, with the window glass on")
 opts = parser.parse_args()
+if opts.activate:
+    require_no_person_mac("agent-engine-bench")  # --open --activate takes focus without BenchApp's check
 if (opts.rows < 1 or opts.flings < 1 or not math.isfinite(opts.fling_seconds) or opts.fling_seconds <= 0
         or opts.target_hz is not None and (not math.isfinite(opts.target_hz) or opts.target_hz <= 0)):
     parser.error("--rows, --flings, --fling-seconds and --target-hz must be positive and finite")
@@ -96,6 +99,19 @@ def wait(check, seconds, step=0.25):
             return value
         time.sleep(step)  # test harness polling a live app
     return None
+
+
+def page_settled(what, timeout=30):
+    """The chat page's readiness (rows, text lengths, composer) read the same several times in a row."""
+    def read():
+        ready = pane("readiness", timeout=5)
+        if ready.get("error"):
+            raise RuntimeError(ready["error"])
+        return ready
+    try:
+        wait_stable(read, what, timeout=timeout, interval=0.1, reads=5)
+    except StateWaitTimeout:
+        print(f"warning: {what} never settled in {timeout} s", flush=True)
 
 
 def median(values):
@@ -181,14 +197,15 @@ def gesture(target, total, events, phased, errors):
         sent = rpc("debug.mouse", params)
         if isinstance(sent, dict) and sent.get("error"):
             errors.append(str(sent["error"])[:200])
-    time.sleep(0.4)  # test harness: the scroll comes to rest before the next one
+    # sleep-ok: input pacing in the measured sequence, the gap that keeps gestures separate (no scroll offset is exposed)
+    time.sleep(0.4)
 
 
 def scroll_ticks(rows):
     """The page's frames while native scroll ticks and flicks move a `rows`-row chat, per input kind."""
     seeded = pane("seed_rows", count=rows, timeout=60)
     seed_error = seeded.get("error") if isinstance(seeded, dict) else "no seed reply"
-    time.sleep(3)  # test harness: the seeded transcript lays out
+    page_settled(f"the seeded {rows}-row transcript")
     engine = pane("engine")
     target = {"target": "page", "pane": engine.get("pane")} if engine.get("engine") == "cef" else {"pane": engine.get("pane")}
     out = {"rows": rows, "seed": seeded}
@@ -263,8 +280,13 @@ def typing():
     for index in range(opts.keys):
         replies.append(rpc("debug.key", dict(target, key=letters[index % len(letters)])))
         time.sleep(0.08)  # test harness: about a fast typist's pace
-    time.sleep(0.5)  # test harness: the last key's frame lands
     errors = [r.get("error") for r in replies if isinstance(r, dict) and r.get("error")]
+    # Wait for the keys that went in to reach the composer, then for the typing stats to stop changing (the last frame).
+    sent = len(replies) - len(errors)
+    if focused and not wait_until(lambda: (pane("readiness", timeout=5).get("composer_text_length") or 0) >= sent,
+                                  f"{sent} typed keys in the composer", timeout=10, raise_on_timeout=False):
+        print(f"warning: the composer never showed {sent} typed keys", flush=True)
+    wait_stable(lambda: pane("typing_stats"), "the typing stats", timeout=10, interval=0.1, reads=4, raise_on_timeout=False)
     return {"composer_focused": focused, "first_key_reply": replies[0] if replies else None, "key_errors": len(errors),
             "composer_text_length": pane("readiness").get("composer_text_length"), **pane("typing_stats")}
 
@@ -278,11 +300,17 @@ def screen_shots(mode):
     taken = {}
     for look in ("light", "dark"):
         rpc("debug.appearance", {"mode": look})
-        time.sleep(3)  # test harness: the theme reload and the page's repaint land
         # screencapture takes one file per display; a single-display mini writes only d1.
         names = [os.path.join(opts.shots, f"{mode}-{look}-d{n}.png") for n in (1, 2)]
-        done = subprocess.run(["/usr/sbin/screencapture", "-x", "-o", *names], capture_output=True, text=True, timeout=30)
-        taken[look] = {"files": [n for n in names if os.path.exists(n)], "error": done.stderr.strip() or None}
+        last = {}
+
+        def capture():
+            done = subprocess.run(["/usr/sbin/screencapture", "-x", "-o", *names], capture_output=True, text=True, timeout=30)
+            last["error"] = done.stderr.strip() or None
+            return tuple(hashlib.sha1(open(n, "rb").read()).hexdigest() for n in names if os.path.exists(n))
+        # Capture until two captures in a row match: the theme reload and the page's repaint have landed.
+        wait_stable(capture, f"the {look} screen", timeout=20, interval=0.1, reads=2, raise_on_timeout=False)
+        taken[look] = {"files": [n for n in names if os.path.exists(n)], "error": last.get("error")}
     rpc("debug.appearance", {"mode": "system"})
     taken["windows"] = rpc("debug.window_list")
     return taken
@@ -292,10 +320,13 @@ def focus_probe():
     if not opts.activate:
         return None
     subprocess.run(["osascript", "-e", f'tell application id "{BUNDLE_ID}" to activate'], capture_output=True, timeout=30)
-    time.sleep(1)  # test harness: activation settles
+    if not wait_until(lambda: (rpc("debug.focus") or {}).get("app_active"), "the app to become active", timeout=10,
+                      raise_on_timeout=False):
+        print("warning: the app never reported itself active", flush=True)
     focused = pane("focus_composer").get("focused")
-    time.sleep(0.5)  # test harness: focus settles
-    report = rpc("debug.focus") or {}
+    # The focus report (key window, first responders) read the same several times: focus has settled.
+    report = wait_stable(lambda: rpc("debug.focus") or {}, "the focus report", timeout=10, interval=0.1, reads=4,
+                         raise_on_timeout=False) or {}
     windows = [w for w in report.get("windows", []) if isinstance(w, dict)]
     return {"composer_focused": focused, "app_active": report.get("app_active"), "key_window": report.get("key_window"),
             "shell_window_is_key": any(w.get("is_key") for w in windows),
@@ -381,19 +412,22 @@ def run_mode(mode):
         os.remove(SOCKET)
     if not launch(mode, tempfile.mkdtemp(prefix=f"agent-engine-{mode}-")):
         return {"error": "the tagged app did not come up"}
-    time.sleep(opts.settle)  # test harness: launch settles before the baseline
+    # sleep-ok: benchmark protocol, the fixed --settle s idle before each memory sample so runs compare
+    time.sleep(opts.settle)
     result = {"baseline": memory("baseline", 0)}
     first = open_chat()
     result["first_chat"] = first
     print(mode, "first chat", json.dumps(first), flush=True)
-    time.sleep(opts.settle)  # test harness: the chat settles before it is measured
+    # sleep-ok: benchmark protocol, the fixed --settle s idle before each memory sample so runs compare
+    time.sleep(opts.settle)
     result["one_chat"] = memory("one chat", 1)
     result["session"] = open_session()
     result["focus"] = focus_probe()
     result["shots"] = screen_shots(mode)
     result["typing"] = typing()
+    print(mode, "typing", json.dumps({k: result["typing"].get(k) for k in ("keys", "to_listener", "to_work", "to_frame", "to_paint", "native_posts")}), flush=True)
     result["seed"] = pane("seed_rows", count=opts.rows, timeout=60)
-    time.sleep(3)  # test harness: the seeded transcript lays out
+    page_settled(f"the seeded {opts.rows}-row transcript")
     pane("fling", seconds=3, wait=True, timeout=60)  # warms the transcript's layout, not reported
     result["flings"] = [measured_fling(result["seed"]) for _ in range(opts.flings)]
     result["measurement_complete"] = flings_complete(result["flings"], opts.flings)
@@ -403,7 +437,8 @@ def run_mode(mode):
         result["measurement_complete"] = result["measurement_complete"] and ticks_complete
     more = [open_chat() for _ in range(opts.chats - 1)]
     result["more_chats"] = more
-    time.sleep(opts.settle)  # test harness: the chats settle before they are measured
+    # sleep-ok: benchmark protocol, the fixed --settle s idle before each memory sample so runs compare
+    time.sleep(opts.settle)
     result[f"chats_{opts.chats}"] = memory(f"{opts.chats} chats", opts.chats)
     base, one, many = (result[k]["total_footprint_mb"] for k in ("baseline", "one_chat", f"chats_{opts.chats}"))
     result["summary"] = {
@@ -414,6 +449,7 @@ def run_mode(mode):
         "first_chat_mb": round(one - base, 1), f"chats_{opts.chats}_mb": round(many - base, 1),
         "per_more_chat_mb": round((many - one) / max(1, opts.chats - 1), 1),
         "typing_to_frame": result["typing"].get("to_frame"), "typing_to_paint": result["typing"].get("to_paint"),
+        "typing_to_listener": result["typing"].get("to_listener"), "typing_to_work": result["typing"].get("to_work"),
         "session_composer_ms": result["session"].get("composer_ms"),
         "typing_keys": result["typing"].get("keys"), "focus": result["focus"],
         "fling_dropped_frames": [f.get("dropped_frames") for f in result["flings"]],

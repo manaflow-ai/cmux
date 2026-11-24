@@ -43,7 +43,7 @@ import { Markdown } from "./Markdown";
 import { CardCopy } from "./CardCopy";
 import { ClampedText } from "./ClampedText";
 import { useReceivedLook } from "./receivedLook";
-import { hasAgentMark, MonogramMark } from "../../shared/AgentMark";
+import { hasAgentMark, MonogramMark, SessionMark } from "../../shared/AgentMark";
 import { useMachineChats, useSenderChat, useSenderIdentity, useSenderPlace } from "../subagents/subsessions";
 import { Menu, MenuButton, MenuGroup, MenuItem, MenuPopup, MenuSeparator } from "../../../ui/Menu";
 import { copyTextResult } from "./clipboard";
@@ -70,8 +70,8 @@ import { useMessageLineLook } from "./messageLineLook";
 import type { AgentNotice } from "./agentNotice";
 import { NoticeMark } from "./NoticeMark";
 import { SEVERITY_LABEL } from "./noticeMarkModel";
-import { noticeMarkdown, titleParts } from "./agentNotice";
-import { useNoticeLook, type NoticeLook } from "./noticeLook";
+import { noticeMarkdown, openedNoticeText, titleParts } from "./agentNotice";
+import { useNoticeBodyLook, useNoticeLook, type NoticeLook } from "./noticeLook";
 import { openSessionAttributes } from "./menuParts";
 import { useSessionRef } from "./sessionRefModel";
 import { useSessionHover } from "../started/useSessionHover";
@@ -95,10 +95,18 @@ const SENDER_LOGO_SIZE = 12;
 /// its harness's mark, else the neutral agent glyph in its own stable tone.
 export function SenderMark({ message }: { message: IncomingMessage }) {
   const chief = useChiefFace(message.chief);
-  const sender = useSenderChat(message.chief ? "" : (message.lookup ?? message.name), message.sessionId);
+  // cmux's own notice (agentNotice.ts `system`) is no chat: a chat named `cmux` never stands in for it.
+  const sender = useSenderChat(
+    message.chief || message.program || message.notice?.system ? "" : (message.lookup ?? message.name),
+    message.sessionId,
+  );
   const avatar = useAgentAvatar(sender.sessionId);
   const harness = senderHarness(sender.harness, message.harness);
   const picture = message.chief ? chief?.src : avatar;
+  // The icon the sender's chat set for itself (acpmux `icon`: an emoji, a symbol, an image) draws
+  // before its harness's mark, as its tab and its list rows draw it.
+  if (!picture && !message.chief && !message.app && sender.icon)
+    return <SessionMark icon={sender.icon} agent={harness} size={SENDER_LOGO_SIZE} />;
   // A sender that named its app ("Grok bot › Ada", u20190) wears that app's mark, else its monogram.
   if (!picture && !message.chief && message.app && !hasAgentMark(harness)) {
     return hasAgentMark(message.app) ? (
@@ -132,7 +140,10 @@ export function SenderMark({ message }: { message: IncomingMessage }) {
 /// A received message's mark in the one message row's icon column (AgentMessageRow.tsx): its
 /// tooltip is what the sender runs on, as the mark's beside a name always said.
 export function ReceivedMark({ message }: { message: IncomingMessage }) {
-  const sender = useSenderChat(message.chief ? "" : message.name, message.sessionId);
+  const sender = useSenderChat(
+    message.chief || message.program || message.notice?.system ? "" : message.name,
+    message.sessionId,
+  );
   const about = message.chief
     ? undefined
     : senderAbout(senderHarness(sender.harness, message.harness), sender.run, message);
@@ -164,11 +175,15 @@ function NoticeTitle({ notice }: { notice: AgentNotice }) {
 /// The name a received line gives its sender: the recorded session's own, from the session metadata
 /// (senderIdentity.ts), as its preview and session card name it, whatever name the message fell back
 /// to (a raw `acp:<id>` when its provenance carried no `fromName`). A Chief, an app's persona and a
-/// person name themselves.
+/// person name themselves. A sender with a given name (`acpmux rename @ Mango --handle`) reads by it.
 function useSenderSessionName(message: IncomingMessage, person: boolean): string {
   const session = !person && !message.chief && !message.app ? message.sessionId : undefined;
-  const identity = useSenderIdentity({ name: session ? message.name : "", ...(session && { sessionId: session }) });
-  return session ? identity.name : message.name;
+  const identity = useSenderIdentity({
+    name: session ? message.name : "",
+    ...(session && { sessionId: session }),
+    ...(session && message.displayName && { displayName: message.displayName }),
+  });
+  return session ? identity.name : (message.displayName ?? message.name);
 }
 
 /// The sender's mark and name at a received line's start (and a waiting group's sender head,
@@ -203,12 +218,20 @@ export function SenderChip({
   const t = useT();
   // A Chief's message names the Chief and draws its avatar (chiefFace.ts); its turn session is no
   // chat of the list, so no listed chat with its name stands in for it, and it is no chat to open.
+  // A program acpmux saw send it (incomingMessage.ts `senderProgram`) is no chat either: a fleet
+  // tool, never a lane that shares its name.
   const chief = useChiefFace(message.chief);
-  const sender = useSenderChat(message.chief ? "" : (message.lookup ?? message.name), message.sessionId);
+  const sender = useSenderChat(
+    message.chief || message.program || message.notice?.system ? "" : (message.lookup ?? message.name),
+    message.sessionId,
+  );
   const recorded = useSenderSessionName(message, false);
   const name =
     (message.chief && chief?.name) ||
-    (message.unverified && !message.name.trim() ? t("message.unverifiedSender") : senderLabel(recorded, sender.host));
+    (message.unverified && !message.name.trim()
+      ? t("message.unverifiedSender")
+      : // The name its chat was given ("Mango", acpmux `displayName`) first.
+        senderLabel((!message.app && sender.displayName) || recorded, sender.host));
   // Read only (a guest): the sender's chat is not this reader's to open.
   const readOnly = useTranscriptReadOnly();
   const listed = message.chief || readOnly ? undefined : sender.sessionId;
@@ -228,6 +251,7 @@ export function SenderChip({
     !readOnly &&
     !toolNotice &&
     !message.app &&
+    !message.program &&
     !inboxNames &&
     (message.lookup ?? message.name).trim() !== "" &&
     sessionRefsResolve();
@@ -252,18 +276,28 @@ export function SenderChip({
     if (!query) return;
     onOpen(resolved?.sessionId ?? query);
   };
-  const from = inboxNames || (message.relation ? t(RELATION_LABEL[message.relation], { name }) : name);
+  // cmux's own notice is named by what it is, never the app (Leo, 2026-11-12: "should this really
+  // be labelled as \"cmux\"?"): a background task by its description, else "Background task";
+  // anything else by nothing, so it has no chip.
+  const system = message.notice?.system ? message.notice : undefined;
+  const from = system
+    ? message.name.trim() || (system.task ? t("notice.backgroundTask") : "")
+    : inboxNames || (message.relation ? t(RELATION_LABEL[message.relation], { name }) : name);
   const icon =
     toolNotice && look !== "tag" ? <NoticeMark severity={toolNotice.severity} /> : <SenderMark message={message} />;
-  const host = toolNotice?.host ?? sender.host;
-  // The harness, model and effort it runs on, under the name's tooltip and on the mark's.
+  const knownHost = toolNotice?.host ?? sender.host;
+  // The line's parts are set when it is drawn (transcript motion model: row parts sit in fixed
+  // slots): a machine the chat list names only later never comes in beside the name and pushes the
+  // message along. It stays in the name's tooltip (`openTitle`), and the line names it when next drawn.
+  const [hostSlot] = useState(() => knownHost !== undefined);
+  const host = hostSlot ? knownHost : undefined;
+  // The harness, model and effort it runs on, on the name's facts card and the mark's tooltip.
   const about = message.chief
     ? undefined
     : senderAbout(senderHarness(sender.harness, message.harness), sender.run, message);
   // "Open chief-ui (studio-mac)": the chat the name opens, and the other machine it runs on.
   const openHost = sender.host ?? resolved?.host;
   const open = openHost ? t("subagents.openOnHost", { name, host: openHost }) : t("subagents.open", { name });
-  const openTitle = about ? `${open}\n${about}` : open;
   return (
     // Its own part of the line: the name opens the sender's chat or nothing, never the message.
     <span className="cv-received__sender" data-own-click="">
@@ -280,7 +314,7 @@ export function SenderChip({
         <AgentTag
           name={from}
           className="cv-received__from cv-received__from--open"
-          title={openTitle}
+          about={about}
           ariaLabel={open}
           attributes={openSessionAttributes(sessionId, true)}
           hover={hover}
@@ -291,17 +325,17 @@ export function SenderChip({
         <AgentTag
           name={from}
           className="cv-received__from cv-received__from--open"
-          title={openTitle}
+          about={about}
           ariaLabel={open}
           onClick={openAsked}
         />
-      ) : (
+      ) : from ? (
         <AgentTag name={from} className="cv-received__from" title={about} />
-      )}
+      ) : null}
       {/* A sender acpmux could not verify (Leo, 2026-11-05: "why is it sending it as if it were
           me?"): the one subtle marker, never words in or beside its name. The message row draws
           its own (AgentMessageRow.tsx `unverified`). */}
-      {withMark && message.unverified && <UnverifiedMark />}
+      {withMark && message.unverified && <UnverifiedMark program={message.program} claimed={message.name} />}
       {/* The other machine the sender's chat runs on, on the line itself, not only in the name's
           tooltip (Leo, 2026-10-27, on a lane's message: "Is this, like, from another machine? But
           even if they're from another machine, what's going on here?"). This Mac's chats name none. */}
@@ -416,6 +450,7 @@ export function IncomingMessageLine({
   // A tool's notice (agentNotice.ts): its title is the line, its body and links the panel.
   const agentNotice = whole || person ? undefined : message.notice;
   const look = useNoticeLook();
+  const bodyLook = useNoticeBodyLook();
   const session = useContext(PromptMarksSession);
   const key = `${session ?? ""}\u0000${id}`;
   // Whether the person opened it lasts while the page does (incomingOpened.ts), and the row
@@ -466,16 +501,23 @@ export function IncomingMessageLine({
   // Its turn session is no chat of the list, so no listed chat with its name stands in for it.
   const chief = useChiefFace(message.chief);
   // A person is never a chat: their name never finds one (a guest names themselves).
-  const sender = useSenderChat(person || message.chief ? "" : message.name, person ? undefined : message.sessionId);
+  const sender = useSenderChat(
+    person || message.chief || message.program || message.notice?.system ? "" : message.name,
+    person ? undefined : message.sessionId,
+  );
   // The session's own name, as SenderName shows it: a peer's `<machine>/<name>` reads as `<name>` in
   // the toggle's label and the reply editor's, the machine already shown beside it.
   const recorded = useSenderSessionName(message, Boolean(person));
-  const name = (message.chief && chief?.name) || senderLabel(recorded, sender.host);
+  const name =
+    (message.chief && chief?.name) || senderLabel((!message.app && sender.displayName) || recorded, sender.host);
   const place = useSenderPlace(sender.sessionId);
   // The sender's words without a signature that only repeats its name (incomingMessage.ts reads
   // it on every path; a record from before that, or a queued one, may still have it).
+  // A notice of a title alone (and no links) says its title again in its panel.
+  const titleAgain = agentNotice !== undefined && bodyLook !== "wrap" && !message.text && !agentNotice.links.length;
+  // A notice's: what it says (agentNotice.ts `openedNoticeText`), then its links.
   const text = agentNotice
-    ? noticeMarkdown(message.text, agentNotice.links)
+    ? noticeMarkdown(openedNoticeText(agentNotice, message.text, bodyLook), agentNotice.links)
     : (notice?.body ?? (whole ? message.text : unsigned(message.text, message.name)));
   // The machine the sender's files are on, when it is another (a peer's relayed message names none).
   const host = message.remote ? (place?.host ?? "") : place?.host;
@@ -533,13 +575,17 @@ export function IncomingMessageLine({
     <Markdown githubRepository={repository} commits="quiet" thumbnails={host === undefined} messageAt={messageAt}>
       {body}
     </Markdown>
-  ) : (
+  ) : agentNotice ? null : (
+    // A notice is never "No message text": its words are its title at least (`openedNoticeText`).
     t("message.noText")
   );
   const wordsOf = (clamped: boolean) => (
     <>
       {/* The sender's words, as written, from the card's corner. */}
-      <CardCopy text={agentNotice ? `${agentNotice.title}\n\n${text}`.trim() : text} />
+      {/* A notice's title once: the panel's text starts with it when it is a title alone. */}
+      <CardCopy
+        text={agentNotice && !text.startsWith(agentNotice.title) ? `${agentNotice.title}\n\n${text}`.trim() : text}
+      />
       {/* The chips read whose files these are (chips/messageScope.ts). */}
       <MessageScopeContext.Provider value={scope}>
         {clamped ? (
@@ -547,7 +593,11 @@ export function IncomingMessageLine({
             {markdown}
           </ClampedText>
         ) : (
-          <div className="cv-received__text selectable">{markdown}</div>
+          // A notice's title said again in its panel adds no Find match: Find counts the row's text,
+          // the title once, and finds it on the line (`data-find-keep`).
+          <div className="cv-received__text selectable" data-find-skip={titleAgain ? "" : undefined}>
+            {markdown}
+          </div>
         )}
       </MessageScopeContext.Provider>
       {(Boolean(images?.length) || Boolean(videos?.length)) && (
@@ -663,6 +713,8 @@ export function IncomingMessageLine({
         name={from}
         nameSlot={<SenderChip message={message} onOpen={onOpen} />}
         unverified={message.unverified === true}
+        program={message.program}
+        claimed={message.name}
         preview={preview || t("message.noText")}
         label={t("message.collapsedLabel", { from, preview: preview || t("message.noText") })}
         open={open}
@@ -678,7 +730,7 @@ export function IncomingMessageLine({
     <DisclosureRow
       className={
         agentNotice
-          ? `cv-received cv-notice is-${agentNotice.severity} look-${look}`
+          ? `cv-received cv-notice is-${agentNotice.severity} look-${look} body-${bodyLook}`
           : notice
             ? "cv-received cv-lane-notice"
             : "cv-received"

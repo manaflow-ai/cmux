@@ -295,7 +295,8 @@ fn now_ms() -> u64 {
 
 async fn setup(options: &Options) -> Result<(), String> {
     let token = backend_token(&options.token, options.team.as_deref()).await?;
-    let http = reqwest::Client::builder()
+    let http = cmux_egress::client_builder("cmux_tui::cli::inference_setup")
+        .default_headers(cmux_build_space::headers().map_err(|e| e.to_string())?)
         .redirect(reqwest::redirect::Policy::none())
         .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
         .build()
@@ -488,14 +489,18 @@ async fn gateway(machine: &Machine<'_>) -> Result<(), String> {
     }
     let kind = field("kind").and_then(Value::as_str).unwrap_or("unknown");
     // The machine's own call: the edge steers it to the gateway, which answers from the person's proxy or login.
-    let probe = format!(
-        "curl -sS -o /dev/null -w '%{{http_code}}' --max-time 60 -H 'authorization: Bearer {PLACEHOLDER}' \
-         'https://coderouter.cmux.internal/v1/models?client_version=0.0.0'"
-    );
-    let (_, status) = machine.exec(&probe, 90_000).await?;
-    let status = status.trim();
+    // Its status comes first; then the answer's header lines (every hop's, and trailers after the body), its first
+    // bytes and curl's own error, so a refusal names the hop that made it (the machine's proxy, the edge, cmux or the
+    // gateway).
+    let mark = probe_mark();
+    let probe = probe_command(&mark);
+    let (_, out) = machine.exec(&probe, 90_000).await?;
+    let status = out.lines().next().unwrap_or("").trim();
     if status != "200" {
-        return Err(format!("the machine's model call through the gateway answered HTTP {status}"));
+        return Err(format!(
+            "the machine's model call through the gateway answered HTTP {status}\n{}",
+            shown_answer(&out, &mark)
+        ));
     }
     let holds = machine.exec(login_present(), 30_000).await?.0 == 0;
     say(&format!(
@@ -508,6 +513,87 @@ async fn gateway(machine: &Machine<'_>) -> Result<(), String> {
         "This machine holds no Codex login."
     });
     Ok(())
+}
+
+/// The gateway probe run on the machine; `mark` starts its marker lines (probe_mark). Headers and body are written
+/// apart (`-D`, `-o`) and printed after a marker line holding a nonce the answer cannot know, so no body line or
+/// trailer passes for the other. The raw headers hold credentials until shown_answer filters them, so all three files
+/// live in a private directory (mktemp -d, umask 077) that a trap removes however the shell ends.
+fn probe_command(mark: &str) -> String {
+    format!(
+        "umask 077; d=$(mktemp -d) || exit 1; trap 'rm -rf \"$d\"' 0; trap 'exit 1' 1 2 13 15; \
+         code=$(curl -sS -D \"$d/headers\" -o \"$d/body\" -w '%{{http_code}}' --max-time 60 \
+         -H 'authorization: Bearer {PLACEHOLDER}' \
+         'https://coderouter.cmux.internal/v1/models?client_version=0.0.0' 2>\"$d/error\"); \
+         echo \"$code\"; echo '{mark}headers'; head -c {PROBE_HEADERS_READ} \"$d/headers\"; echo; echo '{mark}body'; \
+         head -c {PROBE_EXCERPT} \"$d/body\"; echo; echo '{mark}error'; head -c 300 \"$d/error\""
+    )
+}
+
+/// How much of the probe's answer comes back to name a refusal: of the header lines once filtered, and of the body.
+const PROBE_EXCERPT: usize = 1500;
+
+/// How much of the header lines is read for filtering: a long cookie, dropped, never takes the room of the headers
+/// after it (a hop's `server`, the next hop's status line).
+const PROBE_HEADERS_READ: usize = 16 * 1024;
+
+/// The start of the probe's marker lines: random per probe, so neither the answer nor a hop can write one.
+fn probe_mark() -> String {
+    use std::hash::BuildHasher;
+    format!("@@probe-{:016x}-", std::collections::hash_map::RandomState::new().hash_one(now_ms()))
+}
+
+/// The probe's output (`mark` the start of its marker lines) as it may be printed. Every line of the header part (each
+/// hop's headers, and trailers after the body) is a header: one that can carry a credential (a cookie, an
+/// authorization, a token) is dropped with its folded continuation lines, and so is one with no name. The body and
+/// curl's error are shown as they are. Control characters other than line breaks are left out. The header lines kept
+/// are held to PROBE_EXCERPT bytes, after filtering, and a line says when more were left out.
+fn shown_answer(out: &str, mark: &str) -> String {
+    let secret = |name: &str| {
+        let name = name.trim().to_ascii_lowercase();
+        ["cookie", "authorization", "token", "secret", "key"].iter().any(|s| name.contains(s))
+    };
+    let (mut part, mut dropping) = ("", false);
+    let (mut header_bytes, mut headers_cut) = (0, false);
+    let mut shown = Vec::new();
+    for line in out.lines().skip(1) {
+        if let Some(next) = line.strip_prefix(mark) {
+            if part == "headers" && headers_cut {
+                shown.push("[more header lines not shown]".to_owned());
+            }
+            (part, dropping) = (next, false);
+            continue;
+        }
+        if part == "headers" {
+            if line.starts_with("HTTP/") || line.trim_end_matches('\r').is_empty() {
+                // A hop's status line, or the empty line that ends a hop's headers or comes before trailers.
+                dropping = false;
+            } else if line.starts_with([' ', '\t']) {
+                // A folded header goes on with the one before it, a line of only whitespace too.
+                if dropping {
+                    continue;
+                }
+            } else {
+                dropping = line.split_once(':').is_none_or(|(name, _)| secret(name));
+                if dropping {
+                    continue;
+                }
+            }
+        } else if part != "body" && part != "error" {
+            // Nothing comes before the first marker; anything else would be unlooked at.
+            continue;
+        }
+        let line = line.chars().filter(|c| !c.is_control()).collect::<String>();
+        if part == "headers" {
+            header_bytes += line.len() + 1;
+            if header_bytes > PROBE_EXCERPT {
+                headers_cut = true;
+                continue;
+            }
+        }
+        shown.push(line);
+    }
+    shown.join("\n").trim().to_owned()
 }
 
 fn login_present() -> &'static str {
@@ -632,117 +718,5 @@ fn strip_ansi(s: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn args(list: &[&str]) -> Vec<String> {
-        list.iter().map(|s| (*s).to_owned()).collect()
-    }
-
-    #[test]
-    fn parses_the_machine_and_path() {
-        let none = |_: &str| None;
-        let o = parse(
-            &args(&[
-                "--machine",
-                "vm_abcdefghij0123456789",
-                "--api",
-                "https://api.cmux.dev",
-                "--path",
-                "device",
-            ]),
-            &none,
-        )
-        .unwrap();
-        assert_eq!((o.path, o.machine.as_str()), (PathChoice::Device, "vm_abcdefghij0123456789"));
-        assert_eq!(o.token, TokenSource::App);
-        assert_eq!(o.gateway, None);
-        let o = parse(
-            &args(&[
-                "--machine",
-                "vm_abcdefghij0123456789",
-                "--api",
-                "https://api.cmux.dev",
-                "--gateway-machine",
-                "vm_gateway0000000000000",
-                "--upstream",
-                "http://127.0.0.1:8317",
-            ]),
-            &none,
-        )
-        .unwrap();
-        assert_eq!(o.gateway.map(|g| g.upstream), Some("http://127.0.0.1:8317".to_owned()));
-        let quoted = [
-            "--machine",
-            "vm_abcdefghij0123456789",
-            "--api",
-            "https://a.dev",
-            "--gateway-machine",
-            "vm_gateway0000000000000",
-            "--upstream",
-            "http://x/'y",
-        ];
-        assert!(parse(&args(&quoted), &none).is_err());
-        let userinfo = quoted.map(|a| if a == "http://x/'y" { "https://u:secret@x" } else { a });
-        assert!(parse(&args(&userinfo), &none).is_err());
-        assert!(
-            parse(
-                &args(&[
-                    "--machine",
-                    "vm_abcdefghij0123456789",
-                    "--api",
-                    "https://a.dev",
-                    "--upstream",
-                    "http://x"
-                ]),
-                &none
-            )
-            .is_err()
-        );
-        assert!(parse(&args(&["--api", "https://a.dev"]), &none).is_err());
-        // Through the dispatch, --machine stays setup's own: the global scan once took it (gateway-e2e run 42363310378).
-        let rest = setup_args(&args(&[
-            "inference",
-            "setup",
-            "--machine",
-            "vm_0123456789abcdefghij",
-            "--api",
-            "https://a.dev",
-        ]))
-        .expect("inference setup");
-        assert_eq!(rest, args(&["--machine", "vm_0123456789abcdefghij", "--api", "https://a.dev"]));
-        assert!(parse(&rest, &none).is_ok());
-        assert!(
-            setup_args(&args(&["inference", "gateway", "--machine", "vm_0123456789abcdefghij"]))
-                .is_none()
-        );
-        assert!(parse(&args(&["--machine", "vm_x", "--api", "https://a.dev"]), &none).is_err());
-        assert!(
-            parse(
-                &args(&[
-                    "--machine",
-                    "vm_abcdefghij0123456789",
-                    "--api",
-                    "https://a.dev",
-                    "--path",
-                    "x"
-                ]),
-                &none
-            )
-            .is_err()
-        );
-    }
-
-    #[test]
-    fn finds_codex_device_link_and_code() {
-        let log = "Welcome to Codex\n\nFollow these steps to sign in with ChatGPT using device code authorization:\n\n\
-                   1. Open this link in your browser and sign in to your account\n   \u{1b}[94mhttps://auth.openai.com/codex/device\u{1b}[0m\n\n\
-                   2. Enter this one-time code \u{1b}[90m(expires in 15 minutes)\u{1b}[0m\n   \u{1b}[94mABCD-EF12\u{1b}[0m\n";
-        assert_eq!(
-            device_prompt(log),
-            Some(("https://auth.openai.com/codex/device".to_owned(), "ABCD-EF12".to_owned()))
-        );
-        assert_eq!(device_prompt("starting...\n"), None);
-        assert_eq!(device_prompt("https://auth.openai.com/codex/device\n"), None);
-    }
-}
+#[path = "inference_setup_tests.rs"]
+mod tests;

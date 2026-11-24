@@ -1,9 +1,9 @@
-//! Flow control, input delivery, congestion control and the quality ladder.
+//! Flow control, input delivery and congestion control (the resolution ladder's tests are in
+//! `resolution.rs`).
 
 use cmux_rd_core::cc::{CcConfig, CongestionController, PathKind, Usage};
 use cmux_rd_core::flow::{FlowAction, FrameGate, Rect};
 use cmux_rd_core::input::{InputApplier, InputSender, MAX_SENDS};
-use cmux_rd_core::ladder::{ContentClass, LadderInput, choose};
 use cmux_rd_proto::{Arrival, HEADER_LEN, InputEvent, InputPacket, MAX_DATAGRAM_VPC};
 use proptest::prelude::*;
 
@@ -205,7 +205,7 @@ fn rising_delay_lowers_the_target_and_flat_delay_raises_it() {
     assert!(cc.target_bps() > start);
     let high = cc.target_bps();
     // Every feedback, each packet waits 1 ms longer than the one before.
-    for k in 0..10u64 {
+    for k in 0..20u64 {
         let mut arrivals = Vec::new();
         for i in 0..10u64 {
             cc.on_sent(seq, now + i * 100);
@@ -239,29 +239,6 @@ fn heavy_loss_cuts_the_target() {
 }
 
 #[test]
-fn ladder_keeps_text_sharp_and_motion_smooth() {
-    let base = LadderInput {
-        target_bps: 2_000_000,
-        content: ContentClass::Text,
-        path: PathKind::DirectWan,
-        display_fps: 60,
-        relay_max_fps: 15,
-        encode_us: 0,
-        min_bits_per_pixel: 0.02,
-        pixels: 1920 * 1080,
-    };
-    let text = choose(base);
-    assert_eq!(text.scale, 1.0);
-    assert!(text.fps < 60);
-    let motion = choose(LadderInput { content: ContentClass::Motion, ..base });
-    assert!(motion.scale < 1.0);
-    let relay = choose(LadderInput { path: PathKind::DoRelay, target_bps: 100_000_000, ..base });
-    assert!(relay.fps <= 15);
-    let slow_encoder = choose(LadderInput { encode_us: 40_000, target_bps: 100_000_000, ..base });
-    assert!(slow_encoder.fps <= 25);
-}
-
-#[test]
 fn feedback_without_arrivals_never_raises_the_target() {
     let mut cc = CongestionController::new(CcConfig::default(), PathKind::DirectLan);
     let start = cc.target_bps();
@@ -276,24 +253,34 @@ fn growth_is_bounded_by_elapsed_time() {
     let mut cc = CongestionController::new(CcConfig::default(), PathKind::DirectLan);
     let start = cc.target_bps() as f64;
     let (mut seq, mut now) = (0u16, 0u64);
-    // 60 feedbacks in about one second.
+    // 60 feedbacks in about one second: at most doubling (probing an unknown capacity).
     feed(&mut cc, &mut seq, &mut now, 0, 60);
-    assert!((cc.target_bps() as f64) < start * 1.2);
+    assert!((cc.target_bps() as f64) < start * 2.2);
 }
 
 #[test]
 fn send_times_survive_sequence_wrap() {
     let mut cc = CongestionController::new(CcConfig::default(), PathKind::DirectLan);
-    let (mut seq, mut now) = (u16::MAX - 5, 0u64);
-    feed(&mut cc, &mut seq, &mut now, 0, 2);
-    let mut arrivals = Vec::new();
-    for i in 0..10u64 {
-        cc.on_sent(seq, now + i * 100);
-        arrivals.push(Arrival { transport_seq: seq, arrival_us: (now + i * 100 + 25_000) as u32 });
-        seq = seq.wrapping_add(1);
+    // The growing queue below crosses the sequence wrap.
+    let (mut seq, mut now) = (u16::MAX - 200, 0u64);
+    feed(&mut cc, &mut seq, &mut now, 0, 15);
+    let mut overuse = false;
+    for k in 0..12u64 {
+        let mut arrivals = Vec::new();
+        for i in 0..10u64 {
+            cc.on_sent(seq, now + i * 100);
+            arrivals.push(Arrival {
+                transport_seq: seq,
+                arrival_us: (now + i * 100 + 5_000 + k * 8_000) as u32,
+            });
+            seq = seq.wrapping_add(1);
+        }
+        now += 16_667;
+        cc.on_feedback(&arrivals, 0.0, now);
+        overuse |= cc.usage() == Usage::Overuse;
     }
-    cc.on_feedback(&arrivals, 0.0, now + 16_667);
-    assert_eq!(cc.usage(), Usage::Overuse);
+    assert!(seq < 1_000, "the sequence wrapped");
+    assert!(overuse);
 }
 
 #[test]
@@ -461,5 +448,196 @@ fn a_keyframe_burst_alone_is_not_overuse() {
         seq = seq.wrapping_add(1);
     }
     cc.on_feedback(&arrivals, 0.0, now + 20_000);
+    assert_ne!(cc.usage(), Usage::Overuse);
+}
+
+#[test]
+fn split_burst_feedback_does_not_turn_tail_processing_into_queue_growth() {
+    let mut cc = CongestionController::new(CcConfig::default(), PathKind::DirectLan);
+    cc.on_sent(0, 0);
+    cc.on_feedback(&[Arrival { transport_seq: 0, arrival_us: 25_000 }], 0.0, 50_000);
+    let sent = 100_000u64;
+    let arrivals: Vec<_> = (1..=300u16)
+        .map(|seq| {
+            cc.on_sent(seq, sent);
+            Arrival {
+                transport_seq: seq,
+                // Serialization plus decoding the frame before reading its parity tail.
+                arrival_us: (sent
+                    + 25_000
+                    + u64::from(seq - 1) * 40
+                    + if seq > 256 { 10_000 } else { 0 }) as u32,
+            }
+        })
+        .collect();
+    cc.on_feedback(&arrivals[..128], 0.0, 155_000);
+    let target = cc.target_bps();
+    cc.on_feedback(&arrivals[128..256], 0.0, 160_000);
+    cc.on_feedback(&arrivals[256..], 0.0, 175_000);
+    assert_ne!(cc.usage(), Usage::Overuse, "one burst is not new queue-growth evidence");
+    assert_eq!(cc.target_bps(), target, "fragments must neither cut nor grow the target");
+}
+
+#[test]
+fn split_burst_feedback_still_detects_queue_growth_across_distinct_bursts() {
+    let mut cc = CongestionController::new(CcConfig::default(), PathKind::DirectWan);
+    let initial = cc.target_bps();
+    let mut overuse = false;
+    // 60 fps bursts of two packets; each burst waits 3 ms longer than the last, and its two
+    // receipts come in separate feedbacks.
+    for burst in 0..90u16 {
+        let sent = u64::from(burst) * 16_667;
+        let seq = burst * 2;
+        cc.on_sent(seq, sent);
+        cc.on_sent(seq + 1, sent);
+        let delay = 25_000 + u64::from(burst) * 3_000;
+        cc.on_feedback(
+            &[Arrival { transport_seq: seq, arrival_us: (sent + delay) as u32 }],
+            0.0,
+            sent + delay + 25_000,
+        );
+        let target = cc.target_bps();
+        cc.on_feedback(
+            &[Arrival { transport_seq: seq + 1, arrival_us: (sent + delay + 10_000) as u32 }],
+            0.0,
+            sent + delay + 35_000,
+        );
+        assert_eq!(cc.target_bps(), target, "a burst's second receipt is not another sample");
+        overuse |= cc.usage() == Usage::Overuse;
+    }
+    assert!(overuse);
+    assert!(cc.target_bps() < initial, "sustained queue growth must still reduce bitrate");
+}
+
+#[test]
+fn split_burst_feedback_ignores_old_tails_mixed_with_a_new_burst() {
+    let mut cc = CongestionController::new(CcConfig::default(), PathKind::DirectWan);
+    let mut overuse = false;
+    // Each feedback carries the previous burst's late tail with the new burst's head.
+    for burst in 1..90u16 {
+        let sent = u64::from(burst) * 16_667;
+        let (head, tail) = (burst * 2, burst * 2 + 1);
+        cc.on_sent(head, sent);
+        cc.on_sent(tail, sent);
+        let delay = 25_000 + u64::from(burst) * 3_000;
+        let prev_sent = sent - 16_667;
+        let prev_tail = Arrival {
+            transport_seq: (burst - 1) * 2 + 1,
+            arrival_us: (prev_sent + delay - 3_000 + 40_000) as u32,
+        };
+        let new_head = Arrival { transport_seq: head, arrival_us: (sent + delay) as u32 };
+        cc.on_feedback(&[prev_tail, new_head], 0.0, sent + delay + 25_000);
+        overuse |= cc.usage() == Usage::Overuse;
+    }
+    assert!(overuse, "an old tail must not hide new queue growth");
+}
+
+#[test]
+fn split_burst_feedback_handles_clock_wrap_retransmits_and_path_reset() {
+    let mut cc = CongestionController::new(CcConfig::default(), PathKind::DirectWan);
+    let start = u64::from(u32::MAX) - 300_000;
+    let mut seq = u16::MAX - 20;
+    // A flat path across the arrival clock's and the sequence's wrap grows the target.
+    for burst in 0..60u64 {
+        let sent = start + burst * 16_667;
+        cc.on_sent(seq, sent);
+        cc.on_feedback(
+            &[Arrival { transport_seq: seq, arrival_us: (sent + 25_000) as u32 }],
+            0.0,
+            sent + 50_000,
+        );
+        seq = seq.wrapping_add(1);
+    }
+    assert_eq!(cc.usage(), Usage::Normal);
+    let target = cc.target_bps();
+    assert!(target > CcConfig::default().start_bps);
+    // A repair's very late receipt is not timed.
+    let sent = start + 60 * 16_667;
+    cc.on_sent(seq, sent);
+    cc.on_retransmitted(seq);
+    cc.on_feedback(
+        &[Arrival { transport_seq: seq, arrival_us: (sent + 400_000) as u32 }],
+        0.0,
+        sent + 420_000,
+    );
+    assert_eq!(cc.target_bps(), target);
+    assert_eq!(cc.usage(), Usage::Normal);
+    // After a path change the new path's longer delay is a baseline, not queue growth.
+    cc.on_path_changed(PathKind::DirectLan);
+    for burst in 0..60u64 {
+        seq = seq.wrapping_add(1);
+        let sent = start + 1_000_000 + burst * 16_667;
+        cc.on_sent(seq, sent);
+        cc.on_feedback(
+            &[Arrival { transport_seq: seq, arrival_us: (sent + 80_000) as u32 }],
+            0.0,
+            sent + 105_000,
+        );
+        assert_ne!(cc.usage(), Usage::Overuse, "a path change starts a fresh delay baseline");
+    }
+}
+
+#[test]
+fn stale_overuse_does_not_reduce_bitrate_without_new_timing_evidence() {
+    let mut cc = CongestionController::new(CcConfig::default(), PathKind::DirectWan);
+    let mut now = 0;
+    for burst in 0..90u16 {
+        let sent = u64::from(burst) * 16_667;
+        cc.on_sent(burst, sent);
+        let delay = 25_000 + u64::from(burst) * 3_000;
+        now = sent + delay + 25_000;
+        cc.on_feedback(
+            &[Arrival { transport_seq: burst, arrival_us: (sent + delay) as u32 }],
+            0.0,
+            now,
+        );
+    }
+    let reduced = cc.target_bps();
+    assert!(reduced < CcConfig::default().start_bps, "queue growth reduces bitrate");
+    for later in [20_000, 40_000, 400_000, 2_000_000] {
+        cc.on_feedback(&[], 0.0, now + later);
+        assert_eq!(cc.target_bps(), reduced, "an ACK or NACK alone is not more congestion");
+    }
+}
+
+#[test]
+fn one_frame_split_over_wire_feedback_does_not_create_congestion() {
+    use cmux_rd_proto::MAX_ARRIVALS;
+    let mut cc = CongestionController::new(CcConfig::default(), PathKind::DirectWan);
+    let (mut seq, mut now) = (0u16, 0u64);
+    feed(&mut cc, &mut seq, &mut now, 0, 3);
+    // All shards belong to one send burst. Its 12 ms serialization spans three
+    // real feedback packets; splitting the receipt is not a growing path queue.
+    let arrivals: Vec<_> = (0..300u64)
+        .map(|i| {
+            cc.on_sent(seq, now);
+            let arrival = Arrival { transport_seq: seq, arrival_us: (now + 5_000 + i * 40) as u32 };
+            seq = seq.wrapping_add(1);
+            arrival
+        })
+        .collect();
+    let before = cc.target_bps();
+    for chunk in arrivals.chunks(MAX_ARRIVALS) {
+        cc.on_feedback(chunk, 0.0, now + 50_000);
+        assert_ne!(
+            cc.usage(),
+            Usage::Overuse,
+            "another receipt of the same burst is not new queue growth"
+        );
+        assert!(cc.target_bps() >= before);
+    }
+}
+
+#[test]
+fn an_older_frame_arrival_cannot_replace_a_newer_delay_sample() {
+    let mut cc = CongestionController::new(CcConfig::default(), PathKind::DirectWan);
+    cc.on_sent(0, 0);
+    cc.on_sent(1, 0);
+    cc.on_feedback(&[Arrival { transport_seq: 0, arrival_us: 25_000 }], 0.0, 50_000);
+    cc.on_sent(2, 100_000);
+    cc.on_feedback(&[Arrival { transport_seq: 2, arrival_us: 125_000 }], 0.0, 150_000);
+    let before = cc.target_bps();
+    cc.on_feedback(&[Arrival { transport_seq: 1, arrival_us: 135_000 }], 0.0, 160_000);
+    assert_eq!(cc.target_bps(), before, "a reordered old shard is not a new path sample");
     assert_ne!(cc.usage(), Usage::Overuse);
 }

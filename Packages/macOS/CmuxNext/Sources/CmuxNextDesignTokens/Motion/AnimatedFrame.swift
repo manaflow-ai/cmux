@@ -87,10 +87,13 @@ public nonisolated struct AnimatedFrame: Hashable, Sendable {
         return alpha.advance(dt, parameters: alphaParameters ?? parameters, epsilon: 0.004)
     }
 
+    /// How near its target an edge lands: a quarter point.
+    public static let landingDistance: CGFloat = 0.25
+
     /// The rect is within a quarter point of its target on every edge and slower than 2 pt/s: where
     /// ``advance(_:parameters:alphaParameters:)`` would snap it.
     public var geometryNearRest: Bool {
-        [x, y, width, height].allSatisfy { abs($0.value - $0.target) <= 0.25 && abs($0.velocity) <= 2 }
+        [x, y, width, height].allSatisfy { abs($0.value - $0.target) <= Self.landingDistance && abs($0.velocity) <= 2 }
     }
 
     /// Puts the rect on its target at rest; the alpha keeps moving.

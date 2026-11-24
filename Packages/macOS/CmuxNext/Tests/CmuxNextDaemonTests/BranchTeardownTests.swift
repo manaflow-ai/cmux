@@ -55,8 +55,11 @@ struct BranchTeardownTests {
         for _ in 0..<3 {
             _ = try await connection.createTerminal(in: workspace.key, cwd: root.path, size: CellSize(cols: 80, rows: 24))
         }
-        let hosts = TerminalHosts.of(daemon: identity.pid)
-        #expect(hosts.count == 3)
+        // All host children, the spare (R81) included: none may outlive the shutdown.
+        let census = TerminalHosts.census(daemon: identity.pid, state: root.appendingPathComponent("state"))
+        let hosts = census.all
+        #expect(census.terminals.count == 3, "one host for each terminal: \(census)")
+        #expect(hosts.subtracting(census.terminals).count <= 1, "at most one spare host (R81): \(census)")
 
         let shutdown = Task {
             try await connection.request(ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation, endTerminals: true),

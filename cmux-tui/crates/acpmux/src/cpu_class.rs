@@ -14,25 +14,36 @@
 //! plist parse at disk tier 3) with under 1 s of CPU, and every Chief turn failed; the same
 //! command at normal class answered in 14.5 s. So:
 //!
-//! 1. The harness starts at its starter's class (an agent host's utility clamp, `qos.rs`, or the
-//!    daemon's class) and keeps no background class it would inherit: between fork and exec it
+//! 1. The harness starts at the daemon's class (its agent host starts there too and takes no
+//!    utility clamp, `qos.rs`: a person waits on a start) and keeps no background class it would
+//!    inherit: between fork and exec it
 //!    clears one set on its starter by the starter itself (an agent host under
 //!    `ACPMUX_QOS=background`, [`start_at_normal`]), and right after the spawn the daemon clears
 //!    one that another process set ([`clear_running`]; a process cannot clear that one itself).
 //!    The exec and the harness's own start run at normal CPU class. Disk I/O stays at the
-//!    starter's `IOPOL_UTILITY` (`qos.rs`): utility, not throttled.
+//!    host's `IOPOL_UTILITY` (`qos.rs`): utility, not throttled.
 //! 2. Once the session's start is over (its `initialize` and `session/new` or `session/load`
 //!    answered, `hub/lifecycle.rs` `ensure_child`), the daemon puts the running harness in its
 //!    class ([`CpuClass::enter`]): `setpriority(PRIO_DARWIN_PROCESS, pid, PRIO_DARWIN_BG)`, which
-//!    macOS allows on another process of the same user. Every process the harness starts after
+//!    macOS allows on another process of the same user. A `normal` harness goes to the agent
+//!    tier's nice instead (`qos::AGENT_NICE`: +11 on macOS, the utility clamp's base priority;
+//!    +5 on Linux, and its host's session group), with its whole process group in one
+//!    `setpriority(PRIO_PGRP)`: the processes it started during its start, its MCP servers and a
+//!    launcher's agent, at its own priority as under the clamp they replace. Every process the harness starts after
 //!    that inherits it, so the builds and tests of its turns run below the GUI. A process it
 //!    started during its start keeps the class it started at: an MCP server, and the real agent
 //!    of a harness that is only a launcher (a script or adapter that starts the agent as a child
 //!    and waits for it), whose turns then run at normal class. acpmux does not list processes
 //!    (`scripts/cmux-next/check-no-process-scan.py`), so only the harness itself is reniced, once.
 //!    So a Claude Code launcher defaults to `normal` ([`default_for`]): lowering it cannot reach
-//!    its agent's tools, and it can carry the agent's stream. `sr2 claude` relays Claude Code's
-//!    stdin and stdout, so at background class on a busy Mac (2026-11-08, load 450 on 15 cores)
+//!    its agent's tools, and it can carry the agent's stream. So does Codex's `app-server`: it
+//!    holds its model websocket in its own process and reads the macOS trust settings again on
+//!    every connect (`rustls-native-certs`). At background class on a busy Mac (2026-11-15,
+//!    load 217 on 15 cores) that read failed (`native_root_error_count=1`), the connect failed
+//!    `invalid peer certificate: UnknownIssuer` and a turn waited on its startup prewarm for
+//!    minutes: first token 167 s at background class, 3.4 s at normal, same `codex app-server`,
+//!    same minutes. An in-app Codex chat read as ready and never answered. `sr2 claude` relays
+//!    Claude Code's stdin and stdout, so at background class on a busy Mac (2026-11-08, load 450 on 15 cores)
 //!    what Claude Code wrote reached acpmux 6.5 s late at the median and 54 s at p90, against
 //!    0.1 s at p90 for the relays moved back to normal class in the same minutes. A tool call
 //!    whose PreToolUse hook got no answer within its 90 s was refused ("hook did not respond").
@@ -89,7 +100,11 @@ const CLAUDE_INSTALLS: &[&str] =
 /// then it and its tools run at normal class; its profile can still ask for `background`.
 /// It reads the profile's `argv`, not the spawned program: a remote chain spawns `sandbox-exec`
 /// whatever the profile runs. An empty `argv` runs `claude` (`claude_stdio::spawn_plan`).
+/// A Codex `app-server` profile defaults to `normal` too (module docs, item 2).
 pub fn default_for(kind: crate::config::HarnessKind, argv: &[String]) -> CpuClass {
+    if crate::codex_app_server::is_profile_launch(argv) {
+        return CpuClass::Normal;
+    }
     let launcher = kind == crate::config::HarnessKind::ClaudeStdio
         && argv.first().is_some_and(|program| {
             let name = std::path::Path::new(program).file_name().and_then(|name| name.to_str());
@@ -156,15 +171,21 @@ impl CpuClass {
             .unwrap_or(default)
     }
 
-    /// Puts the running harness `pid` in this class (macOS; elsewhere nothing). Only
-    /// `Background` changes it, and only lowers. `pid` must be a harness its caller holds (a direct
-    /// child not reaped yet, or one its agent host reports alive): a pid that another process took
-    /// would be lowered instead. True when the class was set.
+    /// Puts the running harness `pid` in this class once its session's start is over, and only
+    /// lowers: its process group at the agent tier's nice value (`qos::AGENT_NICE`; on Linux its
+    /// host's session too) unless `ACPMUX_QOS=off`, then for `Background` the harness in
+    /// background class (macOS). The start itself ran at the daemon's tier (`qos.rs`). `pid` must
+    /// be a harness its caller holds (a direct child not reaped yet, or one its agent host reports
+    /// alive): a pid that another process took would be lowered instead. True when it was lowered.
     pub fn enter(self, pid: u32) -> bool {
-        if self == Self::Normal {
-            return false;
+        // Both classes leave the start's priority for the agent tier: on Linux that is all the
+        // lowering there is (it has no background class), and on macOS it takes the processes the
+        // harness started during its start (its MCP servers) with it, as the utility clamp did.
+        let tier = crate::qos::enabled() && imp::to_agent_tier(pid);
+        match self {
+            Self::Background => imp::set_background(pid, true) || tier,
+            Self::Normal => tier,
         }
-        imp::set_background(pid, true)
     }
 }
 
@@ -182,7 +203,17 @@ pub fn start_at_normal(cmd: &mut tokio::process::Command) {
             Ok(())
         });
     }
-    #[cfg(not(target_os = "macos"))]
+    // A daemon that took a negative nice (`daemon_priority.rs`) starts its harness at no better
+    // than the default: the daemon outranks its agents, never lends them its rank.
+    #[cfg(unix)]
+    // SAFETY: as above: getpriority(2) and setpriority(2) on itself, async-signal-safe.
+    unsafe {
+        cmd.pre_exec(|| {
+            crate::qos::at_least_default_nice();
+            Ok(())
+        });
+    }
+    #[cfg(not(unix))]
     let _ = cmd;
 }
 
@@ -267,7 +298,7 @@ impl HarnessState {
     }
 }
 
-/// The state of the running process `pid` (macOS; elsewhere None). None once it ended or when the
+/// The state of the running process `pid` (macOS, Linux; elsewhere None). None once it ended or when the
 /// kernel refuses (another user's process).
 pub fn harness_state(pid: u32) -> Option<HarnessState> {
     imp::state(pid)
@@ -356,9 +387,45 @@ impl std::fmt::Display for HarnessState {
     }
 }
 
+/// Every process of the harness `pid`'s process group (it leads one: `agent_host/host.rs`,
+/// `agent/command.rs`), so the harness, the processes it started during its start (its MCP
+/// servers, a launcher's agent) and on Linux every thread of each, at [`crate::qos::AGENT_NICE`],
+/// in one call and with no process listed. Processes they start later inherit it. Never raises
+/// one: a group already at or past it is left, and an unprivileged process cannot lower a nice.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn lower_group(pid: u32) -> bool {
+    // `id_t` is the pid's own width on both platforms.
+    let group: libc::id_t = pid;
+    if group == 0 {
+        return false;
+    }
+    // `getpriority` answers -1 both for nice -1 and for an error: errno says which.
+    #[cfg(target_os = "macos")]
+    // SAFETY: the calling thread's errno.
+    let errno = || unsafe { libc::__error() };
+    #[cfg(target_os = "linux")]
+    // SAFETY: the calling thread's errno.
+    let errno = || unsafe { libc::__errno_location() };
+    // SAFETY: plain syscalls on a group its caller holds the leader of; the kernel checks that
+    // each process runs as this user. `PRIO_PGRP`'s get answers the group's lowest nice.
+    unsafe {
+        *errno() = 0;
+        let now = libc::getpriority(libc::PRIO_PGRP, group);
+        if *errno() != 0 {
+            return false;
+        }
+        now >= crate::qos::AGENT_NICE
+            || libc::setpriority(libc::PRIO_PGRP, group, crate::qos::AGENT_NICE) == 0
+    }
+}
+
 #[cfg(target_os = "macos")]
 mod imp {
     use super::HarnessState;
+
+    pub(super) fn to_agent_tier(pid: u32) -> bool {
+        super::lower_group(pid)
+    }
 
     /// `PRIO_DARWIN_BG` on (`on`) or off for the process `pid`, another process of this user.
     pub(super) fn set_background(pid: u32, on: bool) -> bool {
@@ -382,7 +449,10 @@ mod imp {
     }
 
     /// `proc_pidinfo(pid, flavor)` into a `T`, or None.
-    fn pidinfo<T>(pid: libc::c_int, flavor: libc::c_int) -> Option<T> {
+    ///
+    /// # Safety
+    /// `T` must be the C struct the kernel writes for `flavor`: integers only, valid for any bytes.
+    unsafe fn pidinfo<T>(pid: libc::c_int, flavor: libc::c_int) -> Option<T> {
         let mut out = std::mem::MaybeUninit::<T>::zeroed();
         let size = libc::c_int::try_from(std::mem::size_of::<T>()).ok()?;
         // SAFETY: the buffer is `size` bytes of a `T`, which the kernel fills for this flavor.
@@ -426,8 +496,10 @@ mod imp {
     #[allow(deprecated)]
     pub(super) fn state(pid: u32) -> Option<HarnessState> {
         let id = libc::c_int::try_from(pid).ok().filter(|p| *p > 0)?;
-        let task: libc::proc_taskinfo = pidinfo(id, libc::PROC_PIDTASKINFO)?;
-        let bsd: libc::proc_bsdinfo = pidinfo(id, libc::PROC_PIDTBSDINFO)?;
+        // SAFETY: proc_taskinfo is the integer-only struct PROC_PIDTASKINFO writes.
+        let task: libc::proc_taskinfo = unsafe { pidinfo(id, libc::PROC_PIDTASKINFO) }?;
+        // SAFETY: proc_bsdinfo is the integer-only struct PROC_PIDTBSDINFO writes.
+        let bsd: libc::proc_bsdinfo = unsafe { pidinfo(id, libc::PROC_PIDTBSDINFO) }?;
         // The task's CPU times are in Mach time units (nanoseconds only on Intel).
         let mut base = libc::mach_timebase_info { numer: 1, denom: 1 };
         // SAFETY: the call fills the struct it is given.
@@ -446,14 +518,19 @@ mod imp {
         let kids: Vec<(libc::c_int, libc::c_int, libc::proc_taskinfo)> = tree(id)
             .into_iter()
             .skip(1)
-            .filter_map(|(kid, parent)| Some((kid, parent, pidinfo(kid, libc::PROC_PIDTASKINFO)?)))
+            .filter_map(|(kid, parent)| {
+                // SAFETY: proc_taskinfo is the integer-only struct PROC_PIDTASKINFO writes.
+                let task = unsafe { pidinfo(kid, libc::PROC_PIDTASKINFO) }?;
+                Some((kid, parent, task))
+            })
             .collect();
         // Its first process: of those it started itself, the one that started first.
         let first_child = kids
             .iter()
             .filter(|(_, parent, _)| *parent == id)
             .filter_map(|(kid, _, t)| {
-                let b: libc::proc_bsdinfo = pidinfo(*kid, libc::PROC_PIDTBSDINFO)?;
+                // SAFETY: proc_bsdinfo is the integer-only struct PROC_PIDTBSDINFO writes.
+                let b: libc::proc_bsdinfo = unsafe { pidinfo(*kid, libc::PROC_PIDTBSDINFO) }?;
                 Some(((b.pbi_start_tvsec, b.pbi_start_tvusec), *kid, name_of(&b), t))
             })
             .min_by_key(|(started, kid, _, _)| (*started, *kid))
@@ -515,6 +592,41 @@ mod imp {
         false
     }
 
+    /// The harness's process group at [`crate::qos::AGENT_NICE`] ([`super::lower_group`]), and
+    /// the session it runs in (its agent host's, which leads one: `agent_host/link.rs`) at the same
+    /// nice. Where the scheduler groups processes by session (autogroup, a process outside a CPU
+    /// cgroup), a session's share against the rest of the machine is its group's nice, not its
+    /// processes', so the group is lowered too. Never the daemon's own session (a harness it
+    /// started directly).
+    pub(super) fn to_agent_tier(pid: u32) -> bool {
+        let lowered = super::lower_group(pid);
+        let Ok(target) = libc::pid_t::try_from(pid) else { return lowered };
+        // SAFETY: getsid reads; a pid that is gone answers -1.
+        let (theirs, ours) = unsafe { (libc::getsid(target), libc::getsid(0)) };
+        if lowered && theirs > 0 && theirs != ours {
+            lower_autogroup(pid);
+        }
+        lowered
+    }
+
+    /// `/proc/<pid>/autogroup` at [`crate::qos::AGENT_NICE`], when the kernel has it and it is
+    /// lower: absent without `CONFIG_SCHED_AUTOGROUP`, and a no-op for a process in a CPU cgroup.
+    /// The kernel takes an unprivileged change at most every 100 ms across the machine (`EAGAIN`):
+    /// a start that lands in another's 100 ms keeps its group's nice, and its harness's own.
+    fn lower_autogroup(pid: u32) {
+        let path = format!("/proc/{pid}/autogroup");
+        // "/autogroup-123 nice 0"
+        let now = std::fs::read_to_string(&path).ok().and_then(|text| {
+            text.split_whitespace().last().and_then(|nice| nice.parse::<libc::c_int>().ok())
+        });
+        if now.is_none_or(|nice| nice >= crate::qos::AGENT_NICE) {
+            return;
+        }
+        if let Err(e) = std::fs::write(&path, crate::qos::AGENT_NICE.to_string()) {
+            tracing::debug!(pid, "lowering {path}: {e}");
+        }
+    }
+
     /// The one process record's fields after the parenthesized command name.
     /// The command may contain spaces, so split only after its final `)`.
     fn stat(pid: u32) -> Option<Vec<String>> {
@@ -536,8 +648,130 @@ mod imp {
         ticks(pid)
     }
 
-    pub(super) fn state(_pid: u32) -> Option<HarnessState> {
-        None
+    /// The kernel's clock ticks per second (`USER_HZ`), for `/proc` CPU times.
+    fn clock_ticks() -> u64 {
+        // SAFETY: sysconf reads a constant.
+        let hz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
+        u64::try_from(hz).ok().filter(|hz| *hz > 0).unwrap_or(100)
+    }
+
+    /// The processes `pid` started, from each of its threads' `children` file (no process
+    /// listing). Empty where the kernel lacks `CONFIG_PROC_CHILDREN`.
+    fn children(pid: u32) -> Vec<u32> {
+        let Ok(tasks) = std::fs::read_dir(format!("/proc/{pid}/task")) else { return Vec::new() };
+        let mut kids = Vec::new();
+        for task in tasks.flatten() {
+            let Ok(text) = std::fs::read_to_string(task.path().join("children")) else { continue };
+            kids.extend(text.split_whitespace().filter_map(|k| k.parse::<u32>().ok()));
+        }
+        kids
+    }
+
+    /// `pid` and every process under it, `(pid, parent)`, at most 256 (a harness never has
+    /// more; a runaway tree is not walked whole).
+    fn tree(root: u32) -> Vec<(u32, u32)> {
+        let mut out = vec![(root, 0)];
+        let mut i = 0;
+        while i < out.len() && out.len() < 256 {
+            let (pid, _) = out[i];
+            for kid in children(pid) {
+                if !out.iter().any(|(p, _)| *p == kid) {
+                    out.push((kid, pid));
+                }
+            }
+            i += 1;
+        }
+        out
+    }
+
+    /// How many of `pid`'s threads were on a CPU or ready for one (`R`) when read.
+    fn running_threads(pid: u32) -> i32 {
+        let Ok(tasks) = std::fs::read_dir(format!("/proc/{pid}/task")) else { return 0 };
+        let mut running = 0;
+        for task in tasks.flatten() {
+            let Ok(raw) = std::fs::read_to_string(task.path().join("stat")) else { continue };
+            if raw.rsplit_once(')').and_then(|(_, f)| f.split_whitespace().next()) == Some("R") {
+                running += 1;
+            }
+        }
+        running
+    }
+
+    fn comm(pid: u32) -> String {
+        std::fs::read_to_string(format!("/proc/{pid}/comm"))
+            .map(|s| s.trim_end().to_owned())
+            .unwrap_or_default()
+    }
+
+    /// One process's record: CPU ticks, threads, major faults (pages read in), priority, start
+    /// time in ticks since boot.
+    struct Record {
+        ticks: u64,
+        threads: i32,
+        majflt: u64,
+        priority: i32,
+        started: u64,
+    }
+
+    /// `/proc/<pid>/stat` after the command name: index 9 `majflt` (field 12), 11 and 12
+    /// `utime`/`stime`, 15 `priority`, 17 `num_threads`, 19 `starttime`.
+    fn record(pid: u32) -> Option<Record> {
+        let f = stat(pid)?;
+        let num = |i: usize| f.get(i).and_then(|v| v.parse::<u64>().ok());
+        Some(Record {
+            ticks: num(11)?.saturating_add(num(12)?),
+            majflt: num(9).unwrap_or(0),
+            priority: f.get(15).and_then(|v| v.parse::<i32>().ok()).unwrap_or(20),
+            threads: i32::try_from(num(17).unwrap_or(1)).unwrap_or(i32::MAX),
+            started: num(19).unwrap_or(0),
+        })
+    }
+
+    /// The state of `pid` and the processes under it, from `/proc` (no-hangs, 2026-11-24: Linux
+    /// read none, so a start that waited on its harness (`StartWatch`) never ended there however
+    /// long the harness sat idle).
+    pub(super) fn state(pid: u32) -> Option<HarnessState> {
+        let root = record(pid)?;
+        let hz = clock_ticks();
+        let to_ms = |ticks: u64| ticks.saturating_mul(1000) / hz;
+        let (mut ticks, mut threads, mut running, mut pageins, mut processes) =
+            (0u64, 0i32, 0i32, 0u64, 0i32);
+        let mut first: Option<(u64, u32, Record)> = None;
+        for (p, parent) in tree(pid) {
+            let Some(r) = record(p) else { continue };
+            ticks = ticks.saturating_add(r.ticks);
+            threads = threads.saturating_add(r.threads);
+            running = running.saturating_add(running_threads(p));
+            pageins = pageins.saturating_add(r.majflt);
+            processes += 1;
+            if parent == pid && first.as_ref().is_none_or(|(at, k, _)| (r.started, p) < (*at, *k)) {
+                first = Some((r.started, p, r));
+            }
+        }
+        let uptime = std::fs::read_to_string("/proc/uptime")
+            .ok()
+            .and_then(|s| s.split_whitespace().next().and_then(|v| v.parse::<f64>().ok()))
+            .unwrap_or(0.0) as u64;
+        let first_child = first.map(|(_, kid, r)| super::ChildSeen {
+            pid: kid,
+            name: comm(kid),
+            cpu_ms: to_ms(r.ticks),
+            pageins: r.majflt,
+        });
+        Some(HarnessState {
+            pid,
+            priority: root.priority,
+            // Linux has no background class acpmux sets (`set_background`).
+            background: false,
+            ran_secs: uptime.saturating_sub(root.started / hz),
+            cpu_ms: to_ms(ticks),
+            threads,
+            threads_running: running,
+            processes,
+            pageins,
+            name: comm(pid),
+            first_child,
+        })
     }
 }
 
@@ -546,6 +780,10 @@ mod imp {
     use super::HarnessState;
 
     pub(super) fn set_background(_pid: u32, _on: bool) -> bool {
+        false
+    }
+
+    pub(super) fn to_agent_tier(_pid: u32) -> bool {
         false
     }
 
@@ -585,6 +823,33 @@ mod tests {
         // Another protocol keeps the default: no case of a relay is known there.
         assert_eq!(default(HarnessKind::Acp, "/Users/me/.local/bin/codex"), DEFAULT);
         assert_eq!(default(HarnessKind::Acp, "sr2"), DEFAULT);
+    }
+
+    /// 2026-11-15: Codex's app-server at background class failed its own TLS (`UnknownIssuer`)
+    /// and answered a turn in 167 s, against 3.4 s at normal class (module docs, item 2).
+    #[test]
+    fn a_codex_app_server_defaults_to_normal() {
+        let argv = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        for launch in [
+            argv(&["/Users/me/.local/bin/codex", "app-server"]),
+            argv(&[
+                "codex",
+                "-c",
+                "agents.max_depth=16",
+                "-c",
+                "tools.update_plan.enabled=true",
+                "app-server",
+            ]),
+        ] {
+            assert_eq!(default_for(HarnessKind::Acp, &launch), CpuClass::Normal, "{launch:?}");
+        }
+        // Other Codex commands, and the profile's own `cpuClass`, still decide as before.
+        assert_eq!(
+            default_for(HarnessKind::Acp, &argv(&["codex", "app-server", "proxy"])),
+            DEFAULT
+        );
+        let bg = CpuClass::resolve(Some("background"), None, None, CpuClass::Normal);
+        assert_eq!(bg, CpuClass::Background);
     }
 
     #[test]
@@ -713,6 +978,39 @@ mod tests {
         let late = std::time::Duration::from_secs(30);
         assert!(!HarnessState { cpu_ms: 114, ..idle.clone() }.worked_since(&idle, late));
         assert!(HarnessState { cpu_ms: 115, ..idle.clone() }.worked_since(&idle, late));
+    }
+
+    /// no-hangs: Linux read no harness state, so `StartWatch` never judged a start there. A
+    /// process that sleeps reads as alive and idle, one that spins as working, and the tree
+    /// counts the process it started.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_harness_state_reads_the_process_tree_and_tells_work_from_idle() {
+        let mut sleeper = std::process::Command::new("sh")
+            .args(["-c", "sleep 30 & wait"])
+            .spawn()
+            .expect("spawn sh");
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let a = harness_state(sleeper.id()).expect("read the sleeper");
+        assert_eq!(a.processes, 2, "{a:?}");
+        assert_eq!(a.first_child.as_ref().map(|c| c.name.as_str()), Some("sleep"), "{a:?}");
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let b = harness_state(sleeper.id()).expect("read the sleeper again");
+        assert!(!b.worked_since(&a, WORK_WINDOW), "a sleeping tree counted as work: {a:?} {b:?}");
+        let _ = sleeper.kill();
+        let _ = sleeper.wait();
+
+        let mut spinner = std::process::Command::new("sh")
+            .args(["-c", "while :; do :; done"])
+            .spawn()
+            .expect("spawn sh");
+        let a = harness_state(spinner.id()).expect("read the spinner");
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        let b = harness_state(spinner.id()).expect("read the spinner again");
+        let _ = spinner.kill();
+        let _ = spinner.wait();
+        assert!(b.cpu_ms > a.cpu_ms, "{a:?} {b:?}");
+        assert!(b.worked_since(&a, WORK_WINDOW), "{a:?} {b:?}");
     }
 
     #[cfg(target_os = "linux")]

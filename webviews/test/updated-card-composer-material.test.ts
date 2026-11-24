@@ -37,10 +37,12 @@ test("the shared edge is the composer's edge share, one hairline on every side",
 });
 
 /** What a `color-mix(in srgb, A N%, B)` value mixes toward: its last argument, B. */
+/** A theme hook's fallback (`var(--cmux-…, today)` -> `today`): the value drawn when no theme sets it. */
+const unhook = (value: string) => /^var\(--cmux-[a-z-]+,\s*(.*)\)$/.exec(value)?.[1]?.trim() ?? value;
 const mixTarget = (value: string) => /,\s*([^,]+(?:\([^()]*(?:\([^()]*\))?[^()]*\))?)\s*\)$/.exec(value)?.[1]?.trim();
 
 test("the shared edge mixes toward the page under it, as the composer's does, so an opaque theme draws the same line", () => {
-  const composer = mixTarget(declaration(composerStyles, "--acpmux-composer-edge"));
+  const composer = mixTarget(unhook(declaration(composerStyles, "--acpmux-composer-edge")));
   const shared = mixTarget(declaration(material, "--composer-material-edge"));
   expect(composer).toStartWith("var(--agent-page-bg");
   expect(shared).toStartWith("var(--agent-page-bg");
@@ -102,7 +104,7 @@ test("the doodle-decorated card wears the same material", () => {
 test("where the composer wears the glass material, the card's rim and depth are that material's", () => {
   const override = /@media not \(prefers-reduced-transparency: reduce\) \{([\s\S]*?)\n\}/.exec(material)?.[1] ?? "";
   expect(override).toContain("--composer-material-rim: var(--glass-material-rim)");
-  expect(override).toContain("--composer-material-depth: var(--glass-material-depth)");
+  expect(override).toContain("--composer-material-depth: var(--glass-material-depth-composer)");
   expect(override).toContain("data-reduce-transparency");
   expect(override).toMatch(/data-cmux-see-through[^{]*data-glass="lens"/);
   expect(declaration(material, "--composer-material-depth")).toBe("0 0 transparent");

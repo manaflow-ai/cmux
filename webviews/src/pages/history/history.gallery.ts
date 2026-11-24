@@ -136,6 +136,11 @@ export default historyPageEntry({
       note: "All five history kinds, including a running agent and an unavailable row.",
       entries,
     },
+    "still-loading": {
+      note: "The owner's list is not complete yet: the rows that came, under one quiet still-loading line.",
+      entries,
+      pending: true,
+    },
     "many-entries": {
       note: "A long command timeline that scrolls and wraps long names.",
       entries: [...many, ...entries],
@@ -156,7 +161,7 @@ export default historyPageEntry({
       error: "network",
     },
     "permission-error": {
-      note: "A refused remove announces the host error and leaves the timeline intact.",
+      note: "A refused remove announces a plain error (never the host's own text) and leaves the timeline intact.",
       entries,
       error: "permission",
       query: { menuIndex: 1 },
@@ -167,7 +172,7 @@ export default historyPageEntry({
         await ctx.waitFor(
           () =>
             ctx.document.querySelector<HTMLElement>('[role="alert"].history-error')?.textContent ===
-            "history cannot be changed",
+            "Something went wrong. Try again.",
         );
         if (!ctx.document.querySelector(".history-row")) throw new Error("history rows disappeared after refusal");
       },

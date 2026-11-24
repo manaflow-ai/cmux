@@ -10,9 +10,13 @@ fn split_ids_serialize_stably_and_both_ratio_commands_work() {
     let second = mux.split(first_pane, SplitDir::Right, None).unwrap();
     let second_pane = mux.with_state(|state| state.pane_of(second.id).unwrap());
 
-    let before =
-        handle_command(&mux, mux.local_test_client(0), Command::ListWorkspaces, &test_writer())
-            .unwrap();
+    let before = handle_command(
+        &mux,
+        mux.local_test_client(0),
+        Command::ListWorkspaces { known: None, limit: None, after: None },
+        &test_writer(),
+    )
+    .unwrap();
     let split = before["workspaces"][0]["screens"][0]["layout"]["split"]
         .as_u64()
         .expect("protocol v8 split id");
@@ -25,9 +29,13 @@ fn split_ids_serialize_stably_and_both_ratio_commands_work() {
     }))
     .unwrap();
     handle_command(&mux, mux.local_test_client(0), request.cmd, &test_writer()).unwrap();
-    let after_exact =
-        handle_command(&mux, mux.local_test_client(0), Command::ListWorkspaces, &test_writer())
-            .unwrap();
+    let after_exact = handle_command(
+        &mux,
+        mux.local_test_client(0),
+        Command::ListWorkspaces { known: None, limit: None, after: None },
+        &test_writer(),
+    )
+    .unwrap();
     assert_eq!(after_exact["workspaces"][0]["screens"][0]["layout"]["split"], split);
     let exact_ratio = after_exact["workspaces"][0]["screens"][0]["layout"]["ratio"]
         .as_f64()
@@ -43,9 +51,13 @@ fn split_ids_serialize_stably_and_both_ratio_commands_work() {
     }))
     .unwrap();
     handle_command(&mux, mux.local_test_client(0), legacy.cmd, &test_writer()).unwrap();
-    let after_legacy =
-        handle_command(&mux, mux.local_test_client(0), Command::ListWorkspaces, &test_writer())
-            .unwrap();
+    let after_legacy = handle_command(
+        &mux,
+        mux.local_test_client(0),
+        Command::ListWorkspaces { known: None, limit: None, after: None },
+        &test_writer(),
+    )
+    .unwrap();
     assert_eq!(after_legacy["workspaces"][0]["screens"][0]["layout"]["split"], split);
     let legacy_ratio = after_legacy["workspaces"][0]["screens"][0]["layout"]["ratio"]
         .as_f64()
@@ -75,9 +87,13 @@ fn workspace_tree_exposes_stable_resource_ids_for_startup_attach_and_receipts() 
         ContentPublicId::Browser(_) => panic!("workspace started with a browser"),
     };
 
-    let tree =
-        handle_command(&mux, mux.local_test_client(0), Command::ListWorkspaces, &test_writer())
-            .unwrap();
+    let tree = handle_command(
+        &mux,
+        mux.local_test_client(0),
+        Command::ListWorkspaces { known: None, limit: None, after: None },
+        &test_writer(),
+    )
+    .unwrap();
 
     for (path, prefix) in [
         (&tree["workspaces"][0]["resource_id"], "ws_"),
@@ -99,11 +115,15 @@ fn projected_split_ratio_range_failure_is_not_reported_as_unknown() {
     let first = mux.new_workspace(None, Some((80, 22))).unwrap();
     let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
     mux.new_pane_right(pane, 0.5, Some((38, 22))).unwrap();
-    let split =
-        handle_command(&mux, mux.local_test_client(0), Command::ListWorkspaces, &test_writer())
-            .unwrap()["workspaces"][0]["screens"][0]["layout"]["split"]
-            .as_u64()
-            .expect("viewport projection exposes a stable split");
+    let split = handle_command(
+        &mux,
+        mux.local_test_client(0),
+        Command::ListWorkspaces { known: None, limit: None, after: None },
+        &test_writer(),
+    )
+    .unwrap()["workspaces"][0]["screens"][0]["layout"]["split"]
+        .as_u64()
+        .expect("viewport projection exposes a stable split");
     let outbound = Arc::new(BoundedOutbound::default());
     let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
 
@@ -331,6 +351,8 @@ fn create_terminal_rejects_partial_dimensions() {
                 env: None,
                 keep: false,
                 detached: false,
+                create_workspace: false,
+                workspace_name: None,
                 mutation: MutationRequest::default(),
             },
             &test_writer(),
@@ -359,6 +381,8 @@ fn mutation_specific_raw_terminal_create_updates_public_projection_once() {
         env: None,
         keep: false,
         detached: false,
+        create_workspace: false,
+        workspace_name: None,
         mutation: MutationRequest {
             origin: Some("raw-projection-test".to_string()),
             mutation_id: Some("raw-terminal-create-once".to_string()),
@@ -430,6 +454,7 @@ fn creation_receipts_replay_exact_surfaces_across_control_connections() {
                 device_name: None,
                 device_id: None,
                 api_revision: None,
+                api_version: None,
                 version: None,
                 install: None,
                 remote: None,
@@ -540,6 +565,7 @@ fn browser_receipt_targets_an_exact_empty_workspace_without_focus_state() {
             device_name: None,
             device_id: None,
             api_revision: None,
+            api_version: None,
             version: None,
             install: None,
             remote: None,
@@ -636,6 +662,7 @@ fn creation_selector_fallbacks_are_negotiated_atomic_and_durably_replayed() {
                 device_name: None,
                 device_id: None,
                 api_revision: None,
+                api_version: None,
                 version: None,
                 install: None,
                 remote: None,
@@ -1001,6 +1028,14 @@ fn undecodable_requests_reply_with_their_request_id() {
     }
 }
 
+/// The refusal a message gets once the daemon's shutdown or handoff began: not executed, with the
+/// stable code a client waits on for the shutdown notice.
+fn assert_refused_unexecuted(reply: &Value, id: u64) {
+    assert_eq!(reply["id"], id, "{reply}");
+    assert_eq!(reply["ok"], false, "{reply}");
+    assert_eq!(reply["error_code"], DAEMON_SHUTDOWN_PENDING_CODE, "{reply}");
+}
+
 #[test]
 fn shutdown_requester_waits_for_owner_eof_and_rejects_pipelined_mutations() {
     let mux = test_mux();
@@ -1040,6 +1075,8 @@ fn shutdown_requester_waits_for_owner_eof_and_rejects_pipelined_mutations() {
     .to_string();
     assert!(!handle_connection_message(&mux, requester, &pipelined, &writer, &scheduler,));
     assert_eq!(mux.with_state(|state| state.workspaces.len()), workspace_count);
+    // Refused unexecuted before the close, never dispatched (shutdown_refusal.rs).
+    assert_refused_unexecuted(&pop_json(&outbound), 99);
     assert!(outbound.try_pop().is_none());
 }
 
@@ -1065,6 +1102,8 @@ fn daemon_handoff_fences_pipelined_messages_before_shutdown_flag() {
     .to_string();
     assert!(!handle_connection_message(&mux, requester, &pipelined, &writer, &scheduler));
     assert_eq!(mux.with_state(|state| state.workspaces.len()), workspace_count);
+    // Refused unexecuted before the close, never dispatched (shutdown_refusal.rs).
+    assert_refused_unexecuted(&pop_json(&outbound), 99);
     assert!(outbound.try_pop().is_none());
 }
 
@@ -1146,6 +1185,7 @@ fn daemon_shutdown_force_preserves_the_identity_fence() {
             device_name: None,
             device_id: None,
             api_revision: None,
+            api_version: None,
             version: None,
             install: None,
             remote: None,
@@ -1213,6 +1253,7 @@ fn daemon_shutdown_atomically_fences_native_browser_ownership() {
             device_name: None,
             device_id: None,
             api_revision: None,
+            api_version: None,
             version: None,
             install: None,
             remote: None,
@@ -1231,6 +1272,7 @@ fn daemon_shutdown_atomically_fences_native_browser_ownership() {
             end_terminals: false,
             keep_layout: false,
             restart: None,
+            if_idle: false,
         },
         &requester_writer,
     )
@@ -1255,6 +1297,7 @@ fn daemon_shutdown_atomically_fences_native_browser_ownership() {
             end_terminals: false,
             keep_layout: false,
             restart: None,
+            if_idle: false,
         },
         &requester_writer,
     )
@@ -1272,6 +1315,7 @@ fn daemon_shutdown_atomically_fences_native_browser_ownership() {
             device_name: None,
             device_id: None,
             api_revision: None,
+            api_version: None,
             version: None,
             install: None,
             remote: None,

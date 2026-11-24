@@ -3,7 +3,7 @@
 
 Usage:
   rust-workspaces.py check [--repo ROOT]
-  rust-workspaces.py plan [--repo ROOT] [--base SHA]
+  rust-workspaces.py plan [--repo ROOT] [--base SHA] [--own-only]
   rust-workspaces.py run ROOT [--repo ROOT]
 
 Only cmux-tui's own workspace had PR clippy (cmux-tui-spec.yml), and the
@@ -21,7 +21,11 @@ and build dependencies further down), the manifest such a package inherits from,
 file those packages' sources read from elsewhere in the tree (an `include_str!`,
 `include_bytes!` or `CARGO_MANIFEST_DIR` join of a literal path, or any "../..."
 literal naming a tracked path), or a path in the entry's `inputs`. With no usable base, or when the list or
-this check changes, it plans every one. `run` lints and tests one workspace:
+this check changes, it plans every one. With --own-only (pull requests since 2026-11-21) it plans a
+workspace only when the change touches its own packages, a file those read from elsewhere or its `inputs`,
+not a path dependency: a feat-cmux-next push still plans the whole reach, so a red a dependency causes
+shows on the tip (CI 10x: 1.9% of pull request runner-minutes went to the cmux-tui crate and sample
+workspaces with no red only they caught in a week, 1.11% to optchat-chief for 0.26%). `run` lints and tests one workspace:
 `cargo clippy --workspace --all-targets -- -D warnings`, then `cargo test --workspace`,
 with --locked when it tracks a Cargo.lock; both run, and either failing fails it.
 """
@@ -58,6 +62,7 @@ DEPENDENCY_TABLES = ("dependencies", "dev-dependencies", "build-dependencies")
 INCLUDE = re.compile(r'include_(?:str|bytes)!\(\s*(concat!\(\s*)?"([^"]+)"')
 # Any other "../..." string literal: a helper's join or a build script's const. It counts
 # when it names a tracked path from the source's directory or one above it.
+AFFECTED_READS = re.compile(r"//\s*affected-reads:([^\n]*)")
 PARENT_LITERAL = re.compile(r'"((?:\.\./)+[^"\s{}*]+)"')
 MANIFEST_DIR = re.compile(
     r'(?:env!\(\s*"CARGO_MANIFEST_DIR"\s*\)\s*\)?\s*\.join\(\s*|concat!\(\s*env!\(\s*"CARGO_MANIFEST_DIR"\s*\)\s*,\s*)"([^"]+)"')
@@ -88,7 +93,15 @@ class Tree:
                 return key
         return None
 
+    def workspace_named(self, directory: str) -> str | None:
+        """The workspace the package's own `package.workspace` names (cmux-rd-ffi: "../cmux-app-ffi"), which cargo
+        takes over the nearest one above it (cmux#42082 review F1)."""
+        named = self.manifests.get(directory, {}).get("package", {}).get("workspace")
+        return os.path.normpath(str(PurePosixPath(directory) / named)) if isinstance(named, str) else None
+
     def excluded(self, root: str, directory: str) -> bool:
+        if not under(directory, root):
+            return False  # a member beside the root ("../x") is outside every `exclude` entry
         relative = str(PurePosixPath(directory).relative_to(root))
         return any(relative == path.rstrip("/") or relative.startswith(path.rstrip("/") + "/")
                    for path in self.manifests[root]["workspace"].get("exclude", []))
@@ -100,6 +113,8 @@ class Tree:
             if "workspace" in manifest:
                 found.add(directory)
             elif "package" in manifest:
+                if isinstance(manifest["package"].get("workspace"), str):
+                    continue  # a member of the workspace it names (cmux-rd-ffi names ../cmux-app-ffi)
                 above = self.workspace_above(directory)
                 if above is None or self.excluded(above, directory):
                     found.add(directory)
@@ -112,7 +127,8 @@ class Tree:
         found = {root} if "package" in manifest else set()
         if table is None:
             return found
-        patterns = [str(PurePosixPath(root) / member) for member in table.get("members", [])]
+        # Normalized: a member may sit beside the root (cmux-app-ffi's members are "../cmux-rd-ffi" and its siblings).
+        patterns = [os.path.normpath(str(PurePosixPath(root) / member)) for member in table.get("members", [])]
         for directory, other in self.manifests.items():
             if "package" in other and any(fnmatch(directory, pattern) for pattern in patterns) \
                     and not self.excluded(root, directory):
@@ -133,7 +149,8 @@ class Tree:
                 base = directory
                 if spec.get("workspace") is True:
                     # Inherited from the package's workspace: its own manifest when it is the root.
-                    base = directory if "workspace" in manifest else (self.workspace_above(directory) or directory)
+                    base = directory if "workspace" in manifest else (self.workspace_named(directory)
+                                                                      or self.workspace_above(directory) or directory)
                     spec = self.manifests.get(base, {}).get("workspace", {}).get("dependencies", {}).get(name, {})
                     if not isinstance(spec, dict):
                         continue
@@ -146,11 +163,16 @@ class Tree:
         members = self.members(root)
         seen = members | {root}
         manifest = self.manifests[root]
+        queue = [(member, DEPENDENCY_TABLES) for member in members]
         for spec in manifest.get("patch", {}).values():
             for patched in spec.values():
                 if isinstance(patched, dict) and "path" in patched:
-                    seen.add(os.path.normpath(str(PurePosixPath(root) / patched["path"])))
-        queue = [(member, DEPENDENCY_TABLES) for member in members]
+                    # A patched crate builds like a dependency: its own path and `{ workspace = true }` dependencies
+                    # are this workspace's too (cmux#41767 review class: cmux-next-ios/rust patches smoltcp).
+                    directory = os.path.normpath(str(PurePosixPath(root) / patched["path"]))
+                    if directory not in seen:
+                        seen.add(directory)
+                        queue.append((directory, ("dependencies", "build-dependencies")))
         while queue:
             directory, kinds = queue.pop()
             for dependency in self.path_dependencies(directory, kinds):
@@ -159,12 +181,22 @@ class Tree:
                     queue.append((dependency, ("dependencies", "build-dependencies")))
         return seen
 
-    def read_paths(self, directories: set[str]) -> set[str]:
-        """Repository paths outside `directories` that their Rust sources read by literal path."""
+    def read_paths(self, directories: set[str], built_only: set[str] = frozenset()) -> set[str]:
+        """Repository paths outside `directories`' own trees that their Rust sources read by literal path. A file
+        inside a nested workspace below one of them is outside its own tree, so it counts (cmux#41767 review F2:
+        `include_str!("../tool/data.txt")` in solo read a file of the nested solo/tool workspace).
+
+        In `built_only` (the path dependencies, not the workspace's own packages) only what the workspace builds
+        counts: their tests/, benches/ and examples/ are built by their own workspace's `cargo test`, never by this
+        one's. cmux-action-catalog's tests join CARGO_MANIFEST_DIR with "../../.." (the repository root), which
+        read as a read of the whole tree and planned five workspaces that use it on every change."""
         found = set()
         for directory in directories:
             for source in self.sources:
-                if not under(source, directory) or not (self.repo / source).is_file():
+                if not self.owns(directory, source) or not (self.repo / source).is_file():
+                    continue
+                if directory in built_only and PurePosixPath(source).relative_to(directory).parts[0] in (
+                        "tests", "benches", "examples"):
                     continue
                 text = (self.repo / source).read_text(encoding="utf-8", errors="replace")
                 # A concat! prefix may stop inside a file name: watch its directory.
@@ -177,10 +209,35 @@ class Tree:
                         path = os.path.normpath(str(base / literal))
                         if path in self.tracked:
                             paths.add(path)
+                if "." in paths:
+                    paths = (paths - {"."}) | set(self.root_reads(text))
                 for path in paths:
-                    if not path.startswith("..") and not any(under(path, d) for d in directories):
+                    if not path.startswith("..") and not any(self.owns(d, path) for d in directories):
                         found.add(path)
         return found
+
+    def root_reads(self, text: str) -> list[str]:
+        """What a source that names the repository root (CARGO_MANIFEST_DIR/../../..) reads under it: the paths
+        its `// affected-reads: PATH...` comments list (`none`: no repo path), else "." (every path); a listed
+        path that does not exist reads as ".". The same rule as scripts/ci/cargo_affected.py's root_reads: a
+        root reference read as the whole tree ran this workflow's cmux-app-ffi, cmux-remote-browser-host, cloud
+        server, ssh-terminal and optchat-chief jobs on 325 of 327 merged pull requests (2026-11-17)."""
+        listed = " ".join(AFFECTED_READS.findall(text)).split()
+        if not listed:
+            return ["."]
+        if listed == ["none"]:
+            return []
+        return sorted(set(listed)) if all((self.repo / p).exists() for p in listed) else ["."]
+
+    def owns(self, directory: str, path: str) -> bool:
+        """`path` is in `directory`'s tree with no other workspace root in between: a Cargo.toml below it with a
+        [workspace] of its own, or in a workspace's `exclude`, starts another workspace with its own lock, and a
+        change there is that one's (the cmux#41742 review's F1 class)."""
+        if not under(path, directory):
+            return False
+        if not hasattr(self, "_roots"):
+            self._roots = self.roots()
+        return not any(root != directory and under(root, directory) and under(path, root) for root in self._roots)
 
     def uses_package(self, directories: set[str], name: str) -> bool:
         return any(self.manifests.get(d, {}).get("package", {}).get("name") == name for d in directories)
@@ -234,9 +291,16 @@ def under(path: str, directory: str) -> bool:
     return directory == "." or path == directory or path.startswith(directory + "/")
 
 
-def plan(repo: Path, base: str) -> list[dict]:
+def plan(repo: Path, base: str, own_only: bool = False) -> list[dict]:
+    return plan_paths(repo, changed(repo, base), own_only=own_only)
+
+
+def plan_paths(repo: Path, paths: list[str] | None, own_only: bool = False) -> list[dict]:
+    """The `run = true` workspaces these changed paths reach (None: every one). scripts/ci/affected_tests.py
+    plans the same workspaces for a change, so `cmux-ci test --affected` runs what this workflow would.
+    OWN_ONLY: a workspace counts only when a path is its own (its packages, what they read, its `inputs`), not a
+    path dependency's; the build still uses the whole reach."""
     tree = Tree(repo)
-    paths = changed(repo, base)
     if paths is not None and any(path in EVERYTHING for path in paths):
         paths = None
     jobs = []
@@ -246,10 +310,16 @@ def plan(repo: Path, base: str) -> list[dict]:
         root = entry["root"]
         reach = tree.reach(root)
         if paths is not None:
+            own = tree.members(root) | {root}
+            scope = own if own_only else reach
             # A dependency outside the workspace may inherit from its own workspace's manifest.
-            watched = reach | {f"{above}/Cargo.toml" for above in map(tree.workspace_above, reach) if above}
-            watched |= tree.read_paths(reach) | set(entry.get("inputs", []))
-            if not any(under(path, directory) for path in paths for directory in watched):
+            watched = scope | {f"{above}/Cargo.toml" for above in map(tree.workspace_above, scope) if above}
+            # Files named explicitly (read by literal path, or listed as inputs) count wherever they are, inside a
+            # nested workspace too: no workspace boundary stops a file a source reads (cmux#41767 review F2).
+            explicit = tree.read_paths(scope, built_only=scope - own) \
+                | set(entry.get("inputs", []))
+            if not any(tree.owns(directory, path) for path in paths for directory in watched) \
+                    and not any(under(path, named) for path in paths for named in explicit):
                 continue
         jobs.append({
             "root": root,
@@ -257,6 +327,42 @@ def plan(repo: Path, base: str) -> list[dict]:
             "apt": " ".join(entry.get("apt", [])),
         })
     return jobs
+
+
+# The words every spelling of cargo's stale-lock refusal ends with (scripts/cmux-next/cargo-locks.py knows them all).
+STALE_LOCK_HINT = "--locked was passed"
+
+
+def run_cargo(command: list[str], cwd: Path, env: dict[str, str]) -> tuple[int, list[str]]:
+    """Run COMMAND with its output passed on as it comes. Returns its exit code and the stderr lines that name a
+    lock cargo refused to update under --locked: the only lines a failed run's cause needs."""
+    refusals = []
+    with subprocess.Popen(command, cwd=cwd, env=env, stderr=subprocess.PIPE, text=True, errors="replace") as proc:
+        for line in proc.stderr:
+            sys.stderr.write(line)
+            sys.stderr.flush()
+            if STALE_LOCK_HINT in line:
+                refusals.append(line)
+        return proc.wait(), refusals
+
+
+def warnings_soft(command: list[str], repo: Path) -> list[str]:
+    """COMMAND through scripts/ci/warnings_policy.py when CI_WARNINGS=soft (pull requests: warnings never fail
+    their compile; Leo, 2026-11-19), else as written."""
+    policy = repo / "scripts/ci/warnings_policy.py"
+    if os.environ.get("CI_WARNINGS", "").strip().lower() == "soft" and policy.is_file():
+        return [sys.executable, str(policy), "run", "--", *command]
+    return command
+
+
+def stale_lock_explained(repo: Path, refusals: list[str]) -> bool:
+    """True when REFUSALS hold cargo's stale-lock refusal: cargo-locks.py explain has then printed its cause and fix."""
+    if not refusals:
+        return False
+    explain = [sys.executable, str(Path(__file__).resolve().parents[2] / "scripts/cmux-next/cargo-locks.py"),
+               "explain", "-", "--repo", str(repo.resolve())]
+    sys.stdout.flush()
+    return subprocess.run(explain, input="".join(refusals), text=True).returncode == 0
 
 
 def run(repo: Path, root: str) -> int:
@@ -277,11 +383,15 @@ def run(repo: Path, root: str) -> int:
         for name, command in commands:
             print(f"::group::{root}: {' '.join(command)}", flush=True)
             # From the workspace so rustup uses the nearest rust-toolchain.toml.
-            rc = subprocess.run(command, cwd=repo / root, env=env).returncode
+            rc, refusals = run_cargo(warnings_soft(command, repo) if name == "clippy" else command, repo / root, env)
             print("::endgroup::", flush=True)
             if rc:
                 red.append(name)
-                print(f"::error title={root} {name}::`{' '.join(command)}` failed in {root}")
+                if stale_lock_explained(repo, refusals):
+                    print(f"::error title={root} {name}::a stale Cargo.lock in {root} (cargo --locked refused it; "
+                          "the fix is above)")
+                else:
+                    print(f"::error title={root} {name}::`{' '.join(command)}` failed in {root}")
     print(f"rust-workspaces: {root}: " + (f"red ({', '.join(red)})" if red else "clippy and tests green"))
     return 1 if red else 0
 
@@ -292,6 +402,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("root", nargs="?")
     parser.add_argument("--repo", type=Path)
     parser.add_argument("--base", default="")
+    parser.add_argument("--own-only", action="store_true",
+                        help="plan: a workspace only for a change to its own paths, not a path dependency's")
     args = parser.parse_args(argv)
     repo = (args.repo or Path(git(Path.cwd(), "rev-parse", "--show-toplevel").strip())).resolve()
     if args.command == "check":
@@ -302,7 +414,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"rust-workspaces: {LIST} lists every Cargo workspace")
         return 1 if problems else 0
     if args.command == "plan":
-        print(json.dumps(plan(repo, args.base.strip())))
+        print(json.dumps(plan(repo, args.base.strip(), own_only=args.own_only)))
         return 0
     if not args.root:
         parser.error("run needs a workspace root")

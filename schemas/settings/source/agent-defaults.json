@@ -68,7 +68,7 @@
           },
           "help": {
             "key": "settings.agents.promptCache.help",
-            "text": "How long Claude Code keeps a chat's prompt cached. One hour keeps replies after a pause cheap; its cache writes cost a little more."
+            "text": "One hour keeps replies after a pause cheap; its cache writes cost a little more."
           },
           "kind": "choice",
           "choices": [
@@ -109,7 +109,7 @@
           },
           "help": {
             "key": "settings.agents.modelRouter.model.help",
-            "text": "The model a new chat on the cmux model router starts on. A model you pick in a chat applies to that chat only."
+            "text": "The model new cmux model router chats start on."
           },
           "kind": "choice",
           "choices": [
@@ -153,6 +153,152 @@
             "inference",
             "default model",
             "new chat"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "agentTools",
+      "section": "general",
+      "group": {
+        "key": "settings.group.agentTools",
+        "text": "cmux Tools"
+      },
+      "note": "Settings > Agents > cmux Tools: whether agents the person starts in cmux (its terminals and agent chats) get cmux's MCP server (on by default), beside the card that lists the agents on this Mac, an old cmux entry in one's own config (with Remove) and the manual lines for agents started elsewhere.",
+      "rows": [
+        {
+          "key": "agents.cmuxMcp",
+          "name": "cmuxMcp",
+          "note": "Whether agents cmux starts get its cmux MCP server (cmux mcp serve, which carries cmux Computer Use): a Claude Code or Codex typed into a cmux terminal (the claude and codex shims, cmux-tui agent_mcp_choice.rs) and the app's agent chats (acpmux agent_tools.rs agents_get_cmux), all with one server definition named cmux (acpmux agent_tools::cmux_server) and the app's settings file. Only through the launch: cmux never writes an agent's own config; cmux setup mcp reports which agents get it and the manual lines a person runs to use it elsewhere. on (the default, also unset or any value but off: cmux's tools come with the app) gives the server (it also turns the server on for these agents unless mcp.enabled says otherwise, cli/mcp/config.rs); off gives none. A Chief turn keeps its own cmux tool list either way. Rust reads it with cmux_tui_core::user_settings::AgentsCmuxMcp.",
+          "title": {
+            "key": "settings.agents.cmuxMcp",
+            "text": "Give Agents cmux’s Tools"
+          },
+          "help": {
+            "key": "settings.agents.cmuxMcp.help",
+            "text": "Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. cmux never changes your agents’ own settings."
+          },
+          "summary": {
+            "key": "settings.agents.cmuxMcp.summary",
+            "text": "Whether agents you start in cmux get cmux’s tools"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "on",
+              "title": {
+                "key": "settings.agents.cmuxMcp.on",
+                "text": "On"
+              }
+            },
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.agents.cmuxMcp.off",
+                "text": "Off"
+              }
+            }
+          ],
+          "default": "on",
+          "keywords": [
+            "mcp",
+            "mcp server",
+            "cmux tools",
+            "computer use",
+            "claude",
+            "codex",
+            "coding agents",
+            "agents"
+          ]
+        },
+        {
+          "key": "agents.cmuxMcpClaude",
+          "name": "cmuxMcpClaude",
+          "note": "Per-agent switch under agents.cmuxMcp (cmux#49395): off keeps cmux's MCP server from Claude Code started in cmux (the claude shim, cmux-tui AgentsCmuxMcp::current_for; an agent chat, acpmux agent_tools::agent_switch_answer at spawn) even when the answer is on. On (the default) follows the answer. Settings > Agents writes it.",
+          "title": {
+            "key": "settings.agents.cmuxMcpClaude",
+            "text": "Use in Claude Code"
+          },
+          "help": {
+            "key": "settings.agents.cmuxMcpClaude.help",
+            "text": "Off: Claude Code you start in cmux never gets cmux’s tools, even when they are on."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "mcp",
+            "cmux tools",
+            "computer use",
+            "claude",
+            "agents"
+          ]
+        },
+        {
+          "key": "agents.cmuxMcpCodex",
+          "name": "cmuxMcpCodex",
+          "note": "Per-agent switch under agents.cmuxMcp (cmux#49395): off keeps cmux's MCP server from Codex started in cmux (the codex shim, cmux-tui AgentsCmuxMcp::current_for; an agent chat, acpmux agent_tools::agent_switch_answer at spawn) even when the answer is on. On (the default) follows the answer. Settings > Agents writes it.",
+          "title": {
+            "key": "settings.agents.cmuxMcpCodex",
+            "text": "Use in Codex"
+          },
+          "help": {
+            "key": "settings.agents.cmuxMcpCodex.help",
+            "text": "Off: Codex you start in cmux never gets cmux’s tools, even when they are on."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "mcp",
+            "cmux tools",
+            "computer use",
+            "codex",
+            "agents"
+          ]
+        },
+        {
+          "key": "agents.appControl",
+          "name": "appControl",
+          "note": "Whether agents in cmux may change the app or only read it, enforced by the daemon (cmux-tui-core server/agent_app_control.rs): on read, every app-changing request from a process in a cmux terminal (socket-peer ancestry or its launch credential) or from an agent chat (its ACP launch credential) is refused with origin.forbidden reason agents_read_only: new workspaces, tabs and panes, input to terminals, moves, closes, renames, settings writes. Reads, streams and an agent's own reports (hooks, notifications, status) still work. change (unset) is today's behavior. A process outside cmux (another terminal app, the app itself) is the person's and is never refused. The daemon reads it in cmux-tui-core mux/settings.rs.",
+          "title": {
+            "key": "settings.agents.appControl",
+            "text": "Agents Can Change cmux"
+          },
+          "help": {
+            "key": "settings.agents.appControl.help",
+            "text": "Read Only: agents in cmux’s terminals and agent chats can read cmux but not change it: no new workspaces, tabs or panes, no typing into other terminals, no settings changes."
+          },
+          "summary": {
+            "key": "settings.agents.appControl.summary",
+            "text": "Whether agents in cmux may drive and change the app"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "change",
+              "title": {
+                "key": "settings.agents.appControl.change",
+                "text": "Read and Change"
+              }
+            },
+            {
+              "value": "read",
+              "title": {
+                "key": "settings.agents.appControl.read",
+                "text": "Read Only"
+              }
+            }
+          ],
+          "default": "change",
+          "keywords": [
+            "agents",
+            "remote control",
+            "drive",
+            "control",
+            "read only",
+            "automation",
+            "socket",
+            "cli",
+            "permission"
           ]
         }
       ]

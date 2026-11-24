@@ -108,17 +108,26 @@ fn script(rest: &[String], output: OutputMode) -> i32 {
         [] => {
             let message =
                 "cmux: completion needs a shell: zsh, bash or fish; run `cmux completion --help`";
-            return super::app::failure("usage.invalid", message, output, 2);
+            return usage_error(message, output);
         }
         [other, ..] => {
             let message = format!(
                 "cmux: completion takes zsh, bash or fish, not {other:?}; run `cmux completion --help`"
             );
-            return super::app::failure("usage.invalid", &message, output, 2);
+            return usage_error(&message, output);
         }
     };
     print!("{text}");
     0
+}
+
+/// A usage error in the CLI's error shape. `cli/app.rs` has this too, but it is unix-only and
+/// this module builds on every target.
+fn usage_error(message: &str, output: OutputMode) -> i32 {
+    let error = serde_json::json!({
+        "code": "usage.invalid", "message": message, "details": {}, "retryable": false,
+    });
+    super::wire::print_local_error(&error, output, 2)
 }
 
 /// The completions of the last word of `words` (the word being typed, maybe empty), with `help`
@@ -243,10 +252,10 @@ pub(super) fn verbs(scope: &str, help: &str) -> Vec<String> {
     let mut found = rows(help);
     let prefix = format!("cmux {scope} ");
     for line in help.lines() {
-        let Some(at) = line.find(&prefix) else { continue };
+        let Some((_, after)) = line.split_once(prefix.as_str()) else { continue };
         // `cmux vm ls | status | pause [NAME]` names three verbs: words joined by `|`.
         let mut joined = true;
-        for token in line[at + prefix.len()..].split_whitespace() {
+        for token in after.split_whitespace() {
             if token == "|" {
                 joined = true;
                 continue;
@@ -282,49 +291,5 @@ pub(super) fn options(help: &str) -> Vec<String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{candidates, options, rows, verbs};
-
-    const ROOT: &str = "USAGE\n  cmux attach\n\nYOU\n  chat          Start a chat\n  vm            Your VMs\n  --json        Print JSON\n";
-    const VM: &str = "QUICK START\n  cmux vm ls | status | pause [NAME]\n  cmux vm exec dev -- uname -a\nMACHINES\n  list-machines   List them\n";
-
-    fn help(args: &[&str]) -> Option<String> {
-        match args {
-            [] => Some(ROOT.to_owned()),
-            ["vm"] => Some(VM.to_owned()),
-            ["vm", "exec"] => Some("usage: cmux vm exec [--json] [--timeout-ms MS]".to_owned()),
-            _ => None,
-        }
-    }
-
-    fn complete(words: &[&str]) -> Vec<String> {
-        let words: Vec<String> = words.iter().map(|word| (*word).to_owned()).collect();
-        candidates(&words, &help)
-    }
-
-    #[test]
-    fn scopes_verbs_and_options_complete_from_the_help() {
-        assert_eq!(complete(&["v"]), ["vm"]);
-        assert!(complete(&[""]).contains(&"chat".to_owned()));
-        assert!(complete(&[""]).contains(&"completion".to_owned()));
-        assert_eq!(complete(&["vm", "l"]), ["list-machines", "ls"]);
-        assert_eq!(complete(&["vm", "ex"]), ["exec"]);
-        assert_eq!(complete(&["vm", "exec", "--t"]), ["--timeout-ms"]);
-        assert_eq!(complete(&["--socket", "/tmp/s", "vm", "p"]), ["pause"]);
-        assert_eq!(complete(&["completion", ""]), ["bash", "fish", "zsh"]);
-        // Bash's words for `cmux --session=dev vm p`.
-        assert_eq!(complete(&["--session", "=", "dev", "vm", "p"]), ["pause"]);
-        assert_eq!(complete(&["--session=dev", "vm", "p"]), ["pause"]);
-        assert!(complete(&["nope", ""]).is_empty());
-    }
-
-    #[test]
-    fn the_readers_take_rows_usage_lines_and_options() {
-        assert_eq!(rows(ROOT), ["chat", "vm"]);
-        assert!(verbs("vm", VM).contains(&"pause".to_owned()));
-        assert_eq!(
-            options("[--json] --timeout-ms MS, --Bad x--y --a-"),
-            ["--json", "--timeout-ms"]
-        );
-    }
-}
+#[path = "completion_tests.rs"]
+mod tests;

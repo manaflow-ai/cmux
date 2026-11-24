@@ -22,6 +22,11 @@ struct FakeHub {
     unknown: std::sync::atomic::AtomicBool,
     /// How many more sends the hub keeps but whose answer is lost on the way back.
     lose: std::sync::atomic::AtomicUsize,
+    /// Until when every send is answered 529 with the hub's `retryAfterSeconds`, as an
+    /// overloaded hub does.
+    busy_until: Mutex<Option<(tokio::time::Instant, Duration)>>,
+    /// When the hub took each post, and its key.
+    taken: Mutex<Vec<(tokio::time::Instant, String)>>,
 }
 
 impl MeshHub for FakeHub {
@@ -48,10 +53,21 @@ impl MeshHub for FakeHub {
                 e.code = Some("mesh.unknown_recipient".into());
                 return Err(e);
             }
+            let busy = *self.busy_until.lock().unwrap();
+            if let Some((until, retry_after)) = busy
+                && tokio::time::Instant::now() < until
+            {
+                let mut e = HubError::unavailable("overloaded");
+                e.status = Some(529);
+                e.retry_after = Some(retry_after);
+                return Err(e);
+            }
             let lose = &self.lose;
             if lose.fetch_update(SeqCst, SeqCst, |n| n.checked_sub(1)).is_ok() {
                 return Err(HubError::unavailable("the connection reset"));
             }
+            let key = message.idempotency_key.clone();
+            self.taken.lock().unwrap().push((tokio::time::Instant::now(), key));
             Ok(receipt("queued", message.to.clone()))
         })
     }
@@ -87,7 +103,7 @@ fn setup_peer(fake: FakeHub) -> (Arc<Hub>, Arc<FakeHub>, Arc<crate::peer::Peer>)
                      "updatedAt": 5});
     let peer = hub.seed_down_peer("huge-blue", vec![row]);
     let fake = Arc::new(fake);
-    assert!(hub.mesh.set(fake.clone()).is_ok());
+    hub.mesh.set(fake.clone());
     (hub, fake, peer)
 }
 
@@ -224,7 +240,12 @@ async fn a_delivery_that_may_have_reached_the_peer_is_never_relayed() {
             state: State::Queued,
             attempts: 1,
             never_sent: false,
+            resends: 0,
+            resent_at: 0,
             relay_post: None,
+            open_on_peer: false,
+            pin: None,
+            proof: None,
             error: Some("peer disconnected".into()),
             accepted: None,
             created_at: now,
@@ -288,7 +309,12 @@ fn an_attempt_on_the_peer_link_is_saved_as_maybe_sent_until_the_link_refuses_it(
         state: State::Queued,
         attempts: 0,
         never_sent: true,
+        resends: 0,
+        resent_at: 0,
         relay_post: None,
+        open_on_peer: false,
+        pin: None,
+        proof: None,
         error: None,
         accepted: None,
         created_at: now,
@@ -300,17 +326,53 @@ fn an_attempt_on_the_peer_link_is_saved_as_maybe_sent_until_the_link_refuses_it(
     assert!(!d.never_sent, "a crash mid-attempt could relay what the peer may run: {d:?}");
 }
 
+/// A delivery to a session of a peer that is down, which the relay cannot carry (an
+/// attachment), after its first attempt: the pin it keeps.
+async fn the_pin_of_an_attempt_that_reached_nothing(rules: u8) -> Option<crate::hub::outbox::Pin> {
+    let mut config = Config::default();
+    config.store.mode = StoreMode::Memory;
+    let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(config, store);
+    hub.replay_rules(rules);
+    let row = json!({"sessionId": LANE, "name": "lane", "status": "idle", "turnCount": 1,
+                     "updatedAt": 5, "createdAt": 5});
+    hub.seed_down_peer("huge-blue", vec![row]);
+    assert!(hub.mesh.set(Arc::new(FakeHub::default())).is_none(), "no client before");
+    let shot = crate::attach::block("shot.png", b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR");
+    let mut attached = request("huge-blue/lane", "prompt-pin");
+    attached["request"]["prompt"] = json!([{"type": "text", "text": "see this"}, shot]);
+    let id = queue(&hub, attached).await;
+    let d = after_attempt(&hub, &id, 1).await;
+    assert_eq!(d.state, State::Queued, "{d:?}");
+    assert!(d.never_sent, "{d:?}");
+    d.pin
+}
+
+/// Review of #37284 at c4a6f4e7, F3: an attempt that reached nothing (the peer down, the relay
+/// unable to carry it) keeps no pin, so the next one reads the session as the peer lists it
+/// then: a session the peer made again meanwhile is the one it goes to, never failed as stale.
+/// Under c4a6f4e7's rules it kept the generation it read before anything reached the peer.
+#[tokio::test]
+async fn an_attempt_that_reached_nothing_keeps_no_pin() {
+    let old = the_pin_of_an_attempt_that_reached_nothing(crate::hub::journal_restore::AT_C4A6);
+    assert_eq!(old.await.map(|p| p.generation), Some(5), "c4a6f4e7 kept it");
+    assert_eq!(the_pin_of_an_attempt_that_reached_nothing(0).await, None);
+}
+
 /// A send whose record cannot be written is refused, so the sender knows to send it again, and
 /// nothing of it is kept: no delivery from memory, no attachments beside the file.
 #[tokio::test]
 async fn a_send_whose_record_cannot_be_saved_is_refused_and_not_kept() {
     let (hub, fake) = setup(FakeHub::default());
     let dir = std::env::temp_dir().join(format!("outbox-not-saved-{}", uuid::Uuid::now_v7()));
-    // A folder where `outbox.json` should be: its write fails, also for root, while the
-    // attachments beside it can still be written.
+    // Folders where `outbox.json` and its journal should be, made after the open (which sets
+    // an unreadable file aside): their writes fail, also for root, while the attachments beside
+    // them can still be written.
     let path = dir.join("outbox.json");
-    std::fs::create_dir_all(&path).unwrap();
+    std::fs::create_dir_all(&dir).unwrap();
     hub.outbox.open(&path);
+    std::fs::create_dir_all(&path).unwrap();
+    std::fs::create_dir_all(crate::hub::outbox::journal_path(&path)).unwrap();
     let shot = crate::attach::block("shot.png", b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR");
     let mut params = request("huge-blue/lane", "prompt-not-saved");
     params["request"]["prompt"] = json!([{"type": "text", "text": "see this"}, shot]);
@@ -366,4 +428,48 @@ async fn a_peer_ready_during_an_attempt_ends_the_retry_wait() {
         waited < Duration::from_secs(RETRY_DELAYS_SECS[0]),
         "attempt 2 waited {waited:?} with the peer ready"
     );
+}
+
+/// Twenty sends queued while the hub answers 529 for one window (its `retryAfterSeconds`): they
+/// wait behind its gate, not each on its own back-off, and all go once one probe gets through,
+/// within that one window. A send repeated under the same prompt id goes once.
+#[tokio::test(start_paused = true)]
+async fn twenty_sends_refused_for_one_window_drain_together_when_it_ends() {
+    const WINDOW: Duration = Duration::from_secs(30);
+    let fake = FakeHub::default();
+    let start = tokio::time::Instant::now();
+    *fake.busy_until.lock().unwrap() = Some((start + WINDOW, WINDOW));
+    let (hub, fake) = setup(fake);
+    let mut ids = Vec::new();
+    for n in 0..20 {
+        let id =
+            queue(&hub, request(&format!("huge-blue/drain-{n}"), &format!("p-drain-{n}"))).await;
+        ids.push(id);
+    }
+    // The same prompt again: the delivery already queued, not a second post.
+    let again = queue(&hub, request("huge-blue/drain-3", "p-drain-3")).await;
+    assert_eq!(again, ids[3]);
+    let deadline = start + Duration::from_secs(3_600);
+    loop {
+        let changed = hub.outbox.changed.notified();
+        if ids.iter().all(|id| hub.outbox.get(id).is_some_and(|d| d.state == State::Delivered)) {
+            break;
+        }
+        assert!(tokio::time::timeout_at(deadline, changed).await.is_ok(), "not all delivered");
+    }
+    let taken = fake.taken.lock().unwrap().clone();
+    let last = taken.iter().map(|(at, _)| *at).max().unwrap();
+    let drain = last.duration_since(start);
+    let first = taken.iter().map(|(at, _)| *at).min().unwrap();
+    eprintln!(
+        "drain of 20 queued sends after one refused window of {}s: {:.2}s (first taken {:.2}s)",
+        WINDOW.as_secs(),
+        drain.as_secs_f64(),
+        first.duration_since(start).as_secs_f64(),
+    );
+    let mut keys: Vec<_> = taken.iter().map(|(_, k)| k.clone()).collect();
+    keys.sort();
+    keys.dedup();
+    assert_eq!((taken.len(), keys.len()), (20, 20), "each once: {taken:?}");
+    assert!(drain < WINDOW + Duration::from_secs(1), "20 sends took {drain:?}, not one window");
 }

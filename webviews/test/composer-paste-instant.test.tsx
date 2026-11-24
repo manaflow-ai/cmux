@@ -17,6 +17,7 @@ import {
   setComposerSettings,
   type AttachmentView,
 } from "../src/agent-session/acpmux/composerSettings";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -77,12 +78,8 @@ afterEach(() => {
   dom.window.localStorage.clear();
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 function Chips() {
@@ -146,6 +143,9 @@ function imageEngine() {
 
 /// A screenshot whose bytes come only when `release()` is called: a large image the composer is
 /// still reading and scaling.
+/// A screenshot whose read waits for `release`; each its own size, as two screenshots are (one of a
+/// type and size is read for its twin first: attachments.ts filesOnce).
+let slowScreenshots = 0;
 function slowScreenshot() {
   let release!: () => void;
   const gate = new Promise<void>((resolve) => (release = resolve));
@@ -155,7 +155,10 @@ function slowScreenshot() {
       return super.arrayBuffer();
     }
   }
-  return { file: new Slow([PNG], "image.png", { type: "image/png" }), release };
+  return {
+    file: new Slow([PNG, new Uint8Array(++slowScreenshots)], "image.png", { type: "image/png" }),
+    release,
+  };
 }
 
 /// Yields to React until `ready()` holds; fails after 2 s with what it waited for.
@@ -609,8 +612,9 @@ test("a recording the host makes for the chat loads at the caret and stays there
     const id = node()!.getAttribute("data-inline-attachment");
     // It fails: the tile says so where it is, with Retry.
     await act(async () => makes[0]!(undefined));
-    await until(() => node()?.querySelector(".acpmux-md-inline-retry") != null, "Retry on the tile");
-    act(() => node()!.querySelector<HTMLElement>(".acpmux-md-inline-retry")!.click());
+    const retry = () => node()?.querySelector<HTMLElement>(".acpmux-attachment-retry");
+    await until(() => retry() != null, "Retry on the tile");
+    act(() => retry()!.click());
     await until(() => makes.length === 2, "the second make");
     expect(node()!.getAttribute("data-inline-attachment")).toBe(id);
     // Made: the chip is the tile's, at the tile's place.
@@ -625,4 +629,68 @@ test("a recording the host makes for the chat loads at the caret and stays there
   }
   expect(inStrip).toHaveLength(0);
   expect(composer.current!.wakeState().attachments![0]!.path).toBe("/remote/Recording.wav");
+});
+
+// CMUX-682: `@computer-use` while Computer Use is not ready is held before anything binds the send's key
+// press or click. A send that waits for a screenshot binds that gesture to its prompt; the hold comes
+// first, so the gesture is still free to open the setup page, and nothing goes once the image is read.
+test("a held @computer-use send binds no gesture and never goes, even with a screenshot still being read", async () => {
+  const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
+  let binds = 0;
+  const held: string[] = [];
+  const composer = await openComposer(sent, "chat-a", {
+    onBindSendGesture: () => {
+      binds += 1;
+      return undefined;
+    },
+    holdsSend: (text) => {
+      held.push(text);
+      return text.includes("@computer-use");
+    },
+  });
+  const shot = slowScreenshot();
+  await paste([shot.file]);
+  act(() => composer.current!.restore("open Notes with @computer-use", [], true));
+  act(() => {
+    expect(composer.current!.send()).toBe(false);
+  });
+  expect(binds).toBe(0);
+  expect(held.at(-1)).toContain("@computer-use");
+  shot.release();
+  await until(() => (composer.current!.wakeState().attachments ?? []).length === 1, "the read chip");
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(sent).toHaveLength(0);
+  expect(composer.current!.draftText()).toContain("@computer-use");
+});
+
+// CMUX-682: a send that waited for its screenshot asks the Computer Use hold again when it resumes, as a
+// late check: by then the person may have pressed other keys, so it may only hold and say why, never
+// open setup with one of them.
+test("a send resumed after its screenshot asks the hold again as a late check", async () => {
+  const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
+  const asked: [string, boolean][] = [];
+  let ready = true;
+  const composer = await openComposer(sent, "chat-a", {
+    holdsSend: (text, late) => {
+      asked.push([text, late === true]);
+      return !ready && text.includes("@computer-use");
+    },
+  });
+  const shot = slowScreenshot();
+  await paste([shot.file]);
+  act(() => composer.current!.restore("open Notes with @computer-use", [], true));
+  act(() => {
+    host.querySelector<HTMLButtonElement>(".acpmux-send")!.click();
+  });
+  // Computer Use stops while the screenshot is still being read.
+  ready = false;
+  shot.release();
+  await until(() => asked.length >= 2, "the resumed send's check");
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(asked.map(([, late]) => late)).toEqual([false, true]);
+  expect(sent).toHaveLength(0);
 });

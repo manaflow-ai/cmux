@@ -72,6 +72,17 @@ class ComposeTest(unittest.TestCase):
                 text = pn.compose(kind, target, CRATES, self.inputs)
                 self.assertNotIn("cmux-agent-screen-detection", text)
 
+    def test_linux_notices_name_the_terminal_host(self) -> None:
+        # npm and wheel packages for Linux ship bin/cmux-tui-host beside bin/cmux-tui (CMUX-571).
+        for target in ("x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl"):
+            with self.subTest(target=target):
+                text = pn.compose("cmux-tui", target, CRATES, self.inputs)
+                self.assertIn("bin/cmux-tui-host", text.splitlines()[0])
+        for kind, target in (("cmux-tui", "aarch64-apple-darwin"), ("relay", "aarch64-unknown-linux-musl")):
+            with self.subTest(kind=kind, target=target):
+                text = pn.compose(kind, target, CRATES, self.inputs)
+                self.assertNotIn("bin/cmux-tui-host", text.splitlines()[0])
+
     def test_relay_notice_names_its_binaries(self) -> None:
         text = pn.compose("relay", "aarch64-unknown-linux-musl", CRATES, self.inputs)
         self.assertIn("bin/chatmux-relay", text)

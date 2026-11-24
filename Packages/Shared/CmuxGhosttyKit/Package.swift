@@ -197,6 +197,18 @@ import PackageDescription
 // layer's contents (pixel size, content or resize, sequence, host time); it
 // replaces cmux's setContents: swizzle on IOSurfaceLayer.
 //
+// Since c370b103a..b37a94dfe (release/cmux-gi-land-1-cell-guard, the two
+// commits of fork PR #91: red c59eb2db0, fix b37a94dfe): a frame drawn before
+// the surface's first cell build runs no cell pass and has a 0 x 0 grid
+// (Contents.framePlan), so a new surface shows its plain background, never
+// cells of another buffer. No C API change.
+//
+// Since b37a94dfe..a84a1c7e4 (release/cmux-gi-land-1-cell-guard, fork PR
+// #93): two config keys, background-cells-opacity (an alpha for every
+// explicit cell background) and background-cells-neutral-fade (a near-grey
+// explicit background fades to clear by its Oklab lightness distance from the
+// theme background). Both unset = the old rule. No C API change.
+//
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
 // a7c40619a or 3e9dfca98 (apple-v6 without the lib prefix on the macOS
@@ -220,8 +232,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-c370b103a8707897df449ba9ddd3f5586b227313-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "0669c1040f20e729f507bd3e52da3cb5a4b096c331cf8220b78941bde62811af"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-a84a1c7e4f95edf682920a0782ee914531fd2a15-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "12d5f79c78c8d7286b15bbb7a9ba6a23712a9d9a7df5cb59846e2e8e603be46b"
         ),
     ]
 )

@@ -48,14 +48,13 @@ public struct Motion {
     public static var speed: MotionSpeed { DesignSettings.shared.animationSpeed }
 
     /// The policy before a category is chosen: the master switch
-    /// `ui.animations.enabled` (calm mode `still` turns it off), the category switches, `ui.animationSpeed`,
-    /// Reduce Motion and a live resize. Animations never read it directly:
-    /// they ask their category's gate (`Motion.sidebar.policy`), which adds
-    /// the category.
+    /// `ui.animations.enabled` (calm mode `still` turns it off), the category switches, `ui.animationSpeed`
+    /// and Reduce Motion. Animations never read it directly: they ask their category's gate
+    /// (`Motion.sidebar.policy(in: window)`), which adds the category and the window's live resize.
     public static var basePolicy: MotionPolicy {
         let design = DesignSettings.shared
         return MotionPolicy(speed: speed, reduceMotion: reduceMotion,
-                            enabledKinds: design.enabledAnimations, liveResize: isLiveResizing,
+                            enabledKinds: design.enabledAnimations,
                             animationsEnabled: design.animationsEnabled && !design.calmMode.stopsAnimations,
                             disabledCategories: design.disabledAnimationCategories)
     }
@@ -91,20 +90,28 @@ public struct Motion {
 }
 
 extension MotionGate {
-    /// `kind` animates: movement animates (category on, not `off`, not
-    /// Reduce Motion, not a live resize) and its `ui.animations.*` kind
+    /// `kind` animates in `window`: movement animates there (category on, not `off`, not
+    /// Reduce Motion, `window` not in a live resize) and its `ui.animations.*` kind
     /// switch is on. When false the change applies in one frame, with no
     /// crossfade.
-    public func animates(_ kind: MotionKind) -> Bool { policy.animates(kind) }
+    public func animates(_ kind: MotionKind, in window: NSWindow?) -> Bool { policy(in: window).animates(kind) }
 
-    /// Position, size, scale and scroll animate. When false, snap.
+    /// Position, size, scale and scroll animate, for a motion that no resized window shows (a
+    /// panel's own open or close, a drag ghost, a value a page keeps). When false, snap. A
+    /// motion inside an app window asks ``animatesMovement(in:)``.
     public var animatesMovement: Bool { policy.animatesMovement }
+    /// Position, size, scale and scroll animate in `window`. False also while `window` is in a
+    /// live resize or a full screen transition (``policy(in:)``): its content follows the edge in
+    /// every frame. A resize of another window changes nothing here.
+    public func animatesMovement(in window: NSWindow?) -> Bool { policy(in: window).animatesMovement }
     /// Pane layout changes (split, close, move, swap, zoom, column reveal)
-    /// spring: `ui.paneAnimations` is on (the default) and movement
-    /// animates. Off, they apply in one frame; direct manipulation
+    /// spring in `window`: `ui.paneAnimations` is on (the default) and movement
+    /// animates there. Off, they apply in one frame; direct manipulation
     /// (trackpad fling, wheel, divider drag) keeps its physics. A change of
     /// screen is not in this set: it never animates (`LayoutRootView.showScreen`).
-    public var animatesPaneLayout: Bool { DesignSettings.shared.paneAnimations && animatesMovement }
+    public func animatesPaneLayout(in window: NSWindow?) -> Bool {
+        DesignSettings.shared.paneAnimations && animatesMovement(in: window)
+    }
     /// Opacity and color changes animate.
     public var animatesFades: Bool { policy.animatesFades }
     /// Spinners and pulses run.
@@ -113,5 +120,7 @@ extension MotionGate {
     public func spring(_ token: MotionSpring) -> SpringParameters { policy.spring(token) }
     public func duration(_ token: MotionFade) -> TimeInterval { policy.duration(token) }
     public func duration(_ token: MotionSpring) -> TimeInterval { policy.duration(token) }
+    /// Seconds that stand in for `token` in `window`; 0 when movement does not animate there (``animatesMovement(in:)``).
+    public func duration(_ token: MotionSpring, in window: NSWindow?) -> TimeInterval { policy(in: window).duration(token) }
     public func period(_ loop: MotionLoop) -> TimeInterval? { policy.period(loop) }
 }

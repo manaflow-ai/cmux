@@ -79,6 +79,7 @@ struct ChatRowView: View {
             .environment(\.attachmentLoader, context.attachmentLoader)
             .environment(\.openURL, context.openURL)
             .environment(\.chatDisclosures, context.surface.disclosures)
+            .environment(\.loadFullToolOutput, LoadFullToolOutputAction { [store = context.store] call in await store.loadFullOutput(of: call) })
             .environment(\.transcriptFoldHold, context.foldHold)
     }
 
@@ -98,13 +99,15 @@ struct ChatRowView: View {
             UserBubble(prompt: text, attachments: attachments, promptAt: at, isLast: isLast,
                        editAndResend: { context.editAndResend(turnID: turnID) },
                        editEarlier: context.canEditEarlier(turnID: turnID) ? { context.editEarlier(turnID: turnID) } : nil,
-                       polish: ChatPolishMenuButtons(store: context.store, turnID: turnID, prompt: text))
+                       polishActions: { ChatPolishMenus.promptItems(turnID: turnID, text: text, store: store) })
                 .frame(maxWidth: .infinity, alignment: .trailing)
+        case .chiefContext(let text, let lines):
+            ChiefContextRow(context: text, lines: lines, id: row.id)
         case .incoming(let incoming, let attachments, let at):
-            AgentIncomingCard(incoming: incoming, attachments: attachments, at: at)
+            AgentIncomingCard(incoming: incoming, attachments: attachments, at: at, disclosureKey: AgentIncomingCard.key(row.id))
         case .steer(let message):
             if let incoming = message.incoming {
-                AgentIncomingCard(incoming: incoming, attachments: message.attachments, at: message.at)
+                AgentIncomingCard(incoming: incoming, attachments: message.attachments, at: message.at, disclosureKey: AgentIncomingCard.key(row.id))
             } else {
                 UserBubble(prompt: message.text, attachments: message.attachments, promptAt: message.at, isLast: false,
                            editAndResend: {})
@@ -153,7 +156,7 @@ struct ChatRowView: View {
         case .stopped:
             Text("Stopped").font(.footnote).foregroundStyle(.tertiary)
         case .failed(_, let errorText):
-            let failure = TurnFailureCopy(message: errorText, harness: store.summary.harness, harnessName: store.summary.agentName)
+            let failure = TurnFailureCopy(message: errorText, harness: store.summary.harness)
             let turn = store.turns.last { $0.id == row.turnID }
             // The latest failed turn retries through acpmux (its input and context kept).
             FailureCard(title: "Agent stopped", message: failure.sentence, detail: failure.detail,
@@ -170,6 +173,8 @@ struct ChatRowView: View {
             }
         case .whoElse(let id, let call):
             WhoElseCard(id: id, call: call, open: openWhoElse)
+        case .worked(let fold):
+            WorkedForRow(fold: fold, context: context)
         case .actions(let turn, let isLast):
             AnswerActionRow(turn: turn, isLast: isLast, insetsTargets: false, retryWith: RetryModelChoice(store: store, turn: turn),
                             polish: ChatPolishMenuButtons(store: store, turnID: turn.id, prompt: nil)) {
@@ -197,12 +202,18 @@ struct MarkdownBlockRow: View {
     var body: some View {
         MarkdownBlockView(block: block, margin: 20)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .contextMenu {
-                Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = message() }
-                Button("Select Text", systemImage: "selection.pin.in.out") { ChatSelectText.present(message()) }
-                Button("Share", systemImage: "square.and.arrow.up") { ChatShare.present(message()) }
-            }
+            .selectionMenu { source in messageSelectionActions(message, from: source) }
     }
+}
+
+/// The system's Copy and Share act on the selected range. These act on the original message.
+@MainActor
+func messageSelectionActions(_ message: @escaping () -> String, from source: UIView) -> [UIMenuElement] {
+    [
+        SelectionMenu.action("Copy Message", "doc.on.doc") { UIPasteboard.general.string = message() },
+        SelectionMenu.action("Select Text", "selection.pin.in.out") { SelectableTextView(message()).present() },
+        SelectionMenu.share(message(), from: source, title: "Share Message"),
+    ]
 }
 
 /// Edit and Resend while the composer holds a draft: replace it only on a choice here, and

@@ -31,6 +31,7 @@ pub struct Snapshot {
 
 impl Snapshot {
     /// `{revision, schema_hash, effective, file, managed, policy, diagnostics, domains}`.
+    /// The owner adds `path`, the settings file (`ConfigStore::snapshot_json`).
     /// A secret policy value appears as `"<set>"`, as it does in the
     /// cold-start cache: `crate::managed::SECRET_POLICY_KEYS` never leaves
     /// the owner, and this reply goes to every client that may read the
@@ -157,8 +158,9 @@ impl State {
     }
 
     fn row_view(&self, row: &'static Row) -> RowView<'static> {
-        let customized = value_at(&self.effective.file_root, &row.path)
-            .is_some_and(|stored| Some(stored) != row.default.as_ref());
+        let customized = value_at(&self.effective.file_root, &row.path).is_some_and(|stored| {
+            Some(stored) != row.default.as_ref() || self.overrides_group_background(row, stored)
+        });
         RowView {
             row,
             value: effective_value(row, &self.effective.root, &self.domains),

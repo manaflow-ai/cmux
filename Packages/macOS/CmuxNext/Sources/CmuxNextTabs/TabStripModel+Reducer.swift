@@ -21,7 +21,7 @@ extension TabStripModel {
             // Selecting a member of a collapsed group expands it.
             if let group = tab.groupID { setCollapsed(group, false) }
         case .close(let id, _):
-            let next = Self.selectionAfterClosing(id, in: ordered.map(\.id), visible: Set(visibleOrderedTabs.map(\.id)), selected: selectedID)
+            let next = selectionAfterClosing(id)
             ordered.removeAll { $0.id == id }
             tabs = ordered
             selectedID = next

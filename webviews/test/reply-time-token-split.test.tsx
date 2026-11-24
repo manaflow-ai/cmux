@@ -133,7 +133,7 @@ test("an unmarked record that names no harness and no Claude model can never cou
   expect(uncachedTokens(resultTokenSplit({ ...OLD_CODEX, model: "gpt-5.1-codex" })!)).toBe(314_899);
 });
 
-test("the reply time's tooltip: its time, then one count per row", () => {
+test("the reply time's tooltip reads its time, then one count per row; the footer draws none", () => {
   expect(replyTimeDetail(t, "en", ["Worked for 1m 16s"], resultTokenSplit(CLAUDE_58))).toBe(
     "Worked for 1m 16s\nOutput 23.7K\nInput 124.7K\u00a0uncached · 4.5M\u00a0cached\nContext at end 125.3K\nModel calls 58",
   );
@@ -148,14 +148,11 @@ test("the reply time's tooltip: its time, then one count per row", () => {
     text: "Done.",
     tokens: resultTokenSplit(CLAUDE_58),
   };
+  // The footer draws no time, so none of this is in its markup (Lawrence, 2026-11-11 standup: the
+  // Codex app shows no time on a reply's row).
   const markup = renderToStaticMarkup(<TurnFooter row={row} />);
-  // The title is the exact time (as a prompt's is); Worked for and the token rows are its detail line.
-  expect(markup).toMatch(/<time class="cv-turn-time"[^>]*title="[A-Z][a-z]{2} \d{1,2}, \d{4}, /);
-  const title = /<time class="cv-turn-time"[^>]*data-tooltip-detail="([^"]*)"/.exec(markup)?.[1];
-  expect(title).toBe(
-    "Worked for 1m 16s\nOutput 23.7K\nInput 124.7K\u00a0uncached · 4.5M\u00a0cached\nContext at end 125.3K\nModel calls 58",
-  );
-  expect(title).not.toContain("4.7M");
+  expect(markup).not.toContain("cv-turn-time");
+  expect(markup).not.toContain("Worked for 1m 16s");
 });
 
 test("Claude Code behind the cmux router profile, or any profile acpmux says runs it, keeps its input", () => {

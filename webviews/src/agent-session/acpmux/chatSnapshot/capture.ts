@@ -18,7 +18,49 @@ const ROW_SELECTOR = ".acpmux-row";
 /// What a copy never carries: script, frames, and the page's own media (a copy cannot play it).
 const DROPPED = "script, iframe, object, embed, frame, frameset, video, audio, canvas";
 
-type Plan = { drop: boolean; scroll?: string; checked?: boolean; shadow?: ShadowRoot };
+type Plan = { drop: boolean; scroll?: string; checked?: boolean; shadow?: ShadowRoot; style?: string };
+
+/// A length the style attribute writes rounded: the CSSOM writes a number with six significant digits,
+/// so a row placed past a million pixels down a long chat (6000 turns) reads `top: 1.02621e+06px`, up
+/// to 5 px from where the page drew it, and the copy drew each row that far off (the jump at the swap,
+/// Leo, 2026-11-24, on a revive: "tons of layout shifts").
+const ROUNDED_LENGTH = /^(\s*(top|height)\s*:\s*)(-?[\d.]+e[+-]?\d+px)(\s*)$/i;
+
+/// The number as a CSS length with no exponent (below 1e21 `toString` writes none).
+const exactPx = (value: number) => `${Number(value.toFixed(3))}px`;
+
+/// `element`'s style attribute with each rounded `top` and `height` written as drawn, from its box
+/// (rows are absolutely placed in their thread; the spacer is a plain block). Undefined when none is.
+function exactStyle(element: Element): string | undefined {
+  const text = element.getAttribute("style");
+  if (!text || !/\de[+-]?\d/i.test(text)) return undefined;
+  const html = element as HTMLElement;
+  let box: DOMRect | undefined;
+  let computed: CSSStyleDeclaration | undefined;
+  let changed = false;
+  const parts = text.split(";").map((part) => {
+    const match = ROUNDED_LENGTH.exec(part);
+    if (!match) return part;
+    box ??= element.getBoundingClientRect();
+    computed ??= element.ownerDocument.defaultView?.getComputedStyle(element);
+    if (!computed) return part;
+    const px = (name: string) => Number.parseFloat(computed!.getPropertyValue(name)) || 0;
+    let value: number | undefined;
+    if (match[2]!.toLowerCase() === "top") {
+      const parent = html.offsetParent as HTMLElement | null;
+      if (!parent) return part;
+      value = box.top - parent.getBoundingClientRect().top - parent.clientTop + parent.scrollTop - px("margin-top");
+    } else {
+      value = box.height;
+      if (computed.getPropertyValue("box-sizing") !== "border-box")
+        value -= px("padding-top") + px("padding-bottom") + px("border-top-width") + px("border-bottom-width");
+    }
+    if (!Number.isFinite(value)) return part;
+    changed = true;
+    return `${match[1]}${exactPx(value)}${match[4]}`;
+  });
+  return changed ? parts.join(";") : undefined;
+}
 
 function planFor(element: Element, viewHeight: number): Plan | undefined {
   let plan: Plan | undefined;
@@ -26,8 +68,13 @@ function planFor(element: Element, viewHeight: number): Plan | undefined {
     const rect = element.getBoundingClientRect();
     if (rect.bottom < 0 || rect.top > viewHeight) return { drop: true };
   }
-  if (element.scrollTop > 0 || element.scrollLeft > 0)
-    plan = { drop: false, scroll: `${Math.round(element.scrollTop)},${Math.round(element.scrollLeft)}` };
+  if (element.scrollTop > 0 || element.scrollLeft > 0) {
+    const atEnd = element.scrollHeight - element.clientHeight - element.scrollTop <= 1;
+    plan = {
+      drop: false,
+      scroll: `${Math.round(element.scrollTop)},${Math.round(element.scrollLeft)}${atEnd ? ",end" : ""}`,
+    };
+  }
   // By tag, not `instanceof`: the page's realm is not always this module's (a test's window).
   const tag = element.tagName;
   // No field's text is written (``scrubFields``); a box's checked state is not text. Both ways: a
@@ -38,6 +85,11 @@ function planFor(element: Element, viewHeight: number): Plan | undefined {
       plan ??= { drop: false };
       plan.checked = (element as HTMLInputElement).checked;
     }
+  }
+  const style = exactStyle(element);
+  if (style !== undefined) {
+    plan ??= { drop: false };
+    plan.style = style;
   }
   const shadow = element.shadowRoot;
   if (shadow) {
@@ -152,6 +204,7 @@ export function captureSnapshot(doc: Document, theme: string): ChatSnapshot | un
       return;
     }
     if (plan.scroll) element.setAttribute(SNAPSHOT_SCROLL_ATTRIBUTE, plan.scroll);
+    if (plan.style !== undefined) element.setAttribute("style", plan.style);
     if (plan.checked === true) element.setAttribute("checked", "");
     else if (plan.checked === false) element.removeAttribute("checked");
     if (plan.shadow) {

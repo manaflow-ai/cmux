@@ -161,7 +161,8 @@ import WebKit
         let raw = Pixels(try await rawCapture(fixture))
         #expect(Self.isRed(raw.at(CGPoint(x: page.midX, y: page.midY), size: size)), "the raw capture shows the page: there is something to mask")
 
-        let (image, masked) = try await AppWindowImage.maskedCapture(fixture.window)
+        let (image, masked, areas) = try await AppWindowImage.maskedCapture(fixture.window)
+        #expect(areas.map(\.name).contains("browser"), "the capture names what it masked")
         let shot = Pixels(image)
         #expect(masked >= 1)
         #expect(shot.width == raw.width && shot.height == raw.height)
@@ -293,11 +294,16 @@ import WebKit
 
     /// App pages are masked unless checked to show nothing secret: a new page is masked by default.
     @Test func appPagesAreMaskedUnlessListedAndHomeIsMasked() {
-        #expect(!ScreenshotMask.shownAppPages.contains("cmux.home-messages"), "Home's Messages page is masked")
         #expect(!ScreenshotMask.shownAppPages.contains("cmux.agent"))
         #expect(!ScreenshotMask.shownAppPages.contains("cmux.passwords"))
         #expect(!ScreenshotMask.shownAppPages.contains("cmux.home-channels"))
         #expect(!ScreenshotMask.shownAppPages.contains("cmux.settings"))
+        #expect(ScreenshotMask.covers(HomeSidebarView(frame: .zero)))
+        let fixture = fixture(onScreen: false)
+        defer { fixture.close() }
+        let list = HomeSidebarView(frame: NSRect(x: 4, y: 4, width: 60, height: 60))
+        fixture.plain.addSubview(list)
+        #expect(ScreenshotMask.read(fixture.window, rules: .app).regions.contains(list.convert(list.bounds, to: nil)))
     }
 
     /// The allow path: a listed app page is not covered, and the web view it holds is not covered
@@ -325,7 +331,7 @@ import WebKit
     }
 
     /// A native page tab (no PageWebView inside) is masked whole unless its page was checked: a
-    /// Phone or Mac Screen frame, Passwords or a page nobody checked never reaches automation.
+    /// Phone frame, Passwords or a page nobody checked never reaches automation (Mac Screen masks only its picture).
     @Test func aNativePageTabIsMaskedUnlessListed() throws {
         let phone = InternalPageView(key: "mask-phone", page: InternalPageID(rawValue: "phone"), content: NSView())
         let unchecked = InternalPageView(key: "mask-new", page: InternalPageID(rawValue: "not-checked"), content: NSView())
@@ -390,6 +396,42 @@ import WebKit
         #expect(mask.isSettled)
         fixture.chrome.pageArea.layer?.transform = CATransform3DMakeTranslation(12, 0, 0)
         #expect(!ScreenshotMask.read(fixture.window, rules: .app).isSettled)
+    }
+
+    /// A theme change blends colors on the render server (`ColorTransition`, `GlassTintBlend`): the
+    /// window, the pane and the page's chrome run color and opacity animations while every pixel stays
+    /// inside its view's frame, so the capture still masks the right place and goes ahead. Only an
+    /// animation that moves or resizes pixels (position, bounds, transform) refuses it. Before this, every
+    /// shot during a theme blend refused ("The window kept animating or resizing"), so the
+    /// theme-live-reload probe could time no save on a runner without Screen Recording (hq run 43693832138).
+    @Test func aColorBlendLeavesTheMaskSettledAndAMoveDoesNot() throws {
+        let fixture = fixture(onScreen: false)
+        defer { fixture.close() }
+        let content = try #require(fixture.window.contentView?.layer)
+        fixture.chrome.wantsLayer = true
+        let chrome = try #require(fixture.chrome.layer)
+        let page = try #require(fixture.chrome.pageArea.layer)
+        let colors = [Self.red, Self.green]
+        content.add(Motion.sampledKeyframes("backgroundColor", values: colors, duration: 60), forKey: "test.blend")
+        chrome.add(Motion.sampledKeyframes("borderColor", values: colors, duration: 60), forKey: "test.blend")
+        page.add(Motion.sampledKeyframes("opacity", values: [1.0, 0.5], duration: 60), forKey: "test.fade")
+        #expect(ScreenshotMask.read(fixture.window, rules: .app).isSettled, "a color or opacity blend moves no pixel")
+
+        let moves = page.frame.origin
+        content.add(Motion.sampledKeyframes("position.x", values: [moves.x, moves.x + 40], duration: 60), forKey: "test.move")
+        #expect(!ScreenshotMask.read(fixture.window, rules: .app).isSettled, "a holding view that moves moves the page")
+        content.removeAnimation(forKey: "test.move")
+        page.add(Motion.sampledKeyframes("bounds.size.width", values: [10.0, 200.0], duration: 60), forKey: "test.resize")
+        #expect(!ScreenshotMask.read(fixture.window, rules: .app).isSettled, "a page that resizes")
+        page.removeAnimation(forKey: "test.resize")
+        let transition = CATransition()
+        transition.type = .push
+        transition.duration = 60
+        // Core Animation files every transition under kCATransition, whatever key it is added with.
+        page.add(transition, forKey: kCATransition)
+        #expect(!ScreenshotMask.read(fixture.window, rules: .app).isSettled, "a push transition slides the page")
+        page.removeAnimation(forKey: kCATransition)
+        #expect(ScreenshotMask.read(fixture.window, rules: .app).isSettled)
     }
 
     /// A mask covers whole pixels and one more on each side at a fractional scale, so no pixel

@@ -1,3 +1,5 @@
+import CmuxNextKeepAwake
+
 /// Sleepy Mode (`palette.sleepyMode`, classic #6740): a full-screen keep-awake screensaver.
 /// On, it keeps the Mac and its display awake (``SleepyKeepAwakeHolding``) and covers every
 /// screen with the sleepy scene (``SleepyOverlayPresenting``); any key or click on the scene, or

@@ -28,6 +28,8 @@ import argparse, functools, glob, http.server, json, os, plistlib, socket, subpr
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
+from state_wait import wait_stable, wait_until  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -138,9 +140,14 @@ def click(engine, link):
 
 
 def settled_opens(count_before, seconds=3):
-    """The URLs opened after the first `count_before`, once nothing new comes for a moment."""
-    time.sleep(seconds)
-    return opens()[count_before:]
+    """The URLs opened after the first `count_before`, once nothing new comes for a moment.
+
+    Returns as soon as an open arrives and the list holds still for 1 s (a second, doubled delivery shows by
+    then); with no open it watches the whole `seconds`, which is the point: proving nothing opens."""
+    wait_until(lambda: len(opens()) > count_before, "an external open", timeout=seconds, interval=0.1,
+               raise_on_timeout=False)
+    return wait_stable(lambda: opens()[count_before:], "the external opens", timeout=seconds + 10,
+                       interval=0.1, reads=10)
 
 
 def asked():
@@ -161,7 +168,9 @@ def run_engine(engine):
     if not wait_for(lambda: page("document.readyState === 'complete' && !!document.getElementById('mail')"),
                     f"{engine}: the page loads", 60):
         return
-    time.sleep(1)
+    # The fresh tab's opens and prompts hold still before the first navigation.
+    wait_stable(lambda: (opens(), json.dumps(asked(), sort_keys=True)), f"{engine}: the new tab's opens and prompts",
+                timeout=10, interval=0.1, reads=5)
 
     # 4. A non-gesture navigation must ask before opening any app, including a
     # well-known scheme. A fresh document runs its onload script before any
@@ -316,7 +325,7 @@ app = subprocess.Popen([BINARY], env={
     "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG,
     "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,800", "CMUX_NEXT_TEST_RECORD_EXTERNAL_OPENS": "1"},
     stdout=open(os.path.join(opts.out, "app.log"), "w"), stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
-print(f"app pid {app.pid}, out {opts.out}", flush=True)
+safe_print(f"app pid {app.pid}, out {opts.out}", flush=True)
 try:
     wait_for(lambda: os.path.exists(SOCKET) and "error" not in rpc("debug.focus"), "app socket", 180)
     check("error" not in rpc("debug.browser.external_opens"), "the build records external opens")

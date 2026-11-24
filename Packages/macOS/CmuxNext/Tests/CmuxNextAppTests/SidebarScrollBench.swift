@@ -25,6 +25,8 @@ final class SidebarScrollBench {
         var reloads: Int
         /// Rows laid out in the frame (`layout_rows`: every listed row per full layout, one per spliced row).
         var laidOut = 0
+        /// Finds of the stuck project header in the frame (`stuck_header_updates`: one per scroll frame).
+        var stuckUpdates = 0
         /// Main-thread CPU per phase, ms: the frame's row patches (ticks), the clip move
         /// (realization, hover), the window's layout pass, its display pass, the commit.
         var patchMs = 0.0, scrollMs = 0.0, layoutMs = 0.0, displayMs = 0.0, commitMs = 0.0
@@ -59,6 +61,8 @@ final class SidebarScrollBench {
         case nested(depth: Int)
         /// `count / perGroup` open groups, each of `perGroup`; all but the first collapsed.
         case manyCollapsed(perGroup: Int)
+        /// One open group of `members` workspaces, the rest loose under it.
+        case openGroupThenLoose(members: Int)
     }
 
     init(count: Int, height: CGFloat = 900, pointerOverList: Bool = false, shape: Shape = .mixed) {
@@ -115,6 +119,10 @@ final class SidebarScrollBench {
                 next += members.count
                 g += 1
             }
+        case let .openGroupThenLoose(members):
+            let end = min(members, count)
+            nodes = [.group(SidebarGroup(id: GroupID("sb-g0"), name: "Open group", color: .green, workspaces: (0..<end).map(ws)))]
+                + (end..<count).map { .workspace(ws($0)) }
         }
         rows = (0..<count).map(ws)
         model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: nodes)], activeWorkspaceID: ids.first)
@@ -178,7 +186,8 @@ final class SidebarScrollBench {
         var created = 0
         for view in list.rowViews.values where seenViews.insert(ObjectIdentifier(view)).inserted { created += 1 }
         return Frame(cpuMs: (cpu1 - cpu0) * 1_000, configures: counts["row_configures"] ?? 0, created: created,
-                     reloads: counts["list_reloads"] ?? 0, laidOut: counts["layout_rows"] ?? 0, patchMs: (t1 - cpu0) * 1_000, scrollMs: (t2 - t1) * 1_000,
+                     reloads: counts["list_reloads"] ?? 0, laidOut: counts["layout_rows"] ?? 0,
+                     stuckUpdates: counts["stuck_header_updates"] ?? 0, patchMs: (t1 - cpu0) * 1_000, scrollMs: (t2 - t1) * 1_000,
                      layoutMs: (t3 - t2) * 1_000, displayMs: (t4 - t3) * 1_000, commitMs: (cpu1 - t4) * 1_000)
     }
 

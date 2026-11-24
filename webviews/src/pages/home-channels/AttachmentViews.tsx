@@ -10,7 +10,9 @@ import "../../agent-session/acpmux/chips/chips.css";
 import { Dialog } from "../../ui/Dialog";
 import { DialogButton, keyedIconProps } from "../../ui/DialogButton";
 import { KeyboardScope } from "../../ui/KeyboardScope";
+import { useScrimClose } from "../../ui/scrimClose";
 import type { Strings } from "../shared/i18n";
+import { withAttachmentRetries } from "../shared/attachmentRetry";
 import { AttachmentService, attachmentClass, formatBytes, type UploadProgress } from "./attachmentService";
 import { HomeIcon } from "./icons";
 import type { HomeAttachment } from "./types";
@@ -33,31 +35,40 @@ export const AttachmentOpenContext = createContext<AttachmentOpener | undefined>
 const GRID_TILES = 4;
 
 /** A data URL (or URL) of one image variant: `src` once loaded, `failed` when this host cannot read
- * it (an owner without attachment reads here, a record that is gone). */
+ * it (an owner without attachment reads here, a record that is gone). A read that fails is tried
+ * again on its own a few times first (pages/shared/attachmentRetry.ts); `retry` reads it again
+ * after that, and is undefined where no read can work (no attachment reads on this host). */
 export function useImage(
   conversation: string,
   part: HomeAttachment,
   prefer: "preview" | "original",
-): { src?: string; failed: boolean } {
+): { src?: string; failed: boolean; retry?: () => void } {
   const service = useContext(AttachmentContext);
   const [state, setState] = useState<{ src?: string; failed: boolean }>({ failed: !service });
+  const [attempt, setAttempt] = useState(0);
   const variant = prefer === "preview" && part.preview ? "preview" : "original";
   useEffect(() => {
     if (!service) return;
     let live = true;
-    const load =
+    const load = () =>
       variant === "original" && !AttachmentService.inline(part.byteCount)
         ? service.url(conversation, part.hash, "original", part.name)
         : service.image(conversation, { hash: part.hash, variant });
-    load.then(
+    withAttachmentRetries(load).then(
       (src) => live && setState({ src, failed: false }),
       () => live && setState({ failed: true }),
     );
     return () => {
       live = false;
     };
-  }, [service, conversation, part.hash, part.name, part.byteCount, variant]);
-  return state;
+  }, [service, conversation, part.hash, part.name, part.byteCount, variant, attempt]);
+  const retry = service
+    ? () => {
+        setState({ failed: false });
+        setAttempt((count) => count + 1);
+      }
+    : undefined;
+  return { ...state, retry };
 }
 
 /** What a drag that starts on `part` does instead of the page's own drag: the host's drag of the
@@ -183,26 +194,28 @@ function ImageTile({
   onOpen(): void;
   onDragOut?: AttachmentDragOut | undefined;
 }) {
-  const { src, failed } = useImage(conversation, part, "preview");
+  const { src, failed, retry } = useImage(conversation, part, "preview");
   const size = single ? frame(part, 360, 280) : undefined;
+  // A failed tile reads its image again on a click, and says so; never a tile that does nothing.
+  const retries = failed && retry !== undefined;
   return (
     <button
       type="button"
       className={`hc-att-image${single ? " single" : ""}${src ? "" : failed ? " failed" : " loading"}`}
       style={size}
       data-attachment={part.hash}
-      aria-label={part.name}
+      aria-label={retries ? `${strings.t("pending.retry")} ${part.name}` : part.name}
       /* tooltip-allow: a loaded image shows no name; the name shows only once it fails */
       title={part.name}
-      disabled={failed}
-      onClick={onOpen}
+      disabled={failed && !retries}
+      onClick={retries ? retry : onOpen}
       {...dragOutProps(part, onDragOut)}
     >
       {src && <img src={src} alt={part.name} draggable={false} />}
       {failed && (
         <span className="hc-att-unread">
           <span className="hc-att-name">{part.name}</span>
-          <span className="hc-att-meta">{formatBytes(part.byteCount)}</span>
+          <span className="hc-att-meta">{retries ? strings.t("pending.retry") : formatBytes(part.byteCount)}</span>
         </span>
       )}
       {more > 0 && <span className="hc-att-more">{strings.format("attachment.more", String(more))}</span>}
@@ -420,6 +433,8 @@ function Lightbox({
   const step = (by: number) => onIndex((index + by + items.length) % items.length);
   const canStep = items.length > 1;
   const closeButton = useRef<HTMLButtonElement | null>(null);
+  // A click beside the image or video closes, as in the agent chat's viewers (ui/scrimClose.ts).
+  const scrim = useScrimClose(onClose);
   return (
     <Dialog
       open
@@ -448,7 +463,8 @@ function Lightbox({
             {strings.t("lightbox.close")}
           </DialogButton>
         </header>
-        <div className="hc-lightbox-stage">
+        {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+        <div className="hc-lightbox-stage" {...scrim.props}>
           {canStep && (
             <button
               type="button"
@@ -564,6 +580,8 @@ export interface PendingAttachment {
   progress: UploadProgress;
   part?: HomeAttachment;
   error?: string;
+  /** A failed upload that trying again can fix: its item shows Retry. */
+  retryable?: boolean;
 }
 
 /** The composer's files, above its field. */
@@ -571,22 +589,40 @@ export function AttachmentTray({
   items,
   strings,
   onRemove,
+  onRetry,
 }: {
   items: readonly PendingAttachment[];
   strings: Strings;
   onRemove(id: string): void;
+  onRetry?(id: string): void;
 }) {
   if (items.length === 0) return null;
   return (
     <ul className="hc-tray" aria-label={strings.t("attach.add")}>
       {items.map((item) => (
-        <TrayItem key={item.id} item={item} strings={strings} onRemove={() => onRemove(item.id)} />
+        <TrayItem
+          key={item.id}
+          item={item}
+          strings={strings}
+          onRemove={() => onRemove(item.id)}
+          onRetry={onRetry && (() => onRetry(item.id))}
+        />
       ))}
     </ul>
   );
 }
 
-function TrayItem({ item, strings, onRemove }: { item: PendingAttachment; strings: Strings; onRemove(): void }) {
+function TrayItem({
+  item,
+  strings,
+  onRemove,
+  onRetry,
+}: {
+  item: PendingAttachment;
+  strings: Strings;
+  onRemove(): void;
+  onRetry?(): void;
+}) {
   const fraction = item.progress.total > 0 ? item.progress.sent / item.progress.total : 0;
   const percent = `${Math.round(fraction * 100)}%`;
   const state = item.error ? "failed" : item.part ? "done" : "uploading";
@@ -616,10 +652,17 @@ function TrayItem({ item, strings, onRemove }: { item: PendingAttachment; string
           <span style={{ width: percent }} />
         </span>
       )}
+      {state === "failed" && item.retryable && onRetry && (
+        <button type="button" className="lg-link-button hc-tray-retry" onClick={onRetry}>
+          {strings.t("pending.retry")}
+        </button>
+      )}
       <button
         type="button"
         className="hc-tray-remove"
         aria-label={strings.format("attach.remove", item.file.name)}
+        // The prompt keeps the keyboard: Cmd-Z right after brings the file back.
+        onMouseDown={(event) => event.preventDefault()}
         onClick={onRemove}
       >
         <HomeIcon name="close" />

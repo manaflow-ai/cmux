@@ -28,8 +28,15 @@ impl Hub {
             tracing::error!("reading the session store failed: {error}");
         }
         self.watch_orphans();
-        self.bg_notify_resume();
         self.store_load.ready.send_replace(true);
+        // Chats with no agent may leave memory (`evict.rs`): the reaper runs for them too.
+        if self.evicted.after().is_some() {
+            self.wake_idle_reaper();
+        }
+        // Closed sessions' temporary folders, now and every hour (`closed_tmp.rs`).
+        #[cfg(unix)]
+        self.sweep_closed_tmps();
+        self.bg_notify_resume_in_background();
     }
 
     pub(crate) async fn wait_store(&self) {
@@ -88,7 +95,7 @@ impl Hub {
                     plan.waiting.insert(id.clone());
                 }
             }
-            hub.install_stored_session(meta, true, hosted);
+            hub.install_stored_session(meta, true, hosted, true);
             true
         })
         .await

@@ -199,6 +199,74 @@ fn every_harness_login_has_an_owner_family() {
     let owned: Vec<_> =
         crate::agent::foreign_login::LOGIN_ENV_OWNERS.iter().map(|login| login.key).collect();
     for key in AUTH_ENV.iter().filter(|k| **k != "XDG_DATA_HOME") {
-        assert!(owned.contains(key), "{key} has no owner in LOGIN_ENV_OWNERS");
+        // A provider key (`GOOGLE_API_KEY`, `XAI_API_KEY`) is owned through the login shell's
+        // allow-list instead (`foreign_login::provider_key_owner`).
+        assert!(
+            owned.contains(key) || crate::agent::foreign_login::provider_key_owner(key).is_some(),
+            "{key} has no owner in LOGIN_ENV_OWNERS or provider_key_owner"
+        );
     }
+}
+
+#[test]
+fn pool_auth_gemini_account_switch_and_logout_change_the_key_but_refresh_does_not() {
+    let files = LoginFiles::new("gemini");
+    let cache = AuthCache::default();
+    files.write(".gemini/google_accounts.json", json!({"active": "a@example.com", "old": []}));
+    files.write(".gemini/oauth_creds.json", json!({"access_token": "fixture-a"}));
+    let before = files.fingerprint(&cache, "gemini");
+    assert!(before.1.is_some(), "the Google account names the pooled session's account");
+    files.write(".gemini/oauth_creds.json", json!({"access_token": "fixture-b"}));
+    assert_eq!(before, files.fingerprint(&cache, "gemini"), "a token refresh keeps the session");
+    files.write(".gemini/google_accounts.json", json!({"active": "b@example.com", "old": []}));
+    let switched = files.fingerprint(&cache, "gemini");
+    assert_ne!(before, switched, "another Google account");
+    std::fs::remove_file(files.0.join(".gemini/oauth_creds.json")).unwrap();
+    assert_ne!(switched, files.fingerprint(&cache, "gemini"), "a logout");
+}
+
+#[test]
+fn pool_auth_gemini_and_grok_homes_and_api_keys_change_the_key() {
+    let home = LoginFiles::new("gemini-grok-env");
+    let cache = AuthCache::default();
+    for (family, key, home_key, login) in [
+        ("gemini", "GEMINI_API_KEY", "GEMINI_CLI_HOME", ".gemini/oauth_creds.json"),
+        ("grok", "XAI_API_KEY", "GROK_HOME", "auth.json"),
+    ] {
+        let with =
+            |name: &'static str, value: String| move |k: &str| (k == name).then(|| value.clone());
+        let a = cache.fingerprint_with(family, &with(key, "fixture-key-a".into()), &home.0);
+        let b = cache.fingerprint_with(family, &with(key, "fixture-key-b".into()), &home.0);
+        assert_ne!(a, b, "{family}: a rotated {key}");
+        // The login under the harness's own home counts, not the one under HOME.
+        let custom = home.0.join(format!("{family}-home"));
+        let custom = custom.to_string_lossy().into_owned();
+        let in_custom = cache.fingerprint_with(family, &with(home_key, custom.clone()), &home.0);
+        home.write(&format!("{family}-home/{login}"), json!({"token": "fixture"}));
+        assert_ne!(
+            in_custom,
+            cache.fingerprint_with(family, &with(home_key, custom.clone()), &home.0),
+            "{family}: a login under {home_key}"
+        );
+    }
+    // `grok login` writes ~/.grok/auth.json: its presence is the login.
+    let before = cache.fingerprint_with("grok", &|_| None, &home.0);
+    home.write(".grok/auth.json", json!({"token": "fixture"}));
+    assert_ne!(before, cache.fingerprint_with("grok", &|_| None, &home.0), "grok login");
+}
+
+#[test]
+fn pool_auth_grok_account_switch_changes_the_key_but_refresh_does_not() {
+    let files = LoginFiles::new("grok-account");
+    let cache = AuthCache::default();
+    let at = ".grok/auth.json";
+    files.write(at, json!({"grok.com": {"user_id": "user-a", "access_token": "fixture-a"}}));
+    let before = files.fingerprint(&cache, "grok");
+    files.write(at, json!({"grok.com": {"user_id": "user-a", "access_token": "fixture-b"}}));
+    assert_eq!(before, files.fingerprint(&cache, "grok"), "a token refresh keeps the session");
+    files.write(at, json!({"grok.com": {"user_id": "user-b", "access_token": "fixture-c"}}));
+    let switched = files.fingerprint(&cache, "grok");
+    assert_ne!(before, switched, "another grok account");
+    std::fs::remove_file(files.0.join(at)).unwrap();
+    assert_ne!(switched, files.fingerprint(&cache, "grok"), "a logout");
 }

@@ -20,6 +20,20 @@ type Attempt = {
   intentAt: number;
   /// Reserves for this key that failed in a row (none: the last one answered, or is out).
   failures: number;
+  /// The last reserve of this key was refused as over for good (ENDED_CODES): no reserve of it can answer
+  /// again, so the next intent reserves with a new key.
+  ended?: boolean;
+  /// The start key of the Send this reservation went with. The platform binds the reservation to
+  /// that key (cmux-platform `Leases.bindReservation`) and refuses any other with 409
+  /// `reservation.bound`, also after that start failed.
+  sentWith?: string;
+  /// The empty local chat this compose's Send would replace (App.tsx `emptyLocalChat`), named on each reserve.
+  replacesChat?: string;
+  /// An abandoned compose's release, settled: the next compose reserves only after it, since the native
+  /// pane owns one key at a time and refuses a second while the first's release is still out.
+  gone?: Promise<void>;
+  /// The one `cloud.releaseReservation` for this key, once sent.
+  releasing?: Promise<void>;
 };
 
 /// While the person still means to send (Cloud picked, typing), the same compose key is reserved
@@ -30,17 +44,29 @@ type Attempt = {
 export const RESERVATION_RENEW_MS = 60_000;
 /// A reserve that failed (a Cloud pick the page made itself, with no gesture, such as a remembered
 /// Cloud target on load; the platform unavailable) is tried again on the next intent, with the
-/// same key, after this gap, doubled for each failure in a row up to RESERVATION_RENEW_MS.
+/// same key (a new one once the platform said the key is over, ENDED_CODES), after this gap, doubled
+/// for each failure in a row up to RESERVATION_RENEW_MS.
 export const RESERVATION_RETRY_MS = 2_000;
 /// No intent for this long and nothing sent: the compose gives its machine back. The platform's
 /// hold ends at the same bound after its last renewal (RESERVATION_HOLD_MS), so a page that went
 /// away without releasing costs no more.
 export const RESERVATION_IDLE_RELEASE_MS = 10 * 60_000;
 
+/// The platform's refusals of a reserve whose key is over for good: its hold ran out unbound, or it was
+/// released (cmux-tui reservations.rs `unbound` reads the same two at the bind). Seen on a dev build,
+/// 2026-11-19: the first reserve ended `unavailable` after 137 s, the platform's hold then ran out, and
+/// every retry with that key was refused `reservation.terminal`, so the compose never reserved again.
+const ENDED_CODES: ReadonlySet<unknown> = new Set(["reservation.terminal", "reservation.expired"]);
+
+function keyEnded(error: unknown): boolean {
+  return typeof error === "object" && error !== null && ENDED_CODES.has((error as { code?: unknown }).code);
+}
+
 /// One speculative machine per compose. The platform owns its expiry; the page renews its hold
 /// only on the person's intent and releases it after RESERVATION_IDLE_RELEASE_MS without one.
 /// Leaving Cloud or clearing the prompt gives an unused machine back sooner. Send takes
-/// ownership before the host can close this page, and retries keep the same reservation key.
+/// ownership before the host can close this page, and retries keep the same reservation key
+/// until the platform says that key is over (ENDED_CODES).
 export class CloudComposeReservation {
   private attempt?: Attempt;
   private cancelRelease?: () => void;
@@ -52,18 +78,35 @@ export class CloudComposeReservation {
     private readonly newKey: () => string = () => crypto.randomUUID(),
   ) {}
 
-  selected(): void {
+  /// `replacesChat`: the empty local chat the Send would replace (the host reserves for a pane with a chat only
+  /// while it shows that chat); none: a compose with no chat. A compose for another chat gives its machine back.
+  selected(replacesChat?: string): void {
     this.stopRelease();
     const now = this.clock.now();
+    const before = this.attempt;
+    let after: Promise<unknown> = Promise.resolve();
+    if (before && !before.transferred && !before.abandoned && before.replacesChat !== replacesChat) {
+      this.abandon();
+      after = before.gone ?? after;
+    }
     const live = this.attempt;
+    let failures = 0;
     if (live && !live.abandoned && !live.released) {
       live.intentAt = now;
       // Renew (or retry) with the same key: idempotent at the platform, never a second machine.
       const gap = live.failures
         ? Math.min(RESERVATION_RENEW_MS, RESERVATION_RETRY_MS * 2 ** (live.failures - 1))
         : RESERVATION_RENEW_MS;
-      if (!live.transferred && now - live.reservedAt >= gap) this.reserve(live, live.ready);
-      return;
+      const due = !live.transferred && now - live.reservedAt >= gap;
+      if (!due || !live.ended) {
+        if (due) this.reserve(live, live.ready);
+        return;
+      }
+      // The key is over at the platform (nothing of it is left to release): the retry takes a new one, after
+      // any reserve of the old key still out (the native pane takes one key at a time), and keeps the count of
+      // failures in a row, so new keys that fail too are still spaced out.
+      failures = live.failures;
+      after = live.ready;
     }
     this.attempt = undefined;
     const attempt: Attempt = {
@@ -74,10 +117,11 @@ export class CloudComposeReservation {
       released: false,
       reservedAt: now,
       intentAt: now,
-      failures: 0,
+      failures,
+      ...(replacesChat ? { replacesChat } : {}),
     };
     this.attempt = attempt;
-    this.reserve(attempt, Promise.resolve());
+    this.reserve(attempt, after);
     this.watchIdle(attempt, RESERVATION_IDLE_RELEASE_MS);
   }
 
@@ -87,16 +131,27 @@ export class CloudComposeReservation {
   private reserve(attempt: Attempt, after: Promise<unknown>): void {
     attempt.reservedAt = this.clock.now();
     attempt.ready = after
-      .then(() => this.call("cloud.reserve", { composeKey: attempt.key }))
+      .then(() =>
+        this.call("cloud.reserve", {
+          composeKey: attempt.key,
+          ...(attempt.replacesChat ? { replacesChat: attempt.replacesChat } : {}),
+        }),
+      )
       .then(
-        () => true,
-        () => false,
+        () => {
+          attempt.ended = false;
+          return true;
+        },
+        (error) => {
+          attempt.ended = keyEnded(error);
+          return false;
+        },
       )
       .then((ready) => {
         attempt.failures = ready ? 0 : attempt.failures + 1;
         // A close/switch can race the allocation. Release after it settles so a late successful
         // create cannot arrive after the page's DELETE and leak until expiry.
-        if (attempt.abandoned && !attempt.transferred) this.release(attempt);
+        if (attempt.abandoned && !attempt.transferred) void this.release(attempt);
         return ready;
       });
   }
@@ -114,9 +169,9 @@ export class CloudComposeReservation {
     }, ms);
   }
 
-  typed(text: string): void {
+  typed(text: string, replacesChat?: string): void {
     if (text.trim()) {
-      this.selected();
+      this.selected(replacesChat);
     } else if (this.attempt && !this.attempt.transferred && !this.cancelRelease) {
       this.cancelRelease = this.clock.schedule(() => {
         this.cancelRelease = undefined;
@@ -127,7 +182,13 @@ export class CloudComposeReservation {
 
   /// Called only for an accepted Send. The caller waits for ready() before asking the host to
   /// bind, so an immediate Return cannot race an allocation that is still in flight.
-  handoff(environment?: string): string | undefined {
+  ///
+  /// `sendKey` is the Send's start key (`cloudStartKeys`). A reservation goes with one Send: a
+  /// retry of that Send (the same key) gets it again and reaches the machine it bound; a different
+  /// Send from this page after that one failed (another prompt, or no folder after a refused one)
+  /// goes without it and creates its own machine, since the platform would refuse it as
+  /// `reservation.bound`.
+  handoff(environment?: string, sendKey?: string): string | undefined {
     this.stopRelease();
     this.stopIdle();
     // This compose warmed the default image. A later environment pick takes its ordinary,
@@ -138,7 +199,9 @@ export class CloudComposeReservation {
     }
     const attempt = this.attempt;
     if (!attempt || attempt.abandoned) return undefined;
+    if (attempt.transferred && attempt.sentWith !== undefined && attempt.sentWith !== sendKey) return undefined;
     attempt.transferred = true;
+    attempt.sentWith ??= sendKey;
     return attempt.key;
   }
 
@@ -166,13 +229,24 @@ export class CloudComposeReservation {
     return false;
   }
 
+  /// The Send that took reservation `key` was refused before the host bound it (a folder too big to copy,
+  /// `cloud_folder_too_big`): nothing will claim it, so it is given back now, and the next Send starts cold
+  /// or a new compose reserves again.
+  returned(key: string): void {
+    const attempt = this.attempt;
+    if (attempt?.key !== key || !attempt.transferred) return;
+    attempt.transferred = false;
+    attempt.abandoned = true;
+    void attempt.ready.then(() => this.release(attempt));
+  }
+
   abandon(): void {
     this.stopRelease();
     this.stopIdle();
     const attempt = this.attempt;
     if (!attempt || attempt.transferred || attempt.abandoned) return;
     attempt.abandoned = true;
-    void attempt.ready.then(() => this.release(attempt));
+    attempt.gone = attempt.ready.then(() => this.release(attempt));
   }
 
   reset(): void {
@@ -190,10 +264,14 @@ export class CloudComposeReservation {
     this.cancelIdle = undefined;
   }
 
-  private release(attempt: Attempt): void {
-    if (attempt.released) return;
+  private release(attempt: Attempt): Promise<void> {
+    if (attempt.releasing) return attempt.releasing;
     attempt.released = true;
-    void this.call("cloud.releaseReservation", { composeKey: attempt.key }).catch(() => undefined);
+    attempt.releasing = this.call("cloud.releaseReservation", { composeKey: attempt.key }).then(
+      () => undefined,
+      () => undefined,
+    );
+    return attempt.releasing;
   }
 }
 

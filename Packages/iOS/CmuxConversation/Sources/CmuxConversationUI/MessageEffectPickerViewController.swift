@@ -296,7 +296,7 @@ final class MessageEffectPickerViewController: UIViewController, UIScrollViewDel
             }
         }
         guard changed else { play(); return }
-        UIView.animate(withDuration: reduceMotion ? 0 : 0.32, delay: 0, usingSpringWithDamping: 0.86, initialSpringVelocity: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
+        UIView.animateUnlessReduceMotion(withDuration: reduceMotion ? 0 : 0.32, delay: 0, usingSpringWithDamping: 0.86, initialSpringVelocity: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
             self.placeStage(target)
             self.view.setNeedsLayout()
             self.view.layoutIfNeeded()
@@ -320,9 +320,14 @@ final class MessageEffectPickerViewController: UIViewController, UIScrollViewDel
         pager.isHidden = !isScreen
         pageControl.isHidden = !isScreen
         screenSendButton.isHidden = !isScreen
+        // The stage moves to its slot (at once under Reduce Motion); the
+        // screen preview crossfades.
+        UIView.animateUnlessReduceMotion(withDuration: 0.25) {
+            self.placeStage(self.slotFrame(for: isScreen ? nil : self.selectedBubbleEffect))
+        }
+        // motion: allow crossfade, the Reduce Motion form
         UIView.animate(withDuration: 0.25) {
             self.screenPreview.alpha = isScreen ? 1 : 0
-            self.placeStage(self.slotFrame(for: isScreen ? nil : self.selectedBubbleEffect))
         }
         if isScreen {
             playScreenPreview()
@@ -334,6 +339,8 @@ final class MessageEffectPickerViewController: UIViewController, UIScrollViewDel
     }
 
     private func scrollToPage(_ page: Int, animated: Bool) {
+        // Under Reduce Motion the page lands at once.
+        let animated = animated && !UIView.reducesMotion
         pager.setContentOffset(CGPoint(x: CGFloat(page) * pager.bounds.width, y: 0), animated: animated)
         if !animated { pageSettled() }
     }
@@ -480,7 +487,7 @@ private final class EffectRow {
         labelButton.setTitle(name.localizedUppercase, for: .normal)
         labelButton.alpha = selected == false ? 0.4 : 1
         let selected = selected == true
-        UIView.animate(withDuration: 0.2) { self.dot.isSelectedForSend = selected }
+        UIView.animateUnlessReduceMotion(withDuration: 0.2) { self.dot.isSelectedForSend = selected }
         dot.accessibilityLabel = selected
             ? String(format: String(localized: "conversation.effect.sendWithNamed", defaultValue: "Send with %@", bundle: .module), effect.localizedName)
             : effect.localizedName

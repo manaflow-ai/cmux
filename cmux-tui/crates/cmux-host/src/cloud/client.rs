@@ -56,6 +56,19 @@ pub trait Http {
         Err("GET is not supported by this transport".to_owned())
     }
 
+    /// One request with any `method` and extra `headers` (`apps_call.rs`: the apps routes'
+    /// PUT and DELETE, and a promote's `Idempotency-Key`). Transports opt in; the default refuses.
+    fn send(
+        &self,
+        _method: &str,
+        _url: &str,
+        _body: Option<&Value>,
+        _bearer: Option<&str>,
+        _headers: &[(&str, &str)],
+    ) -> Result<(u16, Value), String> {
+        Err("this Cloud transport sends no other method".to_owned())
+    }
+
     /// Drops any pooled connection, so the next request dials a fresh one (after a pause, a pooled connection is
     /// dead and nothing says so). A transport with no pool does nothing.
     fn reset(&self) {}
@@ -201,7 +214,11 @@ pub fn ensure_wg_key(
 pub enum BindResult {
     /// No `bind.json`.
     None,
-    Bound(Box<Bound>),
+    /// Bound; with the machine's first relay Register ticket when the bind
+    /// answer carried one for its carrier slot (the reply line the session
+    /// host gets, [`super::carrier_ticket::bind_ticket`]). It is never written
+    /// to disk.
+    Bound(Box<Bound>, Option<Value>),
     /// A final 4xx answer: the token is spent or invalid; `bind.json` is gone.
     /// A 4xx after an unanswered try of the same token, while the token may
     /// still live, is a `Retry` instead (see [`bind_machine`]).
@@ -216,7 +233,10 @@ impl BindResult {
     pub fn describe(&self) -> String {
         match self {
             BindResult::None => "none".to_owned(),
-            BindResult::Bound(b) => format!("bound machine={} epoch={}", b.machine, b.epoch),
+            BindResult::Bound(b, ticket) => {
+                let with = if ticket.is_some() { " with a carrier ticket" } else { "" };
+                format!("bound machine={} epoch={}{with}", b.machine, b.epoch)
+            }
             BindResult::Refused(code) => format!("refused {code}"),
             BindResult::Invalid(why) => format!("invalid {why}"),
             BindResult::Retry(why) => format!("retry {why}"),
@@ -231,14 +251,15 @@ impl BindResult {
 /// section. That section is kept as `carrier.json` (0600,
 /// `carrier_entry.rs`) before `bound.json`; a bind without one leaves any
 /// existing `carrier.json` as it is.
-/// The bind as the Cloud role makes it: the updater's connect hold first, so
-/// the machine's first link is never cut by an update's restart, then the
-/// request. A person's machine from this bind on, and the supervisor's
-/// `Bound` (an instance id change) does not cover a bind of the same machine.
-/// The hold is the state dir's restart gate (`updater/gate.rs`), which every
-/// flip and restart goes through in whichever process runs it: either the
-/// flip sees this hold, or a restart was queued first and this answers None
-/// with `bind.json` left for the restarted service.
+/// The bind as the Cloud role makes it: the updater's connect hold and the
+/// bind's in-flight mark first, so the machine's first link is never cut by
+/// an update's or a rollback's restart, then the request, then the mark goes
+/// and the hold runs from the answer. A person's machine from this bind on,
+/// and the supervisor's `Bound` (an instance id change) does not cover a bind
+/// of the same machine. The hold is the state dir's restart gate
+/// (`updater/gate.rs`), which every flip and restart goes through in
+/// whichever process runs it. None, with `bind.json` left for a retry, when a
+/// restart was queued first (the restarted service binds) or the gate failed.
 #[allow(clippy::too_many_arguments)]
 pub fn hold_then_bind(
     paths: &crate::config::Paths,
@@ -251,16 +272,32 @@ pub fn hold_then_bind(
     now_wall_ms: u64,
 ) -> Option<BindResult> {
     #[cfg(unix)]
-    if !crate::updater::gate::hold_connects(
-        paths,
-        now_wall_ms,
-        crate::updater::gate::HoldKind::Connect,
-    ) {
-        return None;
+    {
+        let gate = crate::updater::gate::Gate::new(paths);
+        match gate.begin_bind(now_wall_ms) {
+            Ok(true) => {}
+            Ok(false) => return None,
+            Err(e) => {
+                eprintln!("cmux-host: cloud: bind: the restart gate failed ({e}); retrying");
+                return None;
+            }
+        }
+        let started = std::time::Instant::now();
+        let result =
+            bind_machine(store, http, key, wg_public_key, daemon, daemon_noise_key, now_wall_ms);
+        let took = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+        let done_ms = now_wall_ms.saturating_add(took);
+        if let Err(e) = gate.end_bind(done_ms) {
+            // The mark lapses on its own; the hold taken before the request stands.
+            eprintln!("cmux-host: cloud: bind: clearing its in-flight mark failed: {e}");
+        }
+        Some(result)
     }
     #[cfg(not(unix))]
-    let _ = paths;
-    Some(bind_machine(store, http, key, wg_public_key, daemon, daemon_noise_key, now_wall_ms))
+    {
+        let _ = paths;
+        Some(bind_machine(store, http, key, wg_public_key, daemon, daemon_noise_key, now_wall_ms))
+    }
 }
 
 pub fn bind_machine(
@@ -338,6 +375,10 @@ pub fn bind_machine(
         keyset: value.field("keyset").clone(),
         bound_at: now_wall_ms,
     };
+    let first_ticket = file
+        .carrier
+        .as_ref()
+        .and_then(|route| super::carrier_ticket::bind_ticket(value, &route.slot));
     // The carrier goes down before bound.json, so a bound machine never
     // lacks the route its bind sent; the session host respawns on it.
     if let Some(route) = file.carrier {
@@ -352,6 +393,7 @@ pub fn bind_machine(
             return BindResult::Retry(format!("carrier.json write: {e}"));
         }
     }
+    keep_sccache(store, &file.sccache);
     let saved = serde_json::to_string(&bound).unwrap_or_default();
     if let Err(e) = store.write(BOUND_FILE, &format!("{saved}\n"), 0o600) {
         return BindResult::Retry(format!("bound.json write: {e}"));
@@ -367,7 +409,33 @@ pub fn bind_machine(
     let _ = record_owner_kind(store);
     store.remove(BIND_FILE);
     store.remove(BIND_UNANSWERED_FILE);
-    BindResult::Bound(Box::new(bound))
+    BindResult::Bound(Box::new(bound), first_ticket)
+}
+
+/// The bind's compiler cache settings (`sccache_env.rs`): kept with the section, removed without
+/// one (or with a refused one), so a machine runs with the cache only while its last bind named
+/// it. Best effort: the cache is optional, so a failed write never fails the bind.
+fn keep_sccache(store: &mut dyn Store, section: &super::wire::SccacheSection) {
+    use super::wire::SccacheSection;
+    use crate::sccache_env::{KEPT_FILE, file_text, names};
+    match section {
+        SccacheSection::Env(vars) => match store.write(KEPT_FILE, &file_text(vars), 0o600) {
+            Ok(()) => {
+                eprintln!("cmux-host: cloud: bind: compiler cache settings kept: {}", names(vars))
+            }
+            Err(e) => {
+                eprintln!("cmux-host: cloud: bind: sccache.json write: {e}; compiler cache off");
+                store.remove(KEPT_FILE);
+            }
+        },
+        SccacheSection::Refused(why) => {
+            eprintln!(
+                "cmux-host: cloud: bind: the `sccache` section is refused ({why}); compiler cache off"
+            );
+            store.remove(KEPT_FILE);
+        }
+        SccacheSection::Absent => store.remove(KEPT_FILE),
+    }
 }
 
 /// How long a bind token can live: it expires 15 minutes after the machine
@@ -599,9 +667,9 @@ impl<H: Http> CloudClient<H> {
         self.post_with_token(path, body, now_wall_ms)
     }
 
-    /// A connector read against the environment's platform, authenticated as
-    /// this machine. Neither origin nor team is taken from the socket caller.
-    fn github_repos_get(&mut self, path: &str, now_wall_ms: u64) -> Answer {
+    /// A read against the environment's platform, authenticated as this
+    /// machine. Neither origin nor team is taken from the socket caller.
+    fn platform_get(&mut self, path: &str, now_wall_ms: u64) -> Answer {
         let url = format!("{}{}", self.bound.env.platform_origin(), path);
         let send = |client: &mut Self| -> Option<(u16, Value)> {
             let token = client.token(now_wall_ms).ok()?;
@@ -616,9 +684,36 @@ impl<H: Http> CloudClient<H> {
         Answer::Http { status, body }
     }
 
+    /// One GET on this machine's API origin as its `vm` install. As
+    /// [`Self::post_as_install`], only a 401 or an `auth.*` 403 drops the
+    /// cached bearer and retries once.
+    fn get_as_install(&mut self, path: &str, now_wall_ms: u64) -> Answer {
+        let url = self.url(path);
+        let send = |client: &mut Self| -> Option<(u16, Value)> {
+            let token = client.token(now_wall_ms).ok()?;
+            client.http.get(&url, Some(&token)).ok()
+        };
+        let Some((mut status, mut body)) = send(self) else { return Answer::Transport };
+        let stale = status == 401
+            || (status == 403
+                && body
+                    .field("error")
+                    .field("code")
+                    .as_str()
+                    .is_some_and(|c| c.starts_with("auth.")));
+        if stale {
+            self.cached = None;
+            let Some(again) = send(self) else { return Answer::Transport };
+            (status, body) = again;
+        }
+        Answer::Http { status, body }
+    }
+
+    /// One page of the repositories this machine's team linked to GitHub
+    /// (`GET /v1/integrations/github/repos` on the API as its `vm` install).
     pub fn github_repos(&mut self, ask: &super::github_repos::ReposAsk, now_wall_ms: u64) -> Value {
         let team = self.bound.team.clone();
-        super::github_repos::answer(ask, &team, |path| self.github_repos_get(path, now_wall_ms))
+        super::github_repos::answer(ask, &team, |path| self.get_as_install(path, now_wall_ms))
     }
 
     /// The person's connected GitHub account (`GET /v1/me/github` as this
@@ -631,9 +726,57 @@ impl<H: Http> CloudClient<H> {
         super::carrier_ticket::reply_for(&answer)
     }
 
+    /// One apps route as this machine's `vm` install (`apps_call.rs`, checked before it gets
+    /// here): the platform's status and body, with the machine the install speaks for.
+    pub fn apps_call(&mut self, call: &super::apps_call::AppsCall, now_wall_ms: u64) -> Value {
+        let url = self.url(&call.path);
+        let key = call.idempotency_key.as_deref();
+        let headers: Vec<(&str, &str)> = key.map(|k| ("Idempotency-Key", k)).into_iter().collect();
+        let send = |client: &mut Self| -> Option<(u16, Value)> {
+            let token = client.token(now_wall_ms).ok()?;
+            client.http.send(&call.method, &url, call.body.as_ref(), Some(&token), &headers).ok()
+        };
+        let answer = match send(self) {
+            None => Answer::Transport,
+            Some((401, _)) => {
+                self.cached = None;
+                send(self).map_or(Answer::Transport, |(status, body)| Answer::Http { status, body })
+            }
+            Some((status, body)) => Answer::Http { status, body },
+        };
+        super::apps_call::reply_for(&answer, &self.bound.machine)
+    }
+
     pub fn github_status(&mut self, now_wall_ms: u64) -> Value {
-        let answer = self.github_repos_get(super::github_status::STATUS_PATH, now_wall_ms);
+        let answer = self.platform_get(super::github_status::STATUS_PATH, now_wall_ms);
         super::github_status::reply_for(&answer)
+    }
+
+    /// The person's additions list (`POST /v1/install-counts/additions` on the environment's
+    /// platform as this machine's `vm` install, `additions.rs`). As [`Self::post_as_install`],
+    /// only a 401 or an `auth.*` 403 drops the cached bearer and retries once: a 403
+    /// `install_counts.not_shared` is the answer.
+    pub fn install_additions(&mut self, body: &Value, now_wall_ms: u64) -> Answer {
+        let url =
+            format!("{}{}", self.bound.env.platform_origin(), super::additions::ADDITIONS_PATH);
+        let send = |client: &mut Self| -> Option<(u16, Value)> {
+            let token = client.token(now_wall_ms).ok()?;
+            client.http.post(&url, body, Some(&token)).ok()
+        };
+        let Some((mut status, mut answer)) = send(self) else { return Answer::Transport };
+        let stale = status == 401
+            || (status == 403
+                && answer
+                    .field("error")
+                    .field("code")
+                    .as_str()
+                    .is_some_and(|c| c.starts_with("auth.")));
+        if stale {
+            self.cached = None;
+            let Some(again) = send(self) else { return Answer::Transport };
+            (status, answer) = again;
+        }
+        Answer::Http { status, body: answer }
     }
 
     /// A GitHub token for this machine (`POST /v1/integrations/github/token`

@@ -10,6 +10,7 @@ import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxPermission } from "../src/agent-session/acpmux/model";
 import type { PermissionClientState } from "../src/agent-session/acpmux/permissions/protocol";
+import { settleReact } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -31,7 +32,8 @@ const domClasses = Object.getOwnPropertyNames(dom.window).filter(
   (key) => /^(HTML|SVG|CSS|Document|Event|KeyboardEvent)/.test(key) && !(key in globals),
 );
 for (const key of domClasses) globals[key] = (dom.window as unknown as Record<string, unknown>)[key];
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, had, value] of saved) {
     if (had) globals[key] = value;
     else delete globals[key];
@@ -96,7 +98,7 @@ async function mount(shortcuts?: boolean, permission: AcpmuxPermission = ask) {
 test("deny answers with the first deny option, and only its button shows the keycap", async () => {
   const card = await mount();
   // Each answer leads with its letter (dealbreakers D8: approving is one obvious key), then its keys.
-  expect(card.keycaps()).toEqual(["Deny: N Esc", "Allow once: Y ⌘ ↩"]);
+  expect(card.keycaps()).toEqual(["Deny: N esc", "Allow once: Y ⌘ return"]);
   await card.press("permissionDeny");
   expect(card.answers).toEqual(["abort"]);
   await card.unmount();
@@ -117,7 +119,7 @@ test("short buttons keep ⌥⌘1, ⌥⌘2 and ⌥⌘3, show Esc and ⌘↩ keyca
   // Leo 2026-11-05, on Claude desktop's "Deny Esc" and "Allow for this session ⌘↩": Deny and Allow
   // once show the card's own keys as keycaps; Always allow keeps its light ⌥⌘2 hint. Every button
   // still answers its app shortcut, listed after the card key. The answer's letter leads (y, a, n).
-  expect(card.keycaps()).toEqual(["Deny: N Esc", "Always allow: A ⌥⌘2", "Allow once: Y ⌘ ↩"]);
+  expect(card.keycaps()).toEqual(["Deny: N esc", "Always allow: A ⌥⌘2", "Allow once: Y ⌘ return"]);
   // Leo 2026-10-25, "just make it good? incl. the symbol hints": the hint is decoration, its
   // modifiers a fainter span before the key, and the button's name stays its label.
   const hints = [...card.host.querySelectorAll("button kbd")];

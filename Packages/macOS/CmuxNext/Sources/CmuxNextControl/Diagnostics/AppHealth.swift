@@ -54,9 +54,11 @@ public final class AppHealth: Sendable {
         case reloadPage, restartRenderer, reconnect, restartConnection, restartPageHost, holdReplace, none
     }
 
-    /// The contract's events (`event {id, event}`).
+    /// The contract's events (`event {id, event}`). `navigationStarted`: the host started loading a page's
+    /// document (a reload, crash recovery, a repair), so the page loads and is not hung until `loaded` (a
+    /// model older than ABI 3 ignores it).
     public enum Event: String, Sendable {
-        case crashed, loaded, unresponsive, responsive, connected, disconnected, loadFailed, listenerMissing
+        case crashed, loaded, navigationStarted, unresponsive, responsive, connected, disconnected, loadFailed, listenerMissing
         case started, ready, exited, restoreProgress, restoreStarted, restoreFinished
     }
 
@@ -69,13 +71,19 @@ public final class AppHealth: Sendable {
         /// The model's token for this action, sent back with its result so a late result never
         /// lands on a newer attempt (nil from a model that sends none).
         public var token: UInt64?
+        /// The part's label and why it is repaired ("Not answering for 12 s."), for the log (nil from a model
+        /// older than ABI 3).
+        public var label: String?
+        public var cause: String?
 
-        public init(id: String, kind: Kind, action: Repair, attempt: Int, token: UInt64? = nil) {
+        public init(id: String, kind: Kind, action: Repair, attempt: Int, token: UInt64? = nil, label: String? = nil, cause: String? = nil) {
             self.id = id
             self.kind = kind
             self.action = action
             self.attempt = attempt
             self.token = token
+            self.label = label
+            self.cause = cause
         }
     }
 
@@ -117,9 +125,14 @@ public final class AppHealth: Sendable {
         var nextSubscriber: UInt64 = 0
         var repairs: [Kind: RepairHandler] = [:]
         var injectors: [Kind: Injector] = [:]
-        var holdsReplace = false
+        /// When the model said a restoring daemon loops (`holdReplace`), until an owner is ready.
+        var holdReplaceAt: UInt64?
+        /// The last restore progress (model ms), until an owner is ready or exits.
+        var restoreProgressAt: UInt64?
     }
 
+    // Lock carve-out: owners feed signals synchronously from any thread (scheme handlers, the daemon
+    // reader, the main actor), one short swap around one model call, never a wait or an await.
     private let box = Mutex(Box())
     /// The version last delivered to the subscribers. Delivery runs under this lock, outside the
     /// model's, so two ops racing to publish never land an older snapshot after a newer one.
@@ -143,6 +156,11 @@ public final class AppHealth: Sendable {
     /// Whether the Rust model is linked (a pinned app FFI without `CCmuxHealthFFI` leaves this type inert).
     public var isModelLinked: Bool { box.withLock { $0.model.isLinked } }
 
+    /// Whether a page's `rest` beat (``beat(_:rest:)``) stops the timing of its silence: a model of
+    /// ABI 2 or later, or none linked (nothing is timed). An older pinned model would take a rest
+    /// beat for a plain one and reload the resting page, so its pages keep beating.
+    public var takesRestBeats: Bool { box.withLock { $0.model.takesRestBeats } }
+
     /// Whether the one timer is armed (tests: no deadline, no timer).
     public var isTimerArmed: Bool { timer.isScheduled }
 
@@ -157,9 +175,10 @@ public final class AppHealth: Sendable {
         run("unregister", ["id": .string(id)], timed: false)
     }
 
-    /// The part answered (a page's heartbeat, an answered liveness ask).
-    public func beat(_ id: String) {
-        run("beat", ["id": .string(id)])
+    /// The part answered (a page's heartbeat, an answered liveness ask). `rest`: a page's last beat
+    /// before it rests; its silence is not timed until it beats again, is shown or loads.
+    public func beat(_ id: String, rest: Bool = false) {
+        run("beat", rest ? ["id": .string(id), "rest": .bool(true)] : ["id": .string(id)])
     }
 
     /// Input counters (monotonic): sent to the part, and handled by it.
@@ -176,8 +195,20 @@ public final class AppHealth: Sendable {
         var fields: [String: JSONValue] = ["id": .string(id), "event": .string(event.rawValue)]
         if let pid { fields["pid"] = .number(Double(pid)) }
         if let value { fields["value"] = .number(Double(value)) }
-        // A daemon that is ready again is no restore to protect.
-        if id == Self.sessionDaemonID, event == .ready { box.withLock { $0.holdsReplace = false } }
+        if id == Self.sessionDaemonID {
+            let now = nowMs()
+            box.withLock { box in
+                switch event {
+                // A daemon that is ready again is no restore to protect.
+                case .ready:
+                    box.holdReplaceAt = nil
+                    box.restoreProgressAt = nil
+                case .exited: box.restoreProgressAt = nil
+                case .restoreProgress: box.restoreProgressAt = now
+                default: break
+                }
+            }
+        }
         run("event", fields)
     }
 
@@ -247,10 +278,21 @@ public final class AppHealth: Sendable {
         return Kind(rawValue: id)
     }
 
-    /// True after the model said a restoring session daemon loops (`holdReplace`), until an owner is
-    /// ready again. Read-only: the launcher's replace path (DaemonLauncher+Replace,
-    /// PR #38819's lane) consults it before it kills or replaces an owner; this type never does either.
-    public var holdsReplace: Bool { box.withLock { $0.holdsReplace } }
+    /// True while the session daemon restores and still makes progress (its last progress within
+    /// ``restoreProgressWindowMs``, the model's no-progress bound `DAEMON_STALL_MS`). The model's
+    /// start-loop hold (`holdReplace`) counts as progress at the moment it came, so it ends the same
+    /// way: an owner is ready, or the bound passes with no progress (a stalled loop is not protected).
+    /// Read-only: the replace paths consult it before they kill or replace an owner; this type never
+    /// does either.
+    public var holdsReplace: Bool {
+        let now = nowMs()
+        return box.withLock { box in
+            [box.holdReplaceAt, box.restoreProgressAt].compactMap { $0 }.max().map { now &- $0 < Self.restoreProgressWindowMs } == true
+        }
+    }
+
+    /// A restore with no progress this long is stuck, not protected (cmux-health-core's bound).
+    static let restoreProgressWindowMs: UInt64 = 120_000
 
     // MARK: Snapshot
 
@@ -284,9 +326,13 @@ public final class AppHealth: Sendable {
 
     static let quietSnapshot: JSONValue = ["worst": "healthy", "parts": [], "receipts": [], "pending": [], "pendingMore": 0]
 
-    /// The worst part (worst state, the longest in it first), else the newest pending action.
+    /// The worst part (worst state, the longest in it first), else the newest pending action. A part that is
+    /// only slow is left out: it still answers, and if it stops the model makes it stuck and repairs it, so
+    /// a line for it named nothing the person could do (Leo, 2026-11-11: "slow indicator on the bottom left
+    /// is uselsss"; a busy Mac late on a page's heartbeat showed "Agent pane: Slow" for seconds at a time).
+    /// The popover still lists it.
     public static func headline(of snapshot: JSONValue) -> Headline? {
-        let parts = (snapshot["parts"]?.arrayValue ?? []).filter { State(rawValue: $0["state"]?.stringValue ?? "") ?? .healthy > .healthy }
+        let parts = (snapshot["parts"]?.arrayValue ?? []).filter { State(rawValue: $0["state"]?.stringValue ?? "") ?? .healthy > .slow }
         let pending = snapshot["pending"]?.arrayValue ?? []
         let pendingCount = pending.count + (snapshot["pendingMore"]?.intValue ?? 0)
         let worst = parts.max { a, b in
@@ -325,7 +371,7 @@ public final class AppHealth: Sendable {
         let (reply, publish) = box.withLock { box -> (JSONValue?, (UInt64, JSONValue, [@Sendable (JSONValue) -> Void])?) in
             guard let data = box.model.call(op, body), let reply = try? JSONValue.parse(data) else { return (nil, nil) }
             if reply["actions"]?.arrayValue?.contains(where: { $0["action"]?.stringValue == Repair.holdReplace.rawValue }) == true {
-                box.holdsReplace = true
+                box.holdReplaceAt = now
             }
             if reply["nextTickMs"] != nil { arm(&box, next: reply["nextTickMs"]?.doubleValue.flatMap { $0 > 0 ? UInt64(exactly: $0.rounded(.up)) : 0 }, now: now) }
             // Compared by value: the first op's quiet snapshot equals the initial one and publishes nothing.
@@ -372,7 +418,8 @@ public final class AppHealth: Sendable {
             guard let id = value["id"]?.stringValue, let kind = Kind(rawValue: value["kind"]?.stringValue ?? ""),
                   let action = Repair(rawValue: value["action"]?.stringValue ?? "") else { return nil }
             let token = value["token"]?.doubleValue.flatMap { UInt64(exactly: $0) }
-            return Action(id: id, kind: kind, action: action, attempt: value["attempt"]?.intValue ?? 1, token: token)
+            return Action(id: id, kind: kind, action: action, attempt: value["attempt"]?.intValue ?? 1, token: token,
+                          label: value["label"]?.stringValue, cause: value["cause"]?.stringValue)
         }
     }
 
@@ -384,7 +431,9 @@ public final class AppHealth: Sendable {
                 report(action, ok: false)
                 continue
             }
-            logger.notice("health: \(action.action.rawValue, privacy: .public) for \(action.kind.rawValue, privacy: .public), attempt \(action.attempt)")
+            // Which part (its id and label) and why: "health: reloadPage for page page:12 (Agent chat), attempt 1:
+            // Not answering for 10 s." A bare "for page" named no chat and no cause (cosmic-gray, 2026-11-22 06:41Z).
+            logger.notice("health: \(action.action.rawValue, privacy: .public) for \(action.kind.rawValue, privacy: .public) \(action.id, privacy: .public) (\(action.label ?? "?", privacy: .public)), attempt \(action.attempt): \(action.cause ?? "no cause given", privacy: .public)")
             // task-owner: one repair per model action; ends when the owner's handler returns (each is bounded).
             Task(priority: .utility) { [weak self] in
                 let ok = await handler(action)
@@ -415,6 +464,9 @@ private final class Model {
 
     var isLinked: Bool { handle != nil }
 
+    /// ABI 2 added the page's rest beat (cmux-health-core `Health::rest`).
+    var takesRestBeats: Bool { handle == nil || cmux_health_abi_version() >= 2 }
+
     /// One op's reply (JSON), nil when the model refused it.
     func call(_ op: String, _ request: Data) -> Data? {
         guard let handle else { return nil }
@@ -431,6 +483,7 @@ private final class Model {
     }
     #else
     var isLinked: Bool { false }
+    var takesRestBeats: Bool { true }
 
     func call(_ op: String, _ request: Data) -> Data? { nil }
     #endif

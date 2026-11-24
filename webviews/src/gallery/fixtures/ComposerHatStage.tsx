@@ -14,6 +14,11 @@ import "./composerHatArms.css";
  *  tray, 22 px in from the card's sides, composerLook.css). */
 export type ComposerHatSurface = "card" | "queue" | "codex-strip";
 
+/** Where the pill sits on the card's line, for comparing (composerHatArms.css): as shipped, 2px over
+ *  it (`none`), centred on it (`seated`), standing on it (`perched`), or as before Leo's 2026-11-11
+ *  ask, with its 8px stubs beside it (`before`). */
+export type ComposerHatBridge = "none" | "seated" | "perched" | "before";
+
 export function ComposerHatStage({
   start = 0,
   waits = false,
@@ -22,6 +27,8 @@ export function ComposerHatStage({
   surface = "card",
   narrow = false,
   tucked = true,
+  bridge = "none",
+  capped = false,
 }: {
   start?: number;
   waits?: boolean;
@@ -36,6 +43,9 @@ export function ComposerHatStage({
   narrow?: boolean;
   /** Whether the hat starts tucked (the pull tab shown); the Tuck button tucks it while work runs. */
   tucked?: boolean;
+  bridge?: ComposerHatBridge;
+  /** Before Leo's 2026-11-22 ask: the count capped at "99+", swapped in one frame. */
+  capped?: boolean;
 }) {
   const [running, setRunning] = useState(start);
   const [waiting, setWaiting] = useState(waits ? 1 : 0);
@@ -71,6 +81,18 @@ export function ComposerHatStage({
           <button type="button" data-stage="ten" onClick={() => set(12)}>
             Twelve run
           </button>
+          <button type="button" data-stage="fewer" onClick={() => set(Math.max(0, running - 1))}>
+            One fewer
+          </button>
+          <button type="button" data-stage="ninety-nine" onClick={() => set(99)}>
+            99 run
+          </button>
+          <button type="button" data-stage="nine-ninety-nine" onClick={() => set(999)}>
+            999 run
+          </button>
+          <button type="button" data-stage="many" onClick={() => set(1_234)}>
+            1,234 run
+          </button>
           <button type="button" data-stage="waiting" onClick={() => set(running, 1)}>
             One waits on you
           </button>
@@ -86,15 +108,30 @@ export function ComposerHatStage({
           <div style={{ flex: 1 }} />
           <div
             className="acpmux-dock"
+            data-stage-bridge={bridge === "none" ? undefined : bridge}
             style={{ "--cv-inset": "16px", ...(narrow ? { width: 300 } : {}) } as CSSProperties}
           >
             {isTucked && (
-              <TrayPullTab chat="gallery-chat" waiting={waiting} running={running} working={false} side={side} />
+              <TrayPullTab
+                chat="gallery-chat"
+                waiting={waiting}
+                running={running}
+                working={false}
+                side={side}
+                capped={capped}
+              />
             )}
             {before && <span hidden />}
             {/* The real card's classes, so its ring and lit top rim (composerStates.css) are the
                 line the hat sits on (Leo, 2026-11-09: "theres a line behind the hat toggle"). */}
-            <div className="acpmux-composer" data-composer-look={surface === "codex-strip" ? "codex" : undefined}>
+            {/* The marks the real composer sets for its queue and strip (Composer.tsx `data-queue`,
+                `data-strip`): its rules read them, not a `:has()`. */}
+            <div
+              className="acpmux-composer"
+              data-composer-look={surface === "codex-strip" ? "codex" : undefined}
+              data-queue={surface === "queue" ? "" : undefined}
+              data-strip={surface === "codex-strip" ? "" : undefined}
+            >
               {/* The part the pill sits on, when it is not the card (data-stage-top, for the test). */}
               {surface === "queue" && (
                 <ol className="ui-glass ui-glass-floats acpmux-composer-queue" data-stage-top="">

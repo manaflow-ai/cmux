@@ -272,7 +272,7 @@ pub fn check_keychain_item(item: &str) -> Result<String, (bool, String)> {
 
 /// The item a keyless endpoint's reply names for this kind (where a key would go).
 pub fn default_item(kind: Kind, id: &str) -> String {
-    crate::cli::harness_secret::reference(id, kind.secret_key())
+    crate::harness_secret_ref::reference(id, kind.secret_key())
 }
 
 /// What the profile is made of; every value already checked.
@@ -343,8 +343,9 @@ pub fn profile_text(e: &Endpoint<'_>) -> String {
             // CMUX_BYO_API_KEY in some env never reaches it (the spawn removes it too:
             // [`clear_inherited`]). A key comes only with an add (`--key`, Settings).
             let mut options = serde_json::json!({"baseURL": e.base_url});
-            if e.keychain_item.is_some() {
-                options["apiKey"] = serde_json::Value::String(format!("{{env:{OPENAI_KEY_ENV}}}"));
+            if let (Some(_), Some(map)) = (e.keychain_item, options.as_object_mut()) {
+                let key = serde_json::Value::String(format!("{{env:{OPENAI_KEY_ENV}}}"));
+                map.insert("apiKey".to_owned(), key);
             }
             let config = serde_json::json!({
                 "$schema": "https://opencode.ai/config.json",
@@ -439,7 +440,7 @@ pub async fn fetch_models(
     })?;
     let url = models_url(kind, &base);
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let client = reqwest::Client::builder()
+    let client = crate::happy_dial::http_client()
         .timeout(timeout)
         // timeout: connecting to the endpoint's model list (a check of a harness being added); the whole fetch keeps FETCH_TIMEOUT
         .connect_timeout(timeout.min(std::time::Duration::from_secs(5)))
@@ -636,7 +637,7 @@ pub fn fix(problem: Problem, kind: Kind, id: &str) -> String {
 pub fn is_own_service(service: &str) -> bool {
     let service = service.trim();
     let service = service.strip_prefix("keychain:").unwrap_or(service).trim();
-    service.eq_ignore_ascii_case(crate::cli::harness_secret::SERVICE)
+    service.eq_ignore_ascii_case(crate::harness_secret_ref::SERVICE)
 }
 
 /// Whether `account` is endpoint `id`'s own (`<id>/<KEY>.<generation>`, or `<id>/<KEY>` as an
@@ -669,10 +670,10 @@ pub fn endpoint_keychain_lookup(
         return lookup(service, account);
     }
     match account.filter(|a| is_own_account(a, id)) {
-        Some(account) => lookup(crate::cli::harness_secret::SERVICE, Some(account)),
+        Some(account) => lookup(crate::harness_secret_ref::SERVICE, Some(account)),
         None => Err(format!(
             "an endpoint reads only its own item in {} (by its exact account)",
-            crate::cli::harness_secret::SERVICE
+            crate::harness_secret_ref::SERVICE
         )),
     }
 }

@@ -12,6 +12,54 @@ fn strings(values: &[&str]) -> Vec<String> {
     values.iter().map(|value| (*value).to_string()).collect()
 }
 
+#[test]
+fn agent_session_commands_share_engine_arguments_and_preserve_app_commands() {
+    for verb in [
+        "ls",
+        "list-sessions",
+        "send",
+        "prompt",
+        "history",
+        "search",
+        "notices",
+        "bg",
+        "resolve",
+        "find",
+        "register",
+        "session",
+        "new",
+        "guide",
+        "stop",
+    ] {
+        let args = strings(&["agent", "--json", verb, "--", "--literal"]);
+        assert!(agent_engine_requested(&args), "{verb}");
+        assert_eq!(
+            acp_scope_args(&args),
+            args[1..].iter().map(std::ffi::OsString::from).collect::<Vec<_>>()
+        );
+    }
+    for verb in [
+        "list",
+        "message",
+        "inbox",
+        "start",
+        "resume",
+        "open",
+        "open-tab",
+        "view",
+        "toggle-session-info",
+        "report",
+        "hook",
+        "plugin",
+        "--help",
+        "not-a-command",
+    ] {
+        assert!(!agent_engine_requested(&strings(&["agent", verb])), "{verb}");
+    }
+    assert!(!agent_engine_requested(&strings(&["agent"])));
+    assert!(!agent_engine_requested(&strings(&["agent", "agent_abc", "focus"])));
+}
+
 #[cfg(unix)]
 #[test]
 fn settings_separator_keeps_literal_confirm_with_daemon() {
@@ -142,6 +190,10 @@ mod remote_cli_docs {
     }
 
     fn action_names() -> HashSet<String> {
+        catalog_action_names(|action| action["cli"] == "offered")
+    }
+
+    fn catalog_action_names(include: impl Fn(&serde_json::Value) -> bool) -> HashSet<String> {
         let catalog: serde_json::Value = serde_json::from_str(include_str!(
             "../../../../../plans/cmux-next/action-surfaces.json"
         ))
@@ -150,7 +202,7 @@ mod remote_cli_docs {
             .as_array()
             .expect("actions array")
             .iter()
-            .filter(|action| action["cli"] == "offered")
+            .filter(|action| include(action))
             .filter_map(|action| action["cli_name"].as_str().map(str::to_owned))
             .collect()
     }
@@ -182,9 +234,39 @@ mod remote_cli_docs {
         }
     }
 
+    /// `cmux vm …` as the `cmux cloud …` line the CLI runs (`vm` is `cloud`'s name, and the
+    /// catalog names a Cloud action `cloud VERB`): a short verb is its Cloud verb (vm_short.rs:
+    /// `vm status dev` runs `cloud machine-status`), any other Cloud verb keeps its name (vm.rs
+    /// `cloud_alias`). A short verb is one under `cloud` too. `Err` is why the CLI refuses a
+    /// short verb's words (vm_short.rs `misuse`). `None` for every other line, the VM API's
+    /// own verbs under `vm` included.
+    fn vm_as_cloud(line: &[String]) -> Option<Result<Vec<String>, &'static str>> {
+        let command = line.get(1..)?;
+        let cloud = match vm_short::parse(command) {
+            Some(short) => {
+                if let Some(why) = vm_short::misuse(&short) {
+                    return Some(Err(why));
+                }
+                let mut cloud = strings(&["cloud", short.cloud_verb]);
+                cloud.extend(short.tail);
+                cloud
+            }
+            None => vm::cloud_alias(command)?,
+        };
+        Some(Ok(std::iter::once("cmux".to_owned()).chain(cloud).collect()))
+    }
+
     fn missing_commands(text: &str, names: &HashSet<String>) -> Vec<String> {
         let mut missing = Vec::new();
-        for words in command_lines(text, "cmux") {
+        for line in command_lines(text, "cmux") {
+            let words = match vm_as_cloud(&line) {
+                Some(Ok(cloud)) => cloud,
+                Some(Err(why)) => {
+                    missing.push(format!("{} ({why})", line.join(" ")));
+                    continue;
+                }
+                None => line.clone(),
+            };
             let parser_words = words[1..]
                 .iter()
                 .filter(|word| !matches!(word.as_str(), "--json" | "--jsonl" | "--quiet"))
@@ -201,10 +283,11 @@ mod remote_cli_docs {
             // Resource commands still resolve through the CLI parser.
             // `cmux agents` routes before the core parser; its own grammar decides.
             let parser = builtin_command(&parser_words)
+                || agent_engine_requested(&parser_words)
                 || (parser_words[0] == "agents" && agents::command(&parser_words[1..]).is_ok())
                 || (parser_words[0] != "cloud" && parse(&parser_words, Surface::Cmux).is_ok());
             if action.is_none() && !parser {
-                missing.push(words.join(" "));
+                missing.push(line.join(" "));
             } else if let Some(action) = action {
                 let command_words = action.split_whitespace().count();
                 for flag in words
@@ -214,7 +297,7 @@ mod remote_cli_docs {
                     .map(|word| word.split('=').next().unwrap_or(word))
                 {
                     if !action_flag_allowed(&action, flag) {
-                        missing.push(format!("{} (flag {flag})", words.join(" ")));
+                        missing.push(format!("{} (flag {flag})", line.join(" ")));
                     }
                 }
             }
@@ -238,7 +321,19 @@ mod remote_cli_docs {
                 | ["machine", "new" | "create", ..]
                 // cloud_start_chat.rs: the CLI's own Cloud verb, not an app action.
                 | ["cloud", "start-chat", ..]
+                // cloud_agent.rs: the `cloud_*` MCP tools as commands.
+                | ["cloud", "chat" | "computer", ..]
         )
+    }
+
+    #[test]
+    fn every_catalog_agent_action_keeps_its_native_route() {
+        for name in catalog_action_names(|_| true) {
+            let words: Vec<_> = name.split_whitespace().map(str::to_owned).collect();
+            if words.first().is_some_and(|scope| scope == "agent") {
+                assert!(!agent_engine_requested(&words), "{name} belongs to the app");
+            }
+        }
     }
 
     #[test]
@@ -273,6 +368,30 @@ mod remote_cli_docs {
         let names = action_names();
         let missing = missing_commands("`cmux cloud deliberately-stale-action`", &names);
         assert_eq!(missing, vec!["cmux cloud deliberately-stale-action"]);
+    }
+
+    /// `cmux vm` lines resolve as the Cloud verbs they run: a short verb with the VM's name,
+    /// `exec`'s command after `--`, and a Cloud verb that has no short form. A stale verb, a
+    /// flag the verb does not take and words the CLI refuses are still rejected, in the
+    /// document's own spelling.
+    #[test]
+    fn documented_vm_lines_resolve_as_the_cloud_verbs_they_run() {
+        let names = action_names();
+        let missing = missing_commands(
+            "`cmux vm status dev`, `cmux vm exec dev -- uname -a`, \
+             `cmux vm file-read --target vm:VM_ID --path /workspace/README.md`, \
+             `cmux vm deliberately-stale-action`, `cmux vm exec dev --comand x`, \
+             `cmux vm ls dev`",
+            &names,
+        );
+        assert_eq!(
+            missing,
+            vec![
+                "cmux vm deliberately-stale-action",
+                "cmux vm exec dev --comand x (flag --comand)",
+                "cmux vm ls dev (`cmux vm ls` lists every VM; it takes no name)",
+            ]
+        );
     }
 
     #[test]
@@ -518,6 +637,21 @@ fn server_lifecycle_routing_flags_follow_action() {
         lifecycle::ServerAction::Stop { force: false, end_terminals: true, .. }
     ));
 
+    // `daemon stop --if-idle` (the Rex docs' `server stop --if-idle`).
+    let ParsedCommand::Command { plan: CommandPlan::Server(plan), .. } =
+        parse(&strings(&["server", "stop", "--if-idle"]), Surface::CmuxTui).unwrap()
+    else {
+        panic!("server stop --if-idle must produce a server plan");
+    };
+    assert!(matches!(
+        plan.action,
+        lifecycle::ServerAction::Stop { force: false, end_terminals: false, if_idle: true, .. }
+    ));
+    assert!(
+        parse(&strings(&["server", "restart", "--if-idle"]), Surface::CmuxTui).is_err(),
+        "a restart is never conditional"
+    );
+
     let ParsedCommand::Command { global, plan: CommandPlan::Server(plan) } = parse(
         &strings(&[
             "server",
@@ -561,6 +695,85 @@ fn server_stats_help_routes_to_the_stats_topic() {
     };
     assert_eq!(topic, "server stats");
     assert!(scope_help_for(&topic, crate::localization::catalog()).contains("--json"));
+}
+
+/// The options `parse_args_result` accepts that run or configure the remote
+/// daemon, read from its source: an arm whose flag starts with `--remote` or
+/// `--relay`, or whose body turns remote mode on.
+fn remote_options_the_parser_accepts() -> std::collections::BTreeSet<String> {
+    let source = include_str!("../main.rs");
+    let start = source.find("fn parse_args_result(").expect("parse_args_result in main.rs");
+    let body = &source[start..];
+    let body = &body[..body.find("\n}\n").expect("end of parse_args_result")];
+    let mut accepted = std::collections::BTreeSet::new();
+    let mut arm: Vec<String> = Vec::new();
+    let mut arm_is_remote = false;
+    let mut finish = |arm: &mut Vec<String>, remote: bool| {
+        for flag in arm.drain(..) {
+            if remote || flag.starts_with("--remote") || flag.starts_with("--relay") {
+                accepted.insert(flag);
+            }
+        }
+    };
+    for line in body.lines() {
+        let trimmed = line.trim_start();
+        let is_arm = line.starts_with("            ") && !line.starts_with("             ");
+        if is_arm && trimmed.contains("=>") {
+            finish(&mut arm, arm_is_remote);
+            arm_is_remote = false;
+            if trimmed.starts_with('"') {
+                let pattern = trimmed.split("=>").next().unwrap_or_default();
+                arm = pattern
+                    .split('|')
+                    .map(|flag| flag.trim().trim_matches('"').to_owned())
+                    .filter(|flag| flag.starts_with("--"))
+                    .collect();
+            }
+        }
+        arm_is_remote |= trimmed.contains("out.remote = true");
+    }
+    finish(&mut arm, arm_is_remote);
+    accepted
+}
+
+#[test]
+fn daemon_start_help_lists_every_remote_option_the_parser_accepts() {
+    let accepted = remote_options_the_parser_accepts();
+    // Sanity: the scan found the arms, not an empty set.
+    for flag in ["--remote", "--remote-ws", "--remote-state-dir", "--relay", "--iroh"] {
+        assert!(accepted.contains(flag), "scan missed {flag}: {accepted:?}");
+    }
+    let listed: std::collections::BTreeSet<String> =
+        crate::REMOTE_START_OPTIONS.iter().map(|flag| (*flag).to_owned()).collect();
+    assert_eq!(listed, accepted, "REMOTE_START_OPTIONS must match the parser's remote arms");
+
+    for locale in ["en_US.UTF-8", "ja_JP.UTF-8"] {
+        let catalog = crate::localization::catalog_for_locale(locale);
+        let ParsedCommand::Help(Some(topic)) =
+            parse(&strings(&["daemon", "start", "--help"]), Surface::CmuxTui).unwrap()
+        else {
+            panic!("daemon start --help must produce a scoped help topic");
+        };
+        let help = scope_help_for(&topic, catalog);
+        assert!(help.contains("cmux daemon start"), "{locale}: {help}");
+        for flag in &accepted {
+            let line = help
+                .lines()
+                .find(|line| line.split_whitespace().next() == Some(flag.as_str()))
+                .or_else(|| {
+                    // `--relay <url> --relay-slot <key>` share a line, as do the ticket command
+                    // and its `[--relay-ticket-command-arg <arg>]`.
+                    help.lines().find(|line| {
+                        line.trim_start().starts_with("--")
+                            && line
+                                .split_whitespace()
+                                .any(|word| word.trim_matches(['[', ']']) == flag)
+                    })
+                });
+            let line = line.unwrap_or_else(|| panic!("{locale}: {flag} missing from: {help}"));
+            assert!(line.trim_start().starts_with("--"), "{locale}: {flag}: {line}");
+        }
+    }
 }
 
 #[test]
@@ -625,6 +838,16 @@ fn cmux_refuses_cmux_tui_only_scopes_by_name_in_every_spelling() {
         assert!(PUBLIC_SCOPES.contains(scope));
         assert!(!surface::CMUX_SCOPES.contains(scope));
         for args in [vec![*scope, "list"], vec!["help", scope], vec![*scope, "--help"]] {
+            // A scope with cmux app verbs (`cmux sidebar add-section`) answers help with those.
+            if args[1] != "list" && app_action_help::has_section(scope) {
+                let help = parse(&strings(&args), Surface::Cmux);
+                let topic = format!("{scope} app-actions");
+                assert!(
+                    matches!(help, Ok(ParsedCommand::Help(Some(ref t))) if *t == topic),
+                    "{args:?}"
+                );
+                continue;
+            }
             let Err(failure) = parse(&strings(&args), Surface::Cmux) else {
                 panic!("cmux accepted {args:?}");
             };
@@ -898,6 +1121,31 @@ fn cmux_pair_runs_the_machine_servers_invite_pairing() {
     let parsed = cmux_server::cli::parse(&routed).unwrap();
     assert_eq!(parsed.verb_str(), "pair");
     assert_eq!(parsed.value("invite"), Some("ABCDE-12345"));
+}
+
+#[test]
+fn cmux_unpair_runs_the_machine_servers_unpair() {
+    let args = |line: &[&str], surface| {
+        machine_server::args_for(&strings(line), surface).map(|r| r.map_err(|(e, _)| e.0))
+    };
+    let machine = |line: &[&str]| Some(Ok(ServerRoute::Machine(strings(line))));
+    assert_eq!(args(&["unpair"], Surface::Cmux), machine(&["unpair"]));
+    assert_eq!(args(&["server", "unpair"], Surface::Cmux), machine(&["unpair"]));
+    assert_eq!(
+        args(&["--json", "unpair", "--local"], Surface::Cmux),
+        machine(&["unpair", "--local", "--json"])
+    );
+    assert_eq!(args(&["unpair"], Surface::CmuxTui), None, "cmux-tui has no unpair verb");
+    let Some(Err(error)) = args(&["--session", "build", "unpair"], Surface::Cmux) else {
+        panic!("cmux unpair with --session ran")
+    };
+    assert!(error.contains("--session"), "{error}");
+    let Some(Ok(ServerRoute::Machine(routed))) = args(&["unpair", "--local"], Surface::Cmux) else {
+        panic!("cmux unpair was not routed to the machine server");
+    };
+    let parsed = cmux_server::cli::parse(&routed).unwrap();
+    assert_eq!(parsed.verb_str(), "unpair");
+    assert!(parsed.has("local"));
 }
 
 #[test]
@@ -1414,6 +1662,8 @@ fn a_leading_json_lands_where_each_first_word_scope_reads_it() {
         strings(&["harness", "run", "aider", "--tab", "--json"])
     );
     assert_eq!(hoisted(&["--json", "chats", "list"]), strings(&["chats", "--json", "list"]));
+    assert_eq!(hoisted(&["--json", "agent", "list"]), strings(&["--json", "agent", "list"]));
+    assert_eq!(hoisted(&["--json", "agent", "ls"]), strings(&["agent", "--json", "ls"]));
     // `acp gh`'s trailing words are gh's: `--json` stays acpmux's.
     assert_eq!(
         hoisted(&["--json", "acp", "gh", "pr", "list"]),
@@ -1430,4 +1680,24 @@ fn a_leading_json_lands_where_each_first_word_scope_reads_it() {
     assert_eq!(hoisted(&["--json", "host", "status"]), strings(&["host", "status", "--json"]));
     assert_eq!(hoisted(&["--json", "link", "status"]), strings(&["link", "--json", "status"]));
     assert_eq!(hoisted(&["--json", "tab", "list"]), strings(&["--json", "tab", "list"]));
+}
+
+/// `cmux machine reconnect --help` names that app verb's help topic, `machine list --help` the
+/// catalog verb's, and a verb the grammar runs keeps its own topic (the Cloud and remote command
+/// matrix).
+#[test]
+fn machine_verbs_get_their_own_help_topic() {
+    let topic = |words: &[&str]| match parse(&strings(words), Surface::Cmux) {
+        Ok(ParsedCommand::Help(topic)) => topic,
+        _ => panic!("{words:?} is not help"),
+    };
+    for verb in ["reconnect", "set-icon", "clear-icon"] {
+        let expected = format!("machine {verb}{APP_ACTION_TOPIC}");
+        assert_eq!(topic(&["machine", verb, "--help"]).as_deref(), Some(expected.as_str()));
+        assert!(app_action_help::verb_help("machine", verb).is_some());
+    }
+    assert_eq!(topic(&["machine", "list", "--help"]).as_deref(), Some("machine ls"));
+    assert_eq!(topic(&["machine", "ls", "--help"]).as_deref(), Some("machine ls"));
+    assert_eq!(topic(&["tab", "rename", "--help"]).as_deref(), Some("tab rename"));
+    assert!(scope_help("machine ls").contains("cmux machine list"));
 }

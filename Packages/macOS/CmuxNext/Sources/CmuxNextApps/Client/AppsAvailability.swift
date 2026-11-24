@@ -1,7 +1,8 @@
 /// Why the app supervisor cannot be reached.
 public nonisolated enum AppsUnavailableReason: Sendable, Hashable {
-    /// The daemon runs but lacks the `apps-v1` capability.
-    case needsNewerDaemon
+    /// The daemon runs but serves no `apps-v1`: it has no `cmux-app-host` beside it (cmux-tui
+    /// advertises the capability only when that binary exists). No update or restart adds it.
+    case noAppHost
     /// The daemon is not connected (starting, restarting, gone).
     case notConnected
     /// The daemon is not connected, with its real cause from the daemon
@@ -18,7 +19,7 @@ public nonisolated enum AppsUnavailableReason: Sendable, Hashable {
     public var daemonUnreachable: Bool {
         switch self {
         case .notConnected, .notReady: true
-        case .needsNewerDaemon, .turnedOff: false
+        case .noAppHost, .turnedOff: false
         }
     }
 }
@@ -49,4 +50,16 @@ public nonisolated struct AppsTransportError: Error, Sendable, Hashable, CustomS
     }
 
     public var description: String { code.map { "\(message) [\($0)]" } ?? message }
+}
+
+nonisolated extension AppsUnavailableReason {
+    /// The supervisor's daemon capability: cmux-tui advertises it only when the `cmux-app-host` binary exists.
+    public static let daemonCapability = "apps-v1"
+
+    /// Why the supervisor cannot be used: `capabilities` of the connected
+    /// daemon, nil when none is connected (`cause`: the daemon service's reason).
+    public static func daemon(capabilities: [String]?, cause: String? = nil) -> AppsUnavailableReason? {
+        guard let capabilities else { return cause.map(AppsUnavailableReason.notReady) ?? .notConnected }
+        return capabilities.contains(daemonCapability) ? nil : .noAppHost
+    }
 }

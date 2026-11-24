@@ -44,13 +44,22 @@ final class CEFLayerHosting {
         /// and turns headless (`enabled`), or comes back as a child window. True when the fork took it. Nil below
         /// API 30.
         let setDetachedHosting: ((_ browser: Int32, _ enabled: Bool) -> Bool)?
+        /// `cmux_shim_browser_resize_fence` (fork API 32, window frame sync): hands the page's compositor a send right
+        /// of this window's Core Animation fence (``CEFResizeFence``) for its first frame at its new size, with the
+        /// GPU's deadline in ms. True when the fork took it; `done(presented)` then runs once on the main thread. Nil
+        /// below ``resizeFenceForkAPI``.
+        let resizeFence: ((_ browser: Int32, _ port: mach_port_t, _ timeoutMs: Int32,
+                           _ done: @escaping @MainActor (Bool) -> Void) -> Bool)?
 
         init(setLayerHosting: @escaping (_ browser: Int32, _ enabled: Bool) -> UInt32,
              setResizeSync: ((_ browser: Int32, _ timeoutMs: Int32) -> Bool)? = nil,
-             setDetachedHosting: ((_ browser: Int32, _ enabled: Bool) -> Bool)? = nil) {
+             setDetachedHosting: ((_ browser: Int32, _ enabled: Bool) -> Bool)? = nil,
+             resizeFence: ((_ browser: Int32, _ port: mach_port_t, _ timeoutMs: Int32,
+                            _ done: @escaping @MainActor (Bool) -> Void) -> Bool)? = nil) {
             self.setLayerHosting = setLayerHosting
             self.setResizeSync = setResizeSync
             self.setDetachedHosting = setDetachedHosting
+            self.resizeFence = resizeFence
         }
 
         /// The shim's call; nil without a shim or below fork API 26, where
@@ -62,6 +71,17 @@ final class CEFLayerHosting {
                 ? { browser, timeout in shim.browserSetResizeSync(browser, timeout) == 1 } : nil
             setDetachedHosting = apiVersion >= CEFLayerHosting.detachedForkAPI
                 ? shim.browserSetDetachedHosting.map { call in { browser, enabled in call(browser, enabled ? 1 : 0) == 1 } } : nil
+            resizeFence = apiVersion >= CEFLayerHosting.resizeFenceForkAPI && CEFLayerHosting.resizeFenceAllowed
+                ? shim.browserResizeFence.map { call in
+                    { browser, port, timeout, done in
+                        let box = Unmanaged.passRetained(CEFResizeFenceDone(done))
+                        guard call(browser, port, timeout, cefResizeFenceDone, box.toOpaque()) == 1 else {
+                            box.release()
+                            return false
+                        }
+                        return true
+                    }
+                } : nil
         }
     }
 
@@ -80,6 +100,19 @@ final class CEFLayerHosting {
     static let resizeSyncForkAPI: Int32 = 27
     /// The first fork API with `cmux_browser_set_detached_hosting`.
     static let detachedForkAPI: Int32 = 30
+    /// The first fork version with `cmux_browser_resize_fence` (API 32) on the Chromium 157 line: version 33 shipped
+    /// there without 32, so a check for 32 would pass an engine that lacks it (the fork's CMUX-API.md).
+    static let resizeFenceForkAPI: Int32 = 34
+    /// `CMUX_CEF_RESIZE_FENCE=0` keeps the fence off with an engine that has it (an A/B run on one engine).
+    nonisolated static let resizeFenceAllowed = ProcessInfo.processInfo.environment["CMUX_CEF_RESIZE_FENCE"] != "0"
+    /// The GPU's deadline for a page's frame at its new size, in ms (`CMUX_CEF_RESIZE_FENCE_MS`); 0 takes one refresh of
+    /// the fastest display, at least 8 ms. The window's commit waits at most this and one refresh more, in the render
+    /// server, never on the main thread.
+    /// `CMUX_CEF_LIVE_RESIZE_SYNC_MS` / `CMUX_CEF_DRAG_RESIZE_SYNC_MS`: how long a page waits for its frame at the new
+    /// size in a window's live resize / a divider drag (an A/B on one build; 0, the default, never waits).
+    nonisolated static let liveResizeSyncOverrideMs = Int32(ProcessInfo.processInfo.environment["CMUX_CEF_LIVE_RESIZE_SYNC_MS"] ?? "") ?? 0
+    nonisolated static let dragResizeSyncOverrideMs = Int32(ProcessInfo.processInfo.environment["CMUX_CEF_DRAG_RESIZE_SYNC_MS"] ?? "") ?? 0
+    nonisolated static let resizeFenceTimeoutOverrideMs = Int32(ProcessInfo.processInfo.environment["CMUX_CEF_RESIZE_FENCE_MS"] ?? "") ?? 0
 
     weak var view: NSView?
     /// The page's pixels in this window's layer tree; nil while the page
@@ -102,6 +135,8 @@ final class CEFLayerHosting {
     private var pending = Pending.none
     private let isEnabled: () -> Bool
     private let schedule: Scheduler
+    /// The open window fences of this turn (``CEFRuntime/resizeFences``; tests pass their own).
+    private let resizeFences: CEFResizeFences
     private let makePage: (CGRect) -> CEFHostedPageView
     private let resizeDeadlineMs: () -> Int32
     private let liveResizeDeadlineMs: () -> Int32
@@ -110,13 +145,25 @@ final class CEFLayerHosting {
     /// The resize deadline the fork has for this page window: 0, the fork's default, until
     /// ``syncDeadline()`` gives another.
     private var appliedDeadlineMs: Int32 = 0
-    /// The window is in a live resize (``windowLiveResize(active:)``).
+    /// The window is in a live resize (``windowLiveResize(active:byPerson:)``).
     private var inLiveResize = false
+    /// A person drives the live resize (``windowLiveResize(active:byPerson:)``); true outside one.
+    private var liveResizeByPerson = true
     /// Tab containers that told a resize-sync drag of the view's pane and have not told its end
     /// (``paneResizeDrag(active:)``): every tab of a pane shares this page window.
     private(set) var paneDragHolders = 0
     /// A person drags the view's pane in resize sync.
     var inPaneDrag: Bool { paneDragHolders > 0 }
+    /// A layout change that shows in one commit (a split, a close, a zoom, an unzoom) resizes the view next
+    /// (``paneCommitWillResize(_:)``): the resize that shows it joins the window's fence. It stays to the end of the
+    /// turn of that resize, so each resize of the view in the commit's turn joins.
+    private(set) var commitResizeOwed = false
+    /// The end of the turn that took ``commitResizeOwed`` is asked for.
+    private var commitResizeEnds = false
+    /// How many of the fastest display's refreshes the GPU may take for the page's frame at a pane commit's size: the
+    /// commit's own bound (three refreshes of wait and the one that shows it, `ScreenContentView.commitBound`). The
+    /// page relays out once at a size it never had (AWS's console: 2 to 4 refreshes), not a few points more as in a drag.
+    static let commitFenceRefreshes = 4.0
 
     /// Runs a block later on the main actor.
     typealias Scheduler = (_ block: @escaping @MainActor @Sendable () -> Void) -> Void
@@ -152,16 +199,19 @@ final class CEFLayerHosting {
     ///   - resizeDeadlineMs: the upper bound of a hosted page's resize wait; 0 (never) by default.
     ///   - refreshIntervals: the shortest frame interval of each display, which cap the wait
     ///     (``CEFResizeSyncDeadline``); tests pass fixed rates.
+    ///   - resizeFences: the process's open window fences (``CEFRuntime/resizeFences``) by default.
     init(isEnabled: @escaping () -> Bool = { true },
          schedule: @escaping Scheduler = { CEFLayerHosting.atEndOfTurn($0) },
          makePage: @escaping (CGRect) -> CEFHostedPageView = { CEFHostedPageView(frame: $0) },
          resizeDeadlineMs: @escaping () -> Int32 = { 0 },
-         liveResizeDeadlineMs: @escaping () -> Int32 = { 0 },
-         dragResizeDeadlineMs: @escaping () -> Int32 = { 0 },
+         liveResizeDeadlineMs: @escaping () -> Int32 = { CEFLayerHosting.liveResizeSyncOverrideMs },
+         dragResizeDeadlineMs: @escaping () -> Int32 = { CEFLayerHosting.dragResizeSyncOverrideMs },
          refreshIntervals: @escaping () -> [Double] = { NSScreen.screens.map(\.minimumRefreshInterval) },
          holdsFocus: (() -> Bool)? = nil,
          afterCommit: @escaping Scheduler = { AfterFrameCommit().run($0) },
-         afterFrameShown: Scheduler? = nil) {
+         afterFrameShown: Scheduler? = nil,
+         resizeFences: CEFResizeFences? = nil) {
+        self.resizeFences = resizeFences ?? CEFRuntime.shared.resizeFences
         self.holdsFocus = holdsFocus ?? { false }
         self.afterCommit = afterCommit
         self.afterFrameShown = afterFrameShown
@@ -255,6 +305,7 @@ final class CEFLayerHosting {
         }
         guard view?.window != nil else { return }
         syncDeadline()
+        placementChanged()
     }
 
     /// The page window's tabs changed (`CEFPaneHost.removed`): when the recorded
@@ -272,10 +323,17 @@ final class CEFLayerHosting {
     /// waits up to `liveResizeDeadlineMs` (capped like every deadline, ``CEFResizeSyncDeadline``) for its frame at the
     /// new size (Chromium waited up to 500 ms there); after it a hosted page goes back to its pane deadline and a page
     /// window to none.
-    func windowLiveResize(active: Bool) {
+    ///
+    /// `byPerson`: a person drives it (a mouse button is down on the window's edge). AppKit also starts a live resize
+    /// for a one-shot frame change, such as `_adjustWindowToScreen` after a display change; that resize has no frames to
+    /// save, and detaching for it cost a 2.3 s main-thread hang in NIGHTLY 23c9f5a (2026-11-11 01:22:39Z: the
+    /// detach's window notification ran Chromium's display observer into SkyLight's `SLDisplayUsesForceToGray`, which
+    /// `stat`s the home folder and waited on the disk). Such a resize keeps the page attached, as a key resize does.
+    func windowLiveResize(active: Bool, byPerson: Bool = true) {
         guard active != inLiveResize else { return }
         let was = inResizeMotion
         inLiveResize = active
+        liveResizeByPerson = active ? byPerson : true
         syncDeadline()
         if inResizeMotion != was { motionChanged() }
     }
@@ -297,6 +355,51 @@ final class CEFLayerHosting {
         guard inPaneDrag != wasDragging else { return }
         syncDeadline()
     }
+
+    /// The host view took a new size in this turn (`CEFHostView.setFrameSize`; the fork's tracker resized the page window
+    /// in that call). In a page sync (S5: a drag, a key resize or a pane spring, ``inPaneDrag``) a hosted page joins the
+    /// window's resize fence for this turn (fork API 32, ``CEFResizeFence``): the render server shows this commit with the
+    /// page's first frame at the new size, and the main thread waits for nothing. Outside a page sync, below the fork
+    /// version, or not hosted, nothing happens: the page shows its last frame until its next one, as before.
+    func pageViewResized() { // perf-hot: 0.05ms cef-geometry (each hosted page, each motion frame)
+        guard inPaneDrag || commitResizeOwed, page != nil, let browser, let resizeFence = fork?.resizeFence,
+              let view, let window = view.window, let layer = view.layer else { return }
+        let start = CEFTrackerStats.now()
+        defer { CEFHostView.trackerStats.resizeFenceJoinSeconds += CEFTrackerStats.now() - start }
+        let refreshMs = (shortestIntervals().min() ?? 1.0 / 60) * 1_000
+        let refreshes = inPaneDrag ? 1 : Self.commitFenceRefreshes
+        if commitResizeOwed, !commitResizeEnds {
+            commitResizeEnds = true
+            Self.atEndOfTurn { [weak self] in
+                self?.commitResizeOwed = false
+                self?.commitResizeEnds = false
+            }
+        }
+        let timeout = Self.resizeFenceTimeoutOverrideMs > 0 ? Self.resizeFenceTimeoutOverrideMs
+            : Int32(max(8, (refreshMs * refreshes).rounded(.up)))
+        forkCalls += 1
+        resizeFences.join(window: window, layer: layer, timeoutMs: timeout, refreshMs: refreshMs) { port, done in
+            resizeFence(browser, port, timeout, done)
+        }
+    }
+
+    /// A layout change that shows in one commit resizes the view next (`owed`), or no longer does (a change taken back
+    /// before it showed): the resize that shows it joins the window's resize fence (``pageViewResized()``), with the GPU's
+    /// deadline at ``commitFenceRefreshes`` refreshes. So the frame that shows a zoom of the page's pane shows the page's
+    /// own frame at the zoomed size, as Chrome shows a window's resize, not its old frame at the old size beside the
+    /// page's backdrop for the refreshes Chromium takes to lay out again (Lawrence 2026-11-20, the AWS console: two
+    /// white frames and a relayout in each zoom). The main thread waits for nothing; the render server holds the
+    /// window's commit at most the deadline and one refresh. Below fork API 34, or with a page in its own window, no
+    /// resize joins a fence (``joinsResizeFence``): the page takes the commit's size ahead instead
+    /// (`CEFTabContentView+PaneCommit`).
+    func paneCommitWillResize(_ owed: Bool) {
+        guard owed || !commitResizeEnds else { return }
+        commitResizeOwed = owed
+    }
+
+    /// Whether a resize of the view can join the window's resize fence (``pageViewResized()``): the page is hosted, in a
+    /// page window with a live browser, on an engine with the fence (fork API ``resizeFenceForkAPI``).
+    var joinsResizeFence: Bool { page != nil && browser != nil && fork?.resizeFence != nil }
 
     /// The fork's tracker read the host view (`-cmuxClipPath`): it is attached
     /// to the page window now, so a refused request may succeed.
@@ -355,12 +458,46 @@ final class CEFLayerHosting {
 
     private func motionChanged() {
         if inResizeMotion {
-            motionKeepsAttached = holdsFocus()
+            // A live resize nobody drives (a display change's frame adjustment) moves the page once: no detach.
+            motionKeepsAttached = holdsFocus() || (motionHolders == 0 && !liveResizeByPerson)
             if !motionKeepsAttached { setDetached(true) }
         } else {
             motionKeepsAttached = false
             attach()
         }
+    }
+
+    // MARK: Parked away from its window (window shares)
+
+    /// The view lies wholly outside its window: a page parked 100,000 points off the window content to draw before a
+    /// pane takes it (`PageOffscreenParking`: a New Tab spare, a retired chat, a page held away until it drew). Its
+    /// hosted page is detached there (``setDetached(_:)``): it keeps drawing into its hosted context, and no page
+    /// window is ordered in as a child of the window out there. ScreenCaptureKit captures a window with its child
+    /// windows and gives no frame for one with a child that far off, so a window share (Zoom, Meet, macOS) showed
+    /// only black while any page was parked (David Beyer's Zoom call, 2026-11-20). Read again at each geometry post,
+    /// page visibility sync and window change (``placementChanged()``); every attach checks it afresh.
+    private(set) var isParkedAway = false
+
+    /// The view may have moved wholly out of its window or back into it (``isParkedAway``): a parked hosted page is
+    /// detached, and one whose view came back attaches at its new place, unless a motion or a first-frame hold owns
+    /// the attach (its end attaches it).
+    func placementChanged() { // perf-hot: 1us cef-geometry (each geometry post, each parked page's update)
+        let away = Self.liesOutsideWindow(view)
+        guard away != isParkedAway else { return }
+        isParkedAway = away
+        if away {
+            setDetached(true)
+        } else if isDetached, !inResizeMotion, firstFrameHold == .none {
+            attach()
+        }
+    }
+
+    /// Whether `view` is laid out wholly outside its window's frame; a view in no window, or not laid out yet, is not.
+    static func liesOutsideWindow(_ view: NSView?) -> Bool {
+        guard let view, let window = view.window else { return false }
+        let rect = view.convert(view.bounds, to: nil)
+        let shown = CGRect(origin: .zero, size: window.frame.size)
+        return !rect.isEmpty && !shown.isEmpty && !rect.intersects(shown)
     }
 
     // MARK: The frame a page shows in (SWITCH STALL 5)
@@ -398,9 +535,17 @@ final class CEFLayerHosting {
         }
         // A dropped tick (its window closed in the hold) counts as the frame, so no page stays detached until an ask,
         // but grants nothing: SetFocus would order a closed window's page front. The tab keeps its ask for its next show.
+        // A view that left that window for another before it closed (a hidden tab an agent drove sits in the agent
+        // render window; a click on the tab moves it to its pane) shows in the other one: the wait moves there, and the
+        // hold's end grants the kept ask. With the drop taken as the frame, the tab kept its ask and no key reached it.
+        let waited = view?.window
         let client = FrameClient(owner: "cef.first-frame-attach", isAnimation: false,
                                  scheduler: { [weak view] in view.map(FrameScheduler.forView) ?? .app },
                                  dropped: { [weak self] in
+                                     if let self, let now = self.view?.window, now !== waited {
+                                         self.shownFrame = nil
+                                         return self.runAfterFrameShown(block)
+                                     }
                                      self?.afterFirstFrame = nil
                                      shown()
                                  }) { _ in
@@ -454,11 +599,17 @@ final class CEFLayerHosting {
     }
 
     /// Detaches the hosted page's window or attaches it again; the fork's attach places it at the view's rect then,
-    /// the one geometry update of the landing. False when no page is hosted, below fork API 30, or the fork refused;
-    /// the state is unchanged then.
+    /// the one geometry update of the landing. False when no page is hosted, below fork API 30, the fork refused, or
+    /// (an attach) the view lies outside its window (``isParkedAway``); the detached state is unchanged then.
     @discardableResult
     private func setDetached(_ on: Bool) -> Bool {
         guard on != isDetached else { return true }
+        if !on {
+            // A page parked away stays detached (``isParkedAway``), whatever ends: read afresh, as the view may have
+            // come back with no post yet.
+            isParkedAway = Self.liesOutsideWindow(view)
+            guard !isParkedAway else { return false }
+        }
         guard page != nil, let browser, let call = fork?.setDetachedHosting else { return false }
         forkCalls += 1
         guard call(browser, on) else { return false }
@@ -509,6 +660,9 @@ final class CEFLayerHosting {
             if page.host(contextID: id) {
                 // The page's frame at a new size commits with the pane's only while hosted.
                 syncDeadline()
+                // A page made while parked away (a spare drawn in its parking) is detached at once.
+                isParkedAway = false
+                placementChanged()
                 return
             }
             // No CALayerHost to show the context: the page window would stay
@@ -558,6 +712,7 @@ final class CEFLayerHosting {
         // The fork ends detached hosting when hosting goes off or the page window goes.
         isDetached = false
         attachOwed = false
+        isParkedAway = false
         firstFrameHold = .none
         afterFirstFrame = nil
         owedGrant = nil

@@ -148,6 +148,12 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
     /// view drawn over them from a snapshot of their places (the modifier-hold shortcut chips) can
     /// follow. Runs on the frame's turn: keep it to a flag or a coalesced refresh.
     public var onFramePlaced: (() -> Void)?
+    /// The right-click menu of split `SplitID`'s divider (Insert New, Hide or Show Divider), asked when the
+    /// person right-clicks its grab band; nil: no menu.
+    public var dividerMenu: ((SplitID) -> NSMenu?)? {
+        get { context.dividerMenu }
+        set { context.dividerMenu = newValue }
+    }
     /// Whether a split or a pane close holds the terminals' grids now (``onTerminalGridHold``).
     public var holdsTerminalGrids: Bool { !context.gridHoldScreens.isEmpty }
 
@@ -164,6 +170,8 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         var revealRequest: ColumnCenterRequest?
         var centerMode: CenterFocusedColumn
         var attention: [PaneID: AttentionMark]
+        /// ``LayoutModel/holdsAttentionUntilShown``: the rings keep their marks (a blink starts) but draw nothing yet.
+        var holdsAttention: Bool
         var scrollbar: StripScrollbarMode
         var rowOps: Bool
         var canvases: [ScreenID: CanvasScreen]
@@ -189,6 +197,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.masksToBounds = true
+        context.window = { [weak self] in self?.window }
         context.requestFrames = { [weak self] in self?.driver.start() }
         driver.onFrame = { [weak self] dt in self?.advanceFrame(dt) ?? false }
         driver.onSettle = { [weak self] in _ = self?.landMotion() }
@@ -295,12 +304,6 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         return width > 0 ? width : nil
     }
 
-    /// Displayed frame of `pane` in this view's coordinates (active screen only).
-    public func frame(of pane: PaneID) -> CGRect? {
-        guard let active = model.activeScreenID, let view = screenViews[active], let rect = view.displayedFrame(of: pane) else { return nil }
-        return convert(rect, from: view)
-    }
-
     // MARK: Observation
 
     private func snapshot() -> Snapshot { Snapshot(model) }
@@ -367,6 +370,10 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
     /// ``sync(_:)``'s body (`LayoutRootView+AvoiderBatch`).
     func syncBatched(_ snapshot: Snapshot) {
         let previous = lastSnapshot
+        var snapshot = snapshot
+        // A layout just shown keeps its chrome's rings as they were while it is held (cmux#46908): a ring the switch read
+        // blinks out when the hold ends, in a frame that shows it, not hidden under the hold. The release syncs the change.
+        if snapshot.holdsAttention, let previous { snapshot.attention = previous.attention }
         lastSnapshot = snapshot
         // A newly earned ring, or the ring moving to another pane by key, measures pointer travel from
         // zero (``handlePointerTravel(_:)``).
@@ -379,7 +386,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         let animated = chromeAnimated && context.animatesPaneLayout
         var needsFrames = false
 
-        if previous?.screens != snapshot.screens { context.livePanes = Set(snapshot.screens.flatMap(\.layout.panes)) }
+        if previous?.screens != snapshot.screens { context.livePanes = Set(snapshot.screens.flatMap(\.panes)) }
         // Only a screen whose inputs changed reconciles (I7): a divider drag
         // frame rewrites one screen, and the others (shown or hidden) keep
         // their frames, chrome and scroll.
@@ -411,7 +418,8 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
             if let existing = screenViews[screen.id] {
                 view = existing
             } else if defersHiddenScreens, !isActive, screen.id != mountingScreen,
-                      before[screen.id]?.layout == screen.layout || !screen.layout.panes.contains(where: { context.hosts[$0] != nil }) {
+                      before[screen.id]?.layout == screen.layout && before[screen.id]?.floating == screen.floating
+                        || !screen.panes.contains(where: { context.hosts[$0] != nil }) {
                 // Made when it first shows, or at idle (`deferredScreens`). One that takes a pane another screen
                 // mounts is made now, so that pane moves to it inside the window, as it did.
                 continue
@@ -448,12 +456,15 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
             // A waiting screen's first pass lands at once, as a screen made with the shown one did (no previous sync).
             let landsAtOnce = isNew && waited.contains(screen.id)
             let old = before[screen.id]
+            view.hiddenDividers = screen.hiddenDividers
+            view.floatState.list = screen.floating
+            view.zoomDim.presentsPage = screen.presented
             // A zoomed pane shows full size over its canvas (canvas-layout.md).
             let canvas = screen.zoomed ? nil : snapshot.canvases[screen.id]
-            let layoutChanged = isNew || old?.layout != screen.layout || old?.zoomed != screen.zoomed || sharedChanged
+            let layoutChanged = isNew || old?.layout != screen.layout || old?.floating != screen.floating || old?.zoomed != screen.zoomed || sharedChanged
                 || view.holdsRowDragPreview || canvas != (old?.zoomed == true ? nil : previous?.canvases[screen.id])
             if layoutChanged {
-                let structureChanged = old.map { !$0.layout.hasSameStructure(as: screen.layout) } ?? true
+                let structureChanged = old.map { !$0.layout.hasSameStructure(as: screen.layout) || $0.floatingPanes != screen.floatingPanes } ?? true
                 // An explicit equalize (same structure, new ratios) springs whenever motion is allowed (Lawrence
                 // 2026-10-16); the sizing after a split or close, and released drags, follow `ui.paneAnimations`.
                 let reflows = chromeAnimated && !structureChanged && !snapshot.gestureActive && model.animatesReflow
@@ -538,6 +549,11 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         }
         updateVisibility()
         overlayIsStale = true
+        // A layout just shown draws its rings from the frame that shows its content, not over the one before (cmux#46908).
+        // Released after the chrome took its rings above: a blink starts in the same transaction that shows it.
+        if snapshot.holdsAttention || previous?.holdsAttention == true {
+            for host in context.hosts.values { host.chrome.holdsAttention = snapshot.holdsAttention }
+        }
         flushOverlaySync()
         // Pane padding or corners changed: pages drawn as child windows
         // re-read their clip shape (their frames may not have moved).
@@ -564,10 +580,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         // A drag's newest pointer first, as in a frame (its window went out of sight mid-drag): it lands in this one pass.
         let input = LayoutFrameInput(root: self)
         input.apply()
-        for view in screenViews.values {
-            if view.hasMotion || view.resizeGesture == .landing { view.settleMotion() }
-            view.settleCanvasCamera()
-        }
+        for view in screenViews.values { view.zoomDim.land(view) }
         let snapWaits = input.presentWaiting(waitsForContent: waitsForContent)
         highlight.settle()
         updateVisibility()
@@ -603,6 +616,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
             if view.displayFrameBegan() { panning = true }
             if view.step(dt, policy: policy) { moving = true }
             if view.stepCanvasCamera(dt, policy: policy) { moving = true }
+            view.zoomDim.step(dt)
         }
         let snapWaits = input.presentWaiting()
         if highlight.step(dt) { moving = true }
@@ -616,7 +630,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         if !moving && !gesturing { setLayoutInMotion(false) }
         // A strip pan and a divider drag keep the ticks a little after each event (`ScreenContentView.panTickTail`);
         // a gesture with a still pointer needs none after that.
-        return moving || panning || dragging || snapWaits
+        return moving || panning || dragging || snapWaits || screenViews.values.contains(where: \.zoomDim.goes)
     }
 
     /// Tells the layout motion observers when the first spring starts and when the last one lands.
@@ -654,7 +668,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         // person types into must not wait behind the others (REOPEN-F4: in a Set's hash order, the
         // first key after a reopen was lost in 10 of 15 cycles).
         let focused = reads.focusedPane
-        let order = Dictionary((reads.activeScreen?.layout.panes ?? []).enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        let order = Dictionary((reads.activeScreen?.panes ?? []).enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
         func place(_ pane: PaneID) -> (Int, Int, String) { (pane == focused ? 0 : 1, order[pane] ?? .max, pane.rawValue) }
         for (pane, presence) in changes.sorted(by: { $0.1.rank != $1.1.rank ? $0.1.rank < $1.1.rank : place($0.0) < place($1.0) }) {
             context.provider?.panePresenceDidChange(pane, presence: presence)
@@ -772,7 +786,7 @@ extension LayoutRootView.Snapshot {
         self.init(screens: model.screens, activeScreen: model.activeScreenID, focused: model.focusedPane,
                   focusRingEarned: model.focusRingEarned, dimsInactive: model.dimsInactivePanes,
                   style: model.style, gestureActive: model.isGestureActive, centerRequest: model.centerRequest,
-                  revealRequest: model.revealRequest, centerMode: model.centerFocusedColumn, attention: model.attention,
+                  revealRequest: model.revealRequest, centerMode: model.centerFocusedColumn, attention: model.attention, holdsAttention: model.holdsAttentionUntilShown,
                   scrollbar: model.stripScrollbar, rowOps: model.acceptsRowOps, canvases: model.canvases)
     }
 }

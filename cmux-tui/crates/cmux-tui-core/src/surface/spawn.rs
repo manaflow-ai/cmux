@@ -41,10 +41,24 @@ fn wait_for_local_output(fd: RawFd, wake: &mut UnixStream) -> std::io::Result<bo
     }
 }
 
+/// A local runtime's output: a reader the reader thread parses from.
+pub(crate) trait LocalReader: Read + Send {
+    /// Blocks until a read takes bytes (or the end) without blocking, for a
+    /// source whose read blocks with no descriptor to poll (the holder's
+    /// stream). The reader thread waits here before it takes its 64 KiB
+    /// read buffer, so an idle terminal holds none (CMUX-571 infinite
+    /// items). A source with nothing to wait for returns at once.
+    fn wait_readable(&mut self) {}
+}
+
+/// A PTY's or a byte backend's reader: its descriptor (or channel) is what the
+/// reader waits on, in its read.
+impl LocalReader for Box<dyn Read + Send> {}
+
 /// What the local runtime of one terminal runs on.
 pub(crate) struct LocalLaunch {
     pub master: Box<dyn MasterPty + Send>,
-    pub reader: Box<dyn Read + Send>,
+    pub reader: Box<dyn LocalReader>,
     pub writer: Box<dyn Write + Send>,
     pub killer: Box<dyn ChildKiller + Send>,
     /// Blocks until the far side ended; runs on the reaper thread. Dropping
@@ -200,12 +214,14 @@ impl Surface {
             },
             terminal: Arc::new(PtyTerminalRuntime {
                 event_surface_id: id,
+                pid: terminal_runtime::terminal_seat(&mux, pid, &terminal_public_id),
                 terminal_public_id: terminal_public_id.map(Arc::new),
                 journal_generation: Arc::from(format!(
                     "local-{}",
                     crate::workspace_registry::new_uuid_v4()
                 )),
                 journal_capture_supported: true,
+                output_log: Default::default(),
                 #[cfg(unix)]
                 local_output: shared_output,
                 journal_capture_epoch: AtomicU64::new(0),
@@ -218,10 +234,11 @@ impl Surface {
                 reader_completion: Arc::new(ReaderCompletion::default()),
                 reaper_thread: Mutex::new(None),
                 reaper_completion: Arc::new(ReaderCompletion::default()),
-                term: RankedMutex::new(LockRank::Terminal, "pty.term", Box::new(term)),
+                term: TerminalMirror::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 terminal_metadata: Mutex::new(terminal_metadata),
                 tail_pin: Default::default(),
+                port_mark: Default::default(),
                 command_tracker: Mutex::new(Default::default()),
                 mouse_encoders: RankedMutex::new(
                     LockRank::Leaf,
@@ -232,6 +249,7 @@ impl Surface {
                 input_route: arc_swap::ArcSwapOption::empty(),
                 #[cfg(any(unix, windows))]
                 input_port: Default::default(),
+                paste_pacer: Mutex::default(),
                 runtime: RankedMutex::new(
                     LockRank::Runtime,
                     "pty.runtime",
@@ -252,7 +270,6 @@ impl Surface {
                 pending_host_binding: Mutex::new(None),
                 #[cfg(any(unix, windows))]
                 host_exit_record_path: None,
-                pid,
                 command: argv,
                 cwd,
                 exit: Mutex::new(None),
@@ -261,6 +278,8 @@ impl Surface {
                 dead: AtomicBool::new(false),
                 owner_detaching: AtomicBool::new(false),
                 recover_requested: AtomicBool::new(false),
+                #[cfg(unix)]
+                host_fence_wait: Default::default(),
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
                 host_fallback: std::sync::OnceLock::new(),
                 dirty: AtomicBool::new(false),
@@ -356,6 +375,8 @@ impl Surface {
                         .publisher();
                     loop {
                         let pty = surface.as_pty().expect("surface reader got non-pty surface");
+                        // A holder stream blocks here, holding no read buffer and no lock.
+                        reader.wait_readable();
                         #[cfg(unix)]
                         let ready = if let (Some(fd), Some(wake)) = (read_fd, wake_reader.as_mut())
                         {
@@ -384,7 +405,26 @@ impl Surface {
                                     local_output::readable(fd, 0).unwrap_or(false)
                                 });
                             let result = if ready {
-                                output.read(pty, |buf| reader.read(buf)).map(Some)
+                                output
+                                    .read(pty, |buf| {
+                                        let mut count = reader.read(buf)?;
+                                        // A flood: the bytes already waiting are parsed with
+                                        // this read, not one parse per PTY read (1 KiB on
+                                        // macOS). A lone echo finds nothing more.
+                                        #[cfg(unix)]
+                                        if count > 0
+                                            && let Some(fd) = read_fd
+                                        {
+                                            local_output::fill_waiting(
+                                                fd,
+                                                buf,
+                                                &mut count,
+                                                |rest| reader.read(rest),
+                                            );
+                                        }
+                                        Ok(count)
+                                    })
+                                    .map(Some)
                             } else {
                                 Ok(None)
                             };
@@ -500,7 +540,7 @@ impl Surface {
         let command = vec![side.terminal.clone()];
         let launch = LocalLaunch {
             master: Box::new(master),
-            reader,
+            reader: Box::new(reader),
             writer,
             killer: Box::new(BackendKiller(side.clone())),
             wait: Box::new(move || wait_end(&side)),

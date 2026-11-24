@@ -93,13 +93,71 @@ env:
   VERCEL_ORG_ID: team_KndpHsJ15gO2OoAP2SO0thYn
   DASHBOARD_PROJECT_STAGING: prj_gAWWNokzcoomx3IvIVGl29iZM6JC
   DASHBOARD_PROJECT_PRODUCTION: prj_O6kHxZ4Etl6QWUVEoiJyGCPoS2Fh
-  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
-  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
-  test:
+  # The API Worker suite on workerd, split over 12 jobs by file (vitest --shard). Whole it needs about 5 CPU hours
+  # (backend job 137197421652: 15 workers, 1231 s); the pool packs up to 4 runners on one 16 vCPU VM, so one job may
+  # get a quarter of it, and the whole suite there ran 20 to 80 times slower per file and past the test job's
+  # 55 min (jobs 137458123841, 137465404382, 2026-11-23: 87 of 245 files in 47 min). Six shards with a worker per
+  # reported vCPU, then with 4 workers, still timed out there (runs 45172479573, PR #52237): a twelfth of the suite
+  # with 3 workers fits a quarter of a VM, and a shard that fails reruns its files once.
+  api-workerd:
     if: github.event.action != 'closed'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    name: api-workerd (${{ matrix.shard }}/12)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+      - name: Restore the Bun package cache (the test job saves it)
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-backend-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('backend/bun.lock', 'scripts/cmux-next/release/bun.lock') }}
+          restore-keys: |
+            bun-backend-${{ runner.os }}-${{ runner.arch }}-
+      # vitest-pool-workers and node:sqlite need a current Node.
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+      - run: bun install --frozen-lockfile
+      - name: API Worker tests (workerd), shard ${{ matrix.shard }} of 12
+        working-directory: backend/apps/api
+        # A packed cmux-linux runner shares its VM's vCPUs with up to 3 others (#48644) but nproc still reports all
+        # 16, so vitest's default (one worker per vCPU) started 15 workerd isolates per job, 60 on 16 CPUs: imports took
+        # 40 to 100 s and 0.5 s cases ran past their 20 s bound (runs 45159322542, 45166603179, 45168037835,
+        # 45172851459). Measured on shard 2/6 pinned to 4 CPUs, 2026-11-23: 15 workers: 416 s, 2 files failed;
+        # 4 workers: 451 s, 228/228 passed. Even at 4, 6 shards still hit start and hook timeouts (45172479573), so:
+        # 12 shards of at most 3 workers. A load timeout on a busy VM is not the code's: the shard runs once more and
+        # that run decides; a real failure fails both, and the first run's log stays above.
+        run: |
+          n=$(nproc); [ "$n" -gt 3 ] && n=3
+          bun run test --shard=${{ matrix.shard }}/12 --maxWorkers="$n" && exit 0
+          echo "::warning::api-workerd shard ${{ matrix.shard }}/12 failed once; running it again (a load timeout on a packed runner, or a real failure that fails again)"
+          bun run test --shard=${{ matrix.shard }}/12 --maxWorkers="$n"
+
+  test:
+    # Runs after the API Worker shards whatever they end with, and fails on a red shard (its last step), so the
+    # `test` check that the deploys and prod-promote.ts read still covers the whole suite.
+    needs: [api-workerd]
+    if: ${{ !cancelled() && github.event.action != 'closed' }}
+    # A Blacksmith LINUX_RUNNER is taken as the other jobs here take it (the label the probe saw serving). On
+    # 2026-11-20 LINUX_RUNNER was blacksmith-4vcpu (serving) while linux_8 was blacksmith-8vcpu, and this job alone
+    # skipped LINUX_RUNNER: staging's test sat queued 25+ min (run 44637914493 attempt 3) with no 8 vCPU job running.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    timeout-minutes: 55
     services:
       postgres:
         image: postgres:17@sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3
@@ -123,10 +181,21 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       # The Bun package cache for backend/ and the release rails. Only this job saves it (it holds
       # no secrets); the secret-bearing jobs below only restore it.
       - name: Cache Bun package cache
+        if: ${{ (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-backend-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('backend/bun.lock', 'scripts/cmux-next/release/bun.lock') }}
+          restore-keys: |
+            bun-backend-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Cache Bun package cache (restore only off base branches)
+        if: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
           key: bun-backend-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('backend/bun.lock', 'scripts/cmux-next/release/bun.lock') }}
@@ -137,7 +206,12 @@ jobs:
         with:
           node-version: "24"
       - run: bun install --frozen-lockfile
+      # The type check reports its red and keeps going, so the tests and builds after it still run on a
+      # tree with a type error; the last step fails the job on it (Leo, 2026-11-19: "the CI doesn't
+      # necessarily have to fail and like give up").
       - name: Typecheck
+        id: typecheck
+        continue-on-error: true
         run: bun run typecheck
       - name: Catalog and generated client drift
         run: bun run catalog:check
@@ -180,9 +254,6 @@ jobs:
       - name: SAML validator (signature wrapping, comment injection, c14n vs xml-crypto)
         working-directory: backend/packages/saml
         run: bun run test
-      - name: API Worker tests (workerd)
-        working-directory: backend/apps/api
-        run: bun run test
       - name: API guest program tests (Node, local python3)
         working-directory: backend/apps/api
         run: bun run test:node
@@ -198,6 +269,18 @@ jobs:
       - name: Wrangler dry-run build
         working-directory: backend/apps/api
         run: ./node_modules/.bin/wrangler deploy --env production --dry-run --outdir dist
+      - name: Fail on the type check
+        if: ${{ !cancelled() && steps.typecheck.outcome == 'failure' }}
+        run: |
+          echo "::error title=type check::the type check failed; see its step. The steps after it ran anyway."
+          exit 1
+      - name: Fail on the API Worker shards
+        if: ${{ !cancelled() && needs.api-workerd.result != 'success' }}
+        env:
+          SHARDS: ${{ needs.api-workerd.result }}
+        run: |
+          echo "::error title=API Worker tests::the API Worker tests (workerd) ended ${SHARDS}; see the api-workerd jobs."
+          exit 1
 
   # Development is shared by previews and holds no real data, so the PR's own runner may
   # apply there; staging and production only through backend-migrations.yml.
@@ -225,6 +308,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Restore the Bun package cache (the test job saves it)
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -243,6 +327,7 @@ jobs:
     needs: test
     if: vars.CMUX_NEXT_PREVIEW_BROKER_ENABLED == '1' && github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'codex/vm-api-cloud-')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    timeout-minutes: 25
     environment: cmux-next-development
     defaults:
       run:
@@ -252,6 +337,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Restore the Bun package cache (the test job saves it)
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -271,6 +357,7 @@ jobs:
     needs: migrations-development
     if: vars.CMUX_NEXT_PREVIEW_BROKER_ENABLED == '1' && github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'codex/vm-api-cloud-')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    timeout-minutes: 30
     concurrency:
       group: backend-preview-${{ github.event.pull_request.number }}
       cancel-in-progress: false
@@ -282,6 +369,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Restore the Bun package cache (the test job saves it)
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -293,6 +381,14 @@ jobs:
         with:
           node-version: "24"
       - run: bun install --frozen-lockfile
+      # wrangler builds the Worker's containers (OpencodeBrainDO) with `docker build --load`, which needs
+      # buildx; the self-hosted pool image has none (exit 125 "unknown flag: --load", run 45054787729).
+      # `install: true` routes plain `docker build` to buildx; driver docker loads into the local daemon.
+      - name: Set up Docker Buildx (wrangler container builds)
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver: docker
+          install: true
       - name: Deploy preview Worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -309,14 +405,16 @@ jobs:
 
   # The Cloud journey (scripts/cmux-next/cloud-journey.ts) against this PR's preview Worker: create a machine,
   # start an agent, chat, connect, sync, pause, resume, delete. Its step table is the job summary, and a red step is
-  # this PR's red. The agent test account's pair lives in cmux-next-cloud-journey; without it the job notes the skip.
+  # this PR's red. A preview binds the development Stack project, which staging shares, so the pair is the staging agent
+# test account's in cmux-next-vm-image-dev (as journey-staging). Without it the job fails (cloud-journey-ci.sh), never
+# skips: it read CMUX_JOURNEY_DEV_STACK_* from cmux-next-cloud-journey, which holds no such pair (cmuxterm-hq#8702).
   # The chat runs on the shared model stub (tests/fixtures/model-stub) with a made-up login: no Claude secret.
   journey-preview:
     needs: [preview]
     if: always() && needs.preview.result == 'success'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     environment:
-      name: cmux-next-cloud-journey
+      name: cmux-next-vm-image-dev
       deployment: false
     timeout-minutes: 50
     steps:
@@ -330,10 +428,11 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Cloud journey (preview-${{ github.event.pull_request.number }})
         env:
-          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_JOURNEY_DEV_STACK_EMAIL }}
-          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_JOURNEY_DEV_STACK_PASSWORD }}
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
           PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
           JOURNEY_MODEL: stub
           TARGET: preview-${{ github.event.pull_request.number }}
@@ -343,15 +442,39 @@ jobs:
   # turns red here, after the fact. No secrets: it compares the pushed tree with the previous head.
   migrations-push-guard:
     if: github.event_name == 'push'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          fetch-depth: 0
           persist-credentials: false
+      # The guard compares the pushed tree with the previous head's: two commits and no ancestry. checkout's
+      # fetch-depth 0 fetched every branch and tag (80,000+ refs) and died "bad pack header" on all three tries
+      # (jobs 138141296796, 138140836520), and the production promote's G1 counts a staging run only when this
+      # job passed. Each commit comes whole (no blob filter): the lints read the previous head's files with
+      # `git show`, and a file they cannot read counts as absent.
+      - name: Fetch the previous head and feat-cmux-next's tip, one commit each
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          # --no-filter: a reused workspace can carry the blob filter another job's partial fetch configured.
+          fetch_one() {
+            for try in 1 2 3; do
+              if git -c protocol.version=2 fetch --no-filter --no-tags --no-recurse-submodules --depth=1 origin "$1"; then return 0; fi
+              echo "fetch of $1: try $try failed" >&2
+              if [ "$try" != 3 ]; then sleep $((try * 15)); fi
+            done
+            return 1
+          }
+          fetch_one "+refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next"
+          # A new branch has no previous head (all zeros): the step below then lints only. A previous head that
+          # cannot be fetched fails the job here, so a network fault never passes as "nothing to compare".
+          if [ -n "${BEFORE//0/}" ]; then fetch_one "$BEFORE"; fi
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Restore the Bun package cache (the test job saves it)
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -366,7 +489,7 @@ jobs:
         run: |
           set -euo pipefail
           dir=backend/db/migrations
-          if ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then echo "no previous head to compare (new branch or force push); lint only"; BEFORE=""; fi
+          if ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then echo "no previous head to compare (new branch); lint only"; BEFORE=""; fi
           errors=0
           if [ -n "$BEFORE" ]; then
             while IFS=$'\t' read -r status path; do
@@ -398,6 +521,10 @@ jobs:
     needs: [test]
     if: (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') || (github.event_name == 'workflow_dispatch' && inputs.target == 'staging')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    # 30, not 15: on a slow runner the history fetch below alone took 11.5 min (job 138185910029, a Freestyle
+    # runner; 34 s on the owned pool), the job was cancelled at 15 before any deploy step ran, and a cancelled
+    # deploy-staging counts as a red staging deploy in the production promote's soak window (prod-promote.ts G1).
+    timeout-minutes: 30
     environment: cmux-next-staging
     concurrency:
       group: cmux-next-deploy-staging
@@ -412,15 +539,21 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          fetch-depth: 0
           filter: blob:none
           sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
+      # This job compares with earlier commits of feat-cmux-next. checkout's fetch-depth 0 fetched every branch and
+      # tag (80,000+ refs) and stalled on all three tries ("curl 28 ... bad pack header"): deploy-staging jobs
+      # 138123838319 and 138095039278, deploy-dashboard-staging 137939866003. One branch's history is enough.
+      - name: Fetch feat-cmux-next's history without blobs
+        working-directory: ${{ github.workspace }}
+        run: scripts/ci/fetch_branch_history.sh feat-cmux-next
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Restore the Bun package cache (the test job saves it)
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -480,6 +613,12 @@ jobs:
             exit 1
           fi
           bun migrate-mysql.ts --url-env VITESS_STAGING_URL --phase expand
+      # Buildx for wrangler's container builds (see the preview job).
+      - name: Set up Docker Buildx (wrangler container builds)
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver: docker
+          install: true
       # deploy-worker.sh records the serving version, deploys, smokes apps/api/release-smoke.json and
       # runs `wrangler rollback` on red (plans/cmux-next/release-rails.md).
       - name: Deploy API Worker (records the rollback target)
@@ -543,6 +682,8 @@ jobs:
     needs: [deploy-staging]
     if: needs.deploy-staging.result == 'success' && needs.deploy-staging.outputs.deployed == 'true'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    # 30, not 15: the history fetch below took 6 to 8 min on a slow runner (jobs in runs 45306859441, 45310842160).
+    timeout-minutes: 30
     environment: cmux-next-staging
     permissions:
       contents: read
@@ -557,12 +698,17 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          fetch-depth: 0
           filter: blob:none
           sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
+      # This job compares with earlier commits of feat-cmux-next. checkout's fetch-depth 0 fetched every branch and
+      # tag (80,000+ refs) and stalled on all three tries ("curl 28 ... bad pack header"): deploy-staging jobs
+      # 138123838319 and 138095039278, deploy-dashboard-staging 137939866003. One branch's history is enough.
+      - name: Fetch feat-cmux-next's history without blobs
+        working-directory: ${{ github.workspace }}
+        run: scripts/ci/fetch_branch_history.sh feat-cmux-next
       - name: Dashboard inputs changed since its last deploy
         id: changed
         env:
@@ -573,10 +719,14 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$EVENT" != push ]; then echo "deploy=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          # This lookup only skips a redundant deploy. When GitHub refuses it (the shared
+          # installation token's rate limit, an outage), deploy rather than fail the job.
+          lookup_failed() { echo "::warning::Could not read earlier backend runs ($1); deploying."; echo "deploy=true" >> "$GITHUB_OUTPUT"; exit 0; }
           last=""
-          for row in $(gh api "repos/$REPO/actions/workflows/backend.yml/runs?branch=feat-cmux-next&event=push&per_page=15" --jq '.workflow_runs[] | "\(.id):\(.head_sha)"'); do
+          rows=$(gh api "repos/$REPO/actions/workflows/backend.yml/runs?branch=feat-cmux-next&event=push&per_page=15" --jq '.workflow_runs[] | "\(.id):\(.head_sha)"') || lookup_failed "run list"
+          for row in $rows; do
             id="${row%%:*}"; [ "$id" = "$RUN_ID" ] && continue
-            ok=$(gh api "repos/$REPO/actions/runs/$id/jobs?per_page=100" --jq '[.jobs[] | select(.name == "deploy-dashboard-staging" and .conclusion == "success")] | length')
+            ok=$(gh api "repos/$REPO/actions/runs/$id/jobs?per_page=100" --jq '[.jobs[] | select(.name == "deploy-dashboard-staging" and .conclusion == "success")] | length') || lookup_failed "jobs of run $id"
             if [ "$ok" != 0 ]; then last="${row#*:}"; break; fi
           done
           if [ -z "$last" ] || ! git cat-file -e "${last}^{commit}" 2>/dev/null; then
@@ -598,6 +748,7 @@ jobs:
         if: steps.changed.outputs.deploy == 'true'
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Restore the Bun package cache (the test job saves it)
         if: steps.changed.outputs.deploy == 'true'
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -662,6 +813,10 @@ jobs:
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
           version: ${{ steps.ghostty-zig-version.outputs.version }}
+          # Its own cache saves a new entry per run; zig-global-cache keys it stably.
+          use-cache: false
+      - name: Restore the Zig global cache (feat-cmux-next pushes save it)
+        uses: ./.github/actions/zig-global-cache
       - name: Build Linux cmux-tui for the headless journey
         id: build-cmux-tui
         working-directory: cmux-tui
@@ -685,6 +840,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Cloud journey (staging)
         env:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
@@ -692,6 +848,8 @@ jobs:
           PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
           CMUX_PATH: ${{ steps.build-cmux-tui.outputs.path }}
           JOURNEY_MODEL: stub
+          # The journey's core again on the shipped client, `cmux cloud journey` (cloud-journey-ci.sh rust_run).
+          JOURNEY_RUST: "1"
           TARGET: staging
         run: bash scripts/cmux-next/cloud-journey-ci.sh
 
@@ -703,6 +861,8 @@ jobs:
   deploy-development:
     if: github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    # 30, not 15: the same history fetch as deploy-staging, which took 11.5 min on a slow runner.
+    timeout-minutes: 30
     environment: cmux-next-development
     concurrency:
       group: cmux-next-deploy-development
@@ -714,15 +874,21 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          fetch-depth: 0
           filter: blob:none
           sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
+      # This job compares with earlier commits of feat-cmux-next. checkout's fetch-depth 0 fetched every branch and
+      # tag (80,000+ refs) and stalled on all three tries ("curl 28 ... bad pack header"): deploy-staging jobs
+      # 138123838319 and 138095039278, deploy-dashboard-staging 137939866003. One branch's history is enough.
+      - name: Fetch feat-cmux-next's history without blobs
+        working-directory: ${{ github.workspace }}
+        run: scripts/ci/fetch_branch_history.sh feat-cmux-next
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Restore the Bun package cache (the test job saves it)
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -743,6 +909,12 @@ jobs:
       - name: Newer deployment inputs already queued; skip
         if: steps.source.outputs.deploy == 'false'
         run: echo "::notice::A newer backend push supersedes this deployment."
+      # The pre-merge pipeline (backend-migrations.yml) applies a migration to staging and production
+      # only, and migrations-development runs only for previews, so nothing else brings development up
+      # to the tree: one landed migration refused every development deploy after it (0008_build_space,
+      # 2026-11-18). Every file in this tree is already applied to staging and production (the required
+      # `backend migrations applied` gate; a contract file only after production runs it), so apply the
+      # pending ones here, then verify.
       - name: Development schema matches this commit
         if: steps.source.outputs.deploy == 'true'
         working-directory: backend/db
@@ -750,7 +922,7 @@ jobs:
           CMUX_NEXT_PG_MIGRATOR_URL: ${{ secrets.CMUX_NEXT_PG_MIGRATOR_URL }}
           SHA: ${{ github.sha }}
         run: |
-          if ! out=$(bun migrate.ts --env development --verify 2>&1); then
+          if ! out=$(bun migrate.ts --env development 2>&1 && bun migrate.ts --env development --verify 2>&1); then
             echo "$out"
             msg="Development deploy refused for ${SHA:0:11}: $(echo "$out" | tail -1)."
             echo "::error title=Development deploy refused::$msg"
@@ -759,7 +931,7 @@ jobs:
           fi
           echo "$out"
       # The deployed vars must equal wrangler.jsonc at the push's BEFORE commit (else drift, set out
-      # of band: refused). Then the repo is the source: a var the pushed commits change (an image
+      # of band: refused; a committed var the Worker still lacks is not drift, the deploy sets it). Then the repo is the source: a var the pushed commits change (an image
       # promotion, CLOUD_ALLOWED_TEAMS) deploys, and the step logs each change by name and value.
       - name: Worker vars match the previous commit (drift refused; changes in this push logged)
         if: steps.source.outputs.deploy == 'true'
@@ -790,6 +962,12 @@ jobs:
           echo "base configs: wrangler.jsonc at ${BASE} and its first-parent ancestors, $i in all"
           bun ../../../scripts/cmux-next/release/worker-release.ts vars --worker cmux-api-development \
             --config wrangler.jsonc "${bases[@]}" --env development --wrangler ./node_modules/.bin/wrangler
+      # Buildx for wrangler's container builds (see the preview job).
+      - name: Set up Docker Buildx (wrangler container builds)
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver: docker
+          install: true
       - name: Deploy API Worker (no secrets; records the rollback target)
         if: steps.source.outputs.deploy == 'true'
         id: deploy-api
@@ -814,16 +992,21 @@ jobs:
 
   # Continuous delivery to production (cx-w1ald, release-rails.md "Continuous delivery to production").
   # After each feat-cmux-next staging deploy (or a dispatch with target=promote) the gates pick the
-  # staging-proven commit (G1) and check G2-G7; the hold switch (repository variable
-  # CMUX_NEXT_PRODUCTION_HOLD, non-empty = hold) stops it first. No production secret here.
+  # staging-proven commit (G1) and check G2-G7, and a commit that passes promotes itself: no person's go.
+  # The hold switch (repository variable CMUX_NEXT_PRODUCTION_HOLD) is off by default (unset, empty or
+  # "released"); a person sets any other value on purpose to stop it, and no job ever sets it. A red
+  # smoke rolls back in promote-production; a stub journey the promote turned red rolls back in journey-production.
+  # No production secret here.
   promote-gates:
     environment: cmux-next-production
     if: always() && ((github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') || (github.event_name == 'workflow_dispatch' && inputs.target == 'promote'))
     needs: [deploy-staging]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 25
     # One repository-wide queue with promote-production and deploy-production (review P2).
     concurrency:
       group: cmux-next-deploy-production
+      queue: max
       cancel-in-progress: false
     permissions:
       contents: read
@@ -834,11 +1017,17 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          fetch-depth: 0
           persist-credentials: false
+      # Ancestry (the lineage recheck, rev-list, production's source SHA) needs feat-cmux-next's history, not
+      # every branch and tag: fetch-depth 0 died "curl 28 ... bad pack header" on all three tries in promote-production
+      # 138367811946, leaving the picked 3bbe7dc (the owner.state_full sign-in fix) unpromoted.
+      - name: Fetch feat-cmux-next's history without blobs
+        working-directory: ${{ github.workspace }}
+        run: scripts/ci/fetch_branch_history.sh feat-cmux-next
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Restore the Bun package cache (the test job saves it)
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -848,15 +1037,29 @@ jobs:
             bun-backend-${{ runner.os }}-${{ runner.arch }}-
       - run: bun install --frozen-lockfile
         working-directory: scripts/cmux-next/release
+      # What each finished staging run proved (prod-promote.ts --runs-cache): the stale and gates steps, and the next
+      # push's job, read a run's jobs once instead of all 30 runs' jobs in each step (62 GITHUB_TOKEN calls a job,
+      # from the hour every workflow shares; its 403 held promotes, run 44878749398). The Actions cache is not the
+      # REST API. Only this branch's (and main's) runs write the key; a verdict is reused only for its own run id,
+      # attempt and head commit.
+      - name: Restore the staging run verdicts
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/staging-runs.json
+          # Never saved, so the newest prod-promote-staging-runs- entry restores.
+          key: prod-promote-staging-runs-newest
+          restore-keys: |
+            prod-promote-staging-runs-
       - name: Production staleness (opens or closes the prod-stale issue)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           GITHUB_TOKEN: ${{ github.token }}
+          RUNS_CACHE: ${{ runner.temp }}/staging-runs.json
         # 0 current, 1 stale (the issue pages), 4 unknown (no green evidence; the issue is left alone); any other exit
         # (an error, e.g. a GitHub 5xx past prod-promote.ts's retries) warns and continues so G1-G7 still run.
         run: |
           set +e
-          bun scripts/cmux-next/release/prod-promote.ts stale --issue
+          bun scripts/cmux-next/release/prod-promote.ts stale --issue --runs-cache "$RUNS_CACHE"
           rc=$?
           case "$rc" in 0|4) ;; 1) echo "::warning title=cmux-api production is stale::see the prod-stale issue" ;; *) echo "::warning title=cmux-api production staleness check errored::prod-promote.ts stale exited $rc; the prod-stale issue was not updated this run" ;; esac
       - name: Promotion gates G1-G7 and the hold switch
@@ -867,23 +1070,43 @@ jobs:
           CMUX_NEXT_PRODUCTION_HOLD: ${{ vars.CMUX_NEXT_PRODUCTION_HOLD }}
           # The exact-SHA promote (dispatch input); prod-promote.ts accepts only 40 lowercase hex.
           CANDIDATE_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate || '' }}
+          RUNS_CACHE: ${{ runner.temp }}/staging-runs.json
         run: |
           set +e
           if [ -n "$CANDIDATE_INPUT" ]; then
-            bun scripts/cmux-next/release/prod-promote.ts gates --candidate "$CANDIDATE_INPUT" --github-output "$GITHUB_OUTPUT"
+            bun scripts/cmux-next/release/prod-promote.ts gates --candidate "$CANDIDATE_INPUT" --github-output "$GITHUB_OUTPUT" --runs-cache "$RUNS_CACHE"
           else
-            bun scripts/cmux-next/release/prod-promote.ts gates --github-output "$GITHUB_OUTPUT"
+            bun scripts/cmux-next/release/prod-promote.ts gates --github-output "$GITHUB_OUTPUT" --runs-cache "$RUNS_CACHE"
           fi
           rc=$?
           [ "$rc" = 0 ] || [ "$rc" = 3 ] || exit "$rc"
+      # The save is keyed by what the file holds, never by the run (tests/test_ci_no_run_scoped_cache_keys.py): an
+      # unchanged file saves nothing new, and a changed one becomes the newest entry the next promote restores.
+      - name: Hash the staging run verdicts
+        id: staging-runs-digest
+        # Even after a hold or error: the verdicts read so far are still true. (No file: nothing to save.)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        env:
+          RUNS_CACHE: ${{ runner.temp }}/staging-runs.json
+        run: if [ -s "$RUNS_CACHE" ]; then echo "sha=$(sha256sum "$RUNS_CACHE" | cut -c1-32)" >> "$GITHUB_OUTPUT"; fi
+      - name: Save the staging run verdicts
+        if: ${{ !cancelled() && steps.staging-runs-digest.outputs.sha != '' }}
+        continue-on-error: true
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/staging-runs.json
+          key: prod-promote-staging-runs-${{ steps.staging-runs-digest.outputs.sha }}
 
   promote-production:
     needs: [promote-gates]
     if: always() && needs.promote-gates.outputs.candidate != ''
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    timeout-minutes: 30
     environment: cmux-next-production
     concurrency:
       group: cmux-next-deploy-production
+      queue: max
       cancel-in-progress: false
     permissions:
       contents: read
@@ -894,11 +1117,15 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ needs.promote-gates.outputs.candidate }}
-          fetch-depth: 0
           persist-credentials: false
+      # feat-cmux-next's history alone, not fetch-depth 0's every branch and tag (why: promote-gates).
+      - name: Fetch feat-cmux-next's history without blobs
+        working-directory: ${{ github.workspace }}
+        run: scripts/ci/fetch_branch_history.sh feat-cmux-next
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Restore the Bun package cache (the test job saves it)
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -925,6 +1152,12 @@ jobs:
         run: |
           [[ "$CANDIDATE" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::candidate is not a 40-hex SHA"; exit 1; }
           bun scripts/cmux-next/release/prod-promote.ts recheck --candidate "$CANDIDATE"
+      # Buildx for wrangler's container builds (see the preview job).
+      - name: Set up Docker Buildx (wrangler container builds)
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver: docker
+          install: true
       # No secrets are sent: production keeps JWT_PRIVATE_JWK and the rest (CMUX_DEPLOY_NO_SECRETS with
       # CMUX_RELEASE_PROMOTE). deploy-worker.sh runs migrate.ts --verify (G4) and the config gate first.
       - name: Deploy the staging-proven commit (records the rollback target)
@@ -947,6 +1180,17 @@ jobs:
           bun ../../../scripts/cmux-next/release/worker-release.ts verify --worker cmux-api --url https://cloud-api.cmux.dev
           --routes release-smoke.json --previous-file "$RUNNER_TEMP/cmux-api-previous-version"
           --source-dir . --wrangler ./node_modules/.bin/wrangler
+      # The console (console.cmux.dev) ships with the same staging-proven commit as the API it calls; before
+      # 2026-11-19 only deploy-production (main, which has no dashboard) deployed it, so production ran hand
+      # builds (a1245, chat 40603). Runs only after the API smoke passed.
+      - name: Deploy the console (console.cmux.dev)
+        working-directory: backend/apps/dashboard
+        env:
+          VERCEL_PROJECT_ID: ${{ env.DASHBOARD_PROJECT_PRODUCTION }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: NITRO_PRESET=vercel bun run build && bunx vercel@58.8.0 deploy --prebuilt --prod --scope manaflow --token "$VERCEL_TOKEN"
+      - name: Console smoke
+        run: curl -fsS -o /dev/null https://console.cmux.dev/ && test "$(curl -s -o /dev/null -w '%{http_code}' -X POST https://console.cmux.dev/api/vertex/chat/completions)" = 401
 
   # One-command rollback of production cmux-api (HQ skills/infra/cloud-api-promote): back to the version
   # that served before the current code deployment. prod-promote.ts refuses across a Durable Object
@@ -954,20 +1198,26 @@ jobs:
   rollback-production:
     if: github.event_name == 'workflow_dispatch' && inputs.target == 'rollback'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    timeout-minutes: 30
     environment: cmux-next-production
     concurrency:
       group: cmux-next-deploy-production
+      queue: max
       cancel-in-progress: false
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          fetch-depth: 0
           persist-credentials: false
+      # feat-cmux-next's history alone, not fetch-depth 0's every branch and tag (why: promote-gates).
+      - name: Fetch feat-cmux-next's history without blobs
+        working-directory: ${{ github.workspace }}
+        run: scripts/ci/fetch_branch_history.sh feat-cmux-next
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Restore the Bun package cache (the test job saves it)
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -990,7 +1240,7 @@ jobs:
       - name: Smoke production after the rollback
         run: |
           curl -fsS https://cloud-api.cmux.dev/v1/health
-          echo "::warning title=cmux-api rolled back::automatic promotes hold while production serves a rollback; move forward only with an exact-SHA promote (target=promote, candidate=<sha>), and keep CMUX_NEXT_PRODUCTION_HOLD on a hold value."
+          echo "::warning title=cmux-api rolled back::automatic promotes hold the rolled-back commit; the next newer staging-proven commit promotes itself after the 6 h spacing. To stop that too, set CMUX_NEXT_PRODUCTION_HOLD to a hold value."
 
   # The Chief brain's off switch on production: the serving commit again with CHIEF_BRAIN_ENABLED "0"
   # (deploy-worker.sh CMUX_DEPLOY_CHIEF_OFF). Same code, so no lifecycle change: target=rollback turns
@@ -998,20 +1248,26 @@ jobs:
   chief-off-production:
     if: github.event_name == 'workflow_dispatch' && inputs.target == 'chief-off'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    timeout-minutes: 15
     environment: cmux-next-production
     concurrency:
       group: cmux-next-deploy-production
+      queue: max
       cancel-in-progress: false
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          fetch-depth: 0
           persist-credentials: false
+      # feat-cmux-next's history alone, not fetch-depth 0's every branch and tag (why: promote-gates).
+      - name: Fetch feat-cmux-next's history without blobs
+        working-directory: ${{ github.workspace }}
+        run: scripts/ci/fetch_branch_history.sh feat-cmux-next
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Restore the Bun package cache (the test job saves it)
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -1032,8 +1288,11 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ steps.serving.outputs.sha }}
-          fetch-depth: 0
           persist-credentials: false
+      # feat-cmux-next's history alone, not fetch-depth 0's every branch and tag (why: promote-gates).
+      - name: Fetch feat-cmux-next's history without blobs
+        working-directory: ${{ github.workspace }}
+        run: scripts/ci/fetch_branch_history.sh feat-cmux-next
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24"
@@ -1043,6 +1302,12 @@ jobs:
         working-directory: scripts/cmux-next/release
       - name: The serving commit has the off switch
         run: grep -q CMUX_DEPLOY_CHIEF_OFF backend/scripts/deploy-worker.sh || { echo "::error::the serving commit's deploy-worker.sh has no CMUX_DEPLOY_CHIEF_OFF; deploying it would keep the brain on"; exit 1; }
+      # Buildx for wrangler's container builds (see the preview job).
+      - name: Set up Docker Buildx (wrangler container builds)
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver: docker
+          install: true
       - name: Deploy the serving commit with the Chief brain off (records the rollback target)
         id: deploy-api
         working-directory: backend
@@ -1077,9 +1342,11 @@ jobs:
   deploy-production:
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.target == 'production'))
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    timeout-minutes: 30
     environment: cmux-next-production
     concurrency:
       group: cmux-next-deploy-production
+      queue: max
       cancel-in-progress: false
     defaults:
       run:
@@ -1089,6 +1356,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Restore the Bun package cache (the test job saves it)
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -1100,12 +1368,19 @@ jobs:
         with:
           node-version: "24"
       - run: bun install --frozen-lockfile
-      # The same hold switch as the promotion (cx-w1ald review P2): only "released" deploys. deploy-worker.sh
-      # runs the production config gate itself.
+      # The hold switch (cx-w1ald review P2). A cmux main push is not staging-proven, so unlike the automatic
+      # promote (where unset means off) this path deploys only on exactly "released". deploy-worker.sh runs
+      # the production config gate itself.
       - name: Hold switch
         env:
           HOLD: ${{ vars.CMUX_NEXT_PRODUCTION_HOLD }}
         run: if [ "$HOLD" != released ]; then echo "::error::production hold switch is not released"; exit 1; fi
+      # Buildx for wrangler's container builds (see the preview job).
+      - name: Set up Docker Buildx (wrangler container builds)
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver: docker
+          install: true
       - name: Deploy API Worker (refuses if production lacks a migration; records the rollback target)
         id: deploy-api
         env:
@@ -1141,8 +1416,18 @@ jobs:
         run: curl -fsS https://cloud-api.cmux.dev/v1/health && curl -fsS -o /dev/null https://console.cmux.dev/
 
   # The Cloud journey as production's smoke (production Stack project's agent test account), test team and product team.
+  # After a promote it is also the automatic rollback (no extra job: the PR job budget in ci/steps.toml only goes
+  # down). The rollback signal is the model-stub journey, never the real model: on 2026-11-14 the promote of
+  # 06acc4475450 (run 43635987546) had a green product and a real-model journey red on the test account's Claude
+  # quota ("You've hit your weekly limit"); rolling back on that would undo a good deploy. A stub journey red after
+  # cloud-journey-ci.sh's own second run, when the newest hourly stub journey on production before the promote
+  # (cloud-journey-prod.yml) was green, is the promote's red: production goes back to the version that served
+  # before it (prod-promote.ts rollback, as target=rollback), only while it still serves the promoted commit (the
+  # 6 h spacing keeps another promote out). Later automatic promotes hold that commit and take the next newer
+  # staging-proven one. Across a Durable Object lifecycle change the rollback refuses and the job fails: fix
+  # forward, or target=chief-off for the Chief brain.
   journey-production:
-    needs: [deploy-production, promote-production]
+    needs: [promote-gates, deploy-production, promote-production]
     if: always() && (needs.deploy-production.result == 'success' || needs.promote-production.result == 'success')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     # cmux-next-cloud-journey holds the production agent test account as CMUX_DOGFOOD_STACK_*, shadowing the
@@ -1153,22 +1438,94 @@ jobs:
       name: cmux-next-cloud-journey
       deployment: false
     timeout-minutes: 50
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          # The rollback reads production's source tags as commits (prod-promote.ts): feat-cmux-next's history,
+          # fetched below by scripts/ci (in this list for that).
+          # backend's bun install needs its workspaces outside backend/ (clients/ts, workers/cmux-vm/sdk):
+          # without them the rollback stopped at "listed in bun.lock but not on disk" (run 44764045780).
+          # scripts/cmux-next/release/test/backend-sparse-checkout.test.ts keeps this list complete.
           sparse-checkout: |
             scripts/cmux-next
+            scripts/ci
             Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials
             tests/fixtures/model-stub
+            backend
+            clients/ts
+            workers/cmux-vm/sdk
+      # feat-cmux-next's history alone, not fetch-depth 0's every branch and tag (why: promote-gates).
+      - name: Fetch feat-cmux-next's history without blobs
+        working-directory: ${{ github.workspace }}
+        run: scripts/ci/fetch_branch_history.sh feat-cmux-next
+      - name: Fetch the run's own branch history too (a deploy from main)
+        if: github.ref_name != 'feat-cmux-next'
+        working-directory: ${{ github.workspace }}
+        run: scripts/ci/fetch_branch_history.sh "$GITHUB_REF_NAME"
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-      - name: Cloud journey (prod)
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+      - name: Cloud journey after the promote (model stub)
+        id: stub
+        if: needs.promote-production.result == 'success'
+        continue-on-error: true
         env:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
+          JOURNEY_MODEL: stub
+          TARGET: prod
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          bash scripts/cmux-next/cloud-journey-ci.sh
+          rc=$?
+          set -e
+          [ "$rc" != 0 ] || exit 0
+          # No test account in this environment is a config red, not the promote's.
+          if [ -z "$CMUX_DOGFOOD_STACK_EMAIL" ] || [ -z "$CMUX_DOGFOOD_STACK_PASSWORD" ]; then exit "$rc"; fi
+          # The baseline: the newest hourly stub journey on production that finished before this run (so before the deploy) started.
+          RUN_STARTED="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .run_started_at || true)"
+          [ -n "$RUN_STARTED" ] || { echo "::warning title=Cloud journey::cannot read this run's start; not rolling back"; exit "$rc"; }
+          before="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/cloud-journey-prod.yml/runs?event=schedule&status=completed&per_page=10" \
+            --jq "[.workflow_runs[] | select(.updated_at < \"$RUN_STARTED\")][0].id" || true)"
+          stub="$( [ -n "$before" ] && gh api "repos/$GITHUB_REPOSITORY/actions/runs/$before/jobs" --jq '[.jobs[] | select(.name == "journey (stub)")][0].conclusion' || true)"
+          echo "baseline: hourly stub journey run ${before:-none}: ${stub:-unknown}"
+          if [ "$stub" = success ]; then echo "regressed=1" >> "$GITHUB_OUTPUT"; else echo "::warning title=Cloud journey::production's stub journey was not green before the promote (${stub:-unknown}); not rolling back"; fi
+          exit "$rc"
+      - name: Roll back the promote that turned the journey red
+        if: always() && steps.stub.outputs.regressed == '1'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: 0c1675e0def6de1ab3a50a4e17dc5656
+          CANDIDATE: ${{ needs.promote-gates.outputs.candidate }}
+        run: |
+          [[ "$CANDIDATE" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::candidate is not a 40-hex SHA"; exit 1; }
+          (cd backend && bun install --frozen-lockfile >/dev/null)
+          (cd scripts/cmux-next/release && bun install --frozen-lockfile >/dev/null)
+          sha="$(bun scripts/cmux-next/release/prod-promote.ts serving)"
+          if [ "$sha" != "$CANDIDATE" ]; then
+            echo "::warning title=cmux-api not rolled back::production serves ${sha:0:12}, not the promoted ${CANDIDATE:0:12}; nothing to undo"
+            exit 1
+          fi
+          bun scripts/cmux-next/release/prod-promote.ts rollback --execute --wrangler backend/apps/api/node_modules/.bin/wrangler
+          curl -fsS https://cloud-api.cmux.dev/v1/health
+          echo "::error title=cmux-api rolled back automatically::${CANDIDATE:0:12} turned production's stub journey red (green before it); automatic promotes hold it and take the next newer staging-proven commit after the 6 h spacing."
+          exit 1
+      # The real-model journey proves the deploy (its verdict annotation); it never rolls back.
+      - name: Cloud journey (prod)
+        if: always()
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          # The journey's own Claude login first: the repository's is shared by claude.yml, cloud-chat-proof and
+          # every journey, and its weekly limit turned run 44764045780's after-promote reply red.
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CMUX_JOURNEY_CLAUDE_CODE_OAUTH_TOKEN || secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
           TARGET: prod
         run: bash scripts/cmux-next/cloud-journey-ci.sh
@@ -1177,6 +1534,7 @@ jobs:
     environment: cmux-next-preview-deploy
     if: vars.CMUX_NEXT_PREVIEW_BROKER_ENABLED == '1' && github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'codex/vm-api-cloud-')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    timeout-minutes: 15
     steps:
       - name: Delete preview Worker
         env:

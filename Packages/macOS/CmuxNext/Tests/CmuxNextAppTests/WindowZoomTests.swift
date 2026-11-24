@@ -45,10 +45,11 @@ import Testing
         defer { window.close(); WindowOverlayHost.windowIsClosing(window) }
         try #require(!window.isZoomed)
         // The zoom animates only when the panes' Motion gate lets it (`WindowZoom` resizes through
-        // `Motion.panes.animateTimed`). With Reduce Motion, calm mode, animations off, a live resize or
-        // a sleeping display it snaps by design, so "returns before the window resizes" does not apply.
-        // Read with the zoom's own inputs, just before it, so nothing changes in between.
-        let policy = Motion.panes.policy
+        // `Motion.panes.animateTimed`). With Reduce Motion, calm mode, animations off, a live resize of
+        // this window or a sleeping display it snaps by design, so "returns before the window resizes"
+        // does not apply. Read with the zoom's own inputs (this window's policy), just before it, so
+        // nothing changes in between.
+        let policy = Motion.panes.policy(in: window)
         guard Motion.panes.canAnimate(in: window.contentView), policy.duration(.move) > 0 else {
             print("WindowZoomTests: skipped, the zoom snaps on this host by design: canAnimate=\(Motion.panes.canAnimate(in: window.contentView)) "
                 + "speed=\(policy.speed) animationsEnabled=\(policy.animationsEnabled) reduceMotion=\(policy.reduceMotion) "

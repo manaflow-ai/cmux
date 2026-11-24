@@ -222,7 +222,8 @@ struct RowSpec: Hashable {
     var width: CGFloat = Fixture.windowWidth
     /// Height estimated from another width (lazy re-measure after a resize).
     var estimated = false
-    /// cmux: how far right of the incoming side an incoming "N Replies" label moves (a group's avatar column); 0 elsewhere.
+    /// cmux: how far right of the incoming side an incoming row that is not a part moves (a group's avatar column: "N Replies",
+    /// "Edited", the status line, the typing bubble); 0 elsewhere.
     var cmuxIndent: CGFloat = 0
     var metrics: Metrics { Metrics(width: width) }
     /// The height in this row a thread connector's arc hangs from (row coordinates): its vertical middle.
@@ -385,7 +386,9 @@ struct ThreadPreview: Hashable {
         } else {
             let (title, sub) = p.lines
             let w = max(TextDraw.width(title, font: ThreadPreview.titleFont), TextDraw.width(sub, font: ThreadPreview.subFont))
-            p.box = CGSize(width: min(300, (39 + w + 15).rounded()), height: 48.5)
+            // cmux: a card with no picture has no thumbnail square, so its text starts nearer its edge (HomeQuotePreview).
+            p.box = CGSize(width: min(HomeQuotePreview.maxCardWidth, (HomeQuotePreview.textInset(part) + w + HomeQuotePreview.trailingPad).rounded()),
+                           height: 48.5)
         }
         return p
     }
@@ -543,7 +546,7 @@ struct ThreadPreview: Hashable {
             return (String(one.prefix(28)), one.count > 28 ? String(one.dropFirst(28).prefix(30)) : "")
         case let .attachment(a): return (a.fileName, Format.bytes(a.byteSize))
         case let .location(_, _, title, _): return (title ?? Strings.location, "")
-        case let .custom(c): return (CustomRows.plainText(c), "")
+        case let .custom(c): return HomeQuotePreview.lines(c)  // cmux: its words, not its Markdown
         case nil: return ("…", "")
         }
     }
@@ -632,7 +635,8 @@ enum Sizing {
     }
 
     /// `scale`: the view's (text balloon widths end on its device pixels).
-    static func size(of part: Part, width: CGFloat, scale: CGFloat = Fixture.renderScale) -> (CGSize, TextLayout?) {
+    /// cmux: `group`: the part is one of two or more pictures and videos of one message (``mediaGroup``).
+    static func size(of part: Part, width: CGFloat, scale: CGFloat = Fixture.renderScale, group: Bool = false) -> (CGSize, TextLayout?) {
         let m = Metrics(width: width)
         let maxTextWidth = m.maxTextWidth, mediaWidth = m.mediaWidth
         switch part {
@@ -653,11 +657,20 @@ enum Sizing {
                 // Never larger than the source pixels allow (resolution brief):
                 // a 354 px asset is at most 177 pt wide at 2x, whatever the metadata says.
                 // Pixel size from metadata (MediaCache): no decode to size a row.
-                if let ref = a.kind == "video" ? (a.poster ?? a.asset) : a.asset, let px = Images.pixelSize(ref) {
-                    let srcW = px.width
-                    if srcW < pw { ph = ph * srcW / pw; pw = srcW }
+                if let ref = a.kind == "video" ? (a.poster ?? a.asset) : a.asset, let px = Images.pixelSize(ref), px.width > 0, px.height > 0 {
+                    if a.width == nil || a.height == nil {
+                        // cmux: a part without a pixel size (a video the Chief attached) takes its picture's: its
+                        // real aspect, not a 4:3 box that cropped a 16:9 frame.
+                        pw = px.width; ph = px.height
+                    } else {
+                        let srcW = px.width
+                        if srcW < pw { ph = ph * srcW / pw; pw = srcW }
+                    }
                 }
-                let w = min(max(mediaWidth, min(300, m.maxTextWidth + 2 * Fixture.bubblePadX)), pw / 2)
+                let column = min(300, m.maxTextWidth + 2 * Fixture.bubblePadX)
+                // cmux (user 2026-11-16): the pictures and videos of one message are one column of the same
+                // width (a 300 pt picture over 240 pt videos read as a ragged stack); each keeps its aspect.
+                let w = group ? column : min(max(mediaWidth, column), pw / 2)
                 return (CGSize(width: w, height: min(360, (w * ph / pw).rounded())), nil)
             case "voiceMemo": return (CGSize(width: 196, height: 36), nil)
             case "contact": return (CGSize(width: 250, height: 56), nil)
@@ -686,6 +699,16 @@ enum Sizing {
     /// link-url-and-text, t+0.6-1.9 s) until the card replaces it.
     static let linkPlaceholder = CGSize(width: 137.5, height: 103.5)
     static func linkPending(title: String?, site: String?, image: String?) -> Bool { title == nil && site == nil && image == nil }
+
+    /// cmux: whether `part` is a picture or video of a message with two or more of them: they share one width.
+    static func mediaGroup(_ m: Message, _ part: Part) -> Bool {
+        func isMedia(_ p: Part) -> Bool {
+            if case let .attachment(a) = p { return a.kind == "image" || a.kind == "video" }
+            return false
+        }
+        guard isMedia(part) else { return false }
+        return m.parts.lazy.filter(isMedia).prefix(2).count == 2
+    }
 
     static func linkImageSize(_ image: String?, maxWidth: CGFloat = Fixture.maxLinkWidth) -> (CGFloat, CGFloat) {
         // Raster previews are sized from metadata (no decode while rows are derived); an asset
@@ -901,7 +924,7 @@ final class MeasureCache: @unchecked Sendable {
         if case let .text(t, _) = part, let md = Markdown.layout(t, message: m.id, format: m.format, width: width) {
             return Value(size: md.size, text: md.proxy, width: width, markdown: md)
         }
-        let (size, tl) = Sizing.size(of: part, width: width, scale: scale)
+        let (size, tl) = Sizing.size(of: part, width: width, scale: scale, group: Sizing.mediaGroup(m, part))
         return Value(size: size, text: tl, width: width)
     }
 
@@ -924,7 +947,9 @@ final class MeasureCache: @unchecked Sendable {
             let (s, tl, est) = CustomRows.measure(c, message: m.id, part: pi, width: width, indent: indent) // cmux: group indent
             return Value(size: s, text: tl, width: width, estimated: est)
         }
+        // cmux: a picture or video measures again when its message's media group starts or ends (a sibling became a file card).
         let version = MeasureCache.version(m) &+ MeasureCache.partVersion(part) &+ Markdown.versionSalt(m.id)
+            &+ (Sizing.mediaGroup(m, part) ? 0x5BD1_E995 : 0)
         let k = Key(id: m.id, part: pi, version: version, width: width, markdown: m.isMarkdown, scale: scale)
         let pk = PartKey(id: m.id, part: pi, version: version, markdown: m.isMarkdown, scale: scale)
         let streaming = StreamBubble.isStream(m.id)
@@ -952,7 +977,7 @@ final class MeasureCache: @unchecked Sendable {
         if estimate, let old = latest[pk] {
             estimates += 1
             lock.unlock()
-            return MeasureCache.scale(old, to: width, part: part, scale: scale)
+            return MeasureCache.scale(old, to: width, part: part, scale: scale, group: Sizing.mediaGroup(m, part))
         }
         misses += 1
         lock.unlock()
@@ -991,7 +1016,7 @@ final class MeasureCache: @unchecked Sendable {
         return Value(size: v.size, text: tl, width: width)
     }
 
-    private static func scale(_ v: Value, to width: CGFloat, part: Part, scale: CGFloat) -> Value {
+    private static func scale(_ v: Value, to width: CGFloat, part: Part, scale: CGFloat, group: Bool = false) -> Value {
         if v.markdown != nil {
             // Markdown keeps its height until measured at the new width.
             let col = Metrics(width: width).maxTextWidth + 2 * Fixture.bubblePadX
@@ -999,7 +1024,7 @@ final class MeasureCache: @unchecked Sendable {
         }
         guard let tl = v.text else {
             // Media and cards: same aspect, clamped to the new column.
-            let (fresh, _) = Sizing.size(of: part, width: width, scale: scale)
+            let (fresh, _) = Sizing.size(of: part, width: width, scale: scale, group: group)
             return Value(size: fresh, text: nil, width: width, estimated: true)
         }
         let col = Metrics(width: width).maxTextWidth
@@ -1201,7 +1226,9 @@ enum RowBuilder {
             } ?? false
             if let r = m.replyTo, !threadMode, connector == nil, !rootNearby, m.cmuxAside != true, let p = prev, p.id != r.messageId, p.replyTo != r {
                 let root = rootMessage(r.messageId)
-                let part = root.flatMap { r.partIndex < $0.parts.count ? $0.parts[r.partIndex] : nil }
+                // cmux: an agent's Markdown quotes as its words, not its syntax (HomeQuotePreview, Lawrence 2026-11-20).
+                let part = HomeQuotePreview.part(root.flatMap { r.partIndex < $0.parts.count ? $0.parts[r.partIndex] : nil },
+                                                 markdown: root?.isMarkdown == true)
                 var pv = ThreadPreview.make(root: r, part: part, count: replyCount[r.messageId] ?? 0, outgoing: root?.senderId == me, width: width)
                 // cmux: a group's quote of another person's message names them with their avatar (user, 2026-10-29).
                 if group, !pv.outgoing {
@@ -1240,7 +1267,7 @@ enum RowBuilder {
                 // cmux: an aside (the Chief's agent messages, Message.cmuxAside) has no name and no avatar: they stay
                 // with the sender's own bubbles, so rows that come, fold and open under them never move the avatar.
                 let aside = m.cmuxAside == true
-                if let name = sender?.displayName, !name.isEmpty, startsRun, connector == nil, !aside {
+                if let name = sender?.displayName, !name.isEmpty, sender?.cmuxUnnamed != true, startsRun, connector == nil, !aside {
                     // cmux: under a group quote the name sits so that the bubble's top is 35 pt under the quote (Messages).
                     if let q = groupQuote, let row = rows[checked: q], case let .threadPreview(pv) = row.kind {
                         gap = max(0, ThreadPreview.cmuxReplyTopUnderQuote - (row.height - pv.box.height) - 14 - 1)
@@ -1298,12 +1325,12 @@ enum RowBuilder {
                 }
                 if m.edits?.isEmpty == false {
                     rows.append(RowSpec(key: "edited:\(m.id)", kind: .label(text: Strings.edited, outgoing: outgoing, color: .link),
-                                        gap: 1, height: 14))
+                                        gap: 1, height: 14, cmuxIndent: inGroup ? SenderAvatar.bubbleInset : 0))
                 }
                 if case .failed = m.status {
                     // cmux: "May Not Have Been Delivered" for a send that reached the owner unanswered.
                     rows.append(RowSpec(key: "failed:\(m.id)", kind: .label(text: CmuxStrings.failedLabel(m.status), outgoing: outgoing, color: .failure),
-                                        gap: 1, height: 14))
+                                        gap: 1, height: 14, cmuxIndent: inGroup ? SenderAvatar.bubbleInset : 0))
                 }
                 // cmux: one reply further down says "1 Reply" too (Messages, 2026-10-29 group reference); a reply right under
                 // its root shows the thread with its line instead.
@@ -1316,7 +1343,8 @@ enum RowBuilder {
                 // branch (drill-in). `threadCounts` is nil in `.messages` mode and in the transcript.
                 if threadMode, let n = threadCounts?[m.id], n >= 1 {
                     rows.append(RowSpec(key: "replies:\(m.id)", kind: .replies(count: n, root: PartRef(messageId: m.id, partIndex: 0),
-                                                                               outgoing: outgoing), gap: 0, height: 22))
+                                                                               outgoing: outgoing), gap: 0, height: 22,
+                                        cmuxIndent: inGroup ? SenderAvatar.bubbleInset : 0))
                 }
                 if let r = receipts[m.id] {
                     rows.append(RowSpec(key: "receipt:\(m.id)", kind: .receipt(bold: r.0, rest: r.1), gap: 0, height: 16))
@@ -1338,7 +1366,8 @@ enum RowBuilder {
         var statusLine = false
         if !threadMode, span.upperBound == messages.count, s.atNewest, let notice = s.ui.notice, !notice.isEmpty {
             // cmux: one caption row per line (the running indicator's folded steps, narration and step: HomeNoticeRows).
-            rows.append(RowSpec(key: "notice", kind: .notice(notice), gap: 8, height: HomeNoticeRows.height(notice)))
+            rows.append(RowSpec(key: "notice", kind: .notice(notice), gap: 8, height: HomeNoticeRows.height(notice),
+                                cmuxIndent: group ? SenderAvatar.bubbleInset : 0)) // cmux: the bubbles' column
             statusLine = true
         }
         // cmux (user 2026-10-30, "make it just one line with shimmer text"): the status line, shimmering
@@ -1353,7 +1382,8 @@ enum RowBuilder {
             case .part, .unsent: gap = Self.typingGapUnderBubble
             default: break
             }
-            rows.append(RowSpec(key: "typing", kind: .typing, gap: gap, height: 35))
+            rows.append(RowSpec(key: "typing", kind: .typing, gap: gap, height: 35,
+                                cmuxIndent: group ? SenderAvatar.bubbleInset : 0)) // cmux: the bubbles' column
         }
         rows = rows.map { var r = $0; r.width = width; return r } // no index writes
         return rows
