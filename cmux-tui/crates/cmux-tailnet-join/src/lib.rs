@@ -255,7 +255,7 @@ pub fn check_hostname(name: &str) -> Result<String, Invalid> {
 pub fn check_tag(tag: &str) -> Result<String, Invalid> {
     let tag = tag.trim();
     let tag = if tag.starts_with("tag:") { tag.to_owned() } else { format!("tag:{tag}") };
-    let name = &tag[4..];
+    let name = tag.strip_prefix("tag:").unwrap_or_default();
     let ok = name.len() <= 63
         && name.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
         && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-');
@@ -497,23 +497,30 @@ pub fn parse_joined(stdout: &str) -> Outcome {
         let Ok(value) = serde_json::from_str::<serde_json::Value>(json) else {
             return Outcome::Failed("tailscale status did not answer JSON".to_owned());
         };
-        if value["BackendState"] != "Running" {
+        let state = value.get("BackendState").and_then(serde_json::Value::as_str);
+        if state != Some("Running") {
             return Outcome::Failed(format!(
                 "the node is {} after sign-in",
-                value["BackendState"].as_str().unwrap_or("in an unknown state")
+                state.unwrap_or("in an unknown state")
             ));
         }
-        let me = &value["Self"];
+        let null = serde_json::Value::Null;
+        let me = value.get("Self").unwrap_or(&null);
         let strings = |v: &serde_json::Value| -> Vec<String> {
             v.as_array()
                 .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect())
                 .unwrap_or_default()
         };
         return Outcome::Joined(Joined {
-            dns_name: me["DNSName"].as_str().unwrap_or_default().trim_end_matches('.').to_owned(),
-            ips: strings(&me["TailscaleIPs"]),
-            tags: strings(&me["Tags"]),
-            online: me["Online"].as_bool().unwrap_or(false),
+            dns_name: me
+                .get("DNSName")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .trim_end_matches('.')
+                .to_owned(),
+            ips: me.get("TailscaleIPs").map(strings).unwrap_or_default(),
+            tags: me.get("Tags").map(strings).unwrap_or_default(),
+            online: me.get("Online").and_then(serde_json::Value::as_bool).unwrap_or(false),
         });
     }
     Outcome::Failed("the join script ended without a result".to_owned())

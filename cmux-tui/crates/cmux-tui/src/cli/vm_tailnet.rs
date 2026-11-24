@@ -204,11 +204,14 @@ pub(super) fn join(
         match cmux_tailnet_join::read_answer(&answer.stdout) {
             Progress::Running => continue,
             Progress::Ended(Outcome::Joined(node)) => {
-                let mut value = serde_json::to_value(&node).unwrap_or(Value::Null);
-                value["elapsedMs"] =
-                    json!(u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX));
-                value["notes"] = json!(checked.notes());
-                return Ok(value);
+                return Ok(json!({
+                    "dnsName": node.dns_name,
+                    "ips": node.ips,
+                    "tags": node.tags,
+                    "online": node.online,
+                    "elapsedMs": u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+                    "notes": checked.notes(),
+                }));
             }
             Progress::Ended(Outcome::OtherTailnet { control_url }) => {
                 return Err(format!(
@@ -319,7 +322,7 @@ pub(super) fn run(
                     let mut record = read_record(env);
                     record.insert(
                         vm_id.clone(),
-                        node["dnsName"].as_str().unwrap_or_default().to_owned(),
+                        node.get("dnsName").and_then(Value::as_str).unwrap_or_default().to_owned(),
                     );
                     write_record(env, &record);
                     if json_output {
@@ -327,14 +330,18 @@ pub(super) fn run(
                     } else {
                         println!(
                             "Joined {vm_id} to your tailnet as {}.",
-                            node["dnsName"].as_str().unwrap_or("?")
+                            node.get("dnsName").and_then(Value::as_str).unwrap_or("?")
                         );
-                        if let Some(ips) = node["ips"].as_array() {
+                        if let Some(ips) = node.get("ips").and_then(Value::as_array) {
                             let ips: Vec<&str> = ips.iter().filter_map(Value::as_str).collect();
                             println!("Addresses: {}", ips.join(", "));
                         }
-                        for note in
-                            node["notes"].as_array().into_iter().flatten().filter_map(Value::as_str)
+                        for note in node
+                            .get("notes")
+                            .and_then(Value::as_array)
+                            .into_iter()
+                            .flatten()
+                            .filter_map(Value::as_str)
                         {
                             println!("Note: {note}");
                         }
@@ -398,7 +405,7 @@ pub(super) fn leave_before_delete(vm_id: &str, env: &dyn Fn(&str) -> Option<Stri
     match with_guest(vm_id, env, leave) {
         Ok(()) => eprintln!("cmux: {vm_id} left your tailnet"),
         Err(error) => {
-            eprintln!("cmux: {vm_id} could not leave your tailnet ({error}); deleting it anyway")
+            eprintln!("cmux: {vm_id} could not leave your tailnet ({error}); deleting it anyway");
         }
     }
     let mut record = read_record(env);
