@@ -53,7 +53,6 @@ src/agent-session/acpmux/conversation/QueuedMessageCard.tsx	1
 src/agent-session/acpmux/conversation/revealedMarkdownModel.ts	1
 src/agent-session/acpmux/conversation/runInBackground.ts	1
 src/agent-session/acpmux/conversation/SelectionReply.tsx	1
-src/agent-session/acpmux/conversation/SentMessageLine.tsx	1
 src/agent-session/acpmux/conversation/SentUIPick.tsx	1
 src/agent-session/acpmux/conversation/skillWords.ts	1
 src/agent-session/acpmux/conversation/ThoughtRow.tsx	1
