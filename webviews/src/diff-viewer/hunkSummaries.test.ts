@@ -12,7 +12,8 @@ import {
 } from "./hunkSummaries";
 import { plainEnglishMenuItem, toolbarPillButtons } from "../toolbar-model";
 
-// A fixture diff: one file, two hunks (a retry loop and a removed import).
+// A fixture diff: one file, two hunks (a retry loop and a removed import). Each header counts
+// its own lines: @pierre/diffs 1.6 rewrites a header whose counts disagree with its lines.
 const PATCH = `diff --git a/src/upload.ts b/src/upload.ts
 --- a/src/upload.ts
 +++ b/src/upload.ts
@@ -21,7 +22,7 @@ const PATCH = `diff --git a/src/upload.ts b/src/upload.ts
  import { send } from "./net";
  // Uploads a file.
  export const name = "upload";
-@@ -10,5 +9,9 @@ export async function upload(file: File) {
+@@ -10,3 +9,6 @@ export async function upload(file: File) {
    const body = await file.arrayBuffer();
 -  await send(body);
 +  for (let attempt = 0; attempt < 3; attempt++) {
@@ -45,7 +46,7 @@ test("each hunk's patch is its unified text, with a key, a preview and counts", 
   );
   expect(refs[0]!.preview).toBe('import { legacy } from "./legacy";');
   expect([refs[0]!.additions, refs[0]!.deletions]).toEqual([0, 1]);
-  expect(refs[1]!.patch.split("\n")[0]).toBe("@@ -10,5 +9,9 @@ export async function upload(file: File) {");
+  expect(refs[1]!.patch.split("\n")[0]).toBe("@@ -10,3 +9,6 @@ export async function upload(file: File) {");
   expect(refs[1]!.patch).toContain("\n-  await send(body);\n+  for (let attempt = 0; attempt < 3; attempt++) {");
   // An added line comes first in the preview.
   expect(refs[1]!.preview).toBe("for (let attempt = 0; attempt < 3; attempt++) {");

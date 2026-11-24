@@ -67,9 +67,9 @@ fi
 # marks the module side-effect free, so an import of it would be dropped. Both hosts serve it
 # with a policy that allows no network.
 if [ -n "$REPORT_DIR" ]; then
-  bun scripts/agent-pane/bundle.mjs node_modules/@pierre/diffs/dist/worker/worker.js "$SRC/acpmux/shiki" "$WORK/highlight-worker.js" --metafile "$REPORT_DIR/agent-pane-highlight-worker.json"
+  bun scripts/agent-pane/bundle.mjs node_modules/@pierre/diffs/dist/worker/worker.js "$SRC/acpmux/shiki" "$WORK/highlight-worker.js" --no-shiki-langs --metafile "$REPORT_DIR/agent-pane-highlight-worker.json"
 else
-  bun scripts/agent-pane/bundle.mjs node_modules/@pierre/diffs/dist/worker/worker.js "$SRC/acpmux/shiki" "$WORK/highlight-worker.js"
+  bun scripts/agent-pane/bundle.mjs node_modules/@pierre/diffs/dist/worker/worker.js "$SRC/acpmux/shiki" "$WORK/highlight-worker.js" --no-shiki-langs
 fi
 # An attached image's decode, scale and encode run in a worker beside the page too
 # (composer/imagePool.ts), so pasting large screenshots never blocks typing.

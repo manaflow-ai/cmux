@@ -112,7 +112,10 @@ export type StreamPatchOptions = {
   onMetrics: (metrics: StreamMetrics) => void;
   onRename: (rename: RenameDiffItem) => void;
   onTreeSource: (source: FileTreeSource) => void;
-  parsePatchFiles: (patchText: string, cacheKey: string) => Array<{ files?: any[]; patchMetadata?: string }>;
+  parsePatchFiles: (
+    patchText: string,
+    options: { cacheKeyPrefix: string },
+  ) => Array<{ files?: any[]; patchMetadata?: string }>;
   patchURL: string;
   processFile: (patchText: string, options: { cacheKey: string; isGitDiff: boolean }) => any;
   /** Whether the repository marks `path` generated (`.gitattributes`); such files load deferred. */
@@ -584,7 +587,7 @@ async function appendParsedPatchText(
   options: StreamPatchOptions,
   enqueueFileDiff: (fileDiff: any, patchPrefix: string | undefined) => Promise<void>,
 ): Promise<void> {
-  const patches = options.parsePatchFiles(patchText, "cmux-diff");
+  const patches = options.parsePatchFiles(patchText, { cacheKeyPrefix: "cmux-diff" });
   const hasMultiplePatches = patches.length > 1;
   for (const [patchIndex, patch] of patches.entries()) {
     const patchPrefix = hasMultiplePatches

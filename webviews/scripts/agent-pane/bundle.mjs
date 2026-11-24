@@ -38,6 +38,23 @@ if (!entry || !shikiAlias || !outfile) {
 const reportIndex = rest.indexOf("--report");
 const reportFile = reportIndex >= 0 ? rest[reportIndex + 1] : undefined;
 const split = rest.includes("--split");
+// --no-shiki-langs makes `shiki/langs` an empty registry, for Pierre's highlight worker: it gets
+// every grammar resolved from the page, and @pierre/diffs 1.6's worker only imports `shiki/langs`
+// on a path that throws in a worker, which would otherwise inline every grammar into it.
+const noShikiLangs = rest.includes("--no-shiki-langs");
+const emptyShikiLangsPlugin = {
+  name: "empty-shiki-langs",
+  setup(build) {
+    build.onResolve({ filter: /^shiki\/langs$/ }, () => ({
+      path: "shiki/langs",
+      namespace: "empty-shiki-langs",
+    }));
+    build.onLoad({ filter: /.*/, namespace: "empty-shiki-langs" }, () => ({
+      contents: "export const bundledLanguages = {};",
+      loader: "js",
+    }));
+  },
+};
 const cssInputsIndex = rest.indexOf("--css-inputs");
 const cssInputsFile = cssInputsIndex >= 0 ? rest[cssInputsIndex + 1] : undefined;
 const cssInputsOnly = rest.includes("--css-inputs-only");
@@ -111,6 +128,7 @@ const result = await build({
         katexStylePlugin({ split }),
       ]
     : [
+        ...(noShikiLangs ? [emptyShikiLangsPlugin] : []),
         reactCompiler,
         artifactRuntimePlugin({ metafile: artifactMetafile }),
         tailwindPlugin,
@@ -128,7 +146,12 @@ if (frameSitesFile && !cssInputsOnly) {
   const outputs = Object.keys(result.metafile.outputs)
     .filter((output) => !output.endsWith(".map"))
     .map((output) => path.relative(outdir, path.resolve(output)));
-  await writeFrameSites({ outdir, outputs, file: frameSitesFile, webviewsRoot: path.dirname(srcRoot) });
+  await writeFrameSites({
+    outdir,
+    outputs,
+    file: frameSitesFile,
+    webviewsRoot: path.dirname(srcRoot),
+  });
 }
 if (metafileOut) await writeFile(metafileOut, JSON.stringify(result.metafile));
 if (preloadFile) {
