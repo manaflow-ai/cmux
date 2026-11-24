@@ -158,8 +158,13 @@ test("recap-only wrap-ups after a question never unpin it", () => {
   clock = 0;
   const rows = askedAgain(1);
   const question = turnView(rows, new Set()).find((row) => row.nextStep?.ask.question)!;
-  const recap = (id: string, superseded?: boolean) =>
-    ({ ...line(id, "nextStep"), nextStep: { ask: { recap: "Waiting on CI.", options: [] }, ...(superseded && { superseded }) } }) as AcpmuxRow;
+  const recap = (id: string, superseded?: boolean): AcpmuxRow => ({
+    ...line(id, "nextStep"),
+    nextStep: {
+      ask: { tag: "wrap_up", recap: "Waiting on CI.", question: "", options: [] },
+      ...(superseded && { superseded }),
+    },
+  });
   // Two background turns each end on a recap with nothing to decide; settleNextSteps marks the older
   // recap superseded, which must not read as the question being taken over.
   const view = {
