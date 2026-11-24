@@ -1,3 +1,6 @@
+// Apple media (AVFoundation, ImageIO, CryptoKit, UniformTypeIdentifiers): these tests run on
+// macOS and iOS only, not on the Linux package lane (scripts/ci/swift-linux-packages.txt).
+#if canImport(ImageIO)
 import Foundation
 import Testing
 import CmuxHomeCoreTestSupport
@@ -99,3 +102,4 @@ import UniformTypeIdentifiers
         #expect(!HomeAttachmentPolicy.revealsInsteadOfOpening(name: "Makefile"))
     }
 }
+#endif

@@ -1,5 +1,7 @@
 public import Foundation
-import UniformTypeIdentifiers
+#if canImport(FoundationNetworking)
+public import FoundationNetworking
+#endif
 
 // WireHomeSource's attachments over the owner's attachment routes
 // (backend/apps/api/src/home-attachments.ts): intent, bounded PUT/multipart
@@ -97,7 +99,7 @@ extension WireHomeSource {
     /// kept by hash and variant: a second fetch reads the file, a cancelled
     /// one leaves nothing behind.
     private func download(_ ref: AttachmentRef, at location: AttachmentLocation, variant: String?, mimeType: String) async throws -> URL {
-        let ext = UTType(mimeType: mimeType)?.preferredFilenameExtension.map { ".\($0)" } ?? ""
+        let ext = AttachmentMedia.preferredFilenameExtension(forMimeType: mimeType).map { ".\($0)" } ?? ""
         let target = fetchDirectory.appendingPathComponent("\(ref.hash)-\(variant ?? "original")\(ext)")
         if FileManager.default.fileExists(atPath: target.path) { return target }
         var body: [String: HomeWireJSON] = ["conversation": .string(location.conversation.rawValue), "hash": .string(ref.hash)]

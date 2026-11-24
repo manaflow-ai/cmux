@@ -1,3 +1,4 @@
+#if canImport(ImageIO)
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -48,3 +49,4 @@ extension AttachmentMedia {
         return LocalAttachment(ref: HomeAttachmentPolicy.normalized(ref), fileURL: url)
     }
 }
+#endif

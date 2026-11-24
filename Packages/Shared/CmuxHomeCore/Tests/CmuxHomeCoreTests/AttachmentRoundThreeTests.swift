@@ -1,3 +1,6 @@
+// Apple media (AVFoundation, ImageIO, CryptoKit, UniformTypeIdentifiers): these tests run on
+// macOS and iOS only, not on the Linux package lane (scripts/ci/swift-linux-packages.txt).
+#if canImport(ImageIO)
 import AVFoundation
 import CoreGraphics
 import Foundation
@@ -251,3 +254,4 @@ func makeOpaquePNGWithAlpha(width: Int, height: Int) throws -> Data {
         #expect(rows.map(\.delivery) == [.committed])
     }
 }
+#endif

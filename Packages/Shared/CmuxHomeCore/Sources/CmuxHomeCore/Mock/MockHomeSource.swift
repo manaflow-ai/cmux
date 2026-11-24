@@ -1,6 +1,5 @@
 import CmuxAgentQuestion
 public import Foundation
-import UniformTypeIdentifiers
 
 /// An in-memory owner for Home, used until the messaging backend lands and in
 /// tests, previews and demos. It behaves like a real owner: it assigns seqs and
@@ -322,7 +321,7 @@ public actor MockHomeSource: HomeSource {
         try FileManager.default.createDirectory(at: fetchDirectory, withIntermediateDirectories: true)
         switch variant {
         case .original:
-            let ext = UTType(mimeType: blob.mimeType)?.preferredFilenameExtension.map { ".\($0)" } ?? ""
+            let ext = AttachmentMedia.preferredFilenameExtension(forMimeType: blob.mimeType).map { ".\($0)" } ?? ""
             let target = fetchDirectory.appendingPathComponent("\(ref.hash)-original\(ext)")
             if FileManager.default.fileExists(atPath: target.path) { return target }
             try Task.checkCancellation()
@@ -349,7 +348,7 @@ public actor MockHomeSource: HomeSource {
             // A part without a poster has none to fetch; otherwise the
             // record's poster (the owner mints the URL from the record).
             guard ref.poster != nil, let meta = blob.poster, let poster = posterBlobs[meta.hash] else { throw HomeRejection.invalid("no_poster") }
-            let ext = UTType(mimeType: meta.mimeType)?.preferredFilenameExtension.map { ".\($0)" } ?? ""
+            let ext = AttachmentMedia.preferredFilenameExtension(forMimeType: meta.mimeType).map { ".\($0)" } ?? ""
             let target = fetchDirectory.appendingPathComponent("\(ref.hash)-poster\(ext)")
             if FileManager.default.fileExists(atPath: target.path) { return target }
             try Task.checkCancellation()
@@ -359,7 +358,7 @@ public actor MockHomeSource: HomeSource {
             guard ref.preview != nil, let meta = blob.preview, let preview = posterBlobs[meta.hash] else {
                 throw HomeRejection.invalid("no_preview")
             }
-            let ext = UTType(mimeType: meta.mimeType)?.preferredFilenameExtension.map { ".\($0)" } ?? ""
+            let ext = AttachmentMedia.preferredFilenameExtension(forMimeType: meta.mimeType).map { ".\($0)" } ?? ""
             let target = fetchDirectory.appendingPathComponent("\(ref.hash)-preview\(ext)")
             if FileManager.default.fileExists(atPath: target.path) { return target }
             try Task.checkCancellation()
