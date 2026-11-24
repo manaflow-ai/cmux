@@ -31,7 +31,7 @@ concurrency:
 jobs:
   check:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-fleet-linux-x64' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-fleet-linux-x64' }} # ephemeral-required: credentialed job, frozen to today's label
     environment:
       name: cmux-next-vm-image-dev
       deployment: false

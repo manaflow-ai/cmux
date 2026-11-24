@@ -76,11 +76,16 @@ class OneLinuxLabelTest(unittest.TestCase):
         # Frozen to the label each resolves to today (LINUX_RUNNER is not listed, so linux_8 answers).
         out, report = rewrite(job(mirror))
         self.assertEqual(out, job(f"${{{{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || {FORK} && 'blacksmith-4vcpu-ubuntu-2404' || "
-                                  "'cmux-fleet-linux-x64' }}"))
+                                  "'cmux-fleet-linux-x64' }} # ephemeral-required: credentialed job, frozen to today's label"))
         self.assertEqual(len(report.exceptions), 1)
+        # The comment keeps it an exception on the next run, with no variable left to mark it.
+        again, report = rewrite(out)
+        self.assertEqual(again, out)
+        self.assertEqual((len(report.exceptions), report.changed), (1, []))
         text = job("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}", "sign")
         out, report = rewrite(text, signing={"sign"})
-        self.assertEqual(out, job("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}", "sign"))
+        self.assertEqual(out, job("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}"
+                                  " # ephemeral-required: holds signing material", "sign"))
         self.assertEqual(len(report.exceptions), 1)
 
     def test_ephemeral_only_route_keeps_its_ephemeral_label_as_a_literal(self) -> None:
@@ -90,7 +95,7 @@ class OneLinuxLabelTest(unittest.TestCase):
                    "contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && "
                    "vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}")
         out, report = rewrite(job(trusted))
-        self.assertEqual(out, job("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}"))
+        self.assertEqual(out, job("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: credentialed job, frozen to today's label"))
         self.assertEqual(len(report.exceptions), 1)
         # A PR-control job: CI_PR_CONTROL_SKIP_FLEET is '1' today, and the trusted runner is listed.
         control = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_PR_CONTROL_SKIP_FLEET != '1' && "
@@ -175,6 +180,21 @@ class OneLinuxLabelTest(unittest.TestCase):
              f"${{{{ {g} || 'cmux-fleet-linux-x64' }}}}"),
         ):
             self.assertEqual(olc.freeze_expr(expr), want, expr)
+
+    def test_freeze_line_says_a_label_once_and_guards_an_unguarded_route(self) -> None:
+        g = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'"
+        for expr, want in (
+            # A fork arm naming the label its pool froze to collapses, in parentheses or at the end.
+            (f"${{{{ {g} || ({FORK} && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4) }}}}",
+             f"${{{{ {g} || 'blacksmith-4vcpu-ubuntu-2404' }}}}"),
+            (f"${{{{ {g} || {FORK} && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}}}",
+             f"${{{{ {g} || 'blacksmith-4vcpu-ubuntu-2404' }}}}"),
+            # No owner guard: an unset variable failed in a fork; the frozen label would queue there, so it is guarded.
+            ("${{ fromJSON(vars.RUNNER_POOLS).linux_4 }}", f"${{{{ {g} || 'blacksmith-4vcpu-ubuntu-2404' }}}}"),
+            # A GitHub-hosted label needs no guard.
+            ("${{ fromJSON(vars.RUNNER_POOLS).provenance }}", "${{ 'ubuntu-latest' }}"),
+        ):
+            self.assertEqual(olc.freeze_line(expr), want, expr)
 
     def test_provenance_job_keeps_its_hosted_runner_without_the_variable(self) -> None:
         text = job("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-latest' || fromJSON(vars.RUNNER_POOLS).provenance }} # github-hosted-required: npm", "publish-npm")

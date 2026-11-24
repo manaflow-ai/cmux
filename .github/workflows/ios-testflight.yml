@@ -1,17 +1,9 @@
 name: iOS TestFlight (CMUX INTERNAL)
 
 on:
-  # Poll main every 20 minutes and batch merges into one upload. The decide job
-  # skips scheduled runs when main is unchanged or the changes do not affect iOS,
-  # and INTERNAL polls wait until IOS_TESTFLIGHT_INTERNAL_MIN_COMMITS (default 5)
-  # iOS-relevant commits are pending or the oldest is
-  # IOS_TESTFLIGHT_INTERNAL_MAX_AGE_MINUTES (default 180) old.
-  # Manual dispatch remains available for intentional rebuilds.
-  schedule:
-    # Check current main for a cmux INTERNAL upload every 20 minutes.
-    - cron: "7,27,47 * * * *"
-    # Twice-daily (every 12 hours) cmux DEMO upload of current main.
-    - cron: "37 5,17 * * *"
+  # Manual dispatch only. The 20-minute INTERNAL poll and the twice-daily DEMO
+  # crons were dropped (ci-v2 step 3, R13): GitHub fires schedule only from the
+  # default branch's copy, and main retired this file in #42751, so they never ran.
   workflow_dispatch:
     inputs:
       build_number:
@@ -1203,7 +1195,7 @@ jobs:
     # Run alongside tester assignment and even if later Mac metadata/Sentry
     # steps fail. Notes timeouts must not turn an accepted upload into a failure.
     if: ${{ !cancelled() && needs.upload.outputs.uploaded == 'success' && needs.upload.outputs.notes_artifact_id != '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds a signing secret; rule 7 of tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py needs an ephemeral literal
     timeout-minutes: 20
     continue-on-error: true
     permissions:
@@ -1242,7 +1234,7 @@ jobs:
     # `needs` otherwise skips this job before the condition is read; a
     # cancelled run still cancels assignment.
     if: ${{ !cancelled() && github.ref == 'refs/heads/main' && needs.upload.outputs.uploaded == 'success' && needs.upload.outputs.assign_internal_group == '1' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds a signing secret; rule 7 of tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py needs an ephemeral literal
     timeout-minutes: 40
     env:
       ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}

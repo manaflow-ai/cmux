@@ -35,7 +35,7 @@ jobs:
     # Every label change re-runs it (a skipped run would read as a pass and replace a failing one).
     # A base-revision control-plane job (cla-policy-guard.yml's runner rule): a VM destroyed after one job,
     # never a persistent or contributor-controlled machine.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: credentialed job, frozen to today's label
     timeout-minutes: 5
     permissions:
       contents: read

@@ -98,9 +98,6 @@ UNGATED_BLACKSMITH_ALLOWED = {
     ("ci-health-report.yml", "MACOS_RUNNER_BACKGROUND=${{ vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}"): (
         "report text that prints the lane's effective label, not a runs-on value"
     ),
-    ("ci-repo-variables.yml", "MACOS_RUNNER_BACKGROUND=${{ vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}"): (
-        "report text that prints the lane's effective label, not a runs-on value"
-    ),
     ("cmux-next-fast-tier-seed.yml",
      '[{"pool": "blacksmith", "runner": "blacksmith-6vcpu-macos-26", "workspace": "/Users/runner/_work/cmux/cmux", "timeout": 30}]'): (
         "a seed pool row in the `due` job, which runs only when github.repository == 'manaflow-ai/cmux' "
@@ -184,7 +181,12 @@ TRUSTED_RUNNER_EXPRESSION = (
 # leaves the trusted selector after it unchanged, so it can only ever add that one literal label.
 PR_CONTROL_FIRST_OPERAND = "vars.CI_PR_CONTROL_SKIP_FLEET != '1' && 'cmux-gcp-pr-control-jit-x64' || "
 REPAIR_FIRST_OPERAND = "vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || "
-TRUSTED_RUNNER_EXPRESSIONS = (TRUSTED_RUNNER_EXPRESSION, *(
+# The selector frozen to the label it resolved to (scripts/ci/one_linux_label.py freeze_line, 2026-11-24: CI_TRUSTED_RUNNER
+# held blacksmith-4vcpu-ubuntu-2404 and both skip switches '1'): one listed ephemeral label as a literal, which no
+# variable can move.
+TRUSTED_RUNNER_FROZEN = tuple(
+    f"${{{{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || '{label}' }}}}" for label in TRUSTED_RUNNER_LABELS)
+TRUSTED_RUNNER_EXPRESSIONS = (TRUSTED_RUNNER_EXPRESSION, *TRUSTED_RUNNER_FROZEN, *(
     TRUSTED_RUNNER_EXPRESSION.replace("'ubuntu-24.04' || ", "'ubuntu-24.04' || " + operand, 1)
     for operand in (PR_CONTROL_FIRST_OPERAND, REPAIR_FIRST_OPERAND)))
 TRUSTED_RUNNER_LINE = re.compile(
@@ -233,12 +235,7 @@ UNRESOLVED_NAME_EXEMPT = {
     ),
 }
 # (workflow, job) -> why a job outside the required contexts still takes the trusted route.
-TRUSTED_RUNNER_EXTRA_JOBS = {
-    ("web-complexity-trusted.yml", "complexity"): (
-        "no longer required on main, but it reads untrusted pull request source as data under "
-        "pull_request_target, so only an ephemeral runner may take it"
-    ),
-}
+TRUSTED_RUNNER_EXTRA_JOBS: dict[tuple[str, str], str] = {}
 # Parser-regression anchors: a derivation that loses these has stopped reading the workflows.
 TRUSTED_RUNNER_ANCHORS = {("backend-migrations.yml", "gate")}
 

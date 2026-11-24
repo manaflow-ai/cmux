@@ -401,14 +401,33 @@ def freeze_line(expr: str) -> str | None:
     frozen = freeze_expr(expr)
     # `owner guard && 'ubuntu-latest' || 'ubuntu-latest'` (a provenance job) says the label once.
     frozen = re.sub(r"^\$\{\{ github\.repository_owner != 'manaflow-ai' && ('[^']*') \|\| \1 \}\}$", r"${{ \1 }}", frozen)
+    # A fork pull request arm that now names the same label as the route after it says it once.
+    fork = re.escape(FORK_PR.removesuffix(" && 'ubuntu-24.04'"))
+    frozen = re.sub(rf"\({fork} && ('[^']*') \|\| \1\)", r"\1", frozen)
+    frozen = re.sub(rf"{fork} && ('[^']*') \|\| \1 \}}\}}$", r"\1 }}", frozen)
+    # A route with no owner guard failed in a fork while its variable was unset there; frozen to an owned or
+    # vendor label it would queue forever instead, so it takes the guard every other Linux route leads with.
+    if not frozen.startswith("${{ github.repository_owner") and re.search(r"'(?!ubuntu-)[^']+' \}\}$", frozen):
+        frozen = frozen.replace("${{ ", f"${{{{ {OWNER_GUARD} || ", 1)
     return frozen if frozen != expr and not re.search(r"vars\.|fromjson\(vars", frozen, re.I) else None
 
 
-def freeze_into(lines: list[str], n: int, m: re.Match, frozen: str | None, report: Report, where: str) -> bool:
-    """Write FROZEN over line N (keeping its key, anchor and comment) and report it; False when there is none."""
+STALE_PICKER_NOTE = re.compile(r";? ?CI_TRUSTED_RUNNER picks the Blacksmith size")
+
+
+def freeze_into(lines: list[str], n: int, m: re.Match, frozen: str | None, report: Report, where: str,
+                reason: str = "") -> bool:
+    """Write FROZEN over line N (keeping its key, anchor and comment) and report it; False when there is none.
+
+    An exception frozen for REASON says so in an `# ephemeral-required:` comment, so a later run keeps it (EXCEPTION_COMMENT):
+    with its variable gone, nothing else in the line marks it, and the next run would move it to the one label."""
     if frozen is None:
         return False
-    lines[n - 1] = f"{m['lead']}{m['key']}:{m['sp']}{m['anchor'] or ''}{frozen}{m['tail']}"
+    # A comment that names the variable it no longer reads ("CI_TRUSTED_RUNNER picks the Blacksmith size") says so.
+    tail = STALE_PICKER_NOTE.sub("", m["tail"])
+    if reason and not EXCEPTION_COMMENT.search(tail):
+        tail = f"{tail.rstrip()}; ephemeral-required: {reason}" if tail.strip() else f" # ephemeral-required: {reason}"
+    lines[n - 1] = f"{m['lead']}{m['key']}:{m['sp']}{m['anchor'] or ''}{frozen}{tail}"
     report.changed.append((where.split(":")[0], n, f"{where} (frozen to today's label)"))
     return True
 
@@ -435,19 +454,19 @@ def rewrite_text(name: str, text: str, report: Report, signing: set[str] | None 
             continue
         if "provenance" in job or ("npm" in name and "publish" in job and "npm" in job):
             report.exceptions.append((name, n, f"{job}: provenance/npm publish job"))
-            freeze_into(lines, n, m, frozen, report, where)
+            freeze_into(lines, n, m, frozen, report, where, "provenance or npm publish job")
             continue
         if EPHEMERAL_ONLY.search(m["expr"]):
             report.exceptions.append((name, n, f"{job}: admits only an ephemeral vendor runner (credentialed job)"))
-            freeze_into(lines, n, m, frozen, report, where)
+            freeze_into(lines, n, m, frozen, report, where, "credentialed job, frozen to today's label")
             continue
         if job in signing:
             report.exceptions.append((name, n, f"{job}: holds signing material; keeps its ephemeral runner"))
-            freeze_into(lines, n, m, frozen, report, where)
+            freeze_into(lines, n, m, frozen, report, where, "holds signing material")
             continue
         if (name, job) in FRESH_VM_JOBS:
             report.exceptions.append((name, n, f"{job}: {FRESH_VM_JOBS[(name, job)]}"))
-            freeze_into(lines, n, m, frozen, report, where)
+            freeze_into(lines, n, m, frozen, report, where, FRESH_VM_JOBS[(name, job)])
             continue
         if (name, job) in PROBE_JOBS:
             report.exceptions.append((name, n, f"{job}: probes the vendor runner pool; its label is what it measures"))
