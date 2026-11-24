@@ -1,12 +1,21 @@
-import { lazy, Suspense, useMemo, useState } from "react";
-import { shownCategories } from "../categories";
-import { useSettingsState, useStore } from "../context";
-import { filterRows } from "../search";
-import { valueOf } from "../store";
+import { memo, useMemo, useState, lazy, Suspense } from "react";
+import { shownCategories, sidebarSections } from "../categories";
+import { shallowEqual, useSettingsSelector, useStore, useSettingsRouter } from "../context";
+import type { SettingsState } from "../store";
+import { Icon } from "../icons";
+import { sectionHref } from "../router";
+import { filterRows, filterPages } from "../search";
+import { rowsByKey } from "../schema";
 import { t, text } from "../strings";
 import { CHIEF_PET_ROWS } from "../cardRows";
 import { AskCmuxRow } from "./AskCmuxRow";
 import { GroupList } from "./GroupList";
+
+const searchInputs = (state: SettingsState) => ({
+  rows: state.rows,
+  revision: state.revision,
+  devBuild: state.host?.dev_build === true,
+});
 
 // The Chief Pet card (and its characters' art) loads when a search first shows its rows, not with the page.
 const ChiefPetCard = lazy(() => import("./ChiefPetCard").then(({ ChiefPetCard }) => ({ default: ChiefPetCard })));
@@ -16,24 +25,36 @@ const ChiefPetCard = lazy(() => import("./ChiefPetCard").then(({ ChiefPetCard })
  * row stays mounted while the filter is on: a row that stops matching collapses (height and
  * opacity) and one that starts matching opens, so the list never jumps between keystrokes.
  */
-export function SearchResults({ query }: { query: string }) {
-  const state = useSettingsState();
+// A memo component: the page draws again on any change to its state (the host's lists among them),
+// and the results take only the query.
+export const SearchResults = memo(function SearchResults({ query }: { query: string }) {
+  // Only what the filter reads: the values (a search finds a row by its value), the owner's
+  // revision and whether the host is a DEV build. The host's lists, connectivity and every other
+  // part of the page's state change without filtering again or drawing the results.
+  const { rows, revision, devBuild } = useSettingsSelector(searchInputs, shallowEqual);
   const store = useStore();
-  const devBuild = state.host?.dev_build === true;
   const categories = useMemo(() => shownCategories(devBuild), [devBuild]);
   const matches = useMemo(
     () =>
       filterRows({
         query,
-        valueOf: (key) => valueOf(state, key),
+        // valueOf (store.ts) as it reads `state.rows`: the owner's value, else the schema's default.
+        valueOf: (key) => {
+          const row = rows.get(key);
+          return row ? row.value : rowsByKey.get(key)?.default;
+        },
         devBuild,
         scope: "user",
-        revision: state.revision,
+        revision,
       }),
-    [devBuild, query, state],
+    [devBuild, query, rows, revision],
   );
   const shown = useMemo(() => new Set(matches.flatMap((match) => match.rows.map((row) => row.key))), [matches]);
-  const empty = shown.size === 0;
+  // Pages the words name (their title, or the words of cards that draw no schema rows, such as
+  // Devices' Screen sharing and Control): a link to each, above the rows.
+  const pages = useMemo(() => filterPages({ query, devBuild }), [devBuild, query]);
+  const router = useSettingsRouter();
+  const empty = shown.size === 0 && pages.length === 0;
   // Only rows that matched at some point in this search mount their editors (a row that stops
   // matching keeps its content to collapse smoothly); the rest stay empty, collapsed slots, so
   // opening search costs the matches, not every setting.
@@ -47,6 +68,28 @@ export function SearchResults({ query }: { query: string }) {
           {empty && query.trim() ? <AskCmuxRow words={query} onAsk={() => void store.askCmux(query)} /> : null}
         </div>
       </div>
+      {pages.length > 0 && (
+        <div className="search-pages" data-search-pages="">
+          {pages.map((page) => {
+            const section = sidebarSections.find((run) => run.categories.includes(page.id))?.title;
+            return (
+              <button
+                type="button"
+                className="ask-cmux search-page"
+                key={page.id}
+                data-page-hit={page.id}
+                onClick={() => router.history.push(sectionHref(page.id))}
+              >
+                <Icon name="arrow.turn.down.right" />
+                <span className="ask-cmux-text">
+                  <span className="ask-cmux-title">{text(page.title)}</span>
+                  {section ? <span className="ask-cmux-words">{text(section)}</span> : null}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
       {categories.map((category) => {
         const open = category.groups.some((group) => group.rows.some((row) => shown.has(row.key)));
         const pet = category.id === "chief";
@@ -86,4 +129,4 @@ export function SearchResults({ query }: { query: string }) {
       })}
     </div>
   );
-}
+});

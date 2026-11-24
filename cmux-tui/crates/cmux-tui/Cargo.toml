@@ -69,10 +69,12 @@ path = "src/bin/cmux-tui-host.rs"
 [dependencies]
 tempfile = "3"
 cmux-json.workspace = true
+cmux-egress.workspace = true
 cmux-lifeline.workspace = true
 cmux-build-space.workspace = true
 cmux-cloud-client.workspace = true
-# `cmux vm new --provider gcp`'s sizes (args::create_size), the app's create's table.
+# `cmux vm new --provider gcp`'s sizes (args::create_size), the app's create's table, and
+# `cmux vm new --size` headless: the app's size ladder (args.rs CREATE_SIZES).
 cmux-cloud-handlers.workspace = true
 cmux-apps.workspace = true
 cmux-cloud-environment.workspace = true
@@ -80,6 +82,7 @@ cmux-cloud-machine.workspace = true
 cmux-cloud-wire.workspace = true
 # `cmux chat --repo`: the repository spec `cloud new-machine --repo` reads (cli/chat_start/local_repo.rs).
 cmux-cloud-start-core.workspace = true
+cmux-tailnet-join.workspace = true
 ghostty-vt.workspace = true
 cmux-theme-tokens.workspace = true
 png.workspace = true
@@ -198,12 +201,15 @@ cmux-app-host = { workspace = true, features = ["engine"] }
 # `cmux carrier dial --service desktop`: the desktop's datagram link (carrier/rd_link.rs).
 cmux-rd-link = { path = "../cmux-rd-link", features = ["net"] }
 cmux-cloud-api.workspace = true
+# `cmux cloud journey` (cli/cloud_journey.rs): the agent test account's password sign-in.
+cmux-stack-auth.workspace = true
 # `cmux automation` (cli/automation.rs, unix only): the store and the launchd runner use
 # unix files and processes, so the crate does not build for Windows.
 cmux-automations.workspace = true
 cmux-holder.workspace = true
 # `cmux carrier supervise`: the serve socket's lease between supervisors (carrier/supervise.rs).
 cmux-file-lock.workspace = true
+cmux-install-check.workspace = true
 # Projected folders (link/sync_cli/project.rs): the manifest and the stream the machine reads through.
 cmux-projection.workspace = true
 # `cmux vnc`: the RFB client and the zlib compression of its Kitty graphics frames.
@@ -276,6 +282,8 @@ cmux-tui-platform = { workspace = true, features = ["test-support"] }
 rusqlite.workspace = true
 # tests/mobile_link_conditions.rs: the phone's link profiles and shaper.
 cmux-fault.workspace = true
+# tests/composer_send_duress.rs: the phone composer's keyed Send under link duress.
+cmux-composer-send.workspace = true
 # cli/apps_store.rs: what opening a pane cmux draws itself runs (the sidebar and `app.open` share it).
 cmux-layout-reducer.workspace = true
 # cli/catalog_request_tests.rs: a palette request row sends what its CLI verb sends.

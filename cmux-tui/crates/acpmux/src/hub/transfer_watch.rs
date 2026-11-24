@@ -8,7 +8,8 @@
 //!   `_acpmux/transfer_forget {transferId, sessionId}`, which drops any receive of the move
 //!   there and refuses any later one (a late `transfer_receive` or `transfer_finish` fails), and
 //!   says whether the chat landed (a target on another machine, `to-ssh`, through an ssh
-//!   forward of its socket). It landed: the
+//!   forward of its socket; one only the team hub reaches, `to-hub`, with op `move_forget`
+//!   through the hub, `transfer_pull.rs`). It landed: the
 //!   move commits. It did not: the move aborts. A target that cannot answer, or a move with no
 //!   target named, keeps the chat frozen, and the source asks again after another lease.
 //!
@@ -45,19 +46,36 @@ impl Drop for MoveWatch {
 
 /// When the move in `dir` last heard from its client (`alive` holds the Unix time in ms), or None
 /// when it has no record of it.
-fn last_activity(dir: &Path) -> Option<std::time::SystemTime> {
+pub(in crate::hub) fn last_activity(dir: &Path) -> Option<std::time::SystemTime> {
     let ms: u64 = std::fs::read_to_string(dir.join("alive")).ok()?.trim().parse().ok()?;
     Some(std::time::UNIX_EPOCH + std::time::Duration::from_millis(ms))
 }
 
 /// Whether every file of the move in `dir` was read to its end; None when that is unknown.
-fn fully_read(dir: &Path) -> Option<bool> {
+pub(super) fn fully_read(dir: &Path) -> Option<bool> {
     let bundle = std::fs::read_dir(dir).ok()?.flatten().find(|e| e.path().is_dir())?.path();
     let files = bundle_files(&bundle).ok()?;
     let read = std::fs::read_to_string(dir.join("read")).unwrap_or_default();
     let read: Vec<&str> = read.lines().collect();
     // An empty file needs no page: the target has it whole without one.
     Some(files.iter().all(|(path, size)| *size == 0 || read.contains(&path.as_str())))
+}
+
+/// How long ago the move last heard from its driver. A missing or malformed stamp is
+/// deliberately unknown: a takeover must never guess that a move is dead.
+pub(super) fn idle_for(dir: &Path) -> Option<std::time::Duration> {
+    last_activity(dir).map(|at| at.elapsed().unwrap_or_default())
+}
+
+/// A takeover is safe only while the old driver has not delivered a complete bundle. Once every
+/// file was read, the target may have finished and the source must keep the move fenced until it
+/// can ask that target whether the chat landed.
+pub(super) fn takeover_allowed(
+    idle: Option<std::time::Duration>,
+    fully_read: Option<bool>,
+    lease: std::time::Duration,
+) -> bool {
+    idle.is_some_and(|age| age >= lease) && fully_read == Some(false)
 }
 
 /// A marker newer than the durable event log means the daemon crashed between writing the
@@ -128,19 +146,18 @@ impl Hub {
         let Ok(entries) = std::fs::read_dir(transfers_dir()) else { return };
         for entry in entries.flatten() {
             let transfer_id = entry.file_name().to_string_lossy().into_owned();
-            // A receive (`in-…`) or a forget mark is not a move out.
+            // A receive (`in-…`), a forget mark or a prepare (`pre-…`) is not a move out.
             if !super::transfer::is_plain_id(&transfer_id)
                 || transfer_id.to_ascii_lowercase().starts_with("in-")
                 || transfer_id.starts_with("forgot-")
+                || transfer_id.starts_with("pre-")
             {
                 continue;
             }
             let Ok(inner) = std::fs::read_dir(entry.path()) else { continue };
             for chat in inner.flatten().filter(|e| e.path().is_dir()) {
                 let id = chat.file_name().to_string_lossy().into_owned();
-                let Some(session) =
-                    self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(&id).cloned()
-                else {
+                let Some(session) = self.session_get(&id) else {
                     continue;
                 };
                 // A crash after the epoch marker was written but before `transfer_out` was
@@ -246,7 +263,7 @@ impl Hub {
     }
 
     /// Ends a move its client left; false when only the target could tell how, and did not.
-    async fn end_stalled_move(
+    pub(in crate::hub) async fn end_stalled_move(
         self: &Arc<Self>,
         session: &Arc<Session>,
         transfer_id: &str,
@@ -289,7 +306,13 @@ impl Hub {
             }
         }
         let ssh = std::fs::read_to_string(dir.join("to-ssh")).ok();
+        let hub = std::fs::read_to_string(dir.join(super::transfer_pull::TO_HUB)).ok();
         let landed = match (std::fs::read_to_string(dir.join("to")), ssh) {
+            // A machine only the team hub reaches: asked with op `move_forget` there.
+            _ if hub.is_some() => {
+                let daemon = hub.as_deref().unwrap_or_default().trim();
+                self.ask_hub_forget(daemon, &session.id, transfer_id).await
+            }
             (Ok(socket), None) => {
                 ask_target(Path::new(socket.trim()), &session.id, transfer_id).await
             }
@@ -312,7 +335,7 @@ impl Hub {
                 if let Ok(host) = std::fs::read_to_string(dir.join("to-host")) {
                     to.set("host", json!(host.trim()));
                 }
-                self.transfer_commit_with_epoch(session, transfer_id, to, Some(epoch))
+                self.transfer_commit_with_epoch(session, transfer_id, to, Some(epoch), None)
                     .await
                     .map(|_| ())
             }
@@ -332,12 +355,25 @@ impl Hub {
 
 #[cfg(test)]
 mod tests {
-    use super::marker_is_uncommitted;
+    use super::{marker_is_uncommitted, takeover_allowed};
 
     #[test]
     fn marker_ahead_of_durable_epoch_is_not_resumed() {
         assert!(marker_is_uncommitted(Some(1), 0));
         assert!(!marker_is_uncommitted(Some(1), 1));
         assert!(!marker_is_uncommitted(None, 0));
+    }
+
+    #[test]
+    fn dead_driver_can_be_taken_over_only_before_bundle_is_complete() {
+        let lease = std::time::Duration::from_secs(10);
+        assert!(takeover_allowed(Some(lease), Some(false), lease));
+        assert!(!takeover_allowed(
+            Some(lease - std::time::Duration::from_secs(1)),
+            Some(false),
+            lease
+        ));
+        assert!(!takeover_allowed(Some(lease), Some(true), lease));
+        assert!(!takeover_allowed(None, Some(false), lease));
     }
 }

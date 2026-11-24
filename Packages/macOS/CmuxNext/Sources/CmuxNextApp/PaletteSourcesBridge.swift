@@ -6,6 +6,7 @@ import CmuxNextCloudUI
 import CmuxNextDaemonService
 import CmuxNextDaemon
 import CmuxNextPalette
+import CmuxNextServer
 import CmuxNextSettings
 import CmuxNextSidebar
 
@@ -55,6 +56,7 @@ enum PaletteSourcesBridge {
     private static func makeBase(services: AppServices) -> PaletteSources {
         PaletteSources(workspaces: WorkspaceSource(services: services), tabs: TabSource(services: services),
                        navigation: AppPaletteNavigationSource(services: services),
+                       openIn: EditorOpenInSource(catalog: services.editorCatalog, focus: { [weak services] in services?.windows.active?.focusedPane.map { pane in EditorOpenInSource.Focus(folder: pane.daemon.isLocal ? NewTerminalStart.folder(of: pane.selectedTab, services: pane.services) : nil, chat: pane.currentTabKey.flatMap { pane.services.agentTabs.existingView($0) } != nil) } }, perform: { [weak services] id, arguments in _ = services?.registry.perform(id, invocation: ActionInvocation(arguments: arguments, origin: .user)) }),
                        targets: targetSource(services),
                        context: { [weak services] in services.map(capturedTargets) ?? [] },
                        // Theme pickers preview the highlighted theme live.
@@ -104,8 +106,12 @@ enum PaletteSourcesBridge {
             guard rows.isEmpty, let title = services.registry.title(for: "machine.add") else { return rows }
             return [PaletteTargetOption(id: "add-machine", title: title, symbol: "plus", recovery: PaletteTargetRecovery(action: "machine.add", title: title))]
         }
+        // Switch Host…: every row of the Hosts section (`MachineSectionRow.rows`), SSH, Cloud, joined and this Mac, connected or not.
+        let hosts = RefreshingPaletteTargetSource(kind: .machine, actions: Set(descriptors.filter { $0.paletteTargetSource == "hosts" }.map(\.id)), next: ssh) { [weak services] in
+            (services?.hostsSidebar.rows() ?? []).map { PaletteTargetOption(id: $0.id, title: $0.name, symbol: $0.symbol ?? "server.rack") }
+        }
         let cloud = CloudPaletteTargetSource(
-            actions: Set(descriptors.filter { $0.paletteTargetSource == "cloud" }.map(\.id)), next: ssh,
+            actions: Set(descriptors.filter { $0.paletteTargetSource == "cloud" }.map(\.id)), next: hosts,
             machines: { [weak services] in services?.machines.cloud.map(\.machine) ?? [] },
             refresh: { [weak services] in _ = await services?.cloud.refresh() },
             ask: { CloudHandlerRules().ask("cloud_handler_palette_targets", $0) })

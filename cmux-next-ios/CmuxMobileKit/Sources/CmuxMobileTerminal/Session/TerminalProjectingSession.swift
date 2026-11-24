@@ -51,6 +51,24 @@ public final class TerminalProjectingSession: TerminalSession {
     private var resetPending = false
     private let log = Logger(subsystem: "dev.cmux.mobile", category: "terminal-sizing")
 
+    /// How long a full-screen app's claim may take to bring the phone's grid
+    /// before the Mac's grid shows (tests shorten it).
+    public var reclaimWait: Duration = TerminalReclaimHold.reclaimWait
+
+    /// A full-screen app came up at a Mac grid other than the phone's while
+    /// the page claims its size (Leo, 2026-11-23: "im sometimes seeing these
+    /// 118x69 load ins which are wide... then it properly goes"). The primary
+    /// screen claims nothing, so a page that opens on a full-screen app
+    /// attached at the Mac pane's grid and drew it, then the phone's once its
+    /// claim was answered. What the screen would be told waits here, in
+    /// order, until the Mac answers at the phone's grid (what waited is
+    /// superseded by that answer's reset and replay) or ``reclaimWait`` passes
+    /// (the Mac keeps its grid: what waited shows).
+    private var claimHold: [TerminalSessionEvent]?
+    /// The grid the screen had when the hold began.
+    private var gridBeforeHold: (columns: Int, rows: Int)?
+    private var claimHoldDeadline: Task<Void, Never>?
+
     /// Size claims this session made on the Mac (for the sizing harness).
     public private(set) var macClaimsMade = 0
 
@@ -68,9 +86,17 @@ public final class TerminalProjectingSession: TerminalSession {
     public var clearsHistory: Bool { inner.clearsHistory }
     public var underlyingSession: AnyObject { inner.underlyingSession }
 
-    /// The primary screen is the phone's own grid; the alternate screen the Mac's.
-    public var remoteRows: Int? { shownAlternate ? inner.remoteRows : phoneGrid?.rows ?? inner.remoteRows }
-    public var remoteColumns: Int? { shownAlternate ? inner.remoteColumns : phoneGrid?.columns }
+    /// The primary screen is the phone's own grid; the alternate screen the
+    /// Mac's. While a full-screen app's claim is out (``claimHold``), the grid
+    /// the screen still has.
+    public var remoteRows: Int? {
+        if claimHold != nil { return (gridBeforeHold ?? phoneGrid)?.rows ?? inner.remoteRows }
+        return shownAlternate ? inner.remoteRows : phoneGrid?.rows ?? inner.remoteRows
+    }
+    public var remoteColumns: Int? {
+        if claimHold != nil { return (gridBeforeHold ?? phoneGrid)?.columns }
+        return shownAlternate ? inner.remoteColumns : phoneGrid?.columns
+    }
     public var hostGridOwnerName: String? { shownAlternate ? inner.hostGridOwnerName : nil }
 
     public func start(_ handler: @escaping @MainActor (TerminalSessionEvent) -> Void) {
@@ -83,7 +109,20 @@ public final class TerminalProjectingSession: TerminalSession {
 
     public func send(_ bytes: Data) { inner.send(bytes) }
     public func sendReply(_ bytes: Data) { inner.sendReply(bytes) }
-    public func stop() { inner.stop() }
+    /// The composer's Send goes to the Mac's session as one request. Without
+    /// this the protocol's default (false) sent every projected terminal's
+    /// Send through the mirror: the paste, then Return as a separate send
+    /// 60 ms later, which a link blip could split (Leo, 2026-11-23: "the
+    /// text goes through. But then the send doesn't go through").
+    public func sendPasteAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void, maybeSent: @escaping @MainActor () -> Void) -> Bool {
+        inner.sendPasteAndSubmit(text, notSent: notSent, maybeSent: maybeSent)
+    }
+    public func stop() {
+        claimHoldDeadline?.cancel()
+        claimHoldDeadline = nil
+        claimHold = nil
+        inner.stop()
+    }
     public func setOutputPaused(_ paused: Bool) { inner.setOutputPaused(paused) }
     public func noteInteraction() { inner.noteInteraction() }
     public func clearHistory() async throws { try await inner.clearHistory() }
@@ -174,16 +213,21 @@ public final class TerminalProjectingSession: TerminalSession {
 
     public func setClaimsSize(_ claims: Bool) {
         pageClaims = claims
+        // The page left: no claim will answer what waits.
+        if !claims { releaseClaimHold() }
         updateClaim()
     }
 
     // MARK: Events
 
     private func innerEvent(_ event: TerminalSessionEvent) {
+        if case .output = event {} else { flushPaint() }
         switch event {
         case .output(let data):
             if data == TerminalReclaimHold.reset {
-                // The Mac's replay follows: its bytes rebuild the model.
+                // The Mac's replay follows: its bytes rebuild the model, and
+                // the replay's paint (a reset) holds whatever waited to paint.
+                paintScheduled = false
                 _ = projection.feed(bytes: data, paint: false)
                 projection.requestReset()
                 resetPending = true
@@ -191,9 +235,14 @@ public final class TerminalProjectingSession: TerminalSession {
             }
             if resetPending {
                 resetPending = false
+                paintScheduled = false
                 showReplay(projection.feed(bytes: data, paint: true))
             } else {
-                emit(projection.feed(bytes: data, paint: true))
+                // Parsed now, painted once for every chunk that arrived
+                // before the main thread got to it (`flushPaint`). Switches to
+                // and from the alternate screen still come back here, in order.
+                emit(projection.feed(bytes: data, paint: false))
+                schedulePaint()
             }
             let replies = projection.takeReplies()
             if !replies.isEmpty { inner.sendReply(replies) }
@@ -203,12 +252,70 @@ public final class TerminalProjectingSession: TerminalSession {
         case .hostGrid(let columns, let rows):
             macGrid = (columns, rows)
             projection.setHostGrid(cols: UInt32(clamping: columns), rows: UInt32(clamping: rows))
+            if claimHold != nil, let phone = phoneGrid, phone.columns == columns, phone.rows == rows { claimAnswered() }
             if shownAlternate { showGrid() }
         case .hostGridOwner(let name):
-            if shownAlternate { handler?(.hostGridOwner(name)) }
+            if shownAlternate { deliver(.hostGridOwner(name)) }
+        case .exited:
+            releaseClaimHold()
+            handler?(event)
         default:
             handler?(event)
         }
+    }
+
+    // MARK: One paint for a backlog
+
+    /// A paint waits for the chunks queued behind the one that asked for it.
+    private var paintScheduled = false
+    /// When the last paint ran, and which schedule a pending paint belongs to
+    /// (a paint an event already flushed leaves its timer behind).
+    private var lastPaint: DispatchTime?
+    private var paintGeneration = 0
+    /// One display frame: the most often the phone paints.
+    private static let paintInterval: DispatchTimeInterval = .nanoseconds(16_666_667)
+    /// Paints made, and output chunks they covered (for tests and the
+    /// paint harness): a backlog of N chunks is one paint, not N.
+    public private(set) var paintsMade = 0
+    public private(set) var chunksFed = 0
+
+    /// Each Mac chunk used to be re-wrapped and painted on its own, on the
+    /// main thread: at 70 chunks a second and 13 to 19 ms a paint on a phone
+    /// the backlog grew faster than it drained (Leo, 2026-11-22: "the scroll
+    /// occurs ... on mac / then it delays on my actual iphone display").
+    /// Now the chunks are parsed as they come and painted at most once per
+    /// display frame: on the next turn of the main queue (after every chunk
+    /// already waiting on it), or a frame after the last paint if that is
+    /// later. A backlog costs one paint, and a lone keystroke echo waits no
+    /// frame.
+    private func schedulePaint() {
+        chunksFed += 1
+        guard !paintScheduled else { return }
+        paintScheduled = true
+        paintGeneration &+= 1
+        let generation = paintGeneration
+        let paint: @Sendable () -> Void = { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.paintGeneration == generation else { return }
+                self.flushPaint()
+            }
+        }
+        if let lastPaint, lastPaint + Self.paintInterval > .now() {
+            DispatchQueue.main.asyncAfter(deadline: lastPaint + Self.paintInterval, execute: paint)
+        } else {
+            DispatchQueue.main.async(execute: paint)
+        }
+    }
+
+    /// Paints what the chunks since the last paint changed (nothing on the
+    /// alternate screen, whose bytes went through as they came). Runs before
+    /// any other event, so the screen sees every event in the Mac's order.
+    private func flushPaint() {
+        guard paintScheduled else { return }
+        paintScheduled = false
+        lastPaint = .now()
+        paintsMade += 1
+        emit(projection.flush())
     }
 
     /// A reset and its replay: the alternate screen state and grid the replay
@@ -222,15 +329,15 @@ public final class TerminalProjectingSession: TerminalSession {
             }
         }
         setShownAlternate(projection.isAlternate())
-        handler?(.output(TerminalReclaimHold.reset))
-        if !bytes.isEmpty { handler?(.output(bytes)) }
+        deliver(.output(TerminalReclaimHold.reset))
+        if !bytes.isEmpty { deliver(.output(bytes)) }
     }
 
     private func emit(_ segments: [ProjectionSegment]) {
         var pending = Data()
         func flush() {
             guard !pending.isEmpty else { return }
-            handler?(.output(pending))
+            deliver(.output(pending))
             pending = Data()
         }
         for segment in segments {
@@ -239,7 +346,7 @@ public final class TerminalProjectingSession: TerminalSession {
                 pending.append(bytes)
             case .reset(let bytes):
                 flush()
-                handler?(.output(TerminalReclaimHold.reset))
+                deliver(.output(TerminalReclaimHold.reset))
                 pending = bytes
             case .alternate(let on):
                 flush()
@@ -251,9 +358,14 @@ public final class TerminalProjectingSession: TerminalSession {
 
     private func setShownAlternate(_ on: Bool) {
         if on != shownAlternate {
+            // Back on the primary screen: the phone's own grid, nothing to wait for.
+            if !on { releaseClaimHold() }
             shownAlternate = on
-            handler?(.alternateScreen(on))
-            handler?(.hostGridOwner(on ? inner.hostGridOwnerName : nil))
+            if on, pageClaims, let phone = phoneGrid, phone.columns != macGrid.columns || phone.rows != macGrid.rows {
+                startClaimHold()
+            }
+            deliver(.alternateScreen(on))
+            deliver(.hostGridOwner(on ? inner.hostGridOwnerName : nil))
         }
         showGrid()
         updateClaim()
@@ -265,7 +377,60 @@ public final class TerminalProjectingSession: TerminalSession {
         let grid = shownAlternate ? macGrid : (phoneGrid ?? macGrid)
         if let shown = shownGrid, shown.columns == grid.columns, shown.rows == grid.rows { return }
         shownGrid = grid
-        handler?(.hostGrid(columns: grid.columns, rows: grid.rows))
+        deliver(.hostGrid(columns: grid.columns, rows: grid.rows))
+    }
+
+    // MARK: A full-screen app's first frame
+
+    /// An event for the screen: held while a full-screen app's claim is out.
+    private func deliver(_ event: TerminalSessionEvent) {
+        if claimHold != nil {
+            claimHold?.append(event)
+        } else {
+            handler?(event)
+        }
+    }
+
+    private func startClaimHold() {
+        guard claimHold == nil else { return }
+        claimHold = []
+        gridBeforeHold = shownGrid
+        log.notice("projection: full-screen app at the Mac's \(self.macGrid.columns, privacy: .public)x\(self.macGrid.rows, privacy: .public): held until the phone's grid is answered")
+        let wait = reclaimWait
+        claimHoldDeadline = Task { @MainActor [weak self] in
+            // A bounded deadline for the claim's answer, not a synchronization wait.
+            do { try await Task.sleep(for: wait) } catch { return }
+            guard let self, self.claimHold != nil else { return }
+            self.log.notice("projection: the Mac kept its grid past the wait: the full-screen app shows at it")
+            self.releaseClaimHold()
+        }
+    }
+
+    /// The Mac answered at the phone's grid: its reset and replay follow and
+    /// supersede the bytes held. The screen switches still go to it.
+    private func claimAnswered() {
+        claimHoldDeadline?.cancel()
+        claimHoldDeadline = nil
+        let held = claimHold ?? []
+        claimHold = nil
+        shownGrid = gridBeforeHold
+        gridBeforeHold = nil
+        for event in held {
+            switch event {
+            case .alternateScreen, .hostGridOwner: handler?(event)
+            default: break
+            }
+        }
+    }
+
+    /// Shows what was held, in order.
+    private func releaseClaimHold() {
+        claimHoldDeadline?.cancel()
+        claimHoldDeadline = nil
+        guard let held = claimHold else { return }
+        claimHold = nil
+        gridBeforeHold = nil
+        for event in held { handler?(event) }
     }
 
     /// The phone claims its size only for the alternate screen, while the page claims.

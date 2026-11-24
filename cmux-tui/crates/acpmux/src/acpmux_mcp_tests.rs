@@ -81,6 +81,7 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
             "bg_stop",
             "run_wait",
             "pr_state",
+            "pr_wait",
             "wrap_up",
             "who_else",
             "goal_set",
@@ -89,7 +90,14 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
             "watch_add",
             "watch_ls",
             "watch_rm",
-            "send_status"
+            "race_start",
+            "race_show",
+            "send_status",
+            "wait",
+            "cancel",
+            "machine_read",
+            "machine_edit",
+            "machine_exec"
         ]
     );
     let send = tools[0]["description"].as_str().unwrap();
@@ -438,7 +446,13 @@ async fn an_attach_to_an_unknown_session_is_refused_not_relayed_as_text() {
     let (to, text) = ("elsewhere".to_owned(), "the broken card".to_owned());
     let target =
         send::Target { index: 0, to: to.clone(), key: to, tag: None, text, file: None, item };
-    let row = send::relay(&target, &anyhow::anyhow!("no session named elsewhere"), None).await;
+    let row = send::relay(
+        &target,
+        &anyhow::anyhow!("no session named elsewhere"),
+        None,
+        tokio::time::Instant::now() + std::time::Duration::from_secs(25),
+    )
+    .await;
     let row = row.expect("a refusal row, not the relay skipped or taken");
     assert_eq!(row["ok"], false, "{row}");
     assert!(row["error"].as_str().unwrap_or_default().contains("attachments"), "{row}");
@@ -625,6 +639,52 @@ fn messages_to_one_session_form_one_chain() {
     .map(|names| names.into_iter().map(str::to_owned).collect())
     .collect();
     assert_eq!(send::same_session(&aliases), vec![vec![0, 2], vec![1, 6, 7], vec![3, 5], vec![4]]);
+}
+
+/// The detailed record is fetched once, and finding aliases for any number of sends uses the
+/// daemon's mirrored list. Only the initial info read may reach the peer.
+#[cfg(unix)]
+#[tokio::test]
+async fn far_work_info_and_batch_aliases_read_each_source_once() {
+    use crate::rpc::Message;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+    let dir = cmux_unix_socket::short_test_dir("acpmux-far-info");
+    let socket = dir.path().join("d.sock");
+    let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let (rd, mut wr) = stream.into_split();
+        let mut lines = BufReader::new(rd).lines();
+        for expected in [method::INITIALIZE, method::MUX_INFO, method::MUX_RESOLVE] {
+            let line = lines.next_line().await.unwrap().unwrap();
+            let Message::Request { id, method, params } = Message::parse(&line).unwrap() else {
+                panic!("expected an RPC request");
+            };
+            assert_eq!(method, expected);
+            let params = params.unwrap();
+            let reply = match expected {
+                method::MUX_INFO => {
+                    assert_eq!(params["sessionId"], "far/lane");
+                    assert_ne!(params["row"], true, "info needs the full record");
+                    json!({"sessionId":"abc", "peer":"far", "lastSeq":42})
+                }
+                method::MUX_RESOLVE => {
+                    assert_eq!(params["query"], "far/lane");
+                    json!({"matches":[{"sessionId":"abc","peer":"far","status":"idle"}]})
+                }
+                _ => json!({}),
+            };
+            wr.write_all(Message::ok(id, reply).to_line().as_bytes()).await.unwrap();
+        }
+    });
+    let client = Client::connect(&socket).await.unwrap();
+    let info = call(&client, &tool("info", json!({"name":"far/lane"}))).await;
+    assert_eq!(info["structuredContent"]["lastSeq"], 42, "{info}");
+    let targets = [target(0, "far/lane", "far/lane"), target(1, "far/lane", "far/lane")];
+    let aliases = send::aliases(&client, &targets).await;
+    assert!(aliases.iter().all(|names| names.iter().any(|n| n == "far/abc")), "{aliases:?}");
+    server.await.unwrap();
 }
 
 /// Codex review: a session named by its name in one item and by its id in another is one
@@ -1018,6 +1078,9 @@ fn a_fleet_sized_list_answers_small_and_live_first() {
             "lastPrompt": big, "lastTurn": big, "enforcement": {"detail": big}}),
         );
     }
+    let newest = sessions.last_mut().unwrap();
+    newest["via"] = json!("relay");
+    newest["asOfMs"] = json!(42);
     let all = json!({"sessions": sessions});
 
     let r = ls_result(&all, &json!({}));
@@ -1028,6 +1091,8 @@ fn a_fleet_sized_list_answers_small_and_live_first() {
     assert!(rows.iter().all(|s| s["status"] != "closed"), "closed rows by default");
     assert!(rows[0].get("lastPrompt").is_none(), "rows are slim: {}", rows[0]);
     assert_eq!(rows[0]["name"], "lane-299", "newest first");
+    assert_eq!(rows[0]["via"], "relay");
+    assert_eq!(rows[0]["asOfMs"], 42);
     assert_eq!(r["structuredContent"]["more"], json!(300 - LS_DEFAULT_LIMIT));
     assert!(text(&r).lines().last().unwrap().contains("more"), "{}", text(&r));
 
@@ -1087,12 +1152,19 @@ async fn bg_tools_refuse_arguments_that_are_not_an_object() {
 #[tokio::test]
 async fn run_wait_given_a_bg_task_id_reads_the_task_and_names_bg_output() {
     let (_hub, client, _dir) = daemon().await;
-    for args in
-        [json!({"id": "bg-581e5d78d9cd"}), json!({"task": "bg-581e5d78d9cd", "timeout": "600"})]
-    {
+    // The census of 2026-11-23 (cmuxterm-hq docs/findings/2026-11-23-mcp-tool-error-census.md):
+    // the shapes refused "give run or pr" and "repo must be OWNER/REPO" gave a repo beside the id.
+    for args in [
+        json!({"id": "bg-581e5d78d9cd"}),
+        json!({"task": "bg-581e5d78d9cd", "timeout": "600"}),
+        json!({"repo": "manaflow-ai/cmux", "id": "bg-581e5d78d9cd", "description": "step A"}),
+        json!({"repo": "-", "id": "bg-581e5d78d9cd", "description": "hq main fetch"}),
+    ] {
         let r = bg::call(&client, "any", "run_wait", &args).await;
         let t = text(&r);
         assert!(!t.contains("repo is required"), "{args}: {r}");
+        assert!(!t.contains("give run"), "{args}: {r}");
+        assert!(!t.contains("repo must be"), "{args}: {r}");
         assert!(t.contains("bg-581e5d78d9cd is a background task"), "{args}: {r}");
         assert!(t.contains("bg_output"), "{args}: {r}");
     }
@@ -1302,4 +1374,165 @@ fn instructions_stay_short() {
     assert!(crate::offer_mcp::INSTRUCTIONS.len() <= 300);
     assert!(crate::subsession_mcp::instructions().len() <= 1_100);
     assert!(crate::computer_use::tools::INSTRUCTIONS.len() <= 900);
+}
+
+/// A thread listing says each thread once: the id it is replied by, not that id again under
+/// another name; the sender's shown name in `from`, not the whole sender record the chat pane
+/// reads; and no flag that is off, no count that is none, no id of the chat doing the reading.
+/// The text line keeps printing the unread count the rows no longer carry.
+#[test]
+fn a_thread_listing_names_its_sender_once_and_the_reader_never() {
+    let as_the_daemon_lists = || {
+        json!({"sessionId": "00000000-0000-4000-8000-000000000001", "threads": [
+            {"threadId": "pr:12", "key": "pr:12", "label": "#12", "class": "action",
+             "from": ["lane-a"], "unread": 0, "new": 0, "count": 3, "newestAt": 1,
+             "surgeHeld": false, "needYou": false, "newestPreview": "merged",
+             "sender": {"label": "lane-a", "session": null, "machine": null, "relay": null,
+                        "harness": null, "kind": null, "pid": null, "owner": null}}]})
+    };
+    let mut listed = as_the_daemon_lists();
+    let text = crate::cli::session_inbox::describe(&listed);
+    trim_threads(&mut listed);
+    assert!(text.contains("0 unread of 3"), "the text line stopped saying it: {text}");
+    assert!(listed.get("sessionId").is_none(), "the reader's own id: {listed}");
+    let row = listed["threads"][0].as_object().unwrap();
+    for gone in ["key", "sender", "unread", "new", "surgeHeld", "needYou"] {
+        assert!(!row.contains_key(gone), "{gone} is said twice or not at all: {listed}");
+    }
+    for kept in ["threadId", "label", "class", "from", "count", "newestPreview"] {
+        assert!(row.contains_key(kept), "{kept} was dropped: {listed}");
+    }
+    let before = as_the_daemon_lists().to_string().len();
+    assert!(listed.to_string().len() * 2 < before, "{listed} of {before} bytes");
+    // A thread's own read is not a listing: every sender it names stays.
+    let mut read = json!({"threadId": "pr:12", "sessionId": "s-1",
+        "messages": [{"from": "lane-a", "text": "hi", "sender": {"label": "lane-a"}}]});
+    let whole = read.clone();
+    trim_threads(&mut read);
+    assert_eq!(read, whole, "a thread read was trimmed like a listing");
+}
+
+/// The census of 2026-11-23 (cmuxterm-hq docs/findings/2026-11-23-mcp-tool-error-census.md)
+/// counted inbox_reply's `inbox.no_sender` refusals and calls naming `to` but no thread: both
+/// now reach the sender by name, and say so.
+#[tokio::test]
+async fn inbox_reply_with_no_session_in_its_thread_sends_to_the_thread_sender_by_name() {
+    let (hub, client, _dir) = daemon().await;
+    let me = session(&client, "reply-me").await;
+    let them = session(&client, "reply-them").await;
+    // A thread keyed by its sender's name with no message here: the old code refused it.
+    let args = json!({"thread": "from:reply-them/pr:12", "text": "answer one"});
+    let r = inbox_tool(&client, &me, "inbox_reply", &args).await;
+    assert_eq!(r["isError"], false, "{r}");
+    assert!(text(&r).contains("as send sends it"), "{r}");
+    assert!(r["structuredContent"]["rewritten"].as_str().unwrap().contains("reply-them"), "{r}");
+    assert!(received(&hub, &them, "answer one").await, "reply-them never got the reply");
+    // `to` with no thread is a send to it.
+    let args = json!({"to": "reply-them", "text": "answer two"});
+    let r = inbox_tool(&client, &me, "inbox_reply", &args).await;
+    assert_eq!(r["isError"], false, "{r}");
+    assert!(text(&r).contains("sent with send to `to`"), "{r}");
+    assert!(received(&hub, &them, "answer two").await, "reply-them never got the second reply");
+    // A thread whose sender is nobody known is still refused, naming both failures.
+    let args = json!({"thread": "declared:nobody-anywhere", "text": "lost"});
+    let r = inbox_tool(&client, &me, "inbox_reply", &args).await;
+    assert_eq!(r["isError"], true, "{r}");
+    assert!(text(&r).contains("inbox.no_sender") && text(&r).contains("nobody-anywhere"), "{r}");
+    // Neither thread nor to: refused as before.
+    let r = inbox_tool(&client, &me, "inbox_reply", &json!({"text": "x"})).await;
+    assert_eq!(r["isError"], true, "{r}");
+}
+
+#[test]
+fn a_threads_sender_names_come_from_its_relay_its_name_then_its_key() {
+    let thread = json!({"messages": [
+        {"from": "codex-a", "sender": {"relay": {"machine": "mac-1", "session": "codex-a"}}},
+        {"from": "codex-a"}
+    ]});
+    assert_eq!(thread_sender_names("from:codex-a/pr:7", &thread), ["mac-1/codex-a", "codex-a"]);
+    assert_eq!(thread_sender_names("declared:claude-b", &Value::Null), ["claude-b"]);
+    assert!(thread_sender_names("t-123", &Value::Null).is_empty());
+}
+
+/// The census of 2026-11-23 (cmuxterm-hq docs/findings/2026-11-23-mcp-tool-error-census.md)
+/// replayed: each refused call shape of wrap_up, run_wait and inbox_reply it counted, by its
+/// keys and value types (names made up), weighted by how often it came. Prints how many of
+/// them still bounce; the same test on the code before this change gives the before number.
+/// Left out: calls whose meaning is not clear (`{}`, a Claude Code shell id given as a run) and
+/// failures that were no refusal (the client's own timeouts, hooks).
+#[tokio::test]
+async fn census_replay_wrap_up_run_wait_inbox_reply() {
+    let (_hub, client, _dir) = daemon().await;
+    let me = session(&client, "census-me").await;
+    for name in ["census-a", "census-b"] {
+        session(&client, name).await;
+    }
+    let bounced = |r: &Value| r["isError"] == true;
+    let mut rows: Vec<(&str, u32, u32)> = Vec::new();
+
+    let wrap_up = [
+        (json!({"recap": "Did X.", "learned": "Use pnpm, not npm."}), 51),
+        (
+            json!({"recap": "Did X.", "learned": "a fact", "ask": "Merge?", "actions": ["Yes", "No"]}),
+            2,
+        ),
+        (json!({"summary": "Did X.", "learned": "a fact"}), 1),
+    ];
+    let (mut n, mut bad) = (0, 0);
+    for (args, weight) in wrap_up {
+        n += weight;
+        bad += if bounced(&wrap_up::call(&args)) { weight } else { 0 };
+    }
+    rows.push(("wrap_up", n, bad));
+
+    let id = "bg-0123456789ab";
+    let run_wait = [
+        (json!({"repo": "o/r", "id": id, "timeoutSeconds": 600, "description": "d"}), 81),
+        (json!({"repo": "-", "id": id, "timeoutSeconds": 600, "description": "d"}), 5),
+        (json!({"id": id}), 5),
+        (json!({"id": id, "timeout": "600"}), 6),
+    ];
+    let (mut n, mut bad) = (0, 0);
+    for (args, weight) in run_wait {
+        n += weight;
+        let t = text(&bg::call(&client, &me, "run_wait", &args).await);
+        let refused =
+            ["repo is required", "give run", "repo must be"].iter().any(|r| t.contains(r));
+        bad += if refused { weight } else { 0 };
+    }
+    rows.push(("run_wait", n, bad));
+
+    // Senders named in the thread key (`from:`, `declared:NAME`) are sessions here; a label
+    // (`declared:a session on HOST`) or an opaque key with no message here names nobody.
+    let inbox_reply = [
+        (json!({"thread": "from:census-a/pr:12", "text": "t"}), 22),
+        (json!({"thread": "declared:census-b", "text": "t"}), 21),
+        (json!({"thread": "declared:a session on host-x", "text": "t"}), 8),
+        (json!({"thread": "topic:pr/o/r/12", "text": "t"}), 12),
+        (json!({"to": "census-a", "text": "t"}), 7),
+    ];
+    let (mut n, mut bad) = (0, 0);
+    for (args, weight) in inbox_reply {
+        n += weight;
+        bad +=
+            if bounced(&inbox_tool(&client, &me, "inbox_reply", &args).await) { weight } else { 0 };
+    }
+    rows.push(("inbox_reply", n, bad));
+    for (tool, n, bad) in rows {
+        eprintln!("census replay: {tool}: {bad} of {n} bounce");
+    }
+}
+
+#[test]
+fn the_most_called_tools_are_always_loaded_and_the_rest_deferred() {
+    let tools = super::tools();
+    let list = tools.as_array().unwrap();
+    for name in super::ALWAYS_LOADED {
+        let tool =
+            list.iter().find(|t| t["name"] == name).unwrap_or_else(|| panic!("{name} is listed"));
+        assert_eq!(tool["_meta"]["anthropic/alwaysLoad"], true, "{name}");
+    }
+    let rest = list.iter().filter(|t| !super::ALWAYS_LOADED.contains(&t["name"].as_str().unwrap()));
+    assert!(rest.clone().count() > 5);
+    assert!(rest.into_iter().all(|t| t.get("_meta").is_none()));
 }

@@ -64,14 +64,29 @@ public final class DaemonTerminalSession: TerminalSession {
     public let terminalID: String?
     public private(set) var programName: String
     public private(set) var isAlternateScreen = false
-    /// The Mac terminal's rows (`vt-state`, `resized`), else the size asked for.
-    public var remoteRows: Int? { reportedRows ?? lastSize?.rows ?? 24 }
+    /// The Mac terminal's rows the screen was shown (`vt-state`, `resized`),
+    /// else the size asked for. A grid the reclaim hold keeps back is not the
+    /// screen's yet: read here, the page laid its mirror out at the Mac's
+    /// 118x69 while the phone's claim was out (Leo, 2026-11-23: "im sometimes
+    /// seeing these 118x69 load ins which are wide... then it properly goes").
+    public var remoteRows: Int? { shownGrid?.rows ?? lastSize?.rows ?? 24 }
     private var reportedRows: Int?
     /// The Mac's grid changed since the screen was last told (``TerminalSessionEvent/hostGrid(columns:rows:)``).
     private var hostGridChanged = false
-    /// The Mac terminal's columns (`vt-state`, `resized`); nil before the
-    /// first attach. The screen renders this grid when it is not the phone's.
-    public var remoteColumns: Int? { reportedColumns }
+    /// The Mac terminal's columns the screen was shown (`vt-state`,
+    /// `resized`); nil before the first grid reaches the screen. The screen
+    /// renders this grid when it is not the phone's.
+    public var remoteColumns: Int? { shownGrid?.columns }
+    /// The last grid given to the screen (past the reclaim hold).
+    private var shownGrid: (columns: Int, rows: Int)?
+
+    /// Gives the screen events past the reclaim hold, noting the grid it now has.
+    private func deliver(_ events: [TerminalSessionEvent]) {
+        for event in events {
+            if case .hostGrid(let columns, let rows) = event { shownGrid = (columns, rows) }
+            handler?(event)
+        }
+    }
     /// The owner the screen was last told (``TerminalSessionEvent/hostGridOwner(_:)``).
     private var toldHostGridOwner: String??
 
@@ -83,11 +98,27 @@ public final class DaemonTerminalSession: TerminalSession {
         handler?(.hostGridOwner(name))
     }
 
-    /// The device that sets the Mac's grid, when it is not this phone.
+    /// The device that sets the Mac's grid, other than this view: the first
+    /// owner that is not this phone's view. Several views can own one grid
+    /// (under Fit the Smallest Viewer a narrow Mac pane sets the columns
+    /// while the phone sets the rows), so the phone owning one dimension
+    /// still names the device that set the other. Nil when no other view
+    /// owns it; the note then names no device.
     public var hostGridOwnerName: String? {
-        guard let state = sizing.state, !sizing.selfIsOwner, let owner = state.owners.first,
-              let row = state.participants.first(where: { $0.id == owner }) else { return nil }
-        return row.deviceName ?? row.displayName
+        guard let state = sizing.state else { return nil }
+        let others = state.owners.filter { $0 != sizing.selfParticipant }
+        guard let row = others.lazy.compactMap({ owner in state.participants.first { $0.id == owner } }).first
+        else { return nil }
+        // Another view of this same phone (a second page on the terminal).
+        if let own = clientInfo["device_id"], row.deviceID == own, !row.isDesktop { return "this iPhone" }
+        if let name = row.deviceName ?? row.displayName { return name }
+        switch row.deviceKind {
+        case "mac": return "a Mac"
+        case "iphone": return "an iPhone"
+        case "ipad": return "an iPad"
+        case "tui": return "a terminal"
+        default: return nil
+        }
     }
     /// The last attach or send failure (shown nowhere yet; logged).
     public private(set) var lastError: String?
@@ -109,7 +140,7 @@ public final class DaemonTerminalSession: TerminalSession {
     /// `attach-replay-history-rows-v1`, and its lane did not refuse it).
     private var tailReplay = false
     /// The daemon lists `send-expect-agent-v1`: `send` takes `submit` with
-    /// `paste` (``sendPasteAndSubmit(_:notSent:)``). An older daemon ignores `submit`
+    /// `paste` (``sendPasteAndSubmit(_:notSent:maybeSent:)``). An older daemon ignores `submit`
     /// and would paste the draft with no Return: it gets the mirror's paste.
     private var pasteSubmit = false
     /// The `agent-cli-frame` stream and the newest frame this mirror drew
@@ -187,7 +218,7 @@ public final class DaemonTerminalSession: TerminalSession {
     /// `key`: a batch that may already have reached the Mac, put back to go
     /// again once, alone and under its first `send` key (``sendKeys``); nil
     /// for new keys. `paste`: the bytes are the composer's draft (UTF-8), sent
-    /// alone as `send {text, paste:true, submit:true}` (``sendPasteAndSubmit(_:notSent:)``).
+    /// alone as `send {text, paste:true, submit:true}` (``sendPasteAndSubmit(_:notSent:maybeSent:)``).
     private var input: [(bytes: Data, at: TimeInterval, detached: Bool, typed: Bool, key: String?, paste: Int?)] = []
     /// The Mac's daemon lists `send-key-v1` (its latest `identify`): a `send`
     /// carries a key, and one with a key it already applied writes nothing.
@@ -197,11 +228,29 @@ public final class DaemonTerminalSession: TerminalSession {
     /// thing": the dropped text went back to the composer, and a second Send
     /// typed it twice when the first had arrived).
     private var sendKeys = false
-    /// A composer paste's "not sent" call, by its id in `input` (`paste`):
-    /// called once when the paste is dropped, refused or answered with an
-    /// error, and forgotten once the daemon answers it.
-    private var pasteNotSent: [Int: @MainActor () -> Void] = [:]
+    /// A composer paste's "not sent" and "may have been sent" calls, by its id
+    /// in `input` (`paste`): one is called once when the paste is given up,
+    /// refused or answered with an error, and both are forgotten once the
+    /// daemon applies it.
+    private var pasteNotSent: [Int: (notSent: @MainActor () -> Void, maybeSent: @MainActor () -> Void)] = [:]
     private var nextPaste = 0
+    #if canImport(CmuxMobileLinkFFI)
+    /// The composer's Sends until the Mac answers them (Rust, `cmux-composer-send`). Each is one
+    /// keyed `send` (the draft and its Return), made at the tap; every attempt, on any channel
+    /// and after any reattach, carries that key, and the daemon types a key once. A Send whose
+    /// answer was lost goes again under it instead of being dropped, and one given up after it
+    /// went out is "may have been sent", never put back in the composer to be sent twice (Leo,
+    /// 2026-11-23: "there's like a sort of like double send type thing"). `paste` ids in `input`
+    /// are its Send numbers.
+    private let composerOutbox = ComposerOutbox(
+        nonce: "ios-\(UUID().uuidString)",
+        holdMs: UInt64(DaemonTerminalSession.inputHoldLimit * 1000)
+    )
+    #endif
+    /// The latest attach read the daemon's `identify` (``pasteSubmit``, ``sendKeys``). Before it,
+    /// a composer Send waits in the outbox for the attach instead of going through the mirror as a
+    /// paste and a separate Return.
+    private var identified = false
     /// Keys queued while detached expired: everything typed until the next
     /// attach is refused, so no fragment of a command (its last 2 s) can
     /// reach the shell after the rest was dropped (r13 review).
@@ -243,6 +292,11 @@ public final class DaemonTerminalSession: TerminalSession {
     private var tailProbe: Task<Void, Never>?
     /// Sends written and not yet answered (tests).
     var inputsInFlight: Int { inputInFlight }
+    /// The oldest typed batch whose echo has not come yet: its number and its first key's tap.
+    /// The first output after it is its echo (PROTOCOL.md "Link stats", `echo`).
+    private var echoDue: (number: Int, typedAt: TimeInterval)?
+    /// The Mac's answer to the `echoDue` batch, ms after its tap, when it came first.
+    private var echoDueAckMs: UInt32?
     /// A tail probe is armed (tests).
     var tailProbeArmed: Bool { tailProbe != nil }
     private var nextInputBatch = 0
@@ -403,19 +457,60 @@ public final class DaemonTerminalSession: TerminalSession {
     /// be lost after a replay) and writes Return in the same request.
     /// False against a daemon that does not list `send-expect-agent-v1`, or
     /// before the first attach said which daemon this is.
-    public func sendPasteAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void) -> Bool {
+    public func sendPasteAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void, maybeSent: @escaping @MainActor () -> Void) -> Bool {
+        #if canImport(CmuxMobileLinkFFI)
+        guard !text.isEmpty, pasteSubmit || !identified else { return false }
+        let id = Int(composerOutbox.push(text: text, submit: true, nowMs: Self.milliseconds(now())))
+        #else
         guard pasteSubmit, !text.isEmpty else { return false }
         let id = nextPaste
         nextPaste += 1
-        pasteNotSent[id] = notSent
+        #endif
+        pasteNotSent[id] = (notSent, maybeSent)
         enqueueTyped(Data(text.utf8), paste: id)
         return true
     }
 
-    /// Tells the screen a composer paste was not sent (once).
+    /// Gives a composer paste up and tells the screen (once): "may have been sent" when an
+    /// attempt went out (``composerOutbox``), else "not sent".
     private func pasteWasNotSent(_ id: Int?) {
-        guard let id, let notSent = pasteNotSent.removeValue(forKey: id) else { return }
-        notSent()
+        guard let id else { return }
+        #if canImport(CmuxMobileLinkFFI)
+        // In flight (its answer settles it) or already settled: nothing to give up here.
+        guard let done = composerOutbox.giveUpSend(seq: UInt64(id)) else { return }
+        composerSendEnded(done)
+        #else
+        pasteNotSent.removeValue(forKey: id)?.notSent()
+        #endif
+    }
+
+    #if canImport(CmuxMobileLinkFFI)
+    /// The daemon's answer to the composer Send `id`'s request: applied, refused, or an error that
+    /// may have typed it. A lost answer is ``ComposerSendAnswer/lost``: it goes again under its key.
+    private func composerAnswered(_ id: Int, _ answer: ComposerSendAnswer) {
+        guard let done = composerOutbox.answer(seq: UInt64(id), answer: answer) else { return }
+        composerSendEnded(done)
+    }
+
+    private func composerSendEnded(_ done: ComposerSendDone) {
+        guard let calls = pasteNotSent.removeValue(forKey: Int(done.seq)) else { return }
+        switch done.outcome {
+        case .sent: break
+        case .notSent: calls.notSent()
+        case .maybeSent: calls.maybeSent()
+        }
+    }
+
+    /// The attached daemon takes no `send` keys: every queued composer Send is given up (a resend
+    /// there could type it twice), and the screen gets back the ones that never went out.
+    private func giveUpComposerSends() {
+        input.removeAll { $0.paste != nil }
+        composerOutbox.giveUp().forEach(composerSendEnded)
+    }
+    #endif
+
+    nonisolated static func milliseconds(_ seconds: TimeInterval) -> UInt64 {
+        UInt64(max(0, seconds) * 1000)
     }
 
     private func enqueueTyped(_ bytes: Data, paste: Int?) {
@@ -597,6 +692,8 @@ public final class DaemonTerminalSession: TerminalSession {
         outbox.removeAll()
         input.removeAll()
         pasteNotSent.removeAll()
+        echoDue = nil
+        echoDueAckMs = nil
         tailProbe?.cancel()
         tailProbe = nil
         autoReattach?.cancel()
@@ -718,7 +815,7 @@ public final class DaemonTerminalSession: TerminalSession {
     /// line 1, so the phone never holds the Mac's whole history.
     @discardableResult
     public func loadOlderHistory() -> Bool {
-        guard attached, !attaching, replacing == nil, tailReplay, historyRowsOmitted > 0,
+        guard attached, !attaching, replacing == nil, !awaitingReplay, tailReplay, historyRowsOmitted > 0,
               inputInFlight == 0, let client else { return false }
         if windowReplay, historyWindowStart != nil
             || (historyAllowance ?? 0) + Self.historyChunkRows > Self.maxTailHistoryRows {
@@ -746,7 +843,7 @@ public final class DaemonTerminalSession: TerminalSession {
     /// reader came up from the screen to the window): the newest rows at once.
     @discardableResult
     public func loadNewerHistory(toTheScreen: Bool) -> Bool {
-        guard attached, !attaching, replacing == nil, let start = historyWindowStart, historyRowsSkipped > 0,
+        guard attached, !attaching, replacing == nil, !awaitingReplay, let start = historyWindowStart, historyRowsSkipped > 0,
               inputInFlight == 0, let client else { return false }
         if toTheScreen {
             historyWindowStart = nil
@@ -758,6 +855,30 @@ public final class DaemonTerminalSession: TerminalSession {
         replacing = client
         Task { await attach() }
         return true
+    }
+
+    /// The size a history fetch's attach claims in the setup's own write:
+    /// the live attach's, when it claimed one and the phone asks for nothing
+    /// else (no newer size, no size the Mac overruled). Nil: the attach
+    /// waits for identify, as a reattach does.
+    private var replacementAttachSize: (columns: Int, rows: Int)? {
+        guard claimsSize, tailReplay, overruled == nil, pendingSize == nil, let live = attachedWithSize,
+              let size = lastSize, size.columns == live.columns, size.rows == live.rows else { return nil }
+        return live
+    }
+
+    /// `attach-surface` for this surface at `size`, with the history the
+    /// next replay holds: the window far above the screen, or the newest
+    /// ``historyAllowance`` rows (nil: all of them).
+    private func historyAttachParams(size: (columns: Int, rows: Int)) -> sending [String: Any] {
+        var params: [String: Any] = ["surface": surface, "cols": size.columns, "rows": size.rows]
+        if windowReplay, let start = historyWindowStart {
+            params["replay_history_rows"] = Self.historyWindowRows
+            params["replay_history_start"] = start
+        } else if let rows = historyAllowance {
+            params["replay_history_rows"] = rows
+        }
+        return params
     }
 
     private var historyRequestDescription: String {
@@ -809,7 +930,9 @@ public final class DaemonTerminalSession: TerminalSession {
               let allowance = historyAllowance, allowance < Self.prefetchHistoryRows else { return }
         // A key on its way (it must not be sent twice), or another fetch or
         // attach out: look again after the same wait.
-        guard !attaching, replacing == nil, inputInFlight == 0, let client else { return scheduleHistoryPrefetch() }
+        // Or the last attach's replay is still on its way: its rows are not
+        // the Mac's yet.
+        guard !attaching, replacing == nil, !awaitingReplay, inputInFlight == 0, let client else { return scheduleHistoryPrefetch() }
         historyPrefetched = true
         let total = allowance + historyRowsOmitted
         // At most the tail a scroll could grow to (``maxTailHistoryRows``): past
@@ -838,6 +961,21 @@ public final class DaemonTerminalSession: TerminalSession {
     private var scrollFramesInFlight = 0
     static let maxScrollFramesInFlight = 2
 
+    /// Sends painted redraws to the Mac (`phone-frames` `paint`); the coordinator sets it.
+    public var paintSink: (@MainActor ([TerminalPaintTally.Sample], String?) async -> Void)?
+    private var paintInFlight = false
+
+    public func reportPaint(_ samples: [TerminalPaintTally.Sample]) {
+        // One report on its way at a time: a report while one is out is dropped, never queued.
+        guard let sink = paintSink, !paintInFlight, !samples.isEmpty else { return }
+        paintInFlight = true
+        let program = programName
+        Task { [weak self] in
+            await sink(samples, program)
+            self?.paintInFlight = false
+        }
+    }
+
     public func reportScrollFrames(_ pan: TerminalPanFrames) {
         guard let sink = scrollFramesSink, scrollFramesInFlight < Self.maxScrollFramesInFlight else { return }
         guard pan.intervalsMs.count >= TerminalPanFrames.minFrames else { return }
@@ -865,7 +1003,10 @@ public final class DaemonTerminalSession: TerminalSession {
         autoReattach?.cancel()
         autoReattach = nil
         attaching = true
+        awaitingReplay = false
         defer { attaching = false }
+        // A history fetch: the attach it replaces is live on this daemon.
+        let replacement = replacing != nil
         do {
             let client = try await open()
             guard handler != nil else { return }
@@ -874,8 +1015,10 @@ public final class DaemonTerminalSession: TerminalSession {
             // A reattach (or a retry) first asks where the terminal is: a Mac
             // daemon that restarted numbers its surfaces again, and the old
             // number may now name another terminal (defect 2 of
-            // verify/transport-verify-20261019.md).
-            if let terminalID, everAttached || attachRetries > 0 {
+            // verify/transport-verify-20261019.md). A history fetch does not:
+            // the attach it replaces is still live on the same daemon, so the
+            // surface number is current (one round trip less per fetch).
+            if let terminalID, !replacement, everAttached || attachRetries > 0 {
                 let reply = try await client.request("resolve-terminal", params: ["terminal_id": terminalID])
                 guard self.client === client else { return }
                 switch Self.resolved(reply) {
@@ -933,15 +1076,34 @@ public final class DaemonTerminalSession: TerminalSession {
                     MainActor.assumeIsolated { self?.channelEnded(client) }
                 }
             }
+            // A fetch of older or newer rows replaces a live attach on this
+            // same daemon, at the size that attach claims: the attach goes in
+            // the setup's write (one round trip instead of two).
+            let quickSize = replacement ? replacementAttachSize : nil
             attachedWithSize = nil
             sizeClaimed = false
-            // One write: the client info (it opts into the size lease) and identify.
+            sizing.clear()
+            lastActivityNote = nil
+            // The mirror is not reset yet: a reattach that fails (a Mac host
+            // that just restarted answers "unknown surface" for a moment) keeps
+            // the last frame on screen under the reconnecting badge, instead
+            // of a blank screen with an error line (termqa D3). The replay's
+            // events wait in `heldEvents` until the attach is confirmed.
+            heldEvents = []
+            // One write: the client info (it opts into the size lease), identify
+            // and, replacing a live attach, the attach.
             var info: [String: Any] = clientInfo
             info["capabilities"] = Self.capabilities(agentCLIHybrid: hybridWanted)
-            let setup = await client.requests(
-                [(cmd: "set-client-info", params: info), (cmd: "identify", params: [:])]
-            )
-            let identify = try? setup.last?.get()
+            // Which attach the Mac sends (byte stream, or lean frames at most one per 100 ms):
+            // the setting this phone holds, read in its log beside the link's path and rtt.
+            log.info("attach agent_cli_hybrid=\(Self.agentCLIHybridEnabled(self.agentCLIHybridDefaults), privacy: .public) wanted=\(self.hybridWanted, privacy: .public)")
+            var batch: [(cmd: String, params: [String: Any])] = [(cmd: "set-client-info", params: info), (cmd: "identify", params: [:])]
+            if let quickSize { batch.append((cmd: "attach-surface", params: historyAttachParams(size: quickSize))) }
+            let setup = await client.requests(batch)
+            let identify = setup.dropFirst().first.flatMap { try? $0.get() }
+            let quickReply = setup.dropFirst(2).first.flatMap { try? $0.get() }.flatMap { Self.error(in: $0) == nil ? $0 : nil }
+            // What a refused quick attach sent first is not the replay.
+            if quickSize != nil, quickReply == nil { heldEvents = [] }
             // Hidden: attach without a size, so the attach claims none.
             let initialSize = claimsSize && (identify.map(Self.acceptsInitialSize) ?? false)
             shortLease = identify.map { Self.lists(Self.shortSizeLeaseCapability, $0) } ?? false
@@ -956,6 +1118,12 @@ public final class DaemonTerminalSession: TerminalSession {
                 && (identify.map { Self.lists(Self.replayHistoryWindowCapability, $0) } ?? false)
             if !windowReplay { historyWindowStart = nil }
             pasteSubmit = identify.map { Self.lists(Self.pasteSubmitCapability, $0) } ?? false
+            // Attached: this daemon's answer (or its silence: an older one) settles the composer's
+            // waiting Sends. One that takes no keys gives them up; they never went out.
+            identified = true
+            #if canImport(CmuxMobileLinkFFI)
+            if !composerOutbox.setCapabilities(capabilities: identify.map(Self.capabilities) ?? []) { giveUpComposerSends() }
+            #endif
             // `attach-surface` with this view's size (if any) and history
             // allowance. A lane that refuses the allowance (a Mac app older
             // than its daemon) gets the same attach without it.
@@ -1015,19 +1183,16 @@ public final class DaemonTerminalSession: TerminalSession {
                 tailReplay = false
                 return try await send(historyRows: nil)
             }
-            sizing.clear()
-            lastActivityNote = nil
-            // The mirror is not reset yet: a reattach that fails (a Mac host
-            // that just restarted answers "unknown surface" for a moment) keeps
-            // the last frame on screen under the reconnecting badge, instead
-            // of a blank screen with an error line (termqa D3). The replay's
-            // events wait in `heldEvents` until the attach is confirmed.
-            heldEvents = []
             // With the size in the attach the Mac builds the replay at that size
             // once; attached first and resized after, it reset the mirror and
             // replayed the whole history a second time (user report 2026-10-14).
             var reply: Data
-            if initialSize, everAttached, let size = lastSize ?? pendingSize, let overruled,
+            if let quickReply, let quickSize {
+                // A refused quick attach (a lane that refuses a field) takes the
+                // path below, which knows each refusal.
+                reply = quickReply
+                attachedWithSize = quickSize
+            } else if initialSize, everAttached, let size = lastSize ?? pendingSize, let overruled,
                overruled.asked.columns == size.columns, overruled.asked.rows == size.rows,
                overruled.mac.columns <= size.columns, overruled.mac.rows <= size.rows {
                 // The Mac kept its own size for this request last time, and it
@@ -1085,6 +1250,11 @@ public final class DaemonTerminalSession: TerminalSession {
                 hybridResume = nil
                 reclaimHold.restart(alternate: isAlternateScreen)
                 show(.output(TerminalReclaimHold.reset))
+                // The reply often lands before its own `vt-state` (that line is
+                // decoded off the main actor): until the replay is applied, the
+                // rows the Mac left out are the last attach's. A resumed stream
+                // replays no history, so nothing is awaited.
+                awaitingReplay = true
             }
             let held = heldEvents ?? []
             heldEvents = nil
@@ -1224,7 +1394,10 @@ public final class DaemonTerminalSession: TerminalSession {
     private func apply(_ event: DaemonTerminalInbound) {
         switch event {
         case .output(let data):
+            keyEchoed()
             show(.output(data))
+        case .stamped(let seq, let receivedMs):
+            show(.paintMark(seq: seq, receivedMs: receivedMs))
         case .alternateScreen(let on):
             setAlternate(on)
         case .columns(let columns):
@@ -1253,6 +1426,7 @@ public final class DaemonTerminalSession: TerminalSession {
             }
         case .historyRowsOmitted(let rows):
             historyRowsOmitted = rows
+            awaitingReplay = false
             scheduleHistoryPrefetch()
         case .historyRowsSkipped(let rows):
             historyRowsSkipped = rows
@@ -1280,6 +1454,7 @@ public final class DaemonTerminalSession: TerminalSession {
             // and the newest rows of its size come instead.
             historyRowsOmitted = 0
             historyRowsSkipped = 0
+            awaitingReplay = false
             if historyWindowStart != nil {
                 historyWindowStart = nil
                 historyAllowance = Self.historyWindowRows
@@ -1361,7 +1536,7 @@ public final class DaemonTerminalSession: TerminalSession {
                 armReclaimDeadline()
             }
         }
-        for event in events { handler?(event) }
+        deliver(events)
     }
 
     /// On screen with a grid the phone did not ask for: its size again, at
@@ -1418,7 +1593,7 @@ public final class DaemonTerminalSession: TerminalSession {
         let events = reclaimHold.release(from: grid)
         guard !events.isEmpty else { return }
         log.notice("surface \(self.surface, privacy: .public): reclaim hold released, \(events.count, privacy: .public) events shown")
-        for event in events { handler?(event) }
+        deliver(events)
     }
 
     /// Shown with the Mac's grid held. The Mac already at the phone's grid
@@ -1530,6 +1705,37 @@ public final class DaemonTerminalSession: TerminalSession {
         }
     }
 
+    // MARK: Keystroke round trips
+
+    /// Milliseconds since `typedAt` (the input clock), or nil past the hold limit (keys held over an
+    /// outage are an outage, not a slow key).
+    private func msSince(_ typedAt: TimeInterval) -> UInt32? {
+        let elapsed = now() - typedAt
+        guard elapsed >= 0, elapsed <= Self.inputHoldLimit else { return nil }
+        return UInt32((elapsed * 1000).rounded())
+    }
+
+    /// The Mac answered typed batch `number`: one `ack` sample for the next `link_stat`.
+    private func keyAnswered(number: Int, typedAt: TimeInterval) {
+        guard let ms = msSince(typedAt) else { return }
+        if echoDue?.number == number { echoDueAckMs = ms }
+        #if canImport(CmuxMobileLinkFFI)
+        recordKeyAck(ackMs: ms)
+        #endif
+    }
+
+    /// Terminal output came: the echo of the oldest typed batch still waiting for one.
+    private func keyEchoed() {
+        guard let due = echoDue else { return }
+        echoDue = nil
+        let ack = echoDueAckMs
+        echoDueAckMs = nil
+        guard let ms = msSince(due.typedAt) else { return }
+        #if canImport(CmuxMobileLinkFFI)
+        recordKeyEcho(echoMs: ms, ackMs: ack)
+        #endif
+    }
+
     // MARK: Input lane
 
     /// Opens the input-lane channel for the attach `main` (a no-op without
@@ -1597,6 +1803,25 @@ public final class DaemonTerminalSession: TerminalSession {
             return
         }
         if inputInFlight > 0, inputRecovering || inputTarget !== target || inputInFlight >= Self.maxInputInFlight { return }
+        // A composer Send goes as the outbox's request (its key made at the tap), pipelined in
+        // tap order up to the outbox's window; past it, the next waits for an answer.
+        let composerRequest: String?
+        #if canImport(CmuxMobileLinkFFI)
+        if let paste = input[0].paste {
+            guard let request = composerOutbox.nextRequest() else { return }
+            guard Int(request.seq) == paste else {
+                // Never by construction (both are in tap order): released, and nothing goes.
+                log.fault("surface \(self.surface, privacy: .public): composer send \(request.seq, privacy: .public) is not the queued \(paste, privacy: .public)")
+                composerOutbox.linkLost()
+                return
+            }
+            composerRequest = request.paramsJson
+        } else {
+            composerRequest = nil
+        }
+        #else
+        composerRequest = nil
+        #endif
         inputWriting = true
         inputInFlight += 1
         inputTarget = target
@@ -1616,8 +1841,14 @@ public final class DaemonTerminalSession: TerminalSession {
         // The person's own bytes in it: a failed batch of terminal replies
         // alone is no "keys not sent".
         let typedBytes = taken.reduce(0) { $0 + ($1.typed ? $1.bytes.count : 0) }
-        let key = resendKey ?? (sendKeys ? UUID().uuidString : nil)
+        let key = composerRequest.flatMap(Self.requestKey) ?? resendKey ?? (sendKeys ? UUID().uuidString : nil)
         let resent = resendKey != nil
+        // Typed keys (no paste, no resend, no terminal replies): this batch's echo is timed.
+        let timesEcho = typedBytes > 0 && paste == nil && !resent
+        if timesEcho, echoDue == nil {
+            echoDue = (number, typedAt)
+            echoDueAckMs = nil
+        }
         let surface = surface
         let onLane = target !== client
         let deadline = inputRequestDeadline
@@ -1626,10 +1857,17 @@ public final class DaemonTerminalSession: TerminalSession {
             var written = false
             do {
                 let submit: @Sendable () async throws -> String = {
-                    var params: [String: Any] = paste != nil
-                        ? ["surface": surface, "text": String(decoding: batch, as: UTF8.self), "paste": true, "submit": true]
-                        : ["surface": surface, "bytes": batch.base64EncodedString()]
-                    if let key { params["key"] = key }
+                    var params: [String: Any]
+                    if let composerRequest,
+                       let request = try? JSONSerialization.jsonObject(with: Data(composerRequest.utf8)) as? [String: Any] {
+                        params = request
+                    } else {
+                        params = paste != nil
+                            ? ["text": String(decoding: batch, as: UTF8.self), "paste": true, "submit": true]
+                            : ["bytes": batch.base64EncodedString()]
+                        if let key { params["key"] = key }
+                    }
+                    params["surface"] = surface
                     return try await target.submit("send", params: params, deadline: deadline)
                 }
                 // A lane request gets written and answered within seconds or
@@ -1660,13 +1898,27 @@ public final class DaemonTerminalSession: TerminalSession {
                 } else {
                     reply = try await target.reply(to: id)
                 }
+                if timesEcho, Self.error(in: reply) == nil {
+                    keyAnswered(number: number, typedAt: typedAt)
+                }
                 if let error = Self.error(in: reply) {
                     lastError = error
                     log.error("send failed: \(error, privacy: .public)")
+                    #if canImport(CmuxMobileLinkFFI)
+                    // Refused with nothing written: the text comes back. Any other error may have
+                    // typed it (its key stays applied, so a resend would read as sent): "may have
+                    // been sent".
+                    if let paste { composerAnswered(paste, Self.knownNotDelivered(reply) ? .refused : .uncertain) }
+                    #else
                     // A composer paste the daemon refused: the screen gets its text back.
                     pasteWasNotSent(paste)
+                    #endif
                 } else if let paste {
+                    #if canImport(CmuxMobileLinkFFI)
+                    composerAnswered(paste, .applied)
+                    #else
                     pasteNotSent[paste] = nil
+                    #endif
                 }
             } catch {
                 if !written { inputWriting = false }
@@ -1740,9 +1992,18 @@ public final class DaemonTerminalSession: TerminalSession {
             inputRecovering = false
             let failed = inputFailed.sorted { $0.number < $1.number }
             inputFailed.removeAll()
+            #if canImport(CmuxMobileLinkFFI)
+            // The composer Send that was out has no answer coming: it goes again under its key.
+            composerOutbox.linkLost()
+            let outboxResends = true
+            #else
+            let outboxResends = false
+            #endif
             // A written batch of terminal replies alone is no part of a
-            // command: losing it costs the keys typed after it nothing.
-            let uncertain = failed.filter { $0.written && $0.typed > 0 }
+            // command: losing it costs the keys typed after it nothing. A
+            // composer Send is the outbox's to send again (under its key, as
+            // often as the link needs): it never makes the keys around it uncertain.
+            let uncertain = failed.filter { $0.written && $0.typed > 0 && !(outboxResends && $0.paste != nil) }
             // Back in the queue, in order: a batch that may have arrived (or
             // was a resend) keeps its key and goes alone; one never written
             // goes with the keys after it under a new key.
@@ -1863,6 +2124,14 @@ public final class DaemonTerminalSession: TerminalSession {
 
     /// Events that arrived before the Mac confirmed the attach (nil: none held).
     private var heldEvents: [DaemonTerminalInbound]?
+    /// The Mac confirmed the attach and its replay (`vt-state`, which names
+    /// the rows it left out) is not applied yet. No history fetch starts
+    /// until it is: one started earlier asked again for the window just sent
+    /// (``historyRowsOmitted`` was still the last attach's) and its attach
+    /// dropped that replay on the way (a new attach closes the old event
+    /// inbox). The load bench's 100,000-row scroll to line 1 took 491
+    /// fetches at a 40 ms round trip for about 64 windows.
+    private var awaitingReplay = false
     /// Failed reattach attempts since the last good attach.
     private var attachRetries = 0
     /// The reattach retries ran out; the next keystroke tries again.
@@ -2092,10 +2361,15 @@ public final class DaemonTerminalSession: TerminalSession {
     }
 
     nonisolated static func lists(_ capability: String, _ identify: Data) -> Bool {
+        capabilities(identify).contains(capability)
+    }
+
+    /// The `identify` reply's capabilities (none when it has no list).
+    nonisolated static func capabilities(_ identify: Data) -> [String] {
         guard let object = try? JSONSerialization.jsonObject(with: identify) as? [String: Any],
               let data = object["data"] as? [String: Any],
-              let capabilities = data["capabilities"] as? [String] else { return false }
-        return capabilities.contains(capability)
+              let capabilities = data["capabilities"] as? [String] else { return [] }
+        return capabilities
     }
 
     /// Whether the daemon takes the viewer's size in `attach-surface`.
@@ -2104,6 +2378,17 @@ public final class DaemonTerminalSession: TerminalSession {
               let data = object["data"] as? [String: Any],
               let capabilities = data["capabilities"] as? [String] else { return false }
         return capabilities.contains("attach-initial-size")
+    }
+
+    /// The daemon says the request's error wrote nothing (`error_delivery`).
+    nonisolated static func knownNotDelivered(_ reply: Data) -> Bool {
+        guard let object = try? JSONSerialization.jsonObject(with: reply) as? [String: Any] else { return false }
+        return object["error_delivery"] as? String == "known-not-delivered"
+    }
+
+    /// A composer request's `key`.
+    nonisolated static func requestKey(_ request: String) -> String? {
+        (try? JSONSerialization.jsonObject(with: Data(request.utf8)) as? [String: Any])?["key"] as? String
     }
 
     private static func error(in reply: Data) -> String? {

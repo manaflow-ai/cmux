@@ -108,16 +108,9 @@ public final class SidebarView: NSView {
             needsLayout = true
         }
     }
-    /// App health's dot and line (design/app-health.md), over the sidebar just above the footer row, never in
-    /// its flow (``SidebarFooterBand/placeHealthIndicator(above:)``); it shows and hides itself and asks for a
-    /// layout. It never fades with the footer; Minimal Mode fades it with the cards (``minimalChromeViews``).
-    public var healthIndicator: NSView? {
-        didSet {
-            oldValue?.removeFromSuperview()
-            healthIndicator.map { addSubview($0) }
-            needsLayout = true
-        }
-    }
+    /// The Restoring sessions card's Details (app health's popover). The sidebar draws no health line (Leo,
+    /// 2026-11-11: "slow indicator on the bottom left is uselsss"; 2026-11-22, ask-eacfb2ec1f: "we dont need it. ever.").
+    public var onHealthDetails: (() -> Void)?
     let priorityBellDot = CALayer()
     var priority: SidebarPriorityPanel?
     /// Pointer over the sidebar (or a tab drag over it): titlebar buttons show.
@@ -187,6 +180,7 @@ public final class SidebarView: NSView {
         newWorkspaceOptionsButton.setAccessibilityIdentifier("cmux.sidebar.newWorkspace.options")
         list.reload(animated: false)
         observe()
+        startLaunchFilmIfAsked()
         // The chrome reveal follows the pointer and the sidebar's frame (cx-3wu5).
         chromeHover = PointerHover(self) { [weak self] hovering in self?.setChromeRevealed(hovering) }
     }
@@ -501,9 +495,6 @@ public final class SidebarView: NSView {
         footerCards?.frame = NSRect(x: 0, y: footer.frame.minY - updateHeight - cardsHeight, width: b.width, height: cardsHeight)
         footerBand.layoutFooter(visibleSlots)
         footerBand.placeSpaces(top: y, height: spacesHeight, modelChanged: spacesChanged)
-        // App health's line over the sidebar, above the footer row and its cards: placed after the row, from
-        // nothing in it.
-        footerBand.placeHealthIndicator(above: footer.frame.minY - updateHeight - cardsHeight)
         edgeFade.frame = listFrame
         clipBandsUnderTrafficLights()
         layoutEditBar(over: listFrame)

@@ -23,6 +23,7 @@
       "agent": "settable",
       "keys": [
         "agentPane.links.openCitationsInEditor",
+        "cloud.autoCloud",
         "window.titlebar"
       ]
     },
@@ -37,6 +38,13 @@
       "why": "Whether the window offers the Customize Inspector and right-click Customize…: looks only, and off is the default.",
       "keys": [
         "customize.fromTheApp"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Whether the app shows a toast naming files or layers that change the person's setup: a notice only, it changes nothing; on is the default.",
+      "keys": [
+        "customize.doctorNotice"
       ]
     },
     {
@@ -93,6 +101,7 @@
         "sidebar.side",
         "sidebar.look",
         "sidebar.style",
+        "sidebar.drawnMenus",
         "sidebar.spacesPosition",
         "sidebar.spacesVisibility",
         "tabs.newTabTemplate"
@@ -103,7 +112,12 @@
       "why": "Which New Tab page draws; a look switch, ends no work.",
       "keys": [
         "tabs.nativeNewTabPage",
-        "tabs.newTabApp"
+        "tabs.newTabApp",
+        "tabs.newTabClock.show",
+        "tabs.newTabClock.font",
+        "tabs.newTabClock.weight",
+        "tabs.newTabClock.color",
+        "tabs.newTabClock.date"
       ]
     },
     {
@@ -271,6 +285,7 @@
         "appearance.backgroundBlur",
         "appearance.inactiveWindowDim",
         "appearance.wallpaperTint",
+        "appearance.terminalCellBackgrounds",
         "appearance.background",
         "appearance.backgroundRotation",
         "appearance.backgroundLight",
@@ -317,6 +332,7 @@
         "appearance.titleAreaContrast",
         "appearance.twoTone",
         "appearance.cornerFlush",
+        "appearance.tabShape",
         "appearance.focusIndicator",
         "focus.inactiveTabStyle",
         "ui.animationSpeed",
@@ -375,6 +391,8 @@
         "terminal.fontSize",
         "terminal.term",
         "sidebar.sectionLook",
+        "sidebar.sections.hidden",
+        "sidebar.sections.order",
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",
         "sidebar.pinnedBandsScroll",
@@ -448,6 +466,7 @@
         "notifications.sources.cli.dismissal",
         "notifications.delivery.permissionRequest",
         "notifications.delivery.question",
+        "notifications.delivery.blocked",
         "notifications.delivery.taskComplete",
         "notifications.desktop",
         "notifications.sound",
@@ -470,6 +489,7 @@
         "notifications.attention.showOnTab",
         "notifications.attention.showOnSidebar",
         "notifications.attention.mark",
+        "notifications.toast.style",
         "notifications.attention.moveToTop",
         "notifications.attention.moveToTopOnAgentFinish"
       ]
@@ -484,7 +504,8 @@
     {
       "agent": "settable",
       "keys": [
-        "labs.previewFeatures"
+        "labs.previewFeatures",
+        "labs.appStore"
       ]
     },
     {
@@ -499,9 +520,15 @@
       "why": "Experiments are taste prototypes of how a surface looks (looks only), each off by default.",
       "keys": [
         "experiments.glassToolbarGroups",
+        "experiments.composerButtonsVisible",
         "experiments.composerV2",
+        "experiments.hoverLook",
+        "experiments.seeThroughDock",
+        "experiments.attachmentTypeIcons",
         "experiments.agentBadges",
         "experiments.agentBadgesBeam",
+        "experiments.menuStyleV2",
+        "experiments.menuRowStates",
         "experiments.toastsV2"
       ]
     },
@@ -558,6 +585,13 @@
       "keys": [
         "agentPane.composerLook",
         "agentPane.emptyChatComposerPosition"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "What Return does with a message sent mid-turn (steer or queue): a chat preference a profile or the person's agent may set, like the composer's other choices.",
+      "keys": [
+        "agentPane.followUpMode"
       ]
     },
     {
@@ -695,6 +729,9 @@
         "sidebar.workspaceRow.log",
         "sidebar.workspaceRow.notification",
         "sidebar.workspaceRow.secondLineOrder",
+        "sidebar.workspaceRow.lines",
+        "sidebar.workspaceRow.linesByKind",
+        "sidebar.workspaceRow.linesByAgent",
         "sidebar.workspaceRow.terminal.icon",
         "sidebar.workspaceRow.terminal.directory",
         "sidebar.workspaceRow.terminal.branch",
@@ -795,7 +832,10 @@
         "agentPane.display.fullWidth",
         "agentPane.display.vscodeMinimap",
         "agentPane.display.pinnedPlan",
+        "agentPane.display.environmentCard",
+        "agentPane.display.changesPill",
         "agentPane.display.finishSound",
+        "agentPane.display.sendPop",
         "agentPane.display.trayTucked",
         "agentPane.display.trayHandle",
         "agentPane.display.unreadBanner",
@@ -826,10 +866,15 @@
         "agentPane.display.thinking.shimmerBand",
         "agentPane.display.thinking.jumpButton",
         "agentPane.display.harnessPlacement",
+        "agentPane.display.modelChipIcon",
+        "agentPane.display.queueing",
         "agentPane.display.rail.side",
         "agentPane.display.rail.show",
         "agentPane.display.rail.control",
-        "agentPane.display.commandLabels"
+        "agentPane.display.commandLabels",
+        "agentPane.display.layout.messages",
+        "agentPane.display.layout.composer",
+        "agentPane.display.layout.header"
       ]
     },
     {
@@ -1013,6 +1058,13 @@
       ]
     },
     {
+      "agent": "userOnly",
+      "why": "Whether the person's agent memory (CLAUDE.md, AGENTS.md, skills, Claude's notes) is copied to the cloud: only the person opts in or out; off deletes their cloud copy.",
+      "keys": [
+        "cloud.agentMemory.follow"
+      ]
+    },
+    {
       "agent": "privacy",
       "keys": [
         "agents.chats.roots",
@@ -1039,6 +1091,13 @@
       ]
     },
     {
+      "agent": "userOnly",
+      "why": "Whether a chat writes into the person's own terminal session (its harness runs with that terminal's permissions): theirs to turn on or off.",
+      "keys": [
+        "agents.chats.terminalChatWritable"
+      ]
+    },
+    {
       "agent": "settable",
       "why": "Whether old chats' logs are compressed on disk, and after how long: lossless (opening a chat brings its log back), a local disk policy.",
       "keys": [
@@ -1047,11 +1106,26 @@
       ]
     },
     {
+      "agent": "settable",
+      "why": "Whether a chat's sealed log segments are compressed on disk as it grows, and how hard: lossless (every byte reads back, nothing is removed), a local disk policy.",
+      "keys": [
+        "agents.chats.coldSegments",
+        "agents.chats.coldSegmentsLevel"
+      ]
+    },
+    {
       "agent": "destructive",
       "why": "Machine cleanup removes worktrees and build caches from this Mac's disk: only the person turns it on or off.",
       "keys": [
         "worktrees.autoCleanup",
         "worktrees.cleanBuildCaches"
+      ]
+    },
+    {
+      "agent": "destructive",
+      "why": "Deleting old chats removes their history from this machine for good: only the person sets it.",
+      "keys": [
+        "agents.chats.deleteHistoryAfterDays"
       ]
     },
     {
@@ -1242,8 +1316,9 @@
     },
     {
       "agent": "userOnly",
-      "why": "The app that opens your files from a menu: an agent must not pick what runs them.",
+      "why": "The apps that open your folders and files: an agent must not pick what runs them.",
       "keys": [
+        "editor.default",
         "files.textEditor"
       ]
     },
@@ -1281,6 +1356,13 @@
       "why": "Whether attached photos and videos send their location.",
       "keys": [
         "home.attachments.keepLocation"
+      ]
+    },
+    {
+      "agent": "privacy",
+      "why": "Whether cmux reads the person's clipboard for the Chief's + menu.",
+      "keys": [
+        "home.clipboardHistory"
       ]
     },
     {
@@ -1356,9 +1438,23 @@
     },
     {
       "agent": "userOnly",
+      "why": "On, new Codex chats run the binary in cmux's bundle folder instead of the installed CLI: only the person turns that on.",
+      "keys": [
+        "labs.bundledCodexAppServer"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "On, Settings shows and edits Claude Code's and Codex's own settings, MCP servers, skills, commands and hooks in their own config files: only the person turns that on.",
       "keys": [
         "labs.agentCustomization"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Whether the Rex-style Hosts section is visible in the sidebar: the person decides when this preview surface appears.",
+      "keys": [
+        "labs.hostsSidebar"
       ]
     },
     {
@@ -1416,6 +1512,13 @@
       ]
     },
     {
+      "agent": "network",
+      "why": "Live background updates download and run new daemon binaries from files.cmux.com.",
+      "keys": [
+        "updates.daemon"
+      ]
+    },
+    {
       "agent": "userOnly",
       "why": "How long a nightly waits before it restarts into an update: the person's call.",
       "keys": [
@@ -1452,6 +1555,13 @@
       ]
     },
     {
+      "agent": "privacy",
+      "why": "Whether this Mac and the person's Cloud machines send cmux which packages agents install: the person's choice only.",
+      "keys": [
+        "diagnostics.shareInstallCounts"
+      ]
+    },
+    {
       "agent": "userOnly",
       "why": "What a new chat may do without asking: an agent must not widen its own approvals.",
       "keys": [
@@ -1462,7 +1572,16 @@
       "agent": "userOnly",
       "why": "Whether cmux adds its tools to the person's own coding agents (their config files and each terminal launch): the onboarding step asks the person, and only the person answers; an agent must not grant itself or other agents cmux's tools.",
       "keys": [
-        "agents.cmuxMcp"
+        "agents.cmuxMcp",
+        "agents.cmuxMcpClaude",
+        "agents.cmuxMcpCodex"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Whether agents may change the app or only read it: the person's switch over every agent, so an agent must not widen (or even change) it.",
+      "keys": [
+        "agents.appControl"
       ]
     },
     {
@@ -1485,7 +1604,8 @@
         "computerUse.cursorTag",
         "computerUse.settle",
         "computerUse.livePreview",
-        "computerUse.menus"
+        "computerUse.menus",
+        "computerUse.whileLocked"
       ]
     },
     {
@@ -1606,6 +1726,13 @@
       ]
     },
     {
+      "agent": "network",
+      "why": "Which computers cmux dials over ssh and checks from the sidebar: the person declares a host, so an agent cannot point cmux at an address of its choosing.",
+      "keys": [
+        "machines.hosts"
+      ]
+    },
+    {
       "agent": "userOnly",
       "keys": [
         "phone.keepAwake"
@@ -1624,6 +1751,13 @@
       "why": "On, a phone signed in to the same account can open this Mac's terminals and agents.",
       "keys": [
         "mobile.allowIPhoneConnections"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "On, a new phone on the same account reaches this Mac's terminals and agents without the person's Allow.",
+      "keys": [
+        "mobile.autoApprovePhones"
       ]
     },
     {
@@ -1664,9 +1798,25 @@
     },
     {
       "agent": "userOnly",
+      "why": "Bounds how long an agent's share of this Mac lasts with no viewer; an agent never lengthens its own window.",
+      "keys": [
+        "remote.agentShareIdleMinutes"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "Always spends about 2 to 3 times the data on every remote connection, and Off gives up loss protection; only the person picks it.",
       "keys": [
         "remote.ultra"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Where a new Screen Sharing session's quality, frame rate and bitrate start; the toolbar still changes each session.",
+      "keys": [
+        "remoteDesktop.quality",
+        "remoteDesktop.maxFps",
+        "remoteDesktop.maxBitrateMbps"
       ]
     },
     {
@@ -1779,6 +1929,13 @@
       "why": "Which of the person's own connections a thread may move to when one runs out: it adds no connection and spends nothing past a connection's own limit.",
       "keys": [
         "models.spreadUsage"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Saved prompts are the person's own words, sent to agents as prompts; an agent does not write them.",
+      "keys": [
+        "agentPane.savedPrompts"
       ]
     }
   ]

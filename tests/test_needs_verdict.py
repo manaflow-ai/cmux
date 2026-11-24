@@ -82,7 +82,6 @@ NOT_MERGE_GATES = {
     ("nightly.yml", "prepare-nightly-variant"): "nightly, not a merge gate",
     ("nightly.yml", "publish-nightly"): "nightly, not a merge gate",
     ("nightly.yml", "report-nightly-failure"): "nightly report, not a merge gate",
-    ("sdk-release-cut.yml", "summarize"): "release cut, not a merge gate",
     ("stable-next.yml", "report"): "stable release report, not a merge gate",
 }
 
@@ -252,7 +251,7 @@ def rule_jobs():
 
 
 WEB_SCOPE = {"result": "success", "outputs": {name: "true" for name in (
-    "db", "diff_sidecar", "instant", "production_build", "react_apps", "typecheck", "unit_tests")}}
+    "db", "diff_sidecar", "instant", "production_build", "react_apps", "agent_pane", "typecheck", "unit_tests")}}
 # For every rule job: the step's env with one needed job abandoned and another failed. The failure wins: exit 1.
 MIXED = {
     ("ios-reliability-matrix.yml", "report", "Matrix table"): {"PROTOCOL_RESULT": "abandoned", "IOS_RESULT": "failure"},

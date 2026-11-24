@@ -4,6 +4,7 @@ import * as automation from "./automation";
 import type { AcpmuxRow } from "./model";
 import type { PermissionDecision } from "./permissions/protocol";
 import { acpmuxPerf, frameStats, isBlank, median, round2, typingSummary } from "./perf";
+import { chatSnapshotTimes } from "./chatSnapshot/live";
 import { openPicker, pickerLabels } from "./pickerOpeners";
 import { takeNativePosts } from "./native";
 import type { StreamOptions } from "./streamDebug";
@@ -351,7 +352,8 @@ export function createAcpmuxDebug(
         ...acpmuxPerf.stats(options.raw === true),
         agent: acpmuxPerf.agentLatency(),
         start_state_shown: acpmuxPerf.startStateShown() ?? null,
-        launch: acpmuxPerf.launchTimeline(),
+        start_state_trail: acpmuxPerf.startStateTrail(),
+        launch: { ...acpmuxPerf.launchTimeline(), ...copyTimeline() },
       };
     },
 
@@ -607,4 +609,14 @@ function summaryCardState() {
       current: row.getAttribute("aria-current") === "true",
     })),
   };
+}
+
+/// When this document drew the chat's saved copy and when the live page took over from it, on the wall clock
+/// (`perf_stats` `launch`, beside the page's launch marks): the relaunch bench's `copyPainted` and `copySwapped`.
+function copyTimeline(): Record<string, number> {
+  const times = chatSnapshotTimes();
+  if (!times || !Number.isFinite(performance.timeOrigin)) return {};
+  const out: Record<string, number> = { copyPainted_epoch_ms: Math.round(performance.timeOrigin + times.painted_ms) };
+  if (times.swapped_ms !== null) out.copySwapped_epoch_ms = Math.round(performance.timeOrigin + times.swapped_ms);
+  return out;
 }

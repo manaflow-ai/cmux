@@ -147,7 +147,7 @@ pub fn parse_token_text(text: &str) -> Result<String> {
 
 fn origin(value: Option<String>) -> Result<String> {
     let value = value
-        .or_else(|| std::env::var("CMUX_PLATFORM_ORIGIN").ok())
+        .or_else(cmux_cloud_client::backend::platform_origin_env)
         .unwrap_or_else(|| DEFAULT_HUB.to_owned());
     let parsed =
         reqwest::Url::parse(value.trim()).map_err(|_| anyhow!("hub origin is malformed"))?;
@@ -313,6 +313,20 @@ fn active_join_at(home: &std::path::Path) -> Option<MachineCredential> {
     Some(record)
 }
 
+/// This box's node key as its hub knows it (`wgPublicKey`, the hub's `daemonId`), for a join
+/// [`joined_device_at`] counts as live: the route another machine of the account dials this one
+/// by (`--via-machine KEY`). A cmux Remote invitation carries it (`via_machine`), so redeeming one
+/// elsewhere needs no key passed by hand. None for a box that is not joined.
+pub fn joined_node_key_at(home: &std::path::Path) -> Option<String> {
+    joined_device_at(home)?;
+    let key = load_at(home).ok().flatten()?.wg_public_key;
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD
+        .decode(&key)
+        .is_ok_and(|bytes| bytes.len() == 32)
+        .then_some(key)
+}
+
 /// [`copied_from_another_box_at`], as the box whose fingerprint is `current`. A record that
 /// cannot be read counts as no join (the daemon's own check reports it).
 ///
@@ -420,16 +434,22 @@ fn configure_mesh_relay_at(config_path: &std::path::Path, hub: &str) -> Result<(
     config.save_with_writer(|path, bytes| recovery::write_durable(path, bytes, true))
 }
 
-/// Adds the `sameUser` entry to a joined `meshRelay` that has none. True when it changed
-/// config.json. A relay that is not the join's, or none, is left alone.
+/// Adds the `sameUser` entry to a joined `meshRelay` that has none, or marks the one an older
+/// join wrote with its `maxPolicy` ([`upgrade_join_entries`]). True when it changed config.json.
+/// A relay that is not the join's, or none, is left alone.
 fn add_same_user_control() -> Result<bool> {
     let _lock = join_lock()?;
     let mut config = crate::config::Config::load()?;
     let Some(relay) = config.mesh_relay.as_mut() else { return Ok(false) };
-    if relay.credential.as_deref() != Some("join")
-        || relay.control_from.iter().any(|entry| entry.same_user)
-    {
+    if relay.credential.as_deref() != Some("join") {
         return Ok(false);
+    }
+    let upgraded = upgrade_join_entries(&mut relay.control_from);
+    if relay.control_from.iter().any(|entry| entry.same_user) {
+        if upgraded {
+            config.save_with_writer(|path, bytes| recovery::write_durable(path, bytes, true))?;
+        }
+        return Ok(upgraded);
     }
     // Only the entry is added; every other relay setting stays as the owner left it.
     relay.control_from.push(crate::mesh_http::MeshControlFrom::same_user());
@@ -443,10 +463,23 @@ fn joined_control_from(
     previous: Option<crate::mesh_http::MeshRelayConfig>,
 ) -> Vec<crate::mesh_http::MeshControlFrom> {
     let mut control_from = previous.map(|relay| relay.control_from).unwrap_or_default();
+    upgrade_join_entries(&mut control_from);
     if !control_from.iter().any(|entry| entry.same_user) {
         control_from.push(crate::mesh_http::MeshControlFrom::same_user());
     }
     control_from
+}
+
+/// The `sameUser` entry an older join wrote (no `maxPolicy`, untouched by its owner) becomes
+/// the one a join writes now, so the person's own machines keep starting chats on each other in
+/// the policy they name. An entry the owner changed keeps its choice. True when one changed.
+fn upgrade_join_entries(control_from: &mut [crate::mesh_http::MeshControlFrom]) -> bool {
+    let mut changed = false;
+    for entry in control_from.iter_mut().filter(|entry| entry.is_unmarked_join_entry()) {
+        *entry = crate::mesh_http::MeshControlFrom::same_user();
+        changed = true;
+    }
+    changed
 }
 
 fn mesh_relay_configured() -> bool {
@@ -480,6 +513,18 @@ pub(crate) fn identity() -> Result<Option<MachineIdentity>> {
 /// A stored hub origin, checked as `host join` checks it.
 pub(crate) fn hub_origin(value: &str) -> Result<String> {
     origin(Some(value.to_owned()))
+}
+
+/// The person a cmux access token acts for (its `sub` claim, unverified: the hub checks the
+/// token itself), as a safe id, for `host enroll-self --user-id` (`cmux device add` joins the Mac
+/// that ran it as that person). None for a token that is no JWT or names no one.
+pub fn access_token_user(token: &str) -> Option<String> {
+    sent_credential::user(token).and_then(|user| safe_id(&user))
+}
+
+/// `value`, else `CMUX_PLATFORM_ORIGIN`, else production, checked as `host join` checks it.
+pub(crate) fn hub_origin_or_default(value: Option<String>) -> Result<String> {
+    origin(value)
 }
 
 /// The relay client reads the joined bearer in-process from the owner-only store.
@@ -783,7 +828,7 @@ pub(crate) fn hub_client(hub: &str, bearer: Option<&str>) -> Result<cmux_cloud_c
 
 pub(crate) fn http_client() -> Result<reqwest::Client> {
     let _ = rustls::crypto::ring::default_provider().install_default();
-    reqwest::Client::builder()
+    crate::happy_dial::http_client()
         .default_headers(cmux_build_space::headers()?)
         .redirect(reqwest::redirect::Policy::none())
         .timeout(std::time::Duration::from_secs(10))
@@ -1399,6 +1444,17 @@ mod tests {
         let previous =
             MeshRelayConfig { control_from: vec![narrowed.clone()], ..Default::default() };
         assert_eq!(super::joined_control_from(Some(previous)), vec![narrowed]);
+        // The entry an older join wrote (no `maxPolicy`) becomes today's; one with a cap the
+        // owner chose keeps it.
+        let unmarked = MeshControlFrom { max_policy: None, ..MeshControlFrom::same_user() };
+        let previous = MeshRelayConfig { control_from: vec![unmarked], ..Default::default() };
+        assert_eq!(super::joined_control_from(Some(previous)), vec![MeshControlFrom::same_user()]);
+        let capped = MeshControlFrom {
+            max_policy: Some(crate::config::PermissionPolicy::Ask),
+            ..MeshControlFrom::same_user()
+        };
+        let previous = MeshRelayConfig { control_from: vec![capped.clone()], ..Default::default() };
+        assert_eq!(super::joined_control_from(Some(previous)), vec![capped]);
     }
 
     #[test]
