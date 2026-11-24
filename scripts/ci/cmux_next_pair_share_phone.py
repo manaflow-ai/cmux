@@ -108,6 +108,15 @@ class PairInputProbe:
 RD_METER_LINE = re.compile(r"[0-9]+(?:\.[0-9]+)? fps · [0-9]+ kbps")
 
 
+def screen_sharing_page_state(nodes):
+    """What the Screen Sharing list showed, in fixed words (no Mac names or ids): its state row
+    (finding, failed, empty) and how many Mac rows it drew."""
+    identifiers = {str(node.get(key, "")) for node in nodes for key in ("AXIdentifier", "AXUniqueId")}
+    states = [state for state in ("finding", "failed", "empty") if f"screenSharing.{state}" in identifiers]
+    rows = sum(1 for identifier in identifiers if identifier.startswith("screenSharing.device."))
+    return f"page state: {', '.join(states) or 'none'}; Mac rows: {rows}"
+
+
 class PairSharePhone(ScreenProofPhone):
     """Drive the phone's real Settings > Screen Sharing flow."""
 
@@ -125,12 +134,16 @@ class PairSharePhone(ScreenProofPhone):
                         "-cmux-mobile-browser-meter"])
 
     def request_share(self, name, device_id):
-        exact_id = "screenSharing.device." + device_id
+        # The hub and the share host may spell the same id in different case; the phone itself
+        # compares ids lowercased (ScreenSharingService).
+        exact_id = ("screenSharing.device." + device_id).lower()
         deadline = time.monotonic() + 90
         row = None
+        nodes = []
         while time.monotonic() < deadline:
-            matches = self.ui.find(lambda node: (node.get("AXIdentifier") == exact_id
-                                                 or node.get("AXUniqueId") == exact_id))
+            nodes = self.ui.find(lambda node: True)
+            matches = [node for node in nodes if exact_id in (str(node.get("AXIdentifier", "")).lower(),
+                                                              str(node.get("AXUniqueId", "")).lower())]
             if len(matches) > 1:
                 raise PairShareFailure("ambiguous Mac row")
             if matches:
@@ -139,7 +152,7 @@ class PairSharePhone(ScreenProofPhone):
             self.ui.run(["axe", "gesture", "scroll-up", "--udid", self.ui.udid], check=False)
             time.sleep(1)
         if row is None:
-            raise PairShareFailure("the rig Mac row was not visible")
+            raise PairShareFailure(f"the rig Mac row was not visible ({screen_sharing_page_state(nodes)})")
         self.ui.tap(row)
         title = f"{name} isn't sharing its screen"
         self.ui.control(lambda node: node.get("type") == "StaticText"

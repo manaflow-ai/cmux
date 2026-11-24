@@ -644,6 +644,9 @@ def run_pair(a, note, share):
             finally:
                 try:
                     host.leave()
+                except RuntimeError as error:
+                    # A failed revoke leaves a staging enrollment behind; say so, keep the share result.
+                    note(f"- share host leave: {error}")
                 finally:
                     teardown.end()
                     shutil.rmtree(rig, ignore_errors=True)  # the settings and credential files
