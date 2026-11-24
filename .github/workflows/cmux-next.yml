@@ -2497,8 +2497,22 @@ jobs:
         id: web-bundle-key
         run: echo "key=$(python3 scripts/cmux-next/web-bundle-key.py . --source)" >> "$GITHUB_OUTPUT"
 
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-556
+      - name: Look up the web bundles in R2
+        id: web-bundle-r2
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          CI_CACHE_R2_NAMESPACE: any
+        with:
+          backend: r2
+          path: web-bundles-out
+          key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
+
       - name: Look up the cached web bundles
         id: web-bundle-cache
+        if: ${{ steps.web-bundle-r2.outputs.cache-hit != 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: web-bundles-out
@@ -2507,18 +2521,18 @@ jobs:
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-176
       - name: Cache the webviews Bun package cache
-        if: steps.web-bundle-cache.outputs.cache-hit != 'true'
+        if: steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
           key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
 
       - name: Build the web bundles for this source key
-        if: steps.web-bundle-cache.outputs.cache-hit != 'true'
+        if: steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
         run: scripts/cmux-next/build-web-bundles.sh --out-root "$GITHUB_WORKSPACE/web-bundles-out"
 
       - name: Cache the web bundles under this source key
-        if: steps.web-bundle-cache.outputs.cache-hit != 'true'
+        if: steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: web-bundles-out
@@ -2527,7 +2541,7 @@ jobs:
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-398
       - name: Hand the web bundles to this run's Mac jobs
-        if: ${{ !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') }}
+        if: ${{ steps.web-bundle-r2.outputs.cache-hit != 'true' && !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') }}
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -2539,7 +2553,7 @@ jobs:
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-399
       - name: Publish the web bundles to R2 (feat-cmux-next push)
-        if: ${{ github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+        if: ${{ steps.web-bundle-r2.outputs.cache-hit != 'true' && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
         continue-on-error: true
         uses: ./.github/actions/cache-save
         env:
