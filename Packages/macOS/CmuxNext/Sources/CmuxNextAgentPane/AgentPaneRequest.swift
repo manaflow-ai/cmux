@@ -21,11 +21,6 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// with an owner): that daemon stops, keeping its sessions, and the page's next handshake
     /// starts this app's own. Only with a real gesture; answers `{stopped}`.
     case restartAcpmux
-    /// `acpmux.restartStuck {}`: the waiting line's "Restart agent service", while the page's
-    /// handshake waits for this app's own acpmux (``AgentPaneHostProviding/restartStuckAcpmux(sessionId:)``):
-    /// that daemon stops, keeping its sessions, and the page's next handshake starts a new one.
-    /// Only with a real gesture; answers `{stopped}`.
-    case restartStuckAcpmux
     /// The page switched to or created `sessionId`; the host keeps it so a
     /// reload or relaunch of the pane shows the same session.
     case persistSession(String)
@@ -109,8 +104,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// tab still shows it. `environment`: New Cloud Machine's Cloud environment (`env_…`), from the
     /// composer's Environment chip; its setup dialog starts on that environment. `handoff`: New Cloud
     /// Chat's one-time token from the page (`/side --on cloud`), handed to the tab it opens. `app`: the editor id
-    /// a folder action (``AgentPaneModel/folderActions``) opens in, from the page's Open In ▸.
-    case runAction(String, session: String? = nil, environment: String? = nil, handoff: String? = nil, app: String? = nil)
+    /// a folder action (``AgentPaneModel/folderActions``) opens in, from the page's Open In ▸. `repo` and
+    /// `returnTo`: Connect GitHub's (`accounts.githubConnect`) from a chat's card, the failed call's
+    /// `OWNER/REPO` and the chat's own link, each dropped when malformed.
+    case runAction(String, session: String? = nil, environment: String? = nil, handoff: String? = nil, app: String? = nil,
+                   repo: String? = nil, returnTo: String? = nil)
     /// `editors.list`: the code editors installed on this Mac, the default first (the page's Open In ▸ submenus).
     case editorsList
     /// The new-tab project picker asked for the explicit Browse… fallback.
