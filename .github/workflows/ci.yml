@@ -156,7 +156,13 @@ jobs:
       # 'false' only when the PR diff was read and touches no GhosttyKit provenance input;
       # empty (unknown) keeps the release check's full download.
       ghosttykit_provenance_changed: ${{ steps.ghosttykit_provenance.outputs.changed }}
-      ghosttykit_release: ${{ steps.unchanged_inputs.outputs.compile_admitted == 'true' && 'false' || steps.linux_guards.outputs.ghosttykit_release }}
+      # A pull request into feat-cmux-next that changes no GhosttyKit provenance input does not run
+      # the release check: it checks the pinned archive, which is base's and unchanged, so its
+      # reds there were never the PR's own (0 of 392 red runs, 2026-11-16..24; the reds were
+      # download and GitHub stalls). It still runs when the PR changes the pin, under full-ci,
+      # on main PRs, and every feat-cmux-next push and nightly still downloads and checks the
+      # pinned archive (cmux-next.yml, nightly.yml, seed-derived-data.yml).
+      ghosttykit_release: ${{ (steps.unchanged_inputs.outputs.compile_admitted == 'true' || (github.event_name == 'pull_request' && startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') && !contains(github.event.pull_request.labels.*.name, 'full-ci') && steps.ghosttykit_provenance.outputs.changed == 'false')) && 'false' || steps.linux_guards.outputs.ghosttykit_release }}
       full_suite: ${{ steps.next-route.outputs.full_suite || steps.suite.outputs.full_suite }}
       compile_admitted: ${{ steps.unchanged_inputs.outputs.compile_admitted == 'true' && 'true' || steps.admitted.outputs.compile_admitted }}
       source_parent1: ${{ steps.source-identity.outputs.parent1 }}

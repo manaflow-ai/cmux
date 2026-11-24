@@ -206,7 +206,7 @@ async fn authorize(
     let url = format!("{}/v1/triggers/{trigger}/authorize", environment.platform_origin());
     let space = cmux_build_space::headers()
         .map_err(|e| RpcError::new(-32001, format!("trigger authorization unavailable: {e}")))?;
-    let client = reqwest::Client::builder()
+    let client = crate::happy_dial::http_client()
         .default_headers(space)
         .https_only(true)
         .no_proxy()
