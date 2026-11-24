@@ -18,6 +18,8 @@ Moved here from the root CLAUDE.md on 2026-11-19 (docs audit); the root keeps a 
 - **Agents never compile or test on the person's Mac.** No local `swift build`/`swift test`,
   `xcodebuild build|test`, `cargo build|test|clippy` or `scripts/reload.sh`: run them as a
   fleet step (`cmux-ci run --class CLASS --script ... --ref SHA`, `cmux-ci build cmux --ref SHA`).
+  Before any `cmux-ci build cmux`, a web or daemon change goes into a copy of the NIGHTLY instead:
+  `cmux app try .` (off a Mac `cmux-ci hot-verify N --look`); build when `hot-verify.py plan` says one is needed.
   CLASS is the script's own class: `light` for Swift suites (`scripts/ci/package-test-lane.sh`,
   `run-swift-testing-suites.sh`), lints and the Rust check; `isolated` only for the scripts that
   say so. Any other class is refused with `runs as class X` and no step is made.
