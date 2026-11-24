@@ -637,6 +637,11 @@ jobs:
           CMUX_REAL_ACPMUX: "1"
           CMUX_BROWSER_TESTS: "1"
           FAST_CHECKS_OUT: ${{ runner.temp }}/agent-pane-real-acpmux
+          # Both files share one cache of the React Compiler's output (reactCompiler.mjs), as
+          # scripts/ci/run-webviews-tests.sh gives every other web file: without it each file's Vite
+          # compiles the pane again (cold warm-up 37-60 s on a 16-core VM, past warmDevServer's 100 s
+          # on a busy runner), and with it the second file warms in about 10 s.
+          CMUX_VITE_TRANSFORM_CACHE: ${{ runner.temp }}/vite-transforms
         run: |
           status=0
           for file in test/agent-pane-new-chat-settles.test.ts test/agent-pane-picks-hold.test.ts; do
