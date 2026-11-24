@@ -177,3 +177,23 @@ test("the page asks the host for the repository's checkout and worktree in one c
   expect(result.root).toBe("/Users/me/.cmux/worktrees/api/lane");
   expect(used).toEqual(["/Users/me/.cmux/worktrees/api/lane"]);
 });
+
+test("a repository picked with This Mac picked waits on the chip by its name, not cloning yet (cmux#53226)", async () => {
+  const { picker } = store();
+  const { root } = await render({ pendingRepository: "acme/web" }, picker);
+  try {
+    const chip = doc().querySelector<HTMLElement>(".acpmux-location-button [data-pending-repository]");
+    expect(chip?.textContent?.trim()).toBe("acme/web");
+    expect(doc().querySelector(".acpmux-location-button")?.getAttribute("title")).toBe("acme/web");
+  } finally {
+    await act(async () => root.unmount());
+  }
+  // While its checkout runs, the chip says so instead.
+  const cloning = await render({ pendingRepository: "acme/web", cloningRepository: "acme/web" }, picker);
+  try {
+    expect(doc().querySelector("[data-pending-repository]")).toBeNull();
+    expect(doc().querySelector(".acpmux-source-cloning")?.textContent).toContain("acme/web");
+  } finally {
+    await act(async () => cloning.root.unmount());
+  }
+});

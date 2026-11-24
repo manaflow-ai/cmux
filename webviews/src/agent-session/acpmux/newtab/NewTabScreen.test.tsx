@@ -2930,6 +2930,10 @@ test("with This Mac picked a GitHub repository's pick checks nothing out; Return
   // Return checks it out here and holds the prompt until the checkout lands.
   expect(worktrees).toEqual([["github:acme/api", { repo: "acme/api", candidates: [] }]]);
   expect(asks).toEqual([]);
+  // A second Return while it clones starts no second checkout.
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  await settle();
+  expect(worktrees.length).toBe(1);
   await act(async () => land("/Users/you/.cmux/worktrees/api/lane"));
   await settle();
   await settle();

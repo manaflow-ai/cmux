@@ -50,6 +50,7 @@ export function FolderPopover({
   extra,
   sources,
   cloningRepository,
+  pendingRepository,
 }: {
   label: string;
   /// The name automation opens it by (`openPicker`).
@@ -73,6 +74,8 @@ export function FolderPopover({
   /// New-chat project sources. Other consumers open directly on the folder list.
   sources?: SourcePickerOptions;
   cloningRepository?: string;
+  /// A GitHub repository picked with This Mac picked, not checked out yet: Return checks it out (cmux#53226).
+  pendingRepository?: string;
 }) {
   const t = useT();
   const [query, setQuery] = useState("");
@@ -502,13 +505,17 @@ export function FolderPopover({
         aria-label={label}
         // tooltip-allow: the fixed footer column may truncate a long folder name; with none picked the
         // tooltip names the control, so its key (data-tooltip-shortcut) still shows.
-        title={current || label}
+        title={pendingRepository || current || label}
         data-tooltip-shortcut={shortcut}
         {...press}
       >
         {cloningName ? (
           <span className="acpmux-source-cloning">
             <GitHubGlyph /> {cloningName} · {t("source.url.cloning")}
+          </span>
+        ) : pendingRepository ? (
+          <span className="acpmux-source-cloning" data-pending-repository="">
+            <GitHubGlyph /> {pendingRepository}
           </span>
         ) : (
           face
