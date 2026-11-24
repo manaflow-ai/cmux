@@ -7,16 +7,15 @@
       "shot": false
     },
     {
-      "title": "Settings > Experimental: today's switches (Glass Controls off)",
+      "title": "Settings > Experimental > Labs: the Glass Controls row, today's switches (Glass Controls off)",
       "cmux": [
         "action",
         "run",
         "openSettings",
-        "--arg",
-        "setting=appearance.glassControls"
+        "--setting",
+        "appearance.glassControls"
       ],
-      "wait": 4,
-      "optional": "Settings may open on another section"
+      "wait": 4
     },
     {
       "title": "Glass Controls on: the switch knobs turn to glass",
@@ -44,11 +43,22 @@
         "action",
         "run",
         "openSettings",
-        "--arg",
-        "setting=appearance.backgroundOpacity"
+        "--setting",
+        "appearance.backgroundOpacity"
       ],
       "wait": 4,
       "optional": "Settings may open on another section"
+    },
+    {
+      "title": "Back to Settings > Experimental > Labs: the glass knobs on the Glass Controls and Experimental Appearance Controls switches",
+      "cmux": [
+        "action",
+        "run",
+        "openSettings",
+        "--setting",
+        "appearance.glassControls"
+      ],
+      "wait": 3
     },
     {
       "title": "Glass Controls off again: today's controls exactly",
