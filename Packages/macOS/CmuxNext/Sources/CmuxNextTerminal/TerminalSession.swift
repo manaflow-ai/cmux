@@ -190,7 +190,8 @@ public final class TerminalSession {
     public init(io: any TerminalIO, ownsGeometry: Bool = true, blankClock: any Clock<Duration> = ContinuousClock(),
                 historyFind: (any TerminalFindHistory)? = nil) {
         self.io = io
-        self.historyFind = historyFind
+        // Settings > Experiments > Terminal History Find, off by default (Leo's UI hold, 2026-11-24): off keeps Ghostty's screen search.
+        self.historyFind = DesignSettings.shared.experiment("terminalHistoryFind") ? historyFind : nil
         blankWatch = TerminalBlankWatch(clock: blankClock)
         self.ownsGeometry = ownsGeometry
         ioMode = io.answersTerminalQueries ? GHOSTTY_SURFACE_IO_MANUAL_MIRROR : GHOSTTY_SURFACE_IO_MANUAL

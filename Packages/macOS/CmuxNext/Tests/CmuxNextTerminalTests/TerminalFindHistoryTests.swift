@@ -68,13 +68,15 @@ struct TerminalFindHistoryTests {
         let history = ScriptedHistory(pages: [
             TerminalFindPage(matches: [], nextBefore: nil, epoch: 1, invalidPattern: "unclosed group", columns: 80),
         ])
-        let find = TerminalFindController(target: FakeTarget(history: history))
+        let target = FakeTarget(history: history) // the controller holds its target weakly
+        let find = TerminalFindController(target: target)
         find.open()
         find.setOption(\.regex, true)
         find.updateQuery("(")
         await Self.until { find.invalidPattern != nil }
         #expect(find.count == .invalidPattern("unclosed group"))
         #expect(history.requests.first?.options.regex == true)
+        withExtendedLifetime(target) {}
     }
 
     /// The live case: 150 lines of output, "needle" on the sixth, far above the screen. The history
@@ -97,6 +99,8 @@ struct TerminalFindHistoryTests {
         await Self.until { session.find.total == 1 }
         #expect(session.find.count == .position(1, of: 1))
         #expect(TerminalSelection.read(session.surfaceView.surface)?.text == "needle", "the match was not selected")
+        // Ghostty reports the scrolled viewport on a later main-actor pass.
+        await Self.until { (session.togglePlaceViewport()?.top ?? screenTop) < screenTop }
         let top = try #require(session.togglePlaceViewport()).top
         #expect(top < screenTop && top <= 5, "the view did not scroll up to the match (top \(top), was \(screenTop))")
     }
