@@ -28,9 +28,9 @@ fn fresh_name() -> String {
 }
 
 fn is_reserved_name(name: &str) -> bool {
-    name.len() == 33
-        && name.starts_with('r')
-        && name[1..].bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    name.strip_prefix('r').is_some_and(|hex| {
+        hex.len() == 32 && hex.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    })
 }
 
 fn private_dir(path: &Path) -> bool {
