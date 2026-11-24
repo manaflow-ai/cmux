@@ -1,5 +1,12 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-24 (ui/updated-card-slot): Sidebar-Look: Lucas, 2026-11-24: "we also want to fix this interim state after
+  you press "Install update" and the old card still shows and overlaps". When another card takes the bottom slot, the
+  card that leaves goes in the same frame, also mid-exit (`SidebarCardPresence.hideAtOnce`). Before, the download's
+  notice stayed half drawn under the Update Ready card: each progress change showed it again, which cancelled its
+  exit, and the next layout started a new one. A card that leaves an empty slot keeps its exit.
+  Regression: `SidebarCardPresenceHideAtOnceTests`.
+
 - 2026-11-23: Restore Automatic as the default for `sidebar.groupHeader.background` after Lawrence asked who
   changed how groups look. A group opens with its visible header band and member rail. Folders and the six
   other alternatives remain available to people who choose them. Regression: `SidebarGroupBackgroundSettingTests`,

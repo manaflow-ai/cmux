@@ -121,11 +121,19 @@ struct SidebarBottomCardSlot {
         } else {
             updated.frame = .zero
         }
-        // A card playing its exit (``SidebarCardPresence``) keeps its place until it has gone.
+        // A card playing its exit (``SidebarCardPresence``) keeps its place until it has gone, unless
+        // another card takes that place: then it goes at once, so the two never draw over each other.
+        // The download's notice under the Update Ready card stayed half shown: each progress change
+        // showed it again (its configure), which cancelled its exit, and the next layout started a new one.
+        if let shown, shown != .update, update.isLeaving { update.presence.hideAtOnce() }
         if shown == .update || !update.isLeaving {
             update.frame = frame(.update, height: update.card.map(SidebarUpdateCardView.height(for:)) ?? 0)
         }
-        notice.presence.setShown(shown == .notice)
+        if let shown, shown != .notice {
+            notice.presence.hideAtOnce()
+        } else {
+            notice.presence.setShown(shown == .notice)
+        }
         if shown == .notice || !notice.isLeaving {
             notice.frame = frame(.notice, height: notice.notice.map { notice.height(for: $0, width: width) } ?? 0)
         }
