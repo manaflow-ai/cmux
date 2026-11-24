@@ -333,6 +333,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                             launch.reuse,
                             interactive,
                             args.host.is_none(),
+                            args.host
+                                .as_deref()
+                                .is_some_and(|host| host.eq_ignore_ascii_case("auto")),
                         ),
                     )
                     .await?
@@ -361,6 +364,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             if let Some(h) = &host {
                 meta["peer"] = json!(h);
+            }
+            if placed {
+                meta["autoPlace"] = json!(true);
             }
             if args.force_admit {
                 meta["forceAdmit"] = json!(true);
