@@ -303,6 +303,8 @@ pub(super) struct Inner {
     pub pages: super::page_calls::Pages,
     /// The widget layout and its replayed edits (`widgets.rs`).
     pub widgets: super::widgets::WidgetState,
+    /// Extension signal sources' last values and floors (`signal_sources.rs`).
+    pub signal_sources: super::signal_sources::SignalSources,
 }
 
 /// Work to do after the lock is released. Messages to hosts are not in this
@@ -344,6 +346,9 @@ pub struct Supervisor {
     /// `net.fetch {cache: "shared"}`: one cache per URL for every app
     /// (`http_cache.rs`, the `http.json` signal source).
     pub(super) http_cache: super::http_cache::HttpCache,
+    /// `cmux.watch` sources the daemon reads, one entry per (source, params) for every app
+    /// (`signals_cache.rs`, `supervisor_signals.rs`). Taken after `inner`, never before.
+    pub(super) signals: Mutex<super::supervisor_signals::Cache>,
     /// The App Store's Community source (`community.rs`), made on first use.
     pub(super) community: OnceLock<Arc<super::community::Community>>,
     pub(super) storage: Mutex<Option<Storage>>,
@@ -496,12 +501,14 @@ impl Supervisor {
                 ladders: HashMap::new(),
                 pages: Default::default(),
                 widgets: Default::default(),
+                signal_sources: Default::default(),
             }),
             config,
             router,
             fetcher,
             github: OnceLock::new(),
             http_cache: super::http_cache::HttpCache::default(),
+            signals: Mutex::default(),
             community: OnceLock::new(),
             storage: Mutex::new(None),
             timers: Timers::default(),
@@ -548,6 +555,7 @@ impl Supervisor {
             inner.sinks.remove(&client);
             inner.pages.client_gone(client);
             let mut provider_outs = self.provider_disconnect_locked(&mut inner, client);
+            provider_outs.extend(self.external_disconnect_locked(&mut inner, client));
             provider_outs.extend(self.cancel_client_locked(&mut inner, client));
             for set in inner.followers.values_mut() {
                 set.remove(&client);
@@ -692,7 +700,9 @@ impl Supervisor {
                 if let Some(storage) = self.storage().as_ref() {
                     let _ = storage.clear(app);
                 }
+                inner.signal_sources.forget_app(app);
                 self.remove_server_dirs(app);
+                self.remove_server_credential(app);
                 vec![]
             }
             Effect::StopHost(app) => {

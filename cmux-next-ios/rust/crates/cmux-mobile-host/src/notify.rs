@@ -7,6 +7,9 @@
 //! pushes it to the owner's phones. Terminal notifications (OSC 9, 777, 99,
 //! `cmux notify`, agent hooks in a terminal) come from the daemon
 //! (`notify_terminal.rs`). `CMUX_MOBILE_PUSH=0` turns both off.
+//! `CMUX_MOBILE_PUSH_WHEN_AWAY=1` keeps what the Mac shows itself (finished
+//! and failed turns, Chief replies, terminal notifications) off the phones
+//! while the person is at the Mac; asks always go (`presence.rs`).
 //!
 //! Content (changed in API 0.13.0 by the person's decision, rich
 //! notifications): each event carries what a person needs to act on it from
@@ -510,6 +513,14 @@ impl Reporter {
     pub fn send(&self, event: NotifyEvent) {
         if !self.wants(&event.kind) {
             return tracing::debug!(kind = event.kind, "push skipped: no phone wants it");
+        }
+        // The person is at the Mac, which shows this itself (presence.rs; opt-in).
+        if crate::presence::stays_on_mac(
+            crate::presence::when_away_enabled(),
+            &event.kind,
+            crate::presence::idle(),
+        ) {
+            return tracing::debug!(kind = event.kind, "push skipped: the person is at the Mac");
         }
         let this = self.clone();
         tokio::spawn(async move {
@@ -1141,6 +1152,18 @@ mod tests {
 
     /// Lawrence, 2026-11-20: a Chief reply's push banner said its raw Markdown (a before/after table read
     /// "| | Before | After ||---|…"). The banner says its words, as the apps preview the same reply.
+    #[test]
+    fn a_finished_turn_push_says_its_last_lines_in_words() {
+        // a1317, 2026-11-21: an agent's finished-turn push showed its last lines as Markdown.
+        let mut c = Classifier::default();
+        let preview = "Done. See [PR 12](https://github.com/manaflow-ai/cmux/pull/12).\n| | Before | After |\n|---|---|---|\n| Light | ![b](/tmp/b.png) | ![a](/tmp/a.png) |\n**All** 31 pass.";
+        let done = c
+            .handle(&json!({"method":"_acpmux/session_changed","params":{"recordKind":"turn_result","session":{"sessionId":"s7","harness":"claude-code","cwd":"/x/repo","lastTurn":{"turnId":"t1","status":"completed"},"preview":preview}}}))
+            .unwrap();
+        assert_eq!(done.kind, "completed");
+        assert_eq!(done.tail, ["Done. See PR 12.", "Table: Before / After", "All 31 pass."]);
+    }
+
     #[test]
     fn a_chief_reply_push_says_its_words_not_its_markdown() {
         let mut c = Classifier::default();

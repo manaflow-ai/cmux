@@ -255,7 +255,8 @@ public final class CmuxMobileAuthModel {
     public var user: User? {
         if isMock {
             #if DEBUG
-            return mockSignedIn ? User(id: "mock", name: "Aziz Albahar", email: "aziz@example.com") : nil
+            let persona = MockPersona.current
+            return mockSignedIn ? User(id: "mock", name: persona.userName, email: persona.userEmail) : nil
             #else
             return nil
             #endif
@@ -523,6 +524,8 @@ public final class CmuxMobileAuthModel {
     /// or bundle id. The server derives each StoreKit product id from the
     /// bundle id and offers none to a bundle it does not sell in, so the plans
     /// screen then says plans are unavailable instead of showing a fake offer.
+    /// An app whose App Store record has no subscriptions shows the current plan
+    /// read-only instead (``BillingPurchaseAvailability``).
     /// - Parameter bundleIdentifier: The app bundle id (`x-cmux-bundle-id`).
     /// - Returns: The model; the caller starts it.
     public func makeBillingModel(bundleIdentifier: String?) -> BillingModel? {
@@ -543,7 +546,7 @@ public final class CmuxMobileAuthModel {
             storeKitEnvironment: { await LiveStoreKitClient.appStoreEnvironment() },
             session: URLSession(configuration: .default)
         )
-        return BillingModel(api: api, store: LiveStoreKitClient(), analytics: nil)
+        return BillingModel(api: api, store: LiveStoreKitClient(), analytics: nil, bundleIdentifier: bundleIdentifier)
     }
 
     /// A current Stack access token (refreshed by the runtime when needed).

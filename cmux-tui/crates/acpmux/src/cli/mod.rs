@@ -6,9 +6,11 @@
 
 pub mod app_bridge;
 pub mod app_open;
+pub(crate) mod archive;
 pub mod beads;
 pub mod bg;
 pub(crate) use crate::bounded_child;
+pub mod account;
 pub mod bridge;
 pub mod chats;
 pub mod cli_agent;
@@ -40,6 +42,7 @@ pub mod host_candidates;
 pub mod host_enroll;
 pub mod host_join_doctor;
 pub mod host_peering;
+pub(crate) mod host_sandbox;
 pub mod host_ssh_key;
 pub mod host_steps;
 pub mod host_vault;
@@ -48,6 +51,7 @@ pub mod join_input;
 pub(crate) mod last_reply;
 pub mod ledger;
 pub(crate) mod list_read;
+pub(crate) mod ls_far;
 pub(crate) mod ls_ssh;
 pub mod ls_table;
 pub mod machine_auth;
@@ -65,7 +69,14 @@ pub mod peer_status;
 pub mod place;
 pub mod process;
 #[cfg(unix)]
+pub mod process_census;
+#[cfg(unix)]
 pub mod process_owner;
+
+/// Whether `argv` runs `daemon run` (the acpmux daemon). Every OS: the vault egress proxy asks.
+pub(crate) fn is_daemon_run(argv: &[String]) -> bool {
+    argv.windows(2).any(|w| matches!(w, [a, b] if a == "daemon" && b == "run"))
+}
 pub mod race;
 pub(crate) mod reply_address;
 pub mod resolve;

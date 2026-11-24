@@ -12,6 +12,7 @@ import {
 import { Spinner } from "../../agent-session/acpmux/conversation/icons";
 import { Switch } from "../../ui/Switch";
 import { SceneContextMenu, SceneMenu } from "./sceneMenus";
+import { SceneReorderable } from "./SceneReorderable";
 import { SceneSymbol } from "./SceneSymbol";
 import {
   SceneAppeared,
@@ -23,11 +24,12 @@ import {
 import { formatSceneDate, sceneDateStyle, useSceneNow, type SceneDateStyle } from "./sceneDate";
 import {
   sceneColor,
-  sceneGradient,
+  sceneGlass,
   sceneNumber,
   sceneStyle,
   sceneText,
   textStyle,
+  sceneGradient,
   sceneRecord,
   type SceneStyle,
 } from "./sceneStyle";
@@ -401,9 +403,20 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, leaving
   if (!node) return null;
   const props = node.props;
   const disabled = inheritedDisabled || props.disabled === true || leaving;
-  const children = shown.map((child) => (
+  const childView = (child: (typeof shown)[number]) => (
     <SceneNodeView key={child.id} id={child.id} store={store} dispatch={dispatch} leaving={child.leaving} />
-  ));
+  );
+  const children =
+    node.type === "Reorderable" && props.onMove === true && !disabled ? (
+      <SceneReorderable
+        node={node}
+        store={store}
+        dispatch={dispatch}
+        rows={shown.map((child) => ({ ...child, content: childView(child) }))}
+      />
+    ) : (
+      shown.map(childView)
+    );
   const content = contentOf(node, children, dispatch, disabled);
   if (content === undefined) return null;
   const style: SceneStyle = sceneStyle(props);
@@ -453,6 +466,8 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, leaving
     "data-disabled": disabled ? "" : undefined,
     "data-hover": sceneColor(props.hoverBackground) ? "" : undefined,
     "data-style": node.type === "Panel" ? (props.style === "card" ? "card" : "glass") : undefined,
+    // `glass`: the page's glass at that level (ui/glass/glass.css), the web twin of the App's material.
+    "data-glass-level": sceneGlass(props.glass),
     "data-transition": typeof props.transition === "string" ? props.transition : undefined,
     "data-entering": entering && !leaving ? "" : undefined,
     "data-leaving": own === true ? "" : undefined,
@@ -463,7 +478,7 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, leaving
     "data-fill-width": frame.maxWidth === "infinity" && frame.width === undefined ? "" : undefined,
     // A ZStack child's `position` (scene.css): its center at `--app-x`, `--app-y`.
     "data-positioned": style["--app-x"] !== undefined ? "" : undefined,
-    className: `cmux-app-scene-node cmux-app-scene-${node.type.toLowerCase()}`,
+    className: `cmux-app-scene-node cmux-app-scene-${node.type.toLowerCase()}${sceneGlass(props.glass) ? " ui-glass" : ""}`,
     style,
     title: sceneText(props.help) || undefined,
   };

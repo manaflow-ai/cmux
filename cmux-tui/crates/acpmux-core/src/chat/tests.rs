@@ -124,8 +124,12 @@ fn hidden_settle_discards_every_other_body_field() {
     assert_eq!(value["body"], serde_json::json!({"hidden": true}));
 }
 
+/// A turn's end does not checkpoint on the line that ends it: the checkpoint syncs the book's
+/// files on the actor's thread, and the next turn's lines, sent as soon as the reply came (a
+/// queued prompt, a script), waited for it (the agent-turn bench, back to back: the pane's change
+/// 3.3 ms after the reply, against 1.2 ms with a pause between turns).
 #[test]
-fn no_op_lines_do_not_checkpoint_and_turn_end_does() {
+fn neither_no_op_lines_nor_a_turn_end_checkpoint_on_their_line() {
     let home = tempfile::tempdir().unwrap();
     let config = fixture(home.path(), 1);
     let mut state = open_state(config).unwrap();
@@ -139,10 +143,33 @@ fn no_op_lines_do_not_checkpoint_and_turn_end_does() {
             assert_eq!(before, after, "usage-only line writes no checkpoint");
         }
         if index == 8 {
-            assert_ne!(before, after, "turn end checkpoints");
+            assert_eq!(before, after, "a turn's end checkpointed before the lines after it");
         }
         place = end;
     }
+}
+
+/// The turn's end is checkpointed all the same, once the source is quiet.
+#[test]
+fn a_running_actor_checkpoints_a_turn_end_once_its_source_is_quiet() {
+    let home = tempfile::tempdir().unwrap();
+    let config = fixture(home.path(), 1);
+    let end = fs::metadata(home.path().join("source.ndjson")).unwrap().len();
+    let actor = ChatActor::spawn(config);
+    wait_health(&actor.handle, crate::life::Health::Running);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let place = loop {
+        let place = log::saved_checkpoint(home.path())
+            .unwrap()
+            .and_then(|saved| Checkpoint::from_recovered(&saved).ok())
+            .and_then(|checkpoint| checkpoint.cursors.first().map(|cursor| cursor.place));
+        if place == Some(end) || Instant::now() >= deadline {
+            break place;
+        }
+        thread::sleep(Duration::from_millis(10));
+    };
+    actor.join();
+    assert_eq!(place, Some(end), "the running actor never checkpointed the turn's end");
 }
 
 #[test]
@@ -680,15 +707,31 @@ fn actor_line_and_checkpoint_open_gate() {
         let home = tempfile::tempdir().unwrap();
         let config = ChatConfig::new("gate", home.path(), Harness::V1);
         let mut state = open_state(config.clone()).unwrap();
-        // Feed the actual translator and body/log writer. The synthetic source has
-        // no persistent raw cursor; checkpoint once after setup, outside measurement.
+        // Feed the actual translator and body/log writer, as the actor books a chat it reads:
+        // each setup line names its range of the source `open_state` put in `raw.map`. A row
+        // with no raw range is a daemon-created change that the log syncs on its own, one disk
+        // sync per row: 2M of them took 53 minutes of the nightly's 85 (cmux run 44942085835).
+        // The measured lines below keep the empty range they always had. Checkpoint once after
+        // setup, outside measurement.
+        let file = state.raw_file;
+        assert_ne!(file, 0, "open_state names the source in raw.map");
+        let mut place = 0u64;
         for seq in 1..=count {
             let line = format!(
                 "{{\"seq\":{seq},\"at\":1000,\"dir\":\"mux\",\"kind\":\"stopped\",\"msg\":{{}}}}"
             );
-            apply_ops(&mut state, line.as_bytes(), 0, 0, 0, false).unwrap();
+            // The line's newline is part of its span, as `read_source` applies it.
+            let span = line.len() as u64 + 1;
+            state.raw_place = place + span;
+            apply_ops(&mut state, line.as_bytes(), file, place, span, false).unwrap();
+            place += span;
         }
         assert_eq!(state.log.max_row(), count);
+        assert!(
+            state.log.stats().syncs < count / 1000 + 64,
+            "setup synced the log once per row: {} syncs",
+            state.log.stats().syncs
+        );
         checkpoint(&mut state).unwrap();
         homes.push(home);
         fixtures.push((count, config, state));

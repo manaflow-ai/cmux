@@ -54,7 +54,10 @@ struct HomeWindowControlsTests {
         #expect(!h.filter.intersects(lights), "the filter sits on the traffic lights at \(width)")
         #expect(h.search.minY >= lights.maxY, "the search field is not under the lights' row at \(width)")
         #expect(abs(h.filter.midY - lights.midY) <= 1, "the filter is not on the lights' line at \(width)")
-        #expect(h.filter.maxX == width - HomeSidebarHeaderLayout.inset)
+        // New Chief at the row's right end, the toggle just before it.
+        #expect(h.newChief.maxX == width - HomeSidebarHeaderLayout.inset)
+        #expect(h.filter.maxX + HomeSidebarHeaderLayout.gap == h.newChief.minX)
+        #expect(!h.newChief.intersects(lights), "New Chief sits on the traffic lights at \(width)")
         #expect(h.search.width == width - 2 * HomeSidebarHeaderLayout.inset, "the search field does not span the list at \(width)")
         #expect(h.listTop >= h.search.maxY, "the list starts over the search field at \(width)")
         // The views follow the layout.
@@ -79,7 +82,8 @@ struct HomeWindowControlsTests {
         let lights = try Self.lights(in: home.list.headerView)
         let h = home.header
         #expect(abs(h.filter.midY - lights.midY) <= 1, "the filter left the lights' line beside them")
-        #expect(h.filter.maxX == 320 - HomeSidebarHeaderLayout.inset)
+        #expect(h.newChief.maxX == 320 - HomeSidebarHeaderLayout.inset)
+        #expect(h.filter.maxX + HomeSidebarHeaderLayout.gap == h.newChief.minX)
         #expect(h.search.minY >= lights.maxY, "the search field left the row under the lights' line")
         #expect(h.search.width == 320 - 2 * HomeSidebarHeaderLayout.inset)
         #expect(h.listTop > HomeSidebarHeaderLayout.band)
@@ -95,6 +99,7 @@ struct HomeWindowControlsTests {
         defer { defaults.removePersistentDomain(forName: suite) }
         let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 700))
         let split = HomeSidebarSplitView(sidebar: home, content: NSView(), widths: HomeSidebarWidth(defaults: defaults))
+        split.showsList = true // the person showed the list (folded by default: ChiefReplacesHomeTests)
         split.windowKey = { "w" }
         let root = NSView(frame: NSRect(x: 0, y: 0, width: 1000, height: 700))
         split.frame = NSRect(x: 240, y: 0, width: 760, height: 700)
@@ -127,13 +132,18 @@ struct HomeWindowControlsTests {
         win.contentView = root
         column.layoutSubtreeIfNeeded()
         let lights = try Self.lights(in: column)
-        #expect(!compose.frame.intersects(lights), "compose sits on the traffic lights")
-        #expect(compose.frame.minX >= lights.maxX)
-        #expect(abs(compose.frame.midY - lights.midY) <= 1, "compose is not on the lights' line")
-        // Beside the list (clear of the lights) it keeps its inset.
+        // Chats (the list's toggle) leads, compose follows it on the same line.
+        for button in [column.chats as NSView, compose] {
+            #expect(!button.frame.intersects(lights), "\(button) sits on the traffic lights")
+            #expect(button.frame.minX >= lights.maxX)
+            #expect(abs(button.frame.midY - lights.midY) <= 1, "\(button) is not on the lights' line")
+        }
+        #expect(compose.frame.minX > column.chats.frame.maxX, "compose overlaps Chats")
+        // Beside the list (clear of the lights) Chats keeps its inset.
         column.frame = NSRect(x: 320, y: 0, width: 680, height: 700)
         column.layoutSubtreeIfNeeded()
-        #expect(compose.frame.minX == HomeChatColumnView.composeInset)
+        #expect(column.chats.frame.minX == HomeChatColumnView.composeInset)
+        #expect(compose.frame.minX > column.chats.frame.maxX)
     }
 
     // MARK: The layout alone
@@ -152,6 +162,10 @@ struct HomeWindowControlsTests {
         #expect(h.search.width == width - 2 * HomeSidebarHeaderLayout.inset)
         #expect(h.listTop == h.search.maxY + HomeSidebarHeaderLayout.rowGap)
         #expect(!h.filter.intersects(h.search))
+        // New Chief after the toggle on the lights' line, at the row's right end.
+        #expect(h.newChief.midY == Self.lightsFrame.midY && h.newChief.size == h.filter.size)
+        #expect(h.filter.maxX + HomeSidebarHeaderLayout.gap == h.newChief.minX)
+        #expect(h.newChief.maxX == width - HomeSidebarHeaderLayout.inset)
     }
 
     /// Lights with a wide accessory after them (the incognito badge) leave no room for the toggle
@@ -162,6 +176,7 @@ struct HomeWindowControlsTests {
         #expect(!h.filter.intersects(controls) && !h.search.intersects(controls))
         #expect(h.filter.midY == h.search.midY)
         #expect(h.search.maxX + HomeSidebarHeaderLayout.gap == h.filter.minX)
+        #expect(h.filter.maxX + HomeSidebarHeaderLayout.gap == h.newChief.minX && h.newChief.maxX <= 200)
     }
 
     /// The avatar-only list's search and filter circles sit under the lights, the list under them;

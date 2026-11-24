@@ -170,7 +170,14 @@ export type TypingSample = {
   /** Shared rAF timestamp identifies keys delivered in the same display-frame callback batch. */
   frame_timestamp_ms?: number;
 } & Partial<KeyPresentation>;
-type AgentMark = "handshakeStart" | "handshakeReady" | "composerReady" | "snapshotPaint" | "firstToken";
+/// `promptSent`: the first prompt the page sent since its handshake (direct.ts, as `session/prompt` goes out).
+export type AgentMark =
+  | "handshakeStart"
+  | "handshakeReady"
+  | "composerReady"
+  | "snapshotPaint"
+  | "promptSent"
+  | "firstToken";
 /**
  * The page's connect path on the wall clock (`Date.now()`), the first time of each since the page
  * loaded: the relaunch-reconnect bench lines them up with the app's launch marks
@@ -178,9 +185,18 @@ type AgentMark = "handshakeStart" | "handshakeReady" | "composerReady" | "snapsh
  * keeps it), `connectStart` and `connected` bracket the client's connect (transport open,
  * `initialize`, the first read), `firstEvent` is the first event of the shown chat to arrive, and
  * `liveEvent` the first that arrives within LIVE_EVENT_LAG_MS of when acpmux recorded it: the chat
- * is live, past any backlog.
+ * is live, past any backlog. `painted` is the page's first `pane.painted` (it shows what it is) and
+ * `transcriptMount` the transcript root's first mount: the perf watch's page-load span (perfReporter.ts).
  */
-type LaunchMark = "handshakeStart" | "handshakeReady" | "connectStart" | "connected" | "firstEvent" | "liveEvent";
+export type LaunchMark =
+  | "handshakeStart"
+  | "handshakeReady"
+  | "connectStart"
+  | "connected"
+  | "firstEvent"
+  | "liveEvent"
+  | "painted"
+  | "transcriptMount";
 /** An event that arrives this soon after acpmux recorded it is live, not backlog. */
 export const LIVE_EVENT_LAG_MS = 1000;
 
@@ -235,6 +251,9 @@ export class AcpmuxPerf {
   private launchMarks: Partial<Record<LaunchMark, number>> = {};
   private handshakeAttempts = 0;
   private keyListener: ((event: KeyboardEvent) => void) | undefined;
+  private keyTarget: Pick<Document, "addEventListener" | "removeEventListener"> | undefined;
+  /// Told each agent mark as it is kept (the perf watch's new-chat span, perfReporter.ts); unset while it is off.
+  markListener: ((stage: AgentMark, at: number) => void) | undefined;
 
   /** Turns measurement on; installs the composer key listener once (the chat's and New Tab's). */
   enable(
@@ -287,7 +306,17 @@ export class AcpmuxPerf {
         channel.port2.postMessage(0);
       });
     };
+    this.keyTarget = target;
     target.addEventListener("keydown", this.keyListener as EventListener, true);
+  }
+
+  /** Turns measurement off and removes the composer key listener (the perf watch turned off). */
+  disable(): void {
+    this.enabled = false;
+    if (this.keyListener && this.keyTarget)
+      this.keyTarget.removeEventListener("keydown", this.keyListener as EventListener, true);
+    this.keyListener = undefined;
+    this.keyTarget = undefined;
   }
 
   /** Lifecycle marks used by the warm-chat before/after capture. */
@@ -295,10 +324,13 @@ export class AcpmuxPerf {
     if (stage === "handshakeStart") {
       delete this.agentMarks.handshakeReady;
       delete this.agentMarks.composerReady;
+      delete this.agentMarks.promptSent;
       delete this.agentMarks.firstToken;
     }
-    if (stage === "firstToken" && this.agentMarks.firstToken !== undefined) return;
-    this.agentMarks[stage] = performance.now();
+    if ((stage === "firstToken" || stage === "promptSent") && this.agentMarks[stage] !== undefined) return;
+    const at = performance.now();
+    this.agentMarks[stage] = at;
+    this.markListener?.(stage, at);
   }
 
   /** The start state a frame shows (`shown`, any stable text); recorded always, a string compare per change. */
@@ -342,6 +374,11 @@ export class AcpmuxPerf {
     return value;
   }
 
+  /** The agent marks since the last handshake, on `performance.now()`'s clock. */
+  agentMarkTimes(): Partial<Record<AgentMark, number>> {
+    return { ...this.agentMarks };
+  }
+
   agentLatency(): Record<string, number> {
     const start = this.agentMarks.handshakeStart;
     const value: Record<string, number> = {};
@@ -375,6 +412,17 @@ export class AcpmuxPerf {
 
   resetRenders(): void {
     this.renders.clear();
+  }
+
+  /** The chat's records the direct client took while measuring: live ones it reduced (`apply`), ones a gap read
+   *  merged (`fetchMissedEvents`), and the newest seq of either (session-scale-scroll.bench.ts: what a hidden page
+   *  still works on, and that it caught up once shown). */
+  readonly records = { applied: 0, read: 0, newest: 0 };
+
+  recordsTaken(kind: "applied" | "read", count: number, seq: number): void {
+    if (!this.enabled) return;
+    this.records[kind] += count;
+    if (seq > this.records.newest) this.records.newest = seq;
   }
 
   /// Rows unmounted in the commit now running: a row mounted again in the same commit was remounted

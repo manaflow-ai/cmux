@@ -1,6 +1,8 @@
 // l10n-allow-file: gallery fixtures (sample recaps and replies), not shipped UI.
-// The unread marker's looks (SinceDivider.tsx; design/transcript-overlays.md), each between the
-// reply the person had seen and the turns that ended while they were away, in three themes: light,
+// The unread marker's looks (SinceDivider.tsx, sinceLook.experiment.ts; design/transcript-overlays.md),
+// each between the reply the person had seen and the next turn's "Worked for" line, which came while
+// they were away. None takes height: the rows sit where they sit with no line at all (the
+// `no-line` variant). In three themes: light,
 // dark, and a dark theme over a background image (the pane's glass over a wallpaper). The palettes
 // stand in for what the app's applyTheme sets (--cmux-app-* from cmux-theme-tokens app_theme.rs):
 // the component reads only those tokens. References: chat apps' unread line (a rule with a NEW
@@ -60,6 +62,17 @@ function Reply({ text }: { text: string }) {
   return <p style={{ margin: 0, color: "var(--agent-text)", lineHeight: "20px" }}>{text}</p>;
 }
 
+/// The new turn's "Worked for" line, drawn with the transcript's own classes (conversation.css), the
+/// toggle's included: its divider sits a foot gap under its words, and the mark must light that
+/// divider, not draw its own over the words' bottom (manaflow-ai/cmux#51002).
+function Worked() {
+  return (
+    <div className="cv-worked has-divider is-toggle" style={{ color: "var(--agent-muted)" }}>
+      Worked for 31s
+    </div>
+  );
+}
+
 type Props = {
   part: Part;
   theme: Theme;
@@ -67,13 +80,39 @@ type Props = {
   read?: boolean;
   recap?: boolean;
   mode?: UnreadBannerMode;
+  /// No line at all: the rows' places every look must keep.
+  none?: boolean;
+  /// The next row is the running turn's "Working for" line (row kind `working`), not a finished one.
+  working?: boolean;
 };
 
-function UnreadLooks({ part, theme, look = "tag", read = false, recap = true, mode = "expanded" }: Props) {
+/// The gap between the seen turn and the next (the transcript's turn gap), which the line lies over.
+const TURN_GAP = 32;
+
+function UnreadLooks({
+  part,
+  theme,
+  look,
+  read = false,
+  recap = false,
+  mode = "expanded",
+  none = false,
+  working = false,
+}: Props) {
   return (
     <div
       className="acpmux-shell"
-      style={{ ...THEMES[theme], position: "relative", padding: 16, display: "grid", gap: 16, minHeight: "100%" }}
+      // `alignContent: start`: the rows keep their own heights; a stretched grid gave the 0 px line
+      // row the stage's spare height, which moved the mark off the Worked for line (#51002).
+      style={{
+        ...THEMES[theme],
+        position: "relative",
+        padding: 16,
+        display: "grid",
+        gap: 8,
+        alignContent: "start",
+        minHeight: "100%",
+      }}
     >
       {part === "banner" && (
         <div className="acpmux-over-top" data-zone="top-start" style={{ top: 0 }}>
@@ -89,17 +128,45 @@ function UnreadLooks({ part, theme, look = "tag", read = false, recap = true, mo
       )}
       <div style={{ height: part === "banner" ? 32 : 0 }} />
       <Reply text="I'll start by reading foo.rs to see how absent fields fail." />
-      <SinceDivider
-        since={{
-          key: `gallery-${theme}-${look}:41`,
-          seq: 41,
-          turns: 3,
-          ...(recap && { recap: { key: `gallery-${theme}-${look}`, text: RECAP, awayMs: 38 * 60_000 } }),
-        }}
-        onDismissRecap={() => {}}
-        look={look}
-        read={read}
-      />
+      {/* The line's row takes no height; the turn gap under it is the transcript's, which it reads.
+          Then the new turn's Worked for line, which look B lies on. The rows carry the transcript's
+          row classes so the look's selectors (unread.css) read the same. The transcript places rows
+          from the model (the line's row is 0 px, model.ts), so the row's own min-height and bottom
+          padding (.acpmux-row) never move the next one; here they would, so they are off. */}
+      <div
+        className="acpmux-row"
+        style={
+          {
+            position: "relative",
+            left: 0,
+            right: 0,
+            minHeight: 0,
+            paddingBottom: 0,
+            "--cv-since-gap": `${TURN_GAP}px`,
+          } as React.CSSProperties
+        }
+      >
+        {!none && (
+          <SinceDivider
+            since={{
+              key: `gallery-${theme}-${look ?? "default"}:41`,
+              seq: 41,
+              turns: 3,
+              ...(recap && { recap: { key: `gallery-${theme}-${look}`, text: RECAP, awayMs: 38 * 60_000 } }),
+            }}
+            onDismissRecap={() => {}}
+            look={look}
+            read={read}
+            dwellMs={60 * 60_000}
+          />
+        )}
+      </div>
+      <div
+        className={`acpmux-row ${working ? "acpmux-working" : "acpmux-worked"}`}
+        style={{ position: "relative", left: 0, right: 0, marginTop: TURN_GAP - 8 }}
+      >
+        <Worked />
+      </div>
       <Reply text="Missing fields now default instead of failing; I added a test for each one." />
       <Reply text="The fuzz corpus ran clean for 10 minutes. The PR is ready for review." />
     </div>
@@ -117,33 +184,45 @@ export default componentEntry<Props>({
   styles: () => Promise.all([import("../styles.css"), import("./conversation.css"), import("./unread.css")]),
   load: async () => UnreadLooks,
   variants: {
-    "line-tag": {
-      note: "Chosen: an accent hairline across the column with a filled New tag at its end; the recap under it.",
-      props: { part: "line", theme: "dark", look: "tag" },
+    "line-worked": {
+      note: "B (shipped): folded into the next turn's Worked for line: New at its end and its rule lit in the accent; no height, it fades back to the plain rule.",
+      props: { part: "line", theme: "dark", look: "worked" },
     },
-    "line-text": {
-      note: "The hairline with New in accent text at its end, no fill; quieter, but the tag's fill is what the eye finds.",
-      props: { part: "line", theme: "dark", look: "text" },
+    "line-thin": {
+      note: "A: a thin accent hairline across the middle of the turn gap, no word and no pill; no height, it fades and narrows away.",
+      props: { part: "line", theme: "dark", look: "line" },
     },
-    "line-labelled": {
-      note: "The first look on theme tokens: New since you looked · 3 turns leading the hairline; the most words in the rhythm.",
-      props: { part: "line", theme: "dark", look: "labelled" },
+    "line-pill": {
+      note: "C: a small New pill alone at the end of the turn gap, no rule; no height, it fades out.",
+      props: { part: "line", theme: "dark", look: "pill" },
     },
-    "line-no-recap": {
-      note: "A chat with no recap (not Claude, or the recap is off): the line alone, one control row tall.",
-      props: { part: "line", theme: "dark", recap: false },
+    "no-line": {
+      note: "No line: every look keeps the rows exactly here (the line takes no height).",
+      props: { part: "line", theme: "dark", none: true },
+    },
+    "line-working": {
+      note: "B over the running turn's Working for line: the same divider lit, New at its end.",
+      props: { part: "line", theme: "dark", look: "worked", working: true },
+    },
+    "no-line-working": {
+      note: "No line over the running turn's Working for line: where its divider sits.",
+      props: { part: "line", theme: "dark", none: true, working: true },
     },
     "line-read": {
-      note: "Read (Mark read, or seen and then the latest reached): the rule and the tag have faded in place; the row and the recap stay.",
-      props: { part: "line", theme: "dark", read: true },
+      note: "Read (dissipated after a moment on screen at a focused pane, or Mark read): nothing drawn, and nothing moved.",
+      props: { part: "line", theme: "dark", look: "worked", read: true },
+    },
+    "line-recap": {
+      note: "With the recap made for the same return: the recap is content and takes its room; the line lies over the gap above it.",
+      props: { part: "line", theme: "dark", look: "worked", recap: true },
     },
     "line-light": {
-      note: "Chosen look in the light theme: the theme's accent, on-accent text in the tag.",
-      props: { part: "line", theme: "light" },
+      note: "Shipped look in the light theme: the theme's accent.",
+      props: { part: "line", theme: "light", look: "worked" },
     },
     "line-image": {
-      note: "Chosen look over a background image: the same tokens over the pane's glass.",
-      props: { part: "line", theme: "image" },
+      note: "Shipped look over a background image: the same tokens over the pane's glass.",
+      props: { part: "line", theme: "image", look: "worked" },
     },
     "banner-expanded": {
       note: "Chosen: the glass bar at the top start, 3 new turns since 3:42 PM | Mark read | collapse chevron.",

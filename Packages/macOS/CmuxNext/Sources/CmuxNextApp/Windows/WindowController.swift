@@ -94,6 +94,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// This window's top pages (TOP-SECTION-ITEMS-ARE-PAGES), one view per route.
     private(set) lazy var topPages = TopPageHost(services: services)
 
+    /// A new shell window's size (no saved frame).
+    static let defaultSize = NSSize(width: 1100, height: 720)
+
     init(state: WindowState, services: AppServices, frame: NSRect?) {
         self.state = state
         self.services = services
@@ -113,7 +116,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         root.toolbarBand.followToggleDescription(title: { registry.descriptor(for: "toggleSidebar")?.title ?? "" },
                                                  shortcut: { registry.shortcutDisplay(for: "toggleSidebar") })
         let window = ShellWindow(
-            contentRect: frame ?? NSRect(x: 0, y: 0, width: 1100, height: 720),
+            contentRect: frame ?? NSRect(origin: .zero, size: Self.defaultSize),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -230,10 +233,10 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         titleObservation?.cancel()
         titleObservation = WindowListTitleObservation.start(values: { [weak self] in
             guard let self else { return (nil, nil, false, false) }
-            let workspace = self.state.workspaceID.flatMap { self.services.machines.workspace(id: $0)?.0 }
-            let names = WorkspaceAutoNameWiring(services: self.services, workspace: workspace)
+            let workspace = self.state.workspaceID.flatMap { self.services.machines.workspace(id: $0)?.0 }, names = WorkspaceAutoNameWiring(services: self.services, workspace: workspace)
             let title = workspace.map { names.reader.titlebarName($0) { self.state.selection.selection(in: $0.id) } }
-            return (spaceName: self.services.machines.local.store.profile(self.state.profileID)?.name,
+            let local = self.services.machines.local, spaces = SidebarSpaceBar.profiles(local, window: self.state.id, windows: self.services.windows).count
+            return (spaceName: spaces > 1 ? local.store.profile(self.state.profileID)?.name : nil, // the strip's rule: no space shows until a second
                     workspaceName: title, incognito: workspace.map { self.services.windows.isIncognito(workspace: $0) }
                         ?? self.services.windows.isIncognito(window: self.state.id),
                     showsWorkspaceChrome: self.state.page == nil && self.content != nil)

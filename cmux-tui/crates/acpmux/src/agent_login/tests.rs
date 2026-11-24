@@ -795,3 +795,253 @@ async fn cursor_sign_in_end_to_end_against_a_stub_cli() {
     assert!(!env.lines().any(|l| l.starts_with("XDG_CONFIG_HOME=")), "{env}");
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// gh 2.45's `auth login --web` with no tty (seen on stderr): its code, then its link.
+const GH: &str = "\n! First copy your one-time code: 1A2B-3C4D\nOpen this URL to continue in your web browser: https://github.com/login/device\n";
+
+#[test]
+fn github_code_and_link() {
+    let got = offer(Agent::Github, GH).expect("an offer");
+    assert_eq!(got.url, "https://github.com/login/device");
+    assert_eq!(got.user_code.as_deref(), Some("1A2B-3C4D"));
+    // Odd spacing, CRLF and colour (an older gh, or one that thinks it has a terminal).
+    let odd = "\r\n\u{1b}[0;33m!\u{1b}[0m  First copy your one-time code:   \u{1b}[1mWXYZ-9876\u{1b}[0m  \r\n\
+               Press Enter to open \u{1b}[4mhttps://github.com/login/device\u{1b}[0m in your browser...\r\n";
+    let got = offer(Agent::Github, odd).expect("an offer");
+    assert_eq!(got.url, "https://github.com/login/device");
+    assert_eq!(got.user_code.as_deref(), Some("WXYZ-9876"));
+    // Only github.com, and only once the line is complete.
+    assert_eq!(offer(Agent::Github, &GH.replace("github.com", "github.com.evil.example")), None);
+    assert_eq!(offer(Agent::Github, &GH[..GH.len() - 1]), None);
+    assert_eq!(offer(Agent::Github, CODEX), None);
+    // No other agent offers a github.com link.
+    assert_eq!(offer(Agent::Codex, &GH.replace("one-time code:", "one-time code\n")), None);
+    // gh stays off the agent_login wire.
+    assert_eq!(Agent::parse("github"), None);
+    assert!(!Agent::Github.takes_api_key() && Agent::Github.signs_in_by_link());
+}
+
+#[test]
+fn github_store_never_counts_as_read() {
+    let root = dir("gh-store");
+    let mut cli = Cli::default();
+    cli.env.insert("HOME".into(), root.display().to_string());
+    cli.env.insert("XDG_CONFIG_HOME".into(), String::new());
+    assert_eq!(cli.store(Agent::Github), root.join(".config/gh"));
+    cli.env.insert("GH_CONFIG_DIR".into(), root.join("own").display().to_string());
+    assert_eq!(cli.store(Agent::Github), root.join("own"));
+    std::fs::create_dir_all(root.join("own")).unwrap();
+    std::fs::write(root.join("own/hosts.yml"), "github.com:\n  oauth_token: x\n").unwrap();
+    assert!(!signed_in_at(Agent::Github, &root.join("own")));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn github_status_text_with_several_accounts() {
+    let text = "github.com\n\
+        \x20 \u{2713} Logged in to github.com account alice (keyring)\n\
+        \x20 - Active account: true\n\
+        \x20 - Git operations protocol: https\n\
+        \x20 - Token: gho_************************************\n\
+        \x20 - Token scopes: 'gist', 'read:org', 'repo'\n\
+        \n\
+        \x20 \u{2713} Logged in to github.com account bob-2 (/home/u/.config/gh/hosts.yml)\n\
+        \x20 - Active account: false\n\
+        \x20 - Token: ghp_************************************\n\
+        \n\
+        \x20 X Failed to log in to github.com account carol (keyring)\n\
+        \x20 - Active account: false\n\
+        \x20 - The token in keyring is invalid.\n\
+        ghe.example.com\n\
+        \x20 \u{2713} Logged in to ghe.example.com account dave (keyring)\n\
+        \x20 - Active account: true\n";
+    let got = github::parse_status_text(text);
+    let want = [("alice", true, true), ("bob-2", false, true), ("carol", false, false)];
+    assert_eq!(got.len(), 3, "{got:?}");
+    for (a, (login, active, signed_in)) in got.iter().zip(want) {
+        assert_eq!((a.login.as_str(), a.active, a.signed_in), (login, active, signed_in));
+    }
+    // Before multi-account gh: `as LOGIN`, no active line; a lone account is the active one.
+    let old = "github.com\n  \u{2713} Logged in to github.com as zed (oauth_token)\n  \u{2713} Token: *******************\n";
+    let got = github::parse_status_text(old);
+    assert_eq!(got.len(), 1);
+    assert!(got[0].active && got[0].signed_in && got[0].login == "zed");
+    // Nothing gh says it has: none; a login that is no GitHub login: skipped.
+    assert!(
+        github::parse_status_text(
+            "You are not logged into any GitHub hosts. To log in, run: gh auth login\n"
+        )
+        .is_empty()
+    );
+    assert!(
+        github::parse_status_text("  \u{2713} Logged in to github.com account a;rm (keyring)\n")
+            .is_empty()
+    );
+}
+
+#[test]
+fn github_status_json() {
+    let json = r#"{"hosts":{"github.com":[
+        {"active":true,"host":"github.com","login":"alice","state":"success","tokenSource":"keyring"},
+        {"active":false,"host":"github.com","login":"bob","state":"error","error":"bad"}],
+        "ghe.example.com":[{"active":true,"login":"dave","state":"success"}]}}"#;
+    let got = github::parse_status_json(json).expect("parsed");
+    assert_eq!(got.len(), 2);
+    assert!(got[0].active && got[0].signed_in && got[0].login == "alice");
+    assert!(!got[1].active && !got[1].signed_in && got[1].login == "bob");
+    // gh 2.45: `unknown flag: --json`, so the text is read instead.
+    assert_eq!(github::parse_status_json("unknown flag: --json\n"), None);
+    assert_eq!(github::parse_status_json(r#"{"hosts":{}}"#), Some(Vec::new()));
+}
+
+/// A stand-in CLI at `root/<name>`: `body` after `#!/bin/sh`.
+#[cfg(unix)]
+fn stub(root: &Path, name: &str, body: &str) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let program = root.join(name);
+    std::fs::write(&program, format!("#!/bin/sh\n{body}")).unwrap();
+    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
+    program
+}
+
+/// A stand-in `codex login --device-auth` that signs in where `CODEX_HOME` says once `approve`
+/// exists.
+#[cfg(unix)]
+fn codex_stub(root: &Path, approve: &Path) -> PathBuf {
+    stub(
+        root,
+        "codex",
+        &format!(
+            "[ \"$1\" = login ] || exit 9\n\
+             printf '1. Open https://auth.openai.com/codex/device \\n2. Enter this one-time code\\n   ABCD-EFGH\\n'\n\
+             i=0; while [ ! -e {approve} ]; do i=$((i+1)); [ $i -gt 300 ] && exit 3; sleep 0.05; done\n\
+             printf '{{\"tokens\":{{\"id_token\":\"x\"}}}}' > \"$CODEX_HOME/auth.json\"\n",
+            approve = approve.display()
+        ),
+    )
+}
+
+/// A sign-in in a second home writes there, never in the CLI's own store.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_second_home_sign_in_leaves_the_default_store_alone() {
+    let root = dir("second-home");
+    let home = root.join("home");
+    let account = root.join("accounts/codex-2");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(&account).unwrap();
+    let approve = root.join("approve");
+    let m = Machine { root: root.clone(), home: home.clone() };
+    let mut cli =
+        Cli { program: codex_stub(&root, &approve).display().to_string(), ..Cli::default() };
+    cli.env.insert("HOME".into(), home.display().to_string());
+    cli.env.insert("CODEX_HOME".into(), home.join(".codex").display().to_string());
+    let started = start_in(&m, &cli, Agent::Codex, Some(&account)).await.expect("started");
+    assert_eq!(started.user_code.as_deref(), Some("ABCD-EFGH"));
+    std::fs::write(&approve, "").unwrap();
+    let done = finish(&started.login_id, None).await.expect("finished");
+    assert!(done.signed_in);
+    assert_eq!(done.store, account);
+    assert!(signed_in_at(Agent::Codex, &account));
+    assert!(!home.join(".codex/auth.json").exists(), "the default store was touched");
+    // Gemini and Cursor have no variable that moves their store.
+    let e = start_in(&m, &cli, Agent::Cursor, Some(&account)).await.unwrap_err();
+    assert_eq!(e.reason, reason::UNSUPPORTED);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Two sign-ins of one agent in two homes run side by side: the second leaves the first be.
+#[cfg(unix)]
+#[tokio::test]
+async fn two_homes_of_one_agent_sign_in_side_by_side() {
+    let root = dir("two-homes");
+    let (a, b) = (root.join("a"), root.join("b"));
+    let approve = root.join("approve");
+    let m = Machine { root: root.clone(), home: root.clone() };
+    let mut cli =
+        Cli { program: codex_stub(&root, &approve).display().to_string(), ..Cli::default() };
+    cli.env.insert("HOME".into(), root.display().to_string());
+    let first = start_in(&m, &cli, Agent::Codex, Some(&a)).await.expect("first");
+    let second = start_in(&m, &cli, Agent::Codex, Some(&b)).await.expect("second");
+    assert!(running(&first.login_id) && running(&second.login_id));
+    // A new start in the same home stops the one there, and only it.
+    let again = start_in(&m, &cli, Agent::Codex, Some(&a)).await.expect("again");
+    assert!(!running(&first.login_id) && running(&again.login_id) && running(&second.login_id));
+    std::fs::write(&approve, "").unwrap();
+    assert!(finish(&again.login_id, None).await.expect("a").signed_in);
+    assert!(finish(&second.login_id, None).await.expect("b").signed_in);
+    assert!(signed_in_at(Agent::Codex, &a) && signed_in_at(Agent::Codex, &b));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// gh's device flow against a stand-in `gh`: the code and link from stderr, no prompt, no
+/// browser, no daemon token, its config where the store resolved; exit 0 is signed in.
+#[cfg(unix)]
+#[tokio::test]
+async fn github_sign_in_end_to_end_against_a_stub_gh() {
+    let root = dir("gh-e2e");
+    let seen = root.join("seen");
+    let program = stub(
+        &root,
+        "gh",
+        &format!(
+            "[ \"$*\" = 'auth login --hostname github.com --git-protocol https --web' ] || exit 9\n\
+             env > {seen}\n\
+             printf '\\n! First copy your one-time code: 1A2B-3C4D\\nOpen this URL to continue in your web browser: https://github.com/login/device\\n' >&2\n\
+             sleep 0.2\n",
+            seen = seen.display()
+        ),
+    );
+    let m = Machine { root: root.clone(), home: root.clone() };
+    let mut cli = Cli { program: program.display().to_string(), ..Cli::default() };
+    cli.env.insert("HOME".into(), root.display().to_string());
+    cli.env.insert("XDG_CONFIG_HOME".into(), String::new());
+    cli.env.insert("GH_TOKEN".into(), "daemon-token-must-not-reach-gh".into());
+    let started = start_in(&m, &cli, Agent::Github, None).await.expect("started");
+    assert_eq!(started.url, "https://github.com/login/device");
+    assert_eq!(started.user_code.as_deref(), Some("1A2B-3C4D"));
+    assert!(!started.needs_code);
+    let done = finish(&started.login_id, None).await.expect("finished");
+    assert!(done.signed_in);
+    let env = std::fs::read_to_string(&seen).unwrap();
+    assert!(!env.contains("GH_TOKEN"), "gh saw the daemon's token");
+    for want in ["GH_PROMPT_DISABLED=1", "GH_BROWSER=true", "BROWSER=true"] {
+        assert!(env.lines().any(|l| l == want), "{want}: {env}");
+    }
+    let config = format!("GH_CONFIG_DIR={}", root.join(".config/gh").display());
+    assert!(env.lines().any(|l| l == config), "{env}");
+    // No gh: a typed reason.
+    let missing = Cli { program: root.join("no-gh").display().to_string(), ..cli.clone() };
+    let e = start_in(&m, &missing, Agent::Github, None).await.unwrap_err();
+    assert_eq!(e.reason, reason::NOT_INSTALLED, "{e:?}");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A sign-out runs the CLI's own logout in the account's home only: the default store's
+/// sign-in stays.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_sign_out_in_a_home_logs_out_there_only() {
+    let root = dir("sign-out");
+    let home = root.join("home");
+    let own = home.join(".codex");
+    let account = root.join("accounts/codex-2");
+    std::fs::create_dir_all(&own).unwrap();
+    std::fs::create_dir_all(&account).unwrap();
+    std::fs::write(own.join("auth.json"), "{}").unwrap();
+    std::fs::write(account.join("auth.json"), "{}").unwrap();
+    let program =
+        stub(&root, "codex", "[ \"$1\" = logout ] || exit 9\nrm -f \"$CODEX_HOME/auth.json\"\n");
+    let mut cli = Cli { program: program.display().to_string(), ..Cli::default() };
+    cli.env.insert("HOME".into(), home.display().to_string());
+    cli.env.insert("CODEX_HOME".into(), own.display().to_string());
+    sign_out_in(&cli, Agent::Codex, Some(&account)).await.expect("signed out");
+    assert!(!account.join("auth.json").exists());
+    assert!(own.join("auth.json").is_file(), "the default store was signed out");
+    assert_eq!(logout_args(Agent::Claude), Some(&["auth", "logout"][..]));
+    assert_eq!(
+        sign_out_in(&cli, Agent::Github, None).await.unwrap_err().reason,
+        reason::UNSUPPORTED
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}

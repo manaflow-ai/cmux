@@ -166,6 +166,7 @@ import Testing
         #expect(h.search.minY >= controls.maxY)
         #expect(h.search.minX == HomeSidebarHeaderLayout.inset && h.search.width >= HomeSidebarHeaderLayout.minimumField)
         #expect(h.filter.maxX <= width - HomeSidebarHeaderLayout.inset, "the row overflows \(width)")
+        #expect(h.newChief.maxX <= width - HomeSidebarHeaderLayout.inset, "New Chief overflows \(width)")
     }
 
     /// The avatar-only list: the search circle and the Unread circle side by side inside the list,
@@ -209,13 +210,15 @@ import Testing
         column.showsCompose = true
         window.contentView?.addSubview(column)
         column.layoutSubtreeIfNeeded()
-        #expect(column.compose.frame.minX == HomeChatColumnView.composeInset)
+        #expect(column.chats.frame.minX == HomeChatColumnView.composeInset)
+        #expect(column.compose.frame.minX > column.chats.frame.maxX)
 
         column.setFrameOrigin(.zero)
         WindowControlsAvoiders.refresh(in: window)
         column.layoutSubtreeIfNeeded()
         let lights = try lights(window)
         #expect(!inWindow(column.compose).intersects(lights), "the compose button is under the traffic lights")
+        #expect(!inWindow(column.chats).intersects(lights), "the Chats button is under the traffic lights")
     }
 
     /// The shared measure (`WindowTitlebar.windowControlsMaxX`): only what lies over the shown part counts.

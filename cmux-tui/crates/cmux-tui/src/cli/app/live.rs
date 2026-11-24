@@ -32,6 +32,7 @@ use std::path::{Path, PathBuf};
 use super::UsageError;
 
 mod chromium;
+mod web_abi;
 
 /// The script in a cmux checkout that runs the dev server and writes `web-dev.json`.
 const SCRIPT: &str = "scripts/cmux-next/web-overlay.sh";
@@ -57,6 +58,9 @@ pub(crate) enum Command {
         worktree: Option<PathBuf>,
         build_host: Option<String>,
         session: Option<String>,
+        /// `start --socket S`: the daemon socket of the app to swap (what `cmux --socket S` reaches),
+        /// as `cmux app try` and the app's other commands take it.
+        socket: Option<PathBuf>,
     },
     /// `start|stop --swift`: restart the tagged build into its live code build, or back.
     Swift(Swift),
@@ -109,6 +113,7 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
     let mut passthrough: Vec<String> = Vec::new();
     let mut build_host = None;
     let mut session = None;
+    let mut socket = None;
     let (mut swift, mut tag, mut detach, mut setting_done, mut discard, mut fresh) =
         (false, None, false, false, false, false);
     let switches = matches!(verb, Some("start" | "stop"));
@@ -138,6 +143,7 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
             }
             "--build-host" if verb == Some("start") => build_host = Some(value()?),
             "--session" if verb == Some("start") => session = Some(value()?),
+            "--socket" if verb == Some("start") => socket = Some(PathBuf::from(value()?)),
             "--swift" if switches => swift = true,
             "--tag" if switches => tag = Some(value()?),
             "--detach" if switches => detach = true,
@@ -166,6 +172,7 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
             (port.is_some(), "--port"),
             (build_host.is_some(), "--build-host"),
             (session.is_some(), "--session"),
+            (socket.is_some(), "--socket"),
         ]
         .into_iter()
         .find_map(|(given, flag)| given.then_some(flag))
@@ -210,6 +217,10 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
     if session.is_some() && !rust {
         return Err(unexpected("--session"));
     }
+    if socket.is_some() && (!rust || session.is_some()) {
+        // One daemon per loop: a socket or a session names it, not both.
+        return Err(unexpected("--socket"));
+    }
     if chromium {
         if port.is_some() {
             return Err(unexpected("--port"));
@@ -235,13 +246,34 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
             Some("status") => RustVerb::Status,
             _ => return Err(UsageError::new(messages.live.usage)),
         };
-        return Ok(Command::Rust { verb, worktree, build_host, session });
+        return Ok(Command::Rust { verb, worktree, build_host, session, socket });
     }
     match verb {
         Some("start") => Ok(Command::Start { worktree, port }),
         Some("stop") => Ok(Command::Stop { worktree }),
         Some("status") => Ok(Command::Status { worktree }),
         _ => Err(UsageError::new(messages.live.usage)),
+    }
+}
+
+/// `command` with the daemon `cmux --socket S live ...` or `cmux --session S live ...` names, when
+/// `start --rust` names none itself (the flag after the noun wins).
+pub(super) fn routed(command: &Command, socket: Option<&Path>, session: Option<&str>) -> Command {
+    match command {
+        Command::Rust {
+            verb: RustVerb::Start,
+            worktree,
+            build_host,
+            session: None,
+            socket: None,
+        } => Command::Rust {
+            verb: RustVerb::Start,
+            worktree: worktree.clone(),
+            build_host: build_host.clone(),
+            session: socket.is_none().then(|| session.map(str::to_owned)).flatten(),
+            socket: socket.map(Path::to_path_buf),
+        },
+        other => other.clone(),
     }
 }
 
@@ -274,6 +306,23 @@ pub(super) fn run(command: &Command) -> i32 {
         eprintln!("{}", messages.no_checkout);
         return 2;
     };
+    if matches!(command, Command::Start { .. })
+        && let Some(found) = web_abi::mismatch(
+            &tree,
+            &web_abi::target_apps(std::env::var_os("CMUX_WEB_OVERLAY_APP")),
+        )
+    {
+        // Nothing is started or written: a write to web-dev.json reloads every page of every app.
+        eprintln!(
+            "{}",
+            messages
+                .abi_mismatch
+                .replace("{tree_abi}", &found.tree_abi.to_string())
+                .replace("{app}", &found.app.display().to_string())
+                .replace("{app_abi}", &found.app_abi.to_string())
+        );
+        return 1;
+    }
     let mut process = Process::new("bash");
     process.arg(tree.join(SCRIPT)).args(&args).current_dir(&tree);
     if let Some(path) = tool_path(std::env::var_os("PATH"), std::env::var_os("HOME")) {
@@ -312,7 +361,7 @@ pub(super) fn run(command: &Command) -> i32 {
 /// Runs a `--rust` command: the checkout's [`RUST_SCRIPT`], with this process's terminal.
 fn run_rust(command: &Command) -> i32 {
     let messages = &crate::localization::catalog().app_control.live;
-    let Command::Rust { verb, worktree, build_host, session } = command else {
+    let Command::Rust { verb, worktree, build_host, session, socket } = command else {
         return 2;
     };
     let tree = match worktree {
@@ -355,6 +404,9 @@ fn run_rust(command: &Command) -> i32 {
             }
             if let Some(session) = session {
                 process.args(["--session", session]);
+            }
+            if let Some(socket) = socket {
+                process.args(["--socket".as_ref(), socket.as_os_str()]);
             }
         }
         RustVerb::Stop => {

@@ -11,7 +11,8 @@ import Testing
 @MainActor @Suite(.serialized, .closesItsWindows) struct ShaderWallpaperTests {
     @Test func everyShaderIsAPickerChoiceTheSettingReadsBack() {
         let ids = BackdropCatalog.shaders.map(\.id)
-        #expect(ids == ["shader:currents", "shader:ripples", "shader:aurora", "shader:field", "shader:aero"])
+        #expect(ids == ["shader:currents", "shader:ripples", "shader:aurora", "shader:field", "shader:aero",
+                        "shader:sakura", "shader:sumi", "shader:koi", "shader:snowfall", "shader:lanterns", "shader:rain"])
         for choice in BackdropCatalog.shaders {
             #expect(BackdropSelection(id: choice.id) == choice, "\(choice.id) does not read back")
             #expect(choice.pickerCollection?.id == BackdropShader.collection)
@@ -41,6 +42,22 @@ import Testing
         // float2, float2, 4 floats, then float4[4] at 32: 96 bytes in Metal.
         #expect(MemoryLayout<BackdropShaderUniforms>.stride == 96)
         #expect(MemoryLayout<BackdropShaderUniforms>.offset(of: \.rings) == 32)
+    }
+
+    /// Slow dark gradients band in an 8-bit drawable; every shader's last step is the 1-step
+    /// triangular dither (reading note motion-backgrounds-color, "Banding and dithering").
+    @Test func everyShaderEndsInTheDither() {
+        let source = BackdropShaderSource.source
+        for shader in BackdropShader.allCases {
+            let start = source.range(of: "fragment float4 \(shader.fragmentName)(")
+            #expect(start != nil, "\(shader) has no fragment")
+            guard let start else { continue }
+            let rest = source[start.upperBound...]
+            let end = rest.range(of: "\n    fragment ")?.lowerBound ?? rest.endIndex
+            let returns = rest[..<end].components(separatedBy: "return float4(").dropFirst()
+            #expect(!returns.isEmpty && returns.allSatisfy { $0.hasPrefix("dither(") },
+                    "\(shader) returns a color that skips the dither: it bands in dark gradients")
+        }
     }
 
     @Test func everyShaderCompilesAndDrawsAStillThatIsNotFlat() throws {
@@ -131,6 +148,30 @@ import Testing
         #expect(view.currentUniforms.energy < moved.energy * 0.2, "the energy does not fade while the pointer rests")
         #expect(abs(view.currentUniforms.mouse.x - 300 * Float(view.pixelSize.width / view.bounds.width)) < 1,
                 "the shown pointer never reaches the real one")
+    }
+
+    @Test func aResumeEasesTheClockUpFromStillInsteadOfJumpingToFullSpeed() {
+        let h = make(.shader(.field))
+        defer { h.close() }
+        let view = h.shader
+        view.resumed()
+        let start = view.currentUniforms.time
+        view.advance(by: 1 / 30)
+        let first = view.currentUniforms.time - start
+        #expect(first > 0 && first < Float(1.0 / 30) * 0.01, "a resume starts the clock at full speed")
+        var steps: [Float] = []
+        for _ in 0..<Int(BackdropShaderView.resumeRampSeconds * 30) {
+            let before = view.currentUniforms.time
+            view.advance(by: 1 / 30)
+            steps.append(view.currentUniforms.time - before)
+        }
+        #expect(zip(steps, steps.dropFirst()).allSatisfy { $1 >= $0 - 1e-5 }, "the clock slows down during a resume")
+        let before = view.currentUniforms.time
+        view.advance(by: 1 / 30)
+        #expect(abs(view.currentUniforms.time - before - Float(1.0 / 30)) < 1e-4, "the clock never reaches full speed")
+        let total = view.currentUniforms.time - start
+        let ramp = Float(BackdropShaderView.resumeRampSeconds)
+        #expect(abs(total - (ramp / 2 + Float(2.0 / 30))) < 0.02, "the eased clock does not resume where it held")
     }
 
     @Test func clicksSendRingsAndTheOldestIsReplaced() {

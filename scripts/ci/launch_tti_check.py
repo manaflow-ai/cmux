@@ -44,6 +44,10 @@ first_interaction; launch_stages.py), and the run's `stages` is each stage's med
 Each round prints `TTI-ROUND {json}`, the run prints `TTI {json}` with its verdict.
 Exit 0 when every round measured its front.
 
+--launch-delay-ms N is the bench's positive control (launch-tti.sh control=N): each measured launch gets
+CMUX_NEXT_LAUNCH_TEST_DELAY_MS=N, so the app waits N ms before it makes any window; launch_tti_control.py compares
+that run with a baseline one and fails the bench when its numbers did not move by about N.
+
 A NIGHTLY is a Release build: only release control methods and the bundled CLI are used. Posting keys needs the
 process to hold the PostEvent grant (CGPreflightPostEventAccess). A runner without it (`post_access: false`) types in
 the app instead (`input: in_app`, every round row and the TTI line say which path ran, `posted` or `in_app`): the
@@ -63,6 +67,7 @@ import json
 import mmap
 import os
 import plistlib
+import select
 import shutil
 import subprocess
 import sys
@@ -87,6 +92,7 @@ PRERUN_S = 60.0
 INPUT_MARK_MESSAGE = b"pane.inputEchoed"  # what a page posts when its composer drew a typed key (the mark's source)
 CHAT_MARK = "agent_pane.input_echoed"
 TYPE_PROBE_VARIABLE = "CMUX_NEXT_LAUNCH_TYPE_PROBE"  # LaunchTypeProbe: the app types one key at its first window frame
+LAUNCH_DELAY_VARIABLE = "CMUX_NEXT_LAUNCH_TEST_DELAY_MS"  # LaunchTestDelay: the app waits this long before any window
 PROBE_TYPED, PROBE_NO_KEY_WINDOW = "terminal.probe_key_typed", "terminal.probe_no_key_window"
 KEPT_MARKS = ("main_start", "first_window_frame_committed", "reveal.pane", "reveal.home", "agent_pane.painted",
               CHAT_MARK, "first_terminal_surface_created", "terminal_input_accepted", "terminal_echo", PROBE_TYPED,
@@ -205,11 +211,14 @@ def input_path(post_access: bool, chosen: str = "auto") -> str:
     return "posted" if post_access else "in_app"
 
 
-def launch_env(env: dict, probe: Path, path: str) -> dict:
-    """The measured launch's environment: the typing probe always, the app's own first-frame key on the in_app path."""
+def launch_env(env: dict, probe: Path, path: str, delay_ms: int = 0) -> dict:
+    """The measured launch's environment: the typing probe always, the app's own first-frame key on the in_app path,
+    and with `delay_ms` the positive control's known wait before the first window (LaunchTestDelay)."""
     out = {**env, "CMUX_NEXT_TYPING_PROBE": str(probe)}
     if path == "in_app":
         out[TYPE_PROBE_VARIABLE] = "1"
+    if delay_ms > 0:
+        out[LAUNCH_DELAY_VARIABLE] = str(delay_ms)
     return out
 
 
@@ -299,9 +308,16 @@ def quit_app(inst: rr.Instance, process) -> str | None:
     return None
 
 
-def fresh_copy(app: Path, pristine: Path) -> None:
-    shutil.rmtree(app)
-    subprocess.run(["ditto", str(pristine), str(app)], check=True, timeout=600)
+def fresh_copy(app: Path, pristine: Path, n: int) -> Path:
+    """A new copy of PRISTINE for round N's cold launch, in a folder of its own beside APP's (under the smoke's root,
+    which its cleanup removes), and the copy APP was is removed, best effort. Never into APP's own path: a bundle
+    path a process has launched from refuses new files there on a fleet Mac ("ditto: ...: Operation not permitted",
+    every file, cmuxterm-hq run 44723138688, 2026-11-20), so a re-copy in place failed every cold round."""
+    new = app.parent.parent / f"app-cold-{n}" / app.name
+    new.parent.mkdir(parents=True, exist_ok=False)
+    subprocess.run(["ditto", str(pristine), str(new)], check=True, timeout=600)
+    shutil.rmtree(app, ignore_errors=True)
+    return new
 
 
 def staged_prewarm_plan(app: Path) -> list[tuple[Path, list[str]]]:
@@ -392,14 +408,14 @@ def prerun(inst: rr.Instance, app: Path, env: dict, out: Path, seconds: float) -
     if not shown:
         quit_app(inst, process)
         return None, "the prerun's window never showed"
-    time.sleep(seconds)
+    time.sleep(seconds)  # sleep-ok: the prerun stays up `seconds` after its window shows, on purpose
     rr.wait(lambda: rr.call(inst.sock, "system.ping", timeout=2).get("error") is None, 10, 0.25)
     return None, quit_app(inst, process)
 
 
 def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: Path, pristine: Path, env: dict,
                made: dict, keys: Keys, args, out: Path):
-    """One quit and measured launch; returns (row, the new process)."""
+    """One quit and measured launch; returns (row, the new process, the app it ran: a cold round's is a new copy)."""
     path = input_path(keys.access, args.input)
     row: dict = {"round": n, "kind": kind, "front": which, "workspaces": made.get("list", {}).get("workspaces"),
                  "post_access": keys.access, "input": path}
@@ -408,17 +424,19 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
     if put:
         failures.append(put)
         rr.safe_print("TTI-ROUND " + json.dumps(row, default=str), flush=True)
-        return row, process
+        return row, process, app
     why = quit_app(inst, process)
     if why:
         failures.append(why)
     if kind in ("cold_install", "cold_after_update"):
         try:
-            fresh_copy(app, pristine)
+            app = fresh_copy(app, pristine, n)
         except (OSError, subprocess.SubprocessError) as error:
             failures.append(f"the fresh copy failed: {error}")
             rr.safe_print("TTI-ROUND " + json.dumps(row, default=str), flush=True)
-            return row, process
+            return row, process, app
+        # The seeded session's CLI is the running copy's (Instance.cli): follow the app to its new path.
+        inst.app, inst.cli = str(app), os.path.join(str(app), "Contents", "Resources", "bin", "cmux")
         if kind == "cold_after_update":
             row["prewarm"] = staged_update_prewarm(app, env)
     elif kind == "warm60":
@@ -428,7 +446,7 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
     probe = out / f"typing-round{n}.csv"
     probe.unlink(missing_ok=True)
     spawned = uptime_ns()
-    process, fd, _ = rr.launch(app, launch_env(env, probe, path), out / "app-tti.log")
+    process, fd, _ = rr.launch(app, launch_env(env, probe, path, args.launch_delay_ms), out / "app-tti.log")
     start_ns = process_start_uptime_ns(process.pid)
     if path == "in_app":
         activate(process.pid)  # the app types into its key window at its first frame: ask for the front from the start
@@ -466,7 +484,19 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
             posted += 1
             last_post = time.monotonic()
         time.sleep(KEY_EVERY_S)
-    time.sleep(0.2)
+    # Marks written as the loop ended: read until the pipe stays quiet for 0.2 s (or ends), at most 2 s.
+    drain_end = time.monotonic() + 2.0
+    while time.monotonic() < drain_end:
+        try:
+            ready, _, _ = select.select([fd], [], [], 0.2)
+        except (OSError, ValueError):
+            break
+        if not ready:
+            break
+        before = (len(buf), len(marks))
+        read_marks(fd, buf, marks)
+        if (len(buf), len(marks)) == before:
+            break  # readable with nothing new: the writer closed the pipe
     read_marks(fd, buf, marks)
     os.close(fd)
     if which == "terminal":
@@ -487,7 +517,7 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
         failures.append(f"the app exited (status {process.poll()})")
     failures += round_failures(which, path, row, marks, args.settle)
     rr.safe_print("TTI-ROUND " + json.dumps(row, default=str), flush=True)
-    return row, process
+    return row, process, app
 
 
 # ---- the check ------------------------------------------------------------------------------
@@ -518,7 +548,7 @@ def check(args) -> int:
         subprocess.run(["ditto", str(app), str(pristine)], check=True, timeout=600)
         failures = []
         for n, (kind, which) in enumerate(args.plan, 1):
-            row, process = round_once(n, kind, which, process, inst, app, pristine, env, made, keys, args, out)
+            row, process, app = round_once(n, kind, which, process, inst, app, pristine, env, made, keys, args, out)
             result["rounds"].append(row)
             failures += [f"round {n}: {f}" for f in row["failures"]]
             if process.poll() is not None:
@@ -558,12 +588,12 @@ def check(args) -> int:
     # A chat round on a build without the input mark measured nothing about the app and fails nothing (`no_mark`).
     measured = [r for r in result["rounds"] if isinstance(r.get("input_ms"), (int, float)) or r.get("no_mark")]
     passed = status == 0 and len(result["rounds"]) == len(args.plan) and len(measured) == len(args.plan)
-    result.update(summary, verdict="pass" if passed else "fail", post_access=keys.access,
+    result.update(summary, verdict="pass" if passed else "fail", post_access=keys.access, launch_delay_ms=args.launch_delay_ms,
                   input=input_path(keys.access, args.input))
     if args.out:
         with open(Path(args.out) / "tti.json", "w") as handle:
             json.dump(result, handle, indent=2, default=str)
-    shown = ("verdict", "post_access", "input", "seed", "seed_error", "stages", *summary)
+    shown = ("verdict", "post_access", "input", "launch_delay_ms", "seed", "seed_error", "stages", *summary)
     print("TTI " + json.dumps({k: result.get(k) for k in shown}),
           flush=True)
     return 0 if passed else (status if status not in (0, None) else 1)
@@ -595,6 +625,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--input", choices=("auto", "posted", "in_app"), default="auto",
                         help="who types: posted (CGEventPostToPid, needs the PostEvent grant), in_app (the app's "
                              "LaunchTypeProbe at its first frame), auto (posted when the grant is held)")
+    parser.add_argument("--launch-delay-ms", type=int, default=0,
+                        help="the positive control: each measured launch waits this long before its first window "
+                             "(CMUX_NEXT_LAUNCH_TEST_DELAY_MS; the app clamps it to 5000)")
     parser.add_argument("--fake-agent", default=str(rr.DEFAULT_FAKE_AGENT))
     parser.add_argument("--out")
     args = parser.parse_args(argv)

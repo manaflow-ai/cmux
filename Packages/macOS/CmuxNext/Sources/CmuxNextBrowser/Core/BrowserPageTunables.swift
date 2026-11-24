@@ -17,6 +17,7 @@ public nonisolated struct BrowserPageTunables {
         default: false, code: "BrowserPageTunables.uiPointer")
 
     public static var all: [TunableDescriptor] {
-        [uiPointer.descriptor, CEFSpareWindow.pageSetting.descriptor, CEFDrawOnInput.setting.descriptor]
+        [uiPointer.descriptor, CEFSpareWindow.pageSetting.descriptor, CEFDrawOnInput.setting.descriptor,
+         CEFFramePacing.noFrameRateLimit.descriptor]
     }
 }

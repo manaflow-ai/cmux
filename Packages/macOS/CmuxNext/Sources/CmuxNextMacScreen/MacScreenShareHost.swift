@@ -21,7 +21,7 @@ public final class MacScreenShareHost {
     public private(set) var screenRecordingGranted = false
     public private(set) var accessibilityGranted = false
     /// The name System Settings lists the two grants under: the helper's
-    /// ("cmux NIGHTLY Screen Sharing"), or nil while unknown and in a build
+    /// ("cmux NIGHTLY Helper"), or nil while unknown and in a build
     /// without the helper (then they are this app's own).
     public private(set) var grantHolderName: String?
     @ObservationIgnored private var activation: (any NSObjectProtocol)?

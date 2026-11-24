@@ -39,8 +39,10 @@ impl Hub {
                         name: m.name.clone(),
                         session_id: s.id.clone(),
                         harness: m.harness.clone(),
-                        state: m.status.to_string(),
+                        // A watched chat whose app exited (`app_exit.rs`).
+                        state: super::app_exit::row_status(s, m.status),
                         stuck_reason: None,
+                        cwd: crate::mesh::heartbeat_cwd(&m.cwd.to_string_lossy()),
                         team_address: team_enabled
                             .then(|| {
                                 m.tags

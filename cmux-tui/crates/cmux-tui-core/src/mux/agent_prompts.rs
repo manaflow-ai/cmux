@@ -35,8 +35,31 @@
 //! its notification takes it, and the terminal keeps it while the agent waits on it, so
 //! `list-notifications` and the notification event can show the question and its options
 //! (cmux-next-ios answers it from the phone). It never reaches the durable ledger.
+//!
+//! Each agent notification's texts (`FeedTexts`: its reply, error, approval, plan or question
+//! text, and the prompt of its turn) are also kept, memory only and bounded, by its ledger id
+//! and by the local feed item that took it: `list-notifications` and the `feed-local-*` answers
+//! show them, so a Feed that reads after the event (the phone connecting later, the app's
+//! handoff to the Feed) shows what the agent said, as a GUI chat's card does. A daemon restart
+//! forgets them; the durable ledger and feed rows never hold them.
+
+use std::collections::VecDeque;
 
 use super::*;
+
+/// What an agent notification said, for the Feed (memory only, `Mux::agent_feed_texts`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct FeedTexts {
+    /// The reply of a finished turn, a failure's error text, an approval's command or a plan.
+    pub(crate) message: Option<Arc<str>>,
+    /// The prompt of the turn it ends.
+    pub(crate) prompt: Option<Arc<str>>,
+    /// The Feed body: `message`, or the question with its options.
+    pub(crate) detail: Arc<str>,
+}
+
+/// Keys of kept `FeedTexts` at most (ledger ids and feed item ids; the ledger holds 256).
+const FEED_TEXT_KEYS: usize = 1024;
 
 /// The agent texts a terminal keeps in memory only.
 #[derive(Default)]
@@ -57,6 +80,16 @@ pub(crate) struct AgentTexts {
     /// The question each terminal's agent waits on, with the ledger id of the notification
     /// that asked it: `list-notifications` shows it on that row until the agent moves on.
     questions: HashMap<TerminalPublicId, (String, Arc<Value>)>,
+    /// An approval hook's approval (`live_approval`), kept by the append's thread until its
+    /// notification takes it, as a question is.
+    noted_approvals: HashMap<TerminalPublicId, (std::thread::ThreadId, Arc<Value>)>,
+    /// The approval each terminal's agent waits on, with the ledger id of the notification that
+    /// asked for it: `list-notifications` shows it on that row until the agent moves on, so the
+    /// phone can answer it (Allow once / Deny) on the agent's approval screen.
+    approvals: HashMap<TerminalPublicId, (String, Arc<Value>)>,
+    /// Each agent notification's Feed texts, by ledger id and feed item id, oldest key first.
+    feed: HashMap<String, Arc<FeedTexts>>,
+    feed_order: VecDeque<String>,
 }
 
 impl AgentTexts {
@@ -82,10 +115,44 @@ impl AgentTexts {
         self.last_sessions.remove(terminal);
         self.noted_questions.remove(terminal);
         self.questions.remove(terminal);
+        self.noted_approvals.remove(terminal);
+        self.approvals.remove(terminal);
     }
 }
 
 impl Mux {
+    /// Keeps `texts` for the Feed under each of `keys` (a notification's ledger id, and the
+    /// local feed item that took it). The oldest keys go first past `FEED_TEXT_KEYS`.
+    pub(super) fn keep_agent_feed_texts(&self, keys: &[&str], texts: FeedTexts) {
+        let texts = Arc::new(texts);
+        let mut kept = self.agent_prompts.lock().unwrap_or_else(PoisonError::into_inner);
+        // A key kept again moves to the back: the newest texts are the last to age out, and
+        // each key holds one slot (a forgotten key's old slot goes too).
+        kept.feed_order.retain(|kept_key| !keys.contains(&kept_key.as_str()));
+        for key in keys {
+            kept.feed.insert((*key).to_owned(), Arc::clone(&texts));
+            kept.feed_order.push_back((*key).to_owned());
+        }
+        while kept.feed_order.len() > FEED_TEXT_KEYS {
+            if let Some(oldest) = kept.feed_order.pop_front() {
+                kept.feed.remove(&oldest);
+            }
+        }
+    }
+
+    /// Drops the Feed texts kept under `key`, and its order slot.
+    pub(super) fn forget_agent_feed_texts(&self, key: &str) {
+        let mut kept = self.agent_prompts.lock().unwrap_or_else(PoisonError::into_inner);
+        if kept.feed.remove(key).is_some() {
+            kept.feed_order.retain(|kept_key| kept_key != key);
+        }
+    }
+
+    /// The Feed texts of the notification or local feed item `key`, while this daemon keeps them.
+    pub(crate) fn agent_feed_texts(&self, key: &str) -> Option<Arc<FeedTexts>> {
+        self.agent_prompts.lock().unwrap_or_else(PoisonError::into_inner).feed.get(key).cloned()
+    }
+
     /// Keeps `prompt` (cut to `LIVE_MESSAGE_CHARS`) as `terminal`'s last prompt when the
     /// terminal is live. Returns the prompt it replaced (`Some(None)` for none), so a failed or
     /// replayed append can put it back (`restore_agent_prompt`); `None` when nothing was kept.
@@ -302,13 +369,62 @@ impl Mux {
         }
     }
 
-    /// The agent left its question (working again, idle, done): it no longer waits on it.
+    /// The agent left its question or approval (working again, idle, done): it no longer
+    /// waits on it.
     pub(super) fn forget_agent_question(&self, terminal: &TerminalPublicId) {
-        self.agent_prompts
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .questions
-            .remove(terminal);
+        let mut texts = self.agent_prompts.lock().unwrap_or_else(PoisonError::into_inner);
+        texts.questions.remove(terminal);
+        texts.approvals.remove(terminal);
+    }
+
+    /// Keeps an approval hook's approval (`live_approval`, checked by `kept_approval`) for
+    /// `terminal`'s next agent notification. Returns whether it kept one.
+    pub(crate) fn note_agent_approval(&self, terminal: &TerminalPublicId, text: &str) -> bool {
+        let Some(approval) = crate::agent_hooks::kept_approval(text) else { return false };
+        if self.resource_surface_for_terminal(terminal).is_none() {
+            return false;
+        }
+        let mut texts = self.agent_prompts.lock().unwrap_or_else(PoisonError::into_inner);
+        let owner = std::thread::current().id();
+        texts.noted_approvals.insert(terminal.clone(), (owner, Arc::new(approval)));
+        true
+    }
+
+    /// The approval this thread's append kept for `terminal`, taken by its notification
+    /// (`ledger_id`), which shows it from now on.
+    pub(super) fn take_agent_approval(&self, terminal: &TerminalPublicId, ledger_id: &str) {
+        let mut texts = self.agent_prompts.lock().unwrap_or_else(PoisonError::into_inner);
+        let owner = std::thread::current().id();
+        if texts.noted_approvals.get(terminal).is_none_or(|(kept_by, _)| *kept_by != owner) {
+            return;
+        }
+        if let Some((_, approval)) = texts.noted_approvals.remove(terminal) {
+            texts.approvals.insert(terminal.clone(), (ledger_id.to_owned(), approval));
+        }
+    }
+
+    /// Drops an approval no notification took (the append failed, replayed or posted nothing).
+    pub(crate) fn forget_noted_agent_approval(&self, terminal: &TerminalPublicId) {
+        let mut texts = self.agent_prompts.lock().unwrap_or_else(PoisonError::into_inner);
+        let owner = std::thread::current().id();
+        if texts.noted_approvals.get(terminal).is_some_and(|(kept_by, _)| *kept_by == owner) {
+            texts.noted_approvals.remove(terminal);
+        }
+    }
+
+    /// The approval the notification `ledger_id` of `terminal` asked for, while its agent still
+    /// waits on it.
+    pub(crate) fn pending_agent_approval(
+        &self,
+        terminal: &TerminalPublicId,
+        ledger_id: &str,
+    ) -> Option<Arc<Value>> {
+        let texts = self.agent_prompts.lock().unwrap_or_else(PoisonError::into_inner);
+        texts
+            .approvals
+            .get(terminal)
+            .filter(|(asked_by, _)| asked_by == ledger_id)
+            .map(|(_, approval)| Arc::clone(approval))
     }
 
     /// The question the notification `ledger_id` of `terminal` asked, while its agent still

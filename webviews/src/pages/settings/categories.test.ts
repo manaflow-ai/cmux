@@ -25,12 +25,14 @@ test("every page row has exactly one home", () => {
   expect(homes.size).toBe(schema.rows.length);
 });
 
-// In sidebar-section order (user 2026-10-30, "sections"): General and Updates, then Look and Feel,
+// In sidebar-section order (user 2026-10-30, "sections"): General, Customize (every customization
+// one click away, Leo 2026-11-22) and Updates, then Look and Feel,
 // Tools, AI, Interaction, Accounts and Devices, then More, closed until opened (one settings area,
 // David Beyer 2026-11-20: Settings felt overwhelming).
 test("the categories are the approved ones, in order", () => {
   expect(categories.map((category) => category.id)).toEqual([
     "general",
+    "customize",
     "updates",
     // Appearance holds the theme, the background and density; old Theme and Personalization links
     // open it (next tests).
@@ -51,6 +53,10 @@ test("the categories are the approved ones, in order", () => {
     "accounts",
     // Mobile stays its own page (Lucas 2026-11-11).
     "mobile",
+    // Devices holds what Server showed, and its old id opens it (next test). It sits under Accounts
+    // and Devices, where the join prompt's "Settings > Devices" points (Leo 2026-11-22: "i also
+    // couldnt find settings devices control").
+    "devices",
     // More: the pages a person opens less often.
     "newTab",
     // Settings > Menus: every right-click menu's arrangement (Customize Menu… opens it).
@@ -62,8 +68,6 @@ test("the categories are the approved ones, in order", () => {
     "cloud",
     // Keys: the keys agents keep and ask the person for (design/settings-keys.md).
     "keys",
-    // Devices holds what Server showed, and its old id opens it (next test).
-    "devices",
     "import",
     "privacy",
     "advanced",

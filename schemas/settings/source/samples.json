@@ -527,6 +527,40 @@
         {"rotate": 1}
       ]
     },
+    "domain:backdrop_placement": {
+      "accept": [
+        {},
+        {"munch-scream": "fit"},
+        {"file:/Users/Shared/Harbor.png": "fill 0.2 0.8 1.5", "desktop": "center 0.5 0"}
+      ],
+      "refuse": [
+        "fit",
+        [],
+        {"munch-scream": "cover"},
+        {"munch-scream": "fill 2 0"},
+        {"munch-scream": "fill 0.5"},
+        {"munch-scream": "fill 0.5 0.5 9"},
+        {"": "fit"},
+        {"munch-scream": 1}
+      ]
+    },
+    "domain:backdrop_recents": {
+      "accept": [
+        [],
+        ["folder:/Users/Shared/Wallpapers", "file:/Users/Shared/Harbor.png", "daily"],
+        ["munch-scream", "desktop", "none", "system:/System/Library/Desktop Pictures/Sonoma.heic"]
+      ],
+      "refuse": [
+        "daily",
+        {},
+        ["daily", "daily"],
+        ["folder:/"],
+        ["folder:relative"],
+        ["__not_a_backdrop__"],
+        [1],
+        ["file:/a.png", "file:/b.png", "file:/c.png", "file:/d.png", "file:/e.png", "file:/f.png", "file:/g.png", "file:/h.png", "file:/i.png"]
+      ]
+    },
     "domain:backdrop_location": {
       "accept": [
         "37.77,-122.42",

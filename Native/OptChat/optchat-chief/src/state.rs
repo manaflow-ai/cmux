@@ -91,6 +91,17 @@ pub struct HostState {
     /// outcome no Chief post has told the person yet.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub untold: Vec<Untold>,
+    /// The loop guard refuses the Chief's messages in its conversation
+    /// (`agent_budget`, brain/budget_hold.rs): set by a refusal, cleared by
+    /// the person's next message or a Chief message the owner takes. While
+    /// set, `stop`/`sleep` are not refused for untold work and the
+    /// `[untold]`/`[no text]` notes wait for the person's next turn.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub budget_hold: bool,
+    /// Subagents a turn started with no words while the guard held: the
+    /// person's next turn names them (brain/budget_hold.rs).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub held_spawns: Vec<String>,
     /// E22: ids a posted reply named in `answers_pending`: the turn that
     /// ends their work answers them even when it says nothing (a done
     /// marker), so a waiting `cmux chief -p` ends.
@@ -164,6 +175,17 @@ pub struct HostState {
     /// first. At most [`WAKES_KEPT`].
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub wakes: Vec<Wake>,
+    /// The automations the person asked for (automations.rs), oldest
+    /// first. At most [`crate::automations::AUTOMATIONS_MAX`].
+    #[serde(
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        deserialize_with = "crate::automations::deserialize_kept"
+    )]
+    pub automations: Vec<crate::automations::Automation>,
+    /// The number of the next automation id (`au<N>`), unique for this home.
+    #[serde(default)]
+    pub next_automation: u64,
     /// Watches the Chief started with `watch` (brain/watches.rs), oldest
     /// first. At most `WATCHES_KEPT`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -318,6 +340,10 @@ pub struct SpawnRecord {
     /// The turn that spawned it (its reply key), for the trace.
     #[serde(default)]
     pub turn: Option<String>,
+    /// A turn an automation's note started made it: its subagents never
+    /// fire an `agent_done` automation (automations.rs).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub by_automation: bool,
     /// The originating conversation; reports must not follow the Chief into another chat.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conversation: Option<String>,

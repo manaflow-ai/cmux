@@ -403,6 +403,9 @@ impl Hub {
                     additional_directories: meta.additional_directories.clone(),
                     // A side chat answers and stops: never its chat's stop condition.
                     stop_condition: None,
+                    // A restricted chat's side chat runs restricted too (`restricted.rs`):
+                    // the same folder's config stays off.
+                    restricted: meta.restricted,
                     // The person's side chat, as its chat is.
                     person: session.person.load(Ordering::SeqCst),
                     wait_start: false,

@@ -47,6 +47,7 @@ use crate::store::{Draft, Generation, Kind};
 use crate::tree::{self, Part, SETTINGS, Tree};
 use crate::{Customize, Error, validate};
 
+pub mod applies;
 pub mod code;
 mod collection;
 pub mod expire;
@@ -56,6 +57,7 @@ mod put;
 pub mod recover;
 mod text;
 
+pub use applies::{NoLongerApplies, Stale};
 use code::WebTarget;
 pub use code::{CodeKind, CodeLayer, WEB_KEY, WebBase};
 use keys::KEYBINDINGS;
@@ -107,6 +109,11 @@ pub struct Entry {
     /// When it was last turned on (local only; [`expire`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub on_ms: Option<u64>,
+    /// A code entry put on with `cmux customize try CODE`: when it goes off
+    /// by itself (local only; [`expire`]). Turning it on or off by hand, or
+    /// `use` again, keeps it and clears this.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub until_ms: Option<u64>,
     /// Code not in your build (`source` "pr", "branch", "sha", "dir", "fork"): its web part is the
     /// stack key `code:web` ([`code`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -220,6 +227,23 @@ struct LibraryFile {
     /// Top first.
     entries: Vec<Entry>,
     base: Base,
+    /// The app commit (`CMUXCommit`, as the app stamps it) `refresh` last
+    /// ran on, so the app runs it again at start only after an update.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    refreshed_on: Option<String>,
+}
+
+/// Whether `refresh` is due on an app at `app` (its `CMUXCommit`) when it
+/// last ran on `recorded`: never on a build with no commit (a DEV build),
+/// always the first time, then only when the commit changed. A NIGHTLY
+/// stamps a short commit, so one that starts the other is the same commit.
+pub fn refresh_due(recorded: Option<&str>, app: Option<&str>) -> bool {
+    let Some(app) = app.map(str::trim).filter(|app| !app.is_empty()) else { return false };
+    let Some(recorded) = recorded.map(str::trim).filter(|recorded| !recorded.is_empty()) else {
+        return true;
+    };
+    let (app, recorded) = (app.to_ascii_lowercase(), recorded.to_ascii_lowercase());
+    !(app.starts_with(&recorded) || recorded.starts_with(&app))
 }
 
 /// One entry as a list shows it.
@@ -243,6 +267,10 @@ pub struct Listed {
     /// reader that does not know it is unaffected).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code: Option<CodeLayer>,
+    /// A code try (`cmux customize try CODE`) that is on: when it goes off
+    /// by itself.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub until_ms: Option<u64>,
 }
 
 /// Two or more entries that are on set the same key or file.
@@ -407,6 +435,24 @@ impl Customize {
         Ok(listing(&self.read_library()?.entries))
     }
 
+    /// The app commit `refresh` last ran on ([`refresh_due`]).
+    pub fn library_refreshed_on(&self) -> Result<Option<String>, Error> {
+        Ok(self.read_library()?.refreshed_on)
+    }
+
+    /// Records that `refresh` ran on app commit `commit`. Only that field
+    /// changes: no generation, nothing live. Writes nothing when it is
+    /// already the one recorded.
+    pub fn library_mark_refreshed(&self, commit: &str) -> Result<(), Error> {
+        let _lock = self.store().lock()?;
+        let mut library = self.read_library()?;
+        if library.refreshed_on.as_deref() == Some(commit) {
+            return Ok(());
+        }
+        library.refreshed_on = Some(commit.to_owned());
+        self.write_library(&mut library)
+    }
+
     /// Saves what applied generation `generation` changed from its parent as
     /// a new entry on top, turned on (it is live). Called by `apply` with the
     /// draft's words, and by a kept try-on. `None` when it changed nothing a
@@ -516,6 +562,7 @@ impl Customize {
                 added_ms: Some(now_ms),
                 generation: Some(generation.n),
                 on_ms: Some(now_ms),
+                until_ms: None,
                 code: None,
             },
         );
@@ -542,8 +589,44 @@ impl Customize {
             }
             entry.on = on;
             entry.on_ms = if on { Some(now_ms) } else { entry.on_ms };
+            // A hand on or off settles a try: on keeps it, off already ended it.
+            entry.until_ms = None;
             Ok(())
         })
+    }
+
+    /// `cmux customize try CODE --minutes N`: code entry `name`, just put on
+    /// by `use`, goes off by itself at `until_ms` ([`expire`]), the way a
+    /// try-on reverts. `library on NAME` keeps it; `library off NAME` ends it
+    /// now.
+    pub fn library_try_until(
+        &self,
+        name: &str,
+        until_ms: u64,
+        origin: &str,
+        now_ms: u64,
+    ) -> Result<Changed, Error> {
+        let label = format!("library: try {name}");
+        self.library_change(&label, origin, now_ms, |library| {
+            let entry = find(&mut library.entries, name)?;
+            if entry.code.is_none() {
+                return Err(Error::Library(format!("{name} is not a code entry")));
+            }
+            entry.until_ms = Some(until_ms);
+            Ok(())
+        })
+    }
+
+    /// The earliest end of a code try that is still on: when the try waiter
+    /// wakes next. `None` when no try is running.
+    pub fn next_try_end(&self) -> Result<Option<u64>, Error> {
+        Ok(self
+            .read_library()?
+            .entries
+            .iter()
+            .filter(|entry| entry.on)
+            .filter_map(|entry| entry.until_ms)
+            .min())
     }
 
     /// Puts code layer `layer` on top of the library as entry
@@ -602,6 +685,7 @@ impl Customize {
                     added_ms,
                     generation: None,
                     on_ms: layer.has_web().then_some(now_ms),
+                    until_ms: None,
                     code: Some(layer),
                 },
             );
@@ -637,6 +721,10 @@ impl Customize {
             entry.thumbnail.keys =
                 if layer.has_web() { vec![WEB_KEY.to_owned()] } else { Vec::new() };
             entry.on = entry.on && layer.has_web();
+            // A watch rebuild is a folder in use: its 24 hours start again.
+            if entry.on && layer.kind == CodeKind::Dir {
+                entry.on_ms = Some(now_ms);
+            }
             entry.code = Some(layer);
             Ok(())
         })
@@ -661,7 +749,11 @@ impl Customize {
                 .ok_or_else(|| Error::Library(format!("{name} is not a code entry")))?;
             code.note = one_line(note);
             if let Some(on) = on {
+                let was_on = entry.on;
                 entry.on = on && entry.code.as_ref().is_some_and(CodeLayer::has_web);
+                if entry.on && !was_on {
+                    entry.on_ms = Some(now_ms);
+                }
             }
             Ok(())
         })
@@ -713,7 +805,13 @@ impl Customize {
             .entries
             .into_iter()
             .filter(|entry| !only_on || entry.on)
-            .map(|entry| Entry { added_ms: None, generation: None, on_ms: None, ..entry })
+            .map(|entry| Entry {
+                added_ms: None,
+                generation: None,
+                on_ms: None,
+                until_ms: None,
+                ..entry
+            })
             .collect();
         Ok(Collection {
             version: COLLECTION_VERSION,
@@ -785,6 +883,7 @@ impl Customize {
                     added_ms: Some(now_ms),
                     generation: None,
                     on_ms: (turn_on && entry.on).then_some(now_ms),
+                    until_ms: None,
                     code: entry.code.clone(),
                 });
             }
@@ -1365,6 +1464,7 @@ fn listing(entries: &[Entry]) -> Listing {
                 files: entry.profile.files.keys().cloned().collect(),
                 added_ms: entry.added_ms,
                 overridden,
+                until_ms: entry.until_ms.filter(|_| entry.on),
                 code: entry.code.clone(),
             }
         })

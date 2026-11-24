@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDevices
 @testable import CmuxNextMacScreen
 import CmuxNextServer
+import CmuxNextSettings
 import CmuxNextWakeups
 import CmuxScreenKit
 import CmuxNextTestSupport
@@ -205,14 +206,13 @@ struct MacScreenHubCardTests {
         #expect(MacScreenCardView.refusedBody(.notFound, host: "Studio")
             == L.t("macScreen.hub.notFoundBody", "This device was removed from your devices."))
         #expect(MacScreenCardView.refusedTitle(rateLimited, host: "Studio") == L.t("macScreen.card.failedTitle", "Couldn’t connect"))
-        // A Linux desktop has no cmux app or Settings: its offline and not-shared steps name its screen host.
-        #expect(MacScreenCardView.refusedBody(.hostOffline, host: "lane", platform: .linux)
-            == L.t("macScreen.hub.offlineBodyLinux", "Make sure that Linux machine is on and its cmux screen host is running."))
+        // A Linux desktop has no cmux app or Settings: its not-shared step names its screen host.
         #expect(MacScreenCardView.refusedBody(.notShared, host: "lane", platform: .linux).contains("linux-host share on"))
-        #expect(MacScreenCardView.refusedBody(.hostOffline, host: "Studio", platform: .macos)
-            == L.t("macScreen.hub.offlineBody", "Open cmux on that Mac and make sure it is signed in."))
-        #expect(MacScreenCardView.refusedBody(.hostOffline, host: "Studio")
-            == L.t("macScreen.hub.offlineBody", "Open cmux on that Mac and make sure it is signed in."))
+        // Zero touch (Z7): offline asks nothing of the other machine, on every platform.
+        let waits = L.t("macScreen.hub.offlineBodyWaits", "Its screen shows here as soon as it is back online.")
+        for platform in [DevicePlatform.linux, .macos, nil] {
+            #expect(MacScreenCardView.refusedBody(.hostOffline, host: "Studio", platform: platform) == waits)
+        }
     }
 
     @Test func endReasonsReadTheProtocolsAuthoritativeReasons() {
@@ -270,7 +270,7 @@ struct MacScreenHubCardTests {
     /// A device tab shows the stream's controls only while a session streams.
     @Test func deviceTabsShowStreamControlsOnlyWhileStreaming() {
         let viewer = MacScreenHubViewer(deviceID: hostID) { nil }
-        let pane = MacScreenPane(hubDevice: viewer, name: "Studio", preferences: ScreenPreferences())
+        let pane = MacScreenPane(hubDevice: viewer, name: "Studio", preferences: ScreenPreferences(), viewerLook: .current)
         #expect(pane.model.card == .hubConnect)
         #expect(!pane.model.showsStreamControls)
         viewer.phase = .streaming(sessionID: "s1", scope: .full)
@@ -290,7 +290,7 @@ struct MacScreenViewOnlyTests {
 
     @Test func theSessionsScopeDecidesViewOnly() {
         let viewer = MacScreenHubViewer(deviceID: hostID) { nil }
-        let pane = MacScreenPane(hubDevice: viewer, name: "Studio", preferences: ScreenPreferences())
+        let pane = MacScreenPane(hubDevice: viewer, name: "Studio", preferences: ScreenPreferences(), viewerLook: .current)
         #expect(!pane.model.viewOnly)
         viewer.phase = .streaming(sessionID: "s1", scope: .view)
         #expect(pane.model.viewOnly)
@@ -666,6 +666,26 @@ struct MacScreenHubViewerTests {
         viewer.request(.view)
         #expect(viewer.phase == .refused(.notSignedIn, requested: .view))
         #expect(viewer.lastScope == .view)
+    }
+
+    /// An open in the first seconds after launch, before the saved sign-in restored, asks
+    /// again once the hub comes, instead of keeping "Not Signed In".
+    @Test func aRequestRefusedForNoHubAsksAgainWhenTheHubComes() {
+        @MainActor final class Box { var hub: DeviceHub? }
+        let current = Box()
+        let viewer = MacScreenHubViewer(deviceID: hostID) { current.hub }
+        viewer.request(.full)
+        #expect(viewer.phase == .refused(.notSignedIn, requested: .full))
+        viewer.hubArrived()
+        #expect(viewer.phase == .refused(.notSignedIn, requested: .full), "still no hub: nothing to ask")
+        current.hub = testHub()
+        viewer.hubArrived()
+        #expect(viewer.phase == .requesting(.full))
+        // Any other card stays as it is when a hub comes.
+        viewer.cancel()
+        viewer.phase = .refused(.permissionNone, requested: .view)
+        viewer.hubArrived()
+        #expect(viewer.phase == .refused(.permissionNone, requested: .view))
     }
 }
 
@@ -1458,5 +1478,44 @@ struct MacScreenRdWishTests {
         #expect(MacScreenRdDocument.wish(.auto, refresh: 60, paneWidth: 600).maxWidth == 1280, "never under 1280")
         #expect(MacScreenRdDocument.wish(.high, refresh: 60, paneWidth: 1000).maxWidth == nil, "High keeps the full size")
         #expect(MacScreenRdDocument.wish(.smooth, refresh: 120, paneWidth: 1000) == (1920, 120))
+    }
+}
+
+/// Customize's bitrate cap and cursor ride the offer; the defaults add no line (today's offer).
+struct MacScreenRdCustomizeTests {
+    @Test func customizeWishesRoundTripAndDefaultsAddNothing() throws {
+        var document = MacScreenRdDocument(key: String(repeating: "ab", count: 32))
+        document.customize(ScreenPreferences())
+        #expect(!document.text.contains("max-kbps") && !document.text.contains("cmux-rd-cursor"))
+        document.customize(ScreenPreferences(maxKbps: 10_000, showCursorInStream: false))
+        #expect(document.text.contains("a=cmux-rd-max-kbps:10000\r\n"))
+        #expect(document.text.contains("a=cmux-rd-cursor:0\r\n"))
+        let parsed = try #require(MacScreenRdDocument(text: document.text))
+        #expect(parsed == document)
+    }
+}
+
+/// Screen Sharing Profile (`remote.screenSharingProfile`): Ultra travels in the offer as
+/// `a=cmux-rd-encode-profile:ultra` (cmux-hub-host rd_doc.rs); Balanced sends no line.
+struct MacScreenRdEncodeProfileTests {
+    private let key = String(repeating: "ab", count: 32)
+
+    @Test func anUltraOfferRoundTripsItsEncodeProfile() throws {
+        var offer = MacScreenRdDocument(key: key)
+        offer.maxFps = 120
+        offer.encodeProfile = "ultra"
+        #expect(offer.text.contains("\r\na=cmux-rd-encode-profile:ultra\r\n"))
+        let parsed = try #require(MacScreenRdDocument(text: offer.text))
+        #expect(parsed == offer)
+        #expect(parsed.encodeProfile == "ultra")
+    }
+
+    @Test func aBalancedOfferSendsNoProfileLine() throws {
+        var offer = MacScreenRdDocument(key: key)
+        offer.encodeProfile = MacScreenPages.encodeProfile(ScreenSharingProfile.balanced)
+        #expect(!offer.text.contains("encode-profile"))
+        #expect(try #require(MacScreenRdDocument(text: offer.text)).encodeProfile == nil)
+        #expect(MacScreenPages.encodeProfile(ScreenSharingProfile.ultra) == "ultra")
+        #expect(RemoteSettings().screenSharingProfile == .balanced, "Balanced stays the default")
     }
 }
