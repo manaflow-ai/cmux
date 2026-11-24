@@ -12,7 +12,7 @@
 //! Lockstep. A hub client offers the `cmux-hub.v1` subprotocol; anything but
 //! an upgrade that echoes it is a [`HubFallback`] (an older Worker's 404, the
 //! kill switch's 503, a refusal, an upgrade without the echo, or a relay that
-//! answers kind-4 frames with `bad_frame:kind`), and the caller keeps today's
+//! answers kind-5 frames with `bad_frame:kind`), and the caller keeps today's
 //! per-source path ([`hub_wanted`] says when to try at all). Old clients never
 //! ask for the hub, so a new relay changes nothing for them.
 //!
