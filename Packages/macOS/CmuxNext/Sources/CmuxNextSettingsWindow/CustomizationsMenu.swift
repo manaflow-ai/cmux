@@ -25,6 +25,7 @@ public final class CustomizationsMenu: NSObject, NSMenuDelegate {
                             openAll: @escaping @MainActor () -> Void) -> NSMenuItem {
         let owner = CustomizationsMenu(settings: settings, openAll: openAll)
         let item = NSMenuItem(title: SettingsWindowStrings.customizationsMenu, action: nil, keyEquivalent: "")
+        item.identifier = NSUserInterfaceItemIdentifier("cmux.menu.customizations") // the chat's Customize button finds it
         let menu = NSMenu(title: SettingsWindowStrings.customizationsMenu)
         menu.autoenablesItems = false
         menu.delegate = owner

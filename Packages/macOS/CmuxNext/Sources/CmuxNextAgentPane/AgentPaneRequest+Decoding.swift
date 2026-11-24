@@ -587,6 +587,11 @@ extension AgentPaneRequest {
         case "pane.tabRowTools.set":
             if let tools = AgentPaneTabRowTools.list(params?["tools"]) { self = .tabRowToolsSet(tools) }
             else { self = .unsupported(method) }
+        case "customizations.menu":
+            if let point = params?["point"] as? [String: Any],
+               let x = (point["x"] as? NSNumber)?.doubleValue, let y = (point["y"] as? NSNumber)?.doubleValue,
+               x.isFinite, y.isFinite { self = .customizationsMenu(x: x, y: y) }
+            else { self = .unsupported(method) }
         case "pane.tabRowTools.openMenu":
             guard let id = params?["id"] as? String, id == "chat-menu",
                   let rawMenuItemID = params?["menuItemId"], !(rawMenuItemID is NSNull) else {
