@@ -22,7 +22,8 @@ const broken = (result: SimResult, prefix: string) =>
 
 // Rules (a), (b) and (d) hold in every scenario: a turn's first rows keep their gaps, nothing folds
 // before its turn ends, and another agent's line among tool rows sits on their pitch.
-describe("chat simulator: (a) a turn's first rows keep their gaps, (b) nothing folds before its turn ends, (d) received lines on the tool rows' pitch", () => {
+// The describe keeps base's name so CI's base compare reads each test by the same name; rule (d) runs under it.
+describe("chat simulator: (a) a turn's first rows keep their gaps, (b) nothing folds before its turn ends", () => {
   for (const [name, make] of Object.entries(SCENARIOS)) {
     for (const rule of ["a-", "b-", "d-received"]) {
       test(`${name}: rule ${rule.slice(0, 1)}`, () => {
