@@ -18,6 +18,9 @@ mod client;
 // The kept changes: Apply, Discard, and two requests for one chat.
 #[path = "auto_session/leftover.rs"]
 mod leftover;
+// The chat's log goes with its secrets masked.
+#[path = "auto_session/redact.rs"]
+mod redact;
 // Auto on and Keep in Cloud answered from the store's answer.
 #[path = "auto_session/switch.rs"]
 mod switch;
