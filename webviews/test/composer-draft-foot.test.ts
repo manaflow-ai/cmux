@@ -15,6 +15,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { PNG } from "pngjs";
+import { COMPOSER_MD_FIELD } from "../src/agent-session/acpmux/composerSelectors";
 import { draftFoot } from "../src/agent-session/acpmux/draftFoot.experiment";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
@@ -64,7 +65,7 @@ await requireBrowserLane("composer-draft-foot.test.ts", async () => {
     const port = (vite!.httpServer!.address() as { port: number }).port;
     const page = await browser!.newPage({ viewport: { width: WIDTH, height: HEIGHT }, deviceScaleFactor: SCALE });
     await page.goto(`http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant, width: WIDTH, theme, background })}`);
-    await page.locator(".acpmux-composer-box .acpmux-md-field[data-fade-bottom]").first().waitFor({ timeout: 90_000 });
+    await page.locator(`${COMPOSER_MD_FIELD}[data-fade-bottom]`).first().waitFor({ timeout: 90_000 });
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
       timeout: 60_000,
     });
@@ -73,14 +74,14 @@ await requireBrowserLane("composer-draft-foot.test.ts", async () => {
   }
 
   async function measure(page: Page, still?: string): Promise<Foot> {
-    const geometry = await page.evaluate(() => {
+    const geometry = await page.evaluate((fieldSelector) => {
       const box = document.querySelector(".acpmux-composer-box")!.getBoundingClientRect();
-      const field = document.querySelector(".acpmux-composer-box .acpmux-md-field")!.getBoundingClientRect();
+      const field = document.querySelector(fieldSelector)!.getBoundingClientRect();
       return {
         box: { x: box.left, y: box.top, width: box.width, height: box.height },
         field: { left: field.left, right: field.right, bottom: field.bottom },
       };
-    });
+    }, COMPOSER_MD_FIELD);
     if (still) await page.screenshot({ path: still, clip: geometry.box, animations: "disabled", caret: "hide" });
     const clip = {
       x: geometry.field.left,
