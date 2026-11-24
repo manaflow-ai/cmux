@@ -18,18 +18,12 @@ const OWN_HELP: &[&str] = &["cloud"];
 /// The widest verb column; a longer verb gets its title after two spaces.
 const VERB_COLUMN: usize = 30;
 
-/// The action catalog, parsed once.
-fn catalog() -> &'static Value {
-    static CATALOG: OnceLock<Value> = OnceLock::new();
-    CATALOG.get_or_init(|| serde_json::from_str(&ACTION_SURFACES.inflate()).unwrap_or(Value::Null))
-}
-
 /// The offered app verbs by scope (the CLI name's first word): verb (the rest
 /// of the CLI name) and title, sorted by verb.
 fn offered() -> &'static BTreeMap<String, Vec<(String, String)>> {
     static OFFERED: OnceLock<BTreeMap<String, Vec<(String, String)>>> = OnceLock::new();
     OFFERED.get_or_init(|| {
-        let doc = catalog();
+        let doc: Value = serde_json::from_str(&ACTION_SURFACES.inflate()).unwrap_or(Value::Null);
         let mut scopes: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
         for action in doc.get("actions").and_then(Value::as_array).into_iter().flatten() {
             if action.get("cli").and_then(Value::as_str) != Some("offered") {
@@ -104,7 +98,8 @@ pub(crate) fn verb_help(scope: &str, verb: &str) -> Option<String> {
         return None;
     }
     let name = format!("{scope} {verb}");
-    let action = catalog().get("actions")?.as_array()?.iter().find(|action| {
+    let doc: Value = serde_json::from_str(&ACTION_SURFACES.inflate()).ok()?;
+    let action = doc.get("actions")?.as_array()?.iter().find(|action| {
         action.get("cli").and_then(Value::as_str) == Some("offered")
             && action.get("cli_name").and_then(Value::as_str) == Some(name.as_str())
     })?;
