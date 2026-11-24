@@ -632,8 +632,11 @@ public final class AgentPaneModel {
                 AgentPaneLaunchTimings.shared.layoutSettle(at: settledAt, maxMovePx: maxMovePx, element: element, shifts: shifts)
             }
             return AgentPaneReply.success()
-        case .painted(let fromKeptTail, let settled):
+        case .painted(let fromKeptTail, let settled, let copy):
             AgentPaneLaunchTimings.shared.mark(newTab != nil ? "agent_pane.newtab_painted" : "agent_pane.painted")
+            // The page's own app drew the chat (not the inert saved copy): what the relaunch bench times as
+            // the chat drawn live (scripts/ci/relaunch_restore_check.py `page_painted_ms`, goal restart-to-chat).
+            if !copy, newTab == nil { AgentPaneLaunchTimings.shared.mark("agent_pane.page_painted") }
             // The first report only, and before `markPainted`: the pane's loading state leaves on
             // that call, and what that frame drew is what decides whether the page fades in
             // (``AgentPaneView/pageFades``). A later report describes a frame nothing is waiting on.
@@ -693,7 +696,8 @@ public final class AgentPaneModel {
         // Nor the paths of files dropped or pasted from this Mac.
         case .attachDropped where remoteChat: return Self.unsupported("chat.attach.dropped")
         case .attachDropped(let kind, let names, let gestureAt): return await attachDropped(kind, names: names, gestureAt: gestureAt)
-        // A chat on another machine gets the gesture's source only (`attachSource`).
+        // A chat on another machine, or a page before its handshake, gets the pasteboard's claim
+        // only, never this Mac's file metadata (`attachSource`).
         case .attachSource(let kind, let names, let gestureAt): return await attachSource(kind, names: names, gestureAt: gestureAt)
         case .attachExternal: return await takeExternalAttachments()
         case .attachmentSourceIcon(let bundleId):
