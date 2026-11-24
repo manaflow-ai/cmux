@@ -650,11 +650,11 @@ fn care_a_session_folder_in_a_guarded_location_is_never_read() {
 #[test]
 fn care_a_worktree_of_a_repository_in_a_guarded_location_is_skipped() {
     let (base, main) = repository("guarded-repo");
-    let desk = base.clone();
+    let desk = base;
     let roots = scratch("guarded-repo-roots");
     let wt = roots.join("wt-g");
     git(&main, &["worktree", "add", "-q", "-b", "feat/g", wt.to_str().unwrap()]);
-    assert_eq!(inventory::repositories(&[roots.clone()], &[], &*unguarded()).len(), 1);
+    assert_eq!(inventory::repositories(std::slice::from_ref(&roots), &[], &*unguarded()).len(), 1);
     assert!(inventory::repositories(&[roots], &[], &*guarded_under(&desk)).is_empty());
 }
 
