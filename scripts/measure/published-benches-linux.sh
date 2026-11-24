@@ -1,20 +1,23 @@
 #!/usr/bin/env bash
 # The published benchmarks (RFD 0167 row 18): resume, move, fork, build and the long session under
 # load, on a fleet Linux host. cmuxterm-hq docs/benchmarks/README.md publishes what this prints.
-#   cmux-ci test --setup rust -- 'scripts/measure/published-benches-linux.sh [parts=resume,fork,move,build,soak] [samples=20] [soak_secs=120] [moves=5]'
-# soak_secs=28800 is the 8 h run: start it on a fleet runner in the background, never a person's machine.
+#   cmux-ci test --setup rust -- 'scripts/measure/published-benches-linux.sh [parts=resume,fork,move,build,soak] [samples=20] [soak_secs=120] [soak_ticked=1] [moves=5]'
+# soak_secs=28800 is the 8 h session. It is ticked, not soaked: its turns run back to back at the paced session's
+# turn counts (tests/published_bench.rs), so it takes minutes; soak_ticked=0 is the old wall-time run. Fleet only.
 # Prints PUBLISHED-BENCH <json> lines (schema cmux.published-bench.v1), one per part, then all of them
 # as one JSON object ({"rows": [...]}) on the last line.
 set -euo pipefail
 parts=resume,fork,move,build,soak
 samples=20
 soak_secs=120
+soak_ticked=1
 moves=5
 for arg in "$@"; do
   case "$arg" in
     parts=*) parts="${arg#parts=}" ;;
     samples=*) samples="${arg#samples=}" ;;
     soak_secs=*) soak_secs="${arg#soak_secs=}" ;;
+    soak_ticked=*) soak_ticked="${arg#soak_ticked=}" ;;
     moves=*) moves="${arg#moves=}" ;;
     *) echo "published-benches-linux.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
@@ -61,7 +64,7 @@ if has resume || has fork || has soak; then
   has resume && tests+=(resume)
   has fork && tests+=(fork)
   has soak && tests+=(soak)
-  PUBLISHED_BENCH_SAMPLES="$samples" PUBLISHED_BENCH_SOAK_SECS="$soak_secs" \
+  PUBLISHED_BENCH_SAMPLES="$samples" PUBLISHED_BENCH_SOAK_SECS="$soak_secs" PUBLISHED_BENCH_SOAK_TICKED="$soak_ticked" \
     cargo test --locked -p acpmux --release --test published_bench -- --ignored --nocapture \
     --test-threads 1 --exact ${tests[@]+"${tests[@]}"} >"$out/bench.log" 2>&1 || status=$?
   # The test harness prints `test NAME ... ` before a test's own output, on the same line.
