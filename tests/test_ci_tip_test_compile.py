@@ -27,6 +27,10 @@ MARKER = "compile-tests: a test target did not compile"
 CLIENT = r"""#!/usr/bin/env bash
 dir="$(dirname "$0")"
 echo "$*" >> "$dir/calls"
+if [ "$2" = --help ]; then
+  [ -f "$dir/help" ] && cat "$dir/help"
+  exit 0
+fi
 case "$1" in
   run)
     printf '%s\n' "$*" > "$dir/run-args"
@@ -42,13 +46,16 @@ esac
 
 class TipTestCompileTests(unittest.TestCase):
     def run_script(self, *, log: str = "", exit: int = 0, state: str = "running", runs: list | None = None,
-                   queue_limit: int = 600, client: bool = True, start_after: float | None = None):
+                   queue_limit: int = 600, client: bool = True, start_after: float | None = None,
+                   help_text: str | None = None):
         scratch = Path(tempfile.mkdtemp())
         self.addCleanup(subprocess.run, ["rm", "-rf", str(scratch)])
         fake = scratch / "cmux-ci"
         if client:
             fake.write_text(CLIENT)
             fake.chmod(0o755)
+        if help_text is not None:
+            (scratch / "help").write_text(help_text)
         (scratch / "state").write_text(state + "\n")
         (scratch / "log").write_text(log + "\n")
         (scratch / "exit").write_text(str(exit))
@@ -82,6 +89,15 @@ class TipTestCompileTests(unittest.TestCase):
         self.assertIn("--background", run_args)
         self.assertIn(f"--arg=compile-tests --arg={'b' * 40}", run_args)
         self.assertNotIn("cancel", calls)
+
+    def test_a_client_with_request_classes_asks_for_the_idle_class(self) -> None:
+        # cmuxterm-hq#23557: `--priority {agent,pr,idle}`; idle replaces --background (CI v2 step 6).
+        code, verdict, _, _, run_args, out = self.run_script(
+            log="compile-tests: every planned test target compiled (7)",
+            help_text="  [--background] [--priority {agent,pr,idle}]\n")
+        self.assertEqual((code, verdict), (0, "pass"), out)
+        self.assertIn("--priority idle", run_args)
+        self.assertNotIn("--background", run_args)
 
     def test_a_target_that_does_not_compile_is_red_with_its_target_and_errors(self) -> None:
         log = "\n".join([

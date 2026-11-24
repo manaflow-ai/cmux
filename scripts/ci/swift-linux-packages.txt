@@ -21,3 +21,8 @@ Packages/Shared/CmuxAgentCursor  CmuxAgentCursorTests  -
 Packages/Shared/CmuxVisibleRows  CmuxVisibleRowsTests  -
 Packages/iOS/CmuxMobileBilling  CmuxMobileBillingTests  CMUX_SWIFTPM_TARGET_LINUX=1
 Packages/iOS/CmuxMobileRPC  CmuxMobileRPCTests  CMUX_SWIFTPM_TARGET_LINUX=1
+Packages/iOS/CmuxMobileSSH  CmuxMobileSSHTests  CMUX_SWIFTPM_TARGET_LINUX=1
+Packages/iOS/CmuxMobileTunnel  CmuxMobileTunnelTests  CMUX_SWIFTPM_TARGET_LINUX=1
+Packages/iOS/CmuxMobileSupport  CmuxMobileSupportTests  -
+Packages/iOS/CmuxTabsKit  CmuxTabsKitTests  -
+Packages/iOS/CmuxConversation  CmuxConversationCoreTests,CmuxConversationGeometryTests  CMUX_SWIFTPM_TARGET_LINUX=1
