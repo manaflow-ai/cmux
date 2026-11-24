@@ -312,6 +312,32 @@ pub(super) fn launch_credential_program(
         "mcpServers": [],
         "_meta": { "acpmux": { "name": session, "harness": harness, "credentials": { "env": { name: value } } } },
     });
+    start_program(&params)
+}
+
+/// The same guest program for `cloud start-session` with no app (cloud_start_chat/headless.rs):
+/// `session/new` for `session` on `harness`, with `model` and in `cwd` when given, and no launch
+/// credential: the agent runs on the machine's own model connection.
+pub(super) fn session_start_program(
+    session: &str,
+    harness: &str,
+    model: Option<&str>,
+    cwd: Option<&str>,
+) -> String {
+    let mut acpmux = json!({ "name": session, "harness": harness });
+    if let (Some(model), Some(meta)) = (model, acpmux.as_object_mut()) {
+        meta.insert("model".to_owned(), json!(model));
+    }
+    let mut params = json!({ "mcpServers": [], "_meta": { "acpmux": acpmux } });
+    if let (Some(cwd), Some(object)) = (cwd, params.as_object_mut()) {
+        object.insert("cwd".to_owned(), json!(cwd));
+    }
+    start_program(&params)
+}
+
+/// `session/new` with `params` on the machine's acpmux socket (see [`launch_credential_program`]);
+/// a `cwd` in `params` is kept, else the session starts in the machine user's home.
+fn start_program(params: &Value) -> String {
     let params = serde_json::to_string(&params.to_string()).unwrap_or_default();
     // acpmux's own home under the machine user's home, from acpmux's resolver, not a literal.
     let own = acpmux::config::default_home_in(std::path::Path::new(""));
@@ -320,8 +346,8 @@ pub(super) fn launch_credential_program(
         r#"python3 -I - <<'CMUX_JOURNEY_START'
 import json, os, socket, sys
 params = json.loads({params})
-params['cwd'] = os.environ.get('HOME') or '/home/cmux'
-home = params['cwd']
+home = os.environ.get('HOME') or '/home/cmux'
+params['cwd'] = params.get('cwd') or home
 paths = [p for p in (os.environ.get('ACPMUX_SOCKET'), home + '/.cmux/acpmux/acpmux.sock', home + '/{own}/acpmux.sock') if p]
 def call(f, s, i, method, p):
     s.sendall((json.dumps({{'jsonrpc': '2.0', 'id': i, 'method': method, 'params': p}}) + '\n').encode())
