@@ -59,10 +59,11 @@ import Testing
 
     /// `cursors`: answers as cmux-tui acpmux does with an `afterSeq` (only records after it: the
     /// oldest when no `beforeSeq`, the newest when both), sends `lastSeq`, and says `reset` when
-    /// `afterSeq` is past the log's end.
+    /// `afterSeq` is past the log's end; a read with both says `newestPage` (not with
+    /// `newestPage: false`: an acpmux from before it).
     nonisolated static func fakeAcpmux(_ log: [(seq: Int, json: String)], _ requests: Requests, pageLimit: Int = .max,
                                    emptyOlderPageOnce: Bool = false, older: OlderReads = .answer,
-                                   cursors: Bool = false) -> MockMacLink {
+                                   cursors: Bool = false, newestPage: Bool = true) -> MockMacLink {
         let older: OlderReads = emptyOlderPageOnce ? .emptyOnce : older
         return MockMacLink { _, data in
             guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -99,8 +100,9 @@ import Testing
                     return [reply(#"{"session":{"sessionId":"s1","status":"idle","pending":[]},\#(page())}"#)]
                 }
                 let last = log.last?.seq ?? 0
-                let reset = ((params["afterSeq"] as? NSNumber)?.intValue ?? 0) > last ? #","reset":true"# : ""
-                return [reply(#"{"session":{"sessionId":"s1","status":"idle","pending":[]},"lastSeq":\#(last)\#(reset),\#(page())}"#)]
+                var flags = ((params["afterSeq"] as? NSNumber)?.intValue ?? 0) > last ? #","reset":true"# : ""
+                if newestPage, params["afterSeq"] != nil, params["beforeSeq"] != nil { flags += #","newestPage":true"# }
+                return [reply(#"{"session":{"sessionId":"s1","status":"idle","pending":[]},"lastSeq":\#(last)\#(flags),\#(page())}"#)]
             case "_acpmux/events":
                 requests.append(method, params)
                 if params["beforeSeq"] != nil {

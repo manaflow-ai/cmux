@@ -460,7 +460,7 @@ import Testing
 
     /// Kept turns 0..<kept (seqs 1...5·kept) and a Mac `since` turns past them, read through the
     /// fake as cmux-tui acpmux pages (`cursors`).
-    static func keptThenCatchUp(kept: Int, since: Int) async throws
+    static func keptThenCatchUp(kept: Int, since: Int, newestPage: Bool = true) async throws
         -> (chat: KeptChat, requests: Long.Requests, cache: AgentTranscriptCache, hub: AcpmuxHub) {
         let cache = Self.cache()
         let key = try #require(AgentTranscriptCache.key(accountID: "acct", macID: "mac1", tabID: "s7"))
@@ -470,7 +470,8 @@ import Testing
         await Long.waitUntil { chat.store?.turns.first?.id == "t0" }
         let requests = Long.Requests()
         let log = (0..<(kept + since)).flatMap(Long.turnRecords)
-        await hub.bind(try await Long.fakeAcpmux(log, requests, cursors: true).openChannel(service: "acpmux", args: [:]))
+        await hub.bind(try await Long.fakeAcpmux(log, requests, cursors: true, newestPage: newestPage)
+            .openChannel(service: "acpmux", args: [:]))
         return (chat, requests, cache, hub)
     }
 
@@ -517,6 +518,24 @@ import Testing
         for (a, b) in zip(store.turns.suffix(cleanIDs.count), clean.turns) {
             #expect(a.prompt == b.prompt && a.items.count == b.items.count, "turn \(a.id) as a clean open shows it")
         }
+    }
+
+    /// Against an acpmux from before `newestPage` the kept copy still stays and catches up; the
+    /// phone sends the read after the newest page that tells a Mac ignoring `beforeSeq` apart.
+    @Test func keptCopyPagesBehindOnAnOlderMacKeepsTheProbeRead() async throws {
+        let kept = 2, since = 81
+        let (chat, requests, cache, hub) = try await Self.keptThenCatchUp(kept: kept, since: since, newestPage: false)
+        _ = hub
+        defer { try? FileManager.default.removeItem(at: cache.directory) }
+        let all = (0..<(kept + since)).map { "t\($0)" }
+        await chat.wait(firstKept: "t0") { $0.turns.map(\.id) == all && !$0.isLoadingHistory }
+        #expect(chat.resets == 0)
+        #expect(!chat.keptRowsLeft)
+        #expect(requests.count("_acpmux/attach") == 1)
+        let newestSeq = (kept + since) * 5
+        let first = requests.all.first { $0.method == "_acpmux/events" }
+        #expect(first.flatMap { ($0.params["afterSeq"] as? NSNumber)?.intValue } == newestSeq,
+                "the first read after the attach is the probe after the newest page")
     }
 
     /// A kept copy whose cursor is past the Mac's log (the chat's history was replaced under its

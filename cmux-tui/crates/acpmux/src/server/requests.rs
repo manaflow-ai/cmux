@@ -3633,6 +3633,14 @@ async fn dispatch_request_with_identity(
             if after.is_some_and(|after| after > last) {
                 reply["reset"] = Value::Bool(true);
             }
+            // A read from a cursor with `beforeSeq` (a phone's tail-first reattach or kept-copy
+            // catch-up): the page is the newest records after the cursor, not the oldest. The
+            // phone takes it as such and sends no read after it to tell an acpmux that pages
+            // forward only apart. Only then: an older client ignores it, and an older acpmux
+            // sends none, so the phone keeps that read.
+            if after.is_some() && newest {
+                reply["newestPage"] = Value::Bool(true);
+            }
             // Asked `settled` and none answered: say so, and write it for the chat's next open.
             if let Some(key) = settled_key {
                 reply["settled"] = Value::Null;

@@ -1819,12 +1819,13 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             if !read.firstAttach {
                 var more = out.result["hasMore"] == .bool(true)
                 var cursor: Double?
-                if more, read.allowGap, let first = page.first?["seq"]?.numberValue, Int(first) > read.after + 1,
-                   let newest = page.last?["seq"]?.numberValue, Int(newest) >= stateSeq(out.result),
+                if more, read.allowGap, out.result["newestPage"] == .bool(true),
+                   let first = page.first?["seq"]?.numberValue, Int(first) > read.after + 1,
                    let tail = tailStart(page, after: read.after) {
-                    // The page reaches the reply's `lastSeq`: it is the newest records (a Mac that
-                    // ignores `beforeSeq` sends the oldest, short of it while `hasMore`), so no read
-                    // after it is needed to tell them apart.
+                    // acpmux says the page is the newest records after the cursor
+                    // (cmux-tui `_acpmux/attach` `newestPage`), so no read after it is needed
+                    // to tell a Mac that ignores `beforeSeq` apart. An older Mac sends none and
+                    // gets that read below.
                     out.page = Array(page[tail.index...])
                     out.gap = tail.gap
                     more = false

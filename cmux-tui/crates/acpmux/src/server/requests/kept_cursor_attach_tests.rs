@@ -183,6 +183,10 @@ async fn a_kept_copy_behind_by_pages_catches_up_to_a_clean_opens_rows() {
 
         let (rows, reply) = catch_up(&hub, &kept).await;
         assert!(reply.get("reset").is_none(), "a cursor in the log is no reset: {reply}");
+        assert_eq!(
+            reply["newestPage"], true,
+            "a tail-first read says its page is the newest: {reply}"
+        );
         // The first read is the newest page, through the log's end.
         assert_eq!(seqs(&reply["events"]).last(), Some(&last), "{behind} pages behind: {reply}");
         // Each record once, in seq order, and every record a clean open reads.
@@ -233,5 +237,9 @@ async fn a_kept_cursor_past_the_logs_end_says_reset() {
     )
     .await;
     assert_eq!(reply["reset"], true, "{reply}");
+    assert!(reply.get("newestPage").is_none(), "a forward read's page is the oldest: {reply}");
+    // A first open (no cursor) has nothing to tell apart.
+    let reply = call(&hub, method::MUX_ATTACH, open()).await;
+    assert!(reply.get("newestPage").is_none(), "{reply}");
     let _ = std::fs::remove_dir_all(&dir);
 }
