@@ -186,6 +186,7 @@ fn runtime_workers(args: &[OsString]) -> Option<usize> {
 /// these futures on the stack the daemon gives them.
 pub const WORKER_STACK_BYTES: usize = 8 << 20;
 
+#[cfg(test)]
 fn runtime(args: &[OsString]) -> std::io::Result<tokio::runtime::Runtime> {
     runtime_with(crate::daemon_priority::is_daemon_run(args), runtime_workers(args))
 }
