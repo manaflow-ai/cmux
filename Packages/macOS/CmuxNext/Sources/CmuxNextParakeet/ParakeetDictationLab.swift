@@ -10,7 +10,8 @@ public import Foundation
 /// disk; turning it off cancels a download, frees the model's memory and gives dictation back to On This
 /// Mac. The default (off) changes nothing.
 ///
-/// The app owns one and calls ``follow(_:)`` with the setting.
+/// The app makes one when its settings load and calls ``follow(_:)`` with the setting; it lives as long
+/// as those settings.
 @MainActor
 public final class ParakeetDictationLab {
     private static let toastID = "labs.parakeetDictation"
@@ -31,12 +32,12 @@ public final class ParakeetDictationLab {
         self.window = window
     }
 
-    /// Follows the setting for as long as `isOn`'s owner lives.
-    public func follow(_ isOn: @escaping @MainActor () -> Bool) {
-        // task-owner: lives as long as the app's settings; event-driven (Observation).
-        Task { [weak self] in
+    /// Follows the setting until `isOn` returns `nil` (its settings are gone); the task keeps this lab.
+    public func follow(_ isOn: @escaping @MainActor () -> Bool?) {
+        // task-owner: lives as long as the app's settings (ends at nil); event-driven (Observation).
+        Task {
             for await on in ObservationStream(isOn) {
-                guard let self else { return }
+                guard let on else { return }
                 await apply(on)
             }
         }
