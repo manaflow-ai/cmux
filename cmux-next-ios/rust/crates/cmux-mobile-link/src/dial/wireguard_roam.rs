@@ -708,9 +708,13 @@ impl Session {
         if let Some(task) = lock(&self.mapping).take() {
             task.abort();
         }
-        if let Some((old, _)) = lock(&self.own_mapped).take() {
+        if let Some((old, _)) = lock(&self.own_mapped).take()
+            && !std::mem::take(&mut *lock(&self.mapped_was_offered))
+        {
+            // Only the mapping offered it (not STUN as well).
             lock(&self.endpoints).retain(|endpoint| *endpoint != old);
         }
+        *lock(&self.mapped_was_offered) = false;
         let Ok(net) = self.net() else { return timeline };
         let socket = match bind_udp() {
             Ok(socket) => socket,

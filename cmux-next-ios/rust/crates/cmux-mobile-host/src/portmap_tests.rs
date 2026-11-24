@@ -301,6 +301,13 @@ async fn a_router_that_maps_nothing_is_not_asked_again() {
     let started = std::time::Instant::now();
     assert!(mapper.map(43001).await.is_none());
     assert!(started.elapsed() < Duration::from_millis(100), "cached: {:?}", started.elapsed());
+    // Only for NOTHING_RETRY: past it, the router is asked again.
+    let key = *lock(&mapper.cache).keys().next().unwrap();
+    let past = std::time::Instant::now() - NOTHING_RETRY - Duration::from_secs(1);
+    lock(&mapper.cache).insert(key, Known::Nothing(past));
+    let started = std::time::Instant::now();
+    assert!(mapper.map(43003).await.is_none());
+    assert!(started.elapsed() >= Duration::from_millis(100), "asked again: {:?}", started.elapsed());
     // The cache is per (gateway, local address): a network change gives a
     // new key, and the router there is asked again.
     let (port, _asked) = fake_pmp(Speaks { pcp: true, natpmp: false, external: PUBLIC }).await;
@@ -309,6 +316,21 @@ async fn a_router_that_maps_nothing_is_not_asked_again() {
         cache: Arc::clone(&mapper.cache),
     };
     assert!(other.map(43002).await.is_some());
+}
+
+#[tokio::test]
+async fn a_map_dropped_in_flight_still_deletes_what_the_router_granted() {
+    let _one_at_a_time = LIVE_SET.lock().await;
+    let (port, mut asked) = fake_pmp(Speaks { pcp: true, natpmp: false, external: PUBLIC }).await;
+    let (_quiet, ssdp) = silent().await;
+    let mapper = HostMapper::with_router(move || Some(router(port, ssdp)));
+    // A roam or close drops the future before the router answers.
+    drop(mapper.map(45000));
+    let granted =
+        next_matching(&mut asked, |a| matches!(a, Asked::Pcp { lifetime, .. } if *lifetime > 0)).await;
+    assert!(matches!(granted, Asked::Pcp { internal: 45000, .. }));
+    let deleted = next_matching(&mut asked, |a| matches!(a, Asked::Pcp { lifetime: 0, .. })).await;
+    assert_eq!(deleted, Asked::Pcp { internal: 45000, lifetime: 0 });
 }
 
 #[tokio::test]
@@ -418,6 +440,11 @@ fn igd_description_and_ssdp() {
     let absolute = "<root><service><serviceType>urn:schemas-upnp-org:service:WANIPConnection:2</serviceType>\
         <controlURL>http://192.168.1.1:49000/igd</controlURL></service></root>";
     assert_eq!(igd_service(absolute, base).unwrap().host, "192.168.1.1:49000".parse::<SocketAddr>().unwrap());
+    // An absolute control URL on another host is refused (the SOAP POST
+    // would go to any LAN or loopback address the description names).
+    let elsewhere = "<root><service><serviceType>urn:schemas-upnp-org:service:WANIPConnection:1</serviceType>\
+        <controlURL>http://127.0.0.1:8080/admin</controlURL></service></root>";
+    assert_eq!(igd_service(elsewhere, base), None);
     assert_eq!(igd_service("<root/>", base), None);
     assert_eq!(
         ssdp_location("HTTP/1.1 200 OK\r\nLOCATION: http://192.168.1.1:5000/rootDesc.xml\r\n\r\n").as_deref(),
