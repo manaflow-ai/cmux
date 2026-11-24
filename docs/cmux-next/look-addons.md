@@ -13,7 +13,7 @@ A look is a [setup](../../examples/looks/studio/cmux-setup.json) (`cmux-setup.js
 | --- | --- | --- | --- |
 | Color | `themes/NAME.json`, picked by `appearance.themeFile` | the terminal and app colors, the sidebar and chat surfaces, borders, glass, density ([theme-recipes.md](theme-recipes.md)) | on save |
 | Type and spacing | `settings` in `cmux-setup.json` | `agentPane.display.font.*`, `agentPane.display.width`, `sidebar.density`, `sidebar.workspaceRow.*` and any other key `cmux settings list` shows as agent-settable | on save |
-| The chat's paint | `agent-pane/theme.css` | only the tokens of `cmux.agentPane.style/1` ([below](#the-chat-stylesheet-cmuxagentpanestyle1)), on `:root` | on save |
+| The chat's paint | `agent-pane/theme.css` | a shared look: only the tokens of `cmux.agentPane.style/1` ([below](#the-chat-stylesheet-cmuxagentpanestyle1)), on `:root`; your own: [any CSS](#your-own-stylesheet-any-css-loading-nothing) | on save |
 | The sidebar | `customize/cmux-app.json` and `customize/main.js` | the hover card (`cmux.hovercard/1`) and row decorations (`cmux.sidebar.rows/1`), [sidebar-customization.md](sidebar-customization.md) | on save |
 
 Install one from its repo with `cmux setup install HOST/OWNER/REPO[/PATH][@REF]` (a look is a small repo of its own, like dotfiles: `cmux setup install github.com/manaflow-ai/cmux-studio-look`), take it off with `cmux setup remove ID`. It is
@@ -57,6 +57,21 @@ measured.
 The theme colors (`--agent-text`, `--agent-accent`, `--agent-border` and the rest the host derives
 from your theme) are set on the page by cmux itself, so a stylesheet cannot override them. Set those
 with the theme file's `colors` and `appearance.surfaces.agentPane`.
+
+## Your own stylesheet: any CSS, loading nothing
+
+Your own `agent-pane/theme.css` (and `markdown/theme.css`, `editor/theme.css`) takes any CSS, any
+selector, applied after the surface's built-in styles and kept last in the page, so it wins at equal
+specificity. Class names still change between releases, so a look you share keeps to the tokens
+above; your own file may style anything.
+
+What it may not do is load something by address (`cmux.stylesheetGuard/1`,
+[`schemas/agent-pane/stylesheet-guard.json`](../../schemas/agent-pane/stylesheet-guard.json)): no
+`@import`, no `url()` other than a `data:` URL, no `image-set()` or `src()`, and no backslash escape
+that could spell one. Comments are no way around it. The chat refuses such a sheet whole and keeps the
+last good one on screen (its `<style id="acpmux-user-theme">` carries `data-refused` with the reason),
+and `cmux customize` (status) names the file and the reason, and an apply or profile that would write such a sheet is refused (one you already have, unchanged, never stops an unrelated change). Inline an image as a
+`data:` URL instead.
 
 ## What keeps this true
 

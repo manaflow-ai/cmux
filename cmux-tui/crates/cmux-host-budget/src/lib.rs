@@ -376,6 +376,8 @@ pub use rejudge::with_pressure;
 
 // Where new work runs: here, or spilled to a machine with room (RFD 0032 "Place").
 pub mod place;
+// Which idle sessions leave this machine while it stays over budget (beside `place::decide`).
+pub mod evacuate;
 
 // The shadow admission verdict (cmuxterm-hq#7342): logged beside a pick, never acted on.
 mod shadow;

@@ -32,6 +32,7 @@ import argparse, glob, json, os, signal, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import BenchApp, require_gui_session  # noqa: E402
+from state_wait import StateWaitTimeout, wait_stable, wait_until  # noqa: E402
 
 # `--suite=launch-check`: only launch the app, wait for its socket and a window, quit (bench_launch.py check): is
 # this worker able to run GUI benches at all. Dispatched before the session gate: `check` names no-gui-session itself.
@@ -499,11 +500,52 @@ def rpc(method, params=None, timeout=30):
         return {"error": str(error)}
 
 
+def surface_panes(text=False):
+    surfaces = rpc("debug.surfaces", {"text": True} if text else None) or {}
+    return [p for w in (surfaces.get("windows") or []) if isinstance(w, dict) for p in (w.get("panes") or [])]
+
+
+def layout_signature():
+    """The shown panes: id, kind, tab, focus and frame (an action or a spring changes them)."""
+    return json.dumps([(p.get("pane"), p.get("kind"), p.get("selected_tab"), p.get("focused"), p.get("frame"))
+                       for p in surface_panes()], sort_keys=True)
+
+
+MOTION = {"rests": True}
+
+
+def layout_at_rest(what, timeout=10.0):
+    """Every spring at rest (`debug.motion` read: no display link) and the pane layout holding still. A build or
+    run whose display links never stop is told once; from then on only the layout is waited on."""
+    if MOTION["rests"]:
+        rest = lambda: not (rpc("debug.motion", {"action": "read"}) or {}).get("display_links")  # noqa: E731
+        if not wait_until(rest, f"{what}: the springs at rest", timeout=timeout, raise_on_timeout=False):
+            MOTION["rests"] = False
+            print(f"note: display links still ran {timeout:g} s after {what}; from here only the layout is waited on",
+                  flush=True)
+    try:
+        wait_stable(layout_signature, f"the layout after {what}", timeout=timeout, interval=0.05, reads=4)
+    except StateWaitTimeout as error:
+        print(f"note: {error}", flush=True)
+
+
 def action(name, args=None, settle=0.0, timeout=60):
+    """settle (the old fixed wait, s): wait for the action to change the layout, then for it to come to rest."""
+    before = layout_signature() if settle else None
     reply = rpc("action.run", {"action": name, "args": args or {}, "focus": True, "origin": "script"}, timeout=timeout)
     if settle:
-        time.sleep(settle)  # test harness: the layout settles before the next step
+        if not wait_until(lambda: layout_signature() != before, f"{name} to change the layout",
+                          timeout=max(5.0, settle * 4), raise_on_timeout=False):
+            print(f"note: {name} did not change the pane layout", flush=True)
+        layout_at_rest(name, timeout=max(10.0, settle * 6))
     return reply
+
+
+def focused_text():
+    for pane in surface_panes(text=True):
+        if pane.get("focused") and pane.get("kind") == "terminal":
+            return pane.get("text") or (pane.get("surface") or {}).get("text") or ""
+    return ""
 
 
 def wait(check, seconds, step=0.1):
@@ -530,9 +572,18 @@ def fresh():
     text = f"seq 1 {opts.scrollback}\r" if opts.scrollback else ""
     if opts.stream:
         text += "while :; do echo \"$RANDOM $RANDOM $RANDOM streaming output line\"; sleep 0.004; done\r"
+    # The fresh terminal's shell prompt, so the text goes to a running shell.
+    wait_until(lambda: focused_text().strip(), "the new terminal's shell prompt", timeout=20, raise_on_timeout=False)
     if text:
         action("terminal.sendText", {"text": text})
-    time.sleep(2.0 if opts.scrollback else 0.5)  # test harness: seq fills the scrollback
+    # seq ran to its last line (or the stream, which starts after it, printed).
+    marks = ([f"\n{opts.scrollback}\n", f"\n{opts.scrollback}\r"] if opts.scrollback else []) + \
+        (["streaming output line"] if opts.stream else [])
+    if marks:
+        text_now = lambda: "\n" + focused_text() + "\n"  # noqa: E731
+        if not wait_until(lambda: any(m in text_now() for m in marks), "seq to fill the scrollback / the stream to start",
+                          timeout=30, raise_on_timeout=False):
+            print("note: the terminal never showed seq's last line or the stream", flush=True)
 
 
 def measure(label, verb):
@@ -550,7 +601,8 @@ def measure(label, verb):
         reply = rpc("action.run", {"action": verb, "args": {}, "focus": True, "origin": "script"}, timeout=30)
         if isinstance(reply, dict) and reply.get("error"):
             errors.append(str(reply.get("error")))
-    time.sleep(1.5)  # test harness: the split spring lands (rest is under 0.5 s) and the PTY owner answers
+    # The split spring lands (rest is under 0.5 s) and the panes' frames hold still.
+    layout_at_rest(f"{label}'s presses")
     trace = rpc("debug.window_transition", {"action": "stop"}) or {}
     frames = rpc("debug.frames", {"action": "stop"}) or {}
     motion = rpc("debug.motion", {"action": "stop"}) or {}
@@ -605,7 +657,10 @@ def main():
     SOCKET = launcher.socket
     print(f"launched pid {app.pid} macOS {subprocess.run(['sw_vers', '-productVersion'], capture_output=True, text=True).stdout.strip()}",
           flush=True)
-    time.sleep(5)  # test harness: launch work settles
+    # Launch work settles: a terminal pane is shown and the layout comes to rest.
+    wait_until(lambda: any(p.get("kind") == "terminal" for p in surface_panes()), "the first terminal pane", timeout=30,
+               raise_on_timeout=False)
+    layout_at_rest("launch", timeout=30)
     report = {"tag": TAG, "stream": opts.stream, "scrollback": opts.scrollback, "presses": opts.presses,
               "interval_ms": opts.interval, "runs": []}
     for direction in opts.directions.split(","):

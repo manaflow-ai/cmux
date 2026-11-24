@@ -329,8 +329,6 @@
    "src/agent-session/acpmux/permissions/Panel.tsx::react-doctor/no-ref-current-in-render": 3,
    "src/agent-session/acpmux/permissions/Panel.tsx::react-hooks-js/refs": 3,
    "src/agent-session/acpmux/promptFocus.ts::react-hooks-js/refs": 1,
-   "src/agent-session/acpmux/prototype/WorkspaceShell.tsx::react-hooks-js/preserve-manual-memoization": 4,
-   "src/agent-session/acpmux/prototype/WorkspaceShell.tsx::react-hooks-js/purity": 1,
    "src/agent-session/acpmux/question/HatQuestions.tsx::react-hooks-js/refs": 1,
    "src/agent-session/acpmux/queue/QueueScreen.tsx::react-doctor/no-ref-current-in-render": 2,
    "src/agent-session/acpmux/queue/QueueScreen.tsx::react-hooks-js/refs": 6,
