@@ -46,8 +46,8 @@ public nonisolated enum RemoteClipboardPolicy {
 
 /// Moves clipboard text between one session and this Mac's pasteboard. The deciding (what is new,
 /// what the host already has, paced parts, size bound) is the Rust core's, behind the channel; this
-/// only notices a pasteboard change and writes the host's text. The pasteboard is read when the app
-/// becomes active, when `checkNow()` is called (the pane became key) and on a slow timer: a change
+/// only notices a pasteboard change and writes the host's text. The pasteboard is read when the
+/// pane becomes key (`checkNow()`, called by the owner) and on a slow timer: a change
 /// count read, never a busy poll. Nothing is offered while the session does not hold control.
 @MainActor
 public final class RemoteClipboardBridge {
@@ -60,7 +60,6 @@ public final class RemoteClipboardBridge {
     private let timer = DemandTimer(owner: "RemoteClipboardBridge.check")
     private var seenChangeCount: Int
     private var receiveTask: Task<Void, Never>?
-    private var activeObserver: (any NSObjectProtocol)?
     private var running = false
 
     /// `holdsControl`: whether the session is in control now (view only sends nothing).
@@ -73,7 +72,7 @@ public final class RemoteClipboardBridge {
         seenChangeCount = pasteboard.changeCount
     }
 
-    deinit {
+    nonisolated deinit {
         timer.cancel()
         receiveTask?.cancel()
     }
@@ -88,10 +87,6 @@ public final class RemoteClipboardBridge {
             // The stream finishes with the session: stop reading the pasteboard.
             if !Task.isCancelled { self?.stop() }
         }
-        activeObserver = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil,
-                                                                queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.checkNow() }
-        }
         arm()
     }
 
@@ -100,8 +95,6 @@ public final class RemoteClipboardBridge {
         timer.cancel()
         receiveTask?.cancel()
         receiveTask = nil
-        if let activeObserver { NotificationCenter.default.removeObserver(activeObserver) }
-        activeObserver = nil
     }
 
     /// Offers the pasteboard's text when it changed since the last look and the session holds control.

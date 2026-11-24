@@ -177,6 +177,7 @@ public final class MacScreenPane {
         // connecting, waiting, failed or ended).
         view.input.onFocusChange = { [weak self] focused in
             guard let self else { return }
+            if focused { clipboardBridge?.checkNow() }
             model.capturesKeyboard = focused && MacScreenPaneView.takesInput(gate: model.gate, card: model.liveCard, viewOnly: model.viewOnly)
             handlers.keyboardChanged()
         }
