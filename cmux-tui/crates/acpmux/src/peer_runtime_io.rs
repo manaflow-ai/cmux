@@ -2,6 +2,10 @@
 
 use super::*;
 
+/// Stamped pings a link remembers until their pongs come: a pong for an older one than these
+/// times nothing. Four is 8 s at the 2 s ping, past the silence budget's floor.
+const PINGS_TIMED: usize = 4;
+
 impl Peer {
     /// [`Self::send_request`]; `retry`: sent again on the next link if this one switches paths
     /// before it answers (`peer_carried.rs`).
@@ -919,6 +923,10 @@ impl Peer {
         );
         ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let mut last_frame = tokio::time::Instant::now();
+        // The stamped pings still out and when each left, on the runtime's clock, so their pongs
+        // time the link's round trip (`peer_link_quality.rs`). Bounded: the oldest goes first.
+        let mut pinged: std::collections::VecDeque<(Vec<u8>, tokio::time::Instant)> =
+            Default::default();
         // Time this daemon kept the loop from reading is not the peer's silence (`ReaderHeld`).
         let mut reader = crate::peer_link::ReaderHeld::default();
         let mut stale_settled = false;
@@ -1201,13 +1209,20 @@ impl Peer {
                         self.with_silence(|b| b.dropped(now));
                         break Err(format!("peer stopped answering ({}s without a frame)", silent.as_secs()));
                     }
-                    if silent >= timings.ping_every {
+                    let late = silent >= timings.ping_every;
+                    self.with_quality(|q| q.tick(late));
+                    if late {
                         self.with_link(Link::overdue);
                     }
                     check_wake!();
                     let until = write_deadline(tokio::time::Instant::now(), budget, wake_probe);
                     // Stamped, so its pong measures this path's round trip (`peer_paths.rs`).
-                    match tokio::time::timeout_at(until, sink.send(Frame::Ping(carriers::ping_stamp().into()))).await {
+                    let stamp = carriers::ping_stamp();
+                    if pinged.len() >= PINGS_TIMED {
+                        pinged.pop_front();
+                    }
+                    pinged.push_back((stamp.clone(), tokio::time::Instant::now()));
+                    match tokio::time::timeout_at(until, sink.send(Frame::Ping(stamp.into()))).await {
                         Ok(Ok(())) => {}
                         Ok(Err(e)) => break Err(e.to_string()),
                         Err(_) => break Err(write_late(budget, wake_probe)),
@@ -1250,6 +1265,12 @@ impl Peer {
                         }
                         Frame::Close(_) => break Err("peer closed the connection".to_owned()),
                         Frame::Pong(payload) => {
+                            if let Some(at) = pinged.iter().position(|(stamp, _)| *stamp == *payload) {
+                                let sent = pinged.drain(..=at).last().map(|(_, sent)| sent);
+                                if let Some(sent) = sent {
+                                    self.with_quality(|q| q.pong(sent.elapsed()));
+                                }
+                            }
                             if let (Some(rtt), Some(via)) = (carriers::pong_rtt(&payload), self.serving()) {
                                 self.path_pong(via, rtt);
                             }

@@ -121,6 +121,7 @@ impl Peer {
             states: StdMutex::new(None),
             timings: LinkTimings::from_env(),
             silence: StdMutex::new(None),
+            quality: StdMutex::default(),
             cache_saved_at: AtomicU64::new(0),
             cache_saved_outage: AtomicBool::new(false),
             cache_write_pending: AtomicBool::new(false),
@@ -162,6 +163,13 @@ impl Peer {
     pub(super) fn with_silence<T>(&self, f: impl FnOnce(&mut SilenceBudget) -> T) -> T {
         let mut budget = self.silence.lock().unwrap_or_else(|e| e.into_inner());
         f(budget.get_or_insert_with(|| SilenceBudget::new(&self.timings)))
+    }
+
+    pub(super) fn with_quality<T>(
+        &self,
+        f: impl FnOnce(&mut crate::peer_link_quality::LinkQuality) -> T,
+    ) -> T {
+        f(&mut self.quality.lock_or_recover())
     }
 
     /// Every change of the link's state goes through here, so each one sends its note
@@ -755,6 +763,8 @@ impl Peer {
             "health": health,
             "healthAt": health_at,
             "paths": paths, "linkStats": link_stats,
+            // The ping bar: null while the link is down or before its first pong.
+            "quality": if link.is_ready() { self.with_quality(|q| q.view()) } else { Value::Null },
         })
     }
 

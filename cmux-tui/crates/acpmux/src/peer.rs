@@ -486,6 +486,9 @@ pub struct Peer {
     /// How long this peer's links may stay silent: longer for one that answers late. Made from
     /// `timings` at the first link, so a test can set them first.
     silence: StdMutex<Option<SilenceBudget>>,
+    /// How good the link is, from its pings' round trips and late ticks (`peer_link_quality.rs`):
+    /// `quality` in `_acpmux/peers`. Kept across links, like `silence`.
+    quality: StdMutex<crate::peer_link_quality::LinkQuality>,
     /// When the hub last saved this peer's sessions (`hub/peer_cache.rs`).
     pub(crate) cache_saved_at: AtomicU64,
     /// The last successful cache write still records an outage that Connected must clear.
