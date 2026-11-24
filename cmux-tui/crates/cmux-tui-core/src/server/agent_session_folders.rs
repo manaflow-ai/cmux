@@ -140,9 +140,7 @@ pub(crate) fn reserved_chat_folder(home: &Path, chat_id: u64) -> Option<PathBuf>
     let claimed = chats.join(format!("{CLAIMED_PREFIX}{chat_id}"));
     if ticket_folder(&claimed).is_none() {
         // Only one racer's rename finds the ticket; the others fail and read the winner's mark.
-        if ticket_folder(&chats.join(RESERVED_TICKET)).is_none() {
-            return None;
-        }
+        ticket_folder(&chats.join(RESERVED_TICKET))?;
         let _ = std::fs::rename(chats.join(RESERVED_TICKET), &claimed);
     }
     let dir = chats.join(ticket_folder(&claimed)?);
