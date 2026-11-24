@@ -2,7 +2,7 @@
 //!
 //! ```text
 //! cmux-projection git-mount --git-dir MIRROR --commit REV --at PATH [--keep DIR] [--fresh]
-//!                           [--name NAME] [--ready-file FILE]
+//!                           [--name NAME] [--ready-file FILE] [--idle-exit SECS]
 //! cmux-projection git-lower --git-dir MIRROR --commit REV --at PATH --index FILE [--sparse FILE]
 //!                           [--keep DIR] [--trees DIR] [--ready-file FILE] [--allow-other]
 //! cmux-projection git-unmount --at PATH
@@ -28,7 +28,9 @@
 //! cargo finds its last build fresh. `--fresh` starts a new checkout: the upper folder and the
 //! worktree's index are made anew. git sees PATH as a worktree of MIRROR named NAME (default
 //! `projected-<hash of PATH>`). Once the mount is up it prints one JSON line of timings on stderr
-//! and writes it to `--ready-file`.
+//! and writes it to `--ready-file`. `--idle-exit SECS` (or `CMUX_PROJECTION_IDLE_EXIT_S`) unmounts
+//! and exits once no request came for SECS and no process has a file open or its working directory
+//! in the mount; mounting the same PATH again gives the same checkout, writes and all.
 //!
 //! The blobs MIRROR lacks are first asked of the fleet's seeds, the controller SSD and R2 that the
 //! environment names, each answer checked against its id (`cmux_projection::peers`, hq RFD 0008),
@@ -65,7 +67,7 @@ fn main() -> std::process::ExitCode {
 mod linux {
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
-    use std::time::{Instant, SystemTime, UNIX_EPOCH};
+    use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
     use cmux_projection::git::{self, Book, GitBlobs, Layout, Projection, Worktree};
     use cmux_projection::mount;
@@ -73,7 +75,8 @@ mod linux {
     use cmux_projection::peers::{self, Chain, SeedLimits};
 
     const USAGE: &str = "usage: cmux-projection git-mount --git-dir MIRROR --commit REV --at PATH \
-                         [--keep DIR] [--fresh] [--name NAME] [--ready-file FILE]\n       \
+                         [--keep DIR] [--fresh] [--name NAME] [--ready-file FILE] \
+                         [--idle-exit SECS]\n       \
                          cmux-projection git-lower --git-dir MIRROR --commit REV --at PATH \
                          --index FILE [--sparse FILE] [--keep DIR] [--trees DIR] [--ready-file FILE] [--allow-other]\n       \
                          cmux-projection git-unmount --at PATH\n       \
@@ -96,6 +99,7 @@ mod linux {
         listen: Option<String>,
         rate: Option<u64>,
         conns: Option<usize>,
+        idle_exit: Option<u64>,
         to: Option<String>,
         yield_locks: Vec<PathBuf>,
         heartbeat: Option<String>,
@@ -135,6 +139,7 @@ mod linux {
                 "--listen" => parsed.listen = Some(value.clone()),
                 "--rate" => parsed.rate = Some(value.parse()?),
                 "--conns" => parsed.conns = Some(value.parse()?),
+                "--idle-exit" => parsed.idle_exit = Some(value.parse()?),
                 "--to" => parsed.to = Some(value.clone()),
                 "--yield-lock" => parsed.yield_locks.push(value.into()),
                 "--heartbeat" => parsed.heartbeat = Some(value.clone()),
@@ -681,7 +686,13 @@ mod linux {
         let overlay = Arc::new(Overlay::open(Arc::new(projection.manifest), &state, blobs, owner)?);
         mount::unmount_stale(&at);
         let ready = args.ready_file.clone();
-        mount::serve(overlay, &at, move || {
+        let idle_exit = args
+            .idle_exit
+            .or_else(|| std::env::var("CMUX_PROJECTION_IDLE_EXIT_S").ok()?.parse().ok())
+            .filter(|secs| *secs > 0)
+            .map(Duration::from_secs);
+        let options = mount::Options { idle_exit, ..mount::Options::default() };
+        mount::serve_with(overlay, &at, options, move || {
             let line = format!(
                 "{{\"commit\":\"{commit}\",\"entries\":{entries},\"files\":{files},\
                  \"missing_fetched\":{missing},\"fetch_ms\":{fetch_ms},\
