@@ -447,8 +447,6 @@ struct RecordedConn {
     inner: Arc<dyn webrtc::util::Conn + Send + Sync>,
     relayed: std::net::SocketAddr,
     allocated: Arc<Mutex<Vec<std::net::SocketAddr>>>,
-    /// Total successful Allocate requests, including allocations since released.
-    allocations: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl RecordedConn {
@@ -545,6 +543,8 @@ pub struct TestTurn {
     /// Relayed addresses this server allocated (also in [`RELAYED`] until
     /// the server drops).
     allocated: Arc<Mutex<Vec<std::net::SocketAddr>>>,
+    /// Total successful Allocate requests, including allocations since released.
+    allocations: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 /// Whether the TURN server's UDP port drops everything, and what it dropped
@@ -678,7 +678,7 @@ impl TestTurn {
             listener.set_nonblocking(true).expect("nonblocking");
             let port = listener.local_addr().expect("addr").port();
             let listener = TcpListener::from_std(listener).expect("listener");
-            let (acceptor, servers, ports, streams, allocated) = (
+            let (acceptor, servers, ports, streams, allocated, allocations) = (
                 acceptor.clone(),
                 Arc::clone(&servers),
                 relay_ports.clone(),
@@ -688,7 +688,7 @@ impl TestTurn {
             );
             tasks.push(tokio::spawn(async move {
                 while let Ok((tcp, client)) = listener.accept().await {
-                    let (acceptor, servers, ports, streams, allocated) = (
+                    let (acceptor, servers, ports, streams, allocated, allocations) = (
                         acceptor.clone(),
                         Arc::clone(&servers),
                         ports.clone(),

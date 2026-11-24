@@ -307,21 +307,25 @@ pub struct TurnLease(Arc<TurnLeaseState>);
 impl TurnLease {
     pub fn empty() -> Self {
         let (returned, _) = watch::channel(0);
-        Self(Arc::new(TurnLeaseState {
-            carrier: Mutex::new(None),
-            valid: AtomicBool::new(true),
-            returned,
-        }))
+        Self(Arc::new(TurnLeaseState { carrier: Mutex::new(None), valid: AtomicBool::new(true), returned }))
     }
 
-    pub(crate) fn take(&self) -> Option<TurnCarrier> {
+    #[doc(hidden)]
+    pub fn from_carrier(carrier: TurnCarrier) -> Self {
+        let lease = Self::empty();
+        *lease.0.carrier.lock().unwrap_or_else(PoisonError::into_inner) = Some(carrier);
+        lease
+    }
+
+    pub fn take(&self) -> Option<TurnCarrier> {
         if !self.0.valid.load(Ordering::Acquire) {
             return None;
         }
-        self.0.carrier.lock().unwrap_or_else(PoisonError::into_inner).take()
+        let carrier = self.0.carrier.lock().unwrap_or_else(PoisonError::into_inner).take();
+        carrier.filter(|carrier| !carrier.is_dead())
     }
 
-    pub(crate) fn put(&self, carrier: TurnCarrier) {
+    pub fn put(&self, carrier: TurnCarrier) {
         if !self.0.valid.load(Ordering::Acquire) {
             return;
         }

@@ -16,7 +16,7 @@ use crate::signaling::{SessionEvent, SignalEnvelope, SignalPayload, SignalingCli
 
 pub(crate) mod turn;
 /// Measurement support (cmux-mobile-path-probe).
-pub use turn::{TimedAllocation, TurnTransport, timed_allocation};
+pub use turn::{TimedAllocation, TurnCarrier, TurnTransport, timed_allocation};
 pub mod webrtc;
 pub mod wireguard;
 pub use wireguard::TurnLease;
