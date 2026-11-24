@@ -406,6 +406,16 @@ class NativeShapes(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("GitHubStatus shows a connection state", out)
 
+    def test_a_scheduler_signature_is_not_a_run_action(self):
+        """`run: () => void` is a timer's parameter type, not a row the person clicks."""
+        tree = Tree(self)
+        tree.write(f"{WEB}/Retrying.tsx", ('export function Retrying() {\n'
+                                           '  const timeout = (run: () => void, ms: number) => setTimeout(run, ms);\n'
+                                           '  return <p>Reconnecting\u2026</p>;\n}\n'))
+        code, out = tree.check()
+        self.assertEqual(code, 1, out)
+        self.assertIn("Retrying shows a connection state", out)
+
     def test_tests_and_galleries_are_not_read(self):
         tree = Tree(self)
         tree.write(f"{IOS}/Tests/TerminalStatusLineTests.swift", IOS_OLD)
