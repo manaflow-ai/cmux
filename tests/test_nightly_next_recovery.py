@@ -491,9 +491,8 @@ class FailureIssueTests(unittest.TestCase):
         publish_outputs = {f"publish_{key}": value for key, value in published.items()}
         # The loop run: published-build passes its own jobs through (run_tail false), and the rest of the tail skips.
         push = {name: outcome[name] for name in self.PUSH_JOBS}
-        # The run that signs and publishes (a sign run, or a run that signs in-run) dispatches no sign run.
-        push["dispatch-nightly-next-sign"] = "skipped"
         push["nightly-next-one"] = "skipped"  # NIGHTLY_NEXT_ONE_JOB unset
+        push["early-nightly-webviews"] = "skipped"  # one-job mode only
         push.update(dict.fromkeys(self.TAIL_JOBS, "skipped"))
         if decide.get("should_publish") == "true" and push["publish-nightly"] == "success":
             push["published-build"] = outcome["published-build"]
@@ -511,7 +510,7 @@ class FailureIssueTests(unittest.TestCase):
             record = dict(decide, cross_run="true", run_tail="true", publish_result=push["publish-nightly"],
                           push_clean="false" if any(push[n] in ("failure", "cancelled") for n in dispatch_needs) else "true",
                           **publish_outputs)
-            tail = dict.fromkeys((*self.PUSH_JOBS, "dispatch-nightly-next-sign", "nightly-next-one"), "skipped")
+            tail = dict.fromkeys((*self.PUSH_JOBS, "nightly-next-one", "early-nightly-webviews"), "skipped")
             tail.update({name: outcome[name] for name in self.TAIL_JOBS})
             reports |= job_runs("report-nightly-failure", tail, {"published-build": record})
             closes |= job_runs("close-nightly-failure-issue", tail, {"published-build": record})
@@ -1239,7 +1238,7 @@ class RepublishWorkflowTests(unittest.TestCase):
         self.assertEqual(fetch["env"]["SOURCE_RUN"], "${{ needs.decide.outputs.republish_run }}")
         names = {s["with"]["name"] for s in job["steps"] if "upload-artifact" in s.get("uses", "")}
         self.assertEqual(names, {"cmux-nightly-republished-variant-arm64", "cmux-nightly-republished-tested-arm64",
-                                 "cef-runtime-pack"})
+                                 "cef-runtime-pack", "language-packs"})
 
     def test_a_republish_never_starts_a_notarization_recovery(self):
         self.assertIn("needs.decide.outputs.republish_run == ''", workflow()["jobs"]["find-nightly-next-recovery"]["if"])

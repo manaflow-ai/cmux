@@ -358,11 +358,35 @@ fn claude_steps(record: &Value, at: Option<u64>) -> Vec<Step> {
 /// an interruption.
 fn claude_prompt(content: &Value) -> Option<Step> {
     let text = text_of(content)?;
-    let start = text.trim_start();
-    let echo = ["<command-", "<local-command-", "<bash-", "[Request interrupted"]
-        .iter()
-        .any(|prefix| start.starts_with(prefix));
+    let echo = ECHOES.iter().any(|prefix| text.trim_start().starts_with(prefix));
     (!echo).then_some(Step::Prompt(text))
+}
+
+/// What a Claude Code user line starts with when it echoes a command or a hook or marks an
+/// interruption.
+const ECHOES: [&str; 4] = ["<command-", "<local-command-", "<bash-", "[Request interrupted"];
+
+/// What Claude Code queues by itself, not typed by the person: a finished background task or
+/// subagent, another session's message.
+const HARNESS_QUEUED: [&str; 3] =
+    ["<task-notification>", "<agent-message", "<cross-session-message"];
+
+/// What a person types for a slash command or a shell line: it runs as command echoes, never as
+/// a prompt line.
+const COMMANDS: [&str; 2] = ["/", "!"];
+
+/// Whether the text of a Claude Code `queue-operation` `enqueue` line is a prompt the person
+/// typed. The line carries no `origin` (`from_person`), so its text says: Claude Code queues
+/// task notifications and other sessions' messages too, and those are no prompt of the person's.
+/// A slash command or a shell line is not one either: no prompt line takes it out of the queue
+/// (one that was a prompt after all shows when its line runs).
+pub(crate) fn queued_by_person(text: &str) -> bool {
+    let start = text.trim_start();
+    !ECHOES
+        .iter()
+        .chain(HARNESS_QUEUED.iter())
+        .chain(COMMANDS.iter())
+        .any(|prefix| start.starts_with(prefix))
 }
 
 /// Whether a Claude Code line came from the person: it has no `origin`, or its `origin.kind` is
@@ -459,7 +483,7 @@ const CODEX_CONTEXT: [&str; 4] = [
 ];
 
 /// The text of a message's content: a string, or the `text` of its text blocks.
-fn text_of(content: &Value) -> Option<String> {
+pub(crate) fn text_of(content: &Value) -> Option<String> {
     let text = match content {
         Value::String(s) => s.clone(),
         Value::Array(blocks) => blocks

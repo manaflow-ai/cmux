@@ -15,6 +15,8 @@ export type GoldenScheme = {
   colors?: { background?: string; foreground?: string; selection?: string; accent?: string };
   /** `appearance.accent` (theme/appTheme.ts APP_ACCENTS). */
   accent?: string;
+  /** `appearance.selection`: `neutral` keeps the selection fill gray under any accent. */
+  selection?: "accent" | "neutral";
   /** `appearance.surfaces.sidebar.color` and `appearance.surfaces.agentPane.color`. */
   surfaces?: { sidebar?: string; agentPane?: string };
   /** `appearance.density`. */
@@ -66,4 +68,11 @@ export function lookDisplay(look: GoldenLook): Record<string, unknown> {
 export function lookSetting<T>(look: GoldenLook | undefined, key: string, fallback: T): T {
   const value = look?.settings[key];
   return value === undefined ? fallback : (value as T);
+}
+
+/** The setup's `agentPane.composerLook` when it names a look ("auto", the default, names none): the
+ * composer the app draws for it, as the host's composer push would pick it. */
+export function lookComposerLook(look: GoldenLook): string | undefined {
+  const value = look.settings["agentPane.composerLook"];
+  return typeof value === "string" && value !== "auto" ? value : undefined;
 }

@@ -40,7 +40,60 @@ fn launch(dir: &Path) -> Launch {
 }
 
 async fn gateway(home: &Path, idle: Duration) -> Arc<Gateway> {
-    bind(home, idle, Duration::from_millis(50)).await.expect("gateway binds")
+    // No handover wait: a test that binds a second gateway over a live one wants the fallback at
+    // once, not the window a daemon gives the daemon it replaces.
+    bind_at(home, crate::config::socket_path(), idle, Duration::from_millis(50), Duration::ZERO)
+        .await
+        .expect("gateway binds")
+}
+
+/// A gateway that waits `handover` for the port in the home's record, as the daemon's does.
+async fn gateway_waiting(home: &Path, handover: Duration) -> Arc<Gateway> {
+    bind_at(home, home.join("d.sock"), IDLE_STOP, Duration::from_millis(50), handover)
+        .await
+        .expect("gateway binds")
+}
+
+/// A loopback port nothing listens on: bound to learn its number, then let go.
+async fn free_port() -> u16 {
+    let listener = TcpListener::bind(("127.0.0.1", 0)).await.expect("a free port");
+    listener.local_addr().expect("its address").port()
+}
+
+/// The `run/mcp-gateway.json` an earlier daemon left: `port` is the one it advertised last and
+/// `earlier` the ones it advertised before that.
+fn keep_record(home: &Path, port: u16, earlier: &[u16]) {
+    keep_record_held(home, port, earlier, None);
+}
+
+/// [`keep_record`] naming the daemon that holds `port`.
+fn keep_record_held(home: &Path, port: u16, earlier: &[u16], holder: Option<Holder>) {
+    let record = Listener { port, key: "ab".repeat(32), earlier: earlier.to_vec(), holder };
+    crate::agent_tools::write_private(
+        &home.join("run").join("mcp-gateway.json"),
+        &serde_json::to_vec(&record).expect("the record"),
+    )
+    .expect("keeps the record");
+}
+
+fn read_record(home: &Path) -> Listener {
+    let bytes = std::fs::read(home.join("run").join("mcp-gateway.json")).expect("the record");
+    serde_json::from_slice(&bytes).expect("the record parses")
+}
+
+/// [`rpc`] at `port`, which a chat's config may name instead of the gateway's current one.
+async fn rpc_at(g: &Gateway, port: u16, session: &str, message: Value) -> Value {
+    let auth = g.endpoint(session).authorization;
+    let (status, body) = request(
+        port,
+        "POST",
+        &format!("/mcp/{session}"),
+        &[("authorization", &auth), ("content-type", "application/json")],
+        &message.to_string(),
+    )
+    .await;
+    assert!(status.contains("200"), "{status}: {body}");
+    serde_json::from_str(&body).expect("one JSON message")
 }
 
 /// One HTTP request; answers the status line and the body.
@@ -231,6 +284,143 @@ async fn the_next_daemon_takes_the_same_tokens_and_finds_the_chat() {
     assert!(text(&answer).starts_with(&next.server_pid("chat-f").await.unwrap().to_string()));
 }
 
+/// The daemon a restart replaces still holds the port for a moment after its successor starts
+/// (`daemon.stops.json`, `handover: another daemon of this home starts`). The successor waits for
+/// it instead of taking a free port, which every live chat's config would then miss.
+#[tokio::test]
+async fn a_gateway_waits_out_the_handover_and_keeps_the_port_its_chats_are_configured_at() {
+    let home = tempfile::tempdir().unwrap();
+    let kept = free_port().await;
+    keep_record(home.path(), kept, &[]);
+    // The daemon being replaced, letting the port go a moment after its successor starts.
+    let predecessor = TcpListener::bind(("127.0.0.1", kept)).await.expect("holds the kept port");
+    let (g, ()) = tokio::join!(gateway_waiting(home.path(), Duration::from_secs(10)), async move {
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        drop(predecessor);
+    });
+    assert_eq!(g.port(), kept, "it waited for the port the chats name, instead of moving");
+    assert_eq!(read_record(home.path()).earlier, Vec::<u16>::new(), "nothing was left behind");
+}
+
+/// A port it cannot have (another program's, not a predecessor's) still moves the gateway, and the
+/// port it leaves is written down, so a later daemon can take it back.
+#[tokio::test]
+async fn a_port_it_cannot_take_moves_the_gateway_and_is_remembered() {
+    let home = tempfile::tempdir().unwrap();
+    let kept = free_port().await;
+    keep_record(home.path(), kept, &[]);
+    let _squatter = TcpListener::bind(("127.0.0.1", kept)).await.expect("holds the kept port");
+    let g = gateway_waiting(home.path(), Duration::ZERO).await;
+    assert_ne!(g.port(), kept, "the port is taken, so new chats get a free one");
+    assert_eq!(g.recovered_ports(), Vec::<u16>::new(), "it is still taken, so not served");
+    let record = read_record(home.path());
+    assert_eq!(record.port, g.port());
+    assert_eq!(record.earlier, vec![kept], "the port the chats name is remembered");
+}
+
+/// The record names the daemon that holds the port: a live one of this home is waited for, as
+/// any handover is.
+#[tokio::test]
+async fn a_gateway_waits_for_a_live_predecessor_of_its_own_home() {
+    let home = tempfile::tempdir().unwrap();
+    let kept = free_port().await;
+    keep_record_held(home.path(), kept, &[], Holder::of_self(home.path()));
+    let predecessor = TcpListener::bind(("127.0.0.1", kept)).await.expect("holds the kept port");
+    let (g, ()) = tokio::join!(gateway_waiting(home.path(), Duration::from_secs(10)), async move {
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        drop(predecessor);
+    });
+    assert_eq!(g.port(), kept, "it waited for its own home's predecessor");
+    assert_eq!(read_record(home.path()).holder, Holder::of_self(home.path()), "it names itself");
+}
+
+/// A home copied from another (a cloned machine): its record names the original home's daemon,
+/// which keeps the port. The copy's start takes a free port at once instead of waiting
+/// HANDOVER_WAIT, which made `daemon start` miss its readiness budget (own-machines-e2e
+/// clone-own-identity, 2026-11-22).
+#[cfg(unix)] // a holder needs the process start time (`process_identity`, Unix only)
+#[tokio::test]
+async fn a_copied_home_does_not_wait_for_the_port_its_original_holds() {
+    let original = tempfile::tempdir().unwrap();
+    let copy = tempfile::tempdir().unwrap();
+    let kept = free_port().await;
+    keep_record_held(copy.path(), kept, &[], Holder::of_self(original.path()));
+    let _original = TcpListener::bind(("127.0.0.1", kept)).await.expect("holds the kept port");
+    let started = Instant::now();
+    let g = gateway_waiting(copy.path(), Duration::from_secs(10)).await;
+    assert!(started.elapsed() < Duration::from_secs(3), "waited {:?}", started.elapsed());
+    assert_ne!(g.port(), kept, "the original's port is not this home's to wait for");
+    assert_eq!(read_record(copy.path()).earlier, vec![kept]);
+}
+
+/// A holder that is gone (its pid now another process, or none) never lets the port go: whatever
+/// holds it is another program, so the gateway moves at once.
+#[cfg(unix)] // a holder needs the process start time (`process_identity`, Unix only)
+#[tokio::test]
+async fn a_port_its_gone_holder_left_to_another_program_is_not_waited_for() {
+    let home = tempfile::tempdir().unwrap();
+    let kept = free_port().await;
+    let mut gone = Holder::of_self(home.path()).expect("this process's start time");
+    gone.started_ms = gone.started_ms.saturating_sub(1);
+    keep_record_held(home.path(), kept, &[], Some(gone));
+    let _squatter = TcpListener::bind(("127.0.0.1", kept)).await.expect("holds the kept port");
+    let started = Instant::now();
+    let g = gateway_waiting(home.path(), Duration::from_secs(10)).await;
+    assert!(started.elapsed() < Duration::from_secs(3), "waited {:?}", started.elapsed());
+    assert_ne!(g.port(), kept);
+}
+
+/// The chats stranded by an earlier move: the gateway binds every port it advertised before that
+/// is free again and serves the same routes and tokens there, so a config written at the old port
+/// reaches its tools without being rewritten.
+#[tokio::test]
+async fn a_chat_configured_before_a_restart_moved_the_gateway_is_served_at_its_old_port() {
+    let home = tempfile::tempdir().unwrap();
+    let stranded = free_port().await;
+    let now = free_port().await;
+    keep_record(home.path(), now, &[stranded]);
+    let g = gateway_waiting(home.path(), Duration::ZERO).await;
+    assert_eq!(g.port(), now, "new chats get the port the record advertises");
+    assert_eq!(g.recovered_ports(), vec![stranded], "the stranded port is free, so it is served");
+    g.keep("chat-h", launch(home.path())).unwrap();
+    let init = json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "harness"}}});
+    let answer = rpc_at(&g, stranded, "chat-h", init).await;
+    assert_eq!(
+        answer.pointer("/result/serverInfo/name"),
+        Some(&json!("fake")),
+        "the old port answers, instead of ECONNREFUSED"
+    );
+    let answer = rpc_at(&g, stranded, "chat-h", call(2)).await;
+    assert!(text(&answer).starts_with(&g.server_pid("chat-h").await.unwrap().to_string()));
+    // Its endpoint still names the current port: the old one is for the chats already configured.
+    assert_eq!(g.endpoint("chat-h").url, format!("http://127.0.0.1:{now}/mcp/chat-h"));
+    assert_eq!(read_record(home.path()).earlier, vec![stranded], "still remembered for the next");
+}
+
+/// `stdio_view` reads a chat's `cmux` entry at an earlier port as its stdio launch too; a reader
+/// that judged it by url alone (`bg_hook::route`) saw a stranded chat as somebody else's server.
+#[test]
+fn the_bg_hook_reads_a_gateway_server_at_an_earlier_port_as_its_stdio_launch() {
+    let home = tempfile::tempdir().unwrap();
+    keep_record(home.path(), 41_000, &[41_227]);
+    let launch = Launch {
+        command: "/bin/cmux".into(),
+        args: vec!["mcp".into(), "serve".into()],
+        env: vec![("CMUX_SESSION".into(), "chat-i".into())],
+        cwd: None,
+    };
+    let kept = Kept { launch, initialize: None };
+    crate::agent_tools::write_private(
+        &launch_path(home.path(), "chat-i"),
+        &serde_json::to_vec(&kept).unwrap(),
+    )
+    .unwrap();
+    let config = json!({"mcpServers": {"cmux": {"type": "http", "url": "http://127.0.0.1:41227/mcp/chat-i"}}});
+    let view = stdio_view(home.path(), "chat-i", config);
+    assert_eq!(view.pointer("/mcpServers/cmux/type"), Some(&json!("stdio")));
+    assert_eq!(view.pointer("/mcpServers/cmux/command"), Some(&json!("/bin/cmux")));
+}
+
 #[tokio::test]
 async fn a_closed_chats_server_ends_with_it() {
     let home = tempfile::tempdir().unwrap();
@@ -362,7 +552,10 @@ fn stdio_served(spec: &Value) -> crate::tools_mcp::Served {
 async fn each_of_acpmux_s_own_servers_answers_at_the_tool_endpoint_as_its_own_process_does() {
     let home = tempfile::tempdir().unwrap();
     let socket = home.path().join("d.sock");
-    let g = bind_at(home.path(), socket.clone(), IDLE_STOP, Duration::from_secs(60)).await.unwrap();
+    let g =
+        bind_at(home.path(), socket.clone(), IDLE_STOP, Duration::from_secs(60), Duration::ZERO)
+            .await
+            .unwrap();
     // One chat with an allowlist on the acpmux server, one without: each answers by its own.
     let narrow = tool_specs("chat-t", &socket, Some("acpmux_ls,acpmux_send"));
     let wide = tool_specs("chat-u", &socket, None);
@@ -412,7 +605,10 @@ async fn a_tool_call_acts_as_the_session_in_its_url_and_another_chats_token_is_r
     let socket = home.path().join("d.sock");
     let scope = Arc::new(cmux_scope::Scope::new("fake daemon"));
     fake_daemon(&socket, scope.clone());
-    let g = bind_at(home.path(), socket.clone(), IDLE_STOP, Duration::from_secs(60)).await.unwrap();
+    let g =
+        bind_at(home.path(), socket.clone(), IDLE_STOP, Duration::from_secs(60), Duration::ZERO)
+            .await
+            .unwrap();
     for session in ["chat-v", "chat-w"] {
         g.keep(session, tools_launch(home.path(), &tool_specs(session, &socket, None))).unwrap();
     }
@@ -442,7 +638,7 @@ fn the_bg_hook_reads_a_gateway_server_as_its_stdio_launch() {
         &serde_json::to_vec(&kept).unwrap(),
     )
     .unwrap();
-    let listener = Listener { port: 1, key: String::new() };
+    let listener = Listener { port: 1, key: String::new(), earlier: Vec::new(), holder: None };
     crate::agent_tools::write_private(
         &home.path().join("run").join("mcp-gateway.json"),
         &serde_json::to_vec(&listener).unwrap(),

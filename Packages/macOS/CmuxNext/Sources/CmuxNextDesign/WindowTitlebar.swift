@@ -111,9 +111,12 @@ public struct WindowTitlebar {
     ///   - indicatorWidth: The indicator's width supplied by its owner.
     ///   - midY: The traffic lights' center in the accessories' parent coordinates.
     ///   - scale: The window's current backing scale factor.
+    ///   - extensionStatus: The extensions' status items (`AppStatusStripView`), laid out only while
+    ///     visible, `extensionStatusWidth` wide.
     ///   - trailing: A quiet mark after them, shown only while `showsTrailing` (hidden otherwise).
     public static func layoutAccessories(after band: CGRect, badge: NSView?, indicator: NSView?,
                                          indicatorWidth: CGFloat, centeredOn midY: CGFloat, scale: CGFloat,
+                                         extensionStatus: NSView? = nil, extensionStatusWidth: CGFloat = 0,
                                          trailing: NSView? = nil, showsTrailing: Bool = true) {
         var x = band.maxX + Metrics.space2
         if let badge {
@@ -125,6 +128,11 @@ public struct WindowTitlebar {
             let side = TitlebarBandButton.side
             indicator.frame = alignedFrame(CGRect(x: x, y: midY - side / 2, width: indicatorWidth, height: side), scale: scale)
             x = indicator.frame.maxX + Metrics.space2
+        }
+        if let extensionStatus, !extensionStatus.isHidden, extensionStatusWidth > 0 {
+            let side = TitlebarBandButton.side
+            extensionStatus.frame = alignedFrame(CGRect(x: x, y: midY - side / 2, width: extensionStatusWidth, height: side), scale: scale)
+            x = extensionStatus.frame.maxX + Metrics.space2
         }
         // Last, a quiet text mark such as Swift live mode's (LiveModeBadgeView).
         trailing?.isHidden = !showsTrailing

@@ -83,9 +83,12 @@ class InstallGitHooksTests(unittest.TestCase):
             "scripts/ci/base_merge_warning.py",
             "scripts/ci/github_release_download.py",
             "scripts/ci/deadline_http.py",
+            "scripts/ci/generated_files_guard.py",
+            "scripts/ci/ci_process_tree.py",
             "scripts/webviews_bun_version.py",
             "scripts/check-webviews-bun-version.sh",
             *self.installed_sources(),
+            *self.copy_input_files(),
         ):
             source, target = SOURCE / relative, root / relative
             if not source.exists():
@@ -104,7 +107,29 @@ class InstallGitHooksTests(unittest.TestCase):
         "cannot stat" until this list named it; reading the installer keeps the two in step.
         """
         text = (SOURCE / INSTALLER).read_text(encoding="utf-8")
-        return sorted(set(re.findall(r"^\s*install\s+-m\s+\d+\s+(scripts/\S+)", text, re.MULTILINE)))
+        installed = set(re.findall(r"^\s*install\s+-m\s+\d+\s+(scripts/\S+)", text, re.MULTILINE))
+        # The checks copy's file inputs too: a37b619481 added scripts/ci/generated_files_guard.py and ci_process_tree.py to
+        # checks-copy-inputs and every fixture install lacked them, so the stamp test read a file the fixture never had.
+        manifest = SOURCE / "scripts/git-hooks/checks-copy-inputs"
+        if manifest.exists():
+            for line in manifest.read_text(encoding="utf-8").splitlines():
+                source = line.strip().split(" -> ")[0].strip()
+                if source and not source.startswith("#") and not source.endswith("/"):
+                    installed.add(source)
+        return sorted(installed)
+
+    @staticmethod
+    def copy_input_files():
+        """Every single-file entry of scripts/git-hooks/checks-copy-inputs, so a new entry never leaves the fixture behind.
+
+        The base added scripts/ci/generated_files_guard.py and scripts/ci/ci_process_tree.py to that list (prepush gate:
+        refuse a push that commits a generated file) and the stamp test failed reading them from the fixture until it
+        named them; reading the list keeps the two in step, like installed_sources() does for the installer.
+        """
+        lines = (SOURCE / "scripts/git-hooks/checks-copy-inputs").read_text(encoding="utf-8").splitlines()
+        sources = (line.strip().split(" -> ")[0].strip() for line in lines
+                   if line.strip() and not line.strip().startswith("#"))
+        return sorted({source for source in sources if not source.endswith("/")})
 
     def git(self, *args, check=True):
         return subprocess.run(["git", "-C", str(self.repo), *args], env=self.env,
@@ -509,6 +534,36 @@ done
                 self.assertEqual(args.split()[-1], "src/app.ts")
                 staged = self.git("show", f":{package}/src/app.ts").stdout
                 self.assertEqual(staged, "formatted\n", "the formatted file is restaged")
+
+    def link_web_install(self, target):
+        """webviews/node_modules as a link to TARGET (holding the recording vp), the way wt projects it."""
+        self.stage_web_file("webviews")
+        installed = self.repo / "webviews/node_modules"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.rmtree(target, ignore_errors=True)
+        shutil.move(str(installed), str(target))
+        installed.symlink_to(target)
+
+    def test_pre_commit_runs_vp_from_a_node_modules_linked_outside_the_checkout(self):
+        """wt checkouts link webviews/node_modules to a shared install outside the checkout; the
+        hook refused that link ("passes through ... inside this checkout"), so no webviews commit
+        from a wt checkout could pass."""
+        self.assertEqual(self.install().returncode, 0)
+        vp_log = self.root / "vp.log"
+        self.link_web_install(self.root / "projection/webviews/node_modules")
+        result = self.run_pre_commit(self.formatter_env(with_rustfmt=False, FAKE_VP_LOG=str(vp_log), CMUX_AGENT="1"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("inside this checkout", result.stderr)
+        self.assertEqual(self.git("show", ":webviews/src/app.ts").stdout, "formatted\n", result.stderr)
+
+    def test_pre_commit_refuses_a_node_modules_linked_back_into_the_checkout(self):
+        self.assertEqual(self.install().returncode, 0)
+        vp_log = self.root / "vp.log"
+        self.link_web_install(self.repo / "elsewhere/node_modules")
+        result = self.run_pre_commit(self.formatter_env(with_rustfmt=False, FAKE_VP_LOG=str(vp_log), CMUX_AGENT="1"))
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertIn("inside this checkout", result.stderr)
+        self.assertFalse(vp_log.exists(), "a vp the checkout points at never runs")
 
     def test_pre_commit_takes_over_an_install_lock_whose_holder_died(self):
         # A hook killed mid-install leaves its lock; this worktree has no vp yet.
@@ -1071,7 +1126,10 @@ mkdir -p node_modules/.bin
         self.git("config", "user.email", "t@example.com")
         result = self.install()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.git("config", "--get", "merge.cmux-generated-v1.driver").stdout.strip(), "true")
+        driver = shlex.split(self.git("config", "--get", "merge.cmux-generated-v1.driver").stdout.strip())
+        self.assertEqual([Path(driver[2]).name, *driver[3:]], ["merge-insertions.py", "--generated", "%O", "%A", "%B",
+                                                               "%P", "%L"])
+        self.assertNotEqual(Path(driver[2]).resolve(), (self.repo / "scripts/merge-insertions.py").resolve())
 
         pane = self.repo / "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/index.html"
         chunk = self.repo / "Resources/markdown-viewer/webviews-app/chunks/vendor.mjs"
@@ -1124,15 +1182,8 @@ mkdir -p node_modules/.bin
             "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/highlight-worker.js",
             "webviews/src/agent-session/acpmux/generated/strings.json",
             "webviews/src/pages/settings/generated/strings.json",
-            # Other checked exports: lanes committed "regenerate after the tip
-            # merge" for these every day.
-            "plans/cmux-next/actions.md",
-            "plans/cmux-next/action-surfaces.json",
-            "schemas/settings/settings-schema.json",
             # The docs reference that follows the schema: 13 conflicts in a week.
             "web/data/next-docs/settings-reference.generated.json",
-            "docs/mdm/com.manaflow.cmux.plist",
-            "Packages/macOS/CmuxNext/ci-target-graph.json",
             "cmux-tui/bindings/go/raw/generated_types.go",
             "cmux-tui/bindings/rust/src/generated/types.rs",
         )]
@@ -1154,6 +1205,95 @@ mkdir -p node_modules/.bin
         self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
         for path in outputs:
             self.assertEqual(path.read_text(encoding="utf-8"), "lane build\n", path)
+
+    def test_mac_only_exports_never_keep_one_side(self):
+        """The exports only a Mac rebuilds (settings schema, docs/mdm, the action exports, the CI target graph)
+        kept this branch's copy until 2026-11-22, which dropped base's settings rows on cmux#45928 and cmux#47525
+        with no conflict. Now both sides' rows merge, and two rebuilds of one line stop the merge on that file."""
+        shutil.copyfile(SOURCE / ".gitattributes", self.repo / ".gitattributes")
+        self.git("config", "user.name", "t")
+        self.git("config", "user.email", "t@example.com")
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        exports = [self.repo / path for path in (
+            "plans/cmux-next/actions.md",
+            "schemas/settings/settings-schema.json",
+            "docs/mdm/com.manaflow.cmux.json",
+            "docs/mdm/com.manaflow.cmux.plist",
+            "docs/mdm/managed-preferences.md",
+            "Packages/macOS/CmuxNext/ci-target-graph.json",
+        )]
+        for path in exports:
+            self.assertEqual(self.git("check-attr", "merge", "--", str(path.relative_to(self.repo))).stdout.split()[-1],
+                             "cmux-export-v1", path)
+
+        def rows(*keys):
+            for path in exports:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                if path.suffix == ".json":
+                    body = ",\n".join(f'  "{key}" : 1' for key in keys)
+                    path.write_text("{\n" + body + "\n}\n", encoding="utf-8")
+                elif path.suffix == ".plist":
+                    path.write_text("<dict>\n" + "".join(f"<key>{key}</key><true/>\n" for key in keys) + "</dict>\n",
+                                    encoding="utf-8")
+                else:
+                    path.write_text("# rows\n\n" + "".join(f"- {key}\n" for key in keys) + "\nend\n",
+                                    encoding="utf-8")
+
+        rows("a", "z")
+        self.commit_all("base")
+        self.git("checkout", "--quiet", "-b", "lane")
+        rows("a", "lane", "z")
+        self.commit_all("lane")
+        self.git("checkout", "--quiet", "main")
+        rows("a", "base", "z")
+        self.commit_all("main")
+        self.git("checkout", "--quiet", "lane")
+        merged = self.git("merge", "--no-edit", "main", check=False)
+        self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
+        for path in exports:
+            text = path.read_text(encoding="utf-8")
+            self.assertIn("lane", text, path)
+            self.assertIn("base", text, path)  # base's row, which the old driver dropped
+
+        # A real disagreement (both sides rewrote one line) is a conflict on that file, never one side.
+        target = exports[0]
+        target.write_text("lane rewrite\n", encoding="utf-8")
+        self.commit_all("lane rewrite")
+        self.git("checkout", "--quiet", "main")
+        target.write_text("main rewrite\n", encoding="utf-8")
+        self.commit_all("main rewrite")
+        self.git("checkout", "--quiet", "lane")
+        conflicted = self.git("merge", "--no-edit", "main", check=False)
+        self.assertNotEqual(conflicted.returncode, 0)
+        self.assertEqual(self.git("diff", "--name-only", "--diff-filter=U").stdout.split(), ["plans/cmux-next/actions.md"])
+
+    def test_generated_files_keep_both_sides_rows_when_they_merge(self):
+        """A file regenerate rebuilds still merges three-way when that is clean: a merge that stops on a
+        hand-written file never runs the post-merge rebuild, and cmux#47525 committed the kept copies of the
+        settings Swift without base's rows that way (AgentPolicy, PageLayoutCategories)."""
+        shutil.copyfile(SOURCE / ".gitattributes", self.repo / ".gitattributes")
+        self.git("config", "user.name", "t")
+        self.git("config", "user.email", "t@example.com")
+        self.assertEqual(self.install().returncode, 0)
+        swift = self.repo / "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+AgentPolicy.generated.swift"
+        swift.parent.mkdir(parents=True, exist_ok=True)
+
+        def rows(*keys):
+            swift.write_text("let keys = [\n" + "".join(f'    "{key}",\n' for key in keys) + "]\n", encoding="utf-8")
+
+        rows("a", "z")
+        self.commit_all("base")
+        self.git("checkout", "--quiet", "-b", "lane")
+        rows("a", "lane", "z")
+        self.commit_all("lane")
+        self.git("checkout", "--quiet", "main")
+        rows("a", "base", "z")
+        self.commit_all("main")
+        self.git("checkout", "--quiet", "lane")
+        merged = self.git("merge", "--no-edit", "main", check=False)
+        self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
+        self.assertEqual(swift.read_text(encoding="utf-8"), 'let keys = [\n    "a",\n    "lane",\n    "base",\n    "z",\n]\n')
 
     def test_kept_generated_files_are_ones_the_ci_merger_rebuilds(self):
         """A kept copy is only safe where a rebuild replaces it: next_batch.py's
@@ -1791,7 +1931,8 @@ mkdir -p node_modules/.bin
         head = self.commit_all("a commit to push")
         queue = self.root / "queue"
         queue.mkdir()
-        env = dict(self.env, CMUX_PREPUSH_QUEUE_DIR=str(queue), **settings)
+        # Every hook pushes the same head: the pass cache would answer all but the first, and this is about the queue.
+        env = dict(self.env, CMUX_PREPUSH_QUEUE_DIR=str(queue), CMUX_PREPUSH_PASS_CACHE="0", **settings)
         logs = [open(self.root / f"hook-{index}.log", "w+") for index in range(count)]
         for handle in logs:
             self.addCleanup(handle.close)
@@ -1824,6 +1965,85 @@ mkdir -p node_modules/.bin
         times, output = self.queued_hooks(2, CMUX_PREPUSH_SLOTS="1", CMUX_PREPUSH_QUEUE_WAIT_SECONDS="0")
         self.assertEqual(len(times), 2)
         self.assertTrue(all("pre-push: passed" in text for text in output), output)
+
+    # 2026-11-22: 181 of 511 pushes on cosmic-gray in six hours repeated a sha already tried, each judged from scratch.
+    def stub_checks(self, gate_exit=0):
+        """Install, then replace the web lint and the gate with stubs that log their argv; returns (hook, log, head)."""
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        hook_dir = self.common_dir() / "cmux-git-hooks"
+        log = self.root / "checks-run"
+        for name, code in (("web_lint_prepush.py", 0), ("cmux_next_prepush_gate.py", gate_exit)):
+            (hook_dir / name).write_text(
+                "import sys\n"
+                f"open({str(log)!r}, 'a').write({name!r} + ' ' + ' '.join(sys.argv[1:]) + '\\n')\n"
+                f"sys.exit({code})\n")
+        (self.repo / "file").write_text("x\n")
+        return hook_dir / "pre-push", log, self.commit_all("a commit to push")
+
+    def push_hook(self, hook, head, **settings):
+        env = dict(self.env, CMUX_PREPUSH_QUEUE_DIR=str(self.root), **settings)
+        return subprocess.run([str(hook), "origin", "https://example.invalid/x.git"], cwd=self.repo, env=env, text=True,
+                              input=f"refs/heads/topic {head} refs/heads/topic {'0' * 40}\n", capture_output=True,
+                              timeout=120)
+
+    def runs(self, log):
+        return log.read_text().splitlines() if log.exists() else []
+
+    def test_pre_push_judges_the_same_push_once(self):
+        hook, log, head = self.stub_checks()
+        first = self.push_hook(hook, head)
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertEqual(len(self.runs(log)), 2, first.stderr)
+        again = self.push_hook(hook, head)
+        self.assertEqual(again.returncode, 0, again.stderr)
+        self.assertEqual(len(self.runs(log)), 2, "a retry of a judged push ran the checks again")
+        self.assertIn("not judged again", again.stderr)
+        self.assertIn("pass-cache", again.stderr)
+        self.assertNotIn("waiting for a turn", again.stderr)
+        # Another head, a changed skip setting, or the cache off: judged.
+        (self.repo / "file").write_text("y\n")
+        other = self.commit_all("another commit")
+        self.assertEqual(self.push_hook(hook, other).returncode, 0)
+        self.assertEqual(len(self.runs(log)), 4)
+        self.assertEqual(self.push_hook(hook, head, CMUX_NEXT_CHECKS_SKIP_REASON="x fails on base").returncode, 0)
+        self.assertEqual(len(self.runs(log)), 6)
+        self.assertEqual(self.push_hook(hook, head, CMUX_PREPUSH_PASS_CACHE="0").returncode, 0)
+        self.assertEqual(len(self.runs(log)), 8)
+
+    def test_pre_push_records_no_refused_push(self):
+        hook, log, head = self.stub_checks(gate_exit=1)
+        self.assertEqual(self.push_hook(hook, head).returncode, 1)
+        self.assertEqual(self.push_hook(hook, head).returncode, 1)
+        self.assertEqual(len(self.runs(log)), 4, "a refused push must be judged again")
+        self.assertFalse(list((self.common_dir() / "cmux-prepush-pass").glob("*")) if
+                         (self.common_dir() / "cmux-prepush-pass").exists() else [])
+
+    def test_pre_push_judges_again_after_the_checks_copy_changes(self):
+        hook, log, head = self.stub_checks()
+        self.assertEqual(self.push_hook(hook, head).returncode, 0)
+        (hook.parent / "cmux_next_prepush_gate.py").write_text(
+            (hook.parent / "cmux_next_prepush_gate.py").read_text() + "# a new gate\n")
+        self.assertEqual(self.push_hook(hook, head).returncode, 0)
+        self.assertEqual(len(self.runs(log)), 4, "a new gate must judge the push again")
+
+    def test_a_loaded_host_leaves_the_ci_layers_to_ci_and_its_pass_answers_only_a_loaded_run(self):
+        hook, log, head = self.stub_checks()
+        loaded = self.push_hook(hook, head, CMUX_PREPUSH_LOAD_FOR_TEST="100000")
+        self.assertEqual(loaded.returncode, 0, loaded.stderr)
+        gate_runs = [line for line in self.runs(log) if line.startswith("cmux_next_prepush_gate.py")]
+        self.assertEqual(len(gate_runs), 1)
+        self.assertIn("--defer-ci-layers", gate_runs[0])
+        self.assertEqual(self.push_hook(hook, head, CMUX_PREPUSH_LOAD_FOR_TEST="100000").returncode, 0)
+        self.assertEqual(len(self.runs(log)), 2, "a loaded retry of a loaded pass ran the checks again")
+        idle = self.push_hook(hook, head, CMUX_PREPUSH_LOAD_FOR_TEST="0")
+        self.assertEqual(idle.returncode, 0, idle.stderr)
+        gate_runs = [line for line in self.runs(log) if line.startswith("cmux_next_prepush_gate.py")]
+        self.assertEqual(len(gate_runs), 2, "an idle run must run the layers the loaded pass left to CI")
+        self.assertNotIn("--defer-ci-layers", gate_runs[1])
+        # The idle run's full pass answers a loaded run too.
+        self.assertEqual(self.push_hook(hook, head, CMUX_PREPUSH_LOAD_FOR_TEST="100000").returncode, 0)
+        self.assertEqual(len(self.runs(log)), 4)
 
     def test_pre_push_refreshes_a_stale_checks_copy_from_the_fetched_feat_cmux_next(self):
         _old, new = self.stale_install()

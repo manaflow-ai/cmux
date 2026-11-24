@@ -217,6 +217,9 @@ enum Finish {
     LandThenGoDown,
     /// The machine goes away before the chat lands.
     GoDown,
+    /// The answer is lost while the finish still runs: the next receive-aborts answer "cannot
+    /// say yet" (the real daemon's answer during a finish), then the chat lands.
+    DropStillFinishing,
 }
 
 struct Receive {
@@ -244,6 +247,8 @@ struct Target {
     takes_vm_kind: bool,
     /// The `vm_kind` of each receive and finish, in order.
     vm_kinds: Vec<Value>,
+    /// Receive-aborts still answered "cannot say yet" before the running finish lands the chat.
+    finishing_asks: u32,
 }
 
 impl Target {
@@ -266,6 +271,16 @@ impl Target {
                     return Reply::Error("agent_transfer.unknown_receive", "no receive".into());
                 };
                 let (transfer, session) = (receive.transfer_id.clone(), receive.session_id.clone());
+                if self.finishing_asks > 0 {
+                    self.finishing_asks -= 1;
+                    if self.finishing_asks == 0 {
+                        self.receives.get_mut(&receive_id).unwrap().finished = true;
+                        self.landed.insert(session, transfer);
+                    }
+                    return Reply::Data(
+                        json!({"dropped": false, "forgotten": false, "landed": null}),
+                    );
+                }
                 if !receive.finished {
                     self.receives.remove(&receive_id);
                 }
@@ -349,6 +364,10 @@ impl Target {
             Finish::DropWithoutLanding => return Reply::Drop,
             Finish::GoDown => {
                 down.store(true, Ordering::SeqCst);
+                return Reply::Drop;
+            }
+            Finish::DropStillFinishing => {
+                self.finishing_asks = 3;
                 return Reply::Drop;
             }
             _ => {}
@@ -572,6 +591,21 @@ mod agent_move {
             world.first("target:agent-transfer-receive-abort")
                 < world.first("source:agent-transfer-commit")
         );
+        let source = world.source.lock().unwrap();
+        assert_eq!(source.committed.as_deref(), Some("xfer_1"));
+        assert!(source.aborted.is_empty());
+    }
+
+    #[test]
+    fn a_lost_finish_answer_while_the_finish_still_runs_waits_for_it_then_commits() {
+        // kill-mid-move drill `mid-copy:cut`: the cut lost only the finish answer, and the
+        // target said "cannot say yet" until its finish ended; the pump gave up at once and the
+        // chat stayed open there and frozen here.
+        let world = World::new(Target { finish: Finish::DropStillFinishing, ..Target::default() });
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 0, "{answer}");
+        assert_eq!(answer["session_id"], json!(SESSION));
+        assert_eq!(world.count("target:agent-transfer-receive-abort"), 4);
         let source = world.source.lock().unwrap();
         assert_eq!(source.committed.as_deref(), Some("xfer_1"));
         assert!(source.aborted.is_empty());

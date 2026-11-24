@@ -81,6 +81,7 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
             "bg_stop",
             "run_wait",
             "pr_state",
+            "pr_wait",
             "wrap_up",
             "who_else",
             "goal_set",
@@ -89,7 +90,10 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
             "watch_add",
             "watch_ls",
             "watch_rm",
-            "send_status"
+            "send_status",
+            "machine_read",
+            "machine_edit",
+            "machine_exec"
         ]
     );
     let send = tools[0]["description"].as_str().unwrap();
@@ -650,18 +654,18 @@ async fn one_session_by_name_and_by_id_is_one_chain() {
 
 /// Codex review: a peer that is down answers no lookup, so a session there named `peer/id`
 /// resolves to nothing, while a tag's target for the same session (from the cached list) is
-/// `peer/id` too. Its identical key keeps them one chain, and any other target on that peer
-/// joins it, since an unresolved name there could be any of them.
+/// `peer/id` too. Its identical key keeps them one chain, and since an unresolved id there could
+/// be any session on that peer, every other target there joins it.
 #[tokio::test]
 async fn an_unresolved_peer_session_stays_in_one_chain_with_its_tag_target() {
     let (_hub, client, _dir) = daemon().await;
     session(&client, "here").await;
-    let mut tagged = target(1, "down-host/lane-p", "down-host/id-p");
+    let p = "down-host/01a1acb2-5bb4-75a3-b5eb-a0eeea1d59d5";
+    let mut tagged = target(1, "down-host/lane-p", p);
     tagged.tag = Some("area=x".to_owned());
-    let mut other = target(2, "down-host/lane-q", "down-host/id-q");
+    let mut other = target(2, "down-host/lane-q", "down-host/lane-q");
     other.tag = Some("area=x".to_owned());
-    let targets =
-        [target(0, "down-host/id-p", "down-host/id-p"), tagged, other, target(3, "here", "here")];
+    let targets = [target(0, p, p), tagged, other, target(3, "here", "here")];
     let aliases = send::aliases(&client, &targets).await;
     assert_eq!(send::same_session(&aliases), vec![vec![0, 1, 2], vec![3]], "{aliases:?}");
     // A healthy batch's tag targets on one host stay side by side.
@@ -673,10 +677,35 @@ async fn an_unresolved_peer_session_stays_in_one_chain_with_its_tag_target() {
     assert_eq!(send::same_session(&aliases), vec![vec![0], vec![1]], "{aliases:?}");
 }
 
+/// cmuxterm-hq#17418: one batch to 9 lanes on other hosts sent 7: the second and third to
+/// sessions on one host were refused as "the message before it ... must not arrive first",
+/// naming another host's delivery. Sessions named by name are different sessions, on one host or
+/// several, so each is its own chain; the same name twice, or a bare name and `host/name`, is
+/// one.
+#[tokio::test]
+async fn different_sessions_on_one_host_are_different_chains() {
+    let (_hub, client, _dir) = daemon().await;
+    let targets = [
+        target(0, "host-a/standing-lane", "host-a/standing-lane"),
+        target(1, "host-b/ci-lane", "host-b/ci-lane"),
+        target(2, "host-b/dep-land", "host-b/dep-land"),
+        target(3, "host-b/fleet-repair", "host-b/fleet-repair"),
+        target(4, "host-b/dep-land", "host-b/dep-land"),
+        target(5, "fleet-repair", "fleet-repair"),
+    ];
+    let aliases = send::aliases(&client, &targets).await;
+    assert_eq!(
+        send::same_session(&aliases),
+        vec![vec![0], vec![1], vec![2, 4], vec![3, 5]],
+        "{aliases:?}"
+    );
+}
+
 /// Codex review: the outbox runs every delivery on its own and retries it, so a message queued
 /// while the one before it to the same session is still on its way could arrive first. Here the
 /// first delivery settles late: the second is not queued until it did. One still on its way at
-/// the deadline stops the rest of its chain, each row saying why.
+/// the deadline holds the next in the outbox behind it (`after`), and that row is sent, never
+/// an error asking to send it again (cmuxterm-hq#17418: one batch took 4 calls).
 #[tokio::test]
 async fn a_message_waits_for_the_one_before_it_to_the_same_session() {
     let targets = [
@@ -686,12 +715,12 @@ async fn a_message_waits_for_the_one_before_it_to_the_same_session() {
     ];
     let log = std::sync::Mutex::new(Vec::new());
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-    let rows = send::in_order(&targets, vec![0, 1, 2], deadline, |t, wait| {
+    let rows = send::in_order(&targets, vec![0, 1, 2], deadline, |t, wait, after| {
         let log = &log;
         async move {
-            log.lock().unwrap().push(format!("queue {}", t.index));
+            log.lock().unwrap().push(format!("queue {} after {after:?}", t.index));
             assert!(wait <= Duration::from_secs(5));
-            // The first is slow to settle, then delivered; the second stays on its way.
+            // The first is slow to settle, then delivered; the others stay on their way.
             if t.index == 0 {
                 tokio::time::sleep(Duration::from_millis(300)).await;
             }
@@ -702,20 +731,32 @@ async fn a_message_waits_for_the_one_before_it_to_the_same_session() {
         }
     })
     .await;
-    assert_eq!(*log.lock().unwrap(), ["queue 0", "settled 0", "queue 1", "settled 1"]);
+    assert_eq!(
+        *log.lock().unwrap(),
+        [
+            "queue 0 after None",
+            "settled 0",
+            "queue 1 after None",
+            "settled 1",
+            "queue 2 after Some(\"d1\")",
+            "settled 2"
+        ]
+    );
     assert_eq!(rows.len(), 3);
     assert_eq!(rows[2].0, 2);
-    assert_eq!(rows[2].1["ok"], false, "{:?}", rows[2]);
-    let why = rows[2].1["error"].as_str().unwrap();
-    assert!(why.contains("delivery d1") && why.contains("still on its way"), "{why}");
-    // A refusal settles too: the next one still goes.
-    let refused = send::in_order(&targets, vec![0, 1], deadline, |t, _| {
+    assert_eq!(rows[2].1["ok"], true, "{:?}", rows[2]);
+    assert_eq!(rows[2].1["after"], "d1", "{:?}", rows[2]);
+    assert!(rows[2].1.get("error").is_none_or(Value::is_null), "{:?}", rows[2]);
+    // A refusal settles too: the next one goes with nothing to wait behind.
+    let refused = send::in_order(&targets, vec![0, 1], deadline, |t, _, after| {
         let status = if t.index == 0 { "failed" } else { "delivered" };
-        let row = json!({"index": t.index, "ok": t.index != 0, "status": status});
+        let row = json!({"index": t.index, "ok": t.index != 0, "status": status,
+            "waited": after.is_some()});
         async move { row }
     })
     .await;
     assert_eq!(refused[1].1["status"], "delivered");
+    assert_eq!(refused[1].1["waited"], false);
 }
 
 /// A batch of two to one live session: both arrive, in the order given.
@@ -1050,12 +1091,19 @@ async fn bg_tools_refuse_arguments_that_are_not_an_object() {
 #[tokio::test]
 async fn run_wait_given_a_bg_task_id_reads_the_task_and_names_bg_output() {
     let (_hub, client, _dir) = daemon().await;
-    for args in
-        [json!({"id": "bg-581e5d78d9cd"}), json!({"task": "bg-581e5d78d9cd", "timeout": "600"})]
-    {
+    // The census of 2026-11-23 (cmuxterm-hq docs/findings/2026-11-23-mcp-tool-error-census.md):
+    // the shapes refused "give run or pr" and "repo must be OWNER/REPO" gave a repo beside the id.
+    for args in [
+        json!({"id": "bg-581e5d78d9cd"}),
+        json!({"task": "bg-581e5d78d9cd", "timeout": "600"}),
+        json!({"repo": "manaflow-ai/cmux", "id": "bg-581e5d78d9cd", "description": "step A"}),
+        json!({"repo": "-", "id": "bg-581e5d78d9cd", "description": "hq main fetch"}),
+    ] {
         let r = bg::call(&client, "any", "run_wait", &args).await;
         let t = text(&r);
         assert!(!t.contains("repo is required"), "{args}: {r}");
+        assert!(!t.contains("give run"), "{args}: {r}");
+        assert!(!t.contains("repo must be"), "{args}: {r}");
         assert!(t.contains("bg-581e5d78d9cd is a background task"), "{args}: {r}");
         assert!(t.contains("bg_output"), "{args}: {r}");
     }
@@ -1265,4 +1313,129 @@ fn instructions_stay_short() {
     assert!(crate::offer_mcp::INSTRUCTIONS.len() <= 300);
     assert!(crate::subsession_mcp::instructions().len() <= 1_100);
     assert!(crate::computer_use::tools::INSTRUCTIONS.len() <= 900);
+}
+
+/// The census of 2026-11-23 (cmuxterm-hq docs/findings/2026-11-23-mcp-tool-error-census.md)
+/// counted inbox_reply's `inbox.no_sender` refusals and calls naming `to` but no thread: both
+/// now reach the sender by name, and say so.
+#[tokio::test]
+async fn inbox_reply_with_no_session_in_its_thread_sends_to_the_thread_sender_by_name() {
+    let (hub, client, _dir) = daemon().await;
+    let me = session(&client, "reply-me").await;
+    let them = session(&client, "reply-them").await;
+    // A thread keyed by its sender's name with no message here: the old code refused it.
+    let args = json!({"thread": "from:reply-them/pr:12", "text": "answer one"});
+    let r = inbox_tool(&client, &me, "inbox_reply", &args).await;
+    assert_eq!(r["isError"], false, "{r}");
+    assert!(text(&r).contains("as send sends it"), "{r}");
+    assert!(r["structuredContent"]["rewritten"].as_str().unwrap().contains("reply-them"), "{r}");
+    assert!(received(&hub, &them, "answer one").await, "reply-them never got the reply");
+    // `to` with no thread is a send to it.
+    let args = json!({"to": "reply-them", "text": "answer two"});
+    let r = inbox_tool(&client, &me, "inbox_reply", &args).await;
+    assert_eq!(r["isError"], false, "{r}");
+    assert!(text(&r).contains("sent with send to `to`"), "{r}");
+    assert!(received(&hub, &them, "answer two").await, "reply-them never got the second reply");
+    // A thread whose sender is nobody known is still refused, naming both failures.
+    let args = json!({"thread": "declared:nobody-anywhere", "text": "lost"});
+    let r = inbox_tool(&client, &me, "inbox_reply", &args).await;
+    assert_eq!(r["isError"], true, "{r}");
+    assert!(text(&r).contains("inbox.no_sender") && text(&r).contains("nobody-anywhere"), "{r}");
+    // Neither thread nor to: refused as before.
+    let r = inbox_tool(&client, &me, "inbox_reply", &json!({"text": "x"})).await;
+    assert_eq!(r["isError"], true, "{r}");
+}
+
+#[test]
+fn a_threads_sender_names_come_from_its_relay_its_name_then_its_key() {
+    let thread = json!({"messages": [
+        {"from": "codex-a", "sender": {"relay": {"machine": "mac-1", "session": "codex-a"}}},
+        {"from": "codex-a"}
+    ]});
+    assert_eq!(thread_sender_names("from:codex-a/pr:7", &thread), ["mac-1/codex-a", "codex-a"]);
+    assert_eq!(thread_sender_names("declared:claude-b", &Value::Null), ["claude-b"]);
+    assert!(thread_sender_names("t-123", &Value::Null).is_empty());
+}
+
+/// The census of 2026-11-23 (cmuxterm-hq docs/findings/2026-11-23-mcp-tool-error-census.md)
+/// replayed: each refused call shape of wrap_up, run_wait and inbox_reply it counted, by its
+/// keys and value types (names made up), weighted by how often it came. Prints how many of
+/// them still bounce; the same test on the code before this change gives the before number.
+/// Left out: calls whose meaning is not clear (`{}`, a Claude Code shell id given as a run) and
+/// failures that were no refusal (the client's own timeouts, hooks).
+#[tokio::test]
+async fn census_replay_wrap_up_run_wait_inbox_reply() {
+    let (_hub, client, _dir) = daemon().await;
+    let me = session(&client, "census-me").await;
+    for name in ["census-a", "census-b"] {
+        session(&client, name).await;
+    }
+    let bounced = |r: &Value| r["isError"] == true;
+    let mut rows: Vec<(&str, u32, u32)> = Vec::new();
+
+    let wrap_up = [
+        (json!({"recap": "Did X.", "learned": "Use pnpm, not npm."}), 51),
+        (
+            json!({"recap": "Did X.", "learned": "a fact", "ask": "Merge?", "actions": ["Yes", "No"]}),
+            2,
+        ),
+        (json!({"summary": "Did X.", "learned": "a fact"}), 1),
+    ];
+    let (mut n, mut bad) = (0, 0);
+    for (args, weight) in wrap_up {
+        n += weight;
+        bad += if bounced(&wrap_up::call(&args)) { weight } else { 0 };
+    }
+    rows.push(("wrap_up", n, bad));
+
+    let id = "bg-0123456789ab";
+    let run_wait = [
+        (json!({"repo": "o/r", "id": id, "timeoutSeconds": 600, "description": "d"}), 81),
+        (json!({"repo": "-", "id": id, "timeoutSeconds": 600, "description": "d"}), 5),
+        (json!({"id": id}), 5),
+        (json!({"id": id, "timeout": "600"}), 6),
+    ];
+    let (mut n, mut bad) = (0, 0);
+    for (args, weight) in run_wait {
+        n += weight;
+        let t = text(&bg::call(&client, &me, "run_wait", &args).await);
+        let refused =
+            ["repo is required", "give run", "repo must be"].iter().any(|r| t.contains(r));
+        bad += if refused { weight } else { 0 };
+    }
+    rows.push(("run_wait", n, bad));
+
+    // Senders named in the thread key (`from:`, `declared:NAME`) are sessions here; a label
+    // (`declared:a session on HOST`) or an opaque key with no message here names nobody.
+    let inbox_reply = [
+        (json!({"thread": "from:census-a/pr:12", "text": "t"}), 22),
+        (json!({"thread": "declared:census-b", "text": "t"}), 21),
+        (json!({"thread": "declared:a session on host-x", "text": "t"}), 8),
+        (json!({"thread": "topic:pr/o/r/12", "text": "t"}), 12),
+        (json!({"to": "census-a", "text": "t"}), 7),
+    ];
+    let (mut n, mut bad) = (0, 0);
+    for (args, weight) in inbox_reply {
+        n += weight;
+        bad +=
+            if bounced(&inbox_tool(&client, &me, "inbox_reply", &args).await) { weight } else { 0 };
+    }
+    rows.push(("inbox_reply", n, bad));
+    for (tool, n, bad) in rows {
+        eprintln!("census replay: {tool}: {bad} of {n} bounce");
+    }
+}
+
+#[test]
+fn the_most_called_tools_are_always_loaded_and_the_rest_deferred() {
+    let tools = super::tools();
+    let list = tools.as_array().unwrap();
+    for name in super::ALWAYS_LOADED {
+        let tool =
+            list.iter().find(|t| t["name"] == name).unwrap_or_else(|| panic!("{name} is listed"));
+        assert_eq!(tool["_meta"]["anthropic/alwaysLoad"], true, "{name}");
+    }
+    let rest = list.iter().filter(|t| !super::ALWAYS_LOADED.contains(&t["name"].as_str().unwrap()));
+    assert!(rest.clone().count() > 5);
+    assert!(rest.into_iter().all(|t| t.get("_meta").is_none()));
 }

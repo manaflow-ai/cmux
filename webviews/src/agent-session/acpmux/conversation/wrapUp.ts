@@ -91,17 +91,28 @@ export function shownQuestion(ask: NextStepAsk): string {
   return ask.label ? splitLeadingTag(ask.question).question : ask.question;
 }
 
+/// The other names the tool takes for each field (`ALIASES` in acpmux_mcp_wrap_up.rs): a call
+/// that sent `summary` for `recap` is accepted, so its card draws it too (cmuxterm-hq#18786).
+const ALIASES: Record<string, readonly string[]> = {
+  recap: ["summary", "message", "text", "result"],
+  ask: ["question"],
+  actions: ["options", "buttons", "answers"],
+};
+const field = (args: Record<string, unknown>, name: string): unknown =>
+  [name, ...(ALIASES[name] ?? [])].map((key) => args[key]).find((value) => value != null);
+
 function askOf(args: Record<string, unknown>): NextStepAsk | undefined {
-  const recap = words(args.recap);
+  const recap = words(field(args, "recap"));
   // The question stays as asked: an answer quotes it (`answerPrompt`), and `answerOf` and `askKey`
   // match it whole. The card draws it without its tag (`shownQuestion`).
-  const question = words(args.ask);
+  const question = words(field(args, "ask"));
   const label = question ? splitLeadingTag(question).label : undefined;
   if (!recap && !question) return undefined;
   let options: NextStepOption[] = [];
+  const actions = field(args, "actions");
   if (question) {
-    const labels = Array.isArray(args.actions)
-      ? args.actions
+    const labels = Array.isArray(actions)
+      ? actions
           .map((action) => words(typeof action === "string" ? action : record(action)?.label))
           .filter((label): label is string => label !== undefined && label.length <= MAX_LABEL)
       : [];

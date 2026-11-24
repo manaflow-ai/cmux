@@ -11,14 +11,24 @@ type Props = {
   recheck(): Promise<void>;
 };
 
-// One read when the unavailable card appears. A resume watches for at most one minute, and
-// stops on disposal, changed chat/account, deletion, or the chat reopening (unmount).
+/// How long a resume runs before the card says it is taking longer than usual and Resume machine is
+/// clickable again (`slow`). The reads go on past it: a machine that is still starting keeps
+/// reading until it answers (cmux#35206 removed the hard deadline on purpose).
+export const RESUME_SLOW_MS = 60_000;
+
+// One read when the unavailable card appears. A resume reads the machine every second until the
+// chat opens, the machine is deleted, a read fails for good, or the chat/account changes or
+// unmounts; there is no deadline. Past RESUME_SLOW_MS it is `slow`, and Resume machine asks the
+// machine to wake again while the reads continue.
 export function useCloudChatRecovery({ cloud, session, active, recheck }: Props) {
   const t = useT();
   const [state, setState] = useState<CloudChatState>();
   const [resuming, setResuming] = useState(false);
   const [error, setError] = useState(false);
   const [readRevision, setReadRevision] = useState(0);
+  // Each click of Resume machine (the first, or one past the slow bound) starts its own slow clock.
+  const [resumeRound, setResumeRound] = useState(0);
+  const [slow, setSlow] = useState(false);
   const resumeAttempt = useRef(0);
   const resumeInFlight = useRef(false);
   const identity = cloud ? JSON.stringify(cloud) : undefined;
@@ -42,6 +52,12 @@ export function useCloudChatRecovery({ cloud, session, active, recheck }: Props)
   useEffect(() => {
     if (!resuming) resumeInFlight.current = false;
   }, [resuming]);
+  useEffect(() => {
+    setSlow(false);
+    if (!resuming) return;
+    const timer = setTimeout(() => setSlow(true), RESUME_SLOW_MS);
+    return () => clearTimeout(timer);
+  }, [resuming, resumeRound]);
   useEffect(() => {
     let disposed = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -102,9 +118,12 @@ export function useCloudChatRecovery({ cloud, session, active, recheck }: Props)
   }, [identity, session, active, resuming, recheck, readRevision]);
 
   const resume = () => {
-    if (!cloud || resuming || resumeInFlight.current) return;
+    // Past the slow bound a click wakes the machine again; the reads already running go on.
+    const again = resuming && slow;
+    if (!cloud || (resuming && !again) || (resumeInFlight.current && !again)) return;
     resumeInFlight.current = true;
     setError(false);
+    setResumeRound((round) => round + 1);
     // Send the native call synchronously from the click: it consumes this gesture. The existing
     // attach path resumes this machine for either Cloud backend without opening another workspace.
     const attempt = ++resumeAttempt.current;
@@ -124,6 +143,8 @@ export function useCloudChatRecovery({ cloud, session, active, recheck }: Props)
     resume,
     refresh: () => setReadRevision((value) => value + 1),
     resuming,
+    /// The resume has run past RESUME_SLOW_MS: the card says so and Resume machine works again.
+    slow: resuming && slow,
     error: error ? t("unavailable.resumeFailed") : undefined,
   };
 }

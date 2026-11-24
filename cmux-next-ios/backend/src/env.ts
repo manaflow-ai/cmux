@@ -1,3 +1,4 @@
+import type { LinkRelay } from "./link-relay.ts"
 import type { TeamHub } from "./team-hub.ts"
 
 export interface Env {
@@ -10,6 +11,10 @@ export interface Env {
    */
   readonly STACK_PROJECTS: string
   readonly TEAM_HUB: DurableObjectNamespace<TeamHub>
+  /** The link's WebSocket relay (src/link-relay.ts): one object per link session. */
+  readonly LINK_RELAY: DurableObjectNamespace<LinkRelay>
+  /** `off` refuses every relay join with 503 `relay_off` (the kill switch; PROTOCOL.md "WebSocket relay"). */
+  readonly LINK_RELAY_MODE?: string
   /** Absent in tests: the memory store is used instead. */
   /** PlanetScale MySQL cmux-next-vitess (readwriter) through Hyperdrive; absent in tests (memory store). */
   readonly PS_MYSQL?: Hyperdrive
@@ -22,6 +27,9 @@ export interface Env {
   readonly APNS_KEY_P8?: string
   readonly APNS_KEY_ID?: string
   readonly APNS_TEAM_ID?: string
+  /** A second key of the same team for sandbox sends only (push.ts `signingConfig`): both or neither. */
+  readonly APNS_SANDBOX_KEY_P8?: string
+  readonly APNS_SANDBOX_KEY_ID?: string
   /** Comma-separated bundle ids a phone may register a push token for. */
   readonly APNS_TOPICS?: string
   /** Workers rate limiting bindings (absent in tests that do not configure them). */

@@ -208,3 +208,17 @@ export function answerPreview(text: string): { answer: string; question: string 
 export function promptPreview(text: string): string {
   return answerPreview(text)?.answer ?? text;
 }
+
+/// The pinned copy's ask: the question without its recap (the recap stays with the turn it sums up).
+/// One object per ask, so NextStepCard's memo holds while the stack re-renders; a new spread each
+/// render drew every pinned card again on any change to the stack.
+const pinned = new WeakMap<NextStepAsk, NextStepAsk>();
+export function pinnedAsk(ask: NextStepAsk): NextStepAsk {
+  let shown = pinned.get(ask);
+  if (!shown) {
+    const { recap: _recap, ...rest } = ask;
+    shown = rest;
+    pinned.set(ask, shown);
+  }
+  return shown;
+}

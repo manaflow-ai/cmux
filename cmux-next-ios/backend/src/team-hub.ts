@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers"
 import { primaryProject, type Caller } from "./auth.ts"
+import type { CachedIce } from "./ice.ts"
 import type { Env } from "./env.ts"
 import { MAILBOX_PENDING_LIMIT, MAILBOX_TTL_MS } from "./push.ts"
 import { userTeams } from "./stack.ts"
@@ -21,6 +22,90 @@ export interface Attachment {
   replaced?: boolean
   /** When the socket was accepted (ms): proof the device was awake then, before its first ping. */
   connectedAt?: number
+  /** Where the socket's upgrade entered Cloudflare (set by the Worker from `req.cf`; link_stat log lines). */
+  ingress?: Ingress
+}
+
+/** Cloudflare's codes for where a request entered: colo (`SJC`), country (`US`), continent (`NA`). */
+export interface Ingress {
+  colo: string | null
+  country: string | null
+  continent: string | null
+}
+
+/** The most a `link_stat` frame may be (PROTOCOL.md "Link stats"; the phone's are under 768 bytes). */
+export const MAX_LINK_STAT_FRAME = 2048
+/** A socket's stats closer together than this are dropped silently (the phone sends one a minute). */
+export const LINK_STAT_MIN_GAP_MS = 5000
+const LINK_STAT_TRANSPORTS = new Set(["wireguard", "webrtc"])
+const LINK_STAT_PATHS = new Set(["direct", "turn", "turn-tls", "https-relay", "none"])
+const LINK_STAT_REASONS = new Set(["first", "periodic", "path", "end"])
+const LINK_STAT_ENDS = new Set(["app", "keepalive", "transport", "other"])
+const LINK_STAT_NETS = new Set(["cellular", "other"])
+const LINK_STAT_MARKS = new Set([
+  "signaling_open",
+  "signaling_reused",
+  "dial_start",
+  "offer_sent",
+  "answer_received",
+  "wg_init_sent",
+  "wg_resp_received",
+  "endpoints_gathered",
+  "ice_connected",
+  "dtls_connected",
+  "channel_open",
+  "alive",
+  "link_ready",
+  "first_pong"
+])
+const LINK_STAT_MAX_MS = 600_000
+const LIB_VERSION = /^[0-9A-Za-z.+-]{1,32}$/
+
+/**
+ * The one log line of a phone's `link_stat` frame (PROTOCOL.md "Link stats"), or null for a malformed frame.
+ * Every field is checked against a fixed set or clamped, so the line has a bounded size and only fixed words
+ * and numbers from the client; nothing names a user, device, session or address.
+ */
+export function linkStatLine(f: Record<string, unknown>, kind: Attachment["kind"], ingress: Ingress | undefined, hubColo: string | null): Record<string, unknown> | null {
+  const word = (v: unknown, allowed: Set<string>) => (typeof v === "string" && allowed.has(v) ? v : undefined)
+  const num = (v: unknown, max: number) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.min(Math.round(v), max) : undefined)
+  if (f.v !== 1) return null
+  const transport = word(f.transport, LINK_STAT_TRANSPORTS)
+  const path = word(f.path, LINK_STAT_PATHS)
+  const reason = word(f.reason, LINK_STAT_REASONS)
+  const pings = num(f.pings, 100_000)
+  const lost = num(f.lost, 100_000)
+  if (!transport || !path || !reason || pings === undefined || lost === undefined) return null
+  const line: Record<string, unknown> = { event: "link_stat", v: 1, kind, transport, path, reason, pings, lost }
+  const setupMs = num(f.setupMs, LINK_STAT_MAX_MS)
+  if (setupMs !== undefined) line.setupMs = setupMs
+  if (typeof f.marks === "object" && f.marks !== null && !Array.isArray(f.marks)) {
+    const marks: Record<string, number> = {}
+    for (const [name, at] of Object.entries(f.marks as Record<string, unknown>)) {
+      const ms = num(at, LINK_STAT_MAX_MS)
+      if (LINK_STAT_MARKS.has(name) && ms !== undefined) marks[name] = ms
+    }
+    if (Object.keys(marks).length) line.marks = marks
+  }
+  if (typeof f.rtt === "object" && f.rtt !== null) {
+    const r = f.rtt as Record<string, unknown>
+    const n = num(r.n, 100_000)
+    const p50 = num(r.p50, LINK_STAT_MAX_MS)
+    const p95 = num(r.p95, LINK_STAT_MAX_MS)
+    const max = num(r.max, LINK_STAT_MAX_MS)
+    if (n && p50 !== undefined && p95 !== undefined && max !== undefined) Object.assign(line, { rttN: n, rttP50: p50, rttP95: p95, rttMax: max })
+  }
+  const switches = num(f.switches, 10_000)
+  if (switches !== undefined) line.switches = switches
+  const net = word(f.net, LINK_STAT_NETS)
+  if (net) line.net = net
+  const upS = num(f.upS, 30 * 86_400)
+  if (upS !== undefined) line.upS = upS
+  const end = reason === "end" ? word(f.end, LINK_STAT_ENDS) : undefined
+  if (end) line.end = end
+  if (typeof f.lib === "string" && LIB_VERSION.test(f.lib)) line.lib = f.lib
+  Object.assign(line, { ingressColo: ingress?.colo ?? null, country: ingress?.country ?? null, continent: ingress?.continent ?? null, hubColo })
+  return line
 }
 
 /**
@@ -116,7 +201,9 @@ export interface SeedMac {
   machineId?: string | null
 }
 
-const SIGNAL_KINDS = new Set(["webrtc-offer", "webrtc-answer", "webrtc-ice", "wg-init", "wg-resp", "wg-endpoints", "bye"])
+// `wg-relay` (0.17.0): a side joined the session's WebSocket relay and asks its peer to join too (PROTOCOL.md
+// "WebSocket relay"); forwarded like any signal of the session, and carrying nothing else.
+const SIGNAL_KINDS = new Set(["webrtc-offer", "webrtc-answer", "webrtc-ice", "wg-init", "wg-resp", "wg-endpoints", "wg-relay", "bye"])
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const MEMBER_TTL_MS = 60_000
 const NON_MEMBER_TTL_MS = 15_000
@@ -186,6 +273,8 @@ export class TeamHub extends DurableObject<Env> {
   private readonly attachments = new WeakMap<WebSocket, Attachment>()
   private colo: string | null | undefined
   private readonly relayErrors = new WeakMap<WebSocket, Map<string, number>>()
+  /** When each socket's last `link_stat` was logged (memory only; a wake forgets, which costs one extra line). */
+  private readonly linkStats = new WeakMap<WebSocket, number>()
   /** The open socket of each device, so a signal needs no socket scan (rebuilt lazily after hibernation). */
   private readonly live = new Map<string, WebSocket>()
   private ownerKey: string | null | undefined
@@ -230,6 +319,31 @@ export class TeamHub extends DurableObject<Env> {
   }
 
   // ---- RPC from the Worker -------------------------------------------------------------------
+
+  // Used only on the reserved TURN cache object. Out-of-order writes from
+  // different Worker isolates must keep the newer mint.
+  async readIce(): Promise<CachedIce | undefined> {
+    const entry = await this.ctx.storage.get<CachedIce>("turn-credentials")
+    return entry && Date.now() < entry.usableUntil ? entry : undefined
+  }
+
+  async writeIce(entry: CachedIce): Promise<void> {
+    await this.ctx.storage.transaction(async (tx) => {
+      const current = await tx.get<CachedIce>("turn-credentials")
+      if (entry.usableUntil <= Date.now() || (current && current.issuedAt > entry.issuedAt)) return
+      await tx.put("turn-credentials", entry)
+      await tx.setAlarm(entry.usableUntil)
+    })
+  }
+
+  async alarm(): Promise<void> {
+    await this.ctx.storage.transaction(async (tx) => {
+      const entry = await tx.get<CachedIce>("turn-credentials")
+      if (!entry) return
+      if (Date.now() < entry.usableUntil) await tx.setAlarm(entry.usableUntil)
+      else await tx.delete("turn-credentials")
+    })
+  }
 
   /** Team membership through Stack, cached 60 s (15 s for a refusal) per team. Throws when Stack fails. */
   async isMember(teamId: string, caller: Caller, owner: HubOwner): Promise<boolean> {
@@ -417,18 +531,52 @@ export class TeamHub extends DurableObject<Env> {
   }
 
   /** The colo this hub runs in (diagnostics: a hub stays where it was first created). */
+  /**
+   * The other party of link session `sessionId` when `deviceId` is one of its two (PROTOCOL.md "WebSocket relay"):
+   * the devices its first admitted signal bound, while the session lives (24 h, or until `bye` or the device's
+   * removal ends it). Null for anyone else, so only the phone and the Mac of one session can join its relay.
+   */
+  async relayPeer(owner: HubOwner, sessionId: string, deviceId: string): Promise<string | null> {
+    this.bind(owner)
+    const s = this.session(sessionId)
+    if (!s) return null
+    if (s.initiator === deviceId) return s.responder
+    if (s.responder === deviceId) return s.initiator
+    return null
+  }
+
   async placement(owner: HubOwner): Promise<{ colo: string | null }> {
     this.bind(owner)
-    if (this.env.ENVIRONMENT === "test") return { colo: null }
+    return { colo: await this.hubColo() }
+  }
+
+  /** This hub's colo, looked up once per instance (a failed lookup is retried next time). */
+  private async hubColo(): Promise<string | null> {
+    if (this.env.ENVIRONMENT === "test") return null
     if (this.colo === undefined) {
       try {
         const trace = await (await fetch("https://www.cloudflare.com/cdn-cgi/trace")).text()
         this.colo = /^colo=(\w+)$/m.exec(trace)?.[1] ?? null
       } catch {
-        return { colo: null }
+        return null
       }
     }
-    return { colo: this.colo }
+    return this.colo
+  }
+
+  /**
+   * A phone's `link_stat` (PROTOCOL.md "Link stats"): one structured log line, never an answer. A malformed or
+   * too frequent stat is dropped silently: an error frame without a session would fail the phone's dials.
+   */
+  private async linkStat(ws: WebSocket, att: Attachment, f: Record<string, unknown>) {
+    if (att.kind !== "phone") return
+    const now = Date.now()
+    const last = this.linkStats.get(ws)
+    if (last !== undefined && now - last < LINK_STAT_MIN_GAP_MS && f.reason !== "end") return
+    const line = linkStatLine(f, att.kind, att.ingress, await this.hubColo())
+    if (!line) return
+    this.linkStats.set(ws, now)
+    console.log(JSON.stringify(line))
   }
 
   /** The owner's Macs with presence; only one team's when `teamId` is given. */
@@ -610,6 +758,8 @@ export class TeamHub extends DurableObject<Env> {
       att = { userId: claim.userId, projectId: claim.projectId, deviceId: claim.deviceId, kind: row.kind === "mac" ? "mac" : "phone", name: row.name, teamId: claim.teamId }
     }
     if (!att) return new Response("missing identity", { status: 400 })
+    const ingress = JSON.parse(req.headers.get("x-cmux-mobile-ingress") ?? "null") as Ingress | null
+    if (ingress) att = { ...att, ingress }
     if (!claim) {
       // The slow path checked the database: remember the device for next time.
       this.sql.exec(
@@ -678,6 +828,7 @@ export class TeamHub extends DurableObject<Env> {
         return this.error(ws, "bad_request", "invalid JSON")
       }
       if (f.type === "mailbox_ack") return this.mailboxAck(ws, att, f.results)
+      if (f.type === "link_stat") return message.length > MAX_LINK_STAT_FRAME ? undefined : this.linkStat(ws, att, f as Record<string, unknown>)
       if (f.type !== "signal") return this.error(ws, "bad_request", "unknown frame type")
       if (typeof f.to !== "string" || !UUID.test(f.to)) return this.error(ws, "bad_request", "to must be a deviceId")
       if (f.from !== undefined && f.from !== att.deviceId) return this.error(ws, "bad_request", "from must be your deviceId")

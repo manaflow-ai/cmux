@@ -3,6 +3,7 @@ import CmuxMobileAuth
 import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxMobileOnboarding
+import CmuxMobileRealtime
 import CmuxSpinner
 import SwiftUI
 import UIKit
@@ -326,6 +327,12 @@ struct TerminalPage: View {
                 Text("Choose which device controls the shared terminal's size.")
             }
             Section {
+                Toggle(isOn: $settings.terminalFitToPhone) { SettingsLabel("Fit to Phone", symbol: "iphone") }
+                    .accessibilityIdentifier("settings.terminalFitToPhone")
+            } footer: {
+                Text("Off: the phone re-wraps the Mac's terminal at its own width and the Mac keeps its size. On: the Mac's terminal resizes to the phone. Applies to terminals opened next.")
+            }
+            Section {
                 Toggle(isOn: $settings.predictiveEcho) { SettingsLabel("Predictive echo", symbol: "bolt.horizontal") }
                     .accessibilityIdentifier("settings.predictiveEcho")
             } footer: {
@@ -345,7 +352,7 @@ struct TerminalPage: View {
                 }
                 .accessibilityIdentifier("settings.terminalChatToggle")
             } footer: {
-                Text("Adds Show Chat and Show Terminal to a Claude Code or Codex tab's menu when both views can open. Still in progress.")
+                Text("Adds Show Chat and Show Terminal to a Claude Code or Codex tab's menu when both views can open.")
             }
             Section {
                 Toggle(isOn: $settings.wrapCode) { SettingsLabel("Wrap code and diff lines", symbol: "text.word.spacing") }
@@ -362,9 +369,11 @@ struct TerminalPage: View {
 
 struct ComposerPage: View {
     let settings: SettingsStore
+    let voice: VoiceCallPreferences
 
     var body: some View {
         @Bindable var settings = settings
+        @Bindable var voice = voice
         List {
             Section {
                 Toggle(isOn: $settings.dismissKeyboardAfterSend) {
@@ -380,6 +389,27 @@ struct ComposerPage: View {
                 // The Mac's Toggle Prompt Queueing: Send steers either way, as the Mac's Return does.
                 Text("Send steers the running turn. With Queue, a long press on Send can queue a message for after the turn; with Steer, that steers too.")
             }
+            // Off by default (Leo, 2026-11-22: "im hiding this by default"): voice mode
+            // runs on the user's own OpenAI key, so it shows only for people who turn it on.
+            Section {
+                Picker(selection: $voice.composerVoice) {
+                    ForEach(ComposerVoicePlacement.allCases) { Text($0.title).tag($0) }
+                } label: {
+                    SettingsLabel("Voice Button", symbol: "waveform")
+                }
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("settings.composer.voiceButton")
+                if voice.composerVoice != .off {
+                    NavigationLink(value: SettingsRoute.chiefCalls) {
+                        SettingsLabel("OpenAI API Key", symbol: "key")
+                    }
+                    .accessibilityIdentifier("settings.composer.voiceKey")
+                }
+            } header: {
+                Text("Voice Mode")
+            } footer: {
+                Text("Adds a button that starts voice mode: the agent’s replies are read aloud and what you say is sent. It uses your own OpenAI API key. To dictate into the field, use the keyboard’s microphone.")
+            }
         }
         .settingsPage("Composer")
     }
@@ -391,10 +421,19 @@ struct ComposerPage: View {
 struct NotificationsPage: View {
     let settings: SettingsStore
     /// The account's Macs, for per-Mac on and off.
-    var macs: [MacDevice] = []
+    let macs: [MacDevice]
     @State private var permission: NotificationPermission?
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
+
+    /// `permission` is the answer the Settings root already read, so the page opens with the
+    /// "Allow notifications" value, its footer and the dimmed sections drawn instead of popping
+    /// in a moment later. `refresh()` still reads the system again when the page appears.
+    init(settings: SettingsStore, macs: [MacDevice] = [], permission: NotificationPermission? = nil) {
+        self.settings = settings
+        self.macs = macs
+        _permission = State(initialValue: permission)
+    }
 
     private var push: Bool { BuildCapabilities.current.push }
 
@@ -570,7 +609,7 @@ struct TransportPage: View {
                 }
                 .accessibilityIdentifier("settings.transport.agentCLIHybrid")
             } footer: {
-                Text("A terminal running an agent CLI such as Claude Code or Codex comes from your Mac as the parts of its screen that changed, at most 10 times a second, instead of everything it writes. It looks the same and uses less data. Applies when a terminal opens or reconnects.")
+                Text("A terminal running an agent CLI such as Claude Code or Codex, or a plain shell, comes from your Mac as the parts of its screen that changed, at most 10 times a second, instead of everything it writes. Full-screen programs still come as they are. It looks the same and uses less data. Applies when a terminal opens or reconnects.")
             }
             #if !DEBUG
             Section {
@@ -626,10 +665,8 @@ struct TransportDetails: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(verbatim: store.teams.lazy.flatMap(\.macs).first(where: { $0.id == macID })?.name ?? String(localized: "Mac"))
                             .font(theme.type.rowTitle)
-                        Text(verbatim: store.macLinkDiagnostics[macID] ?? "")
-                            .font(theme.type.meta)
-                            .foregroundStyle(theme.colors.label2)
-                            .textSelection(.enabled)
+                        InPlaceSelectionLabel(store.macLinkDiagnostics[macID] ?? "", textStyle: .footnote,
+                                              color: theme.colors.label2.uiColor)
                     }
                     .accessibilityElement(children: .combine)
                 }

@@ -376,7 +376,7 @@ async fn mint_in(
         app_error("build_space")
     })?;
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let client = reqwest::Client::builder()
+    let client = crate::happy_dial::http_client()
         .default_headers(cmux_build_space::headers_for(space.as_ref()))
         .redirect(reqwest::redirect::Policy::none())
         .timeout(MINT_TIMEOUT)

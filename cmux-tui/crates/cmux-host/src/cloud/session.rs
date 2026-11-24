@@ -30,6 +30,9 @@ pub struct Session {
     stream_live: bool,
     /// The workload probe's last reported result (`workload.rs`); None while it is unknown.
     workload: Option<Workload>,
+    /// The applied machine.toml's idle window (cmux-cloud-start-core `machine_config::idle`), read
+    /// on each workload probe; None while the file declares none.
+    idle_window: Option<u64>,
     /// This service is the restart a flip or a rollback queued: the reports say degraded until
     /// the restarted session host answers `identify` ([`Session::after_restart`]).
     awaiting_daemon: bool,
@@ -156,6 +159,7 @@ impl Session {
             acp: AcpActivity::default(),
             stream_live: false,
             workload: None,
+            idle_window: None,
             awaiting_daemon: false,
         }
     }
@@ -254,6 +258,7 @@ impl Session {
             self.acp.last_person_prompt_at,
         );
         activity.workload = self.workload.as_ref().map(Workload::to_json);
+        activity.idle_window_seconds = self.idle_window;
         activity
     }
 
@@ -280,6 +285,17 @@ impl Session {
         }
         self.workload = next;
         self.reporter.replace_daemon(self.daemon_now());
+        let activity = self.activity();
+        self.reporter.set_activity(activity, true, now).into_iter().collect()
+    }
+
+    /// The applied machine.toml's idle window as it stands (`machine_config::idle::read`). A report
+    /// goes when it changed: the Cloud's pause owner uses it as this machine's idle window.
+    pub fn idle_window(&mut self, seconds: Option<u64>, now: u64) -> Vec<OpRequest> {
+        if seconds == self.idle_window {
+            return Vec::new();
+        }
+        self.idle_window = seconds;
         let activity = self.activity();
         self.reporter.set_activity(activity, true, now).into_iter().collect()
     }
@@ -575,6 +591,39 @@ mod tests {
             2,
             "a socket activity line keeps acpmux's"
         );
+    }
+
+    /// An attached person's client is reported on its own beside the open sessions, so the
+    /// Cloud's input-only policy can tell an idle attached app from work: the count stays in
+    /// `active_sessions` (every other policy reads it as before), `attached_clients` names how
+    /// much of it is attached clients, and the person's last input rides along.
+    #[test]
+    fn an_attached_client_is_reported_apart_from_agents_and_turns() {
+        let mut s = session();
+        let start = s.start(0);
+        s.answered(&start[0], &ok(), 0, 0.5);
+        let input = 1_790_000_000_000u64;
+        let attached =
+            json!({"attached_clients": 1, "live_agents": 0, "last_user_input_at_ms": input});
+        s.daemon_activity(&attached, 100);
+        let r = s.fire(20_000);
+        assert_eq!(r[0].params["activity"]["active_sessions"], 1);
+        assert_eq!(r[0].params["activity"]["attached_clients"], 1);
+        assert_eq!(r[0].params["activity"]["last_user_input_at"], input);
+        s.answered(&r[0], &ok(), 20_000, 0.5);
+
+        // A live agent and a running turn are in use under every policy: not attached clients.
+        s.daemon_activity(&json!({"attached_clients": 1, "live_agents": 1}), 40_000);
+        s.line(&acp(1, None), 40_000);
+        let a = s.reporter.activity().to_json();
+        assert_eq!(a["active_sessions"], 3);
+        assert_eq!(a["attached_clients"], 1);
+
+        // A socket activity line names no attached clients: its whole count is in use.
+        s.line(&json!({"activity": {"active_sessions": 2}}).to_string(), 50_000);
+        let a = s.reporter.activity().to_json();
+        assert_eq!(a["active_sessions"], 3);
+        assert_eq!(a["attached_clients"], 0);
     }
 
     /// acpmux that stops renewing mid-turn (it died) stops counting after the TTL, so the
@@ -958,6 +1007,38 @@ mod tests {
         assert!(!cap(&r[0]));
         assert!(r[0].params["activity"].get("workload").is_none());
         assert!(s.workload(None, 160_000).is_empty());
+    }
+
+    /// A lane's machine.toml window (300 s) rides in every report's activity once read, and a
+    /// report goes only when it changes.
+    #[test]
+    fn the_idle_window_reaches_the_report_and_only_a_change_is_reported() {
+        let mut s = session();
+        let send = |s: &mut Session, mut r: Vec<OpRequest>, now: u64| {
+            r.extend(s.fire(now));
+            for req in &r {
+                s.answered(req, &ok(), now, 0.5);
+            }
+            r
+        };
+        let start = s.start(0);
+        let r = send(&mut s, start, 0);
+        assert!(r[0].params["activity"].get("idle_window_seconds").is_none());
+        assert!(s.idle_window(None, 10_000).is_empty(), "none declared, none before");
+        let r = s.idle_window(Some(300), 20_000);
+        let r = send(&mut s, r, 20_000);
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0].params["activity"]["idle_window_seconds"], 300);
+        assert!(s.idle_window(Some(300), 40_000).is_empty(), "nothing changed");
+        // Another report (the workload) still carries it.
+        let r = s.workload(Some(Workload::default()), 60_000);
+        let r = send(&mut s, r, 60_000);
+        assert_eq!(r[0].params["activity"]["idle_window_seconds"], 300);
+        // The file no longer declares one: a report without it.
+        let r = s.idle_window(None, 80_000);
+        let r = send(&mut s, r, 80_000);
+        assert_eq!(r.len(), 1);
+        assert!(r[0].params["activity"].get("idle_window_seconds").is_none());
     }
 
     /// Relayed only when every daemon says so; turns from every daemon.

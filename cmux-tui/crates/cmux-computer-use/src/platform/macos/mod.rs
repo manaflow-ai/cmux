@@ -9,9 +9,11 @@
 
 mod actions;
 mod activation;
+mod alerts;
 mod ax;
 mod capture;
 mod cgwindows;
+mod displays;
 mod input;
 mod key_focus;
 mod keymap;
@@ -501,7 +503,12 @@ impl Desktop for MacDesktop {
     fn permissions(&self) -> Permissions {
         Permissions {
             accessibility: grant(ax::trusted()),
-            screen_capture: grant(capture::screen_capture_granted()),
+            screen_capture: grant(
+                self.host
+                    .as_ref()
+                    .and_then(|h| h.screen_capture_granted())
+                    .unwrap_or_else(capture::screen_capture_granted),
+            ),
             input: grant(post_event_granted()),
         }
     }
@@ -666,6 +673,18 @@ impl Desktop for MacDesktop {
         }
     }
 
+    fn frame_encoder(
+        &self,
+        width: u32,
+        height: u32,
+        fps: u32,
+    ) -> DResult<Box<dyn crate::record::FrameEncoder>> {
+        match &self.host {
+            Some(host) => host.frame_encoder(width, height, fps),
+            None => Err(DesktopError::Unsupported("no capture host".into())),
+        }
+    }
+
     fn capture_display_excluding(
         &self,
         display: Option<&str>,
@@ -745,6 +764,10 @@ impl Desktop for MacDesktop {
 
     fn scroll(&self, target: &PointerTarget, dx: f64, dy: f64) -> DResult<ActionOutcome> {
         actions::scroll(self, target, dx, dy)
+    }
+
+    fn move_pointer(&self, target: &PointerTarget, delivery: Delivery) -> DResult<ActionOutcome> {
+        actions::move_pointer(self, target, delivery)
     }
 
     fn drag(
@@ -878,5 +901,17 @@ impl Desktop for MacDesktop {
             }
         }
         self.request_direct(which)
+    }
+
+    fn system_alerts(&self) -> DResult<Vec<crate::alerts::RawAlert>> {
+        Ok(alerts::list())
+    }
+
+    fn press_alert_button(&self, alert: &crate::alerts::RawAlert, title: &str) -> DResult<()> {
+        alerts::press(alert, title)
+    }
+
+    fn displays(&self) -> DResult<Vec<crate::displays::Display>> {
+        displays::list()
     }
 }

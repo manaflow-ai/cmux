@@ -20,6 +20,10 @@ on:
 permissions:
   contents: read
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
 jobs:
   evidence:
     # Every event grades, with no job-level `if`: a skipped `risk evidence` run would be the newest
@@ -30,7 +34,7 @@ jobs:
     concurrency:
       group: risk-evidence-${{ github.event.pull_request.number }}
       cancel-in-progress: true
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token; CI_TRUSTED_RUNNER picks the Blacksmith size
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_PR_CONTROL_SKIP_FLEET != '1' && 'cmux-gcp-pr-control-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token; CI_TRUSTED_RUNNER picks the Blacksmith size
     timeout-minutes: 8
     permissions:
       contents: read
@@ -42,8 +46,29 @@ jobs:
         with:
           ref: ${{ github.workflow_sha }}
           persist-credentials: false
-          sparse-checkout: scripts/ci/risk_tier.py
+          sparse-checkout: |
+            scripts/ci/risk_tier.py
+            scripts/ci/ci_pool_tokens.py
+            scripts/ci/gh_budget_wait.sh
+            scripts/ci/ui_review_advisory.py
           sparse-checkout-cone-mode: false
+      # CI_POOL_FIRST: 2026-11-23 00:30-03:30Z about 290 of 322 risk tier runs ended red on "API rate limit": every
+      # job's github.token shares the repository installation's hour. The grade's reads go out on the CI pool Apps
+      # first (each its own installation hour; leo-workspace tools/gh-app-new ci-create), a refused pool hands the
+      # call to the next at once (gh_budget_wait.sh, GH_TOKEN_SPARES) and github.token is the last. Base code only:
+      # the mint runs the base's script, never the pull request's.
+      - name: Mint the CI pool's tokens
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          CI_POOL_APPS: ${{ vars.CMUX_CI_POOL_APPS }}
+          CI_POOL_KEYS: ${{ secrets.CMUX_CI_POOL_KEYS }}
+          CI_POOL_PERMISSIONS: '{"contents":"read","pull_requests":"read","issues":"read"}'
+        run: python3 scripts/ci/ci_pool_tokens.py
+      - name: Move a rate-limited gh call to the next pool
+        env:
+          GH_BUDGET_WAIT_MAX_SECONDS: '0'
+        run: bash scripts/ci/gh_budget_wait.sh --install
       # The base's last 9 days of history, for the check that flags taking back a change another
       # pull request merged recently (a stale base). A fresh repository with full blobs, not the
       # sparse checkout above: actions/checkout makes that a blobless partial clone, and blame in
@@ -68,14 +93,38 @@ jobs:
       - name: Grade the pull request
         id: grade
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ env.CI_POOL_GH_TOKEN || github.token }}
+          GH_TOKEN_SPARES: ${{ env.CI_POOL_GH_TOKEN_SPARES }} ${{ github.token }}
+          # No wait: a reset is up to an hour away and this job has 8 minutes; every pool is tried once.
+          GH_BUDGET_WAIT_MAX_SECONDS: '0'
           REPO: ${{ github.repository }}
           NUMBER: ${{ github.event.pull_request.number }}
         run: |
           python3 scripts/ci/risk_tier.py pr --repo "$REPO" --number "$NUMBER" ${BASE_HISTORY:+--repo-dir "$BASE_HISTORY"} \
-            --event "$GITHUB_EVENT_PATH" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+            --event "$GITHUB_EVENT_PATH" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY" \
+            --files-out "$RUNNER_TEMP/changed-files.json"
+      # A UI pull request opens before its diff is read (the Mastra Factory reading note): one with no try command
+      # gets `Try: cmux app try N` written into its description. It adds and never refuses; a pull request that
+      # already names a try command, or says `Try: none, <why>`, costs no call. A write by this token starts no new run.
+      - name: Add the try line to a UI pull request
+        if: always() && hashFiles('scripts/ci/ui_review_advisory.py') != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          NUMBER: ${{ github.event.pull_request.number }}
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          [ -f "$RUNNER_TEMP/changed-files.json" ] || { echo "no changed-file list; skipped"; exit 0; }
+          printf '%s' "$BODY" > "$RUNNER_TEMP/body.md"
+          python3 scripts/ci/ui_review_advisory.py --add-try "$REPO" --pr "$NUMBER" \
+            --body-file "$RUNNER_TEMP/body.md" --files-json "$RUNNER_TEMP/changed-files.json"
       # The label is a convenience; the check's verdict is the gate, so a label API error never fails it.
+      # It stays on github.token: a label an App adds starts every `labeled` workflow again (this one included), and
+      # one github.token makes does not.
       - name: Set the risk label
+        # An ungraded run (a GitHub rate limit, risk_tier.py's RateLimited) sets no label and leaves the old one.
+        if: steps.grade.outputs.label != ''
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}

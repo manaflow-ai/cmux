@@ -108,6 +108,9 @@ final class CEFPaneHost {
 
     /// Runs a block at the end of this run-loop turn (`CEFLayerHosting.atEndOfTurn`); tests run it when they choose.
     var endOfTurn: CEFLayerHosting.Scheduler = { CEFLayerHosting.atEndOfTurn($0) }
+    /// How a page that took its pane's next size ahead of a commit tells it laid out there (``CEFCommitLayoutWait``);
+    /// tests pass their own.
+    var commitLayoutWait = CEFCommitLayoutWait()
     /// Whether a host visibility pass is queued for this run-loop turn.
     private var hostVisibilityPending = false
     /// Tabs shown before their browser existed, created once the frame committed (`createAfterCommit`).
@@ -154,6 +157,8 @@ final class CEFPaneHost {
         // not override a hide it applied (a pane parked off screen).
         hostView.isHidden = Self.hidesHost(tab)
         visibleTab = tab
+        // A page given its address before any pane showed it loads from this frame; its browser comes after it.
+        tab.startLoadAwaitingBrowser()
         shownWithWindowOut = windowOut ? tab : nil
         tab.applyHostBackdrop()
         // Tabs from windows cmux does not host go to a pane, never a panel.
@@ -430,7 +435,7 @@ final class CEFPaneHost {
             window = .none
             hostView.layerHosting.stop()
             hostView.removeFromSuperview()
-            if holdsOwnTab, runtime.hosts[key] === self { runtime.hosts[key] = nil }
+            if holdsOwnTab || isOwnTabHost, runtime.hosts[key] === self { runtime.hosts[key] = nil }
         }
         // A lent tab closed while its window was still being made: the placeholder goes too.
         if isAgentHost { retireIfUnused() }

@@ -170,6 +170,11 @@ pub fn live(config: &Path) -> Vec<Peer> {
     dir.flatten().filter_map(|e| read_entry(&e.path())).collect()
 }
 
+/// The live session registered under `pid` (`<pid>.json`), checked as [`live`] checks each.
+pub fn entry(config: &Path, pid: u32) -> Option<Peer> {
+    read_entry(&registry(config).join(format!("{pid}.json")))
+}
+
 /// The live session registered with Claude Code session id `id`.
 pub fn find(config: &Path, id: &str) -> Option<Peer> {
     live(config).into_iter().find(|p| p.session_id == id)
@@ -184,7 +189,8 @@ pub fn key_file(config: &Path, pid: u32, socket: &Path) -> PathBuf {
 }
 
 /// The two lines a delivery writes: auth (when a token is known), then the message.
-pub fn frames(token: Option<&str>, text: &str, uuid: &str, from: &str) -> String {
+/// `content`: the message's text, or its content blocks (text and images, as stream-json takes them).
+pub fn frames(token: Option<&str>, content: impl Into<Value>, uuid: &str, from: &str) -> String {
     let mut out = String::new();
     if let Some(token) = token {
         out.push_str(&serde_json::json!({"type": "auth", "token": token}).to_string());
@@ -194,7 +200,7 @@ pub fn frames(token: Option<&str>, text: &str, uuid: &str, from: &str) -> String
         "type": "user",
         "uuid": uuid,
         "from": from,
-        "message": {"role": "user", "content": text},
+        "message": {"role": "user", "content": content.into()},
     });
     out.push_str(&msg.to_string());
     out.push('\n');
@@ -526,11 +532,12 @@ pub fn forget_token(home: &Path, chat_id: &str) {
 pub async fn deliver(
     config: &Path,
     peer: &Peer,
-    text: &str,
+    content: impl Into<Value>,
     uuid: &str,
     from: &str,
     child_token: Option<&str>,
 ) -> Result<(), String> {
+    let content = content.into();
     let socket = peer.socket.as_deref().ok_or("the session has no messaging socket")?;
     let key = key_file(config, peer.pid, socket);
     let token = match child_token {
@@ -539,7 +546,7 @@ pub async fn deliver(
             Err(format!("the session's inbox key {} did not read in time", key.display()))
         })?,
     };
-    let frames = frames(Some(&token), text, uuid, from);
+    let frames = frames(Some(&token), content, uuid, from);
     if let Some(relayed) = crate::claude_inbox_relay::deliver(peer.pid, socket, &frames).await {
         return relayed;
     }
@@ -592,7 +599,7 @@ pub async fn write_frames(socket: &Path, frames: &str) -> Result<(), String> {
 pub async fn deliver(
     _: &Path,
     _: &Peer,
-    _: &str,
+    _: impl Into<Value>,
     _: &str,
     _: &str,
     _: Option<&str>,

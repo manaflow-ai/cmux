@@ -265,6 +265,11 @@ pub enum PeerCmd {
         /// Restart the daemon even when an update restarted it in the last hour.
         #[arg(long)]
         now: bool,
+        /// Install the channel's build even when the installed one is built
+        /// from a newer commit (pulling a bad channel build back). Without
+        /// it the newer installed build is kept.
+        #[arg(long)]
+        allow_downgrade: bool,
     },
     /// Add a machine in one go: check ssh, install this build, start the
     /// daemon, copy harness profiles and add it here (and, with --reverse,
@@ -495,8 +500,12 @@ pub enum ApprovalsCmd {
         #[arg(long)]
         name: Option<String>,
     },
-    /// Stop a Mac's Allows here, at once.
+    /// Stop a Mac's Allows here, at once (`rm standing-grant` ends the standing grant).
     Rm { id: String },
+    /// Record a standing pre-grant on this machine: a key of this user's own, enrolled here, with
+    /// which `acpmux allow SESSION --standing-grant` signs a one-time allow of a plain tool ask
+    /// (never a lasting allow, a plan, a mode, a policy or a rule). Keeps the key already there.
+    Grant,
     /// From this Mac: let its cmux app allow the prompts of MACHINE (a machine name
     /// or ssh host), over ssh. The approvals step of `machine enroll`, alone.
     Enroll {

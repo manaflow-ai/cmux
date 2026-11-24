@@ -4,7 +4,8 @@
 //! (`scripts/cmux-next/build-rd-ffi.sh`; plans/cmux-next/remote-desktop.md
 //! section 3). The surface is small on purpose: received bytes in, access
 //! units, messages and feedback datagrams out; upstream media frames in,
-//! datagrams out. No I/O, no threads, no async
+//! datagrams out. No I/O (except the one recording file the app names,
+//! `record_ffi.rs`), no threads, no async
 //! runtime. Every entry point catches panics; a panic poisons the receiver
 //! and every later call on it returns `CMUX_RD_ERR_PANIC`. No handle is
 //! thread-safe: the header has the host call each from one thread or actor at
@@ -12,11 +13,15 @@
 
 mod bulk_ffi;
 mod clipboard_ffi;
+mod h264;
 mod input;
 mod input_ffi;
 mod line_reader_ffi;
+mod mp4;
 mod rb_client_ffi;
 mod receiver;
+mod record;
+mod record_ffi;
 mod session;
 mod session_ffi;
 mod upstream_ffi;
@@ -33,12 +38,13 @@ pub use input_ffi::*;
 pub use line_reader_ffi::*;
 pub use rb_client_ffi::*;
 pub use receiver::{Carrier, Message, Receiver, ReceiverError, Stats};
-pub use session::{MAX_STREAMS, Session, SessionError};
+pub use record_ffi::*;
+pub use session::{MAX_STREAMS, STALL_AFTER_US, Session, SessionError};
 pub use session_ffi::*;
 pub use upstream_ffi::*;
 
 /// Version of the C ABI (`CMUX_RD_FFI_ABI_VERSION`).
-pub const ABI_VERSION: u32 = 6;
+pub const ABI_VERSION: u32 = 8;
 
 pub const CMUX_RD_OK: i32 = 0;
 pub const CMUX_RD_ERR_NULL: i32 = -1;
@@ -503,6 +509,8 @@ mod input_tests;
 mod line_reader_tests;
 #[cfg(test)]
 mod rb_client_tests;
+#[cfg(test)]
+mod record_tests;
 #[cfg(test)]
 mod session_tests;
 #[cfg(test)]

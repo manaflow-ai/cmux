@@ -16,6 +16,15 @@ final class GlassMenuListView: NSView {
     lazy var onTypeSelect: (Int) -> Void = { [weak self] index in self?.highlight(index) }
     /// Escape reached the list (the popup host's own Escape closes the menu first when it sees it).
     var onCancel: () -> Void = {}
+    /// Tells VoiceOver of a change (tests record it instead).
+    var postAccessibility: (Any, NSAccessibility.Notification, [NSAccessibility.NotificationUserInfoKey: Any]?) -> Void = {
+        NSAccessibility.post(element: $0, notification: $1, userInfo: $2)
+    }
+    /// VoiceOver's notification that a menu's highlighted item changed, as an `NSMenu` posts it.
+    static let menuItemSelected = NSAccessibility.Notification(rawValue: "AXMenuItemSelected")
+    /// VoiceOver's notifications that a menu opened and closed, as an `NSMenu` posts them.
+    static let menuOpened = NSAccessibility.Notification(rawValue: "AXMenuOpened")
+    static let menuClosed = NSAccessibility.Notification(rawValue: "AXMenuClosed")
 
     private var typeSelect = GlassMenuTypeSelect()
 
@@ -56,8 +65,15 @@ final class GlassMenuListView: NSView {
         layout.trailingGap = MenuMetrics.shortcutGap
         layout.minHeight = GlassMenuMaterial.rowHeight
         layout.hoverFills = false
+        // The pill is concentric with the panel (``GlassMenuMaterial/menuCornerRadius``).
+        layout.fillRadius = GlassMenuMaterial.cornerRadius
         if let stepper = item as? GlassMenuStepperItem {
             let row = GlassMenuStepperRowView(stepper, leading: iconColumn ? icon(item.image) : nil, layout: layout)
+            row.onNewValue = { [weak self, weak row] value in
+                guard let self, let row else { return }
+                postAccessibility(row, .announcementRequested,
+                                  [.announcement: value, .priority: NSAccessibilityPriorityLevel.high.rawValue])
+            }
             if let identifier = item.identifier { row.setAccessibilityIdentifier(identifier.rawValue) }
             return row
         }
@@ -75,7 +91,9 @@ final class GlassMenuListView: NSView {
         let view = ThemedImageView()
         view.image = image?.fittedToMenuIconBox()
         view.imageScaling = .scaleProportionallyDown
-        if image?.isTemplate ?? true { view.ink = .primary }
+        // A symbol in the secondary ink, as the Codex menu's light icons: the text leads the row. The glass's veil
+        // holds that ink at 3:1 or more in every theme (``GlassMenuMaterial/veil(for:)``). An avatar keeps its colors.
+        if image?.isTemplate ?? true { view.ink = .secondary }
         NSLayoutConstraint.activate([
             view.widthAnchor.constraint(equalToConstant: MenuMetrics.iconSize),
             view.heightAnchor.constraint(equalToConstant: MenuMetrics.iconSize),
@@ -130,9 +148,17 @@ final class GlassMenuListView: NSView {
     func index(at point: CGPoint) -> Int? { views.firstIndex { $0.frame.contains(point) } }
     func view(at index: Int) -> NSView? { views.indices.contains(index) ? views[index] : nil }
 
+    /// Highlights row `index` (nil: none). VoiceOver follows it as it follows an `NSMenu`'s highlight:
+    /// the row is the menu's selected item and a new one is announced.
     func highlight(_ index: Int?) {
+        let moved = index != highlighted
         highlighted = index
-        for (offset, view) in views.enumerated() { (view as? PopupRowView)?.isHighlighted = offset == index }
+        for (offset, view) in views.enumerated() {
+            guard let row = view as? PopupRowView else { continue }
+            row.isHighlighted = offset == index
+            row.setAccessibilitySelected(offset == index)
+        }
+        if moved, let index, let row = views[index] as? PopupRowView { postAccessibility(row, Self.menuItemSelected, nil) }
     }
 
     func highlightFirst() { highlight(step(from: nil, by: 1)) }

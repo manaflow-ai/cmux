@@ -1,11 +1,18 @@
-import React, { memo, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import React, { memo, useEffect, useRef, useState, useSyncExternalStore, useLayoutEffect } from "react";
 import { Keycap } from "../Keycap";
 import { useT } from "../i18n";
 import { askTagText } from "../question/askTag";
 import { inlineText } from "../question/inlineText";
 import { answerPrompt, type NextStepAsk } from "./nextStepAsk";
 import { shownQuestion, WRAP_UP } from "./wrapUp";
-import { answerState, claimAnswer, setAnswerState, subscribeAnswers, type AnswerState } from "./waitingAskStore";
+import {
+  answerState,
+  claimAnswer,
+  setAnswerState,
+  subscribeAnswers,
+  type AnswerState,
+  givenAnswer,
+} from "./waitingAskStore";
 import "./NextStepCard.css";
 
 /// A tagged ask at the end of a turn (nextStepAsk.ts) as Claude desktop's next-step box draws it
@@ -20,8 +27,16 @@ import "./NextStepCard.css";
 /// icouldn't select the thing... we can make a better thing in cmux-next for y'all to call".
 /// ⌘↩ on an empty composer sends the first answer through `registerKey` (the composer's empty ⌘↩);
 /// a draft keeps the key.
+/// A click folds the card to its answer in the same frame, before any prompt row settles it: the
+/// answer may wait in the queue behind a running turn, where no row settles it until the turn ends
+/// (Leo, 2026-11-17, on a card that kept its buttons after "Plugged in": "after i click the
+/// behaviour is very weird"). A send that fails brings the buttons back with "not sent".
 /// The agent's own wrap-up call (wrapUp.ts) adds its recap, muted at the top of the same box
 /// (reference claude/web/october-recap-card); with no question the box holds the recap alone.
+/// The whole ask shows, wrapped at word breaks, as Claude's question card shows its question (a
+/// coordinator's [irreversible] ask was cut mid-word). Only a very long one stops at
+/// `--acpmux-next-step-lines` lines (its tail at `--acpmux-next-step-detail-lines`) with Show more
+/// under it, which opens the rest in place: the answers keep their order under the text.
 export const NextStepCard = memo(function NextStepCard({
   ask,
   answer,
@@ -57,11 +72,13 @@ export const NextStepCard = memo(function NextStepCard({
     () => (answerKey ? answerState(answerKey) : own),
     () => own,
   );
-  const { sending, failed = false } = answerKey ? shared : own;
+  const state = answerKey ? shared : own;
+  const { sending, failed = false } = state;
   const update = (state: AnswerState) => (answerKey ? setAnswerState(answerKey, state) : setOwn(state));
   const primary = useRef<HTMLButtonElement>(null);
   // A recap alone has no answer to send, so it leaves ⌘↩ to the composer.
-  const settled = answer !== undefined || superseded;
+  const shown = answer ?? givenAnswer(state);
+  const settled = shown !== undefined || superseded;
   const pending = !settled && onAnswer !== undefined && ask.options.length > 0;
   useEffect(() => {
     if (!pending || !registerKey) return;
@@ -72,13 +89,28 @@ export const NextStepCard = memo(function NextStepCard({
   // Leo, 2026-11-19, on a pinned "[trust] Trust ~/fun/cmux ...?": "odd looking".
   const tag = ask.label ?? (ask.tag === WRAP_UP ? undefined : ask.tag);
   const chip = tag ? <span className="acpmux-next-step__tag">{askTagText(tag, t)}</span> : null;
-  const shown = shownQuestion(ask);
+  const question = shownQuestion(ask);
+  // Whether the question or its tail runs past its cap: only then is there a Show more to offer.
+  const [whole, setWhole] = useState(false);
+  const [clipped, setClipped] = useState(false);
+  const textRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const element = textRef.current;
+    if (!element || whole) return;
+    const measure = () =>
+      setClipped(Array.from(element.children).some((child) => child.scrollHeight > child.clientHeight + 1));
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [ask.question, ask.detail, whole, settled]);
   const recap = ask.recap ? <p className="acpmux-next-step__recap">{inlineText(ask.recap)}</p> : null;
   // A wrap-up with nothing to decide (wrapUp.ts): the recap alone, in the same box.
   if (!ask.question) return recap ? <div className="acpmux-next-step acpmux-next-step--recap">{recap}</div> : null;
   if (settled) {
     // An answer the card made up (Yes, Not now) reads in the pane's words.
-    const made = ask.options.find((option) => option.key && option.label === answer)?.key;
+    const made = ask.options.find((option) => option.key && option.label === shown)?.key;
     return (
       <div className="acpmux-question-answered acpmux-next-step acpmux-next-step--answered">
         {recap}
@@ -86,10 +118,10 @@ export const NextStepCard = memo(function NextStepCard({
         <div className="acpmux-question-answered-item">
           <span className="acpmux-question-answered-prompt">
             {chip}
-            {inlineText(shown)}
+            {inlineText(question)}
           </span>
-          {answer !== undefined && (
-            <span className="acpmux-question-answered-answer">{made ? t(made) : inlineText(answer)}</span>
+          {shown !== undefined && (
+            <span className="acpmux-question-answered-answer">{made ? t(made) : inlineText(shown)}</span>
           )}
         </div>
       </div>
@@ -102,18 +134,30 @@ export const NextStepCard = memo(function NextStepCard({
     // The answer goes as a reply to the ask: the question quoted with who asked, then the answer
     // (nextStepAsk.ts `answerPrompt`), so the bubble shows what it answers.
     void onAnswer(answerPrompt(ask.question, label, asker)).then(
-      () => update({}),
+      () => update({ sent: label }),
       () => update({ failed: true }),
     );
   };
   return (
-    <fieldset className={`acpmux-next-step${className ? ` ${className}` : ""}`} aria-label={shown}>
+    <fieldset className={`acpmux-next-step${className ? ` ${className}` : ""}`} aria-label={question}>
       {recap}
-      <p className="acpmux-next-step__question">
-        {chip}
-        {inlineText(shown)}
-      </p>
-      {ask.detail && <p className="acpmux-next-step__detail">{inlineText(ask.detail)}</p>}
+      <div ref={textRef} className="acpmux-next-step__text" data-whole={whole || undefined}>
+        <p className="acpmux-next-step__question">
+          {chip}
+          {inlineText(question)}
+        </p>
+        {ask.detail && <p className="acpmux-next-step__detail">{inlineText(ask.detail)}</p>}
+      </div>
+      {(clipped || whole) && (
+        <button
+          type="button"
+          className="acpmux-next-step__more"
+          aria-expanded={whole}
+          onClick={() => setWhole((value) => !value)}
+        >
+          {t(whole ? "message.less" : "message.more")}
+        </button>
+      )}
       {onAnswer && (
         <div className="acpmux-next-step__answers">
           {ask.options.map((option, index) => (

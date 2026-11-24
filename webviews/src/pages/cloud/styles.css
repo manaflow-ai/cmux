@@ -348,12 +348,12 @@ select {
 
 .cloud-machine-disk {
   display: block;
-  margin-top: 2px;
+  margin-top: var(--grid-half-step);
 }
 
 .cloud-disk-health {
   color: var(--cloud-text-2);
-  font-size: 11px;
+  font-size: var(--text-caption);
   font-variant-numeric: tabular-nums;
 }
 
@@ -373,7 +373,7 @@ select {
 
 .cloud-disk-health-user code {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 10px;
+  font-size: var(--text-caption);
 }
 
 .cloud-machine-size {
@@ -472,6 +472,21 @@ select {
   margin: 0;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+/* A failed renewal: one warning line under the plan, Manage Billing beside it. */
+.cloud-past-due {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin-top: 4px;
+}
+
+.cloud-past-due-text {
+  flex: 1 1 14em;
+  min-width: 0;
+  color: var(--cloud-warn);
 }
 
 .cloud-mono {

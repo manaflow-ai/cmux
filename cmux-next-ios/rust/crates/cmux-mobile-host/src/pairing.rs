@@ -207,6 +207,9 @@ pub struct Pairing {
     pub spent_replies: Arc<crate::mailbox::SpentReplies>,
     /// What other machines did here (`activity.rs`).
     pub activity: Arc<crate::activity::Activity>,
+    /// The requests this hostd asked the app about and still waits on, which another of the
+    /// person's paired devices may answer (`pair_requests.rs`).
+    pub waiting: Arc<crate::pair_requests::Waiting>,
 }
 
 impl Pairing {
@@ -226,6 +229,7 @@ impl Pairing {
             push_keys: Arc::new(crate::push_keys::PushKeys::memory()),
             spent_replies: Arc::new(crate::mailbox::SpentReplies::memory()),
             activity: Arc::new(crate::activity::Activity::memory()),
+            waiting: Arc::default(),
         }
     }
 
@@ -596,15 +600,79 @@ fn unhex(s: &str) -> Option<Vec<u8>> {
     (0..s.len()).step_by(2).map(|i| u8::from_str_radix(s.get(i..i + 2)?, 16).ok()).collect()
 }
 
-/// A pairing code's pre-approval as the Mac mints it: 16 to 64 base64url characters.
-fn is_pair_token(token: &str) -> bool {
-    (16..=64).contains(&token.len())
-        && token.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
-}
-
 /// An app bundle id as a phone states it: 1 to 155 ASCII letters, digits, `.` and `-`.
 fn is_bundle_id(id: &str) -> bool {
     (1..=155).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')
+}
+
+/// An app build number as a phone states it (`appBuild`, its CFBundleVersion): 1 to 32 ASCII
+/// letters, digits, `.` and `-`.
+fn is_app_build(build: &str) -> bool {
+    (1..=32).contains(&build.len())
+        && build.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')
+}
+
+/// Which phone app a bundle id is (project.yml): the App Store's, TestFlight's (cmux INTERNAL),
+/// a cmux Dev try build's (`dev.cmux.mobile<tag>`), another, or `unknown` when none was sent.
+pub fn app_variant(bundle_id: Option<&str>) -> &'static str {
+    match bundle_id {
+        None => "unknown",
+        Some("com.cmux.app") => "appstore",
+        Some("dev.cmux.app.internal") => "testflight",
+        Some(id) if id == "dev.cmux.mobile" || id.starts_with("dev.cmux.mobile.") => "dev",
+        Some(_) => "other",
+    }
+}
+
+/// The phone app a device last stated in its `auth` args (a claim, kept in memory so the Mac
+/// can tell which build connected).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PhoneApp {
+    pub bundle_id: Option<String>,
+    pub build: Option<String>,
+    pub variant: &'static str,
+}
+
+impl PhoneApp {
+    /// From `auth` args: a malformed or absent field is None (older phones send no `appBuild`).
+    pub fn from_args(args: &Value) -> Self {
+        let text = |key: &str| args.get(key).and_then(Value::as_str);
+        let bundle_id = text("bundleId").filter(|id| is_bundle_id(id)).map(str::to_owned);
+        let build = text("appBuild").filter(|b| is_app_build(b)).map(str::to_owned);
+        let variant = app_variant(bundle_id.as_deref());
+        Self { bundle_id, build, variant }
+    }
+}
+
+fn phone_apps() -> &'static Mutex<HashMap<String, PhoneApp>> {
+    static APPS: std::sync::OnceLock<Mutex<HashMap<String, PhoneApp>>> = std::sync::OnceLock::new();
+    APPS.get_or_init(Default::default)
+}
+
+/// Records the phone app `phone` states in `auth` args, logs it once with the link's path, and
+/// returns it. A machine's `auth` is not recorded.
+pub fn note_phone_app(phone: &str, args: &Value, path: Option<&str>) -> Option<PhoneApp> {
+    if crate::peer::PeerKind::parse(args.get("kind").and_then(Value::as_str).unwrap_or_default())
+        .is_some_and(|kind| kind.is_machine())
+    {
+        return None;
+    }
+    let app = PhoneApp::from_args(args);
+    tracing::info!(
+        device = phone,
+        variant = app.variant,
+        bundle = app.bundle_id.as_deref().unwrap_or("-"),
+        build = app.build.as_deref().unwrap_or("-"),
+        path = path.unwrap_or("-"),
+        "phone app"
+    );
+    phone_apps().lock().expect("phone apps").insert(phone.to_owned(), app.clone());
+    Some(app)
+}
+
+/// The phone app `phone` last stated, if it opened `auth` since hostd started.
+pub fn phone_app(phone: &str) -> Option<PhoneApp> {
+    phone_apps().lock().expect("phone apps").get(phone).cloned()
 }
 
 fn new_nonce() -> Result<String, Refused> {
@@ -739,24 +807,13 @@ async fn authenticate(
         }
     }
     send(sender, challenge).await;
-    // With the signature, a phone that scanned the Mac's pairing code sends its pre-approval
-    // (`pairToken`), only after this challenge proved the Mac's key. hostd checks nothing but its
-    // shape and forwards it with the request: the app decides, and only for a phone this host
-    // already admitted as the owner's.
-    let (signature, pair_token) = match tokio::time::timeout(SIGNATURE_WAIT, receiver.recv()).await {
-        Ok(Some(ChannelEvent::Data(bytes))) => {
-            let reply = serde_json::from_slice::<Value>(&bytes).ok();
-            let signature = reply
-                .as_ref()
-                .and_then(|v| v.get("signature").and_then(Value::as_str).map(str::to_owned))
-                .ok_or(("bad_request", "expected {signature}".to_owned()))?;
-            let pair_token =
-                reply.as_ref().and_then(|v| v.get("pairToken")).and_then(Value::as_str).map(str::to_owned);
-            if pair_token.as_deref().is_some_and(|token| !is_pair_token(token)) {
-                return Err(("bad_request", "pairToken is 16 to 64 base64url characters".into()));
-            }
-            (signature, pair_token)
-        }
+    // The phone answers with its signature. An older phone that scanned the Mac's retired pairing
+    // code also sends `pairToken` beside it: ignored, so that phone asks as every phone does.
+    let signature = match tokio::time::timeout(SIGNATURE_WAIT, receiver.recv()).await {
+        Ok(Some(ChannelEvent::Data(bytes))) => serde_json::from_slice::<Value>(&bytes)
+            .ok()
+            .and_then(|v| v.get("signature").and_then(Value::as_str).map(str::to_owned))
+            .ok_or(("bad_request", "expected {signature}".to_owned()))?,
         // The phone refused the challenge itself (it closes `auth` at once when this Mac proves
         // another key than the one it pinned, or names another Mac): say so, not "timeout", so the
         // log shows the real cause (2026-11-03: a 6 ms "timeout" hid `mac_identity_changed`).
@@ -793,6 +850,9 @@ async fn authenticate(
         Err(_) => return Err(("unavailable", "the Mac app has not loaded its paired iPhones yet".into())),
     }
     let mut asked = false;
+    // Held while this `auth` waits for the answer, so another paired device may give it
+    // (`pair_requests.rs`); dropped however the wait ends.
+    let mut held = None;
     let result = tokio::time::timeout(APPROVAL_WAIT, async {
         loop {
             let current = trust.borrow_and_update().clone().unwrap_or_default();
@@ -832,11 +892,17 @@ async fn authenticate(
                     identity_key: identity_key.to_owned(),
                     approval_key: approval_key.to_owned(),
                     registered_at_ms,
-                    // A pairing code pre-approves phones only: a machine always asks.
-                    pair_token: if kind.is_machine() { None } else { pair_token.clone() },
                     bundle_id: bundle_id.clone(),
                     kind,
                 });
+                held = Some(pairing.waiting.hold(crate::pair_requests::WaitingRequest {
+                    device_id: phone.to_owned(),
+                    name: name.clone(),
+                    kind,
+                    identity_key: identity_key.to_owned(),
+                    approval_key: approval_key.to_owned(),
+                    since: Instant::now(),
+                }));
                 send(sender, json!({"pending": true})).await;
             }
             if trust.changed().await.is_err() {
@@ -845,6 +911,7 @@ async fn authenticate(
         }
     })
     .await;
+    drop(held);
     match result {
         Ok(Ok(())) => {
             if let Some(push_key) = push_key {
@@ -888,6 +955,49 @@ async fn send(sender: &ChannelSender, value: Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_phone_app_is_named_by_its_bundle_id_and_build() {
+        assert_eq!(app_variant(Some("com.cmux.app")), "appstore");
+        assert_eq!(app_variant(Some("dev.cmux.app.internal")), "testflight");
+        assert_eq!(app_variant(Some("dev.cmux.mobile")), "dev");
+        assert_eq!(app_variant(Some("dev.cmux.mobile.my-tag")), "dev");
+        assert_eq!(app_variant(Some("dev.cmux.mobilex")), "other");
+        assert_eq!(app_variant(None), "unknown");
+        let app = PhoneApp::from_args(
+            &json!({"kind": "phone", "bundleId": "dev.cmux.app.internal", "appBuild": "1234"}),
+        );
+        assert_eq!(
+            app,
+            PhoneApp {
+                bundle_id: Some("dev.cmux.app.internal".into()),
+                build: Some("1234".into()),
+                variant: "testflight"
+            }
+        );
+        // An older phone sends no build; a malformed field is dropped, never refused.
+        let old = PhoneApp::from_args(&json!({"kind": "phone", "bundleId": "com.cmux.app"}));
+        assert_eq!(old.build, None);
+        assert_eq!(old.variant, "appstore");
+        let odd = PhoneApp::from_args(&json!({"bundleId": "a b", "appBuild": "1 2"}));
+        assert_eq!(odd, PhoneApp { bundle_id: None, build: None, variant: "unknown" });
+        assert!(!is_app_build(&"1".repeat(33)));
+    }
+
+    #[test]
+    fn the_phone_app_is_recorded_per_device_and_a_machine_is_not() {
+        let phone = "phone-app-record-test";
+        let args = json!({"kind": "phone", "bundleId": "dev.cmux.mobile.tag", "appBuild": "77"});
+        let noted = note_phone_app(phone, &args, Some("direct")).unwrap();
+        assert_eq!(phone_app(phone), Some(noted));
+        assert_eq!(phone_app(phone).unwrap().variant, "dev");
+        // A later auth from the same device replaces it.
+        note_phone_app(phone, &json!({"kind": "phone", "bundleId": "com.cmux.app", "appBuild": "80"}), None);
+        assert_eq!(phone_app(phone).unwrap().build.as_deref(), Some("80"));
+        let machine = "machine-app-record-test";
+        assert_eq!(note_phone_app(machine, &json!({"kind": "mac", "bundleId": "com.cmux.app"}), None), None);
+        assert_eq!(phone_app(machine), None);
+    }
 
     #[test]
     fn a_bundle_id_is_forwarded_only_in_its_plain_shape() {

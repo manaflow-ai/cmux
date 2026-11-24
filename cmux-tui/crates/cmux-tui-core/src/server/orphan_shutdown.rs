@@ -112,6 +112,13 @@ impl Mux {
         self.control_clients.add_client_presence_observer(observer);
     }
 
+    /// Whether the app's frontend (a role-main hello) connected since this
+    /// owner started: proof its tag's app ran (dev_orphan_exit's closed-app
+    /// rule).
+    pub fn control_clients_frontend_seen(&self) -> bool {
+        self.control_clients.frontend_seen()
+    }
+
     /// Live hosted terminals (launching, adopting or running).
     pub fn live_terminal_count(&self) -> anyhow::Result<usize> {
         Ok(self

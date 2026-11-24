@@ -104,7 +104,13 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// The bounded wait of a document's background read before it settles (`documentDidPaint`). A test gives it a
     /// manual clock.
     @ObservationIgnored var settleTimer = DemandTimer(owner: "CEFTab.settle")
-    @ObservationIgnored var isCreationPending = false
+    @ObservationIgnored var isCreationPending = false {
+        // The browser is on its way: a load `load` kept for it starts now (``startLoadAwaitingBrowser()``).
+        didSet { if isCreationPending { startLoadAwaitingBrowser() } }
+    }
+    /// `load` gave the page an address while it had no browser and none was on its way: the load starts when one is
+    /// (``startLoadAwaitingBrowser()``), not before, since Chromium loads nothing until then.
+    @ObservationIgnored var loadAwaitsBrowser = false
     @ObservationIgnored var navigation: BrowserNavigationID?
     @ObservationIgnored var nextNavigation: UInt64 = 0
     @ObservationIgnored var pendingURL: URL?
@@ -272,6 +278,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// The read of a document's icon list when Chromium reported none for it (#42435).
     @ObservationIgnored var documentFaviconRead: Task<Void, Never>?
     @ObservationIgnored private(set) var isClosed = false
+    /// The browser went with the engine's stop for quit (``browserDidClose(closesTab:)`` false), not by
+    /// itself: a cmux page on it is not reopened elsewhere and reports no crash (`PageChromiumEvent.engineStopped`).
+    @ObservationIgnored public private(set) var browserEndedForQuit = false
     @ObservationIgnored private var isOccluded = false { didSet { if !isOccluded { runtime.extensionActionReads.tabShown(self) } } }
     /// The pane window this tab belongs to. A popup starts in its opener's
     /// Chromium window but belongs to its own popup host from adoption on;
@@ -284,6 +293,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// The pane host of a background tab an agent drives from a window of its own (`CEFPaneHost+AgentHosts`):
     /// the tab goes back there when its pane shows it.
     @ObservationIgnored weak var homeHost: CEFPaneHost?
+    /// The App pane that shows this tab next (`willShow(inPane:)`): its view joins that pane's Chromium window when it appears.
+    @ObservationIgnored var shownPane: BrowserPaneID?
+    /// The host this tab left for a pane host whose window it waits for (`CEFPaneHost.move`): it goes back there if the fork cannot move it in.
+    @ObservationIgnored weak var regroupedFrom: CEFPaneHost?
     /// The fork could not move this tab into an agent window: it stays in its pane's window from then on.
     @ObservationIgnored var agentWindowRefused = false
     @ObservationIgnored unowned let runtime: CEFRuntime
@@ -487,8 +500,21 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     // What the page area shows, and when the document takes it over, are in
     // `CEFTab+LoadingBackground`.
 
+    /// The browser of a page `load` gave an address before it had one is on its way (a pane shows the tab, or its
+    /// creation began): the load starts now, so the throbber and Stop show in the frame that shows the page.
+    /// Chromium's own load events carry it from there (`CEFTab+Events`).
+    func startLoadAwaitingBrowser() {
+        guard loadAwaitsBrowser else { return }
+        loadAwaitsBrowser = false
+        guard !isClosed, browserID == nil, let url = pendingURL, !state.isLoading else { return }
+        let id = makeNavigationID()
+        navigation = id
+        machine.apply(.started(id, url: url))
+    }
+
     func creationFailed() {
         isCreationPending = false
+        loadAwaitsBrowser = false
         agentRelay.resumeWaiters(false)
         let error = BrowserLoadError(domain: "CEF", code: -1, message: Strings.cefUnavailable, failingURL: pendingURL)
         let id = makeNavigationID()
@@ -504,6 +530,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         runtime.arriving.ended(id)
         paintAsk?.cancel()
         paintAsk = nil
+        // Set before the relay ends: a cmux page reads it in its end (`CEFPageChromiumPage`).
+        if !closesTab { browserEndedForQuit = true }
         agentRelay.browserEnded()
         findRequests.cancel()
         dismissPrompts()
@@ -525,6 +553,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
             // Stays when the fork cannot move it home or its pane's window is gone: shown from its own window.
             host.returnHome(self)
         }
+        // A pane's web tabs share its Chromium window: the ones it does not show are Chromium background tabs.
+        if !parked, let shownPane { host.regroup(self, into: shownPane) }
         // A tab that could not move out went home: presenting it there would take the pane's page window.
         if parked, host.visibleTab != nil, host.visibleTab !== self, !host.holdsOwnTab { return }
         host.present(self, in: view)
@@ -569,6 +599,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         if owed, host.visibleTab === self, !isOccluded { reloadOwedAfterExit() }
     }
 
+    /// The App shows this tab in its pane `pane` next (before it binds the tab's page there): the tab joins that
+    /// pane's Chromium window when its view appears (`CEFPaneHost.regroup`), so the pane's other tabs are background tabs.
+    public func willShow(inPane pane: BrowserPaneID) { shownPane = pane }
+
     func contentDidDisappear() {
         host.conceal(self)
     }
@@ -594,6 +628,18 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     public func load(_ url: URL) {
         guard !isClosed else { return }
         automaticDownloads.userGesture()
+        guard browserID != nil || isCreationPending else {
+            // No browser, and none on its way: a page made before any pane shows its tab (a rest on the tab, a
+            // hibernated page restored in the background, an agent's read). Chromium makes its browser when a pane
+            // shows it or an agent needs one, and loads nothing before, so a navigation started here never ended:
+            // the tab read as loading and its strip spun forever (Lawrence 2026-11-23). It keeps the address, as
+            // Chrome's unloaded tab does, and loads when its browser is on its way.
+            pendingURL = url
+            loadAwaitsBrowser = true
+            machine.apply(.addressPending(url))
+            return
+        }
+        loadAwaitsBrowser = false
         let id = makeNavigationID()
         navigation = id
         machine.apply(.started(id, url: url))

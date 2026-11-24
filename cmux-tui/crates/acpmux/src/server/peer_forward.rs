@@ -37,7 +37,10 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::SESSION_NEW,
     method::SESSION_LIST,
     method::MUX_STATUS,
+    method::MUX_PERF,
+    method::MUX_CALLERS,
     method::MUX_SESSIONS,
+    method::MUX_USAGE,
     method::MUX_WEB_MODES,
     method::MUX_WEB_TOKEN_ROTATE,
     method::MUX_HARNESSES,
@@ -105,6 +108,8 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     "_acpmux/host_notice",
     "_acpmux/host_health",
     "_acpmux/place",
+    method::MUX_PLACE_CHAT,
+    "_acpmux/move_targets",
     "_acpmux/models",
     crate::catalog::RPC_GET,
     crate::catalog::RPC_REFRESH,
@@ -116,6 +121,16 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     // answered here while the peer is down too.
     "_acpmux/peer_snapshot",
     "_acpmux/peer_snapshots_clear",
+    // Saved prompts are this machine's library; their `name` is a prompt's, never a session's.
+    method::MUX_PROMPTS_LIST,
+    method::MUX_PROMPTS_SAVE,
+    method::MUX_PROMPTS_DELETE,
+    // So are the stashed drafts; their `chat` is the composer's key.
+    method::MUX_STASH_LIST,
+    method::MUX_STASH_PUSH,
+    method::MUX_STASH_GET,
+    method::MUX_STASH_DROP,
+    method::MUX_STASH_MOVE,
     // A launch credential is for this daemon's own session only (`agent_credentials.rs`).
     crate::agent_credentials::UPDATE_METHOD,
     // The machine's own journal takes records only from its owner's link or its own socket
@@ -124,6 +139,47 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     "_acpmux/journal_restore",
     "_acpmux/attachments_held",
 ];
+
+/// The requests a chat that moved to a peer still takes here, forwarded to its copy there
+/// (`hub/moved_forward.rs`): what a client attached to the chat sends it. A move's own steps
+/// (`_acpmux/transfer_*`) and everything that is about this daemon's record of the chat (kill,
+/// delete, archive, rename, fork) stay here, answered as before.
+const MOVED_FORWARDED: &[&str] = &[
+    method::SESSION_PROMPT,
+    method::SESSION_CANCEL,
+    method::SESSION_LOAD,
+    method::SESSION_RESUME,
+    method::SESSION_SET_MODE,
+    method::SESSION_SET_MODEL,
+    method::SESSION_SET_CONFIG_OPTION,
+    method::MUX_ATTACH,
+    method::MUX_INFO,
+    method::MUX_EVENTS,
+    method::MUX_ATTACHMENT,
+    method::MUX_ROWS,
+    method::MUX_HISTORY,
+    method::MUX_NATIVE_HISTORY,
+    method::MUX_DRAFT_GET,
+    method::MUX_DRAFT_SET,
+    method::MUX_COMPOSER_SET,
+    method::MUX_COMPOSERS,
+    method::MUX_PERMISSION_RESPOND,
+    method::MUX_QUEUE_GET,
+    method::MUX_QUEUE_REMOVE,
+    method::MUX_QUEUE_EDIT,
+    method::MUX_QUEUE_TEXT,
+    method::MUX_STEER_WITHDRAW,
+];
+
+/// Where request `m` for `key` goes when not here: a peer's chat, or for a request of
+/// [`MOVED_FORWARDED`] the peer copy of a chat that moved away (`Hub::remote_or_moved`).
+pub(super) fn target(
+    hub: &Hub,
+    m: &str,
+    key: &str,
+) -> Option<(Arc<crate::peer::Peer>, String, Value, bool)> {
+    hub.remote_or_moved(key).filter(|(.., moved)| !moved || MOVED_FORWARDED.contains(&m))
+}
 
 /// Whether `m` names a session that a peer's session forwards for: not one this daemon answers
 /// itself (`SESSION_SCOPED_EXCLUDED`).
@@ -162,13 +218,21 @@ fn name_sender(hub: &Arc<Hub>, conn: &Arc<Conn>, p: &mut Value) {
         return;
     }
     let Some(caller) = conn.caller() else { return };
-    let mut meta = json!({
-        "messageSender": {
-            "name": hub.session_name(caller),
-            "sessionId": caller,
-            "host": crate::hub::host_label(),
-        },
+    let mut message_sender = json!({
+        "name": hub.session_name(caller),
+        "sessionId": caller,
+        "host": crate::hub::host_label(),
     });
+    // Its given name too, so the peer's chat names it as people do (`session_handle.rs`).
+    if let Some(given) = hub
+        .resolve(caller)
+        .ok()
+        .and_then(|s| s.read_meta(|m| m.handle.clone()))
+        .filter(|h| crate::session_handle::valid(h))
+    {
+        message_sender.set("displayName", json!(given));
+    }
+    let mut meta = json!({"messageSender": message_sender});
     if p.pointer("/_meta/acpmux/fromAgent").is_none_or(Value::is_null) {
         meta.set("fromAgent", json!(hub.session_name(caller)));
     }
@@ -328,9 +392,8 @@ async fn gated(
     let remote = (m == method::SESSION_PROMPT)
         .then(|| session_key(params).ok())
         .flatten()
-        .filter(|key| hub.resolve(key).is_err())
-        .and_then(|key| hub.resolve_remote(key));
-    let Some((peer, id, _)) = remote else {
+        .and_then(|key| target(hub, m, key));
+    let Some((peer, id, _, _)) = remote else {
         return forward_inner(hub, conn, m, params, None).await.transpose();
     };
     let mut tries = 0;
@@ -413,8 +476,7 @@ async fn forward_inner(
 ) -> Result<Option<Value>, RpcError> {
     if super::remote_guard::cloud_mobile(params)
         && let Ok(key) = session_key(params)
-        && hub.resolve(key).is_err()
-        && hub.resolve_remote(key).is_some()
+        && target(hub, m, key).is_some()
     {
         return Err(super::remote_guard::refuse_cloud_mobile_forward());
     }
@@ -474,9 +536,19 @@ async fn forward_inner(
     // A session that lives on a peer: forward the whole request there.
     if !SESSION_SCOPED_EXCLUDED.contains(&m)
         && let Ok(key) = session_key(params)
-        && hub.resolve(key).is_err()
-        && let Some((peer, id, row)) = hub.resolve_remote(key)
+        && let Some((peer, id, row, moved)) = target(hub, m, key)
     {
+        // A request for a chat that moved there has followed one more move: past the bound it
+        // is answered here, as a chat that moved (`hub/moved_forward.rs`).
+        let moved_hops = moved.then(|| {
+            params
+                .pointer(&format!("/_meta/acpmux/{}", crate::hub::MOVED_HOPS_FIELD))
+                .and_then(Value::as_u64)
+                .unwrap_or(0)
+        });
+        if moved_hops.is_some_and(|hops| hops >= crate::hub::MAX_MOVES_FOLLOWED) {
+            return Ok(None);
+        }
         // A link that is down lists no features (`link_ended`), so every feature check below (the
         // trust gate, attachments, a prompt that waits for the owner) would call a prompt
         // unsupported: final for the outbox, and the peer never asked to wake. The prompt is
@@ -498,6 +570,14 @@ async fn forward_inner(
             && !peer.lists(super::fork_through::RETARGET_FEATURE)
         {
             return Err(super::fork_through::retarget_unsupported(&peer.name));
+        }
+        // A subagent's fork, or one in a picked mode or on a model of the chat's own harness, goes
+        // only to a peer that takes them: an older build would fork the whole chat as it is.
+        if m == method::SESSION_FORK
+            && super::fork_through::asks_start(params)
+            && !peer.lists(crate::hub::fork_subagent::FEATURE)
+        {
+            return Err(super::fork_through::start_unsupported(&peer.name));
         }
         // A conditional stop runs only where the session lives: an older peer would ignore the
         // condition and stop it anyway (`hub/stop_if_idle.rs`).
@@ -643,7 +723,7 @@ async fn forward_inner(
         // A read the session list's row answers (`ROW_WILL_DO`), while the link's rows are
         // current: its notices keep the row as current as the peer's answer would be, one round
         // trip sooner.
-        if m == method::MUX_INFO && row_will_do(params) && peer.rows_current() {
+        if m == method::MUX_INFO && row_will_do(params) && peer.rows_current() && !row.is_null() {
             return Ok(Some(from_row(&row, &peer.name)));
         }
         let mut p = if params.is_null() { json!({}) } else { params.clone() };
@@ -660,6 +740,8 @@ async fn forward_inner(
             &mut p,
             super::requests::person_admitted(conn, params),
         );
+        // The owner's own phone controls a Claude chat the peer started, as it does one here (D13).
+        super::remote_guard::attest_owner_phone(hub, conn, params, &mut p);
         // A held prompt names its hold to the peer: a link guest's waits with `approval` left
         // off here, which a peer that reads only `approval` would run unapproved.
         if held
@@ -706,6 +788,11 @@ async fn forward_inner(
         }
         if m == method::MUX_PERMISSION_RESPOND {
             count_hop(&mut p)?;
+        }
+        if let Some(hops) = moved_hops {
+            crate::hub::merge_mux_meta(&mut p, json!({crate::hub::MOVED_HOPS_FIELD: hops + 1}));
+            // Its stream comes from the peer now, and returns here with the chat (`follow.rs`).
+            conn.follows.forwarded(&id);
         }
         let mut first_attach = false;
         if matches!(
@@ -1224,6 +1311,35 @@ pub(super) fn strip_new_meta(p: &mut Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A saved prompt's `name` is never a session's: no peer gets the library's requests.
+    #[test]
+    fn saved_prompts_stay_on_this_daemon() {
+        for m in [
+            method::MUX_PROMPTS_LIST,
+            method::MUX_PROMPTS_SAVE,
+            method::MUX_PROMPTS_DELETE,
+            method::MUX_STASH_LIST,
+            method::MUX_STASH_PUSH,
+            method::MUX_STASH_GET,
+            method::MUX_STASH_DROP,
+            method::MUX_STASH_MOVE,
+        ] {
+            assert!(!names_a_session(m), "{m}");
+        }
+    }
+
+    #[test]
+    fn a_forwarded_start_keeps_its_name_and_asks_to_keep_a_taken_one() {
+        let mut p = json!({"_meta": {"acpmux": {
+            "peer": "far-host", "name": "slam-09", "harness": "codex",
+            "ifNameTaken": crate::hub::SUFFIX_TAKEN_NAME,
+        }}});
+        strip_new_meta(&mut p);
+        assert_eq!(p["_meta"]["acpmux"]["name"], "slam-09");
+        assert_eq!(p["_meta"]["acpmux"]["ifNameTaken"], "suffix");
+        assert!(p["_meta"]["acpmux"].get("peer").is_none());
+    }
 
     #[test]
     fn a_peer_hold_attach_is_refused_before_forwarding() {

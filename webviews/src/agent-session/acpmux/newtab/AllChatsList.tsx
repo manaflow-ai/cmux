@@ -10,18 +10,24 @@
 // Projects (cx-ncc.66, Claude parity) shows the same chats grouped under their project folder.
 // Filter (cx-htpk0, Claude desktop parity) narrows the list to the live chats that are working or
 // wait on the user, or to the finished ones: live chats at rest, then every indexed chat.
-import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+// When (ask-b75ea23533, Leo 2026-11-18: "recency is usually what's desired") reaches back a day,
+// a week or a month by writing `since:` into the search, which also takes acpmux's other
+// operators (`harness:`, `in:`, `title:`, `before:`, `-word`, `"a phrase"`; chatQueryTerms.ts).
+import React, { useCallback, useEffect, useRef, useState, memo, useLayoutEffect, useMemo } from "react";
 
 import { ContextMenu } from "../../../ui/ContextMenu";
 
 import { VirtualList } from "../../../ui/VirtualList";
 import { useT } from "../i18n";
 
-import { AgentMark } from "../NewTabPage";
+import { AgentMark } from "../tabMarks";
+import type { HarnessIconSpec } from "../../shared/harnessIcons";
 import { ageLabel, nextAgeLabel } from "../newTabModel";
 import { useNt } from "./strings";
 import { useLabelClock } from "../clock";
 import { ChatFilterMenu, type ChatStatusFilter } from "./ChatFilterMenu";
+import { ChatRecencyMenu } from "./ChatRecencyMenu";
+import { liveMatches, withRecency } from "./chatQueryTerms";
 import { AllChatsLoading } from "./AllChatsLoading";
 import { useLasting } from "../../../ui/lasting";
 import {
@@ -35,12 +41,15 @@ import {
   watchable,
 } from "./allChatsListModel";
 import { pressToOpen } from "../../../ui/pressToOpen";
+import { WithFacts } from "../chips/FactsHoverCard";
 /// A chat that is running or waits on the user (acpmux's own sessions): it leads the list with
 /// its state where the age would be.
 export type ActiveChat = {
   id: string;
   title: string;
   harness?: string;
+  /// The icon the chat set (acpmux `icon`), drawn over its harness mark.
+  icon?: HarnessIconSpec;
   state: "input" | "running" | "failed" | "error" | "unread" | "idle";
   label: string;
 };
@@ -210,13 +219,15 @@ const ChatRow = memo(function ChatRow({
         <span className="nt-all-glyph">
           <AgentMark harness={harness} />
         </span>
-        <span className="nt-all-title" title={title}>
-          {title}
-        </span>
+        <span className="nt-all-title">{title}</span>
         {project && showProject && (
-          <span className="nt-all-project" title={cwd}>
-            {project}
-          </span>
+          <WithFacts facts={[{ value: cwd ?? "", code: true }]}>
+            {(facts) => (
+              <span {...facts} className="nt-all-project">
+                {project}
+              </span>
+            )}
+          </WithFacts>
         )}
         {age && <span className="nt-all-meta">{age}</span>}
         {showAge && now === undefined && updatedAt ? <ChatAge at={updatedAt} /> : null}
@@ -278,6 +289,7 @@ const LiveChatRow = memo(function LiveChatRow({
   id,
   title,
   harness,
+  icon,
   state,
   label,
   onOpen,
@@ -285,6 +297,7 @@ const LiveChatRow = memo(function LiveChatRow({
   id: string;
   title: string;
   harness: string | undefined;
+  icon?: HarnessIconSpec | undefined;
   state: ActiveChat["state"];
   label: string;
   onOpen(id: string): void;
@@ -301,11 +314,9 @@ const LiveChatRow = memo(function LiveChatRow({
           {...pressToOpen(() => onOpen(id))}
         >
           <span className="nt-all-glyph">
-            <AgentMark harness={harness} />
+            <AgentMark harness={harness} icon={icon} />
           </span>
-          <span className="nt-all-title" title={title}>
-            {title}
-          </span>
+          <span className="nt-all-title">{title}</span>
           <span className="nt-all-state">{label}</span>
         </button>
       </ContextMenu>
@@ -359,20 +370,19 @@ export function AllChatsList({
   const [filter, setFilter] = useState<ChatStatusFilter>("all");
   // Working and Needs input are live chats only; the indexed rows are finished chats.
   const indexed = filter === "all" || filter === "done";
-  const query = state.query.trim().toLowerCase();
-  // A search hides live chats under All, as before; a live-only filter searches their titles.
+  // A search hides live chats under All, as before; a live-only filter searches their titles. When
+  // alone hides none: a live chat is in use now, so within any `since:`.
+  const searched = withRecency(state.query.trim(), "any") !== "";
   const activeShown =
     filter === "all"
-      ? state.query
+      ? searched
         ? []
         : active
       : active.filter(
-          (chat) =>
-            FILTER_STATES[filter].has(chat.state) &&
-            (indexed ? !state.query : chat.title.toLowerCase().includes(query)),
+          (chat) => FILTER_STATES[filter].has(chat.state) && (indexed ? !searched : liveMatches(chat, state.query)),
         );
   // The leaders show under All with no search; a filter or a search is about the chats.
-  const leadsShown = filter === "all" && !state.query ? leads : [];
+  const leadsShown = filter === "all" && !searched ? leads : [];
   // The callbacks rows take keep their identity and read this render's values when called.
   const latest = useRef({ openFeedback, onOpenActive, onBring, selection: NO_KEYS as string[] });
   const openActive = useCallback((id: string) => latest.current.onOpenActive?.(id), []);
@@ -382,6 +392,7 @@ export function AllChatsList({
       id={chat.id}
       title={chat.title}
       harness={chat.harness}
+      icon={chat.icon}
       state={chat.state}
       label={chat.label}
       onOpen={openActive}
@@ -585,7 +596,14 @@ export function AllChatsList({
             setFilter(next);
           }}
         />
-        <label className="nt-all-search">
+        <ChatRecencyMenu
+          query={state.query}
+          onRecency={(recency) => {
+            selection.clear();
+            search(withRecency(state.query, recency));
+          }}
+        />
+        <label className="nt-all-search" title={nt("searchHelp")}>
           <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
             <circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.4" />
             <path d="m10.5 10.5 3 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />

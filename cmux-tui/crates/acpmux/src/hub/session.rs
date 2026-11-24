@@ -74,7 +74,7 @@ pub struct Session {
     pub(super) seq: AtomicU64,
     /// Held from sequence allocation until the record is stored and sent,
     /// so the log and fan-out always see sequences in order.
-    pub(super) append_lock: StdMutex<()>,
+    pub(super) append_lock: crate::worker_lock::Mutex<()>,
     /// Incremental per-chat wall-time and token attribution, seeded lazily from the journal.
     pub(super) time_breakdown: StdMutex<super::time_breakdown::State>,
     /// The one writer of its metadata (`meta_save.rs`): versioned changes, committed to
@@ -137,6 +137,9 @@ pub struct Session {
     /// step (`queue.rs` `queue_slot`): two prompts that come together never both find the chat
     /// free. A leaf lock, held for no await.
     pub(super) admit: StdMutex<()>,
+    /// Orders prompt setup before it reaches `queue_slot`: an upload read or another slow setup
+    /// step must not let a later prompt claim the chat first. Held only until queue admission.
+    pub(crate) prompt_admission: std::sync::Arc<tokio::sync::Mutex<()>>,
     /// Set under `admit` while a journal restore holds the chat (`journal_restore.rs`): a prompt
     /// admitted meanwhile waits for `restore_done` before it takes its place, so nothing it logs
     /// (its `queued` record, its turn) goes between the restore's check and its settle.
@@ -238,6 +241,9 @@ pub struct Session {
     /// 0 while it is not. The lane's `input` since (cx-v9k2f): later records,
     /// a draft save or a second ask do not move it.
     pub(super) input_since: AtomicU64,
+    /// What its Waiting waits for, written with the status (`Hub::write_status`); None while it
+    /// is not Waiting.
+    pub(super) wait_reason: StdMutex<Option<crate::store::WaitReason>>,
     /// Since when work the session started still runs past its own turn (a
     /// background subagent, a working sub-session), in ms; 0 while none does
     /// (`work_below.rs`).
@@ -254,6 +260,14 @@ pub struct Session {
     pub(super) asks_in_flight: std::sync::atomic::AtomicUsize,
     pub(super) asks_landed: Notify,
     pub(super) rehydrate: AtomicBool,
+    /// The turn being started is a continuation a move at a tool boundary left
+    /// (`restart_resume.rs` `Cut::MoveAtBoundary`): a Claude process started for it may resume
+    /// the cut turn by itself (`claude_stdio/resume_cut.rs`). Set and cleared by `turns.rs`
+    /// around the start, under the turn lock.
+    pub(super) resume_cut_ask: AtomicBool,
+    /// The process just started does resume the cut turn: `turns.rs` takes it and sends the
+    /// continuation as a carried prompt, which writes nothing. Written by every Claude start.
+    pub(super) resumed_cut: AtomicBool,
     /// What the rehydrated transcript's note tells the agent, when not the restore's own: a fork
     /// onto another harness says it was forked from the chat (`fork.rs` `Retarget`). Taken with
     /// `rehydrate`.
@@ -373,6 +387,17 @@ pub struct Session {
     /// sends the agent no `session/cancel`: with no prompt of the turn to stop, a harness could
     /// keep that cancel and end the next turn with it.
     pub(super) unwritten_prompt: StdMutex<Option<(String, bool)>>,
+    /// The agent message that holds its turn's start in an idle chat for the gather window, by
+    /// its turn id, and when that window ends (`digest.rs` `AGENT_GATHER_MS`).
+    pub(super) gathering: StdMutex<Option<(String, tokio::time::Instant)>>,
+    /// The cold batch open in this idle chat (`cold_wake.rs`): when what it holds goes in.
+    pub(super) cold_batch: StdMutex<Option<super::cold_wake::Batch>>,
+    /// Whether the turn starting now takes a cold batch: its notice leads the agent messages
+    /// queued behind it (`digest.rs` `take_joined`).
+    pub(super) cold_batch_turn: AtomicBool,
+    /// The person's prompt that holds its turn's start in a held chat, and when that hold ends
+    /// (`person_hold.rs`).
+    pub(super) person_hold: StdMutex<Option<super::person_hold::Hold>>,
     /// The forced `turn_result` already written for a turn, if any. This is
     /// separate from `cancel_forced_turn`: several prompt waiters can observe
     /// the same forced answer, but only one may append the result.
@@ -439,6 +464,9 @@ pub struct Session {
     /// Last stderr lines of the current turn, quoted when the agent
     /// process dies without an answer ("Not logged in", a launcher error).
     pub(super) stderr_tail: StdMutex<std::collections::VecDeque<String>>,
+    /// The current agent process's last stderr line that could say why it quit, for its
+    /// `exited` record (`exit_reason::ExitLine`).
+    pub(super) exit_line: StdMutex<super::exit_reason::ExitLine>,
     /// The agent processes' stderr as streams (`SessionStderr`): each carries a string control that
     /// runs across lines, so a payload never reaches `stderr_tail`. Kept across turns, as the
     /// process is. Not persisted: after a daemon restart, a line that continues a control opened
@@ -473,6 +501,11 @@ pub struct Session {
     /// The running turn's tool calls that have not ended (`stalled_turn.rs`): a turn quiet
     /// inside one gets longer before it counts as stalled.
     pub(super) open_tools: StdMutex<std::collections::HashSet<String>>,
+    /// The session's own tool calls whose live updates logged no end, bounded (`hub/tap.rs`): a
+    /// load's replay of one's end is the only replayed record kept of a tool call
+    /// (`unread_records.rs`), as a cut turn's continuation counts it ended (`restart_resume.rs`).
+    /// Unlike [`Self::open_tools`], a new agent for the turn keeps them.
+    pub(super) unclosed_tools: StdMutex<std::collections::HashSet<String>>,
     /// Bounded completed tool attempts used to identify a repeated failing call
     /// (`loop_detector.rs`).
     pub(super) loop_detector: StdMutex<super::loop_detector::LoopDetector>,

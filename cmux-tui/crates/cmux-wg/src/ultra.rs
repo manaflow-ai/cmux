@@ -1043,6 +1043,13 @@ impl Underlay for UltraUnderlay {
         self.inner.send_on(path, datagram);
     }
 
+    /// Alone and unrepaired: no copies, no parity, and no group (a group
+    /// it opened would close behind it with parity of its own).
+    fn send_liveness(&mut self, datagram: &[u8], answer: bool) {
+        self.inner.send_liveness(datagram, answer);
+        UltraCounters::add(&self.counters.data_bytes, datagram.len() as u64);
+    }
+
     fn poll_probes(&mut self, now: Instant) -> DueProbes {
         self.inner.poll_probes(now)
     }

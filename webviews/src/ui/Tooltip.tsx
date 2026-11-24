@@ -20,6 +20,7 @@ import { usePopupHost, usePortalContainer } from "./UiProvider";
 import { useEscapingPopup } from "./popupHost";
 import { virtualAnchor, type UiAnchor } from "./Popover";
 import { cx } from "./cx";
+import { keycapLegend } from "./keycapLegend";
 import { attachSeeThroughBlur, type CoveredCandidates, type SeeThroughOptions } from "./glass/seeThroughBlur";
 import { hoverCardGlass, hoverCardUnder } from "./glass/hoverCardGlass";
 import { HOVER_INTENT } from "./hoverIntent";
@@ -44,7 +45,7 @@ const CARD_COLLISION = { side: "flip", align: "shift", fallbackAxisSide: "none" 
 
 export interface TooltipProps {
   label: ReactNode;
-  /** Optional supporting text on a dimmer second line. */
+  /** A hover card's supporting text, on a dimmer second line; a plain tooltip is one line and shows none. */
   detail?: ReactNode;
   /** The control it describes (its `render` target). */
   children: ReactElement;
@@ -142,19 +143,21 @@ export function Tooltip({
             <BaseTooltip.Popup
               ref={setPopup}
               className={cx("ui-tooltip ui-glass", className)}
+              data-surface-role={wraps ? "hoverCard" : "tooltip"}
               // On the App's glass under the page (glass/hostGlass.ts): a card at the popover level, a
               // label at the chip level, the native tooltip's glass, blurring what it covers in place.
               {...(wraps
                 ? { "data-host-glass": "popover", "data-tooltip-card": "" }
                 : { "data-host-glass": "chip", "data-host-glass-cover": "" })}
             >
-              {shortcut && <span className="ui-tooltip-hint">{shortcut}</span>}
+              {shortcut && <span className="ui-tooltip-hint">{keycapLegend(shortcut)}</span>}
               {typeof label === "string" || typeof label === "number" ? (
                 <span className="ui-tooltip-text">{label}</span>
               ) : (
                 label
               )}
-              {detail != null && <span className="ui-tooltip-detail">{detail}</span>}
+              {/* A tooltip is one line (titleTooltips.ts firstLine); only a hover card has a detail line. */}
+              {detail != null && wraps && <span className="ui-tooltip-detail">{detail}</span>}
             </BaseTooltip.Popup>
           </BaseTooltip.Positioner>
         </BaseTooltip.Portal>
@@ -257,6 +260,7 @@ export function AnchoredCard({
             ref={setPopup}
             id={id}
             className={cx("ui-tooltip ui-card ui-glass", className)}
+            data-surface-role="hoverCard"
             // The App's popover glass under the page (glass/hostGlass.ts); a card given `under` blurs
             // what it covers itself.
             data-host-glass="popover"

@@ -19,14 +19,19 @@ import {
 } from "./defaultChoice";
 import { loadLastChips, rememberLastChips } from "./chipMemory";
 import type { AcpmuxSnapshot, AcpmuxUsageLimits } from "./model";
-import type { SpeedSection } from "./EffortPicker";
+import { useComposerContribution } from "./composer/extensionCommands";
+import { modelPickerLayoutFrom } from "./composer/modelPickerLayoutFrom";
+import { EffortPicker, type SpeedSection } from "./EffortPicker";
+import { useComposerLook } from "./composerLook";
 import { pendingSpeed } from "./pendingSpeed";
 import { fastModeIsOn, nextFastModeValue } from "./fastModeState";
 import { type StringKey, useT } from "./i18n";
 import { ModelPicker } from "./ModelPicker";
+import { Keycap } from "./Keycap";
 import { pickerFaceHarness } from "./modelPickerModel";
 import { AgentOptionsMenu } from "./AgentOptionsMenu";
 import { OnNewTab } from "./newTabComposer";
+import { listedNoDefault } from "./newtab/chipDefaults";
 import { extraConfigOptions } from "./agentOptions";
 import type { CatalogRefreshState, ModelCombo, ModelPickerProps, SetupRequest } from "./modelPickerLayout";
 import type { QuickSetup } from "./quickModelMenuModel";
@@ -217,6 +222,7 @@ export function ComposerPickers({
   startsChat = false,
 }: Props) {
   acpmuxPerf.render("composer:pickers");
+  const reasoningMenu = useComposerContribution(modelPickerLayoutFrom, undefined);
   const t = useT();
   const lastFastValue = useRef<{ scope: string; value: string } | undefined>(undefined);
   // Context usage rides on the model chip's tooltip, unless the person hid it (composerSettings.ts).
@@ -225,6 +231,7 @@ export function ComposerPickers({
   // Account and, when the model advertises a free inline toggle, Fast mode. Paid or otherwise
   // non-toggleable Fast remains in the model menu.
   const { showContextUsage, harnessSwitch, reasoningSlider, reasoningSliderStyle } = useComposerSettings();
+  const studio = useComposerLook() === "studio";
   const chatAccounts = useChatAccounts();
   // With no Claude connection that serves Cloud, the Claude section's Connect row and its dialog.
   const claudeConnect = useClaudeConnectFlow();
@@ -416,6 +423,7 @@ export function ComposerPickers({
           onLabel: fastOn.name ?? fastOn.value,
           offLabel: fastOff.name ?? fastOff.value,
           values: fastOption.options.map((option) => option.value),
+          choices: fastOption.options,
           lastOnValue:
             fastOption.currentValue && fastOption.currentValue !== fastOff.value ? fastOption.currentValue : undefined,
           onPick: (value: string) => onEffort(fastOption.id, value),
@@ -434,6 +442,7 @@ export function ComposerPickers({
   // once it settles: a switch passes through the new model with the old effort.
   const [recents, setRecents] = useState(loadRecents);
   const harness = summary?.harness;
+  const onNewTab = useContext(OnNewTab);
   // The chip draws a pick at once; the combo sequencing and the recents follow what the agent
   // reports (`confirmedModel`, set while a pick is unconfirmed).
   const shown = summary?.model;
@@ -1210,8 +1219,13 @@ export function ComposerPickers({
   };
   // The button names the effort after the model ("Opus 5.5  Medium"), and its short name for a
   // narrow row ("Med"). Before the session reports, it names the held pick.
-  const quickDetail = effortLabel ?? (awaiting ? (heldChoice?.name ?? pendingEffort) : undefined);
-  const quickShort = effortLabel ? effortShort : awaiting ? heldShort : undefined;
+  // Studio's look (composerLook.ts) draws the effort as its own chip after the model's, as the
+  // reference composer does, so the model chip names only the model there.
+  const studioEffort = studio && !held ? quickEffort : undefined;
+  const quickDetail = studioEffort
+    ? undefined
+    : (effortLabel ?? (awaiting ? (heldChoice?.name ?? pendingEffort) : undefined));
+  const quickShort = studioEffort ? undefined : effortLabel ? effortShort : awaiting ? heldShort : undefined;
   const usage = compactingUsage(summary?.usage, summary?.usageStats, summary?.contextBreakdown);
   const usageNote =
     showContextUsage && usage && usage.size > 0
@@ -1261,8 +1275,12 @@ export function ComposerPickers({
         ...(quickDetail ? { detail: quickDetail } : {}),
         ...(quickShort ? { detailShort: quickShort } : {}),
       });
+  // A New Tab on a Mac whose acpmux names no default (only the built-in Chief and UniiChat) starts
+  // on no agent (newTabStart): its chip is Add harness, as with none installed.
+  const unpickedNewTab = onNewTab && !harness && listedNoDefault(snapshot.catalog);
   const picksModel =
-    snapshot.catalog.length > 0 || Boolean(harness) || Boolean(pickerCatalog?.harnesses.length && !harnessesListed);
+    !unpickedNewTab &&
+    (snapshot.catalog.length > 0 || Boolean(harness) || Boolean(pickerCatalog?.harnesses.length && !harnessesListed));
   const chips = (
     <div className="acpmux-chips">
       {claudeConnect.dialog}
@@ -1305,7 +1323,9 @@ export function ComposerPickers({
           harnessFixed={locked}
           {...(signIn ? { signedOut: pickableSignedOut(signIn.signedOut, summary), onLogIn: signIn.logIn } : {})}
           {...(claudeConnect.row ? { claudeConnect: claudeConnect.row } : {})}
-          {...(fastMode ? { fastMode: { ...fastMode, lastOnValue: fastMode.lastOnValue ?? rememberedFastValue } } : {})}
+          {...(fastMode && (!reasoningMenu || (fastOffered && !held && !switching))
+            ? { fastMode: { ...fastMode, lastOnValue: fastMode.lastOnValue ?? rememberedFastValue } }
+            : {})}
           catalogRefresh={catalogRefresh}
           harnessNotes={
             snapshot.switching?.phase === "failed"
@@ -1313,7 +1333,8 @@ export function ComposerPickers({
               : undefined
           }
           usage={usageNote}
-          quick={quick}
+          quick={reasoningMenu && (held || switching) ? { ...quick, effort: undefined } : quick}
+          reasoningMenu={reasoningMenu}
           {...(held
             ? heldDetail
               ? { detail: heldDetail }
@@ -1334,6 +1355,18 @@ export function ComposerPickers({
             </button>
           </span>
         )
+      )}
+      {studioEffort && (
+        <EffortPicker
+          label={t(PICKER_LABELS.effort)}
+          efforts={studioEffort.levels}
+          {...(studioEffort.current ? { current: studioEffort.current } : {})}
+          onPick={studioEffort.onPick}
+          defaulted={effortDefaulted}
+          chevron={<ChevronIcon />}
+          {...(effortShort ? { short: effortShort } : {})}
+          {...(studioEffort.slider ? { slider: true, sliderStyle: reasoningSliderStyle } : {})}
+        />
       )}
       {/* With no harness installed (the Add harness chip above) there is nothing to set a mode for:
           the start mode, its highest-level fallback and the inert "Mode" placeholder are the chips'
@@ -1603,6 +1636,7 @@ function AccessMenu({
           side={newTab ? "bottom" : "top"}
           align="start"
           className="acpmux-access-menu"
+          resize={{ id: "composer.access" }}
           // ui-allow: 1 to 9 pick the mode in that place while the menu is open, as in Claude's mode menu.
           onKeyDown={(event) => {
             if (event.metaKey || event.ctrlKey || event.altKey || !/^[1-9]$/.test(event.key)) return;
@@ -2024,6 +2058,8 @@ export function Picker({
   tooltip,
   shortcut,
   onOpen,
+  resizeId,
+  returnHint = false,
 }: {
   label: string;
   className: string;
@@ -2036,6 +2072,10 @@ export function Picker({
   /// The keycaps of the shortcut that opens it, shown after the tooltip (shortcuts.ts).
   shortcut?: string | undefined;
   onOpen?: () => void;
+  /// Resizable from its edges away from the button, its size kept under this name (ui/PopupResize.tsx).
+  resizeId?: string;
+  /// The highlighted row ends in the Return keycap and its choice's `verb` (the + menu). Off: no hint.
+  returnHint?: boolean;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement | null>(null);
@@ -2074,6 +2114,7 @@ export function Picker({
           // shared policy here also preserves prompt focus when a native capture is cancelled.
           finalFocus={undefined}
           className={cx("acpmux-menu acpmux-picker-menu", className)}
+          {...(resizeId ? { resize: { id: resizeId } } : {})}
         >
           {heading && (
             <div className="acpmux-menu-heading" aria-hidden="true">
@@ -2093,6 +2134,7 @@ export function Picker({
                         section={section}
                         current={choice.id === section.current}
                         warnUnrestricted={warnUnrestricted}
+                        returnHint={returnHint}
                         close={() => setMenuOpen(false)}
                       />
                     ))}
@@ -2105,6 +2147,7 @@ export function Picker({
                       section={section}
                       current={choice.id === section.current}
                       warnUnrestricted={warnUnrestricted}
+                      returnHint={returnHint}
                       close={() => setMenuOpen(false)}
                     />
                   ))
@@ -2123,12 +2166,14 @@ function PickerMenuItem({
   section,
   current,
   warnUnrestricted,
+  returnHint,
   close,
 }: {
   choice: Choice;
   section: Section;
   current: boolean;
   warnUnrestricted: boolean;
+  returnHint: boolean;
   close(): void;
 }) {
   return (
@@ -2154,6 +2199,14 @@ function PickerMenuItem({
         )}
       </span>
       {choice.hint && <kbd className="acpmux-menu-hint">{choice.hint}</kbd>}
+      {returnHint && choice.verb && (
+        // Drawn on every row and shown on the highlighted one only (styles.css), so moving the
+        // highlight re-renders nothing. Decoration: the row's name is what a screen reader reads.
+        <span className="acpmux-menu-return" aria-hidden="true">
+          <span className="acpmux-menu-return-verb">{choice.verb}</span>
+          <Keycap>↩</Keycap>
+        </span>
+      )}
       {current && <CheckIcon />}
     </MenuItem>
   );
@@ -2283,12 +2336,13 @@ export const PlusIcon = () => (
     <path d="M8 2.75v10.5M2.75 8h10.5" />
   </Icon>
 );
-/** Send's arrow: a plain outline glyph with the mic's stroke (Leo 2026-10-21: no disc). */
-export const ArrowUpIcon = () => (
+/** The folder menu's Use path row: the folder chip's own folder outline. */
+export const MenuFolderIcon = () => (
   <Icon>
-    <path d="M8 12.9V3.4M3.9 7.5 8 3.4l4.1 4.1" />
+    <path d="M1.9 4.6c0-.8.6-1.4 1.4-1.4h2.6l1.5 1.6h5.3c.8 0 1.4.6 1.4 1.4v5.6c0 .8-.6 1.4-1.4 1.4H3.3c-.8 0-1.4-.6-1.4-1.4Z" />
   </Icon>
 );
+export { ArrowUpIcon } from "./icons/arrowUpIcon";
 export const ReturnIcon = () => (
   <Icon>
     <path d={RETURN_GLYPH_PATH} />

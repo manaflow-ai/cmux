@@ -6,7 +6,7 @@ export type TakeBack = "back" | "refused" | "failed";
 
 /// The sent prompt row's Retry and Fork (UserBubble.tsx), each null where that row would not offer
 /// it, handed to a waiting steer's queue row so the two rows draw the same buttons (PendingSteer.tsx).
-export type QueuedActions = { retry?: ReactNode; fork?: ReactNode };
+export type QueuedActions = { retry?: ReactNode; fork?: ReactNode; save?: ReactNode };
 
 // Actions a turn's footer and edited-files card offer that reach past the transcript (to the
 // client). A context, so a change in what acpmux serves, or in what the reader decided about a
@@ -116,8 +116,6 @@ export type TurnActions = {
   resumeAgent?: (agent: Subagent) => Promise<RetryNote | undefined>;
   /// Re-run the current harness's declared login command after an authentication failure.
   reauthenticate?: () => void;
-  /// Explicitly set up this Cloud chat's provider credentials on its machine, then retry the turn.
-  transferCloudCredentials?: (rowId: string, prompt: string, automatic?: boolean) => Promise<void>;
   /// A Cloud chat's agent signs in on its own machine (cloudAgentLogin.ts): its own login run there,
   /// or an API key saved there, never this Mac's login. Absent where acpmux lacks `agent_login`.
   cloudSignIn?: import("../cloudAgentLogin").CloudSignIn;

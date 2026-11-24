@@ -16,7 +16,11 @@
 //! The token is HMAC-SHA256 of the session id under a key kept with the port in
 //! `run/mcp-gateway.json` (0600). The next daemon (an app update) binds the same port and takes the
 //! same tokens, and finds each chat's launch in `run/mcp/<session>.gateway.json` (0600), so a
-//! harness it adopts keeps its tools.
+//! harness it adopts keeps its tools. A harness's config names a port, so the gateway never gives
+//! up one it advertised: it waits [`HANDOVER_WAIT`] for the daemon it replaces to let the kept
+//! port go ([`bind_kept`]) instead of taking a free one on the first `Address in use`, and when it
+//! does have to move it remembers the port it left and binds it as well, as soon as it is free, for
+//! the chats configured there (`earlier` in the record, [`bind_at`]).
 //!
 //! acpmux's own tool servers (`tools_mcp.rs` `SERVERS`) run in the daemon too, at
 //! `/mcp/<session>/tools` with the same token: each of their upstream specs in the chat's
@@ -62,6 +66,13 @@ const REAP_EVERY: Duration = Duration::from_secs(30);
 const START_TIMEOUT: Duration = Duration::from_secs(20);
 /// After its stdin closes, a server has this long to end its own children and exit.
 const STOP_GRACE: Duration = Duration::from_secs(3);
+/// How long a gateway waits for the kept port before taking a free one ([`bind_kept`]): long
+/// enough for the daemon it hands over from to let the port go.
+pub const HANDOVER_WAIT: Duration = Duration::from_secs(10);
+/// How often [`bind_kept`] tries the kept port again.
+const BIND_RETRY_EVERY: Duration = Duration::from_millis(100);
+/// How many earlier ports `run/mcp-gateway.json` remembers, for the harnesses configured at them.
+const PORTS_REMEMBERED: usize = 8;
 const MAX_HEAD: usize = 64 * 1024;
 const MAX_BODY: usize = 32 * 1024 * 1024;
 /// The id of the `initialize` the gateway replays to a server it started for a later request.
@@ -101,10 +112,70 @@ struct Kept {
 struct Listener {
     port: u16,
     key: String,
+    /// The ports earlier runs of this gateway advertised, most recent first: a harness started
+    /// then still names one in its config, so a gateway serves each of them it can bind
+    /// ([`bind_at`]). Written since 2026-11-22; an older record has none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    earlier: Vec<u16>,
+    /// The daemon that bound `port`: a successor waits for the port only while this process
+    /// still runs in this home ([`may_hand_over`]). Written since 2026-11-23; an older record has
+    /// none, and its port is waited for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    holder: Option<Holder>,
+}
+
+/// The process that holds a gateway's port, as `run/mcp-gateway.json` names it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Holder {
+    pid: u32,
+    /// When it started (`process_identity::started_ms`): a later process under the same pid is
+    /// not it.
+    started_ms: u64,
+    /// The acpmux home it served. A home copied from another one (a cloned machine, a copied
+    /// test home) carries that home's record, whose port the original's daemon holds.
+    home: PathBuf,
+}
+
+impl Holder {
+    fn of_self(home: &Path) -> Option<Self> {
+        let pid = std::process::id();
+        let started_ms = started_ms(pid)?;
+        Some(Self { pid, started_ms, home: home.to_owned() })
+    }
+}
+
+/// When `pid` started, where the platform can say (`process_identity` is Unix only). Without it
+/// no holder is recorded, so a successor waits for the kept port as before the holder existed.
+#[cfg(unix)]
+fn started_ms(pid: u32) -> Option<u64> {
+    cmux_tui_platform::process_identity::started_ms(pid)
+}
+
+#[cfg(not(unix))]
+fn started_ms(_pid: u32) -> Option<u64> {
+    None
+}
+
+/// Whether the kept port, found taken, may be the daemon this one replaces letting it go: the
+/// record's holder still runs and served this home (or the record is older and names none). Any
+/// other program holding it never lets go for this home, and waiting [`HANDOVER_WAIT`] for it
+/// only made the start miss its readiness budget (`daemon::START_BUDGET`): own-machines-e2e's
+/// clone-own-identity went red on 2026-11-22, a copied home's `daemon start` failing while the
+/// original's daemon kept its gateway port.
+fn may_hand_over(kept: &Listener, home: &Path) -> bool {
+    let Some(holder) = kept.holder.as_ref() else { return true };
+    let same_home = holder.home == home
+        || std::fs::canonicalize(&holder.home)
+            .is_ok_and(|held| std::fs::canonicalize(home).is_ok_and(|here| held == here));
+    same_home && started_ms(holder.pid) == Some(holder.started_ms)
 }
 
 pub struct Gateway {
     port: u16,
+    /// The earlier ports this gateway bound as well as `port`, all serving the same routes and
+    /// tokens.
+    recovered: Vec<u16>,
     key: Vec<u8>,
     home: PathBuf,
     /// The daemon socket the tool servers' calls go to.
@@ -183,7 +254,14 @@ pub fn forget(home: &Path, session: &str) {
 pub async fn start(home: &Path) {
     match bind(home, IDLE_STOP, REAP_EVERY).await {
         Ok(gateway) => {
-            tracing::info!("mcp gateway on 127.0.0.1:{}", gateway.port);
+            match gateway.recovered_ports() {
+                [] => tracing::info!("mcp gateway on 127.0.0.1:{}", gateway.port),
+                ports => tracing::info!(
+                    "mcp gateway on 127.0.0.1:{}, and on {ports:?} for the chats configured there \
+                     before a restart moved it",
+                    gateway.port
+                ),
+            }
             let _ = GATEWAY.set(gateway);
         }
         Err(e) => {
@@ -195,15 +273,17 @@ pub async fn start(home: &Path) {
 /// Binds a gateway (the kept port when it is free), keeps its port and key, and serves it,
 /// stopping a chat's server after `idle` with no request, looked for every `reap_every`.
 pub async fn bind(home: &Path, idle: Duration, reap_every: Duration) -> Result<Arc<Gateway>> {
-    bind_at(home, crate::config::socket_path(), idle, reap_every).await
+    bind_at(home, crate::config::socket_path(), idle, reap_every, HANDOVER_WAIT).await
 }
 
-/// [`bind`], its tool servers' calls going to the daemon at `socket`.
+/// [`bind`], its tool servers' calls going to the daemon at `socket`, waiting `handover` for the
+/// kept port.
 pub async fn bind_at(
     home: &Path,
     socket: PathBuf,
     idle: Duration,
     reap_every: Duration,
+    handover: Duration,
 ) -> Result<Arc<Gateway>> {
     let path = home.join("run").join("mcp-gateway.json");
     let kept: Option<Listener> =
@@ -216,23 +296,50 @@ pub async fn bind_at(
             key
         }
     };
+    let mut earlier: Vec<u16> = kept.as_ref().map(|k| k.earlier.clone()).unwrap_or_default();
+    // A port held by anything but the daemon this one replaces is not waited for.
+    let handover = match kept.as_ref() {
+        Some(kept) if !may_hand_over(kept, home) => Duration::ZERO,
+        _ => handover,
+    };
     let listener = match kept.as_ref().map(|k| k.port).filter(|p| *p != 0) {
-        Some(port) => match TcpListener::bind(("127.0.0.1", port)).await {
+        Some(port) => match bind_kept(port, handover).await {
             Ok(l) => l,
             Err(e) => {
-                // A harness the next daemon adopts loses its tools until it starts again.
-                tracing::warn!("mcp gateway: port {port} is taken ({e}); taking a free one");
+                // New chats get the free port; the kept one stays in `earlier`, so the harnesses
+                // configured at it reach their tools again as soon as a daemon can bind it.
+                tracing::warn!(
+                    "mcp gateway: port {port} is still taken after {handover:?} ({e}); taking a \
+                     free one and keeping {port} in run/mcp-gateway.json"
+                );
+                earlier.insert(0, port);
                 TcpListener::bind(("127.0.0.1", 0)).await?
             }
         },
         None => TcpListener::bind(("127.0.0.1", 0)).await?,
     };
     let port = listener.local_addr()?.port();
-    let record = Listener { port, key: encode_hex(&key) };
+    let mut seen = std::collections::HashSet::new();
+    earlier.retain(|p| *p != 0 && *p != port && seen.insert(*p));
+    earlier.truncate(PORTS_REMEMBERED);
+    // Every earlier port that is free now, served with this gateway's routes and tokens.
+    let mut recovered = Vec::new();
+    let mut listeners = vec![listener];
+    for earlier in &earlier {
+        match TcpListener::bind(("127.0.0.1", *earlier)).await {
+            Ok(l) => {
+                recovered.push(*earlier);
+                listeners.push(l);
+            }
+            Err(e) => tracing::debug!("mcp gateway: earlier port {earlier} is not free ({e})"),
+        }
+    }
+    let record = Listener { port, key: encode_hex(&key), earlier, holder: Holder::of_self(home) };
     crate::agent_tools::write_private(&path, &serde_json::to_vec(&record)?)
         .context("mcp gateway: keeping the port and key")?;
     let gateway = Arc::new(Gateway {
         port,
+        recovered,
         key,
         home: home.to_owned(),
         socket,
@@ -240,9 +347,33 @@ pub async fn bind_at(
         scope: Arc::new(cmux_scope::Scope::new("mcp gateway")),
         chats: Mutex::new(HashMap::new()),
     });
-    gateway.scope.spawn_named("mcp gateway listener", serve(gateway.clone(), listener));
+    for listener in listeners {
+        gateway.scope.spawn_named("mcp gateway listener", serve(gateway.clone(), listener));
+    }
     gateway.scope.spawn_named("mcp gateway idle stop", reap(gateway.clone(), reap_every));
     Ok(gateway)
+}
+
+/// Binds the kept port, trying again until `wait` runs out. A daemon hands over to its successor:
+/// the successor starts while the daemon it replaces still holds the port and only exits a second
+/// or so later (`daemon.stops.json`, `handover: another daemon of this home starts`). Taking a
+/// free port on the first `Address in use` made every restart move the gateway, and each move
+/// stranded every live harness, whose config names the port it was started with (big-red,
+/// 2026-11-22: eight restarts, eight new ports, `ECONNREFUSED ... dialing
+/// http://127.0.0.1:41227/mcp/...` in a chat for the rest of its life).
+async fn bind_kept(port: u16, wait: Duration) -> std::io::Result<TcpListener> {
+    let deadline = Instant::now() + wait;
+    loop {
+        match TcpListener::bind(("127.0.0.1", port)).await {
+            Ok(listener) => return Ok(listener),
+            Err(e) => {
+                if Instant::now() >= deadline {
+                    return Err(e);
+                }
+                tokio::time::sleep(BIND_RETRY_EVERY).await;
+            }
+        }
+    }
 }
 
 /// A Claude Code config with each gateway server put back as the stdio launch it stands for, for
@@ -261,10 +392,18 @@ pub fn stdio_view(home: &Path, session: &str, mut config: Value) -> Value {
     else {
         return config;
     };
-    let ours = format!("http://127.0.0.1:{}/mcp/{session}", listener.port);
+    // Its current port, and the earlier ones it still serves: a config written before a restart
+    // names one of those.
+    let ours: Vec<String> = std::iter::once(listener.port)
+        .chain(listener.earlier.iter().copied())
+        .map(|port| format!("http://127.0.0.1:{port}/mcp/{session}"))
+        .collect();
     for server in servers.values_mut() {
         if server.get("type").and_then(Value::as_str) != Some("http")
-            || server.get("url").and_then(Value::as_str) != Some(ours.as_str())
+            || !server
+                .get("url")
+                .and_then(Value::as_str)
+                .is_some_and(|url| ours.iter().any(|ours| ours == url))
         {
             continue;
         }
@@ -286,6 +425,17 @@ pub fn launch_path(home: &Path, session: &str) -> PathBuf {
 impl Gateway {
     pub fn port(&self) -> u16 {
         self.port
+    }
+
+    /// The earlier ports it serves besides [`Gateway::port`], for the harnesses configured at
+    /// them before a restart moved the gateway.
+    pub fn recovered_ports(&self) -> &[u16] {
+        &self.recovered
+    }
+
+    /// Every port it serves: `port` first, then the earlier ones it took back.
+    fn ports(&self) -> impl Iterator<Item = u16> + '_ {
+        std::iter::once(self.port).chain(self.recovered.iter().copied())
     }
 
     pub fn endpoint(&self, session: &str) -> Endpoint {
@@ -720,11 +870,14 @@ async fn connection(gateway: Arc<Gateway>, mut stream: TcpStream) {
             return;
         }
     };
+    // Any port this gateway listens on: a harness configured before a restart names an earlier
+    // one ([`bind_at`]), and its `Host` is the port it dialed.
     let host_ok = request.header("host").is_some_and(|h| {
-        let port = gateway.port;
-        h == format!("127.0.0.1:{port}")
-            || h == format!("localhost:{port}")
-            || h == format!("[::1]:{port}")
+        gateway.ports().any(|port| {
+            h == format!("127.0.0.1:{port}")
+                || h == format!("localhost:{port}")
+                || h == format!("[::1]:{port}")
+        })
     });
     if !host_ok || request.header("origin").is_some() {
         let _ = respond(&mut stream, "403 Forbidden", "text/plain", b"forbidden").await;

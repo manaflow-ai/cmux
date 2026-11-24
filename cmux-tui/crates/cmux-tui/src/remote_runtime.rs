@@ -767,8 +767,12 @@ fn start_client_runtime_with(
                 let _ = shutdown_tx.send(true);
                 reap_failed_startup(thread, "cmux-remote-client");
                 return Err(anyhow!(
-                    "remote connection did not become ready within {}s: {error}",
-                    startup_timeout.as_secs()
+                    "remote connection did not become ready within {}s ({}): the host may be down or the route wrong; `cmux remote known-daemons` lists the routes paired here, and a longer `--connect-timeout-seconds N` waits more",
+                    whole_seconds_up(startup_timeout),
+                    match error {
+                        mpsc::RecvTimeoutError::Timeout => "no answer",
+                        mpsc::RecvTimeoutError::Disconnected => "the client stopped",
+                    }
                 ));
             }
         }
@@ -781,6 +785,14 @@ fn start_client_runtime_with(
         finished: finished_rx,
         thread: Some(thread),
     })
+}
+
+/// A budget in whole seconds, rounded up. The CLI hands the runtime what is left of
+/// `--connect-timeout-seconds N` after loading the identity and routes (N minus some
+/// milliseconds), and `Duration::as_secs` truncated that, so a 3 s timeout reported "within 2s".
+fn whole_seconds_up(budget: Duration) -> u64 {
+    let whole = budget.as_secs();
+    if budget.subsec_nanos() == 0 { whole } else { whole.saturating_add(1) }
 }
 
 struct ClientReady {
@@ -832,7 +844,7 @@ async fn run_client(
         // The SSH route behind this socket, so a CLI at a version-skew dead
         // end can name the exact upgrade command (cli/skew.rs, cx-ytw1).
         let route_record = link_sidecars::write_tunnel_route(&local_socket, &route);
-        let _sidecars = sidecars.attach(&connection);
+        let _sidecars = sidecars.attach(&connection, &multiplexer);
         let (bridge_shutdown_tx, bridge_shutdown_rx) = tokio::sync::oneshot::channel();
         let bridge_multiplexer = multiplexer.clone();
         let mut bridge = tokio::spawn(async move {
@@ -934,7 +946,10 @@ async fn dial_first_connection(
     network: watch::Receiver<u64>,
 ) -> anyhow::Result<(Arc<ClientConnection>, String)> {
     let attempt_shutdown = shutdown.clone();
-    let progress = StartupProgress::new();
+    let progress = StartupProgress::new(match &options.auth {
+        ClientAuthMode::Invitation { id, .. } => Some(id.clone()),
+        _ => None,
+    });
     let progress = &progress;
     let dial = cell.dial(options.reconnect, network, || {
         let mut attempt =
