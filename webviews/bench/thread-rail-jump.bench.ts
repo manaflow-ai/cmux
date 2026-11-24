@@ -787,11 +787,26 @@ async function main() {
             "RAIL_RESTYLE removed",
             await page.evaluate((needle) => {
               const removed: string[] = [];
+              // `#A-B,C-D`: the A-th to B-th (and C-th to D-th) :has() rules met, to bisect without a name.
+              const range = /^#[\d,-]+$/.test(needle)
+                ? needle
+                    .slice(1)
+                    .split(",")
+                    .map((span) => span.split("-").map(Number) as [number, number])
+                : undefined;
+              let seen = 0;
               const walk = (list: CSSRuleList) => {
                 for (let i = list.length - 1; i >= 0; i--) {
                   const rule = list[i] as CSSStyleRule & { cssRules?: CSSRuleList };
-                  if (rule.selectorText?.includes(needle) && rule.selectorText.includes(":has(")) {
-                    removed.push(rule.selectorText.slice(0, 120));
+                  const has = !!rule.selectorText?.includes(":has(");
+                  const ordinal = has ? seen++ : -1;
+                  if (
+                    has &&
+                    (range
+                      ? range.some(([from, to]) => ordinal >= from && ordinal < to)
+                      : rule.selectorText.includes(needle))
+                  ) {
+                    removed.push(range ? `${ordinal} ${rule.selectorText}` : rule.selectorText.slice(0, 120));
                     if (rule.parentRule && "deleteRule" in rule.parentRule)
                       (rule.parentRule as CSSGroupingRule).deleteRule(i);
                     else rule.parentStyleSheet?.deleteRule(i);
@@ -799,7 +814,7 @@ async function main() {
                 }
               };
               for (const sheet of document.styleSheets) walk(sheet.cssRules);
-              return removed;
+              return JSON.stringify(removed);
             }, restyle),
           );
         for (const phase of ["hover", "click"]) {

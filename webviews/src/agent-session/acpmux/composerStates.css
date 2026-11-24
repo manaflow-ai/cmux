@@ -617,10 +617,9 @@
   :root:not([data-agent-motion="off"]) .acpmux-stop-pulse[data-stop-pulse="bump"] {
     animation: acpmux-stop-bump-timer var(--agent-motion-move, 180ms) linear both;
   }
-  /* The bump swells the glyph itself; the pulse span only times it. One button's own children. */
-  :root:not([data-agent-motion="off"])
-    .acpmux-send.acpmux-cancel:has(> .acpmux-stop-pulse[data-stop-pulse="bump"])
-    > :not(.acpmux-stop-pulse) {
+  /* The bump swells the glyph itself; the pulse span only times it. One button's own children: the
+     button carries the pulse's look while it plays (SendSlotGlyph.tsx StopPulse). */
+  :root:not([data-agent-motion="off"]) .acpmux-send.acpmux-cancel[data-stop-pulse="bump"] > :not(.acpmux-stop-pulse) {
     animation: acpmux-stop-bump var(--agent-motion-move, 180ms) var(--agent-ease-out) both;
   }
 }
