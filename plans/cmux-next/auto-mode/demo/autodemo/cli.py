@@ -261,6 +261,12 @@ def cmd_keep(args):
     print("keep in Cloud: %s" % ("on" if view["keep_in_cloud"] else "off"))
 
 
+def cmd_move(args):
+    view = client().move(args.id, args.to)
+    print("%s: %s%s" % (args.id, where(view), ", moving to %s" % ("the Cloud" if view["move"] == "cloud" else "the laptop")
+                        if view.get("move") else ""))
+
+
 def cmd_off(args):
     try:
         client().put(args.id, {"auto": False})
@@ -339,7 +345,8 @@ def cmd_new(args):
 
 # ---- the laptop ----
 
-HELP = "/away  act out no network    /back  network again    /keep on|off    /off  /on  Auto off, on    /quit"
+HELP = ("/cloud  run it in the Cloud now    /local  run it here now    /away  act out no network    "
+        "/back  network again    /keep on|off    /off  /on  Auto off, on    /quit")
 
 
 def cmd_chat(args):
@@ -383,6 +390,16 @@ def cmd_chat(args):
                 try:
                     chat.turn_off()
                     ui.note("Auto is off: the chat runs only here")
+                except (Offline, Refused) as error:
+                    ui.note(str(error))
+            elif text in ("/cloud", "/local"):
+                try:
+                    view = c.move(chat.id, text[1:])
+                    chat.wake.set()
+                    here = view["holder"] == me
+                    done = here if text == "/local" else view["holder"].startswith("vm:")
+                    ui.note("already %s" % ("here" if here else where(view)) if done
+                            else "moving to %s" % ("the Cloud" if text == "/cloud" else "this laptop"))
                 except (Offline, Refused) as error:
                     ui.note(str(error))
             elif text == "/on":
@@ -440,6 +457,8 @@ def main(argv=None):
     p = sub.add_parser("ls"); p.set_defaults(fn=cmd_ls)
     p = sub.add_parser("status"); p.add_argument("--watch", "-w", action="store_true"); p.set_defaults(fn=cmd_status)
     p = sub.add_parser("keep"); p.add_argument("id"); p.add_argument("value", choices=["on", "off"]); p.set_defaults(fn=cmd_keep)
+    p = sub.add_parser("move", help="run a chat in the Cloud, or on the laptop that has it open, now")
+    p.add_argument("id"); p.add_argument("to", choices=["cloud", "local"]); p.set_defaults(fn=cmd_move)
     p = sub.add_parser("off"); p.add_argument("id"); p.set_defaults(fn=cmd_off)
     args = parser.parse_args(argv)
     if os.environ.get("AUTO_DEBUG"):

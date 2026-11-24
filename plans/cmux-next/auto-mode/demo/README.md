@@ -69,12 +69,32 @@ From any other device with the same `login`:
 ./auto send demo "also update the README"
 ./auto new "write a hello world in Go" # a chat that starts in the Cloud
 ./auto keep demo on|off              # keep it in the Cloud when the laptop is back
+./auto move demo cloud|local         # move it now, also in the middle of a turn
 ./auto off demo
 ```
 
-In a chat: `/away` acts out a laptop with no network, `/back` ends it, `/keep on|off`, `/off`,
-`/on`, `/status`, `/quit`. Closing the lid, or quitting in the middle of a turn, is the real thing: the
+In a chat: `/cloud` moves the chat to the Cloud machine now and `/local` brings it to this
+laptop now (see "Moving it by hand"), `/away` acts out a laptop with no network, `/back` ends
+it, `/keep on|off`, `/off`, `/on`, `/status`, `/quit`. Closing the lid, or quitting in the middle of a turn, is the real thing: the
 Cloud continues once the lease runs out (15 s here; the product uses 45 s).
+
+## Moving it by hand
+
+The laptop and the Cloud machine run side by side, and a person can move the chat between them
+at any moment, from the chat (`/cloud`, `/local`) or from any device (`auto move ID cloud|local`).
+No lease has to run out: the move takes a second or two.
+
+- The wish is written in the store (`move`). The holder sees it at its next renewal, or at once
+  when the machine holds the chat (an assignment wakes its loop).
+- The holder stops its agent, sends its last events, stores a copy, and then gives the chat on
+  (`give`), fenced by its holder and epoch. The store refuses the give while the copy is behind
+  the events (`not_copied`), so a chat never changes hands ahead of its copy.
+- A turn that was running is a cut turn in the log like any other: the new holder continues it
+  with the continuation prompt ("the chat was moved to this machine while it ran").
+- `/cloud` also turns "keep in the Cloud" on, or the idle machine would hand the chat straight
+  back to the laptop that is still there; `/local` turns it off.
+- Moving to the laptop needs a laptop that is asking (a chat open there); with none the move is
+  refused. Moving to the Cloud needs a machine that asked for work lately.
 
 ## Test it
 
@@ -82,6 +102,7 @@ Cloud continues once the lease runs out (15 s here; the product uses 45 s).
 python3 tests/journey.py                          # scripted agent, about 20 s
 AUTO_TEST_AGENT=claude python3 tests/journey.py   # real Claude Code on both sides, about 3 min
 python3 tests/scenarios.py -j 3                   # 20 other ways a laptop goes away, about 4 min
+python3 tests/pingpong.py 3                       # moved by hand, there and back, 3 rounds
 ```
 
 The journey runs a store, a machine and a laptop as three processes with their own homes:
@@ -182,6 +203,38 @@ did. Each is worth checking in the product's build of Auto mode.
     Cloud's files in one by one (a quarter second each over a forwarded port). Anything that
     reads the folder, or stops the laptop, in that time sees half of them. The chat does not
     run here until the import is whole; a view of it should say "bringing the Cloud's work in".
+
+14. **Moving a chat by hand needs its own path.** Waiting for a lease to run out is the path
+    for a laptop that vanished; a person who says "run it in the Cloud now" should not wait 15
+    or 45 s for it. Here the wish is written in the store and the holder itself stops, copies
+    and gives the chat on, and the store refuses the give while the copy is behind. Between
+    this Mac and a Freestyle VM, over 34 moves: to the laptop 0.3 to 1.8 s (idle or in the
+    middle of a turn), to the Cloud 0.4 to 4.5 s idle and 1.9 to 7.6 s in the middle of a turn.
+    The slow end is the laptop learning of a move asked from another device: it has no channel
+    the store can push on and sees the wish at its next renewal.
+15. **A chat moved to the Cloud with the laptop still open comes straight back.** The idle
+    machine hands a chat home when a laptop is asking, so the move has to say "stay in the
+    Cloud" too, and the move home has to take that back.
+16. **A Cloud machine can stand still.** The VM stopped for 5 to 11 s every few minutes and
+    once for 39.5 s (its two clocks jumped together; nothing in it ran). A store on that
+    machine then wakes to find every lease run out though nobody was away, the same mistake as
+    after a restart: each holder gets a whole lease after a gap. In the product the store is
+    elsewhere, so a machine that stood still for 40 s looks like a machine that died, with a
+    45 s lease: the epoch fence is what keeps its late writes out.
+17. **A 15 s lease is too short for a real link.** One call through the ssh forward took 23 s
+    and the laptop's renewals timed out behind it: the store gave a working laptop's chat to
+    the machine, which ran from the last stored copy a turn the laptop had already finished
+    (the laptop's late files were kept aside, as designed; the work was done twice).
+    `remote.sh` now runs the store with the product's 45 s. A lease shorter than the link's worst stall
+    turns a hiccup into a takeover.
+18. **One connection per call does not last.** A new HTTP connection for every lease, event
+    and file was a new ssh channel each time; after two runs the forward held 900 closed
+    sockets. The client keeps one connection per thread now.
+19. **The link drops, and both sides have to take up where they were.** The ssh that carries
+    the store and the model relay ended in the middle of runs, once when this Mac could not
+    resolve names for 25 minutes. `remote.sh up` starts it again; the laptop stops itself
+    while the store is out of reach and carries on when it answers, as for any lost network.
+    Runs that were under way when the link went did not pass.
 
 ## What it leaves out
 

@@ -135,7 +135,7 @@ def main():
         frozen = tree(laptop.pid)
         for pid in frozen:
             os.kill(pid, signal.SIGSTOP)
-        until("the store gave the chat to the machine", lambda: c.chat(CHAT)["holder"] == vm, 60)
+        until("the store gave the chat to the machine", lambda: c.chat(CHAT)["holder"] == vm, 120)
         vm_proj = os.path.join(work, CHAT)
         until("the machine finished the cut turn", lambda: [e for e in ended() if e["by"] == vm], SLOW)
         if not REMOTE:

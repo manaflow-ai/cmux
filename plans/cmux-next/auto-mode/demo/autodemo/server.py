@@ -29,7 +29,6 @@ def make_handler(store, token):
             now = time.monotonic()
             self.send_header("x-auto-ms", "since_accept=%d lock_wait=%d held=%d" % (
                 (now - self.t_accept) * 1000, self.t_lock * 1000, self.t_held * 1000))
-            self.t_accept = now
             self.send_header("content-type", "application/octet-stream" if raw else "application/json")
             self.send_header("content-length", str(len(data)))
             self.end_headers()
@@ -47,6 +46,9 @@ def make_handler(store, token):
                 raise Refused(400, "invalid_request", "the body is not JSON")
 
         def _route(self, method):
+            if getattr(self, "served", False):
+                self.t_accept = time.monotonic()  # a kept connection: count from this request
+            self.served = True
             url = urlparse(self.path)
             parts = [p for p in url.path.split("/") if p]
             query = {k: v[0] for k, v in parse_qs(url.query).items()}
@@ -103,6 +105,10 @@ def make_handler(store, token):
                         return s.lease(chat, body)
                     if rest == ["keep"]:
                         return s.keep(chat, body.get("keep"))
+                    if rest == ["move"]:
+                        return s.move(chat, body)
+                    if rest == ["give"]:
+                        return s.give(chat, body)
                     if rest == ["events"]:
                         if method == "POST":
                             return s.append_events(chat, body)
@@ -143,8 +149,15 @@ def serve(root, host, port, token, lease_ms, wake_cmd=None):
     server = Server((host, port), make_handler(store, token))
 
     def alarm():
+        wall, mono = time.time(), time.monotonic()
         while True:
             time.sleep(0.5)
+            wall2, mono2 = time.time(), time.monotonic()
+            if mono2 - mono > 3 or abs((wall2 - wall) - (mono2 - mono)) > 2:
+                # This machine stood still, or its clock was set: no lease ran meanwhile.
+                print("%s store: %.1fs since the last alarm (clock moved %.1fs)" % (
+                    time.strftime("%H:%M:%S"), mono2 - mono, wall2 - wall), flush=True)
+            wall, mono = wall2, mono2
             with store.cv:
                 store.tick()
 

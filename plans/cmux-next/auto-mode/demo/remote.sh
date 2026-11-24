@@ -13,13 +13,16 @@
 # ssh's options, then the remote command, and knows the host itself (freestyle/vmssh is one,
 # for a Freestyle VM; TARGET is then only a name for the state folder).
 #
+# The lease is 45 s there (AUTO_LEASE), the product's value: a link through ssh can stand still
+# for 25 s, and with a 15 s lease the store then gives a working laptop's chat to the machine.
+#
 # The remote agent gets its model route through `up` on this side (autodemo/relay.py), with
 # this shell's ANTHROPIC_* settings: no credential is put on the remote machine. Tokens for the
 # store and the relay are made once and kept, mode 600, in ~/.cmux-auto-demo/remote/TARGET.
 set -euo pipefail
 
 cmd=${1:-}; target=${2:-}
-[ -n "$cmd" ] && [ -n "$target" ] || { sed -n '2,17p' "$0"; exit 2; }
+[ -n "$cmd" ] && [ -n "$target" ] || { sed -n '2,20p' "$0"; exit 2; }
 here=$(cd "$(dirname "$0")" && pwd)
 state=${AUTO_REMOTE_STATE:-$HOME/.cmux-auto-demo/remote/$(printf %s "$target" | tr -c 'A-Za-z0-9._@-' _)}
 dir=${AUTO_REMOTE_DIR:-auto-demo}          # where the demo goes there, under the remote home
@@ -46,17 +49,25 @@ install)
         "$(token store)" "$(token relay)" "$dir" "$dir" | rsh "umask 077; cat > ~/$dir/env"
     rsh "cd ~/$dir; tmux kill-session -t auto-relay 2>/dev/null; tmux kill-session -t auto-cloud 2>/dev/null; \
       tmux new-session -d -s auto-relay '. ./env; python3 auto relay in --tunnel-host 127.0.0.1 --token \$AUTO_RELAY_TOKEN >> relay.log 2>&1'; \
-      tmux new-session -d -s auto-cloud '. ./env; python3 auto cloud --host 127.0.0.1 --name \$(hostname -s) --token \$AUTO_STORE_TOKEN ${model:+--model $model} >> cloud.log 2>&1'; \
+      tmux new-session -d -s auto-cloud '. ./env; python3 auto cloud --host 127.0.0.1 --name \$(hostname -s) --token \$AUTO_STORE_TOKEN --lease ${AUTO_LEASE:-45} ${model:+--model $model} >> cloud.log 2>&1'; \
       sleep 2; curl -s localhost:7717/health; echo; command -v claude > /dev/null || echo 'warning: no claude on PATH there'"
     echo "next: ./remote.sh up $target   (keep it running), then in another terminal: ./auto chat"
     ;;
 up)
-    rsh -N -o ExitOnForwardFailure=yes -L "127.0.0.1:$store_port:127.0.0.1:7717" -L "127.0.0.1:$relay_port:127.0.0.1:7791" "" &
+    # The forward is held in a loop: an ssh that ends (a dropped network, a sleeping laptop) is
+    # started again, and both sides of the demo take up where they were.
+    forward() {
+        while :; do
+            rsh -N -o ExitOnForwardFailure=yes -L "127.0.0.1:$store_port:127.0.0.1:7717" -L "127.0.0.1:$relay_port:127.0.0.1:7791" "" || true
+            echo "$(date +%H:%M:%S) the ssh forward ended; starting it again" >&2
+            python3 -c 'import time; time.sleep(1)'
+        done
+    }
+    forward &
     forward=$!
-    trap 'kill $forward 2>/dev/null' EXIT
+    trap 'pkill -P $forward 2>/dev/null; kill $forward 2>/dev/null' EXIT
     for _ in $(seq 1 40); do
         python3 -c "import socket,sys; socket.create_connection(('127.0.0.1', $store_port), 1)" 2>/dev/null && break
-        kill -0 $forward 2>/dev/null || { echo "the ssh forward ended" >&2; exit 1; }
         python3 -c 'import time; time.sleep(0.5)'
     done
     "$here/auto" login "http://127.0.0.1:$store_port" "$(token store)"
@@ -69,6 +80,6 @@ stop)
     rsh "tmux kill-session -t auto-relay 2>/dev/null; tmux kill-session -t auto-cloud 2>/dev/null; echo stopped"
     ;;
 *)
-    sed -n '2,17p' "$0"; exit 2
+    sed -n '2,20p' "$0"; exit 2
     ;;
 esac

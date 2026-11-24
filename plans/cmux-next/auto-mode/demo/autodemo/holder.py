@@ -62,6 +62,7 @@ class Chat:
         self.mode = "registering"
         self.stopped = False
         self.stop_why = ""
+        self.giving = False
         self.turn = None
         self.running = None
         self.pending = []
@@ -381,6 +382,9 @@ class Chat:
                 self.epoch = view["epoch"]
                 self._save()
         self._unfreeze()
+        want = view.get("move")
+        if want == ("cloud" if self.side == "laptop" else "local"):
+            return self._give(want)
         self._drain_repost()
         if view["inbox_n"] > self.inbox_taken:
             self._take_inbox()
@@ -453,6 +457,69 @@ class Chat:
                          % (len(kept), dest))
         self.wake.set()
 
+    def _give(self, to):
+        """A person moved the chat: stop what runs here, put everything this machine did in the
+        store's copy, and give the chat on. A turn that was running is continued over there."""
+        with self.lock:
+            if self.giving or self.mode != "holding":
+                return
+            self.giving = True
+            turn = self.turn
+        self.ui.note("moving this chat to %s" % ("the Cloud" if to == "cloud" else "the laptop"))
+        try:
+            if turn is not None:
+                turn.kill()
+            end = time.monotonic() + 20
+            while (self.turn is not None or self.running is not None) and time.monotonic() < end:
+                time.sleep(0.05)
+            view = None
+            for _ in range(4):
+                self._flush_events()
+                self._copy()
+                try:
+                    view = self.client.give(self.id, self.me, self.epoch, to)["chat"]
+                    break
+                except Refused as refused:
+                    # Something was typed, or an older copy landed, in between: copy again.
+                    if refused.code != "not_copied":
+                        raise
+            if view is None:
+                raise Refused(409, "not_copied", "the copy could not catch up", {})
+        except (Offline, Refused, TooLarge, OSError) as error:
+            with self.lock:
+                self.giving = False
+            code = getattr(error, "code", "")
+            if code in ("not_holder", "stale_epoch", "closed"):
+                self.wake.set()  # the next renewal says whose chat it is
+                return
+            self.ui.note("the chat stays here: %s" % error)
+            if not isinstance(error, Offline):
+                try:
+                    self.client.move(self.id, "stay")
+                except (Offline, Refused):
+                    pass
+            self._requeue("restart")
+            return
+        with self.lock:
+            self.giving = False
+            self.mode = "standby" if self.side == "laptop" else "away"
+            self.stopped = False
+            # What was typed here in the last instant never reached the store: it goes to the
+            # new holder's inbox.
+            unsent = [e for e in self.events if e["seq"] > self.sent_seq]
+            if unsent:
+                self.events = [e for e in self.events if e["seq"] <= self.sent_seq]
+                self.seq = self.sent_seq
+                self._rewrite_journal()
+            self.pending, self.open_turn = [], None
+            self.view = view
+            self._save()
+        for event in unsent:
+            if event["kind"] == "user" and event.get("sender") == self.me:
+                self.repost.append({"id": event["id"], "text": event["text"]})
+        self.ui.note("this chat now runs %s" % where(view))
+        self.wake.set()
+
     def _come_home(self, answer):
         """The store gave the chat to this laptop: bring the Cloud's copy in, then hold."""
         view = answer["chat"]
@@ -516,7 +583,7 @@ class Chat:
             while not self.closing:
                 with self.lock:
                     ready = (self.mode in ("holding", "off") and not self.stopped
-                             and self.turn is None)
+                             and self.turn is None and not self.giving)
                     job = None
                     if ready and self.open_turn:
                         job, self.open_turn = dict(self.open_turn, cut=True), None
@@ -536,8 +603,9 @@ class Chat:
         moved, self.moved = self.moved, None
         if job.get("cut"):
             reasons = {"takeover": "the computer it was running on went away",
+                       "move": "the chat was moved to this machine while it ran",
                        "restart": "the program running it was closed",
-                       "handback": "the machine running it stopped"}
+                       "handback": "the chat came back to this computer while it ran"}
             lines = ["[cmux Auto] Your last turn was cut off before it finished: %s." % reasons.get(job.get("why"), "it was interrupted"),
                      "You are now on %s%s." % (here, " (it was %s)" % moved if moved else ""),
                      "The request was:", "", job["text"], ""]
@@ -617,7 +685,7 @@ class Chat:
         while not self.closing:
             self.dirty.wait(self.copy_ms / 1000.0)
             self.dirty.clear()
-            if self.closing or self.mode != "holding" or self.stopped or not self.epoch:
+            if self.closing or self.mode != "holding" or self.stopped or not self.epoch or self.giving:
                 continue
             try:
                 self._flush_events()
@@ -729,10 +797,12 @@ class Chat:
             self.stopped = False
             self.last_answer = time.monotonic()
             self._save()
-        self._requeue("takeover")
+        self._requeue("move" if assignment["kind"] == "move" else "takeover")
         self.client.ack_assignment(self.id, self.me, self.epoch)
         if assignment["kind"] == "takeover":
             self.emit("note", text="running in the Cloud on %s: the laptop went away" % self.me[3:])
+        elif assignment["kind"] == "move":
+            self.emit("note", text="moved to the Cloud on %s" % self.me[3:])
         self._take_inbox()
         self.force_copy = True
         self.dirty.set()
@@ -759,11 +829,13 @@ class Chat:
             lease = self.timing["lease_ms"] / 1000.0
             left = max(0, int(lease - waited))
             copy = ("copy #%d" % self.snapshot) if self.snapshot else "no copy yet"
-            doing = "working" if self.turn is not None else "idle"
+            doing = "moving to the Cloud" if self.giving else "working" if self.turn is not None else "idle"
             where_ = "here" if self.side == "laptop" else "in the Cloud (%s)" % self.me[3:]
             return "Auto  *  %s, %s  |  lease %2ds  |  %s  |  epoch %d" % (where_, doing, left, copy, self.epoch)
         if self.mode == "standby":
             state = view.get("state")
+            if view.get("move") == "local":
+                return "Auto  ~  coming to this laptop..."
             if state == "resuming":
                 return "Auto  ~  resuming in the Cloud..."
             if state == "cloud":

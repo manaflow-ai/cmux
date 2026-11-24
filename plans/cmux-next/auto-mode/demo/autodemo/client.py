@@ -1,13 +1,14 @@
 """The store's client. `Offline` is no answer (no network, a timeout, a proxy's error page);
 `Refused` is the store's own answer."""
 
+import http.client
 import json
 import os
 import socket
 import sys
+import threading
 import time
-import urllib.error
-import urllib.request
+import urllib.parse
 
 
 class Offline(Exception):
@@ -27,36 +28,72 @@ class Client:
         self.headers = headers or {}
         # Set by the holder loop to act out a laptop with no network.
         self.cut = False
-        # One opener for every call: the system's proxy settings are read once, not per request.
-        self.opener = urllib.request.build_opener()
+        parts = urllib.parse.urlsplit(self.url)
+        self.secure = parts.scheme == "https"
+        self.host, self.port = parts.hostname, parts.port or (443 if self.secure else 80)
+        self.prefix = parts.path.rstrip("/")
+        # One kept connection per thread. A new connection per call costs a round trip more,
+        # and through an ssh forward each one is a channel: thousands of them in an hour.
+        self.local = threading.local()
+
+    def _connection(self, timeout):
+        conn = getattr(self.local, "conn", None)
+        if conn is not None:
+            if conn.sock is not None:
+                conn.sock.settimeout(timeout)
+                return conn, True
+            conn.close()
+        kind = http.client.HTTPSConnection if self.secure else http.client.HTTPConnection
+        conn = self.local.conn = kind(self.host, self.port, timeout=timeout)
+        return conn, False
+
+    def _drop(self):
+        conn, self.local.conn = getattr(self.local, "conn", None), None
+        if conn is not None:
+            conn.close()
 
     def _request(self, method, path, body=None, raw=None, timeout=10.0):
         if self.cut:
             raise Offline("offline")
         data = raw if raw is not None else (json.dumps(body).encode() if body is not None else None)
-        request = urllib.request.Request(self.url + path, data=data, method=method)
-        request.add_header("authorization", "Bearer " + self.token)
+        headers = {"authorization": "Bearer " + self.token}
         if data is not None:
-            request.add_header("content-type", "application/octet-stream" if raw is not None else "application/json")
-        for name, value in self.headers.items():
-            request.add_header(name, value)
+            headers["content-type"] = "application/octet-stream" if raw is not None else "application/json"
+        elif method in ("POST", "PUT"):
+            headers["content-length"] = "0"
+        headers.update(self.headers)
         began = time.monotonic()
         where = None
         try:
-            with self.opener.open(request, timeout=timeout) as reply:
-                where = reply.headers.get("x-auto-ms")
-                return reply.read()
-        except urllib.error.HTTPError as error:
-            text = error.read()
+            for attempt in (1, 2):
+                conn, kept = self._connection(timeout)
+                try:
+                    conn.request(method, self.prefix + path, body=data, headers=headers)
+                    reply = conn.getresponse()
+                    text = reply.read()
+                    break
+                except (http.client.RemoteDisconnected, ConnectionResetError, BrokenPipeError) as error:
+                    # The other end closed a kept connection while it was idle: once more on a
+                    # new one. Anything else (a timeout, a refused connection) is no answer.
+                    self._drop()
+                    if not kept or attempt == 2:
+                        raise Offline(str(error) or type(error).__name__)
+                except (http.client.HTTPException, socket.timeout, OSError) as error:
+                    self._drop()
+                    raise Offline(str(error) or type(error).__name__)
+            where = reply.getheader("x-auto-ms")
+            if reply.getheader("connection", "").lower() == "close":
+                self._drop()
+            if 200 <= reply.status < 300:
+                return text
             try:
                 parsed = json.loads(text)
                 err = parsed["error"]
-                raise Refused(error.code, err["code"], err["message"], parsed)
+                refused = Refused(reply.status, err["code"], err["message"], parsed)
             except (ValueError, KeyError, TypeError):
                 # Not the store's answer: a proxy, a wrong URL. Read as no answer.
-                raise Offline("HTTP %s from something that is not the store" % error.code)
-        except (urllib.error.URLError, socket.timeout, ConnectionError, OSError) as error:
-            raise Offline(str(error))
+                raise Offline("HTTP %s from something that is not the store" % reply.status)
+            raise refused
         finally:
             took = time.monotonic() - began
             if os.environ.get("AUTO_DEBUG") and took > 1.0 and "wait" not in path:
@@ -93,6 +130,13 @@ class Client:
 
     def keep(self, chat_id, keep):
         return self.call("POST", "/chats/%s/keep" % chat_id, {"keep": keep})["chat"]
+
+    def move(self, chat_id, to):
+        return self.call("POST", "/chats/%s/move" % chat_id, {"to": to})["chat"]
+
+    def give(self, chat_id, holder, epoch, to):
+        return self.call("POST", "/chats/%s/give" % chat_id,
+                         {"holder": holder, "epoch": epoch, "to": to}, timeout=20)
 
     def append_events(self, chat_id, holder, epoch, events):
         return self.call("POST", "/chats/%s/events" % chat_id,

@@ -50,17 +50,29 @@ class Refused(Exception):
         return body
 
 
+STALL_MS = 3000
+
+
+def steady_clock():
+    """Milliseconds that never step: a lease must not get longer or shorter because the
+    machine's wall clock was set."""
+    wall, mono = time.time(), time.monotonic()
+    return lambda: int((wall + time.monotonic() - mono) * 1000)
+
+
 class Store:
     def __init__(self, root, lease_ms=15000, wake_cmd=None, clock=None):
         self.root = root
         self.lease_ms = lease_ms
         self.wake_cmd = wake_cmd
-        self.clock = clock or (lambda: int(time.time() * 1000))
+        self.clock = clock or steady_clock()
         self.cv = threading.Condition()
         self.chats = {}
         self.machine = None  # {"name", "seen_at"}
         self.woke_at = 0
         self.wakes = 0
+        self.ticked_at = None
+        self.stalls = 0
         os.makedirs(os.path.join(root, "events"), exist_ok=True)
         os.makedirs(os.path.join(root, "blobs"), exist_ok=True)
         self._load()
@@ -154,6 +166,7 @@ class Store:
             "inbox_acked": r["inbox_acked"],
             "lease_left_ms": max(0, r["lease_expires"] - now) if holder != PARKED else 0,
             "standby": standby["device"] if standby and self._fresh(standby, now) else None,
+            "move": r.get("move"),
             "cwd": r.get("cwd"),
             "home": r.get("home"),
             "version": r["version"],
@@ -196,6 +209,7 @@ class Store:
         r["parked_from"] = None
         r["assignment"] = None
         r["needs_run"] = False
+        r["move"] = None
         if is_device(holder):
             r["home"] = holder
 
@@ -215,6 +229,7 @@ class Store:
         r["assignment"] = {"kind": kind, "epoch": r["epoch"], "acked": False}
         r["parked_from"] = None
         r["owes_import"] = False
+        r["move"] = None
         self._wake(now)
 
     def _wake(self, now):
@@ -236,6 +251,15 @@ class Store:
     def tick(self):
         """The lease alarm. Runs before every call and on a timer."""
         now = self.clock()
+        if self.ticked_at is not None and now - self.ticked_at > STALL_MS:
+            # The alarm runs twice a second. A gap this long means this machine stood still (a
+            # Cloud machine can, for tens of seconds): nobody could renew meanwhile, so each
+            # holder gets a whole lease from now, as after a restart.
+            self.stalls += 1
+            for r in self.chats.values():
+                if r["auto"] and r["holder"] != PARKED:
+                    r["lease_expires"] = max(r.get("lease_expires", 0), now + self.lease_ms)
+        self.ticked_at = now
         for r in self.chats.values():
             if not r["auto"]:
                 continue
@@ -332,7 +356,7 @@ class Store:
             "lease_expires": 0, "needs_run": False, "keep_in_cloud": False,
             "last_seq": 0, "snapshot": 0, "snapshot_seq": 0, "manifest": None,
             "inbox": [], "inbox_acked": 0, "assignment": None, "standby": None,
-            "parked_from": None, "owes_import": False, "cwd": None, "home": None,
+            "parked_from": None, "owes_import": False, "cwd": None, "home": None, "move": None,
             "version": 0, "created_at": now, "updated_at": now,
         }
 
@@ -380,6 +404,72 @@ class Store:
         if r["keep_in_cloud"] != bool(keep):
             r["keep_in_cloud"] = bool(keep)
             self._changed(r)
+        return {"chat": self.view(r)}
+
+    def move(self, chat_id, body):
+        """A person says where the chat runs from now on: `cloud` or `local`. The holder sees
+        the wish at its next renewal, puts all it did in the store's copy, and gives the chat
+        on (`give`), in the middle of a turn too: the other side continues it."""
+        now = self.clock()
+        r = self._chat(chat_id)
+        if not r["auto"]:
+            raise Refused(409, "closed", "Auto is off for this chat", chat=self.view(r))
+        to, holder = body.get("to"), r["holder"]
+        if to == "cloud":
+            if not self.machine:
+                raise Refused(409, "no_machine", "no Cloud machine has asked for work yet")
+            if holder == PARKED and not r["snapshot"]:
+                raise Refused(409, "no_copy", "the store has no copy of this chat yet")
+            r["keep_in_cloud"] = True
+            r["move"] = None
+            if holder == PARKED:
+                self._to_machine(r, "move", now)
+            elif is_device(holder):
+                r["move"] = "cloud"
+        elif to == "local":
+            standby = r.get("standby")
+            if is_vm(holder) and not (standby and self._fresh(standby, now)):
+                raise Refused(409, "no_laptop", "no laptop has this chat open: open it there "
+                                                 "with `auto chat %s`" % chat_id)
+            r["keep_in_cloud"] = False
+            r["move"] = None
+            if is_vm(holder):
+                r["move"] = "local"
+                assignment = r.get("assignment")
+                if assignment is None or assignment["acked"]:
+                    # Not work: it only wakes the machine's loop for this chat.
+                    r["assignment"] = {"kind": "release", "epoch": r["epoch"], "acked": False}
+        elif to == "stay":
+            r["move"] = None
+        else:
+            raise Refused(400, "invalid_request", "to must be cloud or local")
+        self._changed(r)
+        return {"chat": self.view(r)}
+
+    def give(self, chat_id, body):
+        """The holder hands the chat on. Refused until the store's copy has every event."""
+        now = self.clock()
+        r = self._chat(chat_id)
+        self._fence(r, body.get("holder"), body.get("epoch"))
+        to = body.get("to")
+        if not r["snapshot"] or r["snapshot_seq"] != r["last_seq"]:
+            raise Refused(409, "not_copied", "the store's copy is behind the chat's events")
+        if to == "cloud":
+            if not self.machine:
+                r["move"] = None
+                self._changed(r)
+                raise Refused(409, "no_machine", "no Cloud machine has asked for work yet")
+            self._to_machine(r, "move", now)
+        elif to == "local":
+            standby = r.get("standby")
+            if not (standby and self._fresh(standby, now)):
+                r["move"] = None
+                self._changed(r)
+                raise Refused(409, "no_laptop", "no laptop has this chat open")
+            self._take(r, standby["device"], True, now)
+        else:
+            raise Refused(400, "invalid_request", "to must be cloud or local")
+        self._changed(r)
         return {"chat": self.view(r)}
 
     # ---- the lease ----
