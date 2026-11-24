@@ -109,6 +109,138 @@
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "排隊"}}
       }
     },
+    "settings.palette.moveToFront": {
+      "comment": "A Command Palette row of an order setting (the workspace row's second-line order): moves the named item to the front. %@ is the item's name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move %@ to Front"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@を先頭へ移動"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "نقل %@ إلى البداية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Premjesti %@ na početak"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flyt %@ forrest"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ nach vorne verschieben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mover %@ al principio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Placer %@ en premier"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sposta %@ all’inizio"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្លាស់ទី %@ ទៅខាងមុខ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 맨 앞으로 이동"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flytt %@ først"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przenieś %@ na początek"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mover %@ para o início"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Переместить %@ в начало"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ย้าย %@ ไปไว้หน้าสุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ öğesini başa taşı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перемістити %@ на початок"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chuyển %@ lên đầu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "将%@移到最前"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "將%@移到最前"
+          }
+        }
+      }
+    },
     "settings.sidebarSection.more": {
       "comment": "Settings window sidebar: the header of the last section, which starts closed and holds the pages a person opens less often (New Tab, Menus, Keys, Privacy, Advanced, ...). A click opens or closes it.",
       "extractionState": "manual",
@@ -246676,6 +246808,60 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "帶載入指示的提示條會在原處變成結果；關閉分頁或工作區、封存聊天後會出現「還原」。"}}
       }
     },
+    "settings.experiments.composerButtonsVisible": {
+      "comment": "Settings > Advanced > Experiments: the Always Show Composer Buttons taste prototype row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Always Show Composer Buttons"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "إظهار أزرار مُنشئ الرسائل دائمًا"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Uvijek prikaži dugmad sastavljača poruka"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Vis altid skrivefeltsknapper"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Composer-Schaltflächen immer anzeigen"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Mostrar siempre los botones del compositor"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Toujours afficher les boutons du compositeur"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Mostra sempre i pulsanti del compositore"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "コンポーザーのボタンを常に表示"}},
+        "km": {"stringUnit": {"state": "translated", "value": "បង្ហាញប៊ូតុងអ្នកសរសេរសារជានិច្ច"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "작성기 버튼 항상 표시"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Vis alltid knapper i skrivefeltet"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Zawsze pokazuj przyciski kompozytora"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Sempre mostrar os botões do compositor"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Всегда показывать кнопки редактора"}},
+        "th": {"stringUnit": {"state": "translated", "value": "แสดงปุ่มตัวเขียนข้อความเสมอ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Oluşturucu düğmelerini her zaman göster"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Завжди показувати кнопки редактора"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Luôn hiển thị các nút trình soạn thảo"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "始终显示编辑器按钮"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "永遠顯示編輯器按鈕"}}
+      }
+    },
+    "settings.experiments.composerButtonsVisible.help": {
+      "comment": "Settings > Advanced > Experiments: the Always Show Composer Buttons taste prototype row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Keep Send, attachment removal, and queued message actions visible in agent chats."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "أبقِ الإرسال وإزالة المرفقات وإجراءات الرسائل في قائمة الانتظار ظاهرة في محادثات الوكلاء."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Zadrži slanje, uklanjanje priloga i radnje za poruke u redu vidljivima u razgovorima s agentima."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Hold Send, fjernelse af vedhæftede filer og handlinger for køede beskeder synlige i agentchats."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Senden, das Entfernen von Anhängen und Aktionen für wartende Nachrichten in Agent-Chats sichtbar halten."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Mantén visibles Enviar, quitar adjuntos y las acciones de mensajes en cola en los chats de agentes."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Gardez visibles l’envoi, la suppression des pièces jointes et les actions des messages en file dans les chats d’agents."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Mantieni visibili l’invio, la rimozione degli allegati e le azioni dei messaggi in coda nelle chat degli agenti."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "エージェントチャットで、送信、添付ファイルの削除、キュー内メッセージの操作を常に表示します。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "រក្សាការផ្ញើ ការលុបឯកសារភ្ជាប់ និងសកម្មភាពសារដែលនៅក្នុងជួររង់ចាំឱ្យមើលឃើញក្នុងការជជែកជាមួយភ្នាក់ងារ។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "에이전트 채팅에서 보내기, 첨부 파일 제거 및 대기 중인 메시지 작업을 항상 표시합니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Hold Send, fjerning av vedlegg og handlinger for meldinger i kø synlige i agentchatter."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Zachowaj widoczność wysyłania, usuwania załączników i działań dotyczących wiadomości w kolejce na czatach agentów."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Mantenha visíveis o envio, a remoção de anexos e as ações de mensagens na fila nos chats de agentes."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Показывать отправку, удаление вложений и действия с сообщениями в очереди в чатах агентов."}},
+        "th": {"stringUnit": {"state": "translated", "value": "แสดงการส่ง การลบไฟล์แนบ และการดำเนินการกับข้อความในคิวในแชตของเอเจนต์เสมอ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Ajan sohbetlerinde Gönder, ek kaldırma ve sıradaki mesaj işlemlerini görünür tut."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Залишайте видимими надсилання, видалення вкладень і дії з повідомленнями в черзі в чатах агентів."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Giữ hiển thị nút Gửi, xóa tệp đính kèm và thao tác với tin nhắn đang chờ trong các cuộc trò chuyện với tác nhân."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "在代理聊天中始终显示发送、移除附件和队列消息操作。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "在代理聊天中永遠顯示傳送、移除附件和佇列訊息操作。"}}
+      }
+    },
     "settings.experiments.hoverLook": {
       "comment": "Settings > Experiments: the Tooltip Refresh taste prototype row",
       "extractionState": "manual",
@@ -246728,6 +246914,60 @@
         "vi": {"stringUnit": {"state": "translated", "value": "Chú giải công cụ và thẻ khi di chuột có kính rõ hơn, viền sắc hơn và bóng mềm hơn."}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "工具提示和悬停卡片的玻璃更清晰，边缘更锐利，阴影更柔和。"}},
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "工具提示和懸停卡片的玻璃更清晰，邊緣更銳利，陰影更柔和。"}}
+      }
+    },
+    "settings.experiments.seeThroughDock": {
+      "comment": "Settings > Experiments: the See-Through Dock taste prototype row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "See-Through Dock"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "شريط سفلي شفاف"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Providni dok"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Gennemsigtig dok"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Durchsichtiges Dock"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Dock transparente"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Dock transparent"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Dock trasparente"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "透けるドック"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ដុកថ្លា"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "투명한 도크"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Gjennomsiktig dokk"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Przezroczysty dok"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Dock transparente"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Прозрачная панель"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ด็อกแบบโปร่งใส"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Saydam bölme"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Прозора панель"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Thanh dock trong suốt"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "透明停靠栏"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "透明停靠列"}}
+      }
+    },
+    "settings.experiments.seeThroughDock.help": {
+      "comment": "Settings > Experiments: the See-Through Dock taste prototype row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The conversation stays visible behind the notices and the Needs your input row above the composer."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تبقى المحادثة مرئية خلف الإشعارات وصف «يحتاج إلى إدخالك» فوق مربع الكتابة."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Razgovor ostaje vidljiv iza obavještenja i reda „Potreban je vaš unos“ iznad polja za pisanje."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Samtalen forbliver synlig bag meddelelserne og rækken “Kræver dit input” over skrivefeltet."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Die Unterhaltung bleibt hinter den Hinweisen und der Zeile „Deine Eingabe ist nötig“ über dem Eingabefeld sichtbar."}},
+        "es": {"stringUnit": {"state": "translated", "value": "La conversación sigue visible detrás de los avisos y de la fila «Necesita tu respuesta» sobre el editor."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "La conversation reste visible derrière les avis et la ligne « Votre réponse est requise » au-dessus de la zone de saisie."}},
+        "it": {"stringUnit": {"state": "translated", "value": "La conversazione resta visibile dietro gli avvisi e la riga «Serve il tuo input» sopra il compositore."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "入力欄の上にある通知と「入力が必要です」の行の後ろでも会話が見えたままになります。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ការសន្ទនានៅតែមើលឃើញនៅពីក្រោយសេចក្តីជូនដំណឹង និងជួរ «ត្រូវការការបញ្ចូលរបស់អ្នក» ខាងលើប្រអប់សរសេរ។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "입력창 위의 알림과 “입력이 필요합니다” 행 뒤에서도 대화가 계속 보입니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Samtalen forblir synlig bak varslene og raden «Trenger dine innspill» over skrivefeltet."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Rozmowa pozostaje widoczna za powiadomieniami i wierszem „Potrzebna Twoja odpowiedź” nad polem pisania."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "A conversa continua visível atrás dos avisos e da linha “Precisa da sua resposta” acima do editor."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Разговор остаётся виден за уведомлениями и строкой «Нужен ваш ответ» над полем ввода."}},
+        "th": {"stringUnit": {"state": "translated", "value": "บทสนทนายังมองเห็นได้อยู่หลังการแจ้งเตือนและแถว “ต้องการข้อมูลจากคุณ” เหนือช่องเขียนข้อความ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Konuşma, yazma alanının üstündeki bildirimlerin ve “Girdiniz gerekiyor” satırının arkasında görünür kalır."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Розмова залишається видимою за сповіщеннями та рядком «Потрібна ваша відповідь» над полем введення."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Cuộc trò chuyện vẫn hiển thị phía sau các thông báo và hàng “Cần bạn nhập” phía trên ô soạn thảo."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "在输入框上方的通知和“需要你的输入”行后面，对话依然可见。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "在輸入框上方的通知和「需要你的輸入」列後面，對話依然可見。"}}
       }
     },
     "settings.experiments.attachmentTypeIcons": {
