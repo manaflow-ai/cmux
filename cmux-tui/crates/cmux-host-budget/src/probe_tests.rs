@@ -18,9 +18,9 @@ fn cpu_busy_from_ticks() {
     // user, system, idle, nice
     let before = [100, 50, 800, 0];
     let after = [160, 70, 870, 0];
-    // 90 ticks busy of 160.
+    // 80 ticks busy of 150.
     let busy = cpu_busy_ticks(before, after).unwrap();
-    assert!((busy - 90.0 / 160.0).abs() < 1e-9);
+    assert!((busy - 80.0 / 150.0).abs() < 1e-9);
     assert_eq!(cpu_busy_ticks(before, before), None);
     assert_eq!(cpu_busy_ticks(before, [100, 50, 900, 0]), Some(0.0));
 }
