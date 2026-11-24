@@ -38,7 +38,7 @@ fn no_search_home() -> PathBuf {
     std::env::temp_dir().join(format!("acpmux-agent-tools-claude-home-{}", std::process::id()))
 }
 
-fn hub() -> Arc<Hub> {
+fn hub(bin: &Path) -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {
             "fake": {"argv": ["python3", FAKE]},
@@ -69,6 +69,13 @@ fn hub() -> Arc<Hub> {
         "permissionPolicy": "approve-all",
     }))
     .unwrap();
+    // A Codex launch asks its own binary whether it already has a cmux server.
+    let mut paths = vec![bin.to_owned()];
+    paths.extend(std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()));
+    let path = std::env::join_paths(paths).unwrap().into_string().unwrap();
+    for profile in cfg.harnesses.values_mut().filter(|h| h.family.as_deref() == Some("codex")) {
+        profile.env.insert("PATH".into(), path.clone());
+    }
     cfg.store.mode = StoreMode::Memory;
     let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
     Hub::new(cfg, store)
@@ -161,7 +168,10 @@ async fn local_sessions_get_the_browser_and_computer_use_tools_and_skills() {
         std::env::set_var("ACPMUX_SECRET_TOOLS", "1");
         std::env::set_var("ACPMUX_OFFER_TOOLS", "1");
     }
-    let hub = hub();
+    let codex = fake_bin(&bin, "codex");
+    std::fs::write(codex, "#!/bin/sh\necho \"No MCP server named 'cmux' found.\" >&2\nexit 1\n")
+        .unwrap();
+    let hub = hub(&bin);
 
     // An ACP harness: the servers in session/new, the secret tools (cx-ncc.42)
     // and the offer tool (cx-807da) for this session on this daemon's socket.
@@ -200,7 +210,8 @@ async fn local_sessions_get_the_browser_and_computer_use_tools_and_skills() {
             "cmux-sessions",
             "cmux-subsessions",
             "cmux-forum",
-            "acpmux"
+            "acpmux",
+            acpmux::agent_tools::SAVED_SERVERS_NAME
         ],
         "{upstreams}"
     );
