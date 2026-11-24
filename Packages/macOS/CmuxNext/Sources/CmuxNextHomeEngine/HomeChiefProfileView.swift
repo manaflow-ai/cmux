@@ -124,6 +124,8 @@ public final class HomeChiefProfileView: NSView {
     /// The note and button that stand in for the screen.
     let gateBox = NSView()
     let gateLabel = ThemedLabel(wrappingLabelWithString: "")
+    /// The computer glyph over the note.
+    let gateGlyph = NSImageView()
     let gateButton = NSButton(title: "", target: nil, action: nil)
     /// Move to Cloud beside Set Up Computer, for a Chief of this Mac with no computer.
     let gateMoveButton = NSButton(title: HomeEngineStrings.computerMove, target: nil, action: nil)

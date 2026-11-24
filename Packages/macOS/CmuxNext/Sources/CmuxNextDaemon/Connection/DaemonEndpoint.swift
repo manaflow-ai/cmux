@@ -402,6 +402,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// (a Cloud VM chat's sub-sessions on the Mac). Without it the chat shows no children.
     case agentSessionChildren = "agent-session-children-v1"
     case agentSessionPresence = "agent-session-presence-v1"
+    /// `attending` and `seen_seq` on `agent-session-view`, so a chat shown while the person is
+    /// away keeps its unread cutover on the owning daemon.
+    case agentSessionAttention = "agent-session-attention-v1"
     /// `agent-session-set-model`, `-set-mode` and `-set-config`: the person's model, mode and
     /// option picks in a chat on that machine. Without it those picks say to update its cmux-tui.
     case agentSessionSettings = "agent-session-settings-v1"
@@ -670,7 +673,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs, .closedConversationTabs,
              .agentSessionAttach, .agentSessionFork, .agentSessionSide, .cloudChatRelay, .agentSessionObserve, .agentSessionStart, .agentSessionStartNoCwd, .agentSessionTrust,
              .agentSessionStartKeyedReason, .agentSessionStartVMKind, .agentSessionStartModel, .agentSessionStartPermissionMode, .agentSessionStartMode, .agentSessionTrustVMKind, .agentSessionFolders,
-             .agentSessionChildren, .agentSessionContent, .agentSessionPresence, .agentSessionSettings, .agentSessionLogin, .agentSessionShareEvents, .agentSessionLoginMachine, .agentSessionContext, .agentSessionBtw, .agentSessionPageBytes, .agentSessionSteer, .agentSessionQueueDecision, .agentSessionMember, .pageTabs, .pageTabRoute, .appScreens,
+             .agentSessionChildren, .agentSessionContent, .agentSessionPresence, .agentSessionAttention, .agentSessionSettings, .agentSessionLogin, .agentSessionShareEvents, .agentSessionLoginMachine, .agentSessionContext, .agentSessionBtw, .agentSessionPageBytes, .agentSessionSteer, .agentSessionQueueDecision, .agentSessionMember, .pageTabs, .pageTabRoute, .appScreens,
              .conversationSearch, .conversationThreads, .conversationThread, .conversationInboxState, .homeInbox,
              .chiefEvents, .cloudConversations, .cloudHostReplica, .cloudAttachments, .cloudSelfHost,
              .pageCredential, .scopedPageCredential, .wsListen, .wsListenOrigins, .personalMixedOrder,
