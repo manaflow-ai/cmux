@@ -76,6 +76,11 @@ async fn link(
     mac_options: DialOptions,
     signaling_egress: &Egress,
 ) -> Result<Run, DialError> {
+    // `RUST_LOG=cmux_mobile_link=debug` shows the routes, allocations and proxy hops.
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_test_writer()
+        .try_init();
     let server = FakeSignaling::start(FakeOptions::default()).await;
     let mac_id = uuid::Uuid::new_v4().to_string();
     let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
