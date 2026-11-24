@@ -45,6 +45,8 @@ POOL_READ = re.compile(r"fromJSON\(\s*vars\.RUNNER_POOLS\s*\)\.([A-Za-z0-9_]+)")
 PINNED: dict[str, tuple[str, set[str]]] = {
     'fast-checks.yml': ('the admission picker is a light read-only job on Blacksmith 2 vCPU; checks use its live fleet output',
      {'admit'}),
+    'web-complexity-trusted.yml': ('reads untrusted pull request source: only the one-job cmux-gcp-pr-control-jit-x64, never a pool a variable can move',
+     {'complexity'}),
     'auto-resume-nightly-notarization.yml': ('nightly signing and notarization: an ephemeral label the signing rule checks literally',
      {'poll', 'wait-and-staple', 'poll-outer', 'staple-outer', 'poll-stapled', 'staple-stapled', 'verify-stapled', 'publish', 'generate-deltas', 'republish-deltas'}),
     'cmux-next-pr-autofix-push.yml': ('holds the PR autofix App key (contents write): the fork-routing App-key rule forbids a variable-movable runner',
@@ -57,11 +59,11 @@ PINNED: dict[str, tuple[str, set[str]]] = {
      {'matrix'}),
     'build-ghosttykit.yml': ('not yet on a pool; moves in its own PR',
      {'build-ghosttykit'}),
-    'ci-queue-janitor.yml': ('the queue repair job must not depend on the pools it repairs: GitHub-hosted ubuntu-24.04, '
+    'ci-queue-janitor.yml': ('the queue repair job must not depend on the pools it repairs: the one-job cmux-gcp-repair-jit-x64, '
                              'or cmux-fleet-linux-x64 when CI_QUEUE_JANITOR_ON_FLEET=1 (check_queue_janitor_runs_off_the_pools_it_judges)',
      {'sweep'}),
     'ci-queue-janitor-watchdog.yml': ("watches the sweep's label from off it: cmux-fleet-linux-x64 while the sweep is on "
-                                      'ubuntu-24.04, ubuntu-24.04 when CI_QUEUE_JANITOR_ON_FLEET=1 (test_ci_janitor_watchdog_route)',
+                                      'cmux-gcp-repair-jit-x64, cmux-gcp-repair-jit-x64 when CI_QUEUE_JANITOR_ON_FLEET=1 (test_ci_janitor_watchdog_route)',
      {'watch'}),
     'cmux-next-cua-helper-dev-sign.yml': ('DEV Computer Use helper signing: an ephemeral label the signing rule checks literally',
      {'sign'}),
@@ -77,6 +79,10 @@ PINNED: dict[str, tuple[str, set[str]]] = {
      {'publish'}),
     'ios-appstore-upload.yml': ('App Store upload with signing keys',
      {'upload', 'set-testflight-notes', 'assign-internal'}),
+    'ios-app-review-readiness.yml': ('app-store-connect holds the App Store Connect API key (release environment), as ios-asc-ops.yml op does: the fork-routing secret rule forbids a variable-movable runner',
+     {'app-store-connect'}),
+    'ios-asc-ops.yml': ('holds the App Store Connect API key (release environment): the fork-routing secret rule forbids a variable-movable runner',
+     {'op'}),
     'ios-e2e.yml': ('not yet on a pool; moves in its own PR',
      {'mac-ios-e2e'}),
     'ios-screenshots.yml': ('App Store upload with signing keys',
