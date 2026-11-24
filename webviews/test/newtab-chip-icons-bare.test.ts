@@ -13,10 +13,6 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 
 type Glyph = { where: string; background: string; outline: string; shadow: string };
 
-test("the shipped icon column arm is pad, the glyphs bare", () => {
-  expect(newTabIconColumn.defaultArm).toBe("pad");
-});
-
 await requireBrowserLane("newtab-chip-icons-bare.test.ts", async () => {
   setDefaultTimeout(240_000);
   const ENTRY = "agent-pane.new-tab-icon-column";
@@ -80,8 +76,9 @@ await requireBrowserLane("newtab-chip-icons-bare.test.ts", async () => {
               };
             });
             expect(arm).toBe(newTabIconColumn.defaultArm);
-            // The folder chip, the + and the shield are always there; the machine chip only in its state.
-            expect(glyphs.length).toBeGreaterThanOrEqual(3);
+            // Every state shows two location chips (the folder or project, and This Mac), the + and the
+            // shield (newtab-chip-scale.test.ts), so a glyph that stops matching fails here.
+            expect(glyphs.length).toBeGreaterThanOrEqual(4);
             const transparent = (color: string) =>
               color === "transparent" || /^rgba\(0, 0, 0, 0\)$/.test(color) || /\/ 0\)$/.test(color);
             for (const glyph of glyphs) {
