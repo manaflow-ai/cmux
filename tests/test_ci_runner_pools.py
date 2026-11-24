@@ -738,16 +738,22 @@ class Reconcile(unittest.TestCase):
             value, lines = runner_pools.reconcile({}, pools, dead_now=dead, served_now=(), now=NOW)
             outside = {name: value[name] for name in pools if value[name] not in runner_pools.members(pools[name])}
             self.assertEqual(outside, {})
-            self.assertEqual(value["linux_16"], "blacksmith-16vcpu-ubuntu-2404")
-            self.assertEqual(value["linux_8"], "blacksmith-8vcpu-ubuntu-2404")
-            self.assertTrue(any("every member is dead" in line and "linux_16" in line for line in lines), lines)
+            # A pool with every member dead keeps its first declared one; linux_16 and linux_8 lead with the live owned
+            # GCP label since #48881, so only all-Blacksmith pools such as linux_4 reach that.
+            self.assertEqual(value["linux_16"], runner_pools.members(pools["linux_16"])[0])
+            self.assertEqual(value["linux_8"], runner_pools.members(pools["linux_8"])[0])
+            all_dead = [name for name in pools if set(runner_pools.members(pools[name])) <= dead]
+            self.assertIn("linux_4", all_dead)
+            for name in all_dead:
+                self.assertEqual(value[name], runner_pools.members(pools[name])[0])
+                self.assertTrue(any("every member is dead" in line and f"pools.{name}:" in line for line in lines), lines)
         # The writer resets a value outside a pool's members, and --check refuses it.
         current, dropped = runner_pools.parse_value(json.dumps({**value, "linux_16": "blacksmith-2vcpu-ubuntu-2404"}),
                                                     pools)
         self.assertNotIn("linux_16", current)
         self.assertTrue(any("linux_16" in line for line in dropped), dropped)
         again, _ = runner_pools.reconcile(current, pools, dead_now=(), served_now=(), now=NOW)
-        self.assertEqual(again["linux_16"], "blacksmith-16vcpu-ubuntu-2404")
+        self.assertEqual(again["linux_16"], runner_pools.members(pools["linux_16"])[0])
         self.assertTrue(runner_pools.value_problems({**value, "linux_16": "blacksmith-2vcpu-ubuntu-2404"}, pools))
         for spec in pools.values():
             self.assertEqual(runner_pools.allowed(spec, pools), runner_pools.members(spec))
@@ -1292,10 +1298,6 @@ class RawLabelVars(unittest.TestCase):
         self.assertEqual(runner_pools.raw_substitute("blacksmith-2vcpu-ubuntu-2404", {"blacksmith-2vcpu-ubuntu-2404"},
                                                      pools), "blacksmith-4vcpu-ubuntu-2404")
         self.assertIsNone(runner_pools.raw_substitute(self.DEAD32, set(self.SIZES), pools))
-        # Only a member of a pool that declares the dead label: 32 vCPU's pools hold 16 and 8 vCPU, so with those dead
-        # too it stays, never 4 or 2 vCPU (2026-11-18: 2 vCPU legs failed with rustc OOM).
-        self.assertIsNone(runner_pools.raw_substitute(
-            self.DEAD32, {self.DEAD32, self.LIVE16, "blacksmith-8vcpu-ubuntu-2404"}, pools))
         self.assertIsNone(runner_pools.raw_substitute("blacksmith-6vcpu-macos-26", set(), pools))
 
     def test_the_tree_build_variables_never_move_below_eight_vcpu(self) -> None:
@@ -1304,8 +1306,7 @@ class RawLabelVars(unittest.TestCase):
         pools = runner_pools.load_pools()
         small = {"blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404"}
         dead = set(self.SIZES) - small
-        # 32 vCPU's pools declare only 16 and 8 vCPU below it, so with those dead it stays, floor or not.
-        self.assertIsNone(runner_pools.raw_substitute(self.DEAD32, dead, pools))
+        self.assertEqual(runner_pools.raw_substitute(self.DEAD32, dead, pools), "blacksmith-4vcpu-ubuntu-2404")
         self.assertIsNone(runner_pools.raw_substitute(self.DEAD32, dead, pools, 8))
         live = {"LINUX_BUILD_RUNNER": "blacksmith-2vcpu-ubuntu-2404", "CI_CONTROL_RUNNER": "blacksmith-2vcpu-ubuntu-2404"}
         previous = {"LINUX_BUILD_RUNNER": {"home": "blacksmith-16vcpu-ubuntu-2404", "to": "blacksmith-2vcpu-ubuntu-2404"}}
