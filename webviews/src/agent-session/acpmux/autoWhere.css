@@ -1,0 +1,111 @@
+/* Auto as where a new chat runs (AutoWhere.tsx, autoWhereModel.ts): the Where chip and its menu row with
+   Auto picked, and the arrival line. The text keeps the other rows' size and weight; only the icon,
+   its colour and a little motion differ. Every motion sits in the no-preference block and stops when
+   the app's motion is reduced or off. Nothing here changes a size: the icon is the other icons' 14px,
+   so picking Auto moves nothing in the composer row. */
+
+.acpmux-auto-icon[data-look="orbit"] .acpmux-auto-orbit { transform-origin: 8px 8px; }
+.acpmux-auto-icon[data-look="constellation"] :is(.acpmux-auto-spark, .acpmux-auto-spark-small) {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/* Aurora: a cool wash under Auto's menu row, and a gradient hairline under the chip once picked. */
+.acpmux-menu-item:has(> [data-auto-look="aurora"]) { position: relative; isolation: isolate; }
+.acpmux-menu-item:has(> [data-auto-look="aurora"])::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  z-index: var(--layer-backdrop);
+  background: linear-gradient(
+    100deg,
+    color-mix(in oklab, var(--agent-ansi-6, #3cc) 14%, transparent),
+    color-mix(in oklab, var(--agent-ansi-4, #36f) 10%, transparent) 45%,
+    color-mix(in oklab, var(--agent-ansi-5, #a3f) 14%, transparent)
+  );
+  background-size: 220% 100%;
+}
+.acpmux-location-picker[data-auto-look="aurora"] .acpmux-location-button { position: relative; }
+.acpmux-location-picker[data-auto-look="aurora"] .acpmux-location-button::after {
+  content: "";
+  position: absolute;
+  inset-inline: 8px;
+  bottom: var(--cmux-hairline-ring);
+  height: var(--cmux-hairline);
+  background: linear-gradient(90deg, var(--agent-ansi-6, #3cc), var(--agent-ansi-4, #36f), var(--agent-ansi-5, #a3f));
+  background-size: 220% 100%;
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+/* The arrival line: one line under the first message, muted, the icon in its look; its move is a
+   small ghost button at the end. */
+.acpmux-auto-arrival {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+  padding: var(--grid-half-step) 4px var(--grid-half-step) 8px;
+  border-radius: 8px;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  background: color-mix(in srgb, var(--agent-text) 4%, transparent);
+}
+.acpmux-auto-arrival[data-went="cloud"] {
+  background: linear-gradient(
+    100deg,
+    color-mix(in oklab, var(--agent-ansi-4, #36f) 9%, transparent),
+    color-mix(in oklab, var(--agent-ansi-5, #a3f) 6%, transparent)
+  );
+}
+.acpmux-auto-arrival-text { flex: 1 1 auto; min-width: 0; }
+/* Its buttons are the shared small ghost button (ui/ghost.css): no border or fill until hover. */
+.acpmux-auto-arrival :is(.acpmux-auto-arrival-move, .acpmux-auto-arrival-dismiss) {
+  flex: none;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-weight: var(--font-weight-emphasis);
+  cursor: default;
+}
+.acpmux-auto-arrival-move { color: var(--agent-text); }
+.acpmux-auto-arrival .acpmux-auto-arrival-dismiss { width: 22px; padding: 0; justify-content: center; color: var(--agent-muted); }
+.acpmux-auto-arrival .acpmux-auto-arrival-dismiss .ui-ghost-icon { width: 12px; height: 12px; }
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Orbit: the dots go round at every spinner's one period while Auto is picked, on hover and
+     while deciding (cmux-spin, pages/shared/desktop.css). */
+  :root:not([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) :is([data-auto-look="orbit"], .acpmux-location-button:hover, .acpmux-menu-item:is(:hover, [data-highlighted]), .acpmux-auto-arrival[data-went="deciding"]) .acpmux-auto-orbit { animation: cmux-spin var(--cmux-spinner-period) linear infinite; }
+  /* Constellation: the small spark breathes; the big one twinkles once on hover. */
+  :root:not([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) [data-auto-look="constellation"] .acpmux-auto-spark-small { animation: acpmux-auto-breathe calc(var(--cmux-spinner-period) * 1.4) var(--cmux-ease-out) infinite; }
+  :root:not([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-location-button:hover .acpmux-auto-spark,
+  :root:not([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-menu-item:is(:hover, [data-highlighted]) .acpmux-auto-spark {
+    animation: acpmux-auto-twinkle var(--cmux-motion-large) var(--cmux-ease-out) 1;
+  }
+  /* Aurora: the wash and the hairline drift. */
+  :root:not([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-menu-item:has(> [data-auto-look="aurora"])::before,
+  :root:not([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-location-picker[data-auto-look="aurora"] .acpmux-location-button::after {
+    animation: acpmux-auto-drift calc(var(--cmux-spinner-period) * 3.5) var(--cmux-ease-out) infinite alternate;
+  }
+  /* The arrival line comes in once, by opacity only (no layout change). */
+  :root:not([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-auto-arrival { animation: acpmux-auto-arrive var(--cmux-motion-large) var(--agent-ease-out, ease-out) 1; }
+}
+@keyframes acpmux-auto-breathe {
+  0%, 100% { opacity: 0.45; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.1); }
+}
+@keyframes acpmux-auto-twinkle {
+  0% { transform: rotate(0) scale(1); }
+  50% { transform: rotate(45deg) scale(1.18); }
+  100% { transform: rotate(90deg) scale(1); }
+}
+@keyframes acpmux-auto-drift {
+  from { background-position: 0% 50%; }
+  to { background-position: 100% 50%; }
+}
+@keyframes acpmux-auto-arrive {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
