@@ -758,7 +758,7 @@ async fn move_steps(
     let finished = waiting(
         &name,
         "copying the chat to the target",
-        super::transfer::finish_move_timed_since(
+        super::transfer::finish_move_timed(
             &mut src_end,
             &mut dst_end,
             &dst_init,
@@ -767,7 +767,6 @@ async fn move_steps(
             there,
             None,
             record,
-            Some((begun.started_at, begun.pre_claim_ms)),
         ),
     )
     .await;

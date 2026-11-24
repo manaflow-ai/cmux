@@ -393,35 +393,9 @@ pub(super) async fn finish_move_timed(
     name: Option<String>,
     to_meta: Value,
 ) -> Result<(Value, MoveTimings)> {
-    finish_move_timed_since(src, dst, dst_init, id, begun, cwd, name, to_meta, None).await
-}
-
-/// [`finish_move_timed`] with a start point for the input blackout bound.
-pub(super) async fn finish_move_timed_since(
-    src: &mut MoveEnd<'_>,
-    dst: &mut MoveEnd<'_>,
-    dst_init: &Value,
-    id: &str,
-    begun: &Begun,
-    cwd: Option<String>,
-    name: Option<String>,
-    to_meta: Value,
-    blackout_started: Option<(std::time::Instant, Option<u64>)>,
-) -> Result<(Value, MoveTimings)> {
     let dir = journal_dir();
     let journal = (dir.as_path(), to_meta);
-    finish_journaled_timed_since(
-        src,
-        dst,
-        dst_init,
-        id,
-        begun,
-        cwd,
-        name,
-        journal,
-        blackout_started,
-    )
-    .await
+    finish_journaled_timed(src, dst, dst_init, id, begun, cwd, name, journal).await
 }
 
 /// [`finish_move`], the move noted in the journal at `dir` while it is under way.
@@ -452,21 +426,6 @@ pub(super) async fn finish_journaled_timed(
     name: Option<String>,
     (dir, to_meta): (&std::path::Path, Value),
 ) -> Result<(Value, MoveTimings)> {
-    finish_journaled_timed_since(src, dst, dst_init, id, begun, cwd, name, (dir, to_meta), None)
-        .await
-}
-
-async fn finish_journaled_timed_since(
-    src: &mut MoveEnd<'_>,
-    dst: &mut MoveEnd<'_>,
-    dst_init: &Value,
-    id: &str,
-    begun: &Begun,
-    cwd: Option<String>,
-    name: Option<String>,
-    (dir, to_meta): (&std::path::Path, Value),
-    blackout_started: Option<(std::time::Instant, Option<u64>)>,
-) -> Result<(Value, MoveTimings)> {
     let journal = match (src.reach(), dst.reach()) {
         (Some(s), Some(d)) => Some(Journal {
             session_id: id.to_owned(),
@@ -482,9 +441,7 @@ async fn finish_journaled_timed_since(
     if let Some(j) = &journal {
         j.note(dir);
     }
-    let result =
-        finish_noted_timed(src, dst, dst_init, id, begun, cwd, name, to_meta, blackout_started)
-            .await;
+    let result = finish_noted_timed(src, dst, dst_init, id, begun, cwd, name, to_meta).await;
     if !matches!(result, Err(Unresolved(_))) {
         Journal::done(dir, &begun.transfer_id);
     }
@@ -516,7 +473,7 @@ async fn finish_noted(
     name: Option<String>,
     to_meta: Value,
 ) -> Result<Value, Failed> {
-    finish_noted_timed(src, dst, dst_init, id, begun, cwd, name, to_meta, None)
+    finish_noted_timed(src, dst, dst_init, id, begun, cwd, name, to_meta)
         .await
         .map(|(moved, _)| moved)
 }
@@ -530,7 +487,6 @@ async fn finish_noted_timed(
     cwd: Option<String>,
     name: Option<String>,
     to_meta: Value,
-    blackout_started: Option<(std::time::Instant, Option<u64>)>,
 ) -> Result<(Value, MoveTimings), Failed> {
     let (begin, transfer_id) = (&begun.begin, &begun.transfer_id);
     if let Err(e) = receiver_takes(begin, dst_init) {
@@ -582,10 +538,8 @@ async fn finish_noted_timed(
     // A commit is answered again the same once it is on disk (`transfer_commit_with_epoch`).
     let commit =
         json!({"sessionId": id, "transferId": transfer_id, "to": to_meta, "epoch": begun.epoch});
-    let blackout_ms = blackout_started.and_then(|(started, pre_claim_ms)| {
-        pre_claim_ms.map(|pre_claim_ms| {
-            started.elapsed().as_millis().saturating_sub(u128::from(pre_claim_ms)) as u64
-        })
+    let blackout_ms = begun.pre_claim_ms.map(|pre_claim_ms| {
+        begun.started_at.elapsed().as_millis().saturating_sub(u128::from(pre_claim_ms)) as u64
     });
     src.call("_acpmux/transfer_commit", commit, Wait::Page, true).await?;
     Ok((moved, MoveTimings { transfer_ms, thaw_ms, blackout_ms, ..MoveTimings::default() }))
