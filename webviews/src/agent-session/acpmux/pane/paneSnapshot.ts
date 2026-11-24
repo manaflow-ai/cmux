@@ -144,7 +144,6 @@ import {
   troubleSinceAfterLoss,
 } from "../hostRetry";
 import { heldStartStop, sendsHeldForHost, untilHostAnswers } from "../sendWhenReady";
-import type { Subagent } from "../subagents/subagentFold";
 import { newChatFolder } from "../startFolderModel";
 import { dismissPlanScopeDrift, keepPlanScopeArea } from "../planScopeDriftStore";
 import { setPaneNotices } from "../paneNoticeStore";
@@ -164,7 +163,6 @@ import { setSuggestedTasks } from "../offer/offersShown";
 import { offerPicks } from "../offer/offerChoice";
 import { offerWorktree } from "../offer/offerWorktree";
 import { setLinkPlaces, updateLinkPlaces } from "../chips/cmuxLinkPlaces";
-import type { StartedSession } from "../started/startedSessions";
 import { setExperimentSwitches } from "../../../experiments/switches";
 import { setSessionStatus } from "../sessionStatus";
 import { pageEditHold, pageReleaseHold } from "../../../pages/shared/webSwap";
@@ -311,9 +309,6 @@ export type PaneSnapshotArgs = {
   paletteCommands: React.RefObject<{ sessionId: string; commands: Record<string, () => void> }>;
   counted: React.RefObject<{
     summary: AcpmuxSnapshot["summary"];
-    runningAgents: readonly Subagent[];
-    runningCommands: readonly BackgroundCommand[];
-    runningSessions: readonly StartedSession[];
     sourceRows: AcpmuxRow[];
     childRows: AcpmuxRow[] | undefined;
     transcriptRows: AcpmuxRow[];
