@@ -240,6 +240,8 @@ final class FeedStressRig {
                     self.liveEvent(store)
                 }
             }
+            // FeedShiftProbe: the load can wait so a test places the list first.
+            if FeedShiftProbe.liveDelay > 0 { timer.fireDate = Date().addingTimeInterval(FeedShiftProbe.liveDelay) }
             RunLoop.main.add(timer, forMode: .common)
             liveTimer = timer
         }
