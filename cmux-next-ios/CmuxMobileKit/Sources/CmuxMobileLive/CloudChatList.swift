@@ -1,3 +1,4 @@
+import CmuxMobileAgentChat
 import Foundation
 
 /// A Cloud machine can hold every chat it ever ran: the list draws the newest page
