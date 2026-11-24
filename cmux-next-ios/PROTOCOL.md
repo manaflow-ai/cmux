@@ -548,7 +548,14 @@ relay was retired: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux-next/
   heard nothing for 16 s in the foreground, when its relay socket dies while
   the session needs it, or when the peer asks (`wg-relay`). A side that
   joins on its own asks the peer; one that heard the peer while its join
-  ran drops the unused socket. A failed join is retried after 1, 3, 10 and
+  ran drops the unused socket (an asked one too, once another route is
+  confirmed both ways, and an ask that arrives then is ignored). A dead
+  socket is joined again at once only while nothing else reaches the peer,
+  and only a side that left the relay on its own (another route carried the
+  session) keeps it after joining again within 5 minutes. On joining, the phone sends its handshake
+  through the relay at once and the Mac 300 to 900 ms later (at random, and
+  only if nothing arrived meanwhile): two initiations that cross in step each
+  overwrite the other side's pending one. A failed join is retried after 1, 3, 10 and
   30 s; `403`, `404` and `503` are not.
 - **On the tunnel:** the relay is one more carrier, a path of the path
   selector like each TURN route, ranked below every direct path and, by
