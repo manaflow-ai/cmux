@@ -99,7 +99,16 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     private var connectionStatus: HomeConnectionStatus? {
         let mac = homeMacID.flatMap { id in store.activeTeam?.macs.first { $0.id == id } }
         return HomeConnectionStatus.make(linkDown: homeIsOffline, macOnline: mac?.isOnline, failed: feed.problem != nil,
-                                         retrying: homeRetries > 0, macName: macTag)
+                                         retrying: homeRetries > 0 || demoRetrying, macName: macTag)
+    }
+
+    /// The `home-chip-reconnecting*` demos' held retry (DEBUG only).
+    private var demoRetrying: Bool {
+        #if DEBUG
+        feed.retryingForDemo
+        #else
+        false
+        #endif
     }
 
     /// Rows show in the list (the kept ones a Delete Conversation from List did not hide).

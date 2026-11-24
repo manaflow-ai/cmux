@@ -465,6 +465,14 @@ public final class MacHomeFeed {
     /// The `retry-home-failed` demo: the last read failed on a live link.
     public func setProblemForDemo(_ text: String) { problem = text }
 
+    /// The `home-chip-*` demos: the seeded rows are the ones this phone kept, waiting for the
+    /// Mac's fresh list (Home's "Updating" chip).
+    public func showKeptRowsForDemo() { isShowingKeptRows = true }
+
+    /// The `home-chip-reconnecting*` demos: Home holds a retry that never answers (its
+    /// Reconnecting chip at the top).
+    public var retryingForDemo = false
+
     /// New Message's demo (verify/new-message): a Mac's Home with its Chief, two more Chiefs and
     /// a few other conversations, with no link.
     public func seedNewMessageRows(macID: String, macChief: String? = nil) {
