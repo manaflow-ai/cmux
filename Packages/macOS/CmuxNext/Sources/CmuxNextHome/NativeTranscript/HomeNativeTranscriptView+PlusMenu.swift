@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextActions
+public import CmuxNextActions
 import CmuxNextHomeModel
 
 /// The composer's + button opens the + menu (`HomePlusMenu`): Attach Files or Images… (the

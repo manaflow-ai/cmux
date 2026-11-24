@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextActions
+public import CmuxNextActions
 public import CmuxNextDesign
 import CmuxNextCompat
 
