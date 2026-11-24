@@ -49,10 +49,7 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
           ? rules.flatMap((rule: unknown) => {
               if (typeof rule === "string" && rule.trim()) return [rule.trim()];
               if (!rule || typeof rule !== "object") return [];
-              const value = rule as {
-                toolName?: unknown;
-                ruleContent?: unknown;
-              };
+              const value = rule as { toolName?: unknown; ruleContent?: unknown };
               const tool = typeof value.toolName === "string" ? value.toolName.trim() : "";
               const content = typeof value.ruleContent === "string" ? value.ruleContent.trim() : "";
               return [content || tool].filter(Boolean);
@@ -65,6 +62,7 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
     permissionId: String(permissionId),
     groupId: typeof envelope.groupId === "string" ? envelope.groupId : undefined,
     turnId: typeof envelope.turnId === "string" ? envelope.turnId : undefined,
+    ...forkOfferFrom(envelope.forkOffer),
     // ACP v2's request title names the approval itself; a subject tool title is its operation fallback.
     title: raw.title ?? toolCall?.title,
     // A string, or an argv array read the way the transcript's Shell block reads it (`sh -lc` unwrapped).
@@ -84,9 +82,7 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
             : undefined,
     rule:
       suggestions.length > 0
-        ? translate("permission.claude.alwaysAllowRule", {
-            rules: suggestions.join(", "),
-          })
+        ? translate("permission.claude.alwaysAllowRule", { rules: suggestions.join(", ") })
         : typeof toolCall?.rule === "string"
           ? toolCall.rule
           : typeof raw.rule === "string"
@@ -101,7 +97,6 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
     ...(claudeMeta?.tool === "ExitPlanMode" && typeof objectValue(toolCall?.rawInput)?.plan === "string"
       ? { planEditable: true }
       : {}),
-    ...forkOfferFrom(envelope.forkOffer),
     pending: true,
     options: (raw.options ?? []).map((option: any) => ({
       id: String(option.optionId ?? option.id),
@@ -119,29 +114,12 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
   };
 }
 
-/// A risky step's fork offer (acpmux fork_risky.rs `offer`), when the request carries one.
-function forkOfferFrom(value: unknown): {
-  forkOffer?: AcpmuxPermission["forkOffer"];
-} {
-  const offer = objectValue(value);
-  const machine = stringValue(offer?.machine);
-  const reason = stringValue(offer?.reason);
-  return machine && reason ? { forkOffer: { machine, reason } } : {};
-}
-
 /// The ask's proposed edits. Explicit ACP diffs win over input fragments, including acpmux's Write
 /// fragment with no old text, which shows the text the Write will put there (`toolFiles`). An edit
 /// tool's input is read only when no diff came: there a Write's content is left out, since before
 /// approval there is no result proving it creates a new file.
 export function permissionDiffs(
-  tool:
-    | {
-        kind?: unknown;
-        content?: unknown;
-        locations?: unknown;
-        rawInput?: unknown;
-      }
-    | undefined,
+  tool: { kind?: unknown; content?: unknown; locations?: unknown; rawInput?: unknown } | undefined,
 ): AcpmuxFileDiff[] | undefined {
   return toolDiffs(tool?.content, tool?.locations) ?? (tool?.kind === "edit" ? inputDiffs(tool.rawInput) : undefined);
 }
@@ -168,4 +146,21 @@ export function permissionPlan(
         .trim()
     : "";
   return text || undefined;
+}
+
+/// A risky step's fork offer (acpmux fork_risky.rs `offer`), when the request carries one whole.
+function forkOfferFrom(value: unknown): { forkOffer?: AcpmuxPermission["forkOffer"] } {
+  const offer = objectValue(value);
+  const machine = stringValue(offer?.machine);
+  const reason = stringValue(offer?.reason);
+  const clientKey = stringValue(offer?.clientKey);
+  return machine && reason && clientKey ? { forkOffer: { machine, reason, clientKey } } : {};
+}
+
+/// The offer a "Fork first" answer carries from the card (`chat.permission`'s `forkFirst`), when it is one.
+export function forkFirstOffer(value: unknown): { machine: string; clientKey: string } | undefined {
+  const offer = objectValue(value);
+  const machine = stringValue(offer?.machine);
+  const clientKey = stringValue(offer?.clientKey);
+  return machine && clientKey ? { machine, clientKey } : undefined;
 }

@@ -168,11 +168,7 @@ export function PermissionActionButton({
 // One keycap per key, as Claude desktop draws "Esc" and "⌘ ↩", after the answer's letter
 // (permissions/prompt.ts PERMISSION_LETTERS): "Y / ⌘ ↩", "A / ⌥⌘2", "N / Esc".
 const DENY_KEY: CardKey = { letter: "n", keys: ["Esc"], aria: "n Escape" };
-const ALLOW_KEY: CardKey = {
-  letter: "y",
-  keys: ["⌘", "↩"],
-  aria: "y Meta+Enter",
-};
+const ALLOW_KEY: CardKey = { letter: "y", keys: ["⌘", "↩"], aria: "y Meta+Enter" };
 const ALWAYS_KEY: CardKey = { letter: "a", keys: [], aria: "a" };
 
 /// Where Approve plan builds: here (the ask's own allow) or one of the plan's other builds.
@@ -239,10 +235,7 @@ export function PlanBuildSplit({
             <span className="acpmux-plan-build-item">
               <span>{t("permission.plan.buildCompare")}</span>
               <span className="acpmux-plan-build-detail">
-                {t("permission.plan.buildCompareDetail", {
-                  first: harnessName(first),
-                  second: harnessName(second),
-                })}
+                {t("permission.plan.buildCompareDetail", { first: harnessName(first), second: harnessName(second) })}
               </span>
             </span>
           </MenuItem>
@@ -321,7 +314,7 @@ export function PermissionCard({
   /// here instead of the plain allow, and a build elsewhere starts from it.
   onApproveEditedPlan?(plan: string): Promise<unknown>;
   /// "Fork first" on a risky step of a Cloud chat (`permission.forkOffer`, acpmux fork_risky.rs):
-  /// acpmux forks the machine, keeps the copy as a checkpoint, then allows `optionId`. A promise
+  /// the app forks the machine, keeps the copy as a checkpoint, then allows `optionId`. A promise
   /// that rejects is a refusal the card shows (the fork failed: the step still waits).
   onForkFirst?(optionId: string): unknown;
   /// Hold to approve's scope and hold time, in place of the experiments' (holdToApprove.experiment.ts);
@@ -334,10 +327,7 @@ export function PermissionCard({
   const forkOffer = onForkFirst && permission.pending ? permission.forkOffer : undefined;
   const preview = useMemo(() => commandPreview(command), [command]);
   const external = permission.externalAccess;
-  const [settingsError, setSettingsError] = useState<{
-    id: string;
-    message: string;
-  }>();
+  const [settingsError, setSettingsError] = useState<{ id: string; message: string }>();
   const title = external ? t("permission.external.title", { target: external.target }) : permissionTitle(permission, t);
   const detail = external ? t("permission.external.detail") : permissionDetail(permission);
   const {
@@ -403,11 +393,7 @@ export function PermissionCard({
     return () => observer.disconnect();
   }, [preview.line, showFull]);
   /// The field's text while it is open, for the ask it opened on; `sending` while its deny goes.
-  const [draft, setDraft] = useState<{
-    permissionId: string;
-    text: string;
-    sending?: boolean;
-  }>();
+  const [draft, setDraft] = useState<{ permissionId: string; text: string; sending?: boolean }>();
   const writing = draft?.permissionId === permission.permissionId ? draft : undefined;
   const field = useRef<HTMLTextAreaElement>(null);
   // Opening it again (Deny, its key, the deny shortcut) keeps what is typed.
@@ -452,10 +438,7 @@ export function PermissionCard({
   const shown = useRef(permission.permissionId);
   shown.current = permission.permissionId;
   /// The plan as the person is editing it, for the ask it was opened on (Edit plan).
-  const [planEdit, setPlanEdit] = useState<{
-    permissionId: string;
-    text: string;
-  }>();
+  const [planEdit, setPlanEdit] = useState<{ permissionId: string; text: string }>();
   const editingPlan = Boolean(plan && onApproveEditedPlan && planEdit?.permissionId === permission.permissionId);
   /// The edit Approve sends: only a changed, non-empty one; else the plan goes as the agent wrote it.
   const editedText = (() => {
@@ -486,10 +469,7 @@ export function PermissionCard({
     if (!owns(sent)) return;
     // Moved to the end: the map's order is the order answers were taken in.
     answers.current.delete(sent.permissionId);
-    answers.current.set(sent.permissionId, {
-      attempt: sent.attempt,
-      out: false,
-    });
+    answers.current.set(sent.permissionId, { attempt: sent.attempt, out: false });
     let settled = 0;
     for (const answer of answers.current.values()) if (!answer.out) settled += 1;
     for (const [id, answer] of answers.current) {
@@ -541,10 +521,7 @@ export function PermissionCard({
   const holdDescription = t("permission.holdToAllow");
   // Under hold, a plan's build menu answers nothing: it picks where the held Approve plan builds,
   // for this ask only (a new ask starts at here).
-  const [picked, setPicked] = useState<{
-    permissionId: string;
-    target: PlanTarget;
-  }>();
+  const [picked, setPicked] = useState<{ permissionId: string; target: PlanTarget }>();
   const planTarget: PlanTarget =
     plan && onBuildPlan && picked?.permissionId === permission.permissionId ? picked.target : "here";
   // Each hold is bound to the ask, the answer and the plan target it was pressed on: a press on one
@@ -781,12 +758,7 @@ export function PermissionCard({
                 rows={Math.min(16, Math.max(4, planEdit.text.split("\n").length + 1))}
                 spellCheck
                 autoFocus
-                onChange={(event) =>
-                  setPlanEdit({
-                    permissionId: permission.permissionId,
-                    text: event.target.value,
-                  })
-                }
+                onChange={(event) => setPlanEdit({ permissionId: permission.permissionId, text: event.target.value })}
                 onKeyDown={(event) => {
                   // Typing stays in the field; Escape closes the edit without sending it.
                   event.stopPropagation();
@@ -878,9 +850,7 @@ export function PermissionCard({
               onClick={() => {
                 const id = permission.permissionId;
                 setSettingsError(undefined);
-                void postNative("externalAccess.openSettings", {
-                  kind: external.kind,
-                }).catch((error: unknown) => {
+                void postNative("externalAccess.openSettings", { kind: external.kind }).catch((error: unknown) => {
                   const remote = error instanceof NativeError && error.code === "remote.unsupported";
                   if (!remote) console.warn("agent pane: Open Settings failed", error);
                   if (shown.current === id)
@@ -949,12 +919,7 @@ export function PermissionCard({
                       harness={harness}
                       cardKey={shortcuts ? ALLOW_KEY : undefined}
                       holdFocus={holdOnce?.ref}
-                      onPick={(target) =>
-                        setPicked({
-                          permissionId: permission.permissionId,
-                          target,
-                        })
-                      }
+                      onPick={(target) => setPicked({ permissionId: permission.permissionId, target })}
                       onHere={() => answer(allowOnce)}
                       onBuild={build}
                     >
@@ -988,12 +953,7 @@ export function PermissionCard({
             placeholder={feedbackPlaceholder}
             value={writing.text}
             readOnly={writing.sending}
-            onChange={(event) =>
-              setDraft({
-                permissionId: permission.permissionId,
-                text: event.target.value,
-              })
-            }
+            onChange={(event) => setDraft({ permissionId: permission.permissionId, text: event.target.value })}
             // ui-allow: a text field's own Return (send) beside Shift-Return (new line), as the composer's.
             onKeyDown={(event) => {
               // An input method keeps its Return: WebKit can end the composition before the Return's

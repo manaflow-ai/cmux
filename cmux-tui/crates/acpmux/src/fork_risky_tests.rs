@@ -86,26 +86,25 @@ fn the_offer_needs_the_setting_a_cloud_machine_and_a_risky_step() {
     assert_eq!(long["clientKey"].as_str().unwrap().chars().count(), MAX_CLIENT_KEY);
 }
 
-struct Fake(Result<String, String>);
-
-impl crate::placement::sub_fork::Machines for Fake {
-    async fn fork(&self, machine: &str, client_key: &str) -> Result<String, String> {
-        assert_eq!((machine, client_key), ("vm_abc", "risky-p1"));
-        self.0.clone()
-    }
-    async fn delete(&self, _machine: &str) -> Result<(), String> {
-        panic!("a checkpoint is never deleted here")
-    }
-}
-
-#[tokio::test]
-async fn fork_first_names_the_copy_and_the_time_or_the_failure() {
+#[test]
+fn the_app_s_copy_is_checked_against_the_offer() {
     let offer = offer(true, Some("vm_abc"), &shell("git reset --hard"), "p1").unwrap();
-    let rec = fork_first(&Fake(Ok("vm_copy".into())), &offer, "p1").await.unwrap();
+    let carried = json!({"machine": "vm_abc", "fork": "vm_copy", "forkMs": 39_500});
+    let rec = checkpoint(&offer, "p1", &carried).unwrap();
     assert_eq!(rec["fork"], "vm_copy");
     assert_eq!(rec["machine"], "vm_abc");
     assert_eq!(rec["permissionId"], "p1");
-    assert!(rec["forkMs"].is_u64());
-    let err = fork_first(&Fake(Err("quota".into())), &offer, "p1").await.unwrap_err();
-    assert_eq!(err, "quota");
+    assert_eq!(rec["forkMs"], 39_500);
+    assert_eq!(rec["clientKey"], "risky-p1");
+    assert_eq!(rec["carriedBy"], "app");
+    for bad in [
+        json!({"machine": "vm_other", "fork": "vm_copy", "forkMs": 1}),
+        json!({"machine": "vm_abc", "fork": "vm_abc", "forkMs": 1}),
+        json!({"machine": "vm_abc", "fork": "../v1", "forkMs": 1}),
+        json!({"machine": "vm_abc", "fork": "vm_copy"}),
+        json!({"machine": "vm_abc", "fork": "vm_copy", "forkMs": -1}),
+        json!("vm_copy"),
+    ] {
+        assert!(checkpoint(&offer, "p1", &bad).is_err(), "{bad}");
+    }
 }

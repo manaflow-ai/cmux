@@ -160,6 +160,7 @@ import { handoffStore, receiveHandedCloudStart } from "../commandPlace";
 import { askPermissionFocus } from "../permissions/focusRequest";
 import type { PermissionDecision } from "../permissions/protocol";
 import { planBuildTarget } from "../permissions/planBuild";
+import { forkFirstOffer } from "../direct/permissions";
 import { type PaneSurface, readSurface } from "../paneSurface";
 import { designSelectionChips, designSelectionRemovals } from "../designSelection";
 import { setFloatingState } from "../floatingState";
@@ -273,13 +274,7 @@ export type PaneSnapshotArgs = {
     | undefined
   >;
   trustRouteOwner: React.RefObject<
-    | {
-        client: AcpmuxDirectClient;
-        generation: number;
-        sessionId?: string;
-        cancelEpoch: number;
-      }
-    | undefined
+    { client: AcpmuxDirectClient; generation: number; sessionId?: string; cancelEpoch: number } | undefined
   >;
   holdPrompt: React.RefObject<(() => void) | undefined>;
   holdRefused: React.RefObject<
@@ -311,12 +306,7 @@ export type PaneSnapshotArgs = {
   earlyNewTab: ReturnType<typeof useEarlyNewTabContext>;
   checkSharedPart: ReturnType<typeof useLostSharedPart>;
   automationView: React.RefObject<
-    | {
-        snapshot: AcpmuxSnapshot;
-        selectSession: (sessionId: string) => void;
-        openDiff: OpenDiff;
-      }
-    | undefined
+    { snapshot: AcpmuxSnapshot; selectSession: (sessionId: string) => void; openDiff: OpenDiff } | undefined
   >;
   setShortcuts: React.Dispatch<React.SetStateAction<Readonly<Record<string, string>>>>;
   setCloudPickRequest: React.Dispatch<React.SetStateAction<number>>;
@@ -325,10 +315,7 @@ export type PaneSnapshotArgs = {
   externalWaiting: React.RefObject<boolean>;
   shownCloudStartPickNow: () => CloudStartPick | undefined;
   toggleSessionInfo: React.RefObject<(() => void) | undefined>;
-  paletteCommands: React.RefObject<{
-    sessionId: string;
-    commands: Record<string, () => void>;
-  }>;
+  paletteCommands: React.RefObject<{ sessionId: string; commands: Record<string, () => void> }>;
   counted: React.RefObject<{
     summary: AcpmuxSnapshot["summary"];
     sourceRows: AcpmuxRow[];
@@ -828,10 +815,7 @@ export function paneSnapshotEffect({
         // The live chat's steers name rows the seed replaced: only the fixture's own stand.
         waitingSteers: fields?.waitingSteers,
         newestOwnSteer: fields?.newestOwnSteer,
-        ...(fields &&
-          current.summary && {
-            summary: { ...current.summary, ...fields.summary },
-          }),
+        ...(fields && current.summary && { summary: { ...current.summary, ...fields.summary } }),
       }));
     },
     rowCount: () => rowsRef.current.length,
@@ -1023,10 +1007,7 @@ export function paneSnapshotEffect({
         typeof host.cloudMachineID === "string" &&
           Array.isArray(host.cloudAccount) &&
           host.cloudAccount.every((part) => part === null || typeof part === "string")
-          ? {
-              id: host.cloudMachineID,
-              account: host.cloudAccount as (string | null)[],
-            }
+          ? { id: host.cloudMachineID, account: host.cloudAccount as (string | null)[] }
           : undefined,
       );
       setNewSession(host.newSession === true && !host.sessionId);
@@ -1177,10 +1158,7 @@ export function paneSnapshotEffect({
       const config: AcpmuxHostConfig = mockModule
         ? host.newSession
           ? { ...mockModule.mockHost, sessionId: undefined, newSession: true }
-          : {
-              ...mockModule.mockHost,
-              sessionId: host.sessionId || mockModule.mockHost.sessionId,
-            }
+          : { ...mockModule.mockHost, sessionId: host.sessionId || mockModule.mockHost.sessionId }
         : (host as AcpmuxHostConfig);
       let connectingClient: AcpmuxDirectClient | undefined;
       acpmuxPerf.markLaunch("connectStart");
@@ -1250,10 +1228,7 @@ export function paneSnapshotEffect({
                 next.sessionId === previous.sessionId &&
                 previous.handoff?.record
               )
-                return {
-                  ...next,
-                  handoff: { ...next.handoff, record: previous.handoff.record },
-                };
+                return { ...next, handoff: { ...next.handoff, record: previous.handoff.record } };
               return next;
             }),
           );
@@ -1374,12 +1349,7 @@ export function paneSnapshotEffect({
           trustRouteOwner.current,
           () => trustRefused.current?.(refusal, again, declined) ?? false,
           () => {
-            pendingTrustRefusal.current = {
-              ...current,
-              error: refusal,
-              again,
-              declined,
-            };
+            pendingTrustRefusal.current = { ...current, error: refusal, again, declined };
           },
         );
       };
@@ -1701,10 +1671,7 @@ export function paneSnapshotEffect({
       const runInterruptedResume = interruptedResumeRunner({
         read: () => {
           const state = readInterruptedResume();
-          return {
-            ...state,
-            canResume: state.canResume && directClient.current === client,
-          };
+          return { ...state, canResume: state.canResume && directClient.current === client };
         },
         bind: () => client.bindSendGesture(),
         emptyTurn: (owner, promptId, ticket, current) => client.resumeInterrupted(owner, promptId, ticket, current),
@@ -1792,11 +1759,7 @@ export function paneSnapshotEffect({
             holdsForComputerUseSetupRef.current(queued, false, place);
             // An edit's typed refusal keeps the editor's text; Send Now leaves the row queued.
             return change.op === "update"
-              ? Promise.reject(
-                  Object.assign(new Error("held"), {
-                    code: "computer_use_held",
-                  }),
-                )
+              ? Promise.reject(Object.assign(new Error("held"), { code: "computer_use_held" }))
               : Promise.resolve(false);
           }
           return client.editQueued(String(promptId), change);
@@ -1811,7 +1774,7 @@ export function paneSnapshotEffect({
             // The Needs you list answers asks of other chats too.
             typeof sessionId === "string" && sessionId ? sessionId : undefined,
             annotations && typeof annotations === "object" ? (annotations as Record<string, unknown>) : undefined,
-            forkFirst === true,
+            forkFirstOffer(forkFirst),
           ),
         "chat.plan.build": ({ permissionId, target, sessionId, plan }) =>
           client.planBuild(
@@ -1845,9 +1808,7 @@ export function paneSnapshotEffect({
           // does, so the pick replaces the failed start's and goes with Retry (#46874 review).
           const failedPick = shownCloudStartPickNow();
           if (!summary?.sessionId && !snapshotRef.current?.switching && failedPick)
-            return harnessSwitch.switchTo(failedPick.harness, undefined, {
-              model: String(modelId),
-            });
+            return harnessSwitch.switchTo(failedPick.harness, undefined, { model: String(modelId) });
           return harnessSwitch.pickModel(
             String(modelId),
             summary?.sessionId ? { sessionId: summary.sessionId, model: summary.model } : undefined,
@@ -1863,10 +1824,7 @@ export function paneSnapshotEffect({
           // is held, with its gesture taken now, and the send's new session takes it first.
           if (!sessionId && client.startsOnSend) {
             const ticket = postNative<{ ticket?: string }>("transport.gesture", {
-              intent: {
-                method: "session/set_mode",
-                params: { modeId: String(modeId) },
-              },
+              intent: { method: "session/set_mode", params: { modeId: String(modeId) } },
             }).then((reply) => reply?.ticket);
             ticket.catch(() => undefined);
             client.holdStartMode(String(modeId), ticket);
@@ -2085,9 +2043,7 @@ export function paneSnapshotEffect({
             await client.refreshModels();
           } finally {
             // A refused or failed probe still re-reads what acpmux has.
-            await queryClient.invalidateQueries({
-              queryKey: ["acpmux", "harnesses"],
-            });
+            await queryClient.invalidateQueries({ queryKey: ["acpmux", "harnesses"] });
           }
         },
         // Enables a folder profile, then starts the chat on it. The request goes out before any
@@ -2099,9 +2055,7 @@ export function paneSnapshotEffect({
           client.harnessEnable(String(folder), String(id)).then(
             async (result) => {
               setBlockedHarness(undefined);
-              await queryClient.invalidateQueries({
-                queryKey: ["acpmux", "harnesses"],
-              });
+              await queryClient.invalidateQueries({ queryKey: ["acpmux", "harnesses"] });
               void harnessSwitch.switchTo(String(id));
               return result;
             },
@@ -2186,16 +2140,10 @@ export function paneSnapshotEffect({
               {
                 read: () => {
                   const state = readSendAgain();
-                  return {
-                    ...state,
-                    canSend: state.canSend && directClient.current === client,
-                  };
+                  return { ...state, canSend: state.canSend && directClient.current === client };
                 },
                 pickModel: (model, sessionId, currentModel) =>
-                  harnessSwitch.pickModel(model, {
-                    sessionId,
-                    model: currentModel,
-                  }),
+                  harnessSwitch.pickModel(model, { sessionId, model: currentModel }),
                 restore: (promptId, prompt) => client.resendPrompt(promptId, prompt),
                 send: (draft, owner) =>
                   sendUntilTaken((taken) =>
@@ -2344,9 +2292,7 @@ export function paneSnapshotEffect({
         "chat.tryAnotherApproach": async ({ throughSeq }) => {
           if (!cloudMachineIDRef.current || Number(throughSeq) !== latestForkSeq(snapshotRef.current?.rows ?? []))
             return undefined;
-          return postNative("chat.tryAnotherApproach", {
-            throughSeq: Number(throughSeq),
-          });
+          return postNative("chat.tryAnotherApproach", { throughSeq: Number(throughSeq) });
         },
         // Edit and resend (cx-ncc.60): a fork through the turn before the prompt, which then gets the
         // edited text with the prompt's attachments; the original chat stays as it was.
@@ -2407,16 +2353,10 @@ export function paneSnapshotEffect({
             const code = (error as { code?: unknown } | null)?.code;
             // Held at dispatch for Computer Use (direct.ts `sendHold`): the reason, as a send's bubble says it.
             if (code === "computer_use_held")
-              return notices.failed(
-                translate("prompt.notSent", {
-                  reason: (error as Error).message,
-                }),
-              );
+              return notices.failed(translate("prompt.notSent", { reason: (error as Error).message }));
             if (typeof code === "string" && code.startsWith("transport."))
               notices.failed(
-                translate("prompt.notSent", {
-                  reason: knownRefusalText(error) ?? translate("transport.refused"),
-                }),
+                translate("prompt.notSent", { reason: knownRefusalText(error) ?? translate("transport.refused") }),
               );
           };
           // A chat on another machine that opens side chats there (Cloud, SSH): that machine forks,
@@ -2428,10 +2368,7 @@ export function paneSnapshotEffect({
             // the prompt then goes to it as any prompt does, files and all.
             const side = await client.sideChatOnMachine(boundary, files.length ? undefined : text || undefined);
             if (!side || !chat) throw new Error("");
-            await postNative("chat.sideChat", {
-              sessionId: side.sessionId,
-              ...split,
-            });
+            await postNative("chat.sideChat", { sessionId: side.sessionId, ...split });
             if (files.length) {
               void client.promptSide(side.sessionId, text, files, held).catch(sidePromptRefused);
               return;
@@ -2483,11 +2420,7 @@ export function paneSnapshotEffect({
             return;
           }
           try {
-            await callNative("chat.side", {
-              ...target,
-              splitRight: true,
-              prompt,
-            });
+            await callNative("chat.side", { ...target, splitRight: true, prompt });
           } catch (error) {
             const reason = errorMessage(error);
             notices.transient(
@@ -2662,11 +2595,7 @@ export function paneSnapshotEffect({
             : action === "merge"
               ? // A merge names the pull request it means; one that does not is refused, never an Open.
                 Number.isInteger(number) && typeof url === "string"
-                ? client.gitPullRequest({
-                    action,
-                    number: number as number,
-                    url,
-                  })
+                ? client.gitPullRequest({ action, number: number as number, url })
                 : Promise.reject(new Error(translate("header.prMergeFailed")))
               : client.gitPullRequest(),
         // What the agent works on, for a terminal or browser opened from this chat (#16620).
@@ -2834,9 +2763,7 @@ export function paneSnapshotEffect({
         opened: (sessionId) => {
           void persistSession(sessionId);
           // The harness has started and probed its models: refresh the catalog behind the picker.
-          void queryClient.invalidateQueries({
-            queryKey: ["acpmux", "harnesses"],
-          });
+          void queryClient.invalidateQueries({ queryKey: ["acpmux", "harnesses"] });
         },
         notice: (text) => client.notice(text),
         // A held pick spends its gesture now (pane-native transport); the ticket goes with the
@@ -2905,23 +2832,17 @@ export function paneSnapshotEffect({
       if (host.peer && !host.sessionId && !client.attachedSession() && !client.adopted) {
         // The Environment picker's existing action owns peer creation and persistence. An
         // explicit host chooses it too, without inventing a second session/new handler.
-        await window.cmuxAcpmuxActions["chat.new"]!({
-          peer: host.peer,
-          cwd: host.cwd,
-          harness,
-          model,
-        }).catch((error: unknown) => {
-          // The handshake succeeded. A rejected folder/model is a creation failure on
-          // this connection, not a reason to reconnect and repeat session/new forever.
-          console.warn("agent pane: the new chat on the machine did not start", error);
-          if (!cancelled && directClient.current === client)
-            client.notice(knownRefusalText(error) ?? translate("chat.newFailed"));
-        });
+        await window.cmuxAcpmuxActions["chat.new"]!({ peer: host.peer, cwd: host.cwd, harness, model }).catch(
+          (error: unknown) => {
+            // The handshake succeeded. A rejected folder/model is a creation failure on
+            // this connection, not a reason to reconnect and repeat session/new forever.
+            console.warn("agent pane: the new chat on the machine did not start", error);
+            if (!cancelled && directClient.current === client)
+              client.notice(knownRefusalText(error) ?? translate("chat.newFailed"));
+          },
+        );
       } else if (harness && hasPrompt) {
-        void harnessSwitch.switchTo(harness, host.cwd, {
-          model,
-          ...(options ? { options } : {}),
-        });
+        void harnessSwitch.switchTo(harness, host.cwd, { model, ...(options ? { options } : {}) });
         void send(prompt ?? "", attachments, undefined, false, ticket?.promptId, undefined, true).catch(
           () => undefined,
         );
@@ -2935,17 +2856,11 @@ export function paneSnapshotEffect({
       // A model-only seed stays sessionless until the first Send; AcpmuxDirectClient retains
       // it in its host config and ensureSession() carries it into session/new.
       else if (harness && !client.adopted && client.startsOnSend)
-        void harnessSwitch.switchTo(harness, host.cwd, {
-          model,
-          ...(options ? { options } : {}),
-        });
+        void harnessSwitch.switchTo(harness, host.cwd, { model, ...(options ? { options } : {}) });
     } catch (error) {
       if (!cancelled) {
         acpWire.lifecycle("handshake failed", { message: String(error) });
-        setSnapshot((current) => ({
-          ...current,
-          connection: `connecting: ${String(error)}`,
-        }));
+        setSnapshot((current) => ({ ...current, connection: `connecting: ${String(error)}` }));
         // A chat too large to open says so in plain words; the reply's byte count stays in the log.
         const tooLarge = hostRefusedTooLarge(error);
         // hostLine.ts words the line: only the pane's own text stands on it, the rest is Details.

@@ -2,8 +2,9 @@
 // "Fork first" on a risky step (RFD 0163 row 25, acpmux fork_risky.rs): a permission request that
 // carries a `forkOffer` (only with `cloud.autoCloud` on, on a Cloud machine, for a force push, a
 // hard reset, a migration and the like) shows the reason and a Fork first button; the button sends
-// the one-time allow through `onForkFirst`, never the plain answer. An ask with no offer, or a pane
-// that cannot carry it out, shows neither.
+// the one-time allow through `onForkFirst`, never the plain answer (the app forks the machine with
+// the person's token, then the allow names the copy). An ask with no offer, or a pane that cannot
+// carry it out, shows neither.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxPermission } from "../src/agent-session/acpmux/model";
@@ -42,7 +43,7 @@ afterAll(async () => {
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { PermissionCard } = await import("../src/agent-session/acpmux/PermissionCard");
-const { permissionFromMessage } = await import("../src/agent-session/acpmux/direct/permissions");
+const { permissionFromMessage, forkFirstOffer } = await import("../src/agent-session/acpmux/direct/permissions");
 
 const request = (forkOffer?: unknown) => ({
   sessionId: "s1",
@@ -70,9 +71,20 @@ test("the request's forkOffer reaches the permission, and only a whole one", () 
   expect(permissionFromMessage(request(offer), "s1")?.forkOffer).toEqual({
     machine: "vm_abc",
     reason: "git push rewrites or deletes a remote branch",
+    clientKey: "risky-p1",
   });
   expect(permissionFromMessage(request(), "s1")?.forkOffer).toBeUndefined();
   expect(permissionFromMessage(request({ machine: "vm_abc" }), "s1")?.forkOffer).toBeUndefined();
+  expect(permissionFromMessage(request({ machine: "vm_abc", reason: "x" }), "s1")?.forkOffer).toBeUndefined();
+});
+
+test("the card's Fork first carries the offer's machine and clientKey, and only both", () => {
+  expect(forkFirstOffer({ machine: "vm_abc", clientKey: "risky-p1", extra: 1 })).toEqual({
+    machine: "vm_abc",
+    clientKey: "risky-p1",
+  });
+  expect(forkFirstOffer(true)).toBeUndefined();
+  expect(forkFirstOffer({ machine: "vm_abc" })).toBeUndefined();
 });
 
 async function render(permission: AcpmuxPermission, onForkFirst?: (id: string) => unknown) {
