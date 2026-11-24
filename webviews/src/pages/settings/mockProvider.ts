@@ -9,6 +9,7 @@
 import { runMockAgentKeys } from "./mockAgentKeys";
 import { mockAutocloudState, runMockAutocloud } from "./mockAutocloud";
 import { mockHubState, runMockHub } from "./mockHub";
+import { mockConnectionsState, runMockConnections } from "./mockConnections";
 import { mockModels, runMockModels } from "./mockModels";
 import { mockAllotments, runMockAllotment } from "./mockAllotments";
 import { createMockPair } from "../../protocol/adapters/mock";
@@ -89,6 +90,8 @@ import {
   type DoctorRun,
   type LibraryAnswer,
   type AgentSkillRow,
+  type ConnectionsRun,
+  type ConnectionsState,
 } from "./ops";
 import { rowsByKey, schema } from "./schema";
 import { withEdits, type ThemeEditMap } from "../../theme/themeEdits";
@@ -136,6 +139,9 @@ export type MockOptions = {
   doctorRefusal?: string;
   /** A customization being tried on (`cmux customize try`); absent: none. */
   tryOn?: CustomizeTryOn;
+  /** Writes of these keys the daemon refuses with this reason and details (a json row's
+   * `accepted.problems`, as cmux-config's refusal carries them). */
+  refusals?: Record<string, { message: string; details: Record<string, unknown> }>;
 };
 
 /** This Mac joined to a team with the one-line join, every consent switch off. */
@@ -276,6 +282,7 @@ export class MockSettingsProvider {
   private readonly chatFolders: ListRow["folders"];
   private actionRan: boolean;
   private readonly failing: Partial<Record<string, string>>;
+  private readonly refusals: NonNullable<MockOptions["refusals"]>;
   private readonly values = new Map<string, unknown>();
   private readonly managed: Map<string, { value: unknown } & ManagedInfo>;
   private readonly changed = new Set<EventSourceContext>();
@@ -304,6 +311,7 @@ export class MockSettingsProvider {
     this.diagnostics = options.diagnostics ?? [];
     this.domains = options.domains === undefined ? mockDomains : options.domains;
     this.failing = options.failing ?? {};
+    this.refusals = options.refusals ?? {};
     this.actionRan = options.actionRan ?? true;
     this.connected = options.connected ?? true;
     this.tryOn = options.tryOn ?? null;
@@ -955,6 +963,13 @@ export class MockSettingsProvider {
         this.hub = runMockHub(this.hub, run);
         return {};
       },
+      "cmux.settings.connections.state": () => this.connections,
+      "cmux.settings.connections.run": (params) => {
+        const run = params as ConnectionsRun;
+        if (run.action !== "refresh") this.connectionsRuns.push(run);
+        this.connections = runMockConnections(this.connections, run);
+        return {};
+      },
       "cmux.settings.mcp.state": () => this.mcpServers,
       "cmux.settings.mcp.run": (params) => {
         const run = params as McpServersRun;
@@ -1071,6 +1086,8 @@ export class MockSettingsProvider {
       "cmux.settings.autocloud.run",
       "cmux.settings.hub.state",
       "cmux.settings.hub.run",
+      "cmux.settings.connections.state",
+      "cmux.settings.connections.run",
       "cmux.settings.agentSkills.state",
       "cmux.settings.agentSkills.run",
       "cmux.settings.mcp.run",
@@ -1800,6 +1817,11 @@ export class MockSettingsProvider {
   hub: HubState = mockHubState();
   /** Every Integrations gesture but refresh, in order (the key a Link sent included). */
   hubRuns: HubRun[] = [];
+
+  /** Settings > Connections as the app serves it (`SettingsConnections.state`). */
+  connections: ConnectionsState = mockConnectionsState();
+  /** Every Connections gesture but refresh, in order (a pasted key included). */
+  connectionsRuns: ConnectionsRun[] = [];
 
   /** The person's saved MCP servers as the app serves them (`SettingsMcpServers.state`). */
   mcpServers: McpServersState = {
@@ -2607,6 +2629,8 @@ export class MockSettingsProvider {
 
   private set(key: string, value: unknown): MutationResult {
     this.guard(key);
+    const refusal = this.refusals[key];
+    if (refusal) throw new ProtocolError("cmux.settings.invalid", refusal.message, { details: refusal.details });
     const reason = validate(rowsByKey.get(key)!, value, this.domains ?? undefined);
     if (reason) throw new ProtocolError("cmux.settings.invalid", `${key}: ${reason}`, { details: { key, value } });
     this.values.set(key, value);
