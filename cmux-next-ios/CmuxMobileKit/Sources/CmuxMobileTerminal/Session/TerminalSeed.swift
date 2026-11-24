@@ -18,8 +18,7 @@ public enum TerminalSeed {
     /// the Mac's (`read-screen`): the newest rows within the bounds, with no blank rows at the
     /// end. Nil when nothing but blank rows is left.
     public static func rows(fromScreenText text: String) -> String? {
-        var lines = text.split(separator: "\n", omittingEmptySubsequences: false)
-            .map { $0.hasSuffix("\r") ? $0.dropLast() : $0 }
+        var lines = Self.rowLines(of: text)
         while let last = lines.last, last.allSatisfy(\.isWhitespace) { lines.removeLast() }
         guard !lines.isEmpty else { return nil }
         lines = Array(lines.suffix(maxRows))
@@ -39,12 +38,18 @@ public enum TerminalSeed {
     public static func bytes(rows: String) -> Data {
         var out = String.UnicodeScalarView()
         var firstLine = true
-        for line in rows.split(separator: "\n", omittingEmptySubsequences: false) {
+        for line in Self.rowLines(of: rows) {
             if !firstLine { out.append(contentsOf: "\r\n".unicodeScalars) }
             firstLine = false
             for scalar in line.unicodeScalars where printable(scalar) { out.append(scalar) }
         }
         return Data(String(out).utf8)
+    }
+
+    /// `text`'s rows, split at "\n" and "\r\n". Swift reads "\r\n" as one Character, so a
+    /// split on "\n" alone keeps a "\r\n" row pair as one row.
+    private static func rowLines(of text: String) -> [Substring] {
+        text.split(omittingEmptySubsequences: false) { $0 == "\n" || $0 == "\r\n" }
     }
 
     private static func printable(_ scalar: Unicode.Scalar) -> Bool {
