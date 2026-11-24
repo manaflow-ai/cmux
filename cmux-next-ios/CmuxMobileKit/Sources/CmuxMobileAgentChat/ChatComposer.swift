@@ -109,7 +109,8 @@ struct ChatComposer: View {
         }
         .fullScreenCover(isPresented: $showCamera) {
             CameraPicker { image in
-                if let data = image.jpegData(compressionQuality: 0.85) {
+                if let data = image.jpegData(compressionQuality: AgentImageOptimizer.jpegQuality) {
+                    let data = AgentImageOptimizer.optimize(data)
                     attachments.append(AgentAttachment(kind: .image, name: "Camera \(Date().formatted(date: .omitted, time: .shortened))", data: data))
                 }
             }
@@ -180,7 +181,7 @@ struct ChatComposer: View {
             let stamp = Date().formatted(date: .omitted, time: .shortened)
             for (index, image) in board.composerImages().enumerated() {
                 let suffix = index > 0 ? " \(index + 1)" : ""
-                attachments.append(AgentAttachment(kind: .image, name: "Pasted image \(stamp)\(suffix)", data: image.data))
+                attachments.append(AgentAttachment(kind: .image, name: "Pasted image \(stamp)\(suffix)", data: AgentImageOptimizer.optimize(image.data)))
             }
         } else if board.composerHoldsFileData {
             // A file copied in Files is its bytes on the pasteboard, not a path.
@@ -189,8 +190,9 @@ struct ChatComposer: View {
                 let pasted = await ComposerPastedFiles.load(providers)
                 attachments += pasted.files.map { file in
                     let image = file.type.conforms(to: .image) ? file.data.flatMap { UIImage(data: $0) } : nil
+                    let data = image == nil ? file.data : file.data.map(AgentImageOptimizer.optimize)
                     return AgentAttachment(kind: image == nil ? .file : .image, name: file.name,
-                                           data: file.data, fileURL: file.fileURL, byteCount: file.byteCount)
+                                           data: data, fileURL: file.fileURL, byteCount: data?.count ?? file.byteCount)
                 }
                 if let name = pasted.unreadable.first { store.clientError = "Couldn't read \(name)." }
             }
@@ -771,11 +773,7 @@ struct ChatComposer: View {
                 continue
             }
             guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
-            var attachment = AgentAttachment(kind: .image, name: "Photo", data: data)
-            // HEIC and other formats agents do not accept go over as JPEG.
-            if attachment.imageMIMEType == nil, let jpeg = UIImage(data: data)?.jpegData(compressionQuality: 0.85) {
-                attachment.data = jpeg
-            }
+            let attachment = AgentAttachment(kind: .image, name: "Photo", data: AgentImageOptimizer.optimize(data))
             attachments.append(attachment)
         }
         photoItems = []
