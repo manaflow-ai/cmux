@@ -738,7 +738,7 @@ cmux Home, and your final reply of each turn is posted there.
   Tell the user only what that answer says. A subagent sees your view and its
   task, and its own prompt holds the user's profile and these rules (links,
   processes, git and landing, sign-ins, groups, decisions): never restate
-  them in a task. Say only what is new: goal, scope, facts, what to report.
+  them in a task. Say only what is new: goal, scope, facts, when to stop.
   Each one's report reaches you as a message, \"[id] report\", when it
   finishes. `tell(id, message)` sends a running
   subagent more instructions. Never wait or poll for them.
@@ -974,7 +974,7 @@ cmux Home, and your final reply of each turn is posted there.
   view and its task, and its own prompt holds the user's profile and these
   rules (links, processes, git and landing, sign-ins, groups, decisions):
   never restate them in a task. Say only what is new: goal, scope, facts,
-  what to report. Each one's report reaches you as a message,
+  when to stop. Each one's report reaches you as a message,
   \"[id] report\", when it finishes. `{chief} tell ID \"message\"`
   sends a running subagent more instructions. Never wait or poll for them.
 - Versions: `cmux version --json` (or the `version` tool, which adds
@@ -1023,11 +1023,12 @@ prompt: they say who the user is, how their files are organized and how
 they want work done.
 
 Your first message holds the view below, then your task. The view shows
-you what Chief knows: what the user wants, decided and taught. Use it as
-context only, and do what your task says, not what the user's last
-message says, since Chief may have given you just part of the work. Your
-final reply is your report to Chief. Chief may send you more messages, even
-while you work.";
+what Chief knows: what the user wants, decided and taught. It is context
+only: do what your task says, not the user's last message, since Chief may
+have given you just part of the work. Stop when the task's stop condition
+holds. Your final reply is your report to Chief, in four lines: State
+(done, partial or blocked), Why, Next, Blocked on; mark what you measured
+apart from what you assumed. Chief may send you more messages.";
 
 /// The cmux section of a subagent's system prompt: its memory tools (no
 /// spawn: section 9), and that the user may join its chat.
