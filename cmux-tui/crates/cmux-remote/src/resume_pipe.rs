@@ -167,6 +167,12 @@ impl State {
             && self.log.unacked() == 0
             && self.ack_written == self.received
     }
+
+    /// Both sides ended and the other end has every byte of ours: what an end-of-transport
+    /// from a finished other end leaves.
+    fn peer_finished(&self) -> bool {
+        self.fin_sent && self.fin_received && self.log.unacked() == 0
+    }
 }
 
 struct Local<L> {
@@ -369,10 +375,23 @@ impl<L: AsyncRead + AsyncWrite + Send> Claim<'_, L> {
                             if pipe.state().fin_received {
                                 return Ran::Failed("DATA after the other end's FIN".into());
                             }
-                            if let Err(e) = local_write.write_all(&payload).await {
-                                return Ran::Failed(format!("the local side failed: {e}"));
+                            // Counted per write, not per frame: a run that ends inside the
+                            // frame (a cut, a newer claim) has its written part counted, so
+                            // the resume sends only the rest and no byte arrives twice.
+                            let mut rest = &payload[..];
+                            while !rest.is_empty() {
+                                let n = match local_write.write(rest).await {
+                                    Ok(0) => {
+                                        return Ran::Failed("the local side took no bytes".into());
+                                    }
+                                    Ok(n) => n,
+                                    Err(e) => {
+                                        return Ran::Failed(format!("the local side failed: {e}"));
+                                    }
+                                };
+                                pipe.state().received += n as u64;
+                                rest = &rest[n..];
                             }
-                            pipe.state().received += payload.len() as u64;
                             pipe.ack_due.notify_one();
                         }
                         ACK => {
@@ -400,6 +419,10 @@ impl<L: AsyncRead + AsyncWrite + Send> Claim<'_, L> {
                     }
                 }
                 match from_peer.read_buf(&mut buf).await {
+                    // The other end shuts its side only when it finished; with both FINs in
+                    // and every byte of ours acked, nothing is left for this end either (its
+                    // own last ACK is moot: the other end already has every byte).
+                    Ok(0) if pipe.state().peer_finished() => return Ran::Finished,
                     Ok(0) => return Ran::Broken("the transport ended".into()),
                     Ok(_) => {}
                     Err(e) => return Ran::Broken(format!("the transport failed: {e}")),

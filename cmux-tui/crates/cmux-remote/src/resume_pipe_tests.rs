@@ -64,7 +64,8 @@ fn pattern(seed: u64, len: usize) -> Vec<u8> {
         .collect()
 }
 
-/// One end's application side: writes `send`, then ends its writes; reads to EOF.
+/// One end's application side: writes `send`, then ends its writes; returns what it read (what
+/// the other end's application sent).
 fn app(mut io: DuplexStream, send: Vec<u8>) -> tokio::task::JoinHandle<Vec<u8>> {
     tokio::spawn(async move {
         let (mut read, mut write) = tokio::io::split(&mut io);
@@ -93,12 +94,9 @@ async fn run_both(
     let (claim_a, claim_b) = (a.claim().await, b.claim().await);
     let (a_has, b_has) = (claim_a.received(), claim_b.received());
     let cutting = async {
-        match cut_after {
-            Some(after) => {
-                tokio::time::sleep(after).await;
-                copy.abort();
-            }
-            None => {}
+        if let Some(after) = cut_after {
+            tokio::time::sleep(after).await;
+            copy.abort();
         }
         std::future::pending::<()>().await;
     };
@@ -116,7 +114,7 @@ async fn a_pipe_carries_both_ways_and_finishes() {
     let a = Arc::new(ResumablePipe::new(local_a));
     let b = Arc::new(ResumablePipe::new(local_b));
     let (to_b, to_a) = (pattern(1, 1 << 20), pattern(2, 300_000));
-    let (got_b, got_a) = (app(app_a, to_b.clone()), app(app_b, to_a.clone()));
+    let (got_a, got_b) = (app(app_a, to_b.clone()), app(app_b, to_a.clone()));
     let ran = tokio::time::timeout(BOUND, run_both(&a, &b, None)).await.unwrap();
     assert_eq!(ran, (Ran::Finished, Ran::Finished));
     assert_eq!(got_a.await.unwrap(), to_a);
@@ -131,7 +129,7 @@ async fn cut_after_cut_loses_and_doubles_no_byte() {
     let b = Arc::new(ResumablePipe::new(local_b));
     // More than the unacked bound, so the local reads wait on acks across the cuts too.
     let (to_b, to_a) = (pattern(3, 3 * MAX_UNACKED), pattern(4, 2 << 20));
-    let (got_b, got_a) = (app(app_a, to_b.clone()), app(app_b, to_a.clone()));
+    let (got_a, got_b) = (app(app_a, to_b.clone()), app(app_b, to_a.clone()));
     let mut cuts = 0;
     let ran = tokio::time::timeout(BOUND, async {
         loop {
