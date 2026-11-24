@@ -1568,9 +1568,8 @@ fn save_cache(fingerprint: &str, login: &[(String, String)], login_path: Option<
         saved_at: Some(now_secs()),
     };
     let Ok(bytes) = serde_json::to_vec_pretty(&cache) else { return };
-    if let Err(e) = crate::config::write_atomic(&cache_path(), &bytes) {
-        tracing::warn!("login env cache: {e:#}");
-    }
+    // A cache: the disk writer (`disk_writer.rs`) writes it and logs a failure.
+    crate::config::write_atomic_later(&cache_path(), bytes);
 }
 
 /// Files created by cloud apply-machine-config and deliver-secrets. Their
