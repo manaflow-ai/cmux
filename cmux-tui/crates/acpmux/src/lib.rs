@@ -236,6 +236,7 @@ pub mod peer_paths;
 pub mod peer_states;
 pub mod person_proof;
 pub mod person_tokens;
+pub mod place_mode;
 pub mod placement;
 pub mod plan_build_records;
 #[cfg(not(unix))]

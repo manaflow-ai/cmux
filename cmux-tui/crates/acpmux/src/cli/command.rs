@@ -16,6 +16,39 @@ pub struct AppOpenArgs {
     pub options: Vec<String>,
 }
 
+/// `session place`: where an existing chat runs, from the place menu's choices.
+#[derive(Args, Debug, Clone, PartialEq, Eq)]
+pub struct PlaceSessionArgs {
+    /// The chats to place (ids or names).
+    #[arg(required = true)]
+    pub sessions: Vec<String>,
+    /// Auto (nothing moves now), cloud (a fresh cloud machine) or machine (move there, stay).
+    #[arg(long, value_parser = ["auto", "cloud", "machine"], required_unless_present_any = ["undo", "status"])]
+    pub mode: Option<String>,
+    /// With `--mode cloud`: the size, s, m or l (default: what Auto would pick).
+    #[arg(long, value_parser = ["s", "m", "l"])]
+    pub size: Option<String>,
+    /// With `--mode machine`: the machine.
+    #[arg(long, value_name = "MACHINE")]
+    pub machine: Option<String>,
+    /// With `--mode machine`: run the chat in this folder there (as `session move --cwd`).
+    #[arg(long, value_name = "PATH")]
+    pub cwd: Option<String>,
+    /// The reason the chat's move line gives (default: you chose it).
+    #[arg(long)]
+    pub why: Option<String>,
+    /// Go on although the move leaves something behind (a localhost server, files outside the
+    /// repo, an ssh tunnel); without it the move lists them and does nothing.
+    #[arg(long, short = 'y')]
+    pub yes: bool,
+    /// Move back to where the chat's last move came from. Ask the machine the chat is on now.
+    #[arg(long, conflicts_with_all = ["mode", "status"])]
+    pub undo: bool,
+    /// Say where each chat is pinned and where a move stands; change nothing.
+    #[arg(long, conflicts_with = "mode")]
+    pub status: bool,
+}
+
 /// `session move` (and its flat spelling `move-sessions`): which chats move, and where.
 #[derive(Args, Debug, Clone, PartialEq, Eq)]
 pub struct MoveSessionsArgs {
@@ -825,6 +858,8 @@ pub enum Command {
     #[command(hide = true)]
     WakeAgent { session: String },
     #[command(hide = true)]
+    PlaceSession(PlaceSessionArgs),
+    #[command(hide = true)]
     SessionHold {
         session: Option<String>,
         held: bool,
@@ -1469,6 +1504,11 @@ pub enum SessionCmd {
     /// worktree, a plain folder under the home maps to the same path under the machine's home. The
     /// chat here never runs again, and `resolve` and agent links lead to its new place.
     Move(MoveSessionsArgs),
+    /// Place an existing chat as the place menu does: `--mode auto`, `--mode cloud [--size
+    /// s|m|l]` or `--mode machine --machine NAME`. A chat moves only between turns (mid-turn it
+    /// moves after the turn); a move that leaves something behind lists it and needs `--yes`;
+    /// each move writes one line in the chat. `--undo` moves back; `--status` reads the pin.
+    Place(PlaceSessionArgs),
     /// Move a chat, with its history, queue and draft, to the daemon at another socket.
     Transfer {
         session: String,
@@ -1904,6 +1944,7 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Route { facts } => Command::RouteDeath { facts },
             SessionCmd::Pause { session } => Command::PauseAgent { session },
             SessionCmd::Wake { session } => Command::WakeAgent { session },
+            SessionCmd::Place(args) => Command::PlaceSession(args),
             SessionCmd::Hold { session, fleet, allow, reason, status } => {
                 Command::SessionHold { session, held: true, fleet, allow, reason, status }
             }

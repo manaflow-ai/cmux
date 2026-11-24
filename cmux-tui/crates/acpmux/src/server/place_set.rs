@@ -1,0 +1,382 @@
+//! `_acpmux/place_set`, `_acpmux/place_undo` and `_acpmux/place_get`: move an existing chat from
+//! the place menu (`acpmux session place`). The rules are `place_mode.rs`'s; this gathers what
+//! they read, keeps the chat's pin, writes the move line and runs the move.
+//!
+//! * `place_set {sessionId | sessionIds, place, confirm?, why?}`, `place` being
+//!   `{"mode":"auto"}`, `{"mode":"cloud","size":"s"|"m"|"l"?}` or
+//!   `{"mode":"machine","machine":ID,"cwd":PATH?}`. Answers `{"chats":[{sessionId, state, mode,
+//!   leftBehind, reason?}]}`, one per chat (a single `sessionId` also gets its chat's fields at
+//!   the top level).
+//! * `place_undo {sessionId, confirm?}`: moves back to where the newest `moved` line came from.
+//! * `place_get {sessionId | sessionIds}`: the pin, and where a move stands.
+//!
+//! The move is the existing `acpmux session move` (this daemon runs it as a child), so a chat
+//! moves exactly as `session move` moves it: `--carry-changes`, the branch pushed, the worktree
+//! made there. A chat between turns moves now; a running one waits for its turn to end here and
+//! then moves (`after_turn`). The move line (transcript kind `moved`) is written before the
+//! move so it travels with the chat; a move that fails writes one more with `failed: true`.
+//! The pin is stored per chat in `place-modes.json` in the daemon's home; a chat with none
+//! reads as pinned to the machine it is on, so nothing moves unasked.
+//!
+//! Not here yet: Cloud (refused, `place_mode::CLOUD_UNREACHABLE`) and Auto's later move.
+
+use crate::hub::{EventFilter, Hub};
+use crate::place_mode::{self as pm, LeftBehind, PlaceMode, State};
+use crate::rpc::RpcError;
+use crate::store::SessionStatus;
+use serde_json::{Value, json};
+use std::collections::BTreeMap;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+/// The longest a chat that is mid-turn is waited for.
+const TURN_WAIT: Duration = Duration::from_secs(600);
+/// The longest a move runs.
+const MOVE_LIMIT: Duration = Duration::from_secs(1800);
+const DEFAULT_WHY: &str = "you chose it";
+const PINS: &str = "place-modes.json";
+
+/// Where a chat's move stands in this daemon's memory.
+#[derive(Clone, Debug)]
+enum Stand {
+    AfterTurn,
+    Moving,
+    Failed(String),
+}
+
+fn stands() -> &'static Mutex<BTreeMap<String, Stand>> {
+    static STANDS: std::sync::OnceLock<Mutex<BTreeMap<String, Stand>>> = std::sync::OnceLock::new();
+    STANDS.get_or_init(Default::default)
+}
+
+fn stand_of(id: &str) -> Option<Stand> {
+    stands().lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned()
+}
+
+fn set_stand(id: &str, stand: Option<Stand>) {
+    let mut all = stands().lock().unwrap_or_else(|e| e.into_inner());
+    match stand {
+        Some(s) => all.insert(id.to_owned(), s),
+        None => all.remove(id),
+    };
+}
+
+fn pins_path() -> PathBuf {
+    crate::config::home().join(PINS)
+}
+
+fn read_pins() -> BTreeMap<String, PlaceMode> {
+    std::fs::read(pins_path())
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default()
+}
+
+/// Stores (or with `None` clears) a chat's pin, under one lock so two picks never lose each other.
+fn write_pin(id: &str, mode: Option<&PlaceMode>) -> std::io::Result<()> {
+    static LOCK: Mutex<()> = Mutex::new(());
+    let _held = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut pins = read_pins();
+    match mode {
+        Some(m) => pins.insert(id.to_owned(), m.clone()),
+        None => pins.remove(id),
+    };
+    let path = pins_path();
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, serde_json::to_vec_pretty(&pins).map_err(std::io::Error::other)?)?;
+    std::fs::rename(&tmp, &path)
+}
+
+fn ids_of(params: &Value) -> Result<(Vec<String>, bool), RpcError> {
+    if let Some(list) = params.get("sessionIds").and_then(Value::as_array) {
+        let ids: Vec<String> = list.iter().filter_map(Value::as_str).map(str::to_owned).collect();
+        if ids.is_empty() {
+            return Err(RpcError::invalid_params("sessionIds is empty"));
+        }
+        return Ok((ids, false));
+    }
+    match params.get("sessionId").and_then(Value::as_str) {
+        Some(id) => Ok((vec![id.to_owned()], true)),
+        None => Err(RpcError::invalid_params("sessionId or sessionIds is required")),
+    }
+}
+
+/// The reply: `chats`, and for a single `sessionId` its chat's fields at the top level too.
+fn reply(chats: Vec<Value>, single: bool) -> Value {
+    let mut out = match (single, chats.first()) {
+        (true, Some(Value::Object(first))) => first.clone(),
+        _ => serde_json::Map::new(),
+    };
+    out.insert("chats".into(), Value::Array(chats));
+    Value::Object(out)
+}
+
+fn chat(
+    id: &str,
+    state: State,
+    mode: &PlaceMode,
+    left: &[LeftBehind],
+    reason: Option<String>,
+) -> Value {
+    let mut v = json!({
+        "sessionId": id,
+        "state": state,
+        "mode": mode,
+        "leftBehind": left,
+    });
+    if let (Some(reason), Some(o)) = (reason, v.as_object_mut()) {
+        o.insert("reason".into(), json!(reason));
+    }
+    v
+}
+
+fn refused(id: &str, mode: &PlaceMode, reason: impl Into<String>) -> Value {
+    chat(id, State::Refused, mode, &[], Some(reason.into()))
+}
+
+pub(super) async fn set(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
+    let (ids, single) = ids_of(params)?;
+    let place = params.get("place").ok_or_else(|| RpcError::invalid_params("place is required"))?;
+    let want = PlaceMode::parse(place).map_err(RpcError::invalid_params)?;
+    let cwd = place.get("cwd").and_then(Value::as_str).map(str::to_owned);
+    let confirm = params.get("confirm").and_then(Value::as_bool) == Some(true);
+    let why = params.get("why").and_then(Value::as_str).unwrap_or(DEFAULT_WHY).to_owned();
+    let mut chats = Vec::new();
+    for id in &ids {
+        chats.push(one(hub, id, &want, confirm, &why, cwd.clone()).await);
+    }
+    Ok(reply(chats, single))
+}
+
+pub(super) async fn get(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
+    let (ids, single) = ids_of(params)?;
+    let here = crate::hub::host_label();
+    let pins = read_pins();
+    let mut chats = Vec::new();
+    for key in &ids {
+        let session = match hub.resolve(key) {
+            Ok(s) => s,
+            Err(e) => {
+                chats.push(refused(key, &PlaceMode::Auto, e.message));
+                continue;
+            }
+        };
+        let id = session.meta().id;
+        let mode = PlaceMode::effective(pins.get(&id).cloned(), here);
+        chats.push(match stand_of(&id) {
+            Some(Stand::AfterTurn) => chat(&id, State::AfterTurn, &mode, &[], None),
+            Some(Stand::Moving) => chat(&id, State::Moving, &mode, &[], None),
+            Some(Stand::Failed(why)) => chat(&id, State::Pinned, &mode, &[], Some(why)),
+            None => chat(&id, State::Pinned, &mode, &[], None),
+        });
+    }
+    Ok(reply(chats, single))
+}
+
+pub(super) async fn undo(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
+    let id = params
+        .get("sessionId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| RpcError::invalid_params("sessionId is required"))?;
+    let confirm = params.get("confirm").and_then(Value::as_bool) == Some(true);
+    let session = match hub.resolve(id) {
+        Ok(s) => s,
+        Err(e) => return Ok(reply(vec![refused(id, &PlaceMode::Auto, e.message)], true)),
+    };
+    let sid = session.meta().id;
+    let Some(back) = last_move_from(hub, &sid) else {
+        let here = PlaceMode::effective(read_pins().get(&sid).cloned(), crate::hub::host_label());
+        return Ok(reply(vec![refused(&sid, &here, "this chat has no move to undo")], true));
+    };
+    let want = PlaceMode::Machine { id: back };
+    Ok(reply(vec![one(hub, &sid, &want, confirm, "undo", None).await], true))
+}
+
+/// Where the chat's newest move (one that happened) came from: that line's `undo.machine`.
+fn last_move_from(hub: &Hub, id: &str) -> Option<String> {
+    let filter = EventFilter::parse(Some(&json!(["transcript"]))).ok()?;
+    let mut before: Option<u64> = None;
+    // A long chat reads page by page, newest first, and stops at the first move found.
+    for _ in 0..50 {
+        let page = hub.events_page(id, 0, before, 500, None, true, &filter).ok()?;
+        let found = page
+            .events
+            .iter()
+            .filter(|r| r.dir == "mux" && r.kind == "moved" && r.msg["failed"] != json!(true))
+            .max_by_key(|r| r.seq);
+        if let Some(r) = found {
+            return r.msg.pointer("/undo/machine").and_then(Value::as_str).map(str::to_owned);
+        }
+        before = Some(page.events.iter().map(|r| r.seq).min()?);
+        if !page.has_more {
+            return None;
+        }
+    }
+    None
+}
+
+async fn one(
+    hub: &Arc<Hub>,
+    key: &str,
+    want: &PlaceMode,
+    confirm: bool,
+    why: &str,
+    cwd: Option<String>,
+) -> Value {
+    let here = crate::hub::host_label();
+    let session = match hub.resolve(key) {
+        Ok(s) => s,
+        Err(e) => return refused(key, want, e.message),
+    };
+    let meta = session.meta();
+    let id = meta.id.clone();
+    let current = PlaceMode::effective(read_pins().get(&id).cloned(), here);
+    if meta.status == SessionStatus::Closed {
+        return refused(&id, &current, "this chat is closed");
+    }
+    if session.moving().is_some() || matches!(stand_of(&id), Some(Stand::AfterTurn | Stand::Moving))
+    {
+        return refused(&id, &current, "this chat is already moving");
+    }
+    let running = matches!(meta.status, SessionStatus::Running | SessionStatus::Waiting);
+    let left = if pm::needs_left(want, here) {
+        let pid = hub.agent_pid(&session).await;
+        gather(&meta.cwd, pid).await
+    } else {
+        Vec::new()
+    };
+    let plan = pm::plan(want, here, running, &left, confirm);
+    if plan.store
+        && let Err(e) = write_pin(&id, Some(want))
+    {
+        return refused(&id, &current, format!("could not store the pick: {e}"));
+    }
+    let Some(to) = plan.move_to.clone() else {
+        let mode = if plan.store { want } else { &current };
+        return chat(&id, plan.state, mode, &left, plan.reason);
+    };
+    set_stand(
+        &id,
+        Some(if plan.state == State::AfterTurn { Stand::AfterTurn } else { Stand::Moving }),
+    );
+    let (hub, sid, why) = (hub.clone(), id.clone(), why.to_owned());
+    let wait = plan.state == State::AfterTurn;
+    tokio::spawn(async move {
+        let outcome = run_move(&hub, &sid, &to, &why, cwd, wait).await;
+        match outcome {
+            Ok(()) => set_stand(&sid, None),
+            Err(reason) => {
+                fail_line(&hub, &sid, &to, &reason);
+                set_stand(&sid, Some(Stand::Failed(reason)));
+            }
+        }
+    });
+    chat(&id, plan.state, &current, &left, None)
+}
+
+/// Runs the move: waits out a running turn, writes the line, then `acpmux session move`.
+async fn run_move(
+    hub: &Arc<Hub>,
+    id: &str,
+    to: &str,
+    why: &str,
+    cwd: Option<String>,
+    wait: bool,
+) -> Result<(), String> {
+    let session = hub.resolve(id).map_err(|e| e.message)?;
+    if wait {
+        let started = tokio::time::Instant::now();
+        while matches!(session.meta().status, SessionStatus::Running | SessionStatus::Waiting) {
+            if started.elapsed() > TURN_WAIT {
+                return Err(format!("its turn did not end within {}s", TURN_WAIT.as_secs()));
+            }
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+        set_stand(id, Some(Stand::Moving));
+    }
+    let from = crate::hub::host_label();
+    let text = pm::move_line(to, why);
+    hub.append(
+        &session,
+        "mux",
+        "moved",
+        json!({"text": text, "to": to, "from": from, "why": why, "undo": {"machine": from}}),
+    );
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let mut command = tokio::process::Command::new(exe);
+    command
+        .args(["--json", "session", "move", id, "--machine", to, "--carry-changes"])
+        .env("ACPMUX_HOME", crate::config::home())
+        .env("ACPMUX_SOCKET", crate::config::socket_path())
+        .stdin(std::process::Stdio::null())
+        .kill_on_drop(true);
+    if let Some(cwd) = cwd {
+        command.arg("--cwd").arg(cwd);
+    }
+    let out = match tokio::time::timeout(MOVE_LIMIT, command.output()).await {
+        Ok(Ok(out)) => out,
+        Ok(Err(e)) => return Err(format!("could not run the move: {e}")),
+        Err(_) => return Err(format!("the move ran past {}s", MOVE_LIMIT.as_secs())),
+    };
+    if out.status.success() {
+        return Ok(());
+    }
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    Err(stderr.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("the move failed").to_owned())
+}
+
+/// The chat says the move did not happen (it is still here).
+fn fail_line(hub: &Arc<Hub>, id: &str, to: &str, reason: &str) {
+    let Ok(session) = hub.resolve(id) else { return };
+    // The chat left: the line would land in the closed copy here.
+    if session.meta().status == SessionStatus::Closed {
+        return;
+    }
+    hub.append(
+        &session,
+        "mux",
+        "moved",
+        json!({"text": format!("Did not move to {to} · {reason}"), "to": to, "failed": true,
+               "why": reason}),
+    );
+}
+
+/// What the move would leave behind, read off this machine now. A source that is not there
+/// (no `ps`, no `lsof`, no agent process) reports nothing for what it would have told.
+async fn gather(cwd: &std::path::Path, root: Option<u32>) -> Vec<LeftBehind> {
+    let in_repo = tokio::process::Command::new("git")
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .current_dir(cwd)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .await
+        .map(|o| o.status.success())
+        // No git: nothing says it is outside a repo.
+        .unwrap_or(true);
+    let (mut procs, mut listeners) = (Vec::new(), Vec::new());
+    if root.is_some() {
+        if let Ok(o) = tokio::process::Command::new("ps")
+            .args(["-A", "-o", "pid=,ppid=,command="])
+            .output()
+            .await
+        {
+            procs = pm::parse_ps(&String::from_utf8_lossy(&o.stdout));
+        }
+        if let Ok(o) = tokio::process::Command::new("lsof")
+            .args(["-nP", "-iTCP", "-sTCP:LISTEN", "-F", "pn"])
+            .output()
+            .await
+        {
+            listeners = pm::parse_lsof(&String::from_utf8_lossy(&o.stdout));
+        }
+    }
+    pm::left_behind(&pm::Inputs {
+        cwd,
+        in_repo,
+        root,
+        procs: &procs,
+        listeners: &listeners,
+        outside: &[],
+    })
+}

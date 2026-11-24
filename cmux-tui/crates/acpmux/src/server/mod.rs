@@ -2753,6 +2753,7 @@ pub(crate) mod host_notice;
 mod inventory_watch;
 mod lane_parent;
 mod list_reply;
+mod place_set;
 use lane_parent::lane_parent;
 mod agent_home;
 mod bg_tasks;

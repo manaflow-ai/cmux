@@ -2861,6 +2861,17 @@ async fn dispatch_request_with_identity(
             ))
         }
         "_acpmux/place" => Ok(super::place::place(hub, &params).await),
+        // Moves a chat from the place menu (`place_set.rs`): this machine's own clients only.
+        "_acpmux/place_set" | "_acpmux/place_undo" | "_acpmux/place_get"
+            if !matches!(conn.origin, Origin::Local | Origin::LocalApp) =>
+        {
+            Err(RpcError::invalid_params(
+                "_acpmux/place_set, place_undo and place_get answer on this machine's unix socket and the app's own pane only",
+            ))
+        }
+        "_acpmux/place_set" => super::place_set::set(hub, &params).await,
+        "_acpmux/place_undo" => super::place_set::undo(hub, &params).await,
+        "_acpmux/place_get" => super::place_set::get(hub, &params).await,
         "_acpmux/move_targets" if conn.origin != Origin::Local => Err(RpcError::invalid_params(
             "_acpmux/move_targets answers on this machine's unix socket only",
         )),
