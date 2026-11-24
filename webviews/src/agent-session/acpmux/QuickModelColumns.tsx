@@ -182,20 +182,25 @@ export function QuickModelColumns(props: QuickSurfaceProps) {
 /// Whether `chip` sits in a row packed to its end (justify-content flex-end), where its start
 /// moves with its width. Rows drawn as display: contents, and wrappers that hug the chip, pass to
 /// their parent. A wrapper hugs the chip when its content box is the chip's width: New Tab's model
-/// chip has end padding on its wrapper, past the pill (newtab/screen.css).
+/// chip has end padding on its wrapper, past the pill (newtab/screen.css). The computed padding is
+/// in CSS px and the rects are zoomed (the page's zoom, a density step), so the padding takes the
+/// rect's scale: the row's rect width over its computed border-box width.
 function rowPackedToEnd(chip: HTMLElement): boolean {
   const view = chip.ownerDocument.defaultView;
   let child: HTMLElement = chip;
   for (let row = chip.parentElement; row && view; row = row.parentElement) {
     const style = view.getComputedStyle(row);
     if (style.display === "contents") continue;
-    const inner =
-      row.getBoundingClientRect().width -
-      (Number.parseFloat(style.paddingLeft) || 0) -
-      (Number.parseFloat(style.paddingRight) || 0) -
-      (Number.parseFloat(style.borderLeftWidth) || 0) -
+    const edges =
+      (Number.parseFloat(style.paddingLeft) || 0) +
+      (Number.parseFloat(style.paddingRight) || 0) +
+      (Number.parseFloat(style.borderLeftWidth) || 0) +
       (Number.parseFloat(style.borderRightWidth) || 0);
-    if (inner - child.getBoundingClientRect().width <= 1) {
+    const drawn = row.getBoundingClientRect().width;
+    const width = Number.parseFloat(style.width);
+    const box = style.boxSizing === "border-box" ? width : width + edges;
+    const scale = box > 0 ? drawn / box : 1;
+    if (drawn - edges * scale - child.getBoundingClientRect().width <= 1) {
       child = row;
       continue;
     }
