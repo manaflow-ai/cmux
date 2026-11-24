@@ -50,9 +50,7 @@ public struct BackdropSelectionSetting: Sendable {
     /// by the snapshot parser, Settings writes and the exported schema's
     /// domain marker so all entry points accept the same values.
     static func accepts(_ value: JSONValue) -> Bool {
-        guard let raw = value.stringValue else { return false }
-        return raw == "none" || raw == dailyID || raw == appearanceID || raw == scheduleID || folderPath(raw) != nil
-            || BackdropSelection(id: raw) != nil
+        SettingsRust.answer("backdrop.accepts", ["kind": .string("selection"), "value": value])["valid"]?.boolValue ?? false
     }
 
     /// The background when neither key is set, or the set one is invalid: off. Art is opt-in

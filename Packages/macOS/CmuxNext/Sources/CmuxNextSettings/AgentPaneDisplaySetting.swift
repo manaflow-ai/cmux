@@ -17,7 +17,7 @@ public nonisolated struct AgentPaneDisplaySetting: Sendable, Hashable {
     /// The app keys the chat follows: Minimal Mode (``SidebarSectionsSetting/minimalPath``) and
     /// Show Feature Tips (``UpdatesSettings/showFeatureTipsPath``; webviews featureTips.tsx).
     public static let followedAppPaths: [[String]] = [SidebarSectionsSetting.minimalPath, UpdatesSettings.showFeatureTipsPath]
-    /// The transcript look keys, which a theme file may set (``ThemeFileOverlay/lookKeys``): read from the
+    /// The transcript look keys, which a theme file may set (cmux-config's theme_file `LOOK_KEYS`): read from the
     /// effective root, not the user's own file (docs/cmux-next/transcript-customization.md).
     public static let themedPaths: Set<[String]> = [
         AgentPaneDisplaySettingsSchema.transcriptLookPath, AgentPaneDisplaySettingsSchema.transcriptTokensPath,
