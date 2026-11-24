@@ -257,6 +257,17 @@ async function typedSuggestions(
   }
 }
 
+/// The prompt for the chip's agent leads as the Ask row (Lucas 2026-11-23): highlighted, with no ↩ keycap
+/// (its name says what Return does), and Send keeps the prompt's arrow.
+function askRowProblem(document: Document): string | undefined {
+  const selected = document.querySelector<HTMLElement>(".nt-popover .nt-row.is-selected");
+  if (selected?.dataset.type !== "ask") return "the Ask row does not lead highlighted";
+  if (document.querySelector(".nt-popover .nt-row") !== selected) return "the Ask row is not the top row";
+  if (selected.querySelector(".nt-row-return")) return "the Ask row shows a Return keycap";
+  if (document.querySelector(".nt-send[data-returns]")) return "Send names something other than the prompt";
+  return undefined;
+}
+
 /// The suggestion kinds in their displayed order.
 const navigationTypes = (rows: SuggestionRow[]) => rows.map((row) => row.type);
 
@@ -1046,14 +1057,14 @@ export default agentPaneEntry({
       },
     },
     "typed-prompt": {
-      note: "A typed instruction (David Beyer 2026-11-20): Return asks the agent the model chip names, so the popover has no row for it and nothing is highlighted; the web search is the one row, a Down away. Unrelated creation commands stay hidden; the cards stay where they were.",
+      note: "A typed instruction: Return asks the agent the model chip names, so its Ask row leads, highlighted; the web search is a Down away. Unrelated creation commands stay hidden; the cards stay where they were.",
       ready: newTab({ projects: [CWD] }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
         await typePrompt(ctx, "fix the flaky upload test");
         await ctx.waitFor(() => ctx.document.querySelector('.nt-popover .nt-row[data-type="search"]'));
-        if (ctx.document.querySelector('.nt-row[data-type="ask"], .nt-row.is-selected'))
-          throw new Error("the prompt for the chip's agent shows as a row, or a row holds Return");
+        const problem = askRowProblem(ctx.document);
+        if (problem) throw new Error(problem);
       },
     },
     "typed-command": {
@@ -1068,18 +1079,18 @@ export default agentPaneEntry({
       },
     },
     "typed-lone-word": {
-      note: 'One word that names a program and a prompt ("test", David Beyer 2026-11-20: a word he typed ran as a shell command): Return asks the agent (no row, nothing highlighted, Send\'s arrow), Run in Terminal is the first row, a Down away.',
+      note: 'One word that names a program and a prompt ("test", David Beyer 2026-11-20: a word he typed ran as a shell command): Return asks the agent (its Ask row leads, highlighted, Send\'s arrow), Run in Terminal is a Down away.',
       ready: newTab({ projects: [CWD] }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
         await typePrompt(ctx, "test");
         await ctx.waitFor(() => ctx.document.querySelector('.nt-popover .nt-row[data-type="run"]'));
-        if (ctx.document.querySelector(".nt-row.is-selected, .nt-send[data-returns]"))
-          throw new Error("Return does something other than asking the agent");
+        const problem = askRowProblem(ctx.document);
+        if (problem) throw new Error(problem);
       },
     },
     "typed-hover": {
-      note: "\"helo\" typed, the pointer resting on the web search suggestion. Return stays the prompt's (nothing highlighted, Send's arrow), so Return sends it.",
+      note: "\"helo\" typed, the pointer resting on the web search suggestion. Return stays the prompt's (the Ask row highlighted, Send's arrow), so Return sends it.",
       ready: newTab({ projects: [CWD] }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
@@ -1104,23 +1115,25 @@ export default agentPaneEntry({
       },
     },
     "typed-keywords": {
-      note: 'Leo 2026-10-20 (no Search | Ask switch) and 2026-10-24 ("Search the web. Do you really want that first?"): plain keywords. Return asks the agent the chip names (no row, nothing highlighted: David Beyer 2026-11-20), the web search is the last row.',
+      note: 'Leo 2026-10-20 (no Search | Ask switch) and 2026-10-24 ("Search the web. Do you really want that first?"): plain keywords. Return asks the agent the chip names (its Ask row leads, highlighted), the web search is the last row.',
       ready: newTab({ projects: [CWD] }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
         await typePrompt(ctx, "rust serde");
         await ctx.waitFor(() => ctx.document.querySelector('.nt-popover .nt-row[data-type="search"]'));
-        if (ctx.document.querySelector(".nt-row.is-selected")) throw new Error("a row holds the prompt's Return");
+        const problem = askRowProblem(ctx.document);
+        if (problem) throw new Error(problem);
       },
     },
     "typed-question": {
-      note: "A question: Return asks the agent the chip names (no row, nothing highlighted), the web search one Down away.",
+      note: "A question: Return asks the agent the chip names (its Ask row leads, highlighted), the web search one Down away.",
       ready: newTab({ projects: [CWD] }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
         await typePrompt(ctx, "why does the upload test flake?");
         await ctx.waitFor(() => ctx.document.querySelector('.nt-popover .nt-row[data-type="search"]'));
-        if (ctx.document.querySelector(".nt-row.is-selected")) throw new Error("a row holds the prompt's Return");
+        const problem = askRowProblem(ctx.document);
+        if (problem) throw new Error(problem);
       },
     },
     "typed-tab-match": {

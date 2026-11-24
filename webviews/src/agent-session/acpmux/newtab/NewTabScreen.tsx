@@ -2837,6 +2837,10 @@ export function NewTabScreen(props: Props) {
                 }}
                 onMouseDown={(event) => {
                   event.preventDefault();
+                  // Only a primary press runs a row (ui/Listbox.tsx): Control-click is the Mac's right-click.
+                  if (event.button !== 0 || event.ctrlKey) return;
+                  // The prompt's own Ask row goes the way Return does: it waits for dictation and a staged screenshot.
+                  if (row.type === "ask" && row.harness === harness) return askTyped();
                   activate(row, event.altKey || event.metaKey);
                 }}
               >

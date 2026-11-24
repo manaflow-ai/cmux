@@ -2333,6 +2333,30 @@ test("a prompt for the chip's agent leads as the Ask row: highlighted, Return as
   expect(searches).toEqual([]);
 });
 
+test("a primary press on the Ask row asks; a right or Control press does nothing", async () => {
+  const asks: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        template="minimal"
+        snapshot={noChat([])}
+        onAsk={(...args) => void asks.push(args)}
+      />,
+    );
+  });
+  await typePrompt("fix the failing test");
+  const ask = document.querySelector<HTMLElement>('.nt-popover .nt-row[data-type="ask"]')!;
+  const MouseEvent = ask.ownerDocument.defaultView!.MouseEvent;
+  const press = (init: MouseEventInit) =>
+    act(async () => void ask.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, ...init })));
+  await press({ button: 2 });
+  await press({ button: 0, ctrlKey: true });
+  expect(asks, "no ask from a right or Control press").toEqual([]);
+  await press({ button: 0 });
+  expect(asks.map((ask) => ask[1])).toEqual(["fix the failing test"]);
+});
+
 test("Down from the Ask row highlights the next row, Up goes back to it", async () => {
   const asks: unknown[][] = [];
   const searches: string[] = [];
