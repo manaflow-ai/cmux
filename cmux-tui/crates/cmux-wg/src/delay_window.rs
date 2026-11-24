@@ -58,7 +58,7 @@ const MIN_WINDOW: u32 = 4 * SEGMENT;
 const INITIAL_WINDOW: u32 = 32 * SEGMENT;
 /// Consecutive samples that must all show a queue before it cuts the window
 /// mid-round.
-const RECENT_SAMPLES: usize = 4;
+const RECENT_SAMPLES: usize = 8;
 /// Past slow start, a queue this many targets deep cuts the window at once,
 /// without waiting for the round's end.
 const OVERSHOOT: u32 = 4;
