@@ -31,13 +31,15 @@ public struct SentryRegexPattern: Sendable {
     public init(_ pattern: String, options: NSRegularExpression.Options = [.caseInsensitive], requires: [[String]] = []) {
         // swiftlint:disable:next force_try
         self.regex = try! NSRegularExpression(pattern: pattern, options: options)
-        self.required = requires.map { group in
-            group.map { literal in
-                precondition(!literal.isEmpty && literal.utf8.allSatisfy { $0 < 0x80 && !($0 >= 0x41 && $0 <= 0x5A) },
-                             "SentryRegexPattern: a required literal is empty, non-ASCII or uppercase: \(literal)")
-                return Array(literal.utf8)
+        // A literal the probe cannot match (empty, non-ASCII or uppercase) would skip real matches.
+        // Tests trap on it; a release build drops the whole gate, so the regex always runs.
+        let valid = requires.allSatisfy { group in
+            group.allSatisfy { literal in
+                !literal.isEmpty && literal.utf8.allSatisfy { $0 < 0x80 && !($0 >= 0x41 && $0 <= 0x5A) }
             }
         }
+        assert(valid, "SentryRegexPattern: a required literal is empty, non-ASCII or uppercase: \(requires)")
+        self.required = valid ? requires.map { group in group.map { Array($0.utf8) } } : []
     }
 
     /// Whether the text `probe` was made from may hold a match: false only when a group of the
