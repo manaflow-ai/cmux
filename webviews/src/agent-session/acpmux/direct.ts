@@ -10977,11 +10977,12 @@ export class AcpmuxDirectClient {
   private noteReadWork(working: boolean, fromStore: boolean): void {
     const session = this.selectedSessionId;
     const read = this.readWork;
-    // The marks stay while the same chat is shown: they only act on the running turn (an ended
-    // turn's fold holds its work anyway), and writing them again whenever the chat is picked again
-    // or its working state flickers would hand the pane new row objects for unchanged rows
-    // (agent-pane-remote-resync-frames.test.ts).
-    if (read && (fromStore || read.session !== session)) {
+    // The marks stay while the same chat shows the same turn, and go once a turn summary follows
+    // them (the turn ended; its fold holds the work). Writing them again whenever the chat is picked
+    // again or its working state flickers would hand the pane new row objects for unchanged rows
+    // (agent-pane-remote-resync-frames.test.ts); keeping them past the turn's end would draw a
+    // delivered chat unlike its stored log (transcript-delivery-property.test.ts).
+    if (read && (fromStore || read.session !== session || this.readTurnEnded(read.items))) {
       this.readWork = undefined;
       this.rows.readAtOpen = undefined;
       this.rows.restampRead(read.items.keys());
@@ -11006,6 +11007,18 @@ export class AcpmuxDirectClient {
     this.readWork = { session, generation: this.selectionGeneration, attached, items };
     this.rows.readAtOpen = items;
     this.rows.restampRead(changed);
+  }
+
+  /// Whether a turn summary came after the rows marked `readAtOpen`: walks back from the newest row
+  /// to the first marked one or a summary, so it costs the rows the running turn added.
+  private readTurnEnded(items: ReadonlyMap<string, number>): boolean {
+    const rows = this.rows.sorted();
+    for (let at = rows.length - 1; at >= 0; at -= 1) {
+      const row = rows[at]!;
+      if (items.has(row.id)) return false;
+      if (row.kind === "turnSummary") return true;
+    }
+    return false;
   }
 
   private emitNow(connection: string): void {
