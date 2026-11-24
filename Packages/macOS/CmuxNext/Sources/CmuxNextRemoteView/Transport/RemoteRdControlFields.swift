@@ -46,7 +46,7 @@ public nonisolated extension RemoteRdHello {
     /// token. The link admitted the owner, and the host takes only its root receiver's connection.
     static func cloudDesktop(install: String? = nil) -> RemoteRdHello {
         RemoteRdHello(user: "cmux", install: install ?? "cmux-next-\(ProcessInfo.processInfo.processIdentifier)", token: nil, service: "desktop",
-                      caps: [cursorCap])
+                      caps: [cursorCap, fecBlocksCap])
     }
 }
 

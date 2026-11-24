@@ -1,3 +1,4 @@
+import CmuxMobileDesign
 import Foundation
 import Testing
 @testable import CmuxMobileAgentChat
@@ -85,7 +86,9 @@ import Testing
         let store = AgentChatStore(source: source)
         #expect(store.loadingText == "Starting Claude…")
         source.inFlight = false
-        #expect(store.loadingText == "Connecting to Mac…")
+        #expect(store.loadingText == "Starting Claude…", "nothing about the link inside the quiet bound")
+        let shown = AgentChatStore(source: source, quietStatus: QuietStatusGate(delay: .zero))
+        #expect(shown.loadingText == "Connecting to Mac…", "past the bound it says what it waits for")
     }
 
     @Test func theChatStaysStartingUntilItsFirstSendEnds() {
@@ -95,5 +98,36 @@ import Testing
         // The send failed (or its turn ended): the chat is what it is, the composer has the draft.
         source.inFlight = false
         #expect(!store.awaitsFirstPrompt)
+    }
+}
+
+/// iOS release bar read-back, 2026-11-22, shot 14: an existing chat whose history came late said
+/// "Loading chat…" under its spinner at once. Its words now wait out the quiet threshold; a start
+/// still says "Starting <agent>…" at once.
+@MainActor
+@Suite struct LoadingWordsWaitTests {
+    final class Slow: AgentSessionSource {
+        let summary = AgentSessionSummary(id: "t", name: "Chat", harness: "claude", agentName: "Claude", cwd: "~/p",
+                                          workspaceTitle: "w", macName: "Mac")
+        var starting = false
+        var isStarting: Bool { starting }
+        var loadsHistory: Bool { true }
+        func events() -> AsyncStream<AgentSessionEvent> { AsyncStream { _ in } }
+        func send(_ intent: AgentClientIntent) {}
+    }
+
+    @Test func aSlowHistoryShowsOnlyItsSpinnerUntilTheThreshold() {
+        let store = AgentChatStore(source: Slow(), quietStatus: QuietStatusGate(delay: .seconds(3600)))
+        #expect(store.loadingText == "Loading chat…")
+        #expect(!store.loadingTextShows)
+        #expect(AgentChatStore(source: Slow(), quietStatus: QuietStatusGate(delay: .zero)).loadingTextShows)
+    }
+
+    @Test func aStartSaysSoAtOnce() {
+        let source = Slow()
+        source.starting = true
+        let store = AgentChatStore(source: source, quietStatus: QuietStatusGate(delay: .seconds(3600)))
+        #expect(store.loadingText == "Starting Claude…")
+        #expect(store.loadingTextShows)
     }
 }

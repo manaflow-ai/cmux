@@ -47,16 +47,28 @@ public struct ConnectMacSteps: View {
 
     /// Said plainly when no Mac is signed in to this account anywhere: the
     /// usual cause is a Mac signed in with another account (another sign-in
-    /// method can make another account for the same person).
-    private var otherAccount: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            step(1, signInText)
-            if let openAccount {
-                Button("Account Settings", action: openAccount)
-                    .font(theme.type.rowSubtitle.weight(.semibold))
-                    .foregroundStyle(theme.colors.label)
-                    .accessibilityIdentifier("connect-mac.account")
+    /// method can make another account for the same person). The way to this
+    /// phone's account sits under step 1's words, in their column, as a link:
+    /// flush with the step numbers it read as an orphan label between the
+    /// steps (iOS release bar read-back, 2026-11-22, shot 06).
+    @ViewBuilder private var otherAccount: some View {
+        if let openAccount {
+            step(1, signInText) {
+                Button(action: openAccount) {
+                    HStack(spacing: 3) {
+                        Text("Account Settings")
+                        Image(systemName: "chevron.forward")
+                            .font(.caption2.weight(.semibold))
+                            .accessibilityHidden(true)
+                    }
+                }
+                .buttonStyle(.borderless)
+                .font(theme.type.rowSubtitle.weight(.semibold))
+                .foregroundStyle(theme.colors.accent.color)
+                .accessibilityIdentifier("connect-mac.account")
             }
+        } else {
+            step(1, signInText)
         }
     }
 
@@ -68,6 +80,12 @@ public struct ConnectMacSteps: View {
     }
 
     private func step(_ number: Int, _ text: Text) -> some View {
+        step(number, text) { EmptyView() }
+    }
+
+    /// A numbered step; `accessory` (a link) goes under its words, in their column.
+    private func step<Accessory: View>(_ number: Int, _ text: Text,
+                                       @ViewBuilder accessory: () -> Accessory) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             Text("\(number)")
                 .font(.footnote.weight(.semibold).monospacedDigit())
@@ -75,10 +93,13 @@ public struct ConnectMacSteps: View {
                 .frame(width: 22, height: 22)
                 .background(theme.colors.fill.color, in: .circle)
                 .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 6 }
-            text
-                .font(theme.type.body)
-                .foregroundStyle(theme.colors.label)
-                .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 6) {
+                text
+                    .font(theme.type.body)
+                    .foregroundStyle(theme.colors.label)
+                    .fixedSize(horizontal: false, vertical: true)
+                accessory()
+            }
         }
     }
 
