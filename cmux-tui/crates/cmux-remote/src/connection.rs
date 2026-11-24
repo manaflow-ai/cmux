@@ -1166,6 +1166,9 @@ impl ClientConnection {
         let mut in_burst = 0_u32;
         let mut delay = policy.initial_delay;
         let mut group = self.group.read().await.clone();
+        // The path the link was on: a standby on the same one died with it.
+        let failed_path =
+            group.transport_snapshot().await.selected_path.and_then(|path| path.remote);
         // The link this recovery replaces failed: its QUIC connection would hold the next
         // stream on the dead path until iroh's 15 s path idle timeout (then a 10 s close), the
         // ~30 s reconnect the black-hole bench measured. A fresh dial takes one handshake.
@@ -1177,7 +1180,15 @@ impl ClientConnection {
             if recovery_deadline.is_some_and(|deadline| tokio::time::Instant::now() >= deadline) {
                 return Err(ConnectionError::ReconnectDeadlineExceeded { attempts: attempt });
             }
+            let bt_token = std::time::Instant::now();
             self.spend_redial_token(recovery_deadline, attempt, close_state).await?;
+            if std::env::var_os("CMUX_BENCH_TRACE").is_some() {
+                eprintln!(
+                    "bench-trace {:?} token waited {}ms",
+                    std::time::SystemTime::now(),
+                    bt_token.elapsed().as_millis()
+                );
+            }
             attempt = attempt.saturating_add(1);
             in_burst = in_burst.saturating_add(1);
             self.set_diagnostics_state(ConnectionState::Reconnecting);
@@ -1187,12 +1198,39 @@ impl ClientConnection {
                 Some(source) => source.take_standby().await,
                 None => None,
             };
+            let standby = match standby {
+                Some(standby) if on_path(&standby.group, failed_path.as_deref()).await => {
+                    // Its transport moved it onto the path that just died: trying it would
+                    // spend its bound on a black hole. Closed, and the redial goes as without one.
+                    if std::env::var_os("CMUX_BENCH_TRACE").is_some() {
+                        eprintln!(
+                            "bench-trace {:?} standby on the failed path {failed_path:?}: dropped",
+                            std::time::SystemTime::now()
+                        );
+                    }
+                    standby.group.abandon();
+                    None
+                }
+                standby => standby,
+            };
             let attempt_bound = standby
                 .as_ref()
                 .map_or(policy.attempt_timeout, |standby| standby.attempt_timeout)
                 .min(policy.attempt_timeout);
             let attempt_timeout = remaining(attempt_bound);
             let attempt_started = tokio::time::Instant::now();
+            if std::env::var_os("CMUX_BENCH_TRACE").is_some() {
+                eprintln!(
+                    "bench-trace {:?} attempt {attempt} start standby={} bound={}ms group={}",
+                    std::time::SystemTime::now(),
+                    standby.is_some(),
+                    attempt_timeout.as_millis(),
+                    standby.as_ref().map_or_else(
+                        || group.description().to_owned(),
+                        |s| s.group.description().to_owned()
+                    )
+                );
+            }
             let attempt_group =
                 standby.as_ref().map_or_else(|| group.clone(), |standby| standby.group.clone());
             let behind_at = standby
@@ -1252,6 +1290,15 @@ impl ClientConnection {
             if self.closed.load(Ordering::Acquire) && result.is_ok() {
                 return Err(ConnectionError::Closed);
             }
+            if std::env::var_os("CMUX_BENCH_TRACE").is_some() {
+                eprintln!(
+                    "bench-trace {:?} attempt {attempt} took {}ms raced={:?}: {:?}",
+                    std::time::SystemTime::now(),
+                    attempt_started.elapsed().as_millis(),
+                    raced.as_ref().map(|r| r.is_some()),
+                    result.as_ref().map(|_| ()).map_err(ToString::to_string)
+                );
+            }
             report.ended(result.as_ref().map(|_| ()));
             // Every failed redial is the reason the link reports, a gone session too.
             self.set_last_failure(result.as_ref().err().map(ToString::to_string));
@@ -1273,6 +1320,11 @@ impl ClientConnection {
                     // out of its slot, so this was its last handle and QUIC closes it on drop.
                     // The pass already behind the standby is the next group; one not started
                     // yet is started now (below) instead of waiting out its stagger.
+                    if let Some(standby) = &standby {
+                        // Closed now, not when its last handle drops: until then its transport
+                        // may keep the dead path selected for the peer.
+                        standby.group.abandon();
+                    }
                     let behind_started =
                         behind_at.is_some_and(|at| tokio::time::Instant::now() >= at);
                     if let Some(found) = raced.take() {
@@ -1311,6 +1363,13 @@ impl ClientConnection {
                                 }
                             } => next,
                         };
+                        if std::env::var_os("CMUX_BENCH_TRACE").is_some() {
+                            eprintln!(
+                                "bench-trace {:?} discovery after attempt {attempt}: {}",
+                                std::time::SystemTime::now(),
+                                next.is_some()
+                            );
+                        }
                         if let Some(next) = next {
                             group = next;
                         }
@@ -2038,6 +2097,13 @@ impl From<SessionError> for ConnectionError {
     fn from(error: SessionError) -> Self {
         Self::Session(error)
     }
+}
+
+/// Whether `group`'s selected path is `path` (both known).
+async fn on_path(group: &Arc<dyn LinkGroup>, path: Option<&str>) -> bool {
+    let Some(path) = path else { return false };
+    group.transport_snapshot().await.selected_path.and_then(|selected| selected.remote).as_deref()
+        == Some(path)
 }
 
 #[cfg(test)]

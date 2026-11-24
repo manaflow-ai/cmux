@@ -5,8 +5,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::*;
 use crate::remote_runtime::warm_standby::{
-    ATTEMPT_FLOOR, ATTEMPT_UNKNOWN_RTT, Armed, MAX_AGE, REFRESH, REFRESH_LEAD, WarmStandby,
-    arm_standby, attempt_timeout, next_warm_route, standby_route, take_standby, trusted_for,
+    ATTEMPT_FLOOR, ATTEMPT_UNKNOWN_RTT, Armed, FAILED_ROUTE_COOLDOWN, MAX_AGE, REFRESH,
+    REFRESH_LEAD, WarmStandby, arm_standby, attempt_timeout, next_warm_route, standby_route,
+    take_standby, trusted_for,
 };
 
 /// Route `index` answers after `delay` with `(index, dial number)`, or fails when `down`.
@@ -14,11 +15,13 @@ struct CountingDials {
     delay: Duration,
     down: Vec<usize>,
     dials: std::sync::Mutex<Vec<usize>>,
+    /// Per dial, whether it carried the standby routing hint.
+    standby_hints: std::sync::Mutex<Vec<bool>>,
 }
 
 impl CountingDials {
     fn new(delay: Duration, down: Vec<usize>) -> Self {
-        Self { delay, down, dials: Default::default() }
+        Self { delay, down, dials: Default::default(), standby_hints: Default::default() }
     }
 
     fn dials(&self) -> Vec<usize> {
@@ -31,9 +34,13 @@ impl ReconnectRouteAttempt<(usize, usize)> for CountingDials {
     async fn connect(
         &self,
         index: usize,
-        _request: ConnectRequest,
+        request: ConnectRequest,
         _auth: AuthKind,
     ) -> Result<(usize, usize), ProviderError> {
+        self.standby_hints
+            .lock()
+            .unwrap()
+            .push(request.routing.get(cmux_remote::provider::ROUTING_STANDBY).is_some());
         let serial = {
             let mut dials = self.dials.lock().unwrap();
             dials.push(index);
@@ -118,16 +125,16 @@ async fn reconnect(
 #[tokio::test(start_paused = true)]
 async fn the_standby_goes_on_the_next_route_that_is_not_the_active_one() {
     let mut routes = three_routes();
-    assert_eq!(standby_route(&routes, 1, 0, AuthKind::Enrolled), Some(1));
-    assert_eq!(standby_route(&routes, 0, 2, AuthKind::Enrolled), Some(0));
+    assert_eq!(standby_route(&routes, 1, 0, None, AuthKind::Enrolled), Some(1));
+    assert_eq!(standby_route(&routes, 0, 2, None, AuthKind::Enrolled), Some(0));
     // A relay route keeps its own standby; the next one is the standby.
     routes[1] = test_route("relay+wss://relay.example/v1/relay");
-    assert_eq!(standby_route(&routes, 1, 0, AuthKind::Enrolled), Some(2));
+    assert_eq!(standby_route(&routes, 1, 0, None, AuthKind::Enrolled), Some(2));
     // One route has none; routes that cannot carry the auth are not standbys (wss is
     // device-only, so under carrier auth nothing is).
-    assert_eq!(standby_route(&routes[..1], 1, 0, AuthKind::Enrolled), None);
-    assert_eq!(standby_route(&three_routes(), 1, 0, AuthKind::Carrier), None);
-    assert_eq!(standby_route(&[], 0, 0, AuthKind::Enrolled), None);
+    assert_eq!(standby_route(&routes[..1], 1, 0, None, AuthKind::Enrolled), None);
+    assert_eq!(standby_route(&three_routes(), 1, 0, None, AuthKind::Carrier), None);
+    assert_eq!(standby_route(&[], 0, 0, None, AuthKind::Enrolled), None);
 }
 
 /// The point: a reconnect that finds a standby dials nothing and takes no time; without one it
@@ -378,4 +385,81 @@ async fn a_far_end_with_no_hold_is_asked_once_and_the_standby_is_redialed() {
     assert!(matches!(refreshed, Armed::Dialed { retired: Some(_) }));
     assert_eq!(asked.load(Ordering::Relaxed), 1, "no second ask of a far end with no hold");
     assert_eq!(trusted_for(None), MAX_AGE);
+}
+
+fn two_routes() -> Vec<ResolvedRouteCandidate> {
+    vec![test_route("wss://a.example/v1/link"), test_route("wss://b.example/v1/link")]
+}
+
+/// A standby's dial says it is one (the iroh provider puts it on the socket apart from the
+/// live link's); the reconnect pass's dials do not.
+#[tokio::test(start_paused = true)]
+async fn a_standby_dial_carries_the_standby_hint_and_a_pass_dial_does_not() {
+    let routes = three_routes();
+    let standby = WarmStandby::new(0);
+    let next = AtomicUsize::new(1);
+    let attempt = CountingDials::new(Duration::from_millis(5), vec![]);
+    arm(&standby, &next, &routes, &attempt).await.unwrap();
+    take_standby(&standby, &next, |_: &(usize, usize)| true);
+    reconnect(&standby, &next, &routes, &attempt).await.unwrap();
+    assert_eq!(attempt.dials(), [1, 1]);
+    assert_eq!(*attempt.standby_hints.lock().unwrap(), [true, false]);
+}
+
+/// After the link moves onto its standby, the keeper does not arm on the route that died: with
+/// two routes it holds none until the route has cooled down (past iroh's 15 s path idle
+/// timeout), then arms there again.
+#[tokio::test(start_paused = true)]
+async fn after_a_take_the_keeper_never_rearms_on_the_route_that_died() {
+    let routes = two_routes();
+    let standby = WarmStandby::new(0);
+    let next = AtomicUsize::new(1);
+    let attempt = CountingDials::new(Duration::from_millis(5), vec![]);
+    arm(&standby, &next, &routes, &attempt).await.unwrap();
+    assert!(matches!(take_standby(&standby, &next, |_: &(usize, usize)| true), Some(Ok((1, _)))));
+
+    let armed = arm(&standby, &next, &routes, &attempt).await.unwrap();
+    let Armed::Cooling(left) = armed else { panic!("the keeper must not dial the dead route") };
+    assert_eq!(left, FAILED_ROUTE_COOLDOWN);
+    assert_eq!(attempt.dials(), [1], "no dial on route 0");
+
+    tokio::time::advance(FAILED_ROUTE_COOLDOWN).await;
+    assert!(matches!(arm(&standby, &next, &routes, &attempt).await.unwrap(), Armed::Dialed { .. }));
+    assert_eq!(standby.held_index(), Some(0), "cooled down: route 0 is a standby again");
+}
+
+/// With three routes the keeper arms at once on the live one that is neither active nor dead.
+#[tokio::test(start_paused = true)]
+async fn after_a_take_the_keeper_arms_on_a_live_route() {
+    let routes = three_routes();
+    let standby = WarmStandby::new(2);
+    let next = AtomicUsize::new(0);
+    let attempt = CountingDials::new(Duration::from_millis(5), vec![]);
+    arm(&standby, &next, &routes, &attempt).await.unwrap();
+    assert_eq!(standby.held_index(), Some(0));
+    take_standby(&standby, &next, |_: &(usize, usize)| true);
+    // next is 0 (the taken route), active 0, dead 2: route 1.
+    assert!(matches!(arm(&standby, &next, &routes, &attempt).await.unwrap(), Armed::Dialed { .. }));
+    assert_eq!(standby.held_index(), Some(1));
+    assert_eq!(attempt.dials(), [0, 1]);
+}
+
+/// The pass started behind a taken standby does not dial the route that just died, even past
+/// the race's stagger; the pass after it does again.
+#[tokio::test(start_paused = true)]
+async fn the_pass_behind_a_taken_standby_skips_the_route_that_died() {
+    let routes = two_routes();
+    let standby = WarmStandby::new(0);
+    let next = AtomicUsize::new(1);
+    // Slower than the race's stagger, so a pass with route 0 in it would dial it.
+    let attempt = CountingDials::new(Duration::from_secs(1), vec![]);
+    arm(&standby, &next, &routes, &attempt).await.unwrap();
+    take_standby(&standby, &next, |_: &(usize, usize)| true);
+    let (group, _) = reconnect(&standby, &next, &routes, &attempt).await.unwrap();
+    assert_eq!(group.0, 1);
+    assert_eq!(attempt.dials(), [1, 1], "route 0 is not raced right after it died");
+
+    // The next pass (no standby held) races both again.
+    let (_, _) = reconnect(&standby, &next, &routes, &attempt).await.unwrap();
+    assert_eq!(attempt.dials(), [1, 1, 0, 1]);
 }

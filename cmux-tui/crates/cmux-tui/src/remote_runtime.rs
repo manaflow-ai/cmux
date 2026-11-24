@@ -1687,6 +1687,13 @@ impl ReconnectGroupSource for RuntimeReconnectGroups {
         let (_, group) = match warm_standby::take_standby(&self.standby, &self.next, group_alive)? {
             Ok(taken) => taken,
             Err(stale) => {
+                if std::env::var_os("CMUX_BENCH_TRACE").is_some() {
+                    eprintln!(
+                        "bench-trace {:?} take_standby stale/closed closed={}",
+                        std::time::SystemTime::now(),
+                        stale.is_closed()
+                    );
+                }
                 close_failed_initial_group(&stale).await;
                 return None;
             }
@@ -1697,6 +1704,13 @@ impl ReconnectGroupSource for RuntimeReconnectGroups {
             .selected_path
             .and_then(|path| path.rtt_micros)
             .map(Duration::from_micros);
+        if std::env::var_os("CMUX_BENCH_TRACE").is_some() {
+            eprintln!(
+                "bench-trace {:?} take_standby taken {} rtt={rtt:?}",
+                std::time::SystemTime::now(),
+                group.description()
+            );
+        }
         Some(StandbyGroup {
             group,
             attempt_timeout: warm_standby::attempt_timeout(rtt),
@@ -1726,6 +1740,7 @@ async fn keep_standby(weak: std::sync::Weak<ReconnectGroupsInner>, wake: Arc<tok
             prepared_ssh: &inner.prepared_ssh,
             shutdown: inner.shutdown.clone(),
         };
+        let bt = std::time::Instant::now();
         let armed = arm_standby(
             &inner.standby,
             &inner.next,
@@ -1738,6 +1753,20 @@ async fn keep_standby(weak: std::sync::Weak<ReconnectGroupsInner>, wake: Arc<tok
             |group: Arc<dyn LinkGroup>| async move { group.hold().await },
         )
         .await;
+        if std::env::var_os("CMUX_BENCH_TRACE").is_some() {
+            eprintln!(
+                "bench-trace {:?} keeper arm took {}ms: {}",
+                std::time::SystemTime::now(),
+                bt.elapsed().as_millis(),
+                match &armed {
+                    Ok(Armed::Held(l)) => format!("held {}ms", l.as_millis()),
+                    Ok(Armed::Dialed { .. }) => "dialed".into(),
+                    Ok(Armed::NoRoute) => "noroute".into(),
+                    Ok(Armed::Cooling(l)) => format!("cooling {}ms", l.as_millis()),
+                    Err(e) => format!("err {e}"),
+                }
+            );
+        }
         let mut wait = match armed {
             Ok(Armed::Held(left)) => left,
             Ok(Armed::Dialed { retired, .. }) => {
@@ -1749,6 +1778,7 @@ async fn keep_standby(weak: std::sync::Weak<ReconnectGroupsInner>, wake: Arc<tok
                 Duration::ZERO
             }
             Ok(Armed::NoRoute) => return,
+            Ok(Armed::Cooling(left)) => left,
             Err(_) => {
                 let wait = backoff;
                 backoff = (backoff * 2).min(warm_standby::MAX_BACKOFF);
@@ -1800,12 +1830,30 @@ pub(crate) async fn next_reconnect_route<T: Send>(
     auth: AuthKind,
     attempt: &impl ReconnectRouteAttempt<T>,
 ) -> Result<T, ProviderError> {
+    next_reconnect_route_skipping(next, routes, None, race, session, lane_policy, auth, attempt)
+        .await
+}
+
+/// [`next_reconnect_route`] with one route left out of the pass (the route a warm standby
+/// was just taken from), unless it is the only one.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn next_reconnect_route_skipping<T: Send>(
+    next: &AtomicUsize,
+    routes: &[ResolvedRouteCandidate],
+    skip: Option<usize>,
+    race: Option<RouteRace>,
+    session: SessionId,
+    lane_policy: LanePolicy,
+    auth: AuthKind,
+    attempt: &impl ReconnectRouteAttempt<T>,
+) -> Result<T, ProviderError> {
     let Some(start) = next.fetch_add(1, Ordering::Relaxed).checked_rem(routes.len()) else {
         return Err(ProviderError::Configuration("no reconnect routes configured".into()));
     };
-    let (index, group) = route_race::select_reconnect_routes(
+    let (index, group) = route_race::select_reconnect_routes_skipping(
         routes,
         start,
+        skip,
         race,
         session,
         lane_policy,
