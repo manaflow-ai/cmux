@@ -2208,6 +2208,7 @@ dependencies = [
 name = "cmux-migrate"
 version = "0.1.0"
 dependencies = [
+ "cmux-git",
  "serde",
  "serde_json",
  "tempfile",
