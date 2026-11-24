@@ -383,6 +383,16 @@ function installFrameReader() {
       rows,
       composer: composer ? { top: composer.top, height: composer.height } : null,
       scrollTop: scroller && !rootHidden ? scroller.scrollTop : null,
+      ...(scroller
+        ? {
+            geo: `sh=${scroller.scrollHeight} ch=${scroller.clientHeight} thread=${(() => {
+              const thread = scroller.querySelector<HTMLElement>(".acpmux-thread");
+              return thread
+                ? `${thread.style.cssText.replace(/\s+/g, "")}|h=${thread.getBoundingClientRect().height.toFixed(1)}`
+                : "-";
+            })()}`,
+          }
+        : {}),
     };
   };
   const tick = () => {
@@ -757,7 +767,7 @@ try {
         if (process.env.FRAMES === "1" && judged.shifts > 0)
           for (const frame of read.frames.filter((one) => one.t >= read.t0))
             console.log(
-              `    frame +${(frame.t - read.t0).toFixed(1)} st=${frame.scrollTop?.toFixed(1)} ${frame.rows.map((row) => `${row.id}@${row.top.toFixed(1)}`).join(" ")}`,
+              `    frame +${(frame.t - read.t0).toFixed(1)} st=${frame.scrollTop?.toFixed(1)} ${(frame as { geo?: string }).geo ?? ""} ${frame.rows.map((row) => `${row.id}@${row.top.toFixed(1)}`).join(" ")}`,
             );
         let bottom: string | undefined;
         for (const frame of read.frames) {
