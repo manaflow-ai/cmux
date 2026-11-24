@@ -238,27 +238,34 @@ impl crate::mux::Mux {
 const REPLY_PAGE_RECORDS: usize = 400;
 /// The most bytes one reply page carries.
 const REPLY_PAGE_BYTES: usize = 512 * 1024;
-/// The most pages one reply read walks back before it calls the prompt not found.
+/// The most pages one reply read walks back before it calls a prompt not found.
 const REPLY_PAGES: usize = 4;
-/// How long one reply page may take.
+/// The longest one reply page may take (less when the read's deadline is nearer).
 const REPLY_TIMEOUT: Duration = Duration::from_secs(3);
 
 impl crate::mux::Mux {
-    /// The answer of the turn acpmux ran for `prompt_id` in `session`, read
-    /// newest first from its log: `Pending` while that turn has not ended (or
-    /// the prompt is older than the last [`REPLY_PAGES`] pages), `None` when
-    /// acpmux could not be read.
-    pub(crate) fn acp_prompt_reply(
+    /// How the turns acpmux ran for `prompt_ids` in `session` ended, read
+    /// newest first from its log over one link: one walk of at most
+    /// [`REPLY_PAGES`] pages answers every prompt, and stops once each has
+    /// ended or `deadline` passes. A prompt still `Pending` has not ended (or
+    /// is older than the pages read). `None` when acpmux could not be read.
+    pub(crate) fn acp_prompt_replies(
         &self,
         session: &str,
-        prompt_id: &str,
-    ) -> Option<crate::comment_threads::TurnReply> {
+        prompt_ids: &[String],
+        deadline: std::time::Instant,
+    ) -> Option<Vec<crate::comment_threads::TurnReply>> {
+        use crate::comment_threads::{TurnReply, turn_reply};
         let socket = self.control_clients.agent_sessions.socket()?;
         let link = AcpmuxLink::connect(&socket, |_| {}).ok()?;
         let mut events: Vec<Value> = Vec::new();
         let mut before: Option<u64> = None;
-        let mut reply = crate::comment_threads::TurnReply::Pending;
+        let mut replies = vec![TurnReply::Pending; prompt_ids.len()];
         for _ in 0..REPLY_PAGES {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            if left.is_zero() {
+                break;
+            }
             let query = json!({
                 "sessionId": session,
                 "limit": REPLY_PAGE_RECORDS,
@@ -266,7 +273,7 @@ impl crate::mux::Mux {
                 "kinds": crate::comment_threads::REPLY_KINDS,
                 "beforeSeq": before,
             });
-            let Ok(page) = link.call("_acpmux/events", query, REPLY_TIMEOUT) else {
+            let Ok(page) = link.call("_acpmux/events", query, left.min(REPLY_TIMEOUT)) else {
                 link.close();
                 return None;
             };
@@ -277,14 +284,18 @@ impl crate::mux::Mux {
             };
             before = Some(first);
             events.splice(0..0, older);
-            reply = crate::comment_threads::turn_reply(&events, prompt_id);
+            for (reply, prompt_id) in replies.iter_mut().zip(prompt_ids) {
+                if matches!(reply, TurnReply::Pending) {
+                    *reply = turn_reply(&events, prompt_id);
+                }
+            }
             let more = page.get("hasMore").and_then(Value::as_bool).unwrap_or(false);
-            if !matches!(reply, crate::comment_threads::TurnReply::Pending) || !more {
+            if !more || !replies.iter().any(|reply| matches!(reply, TurnReply::Pending)) {
                 break;
             }
         }
         link.close();
-        Some(reply)
+        Some(replies)
     }
 }
 

@@ -35,6 +35,11 @@ import { useSyncedRef } from "./useSyncedRef";
  */
 const THREAD_POLL_MS = 2000;
 
+/** A comment made on the diff (no `surface`, or `diff`), not one from the browser pane or a terminal. */
+export function isDiffComment(comment: DiffCommentRecord): boolean {
+  return comment.surface == null || comment.surface === "diff";
+}
+
 /** True while any comment's thread waits for the agent's turn to end. */
 export function hasSentThread(comments: readonly DiffCommentRecord[]): boolean {
   return comments.some((comment) => comment.thread?.state === "sent");
@@ -112,7 +117,9 @@ export function useDiffComments({
   }, [repoRoot]);
   const onLoaded = useCallback(
     (comments: DiffCommentRecord[], loadedReview?: DiffReviewTarget) => {
-      dispatch({ type: "replace-comments", comments });
+      // The host's store also keeps the browser pane's and terminal selections' comments under this
+      // root; they have no file or line, so the diff, its sidebar and a review post leave them out.
+      dispatch({ type: "replace-comments", comments: comments.filter(isDiffComment) });
       setReview(loadedReview);
     },
     [dispatch],
@@ -198,7 +205,7 @@ export function useDiffComments({
 
   // Reads the host's comments and takes in each one whose thread moved (sent, answered, failed);
   // everything else on the page, a draft being written included, stays as it is.
-  const refreshThreads = (targetRepoRoot: string) => {
+  const refreshThreads = (targetRepoRoot: string): Promise<void> =>
     bridgeListComments(targetRepoRoot)
       .then((listed) => {
         if (activeRepoRoot.current !== targetRepoRoot) return;
@@ -211,15 +218,26 @@ export function useDiffComments({
         }
       })
       .catch((error) => console.warn("cmux diff comment threads refresh failed", error));
-  };
 
   // Polls only while a thread waits for its reply.
   const waiting = threads && hasSentThread(shown);
   const refreshRef = useSyncedRef(refreshThreads);
   useEffect(() => {
     if (!waiting || !bridgeAvailable || repoRoot == null) return;
-    const timer = setInterval(() => refreshRef.current(repoRoot), THREAD_POLL_MS);
-    return () => clearInterval(timer);
+    // The next read is scheduled once the last one ended, so slow list calls never pile up.
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const tick = () => {
+      if (stopped) return;
+      void refreshRef.current(repoRoot).finally(() => {
+        if (!stopped) timer = setTimeout(tick, THREAD_POLL_MS);
+      });
+    };
+    timer = setTimeout(tick, THREAD_POLL_MS);
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
   }, [waiting, bridgeAvailable, repoRoot, refreshRef]);
 
   // A reply is a new comment on the same anchor, sent at once with keep; its thread follows.
@@ -248,7 +266,7 @@ export function useDiffComments({
           `diff-comments-${crypto.randomUUID()}`,
           true,
         );
-        refreshThreads(targetRepoRoot);
+        await refreshThreads(targetRepoRoot);
       })
       .catch((error) => console.warn("cmux diff comment reply failed", error));
   };
@@ -298,7 +316,7 @@ export function useDiffComments({
         if (activeRepoRoot.current !== targetRepoRoot) return setSendState("idle");
         // Only the comments sent and unchanged since leave, together; one saved or edited while the
         // send was on its way stays for the next send.
-        if (threads) refreshThreads(targetRepoRoot);
+        if (threads) void refreshThreads(targetRepoRoot);
         else removeUnchanged(cleared, batch.versions);
         setSendState("idle");
       })

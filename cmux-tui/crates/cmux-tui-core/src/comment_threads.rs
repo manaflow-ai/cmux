@@ -55,8 +55,15 @@ pub(crate) fn turn_reply(events: &[Value], prompt_id: &str) -> TurnReply {
     }
     let text = clip(text.trim());
     let result = &events[end];
-    if msg_str(result, "status") == Some("failed") {
-        let error = msg_str(result, "errorText").unwrap_or("the agent's turn failed");
+    // `completed` (or no status) is an answer; `failed`, `cancelled` and any
+    // other status are not, so a cancelled turn never shows as a blank reply.
+    let status = msg_str(result, "status").unwrap_or("completed");
+    if status != "completed" {
+        let error = msg_str(result, "errorText").unwrap_or(if status == "cancelled" {
+            "the agent's turn was cancelled"
+        } else {
+            "the agent's turn failed"
+        });
         let text = if text.is_empty() { error.to_owned() } else { format!("{text}\n\n{error}") };
         return TurnReply::Failed(clip(&text));
     }
@@ -117,6 +124,14 @@ mod tests {
             json!({"kind": "turn_result", "msg": {"promptId": "p", "status": "failed", "errorText": "rate limited"}}),
         ];
         assert_eq!(turn_reply(&failed, "p"), TurnReply::Failed("rate limited".into()));
+        let cancelled = vec![
+            json!({"kind": "turn_started", "msg": {"promptId": "p"}}),
+            json!({"kind": "turn_result", "msg": {"promptId": "p", "status": "cancelled"}}),
+        ];
+        assert_eq!(
+            turn_reply(&cancelled, "p"),
+            TurnReply::Failed("the agent's turn was cancelled".into())
+        );
     }
 
     #[test]

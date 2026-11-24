@@ -119,9 +119,17 @@ public final class CommentThreadsModel {
             let saved = try await store.saveComment(root: root, comment: record, key: key + "-save")
             guard let comment = saved["comment"], let thread = CommentThread(comment) else { throw AgentPaneGitFailure.failed }
             upsert(thread)
-            _ = try await store.sendCommentThreads(root: root, acpSession: acpSession, ids: [thread.id],
-                                            versions: thread.version.map { [thread.id: $0] } ?? [:],
-                                            text: terminal.prompt(quote: quote, message: message), key: key)
+            do {
+                _ = try await store.sendCommentThreads(root: root, acpSession: acpSession, ids: [thread.id],
+                                                       versions: thread.version.map { [thread.id: $0] } ?? [:],
+                                                       text: terminal.prompt(quote: quote, message: message), key: key)
+            } catch {
+                // The send failed: the saved comment leaves the host too, so no later diff Send
+                // takes it as a plain comment.
+                _ = try? await store.deleteComments(root: root, ids: [thread.id], versions: [:], key: key + "-unsave")
+                threads.removeAll { $0.id == thread.id }
+                throw error
+            }
             failure = nil
             await refresh()
             startPolling()

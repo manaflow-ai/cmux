@@ -3,7 +3,7 @@
 // poll gate (only while a thread is "sent").
 import { afterEach, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { hasSentThread } from "../diff-viewer/useDiffComments";
+import { hasSentThread, isDiffComment } from "../diff-viewer/useDiffComments";
 import { installPageDiffComments, sendComments } from "./bridge";
 import { resolveCommentLabels } from "./labels";
 import { SavedComment } from "./SavedComment";
@@ -95,4 +95,11 @@ test("a failed thread says the turn failed", () => {
 test("polling is wanted only while a thread is sent", () => {
   expect(hasSentThread([base, thread("answered", "x"), thread("failed")])).toBe(false);
   expect(hasSentThread([base, thread("sent")])).toBe(true);
+});
+
+test("the diff lists only its own comments, not the browser pane's or a terminal's from the same store", () => {
+  expect(isDiffComment(base)).toBe(true);
+  expect(isDiffComment({ ...base, surface: "diff" })).toBe(true);
+  expect(isDiffComment({ ...base, surface: "browser" })).toBe(false);
+  expect(isDiffComment({ ...base, surface: "terminal" })).toBe(false);
 });

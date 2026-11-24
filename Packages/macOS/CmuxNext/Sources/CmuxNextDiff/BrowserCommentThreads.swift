@@ -195,7 +195,10 @@ public final class BrowserCommentThreads {
             poll()
             return thread
         } catch {
-            update(key, BrowserCommentThread(commentID: id, state: .failed))
+            // The send failed: the saved comment leaves the host too, so no later diff Send takes it
+            // as a plain comment; the thread shows failed until resolved.
+            _ = await abandon(id, store: store, root: root)
+            update(key, BrowserCommentThread(commentID: nil, state: .failed))
             throw .host(error)
         }
     }

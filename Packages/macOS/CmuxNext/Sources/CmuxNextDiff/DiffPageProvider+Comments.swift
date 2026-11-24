@@ -116,7 +116,12 @@ extension DiffPageProvider {
         }
         let promptID = context.opid ?? UUID().uuidString
         let versions = params["versions"]?.objectValue ?? [:]
-        if params["keep"]?.boolValue == true, chat.deliver == nil, store.keepsThreads {
+        if params["keep"]?.boolValue == true {
+            // A page asks to keep only when the payload said this host could; if the chat or host
+            // changed since, refuse rather than send and clear comments the page means to keep.
+            guard chat.deliver == nil, store.keepsThreads else {
+                throw PageError(code: "cmux.diff.threads_unavailable", message: "This chat no longer keeps comment threads")
+            }
             // The comments stay as threads; a later `comments.list` carries the agent's reply.
             let sent: JSONValue
             do {

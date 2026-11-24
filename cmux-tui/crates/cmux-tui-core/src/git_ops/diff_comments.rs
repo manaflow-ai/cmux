@@ -177,7 +177,8 @@ fn threaded(
     prompt_id: &str,
     acp_session: &str,
 ) -> (Value, bool) {
-    let now = rfc3339(now_ms());
+    let now_at = now_ms();
+    let now = rfc3339(now_at);
     let mut threaded = Vec::new();
     for comment in &mut file.comments {
         let Some(id) = comment.get("id").and_then(Value::as_str).map(str::to_owned) else {
@@ -192,6 +193,7 @@ fn threaded(
             "promptId": prompt_id,
             "acpSession": acp_session,
             "sentAt": now,
+            "sentMs": now_at,
             "state": "sent",
         });
         comment.insert("thread".into(), thread);
@@ -201,30 +203,69 @@ fn threaded(
     (json!({"sent": sent, "threaded": threaded}), changed)
 }
 
-/// The most prompts one list asks acpmux about.
+/// The most prompts one list asks acpmux about, newest sent first.
 const MAX_THREAD_READS: usize = 8;
+/// How long one list may spend asking acpmux, over all its chats; a thread
+/// not answered by then stays open for the next list.
+const THREAD_READ_BUDGET: std::time::Duration = std::time::Duration::from_millis(1500);
+/// A thread sent longer ago than this with no ended turn found is closed as
+/// failed: its turn fell out of the pages a read walks, or its chat is gone,
+/// and leaving it open would have every surface poll for it forever.
+const THREAD_GIVE_UP_MS: u64 = 24 * 60 * 60 * 1000;
+/// The reply a thread closed by [`THREAD_GIVE_UP_MS`] shows.
+const THREAD_GAVE_UP: &str =
+    "The agent's reply could not be found: its chat is gone or the turn is too far back.";
 
 /// Asks acpmux how each open thread's turn ended and stores the answers on
 /// their comments (under the root's lock, re-read, so a save or delete
-/// meanwhile is kept). An acpmux that cannot be read leaves them open.
+/// meanwhile is kept). One link and one walk per chat answers all of its
+/// threads; the newest [`MAX_THREAD_READS`] are asked, within
+/// [`THREAD_READ_BUDGET`]. An acpmux that cannot be read leaves them open
+/// until [`THREAD_GIVE_UP_MS`].
 fn answer_threads(mux: &Arc<Mux>, store: &Store, root: &str, file: File) -> io::Result<File> {
     use crate::comment_threads::TurnReply;
-    let mut asks: Vec<(String, String)> = Vec::new();
+    let now = now_ms();
+    // Open threads, newest sent first, so old ones never starve new ones.
+    let mut open: Vec<(String, String, Option<u64>)> = Vec::new();
     for comment in &file.comments {
-        let Some(thread) = open_thread(comment) else { continue };
-        if !asks.contains(&thread) && asks.len() < MAX_THREAD_READS {
-            asks.push(thread);
+        let Some((session, prompt_id)) = open_thread(comment) else { continue };
+        if open.iter().any(|(_, id, _)| *id == prompt_id) {
+            continue;
+        }
+        open.push((session, prompt_id, sent_at_ms(comment)));
+    }
+    open.sort_by(|a, b| b.2.cmp(&a.2));
+    let mut answers: Vec<(String, Value)> = Vec::new();
+    let stamp = |state: &str, text: String| json!({"state": state, "reply": {"text": text, "at": rfc3339(now)}});
+    let mut sessions: Vec<(String, Vec<String>)> = Vec::new();
+    for (session, prompt_id, sent) in open.iter().take(MAX_THREAD_READS) {
+        if sent.is_some_and(|sent| now.saturating_sub(sent) > THREAD_GIVE_UP_MS) {
+            answers.push((prompt_id.clone(), stamp("failed", THREAD_GAVE_UP.to_owned())));
+            continue;
+        }
+        match sessions.iter_mut().find(|(s, _)| s == session) {
+            Some((_, ids)) => ids.push(prompt_id.clone()),
+            None => sessions.push((session.clone(), vec![prompt_id.clone()])),
         }
     }
-    let mut answers: Vec<(String, Value)> = Vec::new();
-    for (session, prompt_id) in asks {
-        let (state, text) = match mux.acp_prompt_reply(&session, &prompt_id) {
-            Some(TurnReply::Answered(text)) => ("answered", text),
-            Some(TurnReply::Failed(text)) => ("failed", text),
-            Some(TurnReply::Pending) | None => continue,
-        };
-        let reply = json!({"text": text, "at": rfc3339(now_ms())});
-        answers.push((prompt_id, json!({"state": state, "reply": reply})));
+    // Past the newest few, only the give-up check runs (no read).
+    for (_, prompt_id, sent) in open.iter().skip(MAX_THREAD_READS) {
+        if sent.is_some_and(|sent| now.saturating_sub(sent) > THREAD_GIVE_UP_MS) {
+            answers.push((prompt_id.clone(), stamp("failed", THREAD_GAVE_UP.to_owned())));
+        }
+    }
+    let deadline = std::time::Instant::now() + THREAD_READ_BUDGET;
+    for (session, ids) in &sessions {
+        let Some(replies) = mux.acp_prompt_replies(session, ids, deadline) else { continue };
+        for (prompt_id, reply) in ids.iter().zip(replies) {
+            match reply {
+                TurnReply::Answered(text) => {
+                    answers.push((prompt_id.clone(), stamp("answered", text)))
+                }
+                TurnReply::Failed(text) => answers.push((prompt_id.clone(), stamp("failed", text))),
+                TurnReply::Pending => {}
+            }
+        }
     }
     if answers.is_empty() {
         return Ok(file);
@@ -249,6 +290,11 @@ fn answer_threads(mux: &Arc<Mux>, store: &Store, root: &str, file: File) -> io::
         }
         Ok(file)
     })
+}
+
+/// When a comment's thread was sent, in Unix milliseconds (its `sentMs`).
+fn sent_at_ms(comment: &Map<String, Value>) -> Option<u64> {
+    comment.get("thread")?.get("sentMs")?.as_u64()
 }
 
 /// A comment's thread still waiting on the agent: its chat and prompt id.
