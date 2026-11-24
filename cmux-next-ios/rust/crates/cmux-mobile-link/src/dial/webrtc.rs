@@ -436,7 +436,11 @@ async fn finish(
         }
     });
     Ok(Dialed {
+        tunnel_keys: None,
         stream: Box::new(DataChannelStream { inner: stream }),
+        // A data channel cannot be held: ICE consent ends it after 30 s of
+        // silence whatever the link does.
+        hold: None,
         path: path_rx,
         peer: peer_rx,
         guard: Box::new(Guard {
@@ -447,6 +451,7 @@ async fn finish(
             session_id: session_id.to_owned(),
         }),
         lane: lane.map(lane_stream),
+        liveness: None,
         media,
         webrtc_media: false,
     })

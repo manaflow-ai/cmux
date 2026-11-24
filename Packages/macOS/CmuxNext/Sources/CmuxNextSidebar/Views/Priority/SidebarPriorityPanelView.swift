@@ -21,6 +21,11 @@ final class SidebarPriorityPanelView: NSView {
     private lazy var fade = ScrollEdgeFadeView(scrollView: scroll)
     private let document = FlippedDocument()
     private(set) var rows: [String: SidebarPriorityRowView] = [:]
+    /// The Archived fold under the rows (`panel.archived`): its header, the open fold's chat rows and its Show More.
+    /// Folded it holds no chat row.
+    let archivedHeader = SidebarSectionHeaderView()
+    private(set) var archivedRows: [String: SidebarArchivedChatRowView] = [:]
+    let archivedMore = SidebarArchivedChatRowView()
     /// Rows that left and still close their slot; they go when their move ends. They take no clicks
     /// (`FlippedDocument.hitTest`), so a right-click there opens no menu for a chat that left.
     private var closing: [SidebarPriorityRowView] = []
@@ -58,6 +63,15 @@ final class SidebarPriorityPanelView: NSView {
         scroll.contentView.drawsBackground = false
         scroll.documentView = document
         document.passesThrough = { [weak self] view in self?.closing.contains { $0 === view } ?? false }
+        archivedHeader.onPress = { [weak self] in
+            guard let self else { return }
+            self.onAction?(.setArchivedFolded(!self.panel.archived.folded))
+        }
+        archivedMore.onAction = { [weak self] action in self?.onAction?(action) }
+        archivedHeader.isHidden = true
+        archivedMore.isHidden = true
+        document.addSubview(archivedHeader)
+        document.addSubview(archivedMore)
         SystemScrollers.followThin(scroll)
         empty.isHidden = true
         [header, count, fade, empty].forEach(addSubview)
@@ -75,8 +89,21 @@ final class SidebarPriorityPanelView: NSView {
     var headerHeight: CGFloat { SidebarDensityTokens.rowHeight }
     private var contentHeight: CGFloat {
         guard !panel.collapsed else { return 0 }
+        return rowsHeight + Self.archivedHeight(panel.archived)
+    }
+
+    /// The ranked rows' height, or the empty line's.
+    private var rowsHeight: CGFloat {
         guard !panel.entries.isEmpty else { return SidebarDensityTokens.rowHeight }
         return panel.entries.reduce(0) { $0 + SidebarPriorityRowView.height($1) }
+    }
+
+    /// The Archived fold's height: nothing while no chat is archived, else its header, the open fold's rows and its
+    /// Show More row.
+    static func archivedHeight(_ archived: SidebarArchivedChats) -> CGFloat {
+        guard archived.isVisible else { return 0 }
+        let rows = archived.rows.count + (archived.hiddenCount > 0 ? 1 : 0)
+        return CGFloat(1 + rows) * SidebarArchivedChatRowView.height
     }
 
     /// The height the panel takes, at most `maximum` (its rows then scroll inside).
@@ -101,6 +128,7 @@ final class SidebarPriorityPanelView: NSView {
         placeRows(animated: window != nil && old.entries != panel.entries)
         updateTicker()
         if old.collapsed != panel.collapsed || old.entries.count != panel.entries.count
+            || Self.archivedHeight(old.archived) != Self.archivedHeight(panel.archived)
             || old.entries.map({ SidebarPriorityRowView.height($0) }) != panel.entries.map({ SidebarPriorityRowView.height($0) }) {
             onHeightChange?()
         }
@@ -154,7 +182,9 @@ final class SidebarPriorityPanelView: NSView {
             }
             y += height
         }
-        document.frame = NSRect(x: 0, y: 0, width: width, height: y)
+        let archivedTop = panel.entries.isEmpty ? SidebarDensityTokens.rowHeight : y
+        document.frame = NSRect(x: 0, y: 0, width: width, height: archivedTop + Self.archivedHeight(panel.archived))
+        placeArchived(top: archivedTop, width: width)
         // The held row stays under the pointer while another chat's text updates: only a re-rank or a
         // height change moves it, and those cancel the drag first (`show`).
         if let held = draggingID.flatMap({ rows[$0] }) { targets.removeAll { $0.0 === held } }
@@ -208,6 +238,38 @@ final class SidebarPriorityPanelView: NSView {
                 row.clipsToBounds = false
             }
         })
+    }
+
+    /// Lays out the Archived fold from `top`: its header "Archived (N)", then, open, the newest archives and Show More.
+    /// It does not move on the rows' spring: it sits under them and moves with the document.
+    private func placeArchived(top: CGFloat, width: CGFloat) {
+        let archived = panel.archived, height = SidebarArchivedChatRowView.height
+        archivedHeader.isHidden = !archived.isVisible || panel.collapsed
+        archivedHeader.configure(title: Strings.archivedFold(archived.count), collapsed: archived.folded)
+        archivedHeader.frame = NSRect(x: 0, y: top, width: width, height: height)
+        let shown = Set(archived.rows.map(\.id))
+        for (id, row) in archivedRows where !shown.contains(id) {
+            row.removeFromSuperview()
+            archivedRows[id] = nil
+        }
+        var y = top + height
+        for chat in archived.rows {
+            let row = archivedRows[chat.id] ?? {
+                let row = SidebarArchivedChatRowView()
+                row.onAction = { [weak self] action in self?.onAction?(action) }
+                document.addSubview(row)
+                archivedRows[chat.id] = row
+                return row
+            }()
+            if row.chat != chat { row.configure(chat) }
+            row.frame = NSRect(x: 0, y: y, width: width, height: height)
+            y += height
+        }
+        archivedMore.isHidden = archived.hiddenCount == 0
+        if archived.hiddenCount > 0 {
+            archivedMore.configureShowMore(hidden: archived.hiddenCount)
+            archivedMore.frame = NSRect(x: 0, y: y, width: width, height: height)
+        }
     }
 
     /// The row follows the pointer over the others; released, it takes the slot its middle is in

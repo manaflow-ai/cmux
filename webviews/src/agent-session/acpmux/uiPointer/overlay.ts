@@ -3,6 +3,7 @@
 // fixed host with no pointer events on the document's root, so the page under it neither reflows nor
 // loses a hover. The outline and the label move together; the first show of either is instant (no
 // fly-in from the corner), later moves follow the motion settings through the stylesheet.
+import { keycapLegend } from "../../../ui/keycapLegend";
 import { translate } from "../i18n";
 import { hintEdge, labelFacts, placeLabel, type Box, type LabelDensity, type LabelPlacement } from "./labelModel";
 
@@ -38,7 +39,7 @@ function buildHint(doc: Document): HTMLElement {
   const row = make(doc, "span", "cmux-ui-pointer-hint__keys");
   for (const [cap, action] of keys) {
     const key = make(doc, "span", "cmux-ui-pointer-hint__key");
-    key.append(make(doc, "kbd", "cmux-ui-pointer-kbd", cap), doc.createTextNode(translate(action)));
+    key.append(make(doc, "kbd", "cmux-ui-pointer-kbd", keycapLegend(cap)), doc.createTextNode(translate(action)));
     row.append(key);
   }
   hint.append(row);

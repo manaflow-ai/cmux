@@ -12,7 +12,7 @@ import type { PlayContext } from "../../../gallery/play";
 import type { ComposerHatHeadState } from "../../../gallery/fixtures/ComposerHatHeadStage";
 import { hatChevronLook } from "./hatParts.experiment";
 
-type Props = { start?: ComposerHatHeadState };
+type Props = { start?: ComposerHatHeadState; stepLook?: "default" };
 
 const stage = (name: string) => ({ selector: `[data-stage="${name}"]` });
 const head = (ctx: PlayContext) => ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__head");
@@ -64,6 +64,10 @@ export const composerHatHeadScript = [
 ];
 
 const variants = {
+  calm: {
+    note: "One subagent runs, its step in the shipped arm (one word for the kind of call, held 1.6 s); the header's words and count are held 1.6 s too. The feel test feeds this one bursts.",
+    props: { start: "running" as const, stepLook: "default" as const },
+  },
   running: {
     note: 'One subagent runs: the header names its task, what it does now ("Bash") and its time; a click expands the hat.',
     props: { start: "running" as const },

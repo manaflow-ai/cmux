@@ -1,4 +1,8 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
+#else
+import Foundation
+#endif
 
 /// Tab overview grid geometry (Mobile Safari, device-measured on an
 /// iPhone 17 Pro Max): two columns (more on a wider page, `columns`) with 16 pt insets and gutter, card
@@ -51,9 +55,13 @@ struct OverviewLayout: Equatable, Sendable {
         let gap = (size.width - 2 * Self.gridInset - CGFloat(n) * width) / CGFloat(n - 1)
         return Self.gridInset + CGFloat(col) * (width + gap)
     }
-    /// The card width: two thirds of the screen for a lone tab, else the
-    /// column width.
-    var cardWidth: CGFloat { isLone ? (size.width * 2 / 3).rounded() : columnWidth }
+    /// The widest a lone tab's card grows: two thirds of a 440 pt phone is
+    /// 293, so every phone keeps Safari's measured lone card, and an unfolded
+    /// foldable's wide page shows a phone's lone card, not one 533 pt wide.
+    static let maxLoneCard: CGFloat = 300
+    /// The card width: two thirds of the screen for a lone tab (at most
+    /// ``maxLoneCard``), else the column width.
+    var cardWidth: CGFloat { isLone ? min((size.width * 2 / 3).rounded(), Self.maxLoneCard) : columnWidth }
     var cardHeight: CGFloat { cardWidth * Self.cardAspect }
     /// Page points (from the page's top) a card shows.
     var cardPageHeight: CGFloat { size.width * Self.cardAspect }
@@ -135,6 +143,23 @@ struct OverviewLayout: Equatable, Sendable {
         let clamped = min(maxOffset, max(0, current))
         if isFullyVisible(index, offset: clamped) { return clamped }
         return min(maxOffset, max(0, card(index).minY - top))
+    }
+
+    /// The scroll offset in `resized` (this grid at a new size or column
+    /// count: a foldable folding or unfolding under a settled grid) that keeps
+    /// the grid's place: the first card, pinned or not, still showing below
+    /// the first row's line at `offset` sits as far from that line as it did,
+    /// clamped to the content. A grid at its top stays at its top. Positions
+    /// are read from the first row's line (`pinnedTop`), so a safe area that
+    /// changes with the fold moves nothing.
+    func offset(keepingPlace offset: CGFloat, in resized: OverviewLayout) -> CGFloat {
+        guard offset > 0 else { return 0 }
+        let height = { (i: Int) in i < self.pinned ? Self.pinnedHeight : self.card(i).height + Self.titleRow }
+        guard let first = (0..<count).first(where: { card($0).minY + height($0) - pinnedTop > offset }) else {
+            return resized.maxOffset
+        }
+        let below = card(first).minY - pinnedTop - offset
+        return min(resized.maxOffset, max(0, resized.card(first).minY - resized.pinnedTop - below))
     }
 }
 

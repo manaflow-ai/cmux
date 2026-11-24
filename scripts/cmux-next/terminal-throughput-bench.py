@@ -349,7 +349,10 @@ class SideApp:
         return rpc_at(self.socket, method, params, timeout)
 
     def launch(self, timeout=60):
-        said = self.side("launch", "--front", timeout=timeout + 30)
+        # side-instance.sh launch first waits for room in the Mac's memory budget (SIDE_INSTANCE_BUDGET_WAIT_S,
+        # default 1800 s); a bound under that wait killed the launcher mid-wait (as hot-verify.py launch_seconds).
+        wait = float(os.environ.get("SIDE_INSTANCE_BUDGET_WAIT_S", "1800") or 0)
+        said = self.side("launch", "--front", timeout=wait + timeout + 30)
         m = re.search(r"pid (\d+)", said)
         if not m:
             raise RuntimeError(f"side-instance.sh launch {self.name} named no pid: {said.strip()[-200:]}")

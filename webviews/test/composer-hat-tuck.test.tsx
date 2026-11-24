@@ -184,7 +184,7 @@ describe("the composer hat tucks away and comes back", () => {
     const root = createRoot(host);
     await act(async () => root.render(createElement(Stack, { agents: [reviewer] })));
     try {
-      expect(host.querySelector(".acpmux-tray-pull__count")?.textContent).toBe("3");
+      expect(host.querySelector<HTMLElement>(".acpmux-tray-pull__count")?.dataset.count).toBe("3");
       expect(host.querySelector(".acpmux-tray-pull__dot")).toBeNull();
       await act(async () => root.render(createElement(Stack, { agents: [reviewer], waiting: new Set([reviewer.id]) })));
       expect(host.querySelector(".acpmux-tray-pull__dot")).not.toBeNull();

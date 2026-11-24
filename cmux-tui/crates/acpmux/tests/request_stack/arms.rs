@@ -54,6 +54,7 @@ pub fn table() -> Vec<(&'static str, Ask)> {
             method::MUX_GITHUB_APP_LEASE,
             Any(json!({}), "a connection that is not the person is refused"),
         ),
+        (method::MUX_GITHUB_REST, Any(json!({}), "a connection that is not the person is refused")),
         (
             method::MUX_GITHUB_ACTION,
             Any(
@@ -118,6 +119,20 @@ pub fn table() -> Vec<(&'static str, Ask)> {
             Any(
                 json!({}),
                 "the local socket is refused: only a peer asks for this machine's state",
+            ),
+        ),
+        (
+            method::MUX_MACHINE_FILES_CALL,
+            Any(
+                json!({"machine": "nowhere", "action": "fs.read", "params": {"path": "/tmp/x"}}),
+                "the hub's book lists no signed-in machine of that name (unknown_machine)",
+            ),
+        ),
+        (
+            method::MUX_KEYS_MINT,
+            Any(
+                json!({"machine": "nowhere", "kind": "cloudflare-r2", "bucket": "bucket", "access": "ro"}),
+                "the hub has no peer of that name (unknown_machine)",
             ),
         ),
         (method::SESSION_NEW, Run(json!({"cwd": "$CWD", "mcpServers": []}))),
@@ -237,6 +252,44 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (method::MUX_COMPOSERS, Run(json!({"sessionId": "$S"}))),
         (method::MUX_BOOKMARK_GET, Run(json!({"sessionId": "$S"}))),
         (method::MUX_BOOKMARK_SET, Run(json!({"sessionId": "$S", "seq": 1, "bookmarked": false}))),
+        (method::MUX_PROMPTS_LIST, Run(json!({}))),
+        (
+            method::MUX_PROMPTS_SAVE,
+            Any(
+                json!({"name": "stack", "text": "on a small stack"}),
+                "the person check refuses this connection",
+            ),
+        ),
+        (
+            method::MUX_PROMPTS_DELETE,
+            Any(json!({"name": "stack"}), "the person check refuses this connection"),
+        ),
+        (
+            method::MUX_STASH_LIST,
+            Any(json!({"chat": "stack"}), "the person check refuses this connection"),
+        ),
+        (
+            method::MUX_STASH_PUSH,
+            Any(
+                json!({"chat": "stack", "text": "aside"}),
+                "the person check refuses this connection",
+            ),
+        ),
+        (
+            method::MUX_STASH_GET,
+            Any(json!({"chat": "stack", "id": "x"}), "the person check refuses this connection"),
+        ),
+        (
+            method::MUX_STASH_DROP,
+            Any(json!({"chat": "stack", "id": "x"}), "the person check refuses this connection"),
+        ),
+        (
+            method::MUX_STASH_MOVE,
+            Any(
+                json!({"chat": "stack", "to": "other"}),
+                "the person check refuses this connection",
+            ),
+        ),
         (method::MUX_ASK, Run(json!({"sessionId": "$S", "text": "what did you say?"}))),
         (
             method::MUX_BTW,

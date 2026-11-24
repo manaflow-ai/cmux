@@ -27,6 +27,7 @@ import { pendingSpeed } from "./pendingSpeed";
 import { fastModeIsOn, nextFastModeValue } from "./fastModeState";
 import { type StringKey, useT } from "./i18n";
 import { ModelPicker } from "./ModelPicker";
+import { Keycap } from "./Keycap";
 import { pickerFaceHarness } from "./modelPickerModel";
 import { AgentOptionsMenu } from "./AgentOptionsMenu";
 import { OnNewTab } from "./newTabComposer";
@@ -1635,6 +1636,7 @@ function AccessMenu({
           side={newTab ? "bottom" : "top"}
           align="start"
           className="acpmux-access-menu"
+          resize={{ id: "composer.access" }}
           // ui-allow: 1 to 9 pick the mode in that place while the menu is open, as in Claude's mode menu.
           onKeyDown={(event) => {
             if (event.metaKey || event.ctrlKey || event.altKey || !/^[1-9]$/.test(event.key)) return;
@@ -2056,6 +2058,8 @@ export function Picker({
   tooltip,
   shortcut,
   onOpen,
+  resizeId,
+  returnHint = false,
 }: {
   label: string;
   className: string;
@@ -2068,6 +2072,10 @@ export function Picker({
   /// The keycaps of the shortcut that opens it, shown after the tooltip (shortcuts.ts).
   shortcut?: string | undefined;
   onOpen?: () => void;
+  /// Resizable from its edges away from the button, its size kept under this name (ui/PopupResize.tsx).
+  resizeId?: string;
+  /// The highlighted row ends in the Return keycap and its choice's `verb` (the + menu). Off: no hint.
+  returnHint?: boolean;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement | null>(null);
@@ -2106,6 +2114,7 @@ export function Picker({
           // shared policy here also preserves prompt focus when a native capture is cancelled.
           finalFocus={undefined}
           className={cx("acpmux-menu acpmux-picker-menu", className)}
+          {...(resizeId ? { resize: { id: resizeId } } : {})}
         >
           {heading && (
             <div className="acpmux-menu-heading" aria-hidden="true">
@@ -2125,6 +2134,7 @@ export function Picker({
                         section={section}
                         current={choice.id === section.current}
                         warnUnrestricted={warnUnrestricted}
+                        returnHint={returnHint}
                         close={() => setMenuOpen(false)}
                       />
                     ))}
@@ -2137,6 +2147,7 @@ export function Picker({
                       section={section}
                       current={choice.id === section.current}
                       warnUnrestricted={warnUnrestricted}
+                      returnHint={returnHint}
                       close={() => setMenuOpen(false)}
                     />
                   ))
@@ -2155,12 +2166,14 @@ function PickerMenuItem({
   section,
   current,
   warnUnrestricted,
+  returnHint,
   close,
 }: {
   choice: Choice;
   section: Section;
   current: boolean;
   warnUnrestricted: boolean;
+  returnHint: boolean;
   close(): void;
 }) {
   return (
@@ -2186,6 +2199,14 @@ function PickerMenuItem({
         )}
       </span>
       {choice.hint && <kbd className="acpmux-menu-hint">{choice.hint}</kbd>}
+      {returnHint && choice.verb && (
+        // Drawn on every row and shown on the highlighted one only (styles.css), so moving the
+        // highlight re-renders nothing. Decoration: the row's name is what a screen reader reads.
+        <span className="acpmux-menu-return" aria-hidden="true">
+          <span className="acpmux-menu-return-verb">{choice.verb}</span>
+          <Keycap>↩</Keycap>
+        </span>
+      )}
       {current && <CheckIcon />}
     </MenuItem>
   );
@@ -2315,12 +2336,13 @@ export const PlusIcon = () => (
     <path d="M8 2.75v10.5M2.75 8h10.5" />
   </Icon>
 );
-/** Send's arrow: a plain outline glyph with the mic's stroke (Leo 2026-10-21: no disc). */
-export const ArrowUpIcon = () => (
+/** The folder menu's Use path row: the folder chip's own folder outline. */
+export const MenuFolderIcon = () => (
   <Icon>
-    <path d="M8 12.9V3.4M3.9 7.5 8 3.4l4.1 4.1" />
+    <path d="M1.9 4.6c0-.8.6-1.4 1.4-1.4h2.6l1.5 1.6h5.3c.8 0 1.4.6 1.4 1.4v5.6c0 .8-.6 1.4-1.4 1.4H3.3c-.8 0-1.4-.6-1.4-1.4Z" />
   </Icon>
 );
+export { ArrowUpIcon } from "./icons/arrowUpIcon";
 export const ReturnIcon = () => (
   <Icon>
     <path d={RETURN_GLYPH_PATH} />

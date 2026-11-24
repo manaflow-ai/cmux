@@ -14,6 +14,7 @@ import table from "./generated/strings.json";
 import { routeItem, withoutRouteItem } from "./model";
 import { MockFeedProvider } from "./mockProvider";
 import { FeedStore } from "./store";
+import { HubApprovals } from "./hubApprovals";
 import "../shared/pageBase.css";
 import "../../ui/controls.css";
 import "./styles.css";
@@ -54,10 +55,12 @@ export function mountFeedPage(
     consumeItem();
     surface();
   });
+  // Only Needs you draws the hub's approvals; the provider is routed only where Chief pins it.
+  const hub = store.getSnapshot().route.view === "needs-you" ? new HubApprovals(client) : undefined;
   document.title = strings.t(store.getSnapshot().route.view === "inbox" ? "feed.inboxTitle" : "feed.title");
   createRoot(root).render(
     <UiProvider container={root} popupHost={appPopupHost(client)} dir={languageDirection(strings.language)}>
-      <FeedPage store={store} strings={strings} />
+      <FeedPage store={store} strings={strings} hub={hub} />
     </UiProvider>,
   );
   return store;

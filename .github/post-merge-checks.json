@@ -6,7 +6,7 @@
     "post_merge": {
       "cmux-tui-spec.yml": {
         "workflow": "cmux-tui spec inventory",
-        "after_merge": "push to feat-cmux-next, same paths; every job a pull request runs (changes, acpmux tests) also runs on the push",
+        "after_merge": "the post-merge batch runs suite cmux-tui-spec, same paths; every job a pull request runs (changes, acpmux tests) also runs there",
         "why": "the last check on 13 of 233 pull requests, done p90 59 min after the push with job queue p90 68 min and job runtime p90 11 min (cmuxterm-hq docs/rfd/0045-landing-tail.md, 290 merged PRs 2026-11-19 to 11-22)"
       },
       "gallery-health.yml": {
@@ -36,7 +36,7 @@
       },
       "cmux-tui-sdks.yml": {
         "workflow": "cmux-tui SDKs",
-        "after_merge": "push to feat-cmux-next, same paths",
+        "after_merge": "the post-merge batch runs suite cmux-tui-sdks, same paths",
         "why": "runs again on the push to feat-cmux-next for the same paths (cmuxterm-hq docs/rfd/0045-landing-tail.md)"
       },
       "test-ios.yml": {

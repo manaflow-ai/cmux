@@ -7,8 +7,8 @@ import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// SPEC 4.3 composer for agent chat: glass card with a text row over a
-/// controls row (`+` menu, model pill, voice mode, send/stop), attachment previews,
+/// SPEC 4.3 composer for agent chat: one glass card whose one row holds the `+` menu, the text,
+/// the model pill and send/stop (`ComposerRowLayout`, the text above them once it wraps), attachment previews,
 /// queue rows, slash-command suggestions, and the collapsed capsule (same placeholder as the field).
 struct ChatComposer: View {
     let store: AgentChatStore
@@ -38,6 +38,8 @@ struct ChatComposer: View {
     @State private var showFiles = false
     @State private var showCamera = false
     @State private var photoItems: [PhotosPickerItem] = []
+    /// Picked videos Photos is still copying out (a large one takes seconds): a chip each.
+    @State private var preparingVideos = 0
     /// An attachment tapped before sending: previewed full screen.
     @State private var preview: FilePreviewRequest?
     @State private var sendCount = 0
@@ -73,6 +75,9 @@ struct ChatComposer: View {
     @State private var placedCollapsible: Bool?
 
     var body: some View {
+        #if DEBUG
+        let _ = InputLatencyTrace.shared?.count("composer_body")
+        #endif
         VStack(spacing: Self.suggestionsGap) {
             if !slashMatches.isEmpty {
                 slashSuggestions
@@ -227,63 +232,70 @@ struct ChatComposer: View {
         return (files, refused)
     }
 
+    /// One card, one row (``ComposerRowLayout``): `+` (and the voice button when it sits left),
+    /// the draft or the collapsed placeholder, then the picker, the context ring and Send. A draft
+    /// that wraps goes above the same controls. Before 2026-11-23 the text always had a row of its
+    /// own over the controls, 96 pt tall at one line with 10 pt between the text and the buttons.
     private var card: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if !collapsed {
-                if !attachments.isEmpty {
-                    attachmentStrip
-                }
-                // Return starts a new line, the send button sends; a hardware
-                // keyboard's Return sends, Shift-Return starts a new line.
-                ChatComposerField(text: $text, placeholder: placeholder, isFocused: focus, onSend: sendFromKeyboard,
-                                  onPasteAttachments: pasteAttachments)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 14)
-                    .padding(.bottom, 6)
-                    .onAppear { if expandRequested { focus.wrappedValue = true } }
+            if !collapsed, !attachments.isEmpty || preparingVideos > 0 {
+                attachmentStrip
             }
-            HStack(spacing: 8) {
-                plusMenu
-                if voice.placement == .leading { voiceButton }
+            ComposerRowLayout(lineHeight: UIFont.preferredFont(forTextStyle: .body).lineHeight) {
+                HStack(spacing: 0) {
+                    plusMenu
+                    if voice.placement == .leading { voiceButton }
+                }
                 if collapsed {
                     // One placeholder: the collapsed capsule reads the same as the field it opens.
                     Text(placeholder)
                         .lineLimit(1)
                         .foregroundStyle(.tertiary)
-                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        // A 44 pt target that reports one line, so the row reads it as one line.
+                        .padding(.vertical, 12)
                         .contentShape(.rect)
+                        .padding(.vertical, -12)
                         .onTapGesture { expand() }
                         .accessibilityAddTraits(.isButton)
                         .accessibilityLabel(placeholder)
                 } else {
-                    if store.currentModelID != nil || !store.models.isEmpty || !store.modes.isEmpty
-                        || store.effortOption?.options.isEmpty == false { pickerMenu }
-                    Spacer(minLength: 0)
-                    if let usage = store.contextUsage { ContextUsageRing(usage: usage) }
+                    // Return starts a new line, the send button sends; a hardware
+                    // keyboard's Return sends, Shift-Return starts a new line.
+                    ChatComposerField(text: $text, placeholder: placeholder, isFocused: focus, onSend: sendFromKeyboard,
+                                      onPasteAttachments: pasteAttachments,
+                                      onLineChange: { store.lineMotionPending = true })
+                        .onAppear { if expandRequested { focus.wrappedValue = true } }
                 }
-                // Voice mode instead of a dictation mic (the keyboard's own mic still
-                // dictates into the field): with no draft, the send circle is the voice
-                // button (ChatGPT's composer); while the agent runs it sits beside Stop.
-                // Hidden unless turned on in Settings → Composer (Leo, 2026-11-22: "im
-                // hiding this by default"); "Left of Field" puts it after +.
-                let voiceInSend = voice.placement == .sendButton
-                if primaryState == .empty || primaryState == .stop, voiceInSend { voiceButton }
-                if primaryState != .empty || !voiceInSend { primaryButton }
+                HStack(spacing: 4) {
+                    if !collapsed {
+                        if store.currentModelID != nil || !store.models.isEmpty || !store.modes.isEmpty
+                            || store.effortOption?.options.isEmpty == false { pickerMenu }
+                        if let usage = store.contextUsage { ContextUsageRing(usage: usage) }
+                    }
+                    // Voice mode instead of a dictation mic (the keyboard's own mic still
+                    // dictates into the field): with no draft, the send circle is the voice
+                    // button (ChatGPT's composer); while the agent runs it sits beside Stop.
+                    // Hidden unless turned on in Settings → Composer (Leo, 2026-11-22: "im
+                    // hiding this by default"); "Left of Field" puts it after +.
+                    let voiceInSend = voice.placement == .sendButton
+                    if primaryState == .empty || primaryState == .stop, voiceInSend { voiceButton }
+                    if primaryState != .empty || !voiceInSend { primaryButton }
+                }
             }
             .padding(.horizontal, 8)
-            // CMUX-46: the collapsed "Reply to <agent>" capsule is the 44 pt row plus 2 pt each
-            // side, 48 pt: the card's minimum and a true capsule at its 24 pt radius (6 pt each
-            // side drew it 56 pt tall, rounder at the ends than a capsule and too thick). The row
-            // keeps its 44 pt targets and grows with Dynamic Type.
-            .padding(.bottom, collapsed ? 2 : 8)
-            .padding(.top, collapsed ? 2 : 0)
+            // CMUX-46: the one-line card is the 44 pt row plus 2 pt each side, 48 pt: a true
+            // capsule at its 24 pt radius, the 36 pt circles 6 pt in from its edge (concentric).
+            // The same 48 pt whether collapsed, focused and empty, or holding one line.
+            .padding(.vertical, 2)
         }
-        .frame(minHeight: collapsed ? 48 : 96, alignment: .bottom)
+        .frame(minHeight: 48, alignment: .bottom)
         // Its own height whatever it is offered: a min-height frame offered
         // less takes the offer, and the grown draft ran outside the rounded
         // card (user report 2026-11-12, the same rule as the terminal composer).
         .fixedSize(horizontal: false, vertical: true)
         .glassEffect(.regular, in: .rect(cornerRadius: 24, style: .continuous))
+        .accessibilityIdentifier("chat.composer.card")
         .padding(.horizontal, collapsed ? 20 : 12)
     }
 
@@ -555,10 +567,11 @@ struct ChatComposer: View {
         } label: {
             Image(systemName: state == .stop ? "stop.fill" : "arrow.up")
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(state == .empty ? Color(uiColor: .tertiaryLabel) : Color.cmuxMobileOnAccent)
+                .foregroundStyle(state == .empty ? Color(uiColor: .tertiaryLabel) : Color.cmuxMobileOnSend)
                 .contentTransition(.symbolEffect(.replace))
                 .frame(width: 36, height: 36)
-                .cmuxMobilePressBackground(state == .empty ? Color.cmuxMobileFill : Color.cmuxMobileAccent, in: .circle)
+                // The theme's Send color, never a white disk (`Color.cmuxMobileSend`).
+                .cmuxMobilePressBackground(state == .empty ? Color.cmuxMobileFill : Color.cmuxMobileSend, in: .circle)
                 .overlay {
                     if state == .queue {
                         Circle().strokeBorder(.secondary, lineWidth: 2).padding(-4)
@@ -607,7 +620,8 @@ struct ChatComposer: View {
             return
         }
         store.send(prompt: text, attachments: attachments, steer: steer, denyingPermission: denyingPermission)
-        text = ""
+        // A multi-line draft shrinks to one line on the line motion, with the transcript.
+        withAnimation(ComposerLineMotion.animation.unlessReduceMotion) { text = "" }
         attachments = []
         sendCount += 1
         if CmuxMobilePreferences.dismissKeyboardAfterSend() { focus.wrappedValue = false }
@@ -625,6 +639,18 @@ struct ChatComposer: View {
                         attachments.removeAll { $0.id == attachment.id }
                     }
                     .transition(.scale(scale: 0.8).combined(with: .opacity))
+                }
+                if preparingVideos > 0 {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text(preparingVideos == 1 ? "Preparing video…" : "Preparing \(preparingVideos) videos…")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 12)
+                    .frame(height: 56)
+                    .background(Color.cmuxMobileFill, in: .rect(cornerRadius: 12, style: .continuous))
+                    .accessibilityElement(children: .combine)
+                    .transition(.opacity)
                 }
             }
             .padding(.horizontal, 12)
@@ -727,7 +753,13 @@ struct ChatComposer: View {
     private func loadPhotos(_ items: [PhotosPickerItem]) async {
         for item in items {
             if item.supportedContentTypes.contains(where: { $0.conforms(to: .movie) }) {
-                guard let movie = try? await item.loadTransferable(type: PickedMovie.self) else {
+                preparingVideos += 1
+                let started = ContinuousClock.now
+                let picked = try? await item.loadTransferable(type: PickedMovie.self)
+                preparingVideos -= 1
+                let elapsed = ContinuousClock.now - started
+                PickedMovie.log.info("pick ms=\(elapsed.components.seconds * 1000 + elapsed.components.attoseconds / 1_000_000_000_000_000) ok=\(picked != nil)")
+                guard let movie = picked else {
                     store.clientError = String(localized: "Couldn't read the video.")
                     continue
                 }
@@ -797,8 +829,7 @@ struct QueuedPromptsView: View {
         .alert("Edit queued prompt", isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } }),
                presenting: editing) { item in
             TextField("Message", text: $editText, axis: .vertical)
-                // Prompts are code-like: no autocorrect, no capitals (full verify D5).
-                .autocorrectionDisabled()
+                // Prompts are code-like: no capitals (full verify D5); autocorrect stays on, as on every GUI field (Leo, 2026-11-23).
                 .textInputAutocapitalization(.never)
             Button("Cancel", role: .cancel) {}
             Button("Save") { store.editQueued(item.id, text: editText) }
