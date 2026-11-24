@@ -3106,15 +3106,17 @@ async fn hub_carrier_later_dials_to_a_machine_ride_its_kept_circuit_as_streams()
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn hub_carrier_acpmux_links_ride_the_kept_circuit_as_streams() {
     let _ = HERMETIC;
+    // The fixture's own cmux-tui dials (until B served) opened the bulk circuit.
     let fixture = kept_fixture(Duration::ZERO, true, true).await;
+    let bulk = fixture.kept_circuits();
     let mut link = within("the peer link", fixture.a.dial(&fixture.b_key)).await.unwrap();
     let mut probe = within("the hub probe", fixture.a.dial(&fixture.b_key)).await.unwrap();
     echo(&mut link, b"link\n").await;
     echo(&mut probe, b"probe\n").await;
-    assert_eq!(fixture.kept_circuits(), 1, "the links rode the one cheap circuit");
+    assert_eq!(fixture.kept_circuits(), bulk + 1, "the links rode the one cheap circuit");
     assert_eq!(fixture.a.kept_streams(&fixture.b_key), Some(2));
     let _tui = fixture.dial_to_banner().await;
-    assert_eq!(fixture.kept_circuits(), 2, "cmux-tui opened the bulk circuit beside it");
+    assert_eq!(fixture.kept_circuits(), bulk + 1, "cmux-tui rode the bulk circuit");
     assert_eq!(fixture.plain_dials(), 0, "no plain circuit beside them");
     assert_eq!(fixture.a.kept_circuits(&fixture.b_key), 2);
     assert_eq!(fixture.a.kept_streams(&fixture.b_key), Some(3));
