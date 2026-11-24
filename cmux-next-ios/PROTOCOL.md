@@ -1931,6 +1931,24 @@ hostd keeps phones' push keys in `<state>/push-keys.json` and spent reply
 ids and nonces in `<state>/mailbox-spent.json` (both mode 0600; public keys
 and ids only).
 
+## Relay snapshot seal (`cmux-relay-snapshot-v1`; RFD 0142 R2, crate only so far)
+
+The envelope a relay's Durable Object will store so a cold-opening phone gets first content from the edge
+while its live link dials. The relay holds ciphertext only. The one implementation is the Rust crate
+`cmux-tui/crates/cmux-relay-snapshot` (Mac, relay tooling and the phone's FFI all use it; Swift is a shim).
+No wire message carries it yet: the host publish path and the Durable Object store and serve are the next PR,
+and the phone's open the one after, each versioned and updated both sides at once.
+
+- Seal: the ECIES of "Sealed pushes" (P-256 ECDH, HKDF-SHA256 salted with `E_pub || R_pub`, AES-256-GCM) with
+  HKDF info and AAD `cmux-relay-snapshot-v1 \0 sourceKeyId \0 viewerKeyId \0 stream` (key ids are lowercase hex
+  SHA-256 of the X9.63 point), and the 130-byte header in the AAD.
+- Envelope: `version(1) epoch(u64) seq(u64) sourceKeyId(32) E_pub(65) nonce(12) ctLen(u32) ct||tag sig(64)`,
+  big endian. `sig` is the source identity key's ECDSA P-256 / SHA-256 (fixed 64 bytes) over
+  `cmux-relay-snapshot-sig-v1 \0 context \0 every byte before sig`.
+- Order: `(epoch, seq)` compared epoch first. The Durable Object keeps only the newest envelope per viewer and
+  stream; the viewer keeps the highest position it accepted and refuses an older one (`stale`), so a replay or
+  a rolled-back source never replaces newer state. Equal is a harmless replay.
+
 ## Terminal sizing policy (`host-size-policy-v1`; added 2026-10-23)
 
 A shared terminal has one PTY grid. When several devices show it (this Mac,
