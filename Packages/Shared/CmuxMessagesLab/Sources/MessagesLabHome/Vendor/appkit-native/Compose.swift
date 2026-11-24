@@ -729,7 +729,13 @@ final class ComposeTextView {
     /// The clip at FRAME (host coordinates): the document is at least the clip's height, as wide
     /// as it; a size change keeps the caret line in view (a live resize rewraps the lines).
     func place(_ frame: CGRect) {
-        guard clip.frame != frame else { return }
+        let old = clip.frame
+        guard old != frame else { return }
+        // VoiceOver's cursor follows the field only when it hears of each move and size change.
+        defer {
+            if clip.frame.size != old.size { announce(view, .resized) }
+            if clip.frame.origin != old.origin { announce(view, .moved) }
+        }
         // A live resize that changes only the field's width while the draft is empty: no pixel of
         // the empty field depends on its width (the caret stands at the left inset of an empty
         // left-to-right line; the placeholder is the compose bar's own layer), so the clip keeps its
