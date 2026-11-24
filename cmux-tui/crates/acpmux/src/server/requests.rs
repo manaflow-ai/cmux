@@ -2861,6 +2861,17 @@ async fn dispatch_request_with_identity(
             ))
         }
         "_acpmux/place" => Ok(super::place::place(hub, &params).await),
+        // A new chat's place mode and where it starts with it (`chat_place.rs`): the composer's
+        // place picker and chip, on the same sockets `_acpmux/place` answers on.
+        "_acpmux/chat_place" | "_acpmux/chat_place_set"
+            if !matches!(conn.origin, Origin::Local | Origin::LocalApp) =>
+        {
+            Err(RpcError::invalid_params(
+                "_acpmux/chat_place answers on this machine's unix socket and the app's own pane only",
+            ))
+        }
+        "_acpmux/chat_place" => Ok(super::chat_place::read(hub, &params).await),
+        "_acpmux/chat_place_set" => super::chat_place::set(hub, &params).await,
         "_acpmux/move_targets" if conn.origin != Origin::Local => Err(RpcError::invalid_params(
             "_acpmux/move_targets answers on this machine's unix socket only",
         )),

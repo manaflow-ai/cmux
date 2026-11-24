@@ -645,6 +645,8 @@ struct Weighed {
     /// Its lanes against its cap (`Lanes::cap_state`).
     cap: CapState,
     why: String,
+    /// Free RAM in bytes from the reading: the new-chat chip's "This Mac: 12 GB free".
+    ram_free: Option<f64>,
 }
 
 impl Weighed {
@@ -697,6 +699,7 @@ fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
         unknown: !known,
         cap: CapState::Unknown,
         why: String::new(),
+        ram_free: None,
     };
     let Some(lanes) = lanes else {
         w.refused = Some("not a lane host (no lanes entry in fleet-registry.json)".into());
@@ -714,6 +717,7 @@ fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
     let mut parts = Vec::new();
     let mut rooms = Vec::new();
     if let Some(free) = reading(h, "/ram/freeBytes") {
+        w.ram_free = Some(free);
         parts.push(format!("{:.0} GB RAM free", free / GB));
         rooms.push(("RAM", (free / GB - lanes.reserved_gb) / lanes.per_lane_gb));
     }
@@ -785,7 +789,7 @@ fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
 /// takes it anyway), "why": TEXT, "room": LANES|null (the pick's), "localOver": TEXT|null (why
 /// this machine is over its budget, room or swap), "work": "agent"|"build", "tier": {index, of}|null (the
 /// pick's placement_preference tier, 1 best), "hosts": [{name, local, ok, room, rank, tier,
-/// live, why, refused}]}`.
+/// live, why, ramFree, refused}]}`.
 pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> Value {
     let hosts = lane_hosts(registry);
     let lanes_of = |name: &str| -> Option<Lanes> {
@@ -911,6 +915,8 @@ pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> 
             "tier": w.tier.as_ref().map(|(at, of)| json!({"index": at.saturating_add(1), "of": of})),
             "live": w.live,
             "why": w.why,
+            // Free RAM in bytes (null without a reading): place_mode's chip.
+            "ramFree": w.ram_free,
             "refused": w.refused,
             // Refused only for room, load or swap: it may still take work (`overloaded`).
             "load": w.load,
