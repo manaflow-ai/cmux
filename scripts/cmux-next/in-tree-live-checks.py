@@ -83,7 +83,7 @@ parser.add_argument("--json")
 parser.add_argument("--in-tree", dest="in_tree", choices=["on", "off"], default="on")
 parser.add_argument("--idle", type=float, default=8.0)
 parser.add_argument("--checks", default="mode,census,focus,shortcuts,prompts,file_after_popup,pane_fit,divider_resize,"
-                    "window_resize,fullscreen,live_resize,tab_spam,pane_zoom,popup_float,omnibar_narrow,key_route,element_fullscreen,"
+                    "window_resize,fullscreen,live_resize,window_move,tab_spam,pane_zoom,popup_float,omnibar_narrow,key_route,element_fullscreen,"
                     "two_pages,reveal",
                     help="comma-separated; `regressions` names every row of in-tree-regressions.md (bugs 4, 9 to 15)")
 parser.add_argument("--reveal-hidden", dest="reveal_hidden", type=float, default=10.0,
@@ -95,7 +95,7 @@ os.makedirs(opts.out, exist_ok=True)
 CHECKS = set(opts.checks.split(","))
 if "regressions" in CHECKS:  # in-tree-regressions.md: the live rows of the bugs found in real use
     CHECKS |= {"mode", "prompts", "file_after_popup", "reveal", "pane_fit", "divider_resize", "window_resize", "fullscreen",
-               "live_resize", "tab_spam", "pane_zoom", "popup_float", "omnibar_narrow", "key_route", "element_fullscreen"}
+               "live_resize", "window_move", "tab_spam", "pane_zoom", "popup_float", "omnibar_narrow", "key_route", "element_fullscreen"}
 with open(os.path.join(opts.app, "Contents/Info.plist"), "rb") as f:
     BINARY = os.path.join(opts.app, "Contents/MacOS", plistlib.load(f)["CFBundleExecutable"])
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
@@ -1053,7 +1053,7 @@ def read_scan(path):
     return header, frames
 
 
-def pixel_record(name, seconds):
+def pixel_record(name, seconds, filter_kind="display"):
     """Starts the app's recorder with one row through the middle of the page (device pixels from the window's top left).
     Returns {path, scale, row, x_lo} or {"error"}."""
     layers = main_layers()
@@ -1069,7 +1069,7 @@ def pixel_record(name, seconds):
     scale = 2.0
     y_pt = win[3] - (frame[1] + frame[3] / 2)
     started = rpc("debug.motion", {"action": "record_start", "path": path, "seconds": seconds, "mbps": 60,
-                                   "rows": [int(y_pt * scale)], "columns": []})
+                                   "rows": [int(y_pt * scale)], "columns": [], "filter": filter_kind})
     if not isinstance(started, dict) or started.get("error"):
         return {"error": f"record_start: {started}", "read": probe}
     scale = started.get("scale") or scale
@@ -1077,7 +1077,7 @@ def pixel_record(name, seconds):
         rpc("debug.motion", {"action": "record_stop"})
         wait(lambda: (rpc("debug.motion", {"action": "record_read"}) or {}).get("written"), 30)
         started = rpc("debug.motion", {"action": "record_start", "path": path, "seconds": seconds, "mbps": 60,
-                                       "rows": [int(y_pt * scale)], "columns": []})
+                                       "rows": [int(y_pt * scale)], "columns": [], "filter": filter_kind})
     ok = wait(lambda: (lambda r: r if isinstance(r, dict) and (r.get("capturing") or r.get("error")) else None)(
         rpc("debug.motion", {"action": "record_read"})), 10, 0.05)
     if not ok or not ok.get("capturing"):
@@ -1340,11 +1340,29 @@ def check_tab_spam(tab, pane):
     time.sleep(0.6)  # test harness: frames at rest
     rpc("debug.frames", {"action": "start"})
     a = time.monotonic()
+    shows, stop = [], threading.Event()
+
+    def sample_shows():
+        # What the pane shows (debug.pane_chrome panes[].shows), each display frame, so a frame without the omnibar row
+        # names its cause: no content installed, a hidden or clear content view, or a paint hold's kept view.
+        while not stop.is_set():
+            t = time.monotonic()
+            report = rpc("debug.pane_chrome", timeout=5) or {}
+            for window in report.get("windows") or []:
+                for p in window.get("panes") or []:
+                    if p.get("pane") == pane and p.get("shows"):
+                        shows.append((round((t - a) * 1000), p["shows"]))
+            time.sleep(0.008)  # test harness: about one sample a display frame
+
+    sampler = threading.Thread(target=sample_shows, daemon=True)
+    sampler.start()
     for _ in range(10):
         rpc("debug.key", {"key": "l", "modifiers": ["command", "shift"]})
         time.sleep(0.08)  # test harness: the sweep's 80 ms key spacing
     b = time.monotonic()
     time.sleep(1.5)  # test harness: the last tab settles
+    stop.set()
+    sampler.join(timeout=5)
     app_frames = rpc("debug.frames", {"action": "stop"})
     pixel_stop({"path": path})
     scan = path + ".scan"
@@ -1364,9 +1382,56 @@ def check_tab_spam(tab, pane):
     during = [(round((t - a) * 1000), round(lum(l[0]), 1)) for t, l in frames if a <= t <= b + 1.5]
     gone = [d for d in during if base and d[1] < 0.6 * base]
     longest = (app_frames or {}).get("max_ms") if isinstance(app_frames, dict) else None
+    def brief(sh):
+        c = sh.get("content") or {}
+        return {"content": c.get("class"), "hidden": c.get("hidden"), "alpha": c.get("alpha"), "installed": sh.get("hosts_content"),
+                "kept": (sh.get("kept") or {}).get("class"), "host": [(v["class"], v["alpha"], v["hidden"]) for v in sh.get("host_subviews") or []]}
+    bare = [(ms, brief(sh)) for ms, sh in shows
+            if not sh.get("hosts_content") or (sh.get("content") or {}).get("hidden") or (sh.get("content") or {}).get("alpha", 1) < 0.99]
+    RAW["tab_spam"] = {"shows": shows, "during": during}
     row(bool(base) and not gone and longest is not None and longest <= 50, "tab_spam",
         dict(detail, rest_luminance=base, frames=len(during), omnibar_gone_frames=len(gone), examples=gone[:10],
+             shows_samples=len(shows), bare_pane_samples=len(bare), bare_examples=bare[:6],
              pass_if="no frame without the omnibar row; no app frame interval over 50 ms (sweep D8: 159 ms)"))
+
+
+def check_window_move(tab, pane):
+    """Defect 9 (bug 20): the window moved 300 pt right and back in 60 steps a way (debug.window_frame, the app's own
+    setFrame: no focus, as Rectangle moves it), recorded by the app's recorder with the window filter so the row is in
+    the window's own coordinates. A page that lags or floats apart from its window shows its strips at another x than
+    the window's own page edge: every frame is classified as for live_resize."""
+    layers = main_layers()
+    window = layers.get("frame")
+    frame = page_view(pane, layers)
+    if not window or not frame:
+        row("INFO", "window_move", {"note": "no window frame or page view"})
+        return
+    page_eval("window.scrollTo(0, 0); true", tab)
+    time.sleep(0.8)  # test harness: overlay scroll bars fade
+    rec = pixel_record("window-move", 12, "window")
+    if rec.get("error"):
+        row(False, "window_move.pixels", {"bug": 20, "error": rec["error"]})
+        return
+    time.sleep(0.3)  # test harness: frames at rest
+    rpc("debug.frames", {"action": "start"})
+    work0 = work_counters()
+    x0, y0, w, h = window
+    a = time.monotonic()
+    for dx in list(range(5, 305, 5)) + list(range(300, -5, -5)):
+        rpc("debug.window_frame", {"frame": [x0 + dx, y0, w, h]})
+        time.sleep(1 / 120)  # test harness: one move a 120 Hz frame, as a drag
+    b = time.monotonic()
+    time.sleep(0.8)  # test harness: the settle is in the recording
+    app_frames = rpc("debug.frames", {"action": "stop"})
+    work = work_delta(work0, work_counters())
+    read = pixel_stop(rec)
+    v = pixel_verdict(rec, [(a, b)], frame[0] - 10, 0.7)
+    RAW["window_move"] = {"verdict": v, "read": read, "app_frames": app_frames, "work": work}
+    row(not v.get("error") and v["wrong"] == 0 and v["settle_ms_after_input"] <= LAG_MS, "window_move.pixels",
+        {"bug": 20, **{k: v.get(k) for k in ("frames", "classes", "wrong", "blank", "longest_wrong_run", "moving_fps",
+                                              "stalls_over_50ms", "gap_max_ms", "settle_ms_after_input", "examples", "error")},
+         "app_frames": frame_detail(app_frames), "work": work, "read_filter": (read or {}).get("filter"),
+         "pass_if": "no wrong frame (the page right against its window's own page edge in every frame) while the window moves"})
 
 
 def check_pane_zoom(tab, pane):
@@ -1695,7 +1760,7 @@ def check_element_fullscreen(tab, pane):
             time.sleep(1.0)  # test harness: the window settles
 
 
-REGRESSION_CHECKS = ("pane_fit", "divider_resize", "window_resize", "fullscreen", "live_resize", "tab_spam", "pane_zoom",
+REGRESSION_CHECKS = ("pane_fit", "divider_resize", "window_resize", "fullscreen", "live_resize", "window_move", "tab_spam", "pane_zoom",
                      "popup_float", "omnibar_narrow", "key_route", "element_fullscreen")
 
 
@@ -1893,7 +1958,7 @@ try:
                               ("window_resize", check_window_resize), ("fullscreen", check_fullscreen),
                               ("live_resize", check_live_resize),
                               ("pane_zoom", check_pane_zoom), ("popup_float", check_popup_float),
-                              ("omnibar_narrow", check_omnibar_narrow), ("tab_spam", check_tab_spam),
+                              ("omnibar_narrow", check_omnibar_narrow), ("window_move", check_window_move), ("tab_spam", check_tab_spam),
                               ("key_route", check_key_route), ("element_fullscreen", check_element_fullscreen)):
                 if name in CHECKS:
                     try:
