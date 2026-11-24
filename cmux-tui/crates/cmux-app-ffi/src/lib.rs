@@ -40,12 +40,16 @@
 //! answer (include/cmux_system_calendar.h); EventKit stays in the app.
 //! `settings` is cmux-next.json's reads (cmux-config's app_ops: the parse,
 //! the validation and the defaults; include/cmux_settings.h).
+//! `interactivity` is priority by interactivity (cmux-interactivity, include/cmux_interactivity.h): note what the
+//! person touches, read the QoS of a class of work.
 //! `agent_client` is the no-I/O agent list client (acpmux-client,
 //! include/acpmux_client.h); the app owns and drives its byte connection.
 
 /// cbindgen:ignore
 pub mod files_lister;
 pub mod hover;
+/// cbindgen:ignore
+pub mod interactivity;
 pub mod motion;
 /// cbindgen:ignore
 pub mod settings;

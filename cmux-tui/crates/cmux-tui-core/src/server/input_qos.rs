@@ -46,6 +46,19 @@ impl InputLane {
     }
 }
 
+/// A resize in flight from a connection (`set-split-ratio`, `set-viewport-pane-width`, `set-layout-sizes`): the
+/// person's drag when it runs in a drag transaction, the protocol the app's dividers, windows and sidebars use
+/// (`set-layout-sizes` always does). The connection is marked like a key marks it, so its threads serve the
+/// following frames at user-interactive QoS, and the process's interaction state notes a drag, so lower classes
+/// (`cmux-interactivity`'s policy: agent output parsing, journal sync and indexing) yield for the next 400 ms.
+/// A one-shot CLI call without a transaction is automation's and changes nothing.
+pub(super) fn note_drag(writer: &super::MessageWriter, in_drag_transaction: bool) {
+    if in_drag_transaction {
+        writer.input_lane.mark_person_input();
+        cmux_interactivity::note(cmux_interactivity::InteractionKind::Drag);
+    }
+}
+
 /// Raises the calling thread to user-interactive QoS, once per thread: a thread that carries the person's keys (the
 /// connection threads above, and a terminal's input port writer once it takes a person's key,
 /// `surface::input_port`). Off macOS this sets nothing.

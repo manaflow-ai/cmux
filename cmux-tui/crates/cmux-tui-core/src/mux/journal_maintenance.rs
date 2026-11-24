@@ -245,6 +245,9 @@ impl JournalMaintenance {
                         return;
                     }
                     let Some(mux) = weak_mux.upgrade() else { return };
+                    // Journal sync yields while the person interacts, then comes back (cmux-interactivity).
+                    let _qos =
+                        cmux_interactivity::Scoped::for_class(cmux_interactivity::WorkClass::Sync);
                     outcome = mux.run_journal_maintenance(&mut ledgers);
                 }
             },
@@ -284,7 +287,13 @@ fn run_index_backfill(weak_mux: &Weak<Mux>, control: &JournalMaintenanceControl)
     loop {
         let outcome = {
             let Some(mux) = weak_mux.upgrade() else { return };
-            if mux.journal_maintenance_paused() { Ok(true) } else { mux.run_index_backfill_slice() }
+            if mux.journal_maintenance_paused() {
+                Ok(true)
+            } else {
+                let _qos =
+                    cmux_interactivity::Scoped::for_class(cmux_interactivity::WorkClass::Index);
+                mux.run_index_backfill_slice()
+            }
         };
         let rest = match outcome {
             Ok(false) => return,

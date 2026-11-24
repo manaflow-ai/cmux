@@ -46,6 +46,7 @@ cmux-health-core = { path = "../cmux-health-core" }
 cmux-launch-image = { path = "../cmux-launch-image" }
 # The spring step and motion tokens (src/motion.rs). No `settings`: the app
 # passes its own settings per call, so no AppKit or env reading here.
+cmux-interactivity = { path = "../cmux-interactivity" }
 cmux-motion = { path = "../cmux-motion", default-features = false }
 # The daemon client the cmux CLI uses (cmux-tui/bindings/rust) as a C ABI:
 # the app's connect, call, command and subscribe (include/cmux_sdk_ffi.h).
