@@ -16,6 +16,7 @@ import Testing
         #expect(DevicePlatform.macos.hostsScreen)
         #expect(DevicePlatform.linux.hostsScreen)
         #expect(!DevicePlatform.ios.hostsScreen)
+        #expect(!DevicePlatform.windows.hostsScreen)
     }
 
     @Test func aDevicesPushRefetchesTheDevices() async {

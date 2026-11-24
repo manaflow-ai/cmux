@@ -66,15 +66,23 @@ class AffectedTests(unittest.TestCase):
         argv = [a for u in plan(["plans/cmux-next/rust-panic-free.md"])["units"] for a in u["argv"]]
         self.assertIn("tests/test_base_red_excuse.py", argv)
 
-    def test_every_code_change_runs_the_whole_tree_guards(self):
-        # Guards such as the short-timeout ratchet read every file, so no path map can skip them.
+    def test_every_code_change_runs_the_guards_it_reaches(self):
+        # Guards such as the short-timeout ratchet read every file and always run; the rest run when the
+        # change reaches their inputs (run_ci_guards.py --affected from the plan's base).
         for path in ("cmux-tui/crates/cmux-config/src/lib.rs", "webviews/src/agent-session/acpmux/App.tsx"):
             with self.subTest(path=path):
                 guards = [u for u in plan([path])["units"] if u["kind"] == "guards"]
                 self.assertEqual(len(guards), 1)
-                self.assertIn(affected_tests.GUARDS_SCRIPT, guards[0]["argv"])
-                self.assertIn("--all", guards[0]["argv"])
+                argv = guards[0]["argv"]
+                self.assertIn(affected_tests.GUARDS_SCRIPT, argv)
+                self.assertIn("--all", argv)
+                self.assertEqual(argv[argv.index("--affected") + 1], BASE)
         self.assertTrue(affected_tests.guard_tests(ROOT))
+
+    def test_an_everything_plan_runs_every_guard_step(self):
+        guards = [u for u in plan(["scripts/ci/guards-local.sh"])["units"] if u["kind"] == "guards"]
+        self.assertEqual(len(guards), 1)
+        self.assertNotIn("--affected", guards[0]["argv"])
 
     def test_webviews_source_change_runs_every_web_test_with_the_browser_lane(self):
         # Browser and gallery tests load the whole app through vite, not through imports.
@@ -279,9 +287,19 @@ class AffectedTests(unittest.TestCase):
         self.assertIn("tests/test_cmux_next_route.py", picked)
         # A tests/ helper module the same way: `import blacksmith_linux_sizes`.
         helper = {p["path"] for p in focused_tests.plan(ROOT, ["tests/blacksmith_linux_sizes.py"])["python"]}
-        importer = "tests/test_ci_tui_routes_avoid_nightly_label.py"
+        importer = "tests/test_cmux_tui_artifacts_linux_runner_set.py"
         self.assertNotIn("blacksmith_linux_sizes.py", (ROOT / importer).read_text())
         self.assertIn(importer, helper)
+
+    def test_a_tour_file_selects_the_test_that_loads_every_tour(self):
+        # test_cmux_next_tour.py globs the tours folder and names no tour file. Without a route a
+        # tour edit ran no load test: #47325 merged `"optional": true` (not a reason), and every
+        # nightly media tour then failed its --check and recorded no clip (run 45180082844).
+        import focused_tests
+        tour = "scripts/cmux-next/media/tours/extension-toolbar-button.json"
+        self.assertTrue((ROOT / tour).is_file())
+        picked = {p["path"] for p in focused_tests.plan(ROOT, [tour])["python"]}
+        self.assertIn("tests/test_cmux_next_tour.py", picked)
 
     def test_python_imports_reads_every_import_form(self):
         import focused_tests

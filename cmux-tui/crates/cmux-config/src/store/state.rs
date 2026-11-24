@@ -14,6 +14,7 @@ use crate::jsonc;
 use crate::managed::{ManagedPreferences, TeamPolicyLayer};
 use crate::render::compact;
 use crate::schema::{Schema, accepts};
+use crate::sidebar_look;
 use crate::theme_file::{self, ThemeDiagnosticKind, ThemeFile};
 use crate::value::value_at;
 
@@ -106,6 +107,10 @@ impl State {
     }
     pub fn source(&self) -> &str {
         &self.source
+    }
+    /// The last document of the file that parsed (it applies while the file is broken).
+    pub fn file_root(&self) -> &Value {
+        &self.file_root
     }
     pub fn effective(&self) -> &EffectiveSettings {
         &self.effective
@@ -220,10 +225,13 @@ impl State {
                 diagnostics.push(Diagnostic::new(kind, &problem.path, &problem.display()));
             }
         }
+        // The sidebar look fills only what every layer above leaves unset (sidebar_look).
+        effective.root = sidebar_look::filled(&effective.root, self.schema, &self.domains);
         diagnostics.append(&mut effective.diagnostics);
         for row in &self.schema.rows {
+            // An old choice value (a row's alias) reads as its replacement, without a diagnostic.
             if let Some(stored) = value_at(&effective.root, &row.path)
-                && accepts(row, stored, &self.domains).is_err()
+                && accepts(row, &crate::schema::aliased(row, stored), &self.domains).is_err()
             {
                 let message = format!("{} does not accept {}", row.key, compact(stored));
                 diagnostics.push(Diagnostic::new(DiagnosticKind::InvalidValue, &row.key, &message));

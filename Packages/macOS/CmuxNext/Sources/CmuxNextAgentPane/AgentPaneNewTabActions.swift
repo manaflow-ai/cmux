@@ -14,8 +14,9 @@ public import CmuxNextWakeups
 /// class reads ``slice`` of actions per task and yields to the person's input and to the frame's budget
 /// (``MainFrameBudget``). It starts on the frame after the one that shows the page, never in the key's turn.
 ///
-/// The list depends on the focus's context and on the registry, not on the page, so the last one is kept
-/// (``kept``): a page that shows while it holds takes it with no read. What the kept list's key lacks (a state an
+/// The list depends on the focus's context and on the registry, not on the page, so one is kept for each of the
+/// last focus contexts (``kept``, ``keptContexts``): a page that shows while the list of its context holds takes
+/// it with no read. What the kept list's key lacks (a state an
 /// action's own rule reads) is read again at the person's first use of such a page (``read(wanted:_:)``).
 ///
 /// ```swift
@@ -49,10 +50,16 @@ public final class AgentPaneNewTabActions {
     /// The last list read. A read that lists the same rows gives this value again (its array's buffer too), so a page
     /// that shows it compares equal at once and sends nothing, and its JSON is not encoded again.
     public private(set) var last: Listed?
-    /// The kept list with the key it holds for. Only a listing with a key replaces it: one that saw two contexts or
-    /// a change of the registry has none (a letter, then Return to a terminal while the letter's listing runs), and
-    /// the next New Tab page still takes the list kept for its own context.
-    private var held: (listed: Listed, key: Key)?
+    /// How many lists are kept, one for each focus context. In a hold of the New Tab key each new page's web view
+    /// takes the keyboard after the page shows (2 contexts in turn), and the sidebar and a file preview each give
+    /// one more while a page is open: 4. More contexts than that in turn is not a hold, and a kept list is a whole
+    /// catalog of rows with its JSON, so the count is small and fixed.
+    static let keptContexts = 4
+    /// The kept lists, each with the key it holds for, in the order of their reads: the oldest is first and goes
+    /// first. No two have the same context. Only a listing with a key is kept: one that saw two contexts or a change
+    /// of the registry has none (a letter, then Return to a terminal while the letter's listing runs), and the next
+    /// New Tab page still takes the list kept for its own context.
+    private var keptLists: [(key: Key, listed: Listed)] = []
     /// The key of the listing being read; nil once it saw another context.
     private var readKey: Key?
     /// Changes of the registry's catalog, binds, keys and features since the lister was made, counted inside each
@@ -97,12 +104,23 @@ public final class AgentPaneNewTabActions {
         self.measure = measure
     }
 
-    /// The kept list, while what it was read from holds: the focus's context is the one of its listing, and the
-    /// registry's catalog, binds, keys and features did not change since that listing started. A page that shows
-    /// takes it with no read.
+    /// The list that was read under the focus's context of now, while what it was read from holds: the registry's
+    /// catalog, binds, keys and features did not change since its listing started. A page that shows takes it with
+    /// no read. One list is kept for each of the last ``keptContexts`` contexts. A change of the registry ends each
+    /// of them from inside the change's own write: no kept list has the new count in its key (``watch()``). The
+    /// lists themselves go when the next list is kept (``keep(_:for:)``).
     public var kept: Listed? {
-        guard let held, held.key == Key(context: registry.context, changes: changed.load(ordering: .relaxed)) else { return nil }
-        return held.listed
+        let key = Key(context: registry.context, changes: changed.load(ordering: .relaxed))
+        return keptLists.first { $0.key == key }?.listed
+    }
+
+    /// Keeps `listed` as the list of its key's context, the newest one, in place of that context's older list. Each
+    /// list that was read before a change of the registry goes here (no request takes it: ``kept``). The oldest list
+    /// goes when there are more than ``keptContexts``.
+    private func keep(_ listed: Listed, for key: Key) {
+        keptLists.removeAll { $0.key.context == key.context || $0.key.changes != key.changes }
+        keptLists.append((key, listed))
+        if keptLists.count > Self.keptContexts { keptLists.removeFirst() }
     }
 
     /// Gives the actions to `deliver`, when `wanted` still holds at the first task: the key's turn only queues it.
@@ -162,11 +180,11 @@ public final class AgentPaneNewTabActions {
         running = nil
         counts.actionsRead += reading.actionsRead
         let key = readKey?.changes == changed.load(ordering: .relaxed) ? readKey : nil
-        let actions = entries.map(AgentPaneOmnibar.Action.init(paletteEntry:))
+        let actions = entries.filter { AgentPaneOmnibar.Action.pageMayRun($0.id.rawValue) }.map(AgentPaneOmnibar.Action.init(paletteEntry:))
         // A request from now to the hand-over joins this list (`list(wanted:_:)`): it is not read again.
         pending = true
         if let last, last.actions == actions {
-            if let key { held = (last, key) }
+            if let key { keep(last, for: key) }
             return queue.enqueue { [weak self] in self?.hand(last, readUnder: key) }
         }
         // Best effort: only a person typing in the bar reads the list, and it takes the last one until this one comes.
@@ -177,7 +195,7 @@ public final class AgentPaneNewTabActions {
             guard let self else { return }
             let listed = Listed(actions: actions, json: encoded)
             last = listed
-            if let key { held = (listed, key) }
+            if let key { keep(listed, for: key) }
             // The pages take it as background work too (P5): each one's event is a JSON encode and a script call.
             queue.enqueue { [weak self] in self?.hand(listed, readUnder: key) }
         }
@@ -201,6 +219,61 @@ public final class AgentPaneNewTabActions {
 }
 
 extension AgentPaneOmnibar.Action {
+    /// Why a page never lists or runs a palette action: each one is a step only the person takes in the app's own UI.
+    public enum PersonOnly: String, Sendable, CaseIterable {
+        /// It asks for or grants a permission: an OS grant (Accessibility, Screen Recording, notifications), a site's or
+        /// an extension's, or an agent's.
+        case grantsPermission
+        /// It turns Computer Use or cmux Remote control on.
+        case turnsControlOn
+        /// It restarts or rechecks the Computer Use or Screen Sharing helper.
+        case restartsHelper
+        /// It edits who may act: Computer Use's saved approvals, a device's access to this Mac.
+        case editsApprovals
+        /// It drives a running Computer Use session (Stop, Focus).
+        case drivesSession
+    }
+
+    /// The palette actions a New Tab page never lists (``AgentPaneOmnibar/actions``) and never runs (`app.action`), by id
+    /// (review round 3 of #48024, P0: the substring rule missed `remote.allowAccessibility` and
+    /// `remote.allowScreenRecording`, which reach the helper's OS permission request). `app.action` runs a listed row as
+    /// the person's own pick with no gesture, so none of these may be a row. Set Up keeps its own gesture-gated route
+    /// (`action.run`, ``AgentPaneModel/setupActions``). `AgentPaneComputerUseStateTests` holds every action of the
+    /// Computer Use feature and of the cmux Remote and Computer Use approval catalogs classified, here or as page-safe.
+    public static let personOnly: [String: PersonOnly] = [
+        "palette.computerUse.accessibility": .grantsPermission,
+        "palette.computerUse.screenRecording": .grantsPermission,
+        "remote.allowAccessibility": .grantsPermission,
+        "remote.allowScreenRecording": .grantsPermission,
+        "notifications.allowDesktop": .grantsPermission,
+        "browser.prompt.allow": .grantsPermission,
+        "browser.pageInfo.setPermission": .grantsPermission,
+        "browser.extension.siteAccess": .grantsPermission,
+        "agentPane.permission.allowOnce": .grantsPermission,
+        "agentPane.permission.allowChat": .grantsPermission,
+        "palette.computerUse.setup": .turnsControlOn,
+        "macScreen.shareThisMac": .turnsControlOn,
+        "palette.computerUse.restart": .restartsHelper,
+        "remote.restartComputerUse": .restartsHelper,
+        "remote.restartScreenSharing": .restartsHelper,
+        "remote.refreshPermissions": .restartsHelper,
+        "computerUse.approval.set": .editsApprovals,
+        "computerUse.approval.forget": .editsApprovals,
+        "macScreen.deviceAccess": .editsApprovals,
+        "macScreen.revokeViewer": .editsApprovals,
+        "computerUseStop": .drivesSession,
+        "computerUseFocus": .drivesSession,
+        "computerUseFocusCallingTerminal": .drivesSession,
+    ]
+
+    /// Whether a New Tab page may list the palette action `id` and run it (`app.action`): not one of ``personOnly``,
+    /// under its own id or a legacy alias of one (``ActionCatalog/legacyAliases``). Checked where the list is read and
+    /// again where `app.action` runs.
+    public static func pageMayRun(_ id: String) -> Bool {
+        let canonical = ActionCatalog.legacyAliases[ActionID(rawValue: id)]?.rawValue ?? id
+        return personOnly[id] == nil && personOnly[canonical] == nil
+    }
+
     /// A Commands palette row as the bar lists it.
     public init(paletteEntry entry: PaletteCommandEntry) {
         self.init(id: entry.id.rawValue, title: entry.title, detail: entry.section, keywords: entry.keywords,

@@ -13,6 +13,9 @@ run took another path or lost keys.
 """
 import json, os, socket, subprocess, sys, time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from state_wait import wait_until  # noqa: E402
+
 TAG, RUNS = sys.argv[1], int(sys.argv[2])
 EXPECT = sys.argv[3] if len(sys.argv) > 3 else None
 PROVISIONAL_BASE = 1 << 62
@@ -76,7 +79,16 @@ def daemon_socket():
 
 created = rpc("action.run", {"action": "workspace.newAtBottom", "focus": True, "wait": True})
 ws = created["result"]["created"][0]
-time.sleep(1.5)
+
+
+def daemon_backed():
+    """Every pane of the new workspace holds a daemon surface (no provisional id left), and a window is listed."""
+    shown = panes(workspace(ws))
+    surfaces = [first_surface(p) for p in shown.values()]
+    return bool(shown) and all(s is not None and s < PROVISIONAL_BASE for s in surfaces) and topology()["windows"]
+
+
+wait_until(daemon_backed, "the new workspace's pane backed by a daemon surface", timeout=20)
 window = topology()["windows"][0]["key"]
 sock = daemon_socket()
 caps = daemon({"cmd": "identify"}, sock)["data"]["capabilities"]
