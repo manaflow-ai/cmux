@@ -49,6 +49,12 @@ struct AcpActivity {
     /// Daemons whose count lapsed while it said sessions were at work (cmux#33573): their agent
     /// hosts may still run those turns, so the count stays unknown until each reports again.
     lapsed_busy: std::collections::BTreeSet<String>,
+    /// Since when the workload probe has found no `acpmux` process on the machine (cmux-platform
+    /// census `blind_report`, cause `no_turns`): None while one runs or the probe cannot tell.
+    absent_since: Option<u64>,
+    /// No acpmux process has run for [`ACP_ACTIVITY_TTL_MS`] and no daemon's count holds: no ACP
+    /// turn can run, so the count is a known 0 rather than unknown.
+    absent_known: bool,
     last_action_at: Option<u64>,
     /// The newest `last_person_prompt_at` any daemon sent (a person's prompt into a chat). Like
     /// `last_action_at`, it outlives a daemon's count and never moves backwards.
@@ -90,7 +96,23 @@ impl AcpActivity {
     /// Whether the machine's count is known: some daemon's count holds and no daemon lapsed
     /// while busy.
     fn known(&self) -> bool {
-        !self.daemons.is_empty() && self.lapsed_busy.is_empty()
+        (!self.daemons.is_empty() || self.absent_known) && self.lapsed_busy.is_empty()
+    }
+
+    /// The workload probe's look at the machine's processes: `Some(false)` when no `acpmux`
+    /// process runs. acpmux starts on demand, so a machine nobody opened a chat on never hears a
+    /// line, and before this its report never said it knew 0 turns: the Cloud read it as
+    /// `blind_report` and held it to the long backstop instead of the idle window. With no
+    /// acpmux process for a whole count lifetime, no ACP turn can be running; a daemon that
+    /// lapsed while busy (cmux#33573) still keeps the count unknown, and a starting daemon
+    /// reports at least one session at work until its startup settles (cloud_activity.rs).
+    fn presence(&mut self, running: Option<bool>, now: u64) {
+        self.absent_since = match running {
+            Some(false) => Some(self.absent_since.unwrap_or(now)),
+            _ => None,
+        };
+        self.absent_known = self.daemons.is_empty()
+            && self.absent_since.is_some_and(|at| now.saturating_sub(at) >= ACP_ACTIVITY_TTL_MS);
     }
 
     /// Drops the counts that lapsed by `now`, remembering the ones that lapsed while busy.
@@ -113,7 +135,7 @@ impl AcpActivity {
     /// The machine's `phases` block: every daemon's turns, relayed only when every daemon's
     /// are. None unless the count is known and every daemon whose count holds sent phases.
     fn phases(&self) -> Option<Value> {
-        if !self.known() {
+        if !self.known() || self.daemons.is_empty() {
             return None;
         }
         let mut relayed = true;
@@ -213,6 +235,7 @@ impl Session {
         let prompt = line.field("last_person_prompt_at").as_u64().filter(|ms| *ms > 0);
         self.acp.last_person_prompt_at = self.acp.last_person_prompt_at.max(prompt);
         self.acp.lapsed_busy.remove(&id);
+        self.acp.absent_known = false;
         let phases = read_phases(line, sessions);
         let expires_at = now + ACP_ACTIVITY_TTL_MS;
         self.acp.daemons.insert(id, AcpDaemon { sessions, expires_at, phases });
@@ -287,6 +310,18 @@ impl Session {
         self.reporter.replace_daemon(self.daemon_now());
         let activity = self.activity();
         self.reporter.set_activity(activity, true, now).into_iter().collect()
+    }
+
+    /// Whether an `acpmux` process runs on the machine, from the workload probe's process list
+    /// (None: the probe did not read). A report goes when that makes the turn count known or
+    /// unknown ([`AcpActivity::presence`]).
+    pub fn acpmux_running(&mut self, running: Option<bool>, now: u64) -> Vec<OpRequest> {
+        let was = self.acp.known();
+        self.acp.presence(running, now);
+        if self.acp.known() == was {
+            return Vec::new();
+        }
+        self.acp_refresh(now)
     }
 
     /// The applied machine.toml's idle window as it stands (`machine_config::idle::read`). A report
@@ -791,6 +826,57 @@ mod tests {
             "the expiry report still advertises activity-turns: {}",
             caps(&r[0])
         );
+    }
+
+    /// cmux-platform census `blind_report` (`no_turns`): a machine where acpmux never ran never
+    /// heard a line, so its 0 turns were never known and the Cloud held it to the backstop. No
+    /// acpmux process for a whole count lifetime makes 0 a known 0; one that runs, a probe that
+    /// cannot read, or a daemon that lapsed busy keeps it unknown.
+    #[test]
+    fn no_acpmux_process_for_a_count_lifetime_makes_zero_turns_known() {
+        use super::super::wire::{ACTIVITY_PHASES_CAPABILITY, ACTIVITY_TURNS_CAPABILITY};
+        let has = |s: &Session, c: &str| s.reporter.daemon().capabilities.iter().any(|x| x == c);
+        let mut s = session();
+        s.activity_stream(true, 0);
+        assert!(s.acpmux_running(Some(false), 0).is_empty(), "not yet a whole lifetime");
+        assert!(s.acpmux_running(Some(false), ACP_ACTIVITY_TTL_MS - 1).is_empty());
+        assert!(!has(&s, ACTIVITY_TURNS_CAPABILITY));
+        s.acpmux_running(Some(false), ACP_ACTIVITY_TTL_MS);
+        assert!(has(&s, ACTIVITY_TURNS_CAPABILITY), "absent a lifetime: 0 turns known");
+        assert!(!has(&s, ACTIVITY_PHASES_CAPABILITY), "no daemon, no phases");
+        assert_eq!(s.activity().active_sessions, 0);
+
+        // acpmux starts: unknown again until it reports.
+        s.acpmux_running(Some(true), ACP_ACTIVITY_TTL_MS + 30_000);
+        assert!(!has(&s, ACTIVITY_TURNS_CAPABILITY));
+        // A probe that cannot read is not an absence.
+        s.acpmux_running(None, ACP_ACTIVITY_TTL_MS + 60_000);
+        assert!(!has(&s, ACTIVITY_TURNS_CAPABILITY));
+
+        // A daemon that lapses busy keeps the count unknown even once acpmux is gone.
+        let t = 1_000_000;
+        s.line(&acp_from("/a.sock", 1), t);
+        assert!(has(&s, ACTIVITY_TURNS_CAPABILITY));
+        s.fire(t + ACP_ACTIVITY_TTL_MS);
+        assert!(!has(&s, ACTIVITY_TURNS_CAPABILITY));
+        s.acpmux_running(Some(false), t + ACP_ACTIVITY_TTL_MS);
+        s.acpmux_running(Some(false), t + 3 * ACP_ACTIVITY_TTL_MS);
+        assert!(!has(&s, ACTIVITY_TURNS_CAPABILITY), "lapsed busy: never a known 0");
+
+        // An idle daemon that exits: its count lapses, then a lifetime with no acpmux is a known 0.
+        let mut s = session();
+        s.activity_stream(true, 0);
+        s.line(&acp_from("/a.sock", 0), 0);
+        s.acpmux_running(Some(true), 0);
+        s.fire(ACP_ACTIVITY_TTL_MS);
+        assert!(!has(&s, ACTIVITY_TURNS_CAPABILITY), "lapsed: unknown at first");
+        s.acpmux_running(Some(false), ACP_ACTIVITY_TTL_MS);
+        assert!(!has(&s, ACTIVITY_TURNS_CAPABILITY));
+        s.acpmux_running(Some(false), 2 * ACP_ACTIVITY_TTL_MS);
+        assert!(has(&s, ACTIVITY_TURNS_CAPABILITY), "gone a lifetime: 0 known");
+        // Its next line takes over as the count.
+        s.line(&acp_from("/a.sock", 2), 2 * ACP_ACTIVITY_TTL_MS + 1);
+        assert_eq!(s.activity().active_sessions, 2);
     }
 
     /// cmux#33573: daemon a lapses while it says a turn runs and daemon b keeps renewing 0. a's

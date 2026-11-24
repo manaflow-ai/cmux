@@ -462,6 +462,7 @@ jobs:
           PR: ${{ needs.target.outputs.pr }}
           HEAD_SHA: ${{ needs.target.outputs.head }}
           KEY: ${{ steps.key.outputs.key }}
+          LOOK_DISPATCH: ${{ vars.CMUX_TUI_LOOK_DISPATCH }}
         run: |
           set -euo pipefail
           if curl --fail --silent --max-time 15 -o /dev/null "https://files.cmux.com/cmux-tui/tree/$KEY/completion.json?hotverify=$GITHUB_RUN_ID"; then
@@ -474,7 +475,18 @@ jobs:
             echo "#$PR moved past ${HEAD_SHA:0:12} or is a fork: no build requested" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          gh workflow run cmux-tui-artifacts.yml --repo "$GITHUB_REPOSITORY" --ref "$branch"
+          # A dispatch on a pull request's branch cannot publish: cmux-tui-artifacts.yml's publish and publish-tree
+          # jobs take a dispatch only on main or feat-cmux-next. Each one built three targets for nothing (82
+          # dispatches on lane/* heads 2026-11-24 05:08-10:20Z, about 120 job-min each, about 49k job-min a day, no
+          # tree published). vars.CMUX_TUI_LOOK_DISPATCH=1 sends it again once that workflow publishes a dispatched
+          # branch's tree.
+          if [[ "${LOOK_DISPATCH:-}" != 1 ]]; then
+            echo "cmux-tui tree $KEY is not published; a dispatch on $branch would build it without publishing, so none is sent" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          # The tree only: the look applies the darwin daemon, and the pull request's own run tests it
+          # (daemon_tests=false skips cmux_next_ daemon tests, 22% of these builds' minutes on 11-24).
+          gh workflow run cmux-tui-artifacts.yml --repo "$GITHUB_REPOSITORY" --ref "$branch" -f daemon_tests=false
           echo "requested the cmux-tui tree build of ${HEAD_SHA:0:12} on $branch (cmux-tui-artifacts.yml dispatch)" >> "$GITHUB_STEP_SUMMARY"
 
   # The look's request. The job runs nothing: its NAME is the request, and the build fleet controller reads it from
