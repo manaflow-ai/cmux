@@ -260,9 +260,9 @@ fn git(args: &[String], cwd: &Path) -> Option<Inputs> {
         match rest.first().map(String::as_str) {
             Some("-C") => {
                 base = base.join(rest.get(1)?);
-                rest = &rest[2..];
+                rest = rest.get(2..)?;
             }
-            Some("--no-pager" | "--no-optional-locks" | "-P") => rest = &rest[1..],
+            Some("--no-pager" | "--no-optional-locks" | "-P") => rest = rest.get(1..)?,
             _ => break,
         }
     }

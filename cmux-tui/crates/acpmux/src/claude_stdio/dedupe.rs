@@ -453,7 +453,7 @@ impl Translator {
     }
 
     /// A tool result (`inbound.rs`): off the reading task, as its check stats files.
-    pub(super) async fn dedupe_result(self: &Self, use_id: &str, is_error: bool, text: &str) {
+    pub(super) async fn dedupe_result(&self, use_id: &str, is_error: bool, text: &str) {
         if use_id.is_empty() || !self.dedupe.has_pending(use_id) {
             return;
         }
