@@ -4,6 +4,8 @@ import CmuxNextHibernation
 @testable import CmuxNextBridge
 @testable import CmuxNextBrowser
 import CmuxNextCompat
+import CmuxNextMobileHost
+import Observation
 import CmuxNextSettings
 import Foundation
 import Testing
@@ -215,6 +217,59 @@ import CmuxNextTestSupport
             let reason = state == "stale" ? "url_moved" : "leave_picture_evicted"
             #expect(Set(rig.hibernation.snapshots.missing.keys) == [reason], "a blank sleep was not counted by its cause")
         }
+    }
+
+    /// Leo, 2026-11-24: "there are too many empty previews in the safari grid thing we ought to be able to simply
+    /// capture them before they get hibernated maybe". A page's hibernation snapshot stayed on this Mac: the phones
+    /// got only leave pictures, so a page hibernated with no leave picture sent them (a page never shown, a picture
+    /// taken while no phone was paired) kept a blank card. Its snapshot now goes to the phones as it sleeps.
+    @Test func aHibernatedPageSendsItsSnapshotToThePhones() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let shot = try Self.picture(shade: 0.4, width: 800, height: 500)
+        rig.hibernation.capture = { _ in shot }
+        rig.hibernation.pressureDidChange(.normal) // nothing hibernates until the phones are set below
+        let key = try await rig.hide(rig.page("phone", body: "<p>phone</p>"))
+        let cache = rig.services.cache
+        try await rig.until("the leave capture ended") { cache.pageCapturesInFlight.isEmpty }
+        // A page never shown keeps no leave picture: its hibernation snapshot is the only one there is.
+        cache.pageThumbnails.remove(key)
+        cache.pageThumbnailVersions[key] = nil
+        let phoneFolder = rig.folder.appendingPathComponent("phone-pictures", isDirectory: true)
+        cache.phonePictures = PhoneTabPictures(iphone: rig.services.iphone, folder: phoneFolder, surface: { _ in 42 },
+                                               encode: { _, _, _ in (Data([0xFF, 0xD8, 0xFF, 1]), 8, 5) }, wanted: { true })
+        try await Task.sleep(for: .milliseconds(300))
+        let sent = { ((try? FileManager.default.contentsOfDirectory(atPath: phoneFolder.path)) ?? []).contains { $0.hasPrefix("42-thumb-") } }
+        try #require(!sent(), "the page had a picture before it hibernated")
+        rig.hibernation.pressureDidChange(.critical)
+        rig.skipped += .seconds(HibernationPlanner.Pace.critical.minimumHidden)
+        rig.hibernation.replan()
+        try await rig.until("the page hibernated") { rig.isHibernated(key) || rig.exemption(key) != nil }
+        try #require(rig.isHibernated(key))
+        try await rig.until("the phones got its snapshot") { sent() }
+    }
+
+    /// The same ask: a leave picture taken while no phone was paired was never sent, so the phone that paired later
+    /// showed a blank card for that page until it was shown and left again. Every picture held now goes to it.
+    @Test func aPhoneThatPairsGetsThePicturesTakenBeforeIt() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        rig.hibernation.pressureDidChange(.normal) // the page stays live: its leave picture is the one held
+        let page = try await rig.page("early", body: "<p>early</p>")
+        let key = try await rig.hide(page)
+        let cache = rig.services.cache
+        try await rig.until("the leave capture ended") { cache.pageCapturesInFlight.isEmpty }
+        cache.pageThumbnails.insert(try Self.picture(shade: 0.6, width: 640, height: 400), for: key)
+        cache.pageThumbnailVersions[key] = page.state.pictureVersion
+        let phone = PhonePairing()
+        let phoneFolder = rig.folder.appendingPathComponent("phone-pictures", isDirectory: true)
+        cache.phonePictures = PhoneTabPictures(iphone: rig.services.iphone, folder: phoneFolder, surface: { _ in 42 },
+                                               encode: { _, _, _ in (Data([0xFF, 0xD8, 0xFF, 2]), 8, 5) }, wanted: { phone.paired })
+        let sent = { ((try? FileManager.default.contentsOfDirectory(atPath: phoneFolder.path)) ?? []).contains { $0.hasPrefix("42-thumb-") } }
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(!sent(), "a picture went out while no phone was paired")
+        phone.paired = true
+        try await rig.until("the phone that paired got the picture") { sent() }
     }
 
     /// #20866 review: a page that woke and hibernated again showed the picture of its first sleep.
@@ -610,4 +665,9 @@ import CmuxNextTestSupport
         func surfaceWasDisplaced(_ key: String) {}
         func surfaceIsFree(_ key: String) {}
     }
+}
+
+/// Whether a phone is paired, as a test turns it.
+@MainActor @Observable private final class PhonePairing {
+    var paired = false
 }
