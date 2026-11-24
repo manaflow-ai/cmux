@@ -195,7 +195,6 @@ import Testing
             SidebarDocRow(key: "itm_link", kind: "url", section: Self.pinned, parent: "itm_g", depth: 1, item: "itm_link"),
             SidebarDocRow(key: "itm_tab", kind: "tab", section: Self.pinned, parent: "itm_g", depth: 1, item: "itm_tab"),
             SidebarDocRow(key: "itm_app", kind: "app", section: Self.pinned, parent: "itm_g", depth: 1, item: "itm_app"),
-            SidebarDocRow(key: "itm_orphan", kind: "app", section: Self.pinned, parent: "itm_g", depth: 1, item: "itm_orphan"),
             SidebarDocRow(key: "itm_legacy", kind: "url", section: Self.pinned, parent: "itm_g", depth: 1, item: "itm_legacy"),
         ]
         let projection = SidebarDocProjection(rows: rows, records: records, revision: 1)
