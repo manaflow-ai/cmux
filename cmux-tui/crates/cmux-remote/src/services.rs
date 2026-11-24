@@ -1318,14 +1318,7 @@ struct MessageReadState {
 
 impl MessageStream {
     pub fn new(stream: Arc<ServiceStream>) -> Self {
-        let lane = match stream.service() {
-            Service::MuxControl | Service::TerminalBytes | Service::ComputerUse => {
-                Lane::Interactive
-            }
-            Service::ProcessStream => Lane::Bulk,
-            Service::WorkspaceRpc => Lane::Control,
-            Service::TcpTunnel | Service::LocalSocket | Service::Acpmux => Lane::Tunnel,
-        };
+        let lane = crate::service::default_lane(stream.service());
         Self::with_lane(stream, lane)
     }
 
