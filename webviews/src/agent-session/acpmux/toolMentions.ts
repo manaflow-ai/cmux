@@ -20,6 +20,8 @@ export type ToolMention = {
   label: StringKey;
   hint: StringKey;
   icon: string;
+  /** A full-color picture drawn in place of `icon` (the menus' rows and both badges), when it has one. */
+  image?: string;
   /** What a typed word may start to name it (`@comp`, `@brow`, `@cu`). */
   words: readonly string[];
 };
@@ -30,6 +32,8 @@ export const TOOL_MENTIONS: readonly ToolMention[] = [
     label: "mention.computerUse",
     hint: "mention.computerUseHint",
     icon: "computeruse.observe",
+    // Lucas 2026-11-23: "lets use this icon here for computer use" (the midnight cursor tile).
+    image: new URL("./icons/computerUseTile.png", import.meta.url).href,
     words: ["computer-use", "computer use", "cu"],
   },
   {
@@ -84,6 +88,7 @@ export function toolSlashCommands(t: Translate): SlashCommand[] {
     description: t(tool.hint),
     source: "extension",
     icon: tool.icon,
+    image: tool.image,
     label: t(tool.label),
   }));
 }
