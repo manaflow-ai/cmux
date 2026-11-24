@@ -18,6 +18,27 @@ type Props = {
   /// A live walk: `fresh` (GitHub's page opens; the person installs there), `reuse` (an installation
   /// covers the repository: GitHub's authorize page passes straight back), `refuse` (the app did not run it).
   walk?: "fresh" | "reuse" | "refuse";
+  /// The page drawn under the card, dark or light, for the four-state set (idle, connecting,
+  /// connected, error) in each.
+  scheme?: Scheme;
+};
+
+type Scheme = "dark" | "light";
+const SCHEMES: Record<Scheme, React.CSSProperties> = {
+  dark: {
+    "--agent-text": "#f2f2f2",
+    "--agent-muted": "rgba(242, 242, 242, 0.62)",
+    "--agent-page-bg": "#18181c",
+    colorScheme: "dark",
+    background: "#18181c",
+  } as React.CSSProperties,
+  light: {
+    "--agent-text": "#1d1d1f",
+    "--agent-muted": "rgba(29, 29, 31, 0.6)",
+    "--agent-page-bg": "#ffffff",
+    colorScheme: "light",
+    background: "#ffffff",
+  } as React.CSSProperties,
 };
 
 const need = (reason: GitHubConnectNeed["reason"], repo: string | undefined = "acme/web"): GitHubConnectNeed => ({
@@ -54,7 +75,7 @@ export default componentEntry<Props>({
       import("./githubConnect"),
       import("../nativeError"),
     ]);
-    return function GalleryGitHubConnectCard({ need, phase, offer = true, walk }: Props) {
+    return function GalleryGitHubConnectCard({ need, phase, offer = true, walk, scheme }: Props) {
       // A fresh row per variant, so one variant's phase never shows in the next.
       const [id] = useState(() => {
         const fresh = `summary-${(rows += 1)}`;
@@ -95,7 +116,7 @@ export default componentEntry<Props>({
         githubConnect: need,
       };
       return (
-        <div style={{ padding: "16px 16px 0" }}>
+        <div style={{ padding: "16px 16px 0", ...(scheme ? { ...SCHEMES[scheme], minHeight: "100%" } : {}) }}>
           <TurnActionsContext.Provider value={actions}>
             <TurnFooter row={row as never} />
           </TurnActionsContext.Provider>
@@ -105,6 +126,38 @@ export default componentEntry<Props>({
   },
   styles: () => Promise.all([import("../styles.css"), import("./conversation.css")]),
   variants: {
+    "idle-dark": {
+      note: "Idle: one line naming the repository, one filled Connect GitHub. Dark page.",
+      props: { need: need("not-connected"), scheme: "dark" },
+    },
+    "idle-light": {
+      note: "Idle: one line naming the repository, one filled Connect GitHub. Light page.",
+      props: { need: need("not-connected"), scheme: "light" },
+    },
+    "connecting-dark": {
+      note: "Connecting: the tap is in; the button waits while the app opens GitHub's page. Dark page.",
+      props: { need: need("not-connected"), phase: { kind: "opening" }, scheme: "dark" },
+    },
+    "connecting-light": {
+      note: "Connecting: the tap is in; the button waits while the app opens GitHub's page. Light page.",
+      props: { need: need("not-connected"), phase: { kind: "opening" }, scheme: "light" },
+    },
+    "connected-dark": {
+      note: "Connected: back from GitHub, the card sent the chat's Continue once; no button. Dark page.",
+      props: { need: need("not-connected"), phase: { kind: "continuing" }, scheme: "dark" },
+    },
+    "connected-light": {
+      note: "Connected: back from GitHub, the card sent the chat's Continue once; no button. Light page.",
+      props: { need: need("not-connected"), phase: { kind: "continuing" }, scheme: "light" },
+    },
+    "error-dark": {
+      note: "Error: the app did not run Connect; its reason, and the button that tries again. Dark page.",
+      props: { need: need("not-connected"), phase: { kind: "refused", reason: "Sign in to cmux to connect GitHub." }, scheme: "dark" },
+    },
+    "error-light": {
+      note: "Error: the app did not run Connect; its reason, and the button that tries again. Light page.",
+      props: { need: need("not-connected"), phase: { kind: "refused", reason: "Sign in to cmux to connect GitHub." }, scheme: "light" },
+    },
     "not-connected": {
       note: "A push found no GitHub connection: one line naming the repository, one filled Connect GitHub.",
       props: { need: need("not-connected") },
