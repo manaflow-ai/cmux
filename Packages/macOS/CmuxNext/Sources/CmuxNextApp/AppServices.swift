@@ -22,6 +22,7 @@ import CmuxNextMobileHost
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextMacScreen
+import CmuxNextScreenshots
 import CmuxNextDaemonRecovery
 import CmuxNextFloating
 import CmuxNextFavicons
@@ -225,7 +226,9 @@ final class AppServices {
     /// `debug.window_record` and `--record-launch`'s recordings.
     let windowRecord = DebugWindowRecord()
     /// The spaces-switcher capture fixture stays alive for the driver's later light/dark stills.
-    var spacesSwitcherFixture: SpacesSwitcherFixture?
+    var spacesSwitcherFixture: SpacesSwitcherCaptureState?
+    /// Serializes Spaces fixture setup and teardown across concurrent debug scene calls.
+    var spacesSwitcherLifecycleBusy = false
     /// `debug.terminal_final_grid`: a split's or close's terminal grids, sent, drawn and announced.
     private(set) lazy var finalGridTrace: TerminalFinalGridTrace = {
         let trace = TerminalFinalGridTrace { [weak self] in self?.cache.terminals.map { ($0.key, $0.value.session, ObjectIdentifier($0.value.io)) } ?? [] }
