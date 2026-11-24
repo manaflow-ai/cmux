@@ -46,3 +46,6 @@
 .ttp-menu-row[data-hot]{background:var(--acpmux-menu-hover)}
 .ttp-menu-end{margin-inline-start:auto}
 .ttp-popup .ttp-foot-end{padding:var(--ds-space-2) var(--ds-space-2) var(--ds-space-1)}
+/* header.css:101 outranks its own pending and failing rules (0,3,1 over 0,2,1), so the real chip's dot stays green; the sheets restore the intended colours. */
+.ttp .acpmux-header-pr[data-checks=pending]::after{background:var(--agent-status-warning)}
+.ttp .acpmux-header-pr[data-checks=failing]::after{background:var(--agent-status-failure)}
