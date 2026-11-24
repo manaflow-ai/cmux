@@ -16,7 +16,12 @@ import { LIVE_THINKING } from "../conversation/turns";
 
 /// `hold`: how the wait for the chat's draft ran out (draftSettleHold.ts), when, and at a `cap`
 /// what still differed between the copy's composer and the live one (`composerDifference`).
-type Shown = { at: number; swappedAt?: number; chromeOnly?: boolean; hold?: { by: string; at: number; differs?: string } };
+type Shown = {
+  at: number;
+  swappedAt?: number;
+  chromeOnly?: boolean;
+  hold?: { by: string; at: number; differs?: string };
+};
 
 function shown(): Shown | undefined {
   if (typeof window === "undefined") return undefined;
@@ -63,7 +68,7 @@ export function composerDifference(): string | undefined {
     while (at < a.length && a[at] === b[at]) at += 1;
     return `${part} at ${at}, ${a.length}/${b.length} chars`;
   };
-  const parts = COMPOSER_PARTS.flatMap((part, at) => (copy[at] === live[at] ? [] : [told(part, copy[at]!, live[at]!) ]));
+  const parts = COMPOSER_PARTS.flatMap((part, at) => (copy[at] === live[at] ? [] : [told(part, copy[at]!, live[at]!)]));
   return parts.length ? parts.join("; ") : undefined;
 }
 
