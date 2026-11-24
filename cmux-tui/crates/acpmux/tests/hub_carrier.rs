@@ -2757,6 +2757,10 @@ async fn standin_sshd() -> SocketAddr {
 
 struct KeptFixture {
     a: Arc<HubCarrier>,
+    /// A's node key and relay route, for an A started again with the same key (a restart).
+    a_key: [u8; 32],
+    a_route: String,
+    timings: Timings,
     b: Arc<HubCarrier>,
     b_key: String,
     sshd_port: u16,
@@ -2781,6 +2785,19 @@ impl KeptFixture {
         within("the banner", stream.read_exact(&mut banner)).await.unwrap();
         assert_eq!(banner, BANNER);
         stream
+    }
+
+    /// A new carrier on A's key and route: A's acpmux after a restart.
+    fn restarted_a(&self) -> Arc<HubCarrier> {
+        HubCarrier::new(
+            Arc::new(FixedTickets {
+                relay: self.a_route.clone(),
+                peers: vec![self.b_key.clone()],
+                asked: AtomicU64::new(0),
+            }),
+            self.a_key,
+            self.timings,
+        )
     }
 
     fn kept_circuits(&self) -> u64 {
@@ -2859,7 +2876,7 @@ async fn kept_fixture_with(
     let serving = b.serve(acpmux_b_address);
     let a = HubCarrier::new(
         Arc::new(FixedTickets {
-            relay: route,
+            relay: route.clone(),
             peers: vec![public(&key_b)],
             asked: AtomicU64::new(0),
         }),
@@ -2868,6 +2885,9 @@ async fn kept_fixture_with(
     );
     let fixture = KeptFixture {
         a,
+        a_key: key_a,
+        a_route: route,
+        timings: fast,
         b,
         b_key: public(&key_b),
         sshd_port: sshd.port(),
@@ -3223,6 +3243,9 @@ async fn hub_carrier_kept_circuit_numbers() {
         ms(percentile(&mut warm_each, 0.95)),
     );
 }
+
+#[path = "hub_carrier_cases/held_ssh.rs"]
+mod held_ssh;
 
 #[path = "hub_carrier/move_out.rs"]
 mod move_out;
