@@ -172,7 +172,8 @@ import {
   readOnlyContinuationRequest,
   readOnlyHarness,
 } from "./folderContinuation";
-import type { BrowseRequest } from "./AddProjectPanel";
+import type { BrowseRequest } from "./browseProject";
+import { cloudRepositoryPick } from "./sourcePickerModel";
 import { handBackQuotes, quoteIntoComposer, replayHeldForComposer, restoreComposerDraft } from "./composerRestore";
 import {
   linkAttachment,
@@ -458,7 +459,6 @@ import {
   type CloudStart,
   type CloudStartAnswer,
   cloudSendAfterCheck,
-  composerCloudStartFolder,
   pageOnOtherMachine,
   pickedChatCloudCall,
   pickOnlyNewChat,
@@ -2011,7 +2011,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The chat's start folder (startFolder.tsx): the host's folder for a new chat or the user's
   /// pick, for every start of this new chat (the agent row, a harness pick, the first Send).
   /// Undefined: the host fills the chat's folder (the workspace's agent-home folder).
-  const startFolder = freshChat && !snapshot.sessionId ? projectDraft : undefined;
+  const startFolder = freshChat && !snapshot.sessionId ? projectDraft || undefined : undefined;
   const startFolderRef = useRef(startFolder);
   startFolderRef.current = startFolder;
   /// The folder question, while the chat it was asked for is still the one shown.
@@ -2311,8 +2311,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // there are none, never the chat's rows (Leo, 2026-11-07: "is this your sub-agent, or is this
   // literally just a duplicate of you?"; 2026-11-12: "NO MESSAGES DISPLAYED?").
   const subagentReadsOwnLog = useMemo(
-    () => !!subagentView && needsOwnLog(subagentView, { rows: snapshot.rows, views: snapshot.subagentViews }),
-    [subagentView, snapshot.rows, snapshot.subagentViews],
+    () =>
+      !!subagentView &&
+      needsOwnLog(subagentView, {
+        rows: snapshot.rows,
+        views: snapshot.subagentViews,
+        wholeHistory: !snapshot.canLoadOlder,
+      }),
+    [subagentView, snapshot.rows, snapshot.subagentViews, snapshot.canLoadOlder],
   );
   const readSubagentLog = useCallback(
     // l10n-allow: internal transport error; the subagent pane renders its own localized state.
@@ -4271,16 +4277,27 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// grant of the folder it sends, at most CLOUD_FOLDER_GRANT_WAIT_MS, so a Return right after
   /// picking Cloud never races the grant into path_outside_roots and a grant that never answers
   /// never holds the composer.
+  const [checkedOutGitHub, setCheckedOutGitHub] = useState<{ cwd: string; name: string }>();
+  const [cloudSourceWaiting, setCloudSourceWaiting] = useState(false);
+  const cloudSourcePick = (cwd: string | undefined) =>
+    cloudRepositoryPick(
+      cwd,
+      checkedOutGitHub?.cwd === cwd
+        ? checkedOutGitHub?.name
+        : directProjects.find((item) => item.cwd === cwd)?.repo?.github,
+    );
   const [cloudFolderGrant] = useState(() => cloudFolderGrants());
   const pickComposerMode = (mode: RunMode) => {
+    if (mode !== sandboxModeRows.mode) {
+      dropFolderRequest.current?.();
+      folderPick.current += 1;
+      setWorktreeCreating(false);
+      setCloudSourceWaiting(false);
+    }
     if (mode === "cloud") {
-      const folder = composerCloudStartFolder(composerSnapshot.summary);
-      // A GitHub repository (githubRepos.ts) is cloned on the machine: no folder of this Mac to grant.
-      if ("cwd" in folder && !githubFolderRepo(folder.cwd))
-        cloudFolderGrant.granting(
-          folder.cwd,
-          pickFolder(callNative, folder.cwd, () => undefined),
-        );
+      setProjectDraft(cloudSourcePick(projectDraft ?? composerSnapshot.summary?.cwd) ?? "");
+    } else if (githubFolderRepo(projectDraft)) {
+      setProjectDraft("");
     }
     sandboxModeRows.onMode(mode);
   };
@@ -6813,7 +6830,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // While a Cloud start shows in place of the chat, the chip names the folder that start copies (cmux#46023),
     // unless the person picked a folder here since: the next send copies that pick, so the chip names it.
     const withPick = withCloudStartPick(withCommands, cloudStartPickShown);
-    return projectDraft
+    return projectDraft !== undefined
       ? withDraftFolder(withPick, projectDraft)
       : withCloudStartFolder(withPick, cloudStartFolderShown);
   }, [
@@ -6969,6 +6986,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const worktreeCreatingHere = Boolean(
     inThisVisit(worktreeCreating, snapshot.sessionId, visitNow) && freshChat && !snapshot.sessionId,
   );
+  const cloningGitHub = worktreeCreatingHere && worktreeCreating ? worktreeCreating.repo : undefined;
   /// A folder the user picked on this Mac: the host takes it at once or asks first
   /// (startFolder.tsx); `use` runs only with a folder the host took.
   /// Only the latest pick's answer counts (two quick picks can answer out of order).
@@ -7127,8 +7145,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // The person's pick: a send there makes it the New Tab default (newtab/startedProject.ts).
         pickedProject.current = folder;
         // A chat that started meanwhile keeps its folder: the worktree gets a new chat of its own.
-        if (freshRef.current) setProjectDraft(folder);
-        else void newChatInWorktree(callNative, folder, remote).catch(() => undefined);
+        if (freshRef.current) {
+          setCheckedOutGitHub(github ? { cwd: folder, name: github.repo } : undefined);
+          setProjectDraft(folder);
+        } else void newChatInWorktree(callNative, folder, remote).catch(() => undefined);
       };
       void newWorktree(
         callNative,
@@ -8153,8 +8173,23 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     void callNative("chat.leftoverTaken", { text: host.draft }).catch(() => undefined);
     return { text: host.draft, attachments: [] };
   };
+  const [emptyProjectPage, setEmptyProjectPage] = useState<NewTabHost>();
+  const emptyProjectDraft = useRef<CloudStartDraft>(undefined);
+  const openEmptyProject = () => {
+    const page: NewTabHost = { hotkeys: newTab?.hotkeys ?? {}, initialKind: "agent", layout: "b", template: "default" };
+    emptyProjectDraft.current = composerHandle.current?.draft();
+    setEmptyProjectPage(page);
+    adoptNewTab(page);
+    setNewTabStartPage(newTabGeneration);
+    setCloudLeftPage(undefined);
+  };
   /// A page coming back after the chat view stood in for it: what that composer held, as its draft.
   const takeNewTabDraft = () => {
+    if (emptyProjectPage === newTab && emptyProjectDraft.current) {
+      const draft = emptyProjectDraft.current;
+      emptyProjectDraft.current = undefined;
+      return draft;
+    }
     if (!composerStoodIn.current) return takeNewChatLeftover();
     const sent = returnedDraft.current;
     returnedDraft.current = undefined;
@@ -9539,6 +9574,31 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     commandState,
     harnessSwitch,
     projectDraft,
+    cloudSourceWaiting,
+    setCloudSourceWaiting,
+    cloudSourcePick,
+    checkedOutGitHub,
+    cloningGitHub,
+    openEmptyProject:
+      freshChat && !quick && !remoteChat && sandboxView === undefined && !sandboxDraftMoved
+        ? openEmptyProject
+        : undefined,
+    clearProject: () => {
+      dropFolderRequest.current?.();
+      folderContinuation.invalidate();
+      continuationProjectGeneration.current += 1;
+      folderPick.current += 1;
+      setWorktreeCreating(false);
+      setCloudSourceWaiting(false);
+      setCheckedOutGitHub(undefined);
+      pickedProject.current = undefined;
+      setChooseFolder(false);
+      setProjectDraft("");
+    },
+    pickSourceProject: (cwd: string, peer?: string) => {
+      if (peer && sandbox.mode === "cloud") applyRunMode("persistent");
+      return chooseProject(cwd, peer);
+    },
     cloudPicked,
     cloudWakeChat,
     cloudRecovery,
@@ -9967,6 +10027,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     newTabStartMachine,
     leaveNewTabDraft,
     takeNewTabDraft,
+    initialNewProject: emptyProjectPage !== undefined && emptyProjectPage === newTab,
     cloudPickPending,
     takeCloudPick,
     cloudHintShown,

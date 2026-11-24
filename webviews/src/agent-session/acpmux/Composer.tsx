@@ -123,6 +123,7 @@ import {
   readDurableDraftState,
   readsDurableDrafts,
   readPersistedDraft,
+  restoredPrompt,
   settlePendingDraftWrites,
   useDraftActionsVersion,
   writePersistedDraft,
@@ -478,6 +479,13 @@ type Props = {
   onNewWorktree?(cwd: string): void;
   /// A GitHub repository picked for a new chat on this Mac (ComposerContext `onGitHubHere`).
   onGitHubHere?(repo: string, candidates: string[]): void;
+  onCloneRepository?(url: string): Promise<string>;
+  onNoProject?(): void;
+  onCloudFolderWaiting?(waiting: boolean): void;
+  onNewProject?(): void;
+  noProject?: boolean;
+  sourceRepository?: { cwd: string; name: string };
+  cloningRepository?: string;
   /// A started chat's Choose folder…: the host's folder panel (see ComposerContext).
   onBrowseFolder?(): Promise<string | undefined>;
   /// The location row's SSH… and New Cloud Machine rows open the host's connect flows.
@@ -758,6 +766,13 @@ function ComposerFrame({
   extraFolders,
   onNewWorktree,
   onGitHubHere,
+  onCloneRepository,
+  onNoProject,
+  onCloudFolderWaiting,
+  onNewProject,
+  noProject,
+  sourceRepository,
+  cloningRepository,
   onBrowseFolder,
   onConnect,
   onOffload,
@@ -1277,7 +1292,7 @@ function ComposerFrame({
     // goes after what is there (prompts a folder's trust held, sent after one already given
     // back: trustHeld.ts).
     const typed = field.current?.value() ?? "";
-    const next = !typed.trim() ? restoredText : behind ? `${typed}\n\n${restoredText}` : `${restoredText}\n\n${typed}`;
+    const next = restoredPrompt(typed, restoredText, behind);
     // A field whose editor is still starting (the chat composer that mounts as a New Tab page
     // leaves) takes it as its value, which becomes the editor's first content.
     if (!field.current?.type(next)) {
@@ -2726,6 +2741,13 @@ function ComposerFrame({
       {...(extraFolders ? { extraFolders } : {})}
       onNewWorktree={onNewWorktree}
       {...(onGitHubHere ? { onGitHubHere } : {})}
+      onCloneRepository={onCloneRepository}
+      onNoProject={onNoProject}
+      onCloudFolderWaiting={onCloudFolderWaiting}
+      onNewProject={onNewProject}
+      noProject={noProject}
+      sourceRepository={sourceRepository}
+      cloningRepository={cloningRepository}
       onBrowseFolder={onBrowseFolder}
       onConnect={onConnect}
       {...(onOffload ? { onOffload } : {})}
