@@ -24,7 +24,7 @@ afterEach(async () => {
   dom = undefined;
 });
 
-function harness() {
+function harness(prompt: { shown: boolean } = { shown: false }) {
   dom = new JSDOM("<!doctype html><html><body><main></main></body></html>");
   const timers = new Map<number, { at: number; run: () => void }>();
   let now = 0;
@@ -46,8 +46,14 @@ function harness() {
   });
   root = createRoot(dom.window.document.querySelector("main")!);
   let over: string | undefined;
+  const promptRoot = dom.window.document.querySelector("main")!.appendChild(dom.window.document.createElement("div"));
   function Probe(props: { rows: string | undefined; draft: string | undefined }) {
-    over = useDraftWaitOver(props.rows, props.draft);
+    over = useDraftWaitOver(
+      props.rows,
+      props.draft,
+      () => prompt.shown,
+      () => promptRoot,
+    );
     return null;
   }
   return {
@@ -65,6 +71,14 @@ function harness() {
     armed: () => armed,
     live: () => timers.size,
     over: () => over,
+    /// The prompt's text changes to `text`, and whether it now shows what the copy shows.
+    type: async (text: string, shown: boolean) => {
+      prompt.shown = shown;
+      await act(async () => {
+        promptRoot.textContent = text;
+        await Promise.resolve();
+      });
+    },
   };
 }
 
@@ -96,4 +110,24 @@ test("a draft read that never answers still ends the wait after DRAFT_SETTLE_HOL
   pane.advance(1);
   expect(pane.over()).toBe("A");
   expect(pane.armed()).toBe(1);
+});
+
+test("a prompt that already shows the copy's ends the wait at once, with no timer (after a restart)", () => {
+  // first-load-after-restart.bench.ts MODE=down: the rows are in at 0.4 s, the draft read waits on acpmux.
+  const pane = harness({ shown: true });
+  pane.render("A", undefined);
+  expect(pane.over()).toBe("A");
+  expect(pane.armed()).toBe(0);
+});
+
+test("a prompt that comes to show the copy's ends the wait then, and its timer goes", async () => {
+  const pane = harness();
+  pane.render("A", undefined);
+  expect(pane.over()).toBeUndefined();
+  expect(pane.live()).toBe(1);
+  await pane.type("not yet", false);
+  expect(pane.over()).toBeUndefined();
+  await pane.type("the saved draft", true);
+  expect(pane.over()).toBe("A");
+  expect(pane.live()).toBe(0);
 });

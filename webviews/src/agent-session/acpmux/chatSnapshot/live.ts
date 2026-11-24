@@ -45,6 +45,23 @@ export function copyShowsRunningTurn(): boolean {
   return !!root?.querySelector(`[data-row-id="${LIVE_THINKING}"]`);
 }
 
+/// The composer's prompt text in an element (its editor's root; the placeholder lies beside it), spaces
+/// folded, or undefined when it has no prompt.
+function promptText(scope: ParentNode | null | undefined): string | undefined {
+  const field = scope?.querySelector(".acpmux-composer-box .acpmux-md-root");
+  return field ? (field.textContent ?? "").replace(/\s+/g, " ").trim() : undefined;
+}
+
+/// Whether the live page's prompt shows what the copy over it shows (draftSettleHold.ts): the draft
+/// is in already (none, or the one the page's own cache put back), so the swap steps nothing back.
+/// False with no copy, or no prompt in either.
+export function promptMatchesChatSnapshot(): boolean {
+  if (!showsChatSnapshot()) return false;
+  const copy = promptText(document.querySelector(SNAPSHOT_HOST_TAG)?.shadowRoot);
+  const live = promptText(document.getElementById("root"));
+  return copy !== undefined && live !== undefined && copy === live;
+}
+
 /// When the snapshot drew and when the live page took over, in `performance.now()` time (layoutWatch.ts).
 export function chatSnapshotTimes(): { painted_ms: number; swapped_ms: number | null; chrome_only?: true } | undefined {
   const value = shown();
