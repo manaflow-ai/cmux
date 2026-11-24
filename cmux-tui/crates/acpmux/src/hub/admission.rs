@@ -410,7 +410,7 @@ impl Hub {
                 .get("reason")
                 .and_then(Value::as_str)
                 .is_some_and(|r| r.starts_with("saturated"));
-        match verdict.uncapped {
+        match &verdict.uncapped {
             Some(why) if why == NO_REGISTRY => {
                 tracing::debug!("session admitted with no lane cap: {why}")
             }
