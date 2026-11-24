@@ -203,10 +203,13 @@ impl Driver {
     /// session probes nothing, and neither does a held one (`WgNet::hold`):
     /// its peer is suspended on purpose, and a probe would only wake its
     /// radio, as a keepalive would. The first pass after the release
-    /// probes again.
+    /// probes again. Under the link's idle air gap, routine probes wait
+    /// for its end unless this pass already sent something.
     pub(super) fn run_probes(&mut self) {
         let now = Instant::now();
         let mut off_path = Vec::new();
+        let before = self.tunn.stats().1;
+        self.underlay.hold_routine_probes(self.air_gap.floor(before));
         self.probe_deadline = if self.schedule.is_active(now) && self.stack.hold().is_none() {
             let (tunn, scratch) = (&mut self.tunn, &mut self.scratch);
             let route = self.probe_route;
@@ -215,6 +218,7 @@ impl Driver {
             None
         };
         self.tell_off_path(&off_path);
+        self.air_gap.probed((before, self.tunn.stats().1), now);
     }
 
     /// Right behind probes, on the data path: tell the peer which counters

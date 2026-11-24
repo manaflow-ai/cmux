@@ -328,6 +328,13 @@ impl Paths {
     }
 
     /// The probes due at `now`, after applying lost probes and silences.
+    /// Hold every path's routine pings until `floor` (`PathWatch::hold_routine`).
+    pub fn hold_routine(&mut self, floor: Option<Instant>) {
+        for entry in &mut self.entries {
+            entry.watch.hold_routine(floor);
+        }
+    }
+
     pub fn poll(&mut self, now: Instant) -> DueProbes {
         let upgrade_next = self.upgrade_probes(now);
         let current = self.selector.current();

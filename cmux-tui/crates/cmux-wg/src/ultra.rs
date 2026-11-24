@@ -1125,6 +1125,10 @@ impl Underlay for UltraUnderlay {
         self.inner.carries_data(path)
     }
 
+    fn hold_routine_probes(&mut self, floor: Option<Instant>) {
+        self.inner.hold_routine_probes(floor);
+    }
+
     fn poll_probes(&mut self, now: Instant) -> DueProbes {
         self.inner.poll_probes(now)
     }

@@ -488,6 +488,12 @@ impl Underlay for Multipath {
         lock(&self.shared).selector.current() == Some(path)
     }
 
+    fn hold_routine_probes(&mut self, floor: Option<Instant>) {
+        for slot in &mut lock(&self.shared).slots {
+            slot.watch.hold_routine(floor);
+        }
+    }
+
     fn poll_probes(&mut self, now: Instant) -> DueProbes {
         let mut shared = lock(&self.shared);
         // The driver asks only while the session carries traffic, which is

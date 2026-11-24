@@ -1831,6 +1831,10 @@ impl Underlay for HybridUnderlay {
         self.direct_only() && self.direct == self.paths.route_of(path)
     }
 
+    fn hold_routine_probes(&mut self, floor: Option<Instant>) {
+        self.paths.hold_routine(floor);
+    }
+
     fn poll_probes(&mut self, now: Instant) -> DueProbes {
         self.drain_control();
         self.paths.poll(now)

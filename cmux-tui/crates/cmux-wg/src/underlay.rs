@@ -141,6 +141,10 @@ pub trait Underlay: Send + 'static {
 
     /// Probes due at `now`. The driver calls this only while the session
     /// carries traffic; a carrier with one path never probes.
+    /// Hold routine path probes until `floor`, or lift the hold
+    /// (`PathWatch::hold_routine`). An underlay without probes ignores it.
+    fn hold_routine_probes(&mut self, _floor: Option<Instant>) {}
+
     fn poll_probes(&mut self, _now: Instant) -> DueProbes {
         DueProbes::default()
     }

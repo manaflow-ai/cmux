@@ -66,11 +66,7 @@ fn send_probe(
     off_path: &mut Vec<u64>,
 ) {
     if let TunnResult::WriteToNetwork(encrypted) = tunn.encapsulate(packet, scratch) {
-        // On the path the data takes, the probe arrives in counter order
-        // among it: a loss there is loss, and the peer needs no note.
-        if let Some((_, counter)) = crate::ultra::data_id(encrypted)
-            && !underlay.carries_data(path)
-        {
+        if let Some((_, counter)) = crate::ultra::data_id(encrypted) {
             off_path.push(counter);
         }
         underlay.send_on(path, encrypted);

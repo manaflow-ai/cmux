@@ -33,7 +33,7 @@ use crate::pacing::{DropCounters, Pacer, Priority};
 use crate::probing;
 use crate::stream::WgStream;
 use crate::tcp_stack::{Accepted, TcpStack};
-use crate::timers::{QuietKeepalive, TimerSchedule};
+use crate::timers::{AirGap, QuietKeepalive, TimerSchedule};
 use crate::ultra::{UltraCounters, UltraMode, UltraStats, UltraUnderlay};
 use crate::ultra_auto::{self, AutoUltra, UltraChoice};
 use crate::ultra_hello::{self, Negotiation};
@@ -285,6 +285,22 @@ impl WgNet {
         reply_rx.await.map_err(|_| WgError::Shutdown)
     }
 
+    /// The shortest gap between two of the tunnel's own unsolicited sends
+    /// (routine path probes and their off-path notes) while no data flows,
+    /// or `None` (the default) to probe on schedule. Probes due inside the
+    /// gap wait for its end, or go at once with the session's next send.
+    /// A path that went quiet, a new or suspect path, and a ping
+    /// `probe_now` asked for never wait. The link sets it from its idle
+    /// air budget (a phone's radio stays asleep between wakes).
+    pub async fn set_idle_air_gap(&self, gap: Option<Duration>) -> Result<(), WgError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.commands
+            .send(Command::IdleAirGap { gap, reply: reply_tx })
+            .await
+            .map_err(|_| WgError::Shutdown)?;
+        reply_rx.await.map_err(|_| WgError::Shutdown)
+    }
+
     async fn send_rebind(&self, rebind: Rebind) -> Result<(), WgError> {
         let (reply_tx, reply_rx) = oneshot::channel();
         self.commands
@@ -370,6 +386,7 @@ enum Command {
     Listen { port: u16, reply: oneshot::Sender<Result<WgListener, WgError>> },
     LastHandshake { reply: oneshot::Sender<Option<Duration>> },
     Hold { hold: Option<Duration>, reply: oneshot::Sender<()> },
+    IdleAirGap { gap: Option<Duration>, reply: oneshot::Sender<()> },
     BindDatagram { port: u16, reply: oneshot::Sender<Result<mpsc::Receiver<Datagram>, WgError>> },
     UnbindDatagram { port: u16 },
     SendDatagram { from_port: u16, to: SocketAddr, payload: Vec<u8>, priority: Priority },
@@ -400,6 +417,8 @@ struct Driver {
     /// a probe sent or judged.
     probe_route: Option<(IpAddr, IpAddr)>,
     probe_deadline: Option<Instant>,
+    /// The link's idle air gap for routine probes (`WgNet::set_idle_air_gap`).
+    air_gap: AirGap,
     /// Per-connection pacing of the stack's output, and when it next lets
     /// a queued packet leave.
     pacer: Pacer,
@@ -500,6 +519,7 @@ impl Driver {
             quiet_keepalive,
             probe_route,
             probe_deadline: None,
+            air_gap: AirGap::default(),
             pacer: Pacer::default(),
             pace_deadline: None,
             negotiation,
@@ -860,6 +880,10 @@ impl Driver {
                 if hold.is_none() && std::mem::take(&mut self.reassert_at_release) {
                     self.reassert();
                 }
+                let _ = reply.send(());
+            }
+            Command::IdleAirGap { gap, reply } => {
+                self.air_gap.set(gap);
                 let _ = reply.send(());
             }
             Command::BindDatagram { port, reply } => {

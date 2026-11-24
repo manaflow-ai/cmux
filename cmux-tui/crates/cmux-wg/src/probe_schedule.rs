@@ -81,6 +81,8 @@ pub struct PathWatch {
     flagged_probe: Option<u64>,
     /// An authenticated datagram arrived on the path since its last ping.
     heard_since_ping: bool,
+    /// Routine pings wait until then (`hold_routine`).
+    routine_floor: Option<Instant>,
 }
 
 /// What a [`PathWatch`] found at one step.
@@ -116,6 +118,14 @@ impl PathWatch {
     /// it), so it need not wait out the interval to prove it.
     pub fn probe_now(&mut self, now: Instant) {
         self.probe.due_now(now);
+    }
+
+    /// Hold this path's routine pings until `floor` (the link's idle air
+    /// gap: the radio stays asleep between the tunnel's own sends), or lift
+    /// the hold with `None`. A ping something asked for (`probe_now`, a
+    /// path gone quiet) and a new or suspect path's pings never wait.
+    pub fn hold_routine(&mut self, floor: Option<Instant>) {
+        self.routine_floor = floor;
     }
 
     /// The round trip of probe `id`'s answer, if it is the one outstanding.
@@ -160,6 +170,7 @@ impl PathWatch {
         if current {
             self.skip_proven_ping(config, view, now);
         }
+        self.wait_for_floor(view, now);
         let step = config.step(&mut self.probe, view, current, next_id, now);
         if step.ping.is_some() {
             self.heard_since_ping = false;
@@ -199,8 +210,22 @@ impl PathWatch {
         if now >= refresh {
             return;
         }
-        self.heard_since_ping = false;
+        // A path that later goes quiet under a send is caught by the
+        // silence watch (`unanswered_since`), not by this ping.
         probe.next_at = Some((now + config.current_interval).min(refresh));
+    }
+}
+
+impl PathWatch {
+    /// A routine ping due before the hold's floor waits for it.
+    fn wait_for_floor(&mut self, view: &PathView, now: Instant) {
+        let Some(floor) = self.routine_floor.filter(|floor| *floor > now) else { return };
+        let probe = &mut self.probe;
+        let routine_due = probe.outstanding.is_none() && probe.next_at.is_some_and(|at| now >= at);
+        if routine_due && !probe.urgent && matches!(view.state, PathState::Alive | PathState::Dead)
+        {
+            probe.next_at = Some(floor);
+        }
     }
 }
 

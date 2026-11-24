@@ -142,6 +142,82 @@ impl QuietKeepalive {
     }
 }
 
+/// The link's idle air gap (`WgNet::set_idle_air_gap`): the shortest gap
+/// between two of the tunnel's own unsolicited sends (routine path probes
+/// and their off-path notes) while no data flows, so a radio that went back
+/// to sleep is woken once a gap, not once a probe. When the session sent
+/// anything else in a pass (data, an answer), the radio is awake: a probe
+/// due then rides along at once.
+#[derive(Debug, Default)]
+pub struct AirGap {
+    gap: Option<Duration>,
+    last_own: Option<Instant>,
+    tx_bytes: usize,
+}
+
+impl AirGap {
+    pub fn set(&mut self, gap: Option<Duration>) {
+        self.gap = gap;
+    }
+
+    /// Until when routine probes wait, at a pass that starts with the
+    /// session's sent byte count at `tx_bytes`. `None`: they go when due.
+    pub fn floor(&self, tx_bytes: usize) -> Option<Instant> {
+        let gap = self.gap?;
+        if tx_bytes != self.tx_bytes {
+            return None;
+        }
+        Some(self.last_own? + gap)
+    }
+
+    /// The probes of a pass are out: `before` and `after` are the sent
+    /// byte counts around them.
+    pub fn probed(&mut self, (before, after): (usize, usize), now: Instant) {
+        if after != before {
+            self.last_own = Some(now);
+        }
+        self.tx_bytes = after;
+    }
+}
+
+#[cfg(test)]
+mod air_gap_tests {
+    use super::*;
+
+    const GAP: Duration = Duration::from_secs(20);
+
+    #[test]
+    fn no_gap_holds_nothing() {
+        let mut gap = AirGap::default();
+        gap.probed((0, 100), Instant::now());
+        assert_eq!(gap.floor(100), None);
+    }
+
+    #[test]
+    fn own_sends_hold_the_next_until_the_gap_passed() {
+        let now = Instant::now();
+        let mut gap = AirGap::default();
+        gap.set(Some(GAP));
+        assert_eq!(gap.floor(0), None, "nothing sent yet");
+        gap.probed((0, 100), now);
+        assert_eq!(gap.floor(100), Some(now + GAP));
+        // A pass that sent nothing of its own keeps the floor.
+        gap.probed((100, 100), now + Duration::from_secs(5));
+        assert_eq!(gap.floor(100), Some(now + GAP));
+    }
+
+    #[test]
+    fn data_since_the_last_pass_lifts_it() {
+        let now = Instant::now();
+        let mut gap = AirGap::default();
+        gap.set(Some(GAP));
+        gap.probed((0, 100), now);
+        assert_eq!(gap.floor(180), None, "data left: probes ride along");
+        gap.set(None);
+        assert_eq!(gap.floor(100), None);
+    }
+}
+
 #[cfg(test)]
 mod quiet_keepalive_tests {
     use super::*;
