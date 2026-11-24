@@ -18,7 +18,7 @@
 //     page holds the same record at every seq the two share (`sameForkHistory`). Any other answer
 //     (a copy whose log ran past `forkSeq`, a store that changed) is a chat the rows are not of:
 //     the page alone is the fork, as for any tail of another session.
-import type { EventRecord } from "./direct";
+import type { EventRecord } from "./eventRecord";
 import { KEPT_EVENTS, type KeptTail } from "./tailCache";
 
 /// The records a fork shows of its chat (acpmux `store/fork_view.rs` `HISTORY_KINDS`).
