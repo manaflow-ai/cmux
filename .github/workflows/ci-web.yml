@@ -570,7 +570,9 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 30
     steps:
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-556 (a stalled runner fails in minutes)
       - name: Checkout
+        timeout-minutes: 6
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.sha || '' }}
@@ -584,6 +586,8 @@ jobs:
 
       - name: Cache Bun package cache
         if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
+        timeout-minutes: 4
+        continue-on-error: true
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -591,6 +595,8 @@ jobs:
 
       - name: Cache Bun package cache (restore only off feat-cmux-next)
         if: ${{ github.ref != 'refs/heads/feat-cmux-next' }}
+        timeout-minutes: 4
+        continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -601,6 +607,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Set up pinned Rust
+        timeout-minutes: 8
         uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: Cache cargo build

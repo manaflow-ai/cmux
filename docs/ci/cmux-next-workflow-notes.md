@@ -5002,3 +5002,43 @@ fleet_gateway() still keeps the job only with an idle gateway runner of its own,
 `queued` hands it back, which with the switch off waits on the owned route rather than a Blacksmith label
 no runner serves (side_lane_placement.handback()). `vars.CI_FAST_TIER_FLEET_SPILL` set to `0` turns the
 spill off; unset or any other value leaves it on.
+
+## note-556
+
+Above the bounded checkout, setup and cache steps: `web-bundles` and `fast-tier-cargo` in
+`.github/workflows/cmux-next.yml`, `agent-pane-real-acpmux` in `ci-web.yml`, the Bun cache restore in
+`cmux-next-web-lint.yml`, `workflow-guard-history` in `ci-guards.yml` and backend.yml's `test` job.
+
+Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period." On 2026-11-23, pull request jobs
+cancelled after they started cost 148,161 runner-min (130 per merged PR, 1,139 merged). The check-run annotations of
+80 of them, sampled by minutes, read: 70 "The job has exceeded the maximum execution time", 8 "Canceling since a higher
+priority waiting request ... exists" (a newer push), 2 cancelled by a person or bot. Of 30 timed-out jobs read step by
+step, 13 had stalled in a checkout, toolchain setup or cache step (actions/checkout up to 29 min, Set up pinned Rust
+10 to 13 min, setup-node 34 min, a Bun cache restore 7 to 11 min), on the self-hosted Linux pools (`fsr-*`,
+`cmux-runner-pool-*`); healthy, they take seconds to about a minute. The job then held its runner for its whole limit
+(15 to 55 min) before going red.
+
+Healthy durations (26 successful runs, 2026-11-23): every checkout step 261 samples, p50 1 s, p99 123 s, max
+193 s (the full-tree checkouts in these jobs p50 about 70 s, max 81 s); Set up pinned Rust max 2 s on a warm runner;
+a Bun cache restore max 46 s. The bounds are a few times those: checkout 6 min, Set up pinned Rust 8 min (room for a
+fresh runner's rustup install), setup-node and setup-python 5 min, Bun and web-bundle cache restores 4 min. A
+stalled checkout or setup now fails its job in minutes instead of its full limit; it is still a red job to re-run,
+as before, only sooner. A cache step that passes its bound continues (`continue-on-error`): the job runs on as on a
+cache miss, so the bound never fails a job that would have passed. No step that runs code is bounded here, and no
+job limit changes.
+
+Stalls these bounds cannot reach: a job that hangs in the runner's own `Set up runner` or `Complete runner` (5 of the
+30), before or after every workflow step. Those are the runner pools' to fix (goal-linux-pool for cmux-runner-pool,
+freestyle-ci-first-class for fsr), or a shorter job `timeout-minutes` on the light jobs they hit.
+
+## note-557
+
+Above `push-head-preflight` in `.github/workflows/cmux-next.yml`.
+
+Its Linux control jobs (this one, the placements, release-compile-fast-admission, dev-landing-place) take
+cmux-linux, the persistent runner pool, on a push's or same-repo PR's attempt 1 (cmuxterm-hq decisions/junctions.md:
+one label for every own-branch Linux job). They took cmux-gcp-pr-control-jit-x64, one-job JIT VMs, until that label
+queued 1,860 jobs (oldest about 2 h, 2026-11-21) while the pool had about 300 runners idle. compile-status and its
+handoff stay on that label: each holds a statuses write App token (# ephemeral-required on its runs-on).
+Not cmux-gcp-nightly-jit-x64: on 2026-11-20 these jobs filled it (333 queued) and the nightly's own
+pick-nightly-app-runner waited behind them; that label serves nightly runs only. A re-run falls through to the pools.

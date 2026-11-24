@@ -168,7 +168,10 @@ jobs:
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       # Restore only: the React apps jobs save this key (tests/ci_per_ref_cache_saves_baseline.txt never grows).
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-556 (a stalled runner fails in minutes)
       - name: Restore the Bun package cache
+        timeout-minutes: 4
+        continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
