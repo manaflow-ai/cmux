@@ -417,7 +417,8 @@ fn a_killed_agent_posts_one_notice_and_dedupes_after_daemon_restart() {
     let first = notice(&daemon, surface, |row| {
         row["level"] == "error"
             && (row["title"].as_str().is_some_and(|title| title.ends_with("failed"))
-                || row["title"].as_str().is_some_and(|title| title.ends_with("stopped responding")))
+                || row["title"].as_str().is_some_and(|title| title.ends_with("stopped responding"))
+                || row["title"].as_str().is_some_and(|title| title.ends_with("crashed")))
     });
     let first_id = first["id"].clone();
     let target_errors = |daemon: &Daemon| -> Vec<Value> {
