@@ -1492,6 +1492,52 @@ mod tests {
         assert_eq!(socks.tunnels(), vec![turn.tls_address()]);
     }
 
+    /// A dial whose TURN over TLS goes through the system's proxy takes that
+    /// stream allocation the moment it is up, beside a UDP allocation still
+    /// asking: such a network almost never lets UDP out, and waiting out
+    /// STUN's silence held every proxied dial about 250 ms (netlab proxy
+    /// rows). The same stream not through a proxy still gives UDP the rest
+    /// of STUN's silence.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_proxied_stream_allocation_is_taken_without_waiting_out_stun() {
+        use crate::egress::Egress;
+        use crate::testing::{ProxyAuth, TestProxy, TestTurn};
+        let turn = TestTurn::start().await;
+        // UDP to the server is dropped, but nothing has told the dial so
+        // (no STUN silence yet): only the proxy says this is such a network.
+        turn.set_udp_blocked(true);
+        let proxy = TestProxy::start(ProxyAuth::None).await;
+        let through = |egress| DialOptions {
+            ice_servers: vec![turn.ice.clone()],
+            include_loopback: true,
+            turn_tls_roots: Some(Arc::clone(&turn.roots)),
+            egress,
+            ..DialOptions::default()
+        };
+        let proxied = through(Egress { proxy: proxy.config(), ..Egress::default() });
+        let started = tokio::time::Instant::now();
+        let allocated = TurnCarrier::allocate_with(&proxied, None, true).await;
+        let elapsed = started.elapsed();
+        let carrier = allocated.carrier.expect("TURN over TLS through the proxy");
+        assert_eq!(carrier.transport, TurnTransport::Tls);
+        assert_eq!(proxy.tunnels(), vec![turn.tls_address()]);
+        assert!(allocated.udp_later.is_some(), "the UDP allocation still asking goes on");
+        assert!(
+            elapsed < super::super::wireguard::STUN_SILENT,
+            "a proxied stream waited out STUN: {elapsed:?}"
+        );
+        drop(carrier);
+        // Not through a proxy: UDP gets the rest of STUN's silence first.
+        let started = tokio::time::Instant::now();
+        let allocated = TurnCarrier::allocate_with(&through(Egress::default()), None, true).await;
+        let elapsed = started.elapsed();
+        assert_eq!(allocated.carrier.expect("TURN over TLS").transport, TurnTransport::Tls);
+        assert!(
+            elapsed >= super::super::wireguard::STUN_SILENT - Duration::from_millis(20),
+            "a direct stream did not give UDP its grace: {elapsed:?}"
+        );
+    }
+
     #[test]
     fn udp_blocked_and_relay_only_need_their_server() {
         let udp_only = DialOptions { ice_servers: ice(&["turn:t.example:3478"]), ..DialOptions::default() };

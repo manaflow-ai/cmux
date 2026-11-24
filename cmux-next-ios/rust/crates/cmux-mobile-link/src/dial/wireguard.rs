@@ -3304,6 +3304,71 @@ mod tests {
         assert_eq!(copies(&peer), 0, "an answered initiation was repeated");
     }
 
+    /// A Mac behind NAT answers `wg-init` with private addresses only and
+    /// trickles its relayed one after its STUN. The phone's initiation,
+    /// sent before that, reached none of them; the trickle sends it again
+    /// at once to the new relayed address instead of after
+    /// [`HANDSHAKE_REPEATS`]`[0]` (netlab: link ready 117 or 295 ms by
+    /// whether the trickle beat the first send).
+    #[tokio::test(start_paused = true)]
+    async fn a_trickled_relayed_address_gets_the_pending_initiation_at_once() {
+        let private = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let relay = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        for socket in [&private, &relay] {
+            socket.set_nonblocking(true).unwrap();
+        }
+        let (private_addr, relayed) = (private.local_addr().unwrap(), relay.local_addr().unwrap());
+        let (reach_out, _reaches) = mpsc::unbounded_channel();
+        let (_control, control) = mpsc::unbounded_channel();
+        let mut underlay = HybridUnderlay::new(
+            UnderlaySpec {
+                socket: UdpSocket::bind("127.0.0.1:0").await.unwrap(),
+                peer_endpoints: &[private_addr.to_string()],
+                peer_relayed: &[],
+                peer_relayed_tls: &[],
+                peer_version: WG_VERSION,
+                turn: None,
+                reach_out,
+                path: watch::channel(LinkPath::NoPath).0,
+                route_to: Arc::new(watch::channel(None).0),
+                control,
+                relay_shared: Default::default(),
+            },
+            &DialOptions::default(),
+        );
+        underlay.socket.writable().await.unwrap();
+        let copies = |peer: &std::net::UdpSocket| {
+            let mut buffer = [0u8; 256];
+            std::iter::from_fn(|| peer.recv(&mut buffer).ok()).count()
+        };
+        let mut initiation = vec![0u8; cmux_transport::classify::WG_INITIATION_LEN];
+        initiation[0] = 1;
+        underlay.send(&initiation);
+        let _ = copies(&private);
+        assert_eq!(copies(&relay), 0, "the relayed address was not known yet");
+        // The trickle; no time passes (the clock is paused).
+        underlay.apply(Control::PeerEndpoints {
+            endpoints: vec![private_addr.to_string(), relayed.to_string()],
+            relayed: vec![relayed.to_string()],
+            relayed_tls: Vec::new(),
+        });
+        assert!(copies(&relay) >= 1, "the pending initiation waited for its repeat timer");
+        // Once answered, a trickle sends no initiation again.
+        underlay.authenticated(Origin { path: UDP_PATH, addr: Some(relayed) });
+        let _ = copies(&relay);
+        let _ = copies(&private);
+        underlay.apply(Control::PeerEndpoints {
+            endpoints: vec![private_addr.to_string(), relayed.to_string()],
+            relayed: vec![relayed.to_string()],
+            relayed_tls: Vec::new(),
+        });
+        let mut buffer = [0u8; 256];
+        let resent = std::iter::from_fn(|| relay.recv(&mut buffer).ok().map(|len| (len, buffer[0])))
+            .filter(|&(len, kind)| len == cmux_transport::classify::WG_INITIATION_LEN && kind == 1)
+            .count();
+        assert_eq!(resent, 0, "an answered initiation was sent again");
+    }
+
     /// Poll the underlay's receive side (which runs its timers) for `wait`.
     async fn drive(underlay: &mut HybridUnderlay, wait: Duration) {
         let mut buffer = vec![0u8; 2048];
