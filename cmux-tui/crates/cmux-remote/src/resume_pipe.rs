@@ -226,6 +226,12 @@ impl<L: AsyncRead + AsyncWrite + Send> ResumablePipe<L> {
         self.state().received
     }
 
+    /// Both sides ended and the other end has every byte of this end's: nothing is left to
+    /// carry, so an other end that no longer holds the pipe finished it.
+    pub fn peer_finished(&self) -> bool {
+        self.state().peer_finished()
+    }
+
     /// Take the pipe for a new transport: the run on the old one (if any) ends as
     /// [`Ran::Broken`], and the claim's [`Claim::received`] is final until [`Claim::run`].
     pub async fn claim(&self) -> Claim<'_, L> {
