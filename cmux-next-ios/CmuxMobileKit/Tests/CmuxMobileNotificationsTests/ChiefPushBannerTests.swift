@@ -29,7 +29,9 @@ struct ChiefPushBannerTests {
     }
     #endif
 
+    #if canImport(Darwin)
     @Test func plainTextKeepsLineBreaks() {
         #expect(PushPlainText(markdown: "a *b*\nc").text == "a b\nc")
     }
+    #endif
 }
