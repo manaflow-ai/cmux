@@ -66,7 +66,7 @@ fn terms(
     {
         return Err("share.bad_request");
     }
-    Ok(ShareTerms { ttl_secs, uses, create_id, role, signed_in_role })
+    Ok(ShareTerms { ttl_secs, uses, create_id, role, signed_in_role, team_id: None })
 }
 
 /// The session `surface` shows, refused when the caller named another one.
@@ -92,22 +92,35 @@ fn room_for_new(
     Ok(Some((room, token.ok_or("share.needs_sign_in")?)))
 }
 
-/// `agent-session-share-create`: a guest link, provisioned in the room when there is one.
+/// `agent-session-share-create`: a guest link or a team address. Team access needs a hosted room.
 pub(super) fn create(
     mux: &Arc<Mux>,
     shares: &LinkShares,
     directory: Option<&Path>,
     p: Create,
 ) -> Result<Value, &'static str> {
-    let terms = terms(
+    if let Some(team) = &p.team_id
+        && (!valid_id(team)
+            || !team.bytes().all(|byte| byte.is_ascii_graphic())
+            || p.uses.is_some()
+            || p.signed_in_role.is_some())
+    {
+        return Err("share.bad_request");
+    }
+    let mut terms = terms(
         p.ttl_secs.unwrap_or(DEFAULT_TTL_SECS),
         p.uses.unwrap_or(1),
         p.create_id,
         p.role,
         p.signed_in_role,
     )?;
+    if p.team_id.is_some() {
+        terms.role = Some(p.role.unwrap_or(Role::View));
+        terms.team_id = p.team_id;
+    }
     let session = chat(mux, p.surface, p.session.as_deref())?;
     match room_for_new(shares, p.owner_token)? {
+        None if terms.team_id.is_some() => Err("share.room_unreachable"),
         None => shares.insert(directory, session, p.surface, terms, false),
         Some((room, token)) => {
             let created = shares.insert(directory, session, p.surface, terms, true)?;
@@ -179,7 +192,7 @@ pub(super) fn invite_chat(
 }
 
 /// Adds a new share of `session` to `shares` (an ended one goes first when room is needed) and
-/// answers it with its secret.
+/// returns its create result. Only a share with link access returns its secret.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn push(
     shares: &mut Vec<LinkShare>,
@@ -191,7 +204,7 @@ pub(super) fn push(
     terms: ShareTerms,
     provisioning: bool,
 ) -> Result<Value, &'static str> {
-    let ShareTerms { ttl_secs, uses, create_id, role, signed_in_role } = terms;
+    let ShareTerms { ttl_secs, uses, create_id, role, signed_in_role, team_id } = terms;
     let NewIds(share_id, secret, provision_key) = ids;
     if shares.len() >= MAX_SHARES {
         prune(shares);
@@ -218,14 +231,21 @@ pub(super) fn push(
         requests: Vec::new(),
         role,
         signed_in_role,
+        team_id: team_id.clone(),
     });
     // The records there may fit while the new one does not: ended ones go first.
     if !fits_or_prune(shares, now, connected) {
         return Err("share.limit");
     }
-    Ok(json!({"share_id": share_id, "secret": secret, "url": null, "expires_at": expires_at,
+    let mut answer = json!({"share_id": share_id, "url": null, "expires_at": expires_at,
         "session": session, "surface": surface, "uses_left": uses, "role": role,
-        "signed_in_role": signed_in_role}))
+        "signed_in_role": signed_in_role});
+    if let Some(team) = team_id {
+        answer.set("team_id", json!(team));
+    } else {
+        answer.set("secret", json!(secret));
+    }
+    Ok(answer)
 }
 
 /// Invites `account` to share `share_id` of `shares` (see [`LinkShares::invite`]); answers the
@@ -256,15 +276,15 @@ pub(super) fn invite_in(
             invited_at: now,
             state: InviteState::Invited,
         };
-        retire_link_guests(share, &account);
+        retire_general_access_guests(share, &account);
         return Ok((answer, true));
     }
-    retire_link_guests(share, &account);
-    if share.invitees.len() >= MAX_INVITEES {
-        // A removed account goes first, when room is needed.
+    retire_general_access_guests(share, &account);
+    if share.team_id.is_none() && share.invitees.len() >= MAX_INVITEES {
+        // Team shares keep removals: forgetting one would readmit the account through the team.
         share.invitees.retain(|i| i.state == InviteState::Invited);
     }
-    if share.invitees.len() >= MAX_INVITEES {
+    if share.invitees.iter().filter(|i| i.state == InviteState::Invited).count() >= MAX_INVITEES {
         return Err("share.limit");
     }
     share.invitees.push(Invitee { account, role, invited_at: now, state: InviteState::Invited });
@@ -274,13 +294,12 @@ pub(super) fn invite_in(
     Ok((answer, true))
 }
 
-/// The account's guests that joined by the link end once it is invited: from then on it reaches
-/// the chat only as the invite's guest, with the role the owner chose (a viewer invite never
-/// leaves an earlier link guest able to send). Their connections close at the next `settle` and
+/// Inviting an account ends its previous link or team grants. It must join again with the
+/// role the owner chose (a viewer invite never leaves an earlier guest able to send). Their connections close at the next `settle` and
 /// the room hears their end; their attempts answer nothing, so a retry joins by the invite.
-fn retire_link_guests(share: &mut LinkShare, account: &str) {
-    let joined_by_link = |g: &Guest| g.via.is_some() && g.account.as_deref() == Some(account);
-    for guest in share.guests.iter_mut().filter(|g| joined_by_link(g)) {
+fn retire_general_access_guests(share: &mut LinkShare, account: &str) {
+    let general_access = |g: &Guest| g.via.is_some() && g.account.as_deref() == Some(account);
+    for guest in share.guests.iter_mut().filter(|g| general_access(g)) {
         if guest.state == GuestState::Active {
             guest.state = GuestState::Left;
         }
