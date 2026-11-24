@@ -182,7 +182,7 @@ pub fn resolve(
     let Some(place) = place else {
         return Restore::List;
     };
-    if !workspaces.iter().any(|id| *id == place.workspace) {
+    if !workspaces.contains(&place.workspace) {
         return Restore::List;
     }
     let mut place = place.clone();
