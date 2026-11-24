@@ -18,11 +18,17 @@ run_group() {
 
 # A filter that fails after writing its rows: every line its run appended gets
 # "gate_failed":true, and the v2 home reads those rows red with their numbers.
+# A filter that fails having written none is named here: the home can only say
+# its rows "did not report a measure", and this line says which command it was.
 run() {
-  local before=0
+  local before=0 after=0
   [[ -f $V2_GATE_OUT ]] && before=$(wc -l <"$V2_GATE_OUT")
   if ! "$@"; then
     failed=1
+    [[ -f $V2_GATE_OUT ]] && after=$(wc -l <"$V2_GATE_OUT")
+    if ((after == before)); then
+      printf 'v2 gates: failed before writing a measure: %s\n' "$*" >&2
+    fi
     mark_failed "$before"
   fi
 }
