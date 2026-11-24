@@ -1,4 +1,4 @@
-import type { EventRecord } from "./direct";
+import type { EventRecord } from "./eventRecord";
 import { type Translate, translate } from "./i18n";
 import { type WireEntry } from "./wire";
 import { UI_PICK_HEADER } from "./composer/uiPickModel";
