@@ -178,7 +178,7 @@ public final class ChiefBrainWatch {
     /// it is one line of a small local file plus a `proc_pidpath`, once per lock change, and these
     /// sources exist only while no host is watched, so there is no stream of events to read on. Off
     /// the main actor it would need a generation check, and `isChiefHost` to cross isolation; Home's
-    /// own repeated reads are the ones that go off it (``HomeService/localChiefRuns(_:)``).
+    /// own repeated reads are the ones that go off it (``HomeService/localChiefRuns(_:canStart:gaveUp:)``).
     private func lockChanged(folder: Bool) {
         guard !stopped else { return }
         guard let pending = pendingLockPID else {
