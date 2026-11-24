@@ -5,7 +5,7 @@
 // so they dropped 46 px and rose 175 px (or rose and dropped back). The frame judge named that
 // bounce in every state whose play sends a prompt (#46151, `follow reversed`).
 // From the send until the reply's last line, a followed transcript only rises: no frame draws its
-// rows down. Each case records every in-view row's top after every painted frame of the stage's play.
+// rows down (the running turn's live line, pushed by the reply's rows, aside). Each case records every in-view row's top after every painted frame of the stage's play.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
@@ -79,6 +79,10 @@ await requireBrowserLane("send-clear-no-bounce-browser.test.ts", async () => {
     const down: string[] = [];
     for (let index = 1; index < frames.length; index++) {
       for (const [id, top] of Object.entries(frames[index]!)) {
+        // The running turn's live line sits under the reply: the reply's own rows arriving and growing
+        // above it push it down while the rows above rise (frame 28: the reply's first row, 75 px, comes in
+        // over the live line). That is the reply's growth, not the cleared card's room drawn down.
+        if (id.endsWith("-live") && id !== "live-user") continue;
         const was = frames[index - 1]![id];
         if (was !== undefined && top - was > 0.5)
           down.push(`frame ${index}: ${id} +${Math.round((top - was) * 10) / 10}`);
