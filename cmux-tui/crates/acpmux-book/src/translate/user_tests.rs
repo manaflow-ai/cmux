@@ -279,10 +279,13 @@ fn a_waiting_steer_names_its_prompt_until_it_is_read() {
         ],
     );
     let ops = run(&mut state, &[mux(3, "steer_withdrawn", r#"{"promptId":"w"}"#)]);
+    // A prompt that never ran leaves by the leave op, never as a settled row.
+    assert!(!ops.iter().any(|op| matches!(&op.change,
+        Change::Row(row) if row.kind == RowKind::User && !row.open)));
     let gone = ops
         .iter()
         .find_map(|op| match &op.change {
-            Change::Row(row) if row.kind == RowKind::User && !row.open => Some(row.fields.clone()),
+            Change::Leave(row) if row.kind == RowKind::User => Some(row.fields.clone()),
             _ => None,
         })
         .unwrap();
@@ -394,6 +397,8 @@ fn a_turns_group_row_names_its_prompt_and_its_first_words() {
         .unwrap();
     assert_eq!(fields["prompt"], id.to_string());
     assert_eq!(fields["promptId"], "\"p\"");
+    // The group row is the turn header: it carries the turn's start, its phase says running.
+    assert!(fields["startMs"].parse::<u64>().is_ok(), "{fields:?}");
     let head: String = serde_json::from_str(&fields["head"]).unwrap();
     assert!(head.starts_with("Line one\nsecond \"quoted\" \u{1F600} é"), "{head:?}");
     assert!(head.len() <= user::HEAD_BYTES && head.len() > user::HEAD_BYTES - 2, "{}", head.len());

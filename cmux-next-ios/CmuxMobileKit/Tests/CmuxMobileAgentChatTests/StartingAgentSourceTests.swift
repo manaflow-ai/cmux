@@ -1,3 +1,4 @@
+import CmuxMobileDesign
 import Foundation
 import Testing
 @testable import CmuxMobileAgentChat

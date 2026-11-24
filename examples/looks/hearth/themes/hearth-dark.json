@@ -1,0 +1,32 @@
+// Hearth Dark: the same desk by lamplight. A warm brown-black page (#1f1c19), the sidebar a step
+// darker (#191714), warm off-white ink (#ece6dc) and the terracotta lifted (#e08a63) to read on it.
+{
+  "name": "Hearth Dark",
+  "description": "A warm brown-black page, warm off-white ink, a darker sidebar and a lifted terracotta accent.",
+
+  "appearance.theme": "Builtin Dark",
+  // The window, sidebar and pages take that theme too, over an App Theme of your own.
+  "appearance.appTheme": "followTerminal",
+  "colors": { "background": "#1f1c19", "foreground": "#ece6dc", "selection": "#3a332c", "accent": "#e08a63" },
+  "appearance.accent": "theme",
+
+  "appearance.background": "none",
+  "appearance.borders": "none",
+  "appearance.chromeStyle": "flat",
+  "appearance.titleAreaTone": "oneColor",
+  "appearance.density": "comfortable",
+
+  "appearance.metrics.sidebarWidth": 272,
+  "appearance.metrics.sidebarRowHeight": 32,
+  "appearance.metrics.chromeFontSize": 13,
+
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#191714",
+  "appearance.surfaces.sidebar.opacity": 1,
+  "appearance.surfaces.agentPane.color": "#1f1c19",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "appearance.surfaces.tabBar.color": "#1f1c19",
+  "appearance.surfaces.tabBar.opacity": 1,
+  "sidebar.sectionLook": "quiet",
+  "appearance.statusIndicator.style": "arc"
+}

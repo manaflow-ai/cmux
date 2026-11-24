@@ -136,7 +136,7 @@ afterEach(async () => {
 
 const noop = () => undefined;
 let paneWidth = 0;
-// The running line's counts call this (App.tsx `openAgents` / `openCommands`).
+// A tray command with no terminal calls this (App.tsx `openTrayCommand`).
 let reveal: ((section: "subagents" | "tasks") => void) | undefined;
 
 /// The pane's pieces as App.tsx places them: the toggle last in the header's tools, Session Info

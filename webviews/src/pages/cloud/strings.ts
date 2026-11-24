@@ -234,6 +234,8 @@ export const L = {
   plan: "plan.title",
   planMachines: "plan.machines",
   planUsed: "plan.used",
+  planPastDue: "plan.pastDue",
+  planManageBilling: "plan.manageBilling",
   usage: "usage.title",
   usageCompute: "usage.compute",
   selectMachine: "detail.selectMachine",

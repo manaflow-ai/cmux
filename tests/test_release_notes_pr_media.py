@@ -658,6 +658,20 @@ class GalleryRenderPlanTests(unittest.TestCase):
         # Rendered now, beside the after: both in the manifest without --parent.
         self.assertEqual([c["id"] for c in self.tool.manifest(out, cases)[0]], ["h--after", "h--before"])
 
+    def test_an_entrys_only_before_note_is_the_before_whatever_its_name(self):
+        # jump-place's `center` ("Before (Leo's screenshot)") for `end`, composer-studio's `standard-beside`
+        # ("Before: the default composer") for `studio`: both shipped with no before (2026-11-22).
+        jump = {"a.j": {"end": "Selected (ships)", "start": "Start edge", "center": "Before (Leo's screenshot): centered"}}
+        cases = [self.case("a.j", v) for v in ("end", "start", "corner", "center", "end-handle-right")]
+        self.assertEqual(self.tool.marked_before("a.j/end", cases, jump), "a.j/center")
+        studio = {"a.s": {"studio": "Studio's composer", "standard-beside": "Before: the default composer"}}
+        cases = [self.case("a.s", v) for v in ("studio", "studio-typed", "standard-beside")]
+        self.assertEqual(self.tool.marked_before("a.s/studio", cases, studio), "a.s/standard-beside")
+        # Two "Before" notes on other surfaces still name neither.
+        two = {"a.s": {**studio["a.s"], "other-old": "Before: another surface"}}
+        cases.append(self.case("a.s", "other-old"))
+        self.assertIsNone(self.tool.marked_before("a.s/studio", cases, two))
+
     def test_an_entry_that_marks_no_old_look_renders_the_before_at_the_parent(self):
         cases = [self.case("a.b", "x"), self.case("a.b", "y")]
         rows = [{"id": "h", "role": "before", "state": "a.b/x", "parent": "p"}]
@@ -685,10 +699,14 @@ class GalleryRenderPlanTests(unittest.TestCase):
                 {"id": "g", "role": "before", "state": "a.b/y", "parent": "q", "commit": "d"}]
         files = {"p": "y: {}\n", "c": "y: {}\nx: {}\n", "q": "x: {}\n", "d": "x: {}\n"}
         out, missing = self.tool.resolve(rows, cases, lambda rev, path: files.get(rev), {})
-        self.assertEqual(missing[1:], [])
-        self.assertIn("g before: a.b/y is new in its commit", missing[0])  # not in its own commit either
-        self.assertEqual([(r["state"], r["parent"], r["overlay"]) for r in out],
-                         [("a.b/x", "p", "webviews/src/a.gallery.tsx")])
+        self.assertEqual(missing, [])
+        # g's file names y nowhere, at its commit either (a generated name, as settings.gallery.ts's per-category
+        # variants): rendered at its parent with no overlay.
+        self.assertEqual([(r["state"], r["parent"], r.get("overlay")) for r in out],
+                         [("a.b/x", "p", "webviews/src/a.gallery.tsx"), ("a.b/y", "q", None)])
+        # At q the parent render decides: a checkout with no such state names it missing, never another one.
+        self.assertEqual(self.tool.manifest(out, [cases[0]], "q"), ([], ["g: no gallery state a.b/y at q"]))
+        out = out[:1]
         # At the parent, the same state from that checkout's cases (the overlaid file draws it there).
         self.assertEqual(self.tool.manifest(out, cases, "p")[0], [{**cases[0], "id": "h--before"}])
         with tempfile.TemporaryDirectory() as tmp:

@@ -65,6 +65,10 @@ public enum LinkState: Equatable, Sendable {
     /// The media session beside a WireGuard link changed.
     case media(VideoMediaState)
     case disconnected(reason: String)
+    /// The link heard nothing for `silentMillis` after a ping (Rust
+    /// `Link::suspect_state`). Still open; the next `connected` says it
+    /// answered again. Only `disconnected` ends it.
+    case suspect(silentMillis: UInt32)
 }
 
 /// A transport-agnostic connection to one Mac. Implementations: `FFIMacLink`
@@ -83,12 +87,25 @@ public protocol MacLink: AnyObject, Sendable {
     /// nil when other frames from the Mac came first (the pong trails a busy
     /// queue: alive), a throw only when nothing came back at all.
     func probe(timeout: Duration) async throws -> UInt32?
+    /// How long a probe of this link may wait for its pong: `floor`, or
+    /// longer on a link whose measured round trip needs it (the Rust link:
+    /// three smoothed round trips, at most 5 s).
+    func probeTimeout(floor: Duration) -> Duration
+    /// The app is in the foreground with a terminal or chat on screen, or
+    /// not. The Rust link probes more often while it is (every 3 s on its
+    /// datagram lane); a link without one ignores it.
+    func setForegroundProbe(_ on: Bool)
     func close() async
     /// The path of a link that is already up when the dial returns (nil:
     /// unknown until its first `states` element). The controller then adopts
     /// it as connected at once instead of waiting a main-actor turn for the
     /// state stream (verify/perf-latency.md).
     var connectedPath: LinkPathKind? { get }
+    /// Where a direct path's peer address is, as the Rust link names it
+    /// (`cmux_mobile_link::dial::peer_scope`): `lan`, `tailnet` (a Tailscale or
+    /// CGNAT address), `wan`, or empty on a relayed path, before a route, or
+    /// when the link cannot say. The DEBUG hand-off receipt names it.
+    var peerScope: String { get }
     /// How long ago the link last received any frame from the Mac (a pong,
     /// channel data, a control frame), measured where frames arrive, not where
     /// a channel's reader takes them; nil when the link cannot say. Any frame
@@ -104,8 +121,11 @@ public protocol MacLink: AnyObject, Sendable {
 
 extension MacLink {
     public var connectedPath: LinkPathKind? { nil }
+    public var peerScope: String { "" }
     public var receivedAgo: Duration? { nil }
     public var trafficAgo: Duration? { nil }
+    public func probeTimeout(floor: Duration) -> Duration { floor }
+    public func setForegroundProbe(_ on: Bool) {}
 
     /// A link that only pings: the pong or nothing.
     public func probe(timeout: Duration) async throws -> UInt32? {
@@ -115,6 +135,20 @@ extension MacLink {
     public func openInputChannel(service: String, args: [String: String]) async throws -> any LinkChannel {
         try await openChannel(service: service, args: args)
     }
+}
+
+/// A link the Mac can hold while the app is suspended (PROTOCOL.md "Parked
+/// link"): a WireGuard link to a Mac that knows parking.
+public protocol ParkableMacLink: MacLink {
+    /// Before the OS suspends the app: ask the Mac to hold the link for up to
+    /// `hold` while the phone is silent. `true`: parked, and nothing on the
+    /// link wakes the phone until ``resumeParked()``. `false`: an older Mac,
+    /// no answer within `timeout`, or a transport that cannot be held.
+    func park(hold: Duration, timeout: Duration) async -> Bool
+    /// Back in front: `true` when the link was parked and its hold has not
+    /// passed. The tunnel then moves onto a fresh socket; probe it, and the
+    /// first frame back ends the park on both sides.
+    func resumeParked() -> Bool
 }
 
 /// One multiplexed channel inside a link.

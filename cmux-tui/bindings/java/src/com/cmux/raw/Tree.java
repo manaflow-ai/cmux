@@ -12,6 +12,7 @@ import java.util.Objects;
 
 public final class Tree implements WireValue {
     private final Field<String> generation;
+    private final Field<UInt64> next;
     private final Field<UInt64> paneRevision;
     private final Field<String> registryId;
     private final Field<UInt64> terminalRevision;
@@ -23,6 +24,7 @@ public final class Tree implements WireValue {
 
     private Tree(Builder builder) {
         this.generation = builder.generation;
+        this.next = builder.next;
         this.paneRevision = builder.paneRevision;
         this.registryId = builder.registryId;
         this.terminalRevision = builder.terminalRevision;
@@ -37,6 +39,7 @@ public final class Tree implements WireValue {
     public static Builder builder() { return new Builder(); }
 
     public Field<String> generation() { return generation; }
+    public Field<UInt64> next() { return next; }
     public Field<UInt64> paneRevision() { return paneRevision; }
     public Field<String> registryId() { return registryId; }
     public Field<UInt64> terminalRevision() { return terminalRevision; }
@@ -52,6 +55,10 @@ public final class Tree implements WireValue {
         Object rawGeneration = Wire.optional(object, "generation");
         if (!Wire.isMissing(rawGeneration)) {
             builder.generation(Wire.string(rawGeneration, "Tree.generation"));
+        }
+        Object rawNext = Wire.optional(object, "next");
+        if (!Wire.isMissing(rawNext)) {
+            builder.next(Wire.uint64(rawNext, "Tree.next"));
         }
         Object rawPaneRevision = Wire.optional(object, "pane_revision");
         if (!Wire.isMissing(rawPaneRevision)) {
@@ -90,6 +97,7 @@ public final class Tree implements WireValue {
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "generation", generation);
+        Wire.put(object, "next", next);
         Wire.put(object, "pane_revision", paneRevision);
         Wire.put(object, "registry_id", registryId);
         Wire.put(object, "terminal_revision", terminalRevision);
@@ -104,17 +112,18 @@ public final class Tree implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof Tree that)) return false;
-        return Objects.equals(generation, that.generation) && Objects.equals(paneRevision, that.paneRevision) && Objects.equals(registryId, that.registryId) && Objects.equals(terminalRevision, that.terminalRevision) && Objects.equals(total, that.total) && Objects.equals(treeRevision, that.treeRevision) && Objects.equals(unchanged, that.unchanged) && Objects.equals(workspaceRevision, that.workspaceRevision) && Objects.equals(workspaces, that.workspaces);
+        return Objects.equals(generation, that.generation) && Objects.equals(next, that.next) && Objects.equals(paneRevision, that.paneRevision) && Objects.equals(registryId, that.registryId) && Objects.equals(terminalRevision, that.terminalRevision) && Objects.equals(total, that.total) && Objects.equals(treeRevision, that.treeRevision) && Objects.equals(unchanged, that.unchanged) && Objects.equals(workspaceRevision, that.workspaceRevision) && Objects.equals(workspaces, that.workspaces);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(generation, paneRevision, registryId, terminalRevision, total, treeRevision, unchanged, workspaceRevision, workspaces); }
+    public int hashCode() { return Objects.hash(generation, next, paneRevision, registryId, terminalRevision, total, treeRevision, unchanged, workspaceRevision, workspaces); }
 
     @Override
     public String toString() { return "Tree" + toWire(); }
 
     public static final class Builder {
         private Field<String> generation = Field.omitted();
+        private Field<UInt64> next = Field.omitted();
         private Field<UInt64> paneRevision = Field.omitted();
         private Field<String> registryId = Field.omitted();
         private Field<UInt64> terminalRevision = Field.omitted();
@@ -127,6 +136,10 @@ public final class Tree implements WireValue {
 
         public Builder generation(String value) {
             this.generation = Field.of(value);
+            return this;
+        }
+        public Builder next(UInt64 value) {
+            this.next = Field.of(value);
             return this;
         }
         public Builder paneRevision(UInt64 value) {

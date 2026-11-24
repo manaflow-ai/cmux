@@ -350,7 +350,8 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                 switch entry.node {
                 case let .workspace(ws):
                     var content = o.rowContent(ws, machine: machineLabel)
-                    (content.treeDepth, content.treeFold, content.rollUp) = (tree.depth, tree.fold, tree.rollUp)
+                    // A parent of subagents only keeps the chevron `rowContent` gave it.
+                    (content.treeDepth, content.treeFold, content.rollUp) = (tree.depth, tree.fold ?? content.treeFold, tree.rollUp)
                     let h = m.height(for: content)
                     rows.append(SidebarRow(
                         key: .workspace(ws.id), y: y, height: h, section: section.id,
@@ -411,11 +412,12 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                     isCollapsed: false, childCount: indices.count, groupColor: nil
                 ))
                 y += m.groupHeaderHeight + m.rowSpacing
-                guard !o.settled.isEmpty else {
+                guard !o.settled.isEmpty || !o.automatic.isEmpty else {
                     for index in indices { emit(index, nodes[index]) }
                     continue
                 }
-                // Settled chats (`sidebar.settleFinished`) fold at the end of their project's rows. Only them: a
+                // Settled chats (`sidebar.settleFinished`) and automatic sessions (`sidebar.showAutomaticSessions`
+                // off) fold at the end of their project's rows. Only them: a
                 // folder keeps its Done and archived rows, and every row, as it always did.
                 var settling = o
                 (settling.foldsDone, settling.foldsArchived, settling.rowLimit) = (false, false, 0)
