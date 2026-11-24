@@ -186,6 +186,8 @@ pub fn status_indicator(summary: &Value) -> Option<&'static str> {
         // so the parent's own row says so, whatever its own turn does (`asks_below.rs`).
         _ if summary["subsessionsWaiting"].as_u64().unwrap_or(0) > 0 => Some("input"),
         "running" => Some("working"),
+        // acpmux holds a turn a capacity error cut and goes on by itself (`row_last_turn`).
+        _ if last == Some("capacity") => Some("working"),
         _ if last == Some("failed") => Some("failed"),
         "disconnected" | "unreachable" if last.is_some() && !answered => Some("lost"),
         // A peer gone unreachable takes its work with it; a local chat whose harness stopped
@@ -268,7 +270,14 @@ pub fn lane(summary: &Value) -> Value {
         // Its own turn's start, else since its subagents work on past the last one.
         Some("working") => (
             "working",
-            summary["turn"]["startedAt"].as_u64().or(summary["subagentsWorkingSince"].as_u64()),
+            summary["turn"]["startedAt"]
+                .as_u64()
+                .or(summary["subagentsWorkingSince"].as_u64())
+                .or_else(|| {
+                    (summary["lastTurn"]["status"] == "capacity")
+                        .then(|| summary["lastTurn"]["endedAt"].as_u64())
+                        .flatten()
+                }),
         ),
         Some("input") => (
             "input",
@@ -704,7 +713,7 @@ impl Hub {
         #[cfg(test)]
         self.summaries_built.fetch_add(1, Ordering::SeqCst);
         let m = session.meta();
-        let waiting = super::subsession_send::waiting_on(session);
+        let waiting = self.waiting_on(session);
         let turn = session.turn();
         // The running turn's prompt is acpmux's notice, not anyone's words (`prompt_line::is_notice`).
         let notice = turn.as_ref().is_some_and(|t| t.notice);
@@ -816,6 +825,8 @@ impl Hub {
             // prompt's start that waits to be tried again (`start_retry.rs`).
             starting: session.spawn_lock.try_lock().is_err()
                 || session.start_retry_waits.load(Ordering::SeqCst),
+            // A launch credential only this daemon's memory holds (`credentials.rs`).
+            credential_only_here: self.credential_only_here(session, &m),
             // Being moved to another daemon (`transfer_out.rs`): it takes no prompt meanwhile.
             moving: session.moving().is_some() && m.moved_to.is_none(),
             // Moved away for good (`transfer_out.rs` commit): where it runs now.
@@ -925,7 +936,12 @@ impl Hub {
             unread_turns: m.unread_turns,
             seen_seq: m.seen_seq,
             last_return: m.last_return,
-            last_turn: m.last_turn.clone(),
+            // A turn acpmux waits out a capacity error for reads `capacity` (`auto_resume.rs`).
+            last_turn: super::auto_resume::row_last_turn(
+                m.last_turn.as_ref(),
+                retry.as_ref(),
+                retry_deciding,
+            ),
             // A retry of its failed last turn waits, or is being decided (`auto_resume.rs`).
             retry,
             retry_deciding,
@@ -963,6 +979,13 @@ impl Hub {
         // A cold-archived chat's preview (`cold_archive.rs`): the list draws it without its log.
         if let Some(cold) = &m.cold {
             summary.set("coldArchive", json!(cold));
+        }
+        // Who closed it, why, and how its work ended (`close_why.rs`): a fleet tool lists the
+        // unfinished closes from `ls --closed --json`.
+        if m.status == SessionStatus::Closed
+            && let Some(close) = &m.close
+        {
+            summary.set("close", json!(close));
         }
         if let Some(dirs) = super::additional_dirs::acp_value(&m) {
             summary.set(super::additional_dirs::FIELD, dirs);
@@ -1238,6 +1261,9 @@ impl Hub {
             "chiefMuxHome": crate::config::chief_builtins::Context::current().chief_home,
             // The host's CPU and RAM budget and this daemon's share of the load (`host_load.rs`).
             "host_pressure": host_pressure,
+            // Each session scope's memory, CPU, IO and disk budget and its use, versioned
+            // (`session_budget.rs`, `hub/session_budget_watch.rs`).
+            "sessionBudgets": super::session_budget_watch::status(),
         })
     }
 }

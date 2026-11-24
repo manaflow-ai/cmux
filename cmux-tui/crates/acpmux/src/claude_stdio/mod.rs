@@ -308,6 +308,10 @@ mod elicitation_tests;
 #[cfg(test)]
 mod subagent_title_tests;
 // The chat's own tool calls running in the foreground, and for how long (`FOREGROUND_WORK`).
+mod dedupe;
+mod dedupe_shell;
+#[cfg(test)]
+mod dedupe_tests;
 mod foreground_work;
 #[cfg(test)]
 mod foreground_work_tests;
@@ -346,6 +350,9 @@ mod result_images_tests;
 // A prompt Claude Code queued behind a turn of its own (`queued_prompt_tests.rs`).
 #[cfg(test)]
 mod queued_prompt_tests;
+pub mod resume_cut;
+#[cfg(test)]
+mod resume_cut_tests;
 #[cfg(test)]
 mod steer_now_tests;
 // Claude's background shells, a workflow agent's under its agent (`background_shells.rs`).
@@ -615,9 +622,14 @@ pub struct Translator {
     elicitations: Mutex<HashMap<String, elicitation::Form>>,
     /// The PreToolUse gate that holds the chat's permission policy (`policy_gate.rs`).
     gate: policy_gate::PolicyGate,
+    /// Harness magic `dedupe` (dedupe.rs).
+    dedupe: Arc<dedupe::Dedupe>,
     next_control: AtomicI64,
     pub session_id: Mutex<Option<String>>,
     pub acp_session_id: String,
+    pub(crate) stop_condition: AtomicBool,
+    /// Present only when this launch included cmux's local session plugin.
+    pub(crate) plugin_hook_home: std::sync::OnceLock<std::path::PathBuf>,
     mode: Mutex<String>,
     model: Mutex<String>,
     effort: Mutex<String>,
@@ -821,9 +833,12 @@ impl Translator {
             inputs: Mutex::new(HashMap::new()),
             elicitations: Mutex::new(HashMap::new()),
             gate: Default::default(),
+            dedupe: Default::default(),
             next_control: AtomicI64::new(1),
             session_id: Mutex::new(None),
             acp_session_id,
+            plugin_hook_home: Default::default(),
+            stop_condition: AtomicBool::new(false),
             mode: Mutex::new(mode.to_owned()),
             model: Mutex::new(model_id(model)),
             effort: Mutex::new(effort_value(effort).to_owned()),
