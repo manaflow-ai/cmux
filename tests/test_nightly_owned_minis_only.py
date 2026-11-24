@@ -102,7 +102,8 @@ HOSTED_PREFLIGHT_JOBS: dict[str, str] = {}
 # A fork takes GitHub-hosted Ubuntu.
 CMUX_LINUX_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}"
 CMUX_LINUX_JOBS = ("resolve-nightly-ghostty-cli-helper", "resolve-nightly-cmux-tui-client",
-                   "prepare-nightly-variant-primary", "prepare-nightly-variant", "await-nightly-tree-marker")
+                   "prepare-nightly-variant-primary", "prepare-nightly-variant", "await-nightly-tree-marker",
+                   "check-nightly-app-store-shelf")
 # Jobs on our minis for nightly-next only. Every other track (classic, RC) goes to the JIT label (GitHub-hosted until
 # 2026-11-21) through this short-circuit, as before #38596: its release uploads may wait out the API rate limit for up to 360 min, which must
 # not hold the exclusive signing Mac. job -> why.
