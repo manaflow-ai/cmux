@@ -97,8 +97,8 @@ pub mod deps;
 pub mod desktop_bridge;
 pub mod desktop_link;
 pub mod directory_input;
-pub(crate) mod disk_writer;
 pub mod disk_usage;
+pub(crate) mod disk_writer;
 pub mod folder_instructions;
 #[cfg(all(test, unix))]
 mod fork_tests;
