@@ -782,12 +782,13 @@ pub(super) fn format_money(minor: i64, currency: &str) -> String {
     let exponent = currency_exponent(currency);
     let sign = if minor < 0 { "-" } else { "" };
     let abs = minor.unsigned_abs();
-    let scale = 10u64.pow(exponent);
-    let whole = abs / scale;
+    let scale = 10u64.checked_pow(exponent).unwrap_or(1);
+    let whole = abs.checked_div(scale).unwrap_or(abs);
     let digits = whole.to_string();
     let mut grouped = String::new();
     for (i, ch) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i) % 3 == 0 {
+        let left = digits.len().saturating_sub(i);
+        if i > 0 && left.is_multiple_of(3) {
             grouped.push(',');
         }
         grouped.push(ch);
@@ -796,8 +797,11 @@ pub(super) fn format_money(minor: i64, currency: &str) -> String {
     if exponent == 0 {
         format!("{sign}{grouped} {code}")
     } else {
-        let frac = abs % scale;
-        format!("{sign}{grouped}.{frac:0width$} {code}", width = exponent as usize)
+        let frac = abs.checked_rem(scale).unwrap_or(0);
+        format!(
+            "{sign}{grouped}.{frac:0width$} {code}",
+            width = usize::try_from(exponent).unwrap_or(2)
+        )
     }
 }
 
