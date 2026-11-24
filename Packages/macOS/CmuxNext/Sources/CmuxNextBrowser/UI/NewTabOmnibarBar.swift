@@ -10,7 +10,7 @@ import CmuxNextDesign
     public static let moreIdentifier = "cmux.newTab.omnibar.more"
 
     public let toolbar: OmnibarToolbarView
-    public let more: OverflowButton
+    let more: OverflowButton
     /// A commit: `beside` false loads the address in the page's tab, true opens it in another tab.
     public var open: (URL, _ beside: Bool) -> Void = { _, _ in }
     /// A Switch to Tab row: reveals tab `key`.
