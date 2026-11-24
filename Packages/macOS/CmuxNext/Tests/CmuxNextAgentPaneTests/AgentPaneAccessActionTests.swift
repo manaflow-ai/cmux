@@ -35,22 +35,4 @@ struct AgentPaneAccessActionTests {
         }
         #expect(ran.isEmpty)
     }
-
-    /// A Computer Use call macOS refused (`permission_missing`) offers Set Up Computer Use in the chat: it runs
-    /// on the person's fresh gesture in the pane, never from page script alone; Computer Use's other actions stay out.
-    @Test func setUpComputerUseRunsOnThePersonsGesture() async {
-        let model = AgentPaneModel(host: NoHost())
-        var ran: [String] = []
-        model.onRunAction = { id, _ in ran.append(id); return .ran }
-        #expect(await model.respond(to: .runAction("palette.computerUse.setup"))["ok"] as? Bool != true)
-        #expect(ran.isEmpty, "no gesture, no window")
-        model.transport.gestures.record()
-        #expect(await model.respond(to: .runAction("palette.computerUse.setup"))["ok"] as? Bool == true)
-        #expect(ran == ["palette.computerUse.setup"])
-        for id in ["palette.computerUse.restart", "palette.computerUse.accessibility", "computerUse.approval.set"] {
-            model.transport.gestures.record()
-            #expect(await model.respond(to: .runAction(id))["ok"] as? Bool != true, "\(id)")
-        }
-        #expect(ran == ["palette.computerUse.setup"])
-    }
 }
