@@ -36,6 +36,8 @@ on:
       - "scripts/ci/pr_owned_findings.py"
       - "scripts/ci/ios_runner_pool.py"
       - "scripts/ci/select_ios_simulator.py"
+      - "scripts/ci/ios_simulator_inputs.py"
+      - "scripts/cmux-next/notices/**"
       - ".github/workflows/test-ios.yml"
   merge_group:
   # Every push to feat-cmux-next (the cmux-next "main") builds the iOS app and
@@ -353,6 +355,7 @@ jobs:
     outputs:
       should_run: ${{ steps.detect.outputs.should_run }}
       should_lint: ${{ steps.detect.outputs.should_lint }}
+      should_build: ${{ steps.detect.outputs.should_build }}
       # `warn`: the conventions lint is advisory, and the suites run whatever it reports.
       style_guards: ${{ env.CMUX_NEXT_STYLE_GUARDS }}
       target_sha: ${{ steps.target.outputs.sha }}
@@ -384,7 +387,13 @@ jobs:
           # checkout of a blobless clone lazily fetches every blob in the tree:
           # that took 2.5-5 minutes of this five-minute job on 2026-11-03 and
           # timed the job out on about half the pull requests.
-          sparse-checkout: .github/workflows/test-ios.yml
+          sparse-checkout: |
+            .github/workflows/test-ios.yml
+            scripts/ci/ios_simulator_inputs.py
+            ios/cmux-ios.xcodeproj/project.pbxproj
+            ios/CmuxiOS/Package.swift
+            Packages/*/*/Package.swift
+            vendor/stack-auth-swift-sdk-prerelease/Package.swift
           sparse-checkout-cone-mode: false
           persist-credentials: false
           submodules: false
@@ -437,6 +446,7 @@ jobs:
           set -euo pipefail
           if [ "${{ github.event_name }}" != "pull_request" ]; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
             echo "should_lint=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -445,6 +455,7 @@ jobs:
           if [ "$(git rev-parse HEAD^2 2>/dev/null)" != "$HEAD_SHA" ]; then
             echo "HEAD is not the merge of $HEAD_SHA; running iOS tests and lint."
             echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
             echo "should_lint=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -455,11 +466,24 @@ jobs:
           # behind its new path; without it both paths are listed, so the
           # greps below stay conservative.
           git diff --name-only --no-renames HEAD^1 HEAD > "${RUNNER_TEMP}/changed-files.txt"
-          if grep -Eq '^(ios/|Packages/Shared/|Packages/iOS/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|scripts/lint_swift_namespaces\.py$|scripts/swift_source_mask\.py$|scripts/tests/test_ios_package_conventions\.py$|scripts/ci/ios_runner_pool\.py$|scripts/ci/select_ios_simulator\.py$|\.github/workflows/test-ios\.yml$)' "${RUNNER_TEMP}/changed-files.txt"; then
+          if grep -Eq '^(ios/|Packages/Shared/|Packages/iOS/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|scripts/lint_swift_namespaces\.py$|scripts/swift_source_mask\.py$|scripts/tests/test_ios_package_conventions\.py$|scripts/ci/ios_runner_pool\.py$|scripts/ci/select_ios_simulator\.py$|scripts/ci/ios_simulator_inputs\.py$|scripts/cmux-next/notices/|\.github/workflows/test-ios\.yml$)' "${RUNNER_TEMP}/changed-files.txt"; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
+            if [ "${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}" = "true" ]; then
+              ios_build=true
+              echo "Full-ci label present; retaining the simulator build."
+            else
+              ios_build="$(python3 scripts/ci/ios_simulator_inputs.py --changed-files "${RUNNER_TEMP}/changed-files.txt" | sed -n 's/^run=//p')"
+            fi
+            if [ -z "$ios_build" ]; then
+              echo "::warning::iOS simulator input classifier returned no verdict; running the build"
+              ios_build=true
+            fi
+            echo "should_build=$ios_build" >> "$GITHUB_OUTPUT"
+            python3 scripts/ci/ios_simulator_inputs.py --changed-files "${RUNNER_TEMP}/changed-files.txt"
           else
             echo "No iOS-owned files changed; skipping iOS tests."
             echo "should_run=false" >> "$GITHUB_OUTPUT"
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
           fi
           # The conventions lint (free-function ban, namespace-type rule, ...)
           # covers every package, so it runs for any Packages/ change too.
@@ -474,7 +498,9 @@ jobs:
     needs: detect-ios-changes
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (needs.detect-ios-changes.outputs.should_lint == 'true') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
-    timeout-minutes: 5
+    # The scan alone takes about 5 minutes on cmux-linux: at 5, a passing run
+    # was cancelled after printing its pass (#52110, twice).
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -513,6 +539,7 @@ jobs:
       ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (
       !cancelled() && needs.runner.result == 'success' && needs.detect-ios-changes.result == 'success'
           && needs.detect-ios-changes.outputs.should_run == 'true'
+          && needs.detect-ios-changes.outputs.should_build == 'true'
           && (needs.package-conventions-lint.result == 'success'
               || needs.detect-ios-changes.outputs.style_guards == 'warn'
               || (needs.package-conventions-lint.result == 'skipped'

@@ -54,6 +54,7 @@ try:  # a head whose step-table runner does not import still routes: its pipelin
 except Exception:  # noqa: BLE001
     ci_steps = None
 import docs_only_paths  # noqa: E402
+import fast_track  # noqa: E402
 import head_tier  # noqa: E402
 import workflow_paths_cover_inputs as filters  # noqa: E402
 
@@ -107,7 +108,13 @@ def table_steps(config: dict, files: list[str], table: Path | None = None) -> li
         routed = ci_steps.route(ci_steps.load(table or ci_steps.TABLE), files)
     except Exception:  # noqa: BLE001
         return None
-    return [step for job in config["table_jobs"] for step in routed.get(job, [])]
+    steps = [step for job in config["table_jobs"] for step in routed.get(job, [])]
+    # A step whose inputs are `["**"]` replaced a job that ran on every change its workflow's shared docs-only
+    # filter let through (scripts/ci/docs_only_paths.py): a docs-only change alone does not start the pipeline for it.
+    if files and docs_only_paths.docs_only(files):
+        table = ci_steps.load(table or ci_steps.TABLE).steps
+        steps = [step for step in steps if table[step].inputs != ("**",)]
+    return steps
 
 
 def route(event: dict, callees: dict, files: list[str] | None,
@@ -116,6 +123,11 @@ def route(event: dict, callees: dict, files: list[str] | None,
     (tier, reason) when the caller read the head's facts (route mode); else the draft rule alone."""
     tier, tier_reason = decided or head_tier.tier("pull_request", event, draft_switch)
     cheap = tier == "cheap"
+    # Fast-track (scripts/ci/fast_track.py): a docs, plans, skills, copy or tests-only change gets the cheap tier.
+    fast = False
+    if not cheap and tier != "none" and files is not None and fast_track.enabled():
+        fast, fast_reason = fast_track.classify(files)
+        cheap = fast
     action = str(event.get("action") or "")
     pr = event.get("pull_request") or {}
     labels = {str(label.get("name") or "") for label in pr.get("labels") or []}
@@ -135,6 +147,9 @@ def route(event: dict, callees: dict, files: list[str] | None,
             continue
         if tier == "none":
             why[name] = tier_reason
+            continue
+        if cheap and fast and not config.get("draft"):
+            why[name] = "fast-track: runs after the merge (post-merge batch and push runs)"
             continue
         if cheap and not config.get("draft"):
             why[name] = "draft: starts when marked ready for review (or with full-ci)"
