@@ -580,6 +580,7 @@
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--acpmux-base, Canvas) 72%, transparent);
   color: var(--acpmux-base, Canvas);
 }
+[data-composer-buttons-visible] .acpmux-md-inline-remove,
 .acpmux-md-inline-chip:hover .acpmux-md-inline-remove,
 .acpmux-md-inline-chip:focus-within .acpmux-md-inline-remove,
 .acpmux-md-inline-chip[data-state="failed"] .acpmux-md-inline-remove {
