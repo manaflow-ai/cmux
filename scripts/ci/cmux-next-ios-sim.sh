@@ -33,7 +33,7 @@
 #             only=TARGET/SUITE[,TARGET/SUITE...]   run only those kit tests
 #               (-only-testing), e.g. only=CmuxMobileLiveTests/LinkRecoveryTests
 #               (a suite, or TARGET/SUITE/test for an XCTest method).
-#               A filter naming TickHarnessCellsTests or ResumeMatrixBenchTests also sets
+#               A filter naming TickHarnessCellsTests also sets
 #               CMUX_TICK_HARNESS=1, the suite's opt-in (it allocates and
 #               runs for seconds, so the kit's full run skips it)
 #             ui=SUITE[,SUITE...]   also run those CmuxMobileAppUITests suites
@@ -346,8 +346,7 @@ if [[ "$mode" == test && $# -gt 1 ]]; then
           [[ "$item" =~ ^[A-Za-z0-9_]+(/[A-Za-z0-9_]+){0,2}$ ]] ||
             { echo "cmux-next-ios-sim.sh: only= wants TARGET/SUITE names, got '$item'" >&2; exit 2; }
           kit_only+=("-only-testing:$item")
-          [[ "$item" == */TickHarnessCellsTests* || "$item" == */ResumeMatrixBenchTests* ]] &&
-            kit_env=(TEST_RUNNER_CMUX_TICK_HARNESS=1)
+          [[ "$item" == */TickHarnessCellsTests* ]] && kit_env=(TEST_RUNNER_CMUX_TICK_HARNESS=1)
         done ;;
       ui=?*)
         IFS=',' read -r -a items <<< "${sel#ui=}"
