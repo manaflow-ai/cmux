@@ -68,6 +68,21 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
         public struct Listed: Hashable, Sendable {
             public var item: SidebarListItem
             public var after: String?
+            /// The space it stores (`SidebarDocItem.room`, a link, tab or app moved into Pinned); nil: none, it lists
+            /// wherever its group lists.
+            public var room: String?
+
+            /// Whether a window on space `room` draws it in its group, whose own space is `groupRoom` (its top-level
+            /// group's stored space, `Group.room`): one that stores the group's own space draws only there, so a group
+            /// that also lists in another space (rule 1's fallback, an open workspace of it there) does not take it
+            /// along (#31378). One that stores no space, or another space than the group's (a link moved in from a
+            /// window the group lists in by that fallback), lists wherever its group lists: the group draws in its own
+            /// space, so no member is ever left out of every window. `room` nil: no space filter.
+            public func lists(inRoom room: String?, groupRoom: String?, spaces: Set<String>? = nil) -> Bool {
+                guard let room, let own = self.room else { return true }
+                let owner = SidebarDocItem.owningRoom(own, spaces: spaces)
+                return owner == room || owner != SidebarDocItem.owningRoom(groupRoom, spaces: spaces)
+            }
         }
     }
 
@@ -146,7 +161,7 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
         var group = Group(id: wire.id, name: wire.name, color: wire.color, icon: wire.icon, collapsed: wire.collapsed,
                           members: wire.members.map(\.ref), section: wire.section, pinned: wire.pinned ?? false)
         group.memberItems = wire.members.map(\.item)
-        group.listed = wire.listed.map { Group.Listed(item: listItem($0.item.record), after: $0.after) }
+        group.listed = wire.listed.map { Group.Listed(item: listItem($0.item.record), after: $0.after, room: $0.item.record.room) }
         group.parent = wire.parent
         group.depth = wire.depth
         group.openMembers = wire.openMembers
