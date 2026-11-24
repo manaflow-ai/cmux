@@ -12,6 +12,10 @@ use common::*;
 use optchat_chief::subagents::{Spawner, SubagentSettings, is_transient_start_failure};
 
 fn spawn_one(h: &mut Harness) -> Result<String, String> {
+    spawn_tasks(h, vec!["say hello".into()])
+}
+
+fn spawn_tasks(h: &mut Harness, tasks: Vec<String>) -> Result<String, String> {
     let spawner = Arc::new(Spawner::new(
         h.chat.clone(),
         h.agents.clone(),
@@ -33,7 +37,7 @@ fn spawn_one(h: &mut Harness) -> Result<String, String> {
         let spawner = spawner.clone();
         std::thread::spawn(move || {
             use optchat_chief::tools::Orchestrator;
-            spawner.spawn(vec!["say hello".into()], None)
+            spawner.spawn(tasks, None)
         })
     };
     while !worker.is_finished() {
@@ -155,4 +159,45 @@ fn a_harness_that_closes_for_want_of_a_login_is_not_retried() {
     assert!(!is_transient_start_failure(
         "session/new: agent process closed (codex): unknown option --foo"
     ));
+}
+
+/// A spawn's sessions start side by side, not one after another (a session
+/// start was the spawn's longest stage, 1.7-2.8 s with Claude Code), and the
+/// answer keeps the tasks' order.
+#[test]
+fn a_spawns_sessions_start_side_by_side() {
+    let mut h = Harness::new(default_script());
+    h.agents.inner.lock().unwrap().slow_session =
+        Some(("optchat-sub".into(), Duration::from_millis(400)));
+    let answer = spawn_tasks(
+        &mut h,
+        vec![
+            "count a.md".into(),
+            "count b.md".into(),
+            "count c.md".into(),
+        ],
+    )
+    .expect("the spawn answers");
+    assert!(answer.contains("Started a1, a2, a3"), "{answer}");
+    let (a1, a2, a3) = (
+        answer.find("- a1:").expect("a1's line"),
+        answer.find("- a2:").expect("a2's line"),
+        answer.find("- a3:").expect("a3's line"),
+    );
+    assert!(a1 < a2 && a2 < a3, "{answer}");
+    assert_eq!(subagent_sessions(&h), 3);
+    let at_once = h.agents.inner.lock().unwrap().slow_starting_max;
+    assert!(at_once >= 2, "the three sessions started one at a time");
+}
+
+#[test]
+fn in_order_keeps_the_order_and_runs_each_once() {
+    use optchat_chief::subagents::in_order;
+    let out = in_order(9, 4, |k| {
+        std::thread::sleep(Duration::from_millis((9 - k as u64) * 5));
+        k * 10
+    });
+    assert_eq!(out, (0..9).map(|k| k * 10).collect::<Vec<_>>());
+    assert_eq!(in_order(0, 4, |k| k), Vec::<usize>::new());
+    assert_eq!(in_order(3, 1, |k| k), vec![0, 1, 2]);
 }
