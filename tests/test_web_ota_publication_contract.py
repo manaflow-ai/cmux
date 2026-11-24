@@ -158,6 +158,15 @@ class WebOTAPublicationContractTests(unittest.TestCase):
         self.assertLess(step.index(fetch), step.index(default))
         self.assertNotIn('base="${BASE:-$(git rev-parse HEAD)}"', step)
 
+    def test_pull_request_layers_pin_the_feature_base(self):
+        workflow = WORKFLOW.read_text()
+        step = workflow.split("      - name: Apply the pull request or ref onto its base\n", 1)[1].split("\n      - ", 1)[0]
+        api_read = "IFS=$'\\t' read -r head_repo head pr_base_ref title state <<<\"$info\""
+        pin = "base_ref=feat-cmux-next"
+        self.assertIn(api_read, step)
+        self.assertIn(pin, step)
+        self.assertLess(step.index(api_read), step.index(pin))
+
     def test_pushes_do_not_queue_behind_each_other(self):
         # One concurrency group for every push made each merge wait for the run before it
         # (2026-11-22: up to 15 min behind a run whose runner hook stalled).

@@ -219,8 +219,11 @@ jobs:
           if [[ -n "$PR" ]]; then
             [[ "$PR" =~ ^[0-9]+$ ]] || { echo "::error::pr must be a number, got $PR"; exit 1; }
             if info="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq '[.head.repo.full_name, .head.sha, .base.ref, .title, .state] | @tsv')"; then
-              IFS=$'\t' read -r head_repo head base_ref title state <<<"$info"
+              IFS=$'\t' read -r head_repo head pr_base_ref title state <<<"$info"
               [[ "$head_repo" == "$GITHUB_REPOSITORY" ]] || { echo "::error::#$PR comes from $head_repo; only same-repo PRs get a published layer"; exit 1; }
+              # Layer dispatches always apply the PR's own diff onto the app's feature tip,
+              # regardless of which branch the PR targets.
+              base_ref=feat-cmux-next
               git fetch -q --filter=blob:none origin "+refs/pull/$PR/head:refs/remotes/pr/head"
               [[ "$(git rev-parse refs/remotes/pr/head)" == "$head" ]] || head="$(git rev-parse refs/remotes/pr/head)"
             else
