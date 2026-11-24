@@ -82,7 +82,8 @@ declare namespace Cmux {
   type CloudGroup = { id: Cmux.GroupId; name: string; created_by: Cmux.UserId; created_at: number; archived: boolean; default_placement: "local" | "mini" | "cloud_vm"; item_count: number; role: "owner" | "edit" | "view" }
   type CloudGroupItem = { workspace: Cmux.GroupWorkspaceId; title?: string; placement: Cmux.GroupPlacement; position: number; added_by: Cmux.UserId; added_at: number }
   type CloudGroupMember = { user: Cmux.UserId; role: "owner" | "edit" | "view"; display_name: string | null; active: boolean }
-  type CloudMachine = { id: Cmux.MachineId; team: Cmux.TeamId; creator: Cmux.UserId; name: string | null; size: Cmux.CloudMachineSize; status: Cmux.CloudMachineStatus; image: { id: string; daemon_version: string | null }; host: Cmux.HostId | null; classic: boolean; created_at: number; last_active_at: number | null; idle_policy: { idle_seconds: number }; error: { code: string; message: string; at: number } | null; pause_reason?: "idle" | "no_report" | "provider_stopped" | "provider_paused" | null; hourly_rate_usd?: unknown | null; paused_hourly_rate_usd?: unknown | null; running_since?: number | null; desktop?: boolean; evict_at?: number | null; delete_reason?: Cmux.CloudDeleteReason | null; keep?: boolean; notice?: Cmux.CloudRetentionNotice | null; paused_by?: "spend_cap"; spend_cap_pause_at?: number; revision: Cmux.Revision }
+  type CloudMachine = { id: Cmux.MachineId; team: Cmux.TeamId; creator: Cmux.UserId; name: string | null; size: Cmux.CloudMachineSize; status: Cmux.CloudMachineStatus; image: { id: string; daemon_version: string | null }; host: Cmux.HostId | null; classic: boolean; created_at: number; last_active_at: number | null; idle_policy: { idle_seconds: number }; error: { code: string; message: string; at: number } | null; pause_reason?: "idle" | "no_report" | "provider_stopped" | "provider_paused" | null; hourly_rate_usd?: unknown | null; paused_hourly_rate_usd?: unknown | null; running_since?: number | null; desktop?: boolean; evict_at?: number | null; delete_reason?: Cmux.CloudDeleteReason | null; keep?: boolean; notice?: Cmux.CloudRetentionNotice | null; paused_by?: "spend_cap"; spend_cap_pause_at?: number; origin?: Cmux.CloudMachineOrigin; expires_at?: number; revision: Cmux.Revision }
+  type CloudMachineOrigin = { kind?: "workflow" | "lane" | "agent" | "person"; label: string; url?: string; run?: string; workflow?: string; lane?: string }
   type CloudMachineSize = { cpu?: number; memory_mb?: number; disk_mb?: number }
   type CloudMachineStatus = "provisioning" | "starting" | "running" | "pausing" | "paused" | "deleting" | "failed"
   type CloudPlan = { plan_id: string; upgrade_plan: string | null; limits: { max_active: number; max_saved: number; memory_options_mb: Array<number>; locked_memory_options_mb: Array<number>; vm_hours_included: unknown | null }; usage: { active: number; saved: number; vm_hours_used: unknown | null; vm_hours_used_by_you?: unknown | null; period_end: number }; retention?: Cmux.CloudRetention | null; spend_cap?: { state: "under" | "near" | "at_cap" | null; spent_usd: unknown | null; cap_usd: unknown | null; period_end: number | null; checked_at: number | null; pause_at: number | null; paused_at: number | null } }
@@ -147,9 +148,11 @@ declare namespace Cmux {
   type DeviceStatus = { install: Cmux.InstallId; user: string; policy_version: number; app_version: string; mdm_keys: Array<string>; conflicts: Array<string>; reported_at: number }
   type DiffComment = Record<string, Cmux.JsonValue>
   type DiffCommentsDeleteResult = { deleted: number; ids: Array<string> }
-  type DiffCommentsListResult = { root: string; comments: Array<Cmux.DiffComment> }
+  type DiffCommentsListResult = { root: string; comments: Array<Cmux.DiffComment>; review?: Cmux.DiffReviewTarget }
   type DiffCommentsSaveResult = { comment: Cmux.DiffComment }
-  type DiffCommentsSendResult = { sent: number; cleared: Array<string> }
+  type DiffCommentsSendResult = { sent: number; cleared: Array<string>; threads?: Array<string> }
+  type DiffCommentsThreadResult = { comment: Cmux.DiffComment }
+  type DiffReviewTarget = { url: string; repo: string; number: number; title: string; head: string; base: string }
   type EgressHost = string
   type EmailAddress = string
   type EmailDomain = string
@@ -202,6 +205,8 @@ declare namespace Cmux {
   type GitIncludeReport = { copied: number; kept: number; outside: Array<string>; problems: Array<string> }
   type GitPatchPage = { offset: string; next_offset: string; total_bytes: string; revision: string; data_base64: string; complete: boolean }
   type GitPushResult = { root: string; remote: string; branch: string; upstream: string; pushed_commit: string; previous_remote_commit?: string; created_upstream: boolean; up_to_date: boolean }
+  type GitReviewPostResult = { url: string; posted: number; in_body: number; cleared: Array<string> }
+  type GitReviewStartResult = { root: string; branch: string; url: string; repo: string; number: number; title: string; head: string; base: string; diff: string; setup: Cmux.GitWorktreeSetupStart; reused: boolean }
   type GitStatusResult = { root: string; branch?: string; detached: boolean; head?: string; upstream?: string; github_repo?: string; base?: string; ahead: number; behind: number; worktree?: Cmux.GitStatusWorktree }
   type GitStatusWorktree = { main_root: string }
   type GitWorktreeApplyResult = { main_root: string; files: Array<string> }
@@ -532,9 +537,9 @@ declare namespace Cmux {
   type TerminalWaitExitResult = unknown
   type TerminalWaitResult = { matched: boolean; text: string }
   type ThemeScheme = { name: string | null; author: string | null; background: string; foreground: string; cursor: string | null; cursorText: string | null; selectionBackground: string | null; selectionForeground: string | null; palette: Array<string>; accent: string | null; base16: Array<string> }
-  type ThemeSchemeFromImageResult = { appearance: "dark" | "light"; accent: string; glassTint: string; swatches: Array<Cmux.ThemeSchemeSwatch>; format: "ghostty" | "base16" | "iterm2" | "windows-terminal"; text: string; scheme: Cmux.ThemeScheme }
+  type ThemeSchemeFromImageResult = { appearance: "dark" | "light"; accent: string; glassTint: string; swatches: Array<Cmux.ThemeSchemeSwatch>; format: "ghostty" | "base16" | "iterm2" | "windows-terminal" | "vscode"; text: string; scheme: Cmux.ThemeScheme }
   type ThemeSchemeSwatch = { color: string; share: number }
-  type ThemeSchemeText = { from?: "ghostty" | "base16" | "iterm2" | "windows-terminal" | null; name?: string | null; format: "ghostty" | "base16" | "iterm2" | "windows-terminal"; text: string; scheme: Cmux.ThemeScheme }
+  type ThemeSchemeText = { from?: "ghostty" | "base16" | "iterm2" | "windows-terminal" | "vscode" | null; name?: string | null; format: "ghostty" | "base16" | "iterm2" | "windows-terminal" | "vscode"; text: string; scheme: Cmux.ThemeScheme }
   type Timestamp = string
   type Trigger = { id: Cmux.TriggerId; status: "active" | "not_yet_supported"; spec: Cmux.TriggerInput; next_at: number | null }
   type TriggerId = string
@@ -1017,6 +1022,8 @@ interface CmuxGlobal {
       list: CmuxOp<{ machine?: string; session?: string; root: string }, Cmux.DiffCommentsListResult>
       /** `diff.comments.save` (mutation, scope `diff:write`) */
       save: CmuxOp<{ machine?: string; session?: string; root: string; comment: Cmux.DiffComment }, Cmux.MutationResult<Cmux.DiffCommentsSaveResult>>
+      /** `diff.comments.thread` (mutation, scope `diff:write`) */
+      thread: CmuxOp<{ machine?: string; session?: string; root: string; id: string; reply?: string; author?: "reviewer" | "agent"; resolved?: boolean }, Cmux.MutationResult<Cmux.DiffCommentsThreadResult>>
     }
   }
   diffs: {
@@ -1117,6 +1124,14 @@ interface CmuxGlobal {
     fingerprint: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; scope?: Cmux.GitFingerprintScope }, Cmux.GitFingerprintResult>
     /** `git.push` (mutation, scope `git:external`) */
     push: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; remote?: string; branch?: string; set_upstream?: boolean; expected_head?: string }, Cmux.MutationResult<Cmux.GitPushResult>>
+    review: {
+      /** `git.review.comment` (mutation, scope `git:write`) */
+      comment: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; file: string; line: number; start_line?: number; side?: "new" | "old" | "additions" | "deletions"; message: string }, Cmux.MutationResult<Cmux.DiffCommentsSaveResult>>
+      /** `git.review.post` (mutation, scope `git:external`) */
+      post: CmuxOp<{ machine?: string; session?: string; root: string; ids: Array<string>; versions: Record<string, string> }, Cmux.MutationResult<Cmux.GitReviewPostResult>>
+      /** `git.review.start` (mutation, scope `git:execute`) */
+      start: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; url: string }, Cmux.MutationResult<Cmux.GitReviewStartResult>>
+    }
     /** `git.status` (read, scope `git:read`) */
     status: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; github?: boolean }, Cmux.GitStatusResult>
     worktree: {

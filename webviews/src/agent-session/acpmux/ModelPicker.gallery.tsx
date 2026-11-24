@@ -834,6 +834,9 @@ export default componentEntry<GalleryProps>({
         );
       },
     },
+    // A rail with more harnesses than fit: it scrolls by wheel or trackpad and draws no scrollbar
+    // (Lucas 2026-11-22: "remove this scrollbar when hovering over it").
+    "quick-menu-rail-overflow": { props: { ...quick, catalog: manyHarnesses }, play: openColumns },
     // Search, version A (ships): a search field heads the list and has the keyboard as the menu
     // opens, so the menu says it can search (Lawrence: "needs search").
     "quick-search-field": {

@@ -11,10 +11,9 @@ import Foundation
 /// listed once by its most recently active build. The others are that Mac's
 /// other builds (`otherBuilds`), still listed in Settings → Devices.
 ///
-/// The build this phone picked, or was sent to by that build's pairing code
-/// (`preferring`, the team's remembered Mac), stands for its computer while it
-/// is online: a phone that scanned a dev build's code stays on that build
-/// instead of whichever other build of the computer sorts first.
+/// The build this phone picked (`preferring`, the team's remembered Mac) stands
+/// for its computer while it is online: a phone that picked a dev build stays on
+/// that build instead of whichever other build of the computer sorts first.
 ///
 /// A name is never an identity: several Macs can share one (they stay apart,
 /// with the `MacNameDisambiguation` tag), and a Mac that sent no machine id is
