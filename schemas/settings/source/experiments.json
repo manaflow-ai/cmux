@@ -258,6 +258,31 @@
             "loading",
             "chip"
           ]
+        },
+        {
+          "key": "experiments.keepRunningCount",
+          "note": "Taste prototype (cmuxterm-hq RFD 0135, Onboarding): the keep-running switch shows how many chats the plan keeps (\"2 of 3 kept running\"), the awake hours used, and what turning it on or off will do (webviews keep-count/KeepRunningCount.tsx, useKeepCountShown; the numbers from cmux-cloud-start-core keep_count, op cloud_hybrid_keep_count). Off by default; off keeps the switch as it is.",
+          "title": {
+            "key": "settings.experiments.keepRunningCount",
+            "text": "Keep Running Count"
+          },
+          "help": {
+            "key": "settings.experiments.keepRunningCount.help",
+            "text": "The Keep Running switch shows how many chats your plan keeps running, the hours used, and what turning it on will do."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "keep running",
+            "cloud",
+            "plan",
+            "slots",
+            "hours",
+            "count"
+          ]
         }
       ]
     }

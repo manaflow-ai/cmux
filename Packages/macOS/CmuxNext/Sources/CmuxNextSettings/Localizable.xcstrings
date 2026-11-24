@@ -245542,6 +245542,60 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "工具提示和懸停卡片的玻璃更清晰，邊緣更銳利，陰影更柔和。"}}
       }
     },
+    "settings.experiments.keepRunningCount": {
+      "comment": "Settings > Advanced > Experiments: the Keep Running Count taste prototype row (RFD 0135, off by default)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Keep Running Count"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "عدد المحادثات قيد التشغيل"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Broj aktivnih razgovora"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Antal holdt kørende"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Anzahl weiterlaufender Chats"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Recuento de chats en ejecución"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Nombre de chats maintenus actifs"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Conteggio chat mantenute attive"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "実行を続けるチャット数"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ចំនួនការជជែកដែលបន្តដំណើរការ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "계속 실행 개수"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Antall som kjører videre"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Liczba działających czatów"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Contagem de chats em execução"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Счётчик работающих чатов"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "จำนวนแชทที่ทำงานต่อ"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Çalışmaya devam eden sayısı"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Лічильник активних чатів"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Số cuộc trò chuyện tiếp tục chạy"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "保持运行计数"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "保持執行計數"}}
+      }
+    },
+    "settings.experiments.keepRunningCount.help": {
+      "comment": "Settings > Advanced > Experiments: the Keep Running Count taste prototype row (RFD 0135, off by default)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The Keep Running switch shows how many chats your plan keeps running, the hours used, and what turning it on will do."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "يعرض مفتاح متابعة التشغيل عدد المحادثات التي تُبقيها خطتك قيد التشغيل، والساعات المستخدمة، وما سيحدث عند تشغيله."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Prekidač Nastavi raditi prikazuje koliko razgovora vaš plan drži aktivnim, iskorištene sate i šta će uključivanje uraditi."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Kontakten Bliv ved med at køre viser, hvor mange chats din plan holder kørende, de brugte timer, og hvad det gør at slå den til."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Der Schalter „Weiterlaufen lassen“ zeigt, wie viele Chats dein Tarif weiterlaufen lässt, die genutzten Stunden und was das Einschalten bewirkt."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "El interruptor Seguir ejecutando muestra cuántos chats mantiene tu plan en ejecución, las horas usadas y qué hará activarlo."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "L'interrupteur Continuer l'exécution indique combien de chats votre forfait maintient actifs, les heures utilisées et ce que fera son activation."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "L'interruttore Continua a funzionare mostra quante chat il tuo piano mantiene attive, le ore usate e cosa farà attivarlo."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "「実行を続ける」スイッチに、プランで実行を続けられるチャット数、使用時間、オンにしたときの動作を表示します。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "កុងតាក់ បន្តដំណើរការ បង្ហាញចំនួនការជជែកដែលគម្រោងរបស់អ្នករក្សាឱ្យដំណើរការ ម៉ោងដែលបានប្រើ និងអ្វីដែលការបើកវានឹងធ្វើ។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "계속 실행 스위치에 요금제가 계속 실행하는 채팅 수, 사용한 시간, 켜면 어떻게 되는지 표시합니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Bryteren Fortsett å kjøre viser hvor mange chatter planen holder i gang, timene som er brukt, og hva det gjør å slå den på."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Przełącznik Działaj dalej pokazuje, ile czatów Twój plan utrzymuje w działaniu, wykorzystane godziny i co zrobi jego włączenie."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "O botão Continuar executando mostra quantos chats seu plano mantém em execução, as horas usadas e o que ativá-lo fará."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Переключатель «Продолжать работу» показывает, сколько чатов ваш тариф держит в работе, использованные часы и что произойдёт при включении."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "สวิตช์ ทำงานต่อไป แสดงจำนวนแชทที่แผนของคุณให้ทำงานต่อ ชั่วโมงที่ใช้ไป และผลของการเปิดสวิตช์"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Çalışmaya devam et anahtarı, planınızın kaç sohbeti çalışır tuttuğunu, kullanılan saatleri ve açmanın ne yapacağını gösterir."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Перемикач «Продовжувати роботу» показує, скільки чатів ваш план тримає в роботі, використані години і що станеться після увімкнення."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Công tắc Tiếp tục chạy cho biết gói của bạn giữ bao nhiêu cuộc trò chuyện tiếp tục chạy, số giờ đã dùng và việc bật nó sẽ làm gì."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "“保持运行”开关显示你的套餐可保持运行的聊天数、已用小时数，以及打开它会发生什么。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "「保持執行」開關顯示你的方案可保持執行的聊天數、已用時數，以及開啟後會發生什麼。"}}
+      }
+    },
     "settings.experiments.attachmentTypeIcons": {
       "comment": "Settings > Experiments: the Attachment Type Icons taste prototype row",
       "extractionState": "manual",

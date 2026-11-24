@@ -523,6 +523,7 @@
         "experiments.composerV2",
         "experiments.hoverLook",
         "experiments.attachmentTypeIcons",
+        "experiments.keepRunningCount",
         "experiments.agentBadges",
         "experiments.agentBadgesBeam",
         "experiments.menuStyleV2",
