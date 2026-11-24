@@ -483,12 +483,12 @@ requestAnimationFrame(() => {
     );
     await writer.goto("http://chat.test/a.html");
     await writer.addScriptTag({ content: capture });
-    const read = (scope: ParentNode) =>
-      Array.from(scope.querySelectorAll<HTMLElement>(".acpmux-row"))
-        .map((row) => [row.dataset.rowId, Math.round(row.getBoundingClientRect().top * 64) / 64] as const)
-        .filter(([, top]) => top > -40 && top < 600);
-    const { snapshot, drawn } = await writer.evaluate((readText) => {
-      const readRows = new Function(`return ${readText}`)();
+    // Each row in view and its drawn top, to 1/64 px (layout's unit), in the page or the copy's root.
+    const READ_ROWS = `window.readRows = (scope) => Array.from(scope.querySelectorAll(".acpmux-row"))
+      .map((row) => [row.dataset.rowId, Math.round(row.getBoundingClientRect().top * 64) / 64])
+      .filter(([, top]) => top > -40 && top < 600);`;
+    await writer.addScriptTag({ content: READ_ROWS });
+    const { snapshot, drawn } = await writer.evaluate(() => {
       const base = 1_026_212.5;
       document.querySelector<HTMLElement>(".acpmux-spacer")!.style.height = `${base + 100 * 41.75 + 3.25}px`;
       document.querySelectorAll<HTMLElement>(".acpmux-row").forEach((row, at) => {
@@ -496,16 +496,17 @@ requestAnimationFrame(() => {
       });
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       scroller.scrollTop = scroller.scrollHeight;
-      return { snapshot: (globalThis as any).captureSnapshot(document, "theme-1"), drawn: readRows(document) };
-    }, read.toString());
+      const w = window as any;
+      return { snapshot: w.captureSnapshot(document, "theme-1"), drawn: w.readRows(document) };
+    });
     expect(drawn.length).toBeGreaterThan(5);
     expect(snapshot.html).not.toMatch(/\de\+0\d/);
     const page = await context.newPage();
     await relaunched(page, snapshot, "theme-1", { holdDraw: true });
-    const copied = await page.evaluate((readText) => {
-      const readRows = new Function(`return ${readText}`)();
-      return readRows(document.querySelector("cmux-chat-snapshot")!.shadowRoot!);
-    }, read.toString());
+    await page.addScriptTag({ content: READ_ROWS });
+    const copied = await page.evaluate(() =>
+      (window as any).readRows(document.querySelector("cmux-chat-snapshot")!.shadowRoot!),
+    );
     expect(copied).toEqual(drawn);
     await context.close();
   });
