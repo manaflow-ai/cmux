@@ -68,7 +68,11 @@ await requireBrowserLane("transcript-thumb-look.test.ts", async () => {
 
   const browsers = new Map<string, Browser>();
   beforeAll(async () => {
-    for (const [name, engine] of engines) browsers.set(name, await engine.launch({ headless: true }));
+    // The thumb widens only over its scrollbar's lane, where a press grabs it (scrollers.ts NEAR_ATTRIBUTE,
+    // 9411ca1e1fd); headless Chromium hides its scrollbars by default, which leaves no lane to reach for, as
+    // scroller-near-grow.test.ts and scroller-grab-zone-browser.test.ts already allow for.
+    for (const [name, engine] of engines)
+      browsers.set(name, await engine.launch({ headless: true, ignoreDefaultArgs: ["--hide-scrollbars"] }));
   });
   afterAll(async () => {
     for (const browser of browsers.values()) await browser.close();
