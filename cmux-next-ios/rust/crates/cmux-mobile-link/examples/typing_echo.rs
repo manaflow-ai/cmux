@@ -61,6 +61,7 @@ struct Args {
     burst_keys: u64,
     foreground_probe: bool,
     idle_air_gap_ms: Option<u64>,
+    air_floor_ms: Option<u64>,
 }
 
 fn args() -> Args {
@@ -78,6 +79,7 @@ fn args() -> Args {
         burst_keys: 5,
         foreground_probe: false,
         idle_air_gap_ms: None,
+        air_floor_ms: None,
     };
     let mut iter = std::env::args().skip(1);
     while let Some(flag) = iter.next() {
@@ -96,6 +98,7 @@ fn args() -> Args {
             "--burst-keys" => parsed.burst_keys = value.parse().unwrap_or(5),
             "--foreground-probe" => parsed.foreground_probe = value == "on",
             "--idle-air-gap-ms" => parsed.idle_air_gap_ms = value.parse().ok(),
+            "--air-floor-ms" => parsed.air_floor_ms = value.parse().ok(),
             other => eprintln!("ignoring unknown flag {other}"),
         }
     }
@@ -211,6 +214,8 @@ async fn main() {
         });
     }
     options.impair_inbound = Some(shape_downlink);
+    // The phone's radio is the one that sleeps: only its tunnel keeps the floor.
+    options.air_floor = args.air_floor_ms.map(Duration::from_millis);
     let phone_config = LinkConfig { foreground_probe: args.foreground_probe, ..LinkConfig::default() };
     let phone_id = uuid::Uuid::new_v4().to_string();
     let phone =
@@ -310,7 +315,7 @@ async fn main() {
          \"dial_ms\":{dialed_ms:.0},\"typing_from_ms\":{:.0},\"keys_on_input_lane\":{on_input_stream},\
          \"keys_sent\":{seq},\"echoed\":{},\"echo_ms\":{{\"p50\":{:.1},\"p95\":{:.1},\"p99\":{:.1},\"max\":{:.1}}},\
          \"turn_answer_ms\":{turn_answer_ms},\"threshold_ms\":{},\"over_threshold\":{},\"datagrams\":[{delivered},{dropped}],\
-         \"final_path\":\"{path:?}\",\"radio\":{},\"radio_tail_ms\":{},\"foreground_probe\":{},\"idle_air_gap_ms\":{},\"radio_wakes\":{wakes},\"first_key_ms\":{first_key},\"spikes\":[{}]}}",
+         \"final_path\":\"{path:?}\",\"radio\":{},\"radio_tail_ms\":{},\"foreground_probe\":{},\"idle_air_gap_ms\":{},\"air_floor_ms\":{},\"radio_wakes\":{wakes},\"first_key_ms\":{first_key},\"spikes\":[{}]}}",
         args.profile,
         args.row,
         args.seconds,
@@ -327,6 +332,7 @@ async fn main() {
         args.radio_tail_ms,
         args.foreground_probe,
         args.idle_air_gap_ms.map_or("null".to_string(), |ms| ms.to_string()),
+        args.air_floor_ms.map_or("null".to_string(), |ms| ms.to_string()),
         spikes.join(","),
     );
     std::process::exit(0);

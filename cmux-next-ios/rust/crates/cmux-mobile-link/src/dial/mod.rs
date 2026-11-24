@@ -214,6 +214,11 @@ pub struct DialOptions {
     /// (`cmux_wg::WgNet::set_idle_air_gap`). `None` (the default) probes on
     /// schedule.
     pub idle_air_gap: Option<Duration>,
+    /// WireGuard: the longest the tunnel stays silent
+    /// (`cmux_wg::WgNet::set_air_floor`), so a phone's radio does not
+    /// sleep between keys. `None` (the default): only the persistent
+    /// keepalive.
+    pub air_floor: Option<Duration>,
     /// Bound on the whole dial or answer.
     pub timeout: Duration,
     /// Dial side, WebRTC: how long an offer waits for the Mac's answer. An
@@ -275,6 +280,7 @@ impl Default for DialOptions {
             ultra: UltraSetting::Auto,
             aligned_keepalives: false,
             idle_air_gap: None,
+            air_floor: None,
             timeout: Duration::from_secs(25),
             answer_timeout: Duration::from_secs(8),
             timeline: crate::Timeline::new(),
