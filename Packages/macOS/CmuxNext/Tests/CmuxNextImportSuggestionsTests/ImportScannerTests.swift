@@ -24,10 +24,10 @@ struct ImportScannerTests {
         deinit { try? FileManager.default.removeItem(at: url) }
     }
 
-    static func scanner(_ home: Home, imported: Set<String> = [], classic: Int? = nil,
+    static func scanner(_ home: Home, imported: Set<String> = [], classic: Bool = false,
                         probe: @escaping @Sendable (URL) -> FileAccess = FileAccess.probe) -> ImportScanner {
         ImportScanner(home: home.url, environment: ImportEnvironment(homeDirectory: home.url, locateApp: { _ in nil }),
-                      variables: [:], importedProfiles: imported, classicWorkspaces: { classic }, probe: probe)
+                      variables: [:], importedProfiles: imported, classicAvailable: { classic }, probe: probe)
     }
 
     static let chrome = "Library/Application Support/Google/Chrome"
@@ -124,20 +124,12 @@ struct ImportScannerTests {
         #expect(Self.scanner(home) { _ in .missing }.scan().isEmpty)
     }
 
-    @Test func ghosttyIsInUseAndClassicCountsItsWorkspaces() throws {
+    @Test func ghosttyIsInUseAndClassicCanBeOfferedWithoutReadingItsWorkspaces() throws {
         let home = try Home([".config/ghostty/config"])
-        let found = Self.scanner(home, classic: 7) { _ in .missing }.scan()
+        let found = Self.scanner(home, classic: true) { _ in .missing }.scan()
         #expect(found.first { $0.kind == .ghostty }?.access == .inUse)
-        #expect(found.first { $0.kind == .cmuxClassic }?.count == 7)
-    }
-
-    /// Classic has a saved session and all of it is already here: the card stays (Settings ›
-    /// Import offers the import again); no saved session means no card.
-    @Test func classicWithEverythingHereIsStillFound() throws {
-        let home = try Home()
-        let found = Self.scanner(home, classic: 0) { _ in .missing }.scan()
-        #expect(found.first { $0.kind == .cmuxClassic }?.count == 0)
-        #expect(Self.scanner(home, classic: nil) { _ in .missing }.scan().allSatisfy { $0.kind != .cmuxClassic })
+        let classic = try #require(found.first { $0.kind == .cmuxClassic })
+        #expect(classic.count == nil && !classic.offersNothingNew)
     }
 
     /// Conductor's workspaces are counted from its folders; its database alone is enough for a
