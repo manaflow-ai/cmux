@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "8c3768283143ab2dd6987ca07830cd27545491697467f23207c4477c8c9ea3d9";
+inline constexpr std::string_view kProtocolIrSha256 = "c6baa0b327c73f2ef54aa458e95eb5f7c82a3cc2f11850e121db55cc6ebbdbe3";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -600,6 +600,7 @@ struct TerminalClipboardReplyRequest;
 struct TerminalClipboardSubscribeRequest;
 struct TerminalCommandContextRequest;
 struct TerminalEventsRequest;
+struct TerminalFindRequest;
 struct TerminalHistoryRequest;
 struct TerminalLastCommandRequest;
 struct TerminalPortsRequest;
@@ -6251,6 +6252,19 @@ struct TerminalEventsResult {
     friend bool operator==(const TerminalEventsResult&, const TerminalEventsResult&) = default;
 };
 
+struct TerminalFindRequest {
+    Field<std::uint64_t> before{};
+    std::optional<bool> case_sensitive{};
+    Field<std::uint64_t> epoch{};
+    Field<std::uint64_t> max_matches{};
+    Field<std::uint64_t> page_rows{};
+    std::string query{};
+    std::optional<bool> regex{};
+    Id surface{};
+    std::optional<bool> whole_word{};
+    friend bool operator==(const TerminalFindRequest&, const TerminalFindRequest&) = default;
+};
+
 struct TerminalHistoryPage {
     std::string data{};
     std::uint64_t marker{};
@@ -10288,6 +10302,12 @@ template <>
 struct Codec<TerminalEventsRequest> {
     static Result<Json> encode(const TerminalEventsRequest& value);
     static Result<TerminalEventsRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalFindRequest> {
+    static Result<Json> encode(const TerminalFindRequest& value);
+    static Result<TerminalFindRequest> decode(const Json& value);
 };
 
 template <>

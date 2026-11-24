@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 8c3768283143ab2dd6987ca07830cd27545491697467f23207c4477c8c9ea3d9. */
+/* cmux-tui mux protocol 12, IR c6baa0b327c73f2ef54aa458e95eb5f7c82a3cc2f11850e121db55cc6ebbdbe3. */
 
 
 import type * as T from "./types.js";
@@ -2893,6 +2893,25 @@ export interface TerminalEventsRequest extends CmuxRequestBase {
   "after_revision"?: bigint;
 }
 
+/** Protocol v7; authority: control. */
+export interface TerminalFindRequest extends CmuxRequestBase {
+  cmd: "terminal-find";
+  /** Marker the page ends above (exclusive): the previous page's next_before. */
+  "before"?: (bigint) | null;
+  "case_sensitive"?: boolean;
+  /** The previous page's epoch; a different one restarts at the bottom. */
+  "epoch"?: (bigint) | null;
+  "max_matches"?: (bigint) | null;
+  "page_rows"?: (bigint) | null;
+  /** Empty matches nothing. */
+  "query": string;
+  /** query is a Rust regex pattern, not a literal. */
+  "regex"?: boolean;
+  "surface": T.Id;
+  "whole_word"?: boolean;
+}
+export type TerminalFindResult = T.JsonValue;
+
 /** Protocol v12; authority: control. */
 export interface TerminalHistoryRequest extends CmuxRequestBase {
   cmd: "terminal-history";
@@ -3449,6 +3468,7 @@ export type CmuxRequest =
   | TerminalClipboardSubscribeRequest
   | TerminalCommandContextRequest
   | TerminalEventsRequest
+  | TerminalFindRequest
   | TerminalHistoryRequest
   | TerminalLastCommandRequest
   | TerminalPortsRequest
@@ -5727,6 +5747,14 @@ export interface CmuxCommandDefinitionMap {
     result: T.TerminalEventsResult;
     authority: "control";
     since: 9;
+    capability: null;
+    stream: null;
+  };
+  "terminal-find": {
+    request: TerminalFindRequest;
+    result: TerminalFindResult;
+    authority: "control";
+    since: 7;
     capability: null;
     stream: null;
   };

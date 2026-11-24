@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 8c3768283143ab2dd6987ca07830cd27545491697467f23207c4477c8c9ea3d9.
+// cmux-tui mux protocol 12, IR c6baa0b327c73f2ef54aa458e95eb5f7c82a3cc2f11850e121db55cc6ebbdbe3.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -4148,6 +4148,34 @@ pub struct TerminalEventsRequest {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalFindRequest {
+    /// Marker the page ends above (exclusive): the previous page's next_before.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub before: Optional<u64>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub case_sensitive: Option<bool>,
+    /// The previous page's epoch; a different one restarts at the bottom.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub epoch: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub max_matches: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub page_rows: Optional<u64>,
+    /// Empty matches nothing.
+    pub query: String,
+    /// query is a Rust regex pattern, not a literal.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub regex: Option<bool>,
+    pub surface: T::Id,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub whole_word: Option<bool>,
+}
+
+#[rustfmt::skip]
+pub type TerminalFindResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TerminalHistoryRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub before: Optional<u64>,
@@ -6246,6 +6274,10 @@ impl CmuxClient {
 
     pub fn terminal_events(&mut self, request: TerminalEventsRequest) -> Result<T::TerminalEventsResult> {
         self.execute(&TERMINAL_EVENTS_METADATA, &request)
+    }
+
+    pub fn terminal_find(&mut self, request: TerminalFindRequest) -> Result<TerminalFindResult> {
+        self.execute(&TERMINAL_FIND_METADATA, &request)
     }
 
     pub fn terminal_history(&mut self, request: TerminalHistoryRequest) -> Result<TerminalHistoryResult> {
