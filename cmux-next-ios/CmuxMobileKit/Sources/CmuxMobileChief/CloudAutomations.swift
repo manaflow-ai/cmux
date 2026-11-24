@@ -1,15 +1,16 @@
 import Foundation
+import CmuxMobileModel
 import Observation
 
 /// One of the account's Cloud automations as the phone's Automations page shows it (the Mac's
 /// `AutomationRow`, Cloud source): `automation.list` for the definitions and one
 /// `automation.runs.list` for the newest runs, which give each its last result.
-public struct CloudAutomation: Identifiable, Hashable, Sendable {
-    public enum LastResult: String, Hashable, Sendable {
+public struct CloudAutomation: Codable, Identifiable, Hashable, Sendable {
+    public enum LastResult: String, Codable, Hashable, Sendable {
         case none, succeeded, failed, running, skipped
     }
 
-    public struct Run: Identifiable, Hashable, Sendable {
+    public struct Run: Codable, Identifiable, Hashable, Sendable {
         public var id: String
         public var at: Date
         public var result: LastResult
@@ -38,7 +39,11 @@ public struct CloudAutomation: Identifiable, Hashable, Sendable {
     public static func list(_ value: Data) -> [CloudAutomation] {
         guard let root = (try? JSONSerialization.jsonObject(with: value)) as? [String: Any],
               let items = root["automations"] as? [[String: Any]] else { return [] }
-        return items.compactMap { item in
+        return parse(items)
+    }
+
+    static func parse(_ items: [[String: Any]]) -> [CloudAutomation] {
+        items.compactMap { item in
             guard let id = item["id"] as? String, let name = item["name"] as? String else { return nil }
             let body = item["body"] as? [String: Any] ?? [:]
             let specs = (item["triggers"] as? [[String: Any]] ?? []).map { $0["spec"] as? [String: Any] ?? $0 }
@@ -54,6 +59,10 @@ public struct CloudAutomation: Identifiable, Hashable, Sendable {
     public static func runs(_ value: Data) -> [String: [Run]] {
         guard let root = (try? JSONSerialization.jsonObject(with: value)) as? [String: Any],
               let items = root["runs"] as? [[String: Any]] else { return [:] }
+        return parseRuns(items)
+    }
+
+    static func parseRuns(_ items: [[String: Any]]) -> [String: [Run]] {
         var out: [String: [Run]] = [:]
         for item in items {
             guard let id = item["id"] as? String, let automation = item["automation"] as? String,
@@ -128,17 +137,30 @@ public final class CloudAutomationsModel {
     public private(set) var startedID: String?
 
     @ObservationIgnored private let account: @MainActor () -> AccountCloud?
+    @ObservationIgnored private let cache: LastKnownList?
+    @ObservationIgnored private var refreshID = 0
 
-    public init(account: @escaping @MainActor () -> AccountCloud?) {
+    public init(cache: LastKnownList? = nil, account: @escaping @MainActor () -> AccountCloud?) {
         self.account = account
+        self.cache = cache
+        restoreCache()
     }
 
     /// The page from ``ChiefSources``' signed-in account.
     public static func live(_ sources: ChiefSources = .shared) -> CloudAutomationsModel {
-        CloudAutomationsModel { [weak sources] in sources?.account }
+        let source = sources.personalListSource("cloud-automations")
+        return CloudAutomationsModel(cache: source.cache, account: source.account)
     }
 
-    public func load() async {
+    private func restoreCache() {
+        guard let saved = cache?.read([CloudAutomation].self) else { return }
+        automations = saved
+        phase = .loaded
+    }
+
+    public func load(reportFailure: Bool = false) async {
+        refreshID += 1
+        let current = refreshID
         guard let account = account() else {
             phase = .failed(String(localized: "Sign in to cmux to see your Cloud automations."))
             return
@@ -151,19 +173,35 @@ public final class CloudAutomationsModel {
         do {
             async let listed = account.read("automation.list", params: ["limit": 100])
             async let ran = account.read("automation.runs.list", params: ["limit": 200])
-            var rows = CloudAutomation.list(try await listed)
-            // A history that fails to load keeps the list (its rows show no last run).
-            let runs = (try? await ran).map(CloudAutomation.runs) ?? [:]
-            for index in rows.indices { rows[index].runs = runs[rows[index].id] ?? [] }
+            var rows = CloudAutomation.parse(try AccountCloud.listItems("automations", in: await listed))
+            let runs = (try? await ran).flatMap { value in
+                (try? AccountCloud.listItems("runs", in: value)).map { CloudAutomation.parseRuns($0) }
+            }
+            let history = runs ?? automations.reduce(into: [:]) { $0[$1.id] = $1.runs }
+            for index in rows.indices { rows[index].runs = history[rows[index].id] ?? [] }
+            guard current == refreshID, self.account() != nil, !Task.isCancelled else { return }
             automations = rows
             phase = .loaded
+            cache?.save(rows.map { row in
+                // The list needs the last outcome. Prompts, commands and error text are detail data.
+                var summary = row
+                summary.task = ""
+                summary.runs = row.runs.prefix(1).map { run in
+                    var last = run
+                    last.reason = nil
+                    return last
+                }
+                return summary
+            })
         } catch is CancellationError {
+            guard current == refreshID, self.account() != nil else { return }
             // A cancelled reload puts back what the page showed (never a spinner left behind).
             phase = before
             return
         } catch {
+            guard current == refreshID, self.account() != nil else { return }
             let message = Self.message(error)
-            if automations.isEmpty { phase = .failed(message) } else { failure = message }
+            if phase != .loaded { phase = .failed(message) } else if reportFailure { failure = message }
         }
     }
 

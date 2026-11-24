@@ -338,6 +338,7 @@ final class LiveDeviceDirectory: SettingsDeviceDirectory {
     }
 
     var relayAvailable: Bool? { live?.relayAvailable }
+    var terminalSizingPeers: TerminalSizingPeers? { live?.terminalSizingPeers }
 
     struct NotSignedIn: Error {}
 
@@ -345,7 +346,7 @@ final class LiveDeviceDirectory: SettingsDeviceDirectory {
 
     /// The service's devices, a phone's link and presence ids folded into one row.
     func devices() async throws -> [SettingsDevice] {
-        guard let live else { return [] }
+        guard let live else { throw NotSignedIn() }
         let all = try await live.myDevices()
         let own = live.ownDeviceIDs
         var out: [SettingsDevice] = []

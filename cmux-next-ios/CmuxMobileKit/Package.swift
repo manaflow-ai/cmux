@@ -267,7 +267,7 @@ let package = Package(
             // terminal_chat_swap: the Rust decision is inside the timed swap.
             .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS])),
         ]),
-        .testTarget(name: "CmuxMobileShellTests", dependencies: ["CmuxMobileShell", "CmuxMobileNotifications", "CmuxMobileModel", "CmuxMobileLive", "CmuxMobileDesign", "CmuxMobileFeed", .product(name: "CmuxTheme", package: "CmuxTheme")]),
+        .testTarget(name: "CmuxMobileShellTests", dependencies: ["CmuxMobileShell", "CmuxMobileSettings", "CmuxMobileNotifications", "CmuxMobileModel", "CmuxMobileLive", "CmuxMobileDesign", "CmuxMobileFeed", .product(name: "CmuxTheme", package: "CmuxTheme")]),
         .testTarget(name: "CmuxMobileOnboardingTests", dependencies: ["CmuxMobileOnboarding", "CmuxMobileDesign"]),
         .testTarget(name: "CmuxMobileChiefTests", dependencies: [
             "CmuxMobileChief", "CmuxMobileTransport", "CmuxMobileModel", "CmuxMobileAgentChat",

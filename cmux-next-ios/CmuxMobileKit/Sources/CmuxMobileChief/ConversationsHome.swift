@@ -98,15 +98,12 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                                          retrying: homeRetries > 0, macName: macTag)
     }
 
-    /// Rows show in the list (the kept ones a Delete Conversation from List did not hide).
-    private var keptRowsShow: Bool { !hiddenRows.visible(feed.rows ?? []).isEmpty }
-
     /// The connection chip over kept rows, the states Workspaces' banner uses
     /// (``ConnectionBannerState``). Every state but a Mac known to be offline waits out the shared
     /// quiet bound (``homeQuiet``): a retry or a redial that answers within it draws nothing over
     /// the kept rows.
     private var homeBanner: ConnectionBannerState? {
-        guard let status = connectionStatus, keptRowsShow else { return nil }
+        guard let status = connectionStatus, feed.rows != nil else { return nil }
         let mac = macTag ?? String(localized: "your Mac")
         if status.kind != .macOffline, !homeQuiet.isShown { return nil }
         switch status.kind {
@@ -123,11 +120,12 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     /// to just work."
     @State private var homeQuiet = QuietStatusGate()
 
-    /// Workspaces' empty state stands in for the list (nothing kept to show, no search or filter).
+    /// A connection state can occupy the list only before its first answer. A known empty list
+    /// keeps its own empty state with the same connection banner as a populated list.
     /// A link that is still coming up draws no empty state until the quiet bound (``homeQuiet``);
     /// a Mac known to be offline shows at once.
     private func showsProblemEmptyState(searching: Bool) -> Bool {
-        guard let status = connectionStatus, !keptRowsShow, !searching else { return false }
+        guard let status = connectionStatus, feed.rows == nil, !searching else { return false }
         return status.kind == .macOffline || homeQuiet.isShown
     }
 
@@ -407,6 +405,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 // Rows that exist but are still loading never show as an empty list.
                 switch listNote(searching: searching) {
                 case .loading:
+                    // placeholder-ok: this account has no cached Home rows yet.
                     loadingNote(String(localized: "Loading conversations…"), identifier: "home.note.loading")
                 case .connecting, .updating, .none:
                     // `.connecting` draws nothing (Leo, 2026-11-23: "i dont wanna see connecting to
@@ -475,7 +474,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
             // VoiceOver hears that Home is not live when it stops being live (also on arriving
             // with the Mac already away), not on each retry.
             // (The toast over kept rows announces itself.)
-            guard old == nil || old == kind, let status = connectionStatus, !status.isRetrying, !keptRowsShow,
+            guard old == nil || old == kind, let status = connectionStatus, !status.isRetrying, feed.rows == nil,
                   let title = status.empty?.title else { return }
             AccessibilityNotification.Announcement(title).post()
         }
