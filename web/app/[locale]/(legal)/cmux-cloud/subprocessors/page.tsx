@@ -25,7 +25,7 @@ const subprocessors: readonly Subprocessor[] = [
     group: "content",
     category: "Cloud hosting and storage",
     name: "Cloudflare, Inc.",
-    purpose: "Runs the cmux.cloud service, stores files and conversation archives, stores mirrors of the git repositories that your team connects and the commits that agents make (source code and commit metadata, Cloudflare Artifacts, stored and processed only in the United States), serves the web app, runs open AI models (Workers AI), and passes the requests of the Slack decision step to TypeSafe AI, Inc. (Workers AI).",
+    purpose: "Runs the cmux.cloud service, stores files and conversation archives, stores mirrors of the git repositories that your team connects and the commits that agents make (source code and commit metadata, Cloudflare Artifacts, stored and processed only in the United States), serves the web app, and runs open AI models (Workers AI).",
     location: "United States and global edge network",
   },
   {
@@ -81,14 +81,14 @@ const subprocessors: readonly Subprocessor[] = [
     group: "content",
     category: "AI model providers",
     name: "OpenAI, L.L.C.",
-    purpose: "AI models, and speech-to-text for audio and video files.",
+    purpose: "AI models, and speech-to-text for audio and video files. Also the fallback decision model of the Slack decision step when the TypeSafe model does not answer: receives the message text and its context through Vercel AI Gateway, with zero data retention.",
     location: "United States",
   },
   {
     group: "content",
     category: "AI model providers",
     name: "TypeSafe AI, Inc.",
-    purpose: "Runs the decision model of the Slack decision step: decides from each Slack message that cmux can see whether cmux should answer. Receives the message text and its context through Cloudflare Workers AI, with zero data retention. Starts on December 24, 2026.",
+    purpose: "Runs the decision model of the Slack decision step: decides from each Slack message that cmux can see whether cmux should answer. Receives the message text and its context through Vercel AI Gateway, with zero data retention. Starts on December 24, 2026.",
     location: "United States",
   },
   {
