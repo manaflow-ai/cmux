@@ -328,11 +328,11 @@ class FixCauseLabelsStartNoJobs(unittest.TestCase):
         workflows = label_target_workflows()
         context = event("labeled", "fix-cause:ci-config", state="open")
         self.assertEqual(jobs_started(workflows["risk-tier.yml"], context), ["evidence"])
-        # Into main every label plans: the gate runs for a migration change; without one, plan's verdict
-        # stands and the skipped gate reports success.
+        # Into main every label plans and gates, with or without a migration change: a skipped gate would
+        # publish its unevaluated name, not `backend migrations applied` (RequiredCheckNamesReport below).
         into_main = event("labeled", "fix-cause:ci-config", state="open", base="main")
         self.assertIn("gate", jobs_started(workflows["backend-migrations.yml"], into_main, MIGRATION_CHANGE))
-        self.assertEqual(jobs_started(workflows["backend-migrations.yml"], into_main), ["plan"])
+        self.assertEqual(jobs_started(workflows["backend-migrations.yml"], into_main), ["plan", "gate"])
 
     def test_other_labels_on_closed_pull_requests_are_unchanged(self):
         workflows = label_target_workflows()
@@ -378,6 +378,93 @@ class FixCauseLabelsStartNoJobs(unittest.TestCase):
             problems = offenders(label_target_workflows(Path(directory)))
         self.assertEqual(len(problems), 1)
         self.assertIn("starts c", problems[0])
+
+
+# GitHub evaluates a job's `name:` only for a job that starts. A job skipped by its `if:` publishes its check
+# run under the raw text of the name, so a required check whose name is an expression answers only from a
+# job that runs. cmux#51717 gave the backend-migrations gate an expression name while #48999's skip for "no
+# migration change" stood: every pull request into main without a migration then published
+# "github.event_name == 'pull_request_target' && ..." (skipped), and `backend migrations applied` never
+# reported (cmux#52720, run 45473955261).
+REQUIRED_CHECKS = ("CLA Assistant", "CLA policy guard", "backend migrations applied")
+PULL_REQUEST_BASES = ("main", "feat-cmux-next")
+
+
+def pull_request_event(action: str, base: str, label: str = "risk:normal", base_changed: bool = False) -> dict:
+    context = event(action, label, state="open", base=base)
+    if action == "edited":
+        context["github"]["event"]["changes"] = {"base": {"ref": {"from": "x"}}} if base_changed else {"body": {"from": "x"}}
+    return context
+
+
+def required_name_offenders(workflows: dict[str, dict], outputs: dict[str, dict] | None = None) -> list[str]:
+    """Jobs whose name evaluates to a required check for some pull request event but that skip for it."""
+    problems = []
+    for file, document in workflows.items():
+        config = triggers(document).get("pull_request_target")
+        types = (config or {}).get("types") if isinstance(config, dict) else None
+        types = types or ["opened", "synchronize", "reopened"]
+        for job_id, job in (document.get("jobs") or {}).items():
+            name = str(job.get("name") or "")
+            if "${{" not in name or not any(f"'{check}'" in name for check in REQUIRED_CHECKS):
+                continue
+            for action in types:
+                for base in PULL_REQUEST_BASES:
+                    for label in ("risk:normal", "backend:apply-migrations", "fix-cause:ci-config"):
+                        for base_changed in ((False, True) if action == "edited" else (False,)):
+                            context = pull_request_event(action, base, label, base_changed)
+                            published = Evaluator(context, {}, outputs).run(unwrap(name))
+                            if published in REQUIRED_CHECKS and job_id not in jobs_started(document, context, outputs):
+                                problems.append(f"{file}: {job_id} skips for {action} ({label}) into {base}, "
+                                                f"so {published!r} never reports")
+    return problems
+
+
+def pull_request_target_workflows(directory: Path = WORKFLOWS) -> dict[str, dict]:
+    found = {}
+    for path in sorted(directory.glob("*.y*ml")):
+        document = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        if "pull_request_target" in triggers(document):
+            found[path.name] = document
+    return found
+
+
+class RequiredCheckNamesReport(unittest.TestCase):
+    def test_the_migrations_gate_runs_without_a_migration_change(self):
+        # The plan found nothing: the gate still starts (no environment, no secrets, one echo step) so that
+        # its name is evaluated and `backend migrations applied` reports.
+        migrations = pull_request_target_workflows()["backend-migrations.yml"]
+        for action in ("opened", "synchronize", "reopened", "labeled", "edited"):
+            for base in PULL_REQUEST_BASES:
+                context = pull_request_event(action, base, base_changed=True)
+                self.assertEqual(jobs_started(migrations, context), ["plan", "gate"], (action, base))
+
+    def test_every_required_expression_name_reports_from_a_running_job(self):
+        workflows = pull_request_target_workflows()
+        self.assertIn("backend-migrations.yml", workflows)
+        for outputs in (None, MIGRATION_CHANGE):
+            problems = required_name_offenders(workflows, outputs)
+            self.assertEqual(problems, [], "a skipped job publishes its raw name:\n" + "\n".join(problems))
+
+    def test_ignored_events_into_feat_cmux_next_still_take_no_runner(self):
+        # #51717's intent stands: an ignored label or a title/body edit into feat-cmux-next skips, and its
+        # skipped gate publishes the raw expression, which never answers for the required check.
+        migrations = pull_request_target_workflows()["backend-migrations.yml"]
+        self.assertEqual(jobs_started(migrations, pull_request_event("labeled", "feat-cmux-next")), [])
+        self.assertEqual(jobs_started(migrations, pull_request_event("edited", "feat-cmux-next")), [])
+
+    def test_a_skipping_expression_named_required_job_fails(self):
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, "new.yml").write_text(
+                "on:\n  pull_request_target:\n    types: [opened]\njobs:\n"
+                "  plan:\n    runs-on: ubuntu-24.04\n    steps: [{run: x}]\n"
+                "  gate:\n    name: \"${{ github.event.action == 'edited' && 'x (ignored)' || 'backend migrations applied' }}\"\n"
+                "    needs: plan\n    if: needs.plan.outputs.migrations == 'true'\n"
+                "    runs-on: ubuntu-24.04\n    steps: [{run: x}]\n",
+                encoding="utf-8")
+            problems = required_name_offenders(pull_request_target_workflows(Path(directory)))
+        self.assertTrue(problems)
+        self.assertIn("gate skips for opened", problems[0])
 
 
 if __name__ == "__main__":
