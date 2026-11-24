@@ -3,7 +3,7 @@ import CoreImage
 import CoreImage.CIFilterBuiltins
 public import Foundation
 
-/// The Mobile Pairing page's QR code: CoreImage's `CIQRCodeGenerator`, one
+/// The Pair Another Machine card's QR code: CoreImage's `CIQRCodeGenerator`, one
 /// pixel per module, dark on white with a quiet zone, as a PNG data URL the
 /// page scales up without smoothing (`image-rendering: pixelated`). Dark on
 /// white whatever the theme, so every camera reads it.
