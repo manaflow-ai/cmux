@@ -748,14 +748,19 @@ impl EarlyPermits {
 
 /// The task that sends the queued datagrams through the allocation.
 ///
-/// The `turn` crate's `send_to` waits for the server's answer to the
-/// CreatePermission of a peer address's first datagram, holding every other
-/// send behind it (a round trip each, one address after another). So an
-/// address named to [`TurnCarrier::permit`] gets its permission request
-/// written at once, with the others in the same request, and its datagrams
-/// go as Send indications right behind it until the crate has made its own
-/// permissions (one background `send_to` per address, the first datagram
-/// going twice; a duplicate WireGuard datagram is dropped by the peer).
+/// The `turn` crate's `send_to` holds its client for a whole server round
+/// trip at a time: the CreatePermission of a peer address's first datagram,
+/// and the ChannelBind its next datagram starts (the bind keeps the client
+/// locked until the server answers, retransmitting on loss). Every send
+/// waits behind that. So an address named to [`TurnCarrier::permit`] gets
+/// its permission request written at once, with the others in the same
+/// request, and while the crate is busy with a datagram its datagrams go as
+/// Send indications instead of queueing behind it. The crate still sends
+/// one datagram at a time, in order, and so makes and refreshes its own
+/// permission and channel. A datagram the crate does not send within
+/// [`CRATE_SEND_GRACE`] (the first to an address) goes as an indication
+/// too: the peer gets it twice, and drops the second WireGuard copy as a
+/// replay.
 async fn sender_loop(
     relay: Arc<dyn Conn + Send + Sync>,
     queue: Arc<ClassQueue>,
@@ -764,52 +769,92 @@ async fn sender_loop(
 ) {
     let mut failed: std::collections::HashMap<SocketAddr, tokio::time::Instant> =
         std::collections::HashMap::new();
-    // Addresses with a permission request of ours on the wire: whether the
-    // crate was asked to make its own yet.
-    let mut early_permits: std::collections::HashMap<SocketAddr, bool> = std::collections::HashMap::new();
-    let warming = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    // Addresses with a permission request of ours on the wire.
+    let mut permitted: std::collections::HashSet<SocketAddr> = std::collections::HashSet::new();
+    // The datagram the crate is sending, if it has not returned yet.
+    let mut busy: Option<tokio::task::JoinHandle<(SocketAddr, bool)>> = None;
     loop {
         let queued = tokio::select! {
             biased;
             Some(targets) = permit_requests.recv() => {
                 let fresh: Vec<SocketAddr> =
-                    targets.into_iter().filter(|addr| !early_permits.contains_key(addr)).collect();
+                    targets.into_iter().filter(|addr| !permitted.contains(addr)).collect();
                 if !fresh.is_empty() && early.request(&fresh).await {
-                    for addr in fresh {
-                        early_permits.insert(addr, false);
-                    }
+                    permitted.extend(fresh);
                 }
                 continue;
             }
             queued = queue.next() => queued,
         };
         let Some(Queued { datagram, to }) = queued else { break };
+        if busy.as_ref().is_some_and(|task| task.is_finished()) {
+            settle(busy.take(), &mut failed).await;
+        }
         if failed.get(&to).is_some_and(|at| at.elapsed() < FAILED_TARGET_WAIT) {
             continue;
         }
-        if let Some(warmed) = early_permits.get_mut(&to) {
-            if !*warmed {
-                *warmed = true;
-                warming.fetch_add(1, Ordering::SeqCst);
-                let (relay, warming, datagram) = (Arc::clone(&relay), Arc::clone(&warming), datagram.clone());
-                tokio::spawn(async move {
-                    let _ = relay.send_to(&datagram, to).await;
-                    warming.fetch_sub(1, Ordering::SeqCst);
-                });
-            }
-            if warming.load(Ordering::SeqCst) > 0 && early.indicate(&datagram, to).await {
-                continue;
-            }
+        let ours = permitted.contains(&to);
+        if busy.is_some() && ours && early.indicate(&datagram, to).await {
+            continue;
         }
-        match relay.send_to(&datagram, to).await {
-            Ok(_) => {
-                failed.remove(&to);
-            }
-            Err(error) => {
-                tracing::debug!(%error, %to, "TURN send failed; skipping this peer address for a while");
-                failed.insert(to, tokio::time::Instant::now());
-            }
+        // The crate goes on with the next datagram once it is done with the last.
+        settle(busy.take(), &mut failed).await;
+        let task = {
+            let (relay, datagram) = (Arc::clone(&relay), datagram.clone());
+            tokio::spawn(async move {
+                match relay.send_to(&datagram, to).await {
+                    Ok(_) => (to, true),
+                    Err(error) => {
+                        tracing::debug!(%error, %to, "TURN send failed; skipping this peer address for a while");
+                        (to, false)
+                    }
+                }
+            })
+        };
+        busy = Some(task);
+        if !ours {
+            // Nothing else can carry it: wait for the crate, as before.
+            settle(busy.take(), &mut failed).await;
+            continue;
         }
+        let task = busy.as_mut().expect("just set");
+        if let Ok(done) = tokio::time::timeout(CRATE_SEND_GRACE, task).await {
+            busy = None;
+            note_send(done, &mut failed);
+        } else {
+            early.indicate(&datagram, to).await;
+        }
+    }
+    settle(busy.take(), &mut failed).await;
+}
+
+/// How long a datagram to an address of ours waits for the crate before it
+/// also goes as a Send indication. The crate's own send is microseconds
+/// unless it is in a server round trip.
+const CRATE_SEND_GRACE: Duration = Duration::from_millis(5);
+
+/// Wait for the crate's send in flight, if any, and note how it went.
+async fn settle(
+    busy: Option<tokio::task::JoinHandle<(SocketAddr, bool)>>,
+    failed: &mut std::collections::HashMap<SocketAddr, tokio::time::Instant>,
+) {
+    if let Some(task) = busy {
+        note_send(task.await, failed);
+    }
+}
+
+fn note_send(
+    done: Result<(SocketAddr, bool), tokio::task::JoinError>,
+    failed: &mut std::collections::HashMap<SocketAddr, tokio::time::Instant>,
+) {
+    match done {
+        Ok((to, true)) => {
+            failed.remove(&to);
+        }
+        Ok((to, false)) => {
+            failed.insert(to, tokio::time::Instant::now());
+        }
+        Err(_) => {}
     }
 }
 
@@ -1089,5 +1134,72 @@ mod tests {
         let round_trip = delay * 2;
         assert!(first_at < round_trip, "the first datagram waited for its permission: {first_at:?}");
         assert!(second_at < round_trip, "the second datagram waited for its permission: {second_at:?}");
+    }
+
+    /// The crate's second datagram to an address starts a ChannelBind and
+    /// holds its client until the server answers: without the indications
+    /// beside it, every datagram behind waited that round trip (on lte, the
+    /// dial's first TCP segment, 72 ms of the 219 between the Mac's answer
+    /// and the link).
+    #[tokio::test]
+    async fn datagrams_after_the_permission_do_not_wait_for_the_channel_bind() {
+        let turn = crate::testing::TestTurn::start().await;
+        let udp_port: u16 = turn.udp_only().urls[0]
+            .split(':')
+            .nth(2)
+            .and_then(|rest| rest.split('?').next())
+            .and_then(|port| port.parse().ok())
+            .expect("the TURN UDP port");
+        let delay = Duration::from_millis(100);
+        let proxy = delaying_proxy(SocketAddr::from(([127, 0, 0, 1], udp_port)), delay).await;
+        let server = TurnServer {
+            address: proxy.to_string(),
+            host: "127.0.0.1".into(),
+            transport: TurnTransport::Udp,
+            username: "cmuxMobile".into(),
+            credential: "secret".into(),
+        };
+        let carrier = TurnCarrier::allocate_inner(server, &DialOptions::default()).await.expect("allocation");
+        let peer = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let peer_addr = peer.local_addr().unwrap();
+        carrier.permit(&[peer_addr]);
+        let mut buffer = [0u8; 64];
+        carrier.send(b"first", peer_addr, SendClass::Control);
+        let (len, _) = tokio::time::timeout(Duration::from_secs(3), peer.recv_from(&mut buffer))
+            .await
+            .expect("first")
+            .unwrap();
+        assert_eq!(&buffer[..len], b"first");
+        // The crate's own permission (one more round trip) is made by now.
+        tokio::time::sleep(delay * 3).await;
+        while let Ok(Ok(_)) =
+            tokio::time::timeout(Duration::from_millis(20), peer.recv_from(&mut buffer)).await
+        {}
+        // Back to back, as a dial's first segments go: none may wait for
+        // the bind the first of them starts (one way is `delay`).
+        let payloads = [&b"second"[..], b"third", b"fourth"];
+        let started = tokio::time::Instant::now();
+        for payload in payloads {
+            carrier.send(payload, peer_addr, SendClass::Control);
+        }
+        let mut arrived = Vec::new();
+        while arrived.len() < payloads.len() {
+            let (len, _) = tokio::time::timeout(Duration::from_secs(3), peer.recv_from(&mut buffer))
+                .await
+                .expect("datagram")
+                .unwrap();
+            if payloads.contains(&&buffer[..len])
+                && !arrived.iter().any(|(p, _): &(Vec<u8>, _)| p[..] == buffer[..len])
+            {
+                arrived.push((buffer[..len].to_vec(), started.elapsed()));
+            }
+        }
+        for (payload, took) in arrived {
+            assert!(
+                took < delay * 3 / 2,
+                "{} waited behind the crate's channel bind: {took:?}",
+                String::from_utf8_lossy(&payload)
+            );
+        }
     }
 }
