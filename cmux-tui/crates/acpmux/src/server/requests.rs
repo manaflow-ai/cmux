@@ -2651,12 +2651,14 @@ async fn dispatch_request_with_identity(
         }
         method::SESSION_CLOSE => {
             let s = hub.resolve(session_key(&params)?)?;
-            heap(|| hub.kill(&s, false)).await?;
+            let why = crate::close_why::CloseWhy::from_params(conn.close_actor(&s.id), &params);
+            heap(|| hub.kill_why(&s, false, why)).await?;
             Ok(json!({}))
         }
         method::SESSION_DELETE => {
             let s = hub.resolve(session_key(&params)?)?;
-            heap(|| hub.kill(&s, true)).await?;
+            let why = crate::close_why::CloseWhy::from_params(conn.close_actor(&s.id), &params);
+            heap(|| hub.kill_why(&s, true, why)).await?;
             Ok(json!({}))
         }
         // ------------------------------------------------ acpmux extensions
@@ -2867,6 +2869,17 @@ async fn dispatch_request_with_identity(
             "_acpmux/sleep_handoff answers on this machine's unix socket only",
         )),
         "_acpmux/sleep_handoff" => Ok(super::sleep_handoff::start()),
+        // A new chat's place mode and where it starts with it (`chat_place.rs`): the composer's
+        // place picker and chip, on the same sockets `_acpmux/place` answers on.
+        "_acpmux/chat_place" | "_acpmux/chat_place_set"
+            if !matches!(conn.origin, Origin::Local | Origin::LocalApp) =>
+        {
+            Err(RpcError::invalid_params(
+                "_acpmux/chat_place answers on this machine's unix socket and the app's own pane only",
+            ))
+        }
+        "_acpmux/chat_place" => Ok(super::chat_place::read(hub, &params).await),
+        "_acpmux/chat_place_set" => super::chat_place::set(hub, &params).await,
         // Where a new Auto chat runs, from this machine's budget: the same clients as
         // `_acpmux/place` (its reason names this machine's numbers).
         method::MUX_PLACE_CHAT if !matches!(conn.origin, Origin::Local | Origin::LocalApp) => {
@@ -3841,7 +3854,10 @@ async fn dispatch_request_with_identity(
             let purge = params.get("purge").and_then(Value::as_bool).unwrap_or(false);
             // `ifIdle`: refused unless idle, checked under the turn lock (`stop_if_idle.rs`).
             let condition = crate::hub::stop_if_idle::StopCondition::from_params(&params)?;
-            heap(|| hub.stop(&s, purge, condition)).await?;
+            // Who asked, and the `reason`/`outcome` it gave (`close_why.rs`): recorded, never
+            // refused.
+            let why = crate::close_why::CloseWhy::from_params(conn.close_actor(&s.id), &params);
+            heap(|| hub.stop_why(&s, purge, condition, why)).await?;
             Ok(json!({"sessionId": s.id, "purged": purge}))
         }
         // Hibernate an idle session now, or start a hibernated one's agent now (`hub/pause.rs`).
