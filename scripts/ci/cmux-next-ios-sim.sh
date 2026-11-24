@@ -532,6 +532,7 @@ export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin:$HOME/.cargo/bin"
 # pinned xcodegen's temp dir and, once made, the simulator device set.
 xcodegen_dir=""
 sims=""
+sims_is_default=""
 perf_udid=""
 cleanup() {
   local result=$?
@@ -545,7 +546,13 @@ cleanup() {
     xcrun simctl shutdown "$d" >/dev/null 2>&1 || true
     xcrun simctl delete "$d" >/dev/null 2>&1 || true
   done
-  if [[ -n "$sims" ]]; then
+  if [[ -n "$sims_is_default" ]]; then
+    # The default device set is not ours to wipe: only this step's phone.
+    if [[ -n "${udid:-}" ]]; then
+      xcrun simctl shutdown "$udid" >/dev/null 2>&1 || true
+      xcrun simctl delete "$udid" >/dev/null 2>&1 || true
+    fi
+  elif [[ -n "$sims" ]]; then
     xcrun simctl --set "$sims" shutdown all >/dev/null 2>&1 || { [[ "$mode" != screen-proof ]] || result=1; }
     xcrun simctl --set "$sims" delete all >/dev/null 2>&1 || { [[ "$mode" != screen-proof ]] || result=1; }
     rm -rf "$sims" || { [[ "$mode" != screen-proof ]] || result=1; }
@@ -723,12 +730,22 @@ if [[ "$mode" != release-build && "$mode" != try ]]; then
   echo "cmux-next-ios-sim.sh: simulator device type: $device_name ($device_type)${sim_device:+, from device=$sim_device}"
   # The step's iPhone is made before anything is built (booted after the build), so a creation that
   # cannot succeed fails the step in seconds, not after the build.
-  sims="$(sim_set_dir "$work" "$(df -P "$work" | awk 'NR==2 {print $6}')")"
+  create_set=""
+  if [[ "$mode" == pair-e2e && "${CMUX_PAIR_E2E_OFFLINE:-0}" == 1 ]]; then
+    # The offline walk-through reads and taps the phone through AXe, which opens only the DEFAULT device set
+    # ("No simulator with UDID ... was found" for one in `simctl --set`; AXe 2.0.4 passes deviceSetPath nil).
+    # So on this throwaway VM the phone lives in the default set; cleanup then deletes only $udid, never the set.
+    sims="$HOME/Library/Developer/CoreSimulator/Devices"
+    sims_is_default=1
+  else
+    sims="$(sim_set_dir "$work" "$(df -P "$work" | awk 'NR==2 {print $6}')")"
+    create_set="$sims"
+  fi
   sim_name=cmux-next-ios-sim
   if [[ "$mode" == screen-proof ]]; then
     sim_name="screen-proof-$(python3 -c 'import secrets; print(secrets.token_hex(8))')"
   fi
-  udid="$(sim_create "$sim_name" "$device_type" "$runtime" "$sims")"
+  udid="$(sim_create "$sim_name" "$device_type" "$runtime" "$create_set")"
 fi
 simctl() { xcrun simctl --set "$sims" "$@"; }
 
@@ -2052,7 +2069,6 @@ if [[ "$mode" == pair-e2e ]]; then
   [[ $status -eq 0 && -d "$mac_app" ]] || { tail -60 "$work/mac-build.log"; echo "error: tagged cmux NEXT Mac app build failed" >&2; exit 1; }
   note "- Mac app: $((SECONDS - t0)) s (reload.sh --tag $mac_tag, Debug)"
   # cmux#52200 offline walk-through (this lane's branch only): the Mac asleep, cmux quit, Retry, Dynamic Type.
-  export CMUX_PAIR_E2E_OFFLINE=1
   PATH="$(scripts/install-axe-ci.sh 2>>"$work/axe-install.log"):$PATH"; export PATH
   set +e
   python3 -I scripts/ci/cmux_next_pair_e2e.py --mac-app "$mac_app" --ios-app "$app" --sims "$sims" \

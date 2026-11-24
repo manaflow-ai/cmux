@@ -49,6 +49,8 @@ jobs:
     timeout-minutes: 150
     env:
       CMUX_SKIP_ZIG_BUILD: "1"
+      # cmux#52200 (this branch only): the offline walk-through; the phone then lives in the default device set (AXe sees only that).
+      CMUX_PAIR_E2E_OFFLINE: "1"
       SWIFT_BACKTRACE: interactive=no,timeout=0s,symbolicate=off,color=no
     steps:
       - name: Checkout the ref under test

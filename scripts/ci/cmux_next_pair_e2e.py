@@ -1274,33 +1274,54 @@ def no_answer_evidence(app, ls_env, tag, sock, out):
 
 
 
-# ---- the offline walk-through (cmux#52200): one screen recording, five steps ----------------------
-def ax_nodes(udid):
-    """The phone's accessibility tree through AXe, flattened: (id, label, value, frame) per node."""
-    try:
-        tree = json.loads(subprocess.run(["axe", "describe-ui", "--udid", udid], capture_output=True, text=True,
-                                         timeout=60).stdout or "[]")
-    except (ValueError, subprocess.TimeoutExpired, OSError):
-        return []
-    found, nodes = [], tree if isinstance(tree, list) else [tree]
+# ---- the offline walk-through (cmux#52200): one screen recording, each step at two Dynamic Type sizes ----------
+def _ax_flatten(tree):
+    """Every node of an AXe describe-ui reply (a list of roots, one root, or {"data": {"result": ...}}), flattened."""
+    if isinstance(tree, dict) and isinstance(tree.get("data"), dict) and "result" in tree["data"]:
+        tree = tree["data"]["result"]
+    found, nodes = [], list(tree) if isinstance(tree, list) else [tree]
     while nodes:
         n = nodes.pop()
-        found.append((n.get("AXUniqueId") or "", n.get("AXLabel") or "", str(n.get("AXValue") or ""), n.get("frame") or {}))
+        if not isinstance(n, dict):
+            continue
+        found.append((n.get("AXUniqueId") or n.get("identifier") or "", n.get("AXLabel") or n.get("label") or "",
+                      str(n.get("AXValue") or n.get("value") or ""), n.get("frame") or {}))
         nodes.extend(n.get("children") or [])
     return found
+
+
+def ax_nodes(udid):
+    """The phone's accessibility tree through AXe, flattened: (id, label, value, frame) per node. AXe opens only the
+    default simulator device set, which is where the offline rig puts the phone (cmux-next-ios-sim.sh)."""
+    try:
+        r = subprocess.run(["axe", "describe-ui", "--udid", udid], capture_output=True, text=True, timeout=60)
+        return _ax_flatten(json.loads(r.stdout or "[]"))
+    except (ValueError, subprocess.TimeoutExpired, OSError):
+        return []
 
 
 def ax_text(nodes):
     return sorted({t for _, l, v, _ in nodes for t in (l, v) if t})
 
 
-def ax_tap(udid, ident):
-    for i, _, _, f in ax_nodes(udid):
-        if i == ident and f:
-            x, y = f.get("x", 0) + f.get("width", 0) / 2, f.get("y", 0) + f.get("height", 0) / 2
-            subprocess.run(["axe", "tap", "--udid", udid, "-x", f"{x:.1f}", "-y", f"{y:.1f}", "--tap-style", "simulator"],
-                           capture_output=True, timeout=25)
+def _axe_tap_point(udid, x, y):
+    r = subprocess.run(["axe", "tap", "--udid", udid, "-x", f"{x:.1f}", "-y", f"{y:.1f}", "--tap-style", "simulator"],
+                       capture_output=True, text=True, timeout=25)
+    return r.returncode == 0
+
+
+def ax_tap(udid, ident=None, label=None):
+    """Tap the node with this accessibility id or label (AXe's own --id/--label first, then its frame centre)."""
+    flag = ["--id", ident] if ident else ["--label", label]
+    try:
+        if subprocess.run(["axe", "tap", *flag, "--udid", udid, "--tap-style", "simulator"], capture_output=True,
+                          text=True, timeout=25).returncode == 0:
             return True
+    except (subprocess.TimeoutExpired, OSError):
+        pass
+    for i, l, _, f in ax_nodes(udid):
+        if f and ((ident and i == ident) or (label and l == label)):
+            return _axe_tap_point(udid, f.get("x", 0) + f.get("width", 0) / 2, f.get("y", 0) + f.get("height", 0) / 2)
     return False
 
 
@@ -1319,11 +1340,96 @@ def tree_pids(root_pid, mac_app):
     return sorted(pids)
 
 
+class NetCut:
+    """A Mac that lost its network: every non-loopback socket of the target Mac app's process tree is dropped by a pf
+    anchor on this throwaway VM, matched by the socket's local port (pf cannot match a pid, and the phone simulator's
+    traffic shares this host's address and user, so nothing broader than the app's own ports may be blocked). The
+    sockets are polled while the cut holds, so a reconnect on a new port is dropped too. Nothing is reset: the service
+    sees the Mac go quiet, as it does when a laptop sleeps, and marks it offline on its own timeout."""
+    ANCHOR = "com.apple/cmux.offline-p0"  # under com.apple/*, which the default /etc/pf.conf evaluates
+    SOCK = re.compile(r"\b(?:TCP|UDP)\s+(\S+?):(\d+)(?:->(\S+?):(\d+))?(?:\s|$)")
+
+    def __init__(self, pids_fn, log):
+        self.pids_fn, self.log = pids_fn, log
+        self.ports, self.token, self.stop_ev, self.thread = set(), None, threading.Event(), None
+        self.sudo = [] if os.geteuid() == 0 else ["sudo", "-n"]
+
+    def _pf(self, *args, stdin=None):
+        return subprocess.run(self.sudo + ["pfctl", *args], input=stdin, capture_output=True, text=True, timeout=30)
+
+    def _local_ports(self):
+        pids = ",".join(str(p) for p in self.pids_fn())
+        out = subprocess.run(["lsof", "-nP", "-a", "-p", pids, "-i"], capture_output=True, text=True, timeout=30).stdout
+        ports = set()
+        for line in out.splitlines():
+            if "LISTEN" in line:
+                continue
+            m = self.SOCK.search(line)
+            if not m or (m.group(3) or "").startswith(("127.", "[::1]", "localhost")):
+                continue
+            ports.add(int(m.group(2)))
+        return ports
+
+    def _load(self):
+        rules = "".join(f"block drop quick proto {{ tcp udp }} from any port {p} to any\n"
+                        f"block drop quick proto {{ tcp udp }} from any to any port {p}\n" for p in sorted(self.ports))
+        r = self._pf("-a", self.ANCHOR, "-f", "-", stdin=rules or "\n")
+        if r.returncode != 0:
+            raise RuntimeError(f"pfctl anchor load failed: {r.stderr[-300:]}")
+
+    def start(self, settle=3.0):
+        r = self._pf("-E")
+        if r.returncode != 0 and "Token" not in r.stderr:
+            raise RuntimeError(f"pfctl -E failed (sudo -n pfctl on this VM): {r.stderr[-300:]}")
+        m = re.search(r"Token : (\d+)", r.stderr)
+        self.token = m.group(1) if m else None
+        self.ports = self._local_ports()
+        self._load()
+        self.log("netcut", ports=sorted(self.ports))
+        self.thread = threading.Thread(target=self._watch, daemon=True)
+        self.thread.start()
+        time.sleep(settle)
+        return len(self.ports)
+
+    def _watch(self):
+        while not self.stop_ev.wait(0.7):
+            try:
+                new = self._local_ports() - self.ports
+                if new:
+                    self.ports |= new
+                    self._load()
+                    self.log("netcut-more", ports=sorted(new))
+            except Exception as error:  # noqa: BLE001  keep cutting
+                self.log("netcut-error", error=str(error)[:200])
+
+    def stop(self):
+        self.stop_ev.set()
+        if self.thread:
+            self.thread.join(5)
+        self._pf("-a", self.ANCHOR, "-F", "all")
+        if self.token:
+            self._pf("-X", self.token)
+        self.log("netcut-off")
+        self.stop_ev, self.thread, self.ports, self.token = threading.Event(), None, set(), None
+
+
+def png_width(path):
+    try:
+        with open(path, "rb") as f:
+            return int.from_bytes(f.read(24)[16:20], "big")
+    except OSError:
+        return 0
+
+
 def offline_leg(app, exe, env, a, simctl, phone_env, phone_log, streams, status, rpc, phone_shot, note, pair_url):
-    """cmux#52200, on one recording: (1) the Mac asleep (its whole process tree stopped: sockets stay open
-    until the service times them out) shows "<Mac> is offline" with a last-seen time; (2) cmux quit on it
-    shows "isn't responding" or "cmux on <Mac> isn't answering"; (3) Retry walks its steps in view;
-    (4) the Mac's rows are the same when it is back; (5) all of it again at the largest Dynamic Type."""
+    """cmux#52200, on one recording, each step at the default and the largest Dynamic Type:
+    1  the Mac's network cut (pf drops its sockets): "<Mac> is offline" with "Last seen";
+    1b the Mac frozen (SIGSTOP of its tree: sockets stay open, the process cannot answer): "<Mac> isn't responding";
+    2  cmux quit on the Mac: the recovery panel with last seen and Retry;
+    3  Retry tapped: its steps in view (Reaching the cmux service / Reaching <Mac> / Opening your sessions);
+    4  the Mac's sessions intact once it is back;
+    5  Retry reachable (by scrolling) at the largest Dynamic Type.
+    Every check passes only against a non-empty baseline read; an empty read is an ERROR, never a pass."""
     mac_name = RIG_MAC_NAME
     results = {}
     video = os.path.join(a.out, "offline-walkthrough.mp4")
@@ -1337,32 +1443,44 @@ def offline_leg(app, exe, env, a, simctl, phone_env, phone_log, streams, status,
         ax_log.write(json.dumps(dict(t=round(time.monotonic() - t_start, 1), event=event, **kw)) + "\n")
         ax_log.flush()
 
-    ocr_swift = os.path.join(ROOT, "scripts/ci/offline-p0/ocr.swift")
+    # OCR through Vision, compiled once (an uncompiled `swift file.swift` costs seconds per read).
+    ocr_src = os.path.join(ROOT, "scripts/ci/offline-p0/ocr.swift")
+    ocr_bin = os.path.join(a.work, "ocr-bin")
+    ocr_cmd = [ocr_bin] if subprocess.run(["swiftc", "-O", "-o", ocr_bin, ocr_src], capture_output=True).returncode == 0 \
+        else ["swift", ocr_src]
     ocr_pos = {}
     raw_dumps = [0]
 
     def ocr():
-        """The screen's words through Vision (the AXe tree came back empty in run 45328357908)."""
-        shot = os.path.join(a.out, ".ocr.png")
+        """The screen's words through Vision, a fallback beside the AXe tree."""
+        shot = os.path.join(a.work, ".ocr.png")
         subprocess.run(simctl + ["io", a.udid, "screenshot", shot], capture_output=True)
         try:
-            r = subprocess.run(["swift", ocr_swift, shot], capture_output=True, text=True, timeout=120)
+            r = subprocess.run(ocr_cmd + [shot], capture_output=True, text=True, timeout=120)
             items = json.loads(r.stdout or "[]")
-        except (ValueError, subprocess.TimeoutExpired, OSError):
+            if r.stderr.strip():
+                log("ocr-stderr", err=r.stderr[-300:])
+        except (ValueError, subprocess.TimeoutExpired, OSError) as error:
+            log("ocr-error", error=str(error)[:200])
             items = []
         ocr_pos.clear()
+        ocr_pos["_scale"] = (png_width(shot) / 402.0 or 3.0, 0)
         for it in items:
             ocr_pos[it["t"]] = (it["x"], it["y"])
         return [it["t"] for it in items]
 
-    def snap():
+    def snap(use_ocr=True):
+        """(nodes, texts, ids): the AXe tree's words, plus OCR's when the tree is thin (< 3 words) or use_ocr is 'always'."""
         if raw_dumps[0] < 3:  # the raw AXe output, to learn its shape
             raw_dumps[0] += 1
             raw = subprocess.run(["axe", "describe-ui", "--udid", a.udid], capture_output=True, text=True)
             with open(os.path.join(a.out, f"axe-raw-{raw_dumps[0]}.txt"), "w") as f:
                 f.write((raw.stdout or "")[:200000] + "\n--stderr--\n" + (raw.stderr or "")[:4000])
         nodes = ax_nodes(a.udid)
-        texts = sorted(set(ax_text(nodes)) | set(ocr()))
+        texts = set(ax_text(nodes))
+        if use_ocr == "always" or (use_ocr and len(texts) < 3):
+            texts |= set(ocr())
+        texts = sorted(texts)
         return nodes, texts, {i for i, _, _, _ in nodes if i} | {("mac.recovery.retry" if t == "Retry" else "ocr:" + t) for t in texts}
 
     def show(label, pred, timeout, every=3.0, shot_name=None):
@@ -1372,7 +1490,7 @@ def offline_leg(app, exe, env, a, simctl, phone_env, phone_log, streams, status,
             _, texts, ids = snap()
             last = texts
             log("poll", label=label, texts=texts[:60], ids=sorted(ids)[:60])
-            if pred(texts, ids):
+            if texts and pred(texts, ids):
                 if shot_name:
                     phone_shot(shot_name)
                 return True, time.monotonic() - t0, texts
@@ -1382,20 +1500,46 @@ def offline_leg(app, exe, env, a, simctl, phone_env, phone_log, streams, status,
                 return False, time.monotonic() - t0, last
             time.sleep(every)
 
-    def ocr_tap(word):
-        """Tap the OCR'd word (screenshot pixels / 3 = points on the 3x iPhone 17 Pro)."""
-        pos = ocr_pos.get(word)
-        if not pos:
-            return False
-        subprocess.run(["axe", "tap", "--udid", a.udid, "-x", f"{pos[0] / 3:.1f}", "-y", f"{pos[1] / 3:.1f}", "--tap-style", "simulator"],
-                       capture_output=True, timeout=25)
-        return True
+    def tap_retry():
+        """Tap Retry: by its accessibility id or label through AXe, else by its OCR'd position."""
+        if ax_tap(a.udid, ident="mac.recovery.retry") or ax_tap(a.udid, label="Retry"):
+            return True
+        snap("always")
+        pos, scale = ocr_pos.get("Retry"), ocr_pos.get("_scale", (3.0, 0))[0]
+        return bool(pos) and _axe_tap_point(a.udid, pos[0] / scale, pos[1] / scale)
+
+    def retry_reachable(max_scrolls=6):
+        """Step 5: is Retry on screen, scrolling the panel up when it is not? (reachable, scrolls)"""
+        for n in range(max_scrolls + 1):
+            nodes = ax_nodes(a.udid)
+            screen_h = max([f.get("height", 0) for _, _, _, f in nodes if f.get("y", 1) == 0 and f.get("x", 1) == 0] or [874])
+            for i, l, _, f in nodes:
+                if (i == "mac.recovery.retry" or l == "Retry") and f and f.get("y", -1) >= 0 and f["y"] + f.get("height", 0) <= screen_h:
+                    return True, n
+            if not nodes:  # no tree: OCR sees only what is on screen
+                snap("always")
+                if "Retry" in ocr_pos:
+                    return True, n
+            subprocess.run(["axe", "swipe", "--start-x", "200", "--start-y", "650", "--end-x", "200", "--end-y", "250",
+                            "--udid", a.udid], capture_output=True, timeout=25)
+            time.sleep(1.0)
+        return False, max_scrolls
 
     def has(texts, *needles):
         return any(all(n in t for n in needles) for t in texts)
 
-    def rowids(ids):
-        return {i for i in ids if i.startswith("workspaces.row") or i.startswith("workspace.row")}
+    def sig(texts):
+        """The screen's words without clocks: what must be the same after the Mac is back."""
+        return {t for t in texts if not re.fullmatch(r"\d{1,2}:\d{2}", t)}
+
+    def verdict(size_name, key, ok, why, texts=(), baseline=True):
+        """Record a step: PASS only with a non-empty baseline and a non-empty read; else ERROR (empty) or FAIL."""
+        if not baseline or not texts:
+            status_word, ok = "ERROR (empty UI read: no AXe tree and no OCR text)", False
+        else:
+            status_word = "PASS" if ok else "FAIL"
+        results[(size_name, key)] = (ok, why)
+        note(f"- offline[{size_name}] step {key}: {status_word} {why}")
 
     def scope_phone_to_mac():
         """The phone's Mac filter on the target Mac (UserDefaults cmuxMobile.workspaces.macFilter.<team>), the
@@ -1418,10 +1562,6 @@ def offline_leg(app, exe, env, a, simctl, phone_env, phone_log, streams, status,
         log("workspace-create", reply=str(r)[:300])
         time.sleep(4)
 
-    def sig(texts):
-        """The screen's words without clocks: what must be the same after the Mac is back."""
-        return {t for t in texts if not re.fullmatch(r"\d{1,2}:\d{2}", t)}
-
     def launch_workspaces():
         subprocess.run(simctl + ["terminate", a.udid, a.bundle_id], capture_output=True)
         scope_phone_to_mac()
@@ -1430,14 +1570,25 @@ def offline_leg(app, exe, env, a, simctl, phone_env, phone_log, streams, status,
         phone_log.wait(re.compile(r"live data on"), 60)
         time.sleep(8)
 
-    def signal_all(pids, sig):
+    def signal_all(pids, sig_no):
         for p in pids:
             try:
-                os.kill(p, sig)
+                os.kill(p, sig_no)
             except OSError:
                 pass
 
+    def mac_is_back(t, i):
+        return "mac.recovery" not in i and not any(has(t, w) for w in ("is offline", "isn't responding", "isn't answering", "didn't answer"))
+
+    def back_with_rows(size_name, key, shot, base_rows, base_ok):
+        back, t_back, _ = show(f"{size_name}-{key}", mac_is_back, 180, shot_name=shot)
+        texts = snap()[1]
+        rows = sig(texts)
+        verdict(size_name, key, back and not has(texts, "No workspaces") and base_rows <= rows,
+                f"back after {t_back:.0f} s; rows before {len(base_rows)}, after {len(rows)}", texts, base_ok)
+
     sizes_done = []
+    cut = NetCut(lambda: tree_pids(app.pid, a.mac_app), log)
     try:
         for size_name, size in sizes:
             subprocess.run(simctl + ["ui", a.udid, "content_size", size], capture_output=True)
@@ -1445,28 +1596,41 @@ def offline_leg(app, exe, env, a, simctl, phone_env, phone_log, streams, status,
             log("size", size=size)
             make_workspace()
             launch_workspaces()
-            _, base_texts, base_ids = snap()
+            _, base_texts, base_ids = snap(use_ocr=True)
             phone_shot(tag + "0-connected")
             log("baseline", texts=base_texts, ids=sorted(base_ids))
             base_rows = sig(base_texts)
-            log("baseline-has-workspace", ok=not has(base_texts, "No workspaces"))
-            # 1. the Mac asleep: its tree frozen; the service keeps the socket until its own timeout.
+            base_ok = bool(base_rows) and not has(base_texts, "No workspaces")
+            if not base_ok:
+                # An empty (or empty-workspaces) baseline proves nothing: every step of this size is an error.
+                note(f"- offline[{size_name}] baseline: ERROR the UI read is {'empty' if not base_rows else 'only No workspaces'}; "
+                     f"no step of this size can pass")
+            else:
+                note(f"- offline[{size_name}] baseline: {len(base_rows)} words read, e.g. {sorted(base_rows)[:6]}")
+            # 1. the Mac's network cut.
+            try:
+                nports = cut.start()
+                cut_err = ""
+            except Exception as error:  # noqa: BLE001  no sudo/pfctl: the step errors, it does not pass
+                nports, cut_err = 0, f"{type(error).__name__}: {str(error)[:200]}"
+                log("netcut-failed", error=cut_err)
+            ok1, t_off, tx_off = show(tag + "offline", lambda t, i: has(t, "is offline"), 240, shot_name=tag + "1-network-cut")
+            seen = has(tx_off, "ast seen")
+            cut.stop()
+            verdict(size_name, "1", ok1 and seen and nports > 0 and not cut_err,
+                    f"{nports} sockets cut{(' (' + cut_err + ')') if cut_err else ''}; offline after {t_off:.0f} s; last-seen "
+                    f"{'shown' if seen else 'NOT shown'}; texts {[t for t in tx_off if 'offline' in t or 'seen' in t][:4]}",
+                    tx_off, base_ok)
+            back_with_rows(size_name, "4a", tag + "4a-network-back", base_rows, base_ok)
+            # 1b. the Mac frozen: sockets stay open, nothing answers.
             frozen = tree_pids(app.pid, a.mac_app)
-            log("sleep", pids=len(frozen))
+            log("freeze", pids=len(frozen))
             signal_all(frozen, 19)  # SIGSTOP
-            slow, t_slow, tx_slow = show(tag + "slow", lambda t, i: has(t, "isn't responding") or has(t, "is offline"), 120,
-                                         shot_name=tag + "1a-asleep-first-state")
-            ok1, t_off, tx_off = show(tag + "offline", lambda t, i: has(t, "is offline"), 150, shot_name=tag + "1b-asleep-offline")
-            seen = has(tx_off, "ago") or has(tx_off, "ast seen")
-            results[(size_name, "1")] = (ok1 and seen, f"first state after {t_slow:.0f} s; offline after {t_off:.0f} s; last-seen {'shown' if seen else 'NOT shown'}; texts {[t for t in tx_off if 'offline' in t or 'ago' in t or 'seen' in t][:4]}")
-            note(f"- offline[{size_name}] step 1: {'PASS' if results[(size_name, '1')][0] else 'FAIL'} {results[(size_name, '1')][1]}")
-            # 4a. the Mac wakes: its rows come back as they were.
+            ok1b, t_1b, tx_1b = show(tag + "frozen", lambda t, i: has(t, "isn't responding"), 180, shot_name=tag + "1b-frozen")
             signal_all(frozen, 18)  # SIGCONT
-            back, t_back, _ = show(tag + "woke", lambda t, i: "mac.recovery" not in i and not has(t, "is offline")
-                                   and not has(t, "isn't responding") and not has(t, "isn't answering") and not has(t, "didn't answer"),
-                                   180, shot_name=tag + "4a-woke")
-            rows_back = sig(snap()[1])
-            results[(size_name, "4a")] = (back and not has(list(rows_back), "No workspaces") and not has(base_texts, "No workspaces") and base_rows <= rows_back, f"back after {t_back:.0f} s; rows before {len(base_rows)}, after {len(rows_back)}")
+            verdict(size_name, "1b", ok1b, f"isn't responding after {t_1b:.0f} s; texts {[t for t in tx_1b if 'respond' in t][:3]}",
+                    tx_1b, base_ok)
+            back_with_rows(size_name, "4b", tag + "4b-unfrozen", base_rows, base_ok)
             # 2. cmux quit on the Mac.
             rpc("action.run", {"action": "quitEndSessions"})
             try:
@@ -1478,47 +1642,53 @@ def offline_leg(app, exe, env, a, simctl, phone_env, phone_log, streams, status,
                 except subprocess.TimeoutExpired:
                     app.kill()
             log("quit", exit=app.poll())
-            ok2, t2, tx2 = show(tag + "quit", lambda t, i: has(t, "isn't responding") or has(t, "isn't answering") or has(t, "is offline")
-                                or has(t, "didn't answer"), 150, shot_name=tag + "2-quit")
-            exact = has(tx2, "isn't responding") or has(tx2, "isn't answering")
-            seen2 = has(tx2, "ago") or has(tx2, "ast seen") or has(tx2, "heard")
-            results[(size_name, "2")] = (ok2 and exact and seen2, f"first named state after {t2:.0f} s; wording {[t for t in tx2 if 'respond' in t or 'answer' in t or 'offline' in t][:3]}; last-seen {'shown' if seen2 else 'NOT shown'}")
+            ok2, t2, tx2 = show(tag + "quit", lambda t, i: has(t, "Retry") and (has(t, "isn't responding") or has(t, "isn't answering")
+                                or has(t, "is offline") or has(t, "didn't answer")), 180, shot_name=tag + "2-quit")
+            seen2 = has(tx2, "ast seen") or has(tx2, "ago") or has(tx2, "heard")
+            verdict(size_name, "2", ok2 and seen2,
+                    f"recovery panel after {t2:.0f} s; wording {[t for t in tx2 if 'respond' in t or 'answer' in t or 'offline' in t][:3]}; "
+                    f"last-seen {'shown' if seen2 else 'NOT shown'}; Retry {'shown' if has(tx2, 'Retry') else 'NOT shown'}", tx2, base_ok)
+            # 5. Retry reachable (scrolling) at this size.
+            reach, scrolls = retry_reachable()
+            phone_shot(tag + "5-retry-reachable" if reach else tag + "5-retry-unreachable")
+            verdict(size_name, "5", reach, f"Retry {'reachable' if reach else 'NOT reachable'} after {scrolls} scroll(s)", tx2, base_ok)
             # 3. Retry, with its steps in view.
-            seen_states, tapped = [], False
+            step_tests = {"Reaching the cmux service": lambda t: has(t, "Reaching the cmux service"),
+                          "Reaching <Mac>": lambda t: any("Reaching" in x and "cmux service" not in x for x in t),
+                          "Opening your sessions": lambda t: has(t, "Opening your sessions")}
+            seen_steps, seen_states, tapped, all_words = set(), [], False, []
             t3 = time.monotonic()
             while time.monotonic() - t3 < 60:
-                nodes, texts, ids = snap()
-                if not tapped and "mac.recovery.retry" in ids:
-                    tapped = ax_tap(a.udid, "mac.recovery.retry") or ocr_tap("Retry")
+                nodes, texts, ids = snap(use_ocr=tapped)  # OCR once Retry is tapped: the tree may lag a fast step
+                if not tapped:
+                    tapped = tap_retry()
                     log("retry-tap", tapped=tapped)
                     phone_shot(tag + "3a-retry-tapped")
-                step_texts = tuple(sorted(l for _, l, _, _ in nodes if l and ("in progress" in l or l.endswith(", done") or l.endswith(", failed") or "not started" in l)))
-                outcome = tuple(sorted(v or l for i, l, v, _ in nodes if i == "mac.recovery.outcome"))
-                state = (step_texts, outcome)
-                if tapped and (not seen_states or seen_states[-1] != state):
+                    continue
+                all_words += texts
+                seen_steps |= {k for k, f in step_tests.items() if f(texts)}
+                state = tuple(t for t in texts if "Reaching" in t or "Opening your" in t or "in progress" in t or t.endswith(", done"))
+                if not seen_states or seen_states[-1] != state:
                     seen_states.append(state)
                     phone_shot(f"{tag}3b-retry-{len(seen_states)}")
-                    log("retry-state", n=len(seen_states), steps=step_texts, outcome=outcome)
-                if tapped and outcome:
+                    log("retry-state", n=len(seen_states), steps=state)
+                if len(seen_steps) == len(step_tests) or any(i == "mac.recovery.outcome" for i in ids):
                     break
-                time.sleep(0.6)
-            results[(size_name, "3")] = (tapped and len(seen_states) >= 2, f"Retry {'tapped' if tapped else 'NOT found'}; {len(seen_states)} distinct step states shown; last {seen_states[-1] if seen_states else None}")
-            # 4b. cmux starts again on the Mac.
+                time.sleep(0.4)
+            verdict(size_name, "3", tapped and len(seen_steps) == len(step_tests),
+                    f"Retry {'tapped' if tapped else 'NOT tapped'}; steps seen {sorted(seen_steps)}; {len(seen_states)} distinct states",
+                    all_words, base_ok)
+            # 4. cmux starts again on the Mac: the sessions are as they were.
             restarted = Stream([exe], os.path.join(a.out, f"mac-app-{size_name}-restart.log"), env=env)
             streams.append(restarted)
             app = restarted.proc
             wait_for(lambda: status().get("connectedPhones", 0) >= 1, 150, every=2)
-            if "mac.recovery.retry" in snap()[2]:
-                ax_tap(a.udid, "mac.recovery.retry")
-            back2, t_b2, _ = show(tag + "restart", lambda t, i: "mac.recovery" not in i and not has(t, "isn't answering")
-                                  and not has(t, "isn't responding") and not has(t, "is offline"), 180, shot_name=tag + "4b-restarted")
-            rows2 = sig(snap()[1])
-            results[(size_name, "4b")] = (back2 and not has(list(rows2), "No workspaces") and not has(base_texts, "No workspaces") and base_rows <= rows2, f"back after {t_b2:.0f} s; rows before {len(base_rows)}, after {len(rows2)}")
-            for k in ("4a", "2", "3", "4b"):
-                ok, why = results[(size_name, k)]
-                note(f"- offline[{size_name}] step {k}: {'PASS' if ok else 'FAIL'} {why}")
+            if "mac.recovery.retry" in snap(use_ocr=False)[2] or has(snap(use_ocr=False)[1], "Retry"):
+                tap_retry()
+            back_with_rows(size_name, "4", tag + "4-restarted", base_rows, base_ok)
             sizes_done.append(size_name)
     finally:
+        cut.stop()  # no pf anchor outlives the leg
         subprocess.run(simctl + ["ui", a.udid, "content_size", "large"], capture_output=True)
         rec.send_signal(2)
         try:
