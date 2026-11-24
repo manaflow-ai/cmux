@@ -35,8 +35,9 @@ public nonisolated enum MacScreenHubRefusal: Equatable, Sendable {
     case notFound
     /// This device is not signed in to the hub.
     case notSignedIn
-    /// Anything else (a transport failure, a server error).
-    case other
+    /// Anything else (a transport failure, a server error, a code this build does not know),
+    /// with the hub's own words when it gave any: the card says them, never only "could not start".
+    case other(reason: String?)
 
     /// Whether Try Again makes sense: not for a device that left the user's devices.
     public var canRetry: Bool { self != .notFound }
@@ -51,14 +52,30 @@ public nonisolated enum MacScreenHubRefusal: Equatable, Sendable {
         case .some(.notFound), .some(.deviceRemoved): self = .notFound
         case .some(.unauthorized): self = .notSignedIn
         default:
-            if case .notSignedIn = error { self = .notSignedIn } else if case .notConfigured = error { self = .notSignedIn } else { self = .other }
+            if case .notSignedIn = error { self = .notSignedIn } else if case .notConfigured = error { self = .notSignedIn } else {
+                self = .other(reason: Self.reason(error))
+            }
         }
+    }
+
+    /// The hub's words for a refusal this build has no card of its own for: the server's
+    /// message (else its code), the HTTP status, or the transport's own error; nil when
+    /// there is nothing to say.
+    public static func reason(_ error: DeviceHubError) -> String? {
+        let text: String = switch error {
+        case let .server(_, code, message): message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? code.rawValue : message
+        case let .http(status): "HTTP \(status)"
+        case let .transport(detail), let .decoding(detail), let .identity(detail): detail
+        case .notConfigured, .notSignedIn: ""
+        }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
 
 /// A viewer tab's progress with the hub, before and around the stream.
 public nonisolated enum MacScreenHubPhase: Equatable, Sendable {
-    /// Restored, opened by automation, or ended: the Connect card (View / Control).
+    /// Restored, opened by automation that waits for the person, or ended: the Connect card (View / Control).
     case idle
     /// The request is on its way.
     case requesting(SessionScope)
@@ -321,7 +338,7 @@ extension SessionScope {
     }
 }
 
-/// The device hub as the home page observes it (``MacScreenPages/hub`` is a plain property).
+/// The device hub as views and action reasons observe it (``MacScreenPages/hub`` reads and writes it).
 @MainActor @Observable
 final class MacScreenHubBox {
     var hub: DeviceHub?

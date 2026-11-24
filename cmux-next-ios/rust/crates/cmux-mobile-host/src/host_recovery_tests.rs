@@ -29,6 +29,7 @@ impl Drop for Tasks {
 fn rig_config(base_url: String, dir: &std::path::Path) -> HostConfig {
     HostConfig {
         base_url,
+        build_space: None,
         team_id: "team".into(),
         device_id: "mac".into(),
         device_name: "Test Mac".into(),

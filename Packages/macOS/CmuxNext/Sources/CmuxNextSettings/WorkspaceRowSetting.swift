@@ -52,7 +52,8 @@ public nonisolated struct WorkspaceRowSetting: Sendable {
             change.secondLineOrder = self.order(root, Self.orderPath(kind: kind), &diagnostics)
             if !change.isEmpty { overrides[kind] = change }
         }
-        return WorkspaceRowPreferences(base: WorkspaceRowElements(shown: shown, secondLineOrder: order), overrides: overrides)
+        return WorkspaceRowPreferences(base: WorkspaceRowElements(shown: shown, secondLineOrder: order), overrides: overrides,
+                                       layouts: WorkspaceRowLayoutResolver().parse(root, diagnostics: &diagnostics))
     }
 
     private func flag(_ root: JSONValue, _ path: [String], _ diagnostics: inout [SettingsDiagnostic]) -> Bool? {
