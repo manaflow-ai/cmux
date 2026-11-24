@@ -1086,7 +1086,11 @@ impl Drop for TurnCarrier {
         // closed: aborting it in the middle of a write would leave half a
         // message on a stream.
         self.queue.close();
-        eprintln!("TURNDUP {} {}", self.duplicates.datagrams.load(Ordering::Relaxed), self.duplicates.bytes.load(Ordering::Relaxed));
+        eprintln!(
+            "TURNDUP {} {}",
+            self.duplicates.datagrams.load(Ordering::Relaxed),
+            self.duplicates.bytes.load(Ordering::Relaxed)
+        );
         let (datagrams, bytes) = self.duplicates();
         tracing::info!(datagrams, bytes, "TURN carrier closed; datagrams sent twice in the early window");
         for task in self.tasks.iter().skip(1) {
