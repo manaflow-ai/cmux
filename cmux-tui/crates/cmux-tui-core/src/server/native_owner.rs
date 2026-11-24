@@ -57,6 +57,8 @@ const COMMANDS: &[&str] = &[
     "agent-session-share-invite",
     "agent-session-share-invite-chat",
     "agent-session-share-uninvite",
+    "agent-session-share-request-approve",
+    "agent-session-share-request-decline",
     // The owner's `/btw` on its Cloud chat (`agent-session-btw-v1`): owner-only in its handler.
     "agent-session-btw",
     "agent-transfer-receive",
@@ -191,6 +193,9 @@ const CAPABILITIES: &[&str] = &[
     crate::git_seed::GIT_SEED_EXPORT_CAPABILITY,
     crate::git_seed::GIT_SEED_HOLD_CAPABILITY,
     crate::blob_fetch::BLOB_FETCH_CAPABILITY,
+    // A projected folder on the owner's own machine: its stream dial passes
+    // `fs_wire::remote_dial_admits` for the owner's Native dial only.
+    crate::projection::PROJECTION_CAPABILITY,
     crate::shell_runs::CAPABILITY,
 ];
 

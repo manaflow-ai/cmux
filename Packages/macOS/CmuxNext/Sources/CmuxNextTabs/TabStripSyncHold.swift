@@ -27,7 +27,7 @@ final class TabStripSyncHold {
         }
         let model = strip.model
         guard model.tabs.isEmpty, !strip.cells.isEmpty, atRest(), model.departures.isDisjoint(with: strip.cells.keys),
-              Self.paneIsLeaving(above: strip) else { return false }
+              strip.isInALeavingPane else { return false }
         keptTabsOfLeavingPane = true
         return true
     }
@@ -38,16 +38,5 @@ final class TabStripSyncHold {
         changedOutOfSight = false
         keptTabsOfLeavingPane = false
         return owed
-    }
-
-    /// Whether the first pane host above `strip` says that its pane left the layout (`PaneLeaving`); false with no
-    /// such host. The walk over the superviews stops at that host.
-    private static func paneIsLeaving(above strip: TabStripView) -> Bool {
-        var view = strip.superview
-        while let current = view {
-            if let host = current as? PaneLeaving { return host.isLeaving }
-            view = current.superview
-        }
-        return false
     }
 }

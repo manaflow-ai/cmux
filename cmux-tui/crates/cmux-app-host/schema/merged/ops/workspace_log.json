@@ -1,0 +1,20 @@
+{
+  "family": "workspace_log",
+  "ops": {
+    "workspace_log.append": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "ff157e5de4e3a6fd"
+    },
+    "workspace_log.clear": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "50cdcb7f8d124c92"
+    },
+    "workspace_log.list": {
+      "source": "local",
+      "class": "read",
+      "digest": "e83d0739c7271dc6"
+    }
+  }
+}

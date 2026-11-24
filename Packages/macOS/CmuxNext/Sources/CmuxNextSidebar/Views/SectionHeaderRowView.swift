@@ -152,11 +152,11 @@ final class SectionHeaderRowView: SidebarRowView {
         }
     }
 
-    /// The header's tooltip: the status words or detail, then a Cloud
+    /// The header's tooltip, one line: the status words or detail, then a Cloud
     /// machine's cost and the account's cap (`SidebarMachine.Cost.lines`) as of `now`.
     static func machineToolTip(status: String?, cost: SidebarMachine.Cost?, now: Date) -> String? {
-        let lines = [status].compactMap { $0?.isEmpty == false ? $0 : nil } + (cost?.lines(now: now) ?? [])
-        return lines.isEmpty ? nil : lines.joined(separator: "\n")
+        let parts = [status].compactMap { $0?.isEmpty == false ? $0 : nil } + (cost?.lines(now: now) ?? [])
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     func configure(_ section: SidebarSection, row: SidebarRow) {
@@ -221,8 +221,8 @@ final class SectionHeaderRowView: SidebarRowView {
                 screenButton.label = Strings.viewScreen
             case .ssh, .server:
                 screenButton.label = Strings.viewScreen
-                screenButton.isEnabled = machine.screenAvailable
-                if !machine.screenAvailable { screenButton.label += " — " + Strings.statusOffline }
+                screenButton.isEnabled = machine.screenActionEnabled
+                if !machine.screenActionEnabled { screenButton.label += " — " + Strings.statusOffline }
             }
         }
         // The only machine needs no name or status: the header heads the
@@ -238,7 +238,7 @@ final class SectionHeaderRowView: SidebarRowView {
             setAccessibilityHelp(nil)
         }
         if section.machine == nil || row.titlesProjects { setAccessibilityLabel(title) }
-        glyph.image = NSImage.icon(symbol, size: .iconRowSize(forLabelPointSize: SidebarStyle.headerFont.pointSize))
+        glyph.image = NSImage.icon(symbol, size: .iconRowSize(forLabelPointSize: SidebarStyle.headerFont.pointSize), style: symbol == .statePinned ? .solid : .line)
         machineIcon.configure(icon: ownIcon)
         name.setString(title)
         name.setFont(SidebarStyle.headerFont)
@@ -264,15 +264,8 @@ final class SectionHeaderRowView: SidebarRowView {
 
     var allowsAdd = true
 
-    /// Share on This Mac; View screen on Cloud machines and authenticated Mac devices.
-    /// SSH and server rows need the daemon's screen identity before offering View screen.
-    static func screenAction(_ machine: SidebarMachine) -> SidebarIntent? {
-        switch machine.kind {
-        case .local: .shareScreen(machine.id)
-        case .cloud: .viewScreen(machine.id)
-        case .ssh, .server: machine.screenDeviceID == nil ? nil : .viewScreen(machine.id)
-        }
-    }
+    /// The machine's screen control (``SidebarMachine/screenAction``), one rule with the header's right-click rows.
+    static func screenAction(_ machine: SidebarMachine) -> SidebarIntent? { machine.screenAction }
 
     override func updateLayer() {
         CATransaction.begin()

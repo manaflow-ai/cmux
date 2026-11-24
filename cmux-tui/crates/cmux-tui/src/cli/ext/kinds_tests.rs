@@ -240,6 +240,10 @@ fn a_command_extension_needs_a_name_cmux_does_not_use() {
     let root = tempfile::tempdir().unwrap();
     let error = scaffold::scaffold(&root.path().join("apps"), "apps", "command").unwrap_err();
     assert!(error.contains("is a cmux command"), "{error}");
+    // Not on the reserved list, but the first word of built-in `cmux density …`,
+    // which always wins over an app's `cmux density hello`.
+    let error = scaffold::scaffold(&root.path().join("density"), "density", "command").unwrap_err();
+    assert!(error.contains("is a cmux command"), "{error}");
     assert!(scaffold::scaffold(&root.path().join("apps"), "apps", "sidebar").is_ok());
     for bad in ["ab-", "a--b"] {
         assert!(scaffold::scaffold(&root.path().join(bad), bad, "command").is_err(), "{bad}");
@@ -339,6 +343,12 @@ fn template_scene(kind: &str) -> Result<Value, String> {
                     let value =
                         if name == "workspace.list" { workspaces.clone() } else { Value::Null };
                     vm.resolve(cb, true, &json!({ "value": value }))
+                        .map_err(|e| format!("{e:?}"))?;
+                }
+                // The daemon's signals cache serves `workspaces()`; this host has none, so the
+                // watch falls back to a plain `workspace.list` call, answered above.
+                FromHost::Watch { watch, .. } => {
+                    vm.watch_state(watch, &json!({ "fallback": true }))
                         .map_err(|e| format!("{e:?}"))?;
                 }
                 FromHost::Fatal { .. } => return Err(format!("{message:?}")),

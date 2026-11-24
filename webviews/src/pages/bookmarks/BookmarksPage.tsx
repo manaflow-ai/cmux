@@ -18,7 +18,8 @@ import {
 } from "react";
 import { Breadcrumbs } from "../../ui/Breadcrumbs";
 import { SplitEdge } from "../../ui/SplitEdge";
-import { useLasting } from "../../ui/lasting";
+import { ConnectionChip } from "../../ui/ConnectionChip";
+import { useConnectionQuiet } from "../../ui/lasting";
 import { Tree, type TreeLine } from "../../ui/Tree";
 import { VirtualList } from "../../ui/VirtualList";
 import { PageMenu, type PageMenuItem } from "../shared/PageMenu";
@@ -41,6 +42,7 @@ import {
 } from "./model";
 import type { BookmarksSnapshot, BookmarksStore, RowIcon } from "./store";
 import { FolderGlyph, GlobeGlyph } from "./glyphs";
+import { WithFacts } from "../../agent-session/acpmux/chips/FactsHoverCard";
 import type { Bookmark } from "./types";
 
 /** `two-pane` ships: the folder tree beside the list (the tree drops below 480 px and the
@@ -86,7 +88,7 @@ export function BookmarksPage({
   // A lost host shows nothing until it lasts past the grace (a launch, a daemon restart: the store
   // re-reads once the link is back); then the disconnected line.
   const down = snap.connection === "disconnected";
-  const downLasting = useLasting(down);
+  const downLasting = useConnectionQuiet(down);
   const searching = snap.results !== null;
   const rows = snap.rows;
   // Built once per list, so a focus or selection change looks a row up instead of scanning the rows.
@@ -353,12 +355,9 @@ export function BookmarksPage({
           {snap.notice.message}
         </p>
       ) : null}
-      {down && !downLasting ? null : down ? (
-        <output className="bm-empty">
-          <span className="bm-empty-title">{t("page.disconnected")}</span>
-        </output>
-      ) : empty ? (
-        snap.loading ? null : (
+      {downLasting ? <ConnectionChip text={t("page.disconnected")} /> : null}
+      {empty ? (
+        snap.loading || down ? null : (
           <div className="bm-empty">
             <span className="bm-empty-title">{t(searching ? "page.emptySearchTitle" : "page.emptyTitle")}</span>
             {searching ? null : <span className="bm-empty-hint">{t("page.emptyHint")}</span>}
@@ -416,7 +415,7 @@ export function BookmarksPage({
           aria-label={t("page.search")}
           aria-controls="bm-list"
           value={snap.text}
-          disabled={down && downLasting}
+          disabled={downLasting}
           ref={focusOnMount}
           onChange={(event) => store.setText(event.target.value)}
           onKeyDown={searchKeys}
@@ -526,8 +525,10 @@ const BookmarkRow = memo(function BookmarkRow({
   }, [node, unasked, onShown]);
   return (
     // A row of the multi-select grid: the grid pane takes its keys (Up/Down, Return, Delete).
-    // oxlint-disable-next-line jsx-a11y/click-events-have-key-events -- the pane above handles the row's keys.
-    <div
+    <WithFacts facts={[{ value: layout === "compact" && node.url ? node.url : "", code: true }]}>
+      {(facts) => (
+        // oxlint-disable-next-line jsx-a11y/click-events-have-key-events -- the pane above handles the row's keys.
+        <div {...facts}
       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a virtualized grid row: absolutely placed, no table layout.
       role="row"
       tabIndex={focused ? 0 : -1}
@@ -553,7 +554,9 @@ const BookmarkRow = memo(function BookmarkRow({
         <span className="bm-row-title">{title}</span>
         {detail ? <span className="bm-row-detail">{detail}</span> : null}
       </span>
-    </div>
+        </div>
+      )}
+    </WithFacts>
   );
 });
 

@@ -23,32 +23,67 @@ pub(crate) const MAX_QUEUED_REPLY_BYTES: usize = 1 << 20;
 
 /// Hands answers to the writer thread; the parser never blocks on the PTY.
 pub(crate) struct PtyReplies {
-    sender: Option<Sender<Vec<u8>>>,
+    writer: Mutex<Writer>,
     queued: Arc<AtomicUsize>,
 }
 
+/// One batch of answer bytes written against the PTY input.
+type WriteFn = Box<dyn Fn(&[u8]) + Send>;
+
+/// Where answers go. Most programs never ask the terminal anything, so the
+/// writer thread starts with the first answer, not with the host.
+enum Writer {
+    /// No answer yet: the PTY write the thread will run.
+    Idle(WriteFn),
+    /// The writer thread's queue.
+    Running(Sender<Vec<u8>>),
+    /// The thread could not start: answers are written inline.
+    Inline,
+}
+
 impl PtyReplies {
-    /// Starts the writer thread for `write`, which runs one batch of answer
-    /// bytes against the PTY input (blocking while the program does not
-    /// read). Without a thread, answers are written inline as before.
+    /// Arms the writer for `write`, which runs one batch of answer bytes
+    /// against the PTY input (blocking while the program does not read).
+    /// The thread (`terminal-host-replies`) starts with the first answer.
     pub(crate) fn start(write: impl Fn(&[u8]) + Send + 'static) -> Self {
-        let (sender, receiver) = channel::<Vec<u8>>();
-        let queued = Arc::new(AtomicUsize::new(0));
-        let worker_queued = queued.clone();
-        let spawned =
-            thread::Builder::new().name("terminal-host-replies".into()).spawn(move || {
-                while let Ok(bytes) = receiver.recv() {
-                    write(&bytes);
-                    worker_queued.fetch_sub(bytes.len(), Ordering::AcqRel);
+        Self {
+            writer: Mutex::new(Writer::Idle(Box::new(write))),
+            queued: Arc::new(AtomicUsize::new(0)),
+        }
+    }
+
+    /// The writer thread's queue, starting the thread on the first answer.
+    /// `None` when there is no thread: answers are written inline as before.
+    fn sender(&self) -> Option<Sender<Vec<u8>>> {
+        let mut writer = self.writer.lock().recover_poison();
+        match std::mem::replace(&mut *writer, Writer::Inline) {
+            Writer::Running(sender) => {
+                *writer = Writer::Running(sender.clone());
+                Some(sender)
+            }
+            Writer::Inline => None,
+            Writer::Idle(write) => {
+                let (sender, receiver) = channel::<Vec<u8>>();
+                let worker_queued = self.queued.clone();
+                let spawned =
+                    thread::Builder::new().name("terminal-host-replies".into()).spawn(move || {
+                        while let Ok(bytes) = receiver.recv() {
+                            write(&bytes);
+                            worker_queued.fetch_sub(bytes.len(), Ordering::AcqRel);
+                        }
+                    });
+                match spawned {
+                    Ok(_) => {
+                        *writer = Writer::Running(sender.clone());
+                        Some(sender)
+                    }
+                    Err(error) => {
+                        eprintln!(
+                            "terminal-host: no thread for query answers; writing them inline: {error}"
+                        );
+                        None
+                    }
                 }
-            });
-        match spawned {
-            Ok(_) => Self { sender: Some(sender), queued },
-            Err(error) => {
-                eprintln!(
-                    "terminal-host: no thread for query answers; writing them inline: {error}"
-                );
-                Self { sender: None, queued }
             }
         }
     }
@@ -59,7 +94,7 @@ impl PtyReplies {
         if bytes.is_empty() {
             return true;
         }
-        let Some(sender) = &self.sender else {
+        let Some(sender) = self.sender() else {
             inline(&bytes);
             return true;
         };
@@ -86,4 +121,35 @@ pub(crate) fn write_to_pty(writer: &Mutex<Box<dyn std::io::Write + Send>>, bytes
     let mut writer = writer.lock().recover_poison();
     let _ = writer.write_all(bytes);
     let _ = writer.flush();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::mpsc::channel;
+    use std::time::Duration;
+
+    #[test]
+    fn the_writer_thread_starts_with_the_first_answer() {
+        let (written, received) = channel::<(Vec<u8>, Option<String>)>();
+        let replies = PtyReplies::start(move |bytes| {
+            let name = thread::current().name().map(str::to_owned);
+            let _ = written.send((bytes.to_vec(), name));
+        });
+        assert!(matches!(*replies.writer.lock().recover_poison(), Writer::Idle(_)));
+
+        // An empty answer is nothing to write and starts nothing.
+        assert!(replies.send(Vec::new(), |_| panic!("an empty answer was written inline")));
+        assert!(matches!(*replies.writer.lock().recover_poison(), Writer::Idle(_)));
+
+        for answer in [b"one".to_vec(), b"two".to_vec()] {
+            assert!(replies.send(answer, |_| panic!("the answer was written inline")));
+        }
+        assert!(matches!(*replies.writer.lock().recover_poison(), Writer::Running(_)));
+        for expected in [b"one".to_vec(), b"two".to_vec()] {
+            let (bytes, name) = received.recv_timeout(Duration::from_secs(10)).unwrap();
+            assert_eq!(bytes, expected);
+            assert_eq!(name.as_deref(), Some("terminal-host-replies"));
+        }
+    }
 }

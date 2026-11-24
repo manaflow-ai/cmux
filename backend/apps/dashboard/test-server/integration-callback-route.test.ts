@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
-import { accessTokenSubject, apiUserId, DEVELOPMENT_API_URL, DEVELOPMENT_STATE_ISSUER, developmentRefusal, integrationCompletionApi, integrationEnvironmentHint, integrationStateSignedBy, STAGING_API_URL, STAGING_CONSOLE_HOST } from "../src/lib/integration-callback"
+import { accessTokenSubject, apiUserId, integrationAppHandoffResponse, DEVELOPMENT_API_URL, DEVELOPMENT_STATE_ISSUER, developmentRefusal, integrationCompletionApi, integrationEnvironmentHint, integrationStateSignedBy, STAGING_API_URL, STAGING_CONSOLE_HOST } from "../src/lib/integration-callback"
+import { AUTHORIZE_REFUSED, GITHUB_AUTHORIZE_PATH, integrationAuthorizeBounce } from "../src/lib/integration-callback"
 
 /**
  * The development Worker's Connect comes back to the staging console, which finishes development states on the
@@ -144,4 +145,150 @@ test("a 401 from the development API is not a signed-out console", () => {
   expect(developmentRefusal(401)?.code).toBe("auth.development_refused")
   expect(developmentRefusal(200)).toBeUndefined()
   expect(developmentRefusal(403)).toBeUndefined()
+})
+
+test("an app's connect goes back to the app with a plain 302, not the router's redirect (#46018)", () => {
+  const state = token({ ret: "cmux-dev-gh-connect-46018://integration/complete", team: "team_0123456789abcdef0123" })
+  const answer = integrationAppHandoffResponse(`https://console.cmux.dev/integrations/callback?state=${state}&code=abc&installation_id=42&setup_action=install`)
+  expect(answer?.status).toBe(302)
+  const location = new URL(answer!.headers.get("Location")!)
+  expect(location.protocol).toBe("cmux-dev-gh-connect-46018:")
+  expect(`${location.host}${location.pathname}`).toBe("integration/complete")
+  expect(Object.fromEntries(location.searchParams)).toEqual({ state, code: "abc", installation_id: "42", setup_action: "install" })
+  expect(answer!.headers.get("Cache-Control")).toBe("no-store")
+  expect(answer!.headers.get("Referrer-Policy")).toBe("no-referrer")
+  // A cancel on GitHub still goes back, so the app stops waiting.
+  const cancel = integrationAppHandoffResponse(`https://console.cmux.dev/integrations/callback?state=${state}&error=access_denied`)
+  expect(new URL(cancel!.headers.get("Location")!).searchParams.get("error")).toBe("access_denied")
+})
+
+test("any other callback renders the page", () => {
+  const base = "https://console.cmux.dev/integrations/callback"
+  expect(integrationAppHandoffResponse(`${base}?state=${token({ team: "team_0123456789abcdef0123" })}&code=abc`)).toBeUndefined()
+  expect(integrationAppHandoffResponse(`${base}?state=${token({ ret: "cmux://workspace/ws_" + "0".repeat(32) })}&code=abc`)).toBeUndefined()
+  expect(integrationAppHandoffResponse(`${base}?state=${token({ ret: "https://evil.example/integration/complete" })}&code=abc`)).toBeUndefined()
+  expect(integrationAppHandoffResponse(`${base}?code=abc`)).toBeUndefined()
+  // Only `<an app scheme>://integration/complete` itself is an app handoff: nothing after it, no other scheme.
+  for (const ret of [
+    "cmux://integration/complete/x",
+    "cmux://integration/completeX",
+    "cmux://integration/complete?next=https://evil.example",
+    "CMUX://integration/complete",
+    "cmuxx://integration/complete",
+    "javascript://integration/complete",
+    `cmux-dev-${"a".repeat(41)}://integration/complete`,
+  ])
+    expect(integrationAppHandoffResponse(`${base}?state=${token({ ret })}&code=abc`)).toBeUndefined()
+})
+
+test("the link carries only what GitHub sends: an installation id that is not a number is dropped", () => {
+  const state = token({ ret: "cmux://integration/complete" })
+  const answer = integrationAppHandoffResponse(`https://console.cmux.dev/integrations/callback?state=${state}&code=abc&installation_id=42%0d%0aX-Injected:1&extra=1`)
+  expect(Object.fromEntries(new URL(answer!.headers.get("Location")!).searchParams)).toEqual({ state, code: "abc" })
+})
+
+test("the route itself answers the provider's redirect: the 302 for an app's connect, the page for any other (#46018)", async () => {
+  // The production 500 was the route's wiring, not the helper: this holds the GET handler on the route.
+  const { Route } = await import("../src/routes/integrations/callback")
+  const get = (Route.options.server as { handlers: { GET: (ctx: { request: Request; next: () => unknown }) => unknown } }).handlers.GET
+  const base = "https://console.cmux.dev/integrations/callback"
+  const page = new Response("page")
+  let rendered = 0
+  const next = () => {
+    rendered += 1
+    return page
+  }
+  const handoff = (await get({ request: new Request(`${base}?state=${token({ ret: "cmux-nightly://integration/complete" })}&code=abc`), next })) as Response
+  expect(handoff.status).toBe(302)
+  expect(handoff.headers.get("Location")!.startsWith("cmux-nightly://integration/complete?state=")).toBe(true)
+  expect(rendered).toBe(0)
+  expect(await get({ request: new Request(`${base}?state=${token({ team: "team_0123456789abcdef0123" })}&code=abc`), next })).toBe(page)
+  expect(rendered).toBe(1)
+})
+
+const PRODUCTION_API = "https://cloud-api.cmux.dev"
+const at = (api = PRODUCTION_API, host?: string) => ({ api: () => api, ...(host ? { host } : {}) })
+
+test("GitHub's redirect from an installation that already existed (no code) goes on to the API's authorize route", () => {
+  const base = "https://console.cmux.dev/integrations/callback"
+  // What GitHub sends after Save on an existing installation: the id and `update`, never a code.
+  for (const ret of ["cmux://integration/complete", undefined]) {
+    const state = token({ provider: "github", team: "team_0123456789abcdef0123", ...(ret ? { ret } : {}) })
+    const answer = integrationAuthorizeBounce(`${base}?installation_id=167&setup_action=update&state=${state}`, at())
+    expect(answer?.status).toBe(302)
+    const location = new URL(answer!.headers.get("Location")!)
+    expect(`${location.origin}${location.pathname}`).toBe(`${PRODUCTION_API}${GITHUB_AUTHORIZE_PATH}`)
+    // Only the state and the installation go on: `setup_action` and anything else stay behind.
+    expect(Object.fromEntries(location.searchParams)).toEqual({ state, installation_id: "167" })
+    expect(answer!.headers.get("Cache-Control")).toBe("no-store")
+    expect(answer!.headers.get("Referrer-Policy")).toBe("no-referrer")
+  }
+})
+
+test("a development state on the staging console goes to the development API's authorize route, and nowhere else does", () => {
+  const dev = token({ provider: "github", iss: "https://cmux-api/development" })
+  const query = `installation_id=9&setup_action=update&state=${dev}`
+  const onStaging = integrationAuthorizeBounce(`https://${STAGING_CONSOLE_HOST}/integrations/callback?${query}`, at(STAGING_API_URL, STAGING_CONSOLE_HOST))
+  expect(onStaging!.headers.get("Location")!.startsWith(`${DEVELOPMENT_API_URL}${GITHUB_AUTHORIZE_PATH}?`)).toBe(true)
+  const onProduction = integrationAuthorizeBounce(`https://console.cmux.dev/integrations/callback?${query}`, at(PRODUCTION_API, "console.cmux.dev"))
+  expect(onProduction!.headers.get("Location")!.startsWith(`${PRODUCTION_API}${GITHUB_AUTHORIZE_PATH}?`)).toBe(true)
+})
+
+test("every other callback is left alone: a code, a cancel, an install request, another provider, no installation", () => {
+  const base = "https://console.cmux.dev/integrations/callback"
+  const state = token({ provider: "github", ret: "cmux://integration/complete" })
+  let asked = 0
+  const never = { api: () => { asked += 1; return PRODUCTION_API } }
+  for (const query of [
+    // A fresh install, or the return from GitHub's authorize page: the code is here, so it is finished as before.
+    `state=${state}&code=abc&installation_id=167&setup_action=install`,
+    `state=${state}&code=abc`,
+    `state=${state}&error=access_denied&installation_id=167`,
+    // An organization member's request: nothing is installed yet, so there is nothing to authorize.
+    `state=${state}&installation_id=167&setup_action=request`,
+    `state=${state}&setup_action=update`,
+    `state=${state}&installation_id=abc&setup_action=update`,
+    `installation_id=167&setup_action=update`,
+    `state=not-a-jwt&installation_id=167&setup_action=update`,
+    `state=${token({ provider: "linear" })}&installation_id=167`,
+    `state=${token({ ret: "cmux://integration/complete" })}&installation_id=167&setup_action=update`,
+  ])
+    expect(integrationAuthorizeBounce(`${base}?${query}`, never)).toBeUndefined()
+  // The API's address is read only for a redirect, so a console that cannot name its API still serves every other callback.
+  expect(asked).toBe(0)
+})
+
+test("the route sends a code-less GitHub redirect on before the app hand-off, and hands the app the one that has a code", async () => {
+  const { Route } = await import("../src/routes/integrations/callback")
+  const get = (Route.options.server as { handlers: { GET: (ctx: { request: Request; next: () => unknown }) => unknown } }).handlers.GET
+  const base = "https://console.cmux.dev/integrations/callback"
+  const state = token({ provider: "github", ret: "cmux://integration/complete" })
+  const page = new Response("page")
+  let rendered = 0
+  const next = () => {
+    rendered += 1
+    return page
+  }
+  const before = process.env.CMUX_API_URL
+  process.env.CMUX_API_URL = PRODUCTION_API
+  try {
+    // Sent straight to the app, this redirect could only be refused: it has no code.
+    const bounced = (await get({ request: new Request(`${base}?installation_id=167&setup_action=update&state=${state}`), next })) as Response
+    expect(bounced.status).toBe(302)
+    expect(bounced.headers.get("Location")).toBe(`${PRODUCTION_API}${GITHUB_AUTHORIZE_PATH}?${new URLSearchParams({ state, installation_id: "167" })}`)
+    // GitHub's authorize page then comes back with a code and the API's new state: that one is the app's to finish.
+    const handed = (await get({ request: new Request(`${base}?code=abc&state=${state}`), next })) as Response
+    expect(handed.headers.get("Location")!.startsWith("cmux://integration/complete?state=")).toBe(true)
+    expect(rendered).toBe(0)
+    // The API would not sign the state again: the page says so (the app reads any error as a cancel and shows
+    // nothing), and nothing is sent round a second time.
+    expect(await get({ request: new Request(`${base}?state=${state}&error=${AUTHORIZE_REFUSED}`), next })).toBe(page)
+    expect(rendered).toBe(1)
+    // A cancel on GitHub's authorize page is still the app's to hear.
+    const cancelled = (await get({ request: new Request(`${base}?state=${state}&error=access_denied`), next })) as Response
+    expect(new URL(cancelled.headers.get("Location")!).searchParams.get("error")).toBe("access_denied")
+  } finally {
+    if (before === undefined) delete process.env.CMUX_API_URL
+    else process.env.CMUX_API_URL = before
+  }
 })
