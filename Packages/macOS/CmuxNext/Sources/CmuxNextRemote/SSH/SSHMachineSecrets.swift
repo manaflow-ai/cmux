@@ -182,7 +182,8 @@ final class SSHPTYRun: Sendable {
         let ended: @Sendable (Process) -> Void = { [self] finished in
             finished.terminationHandler = nil
             exit.fire()
-            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + .seconds(Int(ChildOutputEnds.drainGrace.components.seconds))) {
+            // The shared drain grace; the ends close here, under the lock, not by ChildOutputEnds itself.
+            ChildOutputEnds.closeAfterExit(reading: []) {
                 self.closeEnds()
                 changed.finish()
             }
