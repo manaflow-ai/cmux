@@ -635,7 +635,7 @@ fn care_a_session_folder_in_a_guarded_location_is_never_read() {
     let session = desk.join("videos");
     std::fs::create_dir_all(&session).unwrap();
     git(&session, &["init", "-q"]);
-    let extra = vec![session.clone()];
+    let extra = vec![session];
     // Unguarded, the session's repository is found (by a git run in it).
     assert_eq!(inventory::repositories(&[], &extra, &*unguarded()).len(), 1);
     assert!(
