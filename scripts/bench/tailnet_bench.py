@@ -78,13 +78,17 @@ async def tcp_session(r, w, end, idle, log, seq):
             line = await r.readline()
             if not line:
                 raise ConnectionError("eof")
+            text = line.decode()
+            who = ""
+            if ":" in text:  # stable_node echo answers "NAME:<chunk>": keep the name, it says which backend
+                who, text = text.split(":", 1)
             try:
-                q, ts = parse(line.decode())
+                q, ts = parse(text)
             except ValueError:
                 continue
             t = now_ns()
             last[0] = time.monotonic()
-            log(ev="rx", seq=q, t=t, rtt_ms=round((t - ts) / 1e6, 3))
+            log(ev="rx", seq=q, t=t, rtt_ms=round((t - ts) / 1e6, 3), who=who)
 
     rt = asyncio.ensure_future(reader())
     why = None
@@ -110,7 +114,29 @@ async def tcp_session(r, w, end, idle, log, seq):
     return seq
 
 
-async def client(proto, host, port, duration, out, idle):
+async def open_conn(host, port, socks):
+    """A TCP stream to HOST:PORT, through a SOCKS5 server at SOCKS (HOST:PORT) when given."""
+    if not socks:
+        return await asyncio.open_connection(host, port)
+    sh, sp = socks.rsplit(":", 1)
+    r, w = await asyncio.open_connection(sh, int(sp))
+    w.write(b"\x05\x01\x00")
+    await r.readexactly(2)
+    hb = host.encode()
+    w.write(b"\x05\x01\x00\x03" + bytes([len(hb)]) + hb + int(port).to_bytes(2, "big"))
+    head = await r.readexactly(4)
+    if head[1] != 0:
+        w.close()
+        raise OSError(f"socks connect failed code {head[1]}")
+    if head[3] == 3:
+        n = (await r.readexactly(1))[0]
+    else:
+        n = {1: 4, 4: 16}.get(head[3], 4)
+    await r.readexactly(n + 2)
+    return r, w
+
+
+async def client(proto, host, port, duration, out, idle, socks=None):
     ev = open(out, "w", buffering=1)
 
     def log(**kw):
@@ -146,7 +172,7 @@ async def client(proto, host, port, duration, out, idle):
     else:
         while time.monotonic() < end:
             try:
-                r, w = await asyncio.wait_for(asyncio.open_connection(host, port), 2.0)
+                r, w = await asyncio.wait_for(open_conn(host, port, socks), 2.0)
             except (OSError, asyncio.TimeoutError):
                 await asyncio.sleep(0.05)
                 continue
@@ -334,6 +360,7 @@ def main():
     c.add_argument("--duration", type=float, required=True)
     c.add_argument("--out", required=True)
     c.add_argument("--idle", type=float, default=1.0)
+    c.add_argument("--socks", help="HOST:PORT of a SOCKS5 server to dial through (TCP only)")
     x = sub.add_parser("proxy")
     x.add_argument("--listen", required=True)
     x.add_argument("--upstream-file", required=True)
@@ -353,7 +380,7 @@ def main():
         asyncio.run(serve(args.port))
     elif args.cmd == "client":
         h, port = args.target.rsplit(":", 1)
-        asyncio.run(client(args.proto, h, int(port), args.duration, args.out, args.idle))
+        asyncio.run(client(args.proto, h, int(port), args.duration, args.out, args.idle, args.socks))
     elif args.cmd == "proxy":
         asyncio.run(proxy(args.listen, args.upstream_file, args.pidfile))
     elif args.cmd == "report":
