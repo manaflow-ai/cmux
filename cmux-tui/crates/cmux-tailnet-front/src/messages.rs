@@ -12,7 +12,11 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::placement::Placement;
+use crate::placement::{Applied, Placement};
+
+/// The acpmux request that carries one [`PlacementMessage`] (its params) from cmux to the daemon
+/// that hosts the front; the answer is a [`PlacementReply`].
+pub const PLACEMENT_METHOD: &str = "_acpmux/tailnet/placement";
 
 /// The version this build writes.
 pub const PLACEMENT_MESSAGE_VERSION: u32 = 1;
@@ -83,6 +87,40 @@ impl PlacementMessage {
             | Self::Removed { workspace, .. } => Some(workspace),
             Self::Unknown => None,
         }
+    }
+}
+
+/// What applying one [`PlacementMessage`] did, as the daemon answers it. Same lockstep rules:
+/// `v`, unknown fields ignored, every later field defaulted, an unknown `result` read as
+/// [`PlacementResult::Unknown`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlacementReply {
+    #[serde(default = "version")]
+    pub v: u32,
+    pub result: PlacementResult,
+    /// The workspace's generation after a set or move.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generation: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlacementResult {
+    Placed,
+    Removed,
+    Ignored,
+    #[serde(other)]
+    Unknown,
+}
+
+impl From<&Applied> for PlacementReply {
+    fn from(applied: &Applied) -> Self {
+        let (result, generation) = match applied {
+            Applied::Placed { generation } => (PlacementResult::Placed, Some(*generation)),
+            Applied::Removed => (PlacementResult::Removed, None),
+            Applied::Ignored => (PlacementResult::Ignored, None),
+        };
+        Self { v: PLACEMENT_MESSAGE_VERSION, result, generation }
     }
 }
 
@@ -217,5 +255,27 @@ mod tests {
         let old_unknown: old::Message =
             serde_json::from_str(r#"{"kind":"drained","workspace":"alpha"}"#).expect("old");
         assert_eq!(old_unknown, old::Message::Unknown);
+    }
+
+    #[test]
+    fn replies_read_both_ways() {
+        let new = PlacementReply::from(&Applied::Placed { generation: 3 });
+        let json = serde_json::to_value(&new).expect("serialize");
+        assert_eq!(json, serde_json::json!({"v": 1, "result": "placed", "generation": 3}));
+        // An old reader that knows only `result` reads the new reply.
+        #[derive(Deserialize)]
+        struct OldReply {
+            result: String,
+        }
+        let old: OldReply = serde_json::from_value(json).expect("old reads new reply");
+        assert_eq!(old.result, "placed");
+        // A new reader reads an old reply (no `v`, no generation) and a newer one (unknown
+        // result, unknown fields).
+        let from_old: PlacementReply =
+            serde_json::from_str(r#"{"result":"removed"}"#).expect("new reads old reply");
+        assert_eq!(from_old, PlacementReply::from(&Applied::Removed));
+        let from_newer: PlacementReply =
+            serde_json::from_str(r#"{"v":4,"result":"queued","eta_ms":5}"#).expect("newer");
+        assert_eq!(from_newer.result, PlacementResult::Unknown);
     }
 }

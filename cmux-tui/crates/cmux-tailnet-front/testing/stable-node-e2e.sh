@@ -21,6 +21,13 @@
 #   cargo build -p cmux-tailnet-front --features tsnet --example stable_node; a glibc binary,
 #   run in $RUNTIME_IMAGE, default ubuntu:24.04)
 # env: KEEP=1, PROBE_S (default 8), MOVE_AT_S (default 3), INTERVAL_S (default 0.05)
+#
+# ACPMUX_BINARY=PATH runs the front inside acpmux instead (an `acpmux` built with
+# `--features tailnet`): `acpmux daemon run` in the front container (hostname `cmux`), its
+# embedded node joined through CMUX_TAILNET_CONTROL_URL / CMUX_TAILNET_AUTHKEY_FILE, the
+# `tailnet.stableNode.enabled` setting on, and every placement sent with
+# `acpmux daemon placement JSON` (the `_acpmux/tailnet/placement` request). The identity checks
+# read the node from headscale. STABLE_NODE_BINARY still runs the two echo backends.
 set -euo pipefail
 
 BIN=${1:?usage: stable-node-e2e.sh STABLE_NODE_BINARY}
@@ -189,12 +196,62 @@ run_bin() { # run_bin NAME ALIAS ARGS...
 }
 run_bin "$BA" backend-a echo A 0.0.0.0:7000
 run_bin "$BB" backend-b echo B 0.0.0.0:7000
+ACPMUX=${ACPMUX_BINARY:+$(readlink -f "$ACPMUX_BINARY")}
+WS=main
+[[ -n $ACPMUX ]] && WS=default
+place() { # place JSON -> the front's answer, as {"ok":true,"t":...} in both modes
+  if [[ -n $ACPMUX ]]; then
+    local out
+    out=$(d exec -e ACPMUX_HOME=/state/home "$FRONT" acpmux daemon placement "$1" 2>&1) \
+      || { jq -nc --arg e "$out" '{ok:false,error:$e}'; return; }
+    jq -c --argjson t "$(date +%s.%N)" '{ok: (.result == "placed" or .result == "removed"), t: $t, reply: .}' <<<"$out"
+  else
+    d exec "$FRONT" stable_node ctl 127.0.0.1:9900 "$1"
+  fi
+}
 start_front() {
-  run_bin "$FRONT" front front --state /state/cmux --hostname cmux \
-    --control-url http://headscale:8080 --authkey-file /run/cmux-tailnet/authkey \
-    --ctl 127.0.0.1:9900 --route 22=main --place main=backend-a:7000
+  if [[ -n $ACPMUX ]]; then
+    # The opt-in marker a person's Start leaves, so the daemon starts its node on launch.
+    d run --rm --label "$LABEL" -v "$VOL:/state" "$RUNTIME_IMAGE" sh -c \
+      'umask 077; mkdir -p /state/home/tailnet && [ -f /state/home/tailnet/enabled ] || echo 1 >/state/home/tailnet/enabled'
+    printf '{"tailnet.stableNode.enabled": true}\n' >"$WORK/cmux-next.json"
+    chmod 644 "$WORK/cmux-next.json"
+    d run -d --name "$FRONT" --label "$LABEL" --network "$NET" --network-alias front \
+      --hostname cmux \
+      -e TS_DEBUG_USE_DERP_HTTP=1 -e ACPMUX_HOME=/state/home -e HOME=/state/user \
+      -e CMUX_NEXT_CONFIG_FILE=/etc/cmux-next.json \
+      -e CMUX_TAILNET_CONTROL_URL=http://headscale:8080 \
+      -e CMUX_TAILNET_AUTHKEY_FILE=/run/cmux-tailnet/authkey \
+      -v "$ACPMUX:/usr/local/bin/acpmux:ro" \
+      -v "$WORK/cmux-next.json:/etc/cmux-next.json:ro" \
+      -v "$WORK/keys/reusable:/run/cmux-tailnet/authkey:ro" \
+      -v "$VOL:/state" \
+      "$RUNTIME_IMAGE" /usr/local/bin/acpmux daemon run --log info >/dev/null
+  else
+    run_bin "$FRONT" front front --state /state/cmux --hostname cmux \
+      --control-url http://headscale:8080 --authkey-file /run/cmux-tailnet/authkey \
+      --ctl 127.0.0.1:9900 --route 22=main --place main=backend-a:7000
+  fi
+}
+front_log() { # the acpmux daemon's output and its log file
+  d logs "$FRONT" 2>&1 || true
+  d exec "$FRONT" cat /state/home/daemon.log 2>/dev/null || true
+}
+serving_count() { front_log | grep -c 'tailnet front: serving' || true; }
+hs_identity() { # the cmux node as headscale lists it, once it is online
+  hs nodes list -o json 2>/dev/null | jq -c '[.[]? | select(.given_name == "cmux" and (.online // false))][0]
+    | select(. != null) | {hostname: .given_name, dns_name: (.given_name + ".test.cmux."), ips: .ip_addresses}'
 }
 identity() { # identity -> the front's identity JSON line, once it printed one
+  if [[ -n $ACPMUX ]]; then
+    for _ in $(seq 1 360); do
+      local line
+      line=$(hs_identity || true)
+      [[ -n $line ]] && { echo "$line"; return 0; }
+      sleep 0.25
+    done
+    return 1
+  fi
   for _ in $(seq 1 360); do
     local line
     line=$(d logs "$FRONT" 2>/dev/null | grep '"event":"identity"' | tail -1 || true)
@@ -211,10 +268,20 @@ else
   d logs "$FRONT" 2>&1 | sed 's/tskey-[A-Za-z0-9-]*/tskey-REDACTED/g; s/hskey-[A-Za-z0-9_-]*/hskey-REDACTED/g' | tail -30
   result FAIL front-up "stable node never Running"; exit 1
 fi
-for _ in $(seq 1 80); do
-  d logs "$FRONT" 2>/dev/null | grep -q '"event":"serving"' && break
-  sleep 0.25
-done
+if [[ -n $ACPMUX ]]; then
+  for _ in $(seq 1 80); do
+    [[ $(serving_count) -gt 0 ]] && break
+    sleep 0.25
+  done
+  front_log | grep 'tailnet front' | sed 's/^/    /' | tail -3
+  SET=$(place '{"kind":"set","v":1,"workspace":"default","placement":{"ssh":"backend-a:7000"}}')
+  log "placement set default -> backend-a: $SET"
+else
+  for _ in $(seq 1 80); do
+    d logs "$FRONT" 2>/dev/null | grep -q '"event":"serving"' && break
+    sleep 0.25
+  done
+fi
 
 d run -d --name "$CLIENT" --label "$LABEL" --network "$NET" --hostname client \
   -e TS_DEBUG_USE_DERP_HTTP=1 \
@@ -250,8 +317,9 @@ log "probe ${PROBE_S}s at ${INTERVAL_S}s spacing; move main A -> B at ${MOVE_AT_
 d exec "$CLIENT" python3 /root/move_probe.py cmux.test.cmux 22 "$PROBE_S" "$INTERVAL_S" >"$WORK/probe.json" 2>"$WORK/probe.err" &
 PROBE_PID=$!
 sleep "$MOVE_AT_S"
-MOVE=$(d exec "$FRONT" stable_node ctl 127.0.0.1:9900 \
-  '{"kind":"moved","v":1,"workspace":"main","placement":{"ssh":"backend-b:7000"}}')
+T_ASK=$(date +%s.%N)
+MOVE=$(place "{\"kind\":\"moved\",\"v\":1,\"workspace\":\"$WS\",\"placement\":{\"ssh\":\"backend-b:7000\"}}")
+log "move answered in $(awk -v a="$T_ASK" -v b="$(jq -r .t <<<"$MOVE")" 'BEGIN{printf "%.1f", (b-a)*1000}') ms: $MOVE"
 wait "$PROBE_PID" || true
 T_MOVE=$(jq -r .t <<<"$MOVE")
 if [[ $(jq -r .ok <<<"$MOVE") != true || ! -s $WORK/probe.json ]]; then
@@ -291,11 +359,27 @@ else
 fi
 
 # ---------------------------------------------------------------- (3) restart keeps identity
+SERVED_BEFORE=0
+[[ -n $ACPMUX ]] && SERVED_BEFORE=$(serving_count)
 d restart -t 5 "$FRONT" >/dev/null
 T0=$(date +%s.%N)
 sleep 0.5
 ID2=""
+if [[ -n $ACPMUX ]]; then
+  # Offline first (headscale notices the old session end), then online again.
+  sleep 1
+  # The daemon keeps placements in memory: the app sends them again when the daemon starts.
+  for _ in $(seq 1 360); do
+    ID2=$(hs_identity || true)
+    [[ -n $ID2 && $(serving_count) -gt $SERVED_BEFORE ]] && break
+    ID2=""
+    sleep 0.25
+  done
+  RESEND=$(place '{"kind":"set","v":1,"workspace":"default","placement":{"ssh":"backend-a:7000"}}')
+  log "placement sent again after the restart: $RESEND"
+fi
 for _ in $(seq 1 360); do
+  [[ -n $ACPMUX ]] && break
   ID2=$(d logs --since "$(date -u -d "@${T0%.*}" +%Y-%m-%dT%H:%M:%SZ)" "$FRONT" 2>/dev/null | grep '"event":"identity"' | tail -1 || true)
   [[ -n $ID2 ]] && break
   sleep 0.25
@@ -304,6 +388,7 @@ RESTART_S=$(awk -v a="$T0" -v b="$(date +%s.%N)" 'BEGIN{printf "%.2f", b-a}')
 same() { jq -c '{hostname, dns_name, ips}' <<<"$1"; }
 CMUX_NODES=$(hs nodes list -o json | jq '[.[]? | select(.given_name | startswith("cmux") and (startswith("cmux-client") | not))] | length')
 for _ in $(seq 1 80); do
+  [[ -n $ACPMUX ]] && break
   d logs "$FRONT" 2>/dev/null | grep -c '"event":"serving"' | grep -q '^2$' && break
   sleep 0.25
 done

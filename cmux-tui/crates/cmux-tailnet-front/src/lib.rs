@@ -19,8 +19,8 @@
 //!   TCP to the current placement. The listener and the dialer are traits, so the tsnet node
 //!   plugs in later and tests use loopback TCP.
 //!
-//! Nothing here starts on its own: [`front::FrontConfig`] is off by default, and no caller wires
-//! the crate in yet.
+//! Nothing here starts on its own: [`front::FrontConfig`] is off by default. acpmux serves the
+//! front on its embedded tailnet node only when the `tailnet.stableNode.enabled` setting is on.
 
 pub mod front;
 pub mod messages;
@@ -29,5 +29,7 @@ pub mod placement;
 pub mod tsnet;
 
 pub use front::{Dialer, Front, FrontConfig, FrontListener, PortMap, Route, TcpDialer};
-pub use messages::{PLACEMENT_MESSAGE_VERSION, PlacementMessage};
+pub use messages::{
+    PLACEMENT_MESSAGE_VERSION, PLACEMENT_METHOD, PlacementMessage, PlacementReply, PlacementResult,
+};
 pub use placement::{Backend, Placement, PlacementTable};

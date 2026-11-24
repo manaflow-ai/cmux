@@ -172,6 +172,12 @@ pub fn table() -> Vec<(&'static str, Ask)> {
             method::MUX_TAILNET_LOGOUT,
             Any(json!({}), "the person check refuses this connection before any tailnet work"),
         ),
+        (
+            method::MUX_TAILNET_PLACEMENT,
+            Run(
+                json!({"kind": "set", "v": 1, "workspace": "w", "placement": {"ssh": "127.0.0.1:1"}}),
+            ),
+        ),
         (method::MUX_STATUS, Run(json!({}))),
         (method::MUX_SESSIONS, Run(json!({"usage": true}))),
         (method::MUX_USAGE, Run(json!({}))),

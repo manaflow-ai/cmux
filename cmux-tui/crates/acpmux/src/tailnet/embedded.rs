@@ -183,6 +183,11 @@ struct Inner {
     closed: bool,
 }
 
+/// A coordination server other than Tailscale's (a Headscale URL) for the embedded node.
+pub const CONTROL_URL_ENV: &str = "CMUX_TAILNET_CONTROL_URL";
+/// A file holding a pre-auth key, for a headless first sign-in (later starts reuse the login).
+pub const AUTH_KEY_FILE_ENV: &str = "CMUX_TAILNET_AUTHKEY_FILE";
+
 /// Owns one embedded node per daemon install. The controller is cheap to
 /// clone; all state and node handles remain shared and serialized.
 pub struct Controller {
@@ -604,7 +609,13 @@ impl Controller {
             if let Some(factory) = factory {
                 return factory();
             }
-            let config = NodeConfig::new(state_dir, hostname);
+            let mut config = NodeConfig::new(state_dir, hostname);
+            // A self-hosted coordination server (Headscale) and a headless first sign-in.
+            config.control_url = std::env::var(CONTROL_URL_ENV).ok().filter(|v| !v.is_empty());
+            config.auth_key = std::env::var_os(AUTH_KEY_FILE_ENV)
+                .and_then(|path| std::fs::read_to_string(path).ok())
+                .map(|key| key.trim().to_owned())
+                .filter(|key| !key.is_empty());
             let node = Node::new(&config).map_err(|error| error.0)?;
             node.start().map_err(|error| error.0)?;
             // Reconcile even when shutdown overtook startup: only the

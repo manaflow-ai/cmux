@@ -169,12 +169,21 @@ async fn run(hub: Arc<Hub>, mut stopping: watch::Receiver<bool>, fenced: Fence) 
         }
         let spawn = |node: Arc<Node>, name: String| {
             let (stop, stopping) = watch::channel(false);
-            let task = tokio::spawn(super::tailnet_ingress::serve(
-                hub.clone(),
-                node.clone(),
-                name.clone(),
-                stopping,
-            ));
+            // The stable node's front (off unless its setting is on) lives exactly as long as
+            // the ingress: it stops when the ingress ends, for any reason.
+            let (front_stop, front_stopping) = watch::channel(false);
+            let front = super::tailnet_front::serve(hub.clone(), node.clone(), front_stopping);
+            let ingress =
+                super::tailnet_ingress::serve(hub.clone(), node.clone(), name.clone(), stopping);
+            let task = tokio::spawn(async move {
+                let ingress = async move {
+                    let served = ingress.await;
+                    front_stop.send_replace(true);
+                    served
+                };
+                let (served, ()) = tokio::join!(ingress, front);
+                served
+            });
             Active { node: Some(node), name, stop, task }
         };
         if !reconcile(&controller, &fenced, &mut active, &stopping, spawn).await {
