@@ -64,6 +64,7 @@ const LINK_STAT_MARKS = new Set([
   "first_pong"
 ])
 const LINK_STAT_MAX_MS = 600_000
+const LINK_STAT_MAX_BULK_BYTES = 1e12
 const LIB_VERSION = /^[0-9A-Za-z.+-]{1,32}$/
 
 /**
@@ -109,6 +110,11 @@ export function linkStatLine(f: Record<string, unknown>, kind: Attachment["kind"
   const end = reason === "end" ? word(f.end, LINK_STAT_ENDS) : undefined
   if (end) line.end = end
   if (typeof f.lib === "string" && LIB_VERSION.test(f.lib)) line.lib = f.lib
+  // Upload bytes sent on a metered network with and without the person's yes (optional, v1).
+  const bulkMetered = num(f.bulkMetered, LINK_STAT_MAX_BULK_BYTES)
+  if (bulkMetered !== undefined) line.bulkMetered = bulkMetered
+  const bulkUnconsented = num(f.bulkUnconsented, LINK_STAT_MAX_BULK_BYTES)
+  if (bulkUnconsented !== undefined) line.bulkUnconsented = bulkUnconsented
   Object.assign(line, { ingressColo: ingress?.colo ?? null, country: ingress?.country ?? null, continent: ingress?.continent ?? null, hubColo })
   return line
 }

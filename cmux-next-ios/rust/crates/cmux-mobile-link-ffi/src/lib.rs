@@ -1446,6 +1446,12 @@ pub fn set_metered_bulk_consent(consent: bool) {
     cmux_mobile_link::metered::set_metered_bulk_consent(consent);
 }
 
+/// The person chose to wait for Wi-Fi for this waiting upload batch.
+#[uniffi::export]
+pub fn defer_metered_bulk() {
+    cmux_mobile_link::metered::defer_metered_bulk();
+}
+
 /// The metered-upload gate: ask the person when `waiting_bytes > 0`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, uniffi::Record)]
 pub struct MeteredBulkState {
@@ -1455,11 +1461,21 @@ pub struct MeteredBulkState {
     pub consent: bool,
     /// Upload bytes held for consent (0 when uploads may go).
     pub waiting_bytes: u64,
+    /// The person chose to wait for Wi-Fi for this waiting batch.
+    pub deferred: bool,
+    /// Monotonic change cursor for race-free observers.
+    pub revision: u64,
 }
 
 impl From<cmux_mobile_link::metered::MeteredBulk> for MeteredBulkState {
     fn from(state: cmux_mobile_link::metered::MeteredBulk) -> Self {
-        Self { metered: state.metered, consent: state.consent, waiting_bytes: state.waiting_bytes }
+        Self {
+            metered: state.metered,
+            consent: state.consent,
+            waiting_bytes: state.waiting_bytes,
+            deferred: state.deferred,
+            revision: state.revision,
+        }
     }
 }
 
@@ -1473,8 +1489,11 @@ pub fn metered_bulk_state() -> MeteredBulkState {
 /// changes, or upload bytes start or stop waiting; never per byte) and
 /// return the new state. Loop on it to show and hide the consent prompt.
 #[uniffi::export]
-pub async fn metered_bulk_changed() -> MeteredBulkState {
+pub async fn metered_bulk_changed(after_revision: u64) -> MeteredBulkState {
     let mut gate = cmux_mobile_link::metered::subscribe();
+    if cmux_mobile_link::metered::state().revision > after_revision {
+        return cmux_mobile_link::metered::state().into();
+    }
     let _ = gate.changed().await;
     cmux_mobile_link::metered::state().into()
 }
