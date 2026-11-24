@@ -1808,6 +1808,14 @@ a Return that fails after the text was written says `submit failed after the tex
 both, with `expect_foreground` and `paste:true`, so a reply typed where the screen is not in view
 never answers an approval or question, a running turn or a new agent session.
 
+With `send-typed-submit-v1`, a `submit` after typed text (`paste:false`, a non-empty `text` or `bytes`)
+writes Return 250 ms after the text, still in the same request; after a paste the PTY writer's paste
+pacing holds Return until the program read it, and a bare `submit` writes Return at once. The gap is
+past an agent TUI's paste-burst window (Codex joins unbracketed characters arriving within about
+120 ms into one paste, and took a Return right behind typed text for a newline). The phone sends a
+one-line draft for a full-screen program this way, as one keyed request, instead of the text and a
+separate Return. A server without the capability writes Return right after the text.
+
 With `send-key-v1`, `key` names this input (the phone uses a UUID per batch). The daemon remembers
 the keys it applied, daemon-wide, for 10 minutes (at most the last 1024); a `send` with a key it
 already applied returns the same success reply and writes nothing, with `text` or `bytes`, `surface`
