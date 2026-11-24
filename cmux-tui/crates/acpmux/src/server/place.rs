@@ -16,6 +16,9 @@ use cmux_host_budget::place::{
 };
 use serde_json::{Value, json};
 
+#[path = "place_hub_health.rs"]
+mod hub_health;
+
 /// `{"work": "agent"|"build", "offInteractive": bool, "outdatedOk": bool}` →
 /// `placement::place`'s verdict. With `offInteractive` (a command-line `new` on a machine a
 /// person works at, `cli/place.rs`), the machines the registry marks interactive
@@ -30,6 +33,11 @@ pub(super) async fn place(hub: &Hub, params: &Value) -> Value {
     };
     let off_interactive = params.get("offInteractive").and_then(Value::as_bool) == Some(true);
     let outdated_ok = params.get("outdatedOk").and_then(Value::as_bool) == Some(true);
+    // The app's chat chip weighs only this machine and the linked ones (`chat_place.rs`): it
+    // asks no machine through the hub.
+    if params.get("hubHealth").and_then(Value::as_bool) != Some(false) {
+        hub_health::refresh(hub).await;
+    }
     let (mut candidates, mut down, outdated) = candidates_with(hub, outdated_ok).await;
     let registry = crate::placement::load_registry();
     if off_interactive {
@@ -112,7 +120,11 @@ async fn this_machine(hub: &Hub) -> Candidate {
 /// machine and every connected peer `dispatch_hosts` keeps, weighed for `work`.
 pub(super) async fn pick(hub: &Hub, work: Work) -> Value {
     let registry = crate::placement::load_registry();
+    hub_health::refresh(hub).await;
     let (candidates, _) = candidates(hub).await;
+    // A brief goes to its host's daemon over a direct link (`requests.rs` `dispatch_brief`):
+    // a machine only the hub reaches takes none yet.
+    let candidates: Vec<Candidate> = candidates.into_iter().filter(|c| !c.via_hub).collect();
     // The shadow judges only the hosts the pick weighs, not the ones `dispatch_hosts` leaves out.
     let (weighed, _) = dispatch_hosts(candidates.clone(), registry.as_ref(), work);
     let verdict = dispatch_place(candidates, registry.as_ref(), work);
@@ -315,7 +327,22 @@ pub(super) async fn place_chat(params: &Value) -> Value {
         let level = crate::host_pressure::level_for(&reading, crate::host_pressure::Level::Normal);
         HereBudget { level, over: verdict.over }
     });
-    place_chat_decision(params, here)
+    with_fork(place_chat_decision(params, here), params, crate::fork_place::enabled())
+}
+
+/// `reply` with fork placement's `fork` (`fork_place.rs`) when `cloud.autoCloud` is on: a chat
+/// started from a chat on a forkable Cloud machine (`parent`) goes to a fork of that machine
+/// under `key`; otherwise `fork` says why it keeps `placement` (the warm path). Off, the reply is
+/// as it was.
+pub(super) fn with_fork(mut reply: Value, params: &Value, enabled: bool) -> Value {
+    let parent = crate::fork_place::parent_of(params);
+    let key = params.get("key").and_then(Value::as_str).unwrap_or_default();
+    if let (Some(place), Some(obj)) =
+        (crate::fork_place::decide(enabled, parent.as_ref(), key), reply.as_object_mut())
+    {
+        obj.insert("fork".into(), crate::fork_place::to_json(&place));
+    }
+    reply
 }
 
 /// `{"where": "auto"|"here"|PLACE, "targets": [{"place", "headroom"}]}` and this host's budget
@@ -497,39 +524,46 @@ mod tests {
     }
 
     /// gcp-codex-swarm-07, 2026-11-20: a lane VM at its lane cap whose only other machine is one
-    /// the mesh hub lists. `new --machine auto` picked that machine (no reading, so it took the
-    /// work once no host with one was under its cap) and the start failed with `no peer`. Now
-    /// the hub machine is passed over with why, and is never the pick.
+    /// the mesh hub lists; and a lane VM, 2026-11-24, where every fleet host was one.
+    /// A hub machine is a candidate: with a reading through the hub it is weighed as a linked
+    /// peer is, and its start goes through the hub's start relay (`requests.rs` `hub_start`).
     #[test]
-    fn a_machine_only_the_hub_reaches_is_never_picked() {
+    fn a_machine_only_the_hub_reaches_is_weighed_by_its_hub_reading() {
         let reg = json!({"machines": {
             "box": {"lanes": {"max_lanes": 6}},
-            "swarm-01": {"lanes": {"max_lanes": 6}}}});
-        let rows = vec![json!({"name": "swarm-01", "connected": true, "state": "connected",
-            "via": "hub", "lastSeen": 1, "sessions": 0})];
-        let (peers, down) = split_peers(rows.clone());
-        assert!(peers.is_empty(), "{peers:?}");
-        assert_eq!(down.len(), 1);
-        assert!(down[0].1.contains("`acpmux machine add swarm-01`"), "{down:?}");
+            "swarm-01": {"lanes": {"max_lanes": 6}},
+            "swarm-02": {"lanes": {"max_lanes": 6}}}});
+        let row = |name: &str, live: Option<u64>| {
+            let mut row = json!({"name": name, "connected": true, "state": "connected",
+                "via": "hub", "lastSeen": 1, "sessions": 0});
+            if let Some(live) = live {
+                row["health"] = health(40, live);
+                row["healthAt"] = json!(1);
+            }
+            row
+        };
+        let (peers, down) = split_peers(vec![row("swarm-01", Some(6)), row("swarm-02", Some(1))]);
+        assert!(down.is_empty(), "{down:?}");
+        assert!(peers.iter().all(|p| p.via_hub), "{peers:?}");
 
-        let full = here(health(40, 6));
-        let verdict = crate::placement::with_down(
-            crate::placement::place(&full, Some(&reg), Work::Agent),
-            &down,
-        );
-        assert_ne!(verdict["pick"], json!("swarm-01"), "{verdict:#}");
+        let mut all = here(health(40, 6)).to_vec();
+        all.extend(peers);
+        let verdict = crate::placement::place(&all, Some(&reg), Work::Agent);
+        assert_eq!(verdict["pick"], json!("swarm-02"), "the one with room: {verdict:#}");
+
+        // With no reading yet it reads as unknown, and says what it waits for.
+        let (peers, _) = split_peers(vec![row("swarm-01", None)]);
+        let mut all = here(health(40, 2)).to_vec();
+        all.extend(peers);
+        let verdict = crate::placement::place(&all, Some(&reg), Work::Agent);
+        assert_eq!(verdict["pick"], json!("box"), "a host with a reading first: {verdict:#}");
         let listed = verdict["hosts"].as_array().unwrap();
         let hub = listed.iter().find(|h| h["name"] == "swarm-01").expect("listed");
-        assert!(
-            hub["refused"].as_str().unwrap().starts_with("only the mesh hub reaches it"),
-            "{hub}"
-        );
+        assert!(hub["why"].as_str().unwrap().contains("health read through the hub"), "{hub}");
 
-        // Before: the same row as a candidate was the pick.
-        let mut was = full.to_vec();
-        was.extend(rows.iter().filter_map(Candidate::peer));
-        let before = crate::placement::place(&was, Some(&reg), Work::Agent);
-        assert_eq!(before["pick"], json!("swarm-01"), "the case this guards: {before:#}");
+        // A move over ssh still needs a link.
+        let why = crate::placement::link_down(&row("swarm-01", Some(1))).expect("no link");
+        assert!(why.contains("`acpmux machine add swarm-01`"), "{why}");
     }
 
     /// A command-line `new` on a machine a person works at weighs only the others: this one and
