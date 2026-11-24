@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2e0877c88adc3bd75bf9e49964f9345f01e89bccf21a8b32cbba5f203a9bd76f. */
+/* cmux-tui mux protocol 12, IR 9dae40e9a91d9653a152d869db666939b2c8725ede52f1d9338cb1d888180110. */
 
 
 import type * as T from "./types.js";
@@ -957,6 +957,28 @@ export type ConversationRunsResult = {
 };
 
 /** Protocol v12; authority: local-admin. */
+export interface ConversationScheduledListRequest extends CmuxRequestBase {
+  cmd: "conversation-scheduled-list";
+  "conversation"?: (string) | null;
+}
+export type ConversationScheduledListResult = {
+  "scheduled": Array<T.JsonValue>;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface ConversationScheduledOpRequest extends CmuxRequestBase {
+  cmd: "conversation-scheduled-op";
+  "op": (T.JsonValue) | null;
+}
+export type ConversationScheduledOpResult = {
+  "change"?: T.JsonValue;
+  "removed"?: T.JsonValue;
+  "replayed"?: boolean;
+  "rev"?: bigint;
+  "scheduled"?: (T.JsonValue) | null;
+};
+
+/** Protocol v12; authority: local-admin. */
 export interface ConversationSearchRequest extends CmuxRequestBase {
   cmd: "conversation-search";
   "limit": number;
@@ -1400,12 +1422,24 @@ export type HistorySearchResult = {
 /** Protocol v12; authority: local-admin. */
 export interface HomeInboxRequest extends CmuxRequestBase {
   cmd: "home-inbox";
+  "ids"?: (Array<string>) | null;
+  "limit"?: (bigint) | null;
+  "offset"?: (bigint) | null;
   "owners"?: (Array<string>) | null;
+  "scope"?: (string) | null;
+  "since"?: (bigint) | null;
 }
 export type HomeInboxResult = {
   "cloud": string;
+  "full"?: boolean;
   "me": string;
+  "offset"?: bigint;
+  "order"?: string;
+  "removed"?: Array<string>;
+  "revision"?: bigint;
   "rows": Array<T.HomeInboxRow>;
+  "total"?: bigint;
+  "window"?: boolean;
 };
 
 /** Protocol v5; authority: control. */
@@ -1544,6 +1578,7 @@ export type ListWorkspaceGroupsResult = T.JsonValue;
 /** Protocol v5; authority: control. */
 export interface ListWorkspacesRequest extends CmuxRequestBase {
   cmd: "list-workspaces";
+  "after"?: (bigint) | null;
   "known"?: (T.ListWorkspacesKnown) | null;
   "limit"?: (bigint) | null;
 }
@@ -2049,6 +2084,12 @@ export type PinWorkspaceResult = T.JsonValue;
 export interface PingRequest extends CmuxRequestBase {
   cmd: "ping";
 }
+
+/** Protocol v12; authority: local-admin. */
+export interface ProcessCensusRequest extends CmuxRequestBase {
+  cmd: "process-census";
+}
+export type ProcessCensusResult = T.JsonValue;
 
 /** Protocol v6; authority: control. */
 export interface ProcessInfoRequest extends CmuxRequestBase {
@@ -2846,6 +2887,25 @@ export interface TerminalEventsRequest extends CmuxRequestBase {
   "after_revision"?: bigint;
 }
 
+/** Protocol v7; authority: control. */
+export interface TerminalFindRequest extends CmuxRequestBase {
+  cmd: "terminal-find";
+  /** Marker the page ends above (exclusive): the previous page's next_before. */
+  "before"?: (bigint) | null;
+  "case_sensitive"?: boolean;
+  /** The previous page's epoch; a different one restarts at the bottom. */
+  "epoch"?: (bigint) | null;
+  "max_matches"?: (bigint) | null;
+  "page_rows"?: (bigint) | null;
+  /** Empty matches nothing. */
+  "query": string;
+  /** query is a Rust regex pattern, not a literal. */
+  "regex"?: boolean;
+  "surface": T.Id;
+  "whole_word"?: boolean;
+}
+export type TerminalFindResult = T.JsonValue;
+
 /** Protocol v12; authority: control. */
 export interface TerminalHistoryRequest extends CmuxRequestBase {
   cmd: "terminal-history";
@@ -3208,6 +3268,8 @@ export type CmuxRequest =
   | ConversationRunRequest
   | ConversationRunAppendRequest
   | ConversationRunsRequest
+  | ConversationScheduledListRequest
+  | ConversationScheduledOpRequest
   | ConversationSearchRequest
   | ConversationSnapshotRequest
   | ConversationThreadRequest
@@ -3314,6 +3376,7 @@ export type CmuxRequest =
   | PasteImageRequest
   | PinWorkspaceRequest
   | PingRequest
+  | ProcessCensusRequest
   | ProcessInfoRequest
   | PutBlobRequest
   | PutFrontendProjectionRequest
@@ -3399,6 +3462,7 @@ export type CmuxRequest =
   | TerminalClipboardSubscribeRequest
   | TerminalCommandContextRequest
   | TerminalEventsRequest
+  | TerminalFindRequest
   | TerminalHistoryRequest
   | TerminalLastCommandRequest
   | TerminalPortsRequest
@@ -4126,6 +4190,22 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "conversation-runs-v1";
+    stream: null;
+  };
+  "conversation-scheduled-list": {
+    request: ConversationScheduledListRequest;
+    result: ConversationScheduledListResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "conversation-scheduled-v1";
+    stream: null;
+  };
+  "conversation-scheduled-op": {
+    request: ConversationScheduledOpRequest;
+    result: ConversationScheduledOpResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "conversation-scheduled-v1";
     stream: null;
   };
   "conversation-search": {
@@ -4976,6 +5056,14 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "process-census": {
+    request: ProcessCensusRequest;
+    result: ProcessCensusResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "process-census-v1";
+    stream: null;
+  };
   "process-info": {
     request: ProcessInfoRequest;
     result: T.ProcessInfoResult;
@@ -5653,6 +5741,14 @@ export interface CmuxCommandDefinitionMap {
     result: T.TerminalEventsResult;
     authority: "control";
     since: 9;
+    capability: null;
+    stream: null;
+  };
+  "terminal-find": {
+    request: TerminalFindRequest;
+    result: TerminalFindResult;
+    authority: "control";
+    since: 7;
     capability: null;
     stream: null;
   };

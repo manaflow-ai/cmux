@@ -87,6 +87,17 @@ test("a listing that marks held threads lists only those, the ones that need the
   expect(threads[1]).toMatchObject({ blocker: false, count: 9, preview: "runner queue busy" });
 });
 
+test("the daemon's needYou, not the urgent class, says which threads need the person", () => {
+  // An agent's question to this chat's agent is urgent yet not the person's (Leo, 2026-11-23:
+  // "not only do thees probably not need me").
+  const rows = listing.threads.map((row) => ({ ...row, needYou: row.threadId === "from:ci-bot" }));
+  const threads = heldThreads({ threads: rows });
+  expect(threads.map((t) => [t.threadId, t.blocker])).toEqual([
+    ["from:ci-bot", true],
+    ["pr:48001", false],
+  ]);
+});
+
 test("a listing that marks none lists every thread, newest first", () => {
   const unmarked = { threads: listing.threads.map(({ surgeHeld: _, ...rest }) => rest) };
   expect(heldThreads(unmarked).map((t) => t.threadId)).toEqual(["pr:48001", "from:coord", "from:ci-bot"]);
