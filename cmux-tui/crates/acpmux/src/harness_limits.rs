@@ -46,17 +46,32 @@ pub const CLAUDE_AUTOCOMPACT_WINDOW: (&str, &str) = ("CLAUDE_CODE_AUTO_COMPACT_W
 /// Code ends with "Repeated 529 Overloaded errors" is continued after a wait, with no limit
 /// on attempts (`hub::auto_resume::capacity_wait`, cmux#52824). A terminal has no acpmux
 /// behind it, so the same outage left the person at an "API Error: Repeated 529" prompt.
-/// Claude Code waits a 529 out in place when `CLAUDE_CODE_OVERLOADED_RETRY_MAX_WAIT_MS` is
-/// set: on its main thread it stops counting 529s toward its give-up after 3 and backs off
-/// (to 5 min a wait) until that much time is spent (Claude Code 2.1.331's `mze`/`Os`; an older
-/// one ignores the knob). It has no effect when the person set `CLAUDE_CODE_MAX_RETRIES` or
-/// `CLAUDE_CODE_RETRY_WATCHDOG`, which then decide. Esc still stops the wait.
-///
-/// 6 h is Claude Code's own ceiling for one wait, and longer than the SR2 pool drains we
-/// have seen (38 min, cmux#52824). A chat keeps acpmux's continuation instead, which shows
-/// its retry on the row and resends a cut `/compact`.
-pub const CLAUDE_TERMINAL_ENV: &[(&str, &str)] =
-    &[("CLAUDE_CODE_OVERLOADED_RETRY_MAX_WAIT_MS", "21600000")];
+/// Claude Code waits a 529 out in place under its retry watchdog in the capacity scope
+/// (`CLAUDE_CODE_RETRY_WATCHDOG=1`, `CLAUDE_CODE_RETRY_WATCHDOG_SCOPE=capacity`): it stops
+/// giving up after 3 straight 529s and backs off (to 5 min a wait) with no time budget, as
+/// the chat's continuation has no attempt limit; the scope keeps the watchdog's other
+/// retries off. Measured on Claude Code 2.1.331 against a server answering six 529s: without
+/// it `claude -p` failed after 3 requests in 4 s ("Repeated 529 Overloaded errors"); with it
+/// the 7th request answered. `CLAUDE_CODE_OVERLOADED_RETRY_MAX_WAIT_MS` alone did not change
+/// that run. The watchdog would also sit out a plan's usage limit until it resets; a 0 budget
+/// for that keeps the usage limit in front of the person, as before. Esc still stops the wait. A person who set any of [`CLAUDE_RETRY_CHOICES`] keeps
+/// theirs and gets none of these.
+pub const CLAUDE_TERMINAL_ENV: &[(&str, &str)] = &[
+    ("CLAUDE_CODE_RETRY_WATCHDOG", "1"),
+    ("CLAUDE_CODE_RETRY_WATCHDOG_SCOPE", "capacity"),
+    ("CLAUDE_CODE_RETRY_WATCHDOG_MAX_USAGE_LIMIT_WAIT_MS", "0"),
+];
+
+/// Claude Code's own retry settings: one set by the person means they chose how it retries,
+/// so [`CLAUDE_TERMINAL_ENV`] is left out whole.
+pub const CLAUDE_RETRY_CHOICES: &[&str] = &[
+    "CLAUDE_CODE_RETRY_WATCHDOG",
+    "CLAUDE_CODE_RETRY_WATCHDOG_SCOPE",
+    "CLAUDE_CODE_RETRY_WATCHDOG_MAX_WAIT_MS",
+    "CLAUDE_CODE_RETRY_WATCHDOG_MAX_USAGE_LIMIT_WAIT_MS",
+    "CLAUDE_CODE_MAX_RETRIES",
+    "CLAUDE_CODE_OVERLOADED_RETRY_MAX_WAIT_MS",
+];
 
 /// The environment a terminal's `claude` starts with beyond its own (the cmux-tui Claude
 /// wrapper): every [`CLAUDE_ENV`] and [`CLAUDE_TERMINAL_ENV`] knob `getenv` leaves unset, and
@@ -68,9 +83,11 @@ pub fn terminal_claude_env(
     cwd: &std::path::Path,
     getenv: impl Fn(&str) -> Option<String>,
 ) -> Vec<(&'static str, &'static str)> {
+    let retry_chosen = CLAUDE_RETRY_CHOICES.iter().any(|name| getenv(name).is_some());
+    let terminal = if retry_chosen { &[][..] } else { CLAUDE_TERMINAL_ENV };
     let mut lifted: Vec<(&'static str, &'static str)> = CLAUDE_ENV
         .iter()
-        .chain(CLAUDE_TERMINAL_ENV)
+        .chain(terminal)
         .copied()
         .filter(|(key, _)| getenv(key).is_none())
         .collect();
