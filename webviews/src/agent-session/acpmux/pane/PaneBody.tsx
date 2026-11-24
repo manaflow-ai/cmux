@@ -22,9 +22,10 @@ import { holdComposerPlace } from "../composer/composerHandover";
 import { hasNativeHost } from "../native";
 import { CloudEnvironmentEditor } from "../CloudEnvironmentEditor";
 import { knownRefusalText } from "../transportErrors";
-import { NewTabPage } from "../NewTabPage";
 import { FOCUS_LOCATION_EVENT, type NewTabHost, type NewTabChat } from "../newTabModel";
-import { NewTabScreen, type NewTabScreenActions } from "../newtab/NewTabScreen";
+import type { NewTabStartFailure } from "../newtab/StartFailure";
+import type { NewTabScreenActions } from "../newtab/NewTabScreen";
+import { LazyNewTabPage, LazyNewTabScreen } from "../newtab/lazyNewTab";
 import { HistoryScreen } from "../newtab/HistoryScreen";
 import { NewTabAppSlot } from "../newtab/NewTabAppSlot";
 import { NewTabClock } from "../newtab/NewTabClock";
@@ -275,6 +276,10 @@ export type PaneBodyDeps = NewTabShown &
     pendingCommands: SlashCommand[] | undefined;
     extensionCommands: readonly SlashCommand[];
     newTabFixError: string | undefined;
+    /// A New Tab start that failed before any chat opened: the page came back and says it.
+    newTabStartFailure: Omit<NewTabStartFailure, "retry"> | undefined;
+    /// Leaves New Tab for a start, keeping the page until it opens a chat or fails (App.tsx).
+    leaveNewTabForStart: (sent?: { text: string; attachments: ComposerAttachment[] }) => void;
     newTabKnownProjects: readonly string[] | null;
     startFolder: string | undefined;
     onNewTabPromptTyped: (text: string, target?: { harness?: string; cwd?: string }) => void;
@@ -545,6 +550,8 @@ export function drawPaneBody({
   pendingCommands,
   extensionCommands,
   newTabFixError,
+  newTabStartFailure,
+  leaveNewTabForStart,
   newTabKnownProjects,
   startFolder,
   onNewTabPromptTyped,
@@ -805,7 +812,7 @@ export function drawPaneBody({
             <>
               {/* Setup keeps this page's draft and project, while its hidden input effects stop. */}
               <Activity mode={harnessesOpen ? "hidden" : "visible"}>
-                <NewTabScreen
+                <LazyNewTabScreen
                   // Over cmux's composer, never in its place (Leo 2026-11-16): the clock
                   // (`tabs.newTabClock.*`, newtab/NewTabClock.tsx), then an extension's slot
                   // (`tabs.newTabApp`, newtab/NewTabAppSlot.tsx). Whatever the extension does, the
@@ -985,6 +992,7 @@ export function drawPaneBody({
                       : newTabSnapshot
                   }
                   {...(newTabFixError ? { fixError: newTabFixError } : {})}
+                  {...(newTabStartFailure ? { startFailure: newTabStartFailure } : {})}
                   omnibar={newTab.omnibar}
                   location={newTab.location}
                   lastAgent={newTab.lastAgent}
@@ -1046,7 +1054,8 @@ export function drawPaneBody({
                       // The chat's composer glides from where New Tab's drew (composer/composerHandover.ts).
                       leave: () => {
                         holdComposerPlace();
-                        setNewTab(undefined);
+                        // Kept until the start opens a chat or fails (`startLeftNewTab`).
+                        leaveNewTabForStart();
                       },
                       selectSession,
                       showAllChats,
@@ -1097,7 +1106,7 @@ export function drawPaneBody({
                 : {})}
             />
           ) : showNewTab ? (
-            <NewTabPage
+            <LazyNewTabPage
               onCmuxCommand={(command, args) => handleCmuxCommand(command, args, true)}
               onImportFile={importFile}
               importError={importError}
@@ -1129,6 +1138,7 @@ export function drawPaneBody({
               onInputReady={(token) => void callNative("newTab.inputReady", { token })}
               onLeaveDraft={leaveNewTabDraft}
               takeDraft={takeNewTabDraft}
+              {...(newTabStartFailure ? { startFailure: newTabStartFailure } : {})}
               onFieldEdit={newTabFieldEdited}
             />
           ) : replaying && replaying === snapshot.sessionId ? (

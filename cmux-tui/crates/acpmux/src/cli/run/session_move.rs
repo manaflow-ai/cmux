@@ -32,7 +32,10 @@
 //!    `~/Projects/checkouts`), the chat's subfolder checked out in it; any other folder under the
 //!    home is made at the same path under the target's home; `--cwd` names it outright. With
 //!    `--carry-changes` the checkout's uncommitted work is read once the branch is pushed and
-//!    applied in the new worktree (`session_move_carry.rs`).
+//!    applied in the new worktree (`session_move_carry.rs`). A checkout with no `origin` has
+//!    nowhere to push: its branches and tags go as a `git bundle` over the move's ssh and become
+//!    a fresh repository at the same path under the target's home (`BUNDLE_SCRIPT`,
+//!    `UNBUNDLE_SCRIPT`), with no remote added anywhere; its changes go the same way.
 //! 5. The rest of the move is `session transfer`'s (`transfer.rs`, `hub/transfer_out.rs`), with
 //!    the target daemon's own local socket reached through an `ssh -L` forward
 //!    (`ssh_forward.rs`): the bundle is paged across, imported there in its new folder, then
@@ -426,21 +429,41 @@ pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
         print_json(&json!({"moves": rows, "failed": failed}));
     }
     match not_moved(&outcomes) {
-        Some(why) => bail!("{why}"),
+        Some(e) => Err(e.into()),
         None => Ok(()),
     }
 }
 
-/// The run's error when a chat did not move: how many, and each one's own reason (a caller
-/// that reads only the error, as `--json`'s does, still learns why).
-fn not_moved(outcomes: &[Outcome]) -> Option<String> {
-    let why: Vec<String> = outcomes
+/// The error a move ends with when any chat did not move: each such chat and why, in its message
+/// (text output) and as `data.failed` (`--json`'s error envelope), so a caller that reads only the
+/// last line still learns the reason. A move once ended with only "1 of 1 chats did not move".
+fn not_moved(outcomes: &[Outcome]) -> Option<crate::cli::errors::AppError> {
+    let failed: Vec<&Outcome> = outcomes.iter().filter(|o| o.error.is_some()).collect();
+    if failed.is_empty() {
+        return None;
+    }
+    let reasons: Vec<String> = failed
         .iter()
-        .filter_map(|o| o.error.as_ref().map(|e| format!("{} ({}): {e}", o.name, o.session)))
+        .map(|o| format!("{} ({}): {}", o.name, o.session, o.error.as_deref().unwrap_or("")))
         .collect();
-    (!why.is_empty()).then(|| {
-        format!("{} of {} chats did not move: {}", why.len(), outcomes.len(), why.join("; "))
-    })
+    let rows: Vec<Value> = failed
+        .iter()
+        .map(|o| {
+            json!({"session": o.session, "name": o.name, "host": o.host,
+                   "reason": o.error, "errorCode": o.error_code})
+        })
+        .collect();
+    let message = format!(
+        "{} of {} chats did not move: {}",
+        failed.len(),
+        outcomes.len(),
+        reasons.join("; ")
+    );
+    let code = crate::cli::errors::Code::Runtime;
+    Some(
+        crate::cli::errors::AppError::new(code, "not_moved", message)
+            .with_data(json!({"failed": rows})),
+    )
 }
 
 fn print_outcome(o: &Outcome, dry_run: bool) {
@@ -603,7 +626,11 @@ async fn move_steps(
     // turn along between its tool calls (`transfer.rs` `begin_move_live`), with --after-turn
     // transfer_begin waits for the turn under its lock.
     let running_ok = args.interrupt || !args.dry_run;
-    if let Some(why) = plan::refusal(&info, running_ok) {
+    // A real move of a moving chat goes on to transfer_begin, which arbitrates it: it can safely
+    // reclaim a dead driver's incomplete bundle, where refusing here strands the mark until the
+    // background lease watcher. A dry run still names the move in progress.
+    let arbitrated = !args.dry_run && info.get("moving").and_then(Value::as_bool) == Some(true);
+    if !arbitrated && let Some(why) = plan::refusal(&info, running_ok) {
         o.error_code = preflight::session_refusal_code(&info, running_ok);
         bail!("{why}");
     }
@@ -662,6 +689,10 @@ async fn move_steps(
             Folder::Worktree { repo, branch, subdir, snapshot: true, .. } => format!(
                 "a detached checkout of {repo} at this {branch}'s HEAD{} ({branch} is shared: \
                  never pushed; the commit goes under {SNAPSHOT_REFS}, outside refs/heads)",
+                sub_text(subdir)
+            ),
+            Folder::Bundle { top, branch, subdir, .. } => format!(
+                "{top} on {branch}{} (no origin to push to: its branches go as a git bundle)",
                 sub_text(subdir)
             ),
         });
@@ -793,6 +824,23 @@ async fn prepare(
     let mut record = json!({"host": target.name});
     let mut carry = None;
     let mut at = None;
+    let mut bundle = None;
+    // The commit the target's folder is made at, whether the folder has uncommitted work, and
+    // its checkout's top folder on the source.
+    let mut base: Option<(String, bool, PathBuf)> = None;
+    if let (Folder::Bundle { branch, dirty, .. }, Some(c)) = (&folder, &checkout) {
+        // No origin: the repository goes itself, read after the freeze.
+        let read = tokio::task::spawn_blocking({
+            let (top, ssh) = (c.top.clone(), source.ssh().map(str::to_owned));
+            move || read_bundle(ssh.as_deref(), &top)
+        })
+        .await??;
+        record.set("branch", json!(branch));
+        record.set("commit", json!(read.0));
+        record.set("bundled", json!(true));
+        base = Some((read.0.clone(), *dirty, c.top.clone()));
+        bundle = Some(read);
+    }
     if let (Folder::Worktree { branch, dirty, snapshot, .. }, Some(c)) = (&folder, &checkout) {
         // A shared branch (main, master, origin's HEAD) is never pushed: its HEAD goes under a ref
         // of this move's own, and the target checks that commit out detached.
@@ -812,10 +860,13 @@ async fn prepare(
             record.set("detached", json!(true));
             at = Some((dest, commit.clone(), c.top.clone()));
         }
-        if *dirty && args.carry_changes {
+        base = Some((commit, *dirty, c.top.clone()));
+    }
+    if let Some((commit, dirty, top)) = base {
+        if dirty && args.carry_changes {
             // Read after the freeze and the push: what the agent left, against what was pushed.
             let read = tokio::task::spawn_blocking({
-                let (top, ssh) = (c.top.clone(), source.ssh().map(str::to_owned));
+                let (top, ssh) = (top.clone(), source.ssh().map(str::to_owned));
                 move || match ssh {
                     None => carry::snapshot(&|script, input| run_here(script, input), &top, true),
                     Some(ssh) => carry::snapshot(
@@ -836,7 +887,7 @@ async fn prepare(
             record.set("uncommittedCarried", read.record());
             o.carried = Some(read.record());
             carry = Some(read);
-        } else if *dirty {
+        } else if dirty {
             let left_on = match source {
                 Source::Here => crate::pairing::machine_name(),
                 Source::Peer { name, .. } => name.clone(),
@@ -847,7 +898,14 @@ async fn prepare(
     let there = tokio::task::spawn_blocking({
         let (host, folder) = (target.ssh.clone(), folder.clone());
         let pin = at.as_ref().map(|(r, c, _)| (r.clone(), c.clone()));
-        move || prepare_folder(&host, &folder, pin.as_ref().map(|(r, c)| (r.as_str(), c.as_str())))
+        move || match (&folder, bundle) {
+            (Folder::Bundle { top, branch, subdir, .. }, Some((commit, bytes))) => {
+                unbundle_folder(&host, top, branch, subdir, &commit, &bytes)
+            }
+            _ => {
+                prepare_folder(&host, &folder, pin.as_ref().map(|(r, c)| (r.as_str(), c.as_str())))
+            }
+        }
     })
     .await;
     if let Some((dest, _, top)) = at {
@@ -1028,6 +1086,109 @@ fn apply_carry(host: &str, there: &str, carry: &Carry) -> Result<()> {
     Ok(())
 }
 
+/// The fixed script that bundles a checkout with no `origin` on the machine it is on: its top
+/// folder on stdin; prints its HEAD, then a `git bundle` of every branch and tag in base64. The
+/// checkout's refs, index and working tree never change.
+pub(crate) const BUNDLE_SCRIPT: &str = r#"read -r top || exit 2
+cd -- "$top" || exit 2
+git rev-parse --verify -q HEAD || { echo "it has no commit to carry" >&2; exit 3; }
+s=$(mktemp -d) || exit 2
+trap 'rm -rf -- "$s"' EXIT
+git bundle create "$s/b" --branches --tags 2>"$s/err" || { cat -- "$s/err" >&2; exit 3; }
+base64 <"$s/b" | tr -d '\n'
+echo"#;
+
+/// The fixed script that makes a bundled checkout on the target: its top folder, branch, the
+/// commit it is at and the chat's subfolder on four lines of stdin, then the bundle's bytes. A
+/// fresh repository of its own, no remote: into the folder when it is missing or empty, else a
+/// new one beside it (never into anything already there). Prints the chat's folder.
+pub(crate) const UNBUNDLE_SCRIPT: &str = r#"read -r d || exit 2; read -r branch || exit 2; read -r at || exit 2; read -r sub
+case "$d" in /*) ;; *) exit 2;; esac
+case "$branch" in ""|-*) exit 2;; esac
+if [ -e "$d" ] && [ -n "$(ls -A -- "$d" 2>/dev/null)" ]; then
+  d=$(mktemp -d "$d.moved.XXXXXX") || exit 1
+else
+  mkdir -p -- "$d" || exit 1
+fi
+b=$(mktemp) || exit 1
+trap 'rm -f -- "$b"' EXIT
+cat >"$b" || exit 1
+git init -q -- "$d" >/dev/null || exit 1
+git -C "$d" symbolic-ref HEAD "refs/heads/$branch" || exit 1
+git -C "$d" fetch -q --update-head-ok "$b" '+refs/heads/*:refs/heads/*' '+refs/tags/*:refs/tags/*' || exit 1
+git -C "$d" reset -q --hard || exit 1
+head=$(git -C "$d" rev-parse HEAD) || exit 1
+if [ "$head" != "$at" ]; then echo "the new repository is at $head, not $at" >&2; exit 4; fi
+if [ -n "$sub" ]; then mkdir -p -- "$d/$sub" || exit 1; fi
+cd -- "$d/$sub" && pwd -P"#;
+
+/// [`BUNDLE_SCRIPT`] on the source (this machine, or the ssh host `ssh`): the checkout's HEAD
+/// and the bundle's bytes.
+fn read_bundle(ssh: Option<&str>, top: &Path) -> Result<(String, Vec<u8>)> {
+    let input = format!("{}\n", top.display());
+    let out = match ssh {
+        None => run_here(BUNDLE_SCRIPT, input.as_bytes())?,
+        Some(ssh) => crate::cli::hosts::Remote::exec(
+            &crate::cli::hosts::SshRemote(ssh),
+            BUNDLE_SCRIPT,
+            Some(input.as_bytes()),
+        )?,
+    };
+    parse_bundle(&out).with_context(|| format!("bundling {} (it has no origin)", top.display()))
+}
+
+/// [`BUNDLE_SCRIPT`]'s answer: HEAD, then the bundle in base64.
+fn parse_bundle(out: &crate::cli::hosts::RemoteOut) -> Result<(String, Vec<u8>)> {
+    use base64::Engine as _;
+    if !out.ok {
+        let last = out.stderr.lines().rfind(|l| !l.trim().is_empty()).unwrap_or("").trim();
+        bail!("{last}");
+    }
+    let mut lines = out.stdout.lines();
+    let head = lines.next().unwrap_or_default().trim().to_owned();
+    if head.len() < 40 || !head.bytes().all(|b| b.is_ascii_hexdigit()) {
+        bail!("it answered no HEAD commit");
+    }
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(lines.next().unwrap_or_default().trim())?;
+    if bytes.is_empty() {
+        bail!("it answered an empty bundle");
+    }
+    Ok((head, bytes))
+}
+
+/// Makes the bundled checkout `top` on `branch` at `commit` on the ssh host `host` (this machine
+/// when empty) through [`UNBUNDLE_SCRIPT`]; returns the chat's folder there (`subdir` inside).
+fn unbundle_folder(
+    host: &str,
+    top: &str,
+    branch: &str,
+    subdir: &str,
+    commit: &str,
+    bundle: &[u8],
+) -> Result<String> {
+    let mut input = format!("{top}\n{branch}\n{commit}\n{subdir}\n").into_bytes();
+    input.extend_from_slice(bundle);
+    let out = if host.is_empty() {
+        run_here(UNBUNDLE_SCRIPT, &input)?
+    } else {
+        crate::cli::hosts::Remote::exec(
+            &crate::cli::hosts::SshRemote(host),
+            UNBUNDLE_SCRIPT,
+            Some(&input),
+        )?
+    };
+    let host = if host.is_empty() { "this machine" } else { host };
+    if !out.ok {
+        return Err(folder_failure(host, &out));
+    }
+    let path = out.stdout.lines().last().unwrap_or_default().trim().to_owned();
+    if !(path.starts_with('/') && crate::cli::hosts::plain_path(&path)) {
+        bail!("{host} answered no plain folder path for the chat");
+    }
+    Ok(path)
+}
+
 /// This machine's daemon as a target (`--machine local`): its home and local socket.
 fn local_daemon() -> Result<RemoteDaemon> {
     let home = dirs::home_dir().ok_or_else(|| anyhow!("this machine has no home folder"))?;
@@ -1192,6 +1353,8 @@ fn prepare_folder(host: &str, folder: &Folder, at: Option<(&str, &str)>) -> Resu
             let pin = at.map_or_else(String::new, |(r, c)| format!("{r}\n{c}\n"));
             (WORKTREE_SCRIPT, format!("{repo}\n{branch}\n{url}\n{subdir}\n{pin}"))
         }
+        // Its bundle comes with it: `unbundle_folder` makes it.
+        Folder::Bundle { top, .. } => bail!("{top} is made from its bundle, which was not read"),
     };
     let out = if host.is_empty() {
         run_here(script, input.as_bytes())?
