@@ -130,4 +130,25 @@ private final class TestUptime: @unchecked Sendable {
         #expect(waiting(machine.phase)?.attempt == 2)
         #expect(waiting(machine.phase)?.retryIn == .seconds(1))
     }
+    /// Stopping never strands the person: the foreground, a new network path or the Mac's
+    /// presence starts every attempt over with no tap (`policy::news_attempt`).
+    @Test(arguments: [LinkMachine.Event.foreground, .networkChanged, .macSignaled])
+    func aStoppedRedialStartsOverOnNews(news: LinkMachine.Event) {
+        var machine = LinkMachine(transport: .wireGuard)
+        _ = machine.handle(.target(.init(macID: "m", name: "Mac", isOnline: true)))
+        for _ in 0..<100 {
+            switch machine.phase {
+            case .connecting: _ = machine.handle(.dialFailed(generation: machine.generation, reason: "timeout"))
+            case .waiting(_, _, _, let retryIn) where retryIn > .zero:
+                _ = machine.handle(.retryDue(generation: machine.generation))
+            default: break
+            }
+        }
+        #expect(waiting(machine.phase)?.attempt == LinkRedialPolicy.maxAttempts)
+        #expect(waiting(machine.phase)?.retryIn == .zero, "stopped")
+        #expect(machine.phase.statusLine(macName: "Mac") == "Offline")
+        let effects = machine.handle(news)
+        #expect(effects == [.dial(generation: machine.generation, macID: "m", transport: .wireGuard)])
+        #expect(machine.phase == .connecting(.wireGuard, attempt: 1), "the full set of attempts again")
+    }
 }

@@ -36,7 +36,7 @@ pub use composer_outbox::{
 pub use follow_camera::{FollowCamera, FollowCameraMode, FollowRect};
 pub use link_redial::{
     LinkRedial, LinkRedialLimits, link_redial_after_drop, link_redial_after_failure, link_redial_limits,
-    link_redial_next_attempt,
+    link_redial_news_attempt, link_redial_next_attempt,
 };
 pub use link_side::{LinkOpenSide, link_open_side};
 pub use mac_screen::{MacScreenAnswer, MacScreenDisplay, MacScreenIceServer, MacScreenObserver, MacScreenRd};

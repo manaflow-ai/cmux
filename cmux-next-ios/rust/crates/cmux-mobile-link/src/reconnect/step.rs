@@ -176,14 +176,14 @@ impl Machine {
             Event::MacSignaled => match self.phase {
                 Phase::Connected { .. } => Ok(vec![Effect::QuickProbe { generation: self.generation }]),
                 // The Mac just came back: dial now, not at the end of the backoff.
-                Phase::Waiting { attempt, .. } => Ok(self.dial(policy::resume_attempt(attempt), false)),
+                Phase::Waiting { attempt, .. } => Ok(self.dial(policy::news_attempt(attempt), false)),
                 // A dial in flight sent its offer to a host that was down or restarting. The
                 // restart counts, so a stream of presence frames cannot hold the attempt.
                 Phase::Connecting { attempt, .. } => Ok(self.dial(policy::restart_attempt(attempt), false)),
                 Phase::Idle | Phase::MacOffline | Phase::SignedOut => Err(Refusal::NothingToDo),
             },
             Event::NetworkChanged => match self.phase {
-                Phase::Waiting { attempt, .. } => Ok(self.dial(policy::resume_attempt(attempt), false)),
+                Phase::Waiting { attempt, .. } => Ok(self.dial(policy::news_attempt(attempt), false)),
                 // A dial on the dead path would wait out its whole timeout. The restart counts.
                 Phase::Connecting { attempt, .. } => Ok(self.dial(policy::restart_attempt(attempt), false)),
                 // A live link roams in place.
@@ -206,7 +206,7 @@ impl Machine {
                 }
             },
             Event::Foreground => match self.phase {
-                Phase::Waiting { attempt, .. } => Ok(self.dial(policy::resume_attempt(attempt), false)),
+                Phase::Waiting { attempt, .. } => Ok(self.dial(policy::news_attempt(attempt), false)),
                 Phase::Connected { .. } => Ok(vec![Effect::Probe { generation: self.generation }]),
                 Phase::Idle | Phase::MacOffline | Phase::Connecting { .. } | Phase::SignedOut => {
                     Err(Refusal::NothingToDo)
