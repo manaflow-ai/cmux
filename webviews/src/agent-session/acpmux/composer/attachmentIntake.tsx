@@ -198,7 +198,10 @@ export function PendingChip({
       <RemoveGlyph />
     </button>
   );
-  const indicator = (
+  const pendingClass = chip.resolvingPath
+    ? "acpmux-attachment-pending"
+    : `acpmux-attachment-pending ${PASTE_LOADING_CLASS}`;
+  const indicator = !chip.resolvingPath && (
     <PasteLoadingMark
       look={look}
       size={16}
@@ -211,10 +214,10 @@ export function PendingChip({
     const { failed } = chip;
     return (
       <div
-        className={`acpmux-attachment acpmux-attachment-file ${failed ? "acpmux-attachment-failed" : `acpmux-attachment-pending ${PASTE_LOADING_CLASS}`}`}
+        className={`acpmux-attachment acpmux-attachment-file ${failed ? "acpmux-attachment-failed" : pendingClass}`}
         aria-label={name}
         aria-busy={failed ? undefined : "true"}
-        data-paste-look={failed ? undefined : look}
+        data-paste-look={failed || chip.resolvingPath ? undefined : look}
         /* tooltip-allow: the tile shows no reason; the tooltip says why it failed */ title={chip.failed}
       >
         <FileAttachment
@@ -260,8 +263,8 @@ export function PendingChip({
     );
   return (
     <div
-      className={`acpmux-attachment acpmux-attachment-image acpmux-attachment-pending ${PASTE_LOADING_CLASS}`}
-      data-paste-look={look}
+      className={`acpmux-attachment acpmux-attachment-image ${pendingClass}`}
+      data-paste-look={chip.resolvingPath ? undefined : look}
       aria-busy="true"
       aria-label={name}
       // The image's shape from its header (the slot its thumbnail ends in), and its own picture
@@ -272,7 +275,7 @@ export function PendingChip({
       {...(chip.preview ? { "data-instant": "" } : {})}
       {...(style ? { style } : {})}
     >
-      {indicator}
+      {chip.resolvingPath ? chip.image ? <ImageIcon size={16} /> : <PlayTriangle size={16} /> : indicator}
       {remove}
     </div>
   );
