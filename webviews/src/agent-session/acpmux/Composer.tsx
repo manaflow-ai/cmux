@@ -2,7 +2,7 @@ import { acpmuxPerf } from "./perf";
 import { sentWords } from "./computerUse/computerUseState";
 import { runResumed, submitResumed } from "./composer/resumedSend";
 import { holdFlag, resumeOrFail, setRef } from "./heldFlag";
-import { useStableHandlers } from "./stableHandlers";
+import { usePropChurn, useStableHandlers } from "./stableHandlers";
 import { chatPlace } from "./chatMachine";
 import React, {
   useCallback,
@@ -692,7 +692,9 @@ function useRelayProps(props: Props): Props {
 /// its identity while nothing the composer shows changed (composer/composerView.ts), so a transcript
 /// change (a tool call, a row added) leaves it be. A relayed one (`relay`) is the same composer.
 export function Composer(props: Props) {
-  return <MemoComposer {...useStableHandlers(useRelayProps(props))} />;
+  const stable = useStableHandlers(useRelayProps(props));
+  usePropChurn("composer", stable, acpmuxPerf.enabled, (key) => acpmuxPerf.render(key));
+  return <MemoComposer {...stable} />;
 }
 
 /// The prompt box with the agent's `/` command menu:

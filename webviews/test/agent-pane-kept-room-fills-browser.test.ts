@@ -181,8 +181,11 @@ await requireBrowserLane("agent-pane-kept-room-fills-browser.test.ts", async () 
     await page.mouse.move(450, 150);
     await page.mouse.wheel(0, deltaY);
   };
-  const composerRenders = (page: Page) =>
-    page.evaluate(() => (window as any).cmuxAcpmuxDebug.renders().composer ?? 0) as Promise<number>;
+  const composerRenders = async (page: Page) => {
+    const renders = (await page.evaluate(() => (window as any).cmuxAcpmuxDebug.renders())) as Record<string, number>;
+    console.log(`kept-room renders ${JSON.stringify(renders)}`);
+    return renders.composer ?? 0;
+  };
   const editorNode = (page: Page) =>
     page.evaluate((selector) => {
       const node = document.querySelector(selector) as (Element & { __probe?: number }) | null;
