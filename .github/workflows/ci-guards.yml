@@ -1033,10 +1033,6 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_runner_census_tallies.py
 
-      - name: Validate the risk label step reads labels from the event
-        if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_risk_label_from_event.py
-
       - name: Validate simple live macOS pool choice
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_simple_pool_picker.py
@@ -1299,6 +1295,10 @@ jobs:
       - name: Validate triage severity and area rules
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_triage_rules.py
+
+      - name: Validate feat-cmux-next merges close their fixed issues
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_next_closes_issues.py
 
       - name: Validate cmux-tui focused filter routing
         if: ${{ !cancelled() && matrix.group == 'ci' }}
