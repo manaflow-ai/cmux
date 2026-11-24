@@ -41,6 +41,9 @@
 use super::*;
 use sha2::{Digest, Sha256};
 
+#[path = "cold_pack.rs"]
+mod packed;
+
 /// A cold-archived chat's log, in its folder beside `session.json`.
 pub const COLD_FILE: &str = "cold.zst";
 /// The stub `cmux-session-cloud` leaves when a chat's archive is offloaded to the person's cloud
@@ -348,6 +351,12 @@ impl LocalStore {
         self.dir(id).join(CLOUD_STUB)
     }
 
+    fn cloud_history(&self, id: &str) -> Result<cmux_session_cloud::stub::History> {
+        cmux_session_cloud::stub::parse_history(crate::home_fs::private_state_file(
+            self.cloud_stub_path(id),
+        )?)
+    }
+
     /// The person's cloud history store, from the config in this store's acpmux home (the
     /// folder above `sessions/`); None when they never turned it on.
     fn cloud(&self) -> Result<Option<std::sync::Arc<cmux_session_cloud::Cloud>>> {
@@ -366,7 +375,7 @@ impl LocalStore {
         }
         let Some(cloud) = self.cloud()? else { return Ok(None) };
         let record = cmux_session_cloud::offload::upload(&archive, &cloud)?;
-        let _cold = self.cold.lock_or_recover();
+        let _cold = self.cold.lock(id);
         let _sealed = self.unsealed(id)?;
         if self.held_has_segment(id)? {
             return Ok(None);
@@ -382,7 +391,19 @@ impl LocalStore {
     /// so it runs once per batch. A stub that cannot be read is left out, and logged.
     pub(super) fn register_cloud_root(&self) -> Result<Option<usize>> {
         let Some(cloud) = self.cloud()? else { return Ok(None) };
-        let mut blobs = Vec::new();
+        self.register_cloud_root_in(&cloud, &[]).map(Some)
+    }
+
+    fn register_cloud_root_in(
+        &self,
+        cloud: &cmux_session_cloud::Cloud,
+        pending: &[&str],
+    ) -> Result<usize> {
+        // A root replaces its previous tree. Serialize scans through publication so a
+        // concurrent batch cannot overwrite a packed commit with an older snapshot.
+        static ROOT: Mutex<()> = Mutex::new(());
+        let _root = ROOT.lock_or_recover();
+        let mut blobs: Vec<String> = pending.iter().map(|s| (*s).to_owned()).collect();
         let entries = match crate::home_fs::read_dir(&self.root) {
             Ok(entries) => entries,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
@@ -396,8 +417,11 @@ impl LocalStore {
             if !crate::home_fs::try_exists_nofollow(&stub)? {
                 continue;
             }
-            match cmux_session_cloud::stub::read(&stub) {
-                Ok(record) => blobs.push(record.blob),
+            match self.cloud_history(id) {
+                Ok(cmux_session_cloud::stub::History::Archive(record)) => blobs.push(record.blob),
+                Ok(cmux_session_cloud::stub::History::Pack(record)) => {
+                    blobs.extend(record.blobs().map(str::to_owned))
+                }
                 Err(error) => {
                     tracing::warn!(session = %id, "cloud history stub unreadable: {error:#}")
                 }
@@ -406,7 +430,7 @@ impl LocalStore {
         blobs.sort();
         blobs.dedup();
         cloud.store.set_root(&cloud.root_pair(), &blobs)?;
-        Ok(Some(blobs.len()))
+        Ok(blobs.len())
     }
 
     /// Brings an offloaded chat's archive back into `cold.zst` from the cloud history store. A
@@ -713,13 +737,19 @@ impl LocalStore {
             return Ok(false);
         }
         let _sealed = self.unsealed(id)?;
+        let mut packed = None;
         if offloaded
             && !crate::home_fs::try_exists_nofollow(&archive)?
             && !self.held_has_segment(id)?
         {
             // Under the cold lock, so two reads fetch once and an offload cannot remove the
             // archive mid-thaw.
-            self.fetch_cloud_locked(id)?;
+            match self.cloud_history(id)? {
+                cmux_session_cloud::stub::History::Pack(_) => {
+                    packed = Some(self.cloud()?.context("cloud history is not configured")?);
+                }
+                cmux_session_cloud::stub::History::Archive(_) => self.fetch_cloud_locked(id)?,
+            }
         }
         if self.held_has_segment(id)? {
             self.settle_cold_locked(id, &cold)?;
@@ -732,8 +762,12 @@ impl LocalStore {
         let thaw = dir.join(THAW_DIR);
         remove_dir_if_there(&thaw)?;
         crate::config::private_state_dir(&thaw)?;
-        let (header, _) =
-            decode(&archive, &mut |entry| Ok(Some(open_private_append(&thaw.join(&entry.name))?)))?;
+        let header = if let Some(cloud) = &packed {
+            self.thaw_packed(id, cloud, &thaw)?
+        } else {
+            decode(&archive, &mut |entry| Ok(Some(open_private_append(&thaw.join(&entry.name))?)))?
+                .0
+        };
         sync_directory(&thaw)?;
         let events = dir.join("events");
         let aside = dir.join(DROP_DIR);
@@ -746,7 +780,11 @@ impl LocalStore {
         }
         crate::home_fs::rename(&thaw, &events)?;
         sync_directory(&dir)?;
-        crate::home_fs::remove_file(&archive)?;
+        if packed.is_some() {
+            self.remove_packed_cache(id);
+        } else {
+            crate::home_fs::remove_file(&archive)?;
+        }
         if offloaded {
             crate::home_fs::remove_file(&stub)?;
         }

@@ -5,6 +5,7 @@
 // uses, so the protocol code is the same over the bridge, the dev slot's real socket and mock mode.
 // The page never sees an endpoint or a token.
 import { postNative } from "./native";
+import { takeEarlyOpen } from "./chatSnapshot/earlyOpen";
 import { nativeTimedOut } from "./nativeError";
 import { AcpmuxRpcError } from "./handoff/protocol";
 import { deliverQuestionKeyRequest, isQuestionKeyRequest, type QuestionKeyRequest } from "./question/keyReply";
@@ -170,7 +171,13 @@ export class BridgeSocket {
       this.openError = nativeTimedOut("transport.open", openTimeoutMs);
       this.failOpen();
     }, openTimeoutMs);
-    this.post<{ connection: number }>("transport.open").then(
+    // The open the boot script asked with the page's first handshake (chatSnapshot/earlyOpen.ts),
+    // when this is that handshake's socket; else this page's own.
+    const early = post === postNative ? takeEarlyOpen() : undefined;
+    const opened = early
+      ? early.then((connection) => (connection === undefined ? Promise.reject(new Error("refused")) : { connection }))
+      : this.post<{ connection: number }>("transport.open");
+    opened.then(
       (reply) => {
         this.stopOpenTimer();
         const connection = reply?.connection;
