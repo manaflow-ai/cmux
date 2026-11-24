@@ -1086,17 +1086,18 @@ pub(in crate::cli) mod acp {
     }
 
     /// The acpmux's harness catalog (`_acpmux/harnesses`: `harnesses`, `families`,
-    /// `defaultHarness`, `defaults`), the one a new chat there resolves its agent from; at most
-    /// `timeout` (a daemon still reading its login shell answers once it has).
+    /// `defaultHarness`, `defaults`), the one a new chat there resolves its agent from; the dial
+    /// and the answer together at most `timeout` (a daemon still reading its login shell answers
+    /// once it has; a dial waits for a daemon that is starting). Its own connection, as
+    /// [`new_session`] has: it runs on a thread of its own beside the start's other reads.
     pub(in crate::cli) fn harnesses(
         socket: Option<&Path>,
         timeout: std::time::Duration,
     ) -> Result<Value, String> {
-        read_on(socket, async |client| {
-            tokio::time::timeout(
-                timeout,
-                client.request(acpmux::rpc::method::MUX_HARNESSES, json!({})),
-            )
+        block_on(async {
+            tokio::time::timeout(timeout, async {
+                client(socket).await?.request(acpmux::rpc::method::MUX_HARNESSES, json!({})).await
+            })
             .await
             .map_err(|_| anyhow::anyhow!("no answer in {} ms", timeout.as_millis()))?
         })
