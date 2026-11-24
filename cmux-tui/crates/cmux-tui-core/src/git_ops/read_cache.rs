@@ -297,7 +297,11 @@ impl Paths {
     /// The names, relative to the folder, sorted.
     pub(super) fn iter(&self) -> impl Iterator<Item = &str> {
         let strip = self.strip;
-        self.all()[self.start..self.end].iter().map(move |path| &path[strip..])
+        self.all()
+            .get(self.start..self.end)
+            .unwrap_or_default()
+            .iter()
+            .map(move |path| path.get(strip..).unwrap_or(path.as_str()))
     }
 
     /// Whether the listing was cut.
@@ -369,7 +373,11 @@ pub(super) fn listed(
     } else {
         let prefix = format!("{prefix}/");
         let start = listing.paths.partition_point(|path| path.as_str() < prefix.as_str());
-        let count = listing.paths[start..].partition_point(|path| path.starts_with(&prefix));
+        let count = listing
+            .paths
+            .get(start..)
+            .unwrap_or_default()
+            .partition_point(|path| path.starts_with(&prefix));
         (start, start + count, prefix.len())
     };
     Ok(Paths { source: Source::Cached(Arc::clone(&cached)), start, end, strip })
