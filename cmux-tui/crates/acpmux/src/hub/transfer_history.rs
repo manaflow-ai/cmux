@@ -186,6 +186,8 @@ impl Hub {
         use std::io::Write as _;
         let file = inside(bundle, HISTORY_FILE).map_err(|e| anyhow::anyhow!("{}", e.message))?;
         let store = self.pack_store(chat)?;
+        // It writes the chat's manifest, as a pack does.
+        let _turn = PackTurn::take(chat);
         let mut input = std::io::BufReader::new(std::fs::File::open(&file)?);
         let manifest = pack::ship::unbundle(&store, &mut input, pack::ship::Lacking::Refuse)
             .map_err(pack_error)?
@@ -484,13 +486,14 @@ impl Hub {
             // Set however the pack ends, so an export never waits on one that panicked.
             let mut done = PrepackDone { slot: &slot, packed: None };
             // One pack of a chat at a time; a prepare that a later one replaced while it waited
-            // packs nothing (no export asks for it).
+            // packs nothing (no export asks for it). One whose export already took its slot
+            // still packs: that export waits for it.
             let _turn = PackTurn::take(&session.id);
             let newest = PREPACKS
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .get(&session.id)
-                .is_some_and(|(_, newest)| Arc::ptr_eq(newest, &slot));
+                .is_none_or(|(_, newest)| Arc::ptr_eq(newest, &slot));
             if !newest {
                 return;
             }
