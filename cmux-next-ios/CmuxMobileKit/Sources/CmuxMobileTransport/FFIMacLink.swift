@@ -44,6 +44,7 @@ public struct FFIMacLinkDialer: MacLinkDialer {
                 macDeviceId: endpoint.macDeviceID,
                 transport: transport.ffi,
                 options: ConnectOptions(relayOnly: endpoint.relayOnly, blockUdp: endpoint.blockUDP,
+                                        forceRelay: endpoint.forceRelay,
                                         noVideoLane: endpoint.browserVideoOnChannel,
                                         ultra: Self.ultra()),
                 observer: observer
@@ -348,6 +349,7 @@ extension LinkPath {
         case .direct: .direct
         case .turn: .turn
         case .turnTls: .turnTLS
+        case .httpsRelay: .httpsRelay
         case .noPath: .noPath
         }
     }
