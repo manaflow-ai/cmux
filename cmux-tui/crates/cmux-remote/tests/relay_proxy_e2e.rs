@@ -250,7 +250,7 @@ fn client_config_trusting(issuer: &CertifiedIssuer<'static, KeyPair>) -> Arc<Cli
 
 struct Rig {
     endpoint: Url,
-    auth: AuthDatabase,
+    auth: Arc<AuthDatabase>,
     accepted: tokio::sync::mpsc::Receiver<Arc<cmux_remote::daemon::ServerConnection>>,
     registration: cmux_remote::provider::RelayDaemonRegistration,
     relay_task: tokio::task::JoinHandle<()>,
@@ -293,8 +293,8 @@ async fn link_up(rig: &mut Rig, trust: RelayTls, label: &str, seed: u8) -> Durat
             // The daemon's key stays pinned whatever carries the outer TLS.
             expected_daemon: Some(rig.auth.identity().public_key()),
             auth: ClientAuthMode::Invitation {
-                id: invitation.id,
                 secret: Zeroizing::new(invitation.secret_bytes().unwrap()),
+                id: invitation.id,
             },
             device_name: format!("relay-proxy-{label}"),
             session,
