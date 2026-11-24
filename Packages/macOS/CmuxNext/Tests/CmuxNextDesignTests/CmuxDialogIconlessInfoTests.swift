@@ -67,4 +67,41 @@ struct CmuxDialogIconlessInfoTests {
         #expect(title.map { panel.startsDrag(at: point($0)) } == true)
         #expect(!panel.startsDrag(at: NSPoint(x: 1, y: 1)), "the shadow band lets clicks through")
     }
+
+    /// ask-87b0c2d6e7 polish: the card centers over its window, backs its text, and its panel is always clear.
+    @Test func aCardThatCentersSitsInTheMiddleOfItsAnchorWindow() throws {
+        let anchor = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 900, height: 600), styleMask: [.titled], backing: .buffered, defer: true)
+        let panel = CmuxFloatingDialogPanel(identifier: "test.centered")
+        panel.anchor = { [weak anchor] in anchor }
+        panel.centersOverAnchor = true
+        panel.show(Self.spec) { _ in }
+        defer { panel.hide() }
+        let frame = try #require(panel.cardFrame)
+        #expect(abs(frame.midX - anchor.frame.midX) < 1)
+        #expect(abs(frame.midY - anchor.frame.midY) < 1)
+        panel.centersOverAnchor = false
+        panel.show(Self.spec) { _ in }
+        let top = try #require(panel.cardFrame)
+        #expect(top.midY > anchor.frame.midY, "a card that does not center keeps its place under the window's top edge")
+    }
+
+    @Test func aPanelStaysClearWhateverTheThemeSetsOnItsWindow() {
+        let panel = CmuxFloatingDialogPanel(identifier: "test.clear")
+        panel.backgroundColor = .white
+        #expect(panel.backgroundColor == .clear)
+    }
+
+    @Test func aCardThatBacksItsTextFillsTheGlassContentToTheCardsCorners() throws {
+        var spec = Self.spec
+        spec.backsText = true
+        let card = CmuxDialogView(dialog: .standalone(spec, activeLook: nil, onPress: { _ in }))
+        card.layoutSubtreeIfNeeded()
+        let surface = try #require(Self.find(CmuxDialogCardSurface.self, in: card))
+        let layer = try #require(surface.glass.contentView.layer)
+        #expect(layer.backgroundColor != nil)
+        #expect(layer.cornerRadius == surface.glass.cornerRadius)
+        let plain = CmuxDialogView(dialog: .standalone(Self.spec, activeLook: nil, onPress: { _ in }))
+        let plainSurface = try #require(Self.find(CmuxDialogCardSurface.self, in: plain))
+        #expect(plainSurface.glass.contentView.layer?.backgroundColor == nil)
+    }
 }

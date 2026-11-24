@@ -10,6 +10,23 @@ enum AddMachineCardSpec {
         static let copyDetails = "copyDetails", done = "done", cancel = "cancel"
     }
 
+    /// How the pick card lays out its fields. The gallery compares them (`debug.dialog` states `pick`, `pickCompact`,
+    /// `pickTailnetFirst`); only ``labeled`` ships, and release builds never read another.
+    enum Variant: Equatable {
+        /// Host, Name, then the tailnet's machines, each with its short label.
+        case labeled
+        /// Host and the tailnet's machines only: Name falls back to the host's short name.
+        case compact
+        /// The tailnet's machines first, then Host and Name.
+        case tailnetFirst
+    }
+
+    #if DEBUG
+    @MainActor static var variant = Variant.labeled
+    #else
+    @MainActor static var variant: Variant { .labeled }
+    #endif
+
     @MainActor
     static func spec(runs: AddMachineRuns, candidates: AddMachineDialog.Candidates, values: [String: CmuxDialogValue]) -> CmuxDialogSpec {
         let mode = runs.request.mode
@@ -18,25 +35,28 @@ enum AddMachineCardSpec {
         // making space for ABSOLUTLEY NOTHING"). What a line under the title would explain shows on its info circle.
         func card(_ title: String, info: String? = nil, fields: [CmuxDialogField] = [], buttons: [CmuxDialogButton]) -> CmuxDialogSpec {
             CmuxDialogSpec(usesTransientMaterial: true, title: title, fields: fields, buttons: buttons, leadsWithIcon: false,
-                           info: info, identifier: "cmux.addMachine.card")
+                           info: info, identifier: "cmux.addMachine.card", backsText: true)
         }
         guard let run = runs.run else {
             let destination = values[ID.destination]?.text ?? ""
-            var fields: [CmuxDialogField] = [
-                .text(id: ID.destination, label: nil, initial: destination, placeholder: AddMachineStrings.hostPlaceholder, secure: false),
-                .text(id: ID.name, label: AddMachineStrings.name, initial: values[ID.name]?.text ?? "", placeholder: nil, secure: false),
-            ]
+            let hostField = CmuxDialogField.text(id: ID.destination, label: AddMachineStrings.host, initial: destination,
+                                                 placeholder: AddMachineStrings.hostPlaceholder, secure: false)
+            let nameField = CmuxDialogField.text(id: ID.name, label: AddMachineStrings.name, initial: values[ID.name]?.text ?? "",
+                                                 placeholder: nil, secure: false)
+            var fields: [CmuxDialogField] = variant == .compact ? [hostField] : [hostField, nameField]
+            var tailnet: [CmuxDialogField] = []
             switch candidates {
-            case .loading: fields.append(.progress(AddMachineStrings.lookingForPeers))
+            case .loading: tailnet.append(.progress(AddMachineStrings.lookingForPeers))
             case let .loaded(list) where !list.isEmpty:
                 let picked = list.first { $0.destination == destination }
                 let options = [CmuxDialogOption(label: "—", value: "")] + list.map {
                     CmuxDialogOption(label: [$0.name, $0.os, badge($0) ?? ""].filter { !$0.isEmpty }.joined(separator: " · "), value: $0.id,
                                      isEnabled: $0.isPickable)
                 }
-                fields.append(.choice(id: ID.candidate, label: AddMachineStrings.tailnet, options: options, selected: picked?.id ?? ""))
+                tailnet.append(.choice(id: ID.candidate, label: AddMachineStrings.tailnet, options: options, selected: picked?.id ?? ""))
             default: break
             }
+            fields = variant == .tailnetFirst ? tailnet + fields : fields + tailnet
             return card(AddMachineStrings.title, info: AddMachineStrings.subtitle, fields: fields, buttons: [
                 CmuxDialogButton(id: ID.cancel, title: AddMachineStrings.cancel, role: .cancel),
                 // Return always reaches Add; the card dims it while the field holds no host ssh takes, and Add does nothing then.

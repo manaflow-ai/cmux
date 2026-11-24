@@ -22,6 +22,9 @@ open class CmuxFloatingDialogPanel: NSPanel {
     /// The window the card shows over, top center (a card the person opened from it: app health); nil: the top
     /// right of the main screen (a prompt over every app).
     public var anchor: (@MainActor () -> NSWindow?)?
+    /// Whether the card sits in the middle of the ``anchor`` window, not under its top edge (a card the person opened
+    /// as a task of its own: Add Machine). Off: top center.
+    public var centersOverAnchor = false
     /// Whether showing gives the card the keyboard (a card the person opened by a click, so Escape and Return work
     /// at once); a prompt that comes on its own never takes it.
     public var takesKeyboardOnShow = false
@@ -78,6 +81,14 @@ open class CmuxFloatingDialogPanel: NSPanel {
         let root = FloatingDialogRoot()
         root.wantsLayer = true
         contentView = root
+    }
+
+    /// The panel is clear whatever the theme does to its windows: a backing here shows as a pale rectangle the size
+    /// of the panel around the rounded card (light mode, Add Machine), and the card's own glass and shadow draw
+    /// everything the person sees.
+    open override var backgroundColor: NSColor! {
+        get { .clear }
+        set {}
     }
 
     open override var canBecomeKey: Bool { true }
@@ -183,8 +194,8 @@ open class CmuxFloatingDialogPanel: NSPanel {
             card.origin.x = min(max(card.minX, area.minX), area.maxX - size.width)
             card.origin.y = max(card.minY, area.minY)
         } else if let window {
-            card = NSRect(x: window.frame.midX - size.width / 2, y: min(window.frame.maxY, area.maxY) - Self.anchorTopInset - size.height,
-                          width: size.width, height: size.height)
+            let top = centersOverAnchor ? window.frame.midY + size.height / 2 : min(window.frame.maxY, area.maxY) - Self.anchorTopInset
+            card = NSRect(x: window.frame.midX - size.width / 2, y: top - size.height, width: size.width, height: size.height)
             card.origin.x = min(max(card.minX, area.minX + Self.screenMargin), area.maxX - Self.screenMargin - size.width)
             card.origin.y = max(card.minY, area.minY + Self.screenMargin)
         } else {

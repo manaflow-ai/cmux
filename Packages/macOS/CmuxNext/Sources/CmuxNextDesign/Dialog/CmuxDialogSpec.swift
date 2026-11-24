@@ -27,6 +27,10 @@ public nonisolated struct CmuxDialogSpec: Equatable, Sendable {
     /// the title shows it on hover, so the card reads as one title and its fields (Leo: "THERE ARE HOVERS AND
     /// QUESTION MARK CIRCLES AND INFO CIRCLES"). Nil: no circle.
     public var info: String?
+    /// Whether the glass carries a mostly opaque backing under the words, so a card with a list that changes (Add
+    /// Machine's steps) stays legible over any text behind it (Leo: the menus feel lifeless, and the steps could not
+    /// be read through the glass). The glass, its rim and its shadow stay; only the backing under the text is added.
+    public var backsText: Bool
     /// The accessibility identifier of the dialog view (tests, automation).
     public var identifier: String?
     /// Where the buttons and check boxes go.
@@ -59,7 +63,7 @@ public nonisolated struct CmuxDialogSpec: Equatable, Sendable {
 
     public init(usesTransientMaterial: Bool = false, title: String, lines: [String] = [], origin: String? = nil, fields: [CmuxDialogField] = [],
                 buttons: [CmuxDialogButton], icon: Data? = nil, leadsWithIcon: Bool = true, info: String? = nil,
-                identifier: String? = nil, layout: Layout = .standard, error: String? = nil) {
+                identifier: String? = nil, layout: Layout = .standard, error: String? = nil, backsText: Bool = false) {
         self.usesTransientMaterial = usesTransientMaterial
         self.title = title
         self.lines = lines
@@ -72,6 +76,7 @@ public nonisolated struct CmuxDialogSpec: Equatable, Sendable {
         self.identifier = identifier
         self.layout = layout
         self.error = error
+        self.backsText = backsText
     }
 
     /// The button Return presses: the first `.default`, else none. A person-only button is never pressed by a key.

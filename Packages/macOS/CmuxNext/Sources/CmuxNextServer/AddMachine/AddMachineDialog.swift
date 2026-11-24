@@ -75,6 +75,7 @@ final class AddMachineDialog {
         // does; a run keeps going and a reopen shows it (Leo: "you can't drag it around like one and it sticks
         // around").
         panel.isMovableByPerson = true
+        panel.centersOverAnchor = true
         panel.hidesWhenInactive = true
         panel.onHide = { [weak self] in self?.isOpen = false }
         runs.changed = { [weak self] in self?.draw() }

@@ -4,7 +4,7 @@ public import CmuxNextDesign
 
 /// `debug.server_card {card, state}` (DEBUG builds): captures of the native server cards from fixtures, with no
 /// account, network, tailnet or machine. `card`: `addServer` (state enter, review, refused, added), `pairInvite`
-/// (showing, arrived), `addMachine` (pick, running, failed). Any other card takes them away. Each card's panel keeps
+/// (showing, arrived), `addMachine` (pick, pickCompact, pickTailnetFirst, running, failed). Any other card takes them away. Each card's panel keeps
 /// its fixture until it hides (no state is kept here).
 @MainActor
 public struct ServerCardsDebug {
@@ -99,8 +99,13 @@ public struct ServerCardsDebug {
                 }
             },
             install: { _, _ in .failed("debug") }, connect: { _, _ in nil }, record: { _, _ in }, openWorkspace: { _ in }, copy: { _ in })
+        AddMachineCardSpec.variant = switch state {
+        case "pickCompact": .compact
+        case "pickTailnetFirst": .tailnetFirst
+        default: .labeled
+        }
         let card = AddMachineCard(services: services)
-        if state == "pick" {
+        if state.hasPrefix("pick") {
             card.open(destination: "studio", name: nil, over: window)
         } else {
             card.add(destination: "studio", name: "Studio", over: window)
