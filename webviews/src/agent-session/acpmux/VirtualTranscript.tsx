@@ -156,6 +156,7 @@ import {
   TURN_END_ATTR,
   type TurnEndCapture,
   type TurnEndFold,
+  turnEndRecap,
 } from "./conversation/turnEndFold";
 import { installGutterSelect, type HeldRow } from "./conversation/gutterSelect";
 import {
@@ -167,7 +168,7 @@ import {
   type ChatFind,
   rowHolds,
 } from "./conversation/chatFind";
-import { LIVE_THINKING, THINKING, foldCovers, turnFooterFrom, retryTargetIn } from "./conversation/turns";
+import { LIVE_THINKING, THINKING, foldCovers, turnFooterFrom, retryTargetIn, NEXT_STEP } from "./conversation/turns";
 import { createLiveLinePulse } from "./conversation/liveLinePulse";
 import { installWheelGlide } from "./wheelGlide";
 import { installDockWheelHold, installWheelPassThrough } from "./wheelPassThrough";
@@ -3429,7 +3430,9 @@ function TranscriptView({
   // for as long as the page took (Leo, 2026-11-06: "it, like, thinks that I can, and then it doesn't
   // actually let me scroll up ... it pushes me back to the bottom"). `room` keeps a tail shorter than
   // the view where it was drawn, at the view's foot.
-  const [roomGone, setRoomGone] = useState<{ sessionId?: string; firstId: string; room: number } | undefined>();
+  const [roomGone, setRoomGone] = useState<
+    { sessionId?: string; firstId: string; room: number; end: number } | undefined
+  >();
   // The view's height and saved place for a cold open's estimate (`roughAbove`), read without making
   // either an input of it.
   const coldView = useRef({ height, openAt });
@@ -3588,6 +3591,14 @@ function TranscriptView({
       last && last.sessionId === sessionId && last.width === rowWidth ? (last.layout.origin ?? 0) : 0;
     // Placed through the gap-aware index (placedHeightIndex.ts): a streamed token or a drawn
     // height reads only the rows it changed, in O(log rows) each, and copies no row's place.
+    // What the closures below read of the last pass is copied out first: a closure here that named `last` would keep
+    // it in this pass's scope, which the placed layout's index keeps, so each layout kept the one before it and its
+    // rows, every pass of the chat (the long chat's heap went 40 -> 117 MB; repository-cache-held.cost.test.ts).
+    const lastHere = last && last.sessionId === sessionId ? last : undefined;
+    const mountedFirst = lastHere?.first ?? 0;
+    const mountedLast = lastHere?.last ?? 0;
+    const mountedHeld = lastHere?.held ?? [];
+    const mountedRows = lastHere?.rows ?? [];
     const placed =
       drawn.size === 0
         ? placedFromEstimate(estimated.layout, placedOrigin)
@@ -3613,10 +3624,8 @@ function TranscriptView({
               // again: its estimate, which reads the same stores (rowOpenState.ts), places it. A
               // mounted row is measured in the state it is drawn in before the frame paints.
               const mounted =
-                last !== undefined &&
-                last.sessionId === sessionId &&
-                ((index >= last.first && index < last.last) || last.held.includes(index)) &&
-                last.rows[index]?.id === row.id;
+                ((index >= mountedFirst && index < mountedLast) || mountedHeld.includes(index)) &&
+                mountedRows[index]?.id === row.id;
               if (!drawnOpenStateHolds(known, sessionId, row, mounted)) return undefined;
               return known.height;
             },
@@ -3638,7 +3647,7 @@ function TranscriptView({
     // into the room above, so the rows in view and the scrollbar's thumb stay where they were.
     const leftAbove =
       last && last.sessionId === sessionId && last.width === rowWidth
-        ? heightLeftAbove(last.rows, (index) => last.layout.geometry.topAt(index), rows)
+        ? heightLeftAbove(last.rows, last.layout.geometry, rows)
         : 0;
     // A rail jump made another page the held window (direct.ts `jumpWindow`): no row is the last pass's, so the
     // room above is estimated again for the rows there now.
@@ -3658,8 +3667,13 @@ function TranscriptView({
       canLoadOlder && roomGone && roomGone.sessionId === sessionId && rows[0]?.id === roomGone.firstId
         ? roomGone
         : undefined;
+    // What is left once the room went: rows that draw shorter than they were then (`giveRoomNearTop`) get the
+    // difference back above them, so the short tail's end stays at the view's foot. A fixed room let a tail
+    // 13 px under the view's height fall back to the top, and the view then followed the latest row down those
+    // 13 px when the first older page landed (bench/settled-page.bench.ts chat_switch, stream). Rows that grow
+    // keep the room as it was: taken from it, each streamed token moved every row above it (workspace_switch).
     const reserved = gone
-      ? { reserve: gone.room, state: undefined }
+      ? { reserve: Math.max(gone.room, gone.end - (placed.totalHeight - placedOrigin)), state: undefined }
       : olderReserve(olderRoom.current, {
           sessionId,
           rows,
@@ -4859,11 +4873,25 @@ function TranscriptView({
             // the rows it brings, not the reply's text that lands in the send's window. A
             // steer's next reply segment landing within SEND_RISE_MS moved 40.69 px in one frame, and
             // a send's first reply row 38.75 px (send-stream-motion.test.ts); they drift with the stream.
+            // The turn's closing recap card (wrapUp.ts) arrives in place: with the shipped `place`
+            // entrance the pass that brings it moves the rows at once, so the card is drawn whole where
+            // it lands in the frame it comes. On the chase it came in at the view's bottom edge and the
+            // view followed it up 109 px over 100 ms (fold-variants-record, big-claude-recap). Leo,
+            // 2026-11-22: "i think the fade in from the bottom is pretty awkward sometimes when you
+            // finish chats." `open` and `hold` keep the chase (their own entrances ride it).
+            // O(the last rows): the card lands at the tail, or just above the live line.
+            let recapCame = false;
+            for (let index = rows.length - 1; index >= Math.max(0, rows.length - 3) && !recapCame; index -= 1) {
+              const row = rows[index]!;
+              if (row.kind === NEXT_STEP && !oldRows.slice(-4).some((old) => old.id === row.id)) recapCame = true;
+            }
+            if (recapCame && turnEndRecap(node) !== "place") recapCame = false;
             const atOnce =
               dockMoved ||
               !live ||
               stepped ||
               slimFollow ||
+              recapCame ||
               (followArm === "steady" && (promptCame || (sentRows && noReplyCame(oldRows, rows))));
             // A row that came above the live line (not the reply's own growth) holds back up to the
             // trail bound, while the live line glides under it (followChase CHASE_ARRIVAL_HOLD_LINES).
@@ -5610,7 +5638,7 @@ function TranscriptView({
     // height also holds the thread's own padding).
     const next = Math.max(0, Math.floor(room - Math.max(0, node.scrollHeight - node.clientHeight)));
     if (next >= room - 0.5) return;
-    setRoomGone({ sessionId, firstId: first.id, room: next });
+    setRoomGone({ sessionId, firstId: first.id, room: next, end: next + measured.layout.totalHeight - room });
   };
   // After the placement pass above: its offset is the one this reads, and the state it sets renders
   // again before the frame paints.

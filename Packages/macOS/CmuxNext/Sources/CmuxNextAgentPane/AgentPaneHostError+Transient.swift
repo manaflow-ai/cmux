@@ -30,6 +30,18 @@ nonisolated extension AgentPaneHostError {
         }
     }
 
+    /// Whether the host is carrying out a planned restart or start of acpmux (an update's handoff of a
+    /// replaced daemon, the build-home adoption, a chief that is starting), which ends when the
+    /// restarted daemon answers: the page's link is not down for it, so it shows nothing
+    /// (`details.handoff`; Leo, 2026-11-22: "surely we can think of better fixes than random timing
+    /// which can shift"). A daemon that stopped, exited or timed out is down for real.
+    var isPlannedRestart: Bool {
+        switch self {
+        case .daemonRestarting, .chiefStarting: true
+        default: false
+        }
+    }
+
     /// The start of a foreign-home refusal's `reason`, so ``isTransient`` tells it from an unknown peer.
     static let foreignHomeReason = "it serves the acpmux home "
 }
