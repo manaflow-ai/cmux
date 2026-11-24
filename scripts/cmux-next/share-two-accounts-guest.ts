@@ -126,7 +126,10 @@ export async function createGuest(out: string, guestAccess: string, shareURL: st
       async waitUpdate(marker: string) {
         // One animation frame per check avoids Playwright's adaptive locator retry delay in this metric.
         await step("render owner update", () => page.waitForFunction(
-          text => document.querySelector<HTMLElement>(".guest-live__transcript")?.innerText.includes(text),
+          // A prompt sent while the agent's turn runs waits in the queue above the composer until
+          // the turn ends; either place is the guest seeing the owner's update.
+          text => [...document.querySelectorAll<HTMLElement>('.guest-live__transcript, [data-testid="guest-queue"]')]
+            .some(shown => shown.innerText.includes(text)),
           marker, { polling: "raf", timeout: WAIT_MS },
         ));
         const observed = performance.now();
