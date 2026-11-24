@@ -32,7 +32,7 @@ mod sealed_segments;
 mod segment_starts;
 mod segment_table;
 pub use kind_heads::KindHead;
-pub use kind_index::{DIR as KIND_INDEX_DIR, INDEXED_KINDS};
+pub use kind_index::{DIR as KIND_INDEX_DIR, INDEXED_KINDS, carry_copy as carry_kind_index};
 use segment_table::SegmentList;
 mod fork_view;
 pub use fork_view::{
@@ -152,6 +152,36 @@ impl SessionStatus {
 impl std::fmt::Display for SessionStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())
+    }
+}
+
+/// Why a chat waits on the person: every [`SessionStatus::Waiting`] has one, written with it
+/// (`Hub::set_waiting`, the only way into Waiting), so a client always says what it waits for (the
+/// summary's `waitingOn`). Never a bare Waiting (goal cloud-chat-waiting-always-explained).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WaitReason {
+    /// An agent's question (AskUserQuestion, Codex user input), carried as a permission request.
+    Question,
+    /// A tool's permission: only the person allows it (`hub/person.rs`).
+    Permission,
+    /// A card asking to connect an MCP server (`hub/mcp_connect.rs`).
+    McpConnect,
+    /// A private card asking for a secret's value (`hub/secrets.rs`).
+    Secret,
+    /// A private card asking for the password to run one command as root (`hub/elevation.rs`).
+    Elevation,
+}
+
+impl WaitReason {
+    /// The summary's `waitingOn` for it.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Question => "question",
+            Self::Permission => "permission",
+            Self::McpConnect => "mcp_connect",
+            Self::Secret => "secret",
+            Self::Elevation => "elevation",
+        }
     }
 }
 
@@ -597,6 +627,10 @@ pub struct SessionMeta {
     /// before the restart, and the wake's log says how long it slept.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub hibernated_ms: u64,
+    /// Who closed the chat last, why, and whether its work was done (`close_why.rs`): kept on
+    /// every close, so a closed row (`close`) says what closed it after its log is compacted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub close: Option<crate::close_why::CloseRecord>,
     /// What the idle census knew of its hosted harness's MCP servers, for the next daemon that
     /// adopts that host (`hub/idle_census.rs`, `StoredLaunch`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
