@@ -702,6 +702,10 @@ fn fresh(
         source_session_id: begun["source_session"].as_str().map(str::to_owned),
         to_socket: args.to.clone(),
         cwd: args.cwd.clone(),
+        source_tab: begun["tab"]
+            .as_str()
+            .map(str::to_owned)
+            .or_else(|| pinned.as_ref().and_then(|pinned| pinned.source_tab.clone())),
         begin_token: pinned.and_then(|pinned| pinned.begin_token),
         ..Record::default()
     };
@@ -1112,14 +1116,19 @@ const FINISHING_PAUSE: Duration = Duration::from_millis(250);
 /// running, after a finish answer was lost or a rerun came in during it),
 /// the pump asks again until that finish's own bound has passed: a cut
 /// connection that dropped only the answer otherwise left the chat open
-/// there and frozen here until someone ran the move again.
+/// there and frozen here until someone ran the move again. A target daemon
+/// that answers while its acpmux is not back yet (`agent_transfer.unavailable`:
+/// the machine's processes were killed and are restarting) is waited for the
+/// same way: it cannot say yet, and it will once acpmux is up.
 fn ask_landed(record: &Record) -> Option<bool> {
     let deadline = Instant::now() + FINISH_TIMEOUT + CALL_TIMEOUT;
     loop {
         match ask_landed_once(record) {
             Asked::Settled(landed) => return Some(landed),
-            Asked::Finishing if Instant::now() < deadline => std::thread::sleep(FINISHING_PAUSE),
-            Asked::Finishing | Asked::NoAnswer => return None,
+            Asked::Finishing | Asked::Restarting if Instant::now() < deadline => {
+                std::thread::sleep(FINISHING_PAUSE)
+            }
+            Asked::Finishing | Asked::Restarting | Asked::NoAnswer => return None,
         }
     }
 }
@@ -1128,17 +1137,22 @@ enum Asked {
     Settled(bool),
     /// The target answered and cannot say yet: nothing was forgotten there.
     Finishing,
+    /// The target daemon answered without its acpmux (restarting): nothing was forgotten there.
+    Restarting,
     NoAnswer,
 }
 
 fn ask_landed_once(record: &Record) -> Asked {
     let Some(receive_id) = record.receive_id.as_deref() else { return Asked::NoAnswer };
     let params = json!({"receive_id": receive_id});
-    let Ok(answer) =
-        call_once(&record.to_socket, "agent-transfer-receive-abort", params, CALL_TIMEOUT)
-    else {
-        return Asked::NoAnswer;
-    };
+    let answer =
+        match call_once(&record.to_socket, "agent-transfer-receive-abort", params, CALL_TIMEOUT) {
+            Ok(answer) => answer,
+            Err(CallError::Refused { code, .. }) if code == "agent_transfer.unavailable" => {
+                return Asked::Restarting;
+            }
+            Err(_) => return Asked::NoAnswer,
+        };
     match (answer["landed"].as_bool(), answer["forgotten"].as_bool()) {
         (Some(true), _) => Asked::Settled(true),
         // Only a forgotten move stays not landed.
@@ -1162,7 +1176,8 @@ fn give_back(args: &Args, records: &Records, record: &mut Record) -> Result<(), 
     // Kept for a rerun if the source cannot be told now.
     record.landed = Some(false);
     let _ = records.save(record);
-    let params = json!({"surface": args.surface, "transfer_id": record.transfer_id});
+    let mut params = source_tab(args, record);
+    params.set("transfer_id", json!(record.transfer_id));
     match call_once(&args.from, "agent-transfer-abort", params, CALL_TIMEOUT) {
         Ok(_) => {}
         // Ended already (the source's own lease aborts an unread move), as
@@ -1190,8 +1205,9 @@ fn commit(
 ) -> Result<Moved, Failed> {
     record.landed = Some(true);
     let _ = records.save(record);
-    let params = json!({"surface": args.surface, "transfer_id": record.transfer_id,
-                        "to": {"cwd": record.cwd}});
+    let mut params = source_tab(args, record);
+    params.set("transfer_id", json!(record.transfer_id));
+    params.set("to", json!({"cwd": record.cwd}));
     if let Err(error) = call_once(&args.from, "agent-transfer-commit", params, CALL_TIMEOUT) {
         let error = format!("the chat landed there but did not close here: {}", error.message());
         return Err(unresolved(record, error));
@@ -1240,6 +1256,7 @@ fn pin_begin(args: &Args, records: &Records, token: Option<String>) -> Option<Re
     let session = answer["session"].as_str().filter(|id| !id.is_empty())?;
     let record = Record {
         source_session_id: Some(session.to_owned()),
+        source_tab: answer["tab"].as_str().map(str::to_owned),
         to_socket: args.to.clone(),
         cwd: args.cwd.clone(),
         begin_token: Some(token.or_else(new_begin_token)?),
@@ -1254,9 +1271,19 @@ fn pin_begin(args: &Args, records: &Records, token: Option<String>) -> Option<Re
 /// cannot be told.
 fn same_chat(args: &Args, record: &Record) -> bool {
     let Some(pinned) = record.source_session_id.as_deref() else { return false };
-    let params = json!({"surface": args.surface});
+    let params = source_tab(args, record);
     call_once(&args.from, "agent-transfer-source", params, CALL_TIMEOUT)
         .is_ok_and(|answer| answer["session"].as_str() == Some(pinned))
+}
+
+/// How the source verbs of `record`'s move name its tab: by the public id the source answered
+/// (it outlives a restart of the source daemon, which gives the tab a new surface), else by
+/// `--surface` (a source too old to answer one).
+fn source_tab(args: &Args, record: &Record) -> Value {
+    match &record.source_tab {
+        Some(tab) => json!({"tab": tab}),
+        None => json!({"surface": args.surface}),
+    }
 }
 
 /// The chat is frozen in a move this command did not record.
