@@ -53,7 +53,7 @@ jobs:
           RUNS: ${{ inputs.runs || '5' }}
         run: |
           set -o pipefail
-          bun scripts/cmux-next/cloud-fork-placement.ts --backend staging --runs "$RUNS" --out "$RUNNER_TEMP/fork-placement.json"
+          bun scripts/cmux-next/cloud-fork-placement.ts --backend staging --runs "$RUNS" --split --out "$RUNNER_TEMP/fork-placement.json"
       - name: Verdict in the summary
         if: always()
         run: |

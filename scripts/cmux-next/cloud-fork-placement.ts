@@ -57,6 +57,26 @@ export type RunRow = {
   agent: string;
   error: string | null;
   cleanup: string[];
+  /** --split: the fork's steps done one at a time on the same parent (see splitPhases). */
+  split?: SplitRow | null;
+};
+
+/**
+ * The platform's fork is capture (cloud.snapshot.create until the snapshot is ready), then create
+ * (cloud.snapshot.restore), then size, stepped by its operation loop (cmux-platform PlatformOperations.ts).
+ * --split times each step from here: snapshot_call_ms (the op's answer), snapshot_ready_ms (listed ready),
+ * restore_call_ms, restore_running_ms (machine running with a host), boot_to_exec_ms (first command),
+ * acpmux_ready_ms (acpmux answers). The fork call minus their sum is what the operation loop adds.
+ */
+export type SplitRow = {
+  snapshot_call_ms: number | null;
+  snapshot_ready_ms: number | null;
+  restore_call_ms: number | null;
+  restore_running_ms: number | null;
+  boot_to_exec_ms: number | null;
+  acpmux_ready_ms: number | null;
+  restore_timings: unknown;
+  error: string | null;
 };
 
 /** The setup command: marker, one-commit repo, a detached counter. Prints marker sha, HEAD, pid. */
@@ -154,6 +174,62 @@ async function mintInstallToken(api: Api, apiBase: string, userId: string, tag: 
   return { id: String(inst.id), token: tok.body.access_token };
 }
 
+async function splitPhases(api: Api, parent: string, tag: string, run: number, journey: { secrets: string[] }, cleanup: string[]): Promise<SplitRow> {
+  const r: SplitRow = { snapshot_call_ms: null, snapshot_ready_ms: null, restore_call_ms: null, restore_running_ms: null, boot_to_exec_ms: null, acpmux_ready_ms: null, restore_timings: null, error: null };
+  let snapshot: string | null = null;
+  let copy: string | null = null;
+  try {
+    const s0 = Date.now();
+    const snap = await api.op("cloud.snapshot.create", { machine: parent, name: `cloud fork placement ${tag} split ${run}` }, `${tag}-split-snap-${run}`);
+    r.snapshot_call_ms = Date.now() - s0;
+    const id = snap?.snapshot?.id ?? snap?.snapshot ?? snap?.id;
+    if (typeof id !== "string") throw new Error(`snapshot.create answered no id`);
+    snapshot = id;
+    for (;;) {
+      const list = await api.read("cloud.snapshot.list", {}).catch(() => null);
+      const rows: any[] = Array.isArray(list) ? list : list?.snapshots ?? list?.items ?? [];
+      const row = rows.find((x) => x?.id === id);
+      if (row?.status === "failed") throw new Error("snapshot failed");
+      if (row?.status === "ready") break;
+      if (Date.now() - s0 > 360_000) throw new Error("snapshot not ready in 6 minutes");
+      await sleep(500);
+    }
+    r.snapshot_ready_ms = Date.now() - s0;
+    const c0 = Date.now();
+    const answer = await api.op("cloud.snapshot.restore", { snapshot: id, name: `cloud fork placement ${tag} split ${run}` }, `${tag}-split-restore-${run}`);
+    r.restore_call_ms = Date.now() - c0;
+    r.restore_timings = answer?.timings ?? answer?.machine?.timings ?? null;
+    copy = String(answer?.machine?.id ?? answer?.machine ?? answer?.id);
+    await waitMachine(api, copy, (m) => m?.status === "running" && Boolean(m?.host), 300_000);
+    r.restore_running_ms = Date.now() - c0;
+    const exec = directExec(api, copy, journey);
+    const e0 = Date.now();
+    await firstExec(exec, 180_000);
+    r.boot_to_exec_ms = Date.now() - e0;
+    const a0 = Date.now();
+    for (;;) {
+      const a = await exec("command -v acpmux >/dev/null && acpmux ls >/dev/null 2>&1 && echo up || echo down", 30_000).catch(() => ({ stdout: "" }));
+      if (a.stdout.includes("up")) break;
+      if (Date.now() - a0 > 120_000) throw new Error("acpmux did not answer in 120 s");
+      await sleep(500);
+    }
+    r.acpmux_ready_ms = Date.now() - a0;
+  } catch (e) {
+    r.error = scrub(String((e as Error).message), journey.secrets).slice(0, 300);
+  } finally {
+    if (copy) await api.deleteMachine(copy, `${tag}-split-delete-${run}`).then(() => cleanup.push("split copy deleted"), () => cleanup.push(`split copy NOT deleted (${copy})`));
+    if (snapshot) {
+      for (let attempt = 1; ; attempt++) {
+        const err = await api.op("cloud.snapshot.delete", { snapshot }, `${tag}-split-snap-delete-${run}-${attempt}`).then(() => null, (e: unknown) => String((e as Error)?.message ?? e));
+        if (err === null || /not_found/.test(err)) { cleanup.push("split snapshot deleted"); break; }
+        if (attempt >= 12) { cleanup.push(`split snapshot NOT deleted (${snapshot})`); break; }
+        await sleep(10_000);
+      }
+    }
+  }
+  return r;
+}
+
 async function main(): Promise<number> {
   const backend = resolveBackend(arg("--backend", "staging")!);
   const runs = Math.max(1, Math.min(10, Number(arg("--runs", "1"))));
@@ -213,6 +289,7 @@ async function main(): Promise<number> {
       row.agent = agent.stdout.includes("up") ? "acpmux answers on the copy" : `acpmux did not answer: ${(agent.stderr || agent.stdout).slice(0, 200)}`;
       const read = await http("GET", `${platform}/v1/machines/${encodeURIComponent(row.child)}`, undefined, platformHeaders(), 15_000);
       row.child_cost = read.status === 200 ? { route: "GET {platform}/v1/machines/{id} cost", cost: read.body?.cost ?? null } : { route: "GET {platform}/v1/machines/{id}", status: read.status };
+      if (process.argv.includes("--split")) row.split = await splitPhases(api, row.parent, tag, run, journey, row.cleanup);
     } catch (e) {
       row.error = scrub(String((e as Error).message), secrets);
     } finally {
