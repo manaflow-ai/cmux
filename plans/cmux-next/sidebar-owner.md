@@ -1,5 +1,11 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-23: Restore Automatic as the default for `sidebar.groupHeader.background` after Lawrence asked who
+  changed how groups look. A group opens with its visible header band and member rail. Folders and the six
+  other alternatives remain available to people who choose them. Regression: `SidebarGroupBackgroundSettingTests`,
+  `ChiefGroupRailTests`, and `SidebarGroupsAsFoldersTests`.
+
+- 2026-11-24 (perf-sidebar-ticking, #47054): Sidebar-Look: no visual change, logged for 854e3d78713, 8a7fe3b912c and 27900050de3 (pushed before the trailer rule reached this branch). A workspace row builds its spoken accessibility label when an assistive app reads it (`accessibilityLabel()`), cached until its words change, not on every configure: a progress tick configured each row 4 times a second and built the label's localized numbers and joined line every time (stable gate `sidebar.400.ticking.main_ms_per_s`). Nothing drawn changes; VoiceOver reads the same words, the agent pill's title included. Regression: `SidebarRowLabelOnDemandTests`.
 - 2026-11-14 (Remote ergonomics flow 5, ports): Sidebar-Look: Leo asked “and how are the ergonomics of cmux remote tho esp in the gui?”. The workspace hover card draws each port of the workspace's `ports` entry as a row under the tab list ("localhost:5173", network icon, the tab rows' hover and pressed fill), with details shut or open; a click opens it in a browser tab of the workspace, on another machine through its daemon. The entry no longer repeats as a details fact when it has a port to open; one with only words still does. Gallery: "Ports · this Mac · one port", "· two ports · details open", "· another machine · its localhost", "· port row hovered".
 - 2026-11-14 (CMUX-383 row layouts): Leo asked for “as well as adding a proper customizing path”.
   The native row now consumes Rust-resolved `lines`, `linesByKind` and `linesByAgent` from
@@ -145,6 +151,15 @@
   (`WorkspaceRowContent.summaryLine`). Source: acpmux `rollingSummary` on the chat's row. Tests:
   `SidebarRollingSummaryTests`. Stills: the States Playground's pinned hover card and the idle row's Expanded line carry a
   summary (`SidebarStatesPlaygroundFixture`), shot by `AASidebarStatesGalleryTests` (`sidebar-states-gallery.tar`).
+- 2026-11-19 (lane/look-menus-proportions): Sidebar-Look: Leo, 2026-11-19: "i think y'all also ought to emulate the things
+  for context menu styling and such maybne in those repos too and the layout and proportions as well". Opt-in
+  `sidebar.drawnMenus` (off, so no visual change by default): the sidebar's right-click menus and a row's more button
+  open as a `GlassMenu` (same rows, shortcuts, submenus, keys, accessibility) that the menu look keys can style, at the
+  pointer or under the more button. Drawn, the workspace and group menus skip the name-and-swatches header (a row view
+  GlassMenu does not draw) and keep Rename... and the Color submenu. Off, every sidebar menu is the system menu, as
+  before (Lawrence 2026-10-23's standard right-click menus stay the default). Values per look:
+  docs/cmux-next/menu-look.md. Tests: `SidebarDrawnMenusSettingTests`, `AASidebarDrawnMenuGalleryTests`.
+
 - 2026-11-19 (lane/needs-you-glow): Sidebar-Look: Leo, 2026-11-19, on eight new features: "all of them" and "some of
   them maybe just as customizations lol if it affects default looks". "Needs you" as motion, off by default: with
   `notifications.attention.mark` `glow` (default `badge`, no change), a workspace row that waits for the person (an
@@ -2756,6 +2771,20 @@ Commits logged without a trailer (the card above):
   densities. The shared trailing column still reserves the local Share Screen action. Regression coverage:
   `SidebarSearchButtonTests`, `SidebarEvenRowInsetsTests`, `NowPlayingCardTests`.
   Sidebar-Look: every density is Default scaled by one factor.
+
+- 2026-11-17 (Lawrence, via Leo: "also for customization make it possible to turn out sidebar into [another app]'s
+  sidebar"): two opt-in settings and a theme file restyle the sidebar into a minimal session list, with no code
+  change. `sidebar.workspaceRow.statusPlacement` `leading` draws the row's status mark (badge, agent mark or spinner)
+  in the leading icon slot, which the row keeps while idle so the title's x never moves; `trailing` (the default) is
+  today's drawing. `appearance.statusIndicator.iconSet` makes the status icon set a setting (default `codex`, the
+  Debug override still wins). A theme file now also takes the rows' density, text size, status icons, grouping and
+  every `sidebar.workspaceRow.<name>`; `Resources/theme-files/minimal-sessions.json` ships the look. The default
+  sidebar does not change. Regression: `SidebarRowStatusPlacementTests`, `StatusIconSetSettingTests`,
+  `WorkspaceRowStatusPlacementSettingTests`, `ThemeFileTests.aThemeFileSetsHowTheSidebarRowsDraw`.
+  With the status leading, an agent mark standing in for the status (`sidebar.agentMark` `replacesStatus`) hides
+  while the row badge holds the slot, so one mark draws (review at 2371b98d824, F2;
+  `SidebarRowStatusPlacementTests.leadingDrawsOneMarkWhenTheAgentMarkStandsInForTheStatus`).
+  Sidebar-Look: also for customization make it possible to turn out sidebar into a minimal session list (Lawrence).
 
 - 2026-11-21 (pin lifecycle tour, Leo: "actually, the entire pin lifecycle is weird as shit"): a pinned workspace
   draws as a block item, not a list row, so `rowFrameOnScreen` (the icon picker's anchor and `debug.mouse`'s `row`)
