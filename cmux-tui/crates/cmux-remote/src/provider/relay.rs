@@ -2113,6 +2113,59 @@ where
     Err(last_error.unwrap_or_else(|| relay_carrier_error("relay circuit join timed out")))
 }
 
+/// How long a daemon's registration WebSocket has alone before a second one opens beside it. A
+/// fresh Cloud machine's first outbound open sometimes dies silently while its network settles
+/// just after the create: production `cloud-chat-replies-production`, fresh machines, 2026-11-20
+/// to 11-24, 2 of 27 daemons logged `attempt 1 failed ... no answer within 10000 ms` and
+/// registered 10.8 and 11.1 s after they started (the retry, 86 ms later, registered in under a
+/// second), while the other 25 registered 0.15 to 0.5 s after the daemon started. Every dial
+/// parks behind that registration (`connect.link` 21 to 27 s). A healthy open is done in well
+/// under a second, so a second open at 1 s lands inside the client's wait.
+const DAEMON_REGISTER_STAGGER: Duration = Duration::from_secs(1);
+/// Registration opens of one attempt in all: one every [`DAEMON_REGISTER_STAGGER`] while none
+/// has opened.
+const DAEMON_REGISTER_ATTEMPTS: usize = 3;
+
+/// The first of `attempt`'s results that is Ok, starting one attempt at once and another every
+/// `stagger` while none has finished (at most `most` in all). An error `fatal` names, or the
+/// last error once no attempt is left running, ends it at once: a fast refusal is the caller's
+/// retry to schedule, not an open to hedge. Each attempt keeps its own bound, and the ones that
+/// lose are dropped, which closes their sockets before any Register is sent on them.
+async fn hedged_open<T, E, F, Fut>(
+    mut attempt: F,
+    stagger: Duration,
+    most: usize,
+    fatal: impl Fn(&E) -> bool,
+) -> Result<T, E>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, E>>,
+{
+    use futures_util::stream::FuturesUnordered;
+    let mut running = FuturesUnordered::new();
+    running.push(attempt());
+    let mut launched = 1_usize;
+    let mut next_launch = Instant::now() + stagger;
+    loop {
+        let more = launched < most.max(1);
+        tokio::select! {
+            Some(result) = running.next() => match result {
+                Ok(opened) => return Ok(opened),
+                Err(error) => {
+                    if fatal(&error) || running.is_empty() {
+                        return Err(error);
+                    }
+                }
+            },
+            _ = tokio::time::sleep_until(next_launch), if more => {
+                running.push(attempt());
+                launched += 1;
+                next_launch = Instant::now() + stagger;
+            }
+        }
+    }
+}
+
 /// Joins the circuit an `Incoming` names and hands it to `daemon`, unless the
 /// circuit is already joined or the registration holds its most circuits. The
 /// Join is hedged ([`DAEMON_JOIN_STAGGER`]); one that never became Ready is
@@ -2274,11 +2327,18 @@ async fn authenticate_daemon_control(
         let fetched_at = Instant::now();
         let credential = credentials.fetch().await?;
         let renew_at = renewal_time(credentials, &credential, fetched_at);
-        let mut socket = match connect_relay_socket_once(
-            &config.endpoint,
-            Some(&credential),
-            MAX_RELAY_CONTROL_MESSAGE_BYTES,
-            tls,
+        let mut socket = match hedged_open(
+            || {
+                connect_relay_socket_once(
+                    &config.endpoint,
+                    Some(&credential),
+                    MAX_RELAY_CONTROL_MESSAGE_BYTES,
+                    tls,
+                )
+            },
+            DAEMON_REGISTER_STAGGER,
+            DAEMON_REGISTER_ATTEMPTS,
+            |error| matches!(error, RelaySocketConnectError::Authentication),
         )
         .await
         {
@@ -2429,9 +2489,8 @@ async fn connect_relay_tcp(endpoint: &Url) -> Result<TcpStream, WebSocketError> 
     let addresses = super::dial::resolve_dial_target(host, port)
         .await
         .map_err(|error| WebSocketError::Io(std::io::Error::other(error.to_string())))?;
-    let addresses = super::hedge::v6_first(&addresses);
     let socket =
-        super::hedge::connect(&addresses, super::hedge::HedgePolicy::INTERNET, TcpStream::connect)
+        super::hedge::connect_tcp(host, port, &addresses, super::hedge::HedgePolicy::INTERNET)
             .await
             .map_err(WebSocketError::Io)?;
     let _ = socket.set_nodelay(true);
