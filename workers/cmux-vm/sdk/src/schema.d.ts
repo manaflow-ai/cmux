@@ -592,7 +592,7 @@ export interface paths {
         put?: never;
         /**
          * Snapshot a running or paused VM
-         * @description Snapshot a running or paused VM. Requires the snapshot:write scope. Each capture is journaled before sending. A key permanently identifies one capture; use a fresh key for a new capture. Retained failures return pendingSnapshotId. Inspect, reconcile or cancel it at /v1/snapshot-creations/:snapshotId; reconcile never captures again. Omitted-key requests are separate captures; recover a lost handle from GET /v1/snapshot-creations. Unknown outcomes retain quota. A VM booted from a snapshot resumes from the captured memory. Whether the guest kernel's random number generator is reseeded, and whether the machine id, hostname and clock change on restore, is not documented by the platform and is not yet verified: assume every VM booted from one snapshot starts with identical RNG state, machine id and hostname, and reseed, regenerate and resync them in the guest when that matters.
+         * @description Snapshot a running or paused VM. Requires the snapshot:write scope. Each capture is journaled before sending. A key permanently identifies one capture; use a fresh key for a new capture. Retained failures return pendingSnapshotId. Inspect, reconcile or cancel it at /v1/snapshot-creations/:snapshotId; reconcile never captures again. Omitted-key requests are separate captures; recover a lost handle from GET /v1/snapshot-creations. Unknown outcomes retain quota. A VM booted from a snapshot resumes from the captured memory. On the cmux VM image, cmux-host sees the new instance id on the first boot of a restore or fork and, before any role starts, reseeds the kernel RNG, writes a new machine id and SSH host key (the inherited RSA, ECDSA and DSA host keys are removed), makes new per-machine install and WireGuard keys, and drops remote session state; the one-time bind token is spent and removed. The hostname and the clock are not changed. On any other image none of this runs: assume every VM booted from one snapshot starts with identical RNG state, machine id, host keys and hostname, and reseed, regenerate and resync them in the guest when that matters.
          */
         post: operations["snapshots.createSnapshot"];
         delete?: never;
@@ -1509,8 +1509,7 @@ export interface components {
             /** @description a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
             pendingSnapshotId?: string;
             retryAfterSeconds?: components["schemas"]["Int"];
-            /** @enum {string} */
-            budget?: "snapshots" | "vms" | "rate" | "capacity" | "mesh.perTenant" | "device.perMesh" | "firewallRule.perMesh" | "firewallRule.perResource" | "firewallRule.account" | "aclApply.perMeshPerMinute" | "enrollmentCode.perMeshPerHour" | "address.perDevice" | "agent_vms" | "agent_usd_per_hour";
+            budget?: string;
             /** @enum {string} */
             _tag: "QuotaExceeded";
         };
@@ -2001,7 +2000,7 @@ export interface components {
              */
             autoDeleteSeconds?: components["schemas"]["Int"];
         };
-        /** @description A VM's memory and disk, captured. A VM booted from a snapshot resumes from the captured memory. Whether the guest kernel's random number generator is reseeded, and whether the machine id, hostname and clock change on restore, is not documented by the platform and is not yet verified: assume every VM booted from one snapshot starts with identical RNG state, machine id and hostname, and reseed, regenerate and resync them in the guest when that matters. */
+        /** @description A VM's memory and disk, captured. A VM booted from a snapshot resumes from the captured memory. On the cmux VM image, cmux-host sees the new instance id on the first boot of a restore or fork and, before any role starts, reseeds the kernel RNG, writes a new machine id and SSH host key (the inherited RSA, ECDSA and DSA host keys are removed), makes new per-machine install and WireGuard keys, and drops remote session state; the one-time bind token is spent and removed. The hostname and the clock are not changed. On any other image none of this runs: assume every VM booted from one snapshot starts with identical RNG state, machine id, host keys and hostname, and reseed, regenerate and resync them in the guest when that matters. */
         Snapshot: {
             /** @description a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
             id: string;
@@ -5414,7 +5413,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description A VM's memory and disk, captured. A VM booted from a snapshot resumes from the captured memory. Whether the guest kernel's random number generator is reseeded, and whether the machine id, hostname and clock change on restore, is not documented by the platform and is not yet verified: assume every VM booted from one snapshot starts with identical RNG state, machine id and hostname, and reseed, regenerate and resync them in the guest when that matters. */
+            /** @description A VM's memory and disk, captured. A VM booted from a snapshot resumes from the captured memory. On the cmux VM image, cmux-host sees the new instance id on the first boot of a restore or fork and, before any role starts, reseeds the kernel RNG, writes a new machine id and SSH host key (the inherited RSA, ECDSA and DSA host keys are removed), makes new per-machine install and WireGuard keys, and drops remote session state; the one-time bind token is spent and removed. The hostname and the clock are not changed. On any other image none of this runs: assume every VM booted from one snapshot starts with identical RNG state, machine id, host keys and hostname, and reseed, regenerate and resync them in the guest when that matters. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -5590,7 +5589,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description A VM's memory and disk, captured. A VM booted from a snapshot resumes from the captured memory. Whether the guest kernel's random number generator is reseeded, and whether the machine id, hostname and clock change on restore, is not documented by the platform and is not yet verified: assume every VM booted from one snapshot starts with identical RNG state, machine id and hostname, and reseed, regenerate and resync them in the guest when that matters. */
+            /** @description A VM's memory and disk, captured. A VM booted from a snapshot resumes from the captured memory. On the cmux VM image, cmux-host sees the new instance id on the first boot of a restore or fork and, before any role starts, reseeds the kernel RNG, writes a new machine id and SSH host key (the inherited RSA, ECDSA and DSA host keys are removed), makes new per-machine install and WireGuard keys, and drops remote session state; the one-time bind token is spent and removed. The hostname and the clock are not changed. On any other image none of this runs: assume every VM booted from one snapshot starts with identical RNG state, machine id, host keys and hostname, and reseed, regenerate and resync them in the guest when that matters. */
             200: {
                 headers: {
                     [name: string]: unknown;

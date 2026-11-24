@@ -6,6 +6,7 @@
 // Search covers emoji names, CLDR keywords and shortcodes (English and Japanese) and symbol names
 // and keywords. Keyboard driven from the search field; typing anywhere searches. Hosts: the icon
 // picker page (a native panel around a prewarmed web view) and any React page that embeds it.
+import { keycapLegend } from "../ui/keycapLegend";
 import {
   useRef,
   useState,
@@ -359,7 +360,7 @@ export function IconPicker({
                 onClick={() => pick(active)}
               >
                 {t("iconPicker.setIcon")}
-                <kbd className="icon-keycap">↩</kbd>
+                <kbd className="icon-keycap">{keycapLegend("↩")}</kbd>
               </button>
               <span className="icon-bar-divider" aria-hidden />
             </>

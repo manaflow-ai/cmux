@@ -5,7 +5,7 @@
 // sub-agent, or is this literally just a duplicate of you?"
 import { useEffect, useState } from "react";
 import type { AcpmuxRow } from "../model";
-import { SubagentFold, type Event, type Subagent } from "./subagentFold";
+import { SUBAGENTS, SubagentFold, type Event, type Subagent } from "./subagentFold";
 import type { Folds } from "../conversation/viewFolds";
 import { SUBAGENT_EMPTY, childView, subagentsIn } from "./subagentRows";
 
@@ -53,15 +53,36 @@ const drawsNothing = (view: readonly AcpmuxRow[]) => view.some((row) => row.kind
 /// rows: when they do not hold it, when they hold it but none of its own rows (a chat whose loaded
 /// page kept its stop and lost its work: the "Subagent stopped" line opened "No messages yet",
 /// Leo, 2026-11-12: "NO MESSAGES DISPLAYED?"), and when it is no longer running, whose page may
-/// hold only its last rows. A running subagent the page holds draws live from the chat.
+/// hold only its last rows, unless the page holds its whole run (``holdsWholeRun``). A running
+/// subagent the page holds draws live from the chat, and so does a finished one it holds whole:
+/// its pane draws its rows in its first frame and never swaps to a fuller read (Leo, 2026-11-22:
+/// "they need to be able to load faster and without layout shifts").
 export function needsOwnLog(
   id: string,
-  chat: { rows: readonly AcpmuxRow[]; views?: Record<string, AcpmuxRow[]> },
+  chat: { rows: readonly AcpmuxRow[]; views?: Record<string, AcpmuxRow[]>; wholeHistory?: boolean },
 ): boolean {
   const agent = subagentsIn(chat.rows, chat.views).get(id);
   if (!agent) return true;
   if (!chat.views?.[id]?.length) return true;
-  return agent.state !== "running";
+  return agent.state !== "running" && !holdsWholeRun(id, chat);
+}
+
+/// Whether the chat's loaded rows hold every record of top-level subagent `id`: the chat holds its
+/// whole history (`wholeHistory`, no older page left), or a row older than the subagent's first
+/// record (its group's `seq`). The loaded page runs without a hole from its first record to the newest,
+/// so every later record of the subagent is in it too. A nested subagent (no group row of its own in
+/// the chat's rows) is never proven whole here.
+export function holdsWholeRun(id: string, chat: { rows: readonly AcpmuxRow[]; wholeHistory?: boolean }): boolean {
+  if (chat.wholeHistory) return true;
+  let start: number | undefined;
+  let earliest = Number.POSITIVE_INFINITY;
+  for (const row of chat.rows) {
+    if (row.seq === undefined) continue;
+    if (row.seq < earliest) earliest = row.seq;
+    if (row.kind === SUBAGENTS && row.subagents?.some((agent) => agent.id === id && agent.parent === null))
+      start = row.seq;
+  }
+  return start !== undefined && earliest < start;
 }
 
 /// What a pane showing subagent `id` draws: its view from the chat's rows when they hold its own

@@ -187,7 +187,7 @@ case "$*" in
 --version) if [ "${{0##*/}}" = acpmux ]; then echo "acpmux 1.0.0 ({build})"; else echo "cmux 1.0.0"; fi;;
 "--json daemon status") if [ -f "$HOME/daemon" ]; then printf '{{\n  "build": "%s",\n  "pid": %s,\n  "personInstance": "{PEER_DAEMON}"\n}}\n' "$(cat "$HOME/daemon")" "$(cat "$HOME/daemon-pid" 2>/dev/null || echo 4242)"; else printf '{{\n  "running": false,\n  "error": "daemon not running"\n}}\n'; fi;;
 "--json ls") cat "$HOME/sessions.json";;
-"daemon shutdown"*) rm -f "$HOME/daemon";;
+"daemon shutdown"*) rm -f "$HOME/daemon"; if [ -f "$HOME/unit-takes-over" ]; then rm -f "$HOME/unit-takes-over"; touch "$HOME/active-acpmux.service"; echo 5252 > "$HOME/daemon-pid"; echo 5252 > "$HOME/unit-main-pid"; ~/.local/bin/acpmux __start; fi;;
 "--json daemon start"|__start) if [ -f "$HOME/launchd-host" ] && [ -f "$HOME/daemon" ]; then echo 'daemon.lock held' >> "$HOME/calls"
   else {start}; if [ -f "$HOME/launchd-host" ]; then if [ "$1" = __start ]; then echo 4242; else echo 5151; fi > "$HOME/daemon-pid"; fi; fi;;
 esac
@@ -218,6 +218,7 @@ if [ "$2" = show ] && [ "$5" = LoadState ]; then if [ -f "$d/$3" ]; then echo lo
 if [ "$2" = show ] && [ "$5" = FragmentPath ]; then if [ -f "$d/$3" ]; then echo "$d/$3"; fi; exit 0; fi
 dirs() { n=${1%.service}; x=; while case "$n" in *-*) true;; *) false;; esac; do x="$x${n%%-*}-"; n=${n#*-}; echo "$d/$x.service.d"; done; echo "$d/$1.d"; }
 lines() { { cat "$d/$1"; for x in $(dirs "$1"); do cat "$x/"*.conf; done; } 2>/dev/null | sed 's/^[[:space:]]*\([A-Za-z]*\)[[:space:]]*=[[:space:]]*/\1=/' | sed "s|%h|$HOME|g"; }
+if [ "$2" = show ] && [ "$5" = MainPID ]; then cat "$HOME/unit-main-pid" 2>/dev/null || echo 0; exit 0; fi
 if [ "$2" = show ] && [ "$5" = ActiveState ]; then if [ -f "$HOME/active-$3" ]; then echo active; else echo inactive; fi; exit 0; fi
 if [ "$2" = show ] && [ "$5" = ExecStart ]; then a=$(lines "$3" | sed -n 's/^ExecStart=[-@:+!]*//p' | tail -1); [ -z "$a" ] || echo "{ path=${a%% *} ; argv[]=$a ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }"; exit 0; fi
 if [ "$2" = show ] && [ "$5" = EnvironmentFiles ]; then lines "$3" | sed -n 's/^EnvironmentFile=\(.*\)$/\1 (ignore_errors=no)/p'; exit 0; fi

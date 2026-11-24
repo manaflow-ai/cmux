@@ -142,7 +142,12 @@ export default componentEntry<ChiefWebProps>({
   height: 844,
   widths: { narrow: 390, normal: 768, wide: 1280 },
   pane: true,
-  load: () => import("./ChiefWeb").then((module) => module.ChiefWeb),
+  // The transcript chunk first, so a variant draws its rows on its first frame as the page does once loaded.
+  load: async () => {
+    const module = await import("./ChiefWeb");
+    await module.loadChiefTranscript();
+    return module.ChiefWeb;
+  },
   variants: {
     "phone-light": {
       props: fixture(),
@@ -154,6 +159,10 @@ export default componentEntry<ChiefWebProps>({
     empty: { props: fixture("empty") },
     streaming: { props: fixture("streaming") },
     reconnecting: { props: fixture("reconnecting") },
+    "transcript-load-failed": {
+      props: { ...fixture(), loadTranscript: () => Promise.reject(new Error("offline")), reloadPage: () => {} },
+      note: "The transcript's chunk could not load (a dropped connection): the page says so with Retry, and keeps trying.",
+    },
     "machine-claude": {
       props: fixture("signin-claude"),
       note: "Selected: one quiet run-scoped sign-in card above the composer.",

@@ -36,9 +36,13 @@ public struct LiveAPI: Sendable {
         public var removed: Bool?
         /// The computer the Mac runs on (added 2026-10-21): one per computer, shared by its cmux builds.
         public var machineId: String?
+        /// Milliseconds since the service last heard the Mac's heartbeat; only for an online Mac
+        /// (PROTOCOL.md "Mac freshness"). An older Worker sends none.
+        public var quietMs: Int?
 
         public init(deviceId: String, name: String, online: Bool, lastSeenAt: String? = nil, ownerUserId: String? = nil, teamId: String? = nil, removed: Bool? = nil,
-                    machineId: String? = nil) {
+                    machineId: String? = nil, quietMs: Int? = nil) {
+            self.quietMs = quietMs
             self.deviceId = deviceId
             self.name = name
             self.online = online

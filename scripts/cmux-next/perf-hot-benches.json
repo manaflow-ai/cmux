@@ -1,6 +1,11 @@
 {
   "_doc": "Hot-path ids for `// perf-hot: <budget> <path-id>` markers (plans/cmux-next/codebase-health.md section 6). scripts/cmux-next/guardrails.py warns when a push changes a marked function and names the bench here. Run it yourself on the fleet (nx-remote --needs gui), light and STRESS (perf-lead-brief), before and after, even when CI also runs it.",
   "paths": {
+    "ios-terminal-native-key": {
+      "what": "one key the iPhone software keyboard types into the terminal (TerminalSurfaceView.insertText): the input router, Ghostty's text input, and the keyboard's text-change announce only where its context needs it",
+      "bench": "cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA --key KEY --arg test --arg ui=TerminalTypingWhileStreamingUITests --artifact artifacts/ios-sim/evidence.zip (TYPING_BENCH: keyMainP50ms/P95ms per phase, focused and unfocused)",
+      "owner": "cmux-next iOS"
+    },
     "chat-rows-frame-apply": {
       "what": "one slice of a v2 chat's row batch in the frame lane (webviews rows/receiver.ts drain): parse and apply changes one at a time, give way to a pending key, commit and answer taken at the batch's end",
       "bench": "cd webviews && bun bench/page-row-store.bench.ts (v2.frame_paced: apply ms per batch, taken per frame, longest task, one 256 KiB change)",
@@ -160,6 +165,11 @@
       "what": "one key in the agent chat composer: the prompt's markdown written from each top-level block's kept markdown (MarkdownField.tsx blockwiseMarkdown), so only the block the key changed is serialized",
       "bench": "CMUX_LATENCY_DRAFTS=1 bun webviews/scripts/latency/run.ts --page \"chat draft typing\" (10k and 200k-character drafts, 3,000-turn chat)",
       "owner": "agent chat composer"
+    },
+    "agent-chat-stream-reveal": {
+      "what": "one reveal frame of a streaming agent reply (Markdown.tsx with replyScan.ts): the reply's footnotes and folders read from its tail, its closed blocks drawn from the elements kept for them, so a frame's cost does not grow with the reply",
+      "bench": "cd webviews && bun bench/composer-typing.bench.ts --lengths 60 --modes reply --reply-words 2000,20000 (frame_p50 / frame_p95 and key to frame while one long reply streams)",
+      "owner": "agent chat"
     },
     "session-list-change": {
       "what": "one session_changed while the agent pane is open (direct.ts sessionChanged, then App's per-snapshot projections of snapshot.sessions: hover info, sub-session store, Waiting on you, folders). Its cost must not grow with the number of listed sessions.",

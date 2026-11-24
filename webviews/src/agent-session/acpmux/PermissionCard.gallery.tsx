@@ -29,8 +29,12 @@ type BuildStyle = "split" | "quiet" | "detached";
 /// How each answer's letter (y, a, n) sits beside its other keys: "slash" (shipped, "Y / ⌘ ↩"),
 /// "only" (the letter alone; Esc and ⌘↩ still answer) or "joined" (no slash, a wider gap).
 type LetterStyle = "slash" | "only" | "joined";
+/// Where Edit plan sits on a Claude Code plan: "leading" (shipped, a quiet button before Keep
+/// planning), "trailing" (beside Approve plan) or "link" (an underlined text link, no button chrome).
+type EditStyle = "leading" | "trailing" | "link";
 type Props = Pick<ComponentProps<typeof PermissionCard>, "permission" | "harness" | "fullAccessMode" | "shortcuts"> & {
   buildStyle?: BuildStyle;
+  editStyle?: EditStyle;
   letterStyle?: LetterStyle;
   scopeStyle?: ScopeStyle;
   rowStyle?: RowStyle;
@@ -59,6 +63,15 @@ const buildStyles: Record<Exclude<BuildStyle, "split">, string> = {
       border-radius: var(--ds-radius-popup); background: color-mix(in srgb, var(--agent-text) 10%, transparent); color: var(--agent-text);
     }
   `,
+};
+
+const editStyles: Record<Exclude<EditStyle, "leading">, string> = {
+  trailing: `
+    .acpmux-permission-ask .acpmux-permission-buttons button.acpmux-permission-plan-edit { order: 2; margin-inline-start: auto; }`,
+  link: `
+    .acpmux-permission-ask .acpmux-permission-buttons button.acpmux-permission-plan-edit {
+      background: none; padding-inline: 2px; text-decoration: underline; text-underline-offset: 3px; color: var(--agent-muted);
+    }`,
 };
 
 const oneTimeStyles: Record<Exclude<OneTimeStyle, "line">, string> = {
@@ -220,6 +233,7 @@ const claudePlan: AcpmuxPermission = {
   kind: "other",
   title: "Approve plan",
   plan: PLAN,
+  planEditable: true,
   pending: true,
   options: [
     { id: "allow_once", name: "Allow", kind: "allow_once", allow: true },
@@ -249,6 +263,7 @@ function GalleryPermissionCard({
   rowStyle,
   oneTimeStyle,
   buildStyle,
+  editStyle,
   letterStyle,
   uiFont,
 }: Props) {
@@ -268,6 +283,7 @@ function GalleryPermissionCard({
       {oneTimeStyle && oneTimeStyle !== "line" && <style>{oneTimeStyles[oneTimeStyle]}</style>}
       {buildStyle && buildStyle !== "split" && <style>{buildStyles[buildStyle]}</style>}
       {letterStyle && letterStyle !== "slash" && <style>{letterStyles[letterStyle]}</style>}
+      {editStyle && editStyle !== "leading" && <style>{editStyles[editStyle]}</style>}
       <div className="acpmux-main">
         <div className="acpmux-permission acpmux-asks-stack" ref={stack}>
           <ShortcutsContext value={labels}>
@@ -279,6 +295,10 @@ function GalleryPermissionCard({
               onAnswer={() => undefined}
               // A plan offers its other builds, as the chat's card does (rows/PermissionAsk.tsx).
               onBuildPlan={permission.plan ? () => new Promise(() => undefined) : undefined}
+              // Claude Code's plan takes an edit before Approve plan, as the chat's card does.
+              onApproveEditedPlan={
+                permission.plan && permission.planEditable ? () => new Promise(() => undefined) : undefined
+              }
             />
           </ShortcutsContext>
         </div>
@@ -307,6 +327,21 @@ const buildMenu: Play = async (ctx) => {
   const approve = ctx.document.querySelector(".acpmux-plan-build-split button.acpmux-permission-primary");
   if (approve?.getAttribute("aria-label") !== "Approve plan") throw new Error("Approve plan lost its label");
   if (!approve.getAttribute("aria-keyshortcuts")?.includes("Meta+Enter")) throw new Error("Approve plan lost ⌘↩");
+};
+
+/// Edit plan turns the plan into its text; Discard edit takes the button's place.
+const openPlanEdit: Play = async (ctx) => {
+  await ctx.click({ selector: "button.acpmux-permission-plan-edit" });
+  await ctx.waitFor(() => ctx.document.querySelector("textarea.acpmux-permission-plan-editor"));
+  if (ctx.document.querySelector(".acpmux-permission-plan-edited"))
+    throw new Error("An unchanged plan says it was edited");
+};
+
+/// A changed plan says Approve plan sends the edited version.
+const editPlan: Play = async (ctx) => {
+  await openPlanEdit(ctx);
+  await ctx.type("\n4. Note the retry in the changelog.", { selector: "textarea.acpmux-permission-plan-editor" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-permission-plan-edited"));
 };
 
 export default componentEntry<Props>({
@@ -376,6 +411,28 @@ export default componentEntry<Props>({
     "plan-claude": {
       note: 'Leo 2026-11-05: "i like these plans too... i want us to be able to render it in ours". Claude Code\'s ExitPlanMode: the plan renders as Markdown in the card, with Approve plan and Keep planning (which opens a field for what to change).',
       props: { permission: claudePlan, harness: "claude" },
+    },
+    "plan-edit": {
+      note: 'Leo 2026-11-23, the feature map: "plan pane that stays during the build, editable plan sent back". Shipped: a Claude Code plan offers Edit plan as a quiet button before Keep planning; Approve plan keeps ⌘↩.',
+      props: { permission: claudePlan, harness: "claude" },
+    },
+    "plan-edit-editing": {
+      note: "Shipped: Edit plan turns the plan into its Markdown text in place; the button becomes Discard edit and Esc in the text discards too.",
+      props: { permission: claudePlan, harness: "claude" },
+      play: openPlanEdit,
+    },
+    "plan-edit-edited": {
+      note: "Shipped: once the text differs, a muted line says Approve plan sends this version; Approve plan (and every build target) sends the edited plan to the agent.",
+      props: { permission: claudePlan, harness: "claude" },
+      play: editPlan,
+    },
+    "plan-edit-trailing": {
+      note: "Alternative: Edit plan beside Approve plan. Reads as a second way to approve rather than a change to the plan.",
+      props: { permission: claudePlan, harness: "claude", editStyle: "trailing" },
+    },
+    "plan-edit-link": {
+      note: "Alternative: Edit plan as an underlined link with no button chrome. Quietest, but easy to miss next to Keep planning.",
+      props: { permission: claudePlan, harness: "claude", editStyle: "link" },
     },
     "plan-build-split": {
       note: 'Shipped. Leo 2026-11-08: "esp valuable things that people would think "wow this is awesome"". Approve plan stays the filled primary with ⌘↩; a chevron joined to it opens Build here, Build in a new worktree, and Build on two agents and compare (Claude and Codex), one split button instead of more buttons.',

@@ -50,7 +50,7 @@ pub(super) fn embed_message_context(
 }
 
 fn resolve_exact(hub: &Hub, id: &str) -> Option<Arc<Session>> {
-    hub.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned()
+    hub.session_get(id)
 }
 
 pub(super) fn message_context_from_provenance(provenance: &Value) -> Option<MessageContext> {
@@ -243,7 +243,11 @@ pub(super) fn message_context(
     let mut sender = if let Some(sender) = opts.message_sender.as_ref() {
         sender.clone()
     } else {
-        json!({"name": name, "sessionId": sender_session, "host": host_label()})
+        let mut sender = json!({"name": name, "sessionId": sender_session, "host": host_label()});
+        if let Some(given) = crate::prompt_provenance::display_name_of(opts.provenance.as_ref()) {
+            sender.set("displayName", json!(given));
+        }
+        sender
     };
     if let Some(label) = crate::prompt_provenance::declared_label(opts.provenance.as_ref()) {
         sender.set("label", json!(label));

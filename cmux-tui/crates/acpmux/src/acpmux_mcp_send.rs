@@ -29,7 +29,18 @@ const SEND_CONCURRENCY: usize = 32;
 const INLINE_FILE_BYTES: u64 = 256 << 10;
 /// How long a batch gives each session name to resolve to its id ([`aliases`]), before its
 /// own wait for the deliveries.
-const RESOLVE_WAIT: Duration = crate::rpc::ANSWER_WAIT;
+const RESOLVE_WAIT: Duration = Duration::from_secs(10);
+/// The whole `send` call, inside the shortest MCP tool timeout of the harnesses (Codex: 60 s,
+/// `acpmux_mcp.rs` `STATUS_WAIT`). Every step's bound is cut to what is left of it (RFD 0050
+/// rule 5: an inner bound is shorter than the outer that calls it, so the error names the step
+/// that ran out and the harness never times the call out first).
+const CALL_BUDGET: Duration = Duration::from_secs(50);
+const _: () = assert!(
+    RESOLVE_WAIT.as_millis() + STATUS_WAIT.as_millis() + RELAY_WAIT.as_millis()
+        <= CALL_BUDGET.as_millis(),
+    "resolve, settle and relay must fit in the call's budget"
+);
+const _: () = assert!(CALL_BUDGET.as_millis() < 60_000, "the call must end before Codex's 60 s");
 
 pub(super) fn tool() -> Value {
     json!({
@@ -430,6 +441,7 @@ pub(super) fn read_message_file(path: &str) -> Result<(String, Option<Arc<Messag
 /// `send` with one session (the first shape): its result fields, text and errors are the ones
 /// this tool always gave; only `file` and `supersede` are new.
 async fn send_one(daemon: &Arc<Client>, args: &Value, sub: Option<&Value>) -> Value {
+    let call_end = tokio::time::Instant::now() + CALL_BUDGET;
     if arg(args, "to").is_none()
         || (args.get("text").and_then(Value::as_str).is_none()
             && arg(args, "file").is_none()
@@ -454,7 +466,7 @@ async fn send_one(daemon: &Arc<Client>, args: &Value, sub: Option<&Value>) -> Va
     let (prompt, queued) = match queue(daemon, &target, sub, None).await {
         Ok(sent) => sent,
         Err(e) => {
-            return match relay(&target, &e, sub).await {
+            return match relay(&target, &e, sub, call_end).await {
                 Some(row) if row_ok(&row) => {
                     let text_of = |k: &str| row.get(k).and_then(Value::as_str).unwrap_or_default();
                     ok(
@@ -495,6 +507,7 @@ async fn send_one(daemon: &Arc<Client>, args: &Value, sub: Option<&Value>) -> Va
 /// `send` with `messages` or `tag`: every item's recipients, then the messages, a row per
 /// recipient; an item that names no one is one row with its error.
 async fn send_batch(daemon: &Arc<Client>, args: &Value, sub: Option<&Value>) -> Value {
+    let call_end = tokio::time::Instant::now() + CALL_BUDGET;
     let items = match items(args) {
         Ok(items) => items,
         Err(e) => return error_result(e),
@@ -562,7 +575,7 @@ async fn send_batch(daemon: &Arc<Client>, args: &Value, sub: Option<&Value>) -> 
                 in_order(&targets, chain, deadline, move |target, wait, after| async move {
                     match queue(daemon, target, sub, after.as_deref()).await {
                         Ok((prompt, queued)) => settle(daemon, target, &prompt, queued, wait).await,
-                        Err(e) => match relay(target, &e, sub).await {
+                        Err(e) => match relay(target, &e, sub, call_end).await {
                             Some(row) => row,
                             None => target.row(false, "failed", Some(format!("{e:#}"))),
                         },
@@ -643,11 +656,14 @@ pub(super) async fn aliases(daemon: &Arc<Client>, targets: &[Target]) -> Vec<Vec
                 if tokio::time::Instant::now() >= deadline {
                     return (name, None, true);
                 }
-                let id =
-                    tokio::time::timeout_at(deadline, crate::cli::run::resolve_id(&daemon, &name))
-                        .await
-                        .ok()
-                        .and_then(Result::ok);
+                let id = tokio::time::timeout_at(
+                    deadline,
+                    crate::cli::resolve::control_route(&daemon, &name),
+                )
+                .await
+                .ok()
+                .and_then(Result::ok)
+                .and_then(|(id, current)| current.then_some(id));
                 (name, id, false)
             }
             .boxed()
@@ -769,8 +785,13 @@ async fn tag_recipients(
     Ok(found)
 }
 
-/// How long a relayed send may take (`relay`).
-const RELAY_WAIT: Duration = Duration::from_secs(45);
+/// How long a relayed send may take (`relay`), cut to what is left of [`CALL_BUDGET`].
+const RELAY_WAIT: Duration = Duration::from_secs(25);
+
+/// The deadline of a relayed send started now: [`RELAY_WAIT`], never past the call's end.
+fn relay_deadline(call_end: tokio::time::Instant) -> tokio::time::Instant {
+    (tokio::time::Instant::now() + RELAY_WAIT).min(call_end)
+}
 
 /// A message the outbox refused because its target names no session here and no peer lists it,
 /// handed to the configured send relay as `acpmux send` does (`cli/send_relay.rs`): its row, or
@@ -782,6 +803,7 @@ pub(super) async fn relay(
     target: &Target,
     e: &anyhow::Error,
     sub: Option<&Value>,
+    call_end: tokio::time::Instant,
 ) -> Option<Value> {
     if target.file.is_some() || !format!("{e:#}").to_lowercase().contains("no session") {
         return None;
@@ -802,7 +824,14 @@ pub(super) async fn relay(
     let class = target.item.class.as_deref().and_then(crate::prompt_class::PromptClass::parse);
     let from = crate::cli::send_relay::RelayMetadata::new(from, sub, class);
     let (session, text) = (target.key.clone(), target.text.clone());
-    let deadline = tokio::time::Instant::now() + RELAY_WAIT;
+    if call_end <= tokio::time::Instant::now() {
+        let why = format!(
+            "the call's {}s budget ran out before the send relay was tried: {e:#}",
+            CALL_BUDGET.as_secs()
+        );
+        return Some(target.row(false, "failed", Some(why)));
+    }
+    let deadline = relay_deadline(call_end);
     let done = tokio::task::spawn_blocking(move || {
         let done = crate::cli::send_relay::relay_with_deadline(
             &relay,
@@ -902,8 +931,9 @@ async fn settle(
     let delivery = queued.get("deliveryId").and_then(Value::as_str).unwrap_or_default().to_owned();
     let wait_ms = u64::try_from(wait.as_millis()).unwrap_or(u64::MAX);
     let ask = json!({"deliveryId": delivery, "waitMs": wait_ms});
-    // The mesh relay's note of a class it carried in the text (`server/mesh_send.rs`).
-    let notes: Vec<(&str, Value)> = ["classInline", "note"]
+    // The mesh relay's note of a class it carried in the text or a supersede key it dropped
+    // (`server/mesh_send.rs`).
+    let notes: Vec<(&str, Value)> = ["classInline", "supersedeDropped", "note"]
         .into_iter()
         .filter_map(|key| queued.get(key).map(|v| (key, v.clone())))
         .collect();
@@ -958,6 +988,13 @@ fn row_ok(row: &Value) -> bool {
 fn sent_line(row: &Value) -> String {
     let s = |k: &str| row.get(k).and_then(Value::as_str).unwrap_or_default();
     let (to, prompt_id, delivery) = (s("to"), s("promptId"), s("deliveryId"));
+    // The target's given name, from its acceptance, first: "Sent to Mango · HOST/NAME".
+    let given = row
+        .pointer("/accepted/displayName")
+        .and_then(Value::as_str)
+        .filter(|n| crate::session_handle::valid(n));
+    let label = crate::prompt_provenance::display_label(given, to);
+    let to = label.as_str();
     if !row_ok(row) {
         if to.is_empty() {
             let index = row.get("index").cloned().unwrap_or(Value::Null);
@@ -997,4 +1034,54 @@ fn batch_result(results: Vec<Value>) -> Value {
         out.set("isError", json!(true));
     }
     out
+}
+
+#[cfg(test)]
+mod sent_line_tests {
+    use super::sent_line;
+    use serde_json::json;
+
+    /// Leo: "the send/recieve messages are still only the older names". The confirmation names
+    /// the target by its given name, its HOST/NAME beside it; a target without one reads as before.
+    #[test]
+    fn a_send_confirmation_names_the_target_by_its_given_name() {
+        let row = |accepted| {
+            json!({"ok": true, "to": "studio-mac/coord-old", "promptId": "p1",
+                   "deliveryId": "d1", "delivery": "started", "accepted": accepted})
+        };
+        assert_eq!(
+            sent_line(&row(json!({"sessionId": "s1", "displayName": "Mango"}))),
+            "Sent to Mango · studio-mac/coord-old: it started a turn with it (promptId p1)."
+        );
+        assert_eq!(
+            sent_line(&row(json!({"sessionId": "s1"}))),
+            "Sent to studio-mac/coord-old: it started a turn with it (promptId p1)."
+        );
+        // Sent by the given name: said once.
+        let mut by_given = row(json!({"sessionId": "s1", "displayName": "Mango"}));
+        by_given["to"] = json!("Mango");
+        assert_eq!(sent_line(&by_given), "Sent to Mango: it started a turn with it (promptId p1).");
+    }
+}
+
+#[cfg(test)]
+mod budget_nesting_tests {
+    use super::*;
+
+    /// A relay started late in the call gets only what is left, never its full wait.
+    #[tokio::test(start_paused = true)]
+    async fn the_relay_deadline_is_cut_to_the_calls_end() {
+        let start = tokio::time::Instant::now();
+        let call_end = start + CALL_BUDGET;
+        assert_eq!(relay_deadline(call_end), start + RELAY_WAIT);
+        tokio::time::advance(CALL_BUDGET - Duration::from_secs(3)).await;
+        assert_eq!(relay_deadline(call_end), call_end);
+    }
+
+    /// The steps nest: each inner wait is shorter than the call that runs it.
+    #[test]
+    fn inner_waits_are_shorter_than_the_call() {
+        assert!(RESOLVE_WAIT < CALL_BUDGET && RELAY_WAIT < CALL_BUDGET);
+        assert!(CALL_BUDGET < Duration::from_secs(60));
+    }
 }

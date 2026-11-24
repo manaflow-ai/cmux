@@ -32,6 +32,8 @@ public nonisolated enum BackdropShader: String, CaseIterable, Sendable {
     case lanterns
     /// Rain on a window at night, city lights soft behind the glass.
     case rain
+    /// Block Matrix: a fine matrix of faint dots lit in blocks; a glow follows the pointer.
+    case matrix
 
     /// The prefix of a persisted id (`shader:currents`).
     public static let idPrefix = "shader:"
@@ -59,6 +61,7 @@ public nonisolated enum BackdropShader: String, CaseIterable, Sendable {
         case .snowfall: String(localized: "backdrop.shader.snowfall", defaultValue: "Snowfall", bundle: .localizedModule)
         case .lanterns: String(localized: "backdrop.shader.lanterns", defaultValue: "Lanterns", bundle: .localizedModule)
         case .rain: String(localized: "backdrop.shader.rain", defaultValue: "Rain", bundle: .localizedModule)
+        case .matrix: String(localized: "backdrop.shader.matrix", defaultValue: "Block Matrix", bundle: .localizedModule)
         }
     }
 
@@ -87,6 +90,8 @@ public nonisolated enum BackdropShader: String, CaseIterable, Sendable {
             String(localized: "backdrop.shader.lanterns.attribution", defaultValue: "Live · lanterns near the pointer glow", bundle: .localizedModule)
         case .rain:
             String(localized: "backdrop.shader.rain.attribution", defaultValue: "Live · rain trickles down the glass", bundle: .localizedModule)
+        case .matrix:
+            String(localized: "backdrop.shader.matrix.attribution", defaultValue: "Live · blocks of dots light up around the pointer", bundle: .localizedModule)
         }
     }
 
@@ -116,6 +121,7 @@ public nonisolated enum BackdropShader: String, CaseIterable, Sendable {
         case .snowfall: 40
         case .lanterns: 55
         case .rain: 20
+        case .matrix: 21
         }
     }
 

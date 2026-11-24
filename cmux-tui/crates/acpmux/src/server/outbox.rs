@@ -676,6 +676,13 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
         let ready = hub.outbox.peer_ready.notified();
         tokio::pin!(ready);
         ready.as_mut().enable();
+        // The same for the hub's gate opening (`mesh_gate.rs` `Gate::opened`): a delivery the
+        // hub carries is tried the moment the hub takes a post again (RFD 0086 item 2).
+        let opened = hub.mesh.gate().opened.notified();
+        tokio::pin!(opened);
+        opened.as_mut().enable();
+        // This attempt asked the team hub (or its gate kept it from asking).
+        let mut relayed = false;
         let attempt = delivery.attempts + 1;
         // Saved as maybe sent, and with its pin, before the attempt may reach the peer
         // (below): an attempt whose state is not on disk does not go (review of #37284 at
@@ -730,6 +737,7 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
         } else if delivery.relay_post.is_some() {
             // The hub may hold it already: only the relay tries it again. With the relay off here
             // it may still deliver it (the target's daemon reads it), so it is never sent twice.
+            relayed = true;
             relay_attempt(hub, &delivery).await.unwrap_or_else(|| {
                 let key = delivery.relay_post.as_ref().map_or("", |m| m.idempotency_key.as_str());
                 let why = format!(
@@ -768,6 +776,7 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
             match outcome {
                 // Nothing has reached the target: the mesh relay carries it when it can.
                 Err((error, Next::Unsent)) if delivery.never_sent => {
+                    relayed = true;
                     match relay_attempt(hub, &delivery).await {
                         Some(Ok(accepted)) => Ok(accepted),
                         Some(Err((why, next))) => Err((format!("{error}; {why}"), next)),
@@ -920,14 +929,42 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                 // keeps its bounded schedule: another peer's reconnects must not use it up. A
                 // message's wait never runs past its day; an intent's delays are never cut, so an
                 // intent older than a day after a restart does not spend its retries at once.
-                let sleep =
-                    tokio::time::sleep(retry_sleep(&delivery, secs, crate::store::now_ms()));
-                if delivery.projection_only() || !wake_on_ready {
-                    sleep.await;
-                } else {
+                //
+                // A delivery the hub carries (its post is kept) ends its wait when the hub's gate
+                // opens: the outbox drains as soon as the hub is back, not on each send's own
+                // schedule. Its key makes the post again the same message. One the hub's shut gate
+                // held waits for the gate, not its own schedule: until the gate lets its next probe
+                // go (with a little jitter, so the queue does not race for it) or the hub takes any
+                // post, whichever comes first. Twenty sends refused in one window go together once
+                // it opens, in their order (`waits_behind`), rather than one per window as each own
+                // back-off ran out (RFD 0049 R1).
+                let own = retry_sleep(&delivery, secs, crate::store::now_ms());
+                let by_hub = hub.outbox.get(id).is_some_and(|d| d.relay_post.is_some());
+                let behind_gate = !delivery.projection_only() && relayed && hub.mesh.gate().shut();
+                let wait = match hub.mesh.gate().reopens_at().filter(|_| behind_gate) {
+                    Some(at) => own.min(gate_wait(at, crate::peer_link::jitter())),
+                    None => own,
+                };
+                let sleep = tokio::time::sleep(wait);
+                tokio::pin!(sleep);
+                let on_ready = !delivery.projection_only() && wake_on_ready;
+                let on_open = !delivery.projection_only() && (by_hub || behind_gate);
+                loop {
                     tokio::select! {
-                        () = sleep => {}
-                        () = ready => {}
+                        () = &mut sleep => break,
+                        () = &mut opened, if on_open => break,
+                        () = &mut ready, if on_ready => {
+                            // `peer_ready` is one signal for every peer. Another peer's link
+                            // coming back leaves this one's still down: waking for it retried
+                            // (and ssh-carried, and journaled) every queued delivery at once on
+                            // each link flap anywhere. Re-armed before the look, so a ready in
+                            // between is not missed.
+                            ready.set(hub.outbox.peer_ready.notified());
+                            ready.as_mut().enable();
+                            if hub.peer_down_for(&delivery.target).is_none() {
+                                break;
+                            }
+                        }
                     }
                 }
             }
@@ -1062,6 +1099,8 @@ async fn redeliver_one(
         }
         Step::Release => close_open(hub, d, od::release).await,
         Step::Wait | Step::Check => {}
+        // Answered a duplicate with its final outcome already: closed, not sent again (`done_on_peer`).
+        Step::Again if od::done_on_peer(d) => close_open(hub, d, od::release).await,
         Step::Again | Step::Unproven => {
             if step == Step::Unproven {
                 // Proven by records no restore gave back and no journal holds (review of #37284
@@ -1124,6 +1163,16 @@ fn retry_sleep(delivery: &Delivery, secs: u64, now: u64) -> Duration {
     }
     let left = delivery.created_at.saturating_add(RETRY_FOR_MS).saturating_sub(now);
     delay.min(Duration::from_millis(left))
+}
+
+/// The most a send behind the hub's gate adds to the gate's reopening, spread by `jitter`
+/// (0..1) so the queue's wakes do not all land on the same instant.
+const GATE_JITTER: Duration = Duration::from_millis(250);
+
+/// How long a send behind the hub's shut gate sleeps: until `reopens_at`, plus its jitter.
+fn gate_wait(reopens_at: tokio::time::Instant, jitter: f64) -> Duration {
+    let left = reopens_at.saturating_duration_since(tokio::time::Instant::now());
+    left + GATE_JITTER.mul_f64(jitter.clamp(0.0, 1.0))
 }
 
 /// Whether `delivery`, a message (not a projection intent, which keeps its own schedule), is
@@ -1493,6 +1542,36 @@ mod no_session_next_tests {
         let down = RpcError::internal("down").with_data(json!({"reason": "peer_unreachable"}));
         assert_eq!(next(&down), Next::Unsent);
         assert_eq!(next(&RpcError::internal("connection reset")), Next::Retry);
+    }
+
+    /// A session whose folder is gone keeps the delivery: the folder may come back, so it is
+    /// tried again, and the refusal names the folder.
+    #[test]
+    fn a_missing_folder_is_tried_again_and_named() {
+        use crate::hub::worktree_care::folder_missing;
+        let gone = folder_missing("probe", std::path::Path::new("/tmp/probe-gone"), "is gone");
+        assert_eq!(next(&gone), Next::Retry);
+        assert!(gone.message.starts_with("session.folder_missing"), "{}", gone.message);
+        assert!(gone.message.contains("/tmp/probe-gone"), "{}", gone.message);
+    }
+
+    /// How many attempts one message to a session whose folder stays gone makes in two hours on
+    /// the outbox's own schedule, with no peer's reconnect ending a wait (`deliver`'s
+    /// `wake_on_ready`): the schedule, then a doubling tail.
+    #[test]
+    fn a_missing_folder_is_tried_eleven_times_in_two_hours() {
+        use crate::hub::worktree_care::folder_missing;
+        let d = super::retry_delay_tests::delivery(0, false);
+        let refusal = folder_missing("probe", std::path::Path::new("/tmp/x"), "is gone");
+        let (mut delays, mut tail, mut now, mut attempts) = (RETRY_DELAYS_SECS.iter(), 0, 0, 0);
+        let two_hours = 2 * 60 * 60 * 1000;
+        while now <= two_hours && !expired(&d, now) {
+            attempts += 1;
+            assert_eq!(next(&refusal), Next::Retry);
+            let Some(secs) = retry_delay(&mut delays, &mut tail, &d, now) else { break };
+            now += retry_sleep(&d, secs, now).as_millis() as u64;
+        }
+        assert_eq!(attempts, 11);
     }
 }
 

@@ -356,7 +356,7 @@ jobs:
       # and no blobs beyond the scripts.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: feat-cmux-next
+          ref: refs/heads/feat-cmux-next
           fetch-depth: 300
           filter: blob:none
           sparse-checkout: scripts
@@ -652,6 +652,7 @@ jobs:
           sparse-checkout: |
             scripts/cmux-next/perf-cron.py
             scripts/cmux-next/perf-budgets.py
+            scripts/cmux-next/state_wait.py
             scripts/cmux-next/perf-budgets.json
             scripts/cmux-next/perf-budget-table.py
             scripts/cmux-next/perf-budget-table.tsv

@@ -151,7 +151,7 @@ impl Hub {
         }
         self.append(session, "mux", "mcp_connect_request", card.clone());
         let prev = session.status();
-        self.set_status(session, SessionStatus::Waiting);
+        self.set_waiting(session, crate::store::WaitReason::McpConnect);
         let mut answer = tokio::time::timeout(ASK_TTL, rx).await.ok().and_then(Result::ok);
         self.mcp_connects.pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&request_id);
         let key = answer.as_mut().and_then(|a| a.key.take());
@@ -166,12 +166,11 @@ impl Hub {
             "mcp_connect_decision",
             json!({"requestId": request_id, "name": name, "outcome": status, "scope": scope}),
         );
-        if session.status() == SessionStatus::Waiting
-            && session.permissions.lock().unwrap_or_else(|e| e.into_inner()).pending.is_empty()
-            && !self.secrets.waiting_in(&session.id)
-            && !self.mcp_connects.waiting_in(&session.id)
         {
-            self.set_status(session, super::permissions::status_after_ask(session, prev));
+            let state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
+            self.settle_after_ask(session, &state, || {
+                super::permissions::status_after_ask(session, prev)
+            });
         }
         let Some(scope) = scope else {
             return Ok(json!({"status": status, "name": name}));
