@@ -52,7 +52,7 @@ class OneLinuxLabelTest(unittest.TestCase):
     def test_nightly_pin_keeps_its_branch(self) -> None:
         pin = "github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64'"
         out, _ = rewrite(job(f"${{{{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || {pin} || fromJSON(vars.RUNNER_POOLS).linux_4 }}}}"))
-        self.assertIn(f"'ubuntu-24.04' || {pin} || {olc.FORK_PR} || 'cmux-linux' }}}}", out)
+        self.assertIn(f"'ubuntu-24.04' || {pin} || {olc.FORK_PR} || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}}}", out)
 
     def test_exceptions_stay(self) -> None:
         line = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"blacksmith-2vcpu-ubuntu-2404\"]'), "
@@ -100,7 +100,7 @@ class OneLinuxLabelTest(unittest.TestCase):
         place = "needs.portable-placement.outputs.placed_attempt == '1' && needs.portable-placement.outputs.side_runner"
         out, _ = rewrite(job(f"${{{{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || {FORK} && 'blacksmith-4vcpu-ubuntu-2404' || "
                              f"{place} || fromJSON(vars.RUNNER_POOLS).linux_4 }}}}"))
-        self.assertIn(f"|| {olc.FORK_PR} || {place} || 'cmux-linux' }}}}", out)
+        self.assertIn(f"|| {olc.FORK_PR} || {place} || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}}}", out)
 
     def test_macos_windows_arm_and_matrix_untouched(self) -> None:
         for runs_on in (

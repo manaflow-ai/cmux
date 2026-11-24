@@ -68,7 +68,7 @@ FLEET = "cmux-fleet-linux-x64"
 LINUX_LABEL_JOBS = {"tree-preflight", "tree-owner-wait", "darwin-fallback-plan", "cmux-next-daemon-tests"}
 # The one-label tail scripts/ci/one_linux_label.py writes (Leo, 2026-11-20: "Just send it somewhere"): after its fork
 # branch, every own-branch run takes cmux-linux.
-ONE_LABEL_TAIL = "|| 'cmux-linux' }}"
+ONE_LABEL_TAIL = "|| vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}"
 
 
 def one_label(name: str, runs_on: str) -> bool:
@@ -140,7 +140,7 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
         for job in sorted(LINUX_LABEL_JOBS):
             with self.subTest(job=job):
                 self.assertEqual(jobs[job]["runs-on"],
-                                 "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}")
+                                 "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}")
         for job in ("build", "build-linux"):
             with self.subTest(job=job):
                 self.assertEqual(jobs[job]["with"]["linux_runner"], "cmux-linux")
