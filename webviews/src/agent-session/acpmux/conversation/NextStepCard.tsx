@@ -1,8 +1,12 @@
 import React, { memo, useEffect, useRef, useState, useSyncExternalStore, useLayoutEffect } from "react";
-import { Keycap } from "../Keycap";
-import { useT } from "../i18n";
+import { DismissButton } from "../../../ui/DismissButton";
+import { Icon } from "../icons/Icon";
+import { useT, type StringKey } from "../i18n";
+import { ArrowRight } from "./icons";
+import { focusRoute } from "../../../ui/focusRoute";
 import { inlineText } from "../question/inlineText";
 import { answerPrompt, type NextStepAsk } from "./nextStepAsk";
+import type { AnswerBlock } from "../subagents/restart";
 import {
   answerState,
   claimAnswer,
@@ -31,10 +35,35 @@ import "./NextStepCard.css";
 /// behaviour is very weird"). A send that fails brings the buttons back with "not sent".
 /// The agent's own wrap-up call (wrapUp.ts) adds its recap, muted at the top of the same box
 /// (reference claude/web/october-recap-card); with no question the box holds the recap alone.
+/// It is drawn as the question card (QuestionCard.tsx, Lucas 2026-11-24: one look for every ask): the
+/// "Needs your input" line (with close where it can be dismissed), the question as the title, the
+/// answers as numbered rows where a click (or its number key) sends, the arrow on the row ⌘↩ sends,
+/// and a last row where the person types an answer of their own (Return sends it).
 /// The whole ask shows, wrapped at word breaks, as Claude's question card shows its question (a
 /// coordinator's [irreversible] ask was cut mid-word). Only a very long one stops at
 /// `--acpmux-next-step-lines` lines (its tail at `--acpmux-next-step-detail-lines`) with Show more
 /// under it, which opens the rest in place: the answers keep their order under the text.
+/// Where the pane cannot send (`onAnswer` absent: View Only, a subagent's pane, a disconnected or
+/// remote chat, a shared chat's guest) it is the same card, read only (Lucas, 2026-11-24): the answers
+/// as a plain numbered list, and in the typed answer's row the reason it cannot answer, so the card
+/// is as tall in every pane and the transcript's first estimate holds (cardHeight.ts
+/// `nextStepCardHeight`).
+const BLOCKED: Record<AnswerBlock, { icon: string; text: StringKey }> = {
+  watching: { icon: "action.watching", text: "question.cannotAnswer.watching" },
+  bridged: { icon: "action.watching", text: "question.cannotAnswer.bridged" },
+  subagent: { icon: "agent.bot", text: "question.cannotAnswer.subagent" },
+  disconnected: { icon: "status.disconnected", text: "question.cannotAnswer.disconnected" },
+  remote: { icon: "cloud", text: "question.cannotAnswer.remote" },
+  origin: { icon: "action.reload", text: "question.cannotAnswer.origin" },
+  guest: { icon: "security.lock", text: "question.cannotAnswer.guest" },
+};
+
+/// An answer row's keys: its number (1-9), and ⌘↩ on the first while the composer hands it the key.
+function answerKeys(index: number, primary: boolean): string | undefined {
+  const keys = [index < 9 ? String(index + 1) : undefined, primary ? "Meta+Enter" : undefined].filter(Boolean);
+  return keys.length ? keys.join(" ") : undefined;
+}
+
 export const NextStepCard = memo(function NextStepCard({
   ask,
   answer,
@@ -44,9 +73,16 @@ export const NextStepCard = memo(function NextStepCard({
   answerKey,
   asker,
   className,
+  onDismiss,
+  blocked,
 }: {
   ask: NextStepAsk;
+  /// Why this pane cannot send, where `onAnswer` is absent: the last row says it. Disconnected when
+  /// the host does not say.
+  blocked?: AnswerBlock;
   className?: string;
+  /// Puts the pinned copy away (PendingAsks.tsx): the header's close. The transcript's card has none.
+  onDismiss?: () => void;
   /// The answer a later prompt picked, or once `superseded`, what the person said after the card.
   answer?: string;
   /// A later card took over: this one folds, with `answer` when there is one.
@@ -82,8 +118,35 @@ export const NextStepCard = memo(function NextStepCard({
     if (!pending || !registerKey) return;
     return registerKey(() => primary.current?.click());
   }, [pending, registerKey]);
+  // A failed send gives the typed answer back with the keyboard, so Return retries it.
+  const field = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (failed && field.current?.value) focusRoute(field.current, "system", "a typed answer that was not sent");
+  }, [failed]);
+  // A number key presses its answer's row while the focus is in the card (not in the typed answer).
+  const card = useRef<HTMLFieldSetElement>(null);
+  useEffect(() => {
+    const element = card.current;
+    if (!element || !pending) return;
+    const press = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+      if (!/^[1-9]$/.test(event.key) || (event.target as HTMLElement).closest("input")) return;
+      // A held digit answers once; its repeats stay claimed so none falls through as typed text.
+      event.preventDefault();
+      if (event.repeat) return;
+      const row = element.querySelectorAll<HTMLButtonElement>(".acpmux-next-step__answer")[Number(event.key) - 1];
+      row?.click();
+    };
+    // ui-allow: number keys answer the card while focus is in it, as the question card's rows do.
+    element.addEventListener("keydown", press);
+    return () => element.removeEventListener("keydown", press);
+  }, [pending]);
   // Whether the question or its tail runs past its cap: only then is there a Show more to offer.
   const [whole, setWhole] = useState(false);
+  // The typed answer stays while it is on its way, so a failed send gives it back to retry. The
+  // pinned copy leaves while its answer goes (PendingAsks.tsx), so a failure hands its words back
+  // through the shared state (`typed`) when it returns.
+  const [draft, setDraft] = useState(() => (state.failed ? (state.typed ?? "") : ""));
   const [clipped, setClipped] = useState(false);
   const textRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -116,19 +179,27 @@ export const NextStepCard = memo(function NextStepCard({
       </div>
     );
   }
-  const send = (label: string) => {
-    if (!onAnswer || sending !== undefined) return;
+  const send = (text: string, typed = false) => {
+    const label = text.trim();
+    if (!onAnswer || sending !== undefined || !label) return;
     if (answerKey) claimAnswer(answerKey, label);
     update({ sending: label });
     // The answer goes as a reply to the ask: the question quoted with who asked, then the answer
     // (nextStepAsk.ts `answerPrompt`), so the bubble shows what it answers.
     void onAnswer(answerPrompt(ask.question, label, asker)).then(
       () => update({ sent: label }),
-      () => update({ failed: true }),
+      () => update({ failed: true, typed: typed ? text : undefined }),
     );
   };
   return (
-    <fieldset className={`acpmux-next-step${className ? ` ${className}` : ""}`} aria-label={ask.question}>
+    <fieldset ref={card} className={`acpmux-next-step${className ? ` ${className}` : ""}`} aria-label={ask.question}>
+      <div className="acpmux-question-bar acpmux-next-step__bar">
+        <span>
+          <Icon name="status.question" size={14} />
+          {t("question.needsInput")}
+        </span>
+        {onDismiss && <DismissButton label={t("message.dismiss")} onDismiss={onDismiss} />}
+      </div>
       {recap}
       <div ref={textRef} className="acpmux-next-step__text" data-whole={whole || undefined}>
         <p className="acpmux-next-step__question">{inlineText(ask.question)}</p>
@@ -144,7 +215,7 @@ export const NextStepCard = memo(function NextStepCard({
           {t(whole ? "message.less" : "message.more")}
         </button>
       )}
-      {onAnswer && (
+      {onAnswer ? (
         <div className="acpmux-next-step__answers">
           {ask.options.map((option, index) => (
             <button
@@ -152,15 +223,73 @@ export const NextStepCard = memo(function NextStepCard({
               ref={index === 0 ? primary : undefined}
               type="button"
               className={index === 0 ? "acpmux-next-step__answer is-primary" : "acpmux-next-step__answer"}
-              aria-keyshortcuts={index === 0 && registerKey ? "Meta+Enter" : undefined}
+              aria-keyshortcuts={answerKeys(index, index === 0 && registerKey !== undefined)}
               disabled={sending !== undefined}
               onClick={() => send(option.label)}
             >
-              {option.key ? t(option.key) : inlineText(option.label)}
-              {index === 0 && registerKey && <Keycap>⌘↩</Keycap>}
+              <span className="acpmux-question-number" aria-hidden="true">
+                {index + 1}
+              </span>
+              <span className="acpmux-next-step__label">{option.key ? t(option.key) : inlineText(option.label)}</span>
+              <ArrowRight size={12} className="acpmux-next-step__arrow" />
             </button>
           ))}
         </div>
+      ) : (
+        <ul
+          className="acpmux-next-step__answers"
+          data-read-only=""
+          // oxlint-disable-next-line jsx-a11y/no-redundant-roles -- WebKit drops a list's role, and VoiceOver its count, when CSS hides the markers
+          role="list"
+        >
+          {ask.options.map((option, index) => (
+            <li key={option.label} className="acpmux-next-step__answer">
+              <span className="acpmux-question-number" aria-hidden="true">
+                {index + 1}
+              </span>
+              <span className="acpmux-next-step__label">{option.key ? t(option.key) : inlineText(option.label)}</span>
+              {/* Hidden, as on a live row that is not first: the label wraps where the live one does. */}
+              <ArrowRight size={12} className="acpmux-next-step__arrow" />
+            </li>
+          ))}
+        </ul>
+      )}
+      {!onAnswer && ask.options.length > 0 && (
+        <div className="acpmux-question-footer acpmux-next-step__other acpmux-next-step__blocked">
+          <span className="acpmux-question-number" data-edit="" aria-hidden="true">
+            <Icon name={BLOCKED[blocked ?? "disconnected"].icon} size={12} />
+          </span>
+          <span
+            className="acpmux-next-step__reason"
+            /* tooltip-allow: the reason stays on one line; a long translation ends in an ellipsis */
+            title={t(BLOCKED[blocked ?? "disconnected"].text)}
+          >
+            {t(BLOCKED[blocked ?? "disconnected"].text)}
+          </span>
+        </div>
+      )}
+      {onAnswer && ask.options.length > 0 && (
+        <label className="acpmux-question-footer acpmux-next-step__other">
+          <span className="acpmux-question-number" data-edit="" aria-hidden="true">
+            <Icon name="action.edit" size={12} />
+          </span>
+          <input
+            ref={field}
+            type="text"
+            aria-label={t("question.other")}
+            placeholder={t("question.otherPlaceholder")}
+            value={draft}
+            disabled={sending !== undefined}
+            onChange={(event) => setDraft(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              // Plain Return sends; a chord with Shift, Option, Control or ⌘ stays the field's.
+              if (event.key !== "Enter" || event.nativeEvent.isComposing || event.keyCode === 229) return;
+              if (event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return;
+              event.preventDefault();
+              send(draft, true);
+            }}
+          />
+        </label>
       )}
       {/* retry-prompt-ok: the person's pick did not send; sending it again is their paid model request. */}
       {failed && <output className="acpmux-next-step__detail">{t("prompt.notSentAgain")}</output>}
