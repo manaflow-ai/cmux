@@ -24,8 +24,7 @@ extension TerminalFindController {
         let generation = searchGeneration
         // task-owner: resetResults cancels it (a new query, a close); a stale page checks `generation`.
         searchTask = Task { [weak self] in
-            // concurrency-allow: an async sleep inside a cancellable Task; it never blocks the main thread.
-            try? await Task.sleep(for: Self.debounce)
+            try? await Task.sleep(for: Self.debounce) // concurrency-allow: async sleep in a cancellable Task, never blocks the main thread
             guard !Task.isCancelled else { return }
             await self?.streamPages(generation: generation)
         }
