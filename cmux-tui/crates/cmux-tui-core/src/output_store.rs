@@ -304,6 +304,10 @@ struct LogState {
     /// The log left the store (`OutputStore::forget`): no measurement may
     /// add to the total for it any more.
     forgotten: bool,
+    /// The terminal ended after its final output was durably covered by an
+    /// exit snapshot. Late reader callbacks for this generation are ignored,
+    /// and the in-memory tail can stay released while the tab remains parked.
+    ended: bool,
     /// The stored snapshot's stream offset, generation and size (written
     /// by this daemon; `None` before its first one).
     snapshot_end: Option<u64>,
@@ -368,6 +372,7 @@ impl LogState {
             measured_rows: None,
             measure_due: false,
             forgotten: false,
+            ended: false,
             snapshot_end: None,
             snapshot_generation: None,
             snapshot_size: None,
@@ -809,7 +814,11 @@ impl OutputStore {
             state.tail.clear();
             state.pending.clear();
             state.pending_start = 0;
+            state.ended = false;
             state.invalidate_recovery();
+        }
+        if state.ended {
+            return;
         }
         let keep = bytes.len().min(OUTPUT_TAIL_BYTES);
         let skipped = (bytes.len() - keep) as u64;
@@ -994,6 +1003,9 @@ impl OutputStore {
             state.tail.clear();
             state.pending.clear();
             state.pending_start = 0;
+            state.ended = false;
+        } else if state.ended {
+            return;
         }
         if self.tail_enabled() {
             state.fall_back_to_snapshot();
@@ -1069,6 +1081,48 @@ impl OutputStore {
     /// configured scrollback: its budget limit is measured afresh.
     pub(crate) fn forget_scrollback_budget(&self, terminal_id: &TerminalPublicId) {
         self.memory_budget.forget(terminal_id);
+    }
+
+    /// Release a terminal's in-memory output after an exit snapshot durably
+    /// covers its final stream. The caller must provide the generation and
+    /// exact covered offset from that snapshot. A mismatch leaves the log
+    /// untouched because output may still have raced the snapshot capture.
+    ///
+    /// The log remains in the store so its final cursor is still observable
+    /// while a parked tab keeps the dead runtime. A later generation starts a
+    /// fresh stream and may append normally.
+    pub(crate) fn release_terminal_output(
+        &self,
+        terminal_id: &TerminalPublicId,
+        generation: &str,
+        covered_through: u64,
+    ) -> bool {
+        let _pass = self.lock_pass();
+        let Some(log) =
+            self.logs.lock().unwrap_or_else(PoisonError::into_inner).get(terminal_id).cloned()
+        else {
+            return false;
+        };
+        let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if state.generation.as_ref() != generation || state.next_offset() != covered_through {
+            return false;
+        }
+        state.tail.clear();
+        state.tail_start = covered_through;
+        state.pending.clear();
+        state.pending_start = covered_through;
+        state.dirty = false;
+        state.measure_due = false;
+        state.tail_end = None;
+        state.tail_bytes = 0;
+        state.tail_digest = None;
+        state.tail_unsynced = false;
+        state.force_snapshot = false;
+        state.flooded = false;
+        state.retry_at = None;
+        state.retry_delay = Duration::ZERO;
+        state.ended = true;
+        true
     }
 
     /// Forget a terminal runtime that left this daemon: its memory. Its
@@ -1546,6 +1600,10 @@ thread_local! {
     pub(crate) static BETWEEN_SCREEN_READS_FOR_TEST: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
         const { std::cell::RefCell::new(None) };
 }
+
+#[cfg(test)]
+#[path = "output_store/ended_tests.rs"]
+mod ended_tests;
 
 #[cfg(test)]
 fn run_between_screen_reads_for_test() {
