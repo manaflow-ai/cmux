@@ -15,6 +15,7 @@
 pub(crate) mod apply;
 pub(crate) mod events;
 pub(crate) mod folder;
+mod ignore;
 pub(crate) mod leftover;
 pub(crate) mod snapshot;
 
