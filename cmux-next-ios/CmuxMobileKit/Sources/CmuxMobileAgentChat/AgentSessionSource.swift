@@ -132,6 +132,13 @@ public enum AgentSessionEvent: Hashable, Sendable {
     /// link was down): the composer gets the draft back with the reason.
     /// `promptID` is the prompt's acpmux id: sent again with it, the Mac runs it at most once.
     case promptNotSent(text: String, attachments: [AgentAttachment], promptID: String, reason: String)
+    /// How a prompt this phone sent and the Mac has not shown yet looks now (the Rust
+    /// `ChatPromptOutbox.look`): it draws as sent from the tap; `retrying` only once it has not
+    /// got out for 2 s; `failed` once the outbox gave up (then `promptNotSent` follows).
+    case promptLook(promptID: String, look: AgentPromptLook)
+    /// A cancelled prompt that may have reached the Mac (`_acpmux/queue_remove`): `removed` it
+    /// from the Mac's queue (it never runs), or not (it ran or runs: it shows as the Mac's).
+    case promptRemoved(promptID: String, removed: Bool)
     /// `_meta.acpmux.subagents`: a subagent started or changed state.
     case subagent(AgentSubagentChange)
     /// An update from a subagent's own session (`_meta.acpmux.subagent`).
@@ -325,6 +332,45 @@ public protocol AgentSessionSource: AnyObject {
     func replayRecording() async throws -> AgentReplayRecording
     /// A chat that only shows (a replay): no marks, no retries.
     var isReadOnly: Bool { get }
+
+    /// The person's Cancel, Edit, Retry now or Delete of a prompt that has not reached the Mac
+    /// yet (the bubble's menu): the Rust outbox's `cancel`, `edit`, `retryNow` or `delete`, done
+    /// at once. ``AgentPromptActionResult/unknown`` when the source holds no such prompt.
+    func promptAction(_ action: AgentPromptAction) -> AgentPromptActionResult
+}
+
+/// How a pending prompt's bubble looks (the Rust `ChatPromptLook`). Sent is a delivered
+/// message's look: no spinner, no "Sending".
+public enum AgentPromptLook: String, Hashable, Sendable, Codable {
+    case sent, retrying, failed
+}
+
+/// What the person asked of a pending prompt (``AgentSessionSource/promptAction(_:)``).
+public enum AgentPromptAction: Hashable, Sendable {
+    /// Take it back: one that never left comes back at once; one that may be on the Mac is
+    /// taken off the Mac's queue.
+    case cancel(promptID: String)
+    /// As cancel, and its failed mark is forgotten (the text is not handed back).
+    case delete(promptID: String)
+    /// Go now: the retry wait ends and the hold starts over.
+    case retryNow(promptID: String)
+    /// New text in its place: in place under the same id while it never left, else as
+    /// `newPromptID` in its place, the old one taken off the Mac's queue.
+    case edit(promptID: String, newPromptID: String, text: String)
+}
+
+/// What a ``AgentPromptAction`` did (the Rust `ChatCancelStep` / `ChatEditStep`).
+public enum AgentPromptActionResult: Hashable, Sendable {
+    /// It never left the phone: it is out of the outbox now, its uploads cancelled.
+    case returned
+    /// It may be on the Mac: `_acpmux/queue_remove` is on its way; ``AgentSessionEvent/promptRemoved(promptID:removed:)`` says how it went.
+    case removingOnMac
+    /// Edited in place (same id) or, for retry now, it goes now.
+    case done
+    /// Edited as `newPromptID` in its place; the old one is being taken off the Mac's queue.
+    case replaced(newPromptID: String)
+    /// The source holds no such prompt (it went, or this source has no outbox).
+    case unknown
 }
 
 extension AgentSessionSource {
@@ -335,6 +381,7 @@ extension AgentSessionSource {
     public var isStarting: Bool { false }
     public var awaitsFirstPrompt: Bool { false }
     public var isOffline: Bool { false }
+    public func promptAction(_ action: AgentPromptAction) -> AgentPromptActionResult { .unknown }
 }
 
 extension AgentSessionSource {

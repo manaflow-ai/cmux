@@ -29,7 +29,7 @@ protocol ChatTranscriptScrolling: AnyObject {
     func revealFindBlock(_ findBlock: String, position: Double, animated: Bool)
     /// Previous/Next Turn: the turn being read among `turnIDs` (its index) and whether its
     /// prompt is scrolled above the top of the view.
-    func readingTurn(among turnIDs: [String]) -> (index: Int, aboveTop: Bool)?
+    func readingTurn(among rowIDs: [String]) -> (index: Int, aboveTop: Bool)?
 }
 
 /// The agent chat transcript as a UIKit scroll view with a keyboard-docked
@@ -1069,13 +1069,14 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     private var appliedCategory: UIContentSizeCategory?
 
     /// The prompt row of the turn being read: the last one whose top is at or above the top of
-    /// what shows under the header (the Mac's minimap "current turn"). `turnIDs` in order.
-    func readingTurn(among turnIDs: [String]) -> (index: Int, aboveTop: Bool)? {
+    /// what shows under the header (the Mac's minimap "current turn"). `rowIDs`: the turns'
+    /// prompt rows (``AgentTurn/promptRowID``), in order.
+    func readingTurn(among rowIDs: [String]) -> (index: Int, aboveTop: Bool)? {
         let headerBottom = topInset ?? view.safeAreaInsets.top
         let visibleTop = scrollView.contentOffset.y + headerBottom + Self.findBarClearance
         var found: (Int, Bool)?
-        for (index, id) in turnIDs.enumerated() {
-            guard let top = list.layout.top(of: "u-\(id)") else { continue }
+        for (index, id) in rowIDs.enumerated() {
+            guard let top = list.layout.top(of: id) else { continue }
             if top <= visibleTop + 1 { found = (index, top < visibleTop - 1) } else { break }
         }
         return found

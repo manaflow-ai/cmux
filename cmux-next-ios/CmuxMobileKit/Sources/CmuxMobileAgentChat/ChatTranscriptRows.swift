@@ -13,6 +13,9 @@ struct ChatRow: Equatable, Identifiable, Sendable {
     var kind: Kind
     /// Space above the row, in points (the old turn layout's stack spacing).
     var gap: Double
+    /// A prompt bubble this phone sent that the Mac has not shown yet: how it looks
+    /// (``AgentTurn/sendLook``; `.sent` draws as delivered). Steers carry theirs in the message.
+    var sendLook: AgentPromptLook? = nil
 
     enum Kind: Equatable, Sendable {
         /// `earlier`: the chat opened on its newest history (older records exist), so the line
@@ -258,10 +261,10 @@ final class ChatTranscriptBuilder {
                 prompt = envelope.task
                 gap = 6
             }
-            rows.append(ChatRow(id: "u-\(turnID)", turnID: turnID,
+            rows.append(ChatRow(id: turn.promptRowID, turnID: turnID,
                                 kind: turn.incoming.map { .incoming(Self.toned($0, context.senderTones), attachments: turn.attachments, at: turn.promptAt) }
                                     ?? .prompt(text: prompt, attachments: turn.attachments, at: turn.promptAt, isLast: context.isLast),
-                                gap: gap))
+                                gap: gap, sendLook: turn.sendLook))
         }
         let turnRows = turn.rows
         let running = turn.status == .running
@@ -360,7 +363,8 @@ final class ChatTranscriptBuilder {
             let answer = wrapUp.question.isEmpty ? nil : context.nextPrompt.map { wrapUp.chosenAnswer($0) }
             add("n-\(turnID)", .nextStep(wrapUp, answer: answer, canAnswer: answer == nil && context.isLast))
         }
-        if running, turnRows.needsWorkingIndicator, !context.askOpen {
+        // A bubble still retrying or given up has no agent working on it yet.
+        if running, turnRows.needsWorkingIndicator, !context.askOpen, turn.sendLook == nil || turn.sendLook == .sent {
             add("w-\(turnID)", .working(label: turn.retry?.label ?? "Working", since: turn.startedAt))
         }
         if !running {

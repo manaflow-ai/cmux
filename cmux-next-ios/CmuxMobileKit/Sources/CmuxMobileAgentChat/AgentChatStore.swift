@@ -31,6 +31,13 @@ public struct AgentTurn: Identifiable, Hashable, Sendable, Codable {
     public var retry: Retry?
     /// Tool calls drawn by something else (the subagent row that a spawn call started).
     public var hiddenToolCalls: Set<String> = []
+    /// This phone's prompt the Mac has not shown yet (drawn from the tap: a provisional turn),
+    /// and how it looks (``AgentPromptLook``); nil once the Mac's record of it came.
+    public var sendLook: AgentPromptLook?
+    /// The prompt row's id when it is not `u-<id>`: the row a provisional turn or a steered
+    /// bubble drew before the Mac's record came keeps its id, so the bubble neither flickers
+    /// nor moves when the record takes its place.
+    public var promptRowOverride: String?
 
     public init(id: String, prompt: String, promptID: String? = nil, attachments: [AgentAttachment] = [], promptAt: Date) {
         self.id = id
@@ -51,6 +58,9 @@ public struct AgentTurn: Identifiable, Hashable, Sendable, Codable {
             return status.map { "Retrying (\(count), error \($0))" } ?? "Retrying (\(count))"
         }
     }
+
+    /// The transcript row that draws the prompt bubble.
+    public var promptRowID: String { promptRowOverride ?? "u-\(id)" }
 
     /// A failed turn's error card leads with Continue when the turn had done work (a reply, a
     /// thought, a tool call) or had no prompt of its own (a turn a notice started), else Retry
@@ -155,6 +165,8 @@ public struct SteeredMessage: Hashable, Sendable, Codable {
     public var attachments: [AgentAttachment]
     public var at: Date
     public var incoming: AgentIncoming?
+    /// This phone's message the Mac has not shown yet, and how it looks; nil once it did.
+    public var sendLook: AgentPromptLook?
 
     public init(promptID: String, text: String, attachments: [AgentAttachment] = [], at: Date, incoming: AgentIncoming? = nil) {
         self.promptID = promptID
@@ -184,6 +196,42 @@ public struct PermissionRecord: Hashable, Sendable, Codable {
 public struct QueuedPrompt: Hashable, Sendable, Identifiable {
     public var id: String
     public var text: String
+    /// This phone's prompt the Mac has not queued yet (drawn from the tap), and how it looks.
+    public var sendLook: AgentPromptLook?
+
+    public init(id: String, text: String, sendLook: AgentPromptLook? = nil) {
+        self.id = id
+        self.text = text
+        self.sendLook = sendLook
+    }
+}
+
+/// A prompt this phone sent that the Mac has not shown yet. It draws at once where it will
+/// land (a new turn, a message steered into the running one, or the queue), as sent; the
+/// Mac's record takes its place under the same row. What goes, when, and how it looks is the
+/// source's Rust outbox's (``AgentSessionSource/promptAction(_:)``, ``AgentSessionEvent/promptLook(promptID:look:)``).
+public struct PendingPrompt: Hashable, Sendable, Identifiable {
+    public enum Place: Hashable, Sendable {
+        /// A provisional turn of its own (id ``AgentChatStore/provisionalTurnID(_:)``).
+        case turn
+        /// Steered into the running turn `turnID`.
+        case steer(turnID: String)
+        /// In the queue over the composer (a command that waits for the turn).
+        case queue
+    }
+
+    public var id: String
+    public var text: String
+    public var attachments: [AgentAttachment]
+    public var steer: Bool
+    public var place: Place
+    public var look: AgentPromptLook = .sent
+    /// Why it failed (the menu's title), once it did.
+    public var reason: String?
+    /// A Cancel or Delete is taking it off the Mac's queue; `returnsDraft`: the text comes back.
+    public var removal: Removal?
+
+    public struct Removal: Hashable, Sendable { public var returnsDraft: Bool }
 }
 
 /// The chat's state, built from the source's event stream. Views read it; intents go back to the source.
@@ -339,6 +387,9 @@ public final class AgentChatStore {
     /// Prompt ids the transcript showed running or queued (a lost reply for one of them is not
     /// a prompt that never went out).
     private var seenPromptIDs: Set<String> = []
+    /// This phone's prompts the Mac has not shown yet, in send order: each draws at once where
+    /// it will land (``PendingPrompt``), and its look follows the source's outbox.
+    public private(set) var pendingPrompts: [PendingPrompt] = []
     /// Bumps on every streamed change (follow-mode scroll keys off it).
     public private(set) var revision = 0
     /// Turn and row ids (`TurnRow.id`) that came in as replayed history (a `.batch`: the
@@ -448,7 +499,8 @@ public final class AgentChatStore {
     private func refreshDerived(lastTurnOnly: Bool = false) {
         let last = turns.last
         assign(\.hasTurns, !turns.isEmpty)
-        assign(\.isRunning, last?.status == .running)
+        // A provisional turn (``AgentTurn/sendLook``) is not running on the Mac yet: no Stop.
+        assign(\.isRunning, last?.status == .running && last?.sendLook == nil)
         assign(\.firstPrompt, spilledFirstPrompt ?? turns.first?.prompt)
         assign(\.pendingPermission, last.flatMap(Self.openPermission))
         assign(\.pendingQuestion, last.flatMap(Self.openQuestion))
@@ -579,8 +631,208 @@ public final class AgentChatStore {
         #if DEBUG && os(iOS)
         if InputLatencyTrace.isEnabled { sendStarts[promptID] = CACurrentMediaTime() }
         #endif
+        // Drawn as sent in this frame, where it will land; the Mac's record takes its place.
+        showPending(PendingPrompt(id: promptID, text: text, attachments: attachments, steer: steers,
+                                  place: pendingPlace(steers: steers)))
+        #if DEBUG && os(iOS)
+        if let start = sendStarts[promptID], let trace = InputLatencyTrace.shared {
+            trace.sampleAtNextFrame("chat_send_drawn", since: start)
+        }
+        #endif
         source.send(.prompt(text: text, attachments: attachments, steer: steers,
                             promptID: promptID, resend: resend != nil))
+    }
+
+    // MARK: Pending prompts (drawn from the tap)
+
+    /// The provisional turn's id for this phone's prompt `promptID` (until the Mac's record names it).
+    public nonisolated static func provisionalTurnID(_ promptID: String) -> String { "pending-\(promptID)" }
+
+    public func pendingPrompt(_ id: String) -> PendingPrompt? { pendingPrompts.first { $0.id == id } }
+
+    /// Where a prompt sent now lands: steered into the running turn (acpmux steers into a running
+    /// turn), queued behind it (a command that waits for the turn), else a turn of its own.
+    private func pendingPlace(steers: Bool) -> PendingPrompt.Place {
+        guard let last = turns.last, last.status == .running, last.sendLook != .failed else { return .turn }
+        return steers ? .steer(turnID: last.id) : .queue
+    }
+
+    private func showPending(_ prompt: PendingPrompt) {
+        guard pendingPrompt(prompt.id) == nil else { return }
+        pendingPrompts.append(prompt)
+        switch prompt.place {
+        case .turn:
+            var turn = AgentTurn(id: Self.provisionalTurnID(prompt.id), prompt: prompt.text, promptID: prompt.id,
+                                 attachments: prompt.attachments, promptAt: Date())
+            turn.sendLook = prompt.look
+            turns.append(turn)
+        case .steer(let turnID):
+            var message = SteeredMessage(promptID: prompt.id, text: prompt.text, attachments: prompt.attachments, at: Date())
+            message.sendLook = prompt.look
+            mutateTurn(turnID) { $0.items.append(.steer(message)) }
+        case .queue:
+            queue.append(QueuedPrompt(id: prompt.id, text: prompt.text, sendLook: prompt.look))
+        }
+        revision &+= 1
+        lastChangeWasReplay = false
+        refreshDerived()
+    }
+
+    /// Draws `prompt`'s look and text where it is (its row keeps its id).
+    private func drawPending(_ prompt: PendingPrompt, formerID: String? = nil) {
+        let id = formerID ?? prompt.id
+        switch prompt.place {
+        case .turn:
+            guard let index = turns.lastIndex(where: { $0.sendLook != nil && $0.promptID == id }) else { return }
+            turns[index].sendLook = prompt.look
+            turns[index].prompt = prompt.text
+            turns[index].promptID = prompt.id
+        case .steer:
+            for turnIndex in turns.indices.reversed() {
+                guard let itemIndex = turns[turnIndex].items.lastIndex(where: {
+                    if case .steer(let m) = $0 { m.promptID == id } else { false }
+                }), case .steer(var message) = turns[turnIndex].items[itemIndex] else { continue }
+                message.sendLook = prompt.look
+                message.text = prompt.text
+                message.promptID = prompt.id
+                turns[turnIndex].items[itemIndex] = .steer(message)
+                break
+            }
+        case .queue:
+            guard let index = queue.firstIndex(where: { $0.id == id }) else { return }
+            queue[index] = QueuedPrompt(id: prompt.id, text: prompt.text, sendLook: prompt.look)
+        }
+        revision &+= 1
+        refreshDerived()
+    }
+
+    /// Takes the pending prompt out of the store; `erase`: its provisional row goes too.
+    @discardableResult
+    private func takePending(_ id: String, erase: Bool) -> PendingPrompt? {
+        guard let index = pendingPrompts.firstIndex(where: { $0.id == id }) else { return nil }
+        let prompt = pendingPrompts.remove(at: index)
+        guard erase else { return prompt }
+        switch prompt.place {
+        case .turn:
+            turns.removeAll { $0.sendLook != nil && $0.promptID == id }
+        case .steer:
+            for turnIndex in turns.indices.reversed() {
+                turns[turnIndex].items.removeAll { if case .steer(let m) = $0 { m.promptID == id && m.sendLook != nil } else { false } }
+            }
+        case .queue:
+            queue.removeAll { $0.id == id && $0.sendLook != nil }
+        }
+        revision &+= 1
+        refreshDerived()
+        return prompt
+    }
+
+    private func setLook(_ id: String, _ look: AgentPromptLook, reason: String? = nil) {
+        guard let index = pendingPrompts.firstIndex(where: { $0.id == id }) else { return }
+        guard pendingPrompts[index].look != look || reason != nil else { return }
+        pendingPrompts[index].look = look
+        if let reason { pendingPrompts[index].reason = reason }
+        if look != .failed { pendingPrompts[index].reason = nil }
+        drawPending(pendingPrompts[index])
+    }
+
+    /// Hands a prompt's text and attachments back to the composer (it goes before a draft typed
+    /// meanwhile; several in a row are joined, none lost).
+    private func giveBack(_ prompt: PendingPrompt) {
+        if let earlier = returnedDraft {
+            returnedDraft = ReturnedDraft(text: [earlier.text, prompt.text].filter { !$0.isEmpty }.joined(separator: "\n\n"),
+                                          attachments: earlier.attachments + prompt.attachments, promptID: nil)
+        } else {
+            returnedDraft = ReturnedDraft(text: prompt.text, attachments: prompt.attachments, promptID: nil)
+        }
+    }
+
+    /// Cancel on a pending prompt's bubble: one that never left goes away and its text and
+    /// attachments are back in the composer in this frame (its uploads cancelled); one that may
+    /// be on the Mac is taken off the Mac's queue, and comes back once the Mac says it did.
+    public func cancelPending(_ id: String) { takeBackPending(id, returnsDraft: true) }
+
+    /// Delete on a pending or failed prompt's bubble: as Cancel, without handing the text back.
+    public func deletePending(_ id: String) { takeBackPending(id, returnsDraft: false) }
+
+    private func takeBackPending(_ id: String, returnsDraft: Bool) {
+        guard let prompt = pendingPrompt(id), prompt.removal == nil else { return }
+        let result = source.promptAction(returnsDraft && prompt.look != .failed ? .cancel(promptID: id) : .delete(promptID: id))
+        switch result {
+        case .returned:
+            takePending(id, erase: true)
+            if returnsDraft { giveBack(prompt) }
+        case .removingOnMac:
+            guard let index = pendingPrompts.firstIndex(where: { $0.id == id }) else { return }
+            pendingPrompts[index].removal = PendingPrompt.Removal(returnsDraft: returnsDraft)
+        case .unknown, .done, .replaced:
+            // The outbox no longer holds it: one it gave up on is only this bubble.
+            guard prompt.look == .failed else { return }
+            takePending(id, erase: true)
+            if returnsDraft { giveBack(prompt) }
+        }
+    }
+
+    /// Retry now on a pending or failed prompt's bubble: it goes now, under its id (acpmux runs a
+    /// `promptId` once, and checks its log for one that may have run).
+    public func retryPending(_ id: String) {
+        guard let prompt = pendingPrompt(id), prompt.removal == nil else { return }
+        if source.promptAction(.retryNow(promptID: id)) == .done {
+            setLook(id, .sent)
+            return
+        }
+        guard prompt.look == .failed else { return }
+        setLook(id, .sent)
+        source.send(.prompt(text: prompt.text, attachments: prompt.attachments, steer: prompt.steer,
+                            promptID: id, resend: true))
+    }
+
+    /// Edit on a pending or failed prompt's bubble: the new text in its place (same id while it
+    /// never left; else a new prompt in its place, the old one taken off the Mac's queue).
+    public func editPending(_ id: String, text newText: String) {
+        let text = newText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let index = pendingPrompts.firstIndex(where: { $0.id == id }), pendingPrompts[index].removal == nil,
+              !text.isEmpty || !pendingPrompts[index].attachments.isEmpty, text != pendingPrompts[index].text else { return }
+        var prompt = pendingPrompts[index]
+        let newID = UUID().uuidString.lowercased()
+        if prompt.look == .failed {
+            // Given up: the edit goes as a new prompt in its place.
+            _ = source.promptAction(.delete(promptID: id))
+            prompt.id = newID
+            prompt.text = text
+            prompt.look = .sent
+            prompt.reason = nil
+            pendingPrompts[index] = prompt
+            drawPending(prompt, formerID: id)
+            keepSent(prompt.attachments, promptID: newID)
+            source.send(.prompt(text: text, attachments: prompt.attachments, steer: prompt.steer, promptID: newID, resend: false))
+            return
+        }
+        switch source.promptAction(.edit(promptID: id, newPromptID: newID, text: text)) {
+        case .done:
+            prompt.text = text
+        case .replaced(let replacement):
+            prompt.id = replacement
+            prompt.text = text
+            keepSent(prompt.attachments, promptID: replacement)
+        case .returned, .removingOnMac, .unknown:
+            return
+        }
+        pendingPrompts[index] = prompt
+        drawPending(prompt, formerID: id)
+    }
+
+    /// The Mac's record of this phone's prompt `promptID` came (`userMessage` or `queued`): the
+    /// pending prompt ends. Returns the provisional turn's index when it is the last turn and
+    /// no turn `turnID` is drawn yet: the record takes its place, its row id kept.
+    private func reconcilePending(_ promptID: String, turnID: String?) -> (prompt: PendingPrompt, adoptIndex: Int?)? {
+        guard let prompt = takePending(promptID, erase: false) else { return nil }
+        guard case .turn = prompt.place,
+              let index = turns.lastIndex(where: { $0.sendLook != nil && $0.promptID == promptID }) else { return (prompt, nil) }
+        if let turnID, index == turns.count - 1, !turns.contains(where: { $0.id == turnID }) { return (prompt, index) }
+        // It went in elsewhere (a turn the phone had not heard start, a queue): the provisional row goes.
+        turns.remove(at: index)
+        return (prompt, nil)
     }
 
     #if DEBUG && os(iOS)
@@ -982,6 +1234,23 @@ public final class AgentChatStore {
             // A steer into a running turn shares its id: only the message that opened the turn is its prompt.
             promptedTurnID = nil
             steeredPrompt = nil
+            // This phone's prompt, drawn from the tap: the record takes its place, same row.
+            let pending = reconcilePending(promptId, turnID: turnId)
+            if let pending {
+                queue.removeAll { $0.id == promptId && $0.sendLook != nil }
+                if let index = pending.adoptIndex {
+                    turns[index].id = turnId
+                    turns[index].promptRowOverride = "u-\(Self.provisionalTurnID(promptId))"
+                    turns[index].sendLook = nil
+                    turns[index].prompt = text
+                    turns[index].promptAt = at
+                    turns[index].attachments = Self.sentAttachments(sentAttachments[promptId], recorded: attachments)
+                    promptedTurnID = turnId
+                    startsNewAttempt = false
+                    sentAttachments[promptId] = nil
+                    break
+                }
+            }
             // A turn on disk (`spillOlder`) is not new: a replay that brings its prompt again
             // must not add it a second time, at the bottom.
             if let index = turns.firstIndex(where: { $0.id == turnId }) {
@@ -1002,14 +1271,29 @@ public final class AgentChatStore {
                 }
                 promptedTurnID = turnId
                 startsNewAttempt = false
-                turns.append(AgentTurn(id: turnId, prompt: text, promptID: promptId,
-                                       attachments: Self.sentAttachments(sentAttachments[promptId], recorded: attachments),
-                                       promptAt: at))
+                var turn = AgentTurn(id: turnId, prompt: text, promptID: promptId,
+                                     attachments: Self.sentAttachments(sentAttachments[promptId], recorded: attachments),
+                                     promptAt: at)
+                // A pending steer that runs as its own turn keeps its bubble's row.
+                if let pending, case .steer = pending.prompt.place { turn.promptRowOverride = "st-\(promptId)" }
+                if let pending, case .turn = pending.prompt.place { turn.promptRowOverride = "u-\(Self.provisionalTurnID(promptId))" }
+                turns.append(turn)
+            }
+            // A pending steer drawn in the turn is the Mac's now (its sender card goes on it).
+            if let pending, case .steer = pending.prompt.place {
+                clearSteerLook(promptId)
+                if promptedTurnID == nil, turns.contains(where: { $0.id == turnId }) { steeredPrompt = (turnId, promptId) }
             }
             // The turn holds them now.
             sentAttachments[promptId] = nil
         case .queued(let text, let promptId, _):
             reached(promptId)
+            if reconcilePending(promptId, turnID: nil) != nil,
+               let index = queue.firstIndex(where: { $0.id == promptId }) {
+                // Drawn in the queue from the tap: the Mac's entry takes its place.
+                queue[index] = QueuedPrompt(id: promptId, text: text)
+                break
+            }
             // A steer that lost a stop race waits in the queue now (the Mac's `dropDeferredSteer`):
             // it is drawn there, not also in the turn it missed.
             if let last = turns.indices.last {
@@ -1192,9 +1476,27 @@ public final class AgentChatStore {
             awaitsPermissionReply = false
             retryRequested = false
             clientError = message
+        case .promptLook(let promptID, let look):
+            setLook(promptID, look)
+        case .promptRemoved(let promptID, let removed):
+            guard let prompt = pendingPrompt(promptID), let removal = prompt.removal else { break }
+            if removed {
+                takePending(promptID, erase: true)
+                if removal.returnsDraft { giveBack(prompt) }
+            } else if let index = pendingPrompts.firstIndex(where: { $0.id == promptID }) {
+                // Too late: it ran, and the Mac's record takes its place.
+                pendingPrompts[index].removal = nil
+            }
         case .promptNotSent(let text, let attachments, let promptID, let reason):
             // The transcript already showed it run: only its reply was lost.
             guard !seenPromptIDs.contains(promptID) else { break }
+            if pendingPrompt(promptID) != nil {
+                // Drawn from the tap: it stays, with a quiet failed mark (its menu retries, edits,
+                // cancels or deletes it). Only the Mac's word on a setting to change is shown.
+                setLook(promptID, .failed, reason: reason)
+                if reason == Self.fullAccessOffPromptNotice { clientError = reason }
+                break
+            }
             clientError = reason
             if let earlier = returnedDraft {
                 // Several messages came back before the composer took the first: none is lost.
@@ -1828,6 +2130,17 @@ public final class AgentChatStore {
     private func appendItem(_ item: TurnItem) {
         guard !turns.isEmpty else { return }
         turns[turns.count - 1].items.append(item)
+    }
+
+    private func clearSteerLook(_ promptID: String) {
+        for turnIndex in turns.indices.reversed() {
+            for itemIndex in turns[turnIndex].items.indices {
+                if case .steer(var message) = turns[turnIndex].items[itemIndex], message.promptID == promptID, message.sendLook != nil {
+                    message.sendLook = nil
+                    turns[turnIndex].items[itemIndex] = .steer(message)
+                }
+            }
+        }
     }
 
     private func mutateTurn(_ id: String, _ body: (inout AgentTurn) -> Void) {
