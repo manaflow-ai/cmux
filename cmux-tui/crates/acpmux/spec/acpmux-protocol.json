@@ -1022,6 +1022,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/session_hold",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/fleet_hold",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/keep",
       "params": true,
       "result": true
@@ -3555,30 +3567,6 @@
       },
       "type": "object"
     },
-    "ComposerStatus": {
-      "description": "A session's composer footer (`composerStatus`).",
-      "properties": {
-        "facts": {
-          "description": "In footer order (`FactKind::ALL`); a fact with nothing to say is left out.",
-          "items": {
-            "$ref": "#/types/FooterFact"
-          },
-          "type": "array"
-        },
-        "items": {
-          "description": "Worst level first, then the oldest `since` (an unknown one last).",
-          "items": {
-            "$ref": "#/types/StatusItem"
-          },
-          "type": "array"
-        }
-      },
-      "required": [
-        "facts",
-        "items"
-      ],
-      "type": "object"
-    },
     "ChunkDelta": {
       "description": "`_acpmux/chunk` (`chunk-deltas-v1`, `server/chunk_deltas.rs`): an `agent_message_chunk`\nrecord, to a client whose `initialize` sent `_meta.acpmux.chunkDeltas: true`, as a delta of the\nlast `_acpmux/event` it got that carried this `chunkRef`. The event it stands for is that one's\nparams with this `seq`, `at` that frame's plus `dt` (the previous `_acpmux/chunk` of the same\n`ref` counts as that frame), and `msg.params.update.content.text` this `text`. A `ref` the\nclient does not hold: it reads again from its cursor (`_acpmux/attach {afterSeq}`).",
       "properties": {
@@ -3607,6 +3595,30 @@
         "ref",
         "seq",
         "text"
+      ],
+      "type": "object"
+    },
+    "ComposerStatus": {
+      "description": "A session's composer footer (`composerStatus`).",
+      "properties": {
+        "facts": {
+          "description": "In footer order (`FactKind::ALL`); a fact with nothing to say is left out.",
+          "items": {
+            "$ref": "#/types/FooterFact"
+          },
+          "type": "array"
+        },
+        "items": {
+          "description": "Worst level first, then the oldest `since` (an unknown one last).",
+          "items": {
+            "$ref": "#/types/StatusItem"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "facts",
+        "items"
       ],
       "type": "object"
     },
@@ -8738,6 +8750,62 @@
       },
       "type": "object"
     },
+    "StashDropParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "chat": true,
+        "id": true
+      },
+      "type": "object"
+    },
+    "StashGetParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "chat": true,
+        "id": true
+      },
+      "type": "object"
+    },
+    "StashListParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "chat": true
+      },
+      "type": "object"
+    },
+    "StashMoveParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "chat": true,
+        "to": true
+      },
+      "type": "object"
+    },
+    "StashPushParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "attachments": true,
+        "chat": true,
+        "replaces": true,
+        "text": true
+      },
+      "type": "object"
+    },
     "StatusAction": {
       "description": "The one thing a person does about an item.",
       "oneOf": [
@@ -8893,62 +8961,6 @@
           "type": "string"
         }
       ]
-    },
-    "StashDropParams": {
-      "additionalProperties": false,
-      "properties": {
-        "_meta": {
-          "$ref": "#/types/RequestMeta"
-        },
-        "chat": true,
-        "id": true
-      },
-      "type": "object"
-    },
-    "StashGetParams": {
-      "additionalProperties": false,
-      "properties": {
-        "_meta": {
-          "$ref": "#/types/RequestMeta"
-        },
-        "chat": true,
-        "id": true
-      },
-      "type": "object"
-    },
-    "StashListParams": {
-      "additionalProperties": false,
-      "properties": {
-        "_meta": {
-          "$ref": "#/types/RequestMeta"
-        },
-        "chat": true
-      },
-      "type": "object"
-    },
-    "StashMoveParams": {
-      "additionalProperties": false,
-      "properties": {
-        "_meta": {
-          "$ref": "#/types/RequestMeta"
-        },
-        "chat": true,
-        "to": true
-      },
-      "type": "object"
-    },
-    "StashPushParams": {
-      "additionalProperties": false,
-      "properties": {
-        "_meta": {
-          "$ref": "#/types/RequestMeta"
-        },
-        "attachments": true,
-        "chat": true,
-        "replaces": true,
-        "text": true
-      },
-      "type": "object"
     },
     "StatusParams": {
       "additionalProperties": false,
