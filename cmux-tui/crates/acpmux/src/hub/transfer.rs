@@ -70,9 +70,11 @@ impl Hub {
         let mut out = std::io::BufWriter::new(file);
         let mut event_count = 0usize;
         let mut failed: Option<anyhow::Error> = None;
+        let mut images = std::collections::BTreeSet::new();
         self.scan_off(&meta.id, after.unwrap_or(0), &mut |mut e: EventRecord| {
             // An ask carries the display line acpmux works out now, never a logged one.
             self.display_logged(Some(&**session), &mut e);
+            images.extend(super::prompt_images::ids_named_by(&e.kind, &e.msg));
             let written = serde_json::to_string(&e).map_err(anyhow::Error::from).and_then(|line| {
                 out.write_all(line.as_bytes())?;
                 out.write_all(b"\n")?;
@@ -93,6 +95,16 @@ impl Hub {
             return Err(e);
         }
         out.flush()?;
+        // The images its prompts sent (`prompt_images.rs`), which the log names but does not hold,
+        // the pre-copied prefix's prompts' too.
+        if let Some(after) = after {
+            super::prompt_images::prefix_ids(&*self.store, &meta.id, after, &mut images)?;
+        }
+        super::prompt_images::bundle_images(&images, &dir)?;
+        // Each surface's unsent text and who sent the queued prompts (`composers.rs`), which
+        // live in memory, not the log.
+        let composers = session.composers.lock().unwrap_or_else(|e| e.into_inner()).bundled();
+        crate::home_fs::write(dir.join(super::composers::BUNDLE_FILE), composers.to_string())?;
         let native = crate::native::locate(&meta);
         let harness = self.export_harness_state(&meta, &dir)?;
         let mut manifest = json!({
@@ -312,6 +324,11 @@ impl Hub {
                 }
             }
         };
+        // Its images: a chat that shows none is no move (`prompt_images.rs`). One that cannot be
+        // kept leaves the chat showing that image as missing, as a pruned one does.
+        if let Err(e) = super::prompt_images::restore_images(bundle) {
+            tracing::warn!(session = %meta.id, "moved images not kept: {e:#}");
+        }
         // OpenCode's session is imported into its own database, in the chat's folder here. One
         // that fails leaves the chat to resume from its log, as a chat with no agent store does.
         if let Err(e) = crate::native::import_opencode(bundle, &meta) {
@@ -331,6 +348,13 @@ impl Hub {
         }
         if live {
             self.restore_queue(&session);
+            // A bundle from a daemon that wrote none moves the chat without them.
+            if let Some(v) = std::fs::read(bundle.join(super::composers::BUNDLE_FILE))
+                .ok()
+                .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+            {
+                session.composers.lock().unwrap_or_else(|e| e.into_inner()).restore(&v);
+            }
             // The source's subagent retries stayed there: their prompts do not wait here.
             self.drop_unsent_subagent_retries(&session);
         }
