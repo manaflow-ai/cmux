@@ -24,6 +24,8 @@ import {
 } from "../play";
 import { createMotionController } from "../motionEvidence";
 import { isExpansionShift, startBoxTracker } from "../shift";
+import { declareMove, type MotionEvent } from "../../layout/motionContract";
+import type { JudgeDeclaration } from "../../layout/motionJudge";
 import { earnFocusRing } from "../../ui/focusModality";
 
 /** What the matrix runner installs for trusted input (Playwright's mouse and keyboard). */
@@ -332,7 +334,12 @@ function measurePopups(): PopupMeasure[] {
     return rect.width > 0 && rect.height > 0 && getComputedStyle(element).visibility !== "hidden";
   });
   const outermost = found.filter((element) => !found.some((other) => other !== element && other.contains(element)));
-  return outermost.map((popup) => {
+  // A tooltip draws no hit target (pointer-events: none), so elementFromPoint sees what is under it;
+  // each takes hits for the sampling only, to tell a covered tooltip from one on top. Every popup is
+  // switched before any is read and restored after, so the sampling forces one layout, not one each.
+  const hitTestable = outermost.map((popup) => (popup as HTMLElement).style.pointerEvents);
+  for (const popup of outermost) (popup as HTMLElement).style.pointerEvents = "auto";
+  const measures = outermost.map((popup) => {
     const rect = popup.getBoundingClientRect();
     const inset = 3;
     const points: [string, number, number][] = [
@@ -376,6 +383,46 @@ function measurePopups(): PopupMeasure[] {
       clippedBy,
     };
   });
+  outermost.forEach((popup, index) => ((popup as HTMLElement).style.pointerEvents = hitTestable[index]!));
+  return measures;
+}
+
+/**
+ * The moves a step's own act declares (schemas/layout-motion/contract.json): a press, key or click
+ * opens what it targets (an expand of its targets) and may open a menu; a key or typing may grow the
+ * composer; a resize lays every box out once; a scroll moves everything in the scroller. A wait
+ * declares nothing: what lands while the play waits must not move what is on screen, unless the play
+ * declared it (`ctx.declare`).
+ */
+let declarationKey = 0;
+function stepDeclarations(action: PlayAction): JudgeDeclaration[] {
+  const by = `play ${action}`;
+  const next = () => -1_000_000 - ++declarationKey;
+  switch (action) {
+    case "click":
+    case "context-menu":
+    case "press-drag":
+    case "hover":
+    case "focus":
+    case "select":
+      return [
+        { key: next(), event: "expand", scope: "targets", by },
+        { key: next(), event: "menu", scope: "all", by },
+      ];
+    case "key":
+    case "type":
+      return [
+        { key: next(), event: "expand", scope: "targets", by },
+        { key: next(), event: "menu", scope: "all", by },
+        { key: next(), event: "composer-growth", scope: "all", by },
+      ];
+    case "resize":
+      return [{ key: next(), event: "resize", scope: "all", once: true, by }];
+    case "scroll":
+      return [{ key: next(), event: "user-scroll", scope: "all", by }];
+    case "wait":
+      return [];
+  }
 }
 
 /** Measures one step: anchors before and after, layout shifts and frame times during it. */
@@ -392,16 +439,16 @@ async function measured(
   const before = resolve().map(({ label, element }) => ({ label, element, rect: rectOf(element) }));
   const targets = targeted ? [targeted, ...clicked] : clicked;
   clicked = targets;
-  // A scroll moves every row on purpose; its box shift is not measured.
-  const boxes =
-    action === "scroll"
-      ? undefined
-      : startBoxTracker(document, {
-          target: targets,
-          extra: () => resolve().flatMap(({ element }) => (element ? [element] : [])),
-          firstMoveFree: action === "resize",
-          restedAtStart: true,
-        });
+  // A scroll moves every row on purpose; its box shift is not scored, but its moves are still judged
+  // against the layout-motion contract, as a declared user scroll.
+  const declared = stepDeclarations(action);
+  const boxes = startBoxTracker(document, {
+    target: targets,
+    extra: () => resolve().flatMap(({ element }) => (element ? [element] : [])),
+    firstMoveFree: action === "resize",
+    restedAtStart: true,
+    declared: () => declared,
+  });
   const shifts: Shift[] = [];
   const longFrames: number[] = [];
   const longFrameParts: string[] = [];
@@ -486,7 +533,7 @@ async function measured(
   performance.clearMarks(endMark);
   performance.clearMeasures(mark);
   rafRunning = false;
-  const boxShift = boxes?.stop();
+  const boxShift = boxes.stop();
   for (const { observer, read } of hearing) {
     read(observer.takeRecords());
     observer.disconnect();
@@ -513,7 +560,8 @@ async function measured(
     anchorMoves,
     layoutShift,
     shifts,
-    ...(boxShift ? { boxShift: boxShift.score, boxMoves: boxShift.moves } : {}),
+    ...(action !== "scroll" ? { boxShift: boxShift.score, boxMoves: boxShift.moves, boxFollow: boxShift.follow } : {}),
+    ...(boxShift.motion ? { undeclared: boxShift.motion.undeclared, undeclaredMoves: boxShift.motion.moves } : {}),
     longFrames,
     ...(longFrameParts.length ? { longFrameParts } : {}),
     frameSource: loafSupported ? ("long-animation-frame" as const) : ("raf" as const),
@@ -568,10 +616,21 @@ export async function runPlay(
       }),
     );
   };
+  const declarations: (() => void)[] = [];
   const ctx: PlayContext = {
     document,
     motion,
     find,
+    declare: (event: MotionEvent, options = {}) => {
+      const end = declareMove({
+        event,
+        scope: options.targets ? "targets" : "all",
+        targets: options.targets?.map(find),
+        by: "play",
+      });
+      declarations.push(end);
+      return end;
+    },
     click: (target) => input("click", target),
     contextMenu: (target) => input("contextmenu", target),
     hover: (target) => input("hover", target),
@@ -699,6 +758,7 @@ export async function runPlay(
       error: error instanceof Error ? error.message : String(error),
     };
   } finally {
+    for (const end of declarations) end();
     document.removeEventListener("click", noteClick, true);
     clicked = [];
   }

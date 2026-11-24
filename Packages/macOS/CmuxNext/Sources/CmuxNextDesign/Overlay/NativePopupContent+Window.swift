@@ -46,11 +46,11 @@ struct NativePopupWindowLayout {
         if model.search != nil { y += 34 }
         y += add(model.rows, top: y) { row in
             slider(row) ?? (row.kind == .separator ? 9 : row.kind == .textField ? 32
-                : row.description?.isEmpty == false ? 44 : PopupStyle.standard.rowHeight)
+                : row.caption != nil ? 44 : PopupStyle.standard.rowHeight)
         }
         y = max(y, inset + railLength)
         y += add(model.footer ?? [], top: y) { row in
-            slider(row) ?? (row.kind == .separator ? 9 : row.description?.isEmpty == false ? 44 : PopupStyle.standard.rowHeight)
+            slider(row) ?? (row.kind == .separator ? 9 : row.caption != nil ? 44 : PopupStyle.standard.rowHeight)
         }
         height = y + inset
         parts = built

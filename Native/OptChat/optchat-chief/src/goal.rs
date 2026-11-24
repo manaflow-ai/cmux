@@ -19,9 +19,15 @@
 //! nothing: 95 starts from Nov 12 to 18, median 65.6k input tokens and
 //! 3.5 s each (user, 2026-11-18: "why wasn't it just one prompt?").
 //!
-//! On by default for a Claude subagent on this Mac; cmux-next.json
-//! `chief.subagentGoal: false` turns it off (a codex subagent or one on a
-//! peer never gets it: neither runs Claude Code here).
+//! A Codex subagent gets the same condition: acpmux sets it as Codex's own
+//! goal (codex-acp `_session/goal`) beside its first prompt, and Codex starts
+//! its next turns itself until it marks the goal complete. Its report waits
+//! for a turn end with the goal no longer active
+//! (`brain/children.rs` `goal_goes_on`).
+//!
+//! On by default for a Claude or Codex subagent on this Mac; cmux-next.json
+//! `chief.subagentGoal: false` turns it off (one on a peer never gets it:
+//! the peer's acpmux may not know `stopCondition`).
 
 use serde_json::{Value, json};
 
@@ -37,8 +43,19 @@ pub const MODEL: &str = "claude-opus-5-5";
 pub const CONDITION_LIMIT: usize = 4000;
 
 /// When the subagent may stop: the task is done and landed, or only the
-/// user can unblock it, or the Chief told it to stop. The check reads the
-/// conversation only, so each case names what the final reply must show.
+/// user can unblock it or decide, or the Chief told it to stop. The check
+/// reads the conversation only, so each case names what the final reply
+/// must show.
+///
+/// A wait on the user's decision (a look to OK before a push, a Chief order)
+/// is a stop, and a repeat of that report is too: without both, a subagent
+/// holding for "push it" was sent back by every check and posted one more
+/// "still holding" each time (user, 2026-11-23: "it spams too much 'still
+/// holding' even though the turn has ended"). acpmux also caps the checks at
+/// one re-prompt with no tool call between, and lets any later stop of a
+/// turn the check already sent back through (Claude Code's
+/// `stop_hook_active`, `hub/stop_condition.rs` `REPEAT_STOP`): one re-prompt
+/// a turn at most, not 51 in two sessions (Lucas's Mac, 2026-11-23).
 pub const CONDITION: &str = "The Chief's task in this session's first message is finished. \
 Finished means one of: (1) the work is done and landed where the task says \
 (pushed to the branch it names, plainly, not on a scratch branch), and the \
@@ -46,9 +63,14 @@ final reply gives the landed commit range OLD..NEW and what was verified; \
 (2) the task asks for no code change (a question, a review, a check) and \
 the final reply answers it in full; (3) the final reply names a blocker \
 that only the user can clear (money, legal, a destructive step, \
-credentials, a physical action) after everything else was done; or (4) \
-the Chief told this session to stop, wait or hand off. Waiting on a build, \
-a test run, a fleet machine or CI is not finished: wait for it and go on.";
+credentials, a physical action) after everything else was done; (4) \
+the task or the Chief leaves a decision to the user (such as OK of a look \
+before a push), everything else is done, and the final reply names that \
+decision and the words that answer it; or (5) the Chief told this session \
+to stop, wait or hand off. A final reply that repeats an earlier report of \
+case 3, 4 or 5 with no tool call since is finished: never ask for it \
+again. Waiting on a build, a test run, a fleet machine or CI is not \
+finished: wait for it and go on.";
 
 /// Whether the person left the goal on: `chief.subagentGoal` is not `false`.
 pub fn on(user: Option<&Value>) -> bool {
@@ -79,7 +101,7 @@ pub fn note_block() -> Value {
     json!({
         "type": "text",
         "text": format!(
-            "You work under a goal: a Stop hook checks every would-be stop and sends you back to work until this holds. {CONDITION}"
+            "You work under a goal: every would-be stop is checked, and you go back to work until this holds. {CONDITION}"
         ),
     })
 }

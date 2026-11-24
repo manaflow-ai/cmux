@@ -8,7 +8,6 @@ final class BookmarkEditModel {
     var title: String
     var folder: String
     let folders: [BookmarkFolderChoice]
-    var colors = BookmarkPageColors()
     @ObservationIgnored var onDone: () -> Void = {}
     @ObservationIgnored var onRemove: () -> Void = {}
     @ObservationIgnored var onMore: () -> Void = {}
@@ -21,7 +20,9 @@ final class BookmarkEditModel {
     }
 }
 
-/// The bubble's form: undesigned, compact, theme colors only.
+/// The bubble's form: undesigned, compact, theme colors only. Its text takes the inks of its host
+/// (``ThemedHostingView``: the foreground and `.cmuxSecondary` are the theme's text fit to the menu glass); the theme's own
+/// text read 4.16:1 on Hot Dog Stand's glass over a black page.
 struct BookmarkEditView: View {
     @Bindable var model: BookmarkEditModel
 
@@ -29,34 +30,33 @@ struct BookmarkEditView: View {
         VStack(alignment: .leading, spacing: Metrics.space4) {
             Text(model.isNew ? BookmarkStrings.added : BookmarkStrings.editTitle)
                 .font(Font(Typography.bodyEmphasized))
-                .foregroundStyle(model.colors.primary)
             Grid(alignment: .leading, horizontalSpacing: Metrics.space4, verticalSpacing: Metrics.space3) {
                 GridRow {
-                    Text(BookmarkStrings.name).foregroundStyle(model.colors.secondary)
+                    Text(BookmarkStrings.name).foregroundStyle(.cmuxSecondary)
                     ThemedField(text: $model.title, focusOnAppear: true, identifier: "cmux.bookmarks.edit.name",
                                 onSubmit: { model.onDone() })
                 }
                 GridRow {
-                    Text(BookmarkStrings.folder).foregroundStyle(model.colors.secondary)
+                    Text(BookmarkStrings.folder).foregroundStyle(.cmuxSecondary)
                     ThemedPicker(selection: $model.folder, choices: model.folders.map {
                         ThemedPicker.Choice(id: $0.id, title: String(repeating: "    ", count: $0.depth) + $0.title)
                     }, identifier: "cmux.bookmarks.edit.folder")
                 }
             }
             .font(Font(Typography.body))
-            HStack(spacing: Metrics.space4) {
-                Button(BookmarkStrings.more) { model.onMore() }
+            // Every button is a cmux dialog button (theme fill, 4.5:1 title on the glass over any page): stock ones drew
+            // AppKit's bezel, no fill and a dimmed title, and More… and Remove read as disabled (a1273).
+            HStack(spacing: Metrics.space2) {
+                CmuxDialogActionButton(BookmarkStrings.more, hint: nil) { model.onMore() }
+                    .accessibilityIdentifier("cmux.bookmarks.edit.more")
                 Spacer(minLength: Metrics.space6)
-                Button(BookmarkStrings.remove) { model.onRemove() }
+                CmuxDialogActionButton(BookmarkStrings.remove, hint: nil) { model.onRemove() }
                     .accessibilityIdentifier("cmux.bookmarks.edit.remove")
                 CmuxDialogActionButton(BookmarkStrings.done, hint: .return) { model.onDone() }
                     .accessibilityIdentifier("cmux.bookmarks.edit.done")
             }
-            .font(Font(Typography.body))
         }
         .padding(Metrics.space5)
         .frame(width: Metrics.paletteWidth * 0.5)
-        // The default button in the theme's selection fill, never the system blue (cx-wqn5).
-        .tint(model.colors.selection)
     }
 }

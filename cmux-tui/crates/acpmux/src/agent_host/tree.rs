@@ -83,6 +83,46 @@ pub fn marked(name: &str, value: &str) -> Vec<Started> {
         .collect()
 }
 
+impl Started {
+    /// A row as `ps` would print it, for tests of what reads one.
+    #[cfg(test)]
+    pub(crate) fn for_test(pid: u32, ppid: u32, start: &str) -> Self {
+        Started { pid, ppid, start: start.to_owned() }
+    }
+    /// Its parent's pid.
+    pub fn ppid(&self) -> u32 {
+        self.ppid
+    }
+    /// When it started, as `ps` prints it (`lstart`): with the pid, what tells it from a later
+    /// process that got the same pid.
+    pub fn start(&self) -> &str {
+        &self.start
+    }
+}
+
+/// Every process now, by pid and start time (`process owner`, `process left-behind`).
+pub fn all() -> Vec<Started> {
+    process_table()
+}
+
+/// Each of `procs` that still runs as the same process (pid and start time).
+pub fn still_running(procs: &[Started]) -> Vec<Started> {
+    if procs.is_empty() {
+        return Vec::new();
+    }
+    let table = process_table();
+    procs
+        .iter()
+        .filter(|p| table.iter().any(|now| now.pid == p.pid && now.start == p.start))
+        .cloned()
+        .collect()
+}
+
+/// The pids no tool may signal: 0, 1, this process and its ancestors.
+pub fn spared_now() -> Vec<u32> {
+    spared(&process_table())
+}
+
 /// SIGKILL each of `procs` that still runs as the same process.
 pub fn kill_still_running(procs: &[Started]) {
     signal_still_running(procs, libc::SIGKILL);

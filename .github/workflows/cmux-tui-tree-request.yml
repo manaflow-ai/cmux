@@ -41,37 +41,62 @@ concurrency:
 
 permissions: {}
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
 jobs:
   request:
     name: request the cmux-tui tree publish
     if: ${{ github.event_name == 'workflow_dispatch' && github.repository_owner == 'manaflow-ai' && github.ref == 'refs/heads/feat-cmux-next' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       # actions: write re-runs a cmux-tui artifacts run.
       actions: write
       contents: read
     steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.ref }}
+          # The branch's complete commit graph lets git prove ancestry without
+          # spending the installation API quota on compare.
+          fetch-depth: 0
+          filter: blob:none
+          sparse-checkout: scripts/ci
+
+      # The owned GCP build lanes reuse the workspace: reset the sparse checkout
+      # after an earlier job left tracked files missing (run 44398113924).
+      - name: Repair a reused self-hosted checkout
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
+            git reset -q --hard HEAD
+            if ! git config --bool core.sparseCheckout | grep -qx true; then
+              git sparse-checkout disable 2>/dev/null || true
+              git reset -q --hard HEAD
+            fi
+          fi
+
       - name: Check the commit is on feat-cmux-next
         env:
           COMMIT: ${{ inputs.commit }}
           TIP: ${{ github.sha }}
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
           [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::commit must be a full 40-hex sha, not '$COMMIT'"; exit 1; }
-          status="$(gh api "repos/$REPOSITORY/compare/$COMMIT...$TIP?per_page=1" --jq .status)"
-          case "$status" in
-            ahead|identical) echo "$COMMIT is on feat-cmux-next ($TIP)." ;;
-            *) echo "::error::$COMMIT is not on feat-cmux-next ($TIP is $status of it); nothing is published"; exit 1 ;;
-          esac
-
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          ref: ${{ inputs.commit }}
-          fetch-depth: 1
+          git cat-file -e "$COMMIT^{commit}" 2>/dev/null || {
+            echo "::error::$COMMIT is not on feat-cmux-next ($TIP does not contain it); nothing is published"
+            exit 1
+          }
+          if ! git merge-base --is-ancestor "$COMMIT" "$TIP"; then
+            echo "::error::$COMMIT is not on feat-cmux-next ($TIP does not contain it); nothing is published"
+            exit 1
+          fi
+          echo "$COMMIT is on feat-cmux-next ($TIP)."
+          git checkout --quiet --detach "$COMMIT"
 
       - name: Dispatch one publisher when the tree is missing
         id: request
@@ -82,6 +107,13 @@ jobs:
           SERVER_URL: ${{ github.server_url }}
         run: |
           set -euo pipefail
+          # The checkout is blobless and sparse (scripts/ci), and the key script
+          # never fetches lazily (GIT_NO_LAZY_FETCH). Its only blob read is the
+          # revision's own inputs list, so fetch that one blob first; trees and
+          # gitlinks are already local. A revision without the list falls back
+          # in the script.
+          prefetch_key_inputs() { git cat-file blob "$1:scripts/cmux-next/cmux-tui-tree-inputs.txt" >/dev/null 2>&1 || true; }
+          prefetch_key_inputs "$COMMIT"
           # The commit's own key definition, as its push run's tree-preflight uses.
           key="$(python3 scripts/ci/cmux_tui_tree_key.py --version v2 "$COMMIT")"
           [[ "$key" =~ ^[0-9a-f]{40}$ ]]
@@ -139,7 +171,12 @@ jobs:
           while IFS=$'\t' read -r candidate url; do
             [[ "$candidate" =~ ^[0-9a-f]{40}$ ]] || continue
             if [[ "$candidate" != "$COMMIT" ]]; then
-              git fetch -q --no-tags --depth=1 "$SERVER_URL/$REPOSITORY.git" "$candidate" 2>/dev/null || continue
+              # Older pushes are already in the full blobless history; a newer
+              # one comes through origin with the same filter (no shallow file,
+              # no full blob download).
+              git cat-file -e "$candidate^{commit}" 2>/dev/null \
+                || git fetch -q --no-tags --filter=blob:none origin "$candidate" 2>/dev/null || continue
+              prefetch_key_inputs "$candidate"
               [[ "$(python3 scripts/ci/cmux_tui_tree_key.py --version v2 "$candidate" 2>/dev/null)" == "$key" ]] || continue
             fi
             active_url="$url"
@@ -160,17 +197,31 @@ jobs:
             --jq '[.workflow_runs[]
                    | select((.event == "push" and .head_branch == "feat-cmux-next")
                             or (.event == "workflow_dispatch" and .head_branch == "feat-cmux-next"))]
-                  | sort_by(.id) | last | if . == null then "" else "\(.id)\t\(.status)\t\(.html_url)" end')"
+                  | sort_by(.id) | last | if . == null then "" else "\(.id)\t\(.status)\t\(.html_url)\t\(.run_attempt)\t\(.conclusion // "")" end')"
           if [[ -z "$latest" ]]; then
             echo "::error::no cmux-tui artifacts run exists for $COMMIT (it was never a pushed branch head). This tree has no artifact yet; re-run after a trusted feat-cmux-next push publishes the same tree."
             report unpublishable
             exit 1
           fi
-          IFS=$'\t' read -r run_id run_status run_url <<<"$latest"
+          IFS=$'\t' read -r run_id run_status run_url run_attempt run_conclusion <<<"$latest"
           if [[ "$run_status" != completed ]]; then
             report publishing "$run_url"
             exit 0
           fi
-          gh api -X POST "repos/$REPOSITORY/actions/runs/$run_id/rerun" >/dev/null
-          echo "Re-ran cmux-tui artifacts run $run_id for $COMMIT."
+          # A coalesced run (it built nothing) re-runs in full; a run that built and failed re-runs only its
+          # failed jobs, so the legs that passed are not built again; at 3 failed attempts it stops
+          # (scripts/ci/cmux_tui_tree_request_rerun.py).
+          how="$(python3 scripts/ci/cmux_tui_tree_request_rerun.py --attempt "${run_attempt:-1}" --conclusion "${run_conclusion:-}")"
+          case "$how" in
+            cap)
+              echo "::error::cmux-tui artifacts run $run_id for $COMMIT failed $run_attempt attempts; not re-running it again. Read why it fails: $run_url"
+              report failed "$run_url"
+              exit 1 ;;
+            failed-jobs)
+              gh api -X POST "repos/$REPOSITORY/actions/runs/$run_id/rerun-failed-jobs" >/dev/null ;;
+            full)
+              gh api -X POST "repos/$REPOSITORY/actions/runs/$run_id/rerun" >/dev/null ;;
+            *) echo "::error::unexpected re-run decision '$how'"; exit 1 ;;
+          esac
+          echo "Re-ran cmux-tui artifacts run $run_id ($how, after attempt $run_attempt: $run_conclusion) for $COMMIT."
           report publishing "$run_url"

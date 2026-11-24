@@ -1,0 +1,40 @@
+{
+ "title": "Chat header icons, Contextual: a new chat",
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "An agent chat in /tmp",
+   "cmux": [
+    "agent",
+    "new-chat",
+    "--cwd",
+    "/tmp"
+   ],
+   "wait": 5,
+   "shot": false,
+   "optional": "agent backend unavailable on this runner"
+  },
+  {
+   "title": "Style: contextual",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "agentChat.headerIcons.contextual",
+     "value": "contextual"
+    }
+   },
+   "wait": 1.5,
+   "shot": false,
+   "optional": "debug.tunables is DEBUG only"
+  },
+  {
+   "title": "Contextual, new chat: the panel toggle and the menu only",
+   "wait": 1
+  }
+ ]
+}
