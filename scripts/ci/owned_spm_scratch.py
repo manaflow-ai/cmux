@@ -11,6 +11,8 @@ With CMUX_FAST_TIER_OWNED_SEED=1 (cmux-next.yml's fast tier, unless vars.CI_FAST
 `lease` first holds the mini's seed root (seed_lease): the workspace path the R2 base seed is built at,
 /Users/runner/_work/cmux/cmux, so the fast tier restores the seed there as Blacksmith does and builds only
 what differs from the base. It prints `root=` and `seed=1`; `seeded` then records the warm start.
+While another job holds that root it tries the second one, /Users/runner/_work/cmux-2/cmux, seeded at that path
+too, on a mini with the disk to keep both (second_seed_fits; vars.CI_FAST_TIER_SECOND_SEED_ROOT "0" turns it off).
 
 swift-package-tests, swift-test and fast-tier run `swift build` for the packages
 a change selects. On an owned Mac (a glaeda runner) the workspace is reused, but
@@ -798,6 +800,10 @@ def lease(workspace: Path, store: Path, runner: str, verdict: dict[str, object] 
 # shared roots above were warm on 3% of fast-tier jobs in 48 h to 2026-11-18 (cmux#44271): the light
 # 228 GiB minis rest at 32-48 GiB free and the lease's reserve never admitted a root there.
 SEED_WORKSPACE = Path("/Users/runner/_work/cmux/cmux")
+# SwiftPM's build records absolute paths, so the second root has its own seed at
+# the same path. It is used only when the first root is held by another job.
+SECOND_SEED_WORKSPACE = Path("/Users/runner/_work/cmux-2/cmux")
+SECOND_SEED_SETTING = "CMUX_FAST_TIER_SECOND_SEED_ROOT"
 SEED_LOCK = ".cmux-seed-root.lock"
 # Provisioning writes this in the seed root's parent. The nightly-next builder's runner works in
 # /Users/runner/_work/cmux/cmux too, so the directory alone does not make the path ours.
@@ -816,8 +822,13 @@ def seed_fits(free: int, kept: int, floor_gib: float, growth_gib: float, footpri
     return free + kept >= int(floor_gib * 1024**3) + max(0, footprint - int(growth_gib * 1024**3))
 
 
+def second_seed_fits(free: int, kept: int, floor_gib: float, growth_gib: float, footprint: int) -> bool:
+    """A second seed stays on disk beside the first and needs room for the next job's growth."""
+    return free + kept >= int((floor_gib + growth_gib) * 1024**3) + footprint
+
+
 def seed_lease(workspace: Path, seed_workspace: Path, runner: str,
-               verdict: dict[str, object] | None = None) -> Path | None:
+               verdict: dict[str, object] | None = None, fits=seed_fits) -> Path | None:
     """Hold the mini's seed root for this job and mirror WORKSPACE into it; return it, or None to take the
     shared roots as before: not an owned runner, the root's parent not provisioned (the mini's user owns
     /Users/runner/_work/cmux and marks it with SEED_MARKER), another job holding it, or no room above
@@ -839,7 +850,7 @@ def seed_lease(workspace: Path, seed_workspace: Path, runner: str,
         kept = sum(tree_bytes(seed_workspace / build) for build in SEED_BUILDS)
         floor_gib, growth_gib = disk_limits_gib()
         footprint = max(SEED_BYTES_ESTIMATE, kept)
-        if not seed_fits(free_bytes(parent), kept, floor_gib, growth_gib, footprint):
+        if not fits(free_bytes(parent), kept, floor_gib, growth_gib, footprint):
             os.close(fd)
             return None
         hold(parent / SEED_LOCK, fd=fd)
@@ -862,6 +873,17 @@ def seed_lease(workspace: Path, seed_workspace: Path, runner: str,
     if verdict is not None:
         verdict.update(state="cold", reason="seed root", bytes=0)
     return seed_workspace
+
+
+def seed_roots(environ: Mapping[str, str] = os.environ) -> list[tuple[Path, object]]:
+    """The seed roots a fast-tier job tries, in order. Tests may name one root."""
+    named = environ.get("CMUX_FAST_TIER_SEED_WORKSPACE")
+    if named:
+        return [(Path(named), seed_fits)]
+    roots: list[tuple[Path, object]] = [(SEED_WORKSPACE, seed_fits)]
+    if environ.get(SECOND_SEED_SETTING) != "0":
+        roots.append((SECOND_SEED_WORKSPACE, second_seed_fits))
+    return roots
 
 
 def write_seeded(environ: Mapping[str, str] = os.environ) -> Path | None:
@@ -906,20 +928,23 @@ def main(argv: list[str]) -> int:
         runner = os.environ.get("RUNNER_NAME", "")
         verdict = {}
         if os.environ.get(SEED_SETTING) == "1":
-            seed = Path(os.environ.get("CMUX_FAST_TIER_SEED_WORKSPACE") or SEED_WORKSPACE)
-            try:
-                seeded = seed_lease(workspace, seed, runner, verdict=verdict)
-            except (OSError, subprocess.SubprocessError) as error:
-                release_holders()
-                print(f"owned SwiftPM scratch: no seed root ({error}); taking a shared root")
-                seeded, verdict = None, {}
+            seeded = None
+            for seed, fits in seed_roots():
+                try:
+                    seeded = seed_lease(workspace, seed, runner, verdict=verdict, fits=fits)
+                except (OSError, subprocess.SubprocessError) as error:
+                    release_holders()
+                    print(f"owned SwiftPM scratch: no seed root at {seed} ({error})")
+                    seeded, verdict = None, {}
+                if seeded is not None:
+                    break
             if seeded is not None:
                 write_output("root", str(seeded))
                 write_output("seed", "1")
                 print(f"owned SwiftPM scratch: building in the mini's seed root {seeded} (the base seed restores here)")
                 report(verdict)
                 return 0
-            print("owned SwiftPM scratch: the seed root is busy, unprovisioned or has no room; taking a shared root")
+            print("owned SwiftPM scratch: every seed root is busy, unprovisioned or has no room; taking a shared root")
             verdict = {}
         try:
             source = lease(workspace, store, runner, verdict=verdict)
