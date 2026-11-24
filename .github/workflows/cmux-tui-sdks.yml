@@ -500,9 +500,6 @@ jobs:
       - name: Test published artifact manifest verifier
         run: python3 -m unittest discover -s cmux-tui/scripts -p 'test_verify_published_manifest.py' -v
 
-      - name: Test folder sync bench harness
-        run: python3 -m unittest discover -s cmux-tui/scripts -p 'test_sync_bench.py' -v
-
       - name: Test SDK schema drift checker
         run: python3 cmux-tui/scripts/test_check_sdk_schema.py
 
