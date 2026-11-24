@@ -134,6 +134,24 @@ KEPT_MARKS = ("main_start", "first_window_frame_committed", "reveal.pane", "reve
 LOADS = ("none", "busy")
 BROWSER_PAGE = (b"<!doctype html><html><head><meta charset=utf-8><title>tti page</title></head><body>"
                 b"<h1>launch tti</h1><input id=q autofocus placeholder=type></body></html>")
+# Every mark of the steps between the first frame and the chat drawn, kept too: Chromium's start (cef.*, its
+# cef.step.* split), the page host (chromium_page.*), the page's own navigation and paint (first_page.*), the chat's
+# handshake and paint (agent_pane.*) and Home (home.*). Without them a round says only that webview_ready or
+# first_chat_paint was late, never which step (a warm-vs-update gap on 2026-11-23 could not be split from the logs).
+KEPT_MARK_PREFIXES = ("cef.", "chromium_page.", "first_page.", "agent_pane.", "home.", "reveal.")
+KEPT_MARKS_MAX = 120  # a round's line stays small; the stage marks and KEPT_MARKS always fit first
+
+
+def kept_marks(marks: dict) -> dict:
+    """The marks a round's line carries: KEPT_MARKS and every stage mark, then each mark under KEPT_MARK_PREFIXES in
+    launch order, at most KEPT_MARKS_MAX in all."""
+    named = set(KEPT_MARKS) | set(launch_stages.MARKS)
+    out = {k: marks[k] for k in marks if k in named}
+    rest = sorted((k for k in marks if k not in named and k.startswith(KEPT_MARK_PREFIXES)),
+                  key=lambda k: (_num(marks[k]) is None, _num(marks[k]) or 0.0, k))
+    for k in rest[:max(0, KEPT_MARKS_MAX - len(out))]:
+        out[k] = marks[k]
+    return out
 
 
 def log(message: str) -> None:
@@ -380,6 +398,13 @@ def bundle_has_browser_mark(app: Path) -> bool:
 
 # ---- the typing probe -----------------------------------------------------------------------
 
+def load_1m() -> float | None:
+    try:
+        return round(os.getloadavg()[0], 2)
+    except OSError:
+        return None
+
+
 def _num(value) -> float | None:
     try:
         return float(value) if value not in (None, "") else None
@@ -519,14 +544,21 @@ def seed_list(inst: rr.Instance, made: dict, workspaces: int, chats: int, work: 
 
 # ---- one round ------------------------------------------------------------------------------
 
-def quit_app(inst: rr.Instance, process) -> str | None:
+def quit_app(inst: rr.Instance, process, timing: dict | None = None) -> str | None:
+    """Quit and Keep Sessions, then wait for the process to end. `timing`, when given, gets `quit_ms`: the ask to the
+    old process's end (or to its kill), so a round can tell a slow relaunch from a slow quit before it."""
+    asked = time.monotonic()
     reply = rr.call(inst.sock, "action.run", {"action": "quitKeepSessions"}, timeout=10)
     try:
         process.wait(timeout=20)
     except subprocess.TimeoutExpired:
         process.kill()
         process.wait(timeout=10)
+        if timing is not None:
+            timing["quit_ms"], timing["quit_killed"] = round((time.monotonic() - asked) * 1000, 1), True
         return f"the app did not end within 20 s of Quit and Keep Sessions ({reply.get('error') or 'ok'})"
+    if timing is not None:
+        timing["quit_ms"] = round((time.monotonic() - asked) * 1000, 1)
     if os.path.exists(inst.sock):
         try:
             os.remove(inst.sock)
@@ -675,7 +707,8 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
         failures.append(put)
         rr.safe_print("TTI-ROUND " + json.dumps(row, default=str), flush=True)
         return row, process, app
-    why = quit_app(inst, process)
+    why = quit_app(inst, process, row)
+    quit_end = time.monotonic()
     if why:
         failures.append(why)
     if kind in ("cold_install", "cold_after_update"):
@@ -697,6 +730,10 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
     probe = out / f"typing-round{n}.csv"
     probe.unlink(missing_ok=True)
     args.load_runner.start()
+    # The old process's end to this launch (a cold round's copy and prewarm sit in it, a warm round's is ~0), and the
+    # Mac's 1-minute load at the launch: a stage median mixes rounds, and both decide whether rounds compare.
+    row["quit_to_launch_ms"] = round((time.monotonic() - quit_end) * 1000, 1)
+    row["load_1m"] = load_1m()
     spawned = uptime_ns()
     try:
         if args.launch == "open":
@@ -792,7 +829,7 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
     row.update(split(row.get("input_ms"), row["main_ms"]))
     if path == "in_app":
         row["probe_focus"] = probe_focus(marks)
-    row["marks"] = {k: marks[k] for k in KEPT_MARKS if k in marks}
+    row["marks"] = kept_marks(marks)
     row["stages"] = launch_stages.spans(marks)
     if process.poll() is not None:
         failures.append(f"the app exited (status {process.poll()})")

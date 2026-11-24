@@ -1526,7 +1526,6 @@ mod tests {
         }
         let small = measured.first().ok_or_else(|| invalid("small measurement"))?;
         let god = measured.last().ok_or_else(|| invalid("god measurement"))?;
-        assert_eq!(small, god);
         eprintln!(
             "v2.pr03a.source_read_bounds read_ratio={} holds_ratio={}",
             god.0 as f64 / small.0 as f64,
@@ -1540,6 +1539,8 @@ mod tests {
                 small.0, god.0
             )?;
         }
+        // The bound after the line: a red row keeps its numbers in the v2 home.
+        assert_eq!(small, god);
         Ok(())
     }
 }
