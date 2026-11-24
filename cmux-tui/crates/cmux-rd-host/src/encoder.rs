@@ -157,7 +157,10 @@ fn shipped_openh264_options(sharp_text: bool) -> Res<cmux_encode::openh264::Open
     let base = shipped_openh264_base(cfg!(target_os = "linux"), sharp_text);
     match std::env::var("CMUX_RD_OPENH264_USAGE") {
         Ok(usage) if !usage.trim().is_empty() => {
-            Ok(OpenH264Options::parse_over(base, &format!("usage={}", usage.trim()))?)
+            Ok(cmux_encode::openh264::OpenH264Options::parse_over(
+                base,
+                &format!("usage={}", usage.trim()),
+            )?)
         }
         _ => Ok(base),
     }
