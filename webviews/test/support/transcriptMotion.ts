@@ -112,7 +112,7 @@ export type MotionRecord = {
   starts?: AnimationStart[];
   /** Presses and keys, each with the tracked element it went to: [t, key]. */
   aimed?: [t: number, key: string][];
-  /** When each row's data first came, from the harness's steps (`rows(ids)`): key -> t. */
+  /** When each row's data last came or changed, from the harness's steps (`rows(list)`): key -> t. */
   arrived?: Record<string, number>;
 };
 
@@ -141,7 +141,7 @@ declare global {
       /** A step landed, or the reader's input (`input`, or `input:...`). */
       mark(label: string): void;
       /** The rows the chat has after a step (their ids), so a row's data arrival is known. */
-      rows?(ids: readonly string[]): void;
+      rows?(list: readonly (string | readonly [id: string, signature: string])[]): void;
       count(): number;
     };
   }
@@ -181,6 +181,7 @@ export function defineTranscriptMotion(options: TranscriptMotionOptions) {
   let starts: AnimationStart[] = [];
   let aimed: [number, string][] = [];
   let arrived: Record<string, number> = {};
+  const signatures = new Map<string, string>();
   /** Keys drawn last frame, and every key drawn in this recording. */
   let drawnLast = new Set<string>();
   let drawnEver = new Set<string>();
@@ -254,6 +255,8 @@ export function defineTranscriptMotion(options: TranscriptMotionOptions) {
       const timing = effect.getComputedTiming();
       // An ambient loop (a spinner, a shimmer) and a zero-length step are no motion.
       if (timing.iterations === Infinity || !(Number(timing.activeDuration) > 0)) continue;
+      // The running line's shimmer sweeps once per cadence (shimmerCadence.ts), only while seen: ambient.
+      if (animation instanceof CSSAnimation && animation.animationName.startsWith("cmux-cadenced-shimmer")) continue;
       if (animation.playState === "finished") continue;
       const owner = target.matches(selectorAll) ? target : holder(target);
       const box = (owner ?? target).getBoundingClientRect();
@@ -401,6 +404,7 @@ export function defineTranscriptMotion(options: TranscriptMotionOptions) {
       starts = [];
       aimed = [];
       arrived = {};
+      signatures.clear();
       touched = new Set();
       marks = [];
       origin = performance.now();
@@ -430,10 +434,17 @@ export function defineTranscriptMotion(options: TranscriptMotionOptions) {
       marks.push(label);
       if (label.startsWith("input")) inputs.push(performance.now() - origin);
     },
-    rows(ids: readonly string[]) {
+    rows(list: readonly (string | readonly [id: string, signature: string])[]) {
       if (!recording) return;
       const at = round(performance.now() - origin);
-      for (const id of ids) arrived[`row:${id}`] ??= at;
+      for (const entry of list) {
+        const [id, signature] = typeof entry === "string" ? [entry, ""] : entry;
+        const key = `row:${id}`;
+        // New data is a new row or a row whose content changed (a Thinking line's words, a tool done).
+        if (key in arrived && signatures.get(key) === signature) continue;
+        arrived[key] = at;
+        signatures.set(key, signature);
+      }
     },
     count: () => frames.length,
   };
