@@ -953,6 +953,7 @@ impl UltraUnderlay {
         }
         let Some(parity) = parse_parity(datagram) else { return };
         UltraCounters::add(&self.counters.parity_received, 1);
+        crate::dlog!("parity RX len={} code={:?}", datagram.len(), parity.code);
         // Kept datagrams start with the first trusted parity; that group is
         // not rebuilt.
         self.decoding = true;
@@ -997,6 +998,15 @@ impl UltraUnderlay {
                 siblings.iter().filter_map(|(datagram, _)| parse_parity(datagram)).collect();
             self.received.rebuild_rs(&parsed)
         };
+        crate::dlog!(
+            "rs outcome {}",
+            match &outcome {
+                Rebuild::DoneAll(_) => "DoneAll",
+                Rebuild::Done(_) => "Done",
+                Rebuild::Whole => "Whole",
+                Rebuild::Waiting => "Waiting",
+            }
+        );
         match outcome {
             Rebuild::DoneAll(rebuilt) => {
                 // Every sibling came from a trusted origin; the newest's is
