@@ -1150,12 +1150,8 @@ export const ComposerQueue = React.memo(function ComposerQueue({
               <button
                 type="button"
                 className="acpmux-queue-resume"
-                // acpmux's first prompt: a held one (trustHeld.ts) is not acpmux's to resume.
-                onClick={() =>
-                  void onChange((queue.find((row) => !row.held) ?? queue[0]).id, { op: "resume" }).catch(
-                    () => undefined,
-                  )
-                }
+                // The status dot's Resume is the same call (queuePause.ts resumeQueue).
+                onClick={() => resumeQueue(queue, onChange)}
               >
                 {t("composer.queueResume")}
               </button>

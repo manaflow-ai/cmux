@@ -4,6 +4,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   dedupe,
+  retryOnDot,
+  statusSays,
   hostRecoveryItem,
   nextWake,
   readComposerStatus,
@@ -164,5 +166,33 @@ describe("items", () => {
     expect(restoring?.words).toBe("status.restoringSessions.restoring");
     expect(restoring?.showAt).toBe(6_000 + RECONNECT_LINE_AFTER_MS);
     expect(hostRecoveryItem(undefined, 0)).toEqual({});
+  });
+});
+
+describe("an old row yields to the dot only where the dot says the same", () => {
+  const limited = {
+    items: [{ kind: "rateLimited", level: "attention", words: "status.rateLimited.until", until: 1_700_000_000_000 }],
+    facts: [],
+  };
+  test("statusSays reads acpmux's items, and an older acpmux's absent field says nothing", () => {
+    expect(statusSays(limited, "rateLimited")).toBe(true);
+    expect(statusSays(limited, "queuePaused")).toBe(false);
+    expect(statusSays(undefined, "rateLimited")).toBe(false);
+    expect(statusSays(null, "rateLimited")).toBe(false);
+    // A newer daemon's words this build cannot draw: the dot says nothing, so the row stays.
+    const unknown = {
+      items: [{ kind: "rateLimited", level: "attention", words: "status.rateLimited.later" }],
+      facts: [],
+    };
+    expect(statusSays(unknown, "rateLimited")).toBe(false);
+  });
+  test("the retry line yields only for a rate limit's held retry the dot carries", () => {
+    expect(retryOnDot({ reason: "rate_limit" }, limited)).toBe(true);
+    // Capacity and transport retries have no dot item: their line stays.
+    expect(retryOnDot({ reason: "capacity" }, limited)).toBe(false);
+    expect(retryOnDot({ reason: "transport" }, limited)).toBe(false);
+    // An older acpmux sends no composerStatus: the line is the only place that says the wait.
+    expect(retryOnDot({ reason: "rate_limit" }, undefined)).toBe(false);
+    expect(retryOnDot(undefined, limited)).toBe(false);
   });
 });

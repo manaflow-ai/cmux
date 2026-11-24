@@ -52,6 +52,7 @@ import { HarnessHealthNotice } from "../HarnessHealthNotice";
 import { Notice } from "../NoticeSlot";
 import { AutoResumeNotice } from "../AutoResumeNotice";
 import { liveAutoResume, type TurnPhase } from "../turnPhase";
+import { retryOnDot } from "../composerStatusModel";
 import { RulesNotice } from "../RulesNotice";
 import { composerShell, shellContextAttachments, type ShellRuns } from "../shell/shellRuns";
 import { SwitchNotice } from "../SwitchNotice";
@@ -818,7 +819,13 @@ export function drawPaneComposer({
                 {background.notice && t(BACKGROUND_NOTICE_TEXT[background.notice])}
               </output>
             </Notice>
-            {!showNewTab && <AutoResumeNotice state={liveAutoResume(liveTurnPhase, snapshot.autoResume)} />}
+            {/* A rate limit's held retry is the status dot's to say (composerStatusModel.ts retryOnDot). */}
+            {!showNewTab && (
+              <AutoResumeNotice
+                state={liveAutoResume(liveTurnPhase, snapshot.autoResume)}
+                onDot={retryOnDot(snapshot.autoResume?.retry, snapshot.summary?.composerStatus)}
+              />
+            )}
             {!showNewTab && (
               <ShareNudge
                 open={shareNudge.shown}

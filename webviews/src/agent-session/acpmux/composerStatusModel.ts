@@ -164,6 +164,22 @@ export function readComposerStatus(value: unknown): ComposerStatus | undefined {
   };
 }
 
+/// Whether the session's `composerStatus` (acpmux's) carries an item of `kind` whose words this build
+/// draws: then the dot says it, and an older row that says the same yields to it. False from an older
+/// acpmux (no `composerStatus`), whose row stays.
+export function statusSays(composerStatus: unknown, kind: StatusKind): boolean {
+  return (
+    readComposerStatus(composerStatus)?.items.some((item) => item.kind === kind && !!statusWordsKey(item)) ?? false
+  );
+}
+
+/// Whether the automatic retry's wait (AutoResumeNotice) is the rate limit's hold the dot already says
+/// ("Rate limited until 14:05", RFD 0128): the hold's continuation is the retry that waits, so the
+/// notice row's "Retrying (2/4)" would say the same wait a second time, without its reset.
+export function retryOnDot(retry: { reason?: string } | undefined, composerStatus: unknown): boolean {
+  return retry?.reason === "rate_limit" && statusSays(composerStatus, "rateLimited");
+}
+
 const RANK: Record<StatusLevel, number> = { info: 0, attention: 1, problem: 2 };
 
 /// Worst level first, then the oldest `since` (an unknown one last): acpmux's own order.
