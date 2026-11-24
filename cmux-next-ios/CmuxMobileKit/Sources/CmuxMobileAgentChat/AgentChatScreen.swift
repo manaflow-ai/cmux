@@ -1135,7 +1135,7 @@ extension UserBubble {
     @ViewBuilder var bubbleText: some View {
         if prompt.isEmpty {
             // An attachment-only message has no word to hold.
-            MessageActionsButton(rows: menuRows)
+            MessageActionsControl(rows: menuRows)
         } else if let split = NextStepAsk.replyQuote(prompt) {
             VStack(alignment: .leading, spacing: 6) {
                 SelectableText(split.quote, color: .secondaryLabel, lineSpacing: 4)
@@ -1145,6 +1145,23 @@ extension UserBubble {
             }
         } else {
             SelectableText(prompt, color: .cmuxMobileChatBubbleText, lineSpacing: 4)
+        }
+    }
+}
+
+/// The actions button of an attachment-only prompt; in a still (`chatStill`) its glyph as plain
+/// SwiftUI, since `ImageRenderer` draws the UIKit button as its yellow placeholder.
+private struct MessageActionsControl: View {
+    let rows: @MainActor (UIView) -> [UIMenuElement]
+    @Environment(\.chatStill) private var still
+
+    var body: some View {
+        if still {
+            Image(systemName: "ellipsis")
+                .foregroundStyle(.tint)
+                .accessibilityLabel(String(localized: "Message actions"))
+        } else {
+            MessageActionsButton(rows: rows)
         }
     }
 }

@@ -404,6 +404,27 @@ fn a_rotation_repaints_a_window_and_older_rows_come_on_demand() {
     assert_same(&host, &phone, "after loading");
 }
 
+/// The attach on iOS (`TerminalProjectingSession`): the phone's grid is set
+/// (an empty paint) before the host's replay, which comes as a reset and the
+/// whole scrollback. Its paint is a window (#43189), not every replayed row:
+/// #51584's reach from the last paint counted the replay's rows as rows the
+/// phone missed, and the phone took all 3,000 lines at attach.
+#[test]
+fn the_attachs_replay_paints_a_window_after_an_empty_paint() {
+    let mut host = exact(120, 24, 10_000);
+    let mut phone = Phone::new(54, 38);
+    phone.apply(host.set_viewport(54, 38));
+    let _ = host.feed(b"\x1bc", false);
+    host.request_reset();
+    phone.apply(host.feed(&numbered(3_000), true));
+    assert!(host.older_rows() > 2_000, "the replay painted a window, not 3,000 lines");
+    assert_same(&host, &phone, "replayed window");
+    // Streaming after it still reaches back to every row pushed since the paint.
+    let _ = host.feed(&numbered(300), false);
+    phone.apply(host.flush());
+    assert_same(&host, &phone, "streamed after the replay");
+}
+
 #[test]
 fn a_rotation_keeps_the_lines_being_read() {
     let mut host = exact(120, 40, 10_000);
