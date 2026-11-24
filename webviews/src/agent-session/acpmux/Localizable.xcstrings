@@ -88286,6 +88286,7 @@
         }
       }
     },
+    "backgroundTasks.loading": {"comment":"Agent pane Background tasks panel: shown while the chat's list of subagents is first read","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Loading background tasks…"}},"ar":{"stringUnit":{"state":"needs_review","value":"جارٍ تحميل مهام الخلفية…"}},"bs":{"stringUnit":{"state":"needs_review","value":"Učitavanje pozadinskih zadataka…"}},"da":{"stringUnit":{"state":"needs_review","value":"Indlæser baggrundsopgaver…"}},"de":{"stringUnit":{"state":"needs_review","value":"Hintergrundaufgaben werden geladen…"}},"es":{"stringUnit":{"state":"needs_review","value":"Cargando tareas en segundo plano…"}},"fr":{"stringUnit":{"state":"needs_review","value":"Chargement des tâches en arrière-plan…"}},"it":{"stringUnit":{"state":"needs_review","value":"Caricamento delle attività in background…"}},"ja":{"stringUnit":{"state":"needs_review","value":"バックグラウンドタスクを読み込み中…"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងផ្ទុកកិច្ចការផ្ទៃខាងក្រោយ…"}},"ko":{"stringUnit":{"state":"needs_review","value":"백그라운드 작업 불러오는 중…"}},"nb":{"stringUnit":{"state":"needs_review","value":"Laster inn bakgrunnsoppgaver…"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wczytywanie zadań w tle…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Carregando tarefas em segundo plano…"}},"ru":{"stringUnit":{"state":"needs_review","value":"Загрузка фоновых задач…"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังโหลดงานเบื้องหลัง…"}},"tr":{"stringUnit":{"state":"needs_review","value":"Arka plan görevleri yükleniyor…"}},"uk":{"stringUnit":{"state":"needs_review","value":"Завантаження фонових завдань…"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang tải tác vụ nền…"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在加载后台任务…"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在載入背景工作…"}}}},
     "backgroundTasks.empty": {
       "comment": "Agent pane Background tasks panel: shown when the chat runs nothing in the background",
       "extractionState": "manual",
@@ -333910,6 +333911,402 @@
         }
       }
     },
+    "subsession.waitingSecret": {
+      "comment": "A sub-session waits on the person to enter a secret's value on its private card",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for a secret"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بانتظار قيمة سرية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Čeka tajnu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Venter på en hemmelighed"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wartet auf ein Geheimnis"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esperando un secreto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En attente d’un secret"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In attesa di un segreto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シークレット待ち"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងរង់ចាំអាថ៌កំបាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비밀 값 대기 중"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Venter på en hemmelighet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czeka na sekret"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aguardando um segredo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ждёт секрет"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รอค่าความลับ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gizli değer bekliyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чекає секрет"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đang chờ giá trị bí mật"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待密钥"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待密鑰"
+          }
+        }
+      }
+    },
+    "subsession.waitingElevation": {
+      "comment": "A sub-session waits on the person to approve, with their password, one command it asked to run as root",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting to run a command as root"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بانتظار تشغيل أمر كجذر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Čeka da pokrene naredbu kao root"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Venter på at køre en kommando som root"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wartet darauf, einen Befehl als root auszuführen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esperando para ejecutar un comando como root"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En attente pour exécuter une commande en root"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In attesa di eseguire un comando come root"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "root でのコマンド実行待ち"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងរង់ចាំដំណើរការពាក្យបញ្ជាជា root"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "root로 명령 실행 대기 중"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Venter på å kjøre en kommando som root"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czeka na uruchomienie polecenia jako root"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aguardando para executar um comando como root"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ждёт запуска команды от root"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รอเรียกใช้คำสั่งในฐานะ root"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir komutu root olarak çalıştırmayı bekliyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чекає запуску команди від root"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đang chờ chạy lệnh với quyền root"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待以 root 运行命令"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待以 root 執行命令"
+          }
+        }
+      }
+    },
+    "subsession.waitingMcpConnect": {
+      "comment": "A sub-session waits on the person to approve connecting an MCP server it asked for",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting to connect an MCP server"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بانتظار توصيل خادم MCP"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Čeka povezivanje MCP servera"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Venter på at forbinde en MCP-server"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wartet darauf, einen MCP-Server zu verbinden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esperando para conectar un servidor MCP"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En attente pour connecter un serveur MCP"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In attesa di collegare un server MCP"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MCP サーバーの接続待ち"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងរង់ចាំភ្ជាប់ម៉ាស៊ីនមេ MCP"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MCP 서버 연결 대기 중"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Venter på å koble til en MCP-server"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czeka na połączenie serwera MCP"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aguardando para conectar um servidor MCP"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ждёт подключения MCP-сервера"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รอเชื่อมต่อเซิร์ฟเวอร์ MCP"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir MCP sunucusuna bağlanmayı bekliyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чекає підключення MCP-сервера"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đang chờ kết nối máy chủ MCP"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待连接 MCP 服务器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待連接 MCP 伺服器"
+          }
+        }
+      }
+    },
     "subsession.waitingQuestion": {
       "comment": "A sub-session waits on the person to answer its agent's question, which only the person can answer, in the app",
       "extractionState": "manual",
@@ -357654,6 +358051,7 @@
         }
       }
     },
+    "turn.failure.cloudSignInInTerminal": {"comment":"Agent pane: after a Cloud sign-in failure on a machine whose cmux is too old to sign in from the card; Sign in again (turn.signInAgain) opens the agent's own login in a terminal on that machine.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"يعمل هذا الجهاز بإصدار أقدم من cmux، لذا يفتح «سجّل الدخول مرة أخرى» تسجيل دخول {harness} نفسه في طرفية هناك."}},"bs":{"stringUnit":{"state":"needs_review","value":"Ovaj računar koristi stariju verziju cmux-a, pa „Ponovo se prijavi” otvara vlastitu prijavu za {harness} u terminalu na njemu."}},"da":{"stringUnit":{"state":"needs_review","value":"Denne maskine kører en ældre cmux, så Log ind igen åbner {harness}s eget login i en terminal der."}},"de":{"stringUnit":{"state":"needs_review","value":"Dieser Computer nutzt eine ältere cmux-Version, daher öffnet „Erneut anmelden“ die eigene Anmeldung von {harness} in einem Terminal dort."}},"en":{"stringUnit":{"state":"translated","value":"This machine runs an older cmux, so Sign in again opens {harness}’s own login in a terminal there."}},"es":{"stringUnit":{"state":"needs_review","value":"Esta máquina usa una versión anterior de cmux, así que Volver a iniciar sesión abre el inicio de sesión propio de {harness} en una terminal allí."}},"fr":{"stringUnit":{"state":"needs_review","value":"Cette machine utilise une version plus ancienne de cmux : Se reconnecter ouvre la connexion propre à {harness} dans un terminal sur cette machine."}},"it":{"stringUnit":{"state":"needs_review","value":"Questa macchina usa una versione precedente di cmux, quindi Accedi di nuovo apre l’accesso di {harness} in un terminale su di essa."}},"ja":{"stringUnit":{"state":"needs_review","value":"このマシンの cmux は古いため、「もう一度サインイン」でそのマシンのターミナルに {harness} 自身のログインが開きます。"}},"km":{"stringUnit":{"state":"needs_review","value":"ម៉ាស៊ីននេះប្រើ cmux ចាស់ជាង ដូច្នេះ «ចូលគណនីម្ដងទៀត» បើកការចូលគណនីផ្ទាល់របស់ {harness} នៅក្នុងទែមីណាល់នៅទីនោះ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 머신은 이전 버전의 cmux를 실행하므로 다시 로그인을 누르면 그 머신의 터미널에서 {harness} 자체 로그인이 열립니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Denne maskinen kjører en eldre cmux, så Logg inn på nytt åpner {harness}s egen innlogging i en terminal der."}},"pl":{"stringUnit":{"state":"needs_review","value":"Ta maszyna ma starszą wersję cmux, więc Zaloguj się ponownie otwiera logowanie {harness} w terminalu na tej maszynie."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Esta máquina usa uma versão mais antiga do cmux, então Entrar novamente abre o login do próprio {harness} em um terminal nela."}},"ru":{"stringUnit":{"state":"needs_review","value":"На этой машине старая версия cmux, поэтому «Войти снова» открывает собственный вход {harness} в терминале на ней."}},"th":{"stringUnit":{"state":"needs_review","value":"เครื่องนี้ใช้ cmux รุ่นเก่ากว่า ปุ่ม ลงชื่อเข้าใช้อีกครั้ง จึงเปิดการเข้าสู่ระบบของ {harness} เองในเทอร์มินัลบนเครื่องนั้น"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu makine daha eski bir cmux çalıştırıyor; bu yüzden Tekrar giriş yap, {harness} girişini oradaki bir terminalde açar."}},"uk":{"stringUnit":{"state":"needs_review","value":"На цій машині старіша версія cmux, тому «Увійти знову» відкриває власний вхід {harness} у терміналі на ній."}},"vi":{"stringUnit":{"state":"needs_review","value":"Máy này chạy cmux cũ hơn, nên Đăng nhập lại sẽ mở đăng nhập riêng của {harness} trong một terminal trên máy đó."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"这台机器运行的是较旧的 cmux，因此“重新登录”会在那台机器的终端中打开 {harness} 自己的登录。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"這台機器執行的是較舊的 cmux，因此「重新登入」會在那台機器的終端機中開啟 {harness} 自己的登入。"}}}},
     "turn.failure.cloudAuthExpired": {
       "comment": "Agent pane: Cloud provider auth failure with an expired or revoked credential; do not reveal machine host.",
       "extractionState": "manual",
