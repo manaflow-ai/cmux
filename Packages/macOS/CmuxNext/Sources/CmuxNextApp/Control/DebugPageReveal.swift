@@ -43,6 +43,7 @@ enum DebugPageReveal {
                 made.hasShadow = false
                 made.ignoresMouseEvents = true
                 made.level = window.level
+                made.animationBehavior = .none
                 made.order(.above, relativeTo: window.windowNumber)
                 cover = made
             }
@@ -76,14 +77,15 @@ enum DebugPageReveal {
         return app.mainWindow ?? app.windows.first { $0.isVisible && $0.canBecomeMain && $0.contentView != nil }
     }
 
-    /// Every remote layer (`CALayerHost`) at least 40 x 40 points in the window's layer tree, by context id.
+    /// Every remote layer (`CALayerHost`, any size: Chromium's has no bounds of its own) in the window's layer tree,
+    /// by context id; 0 ids are left out.
     static func remoteContextIDs(in window: NSWindow) -> [UInt32] {
         guard let root = window.contentView?.superview?.layer ?? window.contentView?.layer else { return [] }
         var ids: [UInt32] = []
         var stack: [CALayer] = [root]
         while let layer = stack.popLast() {
-            if String(describing: type(of: layer)) == "CALayerHost", layer.bounds.width >= 40, layer.bounds.height >= 40,
-               let id = (layer.value(forKey: "contextId") as? NSNumber)?.uint32Value {
+            if NSStringFromClass(type(of: layer)) == "CALayerHost",
+               let id = (layer.value(forKey: "contextId") as? NSNumber)?.uint32Value, id != 0 {
                 ids.append(id)
             }
             stack.append(contentsOf: layer.sublayers ?? [])
