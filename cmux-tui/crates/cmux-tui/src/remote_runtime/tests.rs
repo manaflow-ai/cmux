@@ -1594,7 +1594,8 @@ fn client_startup_timeout_returns_while_the_socket_path_lock_is_held() {
         let _ = done_tx.send(result.map(|runtime| runtime.shutdown()));
     });
 
-    let completed_while_locked = done_rx.recv_timeout(Duration::from_millis(500)).is_ok();
+    let early = done_rx.recv_timeout(Duration::from_millis(500));
+    let completed_while_locked = early.is_ok();
     assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) }, 0);
     if !completed_while_locked {
         done_rx
@@ -1609,6 +1610,10 @@ fn client_startup_timeout_returns_while_the_socket_path_lock_is_held() {
         completed_while_locked,
         "client startup timeout joined a worker blocked on the socket path lock"
     );
+    // #48950: a first connect that times out says what to do, a longer --connect-timeout-seconds.
+    let error = early.unwrap().expect_err("a locked socket path cannot connect");
+    assert!(error.to_string().contains("did not become ready within"), "{error:#}");
+    assert!(error.to_string().contains("--connect-timeout-seconds"), "{error:#}");
 }
 
 #[cfg(unix)]
@@ -1733,6 +1738,11 @@ fn daemon_finalizes_lifecycle_when_ready_receiver_disappears() {
         }
     };
     assert!(error.to_string().contains("did not become ready"), "{error:#}");
+    assert!(error.to_string().contains("--connect-timeout-seconds"), "{error:#}");
+    // The daemon's own startup wait is fixed (DAEMON_STARTUP_TIMEOUT): no flag lengthens it, so its
+    // error names none; the client's first connect names --connect-timeout-seconds
+    // (client_startup_timeout_returns_while_the_socket_path_lock_is_held).
+    assert!(!error.to_string().contains("--connect-timeout-seconds"), "{error:#}");
     pause.resume();
 
     let runtime_path = state_dir.join("runtime.json");
@@ -3782,4 +3792,12 @@ fn a_stale_socket_directory_record_is_replaced_under_an_owner_only_lock() {
     let error = private_socket_directory(&base, "cmux-t", &record, validate).unwrap_err();
     assert!(format!("{error:#}").contains("accessible by another user"), "{error:#}");
     assert_eq!(fs::read(&record).unwrap(), stale.as_os_str().as_bytes());
+}
+
+#[test]
+fn a_connect_timeout_reports_the_seconds_asked_for() {
+    // What is left of `--connect-timeout-seconds 3` once the CLI loaded its identity.
+    assert_eq!(whole_seconds_up(Duration::from_millis(2_930)), 3);
+    assert_eq!(whole_seconds_up(Duration::from_secs(3)), 3);
+    assert_eq!(whole_seconds_up(Duration::from_millis(100)), 1);
 }

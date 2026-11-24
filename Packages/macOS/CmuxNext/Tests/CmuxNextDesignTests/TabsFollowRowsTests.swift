@@ -16,8 +16,8 @@ import Testing
         let browserRow = preset.tokens.tokens["browserRowHeight"].map { CGFloat($0) }
         let row = browserRow ?? sidebarRow
         #expect(Metrics.tabHeight == row, "\(preset): the tab is \(Metrics.tabHeight), the row \(row)")
-        // The strip padding above and below the tab: the density's own `browserRowGap` (Compact's 1 pt, the user's tuning
-        // 2026-11-19), else Default's 3 pt times the density's factor.
+        // The strip padding above and below the tab: the density's own `browserRowGap`, else Default's
+        // 3 pt times the density's factor.
         let gap = preset.tokens.tokens["browserRowGap"].map { CGFloat($0) * 2 } ?? (3 * CGFloat(preset.scaleFactor) * 2).rounded()
         #expect(Metrics.tabStripHeight - Metrics.tabHeight == gap, "\(preset): the strip is \(Metrics.tabStripHeight), the tab \(Metrics.tabHeight)")
         #expect(Metrics.tabCornerRadius == (9 * CGFloat(preset.scaleFactor) * 2).rounded() / 2)
@@ -31,15 +31,12 @@ import Testing
         let saved = (design.densityTokens, design.sidebarSections.density, design.sidebarSections.textSize)
         defer { (design.densityTokens, design.sidebarSections.density, design.sidebarSections.textSize) = saved }
         design.densityTokens = preset.tokens
-        // Compact's tab is 2 pt over its row at every sidebar setting: the user's tuning (2026-11-19) keeps Helium's 28 pt
-        // tab over a 24 pt sidebar row token (26 pt with the row fill). Every other density's tab is its row.
-        let lift: CGFloat = preset == .compact ? 2 : 0
         for density in SidebarDensity.allCases {
             for textSize in SidebarTextSize.allCases {
                 design.sidebarSections.density = density
                 design.sidebarSections.textSize = textSize
                 let row = SidebarRowTokens.current.listRowHeight
-                #expect(Metrics.tabHeight == row + lift, "\(preset) \(density)/\(textSize): the tab is \(Metrics.tabHeight), the row \(row)")
+                #expect(Metrics.tabHeight == row, "\(preset) \(density)/\(textSize): the tab is \(Metrics.tabHeight), the row \(row)")
             }
         }
     }

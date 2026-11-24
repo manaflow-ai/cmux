@@ -468,6 +468,10 @@ pub struct CloudMachine {
     pub paused_by: Option<LitSpendCap>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spend_cap_pause_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<CloudMachineOrigin>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<i64>,
     pub revision: Revision,
 }
 
@@ -495,6 +499,30 @@ wire_enum! {
         NoReport = "no_report",
         ProviderStopped = "provider_stopped",
         ProviderPaused = "provider_paused",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachineOrigin {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<CloudMachineOriginKind>,
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workflow: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lane: Option<String>,
+}
+
+wire_enum! {
+    CloudMachineOriginKind {
+        Workflow = "workflow",
+        Lane = "lane",
+        Agent = "agent",
+        Person = "person",
     }
 }
 
@@ -731,6 +759,41 @@ pub struct CloudSnapshotArchiveOf {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudSurgePreview {
+    pub count: i64,
+    pub ttl_seconds: i64,
+    pub provider: Option<String>,
+    pub available: bool,
+    pub reason: String,
+    pub estimated_cost_usd: Option<WireNumber>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudSurgeReceipt {
+    pub count: i64,
+    pub ttl_seconds: i64,
+    pub slots: Vec<CloudSurgeSlot>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudSurgeSlot {
+    pub index: i64,
+    pub status: CloudSurgeSlotStatus,
+    pub machine_id: Option<MachineId>,
+    pub provider: Option<String>,
+    pub reason: String,
+    pub retryable: bool,
+}
+
+wire_enum! {
+    CloudSurgeSlotStatus {
+        Created = "created",
+        Queued = "queued",
+        Refused = "refused",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CloudVmNetwork {
     pub tenant: NativeTenantId,
     pub mesh: NativeMeshId,
@@ -834,72 +897,3 @@ pub struct Connection {
     pub created_at: i64,
     pub updated_at: i64,
 }
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ConnectionAccount {
-    pub key: String,
-    pub name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub url: Option<String>,
-}
-
-wire_enum! {
-    ConnectionSharing {
-        Private = "private",
-        Team = "team",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ConnectionResources {
-    pub repos: Option<Vec<String>>,
-}
-
-/// One integration connection (a provider account linked to a team).
-pub type ConnectionId = String;
-
-wire_enum! {
-    ConnectionStatus {
-        Pending = "pending",
-        Active = "active",
-        NeedsReauth = "needs_reauth",
-        Error = "error",
-        Revoked = "revoked",
-        Expired = "expired",
-    }
-}
-
-/// conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair).
-pub type ConversationId = String;
-
-wire_enum! {
-    ConversationKind {
-        Chief = "chief",
-        Dm = "dm",
-        Group = "group",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CronSpec {
-    pub expr: String,
-    pub tz: String,
-}
-
-/// A device (hardware) that groups installs.
-pub type DeviceId = String;
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct DeviceStatus {
-    pub install: InstallId,
-    pub user: String,
-    pub policy_version: i64,
-    pub app_version: String,
-    pub mdm_keys: Vec<String>,
-    pub conflicts: Vec<String>,
-    pub reported_at: i64,
-}
-
-pub type EgressHost = String;
-
-pub type EmailAddress = String;

@@ -20,6 +20,8 @@ let package = Package(
             name: "UiLayerHost",
             dependencies: [
                 .product(name: "CmuxNextUiLayerPreview", package: "CmuxNext"),
+                // The UI shell's scenes (--shoot): the modules' own playground windows.
+                .product(name: "CmuxNextUiShellModules", package: "CmuxNext"),
             ],
             path: "Sources/UiLayerHost"
         ),

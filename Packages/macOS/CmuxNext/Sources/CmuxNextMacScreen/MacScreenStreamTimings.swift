@@ -63,11 +63,14 @@ nonisolated struct MacScreenFrameTimings: Equatable, Sendable {
     private var lastPresentedNanos: UInt64?
     private var lastFrame: UInt32?
 
-    /// A frame (`frame`, the host's number for it, decoded at `decodedAtNanos`) reached the
-    /// presenter at `nowNanos` (both `DispatchTime` uptime) and `now`.
-    mutating func presented(frame: UInt32, decodedAtNanos: UInt64, nowNanos: UInt64, now: ContinuousClock.Instant) {
+    /// A frame (`frame`, the host's number for it, released at `releasedAtNanos` and decoded at
+    /// `decodedAtNanos`) reached the presenter at `nowNanos` (all `DispatchTime` uptime) and `now`.
+    /// Decode is taken here, at decode time, so it never waits on the presented handler.
+    mutating func presented(frame: UInt32, releasedAtNanos: UInt64 = 0, decodedAtNanos: UInt64, nowNanos: UInt64,
+                            now: ContinuousClock.Instant) {
         total += 1
         if firstPresentedAt == nil { firstPresentedAt = now }
+        if releasedAtNanos > 0, releasedAtNanos <= decodedAtNanos { decode.add(Double(decodedAtNanos - releasedAtNanos) / 1e6) }
         if let last = lastPresentedNanos, nowNanos >= last { intervals.add(Double(nowNanos - last) / 1e6) }
         lastPresentedNanos = nowNanos
         if decodedAtNanos > 0, nowNanos >= decodedAtNanos { present.add(Double(nowNanos - decodedAtNanos) / 1e6) }
@@ -77,12 +80,12 @@ nonisolated struct MacScreenFrameTimings: Equatable, Sendable {
         lastFrame = frame
     }
 
-    /// A frame reached the glass: its Decode and Present stages. Out-of-order times (a clock
-    /// that is not the decoder's) are left out.
+    /// A frame reached the glass: its Present stage and Decode + Present (Decode came with
+    /// ``presented(frame:releasedAtNanos:decodedAtNanos:nowNanos:now:)``). Out-of-order times
+    /// (a clock that is not the decoder's) are left out.
     mutating func shown(_ times: RemoteViewerFrameTimes) {
         guard times.releasedAtNanos > 0, times.releasedAtNanos <= times.decodedAtNanos,
               times.decodedAtNanos <= times.presentedAtNanos else { return }
-        decode.add(Double(times.decodedAtNanos - times.releasedAtNanos) / 1e6)
         glass.add(Double(times.presentedAtNanos - times.decodedAtNanos) / 1e6)
         decodePresent.add(Double(times.presentedAtNanos - times.releasedAtNanos) / 1e6)
     }
@@ -99,6 +102,10 @@ nonisolated struct MacScreenConnectTimings: Equatable, Sendable {
     private(set) var started: ContinuousClock.Instant?
     /// Connect start to the first decoded frame reaching the screen, in milliseconds.
     private(set) var firstFrameMs: Double?
+    /// Connect start to the end of each stage the connect got past, in milliseconds: `answer` (the host
+    /// answered), `link` (the link came up), `frame` (a picture showed). A stage skipped over ends when the
+    /// later one does.
+    private(set) var stageMs: [MacScreenConnectStage: Double] = [:]
     private(set) var rtt = MacScreenRollingSamples(capacity: rttWindow)
 
     /// A new connect: everything before it is gone.
@@ -113,6 +120,14 @@ nonisolated struct MacScreenConnectTimings: Equatable, Sendable {
         guard firstFrameMs == nil, let started, instant >= started else { return }
         let elapsed = started.duration(to: instant)
         firstFrameMs = (Double(elapsed.components.seconds) * 1000 + Double(elapsed.components.attoseconds) / 1e15).rounded()
+    }
+
+    /// The connect reached `stage` at `instant`: every stage before it that has no end yet ends now.
+    mutating func reached(_ stage: MacScreenConnectStage, at instant: ContinuousClock.Instant) {
+        guard let started, instant >= started else { return }
+        let elapsed = started.duration(to: instant)
+        let ms = (Double(elapsed.components.seconds) * 1000 + Double(elapsed.components.attoseconds) / 1e15).rounded()
+        for done in MacScreenConnectStage.allCases where done < stage && stageMs[done] == nil { stageMs[done] = ms }
     }
 
     mutating func sampleRtt(_ ms: Double?) {

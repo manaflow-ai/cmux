@@ -5,7 +5,9 @@
 // Two kinds of zone:
 // - dynamic zones, where arrival and status come and go: what is new arrives at the top start of
 //   the transcript's column (the unread banner); where to go next waits at the bottom center, over
-//   the composer's center line (Jump up stacked on Jump to latest, or the Needs you pill);
+//   the composer's center line (Jump up stacked on Jump to latest, or the Needs you pill), and the
+//   tucked hat's pill stands aside at the composer's end edge (hatPillPlace.experiment.ts; Leo,
+//   2026-11-22: "the composer hat hidden bit was the one to move to the right. or left.");
 // - stable zones, which never move for something arriving: the header's top center (the pinned
 //   "Subagent of" pill), and the end edge (Session Info), which pushes the column, never covers a
 //   dynamic zone.

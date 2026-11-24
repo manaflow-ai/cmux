@@ -15,6 +15,7 @@ Exit 1 on a failed check.
 import argparse, glob, json, os, signal, subprocess, sys, tempfile, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
+from state_wait import wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -80,7 +81,9 @@ safe_print(f"launched pid {app.pid} (log {SCRATCH}/app.log)")
 try:
     if not wait(lambda: os.path.exists(SOCKET) and rpc("debug.surfaces").get("windows"), 90, 0.5):
         sys.exit("tagged app did not come up")
-    time.sleep(1)
+    # The first window's surfaces hold still before the first dialog opens over it.
+    wait_stable(lambda: rpc("debug.surfaces"), "the first window's surfaces", timeout=15, interval=0.2,
+                raise_on_timeout=False)
     for fixture in ["confirm", "text", "credentials", "save", "choice"]:
         opened = rpc("debug.dialog", {"open": fixture})
         dialogs = opened.get("dialogs") or []

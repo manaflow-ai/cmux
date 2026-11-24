@@ -466,7 +466,7 @@ fn create_with_a_hook_that_writes_the_git_entry(
     let attempt = Attempt { root: root.clone(), branch, base, base_commit };
     let user_git = UserGit { root: &repository.root, deadline: deadline() };
 
-    let created = create(&repository, &user_git, &attempt, &main.join(".git"));
+    let created = create(&repository, &user_git, &attempt, &main.join(".git"), None);
 
     let written = std::fs::read_to_string(git_entry).unwrap_or_default();
     std::fs::remove_dir_all(top).unwrap();
@@ -527,6 +527,7 @@ fn own_tree_a_setup_starts_in_no_folder_outside_the_worktrees_folder_of_this_rep
         common.clone(),
         common.join("worktrees"),
         admin.join("below"),
+        // affected-reads: none
         admin.join("../../.."),
     ];
     std::fs::create_dir_all(&root).unwrap();

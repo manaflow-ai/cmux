@@ -77,12 +77,16 @@ def check_rows(failures: list[str]) -> None:
 def check_workflow(failures: list[str]) -> None:
     wf = WORKFLOW.read_text()
     for needed in ("shell: bash", "scripts/ci/swift-linux-packages.txt", "bash scripts/ci/package-test-lane.sh suite \"$dir\" \"$targets\"",
-                   "container: public.ecr.aws/docker/library/swift:6.2-noble@sha256:", "ubuntu-2404"):
+                   "container: public.ecr.aws/docker/library/swift:6.2-noble@sha256:", "'cmux-linux'"):
         if needed not in wf:
             failures.append(f"{WORKFLOW.name} lacks {needed!r}: it must run every listed package through the lane on Linux")
+    # Pushes start it from its own trigger; feat-cmux-next pull requests through pr-router.yml, whose
+    # manifest (scripts/ci/pr_router.json) carries its former pull_request paths.
+    import json
+    routed = json.loads((ROOT / "scripts" / "ci" / "pr_router.json").read_text())["callees"].get(WORKFLOW.name, {})
     for path in ("Packages/**", "scripts/ci/swift-linux-packages.txt", "scripts/ci/package-test-lane.sh"):
-        if wf.count(f"- {path}") < 2:
-            failures.append(f"{WORKFLOW.name} must run on pull requests and pushes that change {path}")
+        if f"- {path}" not in wf or path not in routed.get("paths", []):
+            failures.append(f"{WORKFLOW.name} must run on pull requests (pr_router.json) and pushes that change {path}")
 
 
 def check_script(failures: list[str]) -> None:

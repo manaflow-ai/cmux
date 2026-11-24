@@ -177,6 +177,49 @@ fn a_launchers_relayed_harness_and_its_helpers_let_it_end() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+/// A Codex session whose leader is the native program itself (npm's launcher gone), with its MCP
+/// servers and its `codex-code-mode-host` beside it: idle, it ends. 29 of 42 idle sessions on one
+/// lane VM stayed up for hours, each refused for its own `codex-code-mode-host`.
+#[test]
+fn a_native_leaders_own_helper_lets_it_end() {
+    let servers = from_json(Some(&json!({
+        "acpmux": {"command": "/home/u/.local/bin/acpmux", "args": ["acpmux-mcp"]},
+    })));
+    let (root, _) = node_on_path();
+    let (_, bin, outside) = npm_codex(&root);
+    let leader = format!("{bin}/codex -c agents.max_depth=16 app-server");
+    let idle = vec![
+        under(11, 10, "/home/u/.local/bin/acpmux acpmux-mcp"),
+        under(12, 10, &format!("{bin}/codex-code-mode-host --listen grpc+stdio://")),
+    ];
+    assert!(matches!(census_of(&idle, &leader, &servers), Census::Clear));
+
+    // What runs under the helper, a helper outside the leader's folder, or another program
+    // beside it still keeps it up.
+    for extra in [
+        under(13, 12, "/usr/bin/node /tmp/sandbox.js"),
+        under(13, 10, "/tmp/elsewhere/codex-code-mode-host"),
+        under(13, 10, &format!("{bin}/other-code-mode-host")),
+        under(13, 10, "/usr/bin/python3 -m http.server 8000"),
+    ] {
+        let mut found = idle.clone();
+        found.push(extra);
+        assert!(
+            matches!(census_of(&found, &leader, &servers), Census::Busy { pid: 13, .. }),
+            "{:?}",
+            found.last()
+        );
+    }
+
+    // A native leader outside an npm install (a shared `bin`) has no helpers.
+    let shared = format!("{outside} -c agents.max_depth=16 app-server");
+    let helper = format!("{}-code-mode-host", outside);
+    std::fs::write(&helper, "").unwrap();
+    let found = [under(11, 10, &helper)];
+    assert!(matches!(census_of(&found, &shared, &servers), Census::Busy { pid: 11, .. }));
+    let _ = std::fs::remove_dir_all(root);
+}
+
 /// The relayed harness and its helpers are told by exact argv and the kernel's executable, as
 /// servers are: a child that names itself the native program or a helper (`exec -a`) is
 /// neither, a leader is a launcher only when it runs the interpreter its argv names (a bare
@@ -526,6 +569,88 @@ fn a_rewritten_argv_does_not_make_a_server() {
         (who("/opt/devserver", &["node", "/opt/fetch/server.js", "--stdio"]), false),
         // A file named like an interpreter that is not the script's.
         (who("/tmp/node", &["/tmp/node", "/opt/fetch/server.js", "--stdio"]), false),
+    ];
+    for (identity, server) in cases {
+        let found = [under(11, 10, &identity.argv.join(" "))];
+        let census = classify(&found, 10, &servers, None, |_| Some(identity.clone()));
+        assert_eq!(matches!(census, Census::Clear), server, "{identity:?}");
+    }
+}
+
+/// A server that re-executes itself through a script of its own (`lane-gh mcp` becomes
+/// `/usr/bin/python3 .../lane_gh_shared.py .../lane-gh mcp`, same pid) is still that server. On
+/// one lane VM it kept 22 of 23 idle Claude sessions, about 4.3 GB, up for hours.
+#[test]
+fn a_server_reexecuted_through_its_own_script_is_still_the_server() {
+    let servers = from_json(Some(&json!({
+        "github": {"command": "/opt/tools/lane-gh", "args": ["mcp"]},
+        "cmux": {"command": "/opt/cmux/bin/cmux", "args": ["mcp", "serve"]},
+    })));
+    let who = |exe: &str, argv: &[&str]| Identity {
+        exe: exe.into(),
+        argv: argv.iter().map(|w| w.to_string()).collect(),
+        cwd: None,
+    };
+    let cases = [
+        (
+            who(
+                "/usr/bin/python3.12",
+                &["/usr/bin/python3", "/opt/tools/lane_gh_shared.py", "/opt/tools/lane-gh", "mcp"],
+            ),
+            true,
+        ),
+        (
+            who(
+                "/usr/bin/python3.12",
+                &["python3", "/opt/tools/proxy.py", "--x", "/opt/cmux/bin/cmux", "mcp", "serve"],
+            ),
+            true,
+        ),
+        // Other args after the server's program.
+        (
+            who(
+                "/usr/bin/python3.12",
+                &[
+                    "/usr/bin/python3",
+                    "/opt/tools/lane_gh_shared.py",
+                    "/opt/tools/lane-gh",
+                    "mcp",
+                    "--x",
+                ],
+            ),
+            false,
+        ),
+        // The server named by a bare word, or by a script given by a relative path.
+        (
+            who(
+                "/usr/bin/python3.12",
+                &["/usr/bin/python3", "/opt/tools/lane_gh_shared.py", "lane-gh", "mcp"],
+            ),
+            false,
+        ),
+        (
+            who(
+                "/usr/bin/python3.12",
+                &["/usr/bin/python3", "notes.py", "/opt/tools/lane-gh", "mcp"],
+            ),
+            false,
+        ),
+        // `exec -a`: an executable that is no interpreter.
+        (
+            who(
+                "/opt/devserver",
+                &["/usr/bin/python3", "/opt/tools/lane_gh_shared.py", "/opt/tools/lane-gh", "mcp"],
+            ),
+            false,
+        ),
+        // Another program's path in the server's place.
+        (
+            who(
+                "/usr/bin/python3.12",
+                &["/usr/bin/python3", "/opt/tools/lane_gh_shared.py", "/tmp/lane-gh", "mcp"],
+            ),
+            false,
+        ),
     ];
     for (identity, server) in cases {
         let found = [under(11, 10, &identity.argv.join(" "))];
