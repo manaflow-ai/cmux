@@ -125,6 +125,13 @@ export function HistoryPage({
       run: () => store.setGrouping(grouping),
     }));
 
+  const rangeItems = (): PageMenuItem[] =>
+    HISTORY_RANGES.map((range) => ({
+      id: range,
+      label: t(RangeLabel[range]),
+      run: () => store.setRange(range),
+    }));
+
   const clearItems = (): PageMenuItem[] =>
     HISTORY_RANGES.map((range) => ({
       id: range,
@@ -139,6 +146,15 @@ export function HistoryPage({
         <div className="history-title-row">
           <h1 className="history-title">{t("page.title")}</h1>
           <div className="history-title-actions">
+            {/* How far back the list reaches; the search's `since:` and `before:` narrow it further. */}
+            <button
+              type="button"
+              className={`history-menu-button history-range${snap.range === "all" ? "" : " selected"}`}
+              disabled={snap.connection === "disconnected"}
+              onClick={(event) => headerMenu(event, rangeItems())}
+            >
+              {t(RangeLabel[snap.range])}
+            </button>
             <button
               type="button"
               className="history-menu-button"

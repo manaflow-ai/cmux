@@ -61,6 +61,13 @@ class TickTest(unittest.TestCase):
         runs.insert(0, run(2, "a" * 40, "2026-11-21T11:55:00Z"))
         self.assertEqual(pmb.tick_decision("a" * 40, runs, NOW, 120, judged=lambda rid: False)[0], "skip")
 
+    def test_a_batch_with_no_verdict_on_an_older_tip_opens_no_window(self) -> None:
+        # Run 45105503067 (2026-11-23): its plan failed on 4ec58f90a4 and the tip moved on; the window held the
+        # next batch back two hours.
+        runs = [run(1, "b" * 40, "2026-11-21T11:30:00Z")]
+        self.assertEqual(pmb.tick_decision("a" * 40, runs, NOW, 120, judged=lambda rid: False)[0], "dispatch")
+        self.assertEqual(pmb.tick_decision("a" * 40, runs, NOW, 120, judged=lambda rid: True)[0], "skip")
+
     def test_window_value(self) -> None:
         self.assertEqual(pmb.window_minutes(""), 120)
         self.assertEqual(pmb.window_minutes("bad"), 120)

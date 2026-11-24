@@ -234,6 +234,12 @@ pub(in crate::cli) fn note_started(chat: Chat) {
     *STARTED.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(chat);
 }
 
+/// The chat this process last started here ([`note_started`]), whatever its id: the hybrid
+/// start (chat_start/hybrid_start.rs) hands it to the driver that moves it to Cloud.
+pub(in crate::cli) fn last_started() -> Option<Chat> {
+    STARTED.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+}
+
 /// The chat `id` names when this process started it here ([`note_started`]): its scope is
 /// known and its acpmux too, so `cmux chat --prompt … --wait` reaches it with no lookup, no
 /// app call and no session snapshot (goal local-instant-start).
@@ -325,6 +331,50 @@ fn own_chat() -> Option<String> {
         .find_map(|name| std::env::var(name).ok().filter(|value| !value.trim().is_empty()))
 }
 
+/// The name the caller's own chat goes by, sent as its message's sender name. The daemon knows
+/// a chat's sender only by its launch credential, which a chat the app's acpmux starts lacks
+/// (that acpmux has no `CMUX_TUI_SOCKET` to mint one), so without a name the receiving chat
+/// showed every chat's message, a Chief's too, as `cli`, the person's shell
+/// (manaflow-ai/cmux#51004). A name claims what `--from` claims and proves nothing more: the
+/// daemon still treats the send as unverified. None from a shell, which has no chat.
+fn own_sender_name() -> Option<String> {
+    let own = own_chat()?;
+    let (_, info) = acp::lookup(&own, None).ok()?;
+    sender_name_of(&info)
+}
+
+/// The longest sender name the daemon stores (cmux-tui-core `MAX_SENDER_NAME_CHARS`) and acpmux
+/// shows (`prompt_provenance` `MAX_NAME_CHARS`).
+const MAX_SENDER_NAME_CHARS: usize = 64;
+
+/// A chat's shown name from its `_acpmux/info`: its `mux.label` (a Chief turn's: the Chief's own
+/// name, optchat-chief `acpmux::turn_tags`), else its name; one line, spaces collapsed, at most
+/// [`MAX_SENDER_NAME_CHARS`] characters. A Chief turn's session name (`optchat-<home>-<n>`) is
+/// never shown.
+fn sender_name_of(info: &Value) -> Option<String> {
+    let shown = |value: &Value| {
+        let words: Vec<&str> = value
+            .as_str()?
+            .split(|c: char| c.is_whitespace() || c.is_control())
+            .filter(|word| !word.is_empty())
+            .collect();
+        let line = words.join(" ");
+        let line: String =
+            line.chars().filter(|c| !format_mark(*c)).take(MAX_SENDER_NAME_CHARS).collect();
+        let line = line.trim().to_owned();
+        (!line.is_empty()).then_some(line)
+    };
+    info.pointer("/tags/mux.label").and_then(shown).or_else(|| shown(&info["name"]))
+}
+
+/// A bidi or zero-width format mark, which acpmux refuses in a provenance name.
+fn format_mark(c: char) -> bool {
+    matches!(
+        c,
+        '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}' | '\u{FEFF}'
+    )
+}
+
 /// Refuses `chat` when it is the caller's own: a chat never prompts or
 /// interrupts itself.
 pub(super) fn refuse_own_chat(chat: &str, target: &str) -> Result<(), CallFailure> {
@@ -361,7 +411,7 @@ fn send(
     let plan = MessagePlan {
         target: Some(recipient.clone()),
         body: Body::Text(text.to_owned()),
-        from: None,
+        from: own_sender_name(),
         thread: None,
         reply_to: None,
         idempotency_key: Some(key.clone()),
@@ -813,7 +863,7 @@ impl Transcript {
 }
 
 #[cfg(unix)]
-pub(super) mod acp {
+pub(in crate::cli) mod acp {
     //! The acpmux linked into this binary: the one at `socket` (the app's own, `agent.acpmux`),
     //! else the one at the home `cmux acp` uses (`ACPMUX_SOCKET` first). A chat verb never starts
     //! the acpmux daemon.
@@ -1012,6 +1062,84 @@ pub(super) mod acp {
                            "timeoutMs": timeout_ms}),
                 )
                 .await
+        })
+    }
+
+    /// `_acpmux/wait` on `session` until it reaches one of `until` (`running`, `ready`,
+    /// `closed`, ...), at most `timeout`: the daemon answers on the chat's own events, so a
+    /// waiter learns of a turn's start or end when acpmux records it, with no polling.
+    pub(in crate::cli) fn wait_until(
+        session: &str,
+        until: &[&str],
+        timeout: std::time::Duration,
+        socket: Option<&Path>,
+    ) -> Result<Value, String> {
+        let timeout_ms = u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX);
+        read_on(socket, async |client| {
+            client
+                .request(
+                    acpmux::rpc::method::MUX_WAIT,
+                    json!({"sessions": [session], "until": until, "timeoutMs": timeout_ms}),
+                )
+                .await
+        })
+    }
+
+    /// The acpmux's harness catalog (`_acpmux/harnesses`: `harnesses`, `families`,
+    /// `defaultHarness`, `defaults`), the one a new chat there resolves its agent from; the dial
+    /// and the answer together at most `timeout` (a daemon still reading its login shell answers
+    /// once it has; a dial waits for a daemon that is starting). Its own connection, as
+    /// [`new_session`] has: it runs on a thread of its own beside the start's other reads.
+    pub(in crate::cli) fn harnesses(
+        socket: Option<&Path>,
+        timeout: std::time::Duration,
+    ) -> Result<Value, String> {
+        block_on(async {
+            tokio::time::timeout(timeout, async {
+                client(socket).await?.request(acpmux::rpc::method::MUX_HARNESSES, json!({})).await
+            })
+            .await
+            .map_err(|_| anyhow::anyhow!("no answer in {} ms", timeout.as_millis()))?
+        })
+    }
+
+    /// Follows `session`'s live `session/update`s on a connection of its own (`_acpmux/attach`,
+    /// hidden, no history: the attach subscribes it) and hands each update's params to `each`
+    /// until `each` says stop, the daemon closes the connection, or `deadline` passes.
+    pub(in crate::cli) fn follow_updates(
+        session: &str,
+        socket: Option<&Path>,
+        deadline: std::time::Instant,
+        mut each: impl FnMut(&Value) -> bool,
+    ) -> Result<(), String> {
+        use acpmux::rpc::{Message, method};
+        block_on(async {
+            let client = client(socket).await?;
+            let mut notes = client
+                .notifications()
+                .await
+                .ok_or_else(|| anyhow::anyhow!("notifications already taken"))?;
+            client
+                .request(
+                    method::MUX_ATTACH,
+                    json!({"sessionId": session, "limit": 0, "visible": false}),
+                )
+                .await?;
+            let end = tokio::time::Instant::from_std(deadline);
+            loop {
+                let Ok(Some(note)) = tokio::time::timeout_at(end, notes.recv()).await else {
+                    return Ok(());
+                };
+                let Message::Notification { method: name, params } = note else { continue };
+                if name == method::MUX_DISCONNECTED {
+                    return Ok(());
+                }
+                let params = params.unwrap_or(Value::Null);
+                let ours = params.get("sessionId").and_then(Value::as_str) == Some(session);
+                if name == method::SESSION_UPDATE && ours && !each(&params) {
+                    return Ok(());
+                }
+            }
         })
     }
 
