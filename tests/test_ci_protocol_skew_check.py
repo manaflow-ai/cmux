@@ -155,6 +155,19 @@ class SkewTests(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn('"extra": false', out)
 
+    def test_a_skew_the_base_already_has_against_an_old_build_only_warns(self) -> None:
+        old = self.base(strips=False)
+        known = json.loads(policy())["known_params"]
+        known["_acpmux/attach"]["params"].append("attending")
+        base = self.repo.commit({skew.POLICY: policy(known_params=known)})
+        self.repo.commit({"README.md": "x"})
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = skew.main(["--base", base, "--old", old, "--nightly-feed", ""])
+        self.assertEqual(code, 0, out.getvalue())
+        self.assertIn("gains attending, and that relay refuses keys it does not know (already on the base)",
+                      out.getvalue())
+
     def test_an_unchanged_tree_passes(self) -> None:
         base = self.base(strips=False)
         self.repo.commit({"README.md": "x"})

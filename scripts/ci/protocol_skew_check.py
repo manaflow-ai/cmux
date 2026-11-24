@@ -183,8 +183,11 @@ def main(argv: list[str] | None = None) -> int:
     failures: list[str] = []
     for ref, label in olds:
         fail, warn = judge_relay(args.head, ref, label)
-        failures += fail
-        for line in warn:
+        # A skew the base already has against this build is not this change's: it fails the base and every PR
+        # alike, and only a change on that old side (or it aging out of the feed) clears it.
+        on_base = set(judge_relay(args.base, ref, label)[0]) if ref != args.base else set()
+        failures += [line for line in fail if line not in on_base]
+        for line in warn + [f"{line} (already on the base)" for line in fail if line in on_base]:
             print(f"::warning::protocol skew: {line}")
     failures += judge_decoders(args.base, args.head)
     for line in failures:
