@@ -2,7 +2,7 @@
   "id": "length-report-relay",
   "group": "length",
   "owner": "a680",
-  "about": "A long subagent report is relayed as one line: what changed, its link or sha range, what is open.",
+  "about": "A long subagent report is relayed with one line of the plan, then the result itself (cause, test, sha range, the open Settings flash), not a paraphrase (Leo 2026-11-24).",
   "history": [
     {
       "kind": "user",
@@ -26,8 +26,16 @@
           "re": "9b7c4d1"
         },
         {
+          "type": "reply_matches",
+          "re": "(?i)Settings"
+        },
+        {
+          "type": "reply_matches",
+          "re": "(?i)background|first frame|makeKeyAndOrderFront|RestartFlashTests"
+        },
+        {
           "type": "max_words",
-          "n": 45
+          "n": 140
         }
       ]
     }
