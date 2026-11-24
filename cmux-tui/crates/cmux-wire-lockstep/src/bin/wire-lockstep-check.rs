@@ -11,11 +11,15 @@
 //!
 //! `--export-base DIR` also writes the base's manifests to DIR, for the protocols' old-against-new
 //! tests (`CMUX_WIRE_BASE_DIR=DIR`).
+//!
+//! `--against REF` (repeatable) also checks the head against another open change built on the same
+//! base (`origin/lane/x`): a wire number both newly claim for different kinds or tags fails, the
+//! collision each passes alone and the second to land breaks.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
-use cmux_wire_lockstep::{Manifest, check};
+use cmux_wire_lockstep::{Manifest, check, collisions};
 
 const DIR: &str = "cmux-tui/spec/wire";
 
@@ -41,15 +45,17 @@ fn main() -> ExitCode {
     let mut root = PathBuf::from(".");
     let mut base = String::from("HEAD^1");
     let mut export: Option<PathBuf> = None;
+    let mut against: Vec<String> = Vec::new();
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--root" => root = args.next().map(PathBuf::from).unwrap_or(root),
             "--base" => base = args.next().unwrap_or(base),
             "--export-base" => export = args.next().map(PathBuf::from),
+            "--against" => against.extend(args.next()),
             other => {
                 eprintln!(
-                    "unknown argument {other}; usage: wire-lockstep-check [--root DIR] [--base REV] [--export-base DIR]"
+                    "unknown argument {other}; usage: wire-lockstep-check [--root DIR] [--base REV] [--export-base DIR] [--against REF]..."
                 );
                 return ExitCode::from(2);
             }
@@ -118,7 +124,22 @@ fn main() -> ExitCode {
                 continue;
             }
         };
-        let findings = check(base_manifest.as_ref(), &head);
+        let mut findings = check(base_manifest.as_ref(), &head);
+        for other in &against {
+            match git_show(&root, other, &rel) {
+                Ok(Some(text)) => match Manifest::from_json(&text) {
+                    Ok(theirs) => {
+                        findings.extend(collisions(base_manifest.as_ref(), &head, &theirs, other))
+                    }
+                    Err(e) => println!("{rel} at {other}: unreadable ({e}); not compared"),
+                },
+                Ok(None) => {}
+                Err(e) => {
+                    eprintln!("::error::{e}");
+                    failed = true;
+                }
+            }
+        }
         let names = head.names().len();
         let caps = head.capabilities.len();
         if findings.is_empty() {

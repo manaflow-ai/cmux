@@ -54,11 +54,11 @@ impl FrameProbe {
             }
             self.tap.record(self.dir, name);
         };
-        record(format!("frame:lane-{lane}={}", lane as u8));
+        record(format!("frame:lane/{lane}={}", lane as u8));
         let mut bits = flags.bits();
         for &(name, flag) in FrameFlags::NAMED {
             if flags.contains(flag) {
-                record(format!("frame:{name}={}", flag.bits()));
+                record(format!("frame:flag/{name}={}", flag.bits()));
                 bits &= !flag.bits();
             }
         }
