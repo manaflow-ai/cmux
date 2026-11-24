@@ -24,6 +24,10 @@ import Foundation
 /// footprint against about 163 MB in the empty app. So ``quietDelay`` after the newest close, once closes stop,
 /// each renderer is checked once more against the lower ``quietBound(afterLastCollection:)``: a collection then
 /// costs one pause proportional to what is live (two pages), once, and no churn pays it.
+///
+/// The quiet check collects twice. One collection left the renderer at 655 MB resident on the same bench, and a
+/// second `HeapProfiler.collectGarbage` right after took it to 543 MB: the first frees the JavaScript wrappers,
+/// and the DOM they kept goes with the next. The second costs the same small pause, once per quiet period.
 @MainActor
 final class CEFPageRendererGC {
     static let delay: Duration = .seconds(10)
@@ -102,6 +106,12 @@ final class CEFPageRendererGC {
             guard let used, used >= bound else { continue }
             await collect(target.browser)
             count(quiet ? "quiet_collections" : "collections")
+            // What the first collection unhooked (closed pages' DOM, freed by the wrappers that went) goes back
+            // only with a second one.
+            if quiet {
+                await collect(target.browser)
+                count("quiet_second_collections")
+            }
             if let after = await heapUsed(target.browser) { live[target.renderer] = after; count("last_live_mb", after >> 20) }
         }
         await checked?()
