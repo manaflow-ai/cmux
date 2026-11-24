@@ -89,6 +89,58 @@ pub(super) fn section(scope: &str) -> Option<String> {
     Some(text)
 }
 
+/// `cmux <scope> <verb> --help` for an app-offered verb (`cmux remote disconnect --help`): its
+/// usage from the catalog's arguments, its title, and where every argument is described, in
+/// cloud_help.rs's per-verb shape. Before, such a verb printed its whole scope's help. `None`
+/// for a verb the catalog does not offer, and for `cloud` (cloud_help.rs has its own).
+pub(crate) fn verb_help(scope: &str, verb: &str) -> Option<String> {
+    if OWN_HELP.contains(&scope) {
+        return None;
+    }
+    let name = format!("{scope} {verb}");
+    let doc: Value = serde_json::from_str(&ACTION_SURFACES.inflate()).ok()?;
+    let action = doc.get("actions")?.as_array()?.iter().find(|action| {
+        action.get("cli").and_then(Value::as_str) == Some("offered")
+            && action.get("cli_name").and_then(Value::as_str) == Some(name.as_str())
+    })?;
+    let mut usage = format!("cmux {name}");
+    for arg in action.get("args").and_then(Value::as_array).into_iter().flatten() {
+        let Some(arg_name) = arg.get("name").and_then(Value::as_str) else { continue };
+        let value = match arg.get("kind").and_then(Value::as_str).unwrap_or("string") {
+            "bool" => None,
+            "enum" => Some(
+                arg.get("values")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join("|"),
+            ),
+            "target" => Some(format!(
+                "<{}>",
+                arg.get("target_kind").and_then(Value::as_str).unwrap_or("target")
+            )),
+            _ => Some("<value>".to_owned()),
+        };
+        let flag = match value {
+            Some(value) => format!("--{arg_name} {value}"),
+            None => format!("--{arg_name}"),
+        };
+        if arg.get("required").and_then(Value::as_bool) == Some(true) {
+            usage.push_str(&format!(" {flag}"));
+        } else {
+            usage.push_str(&format!(" [{flag}]"));
+        }
+    }
+    let title = action.get("title").and_then(Value::as_str).unwrap_or_default();
+    let title = title.trim_end_matches(['…', '.']);
+    let about = if title.is_empty() { String::new() } else { format!("{title}.\n\n") };
+    Some(format!(
+        "usage: {usage}\n\n{about}The cmux app runs this. Every argument: `cmux action describe \"{name}\" --json` (with the app running)\n"
+    ))
+}
+
 /// `text` with the APP ACTIONS section of `scope` after it, when it has one.
 pub(crate) fn append(scope: &str, text: &str) -> Option<String> {
     let section = section(scope)?;
