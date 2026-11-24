@@ -18,7 +18,10 @@ import SwiftUI
 /// Without the launch argument the modifier adds nothing to the view or its accessibility tree.
 public struct PlaceholderBound: ViewModifier {
     public let id: String
+    /// Zero: a placeholder being removed, which must never be drawn again.
     public let bound: Duration
+    /// False when the view is real content this time (a bubble with words).
+    public var shown: Bool = true
 
     /// The simulator check's launch argument; read once.
     public static let markersEnabled = ProcessInfo.processInfo.arguments.contains("-cmux-placeholder-markers")
@@ -30,7 +33,7 @@ public struct PlaceholderBound: ViewModifier {
     }
 
     public func body(content: Content) -> some View {
-        if Self.markersEnabled {
+        if Self.markersEnabled, shown {
             content.overlay(alignment: .topLeading) {
                 Color.clear
                     .frame(width: 1, height: 1)
@@ -45,9 +48,10 @@ public struct PlaceholderBound: ViewModifier {
 
 public extension View {
     /// Marks this view as a placeholder that may stay on screen at most `bound`
-    /// (cmux-next-ios/design/placeholders.json lists every id and why it waits).
-    func placeholderBound(_ id: String, _ bound: Duration) -> some View {
-        modifier(PlaceholderBound(id: id, bound: bound))
+    /// (cmux-next-ios/design/placeholders.json lists every id and why it waits); `when` is false
+    /// when the same view is drawing real content.
+    func placeholderBound(_ id: String, _ bound: Duration, when shown: Bool = true) -> some View {
+        modifier(PlaceholderBound(id: id, bound: bound, shown: shown))
     }
 }
 #endif

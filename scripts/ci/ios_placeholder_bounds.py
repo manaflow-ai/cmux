@@ -13,7 +13,16 @@ cmux-next-ios/design/placeholders.json holds:
                that removes or keeps it;
   exempt       lines a pattern matches that are not a placeholder (a spinner on a button's own
                action, say), each with its reason;
-  max_bound_ms the longest bound any placeholder may have.
+  max_bound_ms the longest bound any placeholder may have;
+  known_over_bound
+               the placeholders the simulator half still sees past their bound today, each with the
+               item and pull request that removes it. The simulator half passes these and fails on any
+               other overstay, and on a listed one it saw stay within its bound (the list only shrinks:
+               the fixing PR deletes its own entries). A bound of 0 is a placeholder being removed:
+               drawn at all, it fails.
+
+KNOWN_SWIFT (the simulator half's copy of known_over_bound) is written from the inventory by
+`--write-known`; the check fails when it differs.
 
 It fails when:
   - a pattern matches a line under cmux-next-ios's app sources with no `.placeholderBound(` on that
@@ -38,6 +47,7 @@ from pathlib import Path
 LOOKAHEAD = 16
 SOURCE_DIRS = ("cmux-next-ios/App", "cmux-next-ios/CmuxMobileKit/Sources", "cmux-next-ios/NotificationContent")
 INVENTORY = "cmux-next-ios/design/placeholders.json"
+KNOWN_SWIFT = "cmux-next-ios/UITests/PlaceholderKnownOverBound.swift"
 MARK = re.compile(r'\.placeholderBound\(\s*"([^"]+)"\s*,\s*\.(milliseconds|seconds)\((\d+(?:\.\d+)?)\)')
 
 
@@ -52,6 +62,22 @@ def sources(root: Path) -> list[Path]:
         if base.is_dir():
             out.extend(sorted(p for p in base.rglob("*.swift") if "/Tests/" not in p.as_posix()))
     return out
+
+
+def known_swift(inventory: dict) -> str:
+    known = sorted(inventory.get("known_over_bound", []), key=lambda k: k["id"])
+    rows = [f'        "{k["id"]}": "{k["item"]}, {k["fix"]}",' for k in known] or ["        :"]
+    return "\n".join([
+        "// Written by scripts/ci/ios_placeholder_bounds.py --write-known from",
+        "// cmux-next-ios/design/placeholders.json (known_over_bound); do not edit by hand.",
+        "enum PlaceholderKnownOverBound {",
+        "    /// Placeholder id -> the item and pull request that removes it.",
+        "    static let ids: [String: String] = [",
+        *rows,
+        "    ]",
+        "}",
+        "",
+    ])
 
 
 def check(root: Path) -> list[str]:
@@ -100,6 +126,15 @@ def check(root: Path) -> list[str]:
                     f"{rel}:{index + 1}: {name} with no .placeholderBound within {LOOKAHEAD} lines: {stripped[:120]}"
                 )
 
+    for known in inventory.get("known_over_bound", []):
+        if known.get("id") not in listed:
+            problems.append(f"{INVENTORY}: known_over_bound {known.get('id')!r} is not a listed placeholder")
+        if not known.get("item") or not known.get("fix"):
+            problems.append(f"{INVENTORY}: known_over_bound {known.get('id')!r} needs the item and the pull request that removes it")
+    swift = root / KNOWN_SWIFT
+    if (root / "cmux-next-ios/UITests").is_dir() and (not swift.is_file() or swift.read_text() != known_swift(inventory)):
+        problems.append(f"{KNOWN_SWIFT}: differs from {INVENTORY} known_over_bound; run scripts/ci/ios_placeholder_bounds.py --write-known")
+
     for pid, entry in listed.items():
         if pid not in marked:
             problems.append(f"{INVENTORY}: {pid} ({entry['file']}) is marked nowhere in the sources; drop it if it was removed")
@@ -110,7 +145,11 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--root", default=str(Path(__file__).resolve().parents[2]))
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--write-known", action="store_true", help=f"write {KNOWN_SWIFT} from the inventory")
     args = parser.parse_args(argv)
+    if args.write_known:
+        root = Path(args.root)
+        (root / KNOWN_SWIFT).write_text(known_swift(json.loads((root / INVENTORY).read_text())))
     problems = check(Path(args.root))
     if args.json:
         print(json.dumps({"problems": problems}, indent=2))

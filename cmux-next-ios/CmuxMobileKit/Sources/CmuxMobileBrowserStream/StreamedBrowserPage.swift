@@ -216,7 +216,7 @@ public struct StreamedBrowserPage: View {
             .padding(.top, 8)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .accessibilityIdentifier("browser.reconnecting")
-            .placeholderBound("browser.connection.chip", .milliseconds(1000))
+            .placeholderBound("browser.connection.chip", .milliseconds(0))
     }
 }
 

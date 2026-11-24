@@ -1,6 +1,73 @@
 {
   "about": "Every placeholder the iOS app draws, its bound, and the item that fixes its root (Leo 2026-11-24, brief leo-1124-placeholders.md: 1a tab grid, 1b chat, 3 connection chips, 1c the rest). Checked by scripts/ci/ios_placeholder_bounds.py (headless) and cmux-next-ios/UITests/PlaceholderBoundUITests.swift (simulator). Handbook: ios-placeholder-bounds.",
   "max_bound_ms": 2000,
+  "known_over_bound": [
+    {
+      "id": "tabgrid.terminal.placeholder",
+      "item": "item 1a (mobile-open-fast)",
+      "fix": "cmux#54985"
+    },
+    {
+      "id": "tabgrid.terminal.connecting",
+      "item": "item 1a (mobile-open-fast)",
+      "fix": "cmux#54985"
+    },
+    {
+      "id": "tabgrid.terminal.unavailable",
+      "item": "item 1a (mobile-open-fast)",
+      "fix": "cmux#54985"
+    },
+    {
+      "id": "tabgrid.browser.globe",
+      "item": "item 1a (mobile-open-fast)",
+      "fix": "cmux#54985"
+    },
+    {
+      "id": "tabgrid.stream.icon",
+      "item": "item 1a (mobile-open-fast)",
+      "fix": "cmux#54985"
+    },
+    {
+      "id": "chat.user.empty",
+      "item": "item 1b (ios-optimistic-send)",
+      "fix": "cmux#54993"
+    },
+    {
+      "id": "chat.connection.chip",
+      "item": "item 3 (conn-chip-ios-surfaces)",
+      "fix": "cmux#54994"
+    },
+    {
+      "id": "status.connection.chip",
+      "item": "item 3 (conn-chip-ios-surfaces)",
+      "fix": "cmux#54994"
+    },
+    {
+      "id": "browser.connection.chip",
+      "item": "item 3 (conn-chip-ios-surfaces)",
+      "fix": "cmux#54994"
+    },
+    {
+      "id": "simulator.connection.chip",
+      "item": "item 3 (conn-chip-ios-surfaces)",
+      "fix": "cmux#54994"
+    },
+    {
+      "id": "agentChats.connection.chip",
+      "item": "item 3 (conn-chip-ios-surfaces)",
+      "fix": "cmux#54994"
+    },
+    {
+      "id": "feed.connecting",
+      "item": "item 3 (conn-chip-ios-surfaces)",
+      "fix": "cmux#54994"
+    },
+    {
+      "id": "cloud.chat.connecting",
+      "item": "item 3 (conn-chip-ios-surfaces)",
+      "fix": "cmux#54994"
+    }
+  ],
   "patterns": [
     {
       "name": "skeleton rows",
@@ -36,7 +103,7 @@
       "id": "agentChats.connection.chip",
       "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/AgentChatsScreen.swift",
       "line": 332,
-      "bound_ms": 1000,
+      "bound_ms": 0,
       "waits_for": "the agent chats list's link held stale or reconnecting",
       "root_fix": "3"
     },
@@ -60,7 +127,7 @@
       "id": "browser.connection.chip",
       "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileBrowserStream/StreamedBrowserPage.swift",
       "line": 219,
-      "bound_ms": 1000,
+      "bound_ms": 0,
       "waits_for": "the streamed browser's link coming back",
       "root_fix": "3"
     },
@@ -76,7 +143,7 @@
       "id": "chat.connection.chip",
       "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/AgentChatScreen.swift",
       "line": 748,
-      "bound_ms": 1000,
+      "bound_ms": 0,
       "waits_for": "the composer's \"Connecting to <Mac>\" chip after the 10 s quiet gate",
       "root_fix": "3"
     },
@@ -105,6 +172,14 @@
       "root_fix": "1b"
     },
     {
+      "id": "chat.user.empty",
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/AgentChatScreen.swift",
+      "line": 1123,
+      "bound_ms": 0,
+      "waits_for": "a prompt row with no words and no attachment: an empty grey bubble; bound 0, never drawn",
+      "root_fix": "1b"
+    },
+    {
       "id": "cloud.automations.loading",
       "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileChief/CloudAutomationsScreen.swift",
       "line": 35,
@@ -116,7 +191,7 @@
       "id": "cloud.chat.connecting",
       "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/CloudChatsScreen.swift",
       "line": 171,
-      "bound_ms": 2000,
+      "bound_ms": 0,
       "waits_for": "a Cloud chat connecting through a Mac (up to 40 s)",
       "root_fix": "3"
     },
@@ -148,7 +223,7 @@
       "id": "feed.connecting",
       "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileFeed/FeedScreen.swift",
       "line": 350,
-      "bound_ms": 2000,
+      "bound_ms": 0,
       "waits_for": "the feed before the Mac answers: \"Connecting to your Mac\"",
       "root_fix": "3"
     },
@@ -212,7 +287,7 @@
       "id": "simulator.connection.chip",
       "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileBrowserStream/StreamedSimulatorPage.swift",
       "line": 44,
-      "bound_ms": 1000,
+      "bound_ms": 0,
       "waits_for": "the streamed simulator's link coming back",
       "root_fix": "3"
     },
@@ -228,7 +303,7 @@
       "id": "status.connection.chip",
       "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileDesign/States.swift",
       "line": 266,
-      "bound_ms": 1000,
+      "bound_ms": 0,
       "waits_for": "the shared list status row's connection chip (lists that use ListStatusRow)",
       "root_fix": "3"
     },

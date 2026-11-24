@@ -41,7 +41,7 @@ public struct StreamedSimulatorPage: View {
                         .padding(.top, 8)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                         .accessibilityIdentifier("simulator.reconnecting")
-                        .placeholderBound("simulator.connection.chip", .milliseconds(1000))
+                        .placeholderBound("simulator.connection.chip", .milliseconds(0))
                 } else {
                     retryStatus(reason)
                 }

@@ -72,37 +72,56 @@ final class PlaceholderBoundUITests: XCTestCase {
         return app
     }
 
-    /// Samples the screen every 0.25 s for `seconds`, calling `step` (a scroll) every 2 s, and fails
-    /// for each marker on screen without a break for longer than its bound. A marker that leaves and
-    /// comes back starts a new stay.
+    /// Samples the screen every 0.25 s for `seconds`, calling `step` (a scroll) every 2 s. A marker
+    /// on screen without a break for longer than its bound overstays (bound 0: drawn at all). An
+    /// overstay fails unless its id is in `PlaceholderKnownOverBound` (the placeholders its item's
+    /// pull request removes); a listed id seen in this flow that never overstayed fails too, so the
+    /// list only shrinks. A marker that leaves and comes back starts a new stay.
     @MainActor
     private func watch(_ app: XCUIApplication, flow: String, for seconds: Double, step: (() -> Void)? = nil) {
         let markers = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'placeholder.'"))
         let start = Date()
         var since: [String: Date] = [:]
+        var seen: Set<String> = []
         var overstayed: [String: Double] = [:]
         var lastStep = start
         while Date().timeIntervalSince(start) < seconds {
             let now = Date()
             let shown = Set(markers.allElementsBoundByIndex.map(\.identifier))
             since = since.filter { shown.contains($0.key) }
+            seen.formUnion(shown)
             for id in shown {
                 let first = since[id] ?? now
                 since[id] = first
                 let stay = now.timeIntervalSince(first)
-                if let bound = Self.boundSeconds(id), stay > bound { overstayed[id] = max(overstayed[id] ?? 0, stay) }
+                if let bound = Self.boundSeconds(id), bound == 0 || stay > bound { overstayed[id] = max(overstayed[id] ?? 0, stay) }
             }
             if let step, now.timeIntervalSince(lastStep) >= 2 { step(); lastStep = now }
             _ = XCTWaiter().wait(for: [XCTestExpectation(description: "pace")], timeout: 0.25)
         }
-        for (id, stay) in overstayed.sorted(by: { $0.key < $1.key }) {
-            print("PLACEHOLDER_OVERSTAY flow=\(flow) id=\(id) stay_s=\(String(format: "%.2f", stay))")
-            XCTFail("\(flow): placeholder \(id) stayed \(String(format: "%.1f", stay)) s, past its bound")
+        for (marker, stay) in overstayed.sorted(by: { $0.key < $1.key }) {
+            let id = Self.placeholderID(marker)
+            if let fix = PlaceholderKnownOverBound.ids[id] {
+                print("PLACEHOLDER_KNOWN_OVERSTAY flow=\(flow) id=\(marker) stay_s=\(String(format: "%.2f", stay)) fix=\(fix)")
+            } else {
+                print("PLACEHOLDER_OVERSTAY flow=\(flow) id=\(marker) stay_s=\(String(format: "%.2f", stay))")
+                XCTFail("\(flow): placeholder \(marker) stayed \(String(format: "%.1f", stay)) s, past its bound")
+            }
+        }
+        for marker in seen.subtracting(overstayed.keys).sorted() where PlaceholderKnownOverBound.ids[Self.placeholderID(marker)] != nil {
+            print("PLACEHOLDER_KNOWN_NOW_WITHIN flow=\(flow) id=\(marker)")
+            XCTFail("\(flow): \(marker) is listed in known_over_bound but stayed within its bound: drop it from cmux-next-ios/design/placeholders.json")
         }
         let shot = XCTAttachment(screenshot: app.screenshot())
         shot.name = "\(flow)-end"
         shot.lifetime = .keepAlways
         add(shot)
+    }
+
+    /// `placeholder.<id>.<ms>` -> `<id>`.
+    private static func placeholderID(_ identifier: String) -> String {
+        let parts = identifier.split(separator: ".")
+        return parts.dropFirst().dropLast().joined(separator: ".")
     }
 
     /// `placeholder.<id>.<ms>` -> seconds.

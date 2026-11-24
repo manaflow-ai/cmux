@@ -21,7 +21,8 @@ import ios_placeholder_bounds as bounds  # noqa: E402
 PATTERNS = [{"name": "prohibited-sign stand-in", "regex": r'systemName:\s*"nosign"'}]
 
 
-def tree(files: dict[str, str], placeholders: list[dict], exempt: list[dict] | None = None, cap: int = 2000) -> Path:
+def tree(files: dict[str, str], placeholders: list[dict], exempt: list[dict] | None = None, cap: int = 2000,
+         known: list[dict] | None = None) -> Path:
     root = Path(tempfile.mkdtemp())
     for rel, text in files.items():
         path = root / rel
@@ -29,7 +30,8 @@ def tree(files: dict[str, str], placeholders: list[dict], exempt: list[dict] | N
         path.write_text(text)
     inv = root / bounds.INVENTORY
     inv.parent.mkdir(parents=True, exist_ok=True)
-    inv.write_text(json.dumps({"patterns": PATTERNS, "placeholders": placeholders, "exempt": exempt or [], "max_bound_ms": cap}))
+    inv.write_text(json.dumps({"patterns": PATTERNS, "placeholders": placeholders, "exempt": exempt or [], "max_bound_ms": cap,
+                               "known_over_bound": known or []}))
     return root
 
 
@@ -79,6 +81,24 @@ class PlaceholderBoundsTests(unittest.TestCase):
     def test_tests_are_not_scanned(self):
         root = tree({"cmux-next-ios/CmuxMobileKit/Tests/X/T.swift": 'Image(systemName: "nosign")\n'}, [])
         self.assertEqual(bounds.check(root), [])
+
+    def test_known_over_bound_must_name_a_listed_id_and_its_fix(self):
+        src = 'X().placeholderBound("chip", .milliseconds(0))\n'
+        placeholders = [{"id": "chip", "file": VIEW, "bound_ms": 0}]
+        root = tree({VIEW: src}, placeholders, known=[{"id": "gone", "item": "3", "fix": "cmux#1"}, {"id": "chip", "item": "3"}])
+        problems = "\n".join(bounds.check(root))
+        self.assertIn("known_over_bound 'gone' is not a listed placeholder", problems)
+        self.assertIn("known_over_bound 'chip' needs the item and the pull request", problems)
+
+    def test_simulator_copy_of_the_known_list_must_match(self):
+        src = 'X().placeholderBound("chip", .milliseconds(0))\n'
+        known = [{"id": "chip", "item": "item 3", "fix": "cmux#1"}]
+        root = tree({VIEW: src, bounds.KNOWN_SWIFT: "enum PlaceholderKnownOverBound {}\n"},
+                    [{"id": "chip", "file": VIEW, "bound_ms": 0}], known=known)
+        self.assertIn("--write-known", "\n".join(bounds.check(root)))
+        bounds.main(["--root", str(root), "--write-known"])
+        self.assertEqual(bounds.check(root), [])
+        self.assertIn('"chip": "item 3, cmux#1"', (root / bounds.KNOWN_SWIFT).read_text())
 
     def test_missing_inventory_fails(self):
         root = Path(tempfile.mkdtemp())

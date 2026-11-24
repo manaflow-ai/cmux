@@ -329,10 +329,10 @@ struct AgentChatsScreen: View {
                     // The model held it past the quiet gate, so the chip shows at once.
                     if model.stale {
                         ConnectionChip(ListStatusRow.State.stale.chip, downSince: nil)
-                            .placeholderBound("agentChats.connection.chip", .milliseconds(1000))
+                            .placeholderBound("agentChats.connection.chip", .milliseconds(0))
                     } else {
                         ConnectionChip.SymbolOnly(ListStatusRow.State.reconnecting.chip, downSince: nil)
-                            .placeholderBound("agentChats.connection.chip", .milliseconds(1000))
+                            .placeholderBound("agentChats.connection.chip", .milliseconds(0))
                     }
                 }
                 .padding(.top, 8)
