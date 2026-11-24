@@ -285,30 +285,41 @@ public struct WorkspacesList: View {
         return "Its workspaces stay open on \(name)."
     }
 
-    /// Filtered: the Mac and its presence. Else "2 need you", or with several
-    /// Macs how many are online. A refresh adds no words: the rows update in place,
-    /// and a failed one retries on its own; the phone being offline is the
-    /// connection chip's (Leo, 2026-11-16: "this needs to shut up"; the iOS
-    /// release bar read-back's "Workspaces stale: no connection text").
-    private var subtitle: String {
-        if let mac = scopedMac {
-            let now = MinuteClock.shared.now
-            let reach = store.macReachability(mac)
-            // A dial under way adds no words: the Mac's presence stays (Leo, 2026-11-23: "stop showing
-            // that bullshit fucking connecting messages. they are way too long and unactionable").
-            // While the Mac's panel shows, it carries the last-seen time and what to do: the
-            // header keeps to a few words, so it never truncates (cmux#52200 walk, step 2).
-            let line = reach == .connecting
-                ? RelativeStamp(now: now).presence(isOnline: mac.isOnline, lastSeenAt: mac.lastSeenAt)
-                : showsRecovery(mac) ? reach.shortStatus : reach.statusText(now: now)
-            return "\(displayName(mac)) · " + line
-        }
-        // A refresh of rows already on screen says nothing: the rows update in place, in the
-        // background (Leo, 2026-11-24: "they dont need to know that it's updating before they KNOW it's updating").
-        let waiting = inbox.needsYouCount
-        if waiting > 0 { return waiting == 1 ? "1 needs you" : "\(waiting) need you" }
-        if macs.count > 1 { return "\(macs.filter(\.isOnline).count) of \(macs.count) Macs online" }
-        return ""
+    /// The header: a green or red dot and the name of the computer shown by default (the
+    /// filtered one, else the one the current workspace lives on), then the filtered computer's
+    /// presence or "2 need you". Never "x of x Macs online" (Leo, 2026-11-24: "red dot green dot
+    /// when you switch between your computers' stuff ... i dont need to see the others"). A
+    /// refresh adds no words: the rows update in place, and a failed one retries on its own
+    /// (Leo, 2026-11-16: "this needs to shut up").
+    var header: ComputerDots.Header {
+        let workspaceMacID = rememberedWorkspaceID.flatMap { store.workspace(id: $0)?.macID }
+        let linkedMacID = linking.flatMap { linking in macs.first { linking.isLinkTarget($0.id) }?.id }
+        return ComputerDots.header(macs: macs, scopedMacID: scopedMac?.id, workspaceMacID: workspaceMacID, linkedMacID: linkedMacID,
+                                   needsYou: inbox.needsYouCount, scopedLine: scopedMac.map(scopedLine),
+                                   name: { displayName($0) }, reach: { store.macReachability($0) })
+    }
+
+    /// The filtered computer's presence beside its name.
+    private func scopedLine(_ mac: MacDevice) -> String {
+        let now = MinuteClock.shared.now
+        let reach = store.macReachability(mac)
+        // A dial under way adds no words: the Mac's presence stays (Leo, 2026-11-23: "stop showing
+        // that bullshit fucking connecting messages. they are way too long and unactionable").
+        // While the Mac's panel shows, it carries the last-seen time and what to do: the
+        // header keeps to a few words, so it never truncates (cmux#52200 walk, step 2).
+        return reach == .connecting
+            ? RelativeStamp(now: now).presence(isOnline: mac.isOnline, lastSeenAt: mac.lastSeenAt)
+            : showsRecovery(mac) ? reach.shortStatus : reach.statusText(now: now)
+    }
+
+    /// The header as the navigation subtitle: the dot, then its text.
+    private var subtitle: Text {
+        let header = header
+        guard let dot = header.dot else { return Text(verbatim: header.text) }
+        let circle = Text(Image(systemName: "circle.fill")).font(.system(size: 7))
+            .foregroundStyle(dot.isUp ? theme.colors.success.color : theme.colors.danger.color)
+            .accessibilityLabel(dot.isUp ? "online" : "offline")
+        return Text("\(circle) \(header.text)")
     }
 
     private func isPresented<T>(_ item: Binding<T?>) -> Binding<Bool> {
@@ -1128,7 +1139,8 @@ public struct WorkspacesList: View {
         let macs = macs
         let entries = macs.count > 1 ? macText.entries(MacFilterMemo.Input(macs: macs, accountMacs: accountMacs, connection: store.macConnection,
                                                                            linkStatus: store.macLinkStatus, live: store.tracksMacData,
-                                                                           now: MinuteClock.shared.now)) : []
+                                                                           now: MinuteClock.shared.now, failure: store.macFailure,
+                                                                           phoneOffline: store.isOffline)) : []
         let filterValue = scopedMac.map { mac in
             [displayName(mac), entries.first { $0.id == mac.id }?.detail].compactMap(\.self).filter { !$0.isEmpty }.joined(separator: ", ")
         } ?? "All Macs"
@@ -1353,8 +1365,10 @@ struct WorkspacesFilterMenu: View, Equatable {
                 Toggle(isOn: host.chosen(.mac(mac.id))) {
                     Text(mac.title)
                     Text(mac.detail)
-                    // The model has no Mac kind (laptop or desktop) yet.
-                    Image(systemName: "desktopcomputer")
+                    // Its dot, green or red, where the user switches computers (Leo, 2026-11-24:
+                    // "red dot green dot when you switch between your computers' stuff"). A menu
+                    // draws a template image in the label color, so the dot is an original-color image.
+                    Image(uiImage: ComputerDotImage.image(isUp: mac.isUp))
                 }
                 .accessibilityIdentifier("workspaces.filter.\(mac.id)")
             }

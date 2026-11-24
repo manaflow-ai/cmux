@@ -159,8 +159,11 @@ struct TeamSidebar: View {
     }
 
     private func row(_ team: Team) -> some View {
-        let presence = team.macDots(limit: theme.metrics.macDotLimit)
         let selected = team.id == store.activeTeamID
+        // One dot: the team's current computer (for the active team, the one its current
+        // workspace lives on), not a dot per computer (Leo, 2026-11-24: "i dont need to see the others").
+        let computer = ComputerDots.team(team, workspaceMacID: selected ? shell.lastWorkspaceID.flatMap { store.workspace(id: $0)?.macID } : nil,
+                                         reach: { selected ? store.macReachability($0) : ComputerDots.listed($0) })
         return Button {
             shell.switchTeam(to: team.id)
         } label: {
@@ -169,9 +172,7 @@ struct TeamSidebar: View {
                 colorHex: team.appearance.colorHex,
                 emoji: team.appearance.emoji,
                 transparent: team.appearance.isTransparent,
-                dots: presence.dots,
-                overflow: presence.overflow,
-                onlineCount: team.listedMacs.filter(\.isOnline).count,
+                computer: computer.map { ($0.name, $0.isUp) },
                 isSelected: selected
             )
             .animation(theme.motion.snap.animation.unlessReduceMotion, value: selected)
