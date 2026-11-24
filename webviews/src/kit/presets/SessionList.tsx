@@ -1,3 +1,5 @@
+/** @jsxImportSource ../closed */
+// A closed file (tsconfig.closed.json): kit pieces only; no raw element, `style` or `className` compiles.
 // A list of sessions built only from kit pieces (List, Row, Icon, StatusGlyph, Spinner, Pill),
 // styled by a SessionLook. `MinimalSessions` is the minimal sidebar look (cmux#45143) on it: one
 // line per session, its status first (a spinner while it works, its own mark when it is blocked,
