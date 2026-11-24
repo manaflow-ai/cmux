@@ -1,0 +1,321 @@
+/* Gallery only (UpdateFootprint.gallery.tsx): one window, a sidebar and a New Tab pane, drawn from the
+   design tokens so the places for What's New and the update button can be compared against the room
+   they take. The footer mirrors SidebarFooterBand: avatar at the leading inset, the spaces strip
+   centered on the sidebar, the update slot and Search at the trailing end. */
+.ufp-gallery {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-3);
+  color: var(--ds-color-fg);
+  font-family: var(--font-ui);
+}
+.ufp-caption {
+  color: var(--ds-color-faint);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+.ufp-window {
+  /* The mock's own sizes, named once: the native footer row, its controls and the sidebar. */
+  --ufp-row: 28px;
+  --ufp-control: 20px;
+  --ufp-sidebar: 236px;
+  --ufp-window: 344px;
+  --ufp-pane-top: 112px;
+  --ufp-composer: 72px;
+  display: flex;
+  height: var(--ufp-window);
+  border: 1px solid var(--ds-color-separator);
+  border-radius: var(--ds-radius-md);
+  background: var(--ds-color-surface);
+  overflow: hidden;
+}
+.ufp-sidebar {
+  position: relative;
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  width: var(--ufp-sidebar);
+  border-inline-end: 1px solid var(--ds-color-separator);
+}
+.ufp-list {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  padding: var(--ds-space-1) var(--ds-space-3);
+  overflow: hidden;
+}
+.ufp-list-row {
+  flex: none;
+  color: var(--ds-color-muted);
+  font-size: var(--text-detail);
+  line-height: 24px;
+}
+.ufp-card-host {
+  flex: none;
+  padding: 0 var(--ds-space-2) var(--ds-space-1);
+}
+.ufp-card {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  margin: 0 var(--ds-space-2) var(--ds-space-1);
+  padding: var(--ds-space-3);
+  border: 1px solid var(--ds-color-separator);
+  border-radius: var(--ds-radius-card);
+  background: var(--ds-color-elevated);
+}
+.ufp-card-title {
+  font-size: var(--text-body);
+  font-weight: 600;
+  line-height: var(--text-body--line-height);
+}
+.ufp-card-line {
+  color: var(--ds-color-muted);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+.ufp-card-button {
+  display: grid;
+  place-items: center;
+  height: 28px;
+  margin-top: var(--ds-space-1);
+  border-radius: var(--ds-radius-control);
+  background: var(--ds-color-accent);
+  color: var(--ds-color-on-accent);
+  font-size: var(--text-body);
+}
+.ufp-footer {
+  position: relative;
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--ds-space-2);
+  height: var(--ufp-row);
+  padding: 0 var(--ds-space-3);
+}
+.ufp-avatar {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: var(--ufp-control);
+  aspect-ratio: 1;
+  border-radius: 999px;
+  background: var(--ds-color-accent);
+  color: var(--ds-color-on-accent);
+  font-size: var(--text-caption);
+}
+.ufp-strip {
+  position: absolute;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  transform: translateX(-50%);
+}
+.ufp-space {
+  width: 6px;
+  aspect-ratio: 1;
+  border-radius: 999px;
+  background: var(--ds-color-faint);
+}
+.ufp-space[data-active] {
+  background: var(--ds-color-fg);
+}
+.ufp-plus {
+  color: var(--ds-color-faint);
+  font-size: var(--text-detail);
+}
+.ufp-search {
+  flex: none;
+  width: 14px;
+  aspect-ratio: 1;
+  border: 1.5px solid var(--ds-color-muted);
+  border-radius: 999px;
+}
+/* The slot keeps the control's side length whether or not it holds a button, so Search never moves;
+   a label grows from its trailing edge into the row's free room. */
+.ufp-slot {
+  position: relative;
+  display: flex;
+  flex: none;
+  justify-content: flex-end;
+  min-width: var(--ufp-control);
+  height: var(--ufp-control);
+  margin-inline-start: auto;
+}
+.ufp-update {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  height: var(--ufp-control);
+  min-width: var(--ufp-control);
+  box-sizing: border-box;
+  justify-content: center;
+  border-radius: 999px;
+  color: var(--ds-color-muted);
+  font-size: var(--text-caption);
+  line-height: var(--ufp-control);
+}
+.ufp-update[data-look="label"] {
+  padding: 0 var(--ds-space-2) 0 var(--ds-space-1);
+  background: var(--ds-color-hover);
+  color: var(--ds-color-fg);
+}
+.ufp-update[data-state="ready"] {
+  background: var(--ds-color-accent);
+  color: var(--ds-color-on-accent);
+}
+.ufp-glyph {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+.ufp-ring {
+  flex: none;
+  width: 12px;
+  aspect-ratio: 1;
+  border-radius: 999px;
+  background: conic-gradient(var(--ds-color-accent) 42%, var(--ds-color-separator) 0);
+  mask: radial-gradient(circle, transparent 3.5px, #000 4px);
+}
+/* The opt-out: above the button, outside the row's flow, as it stands on hover. */
+.ufp-later {
+  position: absolute;
+  right: 0;
+  bottom: calc(var(--ufp-control) + var(--ds-space-1));
+  display: flex;
+  align-items: center;
+  height: var(--ufp-control);
+  padding: 0 var(--ds-space-2) 0 var(--ds-space-1);
+  border: 1px solid var(--ds-color-separator);
+  border-radius: 999px;
+  background: var(--ds-color-elevated);
+  color: var(--ds-color-muted);
+  font-size: var(--text-caption);
+  white-space: nowrap;
+}
+.ufp-pane {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+  padding: var(--ufp-pane-top) var(--ds-space-6) var(--ds-space-4);
+}
+.ufp-composer {
+  display: flex;
+  flex: none;
+  width: 100%;
+  max-width: 420px;
+  height: var(--ufp-composer);
+  box-sizing: border-box;
+  padding: var(--ds-space-3) var(--ds-space-4);
+  border: 1px solid var(--ds-color-separator);
+  border-radius: var(--ds-radius-composer);
+  background: var(--ds-color-elevated);
+}
+.ufp-placeholder {
+  color: var(--ds-color-faint);
+  font-size: var(--text-body);
+}
+.ufp-under {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: 420px;
+  height: 24px;
+  margin-top: var(--ds-space-2);
+}
+.ufp-line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-2);
+  min-width: 0;
+  color: var(--ds-color-muted);
+  font-size: var(--text-detail);
+  white-space: nowrap;
+}
+.ufp-line-more {
+  color: var(--ds-color-faint);
+}
+.ufp-kind {
+  color: var(--ds-color-faint);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.ufp-corner {
+  position: absolute;
+  top: var(--ds-space-3);
+  right: var(--ds-space-3);
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  height: 24px;
+  box-sizing: border-box;
+  border-radius: 999px;
+  color: var(--ds-color-muted);
+  font-size: var(--text-detail);
+}
+.ufp-corner[data-look="chip"] {
+  padding: 0 var(--ds-space-3) 0 var(--ds-space-2);
+  background: var(--ds-color-hover);
+}
+.ufp-corner[data-read] {
+  background: none;
+  color: var(--ds-color-faint);
+}
+.ufp-corner[data-look="dot"] {
+  justify-content: center;
+  width: 24px;
+}
+.ufp-unread {
+  flex: none;
+  width: 6px;
+  aspect-ratio: 1;
+  border-radius: 999px;
+  background: var(--ds-color-accent);
+}
+.ufp-corner[data-look="dot"] .ufp-unread {
+  position: absolute;
+  top: var(--grid-half-step);
+  right: var(--grid-half-step);
+}
+.ufp-popover {
+  position: absolute;
+  top: calc(var(--ds-space-3) + 24px + var(--ds-space-1));
+  right: var(--ds-space-3);
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  width: 264px;
+  box-sizing: border-box;
+  padding: var(--ds-space-3);
+  border: 1px solid var(--ds-color-separator);
+  border-radius: var(--ds-radius-popup);
+  background: var(--ds-color-elevated);
+  box-shadow: var(--elevation-2);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+.ufp-popover-title {
+  font-size: var(--text-body);
+  font-weight: 600;
+}
+.ufp-popover-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-2);
+  color: var(--ds-color-muted);
+}
+.ufp-popover-more {
+  color: var(--ds-color-accent);
+}
