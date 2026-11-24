@@ -1,4 +1,8 @@
+#if canImport(CoreGraphics)
 public import CoreGraphics
+#else
+public import Foundation
+#endif
 
 /// Shared horizontal geometry for the terminal composer and its keyboard dock.
 ///

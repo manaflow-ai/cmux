@@ -202,6 +202,12 @@
         "suggested_inputs_more": 729
       }
     },
+    ".github/workflows/cmux-next-closes-issues.yml": {
+      "close": {
+        "why": "runs on the closed event of a merged pull request to close the issues it names; reads only the event",
+        "suggested_inputs": []
+      }
+    },
     ".github/workflows/cmux-next-fast-gates.yml": {
       "fast-check-route": {
         "why": "a router: it reads the diff (or the pull request) to decide which other jobs run, so it runs on every pull request",
@@ -469,7 +475,6 @@
           ".github/workflows/",
           ".github/workflows/cmux-next-batch.yml",
           ".github/workflows/risk-tier-tests.yml",
-          ".github/workflows/risk-tier.yml",
           "Native/OptChat/optchat-chief/inspector/",
           "Native/OptChat/optchat-chief/inspector/index.html",
           "Native/OptChat/optchat-chief/src/acpmux_peer.rs",
@@ -513,7 +518,6 @@
           ".github/workflows/",
           ".github/workflows/cmux-next-batch.yml",
           ".github/workflows/risk-tier-tests.yml",
-          ".github/workflows/risk-tier.yml",
           "Native/OptChat/optchat-chief/src/acpmux_peer.rs",
           "Packages/macOS/CmuxNext/",
           "Packages/macOS/CmuxNext/Sources/",
@@ -587,6 +591,12 @@
       }
     },
     ".github/workflows/cmux-next-react-doctor.yml": {
+      "coalesce": {
+        "why": "a router: it reads the diff (or the pull request) to decide which other jobs run, so it runs on every pull request",
+        "suggested_inputs": [
+          ".github/workflows/base-coalesce.yml"
+        ]
+      },
       "fast-check-route": {
         "why": "a router: it reads the diff (or the pull request) to decide which other jobs run, so it runs on every pull request",
         "suggested_inputs": [
@@ -1042,60 +1052,6 @@
           "scripts/ci/workflow_paths_cover_inputs.py",
           "vendor/stack-auth-swift-sdk-prerelease/README.cmux.md"
         ]
-      }
-    },
-    ".github/workflows/risk-tier.yml": {
-      "evidence": {
-        "why": "reads the pull request's metadata (title, body, labels, size, base), not a fixed set of paths",
-        "suggested_inputs": [
-          ".cargo/",
-          ".github/",
-          ".github/CODEOWNERS",
-          ".github/actions/",
-          ".github/actions/runner-cargo-home/",
-          ".github/actions/setup-cmux-tui-rust/",
-          ".github/actions/tree-result/",
-          ".github/actions/tree-result/action.yml",
-          ".github/checkout-lean.json",
-          ".github/github-token-budget.json",
-          ".github/runners.json",
-          ".github/scripts/",
-          ".github/single-host-fallbacks.json",
-          ".github/warm-sources.json",
-          ".github/workflow-job-bounds.json",
-          ".github/workflows/",
-          ".github/workflows/ci-macos.yml",
-          ".github/workflows/ci-web.yml",
-          ".github/workflows/ci.yml",
-          ".github/workflows/cloud-journey-pr.yml",
-          ".github/workflows/cloud-journey-prod.yml",
-          ".github/workflows/cmux-next-batch.yml",
-          ".github/workflows/cmux-next.yml",
-          ".github/workflows/cmux-tui-spec.yml",
-          ".github/workflows/gallery-health.yml",
-          ".github/workflows/ios-e2e.yml",
-          ".github/workflows/risk-tier-tests.yml",
-          "Native/",
-          "Native/DiffSidecar/",
-          "Native/OptChat/",
-          "Native/OptChat/optchat-chief/src/acpmux_peer.rs",
-          "Packages/",
-          "Packages/Shared/",
-          "Packages/Shared/CmuxGhosttyKit/Package.swift",
-          "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift",
-          "Packages/iOS/",
-          "Packages/macOS/CmuxNext/",
-          "Packages/macOS/CmuxNext/Package.swift",
-          "Packages/macOS/CmuxNext/Sources/",
-          "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/"
-        ],
-        "suggested_inputs_more": 378
-      }
-    },
-    ".github/workflows/thunderdome-label.yml": {
-      "label": {
-        "why": "reads the pull request's metadata (title, body, labels, size, base), not a fixed set of paths",
-        "suggested_inputs": []
       }
     }
   }
