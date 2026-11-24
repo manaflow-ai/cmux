@@ -215,21 +215,25 @@ final class StoreKitRig {
         XCTAssertEqual(model.offers.count, 5, "every product in CmuxBilling.storekit loads (\(String(describing: model.offersFailure)))")
     }
 
-    /// Ends every subscription the test left, then resets the session's
-    /// switches.
+    /// Ends what the test left, then resets the session's switches.
     ///
     /// storekitd outlives a session and keeps a subscription's renewal
     /// schedule after `clearTransactions()`: a billing retry left running
     /// renewed into the next test's purchase (runs 45287478805 and
     /// 45289920668: that purchase arrived as reason RENEWAL, or a RENEWAL
-    /// followed it and became the current transaction). So each subscription
-    /// is expired first, while the session's billing retry setting still
-    /// holds (turning it off first lets the pending retry succeed as a
-    /// renewal), and the switches are reset only once StoreKit has settled.
+    /// followed it and became the current transaction). So after a billing
+    /// retry test each subscription is expired first, while the retry
+    /// setting still holds (turning it off first lets the pending retry
+    /// succeed as a renewal), and the switches are reset only once StoreKit
+    /// has settled. Only then: an expiry in every tearDown stopped storekitd
+    /// re-delivering the upgraded Pro transaction in the next upgrade test
+    /// (run 45316792026, 10 of 10 iterations).
     func stop() async throws {
         model.stop()
-        for product in CmuxProduct.all {
-            try? session.expireSubscription(productIdentifier: product.productID)
+        if session.shouldEnterBillingRetryOnRenewal {
+            for product in CmuxProduct.all {
+                try? session.expireSubscription(productIdentifier: product.productID)
+            }
         }
         try await settleStoreKit()
         session.shouldEnterBillingRetryOnRenewal = false

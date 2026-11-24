@@ -560,8 +560,8 @@ struct BillingRig {
 /// `async let`s wait on (scope exit awaits them).
 private func until(
     timeout: Duration = .seconds(10),
-    _ condition: () async -> Bool,
-    onTimeout: () async -> Void = {}
+    _ condition: @Sendable () async -> Bool,
+    onTimeout: @Sendable () async -> Void = {}
 ) async throws {
     let clock = ContinuousClock()
     let deadline = clock.now.advanced(by: timeout)
