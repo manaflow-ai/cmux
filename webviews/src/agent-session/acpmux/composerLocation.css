@@ -2187,3 +2187,20 @@
   align-items: center;
   gap: var(--ds-space-1);
 }
+/* A list opened in place heads with its way back (Leo 2026-11-24: "i cant click back"): the heading
+   is a row with a back chevron; ← with no search typed does the same. */
+.acpmux-env-popover .acpmux-env-back {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  margin: 0;
+  border: 0;
+  border-radius: var(--ui-popup-item-radius, 6px);
+  background: none;
+  text-align: start;
+  cursor: default;
+}
+.acpmux-env-popover .acpmux-env-back:hover { color: var(--agent-text); background: color-mix(in srgb, var(--agent-text) 8%, transparent); }
+.acpmux-env-popover .acpmux-env-back-chevron { display: inline-flex; rotate: 180deg; }
+.acpmux-env-popover .acpmux-env-back-chevron:dir(rtl) { rotate: 0deg; }
