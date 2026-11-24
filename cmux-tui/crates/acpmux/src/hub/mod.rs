@@ -462,6 +462,7 @@ mod background_cause;
 pub mod background_turn;
 #[cfg(test)]
 mod background_turn_end_tests;
+mod command_end;
 mod drafts;
 mod goal_tools;
 pub(crate) mod history_search;

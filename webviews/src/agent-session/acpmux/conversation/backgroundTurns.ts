@@ -14,6 +14,7 @@
 import { experimentArm } from "../../../experiments/experiment";
 import type { AcpmuxBackgroundCause, AcpmuxBackgroundTurn, AcpmuxBackgroundWeight, AcpmuxRow } from "../model";
 import type { Folds } from "./viewFolds";
+import { commandEndOf } from "./commandEnd";
 import type { Translate } from "../i18n";
 import { backgroundReactionLook, reactsOnCall } from "./backgroundReaction.experiment";
 import { backgroundTurnLook, backgroundTurnsInline } from "./backgroundTurnLook.experiment";
@@ -55,7 +56,17 @@ function backgroundCause(value: unknown): { cause: AcpmuxBackgroundCause } | und
   if (!weight || !kind || !status) return undefined;
   const origin = text(cause.origin);
   const summary = text(cause.summary);
-  return { cause: { kind, status, weight, ...(origin && { origin }), ...(summary && { summary }) } };
+  const command = commandEndOf(cause.command);
+  return {
+    cause: {
+      kind,
+      status,
+      weight,
+      ...(origin && { origin }),
+      ...(summary && { summary }),
+      ...(command && { command }),
+    },
+  };
 }
 
 /// How much the task whose end started this turn is worth, in the arms that read it; undefined in

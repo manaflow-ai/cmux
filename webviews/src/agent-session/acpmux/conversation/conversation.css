@@ -4557,6 +4557,20 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
 .cv-shell__exit + .cv-shell__body {
   margin-top: var(--ds-space-2);
 }
+/* A background command's status when it did not fail ("Exit code 0", "Running", "Stopped"): the
+   same line in the rows' muted tone (ShellBlock.tsx `status`). */
+.cv-shell__exit[data-tone="quiet"] {
+  color: var(--cv-text-dim);
+}
+/* Where its output would be, when there is none to show: "No output", "Output no longer available"
+   (ShellBlock.tsx `note`). */
+.cv-shell__note {
+  margin-top: var(--ds-space-2);
+  color: var(--cv-text-dim);
+  font-size: calc(var(--cv-font-size) * 12 / 14);
+  line-height: calc(var(--cv-font-size) * 18 / 14);
+  font-family: var(--cv-font);
+}
 /* The images a tool call returned or wrote (ToolRow): a row of capped thumbnails, so a long
    transcript stays light; a click opens the image viewer. Each keeps its own height: a phone shot
    beside a wide one never stretches it into a tall letterboxed frame. */

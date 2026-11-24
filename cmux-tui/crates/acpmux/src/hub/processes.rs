@@ -1032,25 +1032,77 @@ impl Hub {
     ) -> Result<Value, RpcError> {
         use base64::Engine;
         let session = self.process_session(id)?;
-        let (file, running) = {
+        let (file, running, end) = {
             let table = self.process_table(&session);
             let p = table.find_id(id).ok_or_else(|| unknown_process(id))?;
             if p.harness == "codex" {
                 return Err(RpcError::invalid_params("tail is Claude Code only for now"));
             }
-            (p.output_file.clone(), p.state == ProcessState::Running)
+            let end = (
+                p.command.clone(),
+                p.description.clone(),
+                super::command_end::state_word(p.state),
+                p.exit_code,
+            );
+            (p.output_file.clone(), p.state == ProcessState::Running, end)
         };
         let max = max.unwrap_or(TAIL_DEFAULT).min(TAIL_MAX);
         let (data, start, len) = read_output(file.as_deref(), from, max)
             .await
             .map_err(|e| RpcError::internal(format!("cannot read the process's output: {e}")))?;
         let next = start + data.len() as u64;
-        Ok(json!({
+        // What every surface draws for it (`command_end.rs`): its line, how it stands, and
+        // whether its output is there at all, so an empty read of a deleted file says so.
+        let (command, description, state, exit_code) = end;
+        let output_state = match file.as_deref() {
+            _ if len > 0 => super::command_end::OutputState::Printed,
+            Some(f) if std::path::Path::new(f).is_file() => super::command_end::OutputState::Empty,
+            _ if running => super::command_end::OutputState::Empty,
+            _ => super::command_end::OutputState::Gone,
+        };
+        let mut reply = json!({
             "data": base64::engine::general_purpose::STANDARD.encode(&data),
             "fromByte": start,
             "nextByte": next,
             "eof": !running && next >= len,
-        }))
+            "command": command,
+            "state": state,
+            "outputState": output_state,
+        });
+        if let Some(description) = description.filter(|d| !d.is_empty() && *d != command) {
+            reply["description"] = json!(description);
+        }
+        if let Some(code) = exit_code {
+            reply["exitCode"] = json!(code);
+        }
+        Ok(reply)
+    }
+
+    /// The process the tool call `tool` started, as every surface draws its end
+    /// (`command_end.rs`), its output read now; none when the registry never heard of it.
+    pub(super) fn command_end_of(
+        &self,
+        session: &Session,
+        tool: &str,
+    ) -> Option<super::command_end::CommandEnd> {
+        let (command, description, state, exit_code, file) = {
+            let table = self.process_table(session);
+            let p = table.processes.get(table.find_tool(tool)?)?;
+            (
+                p.command.clone(),
+                p.description.clone(),
+                super::command_end::state_word(p.state),
+                p.exit_code,
+                p.output_file.clone(),
+            )
+        };
+        Some(super::command_end::CommandEnd::read(
+            &command,
+            description.as_deref(),
+            state,
+            exit_code,
+            file.as_deref(),
+        ))
     }
 
     /// `_acpmux/process/kill`: asks Claude Code to stop the process

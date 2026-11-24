@@ -255,6 +255,27 @@ export type AcpmuxBackgroundCause = {
   weight: AcpmuxBackgroundWeight;
   origin?: string;
   summary?: string;
+  /// The background command whose end this is, as acpmux built it when the turn started
+  /// (hub/command_end.rs): its line, how it ended and the end of its output.
+  command?: AcpmuxCommandEnd;
+};
+
+/// A background command as every surface draws it, built by acpmux only (hub/command_end.rs): the
+/// turn's `cause.command` and `_acpmux/process/tail`'s reply carry the same fields. Leo,
+/// 2026-11-24, on a "Background command completed" row that opened to an empty Shell card: "but i
+/// couldnt... do anything?".
+export type AcpmuxCommandEnd = {
+  /// The command line as typed; empty when nothing named it.
+  command: string;
+  description?: string;
+  /// `running`, `completed`, `failed`, `stopped` or `lost`.
+  state: string;
+  exitCode?: number;
+  /// `printed` (the tail is in `output`), `empty` (it printed nothing) or `gone` (its output file
+  /// was never named or is deleted).
+  outputState: "printed" | "empty" | "gone";
+  output?: string;
+  cut?: boolean;
 };
 
 /// What a background turn left on the call that started its task: `fresh` for a final result the
