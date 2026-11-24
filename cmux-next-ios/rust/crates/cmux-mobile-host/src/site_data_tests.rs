@@ -56,6 +56,18 @@ fn only_web_pages_have_site_data() {
 }
 
 #[test]
+fn the_tab_is_named_by_number_or_by_its_key() {
+    for surface in [json!(7), json!("7"), json!("s7")] {
+        let args = json!({"surface": surface, "url": "https://a.com/", "trigger": TRIGGER});
+        assert_eq!(parse_ask(&args).unwrap().surface, 7, "{args}");
+    }
+    for surface in [json!("sx"), json!(-1), json!(null)] {
+        let args = json!({"surface": surface, "url": "https://a.com/", "trigger": TRIGGER});
+        assert_eq!(parse_ask(&args).unwrap_err().code, "bad_request", "{args}");
+    }
+}
+
+#[test]
 fn site_is_the_registrable_domain() {
     assert_eq!(site_of("mail.google.com"), "google.com");
     assert_eq!(site_of("GOOGLE.com."), "google.com");

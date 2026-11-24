@@ -2499,7 +2499,13 @@ mod tests {
         let listed: Vec<&str> = CAPABILITIES
             .iter()
             .copied()
-            .chain([BROWSER_STREAM, BROWSER_VIDEO_TRACK, SURFACE_STREAM, CLOUD_DESKTOP])
+            .chain([
+                BROWSER_STREAM,
+                BROWSER_VIDEO_TRACK,
+                SURFACE_STREAM,
+                CLOUD_DESKTOP,
+                names::SITE_DATA_HANDOFF,
+            ])
             .collect();
         let host: Vec<&str> =
             names::ALL.iter().filter(|c| c.side == names::Side::Host).map(|c| c.name).collect();
