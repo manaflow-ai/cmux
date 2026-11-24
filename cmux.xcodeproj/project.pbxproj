@@ -62,7 +62,6 @@
 		C7A52F000000000000000002 /* AgentChatTranscriptService+Wire.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A52F000000000000000001 /* AgentChatTranscriptService+Wire.swift */; };
 		ACA7C4A7000000000000000B /* AgentChatTranscriptService.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A7000000000000000C /* AgentChatTranscriptService.swift */; };
 		88A8F9C77DFA3ECF80805D22 /* AgentChatTranscriptServiceLifetimeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F8CFA318418E40A8E61D7FE /* AgentChatTranscriptServiceLifetimeTests.swift */; };
-		3399DB1633E5273035626539 /* AgentCommandShimDirectorySweep.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31EFEECE29FC8AB5A68A0E44 /* AgentCommandShimDirectorySweep.swift */; };
 		79390005AA11BB22CC33DD05 /* AgentDeliveryTargetResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79390006AA11BB22CC33DD06 /* AgentDeliveryTargetResolution.swift */; };
 		93800001AA11BB22CC33EE01 /* AgentDeliveryTTYBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93800002AA11BB22CC33EE02 /* AgentDeliveryTTYBindingTests.swift */; };
 		A9F200000000000000000001 /* AgentExecutableResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000001 /* AgentExecutableResolver.swift */; };
@@ -4957,7 +4956,6 @@
 		C7A52F000000000000000001 /* AgentChatTranscriptService+Wire.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptService+Wire.swift"; sourceTree = "<group>"; };
 		ACA7C4A7000000000000000C /* AgentChatTranscriptService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptService.swift"; sourceTree = "<group>"; };
 		0F8CFA318418E40A8E61D7FE /* AgentChatTranscriptServiceLifetimeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptServiceLifetimeTests.swift"; sourceTree = "<group>"; };
-		31EFEECE29FC8AB5A68A0E44 /* AgentCommandShimDirectorySweep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentCommandShimDirectorySweep.swift; sourceTree = "<group>"; };
 		79390006AA11BB22CC33DD06 /* AgentDeliveryTargetResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentDeliveryTargetResolution.swift; sourceTree = "<group>"; };
 		93800002AA11BB22CC33EE02 /* AgentDeliveryTTYBindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentDeliveryTTYBindingTests.swift; sourceTree = "<group>"; };
 		A9F100000000000000000001 /* AgentExecutableResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentExecutableResolver.swift; sourceTree = "<group>"; };
@@ -12706,7 +12704,6 @@
 				D4D9700C7689786CCDB82CAE /* TerminalController+AgentMessageClaim.swift */,
 				17A22999A4C0E113B255C2E7 /* NotificationsPopoverView.swift */,
 				067ED4C318664E11B67921F3 /* AppDelegate+NotificationsPopoverDigits.swift */,
-				31EFEECE29FC8AB5A68A0E44 /* AgentCommandShimDirectorySweep.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -15251,7 +15248,6 @@
 				7C158325317A2D9337767A8A /* AgentChatTranscriptService+GlobalSearch.swift in Sources */,
 				C7A52F000000000000000002 /* AgentChatTranscriptService+Wire.swift in Sources */,
 				ACA7C4A7000000000000000B /* AgentChatTranscriptService.swift in Sources */,
-				3399DB1633E5273035626539 /* AgentCommandShimDirectorySweep.swift in Sources */,
 				79390005AA11BB22CC33DD05 /* AgentDeliveryTargetResolution.swift in Sources */,
 				A9F200000000000000000001 /* AgentExecutableResolver.swift in Sources */,
 				A9F200000000000000000002 /* AgentExecutableResolverError.swift in Sources */,

@@ -3844,7 +3844,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         -SessionScrollbackReplayStore.staleReplayLifetime
                     )
                 )
-                AgentCommandShimDirectorySweep.sweep()
+#if DEBUG
+                let shimSweepOutcome = TerminalSurfaceAgentCommandShimSweep.live().sweep()
+                cmuxDebugLog("shims.sweep \(shimSweepOutcome)")
+#else
+                TerminalSurfaceAgentCommandShimSweep.live().sweep()
+#endif
             }
         }
 

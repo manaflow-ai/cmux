@@ -18,10 +18,10 @@ private final class InstallDuringSweepFileManager: FileManager {
 
     override func moveItem(at sourceURL: URL, to destinationURL: URL) throws {
         if sourceURL.path == installedDirectoryPath {
-            TerminalSurfaceAgentCommandShimCleanup.writeOwnerRecord(
-                inDirectory: sourceURL,
+            TerminalSurfaceAgentCommandShimCleanup(
+                rootDirectory: sourceURL.deletingLastPathComponent().deletingLastPathComponent(),
                 owner: installer
-            )
+            ).writeOwnerRecord(inDirectory: sourceURL)
             try setAttributes([.modificationDate: Date()], ofItemAtPath: sourceURL.path)
         }
         try super.moveItem(at: sourceURL, to: destinationURL)
@@ -86,7 +86,7 @@ struct TerminalSurfaceAgentCommandShimCleanupTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
         try Data("#!/bin/bash\n".utf8).write(to: directory.appendingPathComponent("codex"))
         for owner in [owner, secondOwner].compactMap({ $0 }) {
-            #expect(TerminalSurfaceAgentCommandShimCleanup.writeOwnerRecord(inDirectory: directory, owner: owner))
+            #expect(cleanup(as: owner).writeOwnerRecord(inDirectory: directory))
         }
         try setLastWrite(date, of: directory)
         return directory
@@ -111,19 +111,28 @@ struct TerminalSurfaceAgentCommandShimCleanupTests {
         Set(try FileManager.default.contentsOfDirectory(atPath: shimParent.path)).subtracting([".lock"])
     }
 
-    /// Closes `surface`'s pane as `closingCmux`, with only `runningCmux` alive.
-    private func close(_ surface: UUID, as closingCmux: AgentPIDProcessIdentity) -> Bool {
+    /// A cleanup acting for `owner`, in a world where only `runningCmux` is alive.
+    private func cleanup(
+        as owner: AgentPIDProcessIdentity?,
+        root cleanedRoot: URL? = nil,
+        fileManager: FileManager = .default
+    ) -> TerminalSurfaceAgentCommandShimCleanup {
         let runningCmux = runningCmux
-        return TerminalSurfaceAgentCommandShimCleanup.removeShimDirectory(
-            surfaceId: surface,
-            rootDirectory: root,
-            owner: closingCmux,
-            ownerIsRunning: { $0 == runningCmux }
+        return TerminalSurfaceAgentCommandShimCleanup(
+            rootDirectory: cleanedRoot ?? root,
+            owner: owner,
+            ownerIsRunning: { $0 == runningCmux },
+            fileManager: fileManager
         )
     }
 
+    /// Closes `surface`'s pane as `closingCmux`.
+    private func close(_ surface: UUID, as closingCmux: AgentPIDProcessIdentity) -> Bool {
+        cleanup(as: closingCmux).removeShimDirectory(surfaceId: surface)
+    }
+
     private func owners(of directory: URL) -> Set<AgentPIDProcessIdentity> {
-        Set(TerminalSurfaceAgentCommandShimCleanup.ownerRecords(inDirectory: directory))
+        Set(cleanup(as: nil).ownerRecords(inDirectory: directory))
     }
 
     private func sweep(
@@ -132,15 +141,11 @@ struct TerminalSurfaceAgentCommandShimCleanupTests {
         removesDirectoriesWithoutOwnerRecord: Bool = false,
         fileManager: FileManager = .default
     ) -> Set<String> {
-        let runningCmux = runningCmux
-        return Set(
-            TerminalSurfaceAgentCommandShimCleanup.removeUnusedShimDirectories(
-                rootDirectory: sweptRoot ?? root,
+        Set(
+            cleanup(as: nil, root: sweptRoot, fileManager: fileManager).removeUnusedShimDirectories(
                 inUseDirectoryNames: inUse,
                 unusedSince: cutoff,
-                removesDirectoriesWithoutOwnerRecord: removesDirectoriesWithoutOwnerRecord,
-                ownerIsRunning: { $0 == runningCmux },
-                fileManager: fileManager
+                removesDirectoriesWithoutOwnerRecord: removesDirectoriesWithoutOwnerRecord
             )
         )
     }
@@ -279,8 +284,11 @@ struct TerminalSurfaceAgentCommandShimCleanupTests {
         // Another cmux that restored the same surface installed here too.
         // The process that started this test stands in for it: it is running.
         let otherCmux = try #require(AgentPIDProcessIdentity(pid: getppid()))
-        TerminalSurfaceAgentCommandShimCleanup.writeOwnerRecord(inDirectory: installed, owner: otherCmux)
-        TerminalSurfaceAgentCommandShimCleanup.writeOwnerRecord(inDirectory: installed, owner: exitedCmux)
+        // These cleanups ask the kernel who is running, as the app's do.
+        let asOtherCmux = TerminalSurfaceAgentCommandShimCleanup(rootDirectory: root, owner: otherCmux)
+        asOtherCmux.writeOwnerRecord(inDirectory: installed)
+        TerminalSurfaceAgentCommandShimCleanup(rootDirectory: root, owner: exitedCmux)
+            .writeOwnerRecord(inDirectory: installed)
         _ = try #require(
             TerminalSurface.installAgentCommandShimsIfPossible(
                 wrapperDirectoryURL: wrapperDirectory,
@@ -291,17 +299,13 @@ struct TerminalSurfaceAgentCommandShimCleanupTests {
         // Reinstalling replaces the directory but keeps the claim of every
         // cmux that still runs, and drops the one that has exited.
         #expect(owners(of: installed) == [thisProcess, otherCmux])
-        TerminalSurfaceAgentCommandShimCleanup.removeShimDirectory(
-            surfaceId: surface,
-            rootDirectory: root,
-            owner: otherCmux
-        )
+        asOtherCmux.removeShimDirectory(surfaceId: surface)
         #expect(owners(of: installed) == [thisProcess])
         // The default check is the real one: this process is running, so its
         // directory survives a sweep however old it looks.
         try setLastWrite(stale, of: installed)
-        let removed = TerminalSurfaceAgentCommandShimCleanup.removeUnusedShimDirectories(
-            rootDirectory: root,
+        let asThisProcess = TerminalSurfaceAgentCommandShimCleanup(rootDirectory: root)
+        let removed = asThisProcess.removeUnusedShimDirectories(
             inUseDirectoryNames: [],
             unusedSince: cutoff,
             removesDirectoriesWithoutOwnerRecord: true
@@ -317,113 +321,13 @@ struct TerminalSurfaceAgentCommandShimCleanupTests {
             startMicroseconds: thisProcess.startMicroseconds
         )
         let reusedDirectory = try makeShimDirectory(UUID().uuidString, writtenAt: stale, owner: reusedPID)
-        let removedAfterReuse = TerminalSurfaceAgentCommandShimCleanup.removeUnusedShimDirectories(
-            rootDirectory: root,
+        let removedAfterReuse = asThisProcess.removeUnusedShimDirectories(
             inUseDirectoryNames: [],
             unusedSince: cutoff,
             removesDirectoriesWithoutOwnerRecord: false
         )
         #expect(removedAfterReuse == [reusedDirectory.lastPathComponent])
         #expect(exists(installed.appendingPathComponent("codex")))
-    }
-
-    @Test("Shim directories are read from PATH entries and wrapper variables")
-    func readsDirectoryNamesFromEnvironmentValues() {
-        defer { try? FileManager.default.removeItem(at: root) }
-        let surface = "0F0E0D0C-0B0A-4908-8706-050403020100"
-        let other = "11111111-2222-4333-8444-555555555555"
-        let names = TerminalSurfaceAgentCommandShimCleanup.shimDirectoryNames(
-            inEnvironmentValues: [
-                "/Users/me/.cmuxterm/cmux-cli-shims/\(surface):/usr/bin:/bin",
-                "/Users/me/.cmuxterm/cmux-cli-shims/\(other)/claude",
-                "/usr/bin:/var/folders/x/T/cmux-cli-shims/4242:/bin",
-                "/Users/me/.cmuxterm/cmux-cli-shims/",
-                "/Users/me/.cmuxterm/cmux-cli-shims",
-                "/opt/homebrew/bin",
-            ]
-        )
-        #expect(names == [surface, other, "4242"])
-    }
-
-    @Test("Names in use are the union over every readable process")
-    func collectsNamesInUseAcrossProcesses() {
-        defer { try? FileManager.default.removeItem(at: root) }
-        let environments: [Int: [String]] = [
-            10: ["/usr/bin:/bin"],
-            20: ["/Users/me/.cmuxterm/cmux-cli-shims/AAAA:/usr/bin"],
-            30: ["/Users/me/.cmuxterm/cmux-cli-shims/BBBB/claude", "/x/cmux-cli-shims/AAAA"],
-        ]
-        let names = TerminalSurfaceAgentCommandShimCleanup.shimDirectoryNamesInUse(
-            byProcesses: [10, 20, 30, 40],
-            processListIsComplete: true,
-            currentProcessID: 10,
-            environmentValues: { environments[$0] }
-        )
-        #expect(names == ["AAAA", "BBBB"])
-    }
-
-    @Test("Names in use are unknown when the process table cannot be trusted")
-    func refusesAnUntrustedProcessTable() {
-        defer { try? FileManager.default.removeItem(at: root) }
-        let environments: [Int: [String]] = [
-            10: ["/usr/bin:/bin"],
-            20: ["/Users/me/.cmuxterm/cmux-cli-shims/AAAA:/usr/bin"],
-        ]
-        let trusted = TerminalSurfaceAgentCommandShimCleanup.shimDirectoryNamesInUse(
-            byProcesses: [10, 20],
-            processListIsComplete: true,
-            currentProcessID: 10,
-            environmentValues: { environments[$0] }
-        )
-        let truncated = TerminalSurfaceAgentCommandShimCleanup.shimDirectoryNamesInUse(
-            byProcesses: [10, 20],
-            processListIsComplete: false,
-            currentProcessID: 10,
-            environmentValues: { environments[$0] }
-        )
-        let blind = TerminalSurfaceAgentCommandShimCleanup.shimDirectoryNamesInUse(
-            byProcesses: [10, 20],
-            processListIsComplete: true,
-            currentProcessID: 10,
-            environmentValues: { $0 == 10 ? nil : environments[$0] }
-        )
-        #expect(trusted == ["AAAA"])
-        #expect(truncated == nil)
-        #expect(blind == nil)
-    }
-
-    @Test("Another cmux is any other app bundle that ships the wrappers")
-    func recognisesAnotherRunningCmux() {
-        defer { try? FileManager.default.removeItem(at: root) }
-        let wrappers: Set<String> = [
-            "/Applications/cmux.app/Contents/Resources/bin/cmux-claude-wrapper",
-            "/Users/me/DerivedData/cmux DEV tag.app/Contents/Resources/bin/cmux-claude-wrapper",
-        ]
-        func running(_ processes: [(name: String, executablePath: String?)]) -> Bool {
-            TerminalSurfaceAgentCommandShimCleanup.anotherCmuxIsRunning(
-                amongProcesses: processes,
-                fileExists: { wrappers.contains($0) }
-            )
-        }
-
-        #expect(running([("zsh", "/bin/zsh"), ("cmux", "/Applications/cmux.app/Contents/MacOS/cmux")]))
-        #expect(running([("cmux DEV", "/Users/me/DerivedData/cmux DEV tag.app/Contents/MacOS/cmux DEV")]))
-        // A cmux whose bundle was deleted or replaced under it: the kernel
-        // no longer says where it runs from.
-        #expect(running([("cmux DEV", nil)]))
-        // Other apps, helpers that only live inside a cmux bundle, and other
-        // processes the kernel cannot place.
-        #expect(!running([("Safari", "/Applications/Safari.app/Contents/MacOS/Safari"), ("zsh", "/bin/zsh")]))
-        #expect(!running([("cmux", "/Applications/cmux.app/Contents/Resources/bin/cmux")]))
-        #expect(!running([("cmux-helper", "/Applications/cmux.app/Contents/MacOS/helpers/cmux-helper")]))
-        #expect(
-            !running([
-                ("cmux-cua", "/Users/me/Library/cmux-cua/cmux Computer Use.app/Contents/MacOS/cmux-cua"),
-                ("cmux-cua", nil),
-            ])
-        )
-        #expect(!running([("postgres", nil), ("Cursor Helper", nil)]))
-        #expect(!running([]))
     }
 
     @Test("Installing and sweeping take the same lock, so neither sees the other halfway")

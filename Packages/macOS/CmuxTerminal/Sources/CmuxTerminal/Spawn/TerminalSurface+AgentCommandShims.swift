@@ -110,8 +110,11 @@ extension TerminalSurface {
         }
         guard !availableDefinitions.isEmpty else { return nil }
 
-        let shimParentDirectory = TerminalSurfaceAgentCommandShimCleanup
-            .shimParentDirectory(rootDirectory: rootDirectory)
+        let shimCleanup = TerminalSurfaceAgentCommandShimCleanup(
+            rootDirectory: rootDirectory,
+            fileManager: fileManager
+        )
+        let shimParentDirectory = shimCleanup.shimParentDirectory
         let shimDirectory = shimParentDirectory
             .appendingPathComponent(surfaceId.uuidString, isDirectory: true)
             .standardizedFileURL
@@ -182,12 +185,7 @@ extension TerminalSurface {
         // Names this process as an owner of the pane's directory, so a sweep
         // in any cmux leaves it alone while this one runs. Another cmux that
         // restored the same surface keeps its claim.
-        TerminalSurfaceAgentCommandShimCleanup.carryOverOwnerRecords(
-            from: shimDirectory,
-            to: stagingDirectory,
-            fileManager: fileManager
-        )
-        TerminalSurfaceAgentCommandShimCleanup.writeOwnerRecord(inDirectory: stagingDirectory)
+        shimCleanup.recordOwners(inStagingDirectory: stagingDirectory, replacing: shimDirectory)
         do {
             if fileManager.fileExists(atPath: shimDirectory.path) {
                 guard privateDirectoryCheck.makePrivate(atPath: shimDirectory.path) else { return nil }

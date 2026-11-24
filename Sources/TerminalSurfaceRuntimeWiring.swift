@@ -244,7 +244,7 @@ extension TerminalSurfaceRuntimeFilesystem {
     /// them beside cmux's durable state so macOS's periodic `$TMPDIR` cleanup
     /// cannot remove a live pane's Claude entry from `PATH`. Nothing else
     /// removes them, so cmux does: when the pane closes, and for leftovers
-    /// with ``AgentCommandShimDirectorySweep``.
+    /// with ``TerminalSurfaceAgentCommandShimSweep``.
     static func liveAgentCommandShimRootDirectory(
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> URL {
@@ -279,9 +279,50 @@ extension TerminalSurfaceRuntimeFilesystem {
             // pane reopened under the same id installs its shims again, and a
             // late removal would delete those.
             removeAgentCommandShims: {
-                TerminalSurfaceAgentCommandShimCleanup.removeShimDirectory(
-                    surfaceId: $0,
-                    rootDirectory: $1
+                TerminalSurfaceAgentCommandShimCleanup(rootDirectory: $1)
+                    .removeShimDirectory(surfaceId: $0)
+            }
+        )
+    }
+}
+
+// MARK: Command shim sweep
+
+extension TerminalSurfaceAgentCommandShimSweep {
+    /// The sweep of the live shim root, reading this user's processes from
+    /// the kernel.
+    ///
+    /// ```swift
+    /// Task.detached(priority: .utility) {
+    ///     TerminalSurfaceAgentCommandShimSweep.live().sweep()
+    /// }
+    /// ```
+    static func live(
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> TerminalSurfaceAgentCommandShimSweep {
+        TerminalSurfaceAgentCommandShimSweep(
+            cleanup: TerminalSurfaceAgentCommandShimCleanup(
+                rootDirectory: TerminalSurfaceRuntimeFilesystem
+                    .liveAgentCommandShimRootDirectory(homeDirectory: homeDirectory)
+            ),
+            processTable: {
+                let listing = DarwinProcessEnumerator().capture()
+                let user = getuid()
+                return ProcessTable(
+                    processes: listing.processes.lazy
+                        .filter { $0.pbi_uid == user }
+                        .map { process in
+                            let processID = Int(process.pbi_pid)
+                            return RunningProcess(
+                                processID: processID,
+                                name: CmuxTopProcessSnapshot.fixedString(process.pbi_name),
+                                executablePath: CmuxTopProcessSnapshot.processPath(pid: processID),
+                                environmentValues: CmuxTopProcessSnapshot
+                                    .processArgumentsAndEnvironment(for: processID)
+                                    .map { Array($0.environment.values) }
+                            )
+                        },
+                    isComplete: !listing.isTruncated
                 )
             }
         )

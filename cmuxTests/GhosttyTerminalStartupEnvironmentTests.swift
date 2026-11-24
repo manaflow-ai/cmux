@@ -1,4 +1,5 @@
 import Foundation
+import CmuxFoundation
 import CmuxTerminal
 import Testing
 
@@ -329,8 +330,11 @@ struct GhosttyTerminalStartupEnvironmentTests {
             )
         )
         // The sweep at launch goes by this record.
+        let cleanup = TerminalSurfaceAgentCommandShimCleanup(
+            rootDirectory: filesystem.agentCommandShimRootDirectory
+        )
         #expect(
-            !TerminalSurfaceAgentCommandShimCleanup.ownerRecords(
+            !cleanup.ownerRecords(
                 inDirectory: URL(fileURLWithPath: closed.directoryPath, isDirectory: true)
             ).isEmpty
         )
@@ -338,6 +342,58 @@ struct GhosttyTerminalStartupEnvironmentTests {
         filesystem.removeAgentCommandShims(closedSurface, filesystem.agentCommandShimRootDirectory)
 
         #expect(!FileManager.default.fileExists(atPath: closed.directoryPath))
+        #expect(FileManager.default.isExecutableFile(atPath: open.directoryPath + "/claude"))
+    }
+
+    @Test
+    func liveSweepRemovesOnlyDirectoriesWhoseOwnerHasExited() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-live-shim-sweep-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let wrappers = root.appendingPathComponent("wrappers", isDirectory: true)
+        for directory in [home, wrappers] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        let wrapper = wrappers.appendingPathComponent("cmux-claude-wrapper")
+        try "#!/bin/sh\n".write(to: wrapper, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: wrapper.path)
+        let filesystem = TerminalSurfaceRuntimeFilesystem.live(homeDirectory: home)
+        // Installed by this process, which the real process table shows running.
+        let open = try #require(
+            await filesystem.installAgentCommandShims(
+                wrappers, UUID(), filesystem.agentCommandShimRootDirectory, [.claude]
+            )
+        )
+        let openDirectory = URL(fileURLWithPath: open.directoryPath, isDirectory: true)
+        // Left by a cmux that is gone: this process id, started a second earlier.
+        let thisProcess = try #require(AgentPIDProcessIdentity(pid: getpid()))
+        let exitedCmux = AgentPIDProcessIdentity(
+            pid: thisProcess.pid,
+            startSeconds: thisProcess.startSeconds - 1,
+            startMicroseconds: thisProcess.startMicroseconds
+        )
+        let orphanedDirectory = openDirectory.deletingLastPathComponent()
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: orphanedDirectory, withIntermediateDirectories: false)
+        #expect(
+            TerminalSurfaceAgentCommandShimCleanup(
+                rootDirectory: filesystem.agentCommandShimRootDirectory,
+                owner: exitedCmux
+            ).writeOwnerRecord(inDirectory: orphanedDirectory)
+        )
+
+        // Both directories were written a moment ago; a week on, only age is
+        // out of the way and the owner records decide.
+        let outcome = TerminalSurfaceAgentCommandShimSweep.live(homeDirectory: home)
+            .sweep(now: Date().addingTimeInterval(7 * 24 * 60 * 60))
+
+        guard case .swept(let removed, _, _) = outcome else {
+            Issue.record("The live process table was not readable: \(outcome)")
+            return
+        }
+        #expect(removed == [orphanedDirectory.lastPathComponent])
+        #expect(!FileManager.default.fileExists(atPath: orphanedDirectory.path))
         #expect(FileManager.default.isExecutableFile(atPath: open.directoryPath + "/claude"))
     }
 
