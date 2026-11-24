@@ -111,6 +111,11 @@ public enum DeveloperOptions {
     public static var dropWireGuard: Bool {
         #if DEBUG
         UserDefaults.standard.bool(forKey: dropWireGuardKey)
+        #else
+        false
+        #endif
+    }
+
     /// Whether WireGuard rides cmux's WebSocket relay only. Always off in
     /// Release builds.
     public static var forceRelay: Bool {

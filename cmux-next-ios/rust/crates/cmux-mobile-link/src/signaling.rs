@@ -446,27 +446,20 @@ async fn open_socket(
     request: tokio_tungstenite::tungstenite::handshake::client::Request,
     egress: crate::egress::Egress,
 ) -> Result<Socket, SignalingError> {
-    let uri = request.uri().clone();
-    let secure = uri.scheme_str() == Some("wss");
-    let host = uri.host().ok_or_else(|| SignalingError::BadUrl(uri.to_string()))?;
-    let host = host.trim_start_matches('[').trim_end_matches(']').to_owned();
-    let port = uri.port_u16().unwrap_or(if secure { 443 } else { 80 });
-    let (tcp, via) = crate::egress::connect_tcp(&host, port, secure, &egress)
-        .await
-        .map_err(|error| SignalingError::Connect(error.to_string()))?;
-    if let crate::egress::Via::Proxy(hop) = via {
-        tracing::info!(%hop, host, "signaling through the proxy");
+    use crate::egress::WebSocketError;
+    let host = request.uri().host().unwrap_or_default().to_owned();
+    match crate::egress::connect_websocket(request, &egress).await {
+        Ok((socket, via)) => {
+            let path = crate::egress::PathKind::of(&via, &host);
+            if path != crate::egress::PathKind::Direct {
+                tracing::info!(path = path.as_str(), host, "signaling through the proxy");
+            }
+            Ok(socket)
+        }
+        Err(WebSocketError::BadUrl(url)) => Err(SignalingError::BadUrl(url)),
+        Err(WebSocketError::Upgrade(error)) => Err(connect_error(error)),
+        Err(error) => Err(SignalingError::Connect(error.to_string())),
     }
-    let connector = if secure {
-        let config = crate::egress::tls::client_config(&egress.trust).map_err(SignalingError::Connect)?;
-        tokio_tungstenite::Connector::Rustls(config)
-    } else {
-        tokio_tungstenite::Connector::Plain
-    };
-    tokio_tungstenite::client_async_tls_with_config(request, tcp, None, Some(connector))
-        .await
-        .map(|(socket, _)| socket)
-        .map_err(connect_error)
 }
 
 impl SignalingClient {
