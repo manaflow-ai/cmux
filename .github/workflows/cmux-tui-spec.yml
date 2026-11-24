@@ -69,6 +69,7 @@ on:
       - "skills/cmux-cua/SKILL.md"
       - "skills/cmux-customization/**"
       - "skills/cmux-live/SKILL.md"
+      - "skills/cmux-ui-preview/SKILL.md"
       - "skills/cmux/SKILL.md"
       - "scripts/ci/webviews_test_results.py"
       - "scripts/cmux-next/run-v2-gates.sh"
