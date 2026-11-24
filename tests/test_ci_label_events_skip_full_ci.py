@@ -30,7 +30,8 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 
 # Workflows that run CI, with the labels they react to.
 GUARDED: dict[str, tuple[str, ...]] = {
-    "ci.yml": ("full-ci", "dev-build"),
+    # land-ci: the land's request for the full tier on this head (scripts/ci/head_tier.py's at-land rule).
+    "ci.yml": ("full-ci", "dev-build", "land-ci"),
     "cmux-vm.yml": ("cmux-vm-breaking-change-ok",),
     # Cheap one-step checks, but each label event still queued a runner on a saturated pool: bots set
     # and clear risk, hold and landing labels on hundreds of open pull requests.
@@ -42,7 +43,7 @@ GUARDED: dict[str, tuple[str, ...]] = {
     # too); its gate takes no runner for any other label (scripts/ci/docs_only_paths.py FALLBACK).
     "docs-only-fallback.yml": ("full-ci", "dev-build"),
     # Adding full-ci re-runs the tiers a feat-cmux-next pull request skips without it (scripts/ci/affected_jobs.py PR_SKIP_IF).
-    "cmux-next.yml": ("full-ci",),
+    "cmux-next.yml": ("full-ci", "land-ci"),
     # Applies on backend:apply-migrations; full-ci lifts its draft skip. Every other label took a Blacksmith VM
     # and, in the PR's shared group, replaced the push's pending run (a new PR gets three labels at once).
     "backend-migrations.yml": ("backend:apply-migrations", "full-ci"),
@@ -67,6 +68,8 @@ REACTS: dict[str, str] = {
     "cmux-next-batch.yml": "debounce only; hold and landing labels change batch eligibility",
     "cmux-next-media.yml": "labeled-only; its jobs already run only for media-tour / no-media-tour",
     "cmux-next-motion-golden.yml": "its job already runs only when motion-golden is the label added",
+    "pr-router.yml": "its route job skips every label but land-ci and full-ci with no runner, in a concurrency group "
+    "of its own, and every other job needs route; land-ci is the land's request for the full tier (head_tier.py)",
 }
 
 

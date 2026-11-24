@@ -107,10 +107,14 @@ class IdleTests(unittest.TestCase):
         self.git("merge", "-q", "--no-ff", "-m", "Merge remote-tracking branch 'origin/feat-cmux-next' into lane/x",
                  "feat-cmux-next", when=self.now - 30)
         self.head = self.git("rev-parse", "HEAD")
+        # These cases test the idle rule alone; the at-land rule on feat-cmux-next is TierTests'.
+        self.at_land = head_tier.AT_LAND_BASES
+        head_tier.AT_LAND_BASES = ()
         self.cwd = os.getcwd()
         os.chdir(self.dir)
 
     def tearDown(self) -> None:
+        head_tier.AT_LAND_BASES = self.at_land
         os.chdir(self.cwd)
         self.tmp.cleanup()
 
