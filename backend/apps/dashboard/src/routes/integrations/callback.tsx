@@ -1,9 +1,9 @@
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { useEffect, useRef } from "react"
 import { useLoad } from "../../lib/hooks"
-import { integrationAppHandoff, integrationAppHandoffResponse, integrationCompletionRequest, integrationConfigureLink, integrationReturnLink } from "../../lib/integration-callback"
+import { AUTHORIZE_REFUSED, integrationAppHandoff, integrationAppHandoffResponse, integrationAuthorizeBounce, integrationCompletionRequest, integrationConfigureLink, integrationReturnLink, integrationTeamHint } from "../../lib/integration-callback"
 import { callbackSearch } from "../../lib/search"
-import { completeIntegration } from "../../lib/server"
+import { apiUrl, completeIntegration } from "../../lib/server"
 import { setSignedIn, useSignedIn } from "../../lib/session"
 import { INTEGRATION_RETURN_TEAM_KEY, integrationReturnPath, integrationReturnTeamKey } from "./-return"
 
@@ -16,10 +16,14 @@ import { INTEGRATION_RETURN_TEAM_KEY, integrationReturnPath, integrationReturnTe
  */
 export const Route = createFileRoute("/integrations/callback")({
   validateSearch: callbackSearch,
-  // The provider's redirect is a full page load: the server answers an app handoff with a 302 before the router runs.
+  // The provider's redirect is a full page load: before the router runs, the server sends a GitHub redirect that has
+  // no code on to GitHub's authorize page, and answers an app handoff with a 302.
   server: {
     handlers: {
-      GET: ({ request, next }) => integrationAppHandoffResponse(request.url) ?? next(),
+      GET: ({ request, next }) =>
+        integrationAuthorizeBounce(request.url, { api: apiUrl, host: request.headers.get("x-forwarded-host") ?? request.headers.get("host") }) ??
+        integrationAppHandoffResponse(request.url) ??
+        next(),
     },
   },
   // Reached in the browser only (a client navigation here): the router refuses to redirect to an app scheme.
@@ -60,7 +64,9 @@ function Callback() {
     let team: string | null = null
     try {
       const key = integrationReturnTeamKey(search.state)
-      team = sessionStorage.getItem(key)
+      // A connect that went on through GitHub's authorize page comes back with a new state, so the key misses:
+      // the state's own team (the one the connection was started in) is the same answer.
+      team = sessionStorage.getItem(key) ?? integrationTeamHint(search.state) ?? null
       sessionStorage.removeItem(key)
       // Clean up the pre-keyed value left by older dashboard builds.
       if (key !== INTEGRATION_RETURN_TEAM_KEY) sessionStorage.removeItem(INTEGRATION_RETURN_TEAM_KEY)
@@ -82,6 +88,8 @@ function Callback() {
         <a href={handoff}>Open cmux</a> to finish connecting GitHub.
       </p>
     )
+  // Said before any sign-in prompt: a connect the app started has no session here, and signing in would not help.
+  if (search.error === AUTHORIZE_REFUSED) return <p className="error">This connection link expired. Start the connection again.</p>
   if (signedIn === false)
     return (
       <p>
