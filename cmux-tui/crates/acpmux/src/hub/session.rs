@@ -241,6 +241,9 @@ pub struct Session {
     /// 0 while it is not. The lane's `input` since (cx-v9k2f): later records,
     /// a draft save or a second ask do not move it.
     pub(super) input_since: AtomicU64,
+    /// What its Waiting waits for, written with the status (`Hub::write_status`); None while it
+    /// is not Waiting.
+    pub(super) wait_reason: StdMutex<Option<crate::store::WaitReason>>,
     /// Since when work the session started still runs past its own turn (a
     /// background subagent, a working sub-session), in ms; 0 while none does
     /// (`work_below.rs`).

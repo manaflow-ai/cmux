@@ -136,10 +136,14 @@ const firstLine = (text: string | undefined) =>
     .find(Boolean);
 
 /// What a sub-session waiting on the person waits for, in one line: a question (and its first
-/// prompt, which the line cuts when there is no room) or a tool's permission. Only the person
-/// answers it, in its chat (person proof): its parent's agent cannot, so the line says where.
+/// prompt, which the line cuts when there is no room), a tool's permission, a secret, a command to
+/// run as root or an MCP server to connect. Only the person answers it, in its chat (person proof):
+/// its parent's agent cannot, so the line says where.
 export function waitingLine(t: Translate, waiting: SessionWaiting): string {
   if (waiting.on === "permission") return t("subsession.waitingPermission");
+  if (waiting.on === "secret") return t("subsession.waitingSecret");
+  if (waiting.on === "elevation") return t("subsession.waitingElevation");
+  if (waiting.on === "mcpConnect") return t("subsession.waitingMcpConnect");
   const line = t("subsession.waitingQuestion");
   return waiting.prompt ? `${line} · ${waiting.prompt}` : line;
 }

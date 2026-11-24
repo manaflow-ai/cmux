@@ -73,8 +73,8 @@ import { type NewTabChat, type NewTabHost, pickedNewTabApp } from "./newTabModel
 import type { NewTabScreenActions } from "./newtab/NewTabScreen";
 import type { NewTabStartFailure } from "./newtab/StartFailure";
 import { startFailureCause, startFailureCode } from "./startFailure";
-import { HarnessesScreen } from "./harnesses/HarnessesScreen";
-import { ContextScreen } from "./context/ContextScreen";
+import { HarnessesScreen } from "./lazyScreens";
+import { ContextScreen } from "./lazyScreens";
 import { contextAccess, contextSave } from "./context/contextAccess";
 import { registerHarnessesPage } from "./harnesses/harnessesPage";
 import {
@@ -108,7 +108,8 @@ import { goalHatPlace } from "./goalHat.experiment";
 import { jumpLatestPlace } from "./jumpPlace.experiment";
 import { hatSide } from "./jumpPlace";
 import { hatPillPlace } from "./hatPillPlace.experiment";
-import { githubFolderRepo } from "./githubRepos";
+import { githubFolder, githubFolderRepo } from "./githubRepos";
+import { useSendAfterCheckout } from "./sendAfterCheckout";
 import { useSessionCommands } from "./newtab/useSessionCommands";
 import { shownTemplate } from "./newtab/templates";
 import { holdNewTabAttachments } from "./newtab/remoteAttachmentDraft";
@@ -226,7 +227,17 @@ import { askOnSingleCard, cardTakesShortcuts, heldOnCard } from "./permissionKey
 import { agentName } from "./agents";
 import { translate, usePaneLanguage, useT } from "./i18n";
 import { chatCloudMachine, createStopWaiter } from "./cloudMachineMenu";
-import { refreshCloudMachines, useCloudMachines, type CloudMachine } from "./cloudMachines";
+import { refreshCloudMachines, useCloudMachines, useCloudSignedIn, type CloudMachine } from "./cloudMachines";
+import {
+  AUTO_LOOK,
+  autoTargets,
+  decideAuto,
+  keepCloudLanding,
+  landingMove,
+  takeCloudLanding,
+  whenSendRefused,
+  type AutoLanding,
+} from "./autoWhereModel";
 import { usePeerCloudMachine } from "./peerCloudMachine";
 import { inThisVisit, useFolderTrustAsk, visitOf } from "./useFolderTrustAsk";
 import { movedOn, sentIn as sentInHeld, useTrustHeldPrompts, whereHeldGoes, type TrustHeldPrompt } from "./trustHeld";
@@ -626,6 +637,7 @@ import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
 import {
   SandboxTab,
   newTabRunModeRows,
+  type AutoRow,
   sandboxAgent,
   sandboxPageRefusal,
   sandboxRetryable,
@@ -4260,11 +4272,46 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       cloudReservation.selected(eligible.replaces);
     } else cloudReservation.abandon();
   };
+  /// Auto (autoWhereModel.ts), this new chat's pick of no place: Send asks this Mac's daemon where it runs
+  /// (`_acpmux/place_chat`), then starts it there the way the explicit pick would. Remembered like
+  /// the other Where picks (lastNewChatPlace.ts), read again for each new chat.
+  const [autoPick, setAutoPick] = useState<{ page: number; on: boolean }>();
+  const autoRemembered = useMemo(
+    () => lastNewChatPlace()?.kind === "auto",
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- read again per new chat, not per render
+    [newTabGeneration],
+  );
+  const autoOn = autoPick?.page === newTabGeneration ? autoPick.on : autoRemembered;
+  const autoOffered = cloudOfferable && !onOtherMachinePage;
+  const autoPicked = autoOn && autoOffered && (!snapshot.sessionId || emptyLocalChat);
+  const pickAuto = (on: boolean) => {
+    autoDecided.current = undefined;
+    setAutoPick({ page: newTabGeneration, on });
+    // Off by another row's pick: that row remembers its own place after this.
+    rememberNewChatPlace(on ? { kind: "auto" } : { kind: "local" });
+  };
+  const pickAutoRef = useRef(pickAuto);
+  pickAutoRef.current = pickAuto;
+  const autoRow: AutoRow | undefined = autoOffered
+    ? { picked: autoPicked, onPick: (on) => pickAutoRef.current(on), look: AUTO_LOOK }
+    : undefined;
+  /// Where Auto put this page's chat, said on the arrival line (AutoArrival): `deciding` while the
+  /// daemon has not answered. Kept for the page it was decided on.
+  const [autoArrival, setAutoArrival] = useState<{ page: number; landing: AutoLanding | "deciding" }>();
+  /// The decided send waiting for its mode (cloud or this Mac's), then sent once (the effect below).
+  const autoSend = useRef<{ page: number; went: AutoLanding["went"] } | undefined>(undefined);
+  /// The page whose next Send Auto has decided, for that one send: a send that does not go, or
+  /// another Where pick, clears it, and the next Send asks the daemon again.
+  const autoDecided = useRef<number | undefined>(undefined);
+  const autoSignedIn = useCloudSignedIn();
   const sandboxModeRows = {
     mode: sandbox.mode,
     environment: cloudEnvironment.pick,
+    ...(autoRow ? { auto: autoRow } : {}),
     /// The person's pick: the next new chat, in this pane or a new workspace's, starts there too (cmux#46019).
     onMode: (mode: RunMode) => {
+      // Another Where pick: an Auto decision made before it is not this send's.
+      autoDecided.current = undefined;
       const place = placeOfRunMode(mode);
       if (place) rememberNewChatPlace(place);
       applyRunMode(mode);
@@ -4315,8 +4362,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       // An empty local chat offers Cloud, not Sandboxed (`emptyLocalChat`).
       ...(sandboxOffered ? {} : { sandbox: false as const }),
       onMode: (mode: RunMode) => composerModePick.current(mode),
+      ...(autoRow ? { auto: autoRow } : {}),
     }),
-    [sandboxModeRows.mode, sandboxModeRows.environment, sandboxOffered],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the row's pick reads the latest handler (pickAutoRef)
+    [sandboxModeRows.mode, sandboxModeRows.environment, sandboxOffered, autoRow !== undefined, autoPicked],
   );
   /// A Sandboxed send: text only, by an agent a sandbox runs. A page-side refusal comes back as its
   /// code (the prompt stays where it was typed); false: nothing was sent.
@@ -4464,6 +4513,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     setCloudStart((current) => (expectedKey && current?.key !== expectedKey ? current : undefined));
     runModePicked.current = true;
     runHereSend.current = true;
+    // The person's Run on This Mac answers Auto for this send: it goes here, nothing asks the daemon.
+    autoDecided.current = newTabGeneration;
     sandbox.setMode("persistent");
   };
   /// The folder the latest Cloud send named (the card's "Start without a folder", or its project): Retry
@@ -4684,6 +4735,69 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the retry is made once (useState); the cancel reads only refs
   }, [sandbox.mode, cloudReservation]);
+  /// Auto decided: the kept prompt sends once the mode is where the daemon said.
+  useEffect(() => {
+    const waiting = autoSend.current;
+    if (!waiting || waiting.page !== newTabGeneration) return;
+    if (sandbox.mode !== (waiting.went === "cloud" ? "cloud" : "persistent")) return;
+    autoSend.current = undefined;
+    sendStartPrompt();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sends once per decision
+  }, [sandbox.mode, autoArrival, newTabGeneration]);
+  /// Asks the daemon where an Auto chat runs, says it, and sends there. Never an error: no daemon,
+  /// no Cloud or a failure runs the chat here, and the line says why.
+  const decideAutoSend = (text: string) => {
+    const page = newTabGeneration;
+    autoDecided.current = page;
+    setAutoArrival({ page, landing: "deciding" });
+    void decideAuto(
+      directClient.current?.placeChat,
+      autoTargets({ cloudOffered, ...(autoSignedIn !== undefined ? { signedIn: autoSignedIn } : {}) }),
+    ).then((landing) => {
+      // The person picked another Where while the daemon answered: this decision is not theirs.
+      if (autoDecided.current !== page) return setAutoArrival(undefined);
+      setAutoArrival({ page, landing });
+      autoSend.current = { page, went: landing.went };
+      if (landing.went === "cloud") {
+        // The Cloud chat opens in its own tab: it says the landing there (takeCloudLanding).
+        keepCloudLanding(landing, text);
+        // Auto's choice, not the person's: Cloud is not remembered as their pick.
+        if (sandbox.mode !== "cloud") applyRunMode("cloud");
+        else setAutoArrival({ page, landing });
+      } else if (sandbox.mode !== "persistent") {
+        runModePicked.current = true;
+        sandbox.setMode("persistent");
+      }
+    });
+  };
+  /// The composer's Send: the one Auto decided keeps the decision only if it goes (whenSendRefused).
+  /// Auto picked and not yet decided: the daemon says where first; the prompt stays until it has.
+  const autoSendGate = {
+    /// true: the composer's send stops here (the prompt stays); Auto sends it once decided.
+    holds: (text: string): boolean => {
+      if (autoPicked && autoDecided.current !== newTabGeneration) {
+        decideAutoSend(text);
+        return true;
+      }
+      return autoPicked && autoSend.current !== undefined;
+    },
+    once:
+      <A extends unknown[], R>(send: (...args: A) => R) =>
+      (...args: A): R => {
+        const page = newTabGeneration;
+        const decided = autoPicked && autoDecided.current === page && autoSend.current === undefined;
+        const sent = send(...args);
+        if (decided)
+          whenSendRefused(sent as unknown as boolean | Promise<unknown>, () => {
+            if (autoDecided.current === page) autoDecided.current = undefined;
+          });
+        return sent;
+      },
+  };
+  /// A Cloud start that failed was not the decided send's going: the next Send asks the daemon again.
+  useEffect(() => {
+    if (cloudStart?.state === "failed") autoDecided.current = undefined;
+  }, [cloudStart?.state]);
   /// Run on This Mac from the cap card (runHereSend): the kept prompt sends once the mode is this Mac's.
   useEffect(() => {
     if (!runHereSend.current || sandbox.mode !== "persistent") return;
@@ -7065,6 +7179,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       folderContinuation.invalidate();
       continuationProjectGeneration.current += 1;
       pickedProject.current = undefined;
+      setSendAfterCheckout(false);
       // A GitHub repository from a new Cloud chat's folder menu (githubRepos.ts, `github:owner/name`) is
       // no folder on this Mac: the host has nothing to check, and the Cloud start sends it as its `cwd`.
       if (!peer && githubFolderRepo(cwd)) {
@@ -7122,6 +7237,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   }>();
   /// New Worktree, or a GitHub repository picked for a new chat on this Mac (`github`): this Mac's checkout of
   /// it, cloned first when there is none, then the chat's worktree of that, as New Worktree makes one.
+  /// A GitHub repository picked for a new chat with This Mac picked is the chip's choice only: its checkout here
+  /// starts when Return sends, never at the pick (cmux#53226). `deferredGitHub` keeps the folders here whose remote
+  /// names it; `sendAfterCheckout` sends the prompt Return held once the checkout is the chat's folder.
+  const deferredGitHub = useRef<{ repo: string; candidates: string[] }>(undefined);
+  const [sendAfterCheckout, setSendAfterCheckout] = useState(false);
   const startInWorktree = useCallback(
     (cwd: string, github?: { repo: string; candidates: string[] }) => {
       // A newer folder pick wins over this worktree, as between two picks; the request this one
@@ -7170,6 +7290,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           const code = (error as { code?: unknown } | null)?.code;
           const cloneFailure = code === "github.clone_failed" || code === "github.clone_no_folder";
           const message = github && cloneFailure ? errorMessage(error).trim() || undefined : undefined;
+          setSendAfterCheckout(false);
           if (pick === folderPick.current)
             setWorktreeError({ cwd, ...asked, ...(github ? { github } : {}), ...(message ? { message } : {}) });
         })
@@ -7178,6 +7299,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         });
     },
     [trustVisit],
+  );
+  // Return checked a GitHub repository out here first (checkOutGitHubOnSend): the prompt goes once it is the folder.
+  useSendAfterCheckout(
+    sendAfterCheckout && checkedOutGitHub !== undefined && checkedOutGitHub.cwd === projectDraft,
+    () => {
+      setSendAfterCheckout(false);
+      void composerHandle.current?.send();
+    },
   );
   const automationPick = useRef<(cwd: string) => void>(undefined);
   automationPick.current = (cwd) => chooseProject(cwd);
@@ -7579,6 +7708,23 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     () => (["move", "bringBack"] as const).filter((kind) => moves.includes(CONNECT_ACTIONS[kind])),
     [moves],
   );
+  // Auto's arrival line, for the page it was decided on; its move only while the chat offers it.
+  const autoArrivalShown = autoArrival?.page === newTabGeneration ? autoArrival.landing : undefined;
+  const autoArrivalMove =
+    autoArrivalShown !== undefined &&
+    autoArrivalShown !== "deciding" &&
+    offloads.includes(landingMove(autoArrivalShown));
+  // A Cloud chat Auto put there says so once, on the page its first prompt opened (keepCloudLanding).
+  const firstPrompt = useMemo(() => {
+    for (const row of snapshot.rows) if (row.kind === "user") return row.text;
+    return undefined;
+  }, [snapshot.rows]);
+  useEffect(() => {
+    if (snapshot.summary?.hostKind !== "cloud" || !firstPrompt) return;
+    const landing = takeCloudLanding(firstPrompt);
+    if (landing) setAutoArrival({ page: newTabGeneration, landing });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per first prompt
+  }, [firstPrompt, snapshot.summary?.hostKind]);
   // Why each offered move would refuse now: the picker greys its row and says it.
   const offloadReasons = useMemo(() => offloadReasonsOf(offloads, moveReasons), [offloads, moveReasons]);
   const toggleSideTabs = () =>
@@ -8599,7 +8745,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       byPath.set(session.cwd, listed(session.cwd));
     }
     if (newTab?.cwd) byPath.set(newTab.cwd, listed(newTab.cwd));
-    return [...byPath.values()];
+    // A No folder chat's private agent-home folder is no project: every picker fed from this list (the
+    // composer's folder menu, the hero chooser) listed it by its id, a bare UUID (cmux#53226).
+    return [...byPath.values()].filter((project) => !isAgentHome(project.cwd));
   }, [newTabFolderSessions, newTab?.cwd, newTab?.projects, directProjects]);
   // The pickers list repositories in the order of their newest folder: the folder of the newest chat first.
   const newTabProjectList = useMemo(
@@ -8633,7 +8781,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const peer = summary?.peer || (summary?.hostKind === "cloud" ? summary.host : undefined);
     return {
       // Every folder: the chooser lists one row per repository and finds the rest by search.
-      projects: [...newTabProjects.filter((project) => !isAgentHome(project.cwd)), ...remote.values()],
+      projects: [...newTabProjects, ...remote.values()],
       current: cwd && !isAgentHome(cwd) ? cwd.replace(/(.)\/+$/, "$1") : undefined,
       currentPeer: peer,
       // In no project only when it is: its folder is agent-home, or the host starts it there. A chat
@@ -9474,6 +9622,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     cloudHintShown,
     showNewTab,
     composerModeRows,
+    autoArrival: autoArrivalShown,
+    autoArrivalMove,
+    onAutoArrivalDismiss: () => setAutoArrival(undefined),
+    autoSendGate,
     cloudHint,
     machineCheck,
     machinePeer,
@@ -9591,9 +9743,23 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       setWorktreeCreating(false);
       setCloudSourceWaiting(false);
       setCheckedOutGitHub(undefined);
+      setSendAfterCheckout(false);
       pickedProject.current = undefined;
       setChooseFolder(false);
       setProjectDraft("");
+    },
+    deferGitHub: (repo: string, candidates: string[]) => {
+      deferredGitHub.current = { repo, candidates };
+      void chooseProject(githubFolder(repo));
+    },
+    checkOutGitHubOnSend: () => {
+      const repo = githubFolderRepo(projectDraft);
+      if (!repo || !projectDraft || !freshRef.current) return false;
+      const github =
+        deferredGitHub.current?.repo === repo ? deferredGitHub.current : { repo, candidates: [] as string[] };
+      setSendAfterCheckout(true);
+      startInWorktree(projectDraft, github);
+      return true;
     },
     pickSourceProject: (cwd: string, peer?: string) => {
       if (peer && sandbox.mode === "cloud") applyRunMode("persistent");

@@ -130,6 +130,9 @@ nonisolated extension AcpmuxPaneMethods {
         // Placement names are local display labels; the optional source lets the page filter
         // targets for a chat without exposing a host URL or session identity.
         "_acpmux/move_targets": (["source", "sourceKind"], []),
+        // `where`: "auto" (or "here"); `targets`: the places the page can start a chat on, each a
+        // `place` name and its `headroom`, all data the page already holds (Cloud today).
+        "_acpmux/place_chat": (["where", "targets"], []),
         "_acpmux/draft_get": (["sessionId"], []),
         "_acpmux/draft_set": (["sessionId", "text"], []),
         "_acpmux/inbox_thread": (["sessionId", "threadId"], []),
