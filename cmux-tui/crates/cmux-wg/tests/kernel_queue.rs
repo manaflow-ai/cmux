@@ -92,6 +92,11 @@ async fn slowest_media_during_upload(send_buffer: u32) -> Duration {
 /// backlog waits in the driver, and media leaves first.
 #[tokio::test(start_paused = true)]
 async fn a_small_socket_buffer_keeps_the_backlog_where_media_overtakes_it() {
+    // A loss-based window fills the deep buffer, as it did in round 5. The
+    // default BBR keeps about one bandwidth-delay product in flight, so media
+    // waits less (37 ms here) and the symptom is not the one measured.
+    // SAFETY: this binary's only test, set before any thread reads it.
+    unsafe { std::env::set_var("CMUX_WG_ULTRA_CC", "cubic") };
     let deep = slowest_media_during_upload(100).await;
     let shallow = slowest_media_during_upload(4).await;
     eprintln!("slowest media during the upload: deep buffer {deep:?}, shallow {shallow:?}");
