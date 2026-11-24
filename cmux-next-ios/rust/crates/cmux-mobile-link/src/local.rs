@@ -272,9 +272,10 @@ mod tests {
             "192.168.1.4:7".parse().unwrap(),
             "127.0.0.1:7".parse().unwrap(),
         ]);
-        assert_eq!(order[0], "192.168.1.4:7".parse().unwrap());
-        assert_eq!(order[1], "[fe80::1%4]:7".parse().unwrap());
-        assert_eq!(order[3], "127.0.0.1:7".parse().unwrap());
+        let want = |s: &str| s.parse::<SocketAddr>().unwrap();
+        assert_eq!(order[0], want("192.168.1.4:7"));
+        assert_eq!(order[1], want("[fe80::1%4]:7"));
+        assert_eq!(order[3], want("127.0.0.1:7"));
         assert_eq!(hub_url(&order[1]), "ws://[fe80::1%254]:7");
     }
 

@@ -850,6 +850,7 @@ mod tests {
         let rx = events.subscribe();
         let shared = super::Shared {
             device_id: "d".into(),
+            local: std::sync::atomic::AtomicBool::new(false),
             inbound: tokio::sync::watch::channel(0).0,
             opened: std::time::Instant::now(),
             last_inbound: Mutex::new((std::time::Instant::now(), std::time::SystemTime::now())),
